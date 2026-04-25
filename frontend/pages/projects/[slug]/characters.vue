@@ -29,6 +29,9 @@
           <button v-if="c.scope === 'episode'" class="btn btn-ghost btn-sm" :title="'Make this character available to every episode in the project'" @click="promote(c)">
             Promote to project
           </button>
+          <button class="btn btn-ghost btn-sm" :title="'Snapshot copy into the global character library — reusable across all your projects on this machine'" @click="saveToLibrary(c)">
+            Save to library
+          </button>
           <button class="btn btn-ghost btn-sm" @click="openEdit(c)">Edit</button>
           <button class="btn btn-ghost btn-sm danger" @click="confirmDelete(c)">Delete</button>
         </template>
@@ -229,6 +232,34 @@ async function save() {
     saveError.value = e?.data?.detail || e?.message || 'Save failed'
   } finally {
     saving.value = false
+  }
+}
+
+const cl = useCharacterLibrary()
+
+async function saveToLibrary(c: Character) {
+  try {
+    await cl.saveProjectCharacter(slug.value, c.id)
+    success(`Saved "${c.name}" to the library`)
+  } catch (e: any) {
+    const detail = e?.data?.detail || e?.message || 'Save failed'
+    if (e?.status === 409 || /already exists/i.test(detail)) {
+      const ok = await ask({
+        title: `"${c.name}" already exists in the library`,
+        body: 'Overwrite the library entry with this version?',
+        confirmLabel: 'Overwrite',
+        danger: false,
+      })
+      if (!ok) return
+      try {
+        await cl.saveProjectCharacter(slug.value, c.id, { overwrite: true })
+        success(`Updated "${c.name}" in the library`)
+      } catch (e2: any) {
+        showError(e2?.data?.detail || e2?.message || 'Overwrite failed')
+      }
+    } else {
+      showError(detail)
+    }
   }
 }
 

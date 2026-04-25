@@ -27,6 +27,7 @@ import { router as uploadRouter } from './upload.js'
 import { router as appSettingsRouter } from './app-settings.js'
 import { router as lastSessionRouter } from './last-session.js'
 import { router as charactersRouter } from './characters.js'
+import { router as characterLibraryRouter } from './character-library.js'
 
 export function mountRoutes(app: Express): void {
   app.use('/api', projectsRouter)
@@ -50,4 +51,5 @@ export function mountRoutes(app: Express): void {
   app.use('/api', imageEditRouter)
   app.use('/api', uploadRouter)
   app.use('/api', charactersRouter)
+  app.use('/api', characterLibraryRouter)
 }

@@ -94,6 +94,9 @@
         <NuxtLink :to="`/projects/${slug}/settings`" class="nav-item" active-class="active">
           <span class="nav-icon">&#9881;</span> Settings
         </NuxtLink>
+        <NuxtLink to="/character-library" class="nav-item" active-class="active" title="App-level character library shared across all projects on this machine. Save characters here to reuse across channels.">
+          <span class="nav-icon">&#127991;</span> Character Library
+        </NuxtLink>
         <NuxtLink to="/" class="nav-item">
           <span class="nav-icon">&#8592;</span> All Projects
         </NuxtLink>
