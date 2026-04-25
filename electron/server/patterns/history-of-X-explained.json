@@ -1,0 +1,26 @@
+{
+  "id": "history-of-X-explained",
+  "name": "The entire history of {X} explained",
+  "description": "Chronological compression of a subject's full history — from origin to present, in one episode. Promises completeness ('the entire history') and clarity ('explained'). Works across formats: documentary, educational, sleep, and even comedy with a wry framing.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "titleTemplate": "The entire history of {X} explained",
+  "subjectLabel": "Subject",
+  "pov": "third",
+
+  "openingDevice": "Open with the most arresting fact or earliest concrete moment in the history of {X}. Hook with specificity (a year, a name, a place). Then immediately frame the full arc: 'In this episode we'll travel from [earliest moment] to [present state] — every meaningful turn in between.' Set the scope explicitly so the listener knows what to expect.",
+
+  "bodyStructure": [
+    "Chapter 1: Origins — the earliest available record or known beginning of {X}, with its full context",
+    "Chapter 2: Foundations — early developments, the first stable form, who the early shapers were",
+    "Chapters 3-{lastButOne}: Eras — each chapter is one major era or transition in the history of {X}, with the dates, names, and turning points that defined it. Move chronologically",
+    "Chapter {last}: Present + legacy — where {X} is now, what continues, what's been lost, what the listener should carry forward"
+  ],
+
+  "closingDevice": "Close by zooming out — the broad arc the listener just travelled, the through-line from origin to now, what the next chapter (which they may live to see) might look like.",
+
+  "suggestedLengthMinutes": [25, 75],
+  "preferredFormats": ["educational", "documentary", "comedy", "sleep-story"],
+  "metadataKeywordAdditions": ["entire history", "explained", "history of", "deep dive"]
+}

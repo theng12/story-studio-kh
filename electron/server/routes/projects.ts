@@ -12,6 +12,7 @@ import { auditProjectAssets } from '../services/asset-status.js'
 import { auditAssets } from '../services/manifest-audit.js'
 import { getSecretsProvenanceStatus, resetSecretsForCurrentMachine } from '../services/secrets-store.js'
 import { listFormats, loadFormat, getEffectiveFormat } from '../services/format-loader.js'
+import { listPatterns, loadPattern } from '../services/pattern-loader.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import type { ProjectMeta } from '../models/types.js'
@@ -59,6 +60,29 @@ router.get('/projects/:slug/effective-format', async (req, res) => {
     res.json(await getEffectiveFormat(req.params.slug))
   } catch (e: any) {
     res.status(500).json({ detail: `Failed to resolve effective format: ${e.message}` })
+  }
+})
+
+// ── Pattern library endpoints (Phase 4b) ───────────────────────────────────
+//
+// Patterns are episode-shape templates that compose on top of Format. Picker
+// lives on the script page (per-episode selection), not in project settings.
+
+router.get('/patterns', async (_req, res) => {
+  try {
+    res.json(await listPatterns())
+  } catch (e: any) {
+    res.status(500).json({ detail: `Failed to list patterns: ${e.message}` })
+  }
+})
+
+router.get('/patterns/:id', async (req, res) => {
+  try {
+    const p = await loadPattern(req.params.id)
+    if (!p) return res.status(404).json({ detail: `Pattern '${req.params.id}' not found` })
+    res.json(p)
+  } catch (e: any) {
+    res.status(500).json({ detail: `Failed to load pattern: ${e.message}` })
   }
 })
 

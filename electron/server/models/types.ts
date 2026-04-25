@@ -221,6 +221,65 @@ export interface Format {
   productionStandardsAddendum?: string
 }
 
+// ── Pattern primitive (Phase 4b of format/character/pattern system) ────────
+//
+// Pattern is the EPISODE-shape layer that composes ON TOP of Format. Format
+// gives the channel-level vibe (Sleep / Adventure / Educational); Pattern
+// gives the per-episode shape ("Fall asleep to X", "What it's like to be
+// born as X", "The entire history of X explained"). Patterns cut across
+// formats — "History of X explained" works for educational, comedy, sleep,
+// and true crime alike. So they're a separate primitive picked at episode
+// generation time, not at project setup time.
+//
+// Composition (in prompt-assembler.ts):
+//   1. Format provides systemPromptRole + production rules + narrator pool
+//   2. Pattern's openingDevice prepends to the body
+//   3. Pattern's bodyStructure (when set) REPLACES format.script.pacingArc
+//   4. Pattern's closingDevice appends to the final chapter instructions
+//   5. Pattern's metadataKeywordAdditions extend the broad-keyword pool
+//
+// Built-in patterns ship at electron/server/patterns/{id}.json (extraResources
+// entry mirrors formats). User-custom at ${PROJECTS_ROOT}/.patterns/{id}.json.
+
+export interface Pattern {
+  id: string
+  name: string
+  description: string
+  builtin: boolean
+  schemaVersion: 1
+
+  /** Title template with {X} placeholder — e.g. 'Fall asleep to {X}'. */
+  titleTemplate: string
+
+  /** Human label for what {X} represents in the picker UI. */
+  subjectLabel: string
+
+  /** Narrative POV the LLM should adopt. */
+  pov: 'first' | 'second' | 'third' | 'mixed'
+
+  /** Instruction prepended to the script body — sets the opening device. */
+  openingDevice: string
+
+  /**
+   * Per-chapter body shape. When set, OVERRIDES format.script.pacingArc.
+   * `{X}` is substituted with the user's subject. `{lastButOne}` and
+   * `{last}` are substituted with chapter numbers (same as Format).
+   */
+  bodyStructure?: string[]
+
+  /** Instruction appended to the final-chapter instructions. */
+  closingDevice: string
+
+  /** Suggested length range — when set, tightens format.script.lengthMinutesRange. */
+  suggestedLengthMinutes?: [number, number]
+
+  /** Empty array = works with any format. Otherwise lists format ids that pair best. */
+  preferredFormats?: string[]
+
+  /** Tags appended to the metadata broad-keyword pool when this pattern is used. */
+  metadataKeywordAdditions?: string[]
+}
+
 /**
  * Portable manifest (schema v2). Written as `.story-studio-project.json` at
  * the root of a project's `output_root` whenever project metadata changes.
@@ -572,6 +631,15 @@ export interface GenerateScriptRequest {
   words_per_chapter?: number
   generate_image_prompts: boolean
   generate_youtube_desc: boolean
+  /**
+   * Pattern primitive (Phase 4b): when set, the script generator composes
+   * the named Pattern (episode template) on top of the project's effective
+   * Format. `pattern_subject` is the {X} value the pattern's titleTemplate
+   * substitutes ("London" for "The entire history of London explained").
+   * Both optional — generation works without a pattern.
+   */
+  pattern_id?: string
+  pattern_subject?: string
 }
 
 export interface GenerateImagesRequest {

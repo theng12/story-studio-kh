@@ -49,6 +49,16 @@
         <input v-model="form.title" class="input" placeholder="The Whispering Forest" />
       </div>
 
+      <!-- Pattern picker (Phase 4b) — optional per-episode template that
+           composes on top of the project's format. Empty = format defaults. -->
+      <div class="form-group mt-2" style="max-width: 720px;">
+        <PatternPicker
+          v-model="form.pattern_id"
+          v-model:subject="form.pattern_subject"
+          :format-id="projectFormatId"
+        />
+      </div>
+
       <!-- Introduction (on top, toggleable) -->
       <div class="intro-section mt-2">
         <div class="intro-header">
@@ -554,7 +564,21 @@ const form = reactive({
   generate_image_prompts: false,
   generate_youtube_desc: false,
   force: false,
+  // Pattern primitive (Phase 4b): empty pattern_id = no pattern (current
+  // behavior). When set, the script generator fuses the named pattern on
+  // top of the project's effective format, substituting {X} with subject.
+  pattern_id: '',
+  pattern_subject: '',
 })
+
+// Look up the project's current format id so PatternPicker can show
+// "pairs with this format" badges. Loads once on mount + when slug changes;
+// project-meta arrival triggers the watcher that hydrates formatId.
+const projectFormatId = ref('sleep-story')
+const { project } = useProject()
+watch(project, (p) => {
+  if (p) projectFormatId.value = (p as any).format_id || 'sleep-story'
+}, { immediate: true })
 
 // Sync style description when style changes (must be after form definition)
 watch(() => form.style, (s) => {

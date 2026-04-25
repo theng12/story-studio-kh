@@ -1,0 +1,26 @@
+{
+  "id": "born-as-X",
+  "name": "What it's like to be born as {X}",
+  "description": "Second-person life-cycle speculative narration. The listener IS the subject — an animal, an object, a person from another era, a celestial body. Walks them through what existence feels like from inside that frame. Pairs with Educational, Documentary, Sleep at slow pacing.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "titleTemplate": "What it's like to be born as {X}",
+  "subjectLabel": "Subject (you-as-this)",
+  "pov": "second",
+
+  "openingDevice": "Open with the moment of awakening, beginning, or first awareness as {X}. The listener IS {X} — write 'you' throughout. Establish the immediate sensory world: what does the body feel, what does the environment look like through these eyes, what is the first need, the first instinct. The opening must commit to the conceit fully — no narrator standing outside.",
+
+  "bodyStructure": [
+    "Chapter 1: First awareness — what it is to come into existence as {X}",
+    "Chapter 2: First needs and senses — eating, moving, sensing, the architecture of the body",
+    "Chapters 3-{lastButOne}: Life unfolding — milestones, encounters, dangers, kin, environment changes. Each chapter advances the life cycle of {X} chronologically",
+    "Chapter {last}: The end of the life cycle — quietly, with continuity (offspring, return to soil, the next instance of {X})"
+  ],
+
+  "closingDevice": "Close on continuity — the listener as {X} reaches the end of their arc, but the life of {X} continues somewhere else. A handoff, not a stop.",
+
+  "suggestedLengthMinutes": [20, 60],
+  "preferredFormats": ["educational", "documentary", "sleep-story"],
+  "metadataKeywordAdditions": ["what it's like", "second person", "life cycle", "POV story"]
+}

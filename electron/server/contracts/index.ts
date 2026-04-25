@@ -205,6 +205,12 @@ export const GenerateScriptOnlySchema = z.object({
   total_words: z.number().int().positive().optional(),
   words_per_chapter: z.number().int().positive().optional(),
   generate_image_prompts: z.boolean().optional(),
+  // Pattern primitive (Phase 4b): optional per-episode template that
+  // composes on top of the project's Format. {pattern_subject} is the
+  // {X} value the pattern's titleTemplate substitutes ('London' for
+  // 'The entire history of London explained').
+  pattern_id: z.string().min(1).max(120).optional(),
+  pattern_subject: z.string().max(300).optional(),
 }).passthrough()
 export type GenerateScriptOnlyBody = z.infer<typeof GenerateScriptOnlySchema>
 

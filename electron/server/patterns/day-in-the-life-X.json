@@ -1,0 +1,26 @@
+{
+  "id": "day-in-the-life-X",
+  "name": "A day in the life of {X}",
+  "description": "Diaristic walkthrough of a single day in the life of a person, role, animal, or system. First or second person. Concrete chronological pacing — wake, morning, midday, afternoon, evening, night. Pairs with Documentary, Educational, Comedy.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "titleTemplate": "A day in the life of {X}",
+  "subjectLabel": "Person / role / subject",
+  "pov": "first",
+
+  "openingDevice": "Open with the moment of waking — when {X} begins their day. First-person voice (write 'I'). Set the time of day, the place, the body's first sensations, the first task or thought. Anchor the listener inside the head of {X} immediately; no narratorial distance.",
+
+  "bodyStructure": [
+    "Chapter 1: Waking + morning routine. The first hour, the first decisions, the constraints of being {X}",
+    "Chapter 2: Morning's main work — the substantive thing {X} does first. What's involved, who else is around",
+    "Chapters 3-{lastButOne}: Midday and afternoon — meals, secondary tasks, encounters, the rhythms only {X} would notice. Move chronologically; one hour or one beat per chapter as the day's density demands",
+    "Chapter {last}: Evening + night — the wind-down, the moments of reflection, falling asleep. Close with the body's last sensations of the day"
+  ],
+
+  "closingDevice": "Close on the moment before sleep — the last thought, the room going quiet, the day folding away. Soft handoff to whatever tomorrow brings.",
+
+  "suggestedLengthMinutes": [20, 50],
+  "preferredFormats": ["documentary", "educational", "comedy"],
+  "metadataKeywordAdditions": ["day in the life", "diary", "first person", "POV story"]
+}

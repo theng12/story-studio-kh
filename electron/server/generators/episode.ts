@@ -10,10 +10,59 @@ import { callAi } from '../lib/ai-client.js'
 import { buildNarrationDocx, buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
+import { loadPattern, applyPatternSubject } from '../services/pattern-loader.js'
 
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import type { GenerateScriptRequest, Job, Format, NarratorStyle } from '../models/types.js'
+import type { GenerateScriptRequest, Job, Format, NarratorStyle, Pattern } from '../models/types.js'
+
+/**
+ * Apply a Pattern's overrides on top of a resolved Format. Returns a new
+ * Format with the pattern's body shape, opening device, and closing device
+ * folded in — the rest of the prompt-assembly code keeps working unchanged
+ * because everything still looks like a Format.
+ *
+ * - Pattern.bodyStructure → REPLACES format.script.pacingArc when set
+ * - Pattern.openingDevice → prepended to format.script.systemPromptRole as
+ *   an additional rule (so the LLM's first move respects it)
+ * - Pattern.closingDevice → appended to format.script.closingHint
+ * - Pattern.metadataKeywordAdditions → appended to format.metadata.broadKeywords
+ *
+ * Subject substitution ({X}, {lastButOne}, {last}) happens here too.
+ */
+function fuseFormatWithPattern(
+  format: Format,
+  pattern: Pattern,
+  subject: string,
+  chapterCount: number,
+): Format {
+  const { resolvedOpeningDevice, resolvedBodyStructure, resolvedClosingDevice }
+    = applyPatternSubject(pattern, subject, chapterCount)
+
+  // The opening device is folded into additionalRules so it shows up in the
+  // system prompt's rule block — the LLM hits it before generating chapter 1.
+  const fusedRules = [
+    `Episode opening device (this episode only): ${resolvedOpeningDevice}`,
+    ...format.script.additionalRules,
+  ]
+
+  return {
+    ...format,
+    script: {
+      ...format.script,
+      additionalRules: fusedRules,
+      pacingArc: resolvedBodyStructure ?? format.script.pacingArc,
+      closingHint: `${format.script.closingHint} ${resolvedClosingDevice}`.trim(),
+    },
+    metadata: {
+      ...format.metadata,
+      broadKeywords: [
+        ...format.metadata.broadKeywords,
+        ...(pattern.metadataKeywordAdditions || []),
+      ],
+    },
+  }
+}
 
 /**
  * Narrator-style description lookup over the effective Format. Replaces the
@@ -291,7 +340,7 @@ async function generateEpisode(job: Job): Promise<void> {
   if (!project) throw new Error('Project not found')
 
   const standards = await pm.getStandards(project_slug) || ''
-  const format = await getEffectiveFormat(project_slug)
+  let format = await getEffectiveFormat(project_slug)
   const title = req.title
   const length = req.length || format.script.defaultLengthMinutes
   let style = req.style === 'auto' ? autoSelectStyle(format, episode_id) : req.style
@@ -303,6 +352,23 @@ async function generateEpisode(job: Job): Promise<void> {
   const chapters = req.chapters || format.script.defaultChapterCount
   let totalWords = req.total_words || (length === 45 ? 5500 : 7500)
   let wordsPerChapter = req.words_per_chapter || Math.floor(totalWords / chapters)
+
+  // Pattern composition (Phase 4b): when the request carries a pattern_id,
+  // load it and fuse it on top of the Format. The result is a derived
+  // Format that the rest of the prompt machinery treats normally — pacing
+  // arc, opening rule, closing hint, metadata keywords are all updated.
+  // Missing patterns log + skip (Format alone still produces a usable
+  // episode), preserving back-compat with no-pattern requests.
+  if (req.pattern_id) {
+    const pattern = await loadPattern(req.pattern_id)
+    if (pattern) {
+      const subject = req.pattern_subject || ''
+      format = fuseFormatWithPattern(format, pattern, subject, chapters)
+      job.output_lines.push(`Applied pattern: ${pattern.name}` + (subject ? ` (subject: "${subject}")` : ''))
+    } else {
+      job.output_lines.push(`Pattern '${req.pattern_id}' not found — generating without pattern`)
+    }
+  }
 
   // Style tag — prefer a project-defined override in production_standards (legacy
   // hook for sleep-story Storybook tag), fall back to the format's defaultStyleTag.
