@@ -115,18 +115,24 @@ const model = ref('')
 const busy = ref(false)
 const result = ref<any>(null)
 
-interface PickFolderResp { path: string | null }
+interface PickFileResp { path: string | null }
 
 async function pickFile() {
-  // Story Studio's existing folder picker (system/pick-folder) is the only
-  // native picker exposed today. Most users will paste/drag the path; this
-  // button helps them find their way to the right docx via Finder.
+  // Native single-file picker via /system/pick-file with a .docx filter so
+  // Finder hides anything that can't be normalised. Returns { path: null }
+  // when the user cancels.
   try {
-    const { post: post2 } = useApi()
-    const r = await post2<PickFolderResp>('/system/pick-folder', {})
+    const r = await post<PickFileResp>('/system/pick-file', {
+      title: 'Choose legacy narration docx',
+      buttonLabel: 'Use this file',
+      filters: [
+        { name: 'Word document', extensions: ['docx'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    })
     if (r.path) sourcePath.value = r.path
   } catch (e: any) {
-    showError(e?.data?.detail || 'Folder picker unavailable')
+    showError(e?.data?.detail || 'File picker unavailable')
   }
 }
 
