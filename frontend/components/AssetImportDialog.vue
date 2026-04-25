@@ -310,6 +310,25 @@ const props = defineProps<{
   episodeCode: string
   /** Optional — gives the audio dropdown an accurate chapter count. */
   chapterCount?: number
+  /**
+   * Optional pre-mapped items from a prior step (e.g. the Ideas-page
+   * folder import inspector). When set, these populate the right tabs
+   * automatically when the dialog opens so the user starts with a
+   * complete mapping plan and only needs to tweak rows that look wrong.
+   *
+   * The shape mirrors the backend ImportItem discriminated union so it
+   * can be passed straight through. Each entry carries an absolute
+   * source_path the importer can copy/move from.
+   */
+  prefilledItems?: Array<any>
+  /**
+   * Hint at the default mode when the dialog opens. The folder-import
+   * flow uses 'move' since the source files are sitting inside the
+   * freshly-imported episode dir and need to land at canonical paths
+   * within the SAME tree (move = no duplicate disk usage). Other entry
+   * points stick with the safer 'copy' default.
+   */
+  defaultMode?: 'copy' | 'move'
 }>()
 
 const emit = defineEmits<{
@@ -593,8 +612,77 @@ function onClose() {
 }
 
 // Reset the result panel when the dialog re-opens (so stale results from
-// a previous session don't appear).
-watch(() => props.visible, (v) => { if (v) lastResult.value = null })
+// a previous session don't appear). Also ingest any pre-filled items
+// the parent passed (folder-import flow uses this) so the dialog opens
+// with the mapping pre-populated and only needs the user's review.
+watch(() => props.visible, (v) => {
+  if (!v) return
+  lastResult.value = null
+  if (props.defaultMode) mode.value = props.defaultMode
+  if (Array.isArray(props.prefilledItems) && props.prefilledItems.length) {
+    ingestPrefilled(props.prefilledItems)
+  }
+})
+
+/**
+ * Push pre-mapped items from an upstream step (folder import) directly
+ * into the per-tab queues, bypassing the file-picker + auto-mapping
+ * path. Each item is already shaped like a ready-to-submit ImportItem,
+ * so we just copy its fields into the matching tab. Auto-switches to
+ * the tab with the most items so the user lands on the part of the
+ * mapping that matters most.
+ */
+function ingestPrefilled(items: Array<any>) {
+  // Defensive: don't double-ingest if the dialog reopens for the same
+  // batch. The folder-import flow always sends a fresh array, so we
+  // wipe + re-fill rather than append.
+  audioFiles.value = []
+  sceneFiles.value = []
+  thumbFiles.value = []
+  videoFiles.value = []
+  finalFile.value = null
+  mergedFile.value = null
+  otherFiles.value = []
+  for (const it of items) {
+    if (!it || typeof it !== 'object' || !it.source_path) continue
+    switch (it.type) {
+      case 'audio':
+        audioFiles.value.push({ path: it.source_path, section_slug: it.section_slug || 'Chapter_01' })
+        break
+      case 'scene':
+        sceneFiles.value.push({ path: it.source_path, scene_number: Number(it.scene_number) || sceneFiles.value.length + 1 })
+        break
+      case 'thumb':
+        thumbFiles.value.push({ path: it.source_path, thumb_number: Number(it.thumb_number) || thumbFiles.value.length + 1 })
+        break
+      case 'video':
+        videoFiles.value.push({ path: it.source_path, scene_number: Number(it.scene_number) || videoFiles.value.length + 1 })
+        break
+      case 'final':
+        finalFile.value = it.source_path
+        break
+      case 'merged':
+        mergedFile.value = it.source_path
+        break
+      case 'other':
+        otherFiles.value.push({ path: it.source_path, dest_subpath: it.dest_subpath || basename(it.source_path) })
+        break
+    }
+  }
+  // Land the user on the busiest tab so the first review surface
+  // is the one that needs the most attention.
+  const counts: Array<[TabId, number]> = [
+    ['audio', audioFiles.value.length],
+    ['scene', sceneFiles.value.length],
+    ['thumb', thumbFiles.value.length],
+    ['video', videoFiles.value.length],
+    ['final', finalFile.value ? 1 : 0],
+    ['merged', mergedFile.value ? 1 : 0],
+    ['other', otherFiles.value.length],
+  ]
+  counts.sort((a, b) => b[1] - a[1])
+  if (counts[0]?.[1] > 0) activeTab.value = counts[0][0]
+}
 </script>
 
 <style scoped>

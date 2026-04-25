@@ -33,6 +33,19 @@ export interface InspectedAssets {
   video: boolean
 }
 
+/**
+ * One file the inspector found in a classified subfolder, with the
+ * canonical destination it would land at if `auto_rename_assets` is on.
+ *
+ * `dest_relative` is relative to the imported episode dir (NOT the source).
+ * `bucket` says which canonical asset folder it maps into.
+ */
+export interface DiscoveredFile {
+  source_relative: string         // e.g. "MyOldAudio/1.mp3" (relative to source_path)
+  dest_relative: string           // e.g. "EP0001 - 07 Audio Assets/EP0001_Chapter_01.mp3"
+  bucket: keyof InspectedAssets
+}
+
 export interface InspectResult {
   ok: boolean
   source_path: string
@@ -46,6 +59,14 @@ export interface InspectResult {
   missing_subfolders: string[]
   has_episode_info: boolean
   warnings: string[]
+  /**
+   * Per-file rename plan. Populated whenever the source has at least one
+   * classifiable file. The Ideas-page import dialog renders this in a
+   * preview so the user sees exactly what will move where; passing
+   * `auto_rename_assets: true` to importEpisodeFolder applies these
+   * exact destinations.
+   */
+  discovered_files: DiscoveredFile[]
   error?: string
 }
 
@@ -101,6 +122,141 @@ const ASSET_EXT: Record<keyof InspectedAssets, RegExp> = {
   video: /\.(mp4|mov|mkv|webm)$/i,
 }
 
+function pad2(n: number): string { return n < 10 ? `0${n}` : String(n) }
+
+/**
+ * Sort files in a way that respects natural numeric order embedded in the
+ * filename — `2.mp3` comes before `10.mp3`, `Scene01` before `Scene10`,
+ * etc. Used so auto-numbering follows what a user would expect from
+ * looking at their source folder.
+ */
+function naturalSort(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+}
+
+/**
+ * Turn a list of source-relative file paths in one classified bucket into
+ * canonical destinations. The mapping per bucket:
+ *   - audio:        → {audio_dir}/{code}_Chapter_NN.mp3 (numbered by sort
+ *                    order; intro detection stays out of scope here — the
+ *                    Pipeline kebab importer handles that case interactively)
+ *   - merged_audio: → {merged_audio_dir}/{code}_merged_audio.mp3 (single
+ *                    file; if multiple, only first is auto-mapped, rest go
+ *                    to other-files leftover bucket)
+ *   - images:       → {bg_dir}/{code}_SceneNN_v1.{ext}
+ *   - thumbnails:   → {thumb_dir}/{code}_ThumbNN_v1.{ext}
+ *   - video:        → {video_dir}/{code}_VideoNN_v1.{ext}
+ *   - script:       → {script_dir}/{originalFilename}  (preserve; user runs
+ *                    the Normalize dialog later if format needs fixing)
+ *   - scene_prompts / thumb_prompts / metadata / subtitles → preserve
+ *                    filename, just route into the canonical subfolder
+ *
+ * `subfolderName` is the canonical subfolder name template already filled
+ * with the episode code (e.g. "EP0001 - 07 Audio Assets").
+ */
+function planDestinations(
+  bucket: keyof InspectedAssets,
+  subfolderName: string,
+  code: string,
+  files: Array<{ source_relative: string; basename: string; ext: string }>,
+): DiscoveredFile[] {
+  // Stable, deterministic order so auto-numbering is reproducible.
+  files.sort((a, b) => naturalSort(a.basename, b.basename))
+
+  const out: DiscoveredFile[] = []
+  switch (bucket) {
+    case 'audio': {
+      // Sequential Chapter_NN by sort order. Users can re-map via the
+      // Pipeline kebab → Import existing assets dialog if order is wrong.
+      files.forEach((f, i) => {
+        const slug = `Chapter_${pad2(i + 1)}`
+        out.push({
+          source_relative: f.source_relative,
+          dest_relative: path.join(subfolderName, `${code}_${slug}.mp3`),
+          bucket,
+        })
+      })
+      return out
+    }
+    case 'merged_audio': {
+      // Canonical name is fixed; only the first audio file in this bucket
+      // gets it. Extra files (rare) get suffixed _v2/_v3 so nothing's lost.
+      files.forEach((f, i) => {
+        const name = i === 0
+          ? `${code}_merged_audio.mp3`
+          : `${code}_merged_audio_v${i + 1}.mp3`
+        out.push({
+          source_relative: f.source_relative,
+          dest_relative: path.join(subfolderName, name),
+          bucket,
+        })
+      })
+      return out
+    }
+    case 'images': {
+      files.forEach((f, i) => {
+        out.push({
+          source_relative: f.source_relative,
+          dest_relative: path.join(subfolderName, `${code}_Scene${pad2(i + 1)}_v1${f.ext}`),
+          bucket,
+        })
+      })
+      return out
+    }
+    case 'thumbnails': {
+      files.forEach((f, i) => {
+        out.push({
+          source_relative: f.source_relative,
+          dest_relative: path.join(subfolderName, `${code}_Thumb${pad2(i + 1)}_v1${f.ext}`),
+          bucket,
+        })
+      })
+      return out
+    }
+    case 'video': {
+      // Differentiate per-scene clips from the assembled final video.
+      // Heuristic: if there's exactly ONE video file in this bucket, it's
+      // most likely the final assembly — name it accordingly. Multiple
+      // files → per-scene clips.
+      if (files.length === 1) {
+        const f = files[0]
+        out.push({
+          source_relative: f.source_relative,
+          dest_relative: path.join(subfolderName, `${code}_final_video${f.ext}`),
+          bucket,
+        })
+      } else {
+        files.forEach((f, i) => {
+          out.push({
+            source_relative: f.source_relative,
+            dest_relative: path.join(subfolderName, `${code}_Video${pad2(i + 1)}_v1${f.ext}`),
+            bucket,
+          })
+        })
+      }
+      return out
+    }
+    case 'script':
+    case 'scene_prompts':
+    case 'thumb_prompts':
+    case 'metadata':
+    case 'subtitles': {
+      // Preserve the original filename — these formats are heterogeneous
+      // (script docx may need normalising, prompts docx is already in our
+      // format, metadata txt/json/md varies). Route into the canonical
+      // subfolder so the next pipeline step finds it.
+      files.forEach(f => {
+        out.push({
+          source_relative: f.source_relative,
+          dest_relative: path.join(subfolderName, f.basename),
+          bucket,
+        })
+      })
+      return out
+    }
+  }
+}
+
 export async function inspectEpisodeFolder(slug: string, sourcePath: string): Promise<InspectResult> {
   const base: InspectResult = {
     ok: false,
@@ -116,6 +272,7 @@ export async function inspectEpisodeFolder(slug: string, sourcePath: string): Pr
     missing_subfolders: [],
     has_episode_info: false,
     warnings: [],
+    discovered_files: [],
   }
 
   if (!existsSync(sourcePath)) {
@@ -169,9 +326,33 @@ export async function inspectEpisodeFolder(slug: string, sourcePath: string): Pr
     base.final_code = parsedCode
   }
 
-  // Walk immediate children to classify subfolders
+  // Walk immediate children to classify subfolders + discover files
   const entries = await fs.readdir(sourcePath, { withFileTypes: true })
   const seenBuckets = new Set<keyof InspectedAssets>()
+  // Collect files per bucket BEFORE planning destinations — we need the
+  // full set so the auto-numbering is contiguous (a bucket split across
+  // two oddly-named source subfolders still produces Scene01..SceneNN
+  // not Scene01,02 + Scene01,02 again).
+  const filesPerBucket = new Map<keyof InspectedAssets, Array<{ source_relative: string; basename: string; ext: string }>>()
+  const subfolderTemplates: Record<keyof InspectedAssets, string> = {
+    script:        DEFAULT_SUBFOLDER_NAMES.script,
+    metadata:      DEFAULT_SUBFOLDER_NAMES.metadata,
+    scene_prompts: DEFAULT_SUBFOLDER_NAMES.scene_prompts,
+    thumb_prompts: DEFAULT_SUBFOLDER_NAMES.thumb_prompts,
+    images:        DEFAULT_SUBFOLDER_NAMES.images,
+    thumbnails:    DEFAULT_SUBFOLDER_NAMES.thumbnails,
+    audio:         DEFAULT_SUBFOLDER_NAMES.audio,
+    merged_audio:  DEFAULT_SUBFOLDER_NAMES.merged_audio,
+    subtitles:     DEFAULT_SUBFOLDER_NAMES.subtitles,
+    video:         DEFAULT_SUBFOLDER_NAMES.video,
+  }
+  // Project-level overrides take precedence over the defaults so
+  // user-customised subfolder names round-trip correctly.
+  const subfolderOverrides = (meta as any).subfolder_names || {}
+  for (const k of Object.keys(subfolderTemplates) as Array<keyof InspectedAssets>) {
+    if (typeof subfolderOverrides[k] === 'string') subfolderTemplates[k] = subfolderOverrides[k]
+  }
+
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
     const bucket = classifySubfolder(entry.name)
@@ -182,8 +363,26 @@ export async function inspectEpisodeFolder(slug: string, sourcePath: string): Pr
     if (matching.length > 0) {
       base.assets[bucket] = true
       seenBuckets.add(bucket)
+      const list = filesPerBucket.get(bucket) || []
+      for (const f of matching) {
+        list.push({
+          source_relative: path.join(entry.name, f),
+          basename: f,
+          ext: path.extname(f).toLowerCase(),
+        })
+      }
+      filesPerBucket.set(bucket, list)
     }
-    base.file_counts[bucket] = matching.length
+    base.file_counts[bucket] = (base.file_counts[bucket] || 0) + matching.length
+  }
+
+  // Build the canonical-rename plan once we know every file in every
+  // bucket. The plan is what the import operation applies when the
+  // user opts in to auto-renaming.
+  for (const [bucket, files] of filesPerBucket.entries()) {
+    const subfolderName = subfolderTemplates[bucket].replace('{code}', base.final_code)
+    const planned = planDestinations(bucket, subfolderName, base.final_code, files)
+    base.discovered_files.push(...planned)
   }
 
   // Which subfolders are missing vs. our 9-bucket default layout?
@@ -225,7 +424,33 @@ export interface ImportResult {
   episode_dir: string
   folders_created: string[]
   wrote_episode_info: boolean
+  /**
+   * Absolute paths of files the inspector classified into known asset
+   * buckets, with the canonical destination they SHOULD live at. The
+   * Ideas-page import flow uses this to auto-launch the Pipeline-style
+   * AssetImportDialog with these items pre-loaded so the user can review
+   * + adjust the mapping before files actually move into place.
+   *
+   * Each entry is an absolute source_path inside the imported episode
+   * dir paired with the type-specific mapping fields the dialog needs
+   * (e.g. `{ type: 'audio', source_path, section_slug }`).
+   */
+  prefilled_import_items: PrefilledImportItem[]
 }
+
+/**
+ * One pre-mapped file the post-import dialog can ingest directly. The
+ * shape mirrors `AssetImportDialog`'s ImportItem discriminated union so
+ * the dialog can pass these to /import-assets without remapping.
+ */
+export type PrefilledImportItem =
+  | { type: 'audio',  source_path: string, section_slug: string }
+  | { type: 'scene',  source_path: string, scene_number: number }
+  | { type: 'thumb',  source_path: string, thumb_number: number }
+  | { type: 'video',  source_path: string, scene_number: number }
+  | { type: 'final',  source_path: string }
+  | { type: 'merged', source_path: string }
+  | { type: 'other',  source_path: string, dest_subpath: string }
 
 export async function importEpisodeFolder(slug: string, opts: ImportOptions): Promise<ImportResult> {
   const inspect = await inspectEpisodeFolder(slug, opts.source_path)
@@ -299,7 +524,23 @@ export async function importEpisodeFolder(slug: string, opts: ImportOptions): Pr
     }
   }
 
-  // 4. Write episode_info.json if missing
+  // 4. Build the pre-filled mapping plan for the post-import asset
+  //    dialog. We DON'T move files here — the dialog handles that, so
+  //    the user can review + re-map before anything lands in canonical
+  //    locations. The plan converts source_relative paths from inspect
+  //    (relative to the original source folder) to absolute paths
+  //    inside the freshly-imported episode_dir, then re-derives the
+  //    type-specific fields (scene_number, section_slug, etc.) from
+  //    the canonical dest_relative the inspector already computed.
+  const prefilledImportItems: PrefilledImportItem[] = []
+  for (const plan of inspect.discovered_files) {
+    const absSource = path.join(episodeDir, plan.source_relative)
+    if (!existsSync(absSource)) continue
+    const item = derivePrefilledItem(absSource, plan)
+    if (item) prefilledImportItems.push(item)
+  }
+
+  // 5. Write episode_info.json if missing
   let wroteEpisodeInfo = false
   const infoPath = path.join(episodeDir, 'episode_info.json')
   if (!existsSync(infoPath)) {
@@ -329,5 +570,61 @@ export async function importEpisodeFolder(slug: string, opts: ImportOptions): Pr
     episode_dir: episodeDir,
     folders_created: foldersCreated,
     wrote_episode_info: wroteEpisodeInfo,
+    prefilled_import_items: prefilledImportItems,
   }
+}
+
+/**
+ * Translate one DiscoveredFile (from inspectEpisodeFolder's plan) into
+ * the type-specific shape the AssetImportDialog ingests. Re-derives
+ * scene_number / thumb_number / section_slug from the dest_relative
+ * basename so the dialog's per-row controls land on sensible defaults
+ * — the user can still re-map any row before submitting.
+ */
+function derivePrefilledItem(absSource: string, plan: DiscoveredFile): PrefilledImportItem | null {
+  const code = plan.dest_relative.split(path.sep).pop()?.split('_')[0] || ''
+  const destBase = path.basename(plan.dest_relative)
+  switch (plan.bucket) {
+    case 'audio': {
+      // Canonical filename is `{code}_{slug}.mp3`. Slug examples:
+      // Introduction, Chapter_01, Chapter_02. Strip the code prefix +
+      // .mp3 suffix to recover the slug exactly.
+      const slug = destBase
+        .replace(new RegExp(`^${code}_`), '')
+        .replace(/\.mp3$/i, '')
+      return { type: 'audio', source_path: absSource, section_slug: slug || 'Chapter_01' }
+    }
+    case 'merged_audio':
+      return { type: 'merged', source_path: absSource }
+    case 'images': {
+      // {code}_Scene{NN}_v1.{ext} → NN
+      const m = destBase.match(/_Scene(\d+)/i)
+      const n = m ? parseInt(m[1], 10) : 1
+      return { type: 'scene', source_path: absSource, scene_number: n }
+    }
+    case 'thumbnails': {
+      const m = destBase.match(/_Thumb(\d+)/i)
+      const n = m ? parseInt(m[1], 10) : 1
+      return { type: 'thumb', source_path: absSource, thumb_number: n }
+    }
+    case 'video': {
+      // Two shapes: {code}_final_video.{ext} OR {code}_VideoNN_v1.{ext}.
+      // The inspector picks final when there's exactly one video file in
+      // the bucket; respect that here.
+      if (/_final_video\./i.test(destBase)) return { type: 'final', source_path: absSource }
+      const m = destBase.match(/_Video(\d+)/i)
+      const n = m ? parseInt(m[1], 10) : 1
+      return { type: 'video', source_path: absSource, scene_number: n }
+    }
+    case 'script':
+    case 'scene_prompts':
+    case 'thumb_prompts':
+    case 'metadata':
+    case 'subtitles':
+      // These map to the importer's "other" bucket — the user supplies
+      // the destination subpath in the dialog, defaulting to the
+      // canonical layout the inspector planned.
+      return { type: 'other', source_path: absSource, dest_subpath: plan.dest_relative }
+  }
+  return null
 }

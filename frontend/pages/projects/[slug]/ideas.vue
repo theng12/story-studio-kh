@@ -359,6 +359,17 @@
           <div v-if="inspectResult.warnings.length" class="import-warnings mt-2">
             <div v-for="w in inspectResult.warnings" :key="w">{{ w }}</div>
           </div>
+
+          <!-- Heads-up: after the folder lands we'll open the
+               Pipeline-style mapping dialog so the user sees how files
+               will be renamed. Setting expectations here means clicking
+               "Import Episode" doesn't surprise them with a second
+               modal popping up. -->
+          <div v-if="anyClassifiableAssets" class="import-info mt-2">
+            ↳ After import, we'll open the <strong>asset mapping dialog</strong> so you
+            can confirm how detected files get renamed into the canonical
+            structure (or re-map any rows that look wrong).
+          </div>
         </div>
 
         <div class="flex gap-2 mt-3" style="justify-content: flex-end;">
@@ -369,6 +380,20 @@
         </div>
       </div>
     </div>
+
+    <!-- Asset mapping dialog — auto-opens after a folder import that
+         turned up classifiable files. Pre-populates with the discovered
+         items so the user reviews + commits in one pass. -->
+    <AssetImportDialog
+      v-if="assetMapEpisode"
+      :visible="!!assetMapEpisode"
+      :slug="slug"
+      :episode-code="assetMapEpisode.episode_code"
+      :prefilled-items="assetMapEpisode.prefilled"
+      default-mode="move"
+      @close="assetMapEpisode = null"
+      @imported="onAssetsMapped"
+    />
 
     <!-- Paste ideas from LLM modal -->
     <div v-if="pasteOpen" class="modal-overlay" @click.self="pasteOpen = false">
@@ -816,6 +841,14 @@ const assetLabels: Record<string, string> = {
 
 const canImport = computed(() => !!inspectResult.value?.ok && !inspectResult.value.error)
 
+// True when the inspector flagged ANY classifiable asset bucket — drives
+// the "we'll open the mapping dialog after import" hint inside the modal.
+const anyClassifiableAssets = computed(() => {
+  const a = inspectResult.value?.assets
+  if (!a) return false
+  return Object.values(a).some(v => v === true)
+})
+
 function openImportFolder() {
   importOpen.value = true
   importPath.value = ''
@@ -860,11 +893,37 @@ async function doImport() {
     success(`Imported ${r.episode_code} — ${r.title}`)
     importOpen.value = false
     await loadIdeas()
+    // If the inspector found classifiable assets inside the source
+    // folder, immediately open the Pipeline-style asset-import dialog
+    // pre-populated with those files so the user can review the
+    // canonical-rename plan and click Import (or re-map first). The
+    // dialog uses 'move' mode because the source files are already
+    // sitting inside the freshly-imported episode dir — moving them
+    // to canonical paths in the same tree avoids a duplicate copy.
+    const items = Array.isArray(r.prefilled_import_items) ? r.prefilled_import_items : []
+    if (items.length > 0) {
+      assetMapEpisode.value = {
+        episode_code: r.episode_code,
+        prefilled: items,
+      }
+    }
   } catch (e: any) {
     showError(e.data?.detail || 'Import failed')
   } finally {
     importing.value = false
   }
+}
+
+// ── Post-import asset-mapping dialog ────────────────────────────────────
+// Set after a successful folder import when the inspector discovered
+// classifiable files. Drives the AssetImportDialog mount; null = closed.
+interface AssetMapState { episode_code: string; prefilled: any[] }
+const assetMapEpisode = ref<AssetMapState | null>(null)
+
+async function onAssetsMapped(_summary: any) {
+  // The importer invalidated its own cache server-side; refresh ideas
+  // so the row reflects whatever new state the canonical files imply.
+  await loadIdeas()
 }
 
 // ── Paste Ideas from LLM ────────────────────────────────────────────────
