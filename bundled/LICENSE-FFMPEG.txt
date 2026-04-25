@@ -1,0 +1,73 @@
+FFmpeg License & Attribution
+============================
+
+This application bundles pre-built FFmpeg and FFprobe binaries inside the
+.app package (Contents/Resources/ffmpeg/) to provide audio and video
+assembly without requiring a separate install.
+
+Bundled version
+---------------
+FFmpeg 8.1
+  Universal2 binary fused with `lipo` from per-arch builds:
+    - arm64 (Apple Silicon): https://www.osxexperts.net/ffmpeg81arm.zip
+    - x86_64 (Intel):        https://evermeet.cx/ffmpeg/ffmpeg-8.1.zip
+
+FFprobe 8.1
+  Same fusion, sources:
+    - arm64:  https://www.osxexperts.net/ffprobe81arm.zip
+    - x86_64: https://evermeet.cx/ffmpeg/ffprobe-8.1.zip
+
+License
+-------
+The bundled FFmpeg was compiled with the `--enable-gpl` configuration
+flag, which means the resulting binary is distributed under the terms of
+the GNU General Public License version 3 (GPL v3) as published by the
+Free Software Foundation.
+
+The full GPL v3 license text is available at:
+  https://www.gnu.org/licenses/gpl-3.0.html
+
+Source code
+-----------
+FFmpeg source code, including the exact version bundled here, is available
+from the official project at:
+  https://ffmpeg.org/
+  https://git.ffmpeg.org/gitweb/ffmpeg.git
+
+The arm64 build configuration and patch set used by osxexperts.net is
+documented at https://www.osxexperts.net/. The x86_64 build configuration
+used by evermeet.cx is documented at https://evermeet.cx/ffmpeg/.
+
+Bundled libraries
+-----------------
+The bundled FFmpeg statically links the following libraries (per
+`ffmpeg -version` output of the bundled binary):
+  - libx264, libx265, libvpx, libsvtav1, libaom, libvvenc, libkvazaar
+    (video codecs)
+  - libopus, libmp3lame, libvorbis, libtheora, libsnappy, libwebp
+    (audio + image codecs)
+  - libass, libfreetype, libfontconfig, libharfbuzz
+    (text rendering / subtitle burn-in)
+  - libvmaf, libzimg, libvidstab, libopenjpeg
+    (analysis + filtering)
+
+Each library is licensed under its own terms; see ffmpeg.org/legal.html
+for the full upstream attribution and license matrix.
+
+Attribution required
+--------------------
+FFmpeg is © 2000-2026 the FFmpeg developers. Use of FFmpeg requires
+attribution per its license; this file together with the link to
+ffmpeg.org in Settings → FFmpeg satisfies that requirement for the
+binaries bundled here.
+
+For redistribution
+------------------
+If you redistribute this application, you must:
+  1. Include this LICENSE-FFMPEG.txt file with your distribution.
+  2. Make the corresponding FFmpeg source code available (or include a
+     written offer to provide it) per GPL v3 §6.
+  3. Preserve the FFmpeg attribution above.
+
+Contact for source-code requests: see the application's repository or
+publisher contact information.

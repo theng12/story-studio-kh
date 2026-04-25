@@ -1,0 +1,166 @@
+/**
+ * Provider interfaces — contracts for image, audio, and text AI providers.
+ * Each provider implements one or more of these interfaces and self-registers
+ * with the registry at import time.
+ *
+ * To add a new provider:
+ *   1. Create a file in providers/image/, providers/audio/, or providers/text/
+ *   2. Implement the relevant interface
+ *   3. Call registry.registerXxx() at the bottom of the file
+ *   4. Import the file in app.ts
+ */
+
+// ── Provider Metadata ────────────────────────────────────────────────────
+
+export interface ProviderMeta {
+  /** Unique provider ID used in config (e.g. 'kie', 'replicate', 'openai-images') */
+  id: string
+  /** Display name for UI (e.g. 'kie.ai', 'Replicate', 'OpenAI Images') */
+  name: string
+  /**
+   * Legacy: config key name for the API key (e.g. 'kie_api_key'). Still consumed
+   * by `resolveApiKeyForProvider` as a fallback when `providerId` is absent.
+   */
+  apiKeyField: string
+  /**
+   * Canonical provider id in `secrets.json` — defaults to the slice of
+   * `apiKeyField` before `_api_key`. Declare explicitly when the provider's
+   * registry id differs from its secrets bucket (e.g. `kie-video` and
+   * `fal-video` share secrets with their audio/image counterparts).
+   */
+  providerId?: string
+  /**
+   * FUTURE (Delivery 2 scaffolding only — no implementation yet).
+   * Aggregator providers (OpenRouter, Together) can implement this to claim
+   * model ids that look like another provider's (e.g. `anthropic/claude-...`).
+   * Returns the aggregator-assigned routing target id, or `undefined` to
+   * decline the model.
+   */
+  resolveModelProvider?: (modelId: string) => string | undefined
+  /**
+   * FUTURE (Delivery 2 scaffolding only — no implementation yet).
+   * Providers with dynamic catalogs (OpenRouter) can implement this to
+   * return their live model list. The registry will call it lazily.
+   */
+  fetchModelCatalog?: (apiKey: string) => Promise<import('../models/types.js').UnifiedModel[]>
+}
+
+// ── Image Provider ───────────────────────────────────────────────────────
+
+export interface ImageGenerationRequest {
+  prompt: string
+  apiKey: string
+  aspectRatio: string
+  modelId: string
+  /** Provider-specific params from config.image_models[model].provider_params */
+  providerParams: Record<string, any>
+  /** Probe for user cancel — provider should honour it in poll loops so an
+   *  aborted batch stops burning provider calls per in-flight request. */
+  isCancelled?: () => boolean
+}
+
+export interface ImageGenerationResult {
+  urls: string[]
+  taskId?: string
+}
+
+export interface ImageProvider {
+  meta: ProviderMeta
+
+  /** Check if this provider handles the given model config */
+  supportsModel(modelId: string, providerParams: Record<string, any>): boolean
+
+  /** Generate image(s). The provider handles its own submit/poll internally. */
+  generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResult>
+}
+
+// ── Audio Provider ───────────────────────────────────────────────────────
+
+export interface AudioGenerationRequest {
+  text: string
+  apiKey: string
+  modelId: string
+  voiceId?: string
+  speed?: number
+  stability?: number
+  similarity?: number
+  /** Probe for user cancel — honoured in poll loops. */
+  isCancelled?: () => boolean
+}
+
+export interface AudioGenerationResult {
+  audioUrl: string
+  contentType?: string
+}
+
+export interface AudioProvider {
+  meta: ProviderMeta
+
+  /** Generate TTS audio from text */
+  generateAudio(request: AudioGenerationRequest): Promise<AudioGenerationResult>
+}
+
+// ── Video Provider ────────────────────────────────────────────────────────
+
+export type VideoMode = 'text' | 'frames' | 'ingredients'
+
+export interface VideoGenerationRequest {
+  mode: VideoMode
+  prompt: string
+  apiKey: string
+  aspectRatio: 'landscape' | 'portrait'
+  numberOfVideos: number
+  modelId: string
+  /** For frames mode: path to the start image on disk */
+  startImagePath?: string
+  /** For frames mode: path to an optional end image on disk */
+  endImagePath?: string
+  /** For ingredients mode: 1-3 reference image paths on disk */
+  referenceImagePaths?: string[]
+  /** Provider-specific params */
+  providerParams?: Record<string, any>
+  /** Probe for user cancel — honoured in poll loops. */
+  isCancelled?: () => boolean
+}
+
+export interface VideoGenerationResult {
+  /** Final mp4 URLs, ready to download */
+  videoUrls: string[]
+  /** The Veo/provider task IDs, if any — useful for debugging */
+  taskIds?: string[]
+}
+
+export interface VideoProvider {
+  meta: ProviderMeta
+
+  /** Check if this provider handles the given model */
+  supportsModel(modelId: string, providerParams?: Record<string, any>): boolean
+
+  /** Generate video(s) — provider handles submit/poll/download-URL resolution internally */
+  generateVideo(request: VideoGenerationRequest): Promise<VideoGenerationResult>
+}
+
+// ── Text Provider ────────────────────────────────────────────────────────
+
+export interface TextGenerationRequest {
+  model: string
+  system: string
+  userMessage: string
+  apiKey: string
+  stream?: boolean
+  maxTokens?: number
+  /** Abort signal passed through to the SDK — streaming providers tear down
+   *  the fetch on abort, so a user-cancelled job stops paying for a long
+   *  completion that would otherwise run to max_tokens. */
+  signal?: AbortSignal
+}
+
+export interface TextProvider {
+  meta: ProviderMeta
+
+  /** Check if this provider handles the given model */
+  supportsModel(modelId: string): boolean
+
+  /** Generate text completion */
+  callText(request: TextGenerationRequest): Promise<string>
+}

@@ -1,0 +1,22 @@
+{
+  "name": "Blank Project",
+  "description": "A minimal starting point. Configure everything from scratch.",
+  "episode_prefix": "EP",
+  "episode_digits": 4,
+  "season_size": 20,
+  "season_prefix": "Season",
+  "folder_template": "{season_prefix} {season_num}/{code} - {title}/",
+  "subfolder_names": {
+    "script": "{code} - 01 Script",
+    "metadata": "{code} - 02 Metadata",
+    "scene_prompts": "{code} - 03 Scene Prompts",
+    "thumb_prompts": "{code} - 04 Thumbnail Prompts",
+    "images": "{code} - 05 Scene Images",
+    "thumbnails": "{code} - 06 Thumbnail Images",
+    "audio": "{code} - 07 Audio Assets",
+    "merged_audio": "{code} - 08 Audio Merge Output",
+    "subtitles": "{code} - 09 Subtitles Output",
+    "video": "{code} - 10 Video Assembly Output"
+  },
+  "output_root": "./episodes"
+}

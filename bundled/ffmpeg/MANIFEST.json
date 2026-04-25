@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-04-22T09:16:33.035Z",
+  "ffmpeg_version": "8.1",
+  "sources": {
+    "arm64": {
+      "ffmpeg": "https://www.osxexperts.net/ffmpeg81arm.zip",
+      "ffprobe": "https://www.osxexperts.net/ffprobe81arm.zip"
+    },
+    "intel": {
+      "ffmpeg": "https://evermeet.cx/ffmpeg/ffmpeg-8.1.zip",
+      "ffprobe": "https://evermeet.cx/ffmpeg/ffprobe-8.1.zip"
+    }
+  },
+  "sizes": {
+    "ffmpeg_arm_zip": 22547387,
+    "ffmpeg_intel_zip": 25927146,
+    "ffmpeg_universal": 132141880,
+    "ffprobe_arm_zip": 22468272,
+    "ffprobe_intel_zip": 25833229,
+    "ffprobe_universal": 131770248
+  },
+  "binaries": {
+    "ffmpeg": "build/ffmpeg/ffmpeg",
+    "ffprobe": "build/ffmpeg/ffprobe"
+  }
+}

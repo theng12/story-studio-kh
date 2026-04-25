@@ -1,0 +1,211 @@
+/**
+ * Tests for `useJobs` — the SSE-driven job queue state machine.
+ *
+ * `useJobs` owns arguably the most critical piece of real-time frontend
+ * state in the app: the live job list the Jobs tab renders, the sidebar
+ * badge counts, and the generator-tab "running" indicators all read from
+ * its refs. A regression here surfaces as "the UI thinks the job is still
+ * running after it finished" or, worse, "two projects' jobs mixed up".
+ *
+ * Invariants covered:
+ *
+ *   1. `startPolling(slug)` opens an EventSource against the scoped stream URL.
+ *   2. A `snapshot` event replaces the full list + stats.
+ *   3. An `update` event REPLACES an existing job in place (by job_id),
+ *      leaving order stable.
+ *   4. An `update` event with an unseen job_id PREPENDS the job to the list
+ *      (server-side sort already put newest first in the snapshot).
+ *   5. Events for a different project_slug are IGNORED — cross-project
+ *      leakage is exactly the bug scoping was designed to prevent.
+ *   6. Switching slug resets the jobs + stats to empty before the new
+ *      snapshot lands.
+ *   7. `stopPolling()` closes the EventSource and doesn't leak a listener.
+ *
+ * `EventSource` and `$fetch` are browser/Nuxt globals we stub here. The
+ * module-scoped `useJobs` state persists across tests — each test walks
+ * through a full lifecycle so it ends clean for the next one.
+ */
+
+import { test, describe, before, after, beforeEach } from 'node:test'
+import assert from 'node:assert/strict'
+
+// ── Stubs (installed BEFORE importing useJobs so it captures them) ─────────
+
+interface FakeListener { (ev: MessageEvent): void }
+
+class FakeEventSource {
+  url: string
+  listeners: Record<string, FakeListener[]> = {}
+  onerror: ((ev?: Event) => void) | null = null
+  closed = false
+  constructor(url: string) {
+    this.url = url
+    FakeEventSource.last = this
+  }
+  addEventListener(type: string, fn: FakeListener) {
+    ;(this.listeners[type] ||= []).push(fn)
+  }
+  /** Helper for tests: fire an SSE-style event with a JSON payload. */
+  fire(type: string, data: unknown) {
+    const ev = new MessageEvent(type, { data: JSON.stringify(data) })
+    for (const fn of (this.listeners[type] || [])) fn(ev)
+  }
+  close() { this.closed = true }
+  // Track the most recently constructed source so tests can fire into it.
+  static last: FakeEventSource | null = null
+}
+
+// Install before the composable module initialises.
+;(globalThis as any).EventSource = FakeEventSource
+// Stub $fetch so accidental `cleared` → refreshFull paths don't blow up.
+;(globalThis as any).$fetch = async () => ({ jobs: [], stats: { running: 0, queued: 0, done: 0, error: 0, total: 0 } })
+
+const { useJobs } = await import('../composables/useJobs.js')
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function mkJob(overrides: Partial<any> = {}): any {
+  return {
+    job_id: 'j-default',
+    project_slug: 'alpha',
+    type: 'script-only',
+    episode_id: 'EP0001',
+    title: '',
+    status: 'queued',
+    created_at: new Date().toISOString(),
+    started_at: null,
+    finished_at: null,
+    error: null,
+    output_lines: [],
+    params: {},
+    ...overrides,
+  }
+}
+
+function mkSnapshot(jobs: any[]) {
+  const stats = { running: 0, queued: 0, done: 0, error: 0, total: jobs.length }
+  for (const j of jobs) {
+    if (j.status === 'running') stats.running++
+    else if (j.status === 'queued') stats.queued++
+    else if (j.status === 'done') stats.done++
+    else if (j.status === 'error') stats.error++
+  }
+  return { jobs, stats }
+}
+
+// Each test starts fresh by calling stopPolling() and issuing an empty
+// snapshot on a unique slug — since state is module-scoped this keeps
+// tests independent without reimporting.
+function reset(slug: string) {
+  const { startPolling, stopPolling } = useJobs()
+  stopPolling()
+  startPolling(slug)
+  FakeEventSource.last?.fire('snapshot', mkSnapshot([]))
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────────
+
+describe('useJobs — SSE transport', () => {
+  beforeEach(() => {
+    FakeEventSource.last = null
+  })
+
+  test('startPolling opens an EventSource against the scoped stream URL', () => {
+    const { startPolling, stopPolling } = useJobs()
+    startPolling('alpha')
+    assert.ok(FakeEventSource.last, 'should construct an EventSource')
+    assert.equal(FakeEventSource.last!.url, '/api/projects/alpha/jobs/stream')
+    stopPolling()
+  })
+
+  test('a snapshot event replaces the full jobs list + stats', () => {
+    reset('snap-project')
+    const { jobs, stats } = useJobs()
+
+    FakeEventSource.last!.fire('snapshot', mkSnapshot([
+      mkJob({ job_id: 'a1', project_slug: 'snap-project', status: 'running' }),
+      mkJob({ job_id: 'a2', project_slug: 'snap-project', status: 'queued' }),
+      mkJob({ job_id: 'a3', project_slug: 'snap-project', status: 'done' }),
+    ]))
+
+    assert.equal(jobs.value.length, 3)
+    assert.deepEqual(jobs.value.map(j => j.job_id), ['a1', 'a2', 'a3'])
+    assert.equal(stats.value.running, 1)
+    assert.equal(stats.value.queued, 1)
+    assert.equal(stats.value.done, 1)
+    assert.equal(stats.value.total, 3)
+  })
+
+  test('an update event replaces an existing job in place (stable order)', () => {
+    reset('update-project')
+    const { jobs, stats } = useJobs()
+    FakeEventSource.last!.fire('snapshot', mkSnapshot([
+      mkJob({ job_id: 'b1', project_slug: 'update-project', status: 'queued' }),
+      mkJob({ job_id: 'b2', project_slug: 'update-project', status: 'queued' }),
+    ]))
+
+    // b1 transitions to running — it should stay at index 0, not be re-inserted.
+    FakeEventSource.last!.fire('update',
+      mkJob({ job_id: 'b1', project_slug: 'update-project', status: 'running' }))
+
+    assert.deepEqual(jobs.value.map(j => j.job_id), ['b1', 'b2'],
+      'order must stay stable when updating an existing job')
+    assert.equal(jobs.value[0].status, 'running')
+    assert.equal(stats.value.running, 1)
+    assert.equal(stats.value.queued, 1)
+  })
+
+  test('an update for a new job_id prepends it to the list', () => {
+    reset('prepend-project')
+    const { jobs } = useJobs()
+    FakeEventSource.last!.fire('snapshot', mkSnapshot([
+      mkJob({ job_id: 'c1', project_slug: 'prepend-project', status: 'done' }),
+    ]))
+
+    FakeEventSource.last!.fire('update',
+      mkJob({ job_id: 'c2', project_slug: 'prepend-project', status: 'queued' }))
+
+    assert.deepEqual(jobs.value.map(j => j.job_id), ['c2', 'c1'],
+      'brand-new job must be prepended (newest first)')
+  })
+
+  test('events scoped to a different project_slug are ignored', () => {
+    reset('scope-project')
+    const { jobs } = useJobs()
+    FakeEventSource.last!.fire('snapshot', mkSnapshot([
+      mkJob({ job_id: 'mine', project_slug: 'scope-project', status: 'queued' }),
+    ]))
+
+    // Spurious event for another project — must NOT leak into our list.
+    FakeEventSource.last!.fire('update',
+      mkJob({ job_id: 'intruder', project_slug: 'other-project', status: 'queued' }))
+
+    assert.deepEqual(jobs.value.map(j => j.job_id), ['mine'],
+      'cross-project events must not mutate our state')
+  })
+
+  test('switching slug resets jobs + stats before the next snapshot', () => {
+    reset('first-project')
+    const { jobs, stats, startPolling } = useJobs()
+    FakeEventSource.last!.fire('snapshot', mkSnapshot([
+      mkJob({ job_id: 'old', project_slug: 'first-project', status: 'running' }),
+    ]))
+    assert.equal(jobs.value.length, 1)
+    assert.equal(stats.value.running, 1)
+
+    // Navigate to a new project — state clears synchronously BEFORE any
+    // events land for the new slug so the UI never shows the old list.
+    startPolling('second-project')
+    assert.equal(jobs.value.length, 0, 'jobs cleared on slug change')
+    assert.equal(stats.value.total, 0, 'stats cleared on slug change')
+  })
+
+  test('stopPolling closes the EventSource', () => {
+    const { startPolling, stopPolling } = useJobs()
+    startPolling('stop-project')
+    const src = FakeEventSource.last!
+    assert.equal(src.closed, false)
+    stopPolling()
+    assert.equal(src.closed, true, 'EventSource.close() must be called on stopPolling')
+  })
+})

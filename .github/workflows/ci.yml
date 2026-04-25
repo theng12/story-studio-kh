@@ -1,0 +1,51 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test
+        env:
+          STORY_STUDIO_DISABLE_LISTEN: '1'
+
+  package-dryrun:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: '--mac'
+          - os: windows-latest
+            target: '--win'
+          - os: ubuntu-latest
+            target: '--linux'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+      - run: npx electron-builder ${{ matrix.target }} --publish never
+        env:
+          # Avoid signing requirement on CI runners
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'

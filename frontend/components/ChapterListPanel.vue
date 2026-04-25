@@ -1,0 +1,270 @@
+<!--
+  Per-chapter source files panel for scripts.vue.
+
+  One row per chapter file on disk, fetched from
+  `GET /projects/:slug/episodes/:id/chapter-list`. Each row exposes a
+  Regenerate button that POSTs to `/generate/chapter-only` with the
+  chapter number and the current form's settings (model, style,
+  words_per_chapter, etc.). Other chapters on disk are not touched;
+  the unified narration_docx is auto-assembled after the regen.
+
+  The panel also surfaces an `audio_stale` warning per row: when the
+  user regenerates a chapter, the existing audio chunks for that
+  chapter become out of date. We don't auto-delete audio — just hint
+  the user via a pill so they can choose to refresh it from the audio
+  page when ready.
+
+  Visual language matches AudioChapterSelector for consistency.
+-->
+<template>
+  <div class="chapter-panel">
+    <div class="chp-header">
+      <h3>📖 Chapters</h3>
+      <div class="chp-actions">
+        <button class="btn btn-sm btn-ghost" :disabled="loading" @click="refresh">
+          <LoadingSpinner v-if="loading" size="sm" />
+          ↻ Refresh
+        </button>
+      </div>
+    </div>
+    <p class="text-muted" style="font-size: 12px; margin: 0 0 8px 0;">
+      Regenerate any chapter individually. The unified narration
+      downstream tools read is auto-rebuilt after each regen.
+    </p>
+
+    <div v-if="!episodeId" class="chp-empty">Select an episode to see its chapters.</div>
+    <div v-else-if="loading && !chapters.length" class="chp-empty">Loading chapters…</div>
+    <div v-else-if="!chapters.length" class="chp-empty">
+      No chapters yet. Generate the script (above) to create the chapter files,
+      then regenerate any individual chapter from this panel.
+    </div>
+
+    <ul v-else class="chp-list" role="list">
+      <li
+        v-for="ch in chapters"
+        :key="ch.number"
+        class="chp-item"
+        :class="{ 'has-stale-audio': ch.audio_stale }"
+      >
+        <div class="chp-row">
+          <div class="chp-meta">
+            <strong class="chp-num">Chapter {{ String(ch.number).padStart(2, '0') }}</strong>
+            <span class="chp-title">{{ ch.title }}</span>
+          </div>
+          <div class="chp-stats">
+            <span v-if="ch.word_count" class="chp-pill">{{ ch.word_count.toLocaleString() }} words</span>
+            <span v-if="ch.modified_at" class="chp-pill">{{ relativeTime(ch.modified_at) }}</span>
+            <span v-if="ch.audio_stale" class="chp-pill pill-stale" :title="staleTooltip">
+              ⚠ audio stale
+            </span>
+          </div>
+          <button
+            class="btn btn-sm btn-secondary chp-regen"
+            :disabled="!scriptReady || regenInFlight === ch.number || regenInFlight !== null"
+            :title="!scriptReady ? noScriptTooltip : 'Regenerate this chapter only'"
+            @click="regenerate(ch.number)"
+          >
+            <LoadingSpinner v-if="regenInFlight === ch.number" size="sm" />
+            {{ regenInFlight === ch.number ? 'Regenerating…' : '↻ Regenerate' }}
+          </button>
+        </div>
+      </li>
+    </ul>
+  </div>
+</template>
+
+<script setup lang="ts">
+interface ChapterRow {
+  number: number
+  title: string
+  present: boolean
+  word_count: number
+  modified_at: string | null
+  audio_stale: boolean
+}
+
+const props = defineProps<{
+  projectSlug: string
+  episodeId: string
+  title?: string
+  scriptReady: boolean
+  // The script form so we can carry style / model / words-per-chapter
+  // into the chapter-only regen request.
+  form: any
+  refreshKey?: number
+}>()
+
+const { get, post } = useApi()
+const { jobs } = useJobs()
+const { success, error: showError } = useToast()
+
+const chapters = ref<ChapterRow[]>([])
+const loading = ref(false)
+const regenInFlight = ref<number | null>(null)
+const noScriptTooltip = 'Generate the script first to unlock per-chapter regenerate.'
+const staleTooltip = 'This chapter\'s source was changed after the audio was generated. Visit the Audio page and regenerate this section to refresh.'
+
+async function refresh() {
+  if (!props.episodeId) {
+    chapters.value = []
+    return
+  }
+  loading.value = true
+  try {
+    const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
+    const data = await get<{ chapters: ChapterRow[] }>(
+      `/projects/${props.projectSlug}/episodes/${props.episodeId}/chapter-list${titleParam}`,
+    )
+    chapters.value = data.chapters || []
+  } catch (e: any) {
+    chapters.value = []
+    showError(e?.data?.detail || 'Could not load chapters')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function regenerate(num: number) {
+  if (!props.scriptReady) {
+    showError(noScriptTooltip)
+    return
+  }
+  regenInFlight.value = num
+  try {
+    await post(`/projects/${props.projectSlug}/generate/chapter-only`, {
+      episode_id: props.episodeId,
+      title: props.title || '',
+      chapter_number: num,
+      model: props.form?.model,
+      style: props.form?.style,
+      length: props.form?.length,
+      chapters: props.form?.chapters,
+      total_words: props.form?.total_words,
+      words_per_chapter: props.form?.words_per_chapter,
+    })
+    success(`Chapter ${num} regenerate queued`)
+  } catch (e: any) {
+    showError(e?.data?.detail || `Failed to queue chapter ${num} regen`)
+    regenInFlight.value = null
+  }
+}
+
+// When the chapter-only job lands, refresh the list (mtime + word count
+// change). Only watch for jobs of the right type for this episode.
+watch(jobs, (list: readonly any[]) => {
+  for (const job of list) {
+    if (job.type !== 'chapter-only') continue
+    if (job.episode_id !== props.episodeId) continue
+    if (job.status === 'done' && regenInFlight.value !== null) {
+      regenInFlight.value = null
+      void refresh()
+    }
+    if (job.status === 'error' && regenInFlight.value !== null) {
+      regenInFlight.value = null
+      showError('Chapter regenerate failed — see Jobs tab.')
+    }
+  }
+}, { deep: true })
+
+watch(() => [props.episodeId, props.title, props.refreshKey], refresh, { immediate: true })
+
+function relativeTime(iso: string): string {
+  const d = new Date(iso)
+  const diff = (Date.now() - d.getTime()) / 1000
+  if (diff < 60) return 'just now'
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return d.toLocaleDateString()
+}
+</script>
+
+<style scoped>
+.chapter-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-top: 16px;
+}
+
+.chp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.chp-header h3 { margin: 0; font-size: 14px; color: var(--text-primary); }
+.chp-actions { display: inline-flex; gap: 4px; }
+
+.chp-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 14px 4px;
+  text-align: center;
+}
+
+.chp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+.chp-item {
+  border-bottom: 1px solid var(--border);
+}
+.chp-item:last-child { border-bottom: none; }
+.chp-item.has-stale-audio { background: rgba(245, 158, 11, 0.04); }
+
+.chp-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+.chp-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chp-num { color: var(--text-primary); font-weight: 600; }
+.chp-title {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chp-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.chp-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.chp-pill.pill-stale {
+  background: rgba(234, 179, 8, 0.14);
+  color: rgb(202, 138, 4);
+  border-color: rgba(234, 179, 8, 0.3);
+}
+
+.chp-regen {
+  white-space: nowrap;
+}
+</style>

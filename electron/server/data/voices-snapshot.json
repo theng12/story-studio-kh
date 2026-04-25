@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "notes": "Minimal offline/first-run fallback. The live ElevenLabs fetch replaces this the first time the user opens the Audio page with a valid API key; the runtime cache in userData then serves as the baseline for subsequent offline opens. Only ship voice_ids we are certain are stable — self-curated community IDs go in the live catalog, not here.",
+  "voices": [
+    {
+      "voice_id": "Qe9WSybioZxssVEwlBSo",
+      "name": "Vincent",
+      "category": "premade",
+      "gender": "male",
+      "language": "en",
+      "accent": "American",
+      "description": "Calm narration voice — the default ships with Story Studio KH.",
+      "use_case": "narration",
+      "preview_url": null,
+      "popularity": 100
+    },
+    {
+      "voice_id": "xGDJhCwcqw94ypljc95Z",
+      "name": "Archer",
+      "category": "premade",
+      "gender": "male",
+      "language": "en",
+      "accent": "British",
+      "description": "Guided-meditation voice — gentle, measured pacing.",
+      "use_case": "meditation",
+      "preview_url": null,
+      "popularity": 90
+    }
+  ]
+}

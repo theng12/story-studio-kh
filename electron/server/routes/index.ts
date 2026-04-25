@@ -1,0 +1,51 @@
+/**
+ * Route bootstrap — the single place that decides which routers mount where.
+ *
+ * All routers live under `/api`. Adding a new router means one edit here
+ * plus the new file; `app.ts` stays untouched.
+ */
+
+import type { Express } from 'express'
+import { router as projectsRouter } from './projects.js'
+import { router as settingsRouter } from './settings.js'
+import { router as jobsRouter } from './jobs.js'
+import { router as scriptsRouter } from './scripts.js'
+import { router as imagesRouter } from './images.js'
+import { router as audioRouter } from './audio.js'
+import { router as videoAssemblyRouter } from './video.js'
+import { router as aiVideoRouter } from './ai-video.js'
+import { router as audioMergeRouter } from './audio-merge.js'
+import { router as ideasRouter } from './ideas.js'
+import { router as pipelineRouter } from './pipeline.js'
+import { router as healthRouter } from './health.js'
+import { router as debugRouter } from './debug.js'
+import { router as systemRouter } from './system.js'
+import { router as voicesRouter } from './voices.js'
+import { router as visionRouter } from './vision.js'
+import { router as imageEditRouter } from './image-edit.js'
+import { router as uploadRouter } from './upload.js'
+import { router as appSettingsRouter } from './app-settings.js'
+import { router as lastSessionRouter } from './last-session.js'
+
+export function mountRoutes(app: Express): void {
+  app.use('/api', projectsRouter)
+  app.use('/api', settingsRouter)
+  app.use('/api', appSettingsRouter)
+  app.use('/api', lastSessionRouter)
+  app.use('/api', jobsRouter)
+  app.use('/api', scriptsRouter)
+  app.use('/api', imagesRouter)
+  app.use('/api', audioRouter)
+  app.use('/api', videoAssemblyRouter)
+  app.use('/api', aiVideoRouter)
+  app.use('/api', audioMergeRouter)
+  app.use('/api', ideasRouter)
+  app.use('/api', pipelineRouter)
+  app.use('/api', healthRouter)
+  app.use('/api', debugRouter)
+  app.use('/api', systemRouter)
+  app.use('/api', voicesRouter)
+  app.use('/api', visionRouter)
+  app.use('/api', imageEditRouter)
+  app.use('/api', uploadRouter)
+}

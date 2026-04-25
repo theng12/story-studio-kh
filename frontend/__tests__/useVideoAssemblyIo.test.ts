@@ -1,0 +1,352 @@
+/**
+ * Tests for `useVideoAssemblyIo.generateVideo()`.
+ *
+ * The extracted function owns the contract between the Video Assembly
+ * wizard and the backend's `/api/projects/:slug/generate/video-assembly`
+ * endpoint. That contract covers a lot:
+ *
+ *   - Scenes filtered by the excluded-scenes set + mapped to {image_path,
+ *     duration, title, show_title}.
+ *   - Narration path resolution: merged audio > full narration > first
+ *     chapter, with the falls-through reflected in `merged_audio_path`.
+ *   - Optional sections (logo, intro, title image, color grading, vignette,
+ *     chroma key, film grain, letterbox, subtitles, title/outro card) only
+ *     appear in the payload when their `.enabled` flag is true.
+ *   - Cost-confirmation gate: cancel short-circuits before any POST.
+ *   - Flag lifecycle: `generating` / `videoGenerating` must flip correctly
+ *     on success AND on error (else the sidebar pulse stays stuck).
+ *   - Return value: true on submit, false on cancel or submit-error.
+ *
+ * A full-fidelity state bag would be tedious to build inline per test, so
+ * `makeState()` produces a sensible baseline that individual tests tweak.
+ */
+
+import { test, describe, beforeEach } from 'node:test'
+import assert from 'node:assert/strict'
+import { ref, reactive } from 'vue'
+
+// useVideoAssemblyIo pulls in useApi + useToast. Those use $fetch — stub
+// it before importing so the module captures our stub at setup time.
+;(globalThis as any).$fetch = async () => ({})
+
+const { useVideoAssemblyIo } = await import('../composables/useVideoAssemblyIo.js')
+
+function makeState() {
+  return {
+    slug: ref('proj-x'),
+    episodeId: ref('EP0001'),
+    selectedEpisode: ref<any>(null),
+    ffmpegStatus: ref<any>(null),
+    scannedAssets: ref<any>({
+      merged_audio: [{ path: '/m/merged.mp3' }],
+      narration_full: { path: '/m/full.mp3' },
+      audio_sections: [{ path: '/m/section-1.mp3' }],
+      scenes: [],
+      thumbnails: [],
+    }),
+    scanning: ref(false),
+    scenes: ref([
+      { image_path: '/i/1.png', filename: '1.png', number: 1, title: 'First', enabled: true },
+      { image_path: '/i/2.png', filename: '2.png', number: 2, title: 'Second', enabled: true },
+      { image_path: '/i/3.png', filename: '3.png', number: 3, title: '', enabled: true },
+    ]),
+    excludeIntroFromEffects: ref(true),
+
+    // Reactives — makeState ships them disabled so the base payload is
+    // minimal; individual tests flip flags to assert optional sections.
+    logo:          reactive({ enabled: false, image_path: '', position: 'top-right', custom_x: 0, custom_y: 0, opacity: 70, scale: 10, margin: 20, hide_during_intro: false }),
+    intro:         reactive({ enabled: false, video_path: '' }),
+    // Symmetric to `intro`: a tail clip stitched onto the back of the
+    // assembly. The composable's `generateVideo()` reads `s.outro.enabled`
+    // and `s.outro.video_path` on every run; a missing fixture entry was
+    // throwing "Cannot read properties of undefined (reading 'enabled')"
+    // on every test in this describe block.
+    outro:         reactive({ enabled: false, video_path: '' }),
+    // User-supplied timeline clips (multi-anchor). Empty list = payload
+    // omits the `timeline_clips` key, matching pre-feature behaviour.
+    timelineClips: ref<Array<{ id: string; video_path: string; anchor: 'before_intro' | 'after_intro' | 'after_scenes' | 'after_outro'; enabled: boolean }>>([]),
+    titleImage:    reactive({ enabled: false, image_path: '', duration: 5, transition_type: '', transition_duration: 0 }),
+    sceneRecycling: reactive({ seconds_per_scene: 10, shuffle: false, excluded_scenes: [] as number[] }),
+    transition:    reactive({ type: 'fade', duration: 0.5, pool: [], randomize_mode: 'off' }),
+    sceneAnimation: reactive({ type: 'ken-burns', zoom_start: 100, zoom_end: 108, pool: [], randomize_mode: 'off' }),
+    postAudio:     reactive({ behavior: 'fade-to-black', fade_duration: 5 }),
+    duration:      reactive({ mode: 'auto', min_hours: 0, min_minutes: 30, max_hours: 1, max_minutes: 0 }),
+    colorGrading:  reactive({ enabled: false, preset: 'none', brightness: 0, contrast: 1, saturation: 1, warmth: 0, tint: 0 }),
+    vignette:      reactive({ enabled: false, strength: 0.4 }),
+    filmGrain:     reactive({ enabled: false, strength: 15 }),
+    letterbox:     reactive({ enabled: false, ratio: '2.35:1', color: 'black' }),
+    chromaKey:     reactive({ enabled: false, source_path: '', color: '#00FF00', similarity: 0.15, blend: 0.1 }),
+    titleCard:     reactive({ enabled: false, text: 'T', duration: 3, style: 'gold', background: '#000' }),
+    chapterTitles: reactive({ enabled: false, style: 'gold', position: 'center', duration: 2.5, font_size: 'medium' }),
+    outroCard:     reactive({ enabled: false, text: '', duration: 3, style: 'gold' }),
+    exportSettings: reactive({ resolution: '1080p', quality: 'high', format: 'mp4' }),
+    subtitles:     reactive({ enabled: false, source: 'chapters', srt_path: '', style: {} }),
+    generating:    ref(false),
+    jobOutput:     ref<string[]>([]),
+  }
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────────
+
+describe('useVideoAssemblyIo.generateVideo()', () => {
+  let state: ReturnType<typeof makeState>
+  let videoGenerating: any
+
+  beforeEach(() => {
+    state = makeState()
+    videoGenerating = ref(false)
+  })
+
+  test('cancelled confirmation short-circuits — no POST, returns false', async () => {
+    const { generateVideo } = useVideoAssemblyIo(state as any)
+    let postCalls = 0
+    const ok = await generateVideo({
+      post: async () => { postCalls++ },
+      confirmGeneration: async () => false, // user cancels the cost dialog
+      videoGenerating,
+    })
+    assert.equal(ok, false, 'cancel should return false')
+    assert.equal(postCalls, 0, 'cancel must not POST')
+    assert.equal(state.generating.value, false, 'generating flag stays false after cancel')
+    assert.equal(videoGenerating.value, false, 'videoGenerating stays false after cancel')
+  })
+
+  test('happy path — POSTs correct payload shape, returns true, flips flags', async () => {
+    const { generateVideo } = useVideoAssemblyIo(state as any)
+    let capturedUrl = ''
+    let capturedBody: any = null
+    const ok = await generateVideo({
+      post: async (url, body) => { capturedUrl = url; capturedBody = body },
+      confirmGeneration: async () => true,
+      videoGenerating,
+    })
+
+    assert.equal(ok, true)
+    assert.equal(capturedUrl, '/projects/proj-x/generate/video-assembly',
+      'POST must hit the video-assembly generate endpoint')
+
+    // Scene shape + filtering
+    assert.equal(capturedBody.scenes.length, 3, 'no scenes excluded in this test')
+    assert.deepEqual(capturedBody.scenes[0], {
+      image_path: '/i/1.png',
+      duration: 10,
+      title: 'First',
+      show_title: false, // chapterTitles.enabled is false
+    })
+    assert.equal(capturedBody.scenes[2].title, 'Scene 3',
+      'empty scene.title falls back to `Scene N`')
+
+    // Narration path resolution: merged_audio wins
+    assert.equal(capturedBody.narration_path, '/m/merged.mp3')
+    assert.equal(capturedBody.merged_audio_path, '/m/merged.mp3')
+
+    // Duration translation: hours/minutes → seconds
+    assert.equal(capturedBody.duration.min_duration, 1800) // 0h 30m
+    assert.equal(capturedBody.duration.max_duration, 3600) // 1h 0m
+
+    // Transition "none" maps to 0s duration
+    // (our baseline uses "fade"; confirm the echo)
+    assert.equal(capturedBody.transition, 'fade')
+    assert.equal(capturedBody.transition_duration, 0.5)
+
+    // No optional sections flipped on → not present in payload
+    assert.equal(capturedBody.logo, undefined)
+    assert.equal(capturedBody.intro, undefined)
+    assert.equal(capturedBody.title_image, undefined)
+    assert.equal(capturedBody.color_grading, undefined)
+    assert.equal(capturedBody.vignette, undefined)
+    assert.equal(capturedBody.chroma_key, undefined)
+    assert.equal(capturedBody.film_grain, undefined)
+    assert.equal(capturedBody.letterbox, undefined)
+    assert.equal(capturedBody.subtitles, undefined)
+    assert.equal(capturedBody.title_card, undefined)
+    assert.equal(capturedBody.outro_card, undefined)
+
+    // exclude_intro_from_effects passes through even when no effects enabled.
+    assert.equal(capturedBody.exclude_intro_from_effects, true)
+
+    // Flag lifecycle on SUCCESS: both `generating` and `videoGenerating`
+    // stay TRUE after submit. The caller owns the terminal transition —
+    // it watches the enqueued job via useJobs' SSE stream and flips the
+    // flags off when the job reaches done/error/cancelled. Clearing them
+    // here would hide the live output panel within ms of clicking Generate.
+    assert.equal(state.generating.value, true,
+      'generating stays true on submit — useJobs clears it when the job finishes')
+    assert.equal(videoGenerating.value, true,
+      'videoGenerating stays true on submit — the queue poller clears it later')
+    assert.deepEqual(state.jobOutput.value, [], 'jobOutput cleared on run start')
+  })
+
+  test('excluded scenes are dropped from the payload', async () => {
+    const { generateVideo } = useVideoAssemblyIo(state as any)
+    state.sceneRecycling.excluded_scenes = [2] // drop the middle one
+    let body: any
+    await generateVideo({
+      post: async (_u, b) => { body = b },
+      confirmGeneration: async () => true,
+      videoGenerating,
+    })
+    assert.equal(body.scenes.length, 2)
+    assert.deepEqual(body.scenes.map((s: any) => s.image_path), ['/i/1.png', '/i/3.png'])
+    // Excluded set still echoed in scene_recycling for the backend
+    assert.deepEqual(body.scene_recycling.excluded_scenes, [2])
+  })
+
+  test('narration falls through to narration_full when no merged audio exists', async () => {
+    const { generateVideo } = useVideoAssemblyIo(state as any)
+    state.scannedAssets.value.merged_audio = []
+    let body: any
+    await generateVideo({
+      post: async (_u, b) => { body = b },
+      confirmGeneration: async () => true,
+      videoGenerating,
+    })
+    assert.equal(body.narration_path, '/m/full.mp3',
+      'narration_full used when merged_audio is empty')
+    assert.equal(body.merged_audio_path, undefined)
+  })
+
+  test('narration falls through to first audio section when neither merged nor full exist', async () => {
+    const { generateVideo } = useVideoAssemblyIo(state as any)
+    state.scannedAssets.value.merged_audio = []
+    state.scannedAssets.value.narration_full = null
+    let body: any
+    await generateVideo({
+      post: async (_u, b) => { body = b },
+      confirmGeneration: async () => true,
+      videoGenerating,
+    })
+    assert.equal(body.narration_path, '/m/section-1.mp3')
+  })
+
+  test('enabled optional sections appear in the payload with rescaled values', async () => {
+    const { generateVideo } = useVideoAssemblyIo(state as any)
+    state.logo.enabled = true
+    state.logo.image_path = '/logo.png'
+    // Logo opacity/scale are stored 0-100 in UI but 0-1 on the wire.
+    state.logo.opacity = 80
+    state.logo.scale = 15
+
+    state.intro.enabled = true
+    state.intro.video_path = '/intro.mp4'
+
+    state.titleImage.enabled = true
+    state.titleImage.image_path = '/title.png'
+    state.titleImage.duration = 7
+
+    state.colorGrading.enabled = true
+    state.vignette.enabled = true
+    state.filmGrain.enabled = true
+    state.letterbox.enabled = true
+    state.chromaKey.enabled = true
+    state.chromaKey.source_path = '/green.mp4'
+    state.titleCard.enabled = true
+    state.outroCard.enabled = true
+    state.subtitles.enabled = true
+    state.subtitles.srt_path = '/subs.srt'
+
+    let body: any
+    await generateVideo({
+      post: async (_u, b) => { body = b },
+      confirmGeneration: async () => true,
+      videoGenerating,
+    })
+
+    assert.ok(body.logo, 'logo section present when enabled')
+    assert.equal(body.logo.opacity, 0.8, 'UI 80 → wire 0.8')
+    assert.equal(body.logo.scale, 0.15, 'UI 15 → wire 0.15')
+    assert.equal(body.intro.video_path, '/intro.mp4')
+    assert.equal(body.title_image.duration, 7)
+    assert.ok(body.color_grading, 'color_grading present when enabled')
+    assert.ok(body.vignette, 'vignette present when enabled')
+    assert.ok(body.film_grain, 'film_grain present when enabled')
+    assert.ok(body.letterbox, 'letterbox present when enabled')
+    assert.ok(body.chroma_key, 'chroma_key present when enabled AND source_path set')
+    assert.equal(body.title_card.text, 'T')
+    assert.ok(body.outro_card, 'outro_card present when enabled')
+    assert.equal(body.subtitles.srt_path, '/subs.srt')
+  })
+
+  test('timeline_clips filters disabled/empty rows and omits the key when none remain', async () => {
+    const { generateVideo } = useVideoAssemblyIo(state as any)
+    state.timelineClips.value = [
+      { id: 'a', video_path: '/black.mp4', anchor: 'after_outro', enabled: true },
+      { id: 'b', video_path: '', anchor: 'before_intro', enabled: true },   // empty path → drop
+      { id: 'c', video_path: '/sting.mp4', anchor: 'after_scenes', enabled: false }, // disabled → drop
+      { id: 'd', video_path: '/opener.mp4', anchor: 'before_intro', enabled: true },
+    ]
+    let body: any
+    await generateVideo({
+      post: async (_u, b) => { body = b },
+      confirmGeneration: async () => true,
+      videoGenerating,
+    })
+    assert.ok(Array.isArray(body.timeline_clips), 'timeline_clips included when at least one valid row exists')
+    assert.equal(body.timeline_clips.length, 2, 'empty-path and disabled rows are filtered out')
+    assert.deepEqual(
+      body.timeline_clips.map((c: any) => c.id),
+      ['a', 'd'],
+      'order is preserved from the source list (filter, not reorder)',
+    )
+    assert.equal(body.timeline_clips[0].anchor, 'after_outro')
+    assert.equal(body.timeline_clips[1].anchor, 'before_intro')
+  })
+
+  test('timeline_clips key is omitted from payload when list is empty (back-compat)', async () => {
+    const { generateVideo } = useVideoAssemblyIo(state as any)
+    // Default makeState leaves timelineClips empty. Omitting the key keeps
+    // the payload byte-identical to pre-feature requests, so presets saved
+    // before timeline clips still decode and the backend's `?.length`
+    // guard short-circuits without allocation.
+    let body: any
+    await generateVideo({
+      post: async (_u, b) => { body = b },
+      confirmGeneration: async () => true,
+      videoGenerating,
+    })
+    assert.equal(body.timeline_clips, undefined, 'empty list → key absent, not an empty array')
+  })
+
+  test('chroma_key is NOT included if enabled but source_path is empty', async () => {
+    const { generateVideo } = useVideoAssemblyIo(state as any)
+    state.chromaKey.enabled = true
+    state.chromaKey.source_path = '' // user enabled but didn't pick a file
+    let body: any
+    await generateVideo({
+      post: async (_u, b) => { body = b },
+      confirmGeneration: async () => true,
+      videoGenerating,
+    })
+    assert.equal(body.chroma_key, undefined,
+      'chroma_key requires a source_path — the enabled flag alone is not enough')
+  })
+
+  test('submit error resets videoGenerating + generating, returns false', async () => {
+    const { generateVideo } = useVideoAssemblyIo(state as any)
+    const ok = await generateVideo({
+      post: async () => { throw new Error('backend down') },
+      confirmGeneration: async () => true,
+      videoGenerating,
+    })
+    assert.equal(ok, false)
+    assert.equal(state.generating.value, false,
+      'generating must be rolled back on submit failure — no SSE job exists to clear it later')
+    assert.equal(videoGenerating.value, false,
+      'videoGenerating must roll back to false on submit failure — otherwise the sidebar pulse sticks')
+  })
+
+  test('chapter titles show_title flag threads through to each scene', async () => {
+    const { generateVideo } = useVideoAssemblyIo(state as any)
+    state.chapterTitles.enabled = true
+    let body: any
+    await generateVideo({
+      post: async (_u, b) => { body = b },
+      confirmGeneration: async () => true,
+      videoGenerating,
+    })
+    for (const scene of body.scenes) {
+      assert.equal(scene.show_title, true,
+        'every scene inherits chapterTitles.enabled on its show_title flag')
+    }
+  })
+})

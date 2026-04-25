@@ -1,0 +1,296 @@
+/**
+ * kie.ai image generation client.
+ * Port of generate_images.py submit_generation + poll_for_image_urls.
+ * Supports all 4 payload format types: jobs, flux, 4o, gpt-image.
+ */
+
+import fs from 'fs/promises'
+import { createWriteStream } from 'fs'
+import path from 'path'
+import { pipeline } from 'stream/promises'
+import { Readable } from 'stream'
+import { sleepCancellable } from './http-retry.js'
+import { redactSecrets } from './redact-secrets.js'
+import type { ImageModelConfig } from '../models/types.js'
+
+const KIE_BASE_URL = 'https://api.kie.ai/api/v1'
+const POLL_INTERVAL = 6000 // ms
+const MAX_WAIT = 360000 // 6 minutes
+const MAX_CONSECUTIVE_FAILURES = 8
+
+export async function submitGeneration(
+  prompt: string, apiKey: string, aspectRatio: string,
+  modelConfig: ImageModelConfig,
+): Promise<string> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+  }
+
+  let payload: any
+
+  switch (modelConfig.type) {
+    case 'flux':
+      payload = { prompt, aspectRatio, model: modelConfig.api_model }
+      break
+    case '4o':
+      payload = { prompt, size: aspectRatio }
+      break
+    case 'gpt-image': {
+      const ar = ['1:1', '2:3', '3:2'].includes(aspectRatio) ? aspectRatio : '1:1'
+      payload = { model: modelConfig.api_model, input: { prompt, aspect_ratio: ar, quality: 'medium' } }
+      break
+    }
+    default: // 'jobs' — standard endpoint
+      payload = { model: modelConfig.api_model, input: { prompt, aspect_ratio: aspectRatio } }
+  }
+
+  const resp = await fetch(`${KIE_BASE_URL}${modelConfig.endpoint}`, {
+    method: 'POST', headers, body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(30000),
+  })
+
+  if (!resp.ok) {
+    const text = await resp.text()
+    throw new Error(`API request failed (${resp.status}): ${redactSecrets(text, apiKey)}`)
+  }
+
+  const data = await resp.json() as any
+  const taskId = data?.data?.taskId || data?.taskId || data?.data?.task_id || data?.task_id
+  if (!taskId) throw new Error(`No task ID in response: ${redactSecrets(JSON.stringify(data), apiKey)}`)
+  return String(taskId)
+}
+
+/**
+ * Single-shot lookup of image URLs for a previously-submitted task.
+ *
+ * Unlike `pollForImageUrls`, this DOES NOT loop or wait. It hits
+ * `/jobs/recordInfo?taskId=X` once and returns:
+ *   - `{ urls }` if the task has finished and produced URLs
+ *   - `{ urls: [], status: 'pending' }` if still in progress
+ *   - `{ urls: [], status: 'failed' }` if the provider failed it
+ *   - `{ urls: [], status: 'expired' }` if the task record is gone (404)
+ *
+ * Used by the image-reconciler to recover already-paid-for results
+ * without re-submitting the prompt. Caller decides whether to retry,
+ * skip, or fall back to regeneration based on `status`.
+ */
+export interface FetchByTaskIdResult {
+  urls: string[]
+  status: 'success' | 'pending' | 'failed' | 'expired' | 'unknown'
+  message?: string
+}
+export async function fetchImageUrlsByTaskId(
+  taskId: string, apiKey: string, modelConfig: ImageModelConfig,
+): Promise<FetchByTaskIdResult> {
+  const headers = { Authorization: `Bearer ${apiKey}` }
+  const pollEndpoint = modelConfig.poll || '/jobs/recordInfo'
+  const resp = await fetch(
+    `${KIE_BASE_URL}${pollEndpoint}?taskId=${encodeURIComponent(taskId)}`,
+    { headers, signal: AbortSignal.timeout(30000) },
+  )
+
+  if (resp.status === 404) {
+    return { urls: [], status: 'expired', message: 'Task record not found (likely purged by provider)' }
+  }
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    return { urls: [], status: 'unknown', message: `HTTP ${resp.status}: ${text.slice(0, 200)}` }
+  }
+
+  const data = await resp.json() as any
+  const taskData = data.data || data
+
+  // Reuse the same status detection as pollForImageUrls — successFlag (kie's
+  // newer numeric flag) takes priority, fall back to string state/status.
+  let status: string
+  const successFlag = taskData.successFlag
+  if (successFlag !== undefined && successFlag !== null) {
+    status = successFlag === 1 ? 'success' : successFlag >= 2 ? 'failed' : 'pending'
+  } else {
+    status = String(taskData.state || taskData.status || '').toLowerCase()
+  }
+
+  if (['success', 'completed', 'finished', 'succeed'].includes(status)) {
+    let urls: string[] = []
+    const responseObj = taskData.response
+    if (typeof responseObj === 'object' && responseObj) {
+      const rUrls = responseObj.resultUrls || responseObj.imageUrls || []
+      if (rUrls.length) urls = rUrls.filter((u: any) => typeof u === 'string' && u)
+      if (!urls.length) {
+        const single = responseObj.resultImageUrl || responseObj.imageUrl
+        if (single) urls = [single]
+      }
+    }
+    if (!urls.length && taskData.resultJson) {
+      try {
+        const rj = typeof taskData.resultJson === 'string' ? JSON.parse(taskData.resultJson) : taskData.resultJson
+        const rUrls = rj.resultUrls || rj.imageUrls || []
+        urls = rUrls.filter((u: any) => typeof u === 'string' && u)
+      } catch { /* ignore */ }
+    }
+    if (!urls.length) {
+      for (const key of ['imageUrls', 'images', 'resultUrls', 'outputUrls']) {
+        const val = taskData[key]
+        if (Array.isArray(val) && val.length) {
+          urls = val.map((u: any) => typeof u === 'string' ? u : u?.url || '').filter(Boolean)
+          break
+        }
+      }
+    }
+    if (!urls.length) {
+      const single = taskData.imageUrl || taskData.resultUrl || taskData.outputUrl
+      if (single) urls = [single]
+    }
+    return urls.length
+      ? { urls, status: 'success' }
+      : { urls: [], status: 'unknown', message: 'Task succeeded but no URLs in response' }
+  }
+  if (['failed', 'error', 'fail'].includes(status)) {
+    return { urls: [], status: 'failed', message: taskData.errorMessage || taskData.error || 'Provider reported failure' }
+  }
+  return { urls: [], status: 'pending', message: `Task status: ${status || 'unknown'}` }
+}
+
+export async function pollForImageUrls(
+  taskId: string, apiKey: string, modelConfig: ImageModelConfig,
+  opts: { isCancelled?: () => boolean } = {},
+): Promise<string[]> {
+  const headers = { Authorization: `Bearer ${apiKey}` }
+  const pollEndpoint = modelConfig.poll || '/jobs/recordInfo'
+  const deadline = Date.now() + MAX_WAIT
+  let consecutiveFailures = 0
+  const isCancelled = opts.isCancelled
+
+  while (Date.now() < deadline) {
+    // Probe before each iteration so a user-cancelled batch stops burning
+    // 6-minute poll loops per in-flight image instead of running to MAX_WAIT.
+    if (isCancelled?.()) throw new Error('Cancelled by user')
+    try {
+      const resp = await fetch(
+        `${KIE_BASE_URL}${pollEndpoint}?taskId=${taskId}`,
+        { headers, signal: AbortSignal.timeout(30000) },
+      )
+      if (!resp.ok) {
+        // Escalate after a run of non-2xx so a sustained 429 / 502 surfaces
+        // as "rate-limited" / "upstream failing" instead of the old silent
+        // "timed out after 6 minutes". Retry-After is respected when sent.
+        consecutiveFailures++
+        if (consecutiveFailures > MAX_CONSECUTIVE_FAILURES) {
+          const text = await resp.text().catch(() => '')
+          throw new Error(`kie.ai poll: ${resp.status} ${resp.statusText} — ${redactSecrets(text, apiKey).slice(0, 200)}`)
+        }
+        const retryAfter = Number(resp.headers.get('Retry-After'))
+        const wait = Number.isFinite(retryAfter) && retryAfter > 0
+          ? Math.min(retryAfter * 1000, 60_000)
+          : Math.min(POLL_INTERVAL * Math.pow(2, Math.min(consecutiveFailures, 4)), 60_000)
+        await sleepCancellable(wait, isCancelled)
+        continue
+      }
+      consecutiveFailures = 0
+      const data = await resp.json() as any
+      const taskData = data.data || data
+
+      // Determine status
+      let status: string
+      const successFlag = taskData.successFlag
+      if (successFlag !== undefined && successFlag !== null) {
+        status = successFlag === 1 ? 'success' : successFlag >= 2 ? 'failed' : 'pending'
+      } else {
+        status = String(taskData.state || taskData.status || '').toLowerCase()
+      }
+
+      if (['success', 'completed', 'finished', 'succeed'].includes(status)) {
+        let urls: string[] = []
+
+        // Check "response" object (Flux, 4o, newer models)
+        const responseObj = taskData.response
+        if (typeof responseObj === 'object' && responseObj) {
+          const rUrls = responseObj.resultUrls || responseObj.imageUrls || []
+          if (rUrls.length) urls = rUrls.filter((u: any) => typeof u === 'string' && u)
+          if (!urls.length) {
+            const single = responseObj.resultImageUrl || responseObj.imageUrl
+            if (single) urls = [single]
+          }
+        }
+
+        // Grok returns resultJson as JSON string
+        if (!urls.length && taskData.resultJson) {
+          try {
+            const rj = typeof taskData.resultJson === 'string' ? JSON.parse(taskData.resultJson) : taskData.resultJson
+            const rUrls = rj.resultUrls || rj.imageUrls || []
+            urls = rUrls.filter((u: any) => typeof u === 'string' && u)
+          } catch { /* ignore */ }
+        }
+
+        // Fallback fields
+        if (!urls.length) {
+          for (const key of ['imageUrls', 'images', 'resultUrls', 'outputUrls']) {
+            const val = taskData[key]
+            if (Array.isArray(val) && val.length) {
+              urls = val.map((u: any) => typeof u === 'string' ? u : u?.url || '').filter(Boolean)
+              break
+            }
+          }
+        }
+
+        if (!urls.length) {
+          const single = taskData.imageUrl || taskData.resultUrl || taskData.outputUrl
+          if (single) urls = [single]
+        }
+
+        if (urls.length) return urls
+        throw new Error(`Task succeeded but no image URLs found: ${redactSecrets(JSON.stringify(taskData), apiKey).slice(0, 500)}`)
+      }
+
+      if (['failed', 'error', 'fail'].includes(status)) {
+        throw new Error(`Image generation failed: ${taskData.failReason || taskData.error || 'Unknown'}`)
+      }
+
+      await sleepCancellable(POLL_INTERVAL, isCancelled)
+    } catch (e: any) {
+      // Terminal conditions must propagate; the outer catch-then-retry loop
+      // is for transient network errors only. Message-based sniffing is
+      // fragile but preserves the existing contract. A user-cancel error
+      // raised inside sleepCancellable is also terminal — don't retry.
+      const msg = String(e?.message || '')
+      if (msg === 'Cancelled by user'
+          || msg.includes('generation failed')
+          || msg.includes('no image URLs')
+          || msg.startsWith('kie.ai poll:')) throw e
+      // Network-level failure: count against the consecutive-failure budget.
+      if (++consecutiveFailures > MAX_CONSECUTIVE_FAILURES) {
+        throw new Error(`kie.ai poll: ${consecutiveFailures} consecutive fetch errors (${msg})`)
+      }
+      await sleepCancellable(POLL_INTERVAL, isCancelled)
+    }
+  }
+
+  throw new Error(`Task ${taskId} did not complete within ${MAX_WAIT / 1000} seconds`)
+}
+
+export async function downloadImage(url: string, savePath: string): Promise<void> {
+  await fs.mkdir(path.dirname(savePath), { recursive: true })
+  const resp = await fetch(url, { signal: AbortSignal.timeout(120000) })
+  if (!resp.ok || !resp.body) throw new Error(`Download failed: ${resp.status}`)
+  const writeStream = createWriteStream(savePath)
+  // Clean up a partial/truncated file on stream error so the generator's
+  // `existsSync` skip guard doesn't mistake it for a valid cache hit next run.
+  try {
+    await pipeline(Readable.fromWeb(resp.body as any), writeStream)
+  } catch (e) {
+    await fs.rm(savePath, { force: true }).catch(() => {})
+    throw e
+  }
+  // Providers occasionally return 200 with a 0-byte body; treat that as a
+  // failure here rather than letting the half-file propagate downstream.
+  const stat = await fs.stat(savePath)
+  if (stat.size === 0) {
+    await fs.rm(savePath, { force: true }).catch(() => {})
+    throw new Error('Image download wrote 0 bytes')
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}

@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+frontend/.nuxt/
+frontend/.output/
+
+# Build artifacts
+dist/
+build/
+electron/dist/
+*.dmg
+*.exe
+*.AppImage
+
+# App settings (machine-local)
+app-settings.json
+last-session.json
+
+# Secrets — per-project API keys (never commit)
+projects/*/secrets.json
+electron/projects/*/secrets.json
+
+# Project config with API keys (sensitive)
+projects/*/config.json
+
+# Job/session state (machine-specific)
+projects/*/jobs.json
+projects/*/sessions.json
+
+# Legacy runtime data that leaked into the source tree from older dev builds.
+# PROJECTS_ROOT now always resolves to Electron userData, but migrateLegacyProjects
+# still reads from these paths so leave them in place on disk — just never commit.
+electron/projects/
+electron/logs/
+/projects/
+
+# Test output
+test-results.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Environment
+.env
+.env.local
+.env.*.local

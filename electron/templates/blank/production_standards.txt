@@ -1,0 +1,56 @@
+# Production Standards
+# These guidelines are included in every AI prompt to ensure consistent output quality.
+# Customize them to match your channel's style and format.
+
+## Script / Narration
+- Target word count: 5,000-8,000 words per episode (adjust for desired duration)
+- Chapter count: 8-12 chapters with descriptive titles
+- Include an introduction section (300-400 words) with a warm welcome and story preview
+- Use varied sentence structure; avoid repetitive phrasing
+- Maintain a consistent narrative voice throughout
+
+## Image Prompts
+- Each prompt should describe a single scene clearly and concisely
+- Include details about: setting, lighting, mood, colors, and any characters
+- End every prompt with your preferred style tag (e.g., "watercolor style, soft palette")
+- Generate 2-3 scene prompts per chapter, plus 3-5 thumbnail prompts
+
+## Audio / Narration
+- Maintain consistent pacing across chapters
+- Allow natural pauses between sections
+- Target audience: relaxation / sleep / meditation listeners
+
+## YouTube Metadata
+- Include relevant keywords in title and description
+- Add timestamps for each chapter
+- Include appropriate hashtags for discoverability
+
+---
+
+## How to Customize These Standards
+
+Paste the prompt below into any LLM (ChatGPT, Claude, etc.) to generate production standards tailored to your channel:
+
+```
+I'm building a content production pipeline for a [YOUR CONTENT TYPE] channel called [YOUR CHANNEL NAME].
+
+My content style is: [DESCRIBE YOUR STYLE - e.g., "cozy bedtime stories with fantasy themes, aimed at adults seeking relaxation"]
+
+My visual style is: [DESCRIBE YOUR IMAGE STYLE - e.g., "Studio Ghibli inspired watercolor illustrations with warm earth tones"]
+
+My narrator voice is: [DESCRIBE YOUR NARRATION STYLE - e.g., "warm, gentle, first-person narrator with a contemplative tone"]
+
+Typical episode length: [e.g., "30-60 minutes of narration"]
+Typical chapter count: [e.g., "8-12 chapters per episode"]
+
+Please generate a complete production standards document that includes:
+1. Word count targets (per episode, per chapter, for intro)
+2. Narration style rules (tone, pronouns, pacing, character references)
+3. Image prompt rules (mandatory style tag to append, scene composition guidelines, character consistency rules)
+4. Chapter formatting standards (heading format, section structure)
+5. Quality checks (what to verify before publishing)
+
+Format it as a plain text document I can paste into my production tool.
+```
+
+Copy the LLM's response and paste it here to replace these default standards.

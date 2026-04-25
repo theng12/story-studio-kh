@@ -1,0 +1,197 @@
+/**
+ * GenAIPro Labs TTS client.
+ * API docs: https://docs.genaipro.vn/
+ * Base: https://genaipro.vn/api
+ * Auth: Bearer token in Authorization header.
+ *
+ * Flow: POST /v1/labs/task → { task_id } → poll GET /v1/labs/task/{task_id} until status=completed → { result: audioUrl }.
+ */
+
+import { redactSecrets } from './redact-secrets.js'
+import { sleepCancellable } from './http-retry.js'
+
+const BASE = 'https://genaipro.vn/api'
+const POLL_INTERVAL = 3000
+// Bumped from 5 min → 20 min: GenAIPro chapter-length TTS tasks routinely
+// exceed 5 min on their side, and timing out client-side orphans the task
+// (history is only retained for ~1 day, so retroactive recovery has a tight
+// window). Twenty minutes covers ~99% of long-form chapters.
+const MAX_WAIT = 1200000
+
+// Map short IDs used by Story Studio to GenAIPro model IDs.
+const MODEL_MAP: Record<string, string> = {
+  'genaipro-multilingual-v2': 'eleven_multilingual_v2',
+  'genaipro-turbo-v2.5':      'eleven_turbo_v2_5',
+  'genaipro-flash-v2.5':      'eleven_flash_v2_5',
+  'genaipro-v3':              'eleven_v3',
+  // Accept raw IDs as pass-through
+  'eleven_multilingual_v2':   'eleven_multilingual_v2',
+  'eleven_turbo_v2_5':        'eleven_turbo_v2_5',
+  'eleven_flash_v2_5':        'eleven_flash_v2_5',
+  'eleven_v3':                'eleven_v3',
+}
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+export interface GenerateTtsOpts {
+  model?: string
+  voiceId?: string
+  speed?: number
+  stability?: number
+  similarity?: number
+  style?: number
+  /**
+   * Max time to wait for the TTS task to reach `status=completed`, in ms.
+   * Overrides the 20-minute default. User-facing setting in Settings →
+   * Performance exposes this per-project.
+   */
+  timeoutMs?: number
+  /**
+   * Called immediately after the task_id is returned from POST /v1/labs/task,
+   * before polling begins. Lets the caller persist the task_id to a sidecar
+   * manifest so that if polling times out, recovery can find the task later.
+   * Awaited so the caller can do async I/O; errors are swallowed (sidecar
+   * write failures must not break the generation flow).
+   */
+  onTaskSubmitted?: (taskId: string) => Promise<void> | void
+  /** Probe for user cancel — stops polling immediately. */
+  isCancelled?: () => boolean
+}
+
+export async function generateTts(
+  text: string, apiKey: string, opts: GenerateTtsOpts = {},
+): Promise<string> {
+  if (!apiKey) throw new Error('No GenAIPro API key configured. Add one in Settings → API Keys.')
+  if (!opts.voiceId) throw new Error('GenAIPro TTS requires a voice_id. Pick a voice in Settings → Voices.')
+
+  const modelId = MODEL_MAP[opts.model || 'genaipro-multilingual-v2'] || 'eleven_multilingual_v2'
+
+  const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+  }
+
+  const body = {
+    input: text,
+    voice_id: opts.voiceId,
+    model_id: modelId,
+    stability: opts.stability ?? 0.75,
+    similarity: opts.similarity ?? 0.5,
+    speed: opts.speed ?? 1,
+    style: opts.style ?? 0,
+    use_speaker_boost: true,
+  }
+
+  const submit = await fetch(`${BASE}/v1/labs/task`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+  if (!submit.ok) {
+    const err = await submit.text()
+    throw new Error(`GenAIPro submit failed (${submit.status}): ${redactSecrets(err, apiKey).slice(0, 300)}`)
+  }
+  const { task_id } = await submit.json() as { task_id: string }
+  if (!task_id) throw new Error('GenAIPro did not return a task_id')
+
+  // Persist the task_id ASAP (before polling), so a later timeout or crash
+  // still leaves us with a reference for recovery.
+  if (opts.onTaskSubmitted) {
+    try { await opts.onTaskSubmitted(task_id) } catch { /* sidecar never blocks */ }
+  }
+
+  const deadline = Date.now() + (opts.timeoutMs ?? MAX_WAIT)
+  while (Date.now() < deadline) {
+    if (opts.isCancelled?.()) throw new Error('Cancelled by user')
+    await sleepCancellable(POLL_INTERVAL, opts.isCancelled)
+    const poll = await fetch(`${BASE}/v1/labs/task/${task_id}`, { headers })
+    if (!poll.ok) {
+      const err = await poll.text()
+      throw new Error(`GenAIPro poll failed (${poll.status}): ${redactSecrets(err, apiKey).slice(0, 200)}`)
+    }
+    const task = await poll.json() as { status?: string; result?: string; error?: string }
+    if (task.status === 'completed' && task.result) return task.result
+    if (task.status === 'failed' || task.status === 'error') {
+      throw new Error(`GenAIPro task failed: ${task.error || 'unknown error'}`)
+    }
+  }
+  throw new Error(`GenAIPro TTS timed out after ${Math.round((opts.timeoutMs ?? MAX_WAIT) / 60000)} minutes`)
+}
+
+/**
+ * Shape of a Labs TTS task in GenAIPro's history.
+ * Only the fields we rely on for recovery — the API returns more.
+ */
+export interface LabsTask {
+  id: string
+  input: string
+  voice_id: string
+  model_id: string
+  status: string          // 'completed' | 'failed' | 'processing' | ...
+  result?: string         // audio URL, present when completed
+  created_at: string
+}
+
+/**
+ * Fetch a single task by its ID. Used by the reconciler's stored-id-first
+ * recovery path — if the sidecar manifest has a task_id for a missing
+ * audio chunk, we can fetch it directly without scanning history.
+ * Returns null on 404 / error (task aged out, ID typo, etc.).
+ */
+export async function getTaskById(apiKey: string, taskId: string): Promise<LabsTask | null> {
+  if (!apiKey || !taskId) return null
+  try {
+    const resp = await fetch(`${BASE}/v1/labs/task/${taskId}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+    if (!resp.ok) return null
+    const data = await resp.json() as LabsTask
+    if (!data?.id) return null
+    return data
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Paginate through the Labs task history.
+ *
+ * GenAIPro only retains TTS history for ~1 day, so this will typically
+ * return small volumes (dozens of entries). We cap at 10 pages × 100 tasks
+ * = 1000 entries as a safety rail in case the user ran a massive batch.
+ */
+export async function listAllLabsTasks(apiKey: string): Promise<LabsTask[]> {
+  if (!apiKey) return []
+  const out: LabsTask[] = []
+  const limit = 100
+  const maxPages = 10
+  for (let page = 1; page <= maxPages; page++) {
+    const resp = await fetch(`${BASE}/v1/labs/task?page=${page}&limit=${limit}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+    if (!resp.ok) {
+      const err = await resp.text()
+      throw new Error(`GenAIPro task history failed (${resp.status}): ${redactSecrets(err, apiKey).slice(0, 200)}`)
+    }
+    const data = await resp.json() as { tasks?: LabsTask[]; total?: number }
+    const tasks = data.tasks || []
+    out.push(...tasks)
+    if (tasks.length < limit) break
+    if (typeof data.total === 'number' && out.length >= data.total) break
+  }
+  return out
+}
+
+export async function getCredits(apiKey: string): Promise<number | null> {
+  if (!apiKey) return null
+  try {
+    const resp = await fetch(`${BASE}/v1/labs/credits`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+    if (!resp.ok) return null
+    const arr = await resp.json() as Array<{ amount?: number }>
+    return Array.isArray(arr) ? arr.reduce((s, c) => s + (c.amount || 0), 0) : null
+  } catch {
+    return null
+  }
+}
