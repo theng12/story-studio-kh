@@ -33,10 +33,28 @@ function isPackagedApp(): boolean {
   return false
 }
 
+/**
+ * Walk up from `start` until a directory contains `electron/server/patterns`.
+ * See format-loader.ts findRepoFormatsDir for the full rationale — same fix.
+ */
+function findRepoPatternsDir(start: string, maxDepth = 8): string | null {
+  let cur = start
+  for (let i = 0; i < maxDepth; i++) {
+    const candidate = path.join(cur, 'electron', 'server', 'patterns')
+    if (existsSync(candidate)) return candidate
+    const parent = path.dirname(cur)
+    if (parent === cur) break
+    cur = parent
+  }
+  return null
+}
+
 function resolveBuiltinPatternsDir(): string {
   if (isPackagedApp() && process.resourcesPath) {
     return path.join(process.resourcesPath, 'patterns')
   }
+  const found = findRepoPatternsDir(__dirname)
+  if (found) return found
   const ROOT = path.resolve(__dirname, '..', '..', '..')
   return path.join(ROOT, 'electron', 'server', 'patterns')
 }

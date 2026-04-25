@@ -56,11 +56,35 @@ function isPackagedApp(): boolean {
   return false
 }
 
+/**
+ * Walk up from `start` until a directory contains `electron/server/formats`.
+ * Robust to both source layout (electron/server/services running via tsx)
+ * AND compiled layout (electron/dist/server/services running via Electron),
+ * which differ in depth. Returns null if no match within `maxDepth` levels.
+ */
+function findRepoFormatsDir(start: string, maxDepth = 8): string | null {
+  let cur = start
+  for (let i = 0; i < maxDepth; i++) {
+    const candidate = path.join(cur, 'electron', 'server', 'formats')
+    if (existsSync(candidate)) return candidate
+    const parent = path.dirname(cur)
+    if (parent === cur) break
+    cur = parent
+  }
+  return null
+}
+
 function resolveBuiltinFormatsDir(): string {
   if (isPackagedApp() && process.resourcesPath) {
     return path.join(process.resourcesPath, 'formats')
   }
-  // Dev / tests: source-tree path. ROOT = repo root (3 up from services/).
+  // Dev / tests / Electron-running-dist: walk up to find the source dir.
+  // From source (electron/server/services) it's 3 ups; from compiled
+  // (electron/dist/server/services) it's 4 ups; the search handles both.
+  const found = findRepoFormatsDir(__dirname)
+  if (found) return found
+  // Fallback to the 3-ups guess so the loader still has *some* path to
+  // attempt (will produce a clearer "not found" error than throwing here).
   const ROOT = path.resolve(__dirname, '..', '..', '..')
   return path.join(ROOT, 'electron', 'server', 'formats')
 }
