@@ -15,6 +15,23 @@ const MODELS = [
   'o3', 'o3-mini', 'o4-mini', 'o1', 'o1-mini',
 ]
 
+/**
+ * True for OpenAI models that REQUIRE `max_completion_tokens` and reject
+ * the legacy `max_tokens` parameter. As of 2026-04 this covers:
+ *   - gpt-5 family (gpt-5, gpt-5-mini, …)
+ *   - all reasoning models: o1*, o3*, o4*, o5+, o-series
+ * Legacy chat completions (gpt-4o, gpt-4.1, gpt-4-turbo, gpt-3.5) still
+ * accept `max_tokens`, so we keep using it there to avoid forcing every
+ * preset onto the new SDK field. Pattern-based so as new models drop
+ * (gpt-6, o5-mini, etc.) they're covered without a code change.
+ */
+export function isCompletionTokensModel(model: string): boolean {
+  const m = model.toLowerCase()
+  if (m.startsWith('gpt-5')) return true
+  if (/^o[1-9]/.test(m)) return true   // o1, o3, o4-mini, o5, …
+  return false
+}
+
 const openaiProvider: TextProvider = {
   meta: {
     id: 'openai',
@@ -40,15 +57,26 @@ const openaiProvider: TextProvider = {
 
     // Request options (second argument) carries the AbortSignal — the SDK
     // threads it to the underlying fetch, so a user cancel tears down the
-    // HTTP stream instead of letting the model run to max_tokens.
+    // HTTP stream instead of letting the model run to max output tokens.
     const reqOpts = signal ? { signal } : undefined
+
+    // Token-cap field: legacy chat models accept `max_tokens`; gpt-5 and
+    // every reasoning model (o1/o3/o4-…) reject it and require the newer
+    // `max_completion_tokens` instead. Detect by family — anything that
+    // looks like a reasoning model OR the gpt-5 family takes the new
+    // field; gpt-4/gpt-4o/gpt-4-turbo etc. stay on the legacy field.
+    const usesCompletionTokens = isCompletionTokensModel(model)
+    const tokenCap = maxTokens || (stream ? 16000 : 8000)
+    const tokenField = usesCompletionTokens
+      ? { max_completion_tokens: tokenCap }
+      : { max_tokens: tokenCap }
 
     try {
       if (stream) {
         const collected: string[] = []
         const response = await client.chat.completions.create({
           model,
-          max_tokens: maxTokens || 16000,
+          ...tokenField,
           messages: [
             { role: 'system', content: system },
             { role: 'user', content: userMessage },
@@ -63,7 +91,7 @@ const openaiProvider: TextProvider = {
       } else {
         const response = await client.chat.completions.create({
           model,
-          max_tokens: maxTokens || 8000,
+          ...tokenField,
           messages: [
             { role: 'system', content: system },
             { role: 'user', content: userMessage },

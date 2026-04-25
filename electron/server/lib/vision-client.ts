@@ -108,12 +108,18 @@ async function callAnthropic(input: AnalyzeStyleInput, imageBuffer: Buffer, mime
 
 async function callOpenAi(input: AnalyzeStyleInput, imageBuffer: Buffer, mime: string): Promise<string> {
   const { default: OpenAI } = await import('openai')
+  const { isCompletionTokensModel } = await import('../providers/text/openai.js')
   const client = new OpenAI({ apiKey: input.apiKey })
   const dataUrl = `data:${mime};base64,${imageBuffer.toString('base64')}`
   const userPrompt = input.focus ? `${STYLE_PROMPT}\n\nFocus hint: ${input.focus}` : STYLE_PROMPT
+  // gpt-5 + reasoning models reject `max_tokens` and require the newer
+  // `max_completion_tokens` field. Pick the right one per model family.
+  const tokenField = isCompletionTokensModel(input.model)
+    ? { max_completion_tokens: 400 }
+    : { max_tokens: 400 }
   const resp = await client.chat.completions.create({
     model: input.model,
-    max_tokens: 400,
+    ...tokenField,
     messages: [{
       role: 'user',
       content: [

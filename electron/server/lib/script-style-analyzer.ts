@@ -79,10 +79,16 @@ async function callAnthropic(input: AnalyzeStyleInput): Promise<string> {
 
 async function callOpenAi(input: AnalyzeStyleInput): Promise<string> {
   const { default: OpenAI } = await import('openai')
+  const { isCompletionTokensModel } = await import('../providers/text/openai.js')
   const client = new OpenAI({ apiKey: input.apiKey })
+  // gpt-5 and reasoning models (o1/o3/o4) reject `max_tokens` and require
+  // `max_completion_tokens` instead — pick the right field based on model.
+  const tokenField = isCompletionTokensModel(input.model)
+    ? { max_completion_tokens: 2000 }
+    : { max_tokens: 2000 }
   const resp = await client.chat.completions.create({
     model: input.model,
-    max_tokens: 2000,
+    ...tokenField,
     messages: [
       { role: 'system', content: STYLE_ANALYSIS_PROMPT },
       { role: 'user', content: buildUserMessage(input.references) },
