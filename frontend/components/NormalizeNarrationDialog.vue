@@ -107,13 +107,37 @@ const emit = defineEmits<{
   (e: 'normalized', result: any): void
 }>()
 
-const { post } = useApi()
+const { post, get, put } = useApi()
 const { success, error: showError } = useToast()
 
 const sourcePath = ref('')
 const model = ref('')
 const busy = ref(false)
 const result = ref<any>(null)
+
+/**
+ * Project-config key for the last-used model. Mirrors the `_last_preset`
+ * convention used elsewhere (scripts/audio/image presets). Per-project
+ * so each project remembers its own preferred model.
+ */
+const LAST_MODEL_KEY = 'narration_normalizer_last_model'
+
+async function loadLastUsedModel() {
+  try {
+    const config = await get<any>(`/projects/${props.slug}/settings/config`)
+    const saved = typeof config?.[LAST_MODEL_KEY] === 'string' ? config[LAST_MODEL_KEY] : ''
+    if (saved) model.value = saved
+  } catch { /* config unreadable → leave empty; ModelSelector will show its default */ }
+}
+
+async function saveLastUsedModel() {
+  if (!model.value) return
+  try {
+    await put(`/projects/${props.slug}/settings/config`, {
+      [LAST_MODEL_KEY]: model.value,
+    })
+  } catch { /* non-fatal: persistence failure shouldn't block the dialog flow */ }
+}
 
 interface PickFileResp { path: string | null }
 
@@ -150,6 +174,11 @@ async function run() {
       ? `${props.episodeCode} skipped (already canonical)`
       : `${props.episodeCode} normalised — ${r.chapters_written} chapters written`)
     emit('normalized', r)
+    // Remember the model on success so reopening the dialog skips the
+    // "pick a model" step. Skipped runs don't update the saved choice
+    // (the user might have intended a different model and the source
+    // happened to already be canonical).
+    if (!r.skipped) saveLastUsedModel()
   } catch (e: any) {
     showError(e?.data?.detail || 'Normalisation failed')
   } finally {
@@ -166,6 +195,10 @@ watch(() => props.visible, (v) => {
   if (v) {
     sourcePath.value = ''
     result.value = null
+    // Load last-used model. If nothing's saved yet, ModelSelector falls
+    // back to its first-available default. Awaited via .then so the
+    // dialog open isn't blocked on a slow config read.
+    loadLastUsedModel().catch(() => {})
   }
 })
 </script>
