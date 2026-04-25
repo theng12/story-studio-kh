@@ -1,0 +1,127 @@
+{
+  "id": "comedy",
+  "name": "Comedy",
+  "description": "Conversational, joke-aware narration. Suits comedy storytelling channels, humorous deep-dives, satirical history/science, comic recountings of weird-but-true events. Pacing built around punchlines and tangents.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "idea": {
+    "systemPromptRole": "You are helping generate new episode ideas for a comedy narration channel.",
+    "audienceDefault": "adults who like smart humour — think podcast comedy fans rather than sketch-show audiences",
+    "moodVocabulary": [
+      "wry",
+      "self-aware",
+      "absurd",
+      "deadpan",
+      "warm-funny",
+      "exasperated",
+      "delighted",
+      "incredulous"
+    ],
+    "themeVocabulary": [
+      "weird-but-true",
+      "human folly",
+      "small disasters",
+      "comic biography",
+      "absurd history",
+      "the everyday made ridiculous",
+      "satirical explainer",
+      "ill-advised inventions"
+    ],
+    "guidanceText": "The humour should come from the situation and from specific observations, not from cruelty or punching down. Best comedy ideas have an unexpected angle that's funny on its own — the script's job is to mine it.",
+    "exampleIdeas": [
+      {
+        "title": "The Town That Banned Selling Hats On Tuesdays",
+        "logline": "A 1920s ordinance in a small Pennsylvania town is somehow still on the books — and last year, someone tried to enforce it.",
+        "themes": ["weird-but-true", "absurd history", "human folly"],
+        "suggested_chapters": 6,
+        "suggested_length": "20 min",
+        "mood": "wry, incredulous"
+      },
+      {
+        "title": "Eight Increasingly Bad Ideas From the Same Inventor",
+        "logline": "Cornelius Whitford patented eight devices between 1894 and 1902. Each was demonstrably worse than the last. The eighth almost killed the mayor.",
+        "themes": ["comic biography", "ill-advised inventions", "human folly"],
+        "suggested_chapters": 8,
+        "suggested_length": "30 min",
+        "mood": "deadpan, delighted"
+      }
+    ]
+  },
+
+  "script": {
+    "systemPromptRole": "You are a world-class comedy narrator with the voice of a podcast host — observational, wry, never cruel, with a perfectly-timed sense of when to underplay vs. when to push.",
+    "additionalRules": [
+      "Set up jokes structurally — the first sentence of a beat is the straight context, the next sentence is the turn. Don't bury the punchline.",
+      "Tangents are welcome but must earn their place — every tangent should land on a callback later in the chapter.",
+      "Specifics are funnier than abstractions: \"a 1973 powder-blue station wagon\" beats \"an old car\".",
+      "Underplay rather than overplay — the listener doing the work is funnier than the narrator pointing at the joke.",
+      "Use the character's name often, including the funny ones (use them deliberately — \"Cornelius Whitford\" is funnier than \"the inventor\").",
+      "Chapter headings use Arabic numbers only (Chapter 1, Chapter 2...), never Roman numerals.",
+      "Each chapter heading should land its own small joke or set one up — they're the warmup before each chapter."
+    ],
+    "pacingArc": [
+      "Chapter 1: The premise — set up the absurd situation in the most matter-of-fact tone possible",
+      "Chapter 2: First escalation — it gets weirder; the scope of the absurdity widens",
+      "Chapters 3-{lastButOne}: New developments, each absurd in a different direction; callbacks build",
+      "Chapter {last}: The capper — the final escalation that pays off everything that came before, then a quick warm landing"
+    ],
+    "closingHint": "The episode should leave the listener laughing, retelling the highlights to a friend, and trusting the channel to keep finding stories like this one.",
+    "defaultChapterCount": 6,
+    "chapterCountRange": [4, 10],
+    "defaultLengthMinutes": 25,
+    "lengthMinutesRange": [10, 60],
+    "narratorStyles": [
+      { "id": "A", "label": "Wry podcast host",         "description": "Conversational, occasionally addresses the listener directly, lets pauses do work. Suits weird-but-true and absurd-history." },
+      { "id": "B", "label": "Deadpan reporter",         "description": "Plays it straight no matter how absurd the material gets. Maximum contrast between content and delivery." },
+      { "id": "C", "label": "Exasperated narrator",     "description": "The narrator can't believe what they're telling you and barely keeps it together. Best for human-folly material." },
+      { "id": "D", "label": "Mock-academic",            "description": "Treats the absurd subject with full scholarly seriousness. Suits ill-advised-inventions, satirical explainers." },
+      { "id": "E", "label": "Warm storyteller",         "description": "The friend at dinner who's going to make this thing they read about into a 20-minute bit. Affectionate, never sneering." }
+    ],
+    "defaultNarratorStyleId": "A"
+  },
+
+  "imagePrompts": {
+    "purposeNote": "for a comedy narration episode",
+    "visualStyleHint": "lively cartoon-meets-editorial, exaggerated proportions where it serves the joke, never cruel caricature",
+    "defaultScenesTotalRange": [12, 20],
+    "defaultThumbnails": 5,
+    "defaultStyleTag": "Editorial cartoon illustration style, expressive linework with playful proportions, bold cheerful palette with one comic accent colour, scenes composed for visual punchlines, never cruel — humour through situation, not through people.",
+    "characterReferenceMode": "inline",
+    "recommendedAspect": "16:9"
+  },
+
+  "metadata": {
+    "purposeNote": "for a comedy narration video",
+    "titleStyleHint": "specific, slightly surreal, makes the listener want to know how that's possible — \"The Town That Banned\", \"Eight Increasingly Bad Ideas\"",
+    "titleHookRules": [
+      "Concrete specifics + an absurd hook beat generic \"hilarious\" / \"insane\" framings.",
+      "Numbers convert well, especially with a setup-payoff structure (\"Eight Increasingly Bad Ideas\").",
+      "Avoid trying to be funny in the title — let the situation be funny; the title's job is to make people click."
+    ],
+    "tagsContext": "for this comedy narration video",
+    "tagsHookRules": [
+      "Mix of broad keywords and episode-specific.",
+      "Each tag should be 1-4 words.",
+      "No \"#\" prefix — these are YouTube tags, not hashtags."
+    ],
+    "broadKeywords": [
+      "comedy",
+      "funny story",
+      "weird but true",
+      "comedy podcast",
+      "absurd history",
+      "humor",
+      "narrated comedy",
+      "story time"
+    ],
+    "youtubeDescriptionStructure": {
+      "musicLabel": "MUSIC",
+      "booksSectionLabel": "📚 IF YOU LIKED THIS, READ:",
+      "supportSection": "😄 SUPPORT:\nSubscribe for more strange-but-true stories told funny.",
+      "aiDisclosure": "🤖 AI DISCLOSURE:\nThis episode was written with the assistance of AI tools and reviewed for accuracy and timing.",
+      "defaultHashtags": ["#ComedyStory", "#WeirdHistory", "#FunnyStory"],
+      "totalHashtagCount": 15
+    }
+  }
+}

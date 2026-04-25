@@ -1,0 +1,130 @@
+{
+  "id": "educational",
+  "name": "Educational",
+  "description": "Explanatory narration that teaches a topic clearly. Suited for science explainers, how-it-works channels, history primers, deep-dive niches. Emphasises clarity, accuracy, and concrete examples.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "idea": {
+    "systemPromptRole": "You are helping generate new episode ideas for an educational narration channel.",
+    "audienceDefault": "curious adults who want to understand a topic deeply, not just hear it described",
+    "moodVocabulary": [
+      "lucid",
+      "engaging",
+      "wonder-tinged",
+      "rigorous",
+      "approachable",
+      "patient",
+      "illuminating",
+      "matter-of-fact",
+      "earnest"
+    ],
+    "themeVocabulary": [
+      "how-it-works",
+      "history",
+      "science",
+      "behind-the-scenes",
+      "origins",
+      "misconceptions",
+      "case study",
+      "comparison",
+      "deep dive",
+      "explainer"
+    ],
+    "guidanceText": "Pick topics with a clear question the episode can answer. Avoid surface-level overviews — each idea should promise specific, non-obvious information the listener leaves with.",
+    "exampleIdeas": [
+      {
+        "title": "Why Bridges Sway: The Math That Saved Tacoma Narrows",
+        "logline": "The 1940 collapse of the Tacoma Narrows Bridge taught engineers a brutal lesson about resonance — and rewrote how every long-span bridge has been designed since.",
+        "themes": ["engineering", "case study", "history"],
+        "suggested_chapters": 8,
+        "suggested_length": "30 min",
+        "mood": "lucid, wonder-tinged"
+      },
+      {
+        "title": "The Hidden Architecture of Your Tap Water",
+        "logline": "Every glass of municipal water passes through six engineering systems most people never think about — from the watershed to your kitchen sink.",
+        "themes": ["how-it-works", "infrastructure", "deep dive"],
+        "suggested_chapters": 10,
+        "suggested_length": "45 min",
+        "mood": "patient, illuminating"
+      }
+    ]
+  },
+
+  "script": {
+    "systemPromptRole": "You are a world-class educational narrator with the clarity of Bill Bryson and the rigor of a long-form magazine science writer.",
+    "additionalRules": [
+      "Open each chapter with a concrete question or scene the listener can picture before introducing the abstract concept.",
+      "Use the rule of three: introduce a concept, give an example, then connect it to a larger pattern.",
+      "Define jargon the first time it's used. Never assume specialist knowledge.",
+      "Use analogies that ground unfamiliar ideas in everyday experience — but explicitly note when the analogy breaks down.",
+      "Cite specific numbers, names, dates where they sharpen understanding. Avoid vague approximations like \"a long time ago\".",
+      "Chapter headings use Arabic numbers only (Chapter 1, Chapter 2...), never Roman numerals.",
+      "Each chapter heading should be a question or a sub-topic that previews what the listener is about to learn."
+    ],
+    "pacingArc": [
+      "Chapters 1-2: The hook + the question — what is this episode really asking, and why should the listener care?",
+      "Chapters 3-4: Foundational concepts the rest of the episode builds on, grounded in concrete examples",
+      "Chapters 5-{lastButOne}: The main investigation — case studies, evidence, complications, the surprising or counterintuitive parts",
+      "Chapter {last}: Synthesis — what we now know, where the open questions remain, what the listener can carry forward"
+    ],
+    "closingHint": "The episode should leave the listener able to explain the topic to a friend in a sentence or two — not just dazzled, but informed.",
+    "defaultChapterCount": 8,
+    "chapterCountRange": [5, 12],
+    "defaultLengthMinutes": 30,
+    "lengthMinutesRange": [15, 75],
+    "narratorStyles": [
+      { "id": "A", "label": "Engaged teacher",         "description": "Warm, curious, the friend who explains things at the pub. Conversational but precise. Suits broad-audience explainers." },
+      { "id": "B", "label": "Documentary host",        "description": "Authoritative but accessible — like a Vox or PBS host. Carries the listener through complex material with steady pacing." },
+      { "id": "C", "label": "Investigative reporter",  "description": "Long-form magazine voice. Treats the topic as a mystery being solved chapter by chapter. Suits case-study formats." },
+      { "id": "D", "label": "Wry expert",              "description": "Subject expert who's seen the topic so often they have favorite jokes about it. Adds humour without sacrificing rigor." },
+      { "id": "E", "label": "Cosmic-perspective narrator", "description": "Sagan-esque — zooms from the listener's daily life out to the larger context, then back. Suits science / history with a wonder angle." }
+    ],
+    "defaultNarratorStyleId": "A"
+  },
+
+  "imagePrompts": {
+    "purposeNote": "for an educational narration episode",
+    "visualStyleHint": "diagrammatic clarity, infographic-meets-illustration, captioned scenes, period-accurate when historical",
+    "defaultScenesTotalRange": [16, 24],
+    "defaultThumbnails": 5,
+    "defaultStyleTag": "Editorial infographic illustration style, clean lineart with selective shading, muted neutral palette with one bold accent colour, schematic clarity, period-accurate detail when historical, every scene readable at thumbnail size.",
+    "characterReferenceMode": "inline",
+    "recommendedAspect": "16:9"
+  },
+
+  "metadata": {
+    "purposeNote": "for an educational narration video",
+    "titleStyleHint": "specific, question-or-claim-shaped, signals the takeaway — \"Why X\", \"How Y works\", \"The Hidden Z\"",
+    "titleHookRules": [
+      "Lead with the specific question or claim — \"Why bridges sway\" beats \"Bridge engineering explained\".",
+      "Numbers and proper nouns convert well (\"The Math That Saved Tacoma Narrows\").",
+      "Avoid clickbait formulations that overpromise (\"You won't believe...\")."
+    ],
+    "tagsContext": "for this educational narration video",
+    "tagsHookRules": [
+      "Mix of broad topic keywords and specific (subject names, technical terms, era).",
+      "Each tag should be 1-4 words.",
+      "No \"#\" prefix — these are YouTube tags, not hashtags."
+    ],
+    "broadKeywords": [
+      "educational",
+      "explainer",
+      "learn",
+      "history",
+      "science",
+      "documentary",
+      "how it works",
+      "deep dive"
+    ],
+    "youtubeDescriptionStructure": {
+      "musicLabel": "MUSIC",
+      "booksSectionLabel": "📚 GO DEEPER:",
+      "supportSection": "🎓 SUPPORT:\nSubscribe for more deep-dive explainers.",
+      "aiDisclosure": "🤖 AI DISCLOSURE:\nThis episode was written with the assistance of AI tools and reviewed for accuracy.",
+      "defaultHashtags": ["#Educational", "#Explainer", "#LearnSomething"],
+      "totalHashtagCount": 15
+    }
+  }
+}

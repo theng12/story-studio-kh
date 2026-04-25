@@ -1,0 +1,130 @@
+{
+  "id": "kids-fairytale",
+  "name": "Kids' Fairy Tale",
+  "description": "Short-chapter storybook narration for children. Simple vocabulary, repeating motifs, clear moral arcs, gentle humour. Suits bedtime channels for younger audiences and read-along formats.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "idea": {
+    "systemPromptRole": "You are helping generate new story ideas for a children's fairy-tale narration channel.",
+    "audienceDefault": "children ages 4-9 listening with a parent",
+    "moodVocabulary": [
+      "playful",
+      "warm",
+      "curious",
+      "gently funny",
+      "kind-hearted",
+      "enchanting",
+      "cozy",
+      "cheeky",
+      "wide-eyed"
+    ],
+    "themeVocabulary": [
+      "friendship",
+      "kindness",
+      "courage",
+      "sharing",
+      "trying again",
+      "wonder",
+      "make-believe",
+      "bedtime",
+      "animals",
+      "small adventures"
+    ],
+    "guidanceText": "Age-appropriate. No real peril, no scary monsters that aren't quickly turned funny, no death. Conflicts resolve through kindness, cleverness, or asking for help — never through violence.",
+    "exampleIdeas": [
+      {
+        "title": "The Hedgehog Who Forgot How to Roll",
+        "logline": "A small hedgehog wakes up unable to curl into a ball, and her forest friends try every silly idea they can think of to help her remember.",
+        "themes": ["friendship", "trying again", "animals"],
+        "suggested_chapters": 6,
+        "suggested_length": "20 min",
+        "mood": "gently funny, warm"
+      },
+      {
+        "title": "The Star That Wouldn't Stop Sneezing",
+        "logline": "Up in the night sky, a tiny star can't stop sneezing — every sneeze sends a shooting star across the sky, and a curious child below tries to catch them.",
+        "themes": ["wonder", "make-believe", "bedtime"],
+        "suggested_chapters": 5,
+        "suggested_length": "15 min",
+        "mood": "enchanting, cozy"
+      }
+    ]
+  },
+
+  "script": {
+    "systemPromptRole": "You are a world-class children's storybook author with the cadence of a beloved bedtime narrator and the imagination of Beatrix Potter.",
+    "additionalRules": [
+      "Use simple vocabulary appropriate for ages 4-9. Avoid complex sentence structures and abstract concepts.",
+      "Repeat key phrases or rhymes for memorability — children love (and learn from) repetition.",
+      "Sound effects in the prose are encouraged: \"plop!\", \"swoosh\", \"tippy-tap\". They give the narrator something to play with.",
+      "Conflict must resolve through kindness, cleverness, or cooperation — never violence or punishment.",
+      "Each chapter heading should be short, playful, and pull the listener forward (\"Chapter 1: A Funny Morning\").",
+      "End each chapter on a warm cliffhanger — a question, a knock at the door, a sound the listener will recognise.",
+      "Use the character's name often. Children track narratives by repeating names."
+    ],
+    "pacingArc": [
+      "Chapter 1: Meet the protagonist in their cozy world; introduce their small problem",
+      "Chapter 2: First attempt to solve it (silly, doesn't work, gets a laugh)",
+      "Chapters 3-{lastButOne}: New friend(s) join; together they try and learn through repetition",
+      "Chapter {last}: The clever or kind solution; everyone is happy; soft fade to bedtime"
+    ],
+    "closingHint": "The story should leave the listening child smiling, comforted, and a little sleepy — a perfect bedtime read-along.",
+    "defaultChapterCount": 6,
+    "chapterCountRange": [4, 8],
+    "defaultLengthMinutes": 20,
+    "lengthMinutesRange": [10, 40],
+    "narratorStyles": [
+      { "id": "A", "label": "Playful storybook voice",   "description": "Lively, expressive, with funny voices for different characters. The narrator is clearly having fun." },
+      { "id": "B", "label": "Cozy bedtime narrator",     "description": "Warm, slow, perfect for the last story before sleep. Less performative than A; more snuggly." },
+      { "id": "C", "label": "Animal-friend voice",       "description": "Especially good for talking-animal stories — gives each animal a small distinct quirk." },
+      { "id": "D", "label": "Sing-song rhyming",         "description": "For stories that lean into rhyme and rhythm; cadence becomes its own character." }
+    ],
+    "defaultNarratorStyleId": "A"
+  },
+
+  "imagePrompts": {
+    "purposeNote": "for a children's fairy-tale narration episode",
+    "visualStyleHint": "soft, friendly, brightly coloured — like a beloved picture book",
+    "defaultScenesTotalRange": [10, 18],
+    "defaultThumbnails": 5,
+    "defaultStyleTag": "Children's picture book illustration style, soft pencil-and-watercolour textures, friendly rounded character designs, bright cheerful palette with pastel highlights, expressive faces, every scene safe and warm.",
+    "characterReferenceMode": "inline",
+    "recommendedAspect": "16:9"
+  },
+
+  "metadata": {
+    "purposeNote": "for a children's fairy-tale narration video",
+    "titleStyleHint": "playful, character-led, age-clear — a parent should know in 1 second this is for kids",
+    "titleHookRules": [
+      "Lead with the character or the silly situation (\"The Hedgehog Who Forgot...\").",
+      "Avoid scary words — even ones used playfully can hurt CTR for parental search.",
+      "Mention the audience or use-case where natural (\"Bedtime Story for Kids\")."
+    ],
+    "tagsContext": "for this children's fairy-tale video",
+    "tagsHookRules": [
+      "Mix of broad keywords and specific character/animal names.",
+      "Include parent-search-friendly tags (\"bedtime story\", \"read aloud\", \"kids story\").",
+      "Each tag should be 1-4 words.",
+      "No \"#\" prefix — these are YouTube tags, not hashtags."
+    ],
+    "broadKeywords": [
+      "kids story",
+      "bedtime story for kids",
+      "fairy tale",
+      "children's story",
+      "read aloud",
+      "storytime",
+      "kids audiobook",
+      "preschool story"
+    ],
+    "youtubeDescriptionStructure": {
+      "musicLabel": "MUSIC",
+      "booksSectionLabel": "📚 BOOKS YOUR LITTLE ONE WILL LOVE:",
+      "supportSection": "💛 SUPPORT:\nSubscribe for new bedtime stories every week.",
+      "aiDisclosure": "🤖 AI DISCLOSURE:\nThis story was written with the assistance of AI tools and reviewed by a human for warmth and age-appropriateness.",
+      "defaultHashtags": ["#KidsStory", "#BedtimeStory", "#FairyTale"],
+      "totalHashtagCount": 15
+    }
+  }
+}

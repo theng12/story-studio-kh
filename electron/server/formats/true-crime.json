@@ -1,0 +1,127 @@
+{
+  "id": "true-crime",
+  "name": "True Crime",
+  "description": "Investigative narration of real or true-to-life criminal cases. Measured, evidentiary, victim-respectful tone. Suits crime-podcast-style channels.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "idea": {
+    "systemPromptRole": "You are helping generate new episode ideas for a true-crime narration channel.",
+    "audienceDefault": "adults interested in investigative storytelling, cold-case analysis, and the human dimensions of crime",
+    "moodVocabulary": [
+      "measured",
+      "haunting",
+      "sober",
+      "tense",
+      "methodical",
+      "unflinching",
+      "compassionate",
+      "unresolved"
+    ],
+    "themeVocabulary": [
+      "cold case",
+      "wrongful conviction",
+      "missing person",
+      "forensic breakthrough",
+      "investigator's perspective",
+      "victim-centered",
+      "the unsolved",
+      "chain of evidence",
+      "the witness"
+    ],
+    "guidanceText": "Treat real victims with dignity even in fictional or composite cases — name them as people, not as plot devices. No glamorising perpetrators. No graphic violence beyond what the investigation requires.",
+    "exampleIdeas": [
+      {
+        "title": "The Letters That Solved a 22-Year Cold Case",
+        "logline": "When a retired postal worker found a stack of unopened letters in her late husband's desk, she had no idea they would close the longest open homicide investigation in her county's history.",
+        "themes": ["cold case", "forensic breakthrough", "the witness"],
+        "suggested_chapters": 8,
+        "suggested_length": "45 min",
+        "mood": "methodical, haunting"
+      },
+      {
+        "title": "Three Witnesses, Three Lies, One Truth",
+        "logline": "A robbery investigation falls apart when each eyewitness gives a confident, contradictory account — and the case turns on which lie was a mistake versus which was deliberate.",
+        "themes": ["wrongful conviction", "the witness", "investigator's perspective"],
+        "suggested_chapters": 10,
+        "suggested_length": "60 min",
+        "mood": "tense, unflinching"
+      }
+    ]
+  },
+
+  "script": {
+    "systemPromptRole": "You are a world-class true-crime narrator with the rigor of a Serial-style investigative journalist and the restraint of a public-radio host.",
+    "additionalRules": [
+      "Establish the chronology clearly — when did this happen, who was involved, what was the initial investigation's response.",
+      "Distinguish between confirmed fact, witness testimony, and inference. Use phrasing like \"according to court records\", \"the detective later told reporters\", \"the prosecution argued\".",
+      "Center the victim(s) as people — name them, what their lives looked like, who they left behind. Avoid making the perpetrator the most fleshed-out character.",
+      "Avoid sensational adjectives for violence; let the facts carry weight. \"He was found in his apartment\" beats \"He was found in his blood-soaked apartment\".",
+      "Acknowledge what is not known. Cold cases especially — say so directly when the trail goes cold.",
+      "Chapter headings use Arabic numbers only (Chapter 1, Chapter 2...), never Roman numerals.",
+      "Each chapter heading should orient the listener to the investigation's stage (\"Chapter 3: The First Witness\", \"Chapter 5: A Break in the Pattern\")."
+    ],
+    "pacingArc": [
+      "Chapters 1-2: The case opens — the discovery, the initial scene, who reported it",
+      "Chapters 3-4: The investigation begins — first witnesses, first leads, first dead ends",
+      "Chapters 5-{lastButOne}: The case deepens — new evidence, complications, the human stories around the central event",
+      "Chapter {last}: Resolution or unresolution — what we now know, what remains open, what the case taught the investigators"
+    ],
+    "closingHint": "The episode should leave the listener better-informed about the case AND about how investigations actually work — never sensational, never glib.",
+    "defaultChapterCount": 8,
+    "chapterCountRange": [5, 12],
+    "defaultLengthMinutes": 45,
+    "lengthMinutesRange": [25, 90],
+    "narratorStyles": [
+      { "id": "A", "label": "Measured journalist",      "description": "Public-radio cadence — calm, precise, lets pauses do work. Suits investigative deep-dives." },
+      { "id": "B", "label": "Detective's notebook",     "description": "First-person from the investigating officer's perspective — observational, restrained, occasional dry asides." },
+      { "id": "C", "label": "Court-record narrator",    "description": "Formal, evidentiary tone — quotes from depositions and filings woven into prose. Suits trial-focused episodes." },
+      { "id": "D", "label": "Documentary host",         "description": "Narrator-of-the-larger-context — stops to explain how cases like this typically unfold, then returns to the specific story." }
+    ],
+    "defaultNarratorStyleId": "A"
+  },
+
+  "imagePrompts": {
+    "purposeNote": "for a true-crime narration episode",
+    "visualStyleHint": "subdued palette, evidence-board aesthetic, low-key lighting, no graphic violence",
+    "defaultScenesTotalRange": [16, 24],
+    "defaultThumbnails": 5,
+    "defaultStyleTag": "Editorial documentary illustration style, muted desaturated palette with deep shadows, evidence-board aesthetic with photo-collage feel, period-appropriate detail when historical, no graphic violence — implication over depiction.",
+    "characterReferenceMode": "inline",
+    "recommendedAspect": "16:9"
+  },
+
+  "metadata": {
+    "purposeNote": "for a true-crime narration video",
+    "titleStyleHint": "specific, factual, restrained — \"The X case\", \"What happened to Y\", \"The Z investigation\"",
+    "titleHookRules": [
+      "Lead with the case or the investigative angle, not with shock language.",
+      "Years, locations, and case-specific details convert well — they signal a real, researched episode.",
+      "Avoid sensational verbs (\"shocking\", \"horrifying\") — your audience trusts the genre and finds restraint more compelling."
+    ],
+    "tagsContext": "for this true-crime narration video",
+    "tagsHookRules": [
+      "Mix of broad keywords and case-specific (location, era, case name where public).",
+      "Each tag should be 1-4 words.",
+      "No \"#\" prefix — these are YouTube tags, not hashtags."
+    ],
+    "broadKeywords": [
+      "true crime",
+      "cold case",
+      "true crime story",
+      "true crime narration",
+      "investigation",
+      "crime documentary",
+      "unsolved case",
+      "mystery"
+    ],
+    "youtubeDescriptionStructure": {
+      "musicLabel": "AMBIENT SCORE",
+      "booksSectionLabel": "📚 INVESTIGATIVE READING:",
+      "supportSection": "🔍 SUPPORT:\nSubscribe for more carefully-researched true-crime episodes.",
+      "aiDisclosure": "🤖 AI DISCLOSURE:\nThis episode was written with the assistance of AI tools and reviewed for accuracy and victim respect.",
+      "defaultHashtags": ["#TrueCrime", "#ColdCase", "#TrueCrimeStory"],
+      "totalHashtagCount": 15
+    }
+  }
+}
