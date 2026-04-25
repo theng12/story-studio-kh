@@ -447,3 +447,87 @@ router.post('/projects/:slug/sync-from-manifest', async (req, res) => {
     res.status(500).json(humanizeBackendError(e, 'Sync from manifest failed'))
   }
 })
+
+// ── Per-episode asset importer (Part 7 of mark-done plan) ──────────────────
+//
+// Lets the user point at files on disk that the project doesn't know about
+// and have them copied/moved into the canonical asset folders with the
+// canonical filenames. Pre-Story-Studio episodes typically have files like
+// `1.mp3`, `final.png`, `cover.jpg` — this route handles the mapping +
+// renaming so the existing detection logic picks them up.
+//
+// Body shape mirrors asset-importer.ts ImportItem discriminated union:
+//   {
+//     mode: 'copy' | 'move',
+//     items: [
+//       { type: 'audio',  source_path, section_slug },
+//       { type: 'scene',  source_path, scene_number },
+//       { type: 'thumb',  source_path, thumb_number },
+//       { type: 'video',  source_path, scene_number },
+//       { type: 'final',  source_path },
+//       { type: 'merged', source_path },
+//       { type: 'other',  source_path, dest_subpath },
+//     ]
+//   }
+
+const VALID_ITEM_TYPES = new Set(['audio', 'scene', 'thumb', 'video', 'final', 'merged', 'other'])
+
+function validateImportItems(raw: any): { ok: true; items: any[] } | { ok: false; error: string } {
+  if (!Array.isArray(raw)) return { ok: false, error: 'items must be an array' }
+  const out: any[] = []
+  for (let i = 0; i < raw.length; i++) {
+    const it = raw[i]
+    if (!it || typeof it !== 'object') return { ok: false, error: `items[${i}] must be an object` }
+    const t = it.type
+    if (typeof t !== 'string' || !VALID_ITEM_TYPES.has(t)) {
+      return { ok: false, error: `items[${i}].type invalid: ${t}` }
+    }
+    if (typeof it.source_path !== 'string' || !it.source_path) {
+      return { ok: false, error: `items[${i}].source_path required (string)` }
+    }
+    // Per-type field validation. Throws an ergonomic 400 instead of
+    // letting the importer crash on missing fields downstream.
+    switch (t) {
+      case 'audio':
+        if (typeof it.section_slug !== 'string' || !it.section_slug) {
+          return { ok: false, error: `items[${i}].section_slug required for audio` }
+        }
+        break
+      case 'scene':
+      case 'video':
+        if (typeof it.scene_number !== 'number' || !Number.isInteger(it.scene_number) || it.scene_number < 1) {
+          return { ok: false, error: `items[${i}].scene_number must be a positive integer` }
+        }
+        break
+      case 'thumb':
+        if (typeof it.thumb_number !== 'number' || !Number.isInteger(it.thumb_number) || it.thumb_number < 1) {
+          return { ok: false, error: `items[${i}].thumb_number must be a positive integer` }
+        }
+        break
+      case 'other':
+        if (typeof it.dest_subpath !== 'string' || !it.dest_subpath) {
+          return { ok: false, error: `items[${i}].dest_subpath required for "other" type` }
+        }
+        break
+    }
+    out.push(it)
+  }
+  return { ok: true, items: out }
+}
+
+router.post('/projects/:slug/episodes/:code/import-assets', async (req, res) => {
+  try {
+    const { slug, code } = req.params
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+    const mode = req.body?.mode === 'move' ? 'move' : 'copy'
+    const validated = validateImportItems(req.body?.items)
+    if (!validated.ok) return res.status(400).json({ detail: validated.error })
+
+    const { importAssets } = await import('../services/asset-importer.js')
+    const result = await importAssets(slug, code, validated.items as any, { mode })
+    res.json(result)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Asset import failed'))
+  }
+})

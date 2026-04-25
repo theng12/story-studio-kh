@@ -244,10 +244,33 @@
                   <span class="kebab-hint">Drop the manual override. Asset state will reflect what's actually on disk.</span>
                 </div>
               </button>
+              <button
+                class="kebab-item"
+                role="menuitem"
+                @click="openImportFor(ep)"
+              >
+                <span class="kebab-icon">📥</span>
+                <div class="kebab-body">
+                  <strong>Import existing assets…</strong>
+                  <span class="kebab-hint">Copy weirdly-named files from disk into the canonical episode folders.</span>
+                </div>
+              </button>
             </div>
           </div>
         </label>
       </div>
+
+      <!-- Asset import dialog — shared across all rows. importEpisode tracks
+           which row the kebab launched it from. -->
+      <AssetImportDialog
+        v-if="importEpisode"
+        :visible="!!importEpisode"
+        :slug="slug"
+        :episode-code="importEpisode.episode_code"
+        :chapter-count="importEpisode.suggested_chapters"
+        @close="importEpisode = null"
+        @imported="onImported"
+      />
 
       <!-- Pagination controls — shown whenever the filtered set exceeds
            the page-size threshold. Prev/Next bracket a compact page
@@ -475,6 +498,10 @@ interface Episode {
   marked_done?: boolean
   marked_done_at?: string | null
   status_overrides?: Record<string, boolean> | null
+  // Optional metadata used by the asset import dialog (chapter count
+  // primes the audio dropdown). Backend includes when available; UI
+  // falls back to a generic 1-20 list when missing.
+  suggested_chapters?: number
 }
 const selectedEpisodes = reactive(new Set<string>())
 
@@ -760,6 +787,23 @@ function pillTitle(step: StepMeta, ep: Episode): string {
   if (ep.marked_done) return `${step.label} — ${status} (whole episode marked done manually)`
   if (manual) return `${step.label} — ${status} (manual override)`
   return `${step.label} — ${status}`
+}
+
+// Asset import dialog launch state. importEpisode === null when closed;
+// otherwise points at the episode the dialog is bound to. We re-use the
+// same dialog component for every row (mounted only when open).
+const importEpisode = ref<Episode | null>(null)
+
+function openImportFor(ep: Episode) {
+  closeKebab()
+  importEpisode.value = ep
+}
+
+function onImported(_summary: any) {
+  // Refresh the episode list so newly-imported assets show up in the
+  // status pills. The backend invalidates its own cache; the frontend
+  // composable refetches on demand.
+  refreshEpisodes()
 }
 
 async function onMarkDone(ep: Episode, done: boolean) {

@@ -48,6 +48,7 @@
               <th>Thumbs</th>
               <th>Video</th>
               <th>Merged</th>
+              <th class="th-actions">Import</th>
             </tr>
           </thead>
           <tbody>
@@ -83,10 +84,33 @@
                   {{ row.merged_audio.present ? '✓' : '—' }}
                 </NuxtLink>
               </td>
+              <td class="cell-actions">
+                <!-- Per-row import-assets entry. Targets pre-Story-Studio
+                     episodes whose files don't follow our naming convention
+                     yet — opens the multi-tab importer dialog so the user
+                     can map their weirdly-named files to canonical slots. -->
+                <button
+                  class="btn btn-sm btn-ghost"
+                  title="Import existing files from disk into this episode's canonical folders"
+                  @click="openImportFor(row.episode_id)"
+                >📥 Import…</button>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
+
+      <!-- Asset import dialog — mounted only when active to keep the page
+           tree small. Shared single instance across rows; importEpisodeId
+           tracks which row launched it. -->
+      <AssetImportDialog
+        v-if="importEpisodeId"
+        :visible="!!importEpisodeId"
+        :slug="slug"
+        :episode-code="importEpisodeId"
+        @close="importEpisodeId = null"
+        @imported="onImported"
+      />
 
       <div v-if="rows.length" class="audit-legend mt-2 text-muted" style="font-size: 11px;">
         <span class="legend-swatch ok"></span> all present
@@ -213,6 +237,22 @@ const error = ref('')
 const lastRunAt = ref('')
 const repairing = ref(false)
 const repairingRow = ref<string | null>(null)
+
+// ── Asset import dialog ────────────────────────────────────────────────────
+// Single instance reused across rows. importEpisodeId === null when the
+// dialog is closed; otherwise the episode_code currently being imported into.
+// The dialog itself owns its tab state — opening for a new episode resets it.
+const importEpisodeId = ref<string | null>(null)
+
+function openImportFor(code: string) {
+  importEpisodeId.value = code
+}
+
+function onImported(_summary: any) {
+  // After a successful import, re-run the audit so the cells refresh
+  // with the newly-detected asset counts.
+  runAudit().catch(() => {})
+}
 
 const repairableRows = computed(() => rows.value.filter(r =>
   r.audio.missing > 0 || r.scenes.missing > 0 || r.thumbnails.missing > 0 || r.video.missing > 0,
