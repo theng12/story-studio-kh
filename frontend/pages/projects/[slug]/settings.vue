@@ -205,6 +205,34 @@
       </div>
     </div>
 
+    <!-- Format -->
+    <div v-if="activeTab === 'format'" class="card mt-2">
+      <h3>Format</h3>
+      <p class="text-muted mt-1 mb-2">
+        Pick the channel-level format. The format drives every prompt the app sends — script
+        system prompt, narrator-style pool, pacing arc, image style, idea-generation persona,
+        metadata keywords. Built-in formats ship with the app; custom formats live alongside
+        your projects and can be exported as <code>.json</code> files for sharing.
+      </p>
+
+      <FormatPicker v-model="formatId" @change="onFormatChanged" />
+
+      <div class="mt-3">
+        <FormatOverrideEditor
+          v-model="formatOverrides"
+          :base-format="selectedBaseFormat"
+        />
+      </div>
+
+      <div class="mt-3 button-row">
+        <button class="btn btn-primary" :disabled="formatSaving || !formatDirty" @click="saveFormatSettings">
+          {{ formatSaving ? 'Saving…' : 'Save format settings' }}
+        </button>
+        <SaveIndicator v-bind="savedHintProps('format')" />
+        <span v-if="formatSaveError" class="text-error">{{ formatSaveError }}</span>
+      </div>
+    </div>
+
     <!-- Standards -->
     <div v-if="activeTab === 'standards'" class="card mt-2">
       <div class="sub-tabs">
@@ -835,6 +863,73 @@ function savedHintProps(key: string) {
   return { state: (ts ? 'saved' : 'idle') as AutoSaveState, savedAt: ts }
 }
 
+// ── Format tab state ───────────────────────────────────────────────────────
+//
+// Per the Format primitive (Phase 1), each project carries:
+//   - format_id: which base format profile to apply (defaults to 'sleep-story')
+//   - format_overrides: deep-partial of the resolved Format applied on top
+//
+// We mirror those into local refs while editing so the user can swap formats
+// or tweak overrides freely without persisting until they hit Save. Initial
+// load syncs from project.value once useProject hydrates; the watcher below
+// handles slug changes (project switcher in the sidebar).
+const { formats: allFormats, find: findFormat, refresh: refreshFormats } = useFormats()
+const formatId = ref<string>('sleep-story')
+const formatOverrides = ref<Record<string, any> | null>(null)
+const formatSaving = ref(false)
+const formatSaveError = ref('')
+// Track baseline values to compute "dirty" — comparing JSON for overrides is
+// the cheapest correctness check (deep equality across nested objects).
+const formatBaselineJson = ref<string>('null')
+const formatIdBaseline = ref<string>('sleep-story')
+
+const selectedBaseFormat = computed(() => findFormat(formatId.value) || null)
+const formatDirty = computed(() => {
+  if (formatId.value !== formatIdBaseline.value) return true
+  return JSON.stringify(formatOverrides.value || null) !== formatBaselineJson.value
+})
+
+function syncFormatFromProject() {
+  const m = project.value as any
+  if (!m) return
+  formatId.value = m.format_id || 'sleep-story'
+  formatOverrides.value = m.format_overrides || null
+  formatIdBaseline.value = formatId.value
+  formatBaselineJson.value = JSON.stringify(formatOverrides.value || null)
+}
+
+// Hydrate when project meta arrives + on slug change.
+watch(project, syncFormatFromProject, { immediate: true })
+
+function onFormatChanged(_fmt: any) {
+  // Switching format wipes the override set — overrides are keyed against
+  // the base format's structure (narrator-style ids, field set), so carrying
+  // them across format switches would silently apply mismatched values.
+  formatOverrides.value = null
+}
+
+async function saveFormatSettings() {
+  formatSaving.value = true
+  formatSaveError.value = ''
+  try {
+    const body: any = {
+      format_id: formatId.value,
+      format_overrides: formatOverrides.value || undefined,
+    }
+    await put(`/projects/${slug.value}`, body)
+    formatIdBaseline.value = formatId.value
+    formatBaselineJson.value = JSON.stringify(formatOverrides.value || null)
+    stampSaved('format')
+    success('Format settings saved')
+    await loadProject(slug.value)
+  } catch (e: any) {
+    formatSaveError.value = e?.data?.detail || e?.message || 'Failed to save format settings'
+    showError(formatSaveError.value)
+  } finally {
+    formatSaving.value = false
+  }
+}
+
 // ── Connectivity precheck (API Keys tab) ─────────────────────────────────
 // Lets the user distinguish "my API key is wrong" from "my network can't
 // reach the provider" without having to interpret the ambiguous "Invalid
@@ -865,6 +960,7 @@ const tabs = [
   { id: 'keys', label: 'API Keys' },
   { id: 'models', label: 'Models' },
   { id: 'voices', label: 'Voices' },
+  { id: 'format', label: 'Format' },
   { id: 'standards', label: 'Standards' },
   { id: 'folders', label: 'Folders' },
   // 'assets' moved out to its own top-level page at /projects/:slug/assets —

@@ -11,6 +11,7 @@ import { getManifestStatus, readManifest, writeManifestCache } from '../services
 import { auditProjectAssets } from '../services/asset-status.js'
 import { auditAssets } from '../services/manifest-audit.js'
 import { getSecretsProvenanceStatus, resetSecretsForCurrentMachine } from '../services/secrets-store.js'
+import { listFormats, loadFormat, getEffectiveFormat } from '../services/format-loader.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import type { ProjectMeta } from '../models/types.js'
@@ -24,6 +25,41 @@ router.get('/projects', async (_req, res) => {
 
 router.get('/projects/templates', async (_req, res) => {
   res.json(await pm.getTemplates())
+})
+
+// ── Format library endpoints (Phase 1 of format/character/pattern system) ──
+//
+// Built-in + user-custom formats are merged by listFormats(). The picker UI
+// uses /api/formats; the override editor uses /api/formats/:id for the full
+// bundle. Per-project effective format (base + project's overrides applied)
+// lives at /api/projects/:slug/effective-format.
+
+router.get('/formats', async (_req, res) => {
+  try {
+    const formats = await listFormats()
+    res.json(formats)
+  } catch (e: any) {
+    res.status(500).json({ detail: `Failed to list formats: ${e.message}` })
+  }
+})
+
+router.get('/formats/:id', async (req, res) => {
+  try {
+    const fmt = await loadFormat(req.params.id)
+    if (!fmt) return res.status(404).json({ detail: `Format '${req.params.id}' not found` })
+    res.json(fmt)
+  } catch (e: any) {
+    res.status(500).json({ detail: `Failed to load format: ${e.message}` })
+  }
+})
+
+router.get('/projects/:slug/effective-format', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    res.json(await getEffectiveFormat(req.params.slug))
+  } catch (e: any) {
+    res.status(500).json({ detail: `Failed to resolve effective format: ${e.message}` })
+  }
 })
 
 // Project-wide asset audit: per-episode presence counts across audio,

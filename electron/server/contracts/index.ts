@@ -43,6 +43,14 @@ export const UpdateProjectSchema = z.object({
   output_root: z.string().min(1).optional(),
   portable: z.boolean().optional(),
   youtube_channel_url: z.string().optional(),
+  // Format primitive (Phase 1): selects the base format profile this project
+  // generates against. Empty string clears back to the default. The override
+  // payload is intentionally permissive (any-typed) — DeepPartial<Format> is
+  // structurally too rich to model in zod without duplicating the type tree;
+  // format-loader.ts validates merge results, and the override editor UI
+  // controls the legal field set.
+  format_id: z.string().min(1).max(80).optional(),
+  format_overrides: z.any().optional(),
 }).strict()
 export type UpdateProjectBody = z.infer<typeof UpdateProjectSchema>
 

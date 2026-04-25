@@ -288,6 +288,8 @@ export interface UpdateProjectRequest {
   output_root?: string
   portable?: boolean
   youtube_channel_url?: string
+  format_id?: string
+  format_overrides?: DeepPartial<Format>
 }
 
 export interface ProjectSummary {
