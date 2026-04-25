@@ -420,7 +420,22 @@ onUnmounted(() => { stopJobPolling(); stopCreditPolling() })
 .sidebar-nav {
   flex: 1;
   padding: 6px;
+  /* The two properties the comment block above describes but were never
+     actually applied. min-height: 0 lets a flex child shrink below its
+     content size; overflow-y: auto then engages a scrollbar instead of
+     pushing sidebar-credits off the bottom of the window. Without
+     min-height: 0, flex children default to min-content height — which
+     is why the whole sidebar grew taller than the window before. */
+  min-height: 0;
+  overflow-y: auto;
+  /* Subtler scrollbar so it doesn't fight the sidebar's flat aesthetic. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
+.sidebar-nav::-webkit-scrollbar { width: 8px; }
+.sidebar-nav::-webkit-scrollbar-track { background: transparent; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.sidebar-nav::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
 .nav-item {
   display: flex; align-items: center; gap: 8px;
