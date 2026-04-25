@@ -481,6 +481,12 @@ router.post('/projects/:slug/episodes/import', async (req, res) => {
     const result = await ei.importEpisodeFolder(slug, {
       source_path: src,
       copy_into_project: req.body?.copy_into_project !== false, // default true (copy)
+      // Optional: user picked between "keep original code" and "use next
+      // available". Validation lives in importEpisodeFolder so the route
+      // stays thin — it'll throw a clear error on an invalid choice.
+      override_code: typeof req.body?.override_code === 'string' && req.body.override_code
+        ? req.body.override_code
+        : undefined,
     })
     res.json(result)
   } catch (e: any) {

@@ -53,6 +53,20 @@ export interface InspectResult {
   parsed_title: string | null
   final_code: string    // the code that would actually be assigned (auto-bumps on conflict)
   final_title: string
+  /**
+   * Whether the parsed_code is already in use by an accepted idea. When
+   * true, the UI hides the "keep original" choice — the only sane path
+   * is to bump. When false, the UI shows both options so the user can
+   * choose between "TN0002 (original)" and "TN0007 (next available)".
+   */
+  parsed_code_taken: boolean
+  /**
+   * The code we'd assign if the user opts to bump rather than reuse the
+   * parsed one. Always populated (even when parsed_code is free) so the
+   * UI can offer it as a one-click alternative without a second
+   * round-trip. Equals final_code when parsed_code_taken is true.
+   */
+  next_available_code: string
   conflicts: string[]   // e.g. "EP0009 already accepted — will be renamed to EP0012"
   assets: InspectedAssets
   file_counts: Partial<Record<keyof InspectedAssets, number>>
@@ -263,6 +277,8 @@ export async function inspectEpisodeFolder(slug: string, sourcePath: string): Pr
     source_path: sourcePath,
     parsed_code: null, parsed_title: null,
     final_code: '', final_title: '',
+    parsed_code_taken: false,
+    next_available_code: '',
     conflicts: [], assets: {
       script: false, scene_prompts: false, thumb_prompts: false,
       images: false, thumbnails: false, audio: false, merged_audio: false,
@@ -312,17 +328,26 @@ export async function inspectEpisodeFolder(slug: string, sourcePath: string): Pr
   }
   base.final_title = title
 
-  // Decide the final code. If the parsed code conflicts with an existing accepted
-  // idea, bump to the project's next available number.
+  // Decide the final code. We always compute BOTH:
+  //   - parsed_code (from the source folder name)
+  //   - next_available_code (the project's next sequential code)
+  // …so the UI can let the user choose. If the parsed code conflicts
+  // with an existing accepted idea, the choice is forced to next.
   const ideas = await im.getIdeas(slug)
   const parsedCode = base.parsed_code!
   const existing = ideas.find(i => i.status === 'accepted' && i.episode_code === parsedCode)
+  const nextNum = await im.getNextEpisodeNumber(slug)
+  const bumped = formatEpisodeCode(nextNum, meta.episode_prefix, meta.episode_digits)
+  base.next_available_code = bumped
+  base.parsed_code_taken = !!existing
   if (existing) {
-    const nextNum = await im.getNextEpisodeNumber(slug)
-    const bumped = formatEpisodeCode(nextNum, meta.episode_prefix, meta.episode_digits)
     base.final_code = bumped
     base.conflicts.push(`${parsedCode} is already accepted — will be imported as ${bumped}`)
   } else {
+    // Default to the parsed code when it's free; the import route can
+    // still override via override_code if the user picked "next" in the
+    // dialog. Keeps the inspector preview honest about the no-override
+    // outcome.
     base.final_code = parsedCode
   }
 
@@ -415,6 +440,18 @@ export interface ImportOptions {
   // If true, copy the folder into output_root (safer — leaves original).
   // If false and the folder is already inside output_root, adopt in place.
   copy_into_project?: boolean
+  /**
+   * Optional explicit episode code override. When set, this code is used
+   * instead of the inspector's `final_code`. Two valid choices the UI
+   * passes through:
+   *   - `parsed_code`: keep the original code from the source folder
+   *     name (when it's not already taken)
+   *   - `next_available_code`: bump to the project's next sequential
+   *     code (always safe; default when parsed conflicts)
+   * Anything else is rejected so the user can't fat-finger a code that
+   * doesn't conform to the project's prefix/digits format.
+   */
+  override_code?: string
 }
 
 export interface ImportResult {
@@ -461,7 +498,25 @@ export async function importEpisodeFolder(slug: string, opts: ImportOptions): Pr
   const outputRoot = await pm.getProjectOutputRoot(slug)
   if (!outputRoot) throw new Error('Project output directory not found')
 
-  const finalCode = inspect.final_code
+  // Honour an explicit user choice if one was passed. The UI offers two
+  // legal values: parsed_code (when not taken) or next_available_code.
+  // Anything else is treated as a 400 — rather than silently fall back,
+  // so a typo doesn't quietly land the episode at an unexpected number.
+  let finalCode = inspect.final_code
+  if (typeof opts.override_code === 'string' && opts.override_code) {
+    const choice = opts.override_code.toUpperCase()
+    const parsedCode = (inspect.parsed_code || '').toUpperCase()
+    const nextCode = (inspect.next_available_code || '').toUpperCase()
+    if (choice === parsedCode && !inspect.parsed_code_taken) {
+      finalCode = inspect.parsed_code!
+    } else if (choice === nextCode) {
+      finalCode = inspect.next_available_code
+    } else {
+      throw new Error(
+        `override_code must equal the parsed code (when free) or the next-available code. Got: ${opts.override_code}`,
+      )
+    }
+  }
   const title = inspect.final_title || inspect.parsed_title || finalCode
 
   // 1. Register an accepted idea so the episode appears in selectors.

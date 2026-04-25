@@ -321,12 +321,39 @@
         </div>
 
         <div v-else-if="inspectResult?.ok" class="import-preview mt-2">
+          <!-- Episode-code chooser. When the parsed code is free, the
+               user picks between keeping it (typical for re-importing a
+               specific episode by its published number) and using the
+               next-available code (typical for treating the import as a
+               new addition to the sequence). When the parsed code is
+               taken, only the next-available option is shown — keeping
+               it would conflict with an existing accepted idea. -->
           <div class="import-row">
             <span class="label">Episode code:</span>
-            <strong>{{ inspectResult.final_code }}</strong>
-            <span v-if="inspectResult.parsed_code !== inspectResult.final_code" class="text-muted" style="font-size: 12px;">
-              (original: {{ inspectResult.parsed_code }})
-            </span>
+            <div class="code-choice">
+              <label
+                v-if="!inspectResult.parsed_code_taken"
+                class="code-option"
+                :class="{ active: importCodeChoice === 'parsed' }"
+              >
+                <input type="radio" value="parsed" v-model="importCodeChoice" />
+                <strong>{{ inspectResult.parsed_code }}</strong>
+                <span class="code-hint">Keep original (from folder name)</span>
+              </label>
+              <label
+                class="code-option"
+                :class="{ active: importCodeChoice === 'next' }"
+              >
+                <input type="radio" value="next" v-model="importCodeChoice" />
+                <strong>{{ inspectResult.next_available_code }}</strong>
+                <span class="code-hint">
+                  Use next available
+                  <template v-if="inspectResult.parsed_code_taken">
+                    (original {{ inspectResult.parsed_code }} is already taken)
+                  </template>
+                </span>
+              </label>
+            </div>
           </div>
           <div class="import-row">
             <span class="label">Title:</span>
@@ -830,6 +857,11 @@ const importPath = ref('')
 const inspecting = ref(false)
 const importing = ref(false)
 const importCopy = ref(true)
+// 'parsed' = keep the code from the folder name; 'next' = use the
+// project's next available code. Defaults are set per-inspection in
+// doInspect() so each new file picks the safest option (keep when
+// available, next when taken).
+const importCodeChoice = ref<'parsed' | 'next'>('parsed')
 const inspectResult = ref<any>(null)
 
 const assetLabels: Record<string, string> = {
@@ -877,9 +909,17 @@ async function doInspect() {
   if (!importPath.value) return
   inspecting.value = true
   try {
-    inspectResult.value = await post<any>(`/projects/${slug.value}/episodes/inspect`, {
+    const r = await post<any>(`/projects/${slug.value}/episodes/inspect`, {
       source_path: importPath.value,
     })
+    inspectResult.value = r
+    // Default the code choice based on whether the parsed code is free.
+    // When taken, force "next" (the only legal option). When free,
+    // default to keeping the parsed code — that's the typical intent
+    // when re-importing a published episode by its known number.
+    if (r?.ok) {
+      importCodeChoice.value = r.parsed_code_taken ? 'next' : 'parsed'
+    }
   } catch (e: any) {
     inspectResult.value = { ok: false, error: e.data?.detail || 'Inspection failed' }
   } finally {
@@ -891,9 +931,18 @@ async function doImport() {
   if (!canImport.value) return
   importing.value = true
   try {
+    // Translate the radio choice into the explicit code we're asking
+    // the backend to use. Sending the actual code (rather than the
+    // 'parsed'/'next' enum) keeps the API self-documenting and lets the
+    // backend re-validate against its current state (in case a parallel
+    // import happened to take the same number between inspect + import).
+    const overrideCode = importCodeChoice.value === 'next'
+      ? inspectResult.value?.next_available_code
+      : inspectResult.value?.parsed_code
     const r = await post<any>(`/projects/${slug.value}/episodes/import`, {
       source_path: importPath.value,
       copy_into_project: importCopy.value,
+      override_code: overrideCode,
     })
     success(`Imported ${r.episode_code} — ${r.title}`)
     importOpen.value = false
@@ -1338,6 +1387,25 @@ onMounted(loadIdeas)
 }
 .import-row { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
 .import-row .label { font-size: 12px; color: var(--text-muted); min-width: 100px; }
+
+/* Episode-code chooser — two radio cards side-by-side. The active card
+   gets an accent border so the user's selection is unambiguous. */
+.code-choice { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+.code-option {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  transition: border-color 0.12s, background 0.12s;
+}
+.code-option:hover { border-color: var(--accent); }
+.code-option.active { border-color: var(--accent); background: rgba(240, 198, 116, 0.06); }
+.code-option input { margin-right: 2px; cursor: pointer; }
+.code-option strong { color: var(--text-primary); }
+.code-hint { color: var(--text-muted); font-size: 11px; }
 .import-conflicts { display: flex; flex-direction: column; gap: 4px; }
 .conflict-item {
   padding: 6px 8px; background: rgba(234, 179, 8, 0.10);
