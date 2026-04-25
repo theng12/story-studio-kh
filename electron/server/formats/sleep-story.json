@@ -1,0 +1,134 @@
+{
+  "id": "sleep-story",
+  "name": "Sleep Story",
+  "description": "Calming narration designed to help listeners fall asleep. Slow pacing, gentle resolution, dreamlike imagery. The original Story Studio format — extracted verbatim from the prior hardcoded prompts so existing projects behave identically.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "idea": {
+    "systemPromptRole": "You are helping generate new story ideas for a sleep-story narration channel.",
+    "audienceDefault": "adults",
+    "moodVocabulary": [
+      "gentle",
+      "calm",
+      "soothing",
+      "tender",
+      "wistful",
+      "tranquil",
+      "peaceful",
+      "hushed wonder",
+      "tender patience",
+      "gentle nostalgia",
+      "quiet resolve"
+    ],
+    "themeVocabulary": [
+      "solitude",
+      "memory",
+      "rekindling",
+      "craftsmanship",
+      "time",
+      "loss",
+      "patience",
+      "wonder",
+      "nature",
+      "heritage",
+      "reflection"
+    ],
+    "guidanceText": "Sleep-friendly. Low stakes, no violence, no cliffhangers, no jump scares.",
+    "exampleIdeas": [
+      {
+        "title": "The Lantern Keeper's Last Light",
+        "logline": "A retired lighthouse keeper returns to her abandoned tower to restore one final beacon before the winter storms set in.",
+        "themes": ["solitude", "memory", "rekindling"],
+        "suggested_chapters": 10,
+        "suggested_length": "45 min",
+        "mood": "gentle nostalgia, quiet resolve"
+      },
+      {
+        "title": "The Tailor Who Stitched The Snow",
+        "logline": "An elderly mountain tailor accepts one impossible commission: repair a torn cloak woven from falling snow, before spring ends the order.",
+        "themes": ["craftsmanship", "time", "loss"],
+        "suggested_chapters": 8,
+        "suggested_length": "45 min",
+        "mood": "hushed wonder, tender patience"
+      }
+    ]
+  },
+
+  "script": {
+    "systemPromptRole": "You are a world-class sleep story author.",
+    "additionalRules": [
+      "Write prose that feels like a skilled human author — literary, calm, immersive.",
+      "No robotic pronoun chains. Never start more than 2 consecutive sentences with the same pronoun.",
+      "Use the character's name or a descriptive noun at least once every 3-4 sentences.",
+      "No singular they/them for individual characters — always use he/she matching the character.",
+      "Chapter headings use Arabic numbers only (Chapter 1, Chapter 2...), never Roman numerals.",
+      "Each chapter heading must include a descriptive title."
+    ],
+    "pacingArc": [
+      "Chapters 1-3: Setting, character introduction, gentle world-building",
+      "Chapters 4-6: Gentle journey, exploration, small discoveries",
+      "Chapters 7-{lastButOne}: Slowing pace, deeper calm, sensory details",
+      "Chapter {last}: Resolution, peace, drifting into sleep"
+    ],
+    "closingHint": "The story should be calming, immersive, and perfect for falling asleep to.",
+    "defaultChapterCount": 10,
+    "chapterCountRange": [6, 14],
+    "defaultLengthMinutes": 45,
+    "lengthMinutesRange": [20, 120],
+    "narratorStyles": [
+      { "id": "A", "label": "Warm and intimate",          "description": "First-person narrator, very close to the character's inner world. Feels like a whispered confidence." },
+      { "id": "B", "label": "Gentle third-person observer", "description": "Lyrical, slightly poetic, like watching from a warm window." },
+      { "id": "C", "label": "Classic quiet storyteller",   "description": "Traditional \"once there was\" tone, timeless and cosy, like a fireside tale." },
+      { "id": "D", "label": "Poetic and lyrical",          "description": "Rich metaphors, flowing sentences, language that sounds like music. Every paragraph is art." },
+      { "id": "E", "label": "Whimsical and playful",       "description": "Light-hearted, a little cheeky, with gentle humour. Perfect for younger audiences or lighthearted tales." },
+      { "id": "F", "label": "Mysterious and atmospheric",  "description": "Fog-shrouded prose, building intrigue slowly. The world feels ancient and full of secrets." },
+      { "id": "G", "label": "Grandparent bedtime voice",   "description": "Warm, unhurried, with the cadence of someone who has told a thousand stories and loves every one." },
+      { "id": "H", "label": "Nature documentary calm",     "description": "Patient, reverent, finding wonder in small details of the natural world." },
+      { "id": "I", "label": "Meditative and mindful",      "description": "Present-tense awareness, grounding the listener in each sensory moment. Breath-paced prose." },
+      { "id": "J", "label": "Fairy tale narrator",         "description": "Storybook formality with a wink. \"Once upon a time\" energy, clear moral arcs, satisfying endings." }
+    ],
+    "defaultNarratorStyleId": "A"
+  },
+
+  "imagePrompts": {
+    "purposeNote": "for a sleep story episode",
+    "visualStyleHint": "calming, dreamlike, soft palette",
+    "defaultScenesTotalRange": [24, 30],
+    "defaultThumbnails": 5,
+    "defaultStyleTag": "Storybook 2D illustration style, flat design, bold outlines, warm and luminous colour palette, bright golden and shiny accent details, soft cel-shaded depth, dreamlike and cosy atmosphere.",
+    "characterReferenceMode": "inline",
+    "recommendedAspect": "16:9"
+  },
+
+  "metadata": {
+    "purposeNote": "for a sleep story episode",
+    "titleStyleHint": "calm, soothing, dreamlike — appropriate for a sleep/relaxation channel",
+    "titleHookRules": [
+      "Each title should be hook-y and curiosity-driven without being clickbait.",
+      "Include relevant SEO keywords (sleep story, bedtime, relaxation, etc.) where natural."
+    ],
+    "tagsContext": "for this sleep story video",
+    "tagsHookRules": [
+      "Mix of broad keywords (sleep story, bedtime story, relaxation, asmr) and episode-specific keywords from the story.",
+      "Each tag should be 1-4 words.",
+      "No \"#\" prefix — these are YouTube tags, not hashtags."
+    ],
+    "broadKeywords": [
+      "sleep story",
+      "bedtime story",
+      "relaxation",
+      "asmr",
+      "sleep meditation",
+      "sleep aid"
+    ],
+    "youtubeDescriptionStructure": {
+      "musicLabel": "MUSIC",
+      "booksSectionLabel": "📚 BOOKS WE RECOMMEND FOR QUIET NIGHTS:",
+      "supportSection": "💛 SUPPORT:\nSubscribe for free — it keeps the stories coming.",
+      "aiDisclosure": "🤖 AI DISCLOSURE:\nThis story was written with the assistance of AI tools and reviewed for quality and warmth.",
+      "defaultHashtags": ["#SleepStory", "#BedtimeStory"],
+      "totalHashtagCount": 15
+    }
+  }
+}

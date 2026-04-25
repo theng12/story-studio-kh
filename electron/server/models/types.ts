@@ -78,6 +78,147 @@ export interface ProjectMeta {
   output_root: string
   created_at: string
   youtube_channel_url?: string
+
+  /**
+   * Format primitive (Phase 1 of the format/character/pattern system).
+   *
+   * `format_id` selects a base Format profile from the built-in library
+   * (electron/server/formats/*.json) or the user-custom library
+   * (${PROJECTS_ROOT}/.formats/*.json). Defaults to 'sleep-story' for
+   * back-compat — every project that predates the format primitive
+   * behaves exactly as before because sleep-story.json is the verbatim
+   * extraction of the prior hardcoded prompts.
+   *
+   * `format_overrides` is a deep-partial of the resolved Format applied
+   * on top of the base. Lets the user tweak narrator styles, keyword pool,
+   * pacing arc, etc. without forking the whole format JSON.
+   */
+  format_id?: string
+  format_overrides?: DeepPartial<Format>
+}
+
+// ── Format primitive (Phase 1 of format/character/pattern system) ──────────
+//
+// A Format bundles the channel-level "vibe": idea-generation persona, script
+// system prompt + pacing arc + narrator styles, image-prompt visual style,
+// metadata keywords + description structure. One Format applies project-wide;
+// per-project overrides can flip individual fields without forking.
+//
+// Built-in formats live at electron/server/formats/{id}.json (shipped with
+// the app via electron-builder.json extraResources). User-custom formats
+// live at ${PROJECTS_ROOT}/.formats/{id}.json — exportable / shareable as
+// single JSON files.
+//
+// See plans/format-and-character-system.md for the multi-phase rollout plan.
+
+export type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K]
+}
+
+export interface NarratorStyle {
+  /** Stable id (e.g. 'A'…'J' for sleep-story; arbitrary slug otherwise). */
+  id: string
+  /** Short label shown in the picker. */
+  label: string
+  /** Long description that becomes the LLM's narrator-style instruction. */
+  description: string
+}
+
+export interface IdeaFormat {
+  /** Replaces the hardcoded "You are helping generate new story ideas for a sleep-story narration channel." */
+  systemPromptRole: string
+  audienceDefault: string
+  /** Vocabulary hints — appear in the picker as suggestions. */
+  moodVocabulary: string[]
+  themeVocabulary: string[]
+  /** Free-form rules block injected into the live LLM idea prompt. */
+  guidanceText: string
+  /** 1–2 example ideas baked into the PASTE_PROMPT to show the LLM the bar. */
+  exampleIdeas?: Array<{
+    title: string
+    logline: string
+    themes: string[]
+    suggested_chapters: number
+    suggested_length: string
+    mood: string
+  }>
+}
+
+export interface ScriptFormat {
+  /** Replaces the hardcoded "You are a world-class sleep story author." */
+  systemPromptRole: string
+  /** Bullet rules following the role line in the system prompt. */
+  additionalRules: string[]
+  /**
+   * Per-section pacing instructions. `{lastButOne}` and `{last}` are
+   * substituted with chapter numbers at request time. Each entry becomes
+   * a "- " bullet under "CHAPTER PACING:" in the narration prompt.
+   */
+  pacingArc: string[]
+  /** One-line closing instruction inserted before the final-check block. */
+  closingHint: string
+  defaultChapterCount: number
+  chapterCountRange: [number, number]
+  defaultLengthMinutes: number
+  lengthMinutesRange: [number, number]
+  narratorStyles: NarratorStyle[]
+  defaultNarratorStyleId: string
+}
+
+export interface ImagePromptFormat {
+  /** Slot in the headline: "Generate ALL image prompts for {purposeNote}." */
+  purposeNote: string
+  /** Visual style hint — appears in the picker / override editor. */
+  visualStyleHint: string
+  /** Inclusive scene-count range (e.g. [24, 30] for sleep-story). */
+  defaultScenesTotalRange: [number, number]
+  defaultThumbnails: number
+  /** Default image style tag appended to every prompt. */
+  defaultStyleTag: string
+  /** Future Phase 7 hook: how to inject character references. */
+  characterReferenceMode: 'inline' | 'reference-image' | 'both'
+  recommendedAspect: '16:9' | '9:16' | '1:1'
+}
+
+export interface YoutubeDescriptionStructure {
+  musicLabel: string
+  booksSectionLabel: string
+  supportSection: string
+  aiDisclosure: string
+  defaultHashtags: string[]
+  totalHashtagCount: number
+}
+
+export interface MetadataFormat {
+  /** Slot in the headline: "Generate {N} SEO titles for {purposeNote}." */
+  purposeNote: string
+  titleStyleHint: string
+  titleHookRules: string[]
+  tagsContext: string
+  tagsHookRules: string[]
+  /** Broad keywords mixed into the tags pool. */
+  broadKeywords: string[]
+  youtubeDescriptionStructure: YoutubeDescriptionStructure
+}
+
+export interface Format {
+  id: string
+  name: string
+  description: string
+  builtin: boolean
+  schemaVersion: 1
+
+  idea: IdeaFormat
+  script: ScriptFormat
+  imagePrompts: ImagePromptFormat
+  metadata: MetadataFormat
+
+  /**
+   * Optional addendum prepended to the per-project production_standards.txt
+   * during prompt assembly. Lets a format declare format-specific style
+   * guidelines without polluting the project's free-form standards file.
+   */
+  productionStandardsAddendum?: string
 }
 
 /**

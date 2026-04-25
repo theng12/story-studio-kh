@@ -20,6 +20,7 @@
   ],
   "extraResources": [
     { "from": "electron/templates",         "to": "templates" },
+    { "from": "electron/server/formats",    "to": "formats" },
     { "from": "bundled/ffmpeg",             "to": "ffmpeg" },
     { "from": "bundled/LICENSE-FFMPEG.txt", "to": "LICENSE-FFMPEG.txt" }
   ],

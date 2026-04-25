@@ -9,38 +9,42 @@ import path from 'path'
 import { callAi } from '../lib/ai-client.js'
 import { buildNarrationDocx, buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveEpisodePaths } from '../services/utils.js'
+import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
 
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import type { GenerateScriptRequest, Job } from '../models/types.js'
+import type { GenerateScriptRequest, Job, Format, NarratorStyle } from '../models/types.js'
 
-const NARRATOR_STYLES: Record<string, string> = {
-  A: 'Warm and intimate. First-person narrator, very close to the character\'s inner world. Feels like a whispered confidence.',
-  B: 'Gentle third-person observer. Lyrical, slightly poetic, like watching from a warm window.',
-  C: 'Classic quiet storyteller. Traditional "once there was" tone, timeless and cosy, like a fireside tale.',
-  D: 'Poetic and lyrical. Rich metaphors, flowing sentences, language that sounds like music. Every paragraph is art.',
-  E: 'Whimsical and playful. Light-hearted, a little cheeky, with gentle humour. Perfect for younger audiences or lighthearted tales.',
-  F: 'Mysterious and atmospheric. Fog-shrouded prose, building intrigue slowly. The world feels ancient and full of secrets.',
-  G: 'Grandparent bedtime voice. Warm, unhurried, with the cadence of someone who has told a thousand stories and loves every one.',
-  H: 'Nature documentary calm. Patient, reverent, finding wonder in small details of the natural world.',
-  I: 'Meditative and mindful. Present-tense awareness, grounding the listener in each sensory moment. Breath-paced prose.',
-  J: 'Fairy tale narrator. Storybook formality with a wink. "Once upon a time" energy, clear moral arcs, satisfying endings.',
+/**
+ * Narrator-style description lookup over the effective Format. Replaces the
+ * old hardcoded NARRATOR_STYLES record. Falls back to the format's default
+ * narrator style if the requested id isn't in the format's pool — preserves
+ * the prior fallback semantics ("style 'A' default") for back-compat.
+ */
+function narratorStyleFor(format: Format, styleId: string): NarratorStyle {
+  const list = format.script.narratorStyles
+  return list.find(s => s.id === styleId)
+    ?? list.find(s => s.id === format.script.defaultNarratorStyleId)
+    ?? list[0]
 }
 
-function systemPrompt(productionStandards: string): string {
-  return `You are a world-class sleep story author.
+function systemPrompt(format: Format, productionStandards: string): string {
+  // Format-specific addendum is prepended to the user's free-form standards.
+  // Both flow into the same "Follow these production standards exactly:" block
+  // so the LLM treats them with the same priority. Empty addendum = no change.
+  const standardsBody = [format.productionStandardsAddendum, productionStandards]
+    .filter(s => s && s.trim()).join('\n\n')
+
+  const additionalRules = format.script.additionalRules.map(r => `- ${r}`).join('\n')
+
+  return `${format.script.systemPromptRole}
 
 Follow these production standards exactly:
 
-${productionStandards}
+${standardsBody}
 
 Additional rules:
-- Write prose that feels like a skilled human author — literary, calm, immersive.
-- No robotic pronoun chains. Never start more than 2 consecutive sentences with the same pronoun.
-- Use the character's name or a descriptive noun at least once every 3-4 sentences.
-- No singular they/them for individual characters — always use he/she matching the character.
-- Chapter headings use Arabic numbers only (Chapter 1, Chapter 2...), never Roman numerals.
-- Each chapter heading must include a descriptive title.`
+${additionalRules}`
 }
 
 interface IntroSettings {
@@ -52,13 +56,15 @@ interface IntroSettings {
 }
 
 function narrationPrompt(
+  format: Format,
   code: string, title: string, length: number, style: string,
   chapters: number, totalWords: number, wordsPerChapter: number,
   introSettings?: IntroSettings,
   styleOverride?: string,
   introStandards?: string,
 ): string {
-  const styleDesc = styleOverride || NARRATOR_STYLES[style] || NARRATOR_STYLES.A
+  const ns = narratorStyleFor(format, style)
+  const styleDesc = styleOverride || ns.description
   const wordFloor = Math.floor(totalWords * 0.9)
   const hasIntro = !!introSettings
   const intro = introSettings || {}
@@ -129,12 +135,9 @@ Write EXACTLY ${chapters} chapters. Each chapter MUST be ~${wordsPerChapter} wor
 Each chapter heading format: ## Chapter N: [Descriptive Title]
 
 CHAPTER PACING:
-- Chapters 1-3: Setting, character introduction, gentle world-building
-- Chapters 4-6: Gentle journey, exploration, small discoveries
-- Chapters 7-${chapters - 1}: Slowing pace, deeper calm, sensory details
-- Chapter ${chapters}: Resolution, peace, drifting into sleep
+${fillPacingArcPlaceholders(format.script.pacingArc, chapters).map(l => `- ${l}`).join('\n')}
 
-The story should be calming, immersive, and perfect for falling asleep to.
+${format.script.closingHint}
 
 FINAL CHECK BEFORE RESPONDING:
 - Introduction: ~${introWords} words? ✓
@@ -145,8 +148,10 @@ If not, keep writing until you hit the targets.
 Output ONLY the script text. No meta-commentary.`
 }
 
-function imagePromptsPrompt(code: string, title: string, storySummary: string, styleTag: string): string {
-  return `Generate ALL image prompts for a sleep story episode.
+function imagePromptsPrompt(format: Format, code: string, title: string, storySummary: string, styleTag: string): string {
+  const [scenesMin, scenesMax] = format.imagePrompts.defaultScenesTotalRange
+  const thumbsCount = format.imagePrompts.defaultThumbnails
+  return `Generate ALL image prompts ${format.imagePrompts.purposeNote}.
 
 Episode code: ${code}
 Episode title: ${title}
@@ -158,8 +163,8 @@ ${storySummary}
 CRITICAL REQUIREMENTS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. You MUST generate 24-30 scene prompts total (2-3 per chapter).
-2. You MUST generate exactly 5 thumbnail prompts.
+1. You MUST generate ${scenesMin}-${scenesMax} scene prompts total (2-3 per chapter).
+2. You MUST generate exactly ${thumbsCount} thumbnail prompts.
 3. Every single prompt MUST end with the style tag shown below.
 4. Every single prompt MUST include an inline character description.
 5. Do NOT stop early. Write ALL prompts in a single response.
@@ -172,7 +177,7 @@ Write a full physical description of the main character.
 
 # Chapter Scene Prompts
 
-For EACH chapter, write 2-3 scene prompts. At least 24 total.
+For EACH chapter, write 2-3 scene prompts. At least ${scenesMin} total.
 Format: ## Scene N: [Brief Scene Title]
 
 Each prompt MUST end with this exact style tag:
@@ -180,7 +185,7 @@ Each prompt MUST end with this exact style tag:
 
 # Thumbnail Prompts
 
-## Thumbnail 1 through ## Thumbnail 5
+## Thumbnail 1 through ## Thumbnail ${thumbsCount}
 
 CRITICAL FOR THUMBNAILS: Every thumbnail prompt MUST include:
 'The episode title "${title}" is displayed in large, golden, glowing text, perfectly centered and legible against the background.'
@@ -190,8 +195,11 @@ Each thumbnail MUST also end with the style tag above.
 Output ONLY the prompts. No meta-commentary.`
 }
 
-function youtubePrompt(code: string, title: string, storySummary: string): string {
-  return `Generate a YouTube description for a sleep story episode.
+function youtubePrompt(format: Format, code: string, title: string, storySummary: string): string {
+  const ds = format.metadata.youtubeDescriptionStructure
+  const defaultTagsLine = ds.defaultHashtags.join(' ')
+  const remainingHashtags = Math.max(0, ds.totalHashtagCount - ds.defaultHashtags.length)
+  return `Generate a YouTube description ${format.metadata.purposeNote}.
 
 Episode code: ${code}
 Episode title: ${title}
@@ -206,10 +214,10 @@ OUTPUT FORMAT (plain text, copy-paste ready):
 [Hook paragraph - 2-3 sentences drawing listener in]
 
 ──────────────────────────────────────
-MUSIC: [describe ambient soundscape matching the episode theme]
+${ds.musicLabel}: [describe ambient soundscape matching the episode theme]
 ──────────────────────────────────────
 
-📚 BOOKS WE RECOMMEND FOR QUIET NIGHTS:
+${ds.booksSectionLabel}
 - [Book 1] by [Author]
 - [Book 2] by [Author]
 - [Book 3] by [Author]
@@ -219,15 +227,13 @@ MUSIC: [describe ambient soundscape matching the episode theme]
 (Pick 5 real, currently published books thematically matching the episode.)
 
 ──────────────────────────────────────
-💛 SUPPORT:
-Subscribe for free — it keeps the stories coming.
+${ds.supportSection}
 
 ──────────────────────────────────────
-🤖 AI DISCLOSURE:
-This story was written with the assistance of AI tools and reviewed for quality and warmth.
+${ds.aiDisclosure}
 
 ──────────────────────────────────────
-#SleepStory #BedtimeStory [+ 13 more episode-specific hashtags, 15 total]
+${defaultTagsLine} [+ ${remainingHashtags} more episode-specific hashtags, ${ds.totalHashtagCount} total]
 
 Output ONLY the description. No meta-commentary.`
 }
@@ -258,10 +264,12 @@ function extractStorySummary(narrationText: string): string {
   return summaryLines.join('\n')
 }
 
-function autoSelectStyle(code: string, prefix: string): string {
+function autoSelectStyle(format: Format, code: string): string {
   const numMatch = code.match(/\d+/)
   const epNum = numMatch ? parseInt(numMatch[0]) : 0
-  return ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'][epNum % 10]
+  const styles = format.script.narratorStyles
+  if (!styles.length) return 'A'  // safety net; loader rejects empty arrays
+  return styles[epNum % styles.length].id
 }
 
 // ── Main generator function ─────────────────────────────────────────────────
@@ -283,21 +291,23 @@ async function generateEpisode(job: Job): Promise<void> {
   if (!project) throw new Error('Project not found')
 
   const standards = await pm.getStandards(project_slug) || ''
+  const format = await getEffectiveFormat(project_slug)
   const title = req.title
-  const length = req.length || 45
-  let style = req.style === 'auto' ? autoSelectStyle(episode_id, project.episode_prefix) : req.style
-  // Resolve custom style text without mutating the shared NARRATOR_STYLES object
+  const length = req.length || format.script.defaultLengthMinutes
+  let style = req.style === 'auto' ? autoSelectStyle(format, episode_id) : req.style
+  // Resolve custom style text without mutating the shared narrator-styles array
   let customStyleText: string | undefined
   if (style && (style.startsWith('style-') || style === 'custom')) {
     customStyleText = (params as any).custom_style_text || (params as any).intro_settings?.custom_style_text
   }
-  const chapters = req.chapters || 10
+  const chapters = req.chapters || format.script.defaultChapterCount
   let totalWords = req.total_words || (length === 45 ? 5500 : 7500)
   let wordsPerChapter = req.words_per_chapter || Math.floor(totalWords / chapters)
 
-  // Extract style tag from standards (look for the pattern)
+  // Style tag — prefer a project-defined override in production_standards (legacy
+  // hook for sleep-story Storybook tag), fall back to the format's defaultStyleTag.
   const styleTagMatch = standards.match(/"([^"]*Storybook[^"]*)"/)
-  const styleTag = styleTagMatch?.[1] || 'Storybook 2D illustration style, flat design, bold outlines, warm and luminous colour palette, bright golden and shiny accent details, soft cel-shaded depth, dreamlike and cosy atmosphere.'
+  const styleTag = styleTagMatch?.[1] || format.imagePrompts.defaultStyleTag
 
   const paths = await resolveEpisodePaths(project_slug, episode_id, title)
 
@@ -311,7 +321,7 @@ async function generateEpisode(job: Job): Promise<void> {
   }
 
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
-  const sysPrompt = systemPrompt(standards)
+  const sysPrompt = systemPrompt(format, standards)
 
   const skipImages = !req.generate_image_prompts
   const skipYoutube = !req.generate_youtube_desc
@@ -334,7 +344,7 @@ async function generateEpisode(job: Job): Promise<void> {
     const introEnabled = introSettings.enabled === true
     const introStandardsText = (config as any).intro_standards || ''
     const narrationText = await callAi(req.model, sysPrompt,
-      narrationPrompt(episode_id, title, length, style, chapters, totalWords, wordsPerChapter, introEnabled ? introSettings : undefined, customStyleText, introStandardsText),
+      narrationPrompt(format, episode_id, title, length, style, chapters, totalWords, wordsPerChapter, introEnabled ? introSettings : undefined, customStyleText, introStandardsText),
       apiKeys, true, { slug: project_slug, jobId: job.job_id, signal: controller.signal })
 
     const wordCount = narrationText.split(/\s+/).length
@@ -350,7 +360,7 @@ async function generateEpisode(job: Job): Promise<void> {
     if (!skipImages && !jq.isCancelled(job.job_id)) {
       job.output_lines.push('Generating image prompts...')
       imageText = await callAi(req.model, sysPrompt,
-        imagePromptsPrompt(episode_id, title, storySummary, styleTag), apiKeys, false,
+        imagePromptsPrompt(format, episode_id, title, storySummary, styleTag), apiKeys, false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
       const promptCount = (imageText.match(/^##\s/gm) || []).length
       job.output_lines.push(`Image prompts: ${promptCount} prompts`)
@@ -361,7 +371,7 @@ async function generateEpisode(job: Job): Promise<void> {
     if (!skipYoutube && !jq.isCancelled(job.job_id)) {
       job.output_lines.push('Generating YouTube description...')
       ytText = await callAi(req.model, sysPrompt,
-        youtubePrompt(episode_id, title, storySummary), apiKeys, false,
+        youtubePrompt(format, episode_id, title, storySummary), apiKeys, false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
       job.output_lines.push('YouTube description: done')
     }
@@ -472,8 +482,9 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   if (!project) throw new Error('Project not found')
 
   const standards = await pm.getStandards(project_slug) || ''
+  const format = await getEffectiveFormat(project_slug)
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
-  const sysPrompt = systemPrompt(standards)
+  const sysPrompt = systemPrompt(format, standards)
   const paths = await resolveEpisodePaths(project_slug, episode_id, title)
 
   const {
@@ -511,8 +522,20 @@ export async function generateChapterOnly(job: Job): Promise<void> {
 
   const wordsPerChapter = Number(req.words_per_chapter) || 550
   const totalChapters = Number(req.chapters) || existingNumbers.length || chapterNumber
-  const style = req.style || 'A'
-  const styleDesc = NARRATOR_STYLES[style as keyof typeof NARRATOR_STYLES] || NARRATOR_STYLES.A
+  const style = req.style || format.script.defaultNarratorStyleId
+  const styleDesc = narratorStyleFor(format, style).description
+
+  // Per-chapter pacing hint sourced from the format's pacing arc. Picks the
+  // most relevant arc bullet for this chapter's position so regenerated
+  // chapters match the format's structural cadence (sleep stories drift, action
+  // formats escalate, history formats progress chronologically, etc.).
+  const arc = fillPacingArcPlaceholders(format.script.pacingArc, totalChapters)
+  function pickPacingHint(n: number): string {
+    if (!arc.length) return ''
+    if (n === totalChapters && arc.length >= 1) return arc[arc.length - 1]
+    const idx = Math.min(arc.length - 1, Math.floor(((n - 1) / Math.max(1, totalChapters - 1)) * (arc.length - 1)))
+    return arc[idx]
+  }
 
   const chapterPrompt = `Regenerate ONLY Chapter ${chapterNumber} of an existing narration script.
 
@@ -523,12 +546,7 @@ Target word count for this chapter: ~${wordsPerChapter} words
 
 ${priorSummaries.length ? `Story so far (prior chapters, summarised):\n${priorSummaries.join('\n')}\n` : ''}
 
-Write ONLY Chapter ${chapterNumber}. Keep tone, pacing, and narrative continuity consistent with the prior chapters. Match the chapter pacing position: ${
-  chapterNumber === 1 ? 'opening — gentle world-building, character introduction.'
-  : chapterNumber === totalChapters ? 'final — resolution, peace, drifting into sleep.'
-  : chapterNumber <= totalChapters / 2 ? 'early-middle — exploration, small discoveries.'
-  : 'late — slowing pace, deeper calm, sensory details.'
-}
+Write ONLY Chapter ${chapterNumber}. Keep tone, pacing, and narrative continuity consistent with the prior chapters. Match the chapter pacing position: ${pickPacingHint(chapterNumber)}
 
 Output format (markdown):
 ## Chapter ${chapterNumber}: [Descriptive Title]
@@ -576,9 +594,10 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   if (!project) throw new Error('Project not found')
 
   const standards = await pm.getStandards(project_slug) || ''
+  const format = await getEffectiveFormat(project_slug)
   const title = req.title
-  const length = req.length || 45
-  const style = req.style || 'A'
+  const length = req.length || format.script.defaultLengthMinutes
+  const style = req.style || format.script.defaultNarratorStyleId
 
   let customStyleText: string | undefined
   if (style && (style.startsWith('style-') || style === 'custom')) {
@@ -606,7 +625,7 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   await fs.mkdir(paths.script_dir, { recursive: true })
 
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
-  const sysPrompt = systemPrompt(standards)
+  const sysPrompt = systemPrompt(format, standards)
   const introStandardsText = (config as any).intro_standards || ''
 
   job.output_lines.push(`Generating introduction...`)

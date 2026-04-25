@@ -9,7 +9,8 @@ import * as jq from '../services/job-queue.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { callAi } from '../lib/ai-client.js'
 import { resolveSubfolderNames } from '../services/utils.js'
-import { SUPPORTED_MODELS } from '../models/types.js'
+import { SUPPORTED_MODELS, type Format } from '../models/types.js'
+import { getEffectiveFormat } from '../services/format-loader.js'
 import type { GenerateIdeasRequest, StoryIdea } from '../models/types.js'
 import { filterGenerated, type SimilarityCandidate } from '../services/idea-similarity.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -67,6 +68,7 @@ function pickLevers(count: number): string[] {
 
 function buildPrompt(
   req: GenerateIdeasRequest,
+  format: Format,
   standards: string | null | undefined,
   avoid: AvoidItem[],
   extraAvoidNote?: string,
@@ -87,12 +89,24 @@ function buildPrompt(
     ? `\nAlso avoid the concepts listed here (these came back too close to existing on the last attempt): ${extraAvoidNote}\n`
     : ''
 
+  // Format guidance — appears as a "FORMAT GUIDANCE" block so the LLM
+  // anchors the genre/audience/tone before it picks settings + protagonists.
+  // The format's role line ("You are helping generate new story ideas for a
+  // sleep-story narration channel.") flows in here too so the LLM gets the
+  // channel context even though this prompt has no system message.
+  const audience = req.audience || format.idea.audienceDefault
+  const formatGuidance = `${format.idea.systemPromptRole}
+
+${format.idea.guidanceText}`
+
   return `Generate exactly ${req.count} story episode ideas for a narrative audio production.
+
+${formatGuidance}
 
 PARAMETERS:
 - Genre: ${req.genre}
 - Theme: ${req.theme || 'open / surprise me'}
-- Target audience: ${req.audience}
+- Target audience: ${audience}
 - Mood/tone: ${req.mood}
 - Keywords to incorporate: ${keywords}
 - Creativity seed: ${seed} (ignore semantics; use only to diverge from prior output)
@@ -152,6 +166,7 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
   }
 
   const standards = await pm.getStandards(slug)
+  const format = await getEffectiveFormat(slug)
 
   // Build the AVOID list from everything we already know about this project.
   // Sort newest-first so the 30-item cap keeps the freshest signals.
@@ -182,7 +197,7 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     // leaves us at body.count without a retry.
     const wantedCount = body.count
     const overshoot = { ...body, count: wantedCount + 3 }
-    const firstPrompt = buildPrompt(overshoot, standards, avoid)
+    const firstPrompt = buildPrompt(overshoot, format, standards, avoid)
     const firstRaw = await callAi(body.model, '', firstPrompt, apiKeys, false, { slug })
     const firstBatch = normalizeIdeas(parseIdeas(firstRaw))
 
@@ -208,7 +223,7 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
         ...avoid,
         ...kept.map(k => ({ title: k.title, mood: k.mood, themes: k.themes })),
       ]
-      const retryPrompt = buildPrompt(retryReq, standards, retryAvoid, rejectedTitles)
+      const retryPrompt = buildPrompt(retryReq, format, standards, retryAvoid, rejectedTitles)
       try {
         const retryRaw = await callAi(body.model, '', retryPrompt, apiKeys, false, { slug })
         const retryBatch = normalizeIdeas(parseIdeas(retryRaw))
@@ -257,7 +272,19 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
 // because the user sees the preview table and can go fix the LLM output if
 // a field is missing. Defaulting would hide quality problems.
 
-const PASTE_PROMPT = `You are helping generate new story ideas for a sleep-story narration channel.
+/**
+ * Build the paste-prompt the user copies into their own LLM client. Per-format
+ * because a sleep-story channel asks for different rules and example ideas
+ * than an adventure channel. Examples come from the format's idea.exampleIdeas
+ * array (the loader rejects formats with malformed examples, so they're safe
+ * to embed).
+ */
+function buildPastePrompt(format: Format): string {
+  const exampleJson = format.idea.exampleIdeas?.length
+    ? JSON.stringify(format.idea.exampleIdeas, null, 2)
+    : '[\n  // (no examples in this format — match the shape above)\n]'
+
+  return `${format.idea.systemPromptRole}
 Return a JSON array of idea objects ONLY — no prose before or after. If your
 client insists on markdown fences, use \`\`\`json ... \`\`\` — the importer strips them.
 
@@ -265,7 +292,7 @@ Each idea MUST match this shape, with these exact keys:
 
   {
     "title":              "string — 5 to 10 words, evocative, no generic 'magical/enchanted/mystical'",
-    "logline":            "string — 1 to 2 sentences, 20 to 60 words, calm tone, one concrete image",
+    "logline":            "string — 1 to 2 sentences, 20 to 60 words, one concrete image",
     "themes":             ["array of 2 to 4 short thematic keywords"],
     "suggested_chapters": 10,
     "suggested_length":   "45 min",
@@ -273,7 +300,7 @@ Each idea MUST match this shape, with these exact keys:
   }
 
 Rules:
-- Sleep-friendly. Low stakes, no violence, no cliffhangers, no jump scares.
+- ${format.idea.guidanceText}
 - Each idea should have a distinct setting, protagonist archetype, and emotional arc.
 - suggested_chapters is an integer, usually 8–12.
 - suggested_length is one of: "30 min", "45 min", "60 min", "90 min".
@@ -284,30 +311,15 @@ Produce N ideas. (Replace N with however many you want, e.g. 10.)
 
 Example of a valid response:
 
-[
-  {
-    "title": "The Lantern Keeper's Last Light",
-    "logline": "A retired lighthouse keeper returns to her abandoned tower to restore one final beacon before the winter storms set in.",
-    "themes": ["solitude", "memory", "rekindling"],
-    "suggested_chapters": 10,
-    "suggested_length": "45 min",
-    "mood": "gentle nostalgia, quiet resolve"
-  },
-  {
-    "title": "The Tailor Who Stitched The Snow",
-    "logline": "An elderly mountain tailor accepts one impossible commission: repair a torn cloak woven from falling snow, before spring ends the order.",
-    "themes": ["craftsmanship", "time", "loss"],
-    "suggested_chapters": 8,
-    "suggested_length": "45 min",
-    "mood": "hushed wonder, tender patience"
-  }
-]
+${exampleJson}
 `
+}
 
 router.get('/projects/:slug/ideas/paste-prompt', async (req, res) => {
   const project = await pm.getProject(req.params.slug)
   if (!project) return res.status(404).json({ detail: 'Project not found' })
-  res.type('text/plain').send(PASTE_PROMPT)
+  const format = await getEffectiveFormat(req.params.slug)
+  res.type('text/plain').send(buildPastePrompt(format))
 })
 
 /**

@@ -45,6 +45,11 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Claude Code per-user settings + runtime state (settings.json itself is shared if added)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/launch.json
+
 # Environment
 .env
 .env.local

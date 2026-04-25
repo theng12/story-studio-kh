@@ -15,6 +15,7 @@ import { formatMetadataTxt, parseMetadataTxt } from '../services/folder-migratio
 import { validateBody } from '../lib/validate.js'
 import { GenerateScriptOnlySchema, GenerateIntroductionOnlySchema, GenerateChapterOnlySchema } from '../schemas/index.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
+import { getEffectiveFormat } from '../services/format-loader.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -578,7 +579,10 @@ router.post('/projects/:slug/generate/metadata/seo-titles', async (req, res) => 
     ? `Optimized for ${platform_preset} (max ${max_length} characters).`
     : `Maximum ${max_length} characters per title.`
 
-  const prompt = `Generate ${count || 5} SEO-optimized YouTube/TikTok/Facebook video title options for a sleep story episode.
+  const format = await getEffectiveFormat(slug)
+  const hookRules = format.metadata.titleHookRules.map(r => `- ${r}`).join('\n')
+
+  const prompt = `Generate ${count || 5} SEO-optimized YouTube/TikTok/Facebook video title options ${format.metadata.purposeNote}.
 
 Episode code: ${episode_id}
 Working title: ${title}
@@ -586,9 +590,8 @@ ${storyContext ? `\nStory context:\n${storyContext}\n` : ''}
 
 Requirements:
 - ${platformNote}
-- Each title should be hook-y and curiosity-driven without being clickbait.
-- Tone: calm, soothing, dreamlike — appropriate for a sleep/relaxation channel.
-- Include relevant SEO keywords (sleep story, bedtime, relaxation, etc.) where natural.
+- Tone: ${format.metadata.titleStyleHint}.
+${hookRules}
 - Each on its own line. No numbering, no quotes, no commentary.
 
 Output exactly ${count || 5} title options, one per line.`
@@ -620,7 +623,11 @@ router.post('/projects/:slug/generate/metadata/tags', async (req, res) => {
 
   const storyContext = await readStoryContext(slug, episode_id, title, 1500)
 
-  const prompt = `Generate ${count || 15} YouTube tags for this sleep story video.
+  const format = await getEffectiveFormat(slug)
+  const broadKeywordsLine = format.metadata.broadKeywords.join(', ')
+  const tagRules = format.metadata.tagsHookRules.map(r => `- ${r}`).join('\n')
+
+  const prompt = `Generate ${count || 15} YouTube tags ${format.metadata.tagsContext}.
 
 Episode: ${episode_id} — ${title}
 ${description ? `\nDescription excerpt:\n${description.slice(0, 500)}\n` : ''}
@@ -628,9 +635,8 @@ Story context:
 ${storyContext}
 
 Requirements:
-- Mix of broad keywords (sleep story, bedtime story, relaxation, asmr) and episode-specific keywords from the story.
-- Each tag should be 1-4 words.
-- No "#" prefix — these are YouTube tags, not hashtags.
+- Broad keyword pool to draw from: ${broadKeywordsLine}.
+${tagRules}
 - One per line, no numbering, no commentary.
 
 Output exactly ${count || 15} tags, one per line.`
@@ -676,27 +682,28 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
     const platformNote = title_platform_preset && title_platform_preset !== 'custom'
       ? `Optimized for ${title_platform_preset} (max ${title_max_length} characters).`
       : `Maximum ${title_max_length} characters per title.`
-    const titlePrompt = `Generate ${title_count || 5} SEO-optimized video title options for a sleep story episode.
+    const format = await getEffectiveFormat(slug)
+    const titlePrompt = `Generate ${title_count || 5} SEO-optimized video title options ${format.metadata.purposeNote}.
 Episode: ${episode_id} — ${title}
 Story context:
 ${storyContext.slice(0, 1500)}
 
 Requirements:
 - ${platformNote}
-- Hook-y, curiosity-driven, calm/dreamlike tone.
+- Tone: ${format.metadata.titleStyleHint}.
 - One per line. No numbering, quotes, or commentary.`
     const titleRaw = await callAi(model, '', titlePrompt, aiCreds(config), false, { slug })
     const titles = titleRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, title_count || 5)
 
     // Tags
-    const tagPrompt = `Generate ${tag_count || 15} YouTube tags for this sleep story.
+    const tagPrompt = `Generate ${tag_count || 15} YouTube tags ${format.metadata.tagsContext}.
 Episode: ${episode_id} — ${title}
 Description excerpt:
 ${description.slice(0, 500)}
 
 Requirements:
 - 1-4 words per tag, no "#" prefix.
-- Mix of broad and episode-specific keywords.
+- Broad keywords to draw from: ${format.metadata.broadKeywords.join(', ')}.
 - One per line, no numbering or commentary.`
     const tagRaw = await callAi(model, '', tagPrompt, aiCreds(config), false, { slug })
     const tags = tagRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, tag_count || 15)
