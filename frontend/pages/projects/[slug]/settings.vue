@@ -207,13 +207,20 @@
 
     <!-- Format -->
     <div v-if="activeTab === 'format'" class="card mt-2">
-      <h3>Format</h3>
-      <p class="text-muted mt-1 mb-2">
-        Pick the channel-level format. The format drives every prompt the app sends — script
-        system prompt, narrator-style pool, pacing arc, image style, idea-generation persona,
-        metadata keywords. Built-in formats ship with the app; custom formats live alongside
-        your projects and can be exported as <code>.json</code> files for sharing.
-      </p>
+      <div class="format-tab-header">
+        <div>
+          <h3>Format</h3>
+          <p class="text-muted mt-1 mb-2">
+            Pick the channel-level format. The format drives every prompt the app sends — script
+            system prompt, narrator-style pool, pacing arc, image style, idea-generation persona,
+            metadata keywords. Built-in formats ship with the app; custom formats live alongside
+            your projects and can be exported as <code>.json</code> files for sharing.
+          </p>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="formatWizardOpen = true">
+          + Create from Sample
+        </button>
+      </div>
 
       <FormatPicker v-model="formatId" @change="onFormatChanged" />
 
@@ -231,6 +238,13 @@
         <SaveIndicator v-bind="savedHintProps('format')" />
         <span v-if="formatSaveError" class="text-error">{{ formatSaveError }}</span>
       </div>
+
+      <FormatFromSampleWizard
+        :open="formatWizardOpen"
+        :project-slug="slug"
+        @close="formatWizardOpen = false"
+        @saved="(id) => { formatId = id; formatOverrides = null; saveFormatSettings() }"
+      />
     </div>
 
     <!-- Standards -->
@@ -862,6 +876,12 @@ function savedHintProps(key: string) {
   const ts = savedAt[key] ?? null
   return { state: (ts ? 'saved' : 'idle') as AutoSaveState, savedAt: ts }
 }
+
+// ── Format-from-sample wizard ──────────────────────────────────────────────
+// Modal opened from the Format tab. Project-scoped because the LLM call uses
+// this project's API keys; the saved format is app-level (lives in
+// ${PROJECTS_ROOT}/.formats/) and shows up in every project's picker.
+const formatWizardOpen = ref(false)
 
 // ── Format tab state ───────────────────────────────────────────────────────
 //
@@ -1852,6 +1872,16 @@ async function deleteProject() {
 </script>
 
 <style scoped>
+/* ── Format tab ──────────────────────────────────────────────────────── */
+.format-tab-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.format-tab-header > div { flex: 1; }
+.format-tab-header h3 { margin: 0 0 4px; }
+
 /* ── FFmpeg tab ──────────────────────────────────────────────────────── */
 .ffmpeg-status-row {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;

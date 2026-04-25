@@ -11,9 +11,11 @@ import { getManifestStatus, readManifest, writeManifestCache } from '../services
 import { auditProjectAssets } from '../services/asset-status.js'
 import { auditAssets } from '../services/manifest-audit.js'
 import { getSecretsProvenanceStatus, resetSecretsForCurrentMachine } from '../services/secrets-store.js'
-import { listFormats, loadFormat, getEffectiveFormat } from '../services/format-loader.js'
+import { listFormats, loadFormat, getEffectiveFormat, _clearFormatCaches } from '../services/format-loader.js'
 import { listPatterns, loadPattern } from '../services/pattern-loader.js'
-import { writeJsonAtomic } from '../lib/atomic-store.js'
+import { buildFormatExtractionPrompt, parseExtractedFormatJson } from '../lib/format-extraction-prompt.js'
+import { callAi } from '../lib/ai-client.js'
+import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import type { ProjectMeta } from '../models/types.js'
 import type { JobType } from '../models/types.js'
@@ -83,6 +85,106 @@ router.get('/patterns/:id', async (req, res) => {
     res.json(p)
   } catch (e: any) {
     res.status(500).json({ detail: `Failed to load pattern: ${e.message}` })
+  }
+})
+
+// ── Format-from-Sample wizard (Phase 4) ────────────────────────────────────
+//
+// Two-step flow so the user can review the LLM's extraction before it lands
+// in the format library:
+//
+//   1. POST /api/projects/:slug/formats/from-sample
+//      → { samples, model, desired_name?, channel_intent? }
+//      → returns the extracted Format JSON (not saved). Uses the project's
+//        API keys for the LLM call.
+//
+//   2. POST /api/formats/custom
+//      → { format }
+//      → validates, writes to ${PROJECTS_ROOT}/.formats/{id}.json,
+//        returns the saved record. Refuses to overwrite an existing id
+//        unless `overwrite: true` is passed.
+
+router.post('/projects/:slug/formats/from-sample', async (req, res) => {
+  const { slug } = req.params
+  const config = await pm.getConfig(slug)
+  if (!config) return res.status(404).json({ detail: 'Project not found' })
+
+  const { samples, model, desired_name, channel_intent } = req.body || {}
+  if (!Array.isArray(samples) || samples.length === 0 || !samples.every((s: any) => typeof s === 'string' && s.trim())) {
+    return res.status(400).json({ detail: 'samples must be a non-empty array of non-empty strings' })
+  }
+  if (typeof model !== 'string' || !model) {
+    return res.status(400).json({ detail: 'model is required' })
+  }
+
+  const apiKeys = {
+    anthropic_api_key: config.anthropic_api_key,
+    openai_api_key: config.openai_api_key,
+    kie_api_key: config.kie_api_key,
+  }
+
+  const prompt = buildFormatExtractionPrompt({
+    samples: samples.map((s: string) => s.trim()),
+    desiredName: typeof desired_name === 'string' ? desired_name.trim() || undefined : undefined,
+    channelIntent: typeof channel_intent === 'string' ? channel_intent.trim() || undefined : undefined,
+  })
+
+  try {
+    const raw = await callAi(model, '', prompt, apiKeys, false, { slug })
+    const parsed = parseExtractedFormatJson(raw)
+    res.json({ format: parsed })
+  } catch (e: any) {
+    res.status(500).json({ detail: `Format extraction failed: ${e.message}` })
+  }
+})
+
+router.post('/formats/custom', async (req, res) => {
+  const { format, overwrite } = req.body || {}
+  if (!format || typeof format !== 'object') {
+    return res.status(400).json({ detail: 'format object is required' })
+  }
+  const id = String(format.id || '').trim()
+  if (!id || !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(id)) {
+    return res.status(400).json({ detail: 'format.id must be a kebab-case slug (lowercase, hyphens, alphanumeric)' })
+  }
+  if (typeof format.name !== 'string' || !format.name.trim()) {
+    return res.status(400).json({ detail: 'format.name is required' })
+  }
+
+  const existing = await loadFormat(id).catch(() => null)
+  if (existing && !overwrite) {
+    return res.status(409).json({
+      detail: `Format id "${id}" already exists${existing.builtin ? ' as a built-in' : ''}. Pass overwrite:true to replace, or rename.`,
+      existingIsBuiltin: existing.builtin,
+    })
+  }
+
+  const saveable = { ...format, builtin: false, schemaVersion: 1 }
+
+  const userDir = path.join(pm.PROJECTS_ROOT, '.formats')
+  const filePath = path.join(userDir, `${id}.json`)
+  try {
+    await fs.mkdir(userDir, { recursive: true })
+    await withLock(filePath, async () => {
+      await writeJsonAtomic(filePath, saveable)
+    })
+    _clearFormatCaches()
+    res.json({ format: saveable, savedTo: filePath })
+  } catch (e: any) {
+    res.status(500).json({ detail: `Failed to save format: ${e.message}` })
+  }
+})
+
+router.delete('/formats/custom/:id', async (req, res) => {
+  const id = req.params.id
+  const filePath = path.join(pm.PROJECTS_ROOT, '.formats', `${id}.json`)
+  if (!existsSync(filePath)) return res.status(404).json({ detail: `Custom format "${id}" not found` })
+  try {
+    await fs.rm(filePath, { force: true })
+    _clearFormatCaches()
+    res.json({ ok: true, id })
+  } catch (e: any) {
+    res.status(500).json({ detail: `Failed to delete: ${e.message}` })
   }
 })
 
