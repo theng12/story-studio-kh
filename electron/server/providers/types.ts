@@ -54,6 +54,16 @@ export interface ImageGenerationRequest {
   modelId: string
   /** Provider-specific params from config.image_models[model].provider_params */
   providerParams: Record<string, any>
+  /**
+   * Phase 8 — character reference images. Absolute paths to local image
+   * files that the provider should use as visual references (img2img /
+   * IP-Adapter / Flux Kontext input image). Providers that don't support
+   * reference-image generation, OR models within a supporting provider
+   * that don't enable it, MUST silently ignore this field. The caller
+   * decides what to attempt based on the model's capability flag in
+   * providerParams (e.g. `supports_reference_images: true`).
+   */
+  referenceImagePaths?: string[]
   /** Probe for user cancel — provider should honour it in poll loops so an
    *  aborted batch stops burning provider calls per in-flight request. */
   isCancelled?: () => boolean

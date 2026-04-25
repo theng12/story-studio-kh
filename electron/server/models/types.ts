@@ -456,6 +456,15 @@ export interface ImageModelConfig {
   type: string // 'jobs' | 'flux' | '4o' | 'gpt-image'
   api_model: string
   /**
+   * Phase 8 — declares this model accepts reference images for img2img /
+   * Flux Kontext / IP-Adapter-style character consistency. When true, the
+   * image generator forwards `referenceImagePaths` from the request into
+   * the provider call. When false/absent, references are silently ignored
+   * (text-only generation). The CharacterPicker UI surfaces this so users
+   * know which models will actually consume their character refs.
+   */
+  supports_reference_images?: boolean
+  /**
    * Canonical provider id serving this model. Optional for backward compat —
    * every legacy image model targeted kie.ai, so readers treat absence as
    * `'kie'` (see `toUnified` in models/unified.ts).

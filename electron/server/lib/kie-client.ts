@@ -18,31 +18,71 @@ const POLL_INTERVAL = 6000 // ms
 const MAX_WAIT = 360000 // 6 minutes
 const MAX_CONSECUTIVE_FAILURES = 8
 
+/**
+ * Phase 8 — encode local reference images as base64 data URLs for inclusion
+ * in the kie.ai payload. kie's Flux Kontext + nano-banana endpoints accept
+ * data URLs directly (no separate hosting step required). We cap at 3
+ * references per request to stay within typical payload limits.
+ */
+async function encodeReferenceImages(absolutePaths: string[]): Promise<string[]> {
+  const encoded: string[] = []
+  for (const p of absolutePaths.slice(0, 3)) {
+    try {
+      const buf = await fs.readFile(p)
+      const ext = path.extname(p).toLowerCase().replace('.', '') || 'png'
+      const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`
+      encoded.push(`data:${mime};base64,${buf.toString('base64')}`)
+    } catch (e: any) {
+      console.warn(`[kie-client] reference image unreadable, skipping (${p}): ${e.message}`)
+    }
+  }
+  return encoded
+}
+
 export async function submitGeneration(
   prompt: string, apiKey: string, aspectRatio: string,
   modelConfig: ImageModelConfig,
+  opts: { referenceImagePaths?: string[] } = {},
 ): Promise<string> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
   }
 
+  // Phase 8: only kie's reference-capable endpoints (Flux Kontext, nano-banana)
+  // ingest input images. Caller is expected to gate the call behind
+  // `supports_reference_images` so we don't pay payload overhead for models
+  // that ignore the field. Empty array = no encoding work.
+  const refs = (opts.referenceImagePaths && opts.referenceImagePaths.length)
+    ? await encodeReferenceImages(opts.referenceImagePaths)
+    : []
+
   let payload: any
 
   switch (modelConfig.type) {
     case 'flux':
+      // Flux Kontext field convention per kie.ai docs: `inputImage` (single)
+      // or `inputImages` (array). We send the array form when we have refs;
+      // models that don't honour it will still process the prompt-only path.
       payload = { prompt, aspectRatio, model: modelConfig.api_model }
+      if (refs.length) payload.inputImages = refs
       break
     case '4o':
       payload = { prompt, size: aspectRatio }
+      // The /gpt4o-image/generate endpoint also accepts inputImages for
+      // its image-edit variants; harmless on text-to-image models.
+      if (refs.length) payload.inputImages = refs
       break
     case 'gpt-image': {
       const ar = ['1:1', '2:3', '3:2'].includes(aspectRatio) ? aspectRatio : '1:1'
       payload = { model: modelConfig.api_model, input: { prompt, aspect_ratio: ar, quality: 'medium' } }
+      if (refs.length) payload.input.input_images = refs
       break
     }
-    default: // 'jobs' — standard endpoint
+    default: // 'jobs' — standard endpoint (e.g. nano-banana, imagen4)
       payload = { model: modelConfig.api_model, input: { prompt, aspect_ratio: aspectRatio } }
+      // nano-banana accepts `image_urls` for reference-image conditioning.
+      if (refs.length) payload.input.image_urls = refs
   }
 
   const resp = await fetch(`${KIE_BASE_URL}${modelConfig.endpoint}`, {

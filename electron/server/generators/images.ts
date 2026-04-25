@@ -12,7 +12,10 @@ import { recordTask, hashInput } from '../services/task-manifest.js'
 import { resolveSubfolderNames, assertBalanceAvailable } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
+import * as cm from '../services/character-manager.js'
 import { fileExistsWithContent } from '../lib/http-retry.js'
+import { findReferencedCharacters } from '../lib/character-name-match.js'
+import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
 import fs from 'fs/promises'
 
@@ -197,9 +200,47 @@ export async function generateImages(job: Job): Promise<void> {
 
   job.output_lines.push(`Parsed: ${scenes.length} scenes, ${thumbnails.length} thumbnails`)
 
+  // Phase 8 — load this episode's character cast once for reference-image
+  // wiring. Auto-detect: scan each scene's prompt text for character names
+  // and forward matching characters' reference images to the provider.
+  // Models that don't declare supports_reference_images silently ignore
+  // the field (text-only path, no overhead).
+  const cast = await cm.listCharacters(project_slug, { episodeCode: episode_id })
+    .catch(() => [] as Character[])
+  const castWithRefs = cast.filter(c => c.references?.images?.length)
+  if (castWithRefs.length) {
+    const supports = providerParams?.supports_reference_images === true
+    const note = supports
+      ? `model '${modelName}' will receive their references`
+      : `model '${modelName}' does NOT support references — they'll be ignored (use Flux Kontext or Nano Banana for reference-driven gen)`
+    job.output_lines.push(
+      `Cast with reference images: ${castWithRefs.map(c => c.name).join(', ')} — ${note}`,
+    )
+  }
+
   // Extract episode title from folder
   const dirName = path.basename(resolvedEpDir)
   const episodeTitle = dirName.includes(' - ') ? dirName.split(' - ').slice(1).join(' - ') : episode_id
+
+  /**
+   * Auto-detect which characters appear in a scene by scanning the prompt
+   * text for their names (delegated to findReferencedCharacters for the
+   * pure boundary-matching logic). Returns absolute paths of every
+   * reference image attached to matching characters. Empty array when no
+   * names appear — provider call goes through text-only.
+   */
+  function resolveSceneReferenceImages(promptText: string): string[] {
+    const matched = findReferencedCharacters(promptText, castWithRefs)
+    if (!matched.length) return []
+    const out: string[] = []
+    for (const c of matched) {
+      const charDir = path.join(pm.PROJECTS_ROOT, project_slug, 'characters', c.id)
+      for (const filename of (c.references!.images || [])) {
+        out.push(path.join(charDir, filename))
+      }
+    }
+    return out
+  }
 
   const aspectRatio = req.aspect_ratio || '16:9'
   const force = req.force || false
@@ -222,8 +263,10 @@ export async function generateImages(job: Job): Promise<void> {
       return
     }
     try {
+      const referenceImagePaths = resolveSceneReferenceImages(scene.prompt)
       const result = await imageProvider!.generateImage({
         prompt: scene.prompt, apiKey, aspectRatio, modelId: modelName, providerParams,
+        referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
         isCancelled: () => jq.isCancelled(job.job_id),
       })
       const urls = result.urls
@@ -262,8 +305,13 @@ export async function generateImages(job: Job): Promise<void> {
     }
     const enhanced = enhanceThumbnailPrompt(thumb.prompt, episodeTitle, thumb.number)
     try {
+      // Thumbnail prompts also reference characters — use the original
+      // (un-enhanced) prompt for matching so the title overlay text doesn't
+      // confuse the name detector.
+      const referenceImagePaths = resolveSceneReferenceImages(thumb.prompt)
       const result = await imageProvider!.generateImage({
         prompt: enhanced, apiKey, aspectRatio, modelId: modelName, providerParams,
+        referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
         isCancelled: () => jq.isCancelled(job.job_id),
       })
       const urls = result.urls

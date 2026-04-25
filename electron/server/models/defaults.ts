@@ -10,13 +10,18 @@ import type { ImageModelConfig, AudioModelConfig, VoicePreset, VideoModelConfig 
 // makes the provider explicit for the unified catalog view and avoids the
 // implicit fallback in `toUnified`.
 export const DEFAULT_IMAGE_MODELS: Record<string, ImageModelConfig> = {
+  // Phase 8: `supports_reference_images: true` marks the kie.ai models that
+  // ingest character reference images (Flux Kontext via inputImages, Nano
+  // Banana via image_urls). Other entries silently ignore reference paths
+  // when passed — text-to-image only. The character picker reads this flag
+  // to surface a "compatible models" hint per character.
   'grok-imagine':    { label: 'Grok Imagine',              credits_per_image: 1,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'grok-imagine/text-to-image',   provider: 'kie' },
-  'flux-kontext-pro':{ label: 'Flux Kontext Pro',          credits_per_image: 2,  endpoint: '/flux/kontext/generate',     poll: '/flux/kontext/record-info',  type: 'flux',      api_model: 'flux-kontext-pro',             provider: 'kie' },
-  'flux-kontext-max':{ label: 'Flux Kontext Max',          credits_per_image: 4,  endpoint: '/flux/kontext/generate',     poll: '/flux/kontext/record-info',  type: 'flux',      api_model: 'flux-kontext-max',             provider: 'kie' },
+  'flux-kontext-pro':{ label: 'Flux Kontext Pro',          credits_per_image: 2,  endpoint: '/flux/kontext/generate',     poll: '/flux/kontext/record-info',  type: 'flux',      api_model: 'flux-kontext-pro',             provider: 'kie', supports_reference_images: true },
+  'flux-kontext-max':{ label: 'Flux Kontext Max',          credits_per_image: 4,  endpoint: '/flux/kontext/generate',     poll: '/flux/kontext/record-info',  type: 'flux',      api_model: 'flux-kontext-max',             provider: 'kie', supports_reference_images: true },
   '4o-image':        { label: '4o Image (OpenAI)',          credits_per_image: 3,  endpoint: '/gpt4o-image/generate',      poll: '/gpt4o-image/record-info',   type: '4o',        api_model: '4o-image',                     provider: 'kie' },
   'gpt-image-1.5':   { label: 'GPT Image 1.5',              credits_per_image: 3,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'gpt-image', api_model: 'gpt-image/1.5-text-to-image',  provider: 'kie' },
-  'nano-banana':     { label: 'Nano Banana',                credits_per_image: 12, endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'google/nano-banana',           provider: 'kie' },
-  'nano-banana-pro': { label: 'Nano Banana Pro',            credits_per_image: 18, endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'nano-banana-pro',              provider: 'kie' },
+  'nano-banana':     { label: 'Nano Banana',                credits_per_image: 12, endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'google/nano-banana',           provider: 'kie', supports_reference_images: true },
+  'nano-banana-pro': { label: 'Nano Banana Pro',            credits_per_image: 18, endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'nano-banana-pro',              provider: 'kie', supports_reference_images: true },
   'qwen-image':      { label: 'Qwen Image',                 credits_per_image: 2,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'qwen/text-to-image',           provider: 'kie' },
   'seedream':        { label: 'Seedream (ByteDance)',       credits_per_image: 3,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'bytedance/seedream',           provider: 'kie' },
   'imagen4':         { label: 'Imagen 4 (Google)',          credits_per_image: 4,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'google/imagen4',               provider: 'kie' },

@@ -31,6 +31,13 @@
 
     <div v-if="character.references?.images?.length" class="char-refs">
       <span class="muted">Reference images: {{ character.references.images.length }}</span>
+      <span class="ref-hint">
+        — used by image gen with
+        <strong>Flux Kontext (Pro / Max)</strong>
+        and
+        <strong>Nano Banana (Pro)</strong>.
+        Other image models ignore reference images and run prompt-only.
+      </span>
     </div>
   </div>
 </template>
@@ -132,4 +139,17 @@ const scopeLabel = computed(() => props.character.scope === 'project' ? 'project
 }
 
 code { font-family: 'Menlo', Monaco, monospace; font-size: 11px; }
+
+.ref-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  flex-basis: 100%;
+  margin-top: 2px;
+}
+
+.ref-hint strong {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
 </style>

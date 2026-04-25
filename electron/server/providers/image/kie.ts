@@ -21,7 +21,7 @@ const kieImageProvider: ImageProvider = {
   },
 
   async generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
-    const { prompt, apiKey, aspectRatio, providerParams, isCancelled } = request
+    const { prompt, apiKey, aspectRatio, providerParams, isCancelled, referenceImagePaths } = request
 
     if (!apiKey) {
       throw new Error('No kie.ai API key configured. Add one in Settings → API Keys.')
@@ -37,8 +37,20 @@ const kieImageProvider: ImageProvider = {
       api_model: providerParams.api_model as string,
     }
 
+    // Phase 8: only forward reference images when the model declares
+    // support via providerParams.supports_reference_images. Models that
+    // don't (most text-to-image models) get the prompt-only path so we
+    // don't waste payload bytes on a field they'd ignore — and so the
+    // user sees clearly which models actually consume references.
+    const supportsReferences = providerParams?.supports_reference_images === true
+    const refsToSend = supportsReferences && referenceImagePaths?.length
+      ? referenceImagePaths
+      : undefined
+
     if (isCancelled?.()) throw new Error('Cancelled by user')
-    const taskId = await submitGeneration(prompt, apiKey, aspectRatio, modelConfig)
+    const taskId = await submitGeneration(prompt, apiKey, aspectRatio, modelConfig, {
+      referenceImagePaths: refsToSend,
+    })
     const urls = await pollForImageUrls(taskId, apiKey, modelConfig, { isCancelled })
 
     return { urls, taskId }
