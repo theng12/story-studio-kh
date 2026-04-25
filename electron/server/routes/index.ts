@@ -26,6 +26,7 @@ import { router as imageEditRouter } from './image-edit.js'
 import { router as uploadRouter } from './upload.js'
 import { router as appSettingsRouter } from './app-settings.js'
 import { router as lastSessionRouter } from './last-session.js'
+import { router as charactersRouter } from './characters.js'
 
 export function mountRoutes(app: Express): void {
   app.use('/api', projectsRouter)
@@ -48,4 +49,5 @@ export function mountRoutes(app: Express): void {
   app.use('/api', visionRouter)
   app.use('/api', imageEditRouter)
   app.use('/api', uploadRouter)
+  app.use('/api', charactersRouter)
 }

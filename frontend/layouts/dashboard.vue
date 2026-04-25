@@ -76,6 +76,9 @@
 
         <div class="nav-divider" />
         <div class="nav-section-label">Library</div>
+        <NuxtLink :to="`/projects/${slug}/characters`" class="nav-item" active-class="active" title="Persistent cast for this project — episode-scoped or project-wide. Used by script + image generation to keep names and looks consistent.">
+          <span class="nav-icon">&#128100;</span> Characters
+        </NuxtLink>
         <NuxtLink :to="`/projects/${slug}/presets`" class="nav-item" active-class="active" title="Manage every saved preset in this project — rename, duplicate, export, delete.">
           <span class="nav-icon">&#128194;</span> Presets
         </NuxtLink>

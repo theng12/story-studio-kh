@@ -39,8 +39,12 @@ app.use(cors({
     : true,
   credentials: true,
 }))
-app.use(express.json())
-app.use(express.text({ type: 'text/plain' }))
+// Body limit set to 10mb so base64 reference-image uploads (Phase 5) fit
+// alongside the existing routes that POST script + image-prompt JSON. The
+// reference-image route caps the decoded buffer at 5mb to enforce the
+// portrait-not-full-art convention; this 10mb covers the base64 overhead.
+app.use(express.json({ limit: '10mb' }))
+app.use(express.text({ type: 'text/plain', limit: '2mb' }))
 
 // Request logging — method/path/status/duration to the daily log file.
 app.use((req, res, next) => {

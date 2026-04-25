@@ -241,6 +241,77 @@ export interface Format {
 // Built-in patterns ship at electron/server/patterns/{id}.json (extraResources
 // entry mirrors formats). User-custom at ${PROJECTS_ROOT}/.patterns/{id}.json.
 
+// ── Character primitive (Phase 5 of format/character/pattern system) ──────
+//
+// Character is the persistent CAST entity. The script generator stops
+// inventing names every episode; the LLM is told the character roster
+// (by name + description) and instructed to use them. The image generator
+// gets consistent character descriptions per scene. Optional speech.voiceId
+// enables per-character voice routing in Phase 6 (multi-character episodes).
+//
+// Storage: ${PROJECTS_ROOT}/${slug}/characters/{character-id}/character.json
+//   plus reference image files alongside (referenced by relative paths so
+//   the project folder stays self-contained for cross-machine transfer).
+//
+// Scope determines reuse — see the Character interface JSDoc for the full
+// promotion model.
+
+export interface CharacterSpeech {
+  /** Free-form tonation hint injected into the script prompt (e.g. "soft, slow, contemplative"). */
+  tonation?: string
+  /** TTS provider voice id (e.g. ElevenLabs voice id). Phase 6 routing reads this. */
+  voiceId?: string
+  /** Provider id matching the voice — 'elevenlabs' | 'fal' | 'genaipro'. Optional; lets multi-provider projects route correctly. */
+  voiceProvider?: string
+}
+
+export interface CharacterReferences {
+  /** Relative paths (from the character folder) to reference image files. Phase 7 image-gen integration consumes these. */
+  images?: string[]
+  /** Style keywords appended to image prompts when this character appears (e.g. "cel-shaded", "photoreal"). */
+  style_keywords?: string[]
+}
+
+export interface Character {
+  /** Stable slug — file-system safe. */
+  id: string
+  /** Display name; flows into prompts verbatim ("Aria the Knight"). */
+  name: string
+  /** Free-text role: 'protagonist' | 'mentor' | 'antagonist' | 'narrator' | custom. */
+  archetype?: string
+  /** Physical + personality description; flows into prompts verbatim. */
+  description: string
+
+  /**
+   * Scope determines reuse:
+   *   'episode'  — bound to listed episode_codes only. Most common case
+   *                (1 character per episode, never reused). Cheap to
+   *                create + discard via the inline "+ Quick character"
+   *                shortcut on the script page.
+   *   'project'  — available to every episode in the project. The "brand
+   *                character" / channel mascot use case. Auto-included
+   *                in every episode's picker.
+   *   'library'  — sourced from the global library; copied into the
+   *                project on import. After copy, source becomes
+   *                'imported' and scope becomes 'project'.
+   *
+   * Promotion (one click in the UI):
+   *   episode → project: drop episode_codes
+   *   project → library: copy to ${PROJECTS_ROOT}/.character-library/
+   */
+  scope: 'episode' | 'project'
+  /** Required iff scope === 'episode'. */
+  episode_codes?: string[]
+
+  speech?: CharacterSpeech
+  references?: CharacterReferences
+
+  /** Provenance — purely informational, set on create + persists across edits. */
+  source: 'project' | 'imported'
+  schemaVersion: 1
+  created_at: string
+}
+
 export interface Pattern {
   id: string
   name: string
@@ -640,6 +711,14 @@ export interface GenerateScriptRequest {
    */
   pattern_id?: string
   pattern_subject?: string
+  /**
+   * Character primitive (Phase 5): when set, the script generator passes
+   * the named cast into the prompt — the LLM uses these names + descriptions
+   * instead of inventing characters. Empty array = today's "LLM invents
+   * the cast" behavior (back-compat). Image-prompt generation also folds
+   * each character's description into the per-scene prompts.
+   */
+  character_ids?: string[]
 }
 
 export interface GenerateImagesRequest {

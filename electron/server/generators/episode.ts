@@ -11,10 +11,47 @@ import { buildNarrationDocx, buildImagePromptsDocx } from '../lib/docx-builder.j
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
 import { loadPattern, applyPatternSubject } from '../services/pattern-loader.js'
+import { resolveCharacters } from '../services/character-manager.js'
 
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import type { GenerateScriptRequest, Job, Format, NarratorStyle, Pattern } from '../models/types.js'
+import type { GenerateScriptRequest, Job, Format, NarratorStyle, Pattern, Character } from '../models/types.js'
+
+/**
+ * Render the active cast as a prompt block. When a script has named
+ * characters provided, the LLM is told (a) to use these names, not invent
+ * new ones, (b) to honour each character's description and tonation hint,
+ * (c) when there are 2+ speakers, to mark dialog with [NAME]: tags so the
+ * audio generator can route per-character voices in Phase 6.
+ *
+ * Returns an empty string when no characters are passed — preserves
+ * back-compat with the "LLM invents the cast" path.
+ */
+function castPromptBlock(characters: Character[]): string {
+  if (!characters.length) return ''
+  const lines = characters.map((c, i) => {
+    const role = c.archetype ? ` [${c.archetype}]` : ''
+    const tonation = c.speech?.tonation ? ` Tonation: ${c.speech.tonation}.` : ''
+    return `${i + 1}. ${c.name}${role}\n   ${c.description}${tonation}`
+  })
+  const tagInstruction = characters.length >= 2
+    ? `\n\nThis episode has multiple named characters. Mark each dialog line with the speaker tag in this exact format:\n  [CHARACTER_NAME]: dialog text\nUse the character's exact name from the cast above (case-sensitive). Narration prose (no speaker tag) is read by the narrator. Do NOT invent character names that aren't in the cast.`
+    : `\n\nUse "${characters[0].name}" by name throughout — never invent additional named characters; supporting figures stay descriptive ("the merchant", "her sister") rather than getting names of their own.`
+
+  return `\nCAST (use these characters; do NOT invent names that aren't here):\n${lines.join('\n')}${tagInstruction}\n`
+}
+
+/**
+ * Append character descriptions to the image-prompt instructions so each
+ * generated scene prompt includes the character's appearance verbatim. This
+ * is what fixes the "scenes look randomly different per episode" complaint —
+ * the description is identical across episodes for the same character.
+ */
+function castImagePromptBlock(characters: Character[]): string {
+  if (!characters.length) return ''
+  const lines = characters.map((c) => `- ${c.name}: ${c.description}`)
+  return `\nCHARACTER REFERENCE (include these descriptions inline in every scene that features the character — copy them verbatim or paraphrase tightly so the visual stays consistent):\n${lines.join('\n')}\n`
+}
 
 /**
  * Apply a Pattern's overrides on top of a resolved Format. Returns a new
@@ -111,10 +148,12 @@ function narrationPrompt(
   introSettings?: IntroSettings,
   styleOverride?: string,
   introStandards?: string,
+  characters?: Character[],
 ): string {
   const ns = narratorStyleFor(format, style)
   const styleDesc = styleOverride || ns.description
   const wordFloor = Math.floor(totalWords * 0.9)
+  const castBlock = castPromptBlock(characters || [])
   const hasIntro = !!introSettings
   const intro = introSettings || {}
   const introWords = hasIntro ? (intro.word_target || 350) : 0
@@ -175,7 +214,7 @@ You MUST write EXACTLY ${chapters} chapters. Not fewer. Not more.
 Do NOT truncate or cut the story short for any reason.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+${castBlock}
 STRUCTURE (output as plain text with markdown-style headings):
 ${hasIntro ? introSection : ''}
 # ${title} — Narration (${totalWords}+ words)
@@ -197,9 +236,10 @@ If not, keep writing until you hit the targets.
 Output ONLY the script text. No meta-commentary.`
 }
 
-function imagePromptsPrompt(format: Format, code: string, title: string, storySummary: string, styleTag: string): string {
+function imagePromptsPrompt(format: Format, code: string, title: string, storySummary: string, styleTag: string, characters?: Character[]): string {
   const [scenesMin, scenesMax] = format.imagePrompts.defaultScenesTotalRange
   const thumbsCount = format.imagePrompts.defaultThumbnails
+  const castImageBlock = castImagePromptBlock(characters || [])
   return `Generate ALL image prompts ${format.imagePrompts.purposeNote}.
 
 Episode code: ${code}
@@ -207,6 +247,7 @@ Episode title: ${title}
 
 Story summary for reference (stay consistent with these details):
 ${storySummary}
+${castImageBlock}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CRITICAL REQUIREMENTS:
@@ -370,6 +411,18 @@ async function generateEpisode(job: Job): Promise<void> {
     }
   }
 
+  // Character resolution (Phase 5): if character_ids was passed, fetch the
+  // cast and thread them into both the script + image prompts. Empty array
+  // (or missing field) preserves back-compat with the "LLM invents the cast"
+  // path. Missing characters log + skip (we don't fail the whole job because
+  // one of N character ids was bad).
+  const characters = req.character_ids?.length
+    ? await resolveCharacters(project_slug, req.character_ids)
+    : []
+  if (characters.length) {
+    job.output_lines.push(`Cast: ${characters.map(c => c.name).join(', ')}`)
+  }
+
   // Style tag — prefer a project-defined override in production_standards (legacy
   // hook for sleep-story Storybook tag), fall back to the format's defaultStyleTag.
   const styleTagMatch = standards.match(/"([^"]*Storybook[^"]*)"/)
@@ -410,7 +463,7 @@ async function generateEpisode(job: Job): Promise<void> {
     const introEnabled = introSettings.enabled === true
     const introStandardsText = (config as any).intro_standards || ''
     const narrationText = await callAi(req.model, sysPrompt,
-      narrationPrompt(format, episode_id, title, length, style, chapters, totalWords, wordsPerChapter, introEnabled ? introSettings : undefined, customStyleText, introStandardsText),
+      narrationPrompt(format, episode_id, title, length, style, chapters, totalWords, wordsPerChapter, introEnabled ? introSettings : undefined, customStyleText, introStandardsText, characters),
       apiKeys, true, { slug: project_slug, jobId: job.job_id, signal: controller.signal })
 
     const wordCount = narrationText.split(/\s+/).length
@@ -426,7 +479,7 @@ async function generateEpisode(job: Job): Promise<void> {
     if (!skipImages && !jq.isCancelled(job.job_id)) {
       job.output_lines.push('Generating image prompts...')
       imageText = await callAi(req.model, sysPrompt,
-        imagePromptsPrompt(format, episode_id, title, storySummary, styleTag), apiKeys, false,
+        imagePromptsPrompt(format, episode_id, title, storySummary, styleTag, characters), apiKeys, false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
       const promptCount = (imageText.match(/^##\s/gm) || []).length
       job.output_lines.push(`Image prompts: ${promptCount} prompts`)

@@ -59,6 +59,16 @@
         />
       </div>
 
+      <!-- Character picker (Phase 5) — optional cast. The LLM uses these
+           names + descriptions instead of inventing characters. Multi-select. -->
+      <div v-if="form.episode_id" class="form-group mt-2" style="max-width: 720px;">
+        <CharacterPicker
+          v-model="form.character_ids"
+          :project-slug="slug"
+          :episode-code="form.episode_id"
+        />
+      </div>
+
       <!-- Introduction (on top, toggleable) -->
       <div class="intro-section mt-2">
         <div class="intro-header">
@@ -569,6 +579,9 @@ const form = reactive({
   // top of the project's effective format, substituting {X} with subject.
   pattern_id: '',
   pattern_subject: '',
+  // Character primitive (Phase 5): optional cast — selected ids flow through
+  // /generate/script-only so the LLM uses these names + descriptions.
+  character_ids: [] as string[],
 })
 
 // Look up the project's current format id so PatternPicker can show

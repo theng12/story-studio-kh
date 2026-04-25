@@ -211,6 +211,9 @@ export const GenerateScriptOnlySchema = z.object({
   // 'The entire history of London explained').
   pattern_id: z.string().min(1).max(120).optional(),
   pattern_subject: z.string().max(300).optional(),
+  // Character primitive (Phase 5): optional cast list — the LLM uses
+  // these names + descriptions instead of inventing characters.
+  character_ids: z.array(z.string().min(1).max(120)).optional(),
 }).passthrough()
 export type GenerateScriptOnlyBody = z.infer<typeof GenerateScriptOnlySchema>
 
