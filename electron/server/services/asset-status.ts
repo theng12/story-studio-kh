@@ -139,6 +139,80 @@ export interface ImageStatus {
 }
 
 /**
+ * Looser-detection fallback: when no prompts docx exists, scan the
+ * canonical bg + thumb directories for `{code}_Scene{NN}_v*.png` and
+ * `{code}_Thumb{NN}_v*.png` files. Each unique scene/thumb number with at
+ * least one non-empty variant counts as "present". Total === present so
+ * the caller treats the asset bundle as complete.
+ *
+ * Used by Situation B (pre-Story-Studio episodes whose user has placed
+ * hand-named files in the canonical folders but never had us generate
+ * prompts docs for them). Additive — episodes that DO have prompts go
+ * through the strict expected-vs-present path above.
+ */
+async function detectImagesWithoutPrompts(slug: string, code: string): Promise<ImageStatus> {
+  // Resolve the canonical bg + thumb dirs without going through
+  // resolveImageDirs (which derives them from a prompts file path). We
+  // need an episode title to plug into the folder template — pull it
+  // from the accepted-ideas list. If the title can't be resolved we just
+  // bail to the empty `{ mode: 'all' }` shape the original code returned.
+  const ideas = await im.getIdeas(slug, 'accepted')
+  const idea = ideas.find(i => (i.episode_code || '').toUpperCase() === code.toUpperCase())
+  if (!idea) return { mode: 'all' }
+
+  let paths: any
+  try {
+    paths = await resolveEpisodePaths(slug, code, idea.title || '')
+  } catch {
+    return { mode: 'all' }
+  }
+  const bgDir: string = paths.bg_dir
+  const thumbDir: string = paths.thumb_dir
+
+  // For each *_Scene{NN}_v*.png present (with content), bucket by NN. If
+  // any bucket has ≥1 non-empty variant, it counts. We treat the SET of
+  // discovered numbers as the expected set (no docx = no expectation gap).
+  async function discoverNumbers(dir: string, kind: 'Scene' | 'Thumb'): Promise<number[]> {
+    const files = await safeReaddir(dir)
+    const re = new RegExp(`^${code}_${kind}(\\d{1,3})_v\\d+\\.png$`, 'i')
+    const buckets = new Map<number, string[]>()
+    for (const f of files) {
+      const m = f.match(re)
+      if (!m) continue
+      const n = parseInt(m[1], 10)
+      const arr = buckets.get(n) || []
+      arr.push(f)
+      buckets.set(n, arr)
+    }
+    const present: number[] = []
+    for (const [n, fs] of buckets.entries()) {
+      // Need ≥1 variant with content for the scene/thumb to count.
+      let ok = false
+      for (const f of fs) {
+        if (await fileHasContent(path.join(dir, f))) { ok = true; break }
+      }
+      if (ok) present.push(n)
+    }
+    return present.sort((a, b) => a - b)
+  }
+
+  const sceneNumbers = await discoverNumbers(bgDir, 'Scene')
+  const thumbNumbers = await discoverNumbers(thumbDir, 'Thumb')
+
+  // Empty + empty → unchanged "no signal" shape so consumers see the
+  // same `{ mode: 'all' }` they used to. Only emit per-bucket counts when
+  // we actually found files.
+  const result: ImageStatus = { mode: 'all', dir: { bg: bgDir, thumb: thumbDir } }
+  if (sceneNumbers.length > 0) {
+    result.scenes = { total: sceneNumbers.length, present: sceneNumbers.length, missing: [] }
+  }
+  if (thumbNumbers.length > 0) {
+    result.thumbnails = { total: thumbNumbers.length, present: thumbNumbers.length, missing: [] }
+  }
+  return result
+}
+
+/**
  * For each expected scene (and thumbnail) prompt, does at least one
  * `{code}_Scene{NN}_v*.png` (or `_Thumb{NN}_v*.png`) file exist in the
  * output dir with non-zero size? If so → present. Otherwise → missing.
@@ -158,7 +232,18 @@ export async function getImageStatus(slug: string, episodeId: string): Promise<I
   try { thumbPromptsPath = await findThumbPromptsFile(slug, episodeId) } catch { /* no thumb prompts yet */ }
 
   if (!scenePromptsPath && !thumbPromptsPath) {
-    return { mode: 'all' }
+    // Fallback: looser, prompts-less detection (Situation B).
+    // Pre-Story-Studio episodes often have hand-named scene/thumb PNGs on
+    // disk without an accompanying prompts docx (because the user authored
+    // them outside our flow). Treat the files themselves as authoritative
+    // — count every {code}_Scene{NN}_v*.png as one present scene with NO
+    // expectation gap (total = present, missing = []), so the pipeline
+    // treats it as "complete" and stops asking for regenerations.
+    //
+    // We only fall through to this path when BOTH prompts are absent —
+    // if even one prompts docx exists, the existing expected-vs-present
+    // logic above is honoured (so partial gens still flag correctly).
+    return await detectImagesWithoutPrompts(slug, code)
   }
 
   const promptsPathForDirs = scenePromptsPath || thumbPromptsPath!
@@ -258,7 +343,39 @@ export async function getVideoStatus(slug: string, episodeId: string): Promise<V
   }
 
   const promptsPath = await findFirstPrompts()
-  if (!promptsPath) return { total: 0, present: 0, missing: [] }
+  if (!promptsPath) {
+    // Looser-detection fallback (Situation B): no prompts docx but the
+    // user may have hand-placed `{code}_Video{NN}_v*.mp4` clips into the
+    // canonical video dir. Treat each present clip as one expected slot
+    // (total === present), so the pipeline reports video as complete and
+    // stops nagging. Episodes WITH a prompts docx still hit the strict
+    // expected-vs-present path below.
+    const names = await resolveSubfolderNames(slug, code)
+    const epDir = await findEpisodeDir(outputRoot, code)
+    if (!epDir) return { total: 0, present: 0, missing: [] }
+    const videoDir = path.join(epDir, names.video)
+    const files = await safeReaddir(videoDir)
+    const re = new RegExp(`^${code}_Video(\\d{1,3})_v\\d+\\.mp4$`, 'i')
+    const buckets = new Map<number, string[]>()
+    for (const f of files) {
+      const m = f.match(re)
+      if (!m) continue
+      const n = parseInt(m[1], 10)
+      const arr = buckets.get(n) || []
+      arr.push(f)
+      buckets.set(n, arr)
+    }
+    const present: number[] = []
+    for (const [n, fs] of buckets.entries()) {
+      let ok = false
+      for (const f of fs) {
+        if (await fileHasContent(path.join(videoDir, f))) { ok = true; break }
+      }
+      if (ok) present.push(n)
+    }
+    if (present.length === 0) return { total: 0, present: 0, missing: [], dir: videoDir }
+    return { total: present.length, present: present.length, missing: [], dir: videoDir }
+  }
 
   const parsed = await parseImagePromptsDocx(promptsPath)
   // Video generator uses the same "scenes" numbering from the prompts doc;
