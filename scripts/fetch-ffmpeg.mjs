@@ -167,6 +167,38 @@ async function findExtractedBinary(dir, expectedName) {
 
 // ── Main ────────────────────────────────────────────────────────────────
 
+/**
+ * True when both binaries already exist in OUT_DIR as valid universal2
+ * Mach-O fat binaries (arm64 + x86_64). Used by the skip-if-present
+ * fast-path so wiring this script into `npm run dist` doesn't add a
+ * 2-3 minute redownload on every build.
+ *
+ * We don't re-verify SHA256 here — that would still cost a hash of two
+ * 126MB files. The lipo arch check is fast (reads only the Mach-O
+ * header) and catches the common failure mode (someone deleted the
+ * binaries; the dir contains only MANIFEST.json — exactly what
+ * happened to the 1.0.8 dmg). Pass --force to force a redownload
+ * when you want to actually re-pull the upstream zips.
+ */
+async function binariesAlreadyPresent() {
+  const ffBin = path.join(OUT_DIR, 'ffmpeg')
+  const fpBin = path.join(OUT_DIR, 'ffprobe')
+  for (const bin of [ffBin, fpBin]) {
+    if (!existsSync(bin)) return false
+    try {
+      const st = await stat(bin)
+      // Sanity floor: a real universal2 ffmpeg is >100MB; anything
+      // smaller is suspicious (maybe a broken partial download).
+      if (st.size < 50 * 1024 * 1024) return false
+      const { stdout } = await run('lipo', ['-info', bin])
+      if (!/arm64/.test(stdout) || !/x86_64/.test(stdout)) return false
+    } catch {
+      return false
+    }
+  }
+  return true
+}
+
 async function main() {
   log(`platform=${process.platform} arch=${process.arch} target=universal2 ffmpeg=${FFMPEG_VERSION}`)
 
@@ -177,6 +209,16 @@ async function main() {
     // and surface any other packaging regressions; the resulting artifact
     // won't have a working bundled ffmpeg, which is fine for a dry-run.
     console.warn(`[fetch-ffmpeg] platform=${process.platform} not supported; skipping (macOS-only).`)
+    return
+  }
+
+  // Fast-path: skip the entire fetch+lipo dance when both binaries are
+  // already present + valid. Lets `npm run dist` call this script
+  // unconditionally without paying the download cost on every build.
+  // Override with `--force` (or env FETCH_FFMPEG_FORCE=1) to re-pull.
+  const force = process.argv.includes('--force') || process.env.FETCH_FFMPEG_FORCE === '1'
+  if (!force && await binariesAlreadyPresent()) {
+    log('binaries already present in bundled/ffmpeg — skipping download. Use --force to refetch.')
     return
   }
 
