@@ -113,6 +113,42 @@ router.post('/system/pick-file', async (req, res) => {
   }
 })
 
+/**
+ * Pick MULTIPLE files via native OS dialog. Used by the asset importer
+ * dialog where the user might select 12 scene PNGs in one go.
+ * Body: { title?, buttonLabel?, filters?: Array<{ name, extensions: string[] }> }
+ * Returns: { paths: string[] }  (empty array if the user cancelled)
+ *
+ * Why a separate route: in modern Electron the browser-side
+ * `<input type="file">` no longer exposes File.path (security/Chromium
+ * alignment), so we can't read absolute paths from the renderer's
+ * picker. Falling through to the native dialog via IPC is the only
+ * reliable way to get absolute paths the importer can copy/move from.
+ */
+router.post('/system/pick-files', async (req, res) => {
+  const electron = loadElectron()
+  if (!electron) {
+    return res.status(503).json({ detail: 'File picker not available — Electron main process not detected (are you running the server standalone?).' })
+  }
+
+  const title = typeof req.body?.title === 'string' ? req.body.title : 'Choose files'
+  const buttonLabel = typeof req.body?.buttonLabel === 'string' ? req.body.buttonLabel : 'Select'
+  const filters = Array.isArray(req.body?.filters) && req.body.filters.length
+    ? req.body.filters
+    : [{ name: 'All Files', extensions: ['*'] }]
+
+  try {
+    const result = await showOpenDialog(electron, {
+      title, buttonLabel, filters,
+      properties: ['openFile', 'multiSelections'],
+    })
+    res.json({ paths: result.canceled ? [] : (result.filePaths || []) })
+  } catch (e: any) {
+    console.warn('[system/pick-files] dialog failed:', e?.message || e)
+    res.status(500).json(humanizeBackendError(e, 'File picker failed'))
+  }
+})
+
 router.post('/system/reveal-folder', async (req, res) => {
   const electron = loadElectron()
   if (!electron) return res.status(503).json({ detail: 'Shell not available — Electron main process not detected.' })

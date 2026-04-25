@@ -24,17 +24,13 @@
       </button>
     </div>
 
-    <!-- File picker (per-tab varies; the picker chunk is shared) ──────── -->
+    <!-- File picker — native OS dialog via IPC (modern Electron strips
+         File.path off renderer-side <input> elements, so we can't read
+         absolute paths from a browser file input). The native dialog
+         returns absolute paths the backend can copy/move from. -->
     <div class="picker-row">
-      <input
-        ref="fileInput"
-        type="file"
-        :multiple="multipleForTab(activeTab)"
-        :accept="acceptForTab(activeTab)"
-        @change="onFilesPicked"
-        style="display:none"
-      />
-      <button class="btn btn-secondary btn-sm" @click="fileInput?.click()">
+      <button class="btn btn-secondary btn-sm" :disabled="picking" @click="pickViaNative">
+        <LoadingSpinner v-if="picking" size="sm" />
         {{ activeFiles.length ? '+ Add more files' : 'Pick files…' }}
       </button>
       <span v-if="activeFiles.length" class="text-muted file-count">
@@ -338,8 +334,8 @@ const tabs: TabMeta[] = [
 ]
 
 const activeTab = ref<TabId>('audio')
-const fileInput = ref<HTMLInputElement | null>(null)
 const submitting = ref(false)
+const picking = ref(false)
 const mode = ref<'copy' | 'move'>('copy')
 const lastResult = ref<any>(null)
 
@@ -405,15 +401,28 @@ function multipleForTab(id: TabId): boolean {
   return id !== 'final' && id !== 'merged'
 }
 
-function acceptForTab(id: TabId): string {
+interface DialogFilter { name: string; extensions: string[] }
+function filtersForTab(id: TabId): DialogFilter[] {
   switch (id) {
-    case 'audio':  return 'audio/*,.mp3,.wav,.m4a,.aac,.ogg'
+    case 'audio':  return [{ name: 'Audio', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'] }]
     case 'scene':
-    case 'thumb':  return 'image/*,.png,.jpg,.jpeg,.webp'
+    case 'thumb':  return [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
     case 'video':
-    case 'final':  return 'video/*,.mp4,.mov,.webm,.mkv,.m4v'
-    case 'merged': return 'audio/*,.mp3,.wav'
-    case 'other':  return ''
+    case 'final':  return [{ name: 'Video', extensions: ['mp4', 'mov', 'webm', 'mkv', 'm4v'] }]
+    case 'merged': return [{ name: 'Audio', extensions: ['mp3', 'wav'] }]
+    case 'other':  return [{ name: 'All Files', extensions: ['*'] }]
+  }
+}
+
+function dialogTitleForTab(id: TabId): string {
+  switch (id) {
+    case 'audio':  return 'Pick audio files'
+    case 'scene':  return 'Pick scene images'
+    case 'thumb':  return 'Pick thumbnail images'
+    case 'video':  return 'Pick per-scene video clips'
+    case 'final':  return 'Pick the final assembled video'
+    case 'merged': return 'Pick the unified narration mp3'
+    case 'other':  return 'Pick files'
   }
 }
 
@@ -443,28 +452,32 @@ function clearActiveFiles() {
   }
 }
 
-// ── File-pick handler ─────────────────────────────────────────────────────
-function onFilesPicked(e: Event) {
-  const input = e.target as HTMLInputElement
-  const files = Array.from(input.files || [])
-  if (!files.length) return
-
-  // Electron exposes File.path; in a plain browser it's undefined and we
-  // can't import (no absolute path to send). Fail loudly so the user
-  // knows the dialog is intended for the desktop app.
-  const paths: string[] = []
-  for (const f of files) {
-    const p = (f as any).path as string | undefined
-    if (!p) {
-      showError('No absolute path on this file — the importer needs to run inside the Electron desktop app.')
-      input.value = ''
-      return
-    }
-    paths.push(p)
+// ── File-pick handler — native dialog via IPC ─────────────────────────────
+// Modern Electron strips File.path off renderer-side <input type="file">
+// elements (security/Chromium alignment), so we can't read absolute paths
+// from a browser file picker. The native dialog returns absolute paths
+// the backend importer can copy/move from.
+async function pickViaNative() {
+  if (picking.value) return
+  picking.value = true
+  try {
+    const tab = activeTab.value
+    const r = await post<{ paths: string[] }>('/system/pick-files', {
+      title: dialogTitleForTab(tab),
+      buttonLabel: 'Add to import',
+      filters: filtersForTab(tab),
+    })
+    const paths = r.paths || []
+    if (!paths.length) return  // user cancelled
+    // For single-file tabs, only honour the first path even if the
+    // multi-select dialog (used for everything) returns more.
+    const trimmed = multipleForTab(tab) ? paths : paths.slice(0, 1)
+    ingestPaths(tab, trimmed)
+  } catch (e: any) {
+    showError(e?.data?.detail || 'File picker failed')
+  } finally {
+    picking.value = false
   }
-
-  ingestPaths(activeTab.value, paths)
-  input.value = ''
 }
 
 // Audio auto-mapping — when filenames look like a number (1.mp3, 2.mp3),
