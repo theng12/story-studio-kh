@@ -482,29 +482,47 @@ export async function importEpisodeFolder(slug: string, opts: ImportOptions): Pr
   // file on SIGKILL.
   await im.promoteToAccepted(slug, storedIdea.id, { episode_code: finalCode })
 
-  // 2. Resolve destination path inside output_root
-  const sourceName = path.basename(opts.source_path)
-  // If final_code differs from parsed_code, rename the folder accordingly
-  const desiredFolderName = `${finalCode} - ${title}`
-  const sourceIsInOutput = opts.source_path.startsWith(outputRoot)
+  // 2. Resolve the canonical destination path, including the season
+  //    folder. Mirrors the math in services/utils.ts resolveEpisodePaths
+  //    so the imported episode lands at the same place every other
+  //    consumer of resolveEpisodePaths (asset-status, audio-reconciler,
+  //    video-assembly, …) is going to look. Previously this code joined
+  //    the bare folder name onto outputRoot, dropping the season
+  //    segment — which made imported episodes invisible to detection.
+  const seasonSize = (meta as any).season_size || 20
+  const seasonPrefix = (meta as any).season_prefix || 'Season'
+  const folderTemplate = (meta as any).folder_template
+    || '{season_prefix} {season_num}/{code} - {title}/'
+  const epNum = parseInt(finalCode.replace(/^[A-Za-z]+/, ''), 10) || 1
+  const seasonNum = Math.floor((epNum - 1) / seasonSize) + 1
+  const episodeRel = folderTemplate
+    .replace('{season_prefix}', seasonPrefix)
+    .replace('{season_num}', seasonNum.toString().padStart(3, '0'))
+    .replace('{code}', finalCode)
+    .replace('{title}', title)
+  const episodeDir = path.join(outputRoot, episodeRel)
 
-  let episodeDir: string
-  if (sourceIsInOutput && sourceName === desiredFolderName) {
-    episodeDir = opts.source_path
-  } else {
-    const dst = path.join(outputRoot, desiredFolderName)
-    if (existsSync(dst)) throw new Error(`Destination already exists: ${dst}`)
-    if (opts.copy_into_project === false && sourceIsInOutput) {
-      // Move/rename in place
-      await fs.rename(opts.source_path, dst)
-    } else {
-      // Copy (safer default)
-      await fs.cp(opts.source_path, dst, { recursive: true })
-    }
-    episodeDir = dst
+  // We DO NOT copy the source folder verbatim anymore. The previous
+  // behaviour duplicated every weirdly-named file into the project
+  // tree alongside fresh empty canonical folders — leaving two copies
+  // of every asset in different naming conventions inside one episode
+  // dir. Now we create just the canonical skeleton and let the
+  // post-import asset-mapping dialog move/copy each classified file
+  // from its ORIGINAL location to its canonical destination. The user
+  // chose copy-vs-move via the inspector toggle (importCopy → 'copy'
+  // mode in the dialog; unchecked → 'move' mode that removes originals
+  // after a successful import).
+  if (existsSync(episodeDir)) {
+    // Defensive: if the canonical path already exists for this code,
+    // surface a clear error rather than silently overwriting. Common
+    // when the user re-imports an episode they already imported once.
+    throw new Error(`Destination already exists: ${episodeDir}. Delete it first or import to a different code.`)
   }
+  await fs.mkdir(episodeDir, { recursive: true })
 
-  // 3. Ensure the 9 subfolders exist (do not move files; just create empty ones)
+  // 3. Create the 9 canonical subfolders inside the empty episode dir.
+  //    These are the destinations the asset-mapping dialog writes into,
+  //    and they're what every detection helper expects to find.
   const subfolderNames = meta.subfolder_names || DEFAULT_SUBFOLDER_NAMES
   const needed = [
     subfolderNames.script, subfolderNames.metadata,
@@ -513,28 +531,19 @@ export async function importEpisodeFolder(slug: string, opts: ImportOptions): Pr
     subfolderNames.audio, subfolderNames.merged_audio, subfolderNames.video,
   ].map(t => t.replace('{code}', finalCode))
 
-  const existingSubs = new Set(
-    (await fs.readdir(episodeDir)).filter(n => !n.startsWith('.')),
-  )
   const foldersCreated: string[] = []
   for (const name of needed) {
-    if (!existingSubs.has(name)) {
-      await fs.mkdir(path.join(episodeDir, name), { recursive: true })
-      foldersCreated.push(name)
-    }
+    await fs.mkdir(path.join(episodeDir, name), { recursive: true })
+    foldersCreated.push(name)
   }
 
-  // 4. Build the pre-filled mapping plan for the post-import asset
-  //    dialog. We DON'T move files here — the dialog handles that, so
-  //    the user can review + re-map before anything lands in canonical
-  //    locations. The plan converts source_relative paths from inspect
-  //    (relative to the original source folder) to absolute paths
-  //    inside the freshly-imported episode_dir, then re-derives the
-  //    type-specific fields (scene_number, section_slug, etc.) from
-  //    the canonical dest_relative the inspector already computed.
+  // 4. Build the pre-filled mapping plan. Source paths are absolute
+  //    paths to the ORIGINAL files (NOT inside episodeDir) — the
+  //    dialog will copy/move them into the canonical destinations
+  //    we just created.
   const prefilledImportItems: PrefilledImportItem[] = []
   for (const plan of inspect.discovered_files) {
-    const absSource = path.join(episodeDir, plan.source_relative)
+    const absSource = path.join(opts.source_path, plan.source_relative)
     if (!existsSync(absSource)) continue
     const item = derivePrefilledItem(absSource, plan)
     if (item) prefilledImportItems.push(item)

@@ -353,7 +353,10 @@
 
           <label class="flex gap-2 mt-2" style="align-items: center; font-size: 12px;">
             <input type="checkbox" v-model="importCopy" />
-            Copy into project output folder (leaves original alone)
+            <span>
+              <strong>Keep originals</strong> — copy files into the project (recommended).
+              Uncheck to <em>move</em> files (originals deleted after a successful import).
+            </span>
           </label>
 
           <div v-if="inspectResult.warnings.length" class="import-warnings mt-2">
@@ -383,14 +386,16 @@
 
     <!-- Asset mapping dialog — auto-opens after a folder import that
          turned up classifiable files. Pre-populates with the discovered
-         items so the user reviews + commits in one pass. -->
+         items so the user reviews + commits in one pass. The mode
+         (copy vs move) honours the inspector toggle: keep-originals
+         checked → copy, unchecked → move (deletes originals). -->
     <AssetImportDialog
       v-if="assetMapEpisode"
       :visible="!!assetMapEpisode"
       :slug="slug"
       :episode-code="assetMapEpisode.episode_code"
       :prefilled-items="assetMapEpisode.prefilled"
-      default-mode="move"
+      :default-mode="assetMapEpisode.mode"
       @close="assetMapEpisode = null"
       @imported="onAssetsMapped"
     />
@@ -905,6 +910,9 @@ async function doImport() {
       assetMapEpisode.value = {
         episode_code: r.episode_code,
         prefilled: items,
+        // importCopy === true means "keep originals" → dialog should copy.
+        // Unchecked → user wants the originals removed → dialog moves.
+        mode: importCopy.value ? 'copy' : 'move',
       }
     }
   } catch (e: any) {
@@ -917,7 +925,7 @@ async function doImport() {
 // ── Post-import asset-mapping dialog ────────────────────────────────────
 // Set after a successful folder import when the inspector discovered
 // classifiable files. Drives the AssetImportDialog mount; null = closed.
-interface AssetMapState { episode_code: string; prefilled: any[] }
+interface AssetMapState { episode_code: string; prefilled: any[]; mode: 'copy' | 'move' }
 const assetMapEpisode = ref<AssetMapState | null>(null)
 
 async function onAssetsMapped(_summary: any) {
