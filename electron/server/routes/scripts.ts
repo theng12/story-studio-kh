@@ -4,6 +4,8 @@ import { existsSync } from 'fs'
 import pathMod from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
+import * as cm from '../services/character-manager.js'
+import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import { callAi } from '../lib/ai-client.js'
 import { SUPPORTED_MODELS } from '../models/types.js'
 import { resolveEpisodePaths } from '../services/utils.js'
@@ -348,6 +350,7 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
     thumb_text_style, thumb_text_style_custom,
     thumb_text_position,
     thumb_font_style, thumb_font_style_custom,
+    character_ids,
   } = req.body
 
   const provider = SUPPORTED_MODELS[model]
@@ -367,6 +370,16 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
   } catch {
     storyContext = `Episode: ${episode_id}, Title: ${title || 'Unknown'}`
   }
+
+  // Resolve cast → character-reference block. Empty array (or missing
+  // field on legacy requests) → empty string injected → today's behaviour
+  // unchanged. When non-empty, the LLM is told each character's name +
+  // description verbatim, so the requirement at REQUIREMENTS line 6
+  // ("inline character descriptions") actually has data backing it.
+  const characters = Array.isArray(character_ids) && character_ids.length
+    ? await cm.resolveCharacters(slug, character_ids)
+    : []
+  const castBlock = castImagePromptBlock(characters)
 
   const mode = req.body.mode || 'all' // 'all', 'scenes', 'thumbnails'
   let sceneCount = 0
@@ -413,7 +426,7 @@ Episode: ${episode_id} — ${title}
 
 Story context:
 ${storyContext}
-
+${castBlock}
 REQUIREMENTS:
 ${requirements.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 ${sceneCount === 0 ? '\nDo NOT generate any scene prompts. Only generate thumbnail prompts.' : ''}

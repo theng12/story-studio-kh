@@ -14,12 +14,14 @@
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
+import * as cm from '../services/character-manager.js'
 import { callAi } from '../lib/ai-client.js'
 import { SUPPORTED_MODELS } from '../models/types.js'
 import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
+import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import type { Job } from '../models/types.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
 
@@ -41,6 +43,14 @@ interface ImagePromptsParams {
   thumb_font_style?: string
   thumb_font_style_custom?: string
   mode?: 'all' | 'scenes' | 'thumbnails'
+  /**
+   * Cast for this episode — passed through from a saved Image Prompts
+   * preset (the form field added in image-prompts.vue). The batch
+   * executor resolves these to Character records and folds the cast
+   * block into the prompt so the LLM has the names + descriptions to
+   * inline per scene. Empty / missing → today's "no cast" path.
+   */
+  character_ids?: string[]
 }
 
 function checkProvider(model: string, config: any): string | null {
@@ -75,6 +85,8 @@ function buildPrompt(args: {
   episode_id: string
   title: string
   storyContext: string
+  /** Pre-rendered cast block from castImagePromptBlock(). Empty string when no cast. */
+  castBlock: string
   sceneCount: number
   thumbs: number
   style_tag: string
@@ -85,7 +97,7 @@ function buildPrompt(args: {
   thumb_text_style_custom?: string
   thumb_text_position: string
 }): string {
-  const { episode_id, title, storyContext, sceneCount, thumbs, style_tag, aspect_ratio } = args
+  const { episode_id, title, storyContext, castBlock, sceneCount, thumbs, style_tag, aspect_ratio } = args
   const fontPhrase = resolveFontStyle(args.thumb_font_style, args.thumb_font_style_custom)
   const textPhrase = resolveTextStyle(args.thumb_text_style, args.thumb_text_style_custom)
   const thumbTextInstruction = `The episode title "${title}" displayed in ${fontPhrase}, ${textPhrase}, positioned at the ${args.thumb_text_position || 'center'} of the frame, large and legible.`
@@ -113,7 +125,7 @@ Episode: ${episode_id} — ${title}
 
 Story context:
 ${storyContext}
-
+${castBlock}
 REQUIREMENTS:
 ${requirements.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 ${sceneCount === 0 ? '\nDo NOT generate any scene prompts. Only generate thumbnail prompts.' : ''}
@@ -160,10 +172,22 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   job.output_lines.push(`Reading narration for story context…`)
   const storyContext = await readStoryContext(project_slug, episode_id, title)
 
+  // Resolve cast for this episode → cast block. Empty array (or missing
+  // field on legacy presets) → empty string injected → today's behaviour
+  // unchanged.
+  const characters = Array.isArray(req.character_ids) && req.character_ids.length
+    ? await cm.resolveCharacters(project_slug, req.character_ids)
+    : []
+  if (characters.length) {
+    job.output_lines.push(`Cast: ${characters.map(c => c.name).join(', ')}`)
+  }
+  const castBlock = castImagePromptBlock(characters)
+
   const prompt = buildPrompt({
     episode_id,
     title,
     storyContext,
+    castBlock,
     sceneCount,
     thumbs,
     style_tag: req.style_tag || '',

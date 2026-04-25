@@ -27,6 +27,19 @@
     </p>
 
     <div class="card mt-3">
+      <!-- Cast for this episode — same picker as the Scripts page. The
+           selected character names + descriptions are folded into the
+           LLM prompt so every scene/thumbnail prompt actually includes
+           the character description as the requirements demand (instead
+           of the LLM inventing or drifting between regenerations). -->
+      <div v-if="form.episode_id" class="form-group" style="max-width: 720px;">
+        <CharacterPicker
+          v-model="form.character_ids"
+          :project-slug="slug"
+          :episode-code="form.episode_id"
+        />
+      </div>
+
       <div class="form-group" style="max-width: 520px;">
         <ModelSelector v-model="form.model" :project-slug="slug" />
       </div>
@@ -482,6 +495,12 @@ const form = reactive({
   thumb_font_style: 'serif',
   thumb_font_style_custom: '',
   force: false,
+  // Cast injected into the LLM prompt so every scene/thumbnail prompt
+  // actually includes character descriptions (the requirement was always
+  // there but had no character data behind it). Empty array = today's
+  // legacy behaviour. usePresets snapshots the form, so saving an Image
+  // Prompts preset captures the cast automatically.
+  character_ids: [] as string[],
 })
 
 function pickRandomPresetId(presets: StylePreset[]): string {
@@ -717,6 +736,10 @@ async function runGenerate(mode: PromptMode) {
       thumb_font_style_custom: form.thumb_font_style_custom,
       title: selectedEpisode.value?.title || '',
       mode,
+      // Cast for this generation. Backend resolves these via
+      // character-manager and folds the descriptions into the LLM prompt
+      // so every scene/thumbnail prompt actually includes them.
+      character_ids: form.character_ids,
     })
     // When generating one half only, merge into the currently-reviewed
     // result so the UI keeps showing the other half that was already there.

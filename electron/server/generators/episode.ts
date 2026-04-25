@@ -15,43 +15,8 @@ import { resolveCharacters } from '../services/character-manager.js'
 
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
+import { castPromptBlock, castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import type { GenerateScriptRequest, Job, Format, NarratorStyle, Pattern, Character } from '../models/types.js'
-
-/**
- * Render the active cast as a prompt block. When a script has named
- * characters provided, the LLM is told (a) to use these names, not invent
- * new ones, (b) to honour each character's description and tonation hint,
- * (c) when there are 2+ speakers, to mark dialog with [NAME]: tags so the
- * audio generator can route per-character voices in Phase 6.
- *
- * Returns an empty string when no characters are passed — preserves
- * back-compat with the "LLM invents the cast" path.
- */
-function castPromptBlock(characters: Character[]): string {
-  if (!characters.length) return ''
-  const lines = characters.map((c, i) => {
-    const role = c.archetype ? ` [${c.archetype}]` : ''
-    const tonation = c.speech?.tonation ? ` Tonation: ${c.speech.tonation}.` : ''
-    return `${i + 1}. ${c.name}${role}\n   ${c.description}${tonation}`
-  })
-  const tagInstruction = characters.length >= 2
-    ? `\n\nThis episode has multiple named characters. Mark each dialog line with the speaker tag in this exact format:\n  [CHARACTER_NAME]: dialog text\nUse the character's exact name from the cast above (case-sensitive). Narration prose (no speaker tag) is read by the narrator. Do NOT invent character names that aren't in the cast.`
-    : `\n\nUse "${characters[0].name}" by name throughout — never invent additional named characters; supporting figures stay descriptive ("the merchant", "her sister") rather than getting names of their own.`
-
-  return `\nCAST (use these characters; do NOT invent names that aren't here):\n${lines.join('\n')}${tagInstruction}\n`
-}
-
-/**
- * Append character descriptions to the image-prompt instructions so each
- * generated scene prompt includes the character's appearance verbatim. This
- * is what fixes the "scenes look randomly different per episode" complaint —
- * the description is identical across episodes for the same character.
- */
-function castImagePromptBlock(characters: Character[]): string {
-  if (!characters.length) return ''
-  const lines = characters.map((c) => `- ${c.name}: ${c.description}`)
-  return `\nCHARACTER REFERENCE (include these descriptions inline in every scene that features the character — copy them verbatim or paraphrase tightly so the visual stays consistent):\n${lines.join('\n')}\n`
-}
 
 /**
  * Apply a Pattern's overrides on top of a resolved Format. Returns a new
