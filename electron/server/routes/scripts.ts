@@ -851,3 +851,46 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
 // uses `/generate/image-prompts` with `mode: 'scenes' | 'thumbnails' | 'all'`
 // for granular generation. Pipeline batch uses `image_prompts` step.
 
+// ── Legacy narration normaliser (Part 3 of mark-done plan) ─────────────────
+//
+// Re-structures a pre-Story-Studio narration docx into the canonical
+// per-chapter format. Idempotent — running it on already-canonical input
+// returns { skipped: true } without touching the file.
+//
+// Body:
+//   { source_path: string, model: string }
+// Response:
+//   { ok, skipped, chapters_written, introduction_written, backup_at, unified_narration_at }
+router.post('/projects/:slug/episodes/:code/normalize-script', async (req, res) => {
+  try {
+    const { slug, code } = req.params
+    const { source_path, model } = req.body || {}
+    if (typeof source_path !== 'string' || !source_path) {
+      return res.status(400).json({ detail: 'source_path required' })
+    }
+    if (typeof model !== 'string' || !model) {
+      return res.status(400).json({ detail: 'model required' })
+    }
+
+    const config = await pm.getConfig(slug)
+    if (!config?.anthropic_api_key && !config?.openai_api_key) {
+      return res.status(400).json({ detail: 'Project missing API keys (anthropic or openai required)' })
+    }
+    const apiKeys = {
+      anthropic_api_key: (config as any).anthropic_api_key || '',
+      openai_api_key: (config as any).openai_api_key || '',
+      kie_api_key: (config as any).kie_api_key || '',
+    }
+
+    const { normalizeNarrationDocx } = await import('../services/docx-normalizer.js')
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    const result = await normalizeNarrationDocx(slug, code, source_path, { model, apiKeys })
+    // Invalidate the episode-status cache — the script + introduction
+    // booleans flip as a result of the new chapter files landing.
+    if (!result.skipped) episodeStatusCache.invalidate(slug, code)
+    res.json({ ok: true, ...result })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Narration normalisation failed'))
+  }
+})
+

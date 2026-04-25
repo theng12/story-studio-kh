@@ -69,6 +69,31 @@
         />
       </div>
 
+      <!-- Legacy-narration normaliser entry point. Sits below the cast
+           picker because it's a cousin of the script-generation flow:
+           "I have a script already, just need it in our format." Hides
+           when no episode is selected (the route needs a code). -->
+      <div v-if="form.episode_id" class="form-group mt-2" style="max-width: 720px;">
+        <button
+          class="btn btn-sm btn-secondary"
+          title="Restructure a pre-Story-Studio narration docx into the canonical per-chapter format. Idempotent — already-canonical files are skipped."
+          @click="normalizeOpen = true"
+        >🛠 Normalize legacy narration…</button>
+        <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+          Got a script from before Story Studio (or hand-written prose)?
+          Normalize it once and the rest of the pipeline (audio, subtitles,
+          assembly) will read it correctly.
+        </p>
+      </div>
+      <NormalizeNarrationDialog
+        v-if="normalizeOpen && form.episode_id"
+        :visible="normalizeOpen"
+        :slug="slug"
+        :episode-code="form.episode_id"
+        @close="normalizeOpen = false"
+        @normalized="onNarrationNormalized"
+      />
+
       <!-- Introduction (on top, toggleable) -->
       <div class="intro-section mt-2">
         <div class="intro-header">
@@ -908,6 +933,15 @@ async function refetchEpisodeStatus() {
 // event when the user picks from the dropdown, so without this, deep-links
 // would leave selectedEpisode null and `scriptGenerated` stuck at false.
 watch(() => form.episode_id, (id) => { if (id) refetchEpisodeStatus() }, { immediate: true })
+
+// ── Legacy narration normaliser (Part 3 of mark-done plan) ────────────────
+// Modal-only state; the dialog component handles the route call + result
+// rendering. We refresh the episode status on success so the script /
+// introduction badges flip without a manual reload.
+const normalizeOpen = ref(false)
+function onNarrationNormalized(_result: any) {
+  refetchEpisodeStatus().catch(() => {})
+}
 
 function moveBeat(index: number, direction: number) {
   const newIndex = index + direction

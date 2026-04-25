@@ -255,6 +255,17 @@
                   <span class="kebab-hint">Copy weirdly-named files from disk into the canonical episode folders.</span>
                 </div>
               </button>
+              <button
+                class="kebab-item"
+                role="menuitem"
+                @click="openOverridesFor(ep)"
+              >
+                <span class="kebab-icon">⚙</span>
+                <div class="kebab-body">
+                  <strong>Edit asset overrides…</strong>
+                  <span class="kebab-hint">Pin individual asset states (Force ✓ / Force ✗ / Detect) for this episode.</span>
+                </div>
+              </button>
             </div>
           </div>
         </label>
@@ -270,6 +281,17 @@
         :chapter-count="importEpisode.suggested_chapters"
         @close="importEpisode = null"
         @imported="onImported"
+      />
+
+      <!-- Per-asset override picker — same shared-instance pattern. -->
+      <StatusOverridePicker
+        v-if="overrideEpisode"
+        :visible="!!overrideEpisode"
+        :slug="slug"
+        :episode-code="overrideEpisode.episode_code"
+        :initial="overrideEpisode.status_overrides as any"
+        @close="overrideEpisode = null"
+        @saved="onOverridesSaved"
       />
 
       <!-- Pagination controls — shown whenever the filtered set exceeds
@@ -793,16 +815,28 @@ function pillTitle(step: StepMeta, ep: Episode): string {
 // otherwise points at the episode the dialog is bound to. We re-use the
 // same dialog component for every row (mounted only when open).
 const importEpisode = ref<Episode | null>(null)
+const overrideEpisode = ref<Episode | null>(null)
 
 function openImportFor(ep: Episode) {
   closeKebab()
   importEpisode.value = ep
 }
 
+function openOverridesFor(ep: Episode) {
+  closeKebab()
+  overrideEpisode.value = ep
+}
+
 function onImported(_summary: any) {
   // Refresh the episode list so newly-imported assets show up in the
   // status pills. The backend invalidates its own cache; the frontend
   // composable refetches on demand.
+  refreshEpisodes()
+}
+
+function onOverridesSaved(_payload: any) {
+  // Override route invalidates the episode-status cache server-side;
+  // refresh so the per-step pills (and (manual) annotation) update.
   refreshEpisodes()
 }
 
