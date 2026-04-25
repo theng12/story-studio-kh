@@ -1674,7 +1674,26 @@ function isRestorablePath(p: string): boolean {
   return sub === 'index' || RESTORABLE_SUBS.has(sub)
 }
 
+/**
+ * Auto-restore must fire AT MOST ONCE per Electron launch. Without this gate
+ * the loop is: user clicks "All Projects" in the sidebar → navigates to `/`
+ * → onMounted → restore re-fires → bounced back to the project page they
+ * just left. SessionStorage is the right scope — a per-tab key that resets
+ * only on a new Electron-window launch, exactly the "fresh start" boundary
+ * we want.
+ *
+ * The flag is set BEFORE the eligibility checks so even when restore
+ * declines (no last session, stale, non-restorable route), we still don't
+ * try again on the next visit. If the user explicitly wants to resume,
+ * they pick the project from the list manually.
+ */
+const RESTORE_ATTEMPTED_KEY = 'story-studio:restore-attempted'
+
 async function maybeRestoreLastSession(): Promise<boolean> {
+  if (typeof sessionStorage !== 'undefined') {
+    if (sessionStorage.getItem(RESTORE_ATTEMPTED_KEY) === '1') return false
+    sessionStorage.setItem(RESTORE_ATTEMPTED_KEY, '1')
+  }
   try {
     const last = await get<{
       projectSlug?: string; route?: string; ts?: number;
