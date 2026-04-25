@@ -159,12 +159,30 @@
       </div>
 
       <div v-else class="episode-list mt-2">
-        <label v-for="ep in paginatedEpisodes" :key="ep.episode_code" class="episode-row" :class="{ selected: selectedEpisodes.has(ep.episode_code) }">
+        <label
+          v-for="ep in paginatedEpisodes"
+          :key="ep.episode_code"
+          class="episode-row"
+          :class="{
+            selected: selectedEpisodes.has(ep.episode_code),
+            'marked-done': ep.marked_done,
+          }"
+        >
           <input type="checkbox" :checked="selectedEpisodes.has(ep.episode_code)" @change="toggleEpisode(ep.episode_code)" />
           <div class="ep-main">
             <div class="ep-head">
               <strong>{{ ep.episode_code }}</strong>
               <span class="ep-title">{{ ep.title }}</span>
+              <!-- Manual-done pill: visible only when the user explicitly
+                   flagged this episode "already done" (e.g. for YouTube
+                   imports the pipeline should stop nagging about). The pill
+                   is the at-a-glance signal that this row's green pills come
+                   from a manual override, not from file detection. -->
+              <span
+                v-if="ep.marked_done"
+                class="manual-done-pill"
+                title="This episode was manually marked done — file detection is bypassed. Use the menu (⋮) to revert."
+              >✓ Done (manual)</span>
             </div>
             <!-- Per-step completion indicator. One pill per pipeline step,
                  same order + icons as the step-tile list above so the row
@@ -177,11 +195,55 @@
               <span
                 v-for="step in stepsMeta"
                 :key="step.id"
-                :class="['ep-pill', isStepDoneForEpisode(step.id, ep.status) ? 'done' : 'missing']"
-                :title="`${step.label} — ${isStepDoneForEpisode(step.id, ep.status) ? '✓ done' : 'missing'}`"
+                :class="[
+                  'ep-pill',
+                  isStepDoneForEpisode(step.id, ep.status) ? 'done' : 'missing',
+                  isStepManualForEpisode(step.id, ep) ? 'manual' : '',
+                ]"
+                :title="pillTitle(step, ep)"
               >
                 {{ step.icon }}
               </span>
+            </div>
+          </div>
+          <!-- Per-episode kebab menu. Wraps in a click.stop'ed div so
+               clicking the trigger doesn't toggle the row checkbox (which
+               would happen if the click bubbled up to the wrapping label).
+               The menu sits in a portal-free absolute popover anchored to
+               the button — sufficient for the row count we expect. -->
+          <div class="ep-kebab" @click.prevent.stop>
+            <button
+              class="kebab-trigger"
+              :aria-expanded="openKebabFor === ep.episode_code"
+              :aria-label="`Actions for ${ep.episode_code}`"
+              title="More actions"
+              @click="toggleKebab(ep.episode_code)"
+            >⋮</button>
+            <div v-if="openKebabFor === ep.episode_code" class="kebab-menu" role="menu">
+              <button
+                v-if="!ep.marked_done"
+                class="kebab-item"
+                role="menuitem"
+                @click="onMarkDone(ep, true)"
+              >
+                <span class="kebab-icon">✓</span>
+                <div class="kebab-body">
+                  <strong>Mark as already done</strong>
+                  <span class="kebab-hint">Stop the pipeline from nagging about this episode. Useful for YouTube imports.</span>
+                </div>
+              </button>
+              <button
+                v-else
+                class="kebab-item"
+                role="menuitem"
+                @click="onMarkDone(ep, false)"
+              >
+                <span class="kebab-icon">↻</span>
+                <div class="kebab-body">
+                  <strong>Unmark — revert to file detection</strong>
+                  <span class="kebab-hint">Drop the manual override. Asset state will reflect what's actually on disk.</span>
+                </div>
+              </button>
             </div>
           </div>
         </label>
@@ -271,7 +333,7 @@ useHead({ title: 'Pipeline — Story Studio KH' })
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const { get, post } = useApi()
+const { get, post, patch: patchApi } = useApi()
 const { success, error: showError } = useToast()
 const { config } = useProject()
 
@@ -406,6 +468,13 @@ interface Episode {
   episode_code: string
   title: string
   status: Record<string, boolean>
+  // Optional provenance + override fields (Pipeline page reads them for
+  // the manual-done pill + per-step "(manual)" annotation; back-end may
+  // still omit them on stale rows so all are optional).
+  batch_id?: string
+  marked_done?: boolean
+  marked_done_at?: string | null
+  status_overrides?: Record<string, boolean> | null
 }
 const selectedEpisodes = reactive(new Set<string>())
 
@@ -645,6 +714,99 @@ function selectAllPending() {
     })
     if (needsAny) selectedEpisodes.add(ep.episode_code)
   }
+}
+
+// ── Mark-done kebab menu ────────────────────────────────────────────────
+// Per-episode action menu wired to the new mark-done route. Closes on any
+// document click that isn't on a kebab trigger/menu — single global handler
+// keeps the close-on-outside-click logic centralized rather than re-binding
+// per row.
+const openKebabFor = ref<string | null>(null)
+const markingDone = ref<Set<string>>(new Set())
+
+function toggleKebab(code: string) {
+  openKebabFor.value = openKebabFor.value === code ? null : code
+}
+
+function closeKebab() {
+  openKebabFor.value = null
+}
+
+function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
+  // Marked-done short-circuits everything — every pill is "manual".
+  if (ep.marked_done) return true
+  const ov = ep.status_overrides
+  if (!ov) return false
+  // Map step IDs back to the underlying status field(s). If any input
+  // field for the step is overridden, the pill carries the (manual) hint.
+  switch (stepId) {
+    case 'script-only':       return 'script' in ov
+    case 'introduction-only': return 'introduction' in ov
+    case 'image_prompts':     return 'scene_prompts' in ov || 'thumb_prompts' in ov
+    case 'images':            return 'images' in ov || 'thumbnails' in ov
+    case 'audio':             return 'audio' in ov
+    case 'audio_merge':       return 'merged_audio' in ov
+    case 'metadata':          return 'metadata' in ov
+    case 'video':             return 'video' in ov
+    case 'video_assembly':    return 'video_assembly' in ov
+  }
+  return false
+}
+
+function pillTitle(step: StepMeta, ep: Episode): string {
+  const done = isStepDoneForEpisode(step.id, ep.status)
+  const manual = isStepManualForEpisode(step.id, ep)
+  const status = done ? '✓ done' : 'missing'
+  if (ep.marked_done) return `${step.label} — ${status} (whole episode marked done manually)`
+  if (manual) return `${step.label} — ${status} (manual override)`
+  return `${step.label} — ${status}`
+}
+
+async function onMarkDone(ep: Episode, done: boolean) {
+  if (markingDone.value.has(ep.episode_code)) return
+  markingDone.value.add(ep.episode_code)
+  closeKebab()
+  // Optimistic toggle — flip the local field immediately so the row
+  // re-renders with the manual pill and dimmed pills before the network
+  // round-trip completes. If the request fails we roll back via the
+  // catch branch.
+  const prev = ep.marked_done
+  ep.marked_done = done
+  try {
+    await patchApi(`/projects/${slug.value}/episodes/${ep.episode_code}/mark-done`, { done })
+    // Force a refresh — the per-step status fields haven't changed locally
+    // (they reflect file detection), so triggering a refetch ensures the
+    // server's recomputed override-applied status replaces our optimistic
+    // copy on the next paint.
+    await refreshEpisodes()
+    success(done ? `${ep.episode_code} marked done` : `${ep.episode_code} reverted to file detection`)
+  } catch (e: any) {
+    ep.marked_done = prev
+    showError(e?.data?.detail || 'Failed to update mark-done state')
+  } finally {
+    markingDone.value.delete(ep.episode_code)
+  }
+}
+
+// Outside-click handler — close kebab when clicking anywhere that isn't a
+// kebab trigger/menu. Mounted once at component setup time (Vue auto-cleans
+// on unmount via watchEffect's cleanup). Keydown Escape also closes.
+if (typeof window !== 'undefined') {
+  const onDocClick = (e: MouseEvent) => {
+    if (!openKebabFor.value) return
+    const t = e.target as HTMLElement | null
+    if (t && t.closest('.ep-kebab')) return
+    closeKebab()
+  }
+  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeKebab() }
+  onMounted(() => {
+    document.addEventListener('click', onDocClick)
+    document.addEventListener('keydown', onKey)
+  })
+  onBeforeUnmount(() => {
+    document.removeEventListener('click', onDocClick)
+    document.removeEventListener('keydown', onKey)
+  })
 }
 
 // ── Validation ─────────────────────────────────────────────────────────
@@ -918,4 +1080,103 @@ async function submit() {
   color: var(--text-muted);
   font-weight: 400;
 }
+
+/* ── Manual-done state (mark-done overhaul) ───────────────────────────── */
+
+/* The whole row gets a subtle green wash + slimmed asset pills so the
+   "manual" state reads at a glance even when the menu's closed. */
+.episode-row.marked-done {
+  border-color: rgba(46, 160, 67, 0.45);
+  background: rgba(46, 160, 67, 0.04);
+}
+.episode-row.marked-done .ep-pill {
+  /* Done pills already look right; missing pills go invisible since the
+     manual-done flag overrides file detection — there's nothing to fix. */
+  opacity: 0.7;
+}
+
+/* Pill shown next to the title for marked-done rows. Conveys "this state
+   came from a user action, not detection". Click the kebab menu to revert. */
+.manual-done-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  background: rgba(46, 160, 67, 0.18);
+  color: var(--success, #3fb950);
+  border: 1px solid rgba(46, 160, 67, 0.35);
+  white-space: nowrap;
+}
+
+/* Per-step pill annotation when an individual override is in play (not the
+   whole-episode mark-done). Subtle yellow ring distinguishes "manual" from
+   "file-detected" without losing the green/grey done/missing distinction. */
+.ep-pill.manual {
+  outline: 1px solid rgba(240, 198, 116, 0.6);
+  outline-offset: 1px;
+}
+
+/* ── Per-row kebab menu ──────────────────────────────────────────────── */
+.ep-kebab {
+  position: relative;
+  flex-shrink: 0;
+}
+.kebab-trigger {
+  width: 28px; height: 28px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.kebab-trigger:hover,
+.kebab-trigger[aria-expanded="true"] {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+.kebab-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 280px;
+  padding: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+}
+.kebab-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-primary);
+  transition: background 0.1s;
+}
+.kebab-item:hover { background: var(--bg-tertiary); }
+.kebab-icon {
+  width: 20px;
+  flex-shrink: 0;
+  font-size: 14px;
+  color: var(--accent);
+  text-align: center;
+  margin-top: 1px;
+}
+.kebab-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kebab-body strong { font-size: 13px; font-weight: 600; }
+.kebab-hint { font-size: 11px; color: var(--text-muted); line-height: 1.35; }
 </style>

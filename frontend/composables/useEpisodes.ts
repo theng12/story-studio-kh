@@ -40,6 +40,16 @@ export interface EpisodeRow {
   mood?: string
   themes?: string[]
   episode_dir?: string
+  // Provenance + per-episode override surface (added in mark-done overhaul).
+  // batch_id === 'imported' identifies YouTube imports (Situation A); the UI
+  // uses it for the Source filter + bulk-by-source action. marked_done lets
+  // the pipeline render a "✓ Done (manual)" pill and dim asset icons.
+  // status_overrides surfaces which fields are user-pinned (annotated as
+  // "(manual)") vs file-detected.
+  batch_id?: string
+  marked_done?: boolean
+  marked_done_at?: string | null
+  status_overrides?: Partial<EpisodeRow['status']> | null
   status: {
     script: boolean
     introduction: boolean

@@ -668,6 +668,15 @@ router.get('/projects/:slug/episodes', async (req, res) => {
       suggested_length: idea.suggested_length,
       mood: idea.mood,
       themes: idea.themes,
+      // Provenance + per-episode override surface — needed by the
+      // Pipeline + Ideas UI to render the "manual" pill, drive the
+      // Source filter, and target the bulk-mark-done banner. Defaults
+      // are intentionally omitted (undefined) so existing consumers see
+      // exactly today's shape unless they opt in.
+      batch_id: idea.batch_id,
+      marked_done: idea.marked_done === true,
+      marked_done_at: idea.marked_done_at || null,
+      status_overrides: idea.status_overrides || null,
       // ── Asset-readiness contract (single source of truth for UI gating) ──
       // Every consumer reads from these fields; nothing else should infer
       // "is X generated?" from preview signals or local refs. Each field's
