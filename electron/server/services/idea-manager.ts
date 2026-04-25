@@ -28,7 +28,29 @@ export interface StoredIdea {
   accepted_at: string | null
   batch_id: string  // Groups ideas from the same generation run
   model_used: string
+  /**
+   * Per-episode "this is done outside the app" overrides — supports two
+   * cases:
+   *   - YouTube imports already published: marked_done=true short-circuits
+   *     the asset-status compute to all-true so the pipeline view stops
+   *     showing them as "needs work".
+   *   - Pre-Story-Studio assets: status_overrides lets the user force
+   *     individual asset booleans true/false on top of file detection
+   *     (e.g. "I have audio + scenes from elsewhere; mark those true,
+   *     keep file-detection for everything else").
+   *
+   * Both fields are absent on every existing record on disk → readers
+   * treat absence as "no overrides" → today's behavior unchanged.
+   */
+  marked_done?: boolean
+  marked_done_at?: string | null
+  status_overrides?: Partial<EpisodeStatus>
 }
+
+// Re-imported (not re-declared) to avoid a circular import — asset-status.ts
+// imports from this module too. We use a type-only import so the compiled
+// output has no runtime dependency on asset-status here.
+import type { EpisodeStatus } from './asset-status.js'
 
 interface IdeasStore {
   ideas: StoredIdea[]
@@ -182,6 +204,134 @@ export async function updateIdea(
     if (patch.suggested_length !== undefined) idea.suggested_length = patch.suggested_length
     if (patch.mood !== undefined) idea.mood = patch.mood
     return idea
+  })
+}
+
+// ── Mark-done + status overrides (Part 4 of mark-done plan) ──────────────
+//
+// These flip the new optional fields on a StoredIdea. The corresponding
+// route handlers also call episodeStatusCache.invalidate(slug, code) so
+// the next pipeline read sees the change without waiting for an mtime
+// bump on disk.
+
+/**
+ * Flip `marked_done` on a single idea. Pass `done: true` to suppress the
+ * episode from "needs work" lists; pass `done: false` to revert and let
+ * file detection drive the status again. Returns the updated idea, or
+ * null when no idea has the given episode code.
+ */
+export async function markEpisodeDone(
+  slug: string,
+  episode_code: string,
+  done: boolean,
+): Promise<StoredIdea | null> {
+  const CODE = episode_code.toUpperCase()
+  return mutateStore(slug, (store) => {
+    const idea = store.ideas.find(i => (i.episode_code || '').toUpperCase() === CODE)
+    if (!idea) return null
+    idea.marked_done = done
+    idea.marked_done_at = done ? new Date().toISOString() : null
+    return idea
+  })
+}
+
+/**
+ * Replace per-asset status overrides for an episode. Pass `null` to clear
+ * (revert to pure file detection). Pass an object whose keys are
+ * EpisodeStatus fields → boolean to force them. Unknown keys are ignored.
+ */
+export async function setEpisodeStatusOverrides(
+  slug: string,
+  episode_code: string,
+  overrides: Record<string, boolean> | null,
+): Promise<StoredIdea | null> {
+  const CODE = episode_code.toUpperCase()
+  // Sanitize the input — only known EpisodeStatus keys survive. Keeps the
+  // on-disk shape clean even if a future field is removed from the type.
+  const VALID_KEYS = new Set([
+    'script', 'introduction', 'scene_prompts', 'thumb_prompts', 'metadata',
+    'images', 'thumbnails', 'audio', 'merged_audio', 'video', 'video_assembly',
+  ])
+  return mutateStore(slug, (store) => {
+    const idea = store.ideas.find(i => (i.episode_code || '').toUpperCase() === CODE)
+    if (!idea) return null
+    if (overrides === null) {
+      delete idea.status_overrides
+    } else {
+      const cleaned: Record<string, boolean> = {}
+      for (const [k, v] of Object.entries(overrides)) {
+        if (VALID_KEYS.has(k) && typeof v === 'boolean') cleaned[k] = v
+      }
+      idea.status_overrides = cleaned as any
+    }
+    return idea
+  })
+}
+
+/**
+ * Bulk-set marked_done across many episodes in a single atomic write.
+ * Used by the Ideas-page "Mark all selected as done" toolbar action.
+ * Episode codes that don't match any idea are silently skipped.
+ *
+ * Returns the count of ideas actually changed (skips no-ops).
+ */
+export async function bulkMarkDone(
+  slug: string,
+  episode_codes: string[],
+  done: boolean,
+): Promise<{ changed: number; total_requested: number }> {
+  if (!episode_codes.length) return { changed: 0, total_requested: 0 }
+  const wanted = new Set(episode_codes.map(c => c.toUpperCase()))
+  return mutateStore(slug, (store) => {
+    const now = new Date().toISOString()
+    let changed = 0
+    for (const idea of store.ideas) {
+      const code = (idea.episode_code || '').toUpperCase()
+      if (!code || !wanted.has(code)) continue
+      if (idea.marked_done === done) continue  // no-op
+      idea.marked_done = done
+      idea.marked_done_at = done ? now : null
+      changed++
+    }
+    return { changed, total_requested: episode_codes.length }
+  })
+}
+
+/**
+ * Convenience: bulk-set marked_done across every accepted idea matching a
+ * provenance source. Currently the only useful value for `source` is
+ * 'imported' — the existing import flow stamps `batch_id: 'imported'` on
+ * every idea created from an external folder. This is the one-click
+ * "mark all 53 YouTube imports as already done" action.
+ *
+ * Returns the count actually changed + an array of affected episode codes
+ * so the UI can show "marked 53 episodes" and invalidate cache entries.
+ */
+export async function bulkMarkDoneBySource(
+  slug: string,
+  source: 'imported',
+  done: boolean,
+): Promise<{ changed: number; episode_codes: string[] }> {
+  return mutateStore(slug, (store) => {
+    const now = new Date().toISOString()
+    const codes: string[] = []
+    let changed = 0
+    for (const idea of store.ideas) {
+      if (idea.batch_id !== source) continue
+      if (!idea.episode_code) continue
+      if (idea.marked_done === done) {
+        // Still report the code in the affected list so the cache
+        // invalidator knows to flush even when the flag was already set —
+        // belt-and-suspenders for stale cache entries.
+        codes.push(idea.episode_code)
+        continue
+      }
+      idea.marked_done = done
+      idea.marked_done_at = done ? now : null
+      codes.push(idea.episode_code)
+      changed++
+    }
+    return { changed, episode_codes: codes }
   })
 }
 

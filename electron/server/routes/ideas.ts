@@ -501,6 +501,90 @@ router.patch('/projects/:slug/ideas/:ideaId', async (req, res) => {
   }
 })
 
+// ── Mark-done + status overrides (Part 4 of mark-done plan) ──────────────
+//
+// These endpoints flip the new optional fields on a StoredIdea and
+// invalidate the episode-status cache so the next pipeline read reflects
+// the change without waiting for an mtime bump on disk. Single-episode
+// routes are PATCH (idempotent partial mutation); bulk routes are POST
+// (multi-record action).
+
+router.patch('/projects/:slug/episodes/:code/mark-done', async (req, res) => {
+  const { slug, code } = req.params
+  const done = req.body?.done
+  if (typeof done !== 'boolean') {
+    return res.status(400).json({ detail: 'body.done must be a boolean' })
+  }
+  try {
+    const updated = await im.markEpisodeDone(slug, code, done)
+    if (!updated) return res.status(404).json({ detail: `No accepted idea matches episode '${code}'` })
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    episodeStatusCache.invalidate(slug, code)
+    res.json({ ok: true, episode_code: code, marked_done: updated.marked_done, marked_done_at: updated.marked_done_at })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to mark episode'))
+  }
+})
+
+router.patch('/projects/:slug/episodes/:code/status-overrides', async (req, res) => {
+  const { slug, code } = req.params
+  // Accept `{ overrides: null }` to clear, or `{ overrides: { audio: true, ... } }`
+  // to replace. Anything else is a 400.
+  const overrides = req.body?.overrides
+  if (overrides !== null && (typeof overrides !== 'object' || Array.isArray(overrides))) {
+    return res.status(400).json({ detail: 'body.overrides must be an object or null' })
+  }
+  try {
+    const updated = await im.setEpisodeStatusOverrides(slug, code, overrides as Record<string, boolean> | null)
+    if (!updated) return res.status(404).json({ detail: `No accepted idea matches episode '${code}'` })
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    episodeStatusCache.invalidate(slug, code)
+    res.json({ ok: true, episode_code: code, status_overrides: updated.status_overrides ?? null })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to update status overrides'))
+  }
+})
+
+router.post('/projects/:slug/episodes/bulk-mark-done', async (req, res) => {
+  const { slug } = req.params
+  const { episode_codes, done } = req.body || {}
+  if (!Array.isArray(episode_codes) || !episode_codes.every(c => typeof c === 'string' && c)) {
+    return res.status(400).json({ detail: 'body.episode_codes must be a non-empty string array' })
+  }
+  if (typeof done !== 'boolean') {
+    return res.status(400).json({ detail: 'body.done must be a boolean' })
+  }
+  try {
+    const result = await im.bulkMarkDone(slug, episode_codes, done)
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    // Bulk hits enough entries that targeted invalidation is overkill — wipe
+    // the project's cache entries in one call.
+    episodeStatusCache.invalidateProject(slug)
+    res.json({ ok: true, ...result })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Bulk mark-done failed'))
+  }
+})
+
+router.post('/projects/:slug/episodes/bulk-mark-done-by-source', async (req, res) => {
+  const { slug } = req.params
+  const { source, done } = req.body || {}
+  if (source !== 'imported') {
+    return res.status(400).json({ detail: "body.source must be 'imported' (only supported value)" })
+  }
+  if (typeof done !== 'boolean') {
+    return res.status(400).json({ detail: 'body.done must be a boolean' })
+  }
+  try {
+    const result = await im.bulkMarkDoneBySource(slug, source, done)
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    episodeStatusCache.invalidateProject(slug)
+    res.json({ ok: true, ...result })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Bulk mark-done-by-source failed'))
+  }
+})
+
 // ── Get accepted episodes with folder status (for Scripts/Image Prompts dropdowns) ──
 
 router.get('/projects/:slug/episodes', async (req, res) => {

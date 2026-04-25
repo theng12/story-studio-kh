@@ -717,7 +717,41 @@ export async function computeEpisodeStatus(
     status.video_assembly = false
   }
 
+  // ── Per-episode overrides (Part 1 of mark-done plan) ───────────────────
+  // Look up the idea record for this episode; apply marked_done short-circuit
+  // first (returns all-true so the pipeline view stops nagging on YouTube
+  // imports / hand-made legacy episodes), then per-asset overrides on top of
+  // the file-detected status. Empty/absent overrides → today's behavior
+  // unchanged.
+  try {
+    const ideasList = await getIdeasOnce()
+    const CODE = code.toUpperCase()
+    const idea = ideasList.find(i => (i.episode_code || '').toUpperCase() === CODE)
+    if (idea?.marked_done === true) {
+      return allDoneStatus()
+    }
+    if (idea?.status_overrides) {
+      for (const k of Object.keys(idea.status_overrides) as Array<keyof EpisodeStatus>) {
+        const v = idea.status_overrides[k]
+        if (typeof v === 'boolean') status[k] = v
+      }
+    }
+  } catch { /* if we can't load ideas, fall through with detected status — back-compat */ }
+
   return status
+}
+
+/** Phase 1 helper — returns an EpisodeStatus with every field set to true. */
+function allDoneStatus(): EpisodeStatus {
+  return {
+    script: true, introduction: true,
+    scene_prompts: true, thumb_prompts: true,
+    metadata: true,
+    images: true, thumbnails: true,
+    audio: true, merged_audio: true,
+    video: true,
+    video_assembly: true,
+  }
 }
 
 
