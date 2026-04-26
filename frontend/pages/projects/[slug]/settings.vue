@@ -452,6 +452,166 @@
          frontend/pages/projects/[slug]/assets.vue. The old tab content
          lived here before the extraction; delete-only refactor. -->
 
+    <!-- Storage — per-episode disk usage + cleanup of uploaded final
+         videos + external-root configuration. The pain point this
+         tab solves: sleep stories produce 5-10 GB final videos that
+         bog down iCloud sync. Once a video is on YouTube (sidecar
+         shows video_id), the local copy is operationally redundant
+         and can be deleted to reclaim disk. -->
+    <div v-if="activeTab === 'storage'" class="card mt-2">
+      <h3>Storage</h3>
+      <p class="text-muted mt-1 mb-2">
+        See where the disk goes per episode and free up space safely.
+        <strong>Final videos that are confirmed-uploaded to YouTube</strong>
+        can be deleted locally — the YouTube sidecar (saved during upload)
+        keeps the pipeline view happy, and the canonical copy lives on
+        YouTube. Per-scene Veo / fal clips are surfaced separately because
+        they cost real $$$ to regenerate; we never auto-clean those.
+      </p>
+
+      <!-- ── External final-video root (per-machine) ─────────────── -->
+      <div class="storage-section">
+        <h4>External final-video root <span class="optional-tag">(per-machine, optional)</span></h4>
+        <p class="text-muted hint">
+          When set, freshly-rendered final videos land at this path
+          instead of inside the project tree. Use a non-cloud-synced
+          location (e.g. <code>~/Movies/Story Studio</code> or an external
+          drive) to keep the GBs out of iCloud Drive. Project-tree finals
+          still detect normally — both locations are checked. Stored in
+          <code>app-settings.json</code> per-machine, so each device you
+          work from picks its own path (or leaves it unset).
+        </p>
+        <div class="external-root-row">
+          <input
+            v-model="externalRootInput"
+            class="input"
+            placeholder="/Users/yourname/Movies/Story Studio"
+          />
+          <button class="btn btn-secondary btn-sm" :disabled="externalRootSaving" @click="saveExternalRoot">
+            {{ externalRootSaving ? 'Saving…' : 'Save' }}
+          </button>
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="!externalRootInput || migrateRunning"
+            :title="!externalRootInput ? 'Set + save the path first' : 'Move existing final videos in this project to the external root'"
+            @click="runMigration"
+          >
+            {{ migrateRunning ? 'Migrating…' : 'Migrate finals here →' }}
+          </button>
+        </div>
+        <p v-if="externalRootStatus" :class="['external-root-status', externalRootReachable ? 'ok' : 'warn']">
+          {{ externalRootStatus }}
+        </p>
+        <div v-if="lastMigration" class="storage-result">
+          <strong>Migration:</strong>
+          {{ lastMigration.moved.length }} file(s) moved
+          ({{ formatBytes(lastMigration.bytes_moved) }} freed from project tree).
+          <span v-if="lastMigration.errors.length" class="error-text">
+            {{ lastMigration.errors.length }} error(s).
+          </span>
+        </div>
+      </div>
+
+      <!-- ── Per-episode storage breakdown ───────────────────────── -->
+      <div class="storage-section mt-3">
+        <div class="flex items-center" style="justify-content: space-between; gap: 12px;">
+          <div>
+            <h4>Per-episode breakdown</h4>
+            <p class="text-muted hint">
+              Sorted largest first. Click "Free up final" to delete the
+              local <code>{code}_final_video.*</code> files for an
+              uploaded episode (the sidecar's <code>video_id</code>
+              guards against accidental deletion of unpublished work).
+            </p>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadStorageAudit">
+              {{ auditLoading ? 'Scanning…' : (storage ? '↻ Rescan' : 'Run scan') }}
+            </button>
+            <button
+              class="btn btn-primary btn-sm"
+              :disabled="!storage || bulkRunning || uploadedFinalsTotalBytes === 0"
+              :title="uploadedFinalsTotalBytes === 0 ? 'No uploaded episodes have local final videos' : `Delete ${uploadedFinalsCount} uploaded final video(s) — frees ${formatBytes(uploadedFinalsTotalBytes)}`"
+              @click="runBulkCleanup"
+            >
+              {{ bulkRunning
+                ? 'Cleaning…'
+                : `Free uploaded finals (${formatBytes(uploadedFinalsTotalBytes)})` }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="storage" class="storage-summary mt-2">
+          <span><strong>Project total:</strong> {{ formatBytes(storage.project_bytes_total) }}</span>
+          <span class="dot">·</span>
+          <span><strong>Final videos:</strong> {{ formatBytes(storage.project_bytes_final_video) }}</span>
+          <span class="dot">·</span>
+          <span><strong>Per-scene clips:</strong> {{ formatBytes(storage.project_bytes_per_scene_clips) }}</span>
+          <span v-if="storage.external_root_configured" class="dot">·</span>
+          <span v-if="storage.external_root_configured">
+            <strong>At external root:</strong> {{ formatBytes(storage.project_bytes_external_final_video) }}
+          </span>
+        </div>
+
+        <div v-if="storage" class="storage-table mt-2">
+          <div class="storage-row storage-head">
+            <span class="col-code">Code</span>
+            <span class="col-title">Title</span>
+            <span class="col-final">Final</span>
+            <span class="col-clips">Clips</span>
+            <span class="col-other">Audio + img + other</span>
+            <span class="col-status">Upload</span>
+            <span class="col-actions"></span>
+          </div>
+          <div
+            v-for="row in sortedStorageRows"
+            :key="row.episode_code"
+            :class="['storage-row', { uploaded: row.uploaded_to_youtube, 'no-final': row.bytes_final_video === 0 }]"
+          >
+            <span class="col-code"><strong>{{ row.episode_code }}</strong></span>
+            <span class="col-title" :title="row.title">{{ row.title }}</span>
+            <span class="col-final">
+              {{ formatBytes(row.bytes_final_video) }}
+              <span v-if="row.bytes_external_final_video > 0" class="ext-badge" title="Final video also at the external root">
+                + {{ formatBytes(row.bytes_external_final_video) }} ext
+              </span>
+            </span>
+            <span class="col-clips">{{ formatBytes(row.bytes_per_scene_clips) }}</span>
+            <span class="col-other">{{ formatBytes(row.bytes_audio + row.bytes_images + row.bytes_other) }}</span>
+            <span class="col-status">
+              <span v-if="row.uploaded_to_youtube" class="upload-badge ok" :title="`YouTube video ${row.youtube_video_id}`">
+                ✓ uploaded
+              </span>
+              <span v-else class="upload-badge none">—</span>
+            </span>
+            <span class="col-actions">
+              <button
+                v-if="row.bytes_final_video > 0 || row.bytes_external_final_video > 0"
+                class="btn btn-ghost btn-sm"
+                :disabled="rowCleanupRunning === row.episode_code"
+                :title="row.uploaded_to_youtube
+                  ? `Delete the local final video file (frees ${formatBytes(row.bytes_final_video + row.bytes_external_final_video)})`
+                  : 'Not uploaded yet — click anyway to delete (will prompt for confirmation)'"
+                @click="cleanupRow(row)"
+              >
+                {{ rowCleanupRunning === row.episode_code ? 'Cleaning…' : 'Free up final' }}
+              </button>
+            </span>
+          </div>
+        </div>
+        <div v-else-if="!auditLoading" class="text-muted hint mt-2">
+          Click "Run scan" to compute per-episode disk usage.
+        </div>
+      </div>
+
+      <div v-if="lastBulkCleanup" class="storage-result mt-2">
+        <strong>Cleanup:</strong>
+        {{ lastBulkCleanup.deleted_count }} file(s) deleted, freed {{ formatBytes(lastBulkCleanup.bytes_freed) }}.
+        <span v-if="lastBulkCleanup.skipped_count">{{ lastBulkCleanup.skipped_count }} skipped (not uploaded).</span>
+        <span v-if="lastBulkCleanup.failed_count" class="error-text">{{ lastBulkCleanup.failed_count }} failed.</span>
+      </div>
+    </div>
+
     <!-- Confirmations -->
     <div v-if="activeTab === 'confirmations'" class="card mt-2">
       <h3>Generation Confirmations</h3>
@@ -1168,6 +1328,202 @@ async function runConnectivityPrecheck() {
     precheckState.loading = false
   }
 }
+// ── Storage tab state ─────────────────────────────────────────────────────
+//
+// Audit/cleanup talks to the new /storage-* endpoints. External-root
+// is per-machine (lives in app-settings, not project config) so we
+// fetch it from /app-settings/external-final-video-root rather than
+// the project's config. Lazy-loaded — first scan only fires when the
+// user clicks the Run scan button so opening the tab is instant.
+
+interface StorageEntry {
+  episode_code: string
+  title: string
+  bytes_final_video: number
+  bytes_per_scene_clips: number
+  bytes_audio: number
+  bytes_images: number
+  bytes_other: number
+  bytes_total: number
+  bytes_external_final_video: number
+  uploaded_to_youtube: boolean
+  youtube_video_id: string
+}
+interface StorageAudit {
+  project_bytes_total: number
+  project_bytes_final_video: number
+  project_bytes_per_scene_clips: number
+  project_bytes_external_final_video: number
+  external_root_configured: boolean
+  external_root: string
+  episodes: StorageEntry[]
+}
+interface MigrationResult {
+  moved: Array<{ episode_code: string; from: string; to: string; bytes: number }>
+  errors: Array<{ episode_code: string; reason: string }>
+  bytes_moved: number
+}
+interface CleanupResult {
+  deleted_count: number; skipped_count: number; failed_count: number
+  bytes_freed: number
+  items: Array<{ episode_code: string; status: string; bytes_freed: number; reason?: string }>
+}
+
+const storage = ref<StorageAudit | null>(null)
+const auditLoading = ref(false)
+const externalRootInput = ref('')
+const externalRootSaving = ref(false)
+const externalRootStatus = ref('')
+const externalRootReachable = ref(false)
+const migrateRunning = ref(false)
+const lastMigration = ref<MigrationResult | null>(null)
+const bulkRunning = ref(false)
+const lastBulkCleanup = ref<CleanupResult | null>(null)
+const rowCleanupRunning = ref<string | null>(null)
+
+const sortedStorageRows = computed<StorageEntry[]>(() => {
+  if (!storage.value) return []
+  return [...storage.value.episodes].sort((a, b) => b.bytes_total - a.bytes_total)
+})
+
+// Bulk-cleanup target: only count uploaded episodes that still have a
+// local final video. The button disables when this is 0.
+const uploadedFinals = computed<StorageEntry[]>(() => {
+  if (!storage.value) return []
+  return storage.value.episodes.filter(e => e.uploaded_to_youtube && e.bytes_final_video > 0)
+})
+const uploadedFinalsCount = computed(() => uploadedFinals.value.length)
+const uploadedFinalsTotalBytes = computed(() =>
+  uploadedFinals.value.reduce((s, e) => s + e.bytes_final_video, 0),
+)
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`
+  return `${(n / 1024 ** 3).toFixed(2)} GB`
+}
+
+async function loadExternalRoot() {
+  try {
+    const r = await get<{ value: string; reachable: boolean; reason: string }>(
+      '/app-settings/external-final-video-root',
+    )
+    externalRootInput.value = r.value || ''
+    externalRootReachable.value = r.reachable
+    externalRootStatus.value = r.value
+      ? (r.reachable ? `✓ reachable: ${r.value}` : `⚠ ${r.reason}`)
+      : ''
+  } catch { /* leave defaults — non-fatal */ }
+}
+
+async function saveExternalRoot() {
+  externalRootSaving.value = true
+  try {
+    const { put } = useApi()
+    const r = await put<{ ok: true; value: string; reachable: boolean; reason: string }>(
+      '/app-settings/external-final-video-root',
+      { value: externalRootInput.value.trim() },
+    )
+    externalRootReachable.value = r.reachable
+    externalRootStatus.value = r.value
+      ? (r.reachable ? `✓ saved + reachable: ${r.value}` : `⚠ saved but ${r.reason}`)
+      : 'Cleared (using project tree)'
+    // Re-run audit so external-side counts refresh.
+    if (storage.value) await loadStorageAudit()
+  } catch (e: any) {
+    externalRootStatus.value = `Error: ${e?.data?.detail || e?.message || 'failed to save'}`
+  } finally {
+    externalRootSaving.value = false
+  }
+}
+
+async function loadStorageAudit() {
+  auditLoading.value = true
+  try {
+    storage.value = await get<StorageAudit>(`/projects/${slug.value}/storage-audit`)
+  } catch (e: any) {
+    storage.value = null
+    alert(e?.data?.detail || e?.message || 'Storage audit failed')
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+async function runBulkCleanup() {
+  if (!storage.value || uploadedFinalsCount.value === 0) return
+  const ok = confirm(
+    `Delete ${uploadedFinalsCount.value} uploaded final video file(s) (${formatBytes(uploadedFinalsTotalBytes.value)})?\n\n` +
+    `This is safe — the YouTube sidecar keeps the pipeline view marking these as done. ` +
+    `You can re-render any time from images + merged audio.`,
+  )
+  if (!ok) return
+  bulkRunning.value = true
+  try {
+    const r = await post<CleanupResult>(
+      `/projects/${slug.value}/storage/bulk-cleanup-final`,
+      { all_uploaded: true },
+    )
+    lastBulkCleanup.value = r
+    await loadStorageAudit()
+  } catch (e: any) {
+    alert(e?.data?.detail || e?.message || 'Bulk cleanup failed')
+  } finally {
+    bulkRunning.value = false
+  }
+}
+
+async function cleanupRow(row: StorageEntry) {
+  if (!row.uploaded_to_youtube) {
+    const ok = confirm(
+      `${row.episode_code} is NOT confirmed uploaded to YouTube. ` +
+      `Delete the local final video anyway?\n\n` +
+      `If you delete this and the upload sidecar isn't present, the pipeline view will go back to showing "video assembly missing".`,
+    )
+    if (!ok) return
+  }
+  rowCleanupRunning.value = row.episode_code
+  try {
+    await post<CleanupResult>(
+      `/projects/${slug.value}/storage/cleanup-final/${row.episode_code}`,
+      { force: !row.uploaded_to_youtube },
+    )
+    await loadStorageAudit()
+  } catch (e: any) {
+    alert(e?.data?.detail || e?.message || 'Cleanup failed')
+  } finally {
+    rowCleanupRunning.value = null
+  }
+}
+
+async function runMigration() {
+  if (!externalRootInput.value) return
+  const ok = confirm(
+    `Move all final videos in this project to the external root?\n\n` +
+    `${externalRootInput.value}\n\n` +
+    `Project-tree files will be removed after a successful move. ` +
+    `Detection still works for both locations, so the pipeline view stays accurate.`,
+  )
+  if (!ok) return
+  migrateRunning.value = true
+  try {
+    const r = await post<MigrationResult>(
+      `/projects/${slug.value}/storage/migrate-finals-to-external`,
+      {},
+    )
+    lastMigration.value = r
+    await loadStorageAudit()
+  } catch (e: any) {
+    alert(e?.data?.detail || e?.message || 'Migration failed')
+  } finally {
+    migrateRunning.value = false
+  }
+}
+
+// Load the external root setting on mount so the field is populated
+// the first time the user opens the Storage tab.
+onMounted(loadExternalRoot)
+
 const tabs = [
   { id: 'keys', label: 'API Keys' },
   { id: 'models', label: 'Models' },
@@ -1175,6 +1531,10 @@ const tabs = [
   { id: 'format', label: 'Format' },
   { id: 'standards', label: 'Standards' },
   { id: 'folders', label: 'Folders' },
+  // Storage tab — surfaces per-episode disk usage + safe cleanup of
+  // already-uploaded final videos. Lives next to Folders since both
+  // are file-system concerns.
+  { id: 'storage', label: 'Storage' },
   // 'assets' moved out to its own top-level page at /projects/:slug/assets —
   // the tab was cramped in Settings and the repair flow deserves the space.
   { id: 'roots', label: 'Named Roots' },
@@ -2319,6 +2679,73 @@ async function deleteProject() {
   color: var(--success);
   padding: 2px 0;
 }
+
+/* ── Storage tab ─────────────────────────────────────────────────────── */
+.storage-section h4 { margin: 0 0 6px; font-size: 14px; }
+.storage-section .hint { margin: 4px 0 8px; font-size: 11px; line-height: 1.45; }
+.optional-tag { color: var(--text-muted); font-size: 11px; font-weight: normal; }
+
+.external-root-row {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
+.external-root-row .input { flex: 1; min-width: 280px; }
+.external-root-status {
+  margin: 6px 0 0; padding: 6px 10px;
+  background: var(--bg-tertiary); border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+.external-root-status.ok { color: var(--success, #5fc070); }
+.external-root-status.warn { color: var(--warning, #d69b2b); }
+
+.storage-summary {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 8px 12px; background: var(--bg-tertiary);
+  border-radius: var(--radius-sm); font-size: 12px;
+}
+.storage-summary .dot { color: var(--text-muted); }
+
+.storage-table {
+  display: flex; flex-direction: column; gap: 2px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-tertiary); padding: 4px;
+  max-height: 60vh; overflow-y: auto;
+}
+.storage-row {
+  display: grid;
+  grid-template-columns: 80px 1.5fr 110px 90px 130px 100px 130px;
+  gap: 8px; align-items: center;
+  padding: 6px 8px; font-size: 12px;
+  background: var(--bg-secondary); border-radius: var(--radius-sm);
+}
+.storage-row.storage-head {
+  background: transparent; padding: 6px 8px 4px;
+  font-size: 11px; font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.storage-row.uploaded { background: rgba(75, 200, 100, 0.06); }
+.storage-row.no-final { opacity: 0.55; }
+.col-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-final, .col-clips, .col-other { font-family: 'Menlo', 'Monaco', monospace; font-size: 11px; }
+.col-final .ext-badge {
+  margin-left: 4px; padding: 1px 5px;
+  background: rgba(96, 165, 250, 0.18); color: #60a5fa;
+  border-radius: 4px; font-size: 10px;
+}
+
+.upload-badge {
+  display: inline-block; padding: 1px 7px;
+  font-size: 10px; font-weight: 600;
+  border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.upload-badge.ok { background: rgba(75, 200, 100, 0.18); color: var(--success, #5fc070); }
+.upload-badge.none { color: var(--text-muted); }
+
+.storage-result {
+  padding: 8px 12px; background: var(--bg-tertiary);
+  border-left: 3px solid var(--success, #5fc070);
+  border-radius: var(--radius-sm); font-size: 12px;
+}
+.storage-result .error-text { color: var(--error, #e25c5c); margin-left: 4px; }
 
 .folder-config-list {
   display: flex;

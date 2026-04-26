@@ -896,18 +896,69 @@ export async function generateVideo(job: Job): Promise<void> {
     // exists the rename replaces it in one step. If FFmpeg had failed,
     // runFinalComposition would have thrown above and we'd never reach here —
     // so this path only runs on confirmed-good output.
+    //
+    // External final-video root (Phase C of the storage plan):
+    //   When the user configured `external_final_video_root` in
+    //   app-settings.json, the final lands at the EXTERNAL location
+    //   instead of inside the project tree's `Video Assembly Output`
+    //   folder. Detection in asset-status.ts already looks at both
+    //   places, so the pipeline view sees it either way. Keeps the
+    //   5-10 GB output OUT of iCloud-synced project trees while
+    //   preserving the project-tree fallback for users who haven't
+    //   opted in. Falls back to the project-tree path if the external
+    //   write fails (cross-device error, perms, etc.) — never blocks
+    //   the user from getting a final video.
     const finalName = `${code}_final_video.${format}`
-    const finalPath = path.join(videoDir, finalName)
+    const projectTreeFinalPath = path.join(videoDir, finalName)
+    let finalPath = projectTreeFinalPath
+    try {
+      const { ensureExternalFinalVideoDir } = await import('../services/external-video-store.js')
+      // titleHint is the project's canonical title for this episode
+      // (loaded from ideas store earlier in this function); falls back
+      // to the code-only folder name when missing.
+      const externalDir = await ensureExternalFinalVideoDir(project_slug, code, titleHint || '')
+      if (externalDir) {
+        finalPath = path.join(externalDir, finalName)
+        job.output_lines.push(`External final-video root configured → ${finalPath}`)
+      }
+    } catch (e: any) {
+      // Logging only; treat as fallback to project tree.
+      job.output_lines.push(`External path resolve failed (${e?.message || e}); using project tree`)
+    }
+
     let resolvedOutputPath = outputFile
     try {
       await fs.rename(outputFile, finalPath)
       resolvedOutputPath = finalPath
       job.output_lines.push(`Renamed to: ${finalName}`)
     } catch (e: any) {
-      // Cloud-synced filesystems (iCloud, Dropbox) sometimes reject rename
-      // with EPERM or cross-device link errors. Keep the timestamped file
-      // as the canonical output in that case — the render is still usable.
-      job.output_lines.push(`Warning: final rename skipped (${e.message || 'unknown error'})`)
+      // First failure mode: external path is on a different filesystem
+      // (EXDEV). Fall back to copy + remove so the user still gets a
+      // final at their chosen location.
+      if (e?.code === 'EXDEV' && finalPath !== projectTreeFinalPath) {
+        try {
+          await fs.copyFile(outputFile, finalPath)
+          await fs.rm(outputFile, { force: true })
+          resolvedOutputPath = finalPath
+          job.output_lines.push(`Copied to external (cross-device): ${finalName}`)
+        } catch (copyErr: any) {
+          // External-copy failure → fall back to project-tree rename so
+          // we don't lose the file the user just spent compute on.
+          job.output_lines.push(`Warning: external copy failed (${copyErr.message || copyErr}); falling back to project tree`)
+          try {
+            await fs.rename(outputFile, projectTreeFinalPath)
+            resolvedOutputPath = projectTreeFinalPath
+            job.output_lines.push(`Renamed to: ${finalName} (project tree fallback)`)
+          } catch (fallbackErr: any) {
+            job.output_lines.push(`Warning: final rename skipped (${fallbackErr.message || 'unknown error'})`)
+          }
+        }
+      } else {
+        // Cloud-synced filesystems (iCloud, Dropbox) sometimes reject rename
+        // with EPERM. Keep the timestamped file as the canonical output in
+        // that case — the render is still usable.
+        job.output_lines.push(`Warning: final rename skipped (${e.message || 'unknown error'})`)
+      }
     }
 
     job.progress = 100

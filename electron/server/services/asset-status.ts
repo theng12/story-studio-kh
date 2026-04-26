@@ -829,7 +829,48 @@ export async function computeEpisodeStatus(
       } catch { /* ignore */ }
     }
 
-    status.video_assembly = hasFinalInVideoDir || hasFinalAtEpisodeLevel
+    // Path D — YouTube sidecar shows uploaded. Once `video_id` is set in
+    // {episode_dir}/youtube_upload.json, the local final video is
+    // operationally redundant — the canonical copy lives on YouTube.
+    // Treating sidecar-uploaded as `video_assembly: true` lets the user
+    // delete the local file (manually or via the Storage UI) without
+    // the pipeline nagging about a "missing" assembly. The sidecar
+    // itself is small (a few KB) and is always inside episode_dir, so
+    // it survives any iCloud-sync cleanup the user did on the videos.
+    let hasSidecarUploaded = false
+    if (!hasFinalInVideoDir && !hasFinalAtEpisodeLevel) {
+      try {
+        const { readSidecar } = await import('./upload-sidecar.js')
+        const sc = await readSidecar(slug, code, title, 'youtube')
+        if (sc?.video_id) hasSidecarUploaded = true
+      } catch { /* sidecar missing or unreadable → leave false */ }
+    }
+
+    // Path E — external final-video root (per-machine app setting).
+    // When the user configured `external_final_video_root` in
+    // app-settings, video-assembly writes finals to
+    //   {root}/{slug}/Season NNN/{code} - {title}/{code}_final_video.{ext}
+    // mirroring the project tree. Detection looks there too so the
+    // pipeline view sees finals that live outside the iCloud-synced
+    // project folder.
+    let hasFinalAtExternalRoot = false
+    if (!hasFinalInVideoDir && !hasFinalAtEpisodeLevel && !hasSidecarUploaded) {
+      try {
+        const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
+        const externalDir = await resolveExternalFinalVideoDir(slug, code, title)
+        if (externalDir) {
+          const extFiles = await safeReaddir(externalDir)
+          hasFinalAtExternalRoot = extFiles.some(f =>
+            isVideoFile(f) && f.startsWith(`${code}_final_video.`),
+          )
+        }
+      } catch { /* external root unset or unreadable → leave false */ }
+    }
+
+    status.video_assembly = hasFinalInVideoDir
+      || hasFinalAtEpisodeLevel
+      || hasSidecarUploaded
+      || hasFinalAtExternalRoot
   } catch {
     status.video_assembly = false
   }

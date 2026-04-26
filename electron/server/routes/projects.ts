@@ -661,3 +661,103 @@ router.post('/projects/:slug/episodes/:code/import-assets', async (req, res) => 
     res.status(500).json(humanizeBackendError(e, 'Asset import failed'))
   }
 })
+
+// ── Storage audit + cleanup (per-project) ──────────────────────────────────
+//
+// Surfaces per-episode local size + cleanup actions. Wired to the
+// Storage sub-tab in Project Settings. The 5-10 GB-per-episode pain
+// point: sleep stories produce huge final videos, and once they're on
+// YouTube the local copy is operationally redundant. These endpoints
+// let the user free space safely (sidecar guard) + optionally relocate
+// finals to a non-cloud-synced external root (Phase C).
+
+router.get('/projects/:slug/storage-audit', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const { auditProjectStorage } = await import('../services/storage-audit.js')
+    const result = await auditProjectStorage(req.params.slug)
+    res.json(result)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Storage audit failed'))
+  }
+})
+
+router.post('/projects/:slug/storage/cleanup-final/:code', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const force = req.body?.force === true
+    const { cleanupFinalVideoForEpisode } = await import('../services/storage-audit.js')
+    const result = await cleanupFinalVideoForEpisode(req.params.slug, req.params.code, { force })
+    res.json(result)
+  } catch (e: any) {
+    // 412 = "not uploaded, force not set" — UI shows a distinct
+    // confirmation prompt rather than a generic error toast.
+    const status = e?.statusCode === 412 ? 412 : 500
+    res.status(status).json(humanizeBackendError(e, 'Cleanup failed'))
+  }
+})
+
+router.post('/projects/:slug/storage/bulk-cleanup-final', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const force = req.body?.force === true
+    const allUploaded = req.body?.all_uploaded === true
+    const codes = Array.isArray(req.body?.episode_codes) ? req.body.episode_codes : undefined
+    if (!allUploaded && (!codes || !codes.length)) {
+      return res.status(400).json({ detail: 'Pass episode_codes (array) or all_uploaded=true' })
+    }
+    const { bulkCleanupFinalVideos } = await import('../services/storage-audit.js')
+    const result = await bulkCleanupFinalVideos(req.params.slug, {
+      episode_codes: codes,
+      all_uploaded: allUploaded,
+      force,
+    })
+    res.json(result)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Bulk cleanup failed'))
+  }
+})
+
+// External final-video root — get/set the per-machine app setting.
+// Lives at /api/app-settings/external-final-video-root rather than
+// nested under a project because it's machine-global, not project-
+// scoped. The migration endpoint below IS project-scoped because the
+// move only affects the current project's tree.
+
+router.get('/app-settings/external-final-video-root', async (_req, res) => {
+  try {
+    const { getExternalFinalVideoRoot, externalRootIsReachable } = await import('../services/external-video-store.js')
+    const value = await getExternalFinalVideoRoot()
+    const reach = await externalRootIsReachable()
+    res.json({ value, reachable: reach.ok, reason: reach.reason || '' })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to read external final-video root'))
+  }
+})
+
+router.put('/app-settings/external-final-video-root', async (req, res) => {
+  try {
+    const value = typeof req.body?.value === 'string' ? req.body.value : ''
+    const { setExternalFinalVideoRoot, externalRootIsReachable } = await import('../services/external-video-store.js')
+    await setExternalFinalVideoRoot(value)
+    const reach = await externalRootIsReachable()
+    res.json({ ok: true, value, reachable: reach.ok, reason: reach.reason || '' })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to set external final-video root'))
+  }
+})
+
+// Migration: move existing final videos in this project to the
+// configured external root. No-op when the root isn't set (returns
+// 400 so the UI can prompt the user to set it first).
+router.post('/projects/:slug/storage/migrate-finals-to-external', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const { migrateFinalsToExternal } = await import('../services/storage-audit.js')
+    const result = await migrateFinalsToExternal(req.params.slug)
+    res.json(result)
+  } catch (e: any) {
+    const status = /not configured/i.test(e?.message || '') ? 400 : 500
+    res.status(status).json(humanizeBackendError(e, 'Migration failed'))
+  }
+})
