@@ -482,18 +482,35 @@
           work from picks its own path (or leaves it unset).
         </p>
         <div class="external-root-row">
+          <!-- Read-only path display so users don't have to copy/paste a
+               path. Browse opens the native folder picker; on success
+               we auto-save (the picker IS the user's confirmation, no
+               separate Save click needed). Clear empties + saves an
+               empty value so the project tree is used again. -->
           <input
             v-model="externalRootInput"
             class="input"
-            placeholder="/Users/yourname/Movies/Story Studio"
+            placeholder="(not set — finals stay in the project tree)"
+            readonly
           />
-          <button class="btn btn-secondary btn-sm" :disabled="externalRootSaving" @click="saveExternalRoot">
-            {{ externalRootSaving ? 'Saving…' : 'Save' }}
+          <button
+            class="btn btn-primary btn-sm"
+            :disabled="externalRootSaving"
+            @click="browseAndSetExternalRoot"
+          >
+            {{ externalRootSaving ? 'Saving…' : '📂 Browse…' }}
           </button>
+          <button
+            v-if="externalRootInput"
+            class="btn btn-ghost btn-sm"
+            :disabled="externalRootSaving"
+            title="Clear the external path — future finals will land in the project tree"
+            @click="clearExternalRoot"
+          >Clear</button>
           <button
             class="btn btn-secondary btn-sm"
             :disabled="!externalRootInput || migrateRunning"
-            :title="!externalRootInput ? 'Set + save the path first' : 'Move existing final videos in this project to the external root'"
+            :title="!externalRootInput ? 'Pick the external path first' : 'Move existing final videos in this project to the external root'"
             @click="runMigration"
           >
             {{ migrateRunning ? 'Migrating…' : 'Migrate finals here →' }}
@@ -1436,6 +1453,42 @@ async function saveExternalRoot() {
   } finally {
     externalRootSaving.value = false
   }
+}
+
+/**
+ * Open the native folder picker for the external root, and auto-save
+ * the chosen path. Skips the save when the user cancels the dialog.
+ *
+ * Why no "Save" click after picking: the picker IS the user's
+ * confirmation. Forcing a second Save click adds friction without
+ * reducing risk (the picker doesn't bind anything until the user
+ * confirms inside it). Pre-fills the dialog at the previously-saved
+ * path so the user starts in a familiar spot when re-picking.
+ */
+async function browseAndSetExternalRoot() {
+  try {
+    const r = await post<{ path: string | null }>('/system/pick-folder', {
+      title: 'Choose external final-video folder',
+      buttonLabel: 'Use this folder',
+      defaultPath: externalRootInput.value || undefined,
+    })
+    if (!r.path) return  // User cancelled the dialog.
+    externalRootInput.value = r.path
+    await saveExternalRoot()
+  } catch (e: any) {
+    externalRootStatus.value = `Picker failed: ${e?.data?.detail || e?.message || 'unknown'}`
+  }
+}
+
+/**
+ * Clear the external root — future finals land in the project tree
+ * again. Detection still picks up files at the old external location
+ * if any are still there (Path E in asset-status), so this is
+ * non-destructive: nothing on disk changes.
+ */
+async function clearExternalRoot() {
+  externalRootInput.value = ''
+  await saveExternalRoot()
 }
 
 async function loadStorageAudit() {

@@ -67,14 +67,26 @@ async function showOpenDialog(
   return win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options)
 }
 
-router.post('/system/pick-folder', async (_req, res) => {
+router.post('/system/pick-folder', async (req, res) => {
   const electron = loadElectron()
   if (!electron) return res.status(503).json({ detail: 'Folder picker not available — Electron main process not detected (are you running the server standalone?).' })
 
+  // Optional body { title?, buttonLabel?, defaultPath? } so callers can
+  // customise the dialog wording. Defaults preserve the project-creation
+  // wording from the original (sole) caller for back-compat.
+  const title = typeof req.body?.title === 'string' && req.body.title
+    ? req.body.title
+    : 'Choose where to save this project'
+  const buttonLabel = typeof req.body?.buttonLabel === 'string' && req.body.buttonLabel
+    ? req.body.buttonLabel
+    : 'Save Here'
+  const defaultPath = typeof req.body?.defaultPath === 'string' && req.body.defaultPath
+    ? req.body.defaultPath
+    : undefined
+
   try {
     const result = await showOpenDialog(electron, {
-      title: 'Choose where to save this project',
-      buttonLabel: 'Save Here',
+      title, buttonLabel, defaultPath,
       properties: ['openDirectory', 'createDirectory'],
     })
     res.json({ path: result.canceled ? null : result.filePaths[0] })
