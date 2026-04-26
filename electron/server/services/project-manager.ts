@@ -59,11 +59,81 @@ function getUserDataPath(productName: string): string {
   }
 }
 
+/**
+ * Compute the path to app-settings.json the same way app-settings.ts does,
+ * but synchronously and without requiring app-settings.ts to be loaded
+ * (avoids a load-order tangle: app-settings.ts depends on PROJECTS_ROOT
+ * via its data-dir resolution branch).
+ *
+ * Returns the absolute path the file would live at — file may not exist.
+ */
+function resolveAppSettingsPath(): string {
+  if (process.env.STORY_STUDIO_DATA_DIR) {
+    return path.join(process.env.STORY_STUDIO_DATA_DIR, 'app-settings.json')
+  }
+  // Try Electron app.getPath('userData') first; fall back to the manual
+  // platform branch.
+  try {
+    const { app } = require('electron')
+    if (app?.getPath) return path.join(app.getPath('userData'), 'app-settings.json')
+  } catch { /* not in Electron (tests / standalone) */ }
+  return path.join(getUserDataPath('Story Studio KH'), 'app-settings.json')
+}
+
+/**
+ * Read the user's `projects_root_override` setting at boot.
+ *
+ * Synchronous on purpose: PROJECTS_ROOT is exported as a const and used
+ * by every service in the codebase. Resolving asynchronously would
+ * require touching hundreds of call sites OR a one-shot await wrapper
+ * that's hard to fit alongside existing import patterns. Sync read is
+ * safe — app-settings.json is tiny (<1 KB) and we read it exactly once
+ * per process lifetime.
+ *
+ * Returns:
+ *   - the absolute override path when set + non-empty
+ *   - empty string otherwise (caller falls through to default)
+ *
+ * Any read/parse error → treated as unset. We never want an unreadable
+ * settings file to brick the app's ability to find its projects.
+ */
+function readProjectsRootOverrideSync(): string {
+  const settingsPath = resolveAppSettingsPath()
+  if (!existsSync(settingsPath)) return ''
+  try {
+    // Use the readFileSync from node:fs (NOT fs/promises). Top-level
+    // import is for fs/promises; pull sync API on demand.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { readFileSync } = require('fs')
+    const raw = readFileSync(settingsPath, 'utf-8')
+    const data = JSON.parse(raw)
+    const v = data?.projects_root_override
+    if (typeof v !== 'string' || !v.trim()) return ''
+    // Expand `~` for convenience (the picker emits absolute paths but
+    // a user editing app-settings.json by hand might use ~).
+    let resolved = v.trim()
+    if (resolved.startsWith('~')) {
+      const home = process.env.HOME || process.env.USERPROFILE || ''
+      if (home) resolved = path.join(home, resolved.slice(1))
+    }
+    return resolved
+  } catch {
+    return ''
+  }
+}
+
 function resolveProjectsRoot(): string {
   // Test override — highest priority so tests don't touch real data.
   if (process.env.STORY_STUDIO_DATA_DIR) {
     return path.join(process.env.STORY_STUDIO_DATA_DIR, 'projects')
   }
+  // User-configured override via Settings → Storage → Projects storage
+  // location. Per-machine — lives in app-settings.json which doesn't
+  // sync. Lets the user point the projects folder at iCloud Drive (or
+  // any cloud-synced location) without setting an env var manually.
+  const override = readProjectsRootOverrideSync()
+  if (override) return override
+
   // Always prefer Electron's userData path (same in dev and packaged).
   // This avoids projects living inside the source tree — previous behaviour
   // was sensitive to whether the entry was tsx source or compiled JS.
@@ -72,6 +142,24 @@ function resolveProjectsRoot(): string {
     if (app?.getPath) return path.join(app.getPath('userData'), 'projects')
   } catch { /* not running inside Electron (e.g. tests) */ }
   return path.join(getUserDataPath('Story Studio KH'), 'projects')
+}
+
+/**
+ * Diagnostic helpers for the Storage-tab UI. Exported so the route
+ * layer can return both `effective_path` (what THIS process resolved
+ * at boot) and `default_path` (what the userData fallback would give)
+ * without re-implementing the platform branching.
+ */
+export function getProjectsRootDefaultPath(): string {
+  try {
+    const { app } = require('electron')
+    if (app?.getPath) return path.join(app.getPath('userData'), 'projects')
+  } catch { /* not in Electron */ }
+  return path.join(getUserDataPath('Story Studio KH'), 'projects')
+}
+
+export function getProjectsRootAppSettingsPath(): string {
+  return resolveAppSettingsPath()
 }
 
 /**

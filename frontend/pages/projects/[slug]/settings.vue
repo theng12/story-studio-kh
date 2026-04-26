@@ -469,6 +469,78 @@
         they cost real $$$ to regenerate; we never auto-clean those.
       </p>
 
+      <!-- ── Projects storage location ──────────────────────────── -->
+      <!-- Lets the user point the projects folder at any local path —
+           typically inside iCloud Drive / Dropbox / Google Drive so
+           the OS handles cross-machine sync. Per-machine setting
+           (lives in app-settings.json which doesn't sync). -->
+      <div class="storage-section">
+        <h4>Projects storage location</h4>
+        <p class="text-muted hint">
+          Where this Mac stores your projects. Move it to an iCloud Drive
+          (or Dropbox / Google Drive) folder to work across machines.
+          The app restarts after the move to pick up the new location.
+        </p>
+        <div class="projects-root-row">
+          <div class="projects-root-info">
+            <div class="projects-root-current">
+              <strong>{{ projectsRoot?.effective_path || 'Loading…' }}</strong>
+              <span v-if="projectsRoot" :class="['root-badge', projectsRoot.is_overridden ? 'custom' : 'default']">
+                {{ projectsRoot.is_overridden ? 'CUSTOM' : 'DEFAULT' }}
+              </span>
+            </div>
+            <div v-if="projectsRoot?.is_overridden" class="projects-root-default-note">
+              Default location: <code>{{ projectsRoot.default_path }}</code>
+            </div>
+          </div>
+        </div>
+        <div class="projects-root-actions">
+          <button
+            class="btn btn-primary btn-sm"
+            :disabled="projectsRootBusy"
+            @click="browseAndMoveProjectsRoot"
+          >
+            📂 Browse + move projects there & restart
+          </button>
+          <button
+            v-if="projectsRoot?.is_overridden"
+            class="btn btn-secondary btn-sm"
+            :disabled="projectsRootBusy"
+            title="Stop using the custom path; the app will read from the default location after restart"
+            @click="resetProjectsRoot"
+          >
+            Reset to default
+          </button>
+        </div>
+        <details class="projects-root-warning mt-2">
+          <summary>⚠ Per-machine limitations of cloud sync</summary>
+          <ul>
+            <li>
+              <strong>API keys are per-machine.</strong> Each Mac encrypts
+              its own keys; the synced folder won't carry them across.
+              You'll re-enter keys (Settings → API Keys) on every device.
+            </li>
+            <li>
+              <strong>One machine at a time.</strong> Don't have two Macs
+              actively editing the same project — the cloud will keep
+              whichever saves last and silently overwrite the other.
+              Save + close on machine A → wait for sync → open on B.
+            </li>
+            <li>
+              <strong>Job queue + session analytics may diverge.</strong>
+              These files (<code>jobs.json</code>, <code>sessions.json</code>)
+              live inside the project folder; cloud-syncing them across
+              machines can confuse mid-flight job state. Avoid running
+              generations on two machines targeting the same project at
+              once.
+            </li>
+          </ul>
+        </details>
+        <div v-if="projectsRootStatus" :class="['projects-root-status', projectsRootStatusKind]">
+          {{ projectsRootStatus }}
+        </div>
+      </div>
+
       <!-- ── External final-video root (per-machine) ─────────────── -->
       <div class="storage-section">
         <h4>External final-video root <span class="optional-tag">(per-machine, optional)</span></h4>
@@ -1576,6 +1648,159 @@ async function runMigration() {
 // Load the external root setting on mount so the field is populated
 // the first time the user opens the Storage tab.
 onMounted(loadExternalRoot)
+
+// ── Projects storage location (cloud-sync setup) ──────────────────────────
+//
+// Surfaces the current PROJECTS_ROOT + lets the user pick a new location
+// (typically inside iCloud Drive). The "Move + restart" flow is three
+// HTTP calls in sequence:
+//   1. POST /app-settings/projects-root/migrate { target_path }
+//      → copies the projects folder; old location stays in place
+//   2. PUT /app-settings/projects-root { override }
+//      → persists the new path so next boot reads it
+//   3. POST /system/restart-app
+//      → relaunches Electron; new path takes effect
+//
+// Step 2 is split out from the migration call deliberately: we set the
+// override AFTER the copy verifies, so a failed migration leaves the
+// app pointing at the old (still-intact) location.
+
+interface ProjectsRootInfo {
+  override: string
+  effective_path: string
+  default_path: string
+  is_overridden: boolean
+}
+
+const projectsRoot = ref<ProjectsRootInfo | null>(null)
+const projectsRootBusy = ref(false)
+const projectsRootStatus = ref('')
+const projectsRootStatusKind = ref<'ok' | 'warn' | 'err'>('ok')
+
+async function loadProjectsRoot() {
+  try {
+    projectsRoot.value = await get<ProjectsRootInfo>('/app-settings/projects-root')
+  } catch (e: any) {
+    projectsRootStatus.value = `Couldn't read storage location: ${e?.data?.detail || e?.message}`
+    projectsRootStatusKind.value = 'err'
+  }
+}
+onMounted(loadProjectsRoot)
+
+async function browseAndMoveProjectsRoot() {
+  // Step 0: pick the destination via the native folder picker.
+  let pick: { path: string | null }
+  try {
+    pick = await post<{ path: string | null }>('/system/pick-folder', {
+      title: 'Choose where to store projects',
+      buttonLabel: 'Use this folder',
+      defaultPath: projectsRoot.value?.effective_path,
+    })
+  } catch (e: any) {
+    projectsRootStatus.value = `Picker failed: ${e?.data?.detail || e?.message}`
+    projectsRootStatusKind.value = 'err'
+    return
+  }
+  if (!pick.path) return  // User cancelled.
+
+  // Step 0.5: pre-flight sizing so the confirmation dialog tells the
+  // user what they're about to do.
+  let preview: { source_path: string; files: number; bytes: number }
+  try {
+    preview = await post<typeof preview>('/app-settings/projects-root/preview-migration', {})
+  } catch (e: any) {
+    projectsRootStatus.value = `Couldn't size the migration: ${e?.data?.detail || e?.message}`
+    projectsRootStatusKind.value = 'err'
+    return
+  }
+  const sizeStr = formatBytes(preview.bytes)
+  const ok = confirm(
+    `Move projects to:\n  ${pick.path}\n\n` +
+    `This will COPY ${preview.files} file(s) (${sizeStr}). ` +
+    `The old location stays in place — delete it manually after verifying ` +
+    `the new location works on next launch.\n\n` +
+    `The app will restart after the copy completes.`,
+  )
+  if (!ok) return
+
+  projectsRootBusy.value = true
+  projectsRootStatus.value = `Copying ${preview.files} file(s) (${sizeStr})…`
+  projectsRootStatusKind.value = 'ok'
+  try {
+    // Step 1: copy.
+    const r = await post<{
+      target_path: string; kept_old_at: string
+      copied_files: number; copied_bytes: number; warnings: string[]
+    }>('/app-settings/projects-root/migrate', { target_path: pick.path })
+
+    // Step 2: persist the override AFTER the copy succeeds. If migrate
+    // had thrown, the override stays at its previous value and the app
+    // continues reading from the (still-intact) old location.
+    await put('/app-settings/projects-root', { override: r.target_path })
+
+    const warnSummary = r.warnings.length
+      ? ` (${r.warnings.length} warning${r.warnings.length === 1 ? '' : 's'} — check the console)`
+      : ''
+    projectsRootStatus.value =
+      `✓ Copied ${r.copied_files} file(s), ${formatBytes(r.copied_bytes)}` +
+      `${warnSummary}. Restarting…`
+    projectsRootStatusKind.value = 'ok'
+    if (r.warnings.length) {
+      console.warn('[projects-root migration] warnings:', r.warnings)
+    }
+
+    // Step 3: relaunch. Wait a beat so the user sees the success banner
+    // before the window vanishes.
+    setTimeout(async () => {
+      try {
+        await post('/system/restart-app', {})
+      } catch (e: any) {
+        // Dev mode (tsx) returns 503 — surface that as a clear next step.
+        if (e?.status === 503) {
+          alert(
+            'App is in dev mode and can\'t auto-restart. ' +
+            'Quit the app + run `npm run dev` again to pick up the new location.',
+          )
+        } else {
+          alert(`Restart failed: ${e?.data?.detail || e?.message}. Quit + reopen manually.`)
+        }
+      }
+    }, 800)
+  } catch (e: any) {
+    projectsRootStatus.value = `Migration failed: ${e?.data?.detail || e?.message}`
+    projectsRootStatusKind.value = 'err'
+    projectsRootBusy.value = false
+  }
+}
+
+async function resetProjectsRoot() {
+  const ok = confirm(
+    `Reset to the default projects location?\n\n` +
+    `Default: ${projectsRoot.value?.default_path || '(loading)'}\n\n` +
+    `Your projects will stay where they are — the app just stops using the\n` +
+    `custom path on next launch. If the default location is empty, the\n` +
+    `dashboard will be empty after restart (you can move projects manually\n` +
+    `or re-pick the custom path).\n\n` +
+    `The app will restart.`,
+  )
+  if (!ok) return
+  projectsRootBusy.value = true
+  projectsRootStatus.value = 'Resetting…'
+  projectsRootStatusKind.value = 'ok'
+  try {
+    await put('/app-settings/projects-root', { override: '' })
+    projectsRootStatus.value = '✓ Reset. Restarting…'
+    setTimeout(async () => {
+      try { await post('/system/restart-app', {}) } catch {
+        alert('App is in dev mode and can\'t auto-restart. Quit + relaunch manually.')
+      }
+    }, 600)
+  } catch (e: any) {
+    projectsRootStatus.value = `Reset failed: ${e?.data?.detail || e?.message}`
+    projectsRootStatusKind.value = 'err'
+    projectsRootBusy.value = false
+  }
+}
 
 const tabs = [
   { id: 'keys', label: 'API Keys' },
@@ -2737,6 +2962,73 @@ async function deleteProject() {
 .storage-section h4 { margin: 0 0 6px; font-size: 14px; }
 .storage-section .hint { margin: 4px 0 8px; font-size: 11px; line-height: 1.45; }
 .optional-tag { color: var(--text-muted); font-size: 11px; font-weight: normal; }
+
+/* ── Projects storage location ─────────────────────────────────────── */
+.projects-root-row {
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+}
+.projects-root-info { display: flex; flex-direction: column; gap: 4px; }
+.projects-root-current {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
+.projects-root-current strong {
+  font-family: 'Menlo', 'Monaco', monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+.root-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.root-badge.default { background: rgba(120, 130, 140, 0.18); color: var(--text-muted); }
+.root-badge.custom { background: rgba(75, 130, 200, 0.22); color: #60a5fa; }
+.projects-root-default-note {
+  font-size: 11px; color: var(--text-muted);
+}
+.projects-root-default-note code {
+  background: var(--bg-secondary); padding: 1px 4px; border-radius: 3px;
+  font-size: 10px;
+}
+.projects-root-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.projects-root-warning {
+  padding: 8px 12px;
+  background: rgba(214, 155, 43, 0.08);
+  border-left: 3px solid var(--warning, #d69b2b);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+.projects-root-warning summary {
+  cursor: pointer;
+  color: var(--warning, #d69b2b);
+  font-weight: 500;
+}
+.projects-root-warning ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  line-height: 1.5;
+}
+.projects-root-warning li { margin-bottom: 4px; color: var(--text-secondary); }
+.projects-root-warning code {
+  background: var(--bg-secondary); padding: 1px 4px; border-radius: 3px;
+  font-size: 10px;
+}
+
+.projects-root-status {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.projects-root-status.ok { background: rgba(75, 200, 100, 0.10); color: var(--success, #5fc070); }
+.projects-root-status.warn { background: rgba(214, 155, 43, 0.10); color: var(--warning, #d69b2b); }
+.projects-root-status.err { background: rgba(226, 92, 92, 0.10); color: var(--error, #e25c5c); }
 
 .external-root-row {
   display: flex; gap: 8px; align-items: center; flex-wrap: wrap;

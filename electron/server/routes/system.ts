@@ -290,3 +290,104 @@ router.post('/system/resolve-asset-path', (req, res) => {
     res.status(400).json(humanizeBackendError(e, 'Resolution failed'))
   }
 })
+
+// ── Projects storage location (cloud-sync setup) ──────────────────────────
+//
+// Lets the user point the projects folder at any local path — typically
+// inside iCloud Drive / Dropbox / Google Drive so the OS handles
+// cross-machine sync. Persists to app-settings.json (per-machine, doesn't
+// sync). The boot-time read in project-manager.ts picks up the override
+// on next launch — so the typical flow is:
+//
+//   1. PUT  /app-settings/projects-root     { override: "/iCloud/SS Projects" }
+//   2. POST /app-settings/projects-root/migrate
+//                                            { target_path: "/iCloud/SS Projects" }
+//   3. POST /system/restart-app
+//
+// All three are issued by the Storage tab UI in one user-visible action.
+
+router.get('/app-settings/projects-root', async (_req, res) => {
+  try {
+    const { getAppSetting } = await import('../services/app-settings.js')
+    const override = await getAppSetting('projects_root_override')
+    const overrideStr = typeof override === 'string' ? override : ''
+    const defaultPath = pm.getProjectsRootDefaultPath()
+    const effectivePath = pm.PROJECTS_ROOT
+    res.json({
+      override: overrideStr,
+      effective_path: effectivePath,
+      default_path: defaultPath,
+      is_overridden: !!overrideStr && effectivePath !== defaultPath,
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to read projects-root setting'))
+  }
+})
+
+router.put('/app-settings/projects-root', async (req, res) => {
+  try {
+    const value = typeof req.body?.override === 'string' ? req.body.override.trim() : ''
+    const { setAppSetting } = await import('../services/app-settings.js')
+    await setAppSetting('projects_root_override', value)
+    res.json({ ok: true, override: value })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to set projects-root override'))
+  }
+})
+
+router.post('/app-settings/projects-root/preview-migration', async (_req, res) => {
+  try {
+    const { previewMigration } = await import('../services/projects-storage-mover.js')
+    const r = await previewMigration()
+    res.json(r)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to preview migration'))
+  }
+})
+
+router.post('/app-settings/projects-root/migrate', async (req, res) => {
+  try {
+    const target = typeof req.body?.target_path === 'string' ? req.body.target_path.trim() : ''
+    if (!target) return res.status(400).json({ detail: 'target_path is required' })
+    const { migrateProjectsTo } = await import('../services/projects-storage-mover.js')
+    const result = await migrateProjectsTo(target, {
+      merge_into_existing: req.body?.merge_into_existing === true,
+    })
+    res.json(result)
+  } catch (e: any) {
+    // Service throws with statusCode set on validation errors. Map
+    // 400/409 distinctly so the UI can show the right confirmation
+    // (e.g. 409 → "target not empty, switch to merge mode?").
+    const status = e?.statusCode === 400 ? 400
+      : e?.statusCode === 409 ? 409
+      : 500
+    res.status(status).json(humanizeBackendError(e, 'Migration failed'))
+  }
+})
+
+// Last step of the migration flow: relaunch the Electron app so the
+// boot-time PROJECTS_ROOT read picks up the new override path. Quietly
+// 503s in dev (tsx) where there's no Electron app to relaunch — the
+// dev script handles its own restarts.
+router.post('/system/restart-app', async (_req, res) => {
+  try {
+    const electron = (() => {
+      try { return require('electron') } catch { return null }
+    })()
+    if (!electron?.app) {
+      return res.status(503).json({
+        detail: 'Restart not available — Electron main process not detected (dev mode? restart npm run dev manually).',
+      })
+    }
+    res.json({ ok: true, restarting: true })
+    // Give the response a tick to flush before we tear down the process.
+    setTimeout(() => {
+      try {
+        electron.app.relaunch()
+        electron.app.exit(0)
+      } catch { /* nothing else we can do here */ }
+    }, 250)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Restart failed'))
+  }
+})
