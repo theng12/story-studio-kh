@@ -120,8 +120,15 @@ async function adoptOne(
   const meta = await pm.getProject(slug)
   if (!meta) throw new Error('Project not found')
 
-  // Add the idea record directly (bypass acceptIdea's auto-code). We use
-  // im.addIdeas for the easy path then patch its status + code.
+  // Add the idea record (status='new'), then promote to accepted with the
+  // caller's specific episode_code. Both go through mutateStore so the
+  // file lock + auto-heal invariants are preserved on every write —
+  // critical because auto-heal is the mechanism that keeps
+  // `recycled_numbers` honest (it removes any number that's now in
+  // use). Bypassing mutateStore here was the source of the TN0001
+  // reuse bug: orphans got adopted via direct file write, so
+  // recycled_numbers stayed populated with the slots they'd just
+  // filled, and the next acceptIdea handed those codes back out.
   const [created] = await im.addIdeas(slug, [{
     title: video.title || episode_code,
     logline: '(adopted from YouTube)',
@@ -131,17 +138,7 @@ async function adoptOne(
     mood: '',
   }], 'orphan-adopt')
 
-  // Patch to accepted + set code. Go directly through the JSON store —
-  // acceptIdea would assign next_episode_number which we're overriding.
-  const p = path.join(PROJECTS_ROOT, slug, 'ideas.json')
-  const raw = await fs.readFile(p, 'utf-8')
-  const data = JSON.parse(raw)
-  const ideaIdx = data.ideas.findIndex((i: any) => i.id === created.id)
-  if (ideaIdx === -1) throw new Error('Idea insert race: not found after addIdeas')
-  data.ideas[ideaIdx].status = 'accepted'
-  data.ideas[ideaIdx].episode_code = episode_code
-  data.ideas[ideaIdx].accepted_at = new Date().toISOString()
-  await writeJsonAtomic(p, data)
+  await im.promoteToAccepted(slug, created.id, { episode_code })
 
   // Create folder tree. Resolve paths AFTER the code is set.
   const paths = await resolveEpisodePaths(slug, episode_code, video.title || '')
@@ -217,17 +214,11 @@ export async function adoptSingle(
   const account = (await store.listAccounts(slug, 'youtube')).find(a => a.id === accountId)
   if (!account) throw new Error(`YouTube account ${accountId} not found`)
 
-  const adopted = await adoptOne(slug, accountId, account.remote_id, video, episode_code)
-
-  // Bump next_episode_number if the user picked a code >= current max.
-  // Otherwise leave as-is (they filled in a gap).
-  const num = episodeNumber(episode_code, meta.episode_prefix)
-  const store2 = await readIdeasStore(slug)
-  if (num >= store2.next_episode_number) {
-    store2.next_episode_number = num + 1
-    await writeIdeasStore(slug, store2)
-  }
-  return adopted
+  // adoptOne now goes through im.promoteToAccepted which itself bumps
+  // next_episode_number when the supplied code is >= current max. The
+  // explicit bump below was a duplicate of that logic from the
+  // direct-write era — removed so we don't race with auto-heal.
+  return await adoptOne(slug, accountId, account.remote_id, video, episode_code)
 }
 
 // ── Mode 2: bulk adopt with CONTINUATION codes ───────────────────────────
@@ -245,18 +236,19 @@ export async function adoptBulkContinuation(
   const account = (await store.listAccounts(slug, 'youtube')).find(a => a.id === accountId)
   if (!account) throw new Error(`YouTube account ${accountId} not found`)
 
-  const s = await readIdeasStore(slug)
   const adopted: AdoptedOne[] = []
   const errors: Array<{ video_id: string; error: string }> = []
 
+  // Re-read next_episode_number from im.* (which goes through mutateStore +
+  // auto-heal) before each adopt, so we always pick the right next code
+  // even after promoteToAccepted bumped it for the prior orphan.
   for (const video of videos) {
-    const num = s.next_episode_number
+    const num = await im.getNextEpisodeNumber(slug)
     const code = formatEpisodeCode(num, meta.episode_prefix, meta.episode_digits)
     try {
       const r = await adoptOne(slug, accountId, account.remote_id, video, code)
       adopted.push(r)
-      s.next_episode_number = num + 1
-      await writeIdeasStore(slug, s)   // persist after each successful adopt
+      // No explicit bump — promoteToAccepted handled it inside mutateStore.
     } catch (e: any) {
       errors.push({ video_id: video.videoId, error: e?.message || 'adopt failed' })
     }
@@ -301,8 +293,12 @@ export async function adoptBulkRenumber(
   }
 
   const N = videos.length
-  const s = await readIdeasStore(slug)
-  const accepted = (s.ideas as any[]).filter(i => i.status === 'accepted' && i.episode_code).slice()
+  // Pull current accepted ideas through the official im.* API so we get
+  // a consistent snapshot under the autoheal regime (rather than reading
+  // raw ideas.json which would miss any pending heals).
+  const allIdeas = await im.getIdeas(slug)
+  const accepted = allIdeas.filter(i => i.status === 'accepted' && i.episode_code).slice()
+  const currentNext = await im.getNextEpisodeNumber(slug)
 
   // Sort descending by current episode number so when we rename, the
   // highest numbers move first — prevents collision where shifting
@@ -313,8 +309,11 @@ export async function adoptBulkRenumber(
     return bn - an
   })
 
-  // Stage 1: rename existing episodes. For each, compute new code = old + N,
-  // resolve old + new paths, fs.rename.
+  // Stage 1 (fs only): rename folder + subfolders for each existing
+  // episode. We do NOT touch ideas.json here — the rename plan is
+  // committed atomically in Stage 2 via im.applyRenumberPatch so a
+  // partial fs failure doesn't desync state.
+  const renamePlan: Array<{ idea_id: string; new_code: string }> = []
   for (const idea of accepted) {
     const oldCode = idea.episode_code!
     const oldNum = episodeNumber(oldCode, meta.episode_prefix)
@@ -322,9 +321,10 @@ export async function adoptBulkRenumber(
     const newCode = formatEpisodeCode(newNum, meta.episode_prefix, meta.episode_digits)
     try {
       const oldPaths = await resolveEpisodePaths(slug, oldCode, idea.title)
-      // Update the idea's code BEFORE computing new paths so resolveEpisodePaths
-      // uses the new code's folder template.
-      idea.episode_code = newCode
+      // Compute new paths using a temporary copy of the idea with the
+      // new code applied (we don't want to mutate the in-memory idea
+      // until Stage 2 commits — keeps fs / state aligned on partial
+      // failure).
       const newPaths = await resolveEpisodePaths(slug, newCode, idea.title)
 
       // Rename the episode folder on disk if it exists.
@@ -351,18 +351,25 @@ export async function adoptBulkRenumber(
         old_code: oldCode, new_code: newCode,
         old_dir: oldPaths.episode_dir, new_dir: newPaths.episode_dir,
       })
+      renamePlan.push({ idea_id: idea.id, new_code: newCode })
     } catch (e: any) {
       errors.push({ stage: `rename ${oldCode} → ${newCode}`, detail: e?.message || 'rename failed' })
     }
   }
 
-  // Stage 2: persist the renumbered ideas list before adopting orphans,
-  // so the orphan adoption sees the shifted state.
-  // next_episode_number = max(existing new numbers) + N + 1
-  //   After shift: existing take codes N+1..N+existing_count.
-  //   Orphans will occupy 1..N, so next = (existing_count + N + 1).
-  s.next_episode_number = Math.max(accepted.length + N + 1, s.next_episode_number + N)
-  await writeIdeasStore(slug, s)
+  // Stage 2: commit the rename plan atomically through mutateStore.
+  // applyRenumberPatch runs auto-heal on commit, which removes any
+  // stale recycled_numbers entries that referenced slots about to be
+  // filled by the orphan adoption — closing the duplicate-code race
+  // that surfaced as "new ideas overwrite TN0001".
+  //
+  // next_episode_number target: after shift, existing ideas occupy
+  // codes N+1..N+accepted.length. Orphans about to fill 1..N. So the
+  // first available code after both is N + accepted.length + 1.
+  await im.applyRenumberPatch(slug, {
+    renames: renamePlan,
+    advance_next_to: Math.max(accepted.length + N + 1, currentNext + N),
+  })
 
   // Stage 3: adopt orphans into the now-vacant 1..N slot range.
   for (let i = 0; i < videos.length; i++) {
@@ -380,17 +387,12 @@ export async function adoptBulkRenumber(
 }
 
 // ── Small helpers ────────────────────────────────────────────────────────
-
-async function readIdeasStore(slug: string): Promise<any> {
-  const p = path.join(PROJECTS_ROOT, slug, 'ideas.json')
-  const raw = await fs.readFile(p, 'utf-8').catch(() => '{"ideas":[],"next_episode_number":1}')
-  return JSON.parse(raw)
-}
-
-async function writeIdeasStore(slug: string, data: any): Promise<void> {
-  const p = path.join(PROJECTS_ROOT, slug, 'ideas.json')
-  await writeJsonAtomic(p, data)
-}
+//
+// Note: the prior `readIdeasStore` + `writeIdeasStore` helpers were
+// removed when the orphan-adoption flow moved to im.* (which goes
+// through mutateStore + auto-heal). Direct ideas.json reads/writes
+// from this file would reintroduce the recycled_numbers race that
+// caused TN0001 reuse — don't add them back.
 
 async function copyDirRecursive(src: string, dest: string): Promise<void> {
   await fs.mkdir(dest, { recursive: true })

@@ -101,11 +101,30 @@ async function applyAutoHeal(slug: string, store: IdeasStore): Promise<boolean> 
   const maxNum = Math.max(...acceptedNums, store.next_episode_number - 1)
   const usedSet = new Set(acceptedNums)
   if (!store.recycled_numbers) store.recycled_numbers = []
-  const recycledSet = new Set(store.recycled_numbers)
   let healed = false
+
+  // Bidirectional cleanup: REMOVE any code from recycled_numbers that's
+  // now in use by an accepted idea. This catches the case where direct
+  // writes outside mutateStore (e.g. adoptOne in upload-orphans.ts)
+  // filled a slot we'd previously marked as recyclable. Without this,
+  // a stale recycled_numbers entry causes acceptIdea to hand out a
+  // code that's already taken — duplicate-code corruption that
+  // surfaces as "new ideas overwrite old ones at TN0001".
+  const filtered = store.recycled_numbers.filter(n => !usedSet.has(n))
+  if (filtered.length !== store.recycled_numbers.length) {
+    store.recycled_numbers = filtered
+    healed = true
+  }
+
+  // Forward cleanup: ADD any gap below the high-water mark to
+  // recycled_numbers (the original behaviour). Only counts a number as
+  // a "gap" if it's neither used NOR already-recycled — set rebuilt
+  // post-filter so we don't double-add anything we just removed.
+  const recycledSet = new Set(store.recycled_numbers)
   for (let n = 1; n <= maxNum; n++) {
     if (!usedSet.has(n) && !recycledSet.has(n) && n < store.next_episode_number) {
       store.recycled_numbers.push(n)
+      recycledSet.add(n)
       healed = true
     }
   }
@@ -473,6 +492,52 @@ export async function removeIdea(slug: string, ideaId: string): Promise<boolean>
 export async function updateNextEpisodeNumber(slug: string, num: number): Promise<void> {
   await mutateStore(slug, (store) => {
     store.next_episode_number = num
+  })
+}
+
+/**
+ * Apply a batch of episode-code renames atomically + bump
+ * next_episode_number, all under the same lock that every other
+ * ideas.json mutator uses. This is the safe entry point for the
+ * "shift everyone forward by N to make room for orphan adoptions"
+ * flow in upload-orphans.ts — it guarantees auto-heal runs after the
+ * renames so `recycled_numbers` stays consistent with the new code
+ * assignments (no stale entries pointing at slots that are about to
+ * be filled).
+ *
+ * The fs.rename / folder shuffle is the caller's responsibility — this
+ * function only updates ideas.json. Callers should run the fs work
+ * BEFORE calling here so disk + state agree on commit.
+ */
+export async function applyRenumberPatch(
+  slug: string,
+  patch: {
+    /** Each entry maps an idea ID to its new episode code. */
+    renames: Array<{ idea_id: string; new_code: string }>
+    /** Set next_episode_number to at least this value. */
+    advance_next_to: number
+  },
+): Promise<{ applied: number; missing: string[] }> {
+  return mutateStore(slug, async (store) => {
+    const missing: string[] = []
+    let applied = 0
+    for (const r of patch.renames) {
+      const idea = store.ideas.find(i => i.id === r.idea_id)
+      if (!idea) { missing.push(r.idea_id); continue }
+      idea.episode_code = r.new_code
+      applied++
+    }
+    if (patch.advance_next_to > store.next_episode_number) {
+      store.next_episode_number = patch.advance_next_to
+    }
+    // Re-run auto-heal AFTER the mutation so the freshly-vacated slots
+    // (the old codes we just shifted out of) become recyclable in the
+    // same atomic write. Without this, the renumber leaves a window
+    // where the slots are unowned but not in recycled_numbers — a
+    // future mutator's pre-fn auto-heal would catch it eventually,
+    // but exposing the invariant on commit is cleaner.
+    await applyAutoHeal(slug, store)
+    return { applied, missing }
   })
 }
 
