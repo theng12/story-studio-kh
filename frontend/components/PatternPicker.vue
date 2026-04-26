@@ -37,6 +37,21 @@
       />
     </div>
 
+    <!-- Filter toggle: by default we hide patterns whose preferredFormats
+         doesn't include the current format. Power users can flip this
+         off to see every pattern (the "pairs with" badge below still
+         flags the mismatch). Hidden when no formatId is supplied since
+         the filter wouldn't apply. -->
+    <div v-if="formatId" class="picker-filter">
+      <label class="filter-toggle">
+        <input type="checkbox" v-model="showAll" />
+        Show all patterns (including those not paired with <code>{{ formatId }}</code>)
+      </label>
+      <span v-if="!showAll && hiddenCount > 0" class="filter-meta">
+        {{ hiddenCount }} hidden — uncheck "Show all" if you want them
+      </span>
+    </div>
+
     <div v-if="selected" class="pattern-card">
       <div class="card-row">
         <span class="card-key">Resolved title</span>
@@ -100,13 +115,30 @@ watch(() => props.subject, v => { subjectLocal.value = v })
 
 const selected = computed<Pattern | undefined>(() => find(props.modelValue))
 
-// Always show all patterns — but order compatible-with-this-format ones first.
+// Default behavior: FILTER patterns by current format compatibility.
+// Power users can flip the toggle to see everything. We always include
+// the currently-selected pattern in the dropdown even when it doesn't
+// match — otherwise switching format would visually drop the user's
+// selection from the list (without unsetting modelValue), which is
+// confusing.
+const showAll = ref(false)
+
 const availablePatterns = computed(() => {
-  if (!props.formatId) return patterns.value
+  if (!props.formatId || showAll.value) return patterns.value
   const compat = compatibleWith(props.formatId)
-  const compatIds = new Set(compat.map(p => p.id))
-  const others = patterns.value.filter(p => !compatIds.has(p.id))
-  return [...compat, ...others]
+  // Ensure the currently-selected pattern stays visible even if filter
+  // would hide it. Without this, switching format mid-edit would make
+  // the dropdown briefly look empty for the chosen value.
+  if (props.modelValue && !compat.some(p => p.id === props.modelValue)) {
+    const sel = find(props.modelValue)
+    if (sel) return [sel, ...compat]
+  }
+  return compat
+})
+
+const hiddenCount = computed(() => {
+  if (!props.formatId || showAll.value) return 0
+  return patterns.value.length - availablePatterns.value.length
 })
 
 const resolvedTitle = computed(() => {
@@ -172,6 +204,22 @@ function formatErr(e: any): string {
 .subject-input {
   flex: 1;
 }
+
+.picker-filter {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 6px; padding: 0 2px;
+  font-size: 11px; color: var(--text-muted);
+  flex-wrap: wrap;
+}
+.filter-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer;
+}
+.filter-toggle code {
+  background: var(--bg-tertiary);
+  padding: 1px 5px; border-radius: 3px;
+}
+.filter-meta { font-style: italic; }
 
 .pattern-card {
   margin-top: 4px;

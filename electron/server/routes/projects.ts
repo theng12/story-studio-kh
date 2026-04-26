@@ -12,7 +12,8 @@ import { auditProjectAssets } from '../services/asset-status.js'
 import { auditAssets } from '../services/manifest-audit.js'
 import { getSecretsProvenanceStatus, resetSecretsForCurrentMachine } from '../services/secrets-store.js'
 import { listFormats, loadFormat, getEffectiveFormat, _clearFormatCaches } from '../services/format-loader.js'
-import { listPatterns, loadPattern } from '../services/pattern-loader.js'
+import { listPatterns, loadPattern, saveUserPattern, deleteUserPattern, isBuiltinPatternId, checkPatternShape } from '../services/pattern-loader.js'
+import { buildPatternExtractionPrompt, parseExtractedPatternJson } from '../lib/pattern-extraction-prompt.js'
 import { buildFormatExtractionPrompt, parseExtractedFormatJson } from '../lib/format-extraction-prompt.js'
 import { callAi } from '../lib/ai-client.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
@@ -85,6 +86,135 @@ router.get('/patterns/:id', async (req, res) => {
     res.json(p)
   } catch (e: any) {
     res.status(500).json({ detail: `Failed to load pattern: ${e.message}` })
+  }
+})
+
+// ── Pattern CRUD (user-custom only — built-ins are immutable) ──────────────
+//
+// Mirrors the format-custom routes (POST /formats/custom etc.). Built-in
+// pattern ids are reserved; the route refuses to overwrite them unless
+// the caller explicitly opts in via `allow_shadow_builtin: true`. The
+// editor UI never sends that flag; only the import-pattern flow would.
+
+router.post('/patterns/custom', async (req, res) => {
+  const { pattern, overwrite, allow_shadow_builtin } = req.body || {}
+  if (!pattern || typeof pattern !== 'object') {
+    return res.status(400).json({ detail: 'pattern object is required' })
+  }
+  const check = checkPatternShape({ ...pattern, builtin: false, schemaVersion: 1 })
+  if (!check.ok) {
+    return res.status(400).json({ detail: `Pattern is invalid: ${check.missing.join(', ')}` })
+  }
+  try {
+    const saved = await saveUserPattern(pattern, {
+      overwrite: overwrite === true,
+      allowShadowBuiltin: allow_shadow_builtin === true,
+    })
+    res.json({ pattern: saved })
+  } catch (e: any) {
+    // Conflict (already exists, no overwrite) → 409 so the UI can offer
+    // to overwrite or rename. Other errors → 500.
+    const msg = e?.message || 'Failed to save pattern'
+    const isConflict = /already exists|matches a built-in/.test(msg)
+    res.status(isConflict ? 409 : 500).json({ detail: msg })
+  }
+})
+
+router.put('/patterns/custom/:id', async (req, res) => {
+  const id = req.params.id
+  const incoming = req.body?.pattern
+  if (!incoming || typeof incoming !== 'object') {
+    return res.status(400).json({ detail: 'pattern object is required' })
+  }
+  // The id in the URL wins — protects against the editor sending a
+  // different id field by accident (renaming via this endpoint isn't
+  // supported; user must delete + re-create to change the id).
+  const candidate = { ...incoming, id, builtin: false, schemaVersion: 1 }
+  const check = checkPatternShape(candidate)
+  if (!check.ok) {
+    return res.status(400).json({ detail: `Pattern is invalid: ${check.missing.join(', ')}` })
+  }
+  try {
+    // PUT is upsert with overwrite enabled — the typical "edit existing
+    // pattern" flow. allow_shadow_builtin stays false so a built-in id
+    // collision still fails.
+    const saved = await saveUserPattern(candidate, { overwrite: true, allowShadowBuiltin: false })
+    res.json({ pattern: saved })
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to update pattern' })
+  }
+})
+
+router.delete('/patterns/custom/:id', async (req, res) => {
+  const id = req.params.id
+  if (isBuiltinPatternId(id)) {
+    // Surface a 400 (rather than 404) so the UI can show "built-ins are
+    // protected" instead of "not found".
+    return res.status(400).json({ detail: `Pattern "${id}" is built-in and cannot be deleted.` })
+  }
+  try {
+    const r = await deleteUserPattern(id)
+    res.json({ ok: true, id, deletedPath: r.deletedPath })
+  } catch (e: any) {
+    const msg = e?.message || 'Failed to delete pattern'
+    res.status(/not found/.test(msg) ? 404 : 500).json({ detail: msg })
+  }
+})
+
+// Pattern-from-Sample LLM extraction. Project-scoped because we use the
+// project's API keys + provide the project's known formats so the LLM
+// picks valid ids in `preferredFormats`.
+router.post('/projects/:slug/patterns/from-sample', async (req, res) => {
+  const { slug } = req.params
+  const config = await pm.getConfig(slug)
+  if (!config) return res.status(404).json({ detail: 'Project not found' })
+
+  const { samples, model, desired_name, intent } = req.body || {}
+  if (!Array.isArray(samples) || samples.length === 0 || !samples.every((s: any) => typeof s === 'string' && s.trim())) {
+    return res.status(400).json({ detail: 'samples must be a non-empty array of non-empty strings' })
+  }
+  if (typeof model !== 'string' || !model) {
+    return res.status(400).json({ detail: 'model is required' })
+  }
+
+  const apiKeys = {
+    anthropic_api_key: config.anthropic_api_key,
+    openai_api_key: config.openai_api_key,
+    kie_api_key: config.kie_api_key,
+  }
+
+  // Pull the list of valid format ids so the prompt steers the LLM
+  // toward real ids in preferredFormats. Falls back to no-list if the
+  // call fails for any reason — the prompt's fallback enumerates a
+  // couple of well-known ids.
+  let knownFormatIds: string[] = []
+  try {
+    const all = await listFormats()
+    knownFormatIds = all.map(f => f.id).filter(Boolean)
+  } catch { /* non-fatal */ }
+
+  const prompt = buildPatternExtractionPrompt({
+    samples: samples.map((s: string) => s.trim()),
+    desiredName: typeof desired_name === 'string' ? desired_name.trim() || undefined : undefined,
+    intent: typeof intent === 'string' ? intent.trim() || undefined : undefined,
+    knownFormatIds,
+  })
+
+  try {
+    const raw = await callAi(model, '', prompt, apiKeys, false, { slug })
+    const parsed = parseExtractedPatternJson(raw)
+    // Eager validation so the wizard's "Review" step gets a structured
+    // error instead of a JSON blob it can't interpret.
+    const check = checkPatternShape({ ...(parsed as any), builtin: false, schemaVersion: 1 })
+    if (!check.ok) {
+      return res.status(422).json({
+        detail: `LLM produced an incomplete pattern: ${check.missing.join(', ')}`,
+        raw: parsed,
+      })
+    }
+    res.json({ pattern: parsed })
+  } catch (e: any) {
+    res.status(500).json({ detail: `Pattern extraction failed: ${e.message}` })
   }
 })
 

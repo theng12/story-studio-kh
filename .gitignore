@@ -12,6 +12,13 @@ electron/dist/
 *.exe
 *.AppImage
 
+# Bundled binaries (downloaded by scripts/fetch-ffmpeg.mjs into bundled/ffmpeg/).
+# 126MB universal2 ffmpeg + ffprobe each — out of git for obvious reasons.
+# MANIFEST.json IS tracked so the version + hash provenance survives.
+bundled/ffmpeg/ffmpeg
+bundled/ffmpeg/ffprobe
+bundled/ffmpeg-tmp/
+
 # App settings (machine-local)
 app-settings.json
 last-session.json

@@ -211,10 +211,11 @@
         <div>
           <h3>Format</h3>
           <p class="text-muted mt-1 mb-2">
-            Pick the channel-level format. The format drives every prompt the app sends — script
-            system prompt, narrator-style pool, pacing arc, image style, idea-generation persona,
-            metadata keywords. Built-in formats ship with the app; custom formats live alongside
-            your projects and can be exported as <code>.json</code> files for sharing.
+            <strong>Default for new projects is sleep-story.</strong>
+            We ship 7 format presets — pick one above, override fields per-project below,
+            or create your own from a sample script via "+ Create from Sample".
+            Built-in formats live in the app bundle; custom formats live alongside your
+            projects and can be exported as <code>.json</code> files for sharing.
           </p>
         </div>
         <button class="btn btn-secondary btn-sm" @click="formatWizardOpen = true">
@@ -244,6 +245,103 @@
         :project-slug="slug"
         @close="formatWizardOpen = false"
         @saved="(id) => { formatId = id; formatOverrides = null; saveFormatSettings() }"
+      />
+
+      <!-- ── Patterns sub-section ─────────────────────────────────────── -->
+      <!-- Lives inside the Format tab because patterns compose with formats —
+           the user picks a format on the project + a pattern per-episode (or
+           per-ideas-batch) on top. The card below mirrors the Format card's
+           visual structure (header + help text + action button on the right). -->
+      <div class="patterns-section mt-4">
+        <div class="format-tab-header">
+          <div>
+            <h3>Patterns</h3>
+            <p class="text-muted mt-1 mb-2">
+              Patterns control title shape and body structure within a format
+              (e.g. "Fall asleep to {X}", "History of {X} explained").
+              <strong>We ship 6 presets.</strong> Pick one in the Script
+              Generator or the Ideas Generator — or create your own here, either
+              by hand or by extracting from a sample script.
+            </p>
+          </div>
+          <div class="patterns-actions">
+            <button class="btn btn-secondary btn-sm" @click="openNewPatternEditor">+ New Pattern</button>
+            <button class="btn btn-secondary btn-sm" @click="patternWizardOpen = true">+ Extract from Sample</button>
+          </div>
+        </div>
+
+        <div class="patterns-filter mt-2">
+          <label class="filter-toggle">
+            <input type="checkbox" v-model="patternsFilterToCurrent" />
+            Show only patterns compatible with the current format
+            <code v-if="patternsFilterToCurrent && formatId">({{ formatId }})</code>
+          </label>
+        </div>
+
+        <div v-if="patternsLoading && !visiblePatterns.length" class="text-muted mt-2">Loading patterns…</div>
+        <div v-else-if="!visiblePatterns.length" class="text-muted mt-2 empty-state">
+          No patterns match the current filter.
+          <button class="btn btn-ghost btn-sm" @click="patternsFilterToCurrent = false">Show all</button>
+        </div>
+        <div v-else class="pattern-grid mt-2">
+          <div
+            v-for="p in visiblePatterns"
+            :key="p.id"
+            class="pattern-card"
+            :class="{ builtin: p.builtin }"
+          >
+            <div class="pat-card-head">
+              <strong>{{ p.name }}</strong>
+              <span class="pat-badge" :class="p.builtin ? 'badge-builtin' : 'badge-custom'">
+                {{ p.builtin ? 'Built-in' : 'Custom' }}
+              </span>
+            </div>
+            <div class="pat-card-template">
+              <code>{{ p.titleTemplate }}</code>
+              <span v-if="p.preferredFormats?.length" class="pat-card-formats">
+                · {{ p.preferredFormats.join(', ') }}
+              </span>
+            </div>
+            <p class="pat-card-desc">{{ p.description }}</p>
+            <div class="pat-card-actions">
+              <button
+                class="btn btn-ghost btn-sm"
+                :title="p.builtin ? 'Built-ins are read-only — copy as new to make changes.' : 'Edit pattern'"
+                :disabled="p.builtin"
+                @click="openEditPatternEditor(p)"
+              >
+                {{ p.builtin ? 'View only' : 'Edit' }}
+              </button>
+              <button
+                class="btn btn-ghost btn-sm"
+                title="Make a custom copy you can edit"
+                @click="copyPatternAsNew(p)"
+              >
+                Copy as new
+              </button>
+              <button
+                v-if="!p.builtin"
+                class="btn btn-ghost btn-sm danger"
+                @click="confirmDeletePattern(p)"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <PatternEditorModal
+        :open="patternEditorOpen"
+        :pattern="patternEditorTarget"
+        @close="patternEditorOpen = false"
+        @saved="onPatternSaved"
+      />
+      <PatternFromSampleWizard
+        :open="patternWizardOpen"
+        :project-slug="slug"
+        @close="patternWizardOpen = false"
+        @saved="onPatternSaved"
       />
     </div>
 
@@ -882,6 +980,100 @@ function savedHintProps(key: string) {
 // this project's API keys; the saved format is app-level (lives in
 // ${PROJECTS_ROOT}/.formats/) and shows up in every project's picker.
 const formatWizardOpen = ref(false)
+
+// ── Pattern management (sub-section of Format tab) ─────────────────────────
+//
+// Patterns are app-level (live in ${PROJECTS_ROOT}/.patterns/) but the
+// extract-from-sample wizard is project-scoped because it uses the
+// project's API keys. The list itself is shared — saving a pattern in
+// one project makes it available in every project's picker.
+import type { Pattern } from '~/composables/usePatterns'
+const {
+  patterns: allPatterns,
+  isLoading: patternsLoading,
+  compatibleWith: patternsCompatibleWith,
+  remove: removePattern,
+  refresh: refreshPatterns,
+} = usePatterns()
+const patternsFilterToCurrent = ref(true)
+const patternEditorOpen = ref(false)
+const patternEditorTarget = ref<Pattern | null>(null)
+const patternWizardOpen = ref(false)
+
+const visiblePatterns = computed<Pattern[]>(() => {
+  if (!patternsFilterToCurrent.value) return allPatterns.value
+  // compatibleWith returns patterns whose preferredFormats includes the
+  // current format id OR has no preference at all. The latter is the
+  // "this pattern is generic, applies anywhere" case — they always show.
+  return patternsCompatibleWith(formatId.value)
+})
+
+function openNewPatternEditor() {
+  patternEditorTarget.value = null
+  patternEditorOpen.value = true
+}
+
+function openEditPatternEditor(p: Pattern) {
+  if (p.builtin) return  // safety — button is disabled but guard regardless
+  patternEditorTarget.value = p
+  patternEditorOpen.value = true
+}
+
+/**
+ * Open the editor pre-filled with this pattern's data but with id and
+ * name suffixed " (copy)" + builtin=false so the user can save it as
+ * their own custom variant. Solves "I love this built-in but want to
+ * tweak the closing line" without making the user retype every field.
+ */
+function copyPatternAsNew(p: Pattern) {
+  const copy: Pattern = {
+    ...p,
+    id: deriveCopyId(p.id),
+    name: p.name.endsWith('(copy)') ? p.name : `${p.name} (copy)`,
+    builtin: false,
+    schemaVersion: 1,
+  }
+  patternEditorTarget.value = null  // create-mode (id field unlocked)
+  // Stash the copy data via a quick re-open after the dialog mounts.
+  // Simpler than threading a "prefill" prop through the editor: open
+  // create-mode, then let the editor's reset-on-open hook fire, then
+  // mutate target to populate it. Cleanest is just: pass the copy as
+  // an "edit target" with builtin=false; the editor unlocks id when
+  // the edit target's id matches an existing built-in (the create
+  // path handles unlocked id naturally).
+  patternEditorTarget.value = copy
+  patternEditorOpen.value = true
+}
+
+function deriveCopyId(srcId: string): string {
+  // Append `-copy` (or `-copy-2`, etc. if it collides). Cheap collision
+  // check against the loaded list — server still validates.
+  const base = `${srcId}-copy`
+  if (!allPatterns.value.some(p => p.id === base)) return base
+  for (let i = 2; i < 100; i++) {
+    const candidate = `${base}-${i}`
+    if (!allPatterns.value.some(p => p.id === candidate)) return candidate
+  }
+  return base
+}
+
+async function confirmDeletePattern(p: Pattern) {
+  if (p.builtin) return
+  if (!confirm(`Delete pattern "${p.name}"? This removes the file at .patterns/${p.id}.json.`)) return
+  try {
+    await removePattern(p.id)
+  } catch (e: any) {
+    alert(e?.data?.detail || e?.message || 'Failed to delete pattern')
+  }
+}
+
+function onPatternSaved(_id: string) {
+  patternEditorOpen.value = false
+  patternWizardOpen.value = false
+  // Composable refresh already fires inside save/update; this re-pings
+  // in case the wizard's child save didn't propagate to our slot.
+  refreshPatterns().catch(() => {})
+}
 
 // ── Format tab state ───────────────────────────────────────────────────────
 //
@@ -1881,6 +2073,74 @@ async function deleteProject() {
 }
 .format-tab-header > div { flex: 1; }
 .format-tab-header h3 { margin: 0 0 4px; }
+
+/* ── Patterns sub-section ────────────────────────────────────────────── */
+.patterns-section {
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+.patterns-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.patterns-filter { padding: 0 2px; }
+.filter-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-secondary); cursor: pointer;
+}
+.filter-toggle code {
+  font-size: 11px; background: var(--bg-tertiary);
+  padding: 1px 5px; border-radius: 3px;
+}
+.empty-state {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px; background: var(--bg-tertiary);
+  border-radius: var(--radius-sm); font-size: 13px;
+}
+
+.pattern-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+.pattern-card {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.pattern-card.builtin { background: var(--bg-secondary); }
+.pat-card-head {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+}
+.pat-card-head strong { font-size: 13px; }
+.pat-badge {
+  font-size: 10px; font-weight: 500;
+  padding: 2px 7px; border-radius: 999px;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.badge-builtin { background: rgba(120, 130, 140, 0.18); color: var(--text-muted); }
+.badge-custom { background: rgba(75, 130, 200, 0.18); color: var(--accent, #4b82c8); }
+.pat-card-template {
+  font-size: 11px;
+}
+.pat-card-template code {
+  background: var(--bg-primary);
+  padding: 2px 6px; border-radius: 3px;
+  font-family: 'Menlo', 'Monaco', monospace;
+}
+.pat-card-formats { color: var(--text-muted); font-size: 10px; margin-left: 4px; }
+.pat-card-desc {
+  margin: 0; font-size: 11px; color: var(--text-secondary);
+  line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pat-card-actions {
+  display: flex; gap: 4px; margin-top: auto; padding-top: 4px;
+}
+.pat-card-actions .btn-ghost.danger {
+  color: var(--error, #e25c5c);
+  margin-left: auto;
+}
 
 /* ── FFmpeg tab ──────────────────────────────────────────────────────── */
 .ffmpeg-status-row {
