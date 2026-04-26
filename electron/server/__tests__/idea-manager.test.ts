@@ -93,6 +93,101 @@ describe('acceptIdea()', () => {
     const proj = await setupProject()
     await assert.rejects(() => im.acceptIdea(proj.slug, 'ghost-id'))
   })
+
+  // ── override_code: user-supplied custom episode code on accept ────────
+
+  test('accepts with override_code instead of next available', async () => {
+    const proj = await setupProject()
+    const [added] = await im.addIdeas(proj.slug, [sampleIdea], 'm')
+    const result = await im.acceptIdea(proj.slug, added.id, false, { override_code: 'EP042' })
+    assert.equal(result.episode_code, 'EP042', 'used the override code')
+    assert.equal(result.idea.status, 'accepted')
+  })
+
+  test('override_code bumps next_episode_number past the chosen code', async () => {
+    const proj = await setupProject()
+    const [a] = await im.addIdeas(proj.slug, [sampleIdea], 'm')
+    await im.acceptIdea(proj.slug, a.id, false, { override_code: 'EP010' })
+    // Verify the project bumped its counter, not just bookkeeping for
+    // a single call. (The next-default-accept behaviour is exercised
+    // separately below — auto-heal turns the 1..9 gap into recyclable
+    // slots, which is the intentional cross-app convention.)
+    const next = await im.getNextEpisodeNumber(proj.slug)
+    assert.equal(next, 11, 'next bumped past the override')
+  })
+
+  test('after override-skip, default accepts fill the gap (recycled-numbers behavior)', async () => {
+    // User picks EP010 → slots 1..9 are visibly empty and become
+    // recyclable gaps via auto-heal. Subsequent default accepts fill
+    // them from the bottom up. This matches how reset-then-accept
+    // already works elsewhere in the app — consistent mental model.
+    const proj = await setupProject()
+    const [a, b, c] = await im.addIdeas(proj.slug, [sampleIdea, sampleIdea, sampleIdea], 'm')
+    await im.acceptIdea(proj.slug, a.id, false, { override_code: 'EP010' })
+    const r2 = await im.acceptIdea(proj.slug, b.id)
+    const r3 = await im.acceptIdea(proj.slug, c.id)
+    assert.equal(r2.episode_code, 'EP001', 'first default accept fills lowest gap')
+    assert.equal(r3.episode_code, 'EP002', 'next default accept continues filling gaps')
+  })
+
+  test('override_code in a gap below next does NOT advance next', async () => {
+    const proj = await setupProject()
+    const [a, b, c] = await im.addIdeas(proj.slug, [sampleIdea, sampleIdea, sampleIdea], 'm')
+    // Auto-accept two so next_episode_number = 3.
+    await im.acceptIdea(proj.slug, a.id)  // EP001
+    await im.acceptIdea(proj.slug, b.id)  // EP002
+    // Reset the first to recycle its number.
+    await im.resetIdea(proj.slug, a.id)
+    // Override-accept c into the recycled slot 1.
+    const r = await im.acceptIdea(proj.slug, c.id, false, { override_code: 'EP001' })
+    assert.equal(r.episode_code, 'EP001')
+    // Next add should still continue from 3 (not 2 — that's still in use).
+    const [d] = await im.addIdeas(proj.slug, [sampleIdea], 'm')
+    const r4 = await im.acceptIdea(proj.slug, d.id)
+    assert.equal(r4.episode_code, 'EP003', 'next still correct after gap-fill')
+  })
+
+  test('override_code rejects collision with existing accepted code', async () => {
+    const proj = await setupProject()
+    const [a, b] = await im.addIdeas(proj.slug, [sampleIdea, sampleIdea], 'm')
+    await im.acceptIdea(proj.slug, a.id)  // EP001
+    await assert.rejects(
+      () => im.acceptIdea(proj.slug, b.id, false, { override_code: 'EP001' }),
+      /already in use/,
+    )
+  })
+
+  test('override_code rejects bad prefix', async () => {
+    const proj = await setupProject()
+    const [a] = await im.addIdeas(proj.slug, [sampleIdea], 'm')
+    await assert.rejects(
+      () => im.acceptIdea(proj.slug, a.id, false, { override_code: 'XX042' }),
+      /must start with prefix/,
+    )
+  })
+
+  test('override_code rejects non-numeric tail', async () => {
+    const proj = await setupProject()
+    const [a] = await im.addIdeas(proj.slug, [sampleIdea], 'm')
+    await assert.rejects(
+      () => im.acceptIdea(proj.slug, a.id, false, { override_code: 'EPabc' }),
+      /positive integer/,
+    )
+  })
+
+  test('override_code is removed from recycled_numbers if present', async () => {
+    const proj = await setupProject()
+    const [a, b] = await im.addIdeas(proj.slug, [sampleIdea, sampleIdea], 'm')
+    await im.acceptIdea(proj.slug, a.id)  // EP001
+    await im.resetIdea(proj.slug, a.id)   // 1 goes into recycled_numbers
+    // Sanity: the recycled list now contains 1.
+    // Override-accept b into slot 1 — recycled list should drop 1 to
+    // avoid handing it out twice on the next default accept.
+    await im.acceptIdea(proj.slug, b.id, false, { override_code: 'EP001' })
+    const [c] = await im.addIdeas(proj.slug, [sampleIdea], 'm')
+    const r3 = await im.acceptIdea(proj.slug, c.id)
+    assert.notEqual(r3.episode_code, 'EP001', 'must NOT re-assign recycled-1 since override took it')
+  })
 })
 
 describe('dismissIdea() / removeIdea()', () => {
