@@ -345,6 +345,23 @@ router.post('/app-settings/projects-root/preview-migration', async (_req, res) =
   }
 })
 
+// Inspect a candidate target dir to see if it already contains projects.
+// Used by the "Use existing folder (no copy)" flow on a second machine
+// where iCloud has already synced the projects folder down — the UI
+// shows the count + sample slugs before the user commits to switching.
+router.post('/app-settings/projects-root/inspect-target', async (req, res) => {
+  try {
+    const target = typeof req.body?.target_path === 'string' ? req.body.target_path.trim() : ''
+    if (!target) return res.status(400).json({ detail: 'target_path is required' })
+    const { inspectTargetForExistingProjects } = await import('../services/projects-storage-mover.js')
+    const r = await inspectTargetForExistingProjects(target)
+    res.json(r)
+  } catch (e: any) {
+    const status = e?.statusCode === 400 ? 400 : 500
+    res.status(status).json(humanizeBackendError(e, 'Failed to inspect target'))
+  }
+})
+
 router.post('/app-settings/projects-root/migrate', async (req, res) => {
   try {
     const target = typeof req.body?.target_path === 'string' ? req.body.target_path.trim() : ''

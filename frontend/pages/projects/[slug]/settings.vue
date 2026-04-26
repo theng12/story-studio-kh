@@ -498,9 +498,18 @@
           <button
             class="btn btn-primary btn-sm"
             :disabled="projectsRootBusy"
+            title="First-machine setup: copies your existing projects to the chosen location"
             @click="browseAndMoveProjectsRoot"
           >
             📂 Browse + move projects there & restart
+          </button>
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="projectsRootBusy"
+            title="Second-machine setup: point at a folder that already has projects (e.g. an iCloud-synced folder from another Mac). Doesn't copy anything."
+            @click="browseAndUseExistingProjectsRoot"
+          >
+            📂 Use existing folder (no copy)
           </button>
           <button
             v-if="projectsRoot?.is_overridden"
@@ -1768,6 +1777,90 @@ async function browseAndMoveProjectsRoot() {
     }, 800)
   } catch (e: any) {
     projectsRootStatus.value = `Migration failed: ${e?.data?.detail || e?.message}`
+    projectsRootStatusKind.value = 'err'
+    projectsRootBusy.value = false
+  }
+}
+
+/**
+ * Second-machine flow: the user has projects already synced to this
+ * Mac via iCloud (or any cloud) and just wants to point the app at
+ * that folder without copying anything. Picks the folder, inspects
+ * how many projects it contains, confirms with the user, sets the
+ * override, restarts.
+ *
+ * Differs from browseAndMoveProjectsRoot: no migrate step. The files
+ * are already at the destination — copying would be a no-op at best
+ * and would hit the "non-empty target" 409 from the migrator.
+ */
+async function browseAndUseExistingProjectsRoot() {
+  let pick: { path: string | null }
+  try {
+    pick = await post<{ path: string | null }>('/system/pick-folder', {
+      title: 'Choose existing projects folder',
+      buttonLabel: 'Use this folder',
+      defaultPath: projectsRoot.value?.effective_path,
+    })
+  } catch (e: any) {
+    projectsRootStatus.value = `Picker failed: ${e?.data?.detail || e?.message}`
+    projectsRootStatusKind.value = 'err'
+    return
+  }
+  if (!pick.path) return  // user cancelled
+
+  // Inspect what's at the picked path so the confirmation message
+  // is accurate. Saves the user from accidentally pointing at the
+  // wrong folder + getting an empty dashboard with no idea why.
+  let inspect: { project_count: number; sample_slugs: string[]; exists: boolean }
+  try {
+    inspect = await post<typeof inspect>(
+      '/app-settings/projects-root/inspect-target',
+      { target_path: pick.path },
+    )
+  } catch (e: any) {
+    projectsRootStatus.value = `Inspect failed: ${e?.data?.detail || e?.message}`
+    projectsRootStatusKind.value = 'err'
+    return
+  }
+
+  // Build a confirmation message that matches what they're about to do.
+  // Three branches: folder doesn't exist, folder is empty, folder has
+  // projects (with sample slugs).
+  let msg = ''
+  if (!inspect.exists) {
+    msg = `Folder doesn't exist yet:\n  ${pick.path}\n\n` +
+      `Use it anyway? The app will create it on next launch and the dashboard will be empty until you copy projects in manually.`
+  } else if (inspect.project_count === 0) {
+    msg = `No Story Studio projects found at:\n  ${pick.path}\n\n` +
+      `Use it anyway? The dashboard will be empty until you copy projects in (or pick a different folder).`
+  } else {
+    const sample = inspect.sample_slugs.slice(0, 5).join(', ')
+    const more = inspect.project_count > 5 ? `, +${inspect.project_count - 5} more` : ''
+    msg = `Found ${inspect.project_count} project${inspect.project_count === 1 ? '' : 's'} at:\n  ${pick.path}\n\n` +
+      `(${sample}${more})\n\n` +
+      `Point this app at that folder and restart? No files will be copied or moved.`
+  }
+  if (!confirm(msg)) return
+
+  projectsRootBusy.value = true
+  projectsRootStatus.value = inspect.project_count > 0
+    ? `Setting location (${inspect.project_count} project${inspect.project_count === 1 ? '' : 's'} found)…`
+    : 'Setting location…'
+  projectsRootStatusKind.value = 'ok'
+  try {
+    await put('/app-settings/projects-root', { override: pick.path })
+    projectsRootStatus.value = '✓ Saved. Restarting…'
+    setTimeout(async () => {
+      try { await post('/system/restart-app', {}) } catch (e: any) {
+        if (e?.status === 503) {
+          alert('App is in dev mode and can\'t auto-restart. Quit + run `npm run dev` again to pick up the new location.')
+        } else {
+          alert(`Restart failed: ${e?.data?.detail || e?.message}. Quit + reopen manually.`)
+        }
+      }
+    }, 600)
+  } catch (e: any) {
+    projectsRootStatus.value = `Failed to save: ${e?.data?.detail || e?.message}`
     projectsRootStatusKind.value = 'err'
     projectsRootBusy.value = false
   }

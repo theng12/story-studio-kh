@@ -128,6 +128,60 @@ export async function previewMigration(): Promise<{
 }
 
 /**
+ * Inspect a candidate target dir to see if it already contains Story
+ * Studio projects. Used by the "Use existing folder (no copy)" flow on
+ * a second machine: the user picks the iCloud-synced folder that
+ * already has projects, the UI confirms how many it found, then sets
+ * the override without copying anything.
+ *
+ * A "project" here is any immediate subdirectory containing a
+ * `project.json` file. Lightweight scan — depth-1 only, no recursion
+ * into episode folders.
+ */
+export async function inspectTargetForExistingProjects(targetDir: string): Promise<{
+  target_path: string
+  exists: boolean
+  project_count: number
+  /** First 10 project slugs for the preview confirmation. */
+  sample_slugs: string[]
+}> {
+  if (!targetDir || typeof targetDir !== 'string' || !path.isAbsolute(targetDir)) {
+    const e: any = new Error('target_path must be an absolute path string')
+    e.statusCode = 400; throw e
+  }
+  const targetAbs = path.resolve(targetDir)
+  if (!existsSync(targetAbs)) {
+    return { target_path: targetAbs, exists: false, project_count: 0, sample_slugs: [] }
+  }
+
+  let entries: any[]
+  try {
+    entries = await fs.readdir(targetAbs, { withFileTypes: true })
+  } catch {
+    // Unreadable target — surface as 0 projects rather than 500. The
+    // override will still be settable; on restart the dashboard will
+    // be empty and the user can re-pick.
+    return { target_path: targetAbs, exists: true, project_count: 0, sample_slugs: [] }
+  }
+
+  const slugs: string[] = []
+  for (const e of entries) {
+    if (!e.isDirectory()) continue
+    if (e.name.startsWith('.')) continue   // skip dotfolders / cloud metadata dirs
+    if (existsSync(path.join(targetAbs, e.name, 'project.json'))) {
+      slugs.push(e.name)
+    }
+  }
+
+  return {
+    target_path: targetAbs,
+    exists: true,
+    project_count: slugs.length,
+    sample_slugs: slugs.slice(0, 10),
+  }
+}
+
+/**
  * Migrate the current PROJECTS_ROOT to `targetDir`. Throws on validation
  * failure (statusCode set for HTTP mapping). On copy failure mid-run,
  * the partial copy at the target is left in place (caller / user
