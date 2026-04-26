@@ -9,8 +9,9 @@ import * as jq from '../services/job-queue.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { callAi } from '../lib/ai-client.js'
 import { resolveSubfolderNames } from '../services/utils.js'
-import { SUPPORTED_MODELS, type Format } from '../models/types.js'
+import { SUPPORTED_MODELS, type Format, type Pattern } from '../models/types.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
+import { loadPattern } from '../services/pattern-loader.js'
 import type { GenerateIdeasRequest, StoryIdea } from '../models/types.js'
 import { filterGenerated, type SimilarityCandidate } from '../services/idea-similarity.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -72,6 +73,7 @@ function buildPrompt(
   standards: string | null | undefined,
   avoid: AvoidItem[],
   extraAvoidNote?: string,
+  pattern?: Pattern | null,
 ): string {
   const keywords = req.keywords?.length ? req.keywords.join(', ') : 'none specified'
   const standardsSection = standards
@@ -99,10 +101,32 @@ function buildPrompt(
 
 ${format.idea.guidanceText}`
 
+  // Pattern guidance — when the user picked a Pattern preset on the Ideas
+  // page, we instruct the LLM to follow the pattern's titleTemplate +
+  // tone hints. The {X} placeholder gets filled per-idea with concrete
+  // values (the LLM picks them — `pattern_subject` is just a hint for
+  // what KIND of value to pick).
+  const patternBlock = pattern
+    ? `\n⟂ TITLE STYLE (PATTERN PRESET) ⟂
+Each generated idea's title MUST follow this template literally, with {X} substituted by a concrete value:
+
+  Template: "${pattern.titleTemplate}"
+  {X} represents: ${pattern.subjectLabel}${req.pattern_subject ? ` (e.g. "${req.pattern_subject}", but pick a different concrete value per idea)` : ' (pick a different concrete value per idea — never write the literal word "X")'}
+
+Generation rules under this pattern:
+- Replace {X} with a SPECIFIC concrete noun every time (a place / era / craft / object / person / system, depending on the subjectLabel).
+- The {X} value should vary across the batch — don't repeat the same subject for two ideas.
+- Opening hook style: ${pattern.openingDevice}
+${pattern.metadataKeywordAdditions?.length
+  ? `- Themes/keywords this pattern cares about: ${pattern.metadataKeywordAdditions.join(', ')} (incorporate naturally — don't keyword-stuff)`
+  : ''}
+`
+    : ''
+
   return `Generate exactly ${req.count} story episode ideas for a narrative audio production.
 
 ${formatGuidance}
-
+${patternBlock}
 PARAMETERS:
 - Genre: ${req.genre}
 - Theme: ${req.theme || 'open / surprise me'}
@@ -168,6 +192,20 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
   const standards = await pm.getStandards(slug)
   const format = await getEffectiveFormat(slug)
 
+  // Optional pattern preset — when the Ideas-page picker selected one,
+  // we load it here so the prompt assembler can inject the title-style
+  // block. Failure to load (deleted pattern, malformed file, etc.)
+  // degrades gracefully to "no pattern" rather than failing the whole
+  // generation request.
+  let pattern: Pattern | null = null
+  if (typeof body.pattern_id === 'string' && body.pattern_id) {
+    try {
+      pattern = await loadPattern(body.pattern_id)
+    } catch (e: any) {
+      console.warn(`[ideas-gen] failed to load pattern ${body.pattern_id}: ${e?.message || e}`)
+    }
+  }
+
   // Build the AVOID list from everything we already know about this project.
   // Sort newest-first so the 30-item cap keeps the freshest signals.
   const prior = await im.getIdeas(slug)
@@ -197,7 +235,7 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     // leaves us at body.count without a retry.
     const wantedCount = body.count
     const overshoot = { ...body, count: wantedCount + 3 }
-    const firstPrompt = buildPrompt(overshoot, format, standards, avoid)
+    const firstPrompt = buildPrompt(overshoot, format, standards, avoid, undefined, pattern)
     const firstRaw = await callAi(body.model, '', firstPrompt, apiKeys, false, { slug })
     const firstBatch = normalizeIdeas(parseIdeas(firstRaw))
 
@@ -223,7 +261,7 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
         ...avoid,
         ...kept.map(k => ({ title: k.title, mood: k.mood, themes: k.themes })),
       ]
-      const retryPrompt = buildPrompt(retryReq, format, standards, retryAvoid, rejectedTitles)
+      const retryPrompt = buildPrompt(retryReq, format, standards, retryAvoid, rejectedTitles, pattern)
       try {
         const retryRaw = await callAi(body.model, '', retryPrompt, apiKeys, false, { slug })
         const retryBatch = normalizeIdeas(parseIdeas(retryRaw))
@@ -748,7 +786,18 @@ router.get('/projects/:slug/episodes', async (req, res) => {
 
 router.post('/projects/:slug/ideas/:ideaId/accept', async (req, res) => {
   try {
-    const result = await im.acceptIdea(req.params.slug, req.params.ideaId)
+    // override_code is optional. When supplied, acceptIdea validates
+    // prefix + uniqueness and returns a clear error string the route
+    // surfaces as 400 rather than the generic 500.
+    const override = typeof req.body?.override_code === 'string' && req.body.override_code
+      ? String(req.body.override_code).trim()
+      : undefined
+    const result = await im.acceptIdea(
+      req.params.slug,
+      req.params.ideaId,
+      false,
+      override ? { override_code: override } : undefined,
+    )
 
     // If auto_generate_script is true, queue script generation
     if (req.body?.auto_generate_script && req.body?.model) {
@@ -780,6 +829,36 @@ router.post('/projects/:slug/ideas/:ideaId/accept', async (req, res) => {
     res.json(result)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Failed to accept idea'))
+  }
+})
+
+// ── Renumber an already-accepted episode ───────────────────────────────────
+//
+// Single-episode equivalent of the bulk orphan renumber. Use case: user
+// imported episodes out of order and wants to renumber TN0005 → TN0099
+// to match their channel's sequence. Cascades: folder rename + per-asset
+// file rename + episode_info.json update + ideas.json patch + cache
+// invalidation. Errors during the cascade are reported as `warnings`
+// rather than failing the request, so a half-rename still returns a
+// useful state for the UI to show.
+router.post('/projects/:slug/episodes/:code/renumber', async (req, res) => {
+  try {
+    const { slug, code } = req.params
+    const newCode = typeof req.body?.new_code === 'string' ? req.body.new_code.trim() : ''
+    if (!newCode) {
+      return res.status(400).json({ detail: 'new_code is required' })
+    }
+    const { renameAcceptedEpisode } = await import('../services/episode-renumber.js')
+    const result = await renameAcceptedEpisode(slug, code, newCode)
+    res.json(result)
+  } catch (e: any) {
+    // Service throws with statusCode=409 on collision; default to 400
+    // for shape errors and 500 for unexpected fs failures.
+    const status = e?.statusCode === 409 ? 409
+      : /not found|must start with prefix|positive integer|same as old_code|already exists/i.test(e?.message || '')
+        ? 400
+        : 500
+    res.status(status).json(humanizeBackendError(e, 'Failed to renumber episode'))
   }
 })
 

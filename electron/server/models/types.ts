@@ -689,6 +689,20 @@ export interface GenerateIdeasRequest {
   keywords?: string[]
   count: number
   model: string
+  /**
+   * Optional pattern preset to apply to title style. When set, the
+   * idea-generator prompt instructs the LLM to produce titles that
+   * match the pattern's titleTemplate (e.g. "Fall asleep to {X}").
+   * Empty / unset = LLM uses its default freeform titling.
+   */
+  pattern_id?: string
+  /**
+   * Optional subject filler for the pattern's {X} placeholder. Used as
+   * a hint to the LLM ("the {X} value should be a place / era / etc.")
+   * — generated ideas substitute real concrete values per-title rather
+   * than literally "{X}". Ignored when pattern_id is empty.
+   */
+  pattern_subject?: string
 }
 
 export interface StoryIdea {

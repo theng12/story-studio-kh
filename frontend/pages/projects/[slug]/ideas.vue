@@ -52,6 +52,18 @@
         <div class="grid-2">
           <ModelSelector v-model="form.model" :project-slug="slug" />
         </div>
+
+        <!-- Pattern picker (optional). When set, generated ideas follow
+             the pattern's titleTemplate (e.g. "Fall asleep to {X}") +
+             tone hints. Skip for default LLM titling. Persisted per
+             project so the user's choice sticks across reloads. -->
+        <div class="ideas-pattern-block">
+          <PatternPicker
+            v-model="form.pattern_id"
+            v-model:subject="form.pattern_subject"
+            :format-id="formatId"
+          />
+        </div>
       </div>
 
       <!-- Action cluster lives in its own blocked region so the progress -->
@@ -228,6 +240,7 @@
               <td class="td-actions" @click.stop>
                 <button v-if="idea.status === 'new'" class="btn btn-sm btn-primary" @click="showAcceptDialog(idea)">Accept</button>
                 <button v-if="idea.status === 'new'" class="btn btn-sm btn-secondary" @click="dismiss(idea.id)">Dismiss</button>
+                <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-secondary" @click="openRenumberDialog(idea)" title="Change this episode's code (renames folder + asset files)">Renumber</button>
                 <button v-if="idea.status === 'accepted'" class="btn btn-sm btn-danger" @click="resetIdea(idea)">Reset</button>
                 <button class="btn-icon" @click="openEditIdea(idea)" aria-label="Edit idea" title="Edit idea">✎</button>
                 <button class="btn-icon danger" @click="remove(idea.id)" aria-label="Delete idea" title="Delete idea">&#10005;</button>
@@ -289,13 +302,107 @@
       <div class="accept-preview">
         <h3>{{ acceptDialogIdea?.title }}</h3>
         <p class="text-muted">{{ acceptDialogIdea?.logline }}</p>
-        <div class="accept-code mt-2">Episode code: <strong class="text-accent">{{ nextEpisode }}</strong></div>
+
+        <!-- Episode-code chooser. Default = next available; override
+             lets the user fill a known gap or pick a specific code.
+             Validation lives below — Accept is disabled while invalid. -->
+        <div class="accept-code-chooser mt-2">
+          <label class="code-choice">
+            <input type="radio" v-model="acceptCodeMode" value="next" />
+            <span>Use next available: <strong class="text-accent">{{ nextEpisode }}</strong></span>
+          </label>
+          <label class="code-choice">
+            <input type="radio" v-model="acceptCodeMode" value="custom" />
+            <span>
+              Custom code:
+              <span class="code-prefix">{{ episodePrefix }}</span>
+              <input
+                v-model.number="acceptCustomNumber"
+                type="number"
+                min="1"
+                class="input code-input"
+                :disabled="acceptCodeMode !== 'custom'"
+                :placeholder="String(nextEpisodeNum)"
+              />
+            </span>
+          </label>
+          <p v-if="acceptCodeMode === 'custom' && acceptCodeError" class="accept-code-error">
+            {{ acceptCodeError }}
+          </p>
+          <p v-else-if="acceptCodeMode === 'custom' && acceptCustomNumber" class="accept-code-resolved">
+            → <strong class="text-accent">{{ resolvedCustomCode }}</strong>
+          </p>
+        </div>
       </div>
       <div class="accept-options mt-3">
-        <button class="btn btn-secondary btn-lg" style="flex:1" @click="doAccept('folders')">Create Folders Only</button>
-        <button class="btn btn-primary btn-lg" style="flex:1" @click="doAccept('script')">Folders &amp; Open Script</button>
+        <button
+          class="btn btn-secondary btn-lg"
+          style="flex:1"
+          :disabled="!acceptCodeValid"
+          @click="doAccept('folders')"
+        >Create Folders Only</button>
+        <button
+          class="btn btn-primary btn-lg"
+          style="flex:1"
+          :disabled="!acceptCodeValid"
+          @click="doAccept('script')"
+        >Folders &amp; Open Script</button>
       </div>
       <button class="btn btn-sm btn-secondary mt-2" style="width:100%" @click="acceptDialogIdea = null">Cancel</button>
+    </Modal>
+
+    <!-- Renumber dialog (per-episode rename) -->
+    <Modal
+      :visible="!!renumberDialogIdea"
+      size="sm"
+      labelledby="renumber-title"
+      @close="renumberDialogIdea = null"
+    >
+      <h2 id="renumber-title">Renumber episode</h2>
+      <div class="accept-preview">
+        <h3>{{ renumberDialogIdea?.title }}</h3>
+        <p class="text-muted">
+          Currently <strong class="text-accent">{{ renumberDialogIdea?.episode_code }}</strong>.
+          Renames the episode folder, all per-asset filenames inside (audio, images, video,
+          merged audio, final video), updates <code>episode_info.json</code>, and patches
+          <code>ideas.json</code> atomically. The YouTube sidecar (if any) is preserved.
+        </p>
+        <div class="accept-code-chooser mt-2">
+          <label class="code-choice">
+            <input type="radio" v-model="renumberCodeMode" value="next" />
+            <span>Use next available: <strong class="text-accent">{{ nextEpisode }}</strong></span>
+          </label>
+          <label class="code-choice">
+            <input type="radio" v-model="renumberCodeMode" value="custom" />
+            <span>
+              Custom code:
+              <span class="code-prefix">{{ episodePrefix }}</span>
+              <input
+                v-model.number="renumberCustomNumber"
+                type="number"
+                min="1"
+                class="input code-input"
+                :disabled="renumberCodeMode !== 'custom'"
+              />
+            </span>
+          </label>
+          <p v-if="renumberCodeError" class="accept-code-error">{{ renumberCodeError }}</p>
+          <p v-else-if="resolvedRenumberCode" class="accept-code-resolved">
+            → <strong class="text-accent">{{ resolvedRenumberCode }}</strong>
+          </p>
+        </div>
+      </div>
+      <div class="accept-options mt-3">
+        <button
+          class="btn btn-primary btn-lg"
+          style="flex:1"
+          :disabled="!renumberValid || renumberRunning"
+          @click="doRenumber"
+        >
+          {{ renumberRunning ? 'Renumbering…' : 'Renumber' }}
+        </button>
+      </div>
+      <button class="btn btn-sm btn-secondary mt-2" style="width:100%" @click="renumberDialogIdea = null">Cancel</button>
     </Modal>
 
     <!-- Import Episode Folder modal -->
@@ -667,7 +774,52 @@ const form = reactive({
   keywords: [] as string[],
   count: 5,
   model: 'gpt-4o',
+  // Pattern preset (optional). Empty = LLM uses default freeform titling.
+  // Both fields persist per-project so the user's pick survives reloads.
+  pattern_id: '',
+  pattern_subject: '',
 })
+
+// ── Pattern + format wiring for the Ideas page ────────────────────────────
+//
+// PatternPicker filters by current format (Part 2 of this rollout). We
+// fetch the project's effective format id from settings/config so the
+// picker shows only patterns paired with that format by default. Last-
+// used pattern + subject are persisted in the same config under
+// `idea_generator_last_pattern` / `idea_generator_last_subject` —
+// matches the *_last_* convention used by other generator pages.
+const formatId = ref<string>('sleep-story')
+const LAST_PATTERN_KEY = 'idea_generator_last_pattern'
+const LAST_SUBJECT_KEY = 'idea_generator_last_subject'
+let patternHydrated = false
+
+async function loadPatternPreferences() {
+  try {
+    const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
+    if (typeof cfg?.format_id === 'string' && cfg.format_id) formatId.value = cfg.format_id
+    if (typeof cfg?.[LAST_PATTERN_KEY] === 'string') form.pattern_id = cfg[LAST_PATTERN_KEY]
+    if (typeof cfg?.[LAST_SUBJECT_KEY] === 'string') form.pattern_subject = cfg[LAST_SUBJECT_KEY]
+  } catch { /* config unreadable → leave defaults */ }
+  patternHydrated = true
+}
+
+async function savePatternPreferences() {
+  // Skip the initial hydration round-trip — only fire on user-initiated
+  // changes. Without this guard, the watch fires once when load sets the
+  // initial value, writing the same value straight back.
+  if (!patternHydrated) return
+  try {
+    const { put } = useApi()
+    await put(`/projects/${slug.value}/settings/config`, {
+      [LAST_PATTERN_KEY]: form.pattern_id,
+      [LAST_SUBJECT_KEY]: form.pattern_subject,
+    })
+  } catch { /* non-fatal — selection still works in-session */ }
+}
+
+watch(() => form.pattern_id, savePatternPreferences)
+watch(() => form.pattern_subject, savePatternPreferences)
+onMounted(loadPatternPreferences)
 
 // ── Preset pools (built-ins + custom from config) ─────────────
 const DEFAULT_GENRES = [
@@ -1190,17 +1342,141 @@ async function generate() {
   finally { generating.value = false }
 }
 
+// ── Accept dialog: episode-code chooser ──────────────────────────────────
+//
+// `next` keeps the auto-assignment behaviour acceptIdea has always had
+// (consume next_episode_number or first recycled). `custom` lets the
+// user pick a specific code — typically to fill a known gap (e.g. they
+// want this idea to land at TN0042 because the surrounding episodes are
+// 41/43). Validation is live: the resolved code must NOT collide with
+// any existing accepted episode AND must match the project's prefix +
+// digits.
+type AcceptCodeMode = 'next' | 'custom'
+const acceptCodeMode = ref<AcceptCodeMode>('next')
+const acceptCustomNumber = ref<number | null>(null)
+
+// Reset chooser state every time the dialog opens for a new idea —
+// otherwise the previous "Custom = TN0042" choice would persist into
+// the next accept and silently apply.
+watch(acceptDialogIdea, (v) => {
+  if (v) {
+    acceptCodeMode.value = 'next'
+    acceptCustomNumber.value = null
+  }
+})
+
+const acceptedCodes = computed(() => new Set(
+  allIdeas.value
+    .filter(i => i.status === 'accepted' && i.episode_code)
+    .map(i => i.episode_code as string),
+))
+
+const resolvedCustomCode = computed(() => {
+  if (typeof acceptCustomNumber.value !== 'number' || !Number.isFinite(acceptCustomNumber.value)) return ''
+  const d = project.value?.episode_digits || 4
+  return `${episodePrefix.value}${String(acceptCustomNumber.value).padStart(d, '0')}`
+})
+
+const acceptCodeError = computed(() => {
+  if (acceptCodeMode.value !== 'custom') return ''
+  const n = acceptCustomNumber.value
+  if (typeof n !== 'number' || !Number.isFinite(n)) return 'Pick a number'
+  if (!Number.isInteger(n) || n < 1) return 'Must be a positive integer'
+  if (acceptedCodes.value.has(resolvedCustomCode.value)) {
+    return `${resolvedCustomCode.value} is already in use`
+  }
+  return ''
+})
+
+const acceptCodeValid = computed(() => {
+  if (acceptCodeMode.value === 'next') return true
+  return !acceptCodeError.value && !!resolvedCustomCode.value
+})
+
 function showAcceptDialog(idea: any) { acceptDialogIdea.value = idea }
+
 async function doAccept(action: 'folders' | 'script') {
   const idea = acceptDialogIdea.value; if (!idea) return
+  if (!acceptCodeValid.value) return
   try {
-    const result = await post<any>(`/projects/${slug.value}/ideas/${idea.id}/accept`, { auto_generate_script: false })
+    const body: any = { auto_generate_script: false }
+    if (acceptCodeMode.value === 'custom') {
+      body.override_code = resolvedCustomCode.value
+    }
+    const result = await post<any>(`/projects/${slug.value}/ideas/${idea.id}/accept`, body)
     acceptDialogIdea.value = null; await loadIdeas()
     const code = result.episode_code || nextEpisode.value
     success(`Accepted! ${code} folders created.`)
     if (action === 'script') navigateTo({ path: `/projects/${slug.value}/scripts`, query: { episode_id: code, title: idea.title, chapters: idea.suggested_chapters, length: idea.suggested_length === '60 min' ? '60' : '45' } })
   } catch (e: any) { showError(e.data?.detail || 'Failed to accept') }
 }
+// ── Renumber dialog (already-accepted episode rename) ────────────────────
+const renumberDialogIdea = ref<any>(null)
+const renumberCodeMode = ref<'next' | 'custom'>('next')
+const renumberCustomNumber = ref<number | null>(null)
+const renumberRunning = ref(false)
+
+watch(renumberDialogIdea, (v) => {
+  if (v) {
+    renumberCodeMode.value = 'next'
+    renumberCustomNumber.value = null
+  }
+})
+
+const resolvedRenumberCode = computed(() => {
+  if (renumberCodeMode.value === 'next') return nextEpisode.value
+  if (typeof renumberCustomNumber.value !== 'number') return ''
+  const d = project.value?.episode_digits || 4
+  return `${episodePrefix.value}${String(renumberCustomNumber.value).padStart(d, '0')}`
+})
+
+const renumberCodeError = computed(() => {
+  const code = resolvedRenumberCode.value
+  if (!code) return 'Pick a code'
+  if (code === renumberDialogIdea.value?.episode_code) return 'Same as current code — pick a different number'
+  if (acceptedCodes.value.has(code)) return `${code} is already in use`
+  if (renumberCodeMode.value === 'custom') {
+    const n = renumberCustomNumber.value
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) return 'Must be a positive integer'
+  }
+  return ''
+})
+
+const renumberValid = computed(() => !renumberCodeError.value && !!resolvedRenumberCode.value)
+
+function openRenumberDialog(idea: any) {
+  renumberDialogIdea.value = idea
+}
+
+async function doRenumber() {
+  const idea = renumberDialogIdea.value
+  if (!idea || !renumberValid.value) return
+  renumberRunning.value = true
+  try {
+    const r = await post<any>(
+      `/projects/${slug.value}/episodes/${idea.episode_code}/renumber`,
+      { new_code: resolvedRenumberCode.value },
+    )
+    renumberDialogIdea.value = null
+    await loadIdeas()
+    const warnSuffix = (r.warnings || []).length
+      ? ` (${r.warnings.length} warning${r.warnings.length === 1 ? '' : 's'})`
+      : ''
+    success(`${r.old_code} → ${r.new_code}${warnSuffix}`)
+    if ((r.warnings || []).length) {
+      // Surface non-fatal warnings via the toast text so the user
+      // sees what didn't fully complete (e.g. "Source folder did not
+      // exist on disk"). Re-running renumber on the same episode is
+      // safe — operations are idempotent.
+      r.warnings.forEach((w: string) => showError(`Renumber warning: ${w}`))
+    }
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Renumber failed')
+  } finally {
+    renumberRunning.value = false
+  }
+}
+
 async function batchAccept() {
   if (!selectedIds.value.size) return
   try {
@@ -1370,6 +1646,48 @@ onMounted(loadIdeas)
 .accept-preview h3 { color: var(--accent); margin-bottom: 4px; }
 .accept-code { font-size: 15px; }
 .accept-options { display: flex; gap: 12px; }
+
+/* Episode-code chooser (used by both Accept + Renumber dialogs). The
+   shape mirrors the radio + inline-input pattern from the folder-import
+   override flow so the UX is consistent across all three places where
+   the user picks an episode code. */
+.accept-code-chooser {
+  display: flex; flex-direction: column; gap: 8px;
+  padding-top: 4px; border-top: 1px dashed var(--border);
+  margin-top: 8px;
+}
+.code-choice {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; cursor: pointer;
+}
+.code-choice input[type="radio"] { margin: 0; }
+.code-prefix {
+  display: inline-block; padding: 2px 6px;
+  background: var(--bg-secondary); border-radius: 3px;
+  font-family: 'Menlo', 'Monaco', monospace; font-size: 12px;
+  color: var(--text-muted);
+}
+.code-input {
+  width: 80px; padding: 2px 6px; font-size: 12px;
+  display: inline-block; margin-left: 4px;
+}
+.accept-code-error {
+  margin: 0; padding: 6px 10px;
+  background: rgba(226, 92, 92, 0.10);
+  color: var(--error, #e25c5c);
+  border-radius: 4px; font-size: 11px;
+}
+.accept-code-resolved {
+  margin: 0; font-size: 12px; color: var(--text-secondary);
+}
+
+/* Pattern picker on the Ideas page sits between the model row and the
+   action buttons. Pad it so it doesn't run flush into either. */
+.ideas-pattern-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
 
 /* Import modal */
 .import-error {
