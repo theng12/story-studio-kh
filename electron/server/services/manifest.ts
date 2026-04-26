@@ -130,56 +130,8 @@ export function getMachineLabel(): string {
   try { return os.hostname() || 'unknown' } catch { return 'unknown' }
 }
 
-/**
- * Compare the mtime of the external manifest against our local cache
- * mirror. Used by the concurrent-edit detector to spot "another machine
- * wrote a newer manifest while this machine had the project loaded".
- *
- * Returns:
- *   - `in_sync: true`  — cache is up to date (or no external manifest yet).
- *   - `in_sync: false` — external manifest is newer than our cache.
- *
- * Skew tolerance: we treat external mtimes within 2 seconds of the cache
- * as equal, because the two files are written in quick succession from
- * the same host in `syncManifest` and tiny clock jitter shouldn't fire
- * the UI toast on our own writes.
- */
-export interface ManifestStatus {
-  in_sync: boolean
-  external_exists: boolean
-  external_mtime: number | null
-  cache_mtime: number | null
-  last_edited?: { machine_label: string; at: string }
-}
-
-export async function getManifestStatus(outputRoot: string, projectDir: string): Promise<ManifestStatus> {
-  const externalPath = path.join(outputRoot, MANIFEST_FILENAME)
-  const cachePath = path.join(projectDir, 'cache', 'manifest.json')
-  let externalMtime: number | null = null
-  let cacheMtime: number | null = null
-  let lastEdited: { machine_label: string; at: string } | undefined
-
-  try {
-    if (existsSync(externalPath)) {
-      const st = await fs.stat(externalPath)
-      externalMtime = st.mtimeMs
-      const m = await readManifest(outputRoot)
-      lastEdited = m?.last_edited
-    }
-  } catch { /* external unreadable — treat as missing */ }
-
-  try {
-    if (existsSync(cachePath)) {
-      const st = await fs.stat(cachePath)
-      cacheMtime = st.mtimeMs
-    }
-  } catch { /* cache unreadable — treat as missing */ }
-
-  const in_sync = (() => {
-    if (!externalMtime) return true
-    if (!cacheMtime) return false
-    return externalMtime - cacheMtime <= 2_000
-  })()
-
-  return { in_sync, external_exists: externalMtime !== null, external_mtime: externalMtime, cache_mtime: cacheMtime, last_edited: lastEdited }
-}
+// (Removed: getManifestStatus + ManifestStatus. They powered the legacy
+// manifest-polling UI ("another machine just edited this project") which
+// is gone — cloud sync now happens at the OS level via Settings →
+// Storage. The manifest itself is still WRITTEN on every project
+// mutation as a project_id identity marker for cross-machine import.)

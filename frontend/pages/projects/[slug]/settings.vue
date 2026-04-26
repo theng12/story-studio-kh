@@ -460,13 +460,110 @@
          and can be deleted to reclaim disk. -->
     <div v-if="activeTab === 'storage'" class="card mt-2">
       <h3>Storage</h3>
-      <p class="text-muted mt-1 mb-2">
-        See where the disk goes per episode and free up space safely.
-        <strong>Final videos that are confirmed-uploaded to YouTube</strong>
-        can be deleted locally — the YouTube sidecar (saved during upload)
-        keeps the pipeline view happy, and the canonical copy lives on
-        YouTube. Per-scene Veo / fal clips are surfaced separately because
-        they cost real $$$ to regenerate; we never auto-clean those.
+
+      <!-- ── Cloud Sync Overview (top-of-tab indicator) ────────────────
+           Surfaces all three storage subsystems with their current state
+           and a 1-line description so users can scan it and know what's
+           available + which warnings apply. Replaces the legacy
+           "Cloud sync is paused" dashboard banner: that banner pointed
+           at a feature that no longer exists; this card points at the
+           feature that DID replace it. -->
+      <div class="cloud-sync-overview">
+        <div class="overview-head">
+          <span class="overview-icon" aria-hidden="true">☁️</span>
+          <div>
+            <strong>Cloud sync overview</strong>
+            <p class="overview-sub">
+              Story Studio doesn't sync directly with iCloud/Dropbox/etc. —
+              instead, you point it at a folder that your cloud provider
+              already syncs, and the OS handles the rest. Three knobs below
+              control where files land and how to free up space.
+            </p>
+          </div>
+        </div>
+
+        <div class="overview-grid">
+          <a class="overview-card" href="#projects-root-section" @click.prevent="scrollTo('projects-root-section')">
+            <div class="overview-card-head">
+              <span class="overview-card-icon">📁</span>
+              <strong>Projects folder</strong>
+              <span :class="['overview-badge', projectsRoot?.is_overridden ? 'on' : 'off']">
+                {{ projectsRoot?.is_overridden ? 'CUSTOM' : 'DEFAULT' }}
+              </span>
+            </div>
+            <p class="overview-card-desc">
+              {{ projectsRoot?.is_overridden
+                ? 'Pointed at a custom path — typically a cloud-synced folder for cross-machine work.'
+                : 'Lives in app data on this Mac only. Move it to iCloud Drive / Dropbox to work across machines.' }}
+            </p>
+            <code class="overview-card-path">{{ projectsRoot?.effective_path || '(loading)' }}</code>
+          </a>
+
+          <a class="overview-card" href="#external-video-section" @click.prevent="scrollTo('external-video-section')">
+            <div class="overview-card-head">
+              <span class="overview-card-icon">🎞</span>
+              <strong>Final-video root</strong>
+              <span :class="['overview-badge', externalRootInput ? 'on' : 'off']">
+                {{ externalRootInput ? 'CUSTOM' : 'INSIDE PROJECT' }}
+              </span>
+            </div>
+            <p class="overview-card-desc">
+              {{ externalRootInput
+                ? 'New ffmpeg renders land at the external path — keeps multi-GB videos out of cloud sync.'
+                : 'New ffmpeg renders land inside each project (under the Video Assembly Output folder). Set an external path to avoid syncing 5–10 GB videos.' }}
+            </p>
+            <code v-if="externalRootInput" class="overview-card-path">{{ externalRootInput }}</code>
+          </a>
+
+          <a class="overview-card" href="#per-episode-section" @click.prevent="scrollTo('per-episode-section')">
+            <div class="overview-card-head">
+              <span class="overview-card-icon">🧹</span>
+              <strong>Cleanup uploaded finals</strong>
+              <span class="overview-badge info">
+                {{ storage ? `${storage.episodes.filter(e => e.uploaded_to_youtube && e.bytes_final_video > 0).length} eligible` : 'unscanned' }}
+              </span>
+            </div>
+            <p class="overview-card-desc">
+              Once a final is uploaded to YouTube, the local copy is
+              redundant and can be deleted to reclaim disk. Per-scene
+              Veo / fal clips stay (they cost $$$ to regenerate).
+            </p>
+          </a>
+        </div>
+
+        <details class="overview-warnings">
+          <summary>⚠ Limitations of cross-machine cloud sync</summary>
+          <ul>
+            <li>
+              <strong>API keys are per-machine.</strong> Each Mac encrypts its
+              own keys with a machine-derived key — they don't decrypt across
+              devices. You'll re-enter keys (Settings → API Keys) on every Mac.
+            </li>
+            <li>
+              <strong>One Mac at a time.</strong> Don't have two Macs actively
+              editing the same project — the cloud is last-write-wins per file
+              and will silently overwrite the loser.
+            </li>
+            <li>
+              <strong>Job queue + session analytics may diverge.</strong>
+              <code>jobs.json</code> + <code>sessions.json</code> live inside
+              the project folder; cross-syncing them can confuse mid-flight
+              state. Avoid running generations on two Macs targeting the
+              same project at once.
+            </li>
+            <li>
+              <strong>5–10 GB final videos.</strong> Sleep stories produce
+              huge final-video files. If you're on iCloud Drive with limited
+              space, set the external final-video root above and/or use the
+              cleanup button below.
+            </li>
+          </ul>
+        </details>
+      </div>
+
+      <p class="text-muted mt-3 mb-2" style="font-size: 12px;">
+        Below: the three knobs in detail. Click any card above to jump to
+        its section, or scroll.
       </p>
 
       <!-- ── Projects storage location ──────────────────────────── -->
@@ -474,7 +571,7 @@
            typically inside iCloud Drive / Dropbox / Google Drive so
            the OS handles cross-machine sync. Per-machine setting
            (lives in app-settings.json which doesn't sync). -->
-      <div class="storage-section">
+      <div id="projects-root-section" class="storage-section">
         <h4>Projects storage location</h4>
         <p class="text-muted hint">
           Where this Mac stores your projects. Move it to an iCloud Drive
@@ -521,37 +618,16 @@
             Reset to default
           </button>
         </div>
-        <details class="projects-root-warning mt-2">
-          <summary>⚠ Per-machine limitations of cloud sync</summary>
-          <ul>
-            <li>
-              <strong>API keys are per-machine.</strong> Each Mac encrypts
-              its own keys; the synced folder won't carry them across.
-              You'll re-enter keys (Settings → API Keys) on every device.
-            </li>
-            <li>
-              <strong>One machine at a time.</strong> Don't have two Macs
-              actively editing the same project — the cloud will keep
-              whichever saves last and silently overwrite the other.
-              Save + close on machine A → wait for sync → open on B.
-            </li>
-            <li>
-              <strong>Job queue + session analytics may diverge.</strong>
-              These files (<code>jobs.json</code>, <code>sessions.json</code>)
-              live inside the project folder; cloud-syncing them across
-              machines can confuse mid-flight job state. Avoid running
-              generations on two machines targeting the same project at
-              once.
-            </li>
-          </ul>
-        </details>
+        <!-- (Removed: duplicate per-section warnings panel. The same
+             content is in the top-of-tab Cloud sync overview card now,
+             so it doesn't have to be re-disclosed in every section.) -->
         <div v-if="projectsRootStatus" :class="['projects-root-status', projectsRootStatusKind]">
           {{ projectsRootStatus }}
         </div>
       </div>
 
       <!-- ── External final-video root (per-machine) ─────────────── -->
-      <div class="storage-section">
+      <div id="external-video-section" class="storage-section">
         <h4>External final-video root <span class="optional-tag">(per-machine, optional)</span></h4>
         <p class="text-muted hint">
           When set, freshly-rendered final videos land at this path
@@ -611,7 +687,7 @@
       </div>
 
       <!-- ── Per-episode storage breakdown ───────────────────────── -->
-      <div class="storage-section mt-3">
+      <div id="per-episode-section" class="storage-section mt-3">
         <div class="flex items-center" style="justify-content: space-between; gap: 12px;">
           <div>
             <h4>Per-episode breakdown</h4>
@@ -1130,38 +1206,13 @@
         <input v-model="projectForm.youtube_channel_url" class="input" placeholder="https://youtube.com/@yourchannel" />
       </div>
 
-      <div class="form-group">
-        <label>Project Mode</label>
-        <div class="flex gap-2 items-center" style="flex-wrap:wrap">
-          <span v-if="projectForm.portable" class="badge badge-done" style="font-size: 12px;">
-            📡 Multi-machine (synced)
-          </span>
-          <span v-else class="badge badge-queued" style="font-size: 12px;">
-            💻 Local only
-          </span>
-          <button
-            v-if="!projectForm.portable"
-            class="btn btn-sm btn-primary"
-            :disabled="togglingPortable"
-            @click="enableCloudSync"
-          >
-            {{ togglingPortable ? 'Enabling…' : '📡 Enable cloud sync' }}
-          </button>
-          <button
-            v-else
-            class="btn btn-sm btn-secondary"
-            :disabled="togglingPortable"
-            @click="disableCloudSync"
-          >
-            {{ togglingPortable ? 'Disabling…' : 'Switch to local only' }}
-          </button>
-        </div>
-        <span class="text-muted" style="font-size:11px">
-          Multi-machine projects write a <code>.story-studio-project.json</code> manifest
-          into the project folder so other computers can pick up the project via
-          <em>Import existing</em>. Local-only keeps the manifest in userData only.
-        </span>
-      </div>
+      <!-- Per-project cloud-sync mode toggle removed alongside the
+           legacy manifest-sync feature. There's now only one mode —
+           cloud sync is configured app-wide via Settings → Storage →
+           Projects storage location (point at iCloud Drive / etc.).
+           A `.story-studio-project.json` manifest is still written
+           into every project folder as a project_id identity marker
+           for cross-machine import. -->
 
       <div class="form-group">
         <label>Project Files Location</label>
@@ -1657,6 +1708,19 @@ async function runMigration() {
 // Load the external root setting on mount so the field is populated
 // the first time the user opens the Storage tab.
 onMounted(loadExternalRoot)
+
+/**
+ * Smooth-scroll to one of the storage subsections from the top-of-tab
+ * overview cards. The target IDs are added to the section markers
+ * (`projects-root-section`, `external-video-section`,
+ * `per-episode-section`). Falls back to no-op when the target doesn't
+ * exist (e.g. if a future refactor renames an anchor).
+ */
+function scrollTo(id: string) {
+  const el = document.getElementById(id)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 // ── Projects storage location (cloud-sync setup) ──────────────────────────
 //
@@ -2338,48 +2402,10 @@ async function saveStandardsCurrent() {
     showError('Failed to save')
   }
 }
-const projectForm = reactive({ name: '', episode_prefix: '', season_prefix: 'Season', season_size: 20, youtube_channel_url: '', portable: false })
-const togglingPortable = ref(false)
-
-async function enableCloudSync() {
-  const ok = await ask({
-    title: 'Enable cloud sync for this project?',
-    message: 'Story Studio will write a .story-studio-project.json manifest into the project folder on every save. Other computers can then pick this project up via "Import existing". Make sure the project folder is inside a cloud-synced location (iCloud, Google Drive, OneDrive, etc.).',
-    confirmLabel: 'Enable cloud sync',
-  })
-  if (!ok) return
-  togglingPortable.value = true
-  try {
-    await put(`/projects/${slug.value}`, { portable: true })
-    projectForm.portable = true
-    await loadProject(slug.value)
-    success('Cloud sync enabled. A manifest will be written on the next save.')
-  } catch (e: any) {
-    showError(e.data?.detail || 'Could not enable cloud sync')
-  } finally {
-    togglingPortable.value = false
-  }
-}
-
-async function disableCloudSync() {
-  const ok = await ask({
-    title: 'Switch this project to local-only?',
-    message: 'The manifest at the project folder root will no longer be refreshed on save. Existing manifests are not deleted. You can re-enable anytime.',
-    confirmLabel: 'Switch to local',
-  })
-  if (!ok) return
-  togglingPortable.value = true
-  try {
-    await put(`/projects/${slug.value}`, { portable: false })
-    projectForm.portable = false
-    await loadProject(slug.value)
-    success('Switched to local only.')
-  } catch (e: any) {
-    showError(e.data?.detail || 'Could not switch modes')
-  } finally {
-    togglingPortable.value = false
-  }
-}
+const projectForm = reactive({ name: '', episode_prefix: '', season_prefix: 'Season', season_size: 20, youtube_channel_url: '' })
+// (Removed: per-project enable/disable cloud-sync handlers + portable
+// form field. Cloud sync is now app-wide via Settings → Storage; the
+// per-project mode toggle is dead.)
 
 // Absolute path to the episodes folder — only present when output_root was picked.
 // Relative output_root means the project still lives in the hidden userData folder
@@ -2623,7 +2649,6 @@ watch(project, (p) => {
     projectForm.season_prefix = p.season_prefix || 'Season'
     projectForm.season_size = p.season_size || 20
     projectForm.youtube_channel_url = (p as any).youtube_channel_url || ''
-    projectForm.portable = (p as any).portable === true
   }
 }, { immediate: true })
 
@@ -3055,6 +3080,90 @@ async function deleteProject() {
 .storage-section h4 { margin: 0 0 6px; font-size: 14px; }
 .storage-section .hint { margin: 4px 0 8px; font-size: 11px; line-height: 1.45; }
 .optional-tag { color: var(--text-muted); font-size: 11px; font-weight: normal; }
+
+/* ── Cloud sync overview (top-of-Storage indicator card) ─────────── */
+.cloud-sync-overview {
+  margin: 8px 0 0;
+  padding: 14px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-left: 3px solid #4b82c8;
+  border-radius: var(--radius-sm);
+}
+.overview-head {
+  display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px;
+}
+.overview-icon { font-size: 20px; line-height: 1.2; flex-shrink: 0; }
+.overview-head strong { display: block; margin-bottom: 2px; font-size: 14px; }
+.overview-sub {
+  margin: 0; font-size: 11px; color: var(--text-secondary); line-height: 1.5;
+}
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.overview-card {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  text-decoration: none; color: inherit;
+  transition: border-color 0.15s, transform 0.1s;
+  cursor: pointer;
+}
+.overview-card:hover {
+  border-color: #4b82c8;
+  transform: translateY(-1px);
+}
+.overview-card-head {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.overview-card-head strong { font-size: 12px; }
+.overview-card-icon { font-size: 14px; }
+.overview-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.05em;
+  border-radius: 999px;
+  margin-left: auto;
+}
+.overview-badge.on { background: rgba(75, 130, 200, 0.2); color: #60a5fa; }
+.overview-badge.off { background: rgba(120, 130, 140, 0.18); color: var(--text-muted); }
+.overview-badge.info { background: rgba(214, 155, 43, 0.15); color: var(--warning, #d69b2b); }
+.overview-card-desc {
+  margin: 0; font-size: 11px; color: var(--text-secondary); line-height: 1.45;
+}
+.overview-card-path {
+  font-family: 'Menlo', 'Monaco', monospace;
+  font-size: 10px; color: var(--text-muted);
+  word-break: break-all;
+}
+.overview-warnings {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(214, 155, 43, 0.08);
+  border-left: 3px solid var(--warning, #d69b2b);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+.overview-warnings summary {
+  cursor: pointer;
+  color: var(--warning, #d69b2b);
+  font-weight: 500;
+}
+.overview-warnings ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  line-height: 1.5;
+}
+.overview-warnings li { margin-bottom: 4px; color: var(--text-secondary); }
+.overview-warnings code {
+  background: var(--bg-secondary); padding: 1px 4px; border-radius: 3px;
+  font-size: 10px;
+}
 
 /* ── Projects storage location ─────────────────────────────────────── */
 .projects-root-row {

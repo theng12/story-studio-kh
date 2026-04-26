@@ -54,7 +54,9 @@
                 class="badge badge-error"
                 :title="`Folder not found on disk: ${project.output_root}. Import from its new location via 'Import existing…' to relocate.`"
               >⚠ Folder missing</span>
-              <span v-if="project.portable" class="badge badge-done" title="Multi-machine — folder synced via cloud storage">📡 Synced</span>
+<!-- (Removed: 📡 Synced badge — projects no longer carry a portable
+                   flag. Cloud-sync state is managed at the app level via
+                   Settings → Storage, not per-project.) -->
               <span class="badge" :class="project.has_api_keys ? 'badge-done' : 'badge-queued'">
                 {{ project.has_api_keys ? 'Ready' : 'Setup needed' }}
               </span>
@@ -73,65 +75,19 @@
       <div class="modal">
         <h2>Create New Project</h2>
 
-        <!-- Step 0: mode — multi-machine vs local -->
-        <div v-if="!modeChosen">
-          <p class="text-muted mb-2" style="font-size: 13px;">
-            How do you want to save this project? You can switch modes later in Settings.
-          </p>
-          <div class="template-cards" role="radiogroup" aria-label="Project mode">
-            <button
-              type="button"
-              role="radio"
-              :aria-checked="form.portable === true"
-              :class="['template-card', { selected: form.portable === true }]"
-              @click="form.portable = true"
-            >
-              <span class="template-icon" aria-hidden="true">📡</span>
-              <strong>Multi-machine</strong>
-              <p>
-                Save to a cloud-synced folder (iCloud Drive, Google Drive, OneDrive, etc.)
-                so you can open this project from any computer. A
-                <code>.story-studio-project.json</code> manifest travels with the folder
-                so other machines can <em>Import existing…</em> and resume work.
-              </p>
-            </button>
-            <button
-              type="button"
-              role="radio"
-              :aria-checked="form.portable === false"
-              :class="['template-card', { selected: form.portable === false }]"
-              @click="form.portable = false"
-            >
-              <span class="template-icon" aria-hidden="true">💻</span>
-              <strong>Local only</strong>
-              <p>
-                Save to this computer. Fastest — no cloud setup needed. You can always
-                switch to multi-machine later by moving the project folder to a synced
-                location and clicking <em>Enable cloud sync</em>.
-              </p>
-            </button>
-          </div>
-          <div class="flex gap-2 mt-2">
-            <button class="btn btn-secondary" @click="closeCreate">Cancel</button>
-            <button
-              class="btn btn-primary"
-              :disabled="form.portable === null"
-              @click="modeChosen = true"
-            >
-              Next: Project Basics
-            </button>
-          </div>
-        </div>
-
-        <!-- Step indicator (6 steps: Basics → Location → Video tools → API Keys → Upload → Review) -->
-        <div v-if="modeChosen" class="steps">
+        <!-- Step indicator (6 steps: Basics → Location → Video tools → API Keys → Upload → Review).
+             Mode picker (multi-machine vs local-only) was removed alongside the
+             legacy manifest-sync feature — there's now only one mode. Cloud sync
+             happens at the OS level by storing the projects folder inside iCloud
+             Drive (or any synced location), configurable in Settings → Storage. -->
+        <div class="steps">
           <div v-for="s in 6" :key="s" :class="['step', { active: step === s, done: step > s }]">
             {{ s }}
           </div>
         </div>
 
         <!-- Step 1: Basics -->
-        <div v-if="modeChosen && step === 1">
+        <div v-if="step === 1">
           <div class="form-group">
             <label>Project Name</label>
             <input v-model="form.name" class="input" placeholder="My Sleep Stories" />
@@ -171,7 +127,7 @@
             </div>
           </div>
           <div class="flex gap-2">
-            <button class="btn btn-secondary" @click="modeChosen = false">Back</button>
+            <button class="btn btn-secondary" @click="closeCreate">Cancel</button>
             <button class="btn btn-primary" :disabled="!form.name" @click="step = 2">
               Next: Save Location
             </button>
@@ -179,15 +135,13 @@
         </div>
 
         <!-- Step 2: Save Location (new) -->
-        <div v-if="modeChosen && step === 2">
-          <p v-if="form.portable" class="text-muted mb-2" style="font-size: 13px;">
-            Pick a folder inside your cloud-sync location — <code>iCloud Drive</code>,
-            <code>Google Drive</code>, <code>OneDrive</code>, etc. Whatever folder you
-            pick will be mirrored to your other computers, and a
-            <code>.story-studio-project.json</code> manifest will travel with it.
-          </p>
-          <p v-else class="text-muted mb-2" style="font-size: 13px;">
-            Choose where on your computer this project's files (scripts, images, audio, video) should be saved. You'll be able to reach them any time in Finder.
+        <div v-if="step ===2">
+          <p class="text-muted mb-2" style="font-size: 13px;">
+            Choose where on your computer this project's files (scripts, images,
+            audio, video) should be saved. You'll be able to reach them in Finder
+            any time. To work cross-machine, point at a cloud-synced folder
+            (iCloud Drive / Dropbox / Google Drive). The Storage tab in Settings
+            also lets you move all projects to a synced root after the fact.
           </p>
           <div class="form-group">
             <label>Save Location</label>
@@ -215,7 +169,7 @@
         </div>
 
         <!-- Step 3: Video tools (FFmpeg) -->
-        <div v-if="modeChosen && step === 3">
+        <div v-if="step ===3">
           <p class="text-muted mb-2" style="font-size: 13px;">
             Story Studio uses <strong>FFmpeg</strong> to merge chapter audio and to
             assemble your final video. Let's make sure it's ready before you start —
@@ -310,7 +264,7 @@
         </div>
 
         <!-- Step 4: API Keys -->
-        <div v-if="modeChosen && step === 4">
+        <div v-if="step ===4">
           <p class="text-muted mb-2">Add API keys for the services you want to use. You can skip this and add them later in Settings.</p>
 
           <!-- Connectivity precheck banner.
@@ -486,7 +440,7 @@
              which is when a wrong-channel upload could already have happened
              (see audit-reports/04 §3). Each row is skippable so users without
              a TikTok/FB presence aren't blocked. -->
-        <div v-if="modeChosen && step === 5">
+        <div v-if="step ===5">
           <div class="flex justify-between items-center mb-2" style="gap: 8px; flex-wrap: wrap;">
             <p class="text-muted" style="font-size: 13px; margin: 0; flex: 1 1 260px;">
               Connect the accounts you'll publish to. Each row is optional —
@@ -650,12 +604,8 @@
         </div>
 
         <!-- Step 6: Review -->
-        <div v-if="modeChosen && step === 6">
+        <div v-if="step ===6">
           <div class="review-list">
-            <div class="review-item">
-              <span class="text-muted">Mode</span>
-              <span>{{ form.portable ? '📡 Multi-machine (cloud-synced)' : '💻 Local only' }}</span>
-            </div>
             <div class="review-item">
               <span class="text-muted">Name</span>
               <span>{{ form.name }}</span>
@@ -900,7 +850,6 @@ function templateIcon(id: string): string {
 }
 const showCreate = ref(false)
 const step = ref(1)
-const modeChosen = ref(false)
 const creating = ref(false)
 const picking = ref(false)
 
@@ -911,12 +860,6 @@ const form = reactive<{
   season_prefix: string
   season_size: number
   output_root: string
-  /**
-   * Defaults to `true` — the portable manifest is always written when
-   * output_root is absolute anyway, so defaulting Multi-machine is the
-   * honest UX. `null` is reserved for "user hasn't confirmed Step 0 yet".
-   */
-  portable: boolean | null
 }>({
   name: '',
   template: 'blank',
@@ -924,14 +867,11 @@ const form = reactive<{
   season_prefix: 'Season',
   season_size: 20,
   output_root: '',
-  portable: true,
 })
 
 function closeCreate() {
   showCreate.value = false
-  modeChosen.value = false
   step.value = 1
-  form.portable = true
   form.output_root = ''
   // Intentionally leave ffmpegStatus populated — re-checking FFmpeg every
   // time the user reopens the wizard is pointless (the binary doesn't move
@@ -1111,7 +1051,6 @@ async function ensureProjectCreated(): Promise<any> {
     season_prefix: form.season_prefix,
     season_size: form.season_size,
     output_root: form.output_root,
-    portable: form.portable === true,
   })
   const keys: Record<string, string> = {}
   if (apiKeys.openai) keys.openai_api_key = apiKeys.openai
@@ -1642,12 +1581,12 @@ async function commitImport() {
 // is ready before the user starts pasting keys. It re-runs only on explicit
 // Retry after that; we don't auto-poll.
 watch(step, (s) => {
-  if (s === 3 && modeChosen.value && !ffmpegChecking.value && !ffmpegInstalling.value) {
+  if (s === 3 && !ffmpegChecking.value && !ffmpegInstalling.value) {
     if (!ffmpegStatus.value || !ffmpegStatus.value.installed) {
       checkFFmpeg()
     }
   }
-  if (s === 4 && modeChosen.value && !precheck.loading && !precheck.result) {
+  if (s === 4 && !precheck.loading && !precheck.result) {
     runPrecheck()
   }
 })

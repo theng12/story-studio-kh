@@ -7,7 +7,9 @@ import * as jq from '../services/job-queue.js'
 import { validateBody } from '../lib/validate.js'
 import { CreateProjectSchema, UpdateProjectSchema } from '../schemas/index.js'
 import { importProjectFromFolder, inspectProjectFolder } from '../services/import-project.js'
-import { getManifestStatus, readManifest, writeManifestCache } from '../services/manifest.js'
+// (Manifest read/poll surface removed with the legacy sync flow. The
+// project-manager service still WRITES manifests on every mutation —
+// see syncManifest() — for cross-machine project_id identity.)
 import { auditProjectAssets } from '../services/asset-status.js'
 import { auditAssets } from '../services/manifest-audit.js'
 import { getSecretsProvenanceStatus, resetSecretsForCurrentMachine } from '../services/secrets-store.js'
@@ -514,69 +516,13 @@ router.post('/projects/:slug/secrets-reset', async (req, res) => {
   }
 })
 
-router.get('/projects/:slug/manifest-status', async (req, res) => {
-  const slug = req.params.slug
-  const projectDir = pm.getProjectDir(slug)
-  if (!projectDir) return res.status(404).json({ detail: 'Project not found' })
-  const outputRoot = await pm.getProjectOutputRoot(slug)
-  if (!outputRoot) return res.status(404).json({ detail: 'Project output not found' })
-  const status = await getManifestStatus(outputRoot, projectDir)
-  res.json(status)
-})
-
-/**
- * Pull the external manifest into this machine's userData: overwrite the
- * preset bag in `config.json` and the user-facing metadata in
- * `project.json` with whatever the synced manifest says. Per-machine
- * state (secrets.json, jobs.json, the `portable` flag, and the stable
- * `project_id` when one already exists locally) is preserved.
- *
- * Refreshes the cache mirror so subsequent `manifest-status` calls don't
- * immediately report out-of-sync again.
- */
-router.post('/projects/:slug/sync-from-manifest', async (req, res) => {
-  const slug = req.params.slug
-  const projectDir = pm.getProjectDir(slug)
-  if (!projectDir) return res.status(404).json({ detail: 'Project not found' })
-  const outputRoot = await pm.getProjectOutputRoot(slug)
-  if (!outputRoot) return res.status(404).json({ detail: 'Project output not found' })
-  const manifest = await readManifest(outputRoot)
-  if (!manifest) return res.status(400).json({ detail: 'No manifest at output root — nothing to sync.' })
-
-  try {
-    // Merge the manifest's structural fields into project.json. Preserve
-    // local-only fields (output_root, portable flag, created_at). v2 manifests
-    // carry no presets / production standards / YouTube templates — those are
-    // per-machine setup and never cross-sync.
-    const metaPath = path.join(projectDir, 'project.json')
-    const localMetaRaw = existsSync(metaPath) ? await fs.readFile(metaPath, 'utf-8') : '{}'
-    const localMeta: ProjectMeta = JSON.parse(localMetaRaw)
-    const mergedMeta: ProjectMeta = {
-      ...localMeta,
-      name: manifest.name,
-      slug,                                             // never rename on sync
-      project_id: localMeta.project_id || manifest.project_id,
-      episode_prefix: manifest.episode_prefix,
-      episode_digits: manifest.episode_digits,
-      season_size: manifest.season_size,
-      season_prefix: manifest.season_prefix,
-      folder_template: manifest.folder_template,
-      subfolder_names: manifest.subfolder_names,
-      output_root: localMeta.output_root,               // keep this machine's absolute path
-    }
-    await writeJsonAtomic(metaPath, mergedMeta)
-
-    // Refresh the cache mirror so future status checks report in_sync.
-    await writeManifestCache(projectDir, manifest)
-
-    res.json({
-      ok: true,
-      pulled_from: { machine_label: manifest.last_edited?.machine_label, at: manifest.last_edited?.at },
-    })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Sync from manifest failed'))
-  }
-})
+// (Removed: legacy /projects/:slug/manifest-status + /sync-from-manifest
+// routes. The manifest-based push/pull sync was paused via a feature
+// flag and the underlying polling is gone — cloud sync now happens at
+// the OS level via Settings → Storage → Projects storage location.
+// The .story-studio-project.json manifest file is still WRITTEN on
+// every project mutation as an identity marker, but no longer read
+// for sync-state purposes.)
 
 // ── Per-episode asset importer (Part 7 of mark-done plan) ──────────────────
 //

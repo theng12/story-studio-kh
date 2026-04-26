@@ -377,43 +377,11 @@ async function syncManifest(slug: string): Promise<void> {
 
 // ── CRUD ────────────────────────────────────────────────────────────────────
 
-/**
- * One-shot startup task: reconcile the `portable` flag for projects whose
- * `output_root` is absolute (Phase 5 of the perf overhaul moved this OUT of
- * the listProjects hot path — it used to run on every home-page load,
- * write-back-to-disk per project on the first hit, and serialize the whole
- * listing). Idempotent — safe to call repeatedly.
- *
- * Fire from app boot via reconcilePortableFlagsAtStartup(); not awaited so
- * the UI doesn't wait on it. Failures are logged and dropped.
- */
-let portableReconcileStarted = false
-export function reconcilePortableFlagsAtStartup(): void {
-  if (portableReconcileStarted) return
-  portableReconcileStarted = true
-  void (async () => {
-    try {
-      const entries = await fs.readdir(PROJECTS_ROOT)
-      await Promise.all(entries.map(async (name) => {
-        const metaPath = path.join(PROJECTS_ROOT, name, 'project.json')
-        if (!existsSync(metaPath)) return
-        try {
-          const meta: ProjectMeta = await readJson(metaPath)
-          if (meta.portable !== true && path.isAbsolute(meta.output_root || '')) {
-            await withLock(metaPath, async () => {
-              const current = await readJson(metaPath)
-              if (current.portable !== true) {
-                current.portable = true
-                await writeJsonAtomic(metaPath, current)
-              }
-            })
-            void syncManifest(name).catch(() => {})
-          }
-        } catch { /* per-project best-effort */ }
-      }))
-    } catch { /* no projects dir → nothing to do */ }
-  })()
-}
+// (Removed: reconcilePortableFlagsAtStartup. The `portable` project
+// flag was the multi-machine-vs-local distinction for the legacy
+// manifest-sync feature; now all projects are equivalent and the
+// flag is unused. Existing project.json files in the wild may still
+// carry `portable: true` — that's fine, we just ignore it.)
 
 export async function listProjects(): Promise<ProjectSummary[]> {
   let entries: string[] = []
@@ -480,7 +448,8 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       episode_prefix: meta.episode_prefix,
       created_at: meta.created_at,
       has_api_keys: !!(secrets.openai_api_key || secrets.anthropic_api_key) || legacyConfigHasKeys,
-      portable: meta.portable === true,
+      // (Removed: portable field. All projects are equivalent now;
+      // the synced badge it powered is gone.)
       output_root: outputRootAbs,
       output_root_exists: outputRootExists,
     }
@@ -538,11 +507,11 @@ export async function createProject(req: CreateProjectRequest): Promise<ProjectM
     name: req.name,
     slug,
     project_id: randomUUID(),
-    // Default `true`: when the user picks an absolute folder, we always
-    // write a portable manifest there (see syncManifest) — so the honest
-    // default is to surface this project as multi-machine-capable. Users
-    // who explicitly want a "local only" badge can opt out in Step 0.
-    portable: req.portable ?? true,
+    // (Removed: portable field. All projects are equivalent — cloud
+    // sync is configured app-wide via Settings → Storage, not per
+    // project. The .story-studio-project.json manifest is still
+    // written into every project folder by syncManifest, so projects
+    // remain importable across machines via the project_id stamp.)
     episode_prefix: req.episode_prefix || 'EP',
     episode_digits: req.episode_digits || 4,
     season_size: req.season_size || 20,

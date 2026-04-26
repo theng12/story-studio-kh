@@ -60,13 +60,12 @@ export interface ProjectMeta {
    */
   project_id?: string
   /**
-   * User intent flag set at creation time. `true` means the user picked
-   * "multi-machine" and wants the project folder in a cloud-sync location.
-   * `false` means "local only". Drives UX affordances (home-page badge,
-   * "Enable cloud sync" button in settings) but does NOT gate manifest
-   * writes — Stage 2's `syncManifest` writes a manifest whenever the
-   * output_root is absolute regardless of this flag, so switching from
-   * local to portable later is always a free upgrade.
+   * Legacy multi-machine intent flag — kept as optional for back-compat
+   * because existing project.json files in the wild may still have it set.
+   * No code reads it anymore; cloud sync is configured app-wide via
+   * Settings → Storage now. Field will quietly disappear on the next
+   * project save (object spreads omit unknown keys); we don't migrate
+   * proactively to keep the change blast radius small.
    */
   portable?: boolean
   episode_prefix: string
@@ -403,7 +402,8 @@ export interface CreateProjectRequest {
   season_prefix?: string
   season_size?: number
   output_root?: string
-  /** User's explicit multi-machine vs local choice. Defaults to false. */
+  // (Removed: portable. Legacy multi-machine flag — accepted on the
+  // wire for back-compat with old clients but ignored by createProject.)
   portable?: boolean
 }
 
@@ -416,6 +416,8 @@ export interface UpdateProjectRequest {
   folder_template?: string
   subfolder_names?: SubfolderNames
   output_root?: string
+  // (Removed: portable. Accepted on the wire for back-compat; updateProject
+  // ignores it. Cloud sync is now configured app-wide via Storage tab.)
   portable?: boolean
   youtube_channel_url?: string
   format_id?: string
@@ -428,6 +430,8 @@ export interface ProjectSummary {
   episode_prefix: string
   created_at: string
   has_api_keys: boolean
+  // (Removed from new responses: portable. Optional field stays in the
+  // type so old client builds parsing the response don't break.)
   portable?: boolean
   /**
    * Absolute path to where episode assets live. Resolved from

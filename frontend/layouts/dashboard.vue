@@ -154,25 +154,6 @@
 
     <main id="main-content" class="main-content" tabindex="-1">
       <div
-        v-if="showCloudSyncPausedBanner"
-        class="cloud-sync-banner"
-        role="status"
-      >
-        <span class="cloud-sync-icon" aria-hidden="true">🔒</span>
-        <span class="cloud-sync-text">
-          <strong>Cloud sync is paused.</strong>
-          This project was created in multi-machine mode, but cloud-sync is temporarily
-          disabled while we harden it. Your files remain local and nothing is lost — we'll
-          resume syncing in a future update.
-        </span>
-        <button
-          type="button"
-          class="cloud-sync-dismiss"
-          title="Dismiss — we won't show this again on this machine until next launch"
-          @click="cloudSyncDismissed = true"
-        >✕</button>
-      </div>
-      <div
         v-if="secretsForeign"
         class="foreign-secrets-banner"
         role="alert"
@@ -270,11 +251,6 @@ const {
   audioGenerating, audioMergeGenerating, metaGenerating, videoGenerating,
 } = useGenerating()
 
-// Stage 5: watch for another computer syncing a newer manifest into the
-// project folder. Only effective for multi-machine projects (portable=true);
-// local-only projects skip polling inside the composable.
-useManifestSync()
-
 // Cross-machine folder-copy guard: if `secrets.json` was written by another
 // machine (user copied the folder manually instead of using Import), show a
 // banner with a one-click reset so stale tokens can't be silently reused.
@@ -285,17 +261,6 @@ async function onResetForeignSecrets() {
   if (ok) toastSuccess('Credentials cleared — reconnect in Settings → API Keys.')
   else toastError('Could not reset credentials — try again in a moment.')
 }
-
-// Cloud-sync-paused banner: show on existing portable projects while the
-// feature flag is off. Dismissal is in-memory for the session — we don't
-// persist it, so the user sees it once per run and that's enough reminder.
-const { CLOUD_SYNC_ENABLED } = useFeatureFlags()
-const cloudSyncDismissed = ref(false)
-const showCloudSyncPausedBanner = computed(() =>
-  !CLOUD_SYNC_ENABLED
-  && (project.value as any)?.portable === true
-  && !cloudSyncDismissed.value,
-)
 
 watch(slug, async (s) => {
   if (s) {
@@ -537,36 +502,10 @@ onUnmounted(() => { stopJobPolling(); stopCreditPolling() })
   flex-direction: column;
 }
 
-.cloud-sync-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 16px 0 8px;
-  padding: 10px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-left: 3px solid #eab308;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.cloud-sync-icon { font-size: 15px; line-height: 1.2; flex-shrink: 0; }
-.cloud-sync-text { flex: 1; line-height: 1.5; }
-.cloud-sync-text strong { color: var(--text-primary); }
-.cloud-sync-dismiss {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 13px;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-}
-.cloud-sync-dismiss:hover { background: var(--bg-hover); color: var(--text-primary); }
-
-/* Foreign-provenance secrets banner — louder than cloud-sync because stale
-   OAuth tokens could upload to the wrong channel if reactivated. */
+/* Foreign-provenance secrets banner — surfaces when secrets.json was
+   encrypted on a different machine (user copied the project folder
+   manually). Stale OAuth tokens could upload to the wrong channel if
+   reactivated, so the banner is louder than informational. */
 .foreign-secrets-banner {
   display: flex;
   align-items: flex-start;
@@ -598,7 +537,7 @@ onUnmounted(() => { stopJobPolling(); stopCreditPolling() })
 .foreign-secrets-reset:disabled { opacity: 0.6; cursor: wait; }
 
 /* Unclean-shutdown banner — prior run died without firing before-quit
-   (force-quit, OOM, hard crash). Same yellow accent as cloud-sync. */
+   (force-quit, OOM, hard crash). Soft yellow accent. */
 .unclean-shutdown-banner {
   display: flex;
   align-items: flex-start;

@@ -76,12 +76,10 @@ app.get('/api/csrf-token', csrfTokenHandler)
 runBootMigrations()
 registerAllExecutors()
 
-// Phase 5 of the perf overhaul: portable-flag reconciliation used to run
-// per-project on every listProjects() call, serializing a write-back to
-// disk on the home-page hot path. Moved to a fire-and-forget startup task
-// — idempotent, safe to run alongside everything else.
-import('./services/project-manager.js').then(m => m.reconcilePortableFlagsAtStartup())
-  .catch(() => { /* boot best-effort */ })
+// (Removed: reconcilePortableFlagsAtStartup boot task. The `portable`
+// flag was the multi-machine-vs-local distinction for the legacy
+// manifest-sync feature; all projects are equivalent now. Existing
+// project.json files in the wild may still carry the field — ignored.)
 
 // ── Error boundary (must be last) ──────────────────────────────────────────
 app.use((err: any, req: any, res: any, _next: any) => {
