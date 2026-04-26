@@ -370,6 +370,7 @@ export async function acceptIdea(
   slug: string,
   ideaId: string,
   autoGenerateScript: boolean = false,
+  opts: { override_code?: string } = {},
 ): Promise<AcceptResult> {
   const meta = await pm.getProject(slug)
   if (!meta) throw new Error('Project not found')
@@ -383,15 +384,49 @@ export async function acceptIdea(
     if (!idea) throw new Error('Idea not found')
     if (idea.status === 'accepted') throw new Error('Idea already accepted')
 
-    // Assign episode code — use recycled number if available, otherwise increment
     let epNum: number
-    if (store.recycled_numbers && store.recycled_numbers.length > 0) {
-      epNum = store.recycled_numbers.shift()!
+    let episodeCode: string
+
+    if (opts.override_code) {
+      // User-supplied custom code path. Validate prefix + parse the
+      // number, then enforce uniqueness against current accepted ideas.
+      const override = opts.override_code.toUpperCase()
+      if (!override.startsWith(meta.episode_prefix.toUpperCase())) {
+        throw new Error(`override_code must start with prefix "${meta.episode_prefix}"`)
+      }
+      const numStr = override.slice(meta.episode_prefix.length)
+      const parsed = parseInt(numStr, 10)
+      if (!Number.isFinite(parsed) || !/^\d+$/.test(numStr) || parsed < 1) {
+        throw new Error(`override_code "${opts.override_code}" must be ${meta.episode_prefix}<positive integer>`)
+      }
+      const formatted = formatEpisodeCode(parsed, meta.episode_prefix, meta.episode_digits)
+      const collision = store.ideas.find(
+        i => i.status === 'accepted' && i.episode_code === formatted,
+      )
+      if (collision) {
+        throw new Error(`Episode code ${formatted} is already in use`)
+      }
+      epNum = parsed
+      episodeCode = formatted
+      // Bookkeeping: keep next_episode_number > epNum so subsequent
+      // auto-assignments don't collide. Drop epNum from recycled if it
+      // was sitting there. Auto-heal will normalise the rest.
+      if (epNum >= store.next_episode_number) {
+        store.next_episode_number = epNum + 1
+      }
+      if (Array.isArray(store.recycled_numbers)) {
+        store.recycled_numbers = store.recycled_numbers.filter(n => n !== epNum)
+      }
     } else {
-      epNum = store.next_episode_number
-      store.next_episode_number++
+      // Default path: use recycled if available, else increment.
+      if (store.recycled_numbers && store.recycled_numbers.length > 0) {
+        epNum = store.recycled_numbers.shift()!
+      } else {
+        epNum = store.next_episode_number
+        store.next_episode_number++
+      }
+      episodeCode = formatEpisodeCode(epNum, meta.episode_prefix, meta.episode_digits)
     }
-    const episodeCode = formatEpisodeCode(epNum, meta.episode_prefix, meta.episode_digits)
 
     idea.status = 'accepted'
     idea.episode_code = episodeCode
