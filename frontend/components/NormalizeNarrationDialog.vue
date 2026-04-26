@@ -122,22 +122,51 @@ const result = ref<any>(null)
  */
 const LAST_MODEL_KEY = 'narration_normalizer_last_model'
 
+// Tracks what we loaded from disk so we don't write it back unchanged on
+// every dialog open. Empty string means "haven't loaded yet" — the
+// initial empty model.value is also empty, so the watch below skips
+// firing until loadLastUsedModel resolves and the user actually picks.
+const loadedModel = ref('')
+
 async function loadLastUsedModel() {
   try {
     const config = await get<any>(`/projects/${props.slug}/settings/config`)
     const saved = typeof config?.[LAST_MODEL_KEY] === 'string' ? config[LAST_MODEL_KEY] : ''
-    if (saved) model.value = saved
+    if (saved) {
+      model.value = saved
+      loadedModel.value = saved
+    }
   } catch { /* config unreadable → leave empty; ModelSelector will show its default */ }
 }
 
 async function saveLastUsedModel() {
-  if (!model.value) return
+  if (!model.value || model.value === loadedModel.value) return
   try {
     await put(`/projects/${props.slug}/settings/config`, {
       [LAST_MODEL_KEY]: model.value,
     })
+    loadedModel.value = model.value
   } catch { /* non-fatal: persistence failure shouldn't block the dialog flow */ }
 }
+
+// Persist the model the moment the user picks one — don't wait for them
+// to click Normalize. ModelSelector emits update:modelValue on every
+// pick (and also auto-swaps when the saved model isn't available),
+// so this captures both the user's intent AND the auto-fallback. Both
+// are equally valid as "last used" — the goal is "open the dialog and
+// see whatever I last had selected".
+//
+// We also debounce by relying on Vue's watch deduplication — back-to-
+// back changes within a tick coalesce naturally. The PUT itself is
+// fast (~10ms) and idempotent, so even if a few extra fire it's fine.
+watch(model, (m, prev) => {
+  if (!m || m === prev) return
+  // Skip the initial load-from-config write (loadLastUsedModel sets
+  // both model.value and loadedModel.value, but the watch fires on the
+  // first change too — the loadedModel === model check above guards
+  // against the round-trip).
+  saveLastUsedModel()
+})
 
 interface PickFileResp { path: string | null }
 
@@ -174,11 +203,9 @@ async function run() {
       ? `${props.episodeCode} skipped (already canonical)`
       : `${props.episodeCode} normalised — ${r.chapters_written} chapters written`)
     emit('normalized', r)
-    // Remember the model on success so reopening the dialog skips the
-    // "pick a model" step. Skipped runs don't update the saved choice
-    // (the user might have intended a different model and the source
-    // happened to already be canonical).
-    if (!r.skipped) saveLastUsedModel()
+    // No explicit save here — the model watch above persists every pick
+    // immediately. Removes the "I changed the model but it didn't stick
+    // because I never successfully ran" failure mode.
   } catch (e: any) {
     showError(e?.data?.detail || 'Normalisation failed')
   } finally {
