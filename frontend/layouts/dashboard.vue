@@ -149,6 +149,19 @@
           <span class="credit-label">GenAIPro</span>
           <span class="credit-value">{{ genaiproBalance !== null ? genaiproBalance.toLocaleString() : '...' }}</span>
         </div>
+        <!-- App version + build date — beta testers can quote this when
+             reporting an issue. Click to copy. Read at frontend build time
+             from the root package.json (see runtimeConfig in nuxt.config.ts). -->
+        <button
+          type="button"
+          class="version-badge"
+          :title="`Story Studio KH v${appVersion} · built ${buildDate} — click to copy`"
+          @click="copyVersion"
+        >
+          v{{ appVersion }}
+          <span class="version-build">· {{ buildDate }}</span>
+          <span v-if="versionCopied" class="version-copied" aria-live="polite">copied</span>
+        </button>
       </div>
     </aside>
 
@@ -320,6 +333,25 @@ async function returnToProjectList() {
 onMounted(loadSessionUiState)
 
 onUnmounted(() => { stopJobPolling(); stopCreditPolling() })
+
+// ── App version + build date ────────────────────────────────────────────
+// Read at frontend build time from the root package.json (see
+// nuxt.config.ts → runtimeConfig.public). Surfaced in the sidebar footer
+// so beta testers can quote a precise version when reporting an issue.
+const { public: pubCfg } = useRuntimeConfig()
+const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
+const buildDate = computed(() => (pubCfg.buildDate as string | undefined) || '')
+const versionCopied = ref(false)
+async function copyVersion() {
+  const txt = `Story Studio KH v${appVersion.value} · built ${buildDate.value}`
+  try {
+    await navigator.clipboard.writeText(txt)
+    versionCopied.value = true
+    setTimeout(() => { versionCopied.value = false }, 1400)
+  } catch {
+    // Clipboard API unavailable (rare in Electron renderer); fail-quiet.
+  }
+}
 </script>
 
 <style scoped>
@@ -437,6 +469,33 @@ onUnmounted(() => { stopJobPolling(); stopCreditPolling() })
 .credit-badge { display: flex; justify-content: space-between; font-size: 10px; }
 .credit-label { color: var(--text-muted); }
 .credit-value { color: var(--accent); font-weight: 500; }
+
+/* Version badge — last item in the sidebar credits column.
+   Click to copy "Story Studio KH v1.0.11 · built 2026-04-27" so beta
+   testers can paste it into a bug report. Always visible. */
+.version-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0 0;
+  margin-top: 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer;
+  border-top: 1px dashed var(--border);
+  width: 100%;
+}
+.version-badge:hover { color: var(--text-secondary); }
+.version-build { opacity: 0.7; }
+.version-copied {
+  margin-left: auto;
+  color: var(--accent);
+  font-weight: 500;
+}
 
 .credits-refresh-row {
   display: flex; align-items: center; gap: 6px;

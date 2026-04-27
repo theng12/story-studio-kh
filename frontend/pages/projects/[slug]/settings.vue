@@ -1254,6 +1254,36 @@
         <button class="btn btn-danger mt-2" @click="deleteProject">Delete Project</button>
       </div>
     </div>
+
+    <!-- About — version + build info, copyable for bug reports.
+         Read at frontend build time from the root package.json (see
+         nuxt.config.ts → runtimeConfig.public.appVersion). -->
+    <div v-if="activeTab === 'about'" class="card mt-2">
+      <h3>About Story Studio KH</h3>
+      <p class="text-muted mt-1" style="font-size:13px">
+        When reporting an issue or asking for help, copy the version string below — it tells us exactly which build you're on so we can match it to the change history.
+      </p>
+      <div class="about-grid mt-3">
+        <div class="about-row">
+          <span class="about-label">Version</span>
+          <span class="about-value">{{ appVersion }}</span>
+        </div>
+        <div class="about-row">
+          <span class="about-label">Build date</span>
+          <span class="about-value">{{ buildDate || '—' }}</span>
+        </div>
+        <div class="about-row">
+          <span class="about-label">Project name</span>
+          <span class="about-value">Story Studio KH</span>
+        </div>
+      </div>
+      <button class="btn btn-secondary mt-3" @click="copyVersionString">
+        {{ versionCopied ? 'Copied ✓' : 'Copy version string' }}
+      </button>
+      <p class="text-muted mt-2" style="font-size:11px">
+        The same version is also pinned in the bottom-left of the sidebar so you can see it from any page.
+      </p>
+    </div>
   </div>
 </template>
 
@@ -1270,6 +1300,27 @@ const { success, error: showError } = useToast()
 const activeTab = ref('keys')
 const syncing = ref(false)
 const syncResults = ref<string[]>([])
+
+// ── About-tab bindings ──────────────────────────────────────────────────
+// App version + build date come from runtimeConfig (set in nuxt.config.ts
+// at build time from the root package.json). Surfaced here so beta
+// testers can copy "Story Studio KH v1.0.11 · built 2026-04-27" into a
+// bug report.
+const { public: pubCfg } = useRuntimeConfig()
+const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
+const buildDate = computed(() => (pubCfg.buildDate as string | undefined) || '')
+const versionCopied = ref(false)
+async function copyVersionString() {
+  const txt = `Story Studio KH v${appVersion.value} · built ${buildDate.value}`
+  try {
+    await navigator.clipboard.writeText(txt)
+    versionCopied.value = true
+    setTimeout(() => { versionCopied.value = false }, 1400)
+    success('Version copied')
+  } catch {
+    showError('Could not copy — your browser/OS blocked clipboard access.')
+  }
+}
 
 // Per-action "Saved Xs ago" persistent indicator. Each successful save
 // stamps a timestamp under its key; <SaveIndicator> renders a permanent
@@ -1978,6 +2029,9 @@ const tabs = [
   { id: 'ffmpeg', label: 'FFmpeg' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'project', label: 'Project' },
+  // About — version + build date so beta testers can quote the exact build
+  // they're on. Last because it's reference-only, not configuration.
+  { id: 'about', label: 'About' },
 ]
 
 // ── FFmpeg tab state ─────────────────────────────────────────────────────
@@ -3487,5 +3541,35 @@ async function deleteProject() {
 .badge-warning {
   background: rgba(234, 179, 8, 0.15); color: #eab308;
   border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+/* About tab — version/build readout. Two-column k/v with monospace value
+   so the version string is easy to read and select for copying. */
+.about-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 420px;
+}
+.about-row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+}
+.about-label {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.about-value {
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 13px;
+  user-select: text;
 }
 </style>
