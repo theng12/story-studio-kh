@@ -12,6 +12,12 @@ import { useApi } from './useApi.js'
 
 export type UploadPlatform = 'youtube' | 'tiktok' | 'facebook'
 
+// Queue filter/sort buckets — match the backend's QueueFilter/QueueSort
+// in electron/server/routes/upload.ts. Hoisted to module scope (not inside
+// the composable) so they can be imported as types in component setup.
+export type QueueFilter = 'all' | 'not_uploaded' | 'uploaded' | 'scheduled' | 'failed'
+export type QueueSort = 'code_asc' | 'code_desc' | 'status' | 'scheduled_asc' | 'scheduled_desc'
+
 export interface UploadAccount {
   id: string
   platform: UploadPlatform
@@ -91,6 +97,13 @@ export function useUploadAccounts(slug: string) {
         loadAccounts(),
         loadClientStatus('youtube'),
       ])
+      // Eagerly load playlists once accounts exist so the Queue tab's
+      // default-playlist banner has the right data on first paint instead
+      // of flashing "no default" until the user opens the Playlists tab.
+      // 60s-cached on the backend so this is essentially free.
+      if (youtubeAccounts.value.length) {
+        loadPlaylists().catch(() => { /* fail-quiet — banner falls back to "no default" */ })
+      }
     } finally {
       loading.value = false
     }
@@ -150,16 +163,86 @@ export function useUploadAccounts(slug: string) {
   const youtubeAccounts = computed(() => accounts.value.youtube || [])
 
   // ── Queue + upload (Phase 2) ─────────────────────────────────────────
+  // The queue endpoint is paginated server-side: it scans every accepted
+  // idea for a final video which is the slow part on big projects (300+
+  // episodes). We pass page/pageSize/filter/sort and the server caches
+  // the full enriched list for 30s so navigating pages doesn't re-scan.
+  // Bypass the cache by passing nocache: true (the Refresh button does this).
   const queueItems = ref<any[]>([])
   const queueLoading = ref(false)
-  async function loadQueue(platform: UploadPlatform = 'youtube') {
+  const queueTotal = ref(0)
+  const queueTotalUnfiltered = ref(0)
+  const queueTotalPages = ref(1)
+  // Sticky last-used params so the many call sites that just call
+  // `loadQueue('youtube')` to refresh continue to work — they implicitly
+  // re-request the same page/filter/sort the user is currently viewing.
+  const queueLastParams = {
+    platform: 'youtube' as UploadPlatform,
+    page: 1,
+    pageSize: 10,
+    filter: 'not_uploaded' as QueueFilter,   // default: hide uploaded items
+    sort: 'code_asc' as QueueSort,
+  }
+
+  // Two call shapes for backwards compatibility:
+  //   loadQueue('youtube')                     → legacy string form, refreshes with sticky params
+  //   loadQueue({ filter: 'uploaded', page: 2 }) → new options form
+  async function loadQueue(arg?: UploadPlatform | {
+    platform?: UploadPlatform
+    page?: number
+    pageSize?: number
+    filter?: QueueFilter
+    sort?: QueueSort
+    nocache?: boolean
+  }) {
+    const opts = typeof arg === 'string' ? { platform: arg } : (arg || {})
+    if (opts.platform) queueLastParams.platform = opts.platform
+    if (opts.page) queueLastParams.page = opts.page
+    if (opts.pageSize) queueLastParams.pageSize = opts.pageSize
+    if (opts.filter) queueLastParams.filter = opts.filter
+    if (opts.sort) queueLastParams.sort = opts.sort
     queueLoading.value = true
     try {
-      const r = await get<{ items: any[] }>(`/projects/${slug}/upload/queue?platform=${platform}`)
+      const qs = new URLSearchParams({
+        platform: queueLastParams.platform,
+        page: String(queueLastParams.page),
+        page_size: String(queueLastParams.pageSize),
+        filter: queueLastParams.filter,
+        sort: queueLastParams.sort,
+      })
+      if (opts.nocache) qs.set('nocache', '1')
+      const r = await get<{
+        items: any[]
+        total: number
+        total_unfiltered: number
+        page: number
+        page_size: number
+        total_pages: number
+      }>(`/projects/${slug}/upload/queue?${qs}`)
       queueItems.value = r.items || []
+      queueTotal.value = r.total ?? 0
+      queueTotalUnfiltered.value = r.total_unfiltered ?? 0
+      queueTotalPages.value = r.total_pages ?? 1
     } finally {
       queueLoading.value = false
     }
+  }
+
+  // Mark / unmark an episode as "already uploaded elsewhere". Backend
+  // also busts the queue cache so the missing-video list updates next
+  // time it's fetched. Returns the new total count of legacy-flagged
+  // episodes for any UI that wants to badge it.
+  async function markLegacyUploaded(episode_code: string, mark = true) {
+    return post<{ ok: true; marked: boolean; total_legacy: number }>(
+      `/projects/${slug}/upload/mark-legacy-uploaded`,
+      { episode_code, mark },
+    )
+  }
+  async function markLegacyUploadedBulk(episode_codes: string[], mark = true) {
+    return post<{ ok: true; marked: boolean; count: number; total_legacy: number }>(
+      `/projects/${slug}/upload/mark-legacy-uploaded-bulk`,
+      { episode_codes, mark },
+    )
   }
 
   async function triggerUpload(opts: {
@@ -471,6 +554,12 @@ export function useUploadAccounts(slug: string) {
     youtubeAccounts,
     queueItems,
     queueLoading,
+    queueTotal,
+    queueTotalUnfiltered,
+    queueTotalPages,
+    queueLastParams,
+    markLegacyUploaded,
+    markLegacyUploadedBulk,
     plans,
     activePlanMap,
     plansLoading,
@@ -522,7 +611,6 @@ export function useUploadAccounts(slug: string) {
     activatePlan,
     previewPlan,
     applyPlan,
-    clearItemSchedule,
     refreshAll,
     saveOAuthClient,
     clearOAuthClient,

@@ -196,6 +196,33 @@
 
     <!-- ── Queue tab ─────────────────────────────────────────────────── -->
     <div v-else-if="activeTab === 'queue'" class="card mt-2">
+      <!-- Default-playlist banner — surfaces the project default that's set
+           in the Playlists tab. New uploads auto-add to it (per-row dropdown
+           "Default" option resolves to this value at upload time). The user
+           kept asking why uploads weren't going to a playlist; the default
+           was set but invisible from the Queue tab. Now it's right at top. -->
+      <div class="default-playlist-banner" :class="{ unset: !defaultPlaylistId }">
+        <span class="dpb-icon" aria-hidden="true">📂</span>
+        <span class="dpb-text">
+          <template v-if="defaultPlaylistId">
+            <strong>Default playlist:</strong>
+            "{{ playlists.find((p: any) => p.id === defaultPlaylistId)?.title || defaultPlaylistId }}"
+            — new uploads auto-add to it.
+          </template>
+          <template v-else>
+            <strong>No default playlist set.</strong>
+            New uploads aren't auto-added to any playlist.
+          </template>
+        </span>
+        <button
+          class="btn btn-sm btn-ghost"
+          title="Open the Playlists tab to pick (or change) the default playlist."
+          @click="activeTab = 'playlists'"
+        >
+          {{ defaultPlaylistId ? 'Change' : 'Set default' }} →
+        </button>
+      </div>
+
       <div class="flex items-center justify-between" style="flex-wrap: wrap; gap: 10px;">
         <div>
           <h3 style="margin: 0">Upload Queue — YouTube</h3>
@@ -226,7 +253,12 @@
             <LoadingSpinner v-if="scanning" size="sm" />
             {{ scanning ? 'Scanning…' : '📂 Scan imports' }}
           </button>
-          <button class="btn btn-sm btn-ghost" :disabled="queueLoading" @click="loadQueue('youtube')">
+          <button
+            class="btn btn-sm btn-ghost"
+            :disabled="queueLoading"
+            title="Re-scan every episode for a final video and reload. Bypasses the 30-second backend cache so you see disk changes immediately."
+            @click="loadQueue({ nocache: true, page: queuePage })"
+          >
             <LoadingSpinner v-if="queueLoading" size="sm" />
             {{ queueLoading ? 'Loading…' : '↻ Refresh' }}
           </button>
@@ -236,35 +268,62 @@
         Import folder: <code>{{ importsFolder }}</code>
       </p>
 
-      <div v-if="queueLoading && !queueItems.length" class="text-muted mt-2" style="font-size: 13px;">
-        Scanning episodes for final videos…
-      </div>
-      <div v-else-if="!queueItems.length" class="text-muted mt-2" style="font-size: 13px;">
-        No episodes with a final video yet. Run Video Assembly or drop a rendered file into an episode's folder, then refresh.
-      </div>
-
-      <!-- Pagination (R5.1). Only shown when the queue exceeds the
-           smallest page size — otherwise the controls add noise. -->
-      <div v-else-if="queueItems.length > 10 || queuePageSize > 10" class="queue-pagination mt-2">
-        <label class="pagination-label">
-          Per page
+      <!-- Filter + sort + pagination toolbar. All three feed the same
+           server-side paged request — switching filter or sort jumps to
+           page 1 automatically. The default filter is "Not uploaded"
+           because the dominant use case is "show me what's left to do". -->
+      <div class="queue-toolbar mt-2">
+        <div class="qt-group">
+          <label class="qt-label" title="Filter the list to a specific status. Counts reflect the current selection.">Show</label>
+          <select v-model="queueFilter" class="select select-sm">
+            <option value="all">All ({{ queueTotalUnfiltered }})</option>
+            <option value="not_uploaded">Not uploaded</option>
+            <option value="uploaded">Uploaded</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="failed" title="Episodes whose most recent upload job failed">Failed</option>
+          </select>
+        </div>
+        <div class="qt-group">
+          <label class="qt-label">Sort</label>
+          <select v-model="queueSort" class="select select-sm">
+            <option value="code_asc">Episode code · oldest first</option>
+            <option value="code_desc">Episode code · newest first</option>
+            <option value="status">Status (uploaded → scheduled → ready)</option>
+            <option value="scheduled_asc">Scheduled · soonest first</option>
+            <option value="scheduled_desc">Scheduled · latest first</option>
+          </select>
+        </div>
+        <div class="qt-group">
+          <label class="qt-label">Per page</label>
           <select v-model.number="queuePageSize" class="select select-sm">
             <option :value="10">10</option>
             <option :value="20">20</option>
             <option :value="50">50</option>
             <option :value="100">100</option>
           </select>
-        </label>
-        <div class="pagination-controls">
-          <button class="btn btn-sm btn-secondary" :disabled="queuePage <= 1" @click="goToQueuePage(1)" title="First page">« First</button>
-          <button class="btn btn-sm btn-secondary" :disabled="queuePage <= 1" @click="goToQueuePage(queuePage - 1)">← Prev</button>
+        </div>
+        <div class="qt-spacer" />
+        <div class="qt-group qt-pager">
+          <button class="btn btn-sm btn-secondary" :disabled="queuePage <= 1 || queueLoading" @click="goToQueuePage(1)" title="First page">«</button>
+          <button class="btn btn-sm btn-secondary" :disabled="queuePage <= 1 || queueLoading" @click="goToQueuePage(queuePage - 1)">← Prev</button>
           <span class="page-indicator">
             Page <strong>{{ queuePage }}</strong> of {{ queueTotalPages }}
-            <span class="text-muted">· {{ queueItems.length }} item{{ queueItems.length === 1 ? '' : 's' }}</span>
+            <span class="text-muted">· {{ queueTotal }} match{{ queueTotal === 1 ? '' : 'es' }}</span>
           </span>
-          <button class="btn btn-sm btn-secondary" :disabled="queuePage >= queueTotalPages" @click="goToQueuePage(queuePage + 1)">Next →</button>
-          <button class="btn btn-sm btn-secondary" :disabled="queuePage >= queueTotalPages" @click="goToQueuePage(queueTotalPages)" title="Last page">Last »</button>
+          <button class="btn btn-sm btn-secondary" :disabled="queuePage >= queueTotalPages || queueLoading" @click="goToQueuePage(queuePage + 1)">Next →</button>
+          <button class="btn btn-sm btn-secondary" :disabled="queuePage >= queueTotalPages || queueLoading" @click="goToQueuePage(queueTotalPages)" title="Last page">»</button>
         </div>
+      </div>
+
+      <div v-if="queueLoading && !queueItems.length" class="text-muted mt-2" style="font-size: 13px;">
+        <LoadingSpinner size="sm" />
+        Scanning episodes for final videos…
+      </div>
+      <div v-else-if="!queueTotalUnfiltered" class="text-muted mt-2" style="font-size: 13px;">
+        No episodes with a final video yet. Run Video Assembly or drop a rendered file into an episode's folder, then refresh.
+      </div>
+      <div v-else-if="!queueItems.length" class="text-muted mt-2" style="font-size: 13px;">
+        No items match the current filter. Try switching to "All" above.
       </div>
 
       <table v-if="queueItems.length" class="queue-table mt-2">
@@ -280,7 +339,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in paginatedQueueItems" :key="item.id">
+          <tr v-for="item in queueItems" :key="item.id">
             <td>
               <span :class="['type-chip', item.type]" :title="item.type === 'episode'
                 ? 'Episode — sourced from accepted ideas with a final assembled video.'
@@ -381,40 +440,77 @@
             </td>
             <td class="col-actions">
               <template v-if="item.type === 'episode'">
-                <!-- Per-row playlist override (A5). Defaults to '' = use
-                     project default; '_none_' = explicitly skip; or any
-                     playlist ID. Only shown when uploading a fresh video
-                     (re-uploads are metadata-only, adding to a playlist
-                     mid-lifecycle would be noisy). -->
-                <select
-                  v-if="!item.uploaded && playlists.length"
-                  v-model="playlistOverrides[item.episode_code]"
-                  class="select select-sm playlist-select"
-                  :title="`Add this video to a specific playlist. Leaving as 'Default' uses ${defaultPlaylistId ? `\u201C${playlists.find((p: any) => p.id === defaultPlaylistId)?.title || defaultPlaylistId}\u201D` : 'no playlist (no project default set)'} automatically.`"
-                >
-                  <option value="">Default</option>
-                  <option value="_none_">Don't add</option>
-                  <option v-for="pl in playlists" :key="pl.id" :value="pl.id">{{ pl.title }}</option>
-                </select>
+                <!-- Primary action stays inline. Secondary controls
+                     (per-row playlist override, reset upload state) live
+                     in the ⋯ menu so the row stays narrow regardless of
+                     playlist title length — fixes the right-edge overflow
+                     that hit episode codes from TN0141 onwards (no
+                     uploaded-yet so the playlist <select> rendered for
+                     every row, pushing the Upload button off the page). -->
                 <button
                   class="btn btn-sm btn-primary"
                   :disabled="uploadingRow === item.id || (quota && !item.uploaded && quota.used >= quota.block_at)"
                   :title="quota && !item.uploaded && quota.used >= quota.block_at
                     ? `YouTube API quota nearly exhausted (${quota.used}/${quota.ceiling}). Wait for midnight Pacific reset, or request a higher quota in Google Cloud.`
                     : item.uploaded
-                    ? 'Update title/description/tags/thumbnail on the existing YouTube video. The video content and URL stay the same — view count is preserved.'
-                    : 'Uploads as private with publishAt from the active plan (if any). Use Plans tab to schedule across the full queue.'"
+                    ? 'Pushes title / description / tags / thumbnail to YouTube via the videos.update API. The video file, URL, view count, and comments are NOT replaced — only the metadata fields. Use this after editing metadata in the Metadata Generator.'
+                    : 'Uploads as private with publishAt from the active plan (if any). Use the Plans tab to schedule across the full queue.'"
                   @click="doUpload(item)"
                 >
                   <LoadingSpinner v-if="uploadingRow === item.id" size="sm" />
                   {{ uploadingRow === item.id ? 'Queuing…' : (item.uploaded ? '↻ Update metadata' : '📤 Upload') }}
                 </button>
-                <button
-                  v-if="item.uploaded"
-                  class="btn btn-sm btn-ghost"
-                  title="Forget this episode's upload record. Use when you uploaded to the wrong YouTube account by accident, or the video was deleted on YouTube. The next Upload creates a fresh video on the currently-connected channel."
-                  @click="doResetUploadState(item)"
-                >♻ Reset</button>
+
+                <!-- ⋯ menu for everything else. Only renders when there
+                     is at least one secondary action available. Same
+                     Teleport-to-body pattern as the pipeline page kebab
+                     so the menu can never be clipped by the table cell. -->
+                <span
+                  v-if="(!item.uploaded && playlists.length) || item.uploaded"
+                  class="row-kebab"
+                  @click.stop
+                >
+                  <button
+                    class="kebab-trigger"
+                    :aria-expanded="rowMenuOpenFor === item.id"
+                    :aria-label="`More actions for ${item.episode_code || item.filename}`"
+                    title="More actions: pick a per-row playlist override, reset upload state, etc."
+                    @click="toggleRowMenu(item.id, $event)"
+                  >⋮</button>
+                  <Teleport to="body">
+                    <div
+                      v-if="rowMenuOpenFor === item.id && rowMenuPos"
+                      class="row-kebab-menu"
+                      role="menu"
+                      :style="{ top: rowMenuPos.top + 'px', left: rowMenuPos.left + 'px', width: rowMenuPos.width + 'px' }"
+                    >
+                      <div v-if="!item.uploaded && playlists.length" class="rkm-section">
+                        <div class="rkm-section-label">Playlist for this upload</div>
+                        <select
+                          v-model="playlistOverrides[item.episode_code]"
+                          class="select select-sm rkm-playlist-select"
+                          title="Default = use the project default (set in Playlists tab). Don't add = upload but skip the playlist for this one row only. Or pick a specific playlist."
+                        >
+                          <option value="">Default ({{ defaultPlaylistId ? (playlists.find((p: any) => p.id === defaultPlaylistId)?.title || '?') : 'none set' }})</option>
+                          <option value="_none_">— Don't add —</option>
+                          <option v-for="pl in playlists" :key="pl.id" :value="pl.id">{{ pl.title }}</option>
+                        </select>
+                      </div>
+                      <button
+                        v-if="item.uploaded"
+                        class="rkm-item"
+                        role="menuitem"
+                        @click="doResetUploadState(item); closeRowMenu()"
+                      >
+                        <span class="rkm-icon">♻</span>
+                        <div class="rkm-body">
+                          <strong>Reset upload state</strong>
+                          <span class="rkm-hint">Forget this episode's link to its YouTube video. Use when you uploaded to the wrong account or the video was deleted on YouTube. Next Upload creates a fresh video.</span>
+                        </div>
+                      </button>
+                    </div>
+                  </Teleport>
+                </span>
               </template>
               <template v-else>
                 <button class="btn btn-sm btn-secondary" title="Edit title / description / tags for this import." @click="startEditImport(item)">Edit</button>
@@ -424,52 +520,6 @@
           </tr>
         </tbody>
       </table>
-
-      <!-- Missing final video — import per-episode (Phase 5) -->
-      <div v-if="missingVideoEpisodes.length" class="missing-video-section mt-3">
-        <div class="flex items-center justify-between" style="flex-wrap: wrap; gap: 8px;">
-          <div>
-            <h4 style="margin: 0; font-size: 13px;">📥 Episodes missing a final video</h4>
-            <p class="text-muted" style="font-size: 11px; margin: 4px 0 0;">
-              These episodes don't have an assembled final video yet. You can either run <strong>Video Assembly</strong>,
-              or drop an externally-rendered file into the episode's <code>Imported/</code> folder and click <strong>Scan</strong> —
-              the file will move into the canonical <code>video/</code> folder as <code>{{ '{code}' }}_final_video.ext</code>
-              and show up in the queue above on next refresh.
-            </p>
-          </div>
-        </div>
-        <table class="queue-table mt-2">
-          <thead>
-            <tr>
-              <th>Episode</th>
-              <th>Title</th>
-              <th class="col-actions"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="ep in missingVideoEpisodes" :key="ep.episode_code">
-              <td><strong>{{ ep.episode_code }}</strong></td>
-              <td class="col-title">{{ ep.title }}</td>
-              <td class="col-actions">
-                <button
-                  class="btn btn-sm btn-secondary"
-                  title="Reveal this episode's Imported/ folder in Finder so you can drop a rendered video file into it."
-                  @click="doRevealEpisodeImport(ep)"
-                >📂 Open folder</button>
-                <button
-                  class="btn btn-sm btn-primary"
-                  :disabled="episodeScanInFlight === ep.episode_code"
-                  :title="`Walk this episode's Imported/ folder. Every video file found will be moved into ${ep.episode_code}'s video/ folder as the canonical final render — reusing the broadened detection so the Pipeline + Queue stop marking this episode as pending.`"
-                  @click="doEpisodeScan(ep)"
-                >
-                  <LoadingSpinner v-if="episodeScanInFlight === ep.episode_code" size="sm" />
-                  {{ episodeScanInFlight === ep.episode_code ? 'Scanning…' : '📥 Import + Scan' }}
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
 
       <!-- Import metadata editor (modal-ish inline card) -->
       <div v-if="editingImport" class="import-editor mt-3">
@@ -493,6 +543,131 @@
           <button class="btn btn-primary btn-sm" @click="saveImportMetaForm">Save</button>
         </div>
       </div>
+    </div>
+
+    <!-- ── Missing Video tab ────────────────────────────────────────────
+         Split out from the Queue tab in 2026 — combining the two on one
+         page meant a project with 200 missing-video episodes rendered a
+         giant table even when the user just wanted to see what was
+         ready to upload. Now it's its own tab, paginated, and supports
+         marking legacy episodes as already-uploaded (uploaded to YouTube
+         years ago, no local video file). -->
+    <div v-else-if="activeTab === 'missing'" class="card mt-2">
+      <div class="flex items-center justify-between" style="flex-wrap: wrap; gap: 10px;">
+        <div>
+          <h3 style="margin: 0">📥 Missing Video</h3>
+          <p class="text-muted" style="font-size: 12px; margin: 4px 0 0; max-width: 720px;">
+            Episodes that don't have an assembled final video yet. Three ways to get them off this list:
+            <strong>1)</strong> Run Video Assembly, <strong>2)</strong> drop an external render into the episode's
+            <code>Imported/</code> folder and click Import + Scan, or <strong>3)</strong> mark as already
+            uploaded if the video exists only on YouTube (legacy episodes from before Story Studio).
+          </p>
+        </div>
+        <div class="flex gap-2">
+          <button
+            class="btn btn-sm btn-ghost"
+            :disabled="missingLoading"
+            title="Re-scan every episode for a final video file."
+            @click="loadMissingVideoEpisodes"
+          >
+            <LoadingSpinner v-if="missingLoading" size="sm" />
+            {{ missingLoading ? 'Loading…' : '↻ Refresh' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Search + per-page toolbar. Same shape as the pipeline page so
+           the muscle memory carries over. -->
+      <div v-if="missingVideoEpisodes.length" class="queue-toolbar mt-2">
+        <div class="qt-group qt-search">
+          <input
+            v-model="missingSearch"
+            type="search"
+            class="input input-sm"
+            placeholder="Search episode code or title…"
+            title="Substring match against episode_code + title. Case-insensitive."
+          />
+          <button
+            v-if="missingSearch"
+            type="button"
+            class="qt-search-clear"
+            title="Clear search"
+            aria-label="Clear search"
+            @click="missingSearch = ''"
+          >✕</button>
+        </div>
+        <div class="qt-group">
+          <label class="qt-label">Per page</label>
+          <select v-model.number="missingPageSize" class="select select-sm">
+            <option :value="10">10</option>
+            <option :value="20">20</option>
+            <option :value="50">50</option>
+            <option :value="100">100</option>
+          </select>
+        </div>
+        <div class="qt-spacer" />
+        <div class="qt-group qt-pager">
+          <button class="btn btn-sm btn-secondary" :disabled="missingPage <= 1" @click="missingPage = 1" title="First page">«</button>
+          <button class="btn btn-sm btn-secondary" :disabled="missingPage <= 1" @click="missingPage = missingPage - 1">← Prev</button>
+          <span class="page-indicator">
+            Page <strong>{{ missingPage }}</strong> of {{ missingTotalPages }}
+            <span class="text-muted">· {{ missingFilteredEpisodes.length }} item{{ missingFilteredEpisodes.length === 1 ? '' : 's' }}</span>
+          </span>
+          <button class="btn btn-sm btn-secondary" :disabled="missingPage >= missingTotalPages" @click="missingPage = missingPage + 1">Next →</button>
+          <button class="btn btn-sm btn-secondary" :disabled="missingPage >= missingTotalPages" @click="missingPage = missingTotalPages" title="Last page">»</button>
+        </div>
+      </div>
+
+      <div v-if="missingLoading && !missingVideoEpisodes.length" class="text-muted mt-2" style="font-size: 13px;">
+        Scanning episodes for final videos…
+      </div>
+      <div v-else-if="!missingVideoEpisodes.length" class="text-muted mt-2" style="font-size: 13px;">
+        🎉 Every accepted episode has a final video on disk (or has been marked as already uploaded).
+      </div>
+      <div v-else-if="!missingFilteredEpisodes.length" class="text-muted mt-2" style="font-size: 13px;">
+        No episodes match the current search.
+      </div>
+
+      <table v-if="missingPaginatedEpisodes.length" class="queue-table mt-2">
+        <thead>
+          <tr>
+            <th>Episode</th>
+            <th>Title</th>
+            <th class="col-actions"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="ep in missingPaginatedEpisodes" :key="ep.episode_code">
+            <td><strong>{{ ep.episode_code }}</strong></td>
+            <td class="col-title">{{ ep.title }}</td>
+            <td class="col-actions">
+              <button
+                class="btn btn-sm btn-secondary"
+                title="Reveal this episode's Imported/ folder in Finder so you can drop a rendered video file into it."
+                @click="doRevealEpisodeImport(ep)"
+              >📂 Open folder</button>
+              <button
+                class="btn btn-sm btn-primary"
+                :disabled="episodeScanInFlight === ep.episode_code"
+                :title="`Walk this episode's Imported/ folder. Every video file found will be moved into ${ep.episode_code}'s video/ folder as the canonical final render — Pipeline + Queue stop marking this episode as pending.`"
+                @click="doEpisodeScan(ep)"
+              >
+                <LoadingSpinner v-if="episodeScanInFlight === ep.episode_code" size="sm" />
+                {{ episodeScanInFlight === ep.episode_code ? 'Scanning…' : '📥 Import + Scan' }}
+              </button>
+              <button
+                class="btn btn-sm btn-ghost"
+                :disabled="legacyMarkInFlight === ep.episode_code"
+                title="Mark this episode as already uploaded to YouTube (the video lives only there, no local file). Removes it from this list. Reversible from the Reconcile or Unlinked tabs if you ever pull it back in."
+                @click="doMarkLegacyUploaded(ep)"
+              >
+                <LoadingSpinner v-if="legacyMarkInFlight === ep.episode_code" size="sm" />
+                {{ legacyMarkInFlight === ep.episode_code ? 'Marking…' : '✓ Mark as uploaded' }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <!-- ── Plans tab ──────────────────────────────────────────────────── -->
@@ -1100,6 +1275,12 @@ const {
   youtubeAccounts,
   queueItems,
   queueLoading,
+  queueTotal,
+  queueTotalUnfiltered,
+  queueTotalPages,
+  queueLastParams,
+  markLegacyUploaded,
+  markLegacyUploadedBulk,
   loadQueue,
   plans,
   activePlanMap,
@@ -1159,10 +1340,11 @@ const {
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 
-type TabId = 'accounts' | 'queue' | 'plans' | 'playlists' | 'reconcile' | 'orphans'
+type TabId = 'accounts' | 'queue' | 'missing' | 'plans' | 'playlists' | 'reconcile' | 'orphans'
 const tabs: Array<{ id: TabId; label: string; phase: number; disabled: boolean; hint?: string }> = [
   { id: 'accounts', label: 'Accounts', phase: 1, disabled: false, hint: 'Connect the YouTube channel for this project (single account).' },
   { id: 'queue', label: 'Upload Queue', phase: 2, disabled: false, hint: 'Per-episode queue with per-row upload. Re-running on an uploaded item updates metadata only.' },
+  { id: 'missing', label: 'Missing Video', phase: 2, disabled: false, hint: 'Episodes whose final video isn’t on disk yet. Render via Video Assembly, drop a file via Import + Scan, or mark as already uploaded if the video lives only on YouTube (legacy episodes).' },
   { id: 'plans', label: 'Plans', phase: 3, disabled: false, hint: 'Saved schedule plans — pick weekdays + time, preview slots, apply to the queue.' },
   { id: 'playlists', label: 'Playlists', phase: 3, disabled: false, hint: 'Manage the YouTube playlists on your channel. Create new ones and pick a default that new uploads auto-add to.' },
   { id: 'reconcile', label: 'Reconcile', phase: 6, disabled: false, hint: 'Fetch channel videos, fuzzy-match to local episodes, confirm links. One-time per video \u2014 saved to sidecar.' },
@@ -1174,23 +1356,155 @@ const activeTab = ref<TabId>('accounts')
 const uploadingRow = ref<string | null>(null)
 const scanning = ref(false)
 
-// Pagination (R5.1). Mirrors the pattern in pipeline.vue — purely
-// client-side slicing, since loadQueue already loads the full list.
+// Server-side pagination + filter + sort. The endpoint scans every
+// accepted idea for a final video which is the slow part — caching
+// the enriched list backend-side for 30s makes pagination/filter/sort
+// changes feel instant after the first hit. The Refresh button bypasses
+// the cache via `nocache: true`.
+//
+// Defaults (all configurable via the toolbar):
+//   filter = 'not_uploaded' — main use case is "show me what's left to upload"
+//   sort   = 'code_asc'     — natural episode order
+//   page   = 1, pageSize = 10
+const queueFilter = ref<import('~/composables/useUploadAccounts').QueueFilter>('not_uploaded')
+const queueSort   = ref<import('~/composables/useUploadAccounts').QueueSort>('code_asc')
 const queuePage = ref(1)
 const queuePageSize = ref<10 | 20 | 50 | 100>(10)
-const queueTotalPages = computed(() =>
-  Math.max(1, Math.ceil(queueItems.value.length / queuePageSize.value)))
-const paginatedQueueItems = computed(() => {
-  const start = (queuePage.value - 1) * queuePageSize.value
-  return queueItems.value.slice(start, start + queuePageSize.value)
-})
+
 function goToQueuePage(n: number) {
-  queuePage.value = Math.max(1, Math.min(queueTotalPages.value, Math.floor(n)))
+  const clamped = Math.max(1, Math.min(queueTotalPages.value, Math.floor(n)))
+  queuePage.value = clamped
+  loadQueue({ page: clamped })
 }
-// Reset to page 1 when the page size changes; clamp when the list
-// shrinks (e.g. after bulk clear or removing an import).
-watch(queuePageSize, () => { queuePage.value = 1 })
-watch(queueTotalPages, (tp) => { if (queuePage.value > tp) queuePage.value = tp })
+
+// When filter or sort changes, jump back to page 1 — the prior page
+// number probably doesn't make sense in the new filtered list.
+watch([queueFilter, queueSort], () => {
+  queuePage.value = 1
+  loadQueue({ filter: queueFilter.value, sort: queueSort.value, page: 1, pageSize: queuePageSize.value })
+})
+watch(queuePageSize, (s) => {
+  queuePage.value = 1
+  loadQueue({ pageSize: s, page: 1 })
+})
+
+// ── Missing Video tab state ──────────────────────────────────────────
+// Search + client-side pagination (the missing-video endpoint returns
+// the full list — much smaller than the queue's enriched payload, so a
+// server-side page split here isn't worth the round-trip cost).
+const missingLoading = ref(false)
+const missingSearch = ref('')
+const missingPage = ref(1)
+const missingPageSize = ref<10 | 20 | 50 | 100>(20)
+const legacyMarkInFlight = ref<string | null>(null)
+
+const missingFilteredEpisodes = computed(() => {
+  const q = missingSearch.value.trim().toLowerCase()
+  if (!q) return missingVideoEpisodes.value
+  return missingVideoEpisodes.value.filter(ep =>
+    (ep.episode_code || '').toLowerCase().includes(q)
+    || (ep.title || '').toLowerCase().includes(q),
+  )
+})
+const missingTotalPages = computed(() => Math.max(1, Math.ceil(missingFilteredEpisodes.value.length / missingPageSize.value)))
+const missingPaginatedEpisodes = computed(() => {
+  const start = (missingPage.value - 1) * missingPageSize.value
+  return missingFilteredEpisodes.value.slice(start, start + missingPageSize.value)
+})
+watch([missingSearch, missingPageSize], () => { missingPage.value = 1 })
+watch(missingTotalPages, (tp) => { if (missingPage.value > tp) missingPage.value = Math.max(1, tp) })
+
+async function doMarkLegacyUploaded(ep: { episode_code: string; title: string }) {
+  // Confirm because this changes which episodes show as "needing attention"
+  // — easy to misclick and confuse the operator later about why an
+  // episode is missing from the missing-video list.
+  const ok = await ask({
+    title: `Mark ${ep.episode_code} as already uploaded?`,
+    message: `Removes "${ep.title || ep.episode_code}" from this list. Use this for episodes uploaded to YouTube before Story Studio existed (no local video file). Reversible — flag is stored in the project config under youtube_legacy_uploaded.`,
+    confirmLabel: 'Mark uploaded',
+  })
+  if (!ok) return
+  legacyMarkInFlight.value = ep.episode_code
+  try {
+    await markLegacyUploaded(ep.episode_code, true)
+    success(`${ep.episode_code} marked as already uploaded`)
+    await loadMissingVideoEpisodes()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to mark episode as uploaded')
+  } finally {
+    legacyMarkInFlight.value = null
+  }
+}
+
+// Refresh missing-video data when entering the tab so it's never stale
+// (the user may have just rendered videos in another window).
+watch(activeTab, (t) => {
+  if (t === 'missing') {
+    missingLoading.value = true
+    loadMissingVideoEpisodes().finally(() => { missingLoading.value = false })
+  }
+})
+
+// ── Per-row kebab menu ───────────────────────────────────────────────
+// Same Teleport-to-body + fixed-positioning pattern as the pipeline page,
+// so the menu can never be clipped by the queue table or page-content
+// scroll. Auto-flips upward when there isn't space below the trigger.
+const rowMenuOpenFor = ref<string | null>(null)
+const rowMenuPos = ref<{ top: number; left: number; width: number } | null>(null)
+const ROW_MENU_WIDTH = 320
+const ROW_MENU_MAX_HEIGHT = 220
+const ROW_MENU_GAP = 4
+
+function positionRowMenu(triggerEl: HTMLElement) {
+  const r = triggerEl.getBoundingClientRect()
+  let left = r.right - ROW_MENU_WIDTH
+  left = Math.max(8, Math.min(left, window.innerWidth - ROW_MENU_WIDTH - 8))
+  const spaceBelow = window.innerHeight - r.bottom
+  let top: number
+  if (spaceBelow < ROW_MENU_MAX_HEIGHT + ROW_MENU_GAP) {
+    top = r.top - ROW_MENU_GAP - ROW_MENU_MAX_HEIGHT
+    if (top < 8) top = 8
+  } else {
+    top = r.bottom + ROW_MENU_GAP
+  }
+  rowMenuPos.value = { top, left, width: ROW_MENU_WIDTH }
+}
+function toggleRowMenu(itemId: string, ev?: MouseEvent) {
+  if (rowMenuOpenFor.value === itemId) {
+    rowMenuOpenFor.value = null
+    rowMenuPos.value = null
+    return
+  }
+  rowMenuOpenFor.value = itemId
+  const trigger = ev?.currentTarget as HTMLElement | undefined
+  if (trigger) positionRowMenu(trigger)
+}
+function closeRowMenu() {
+  rowMenuOpenFor.value = null
+  rowMenuPos.value = null
+}
+
+// Outside-click + scroll + Escape handlers for the kebab menu.
+if (typeof window !== 'undefined') {
+  const onDocClick = (e: MouseEvent) => {
+    if (!rowMenuOpenFor.value) return
+    const t = e.target as HTMLElement | null
+    if (t && (t.closest('.row-kebab') || t.closest('.row-kebab-menu'))) return
+    closeRowMenu()
+  }
+  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRowMenu() }
+  const onScroll = () => { if (rowMenuOpenFor.value) closeRowMenu() }
+  onMounted(() => {
+    document.addEventListener('click', onDocClick)
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onScroll, true)
+  })
+  onBeforeUnmount(() => {
+    document.removeEventListener('click', onDocClick)
+    document.removeEventListener('keydown', onKey)
+    window.removeEventListener('scroll', onScroll, true)
+  })
+}
 
 // Build a per-episode snapshot of the most-recent youtube_upload job, so
 // the queue table can render live progress without each row making its
@@ -2480,4 +2794,183 @@ onMounted(() => {
   border-bottom: 1px solid var(--border-subtle, var(--border));
   vertical-align: middle;
 }
+
+/* ── Default-playlist banner ─────────────────────────────────────────
+   Sits at the very top of the Queue tab so the user always knows
+   whether new uploads will get auto-added to a playlist. Tinted accent
+   when set, muted when unset (it's not an error, just FYI). */
+.default-playlist-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.default-playlist-banner.unset {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+.dpb-icon { font-size: 14px; flex-shrink: 0; }
+.dpb-text { flex: 1; line-height: 1.4; }
+.dpb-text strong { color: var(--text-primary); }
+
+/* ── Queue toolbar (filter / sort / per-page / pager) ────────────────
+   Shared between the Queue tab and the new Missing Video tab. Reuses
+   the .queue-toolbar visual treatment from the pipeline page so the
+   UI feels consistent across pages. */
+.queue-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  font-size: 12px;
+}
+.qt-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.qt-spacer { flex: 1 1 auto; }
+.qt-label {
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+}
+.qt-search {
+  position: relative;
+  flex: 1 1 240px;
+  max-width: 320px;
+}
+.qt-search input {
+  width: 100%;
+  padding-right: 26px;
+}
+.qt-search-clear {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.qt-search-clear:hover { color: var(--text-primary); background: var(--bg-hover); }
+.qt-pager {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.page-indicator {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 6px;
+}
+
+/* ── Per-row kebab trigger ───────────────────────────────────────────
+   The .kebab-trigger style mirrors the pipeline page's per-episode
+   kebab. The .row-kebab-menu pane lives in the unscoped style block
+   below because it teleports to <body>. */
+.row-kebab {
+  display: inline-flex;
+  vertical-align: middle;
+  position: relative;
+}
+.kebab-trigger {
+  width: 26px; height: 26px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.kebab-trigger:hover,
+.kebab-trigger[aria-expanded="true"] {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+</style>
+
+<!-- Unscoped — applies to the row-kebab menu after it teleports to <body>. -->
+<style>
+.row-kebab-menu {
+  position: fixed;
+  z-index: 250;
+  min-width: 280px;
+  padding: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rkm-section {
+  padding: 6px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rkm-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.rkm-playlist-select {
+  width: 100%;
+}
+.rkm-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-family: inherit;
+  transition: background 0.1s;
+}
+.rkm-item:hover { background: var(--bg-tertiary); }
+.rkm-icon {
+  width: 20px;
+  flex-shrink: 0;
+  font-size: 14px;
+  color: var(--accent);
+  text-align: center;
+  margin-top: 1px;
+}
+.rkm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.rkm-body strong { font-size: 13px; font-weight: 600; }
+.rkm-hint { font-size: 11px; color: var(--text-muted); line-height: 1.35; }
 </style>

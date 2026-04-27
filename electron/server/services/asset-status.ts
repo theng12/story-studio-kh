@@ -636,6 +636,48 @@ function emptyStatus(): EpisodeStatus {
  * omitted, the function loads ideas once internally for backward compat
  * with single-episode callers (pipeline.ts, upload.ts).
  */
+/**
+ * Fast video-presence check for queue + missing-video views. Skips the
+ * expensive full-status computation in computeEpisodeStatus — checks
+ * just the canonical Path A (`video/{code}_final_video.{ext}`). The
+ * sidecar check (Path C: video lives on YouTube, local file may be
+ * deleted) is the caller's responsibility — most callers already have
+ * the sidecar in hand.
+ *
+ * On a 300+ episode project this is ~10x faster than computeEpisodeStatus
+ * because it does 1 readdir per episode instead of 10-15 file ops.
+ *
+ * Misses Path B (sibling Final/Assembled folders) and Path D (external
+ * root) — those are unusual layouts. The slower full computeEpisodeStatus
+ * is still available; this is just for hot paths where speed matters.
+ */
+// Hoisted from inside computeEpisodeStatus so hasFinalVideoFast can
+// share the predicates without re-declaring them.
+const _VIDEO_EXTS = new Set(['.mp4', '.mov', '.webm', '.mkv', '.m4v'])
+function _isVideoFile(name: string): boolean {
+  const i = name.lastIndexOf('.')
+  return i >= 0 && _VIDEO_EXTS.has(name.slice(i).toLowerCase())
+}
+function _isPerSceneClip(name: string): boolean {
+  return /[_\- ]scene[_\- ]?\d+/i.test(name)
+}
+
+export async function hasFinalVideoFast(
+  slug: string,
+  code: string,
+  title: string,
+): Promise<boolean> {
+  try {
+    const paths = await resolveEpisodePaths(slug, code, title || '')
+    const videoDirFiles = await safeReaddir(paths.video_dir)
+    return videoDirFiles.some(f =>
+      _isVideoFile(f) && (f.startsWith(`${code}_final_video.`) || !_isPerSceneClip(f)),
+    )
+  } catch {
+    return false
+  }
+}
+
 export async function computeEpisodeStatus(
   slug: string,
   code: string,

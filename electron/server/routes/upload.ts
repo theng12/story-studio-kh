@@ -16,7 +16,7 @@ import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as store from '../services/upload-store.js'
 import { startOAuthFlow, getFlowStatus } from '../lib/youtube-oauth.js'
-import { computeEpisodeStatus } from '../services/asset-status.js'
+import { computeEpisodeStatus, hasFinalVideoFast } from '../services/asset-status.js'
 import { readSidecar } from '../services/upload-sidecar.js'
 import { resolveUploadMetadata, snippetFromMeta } from '../lib/upload-metadata.js'
 import * as plans from '../services/upload-plans.js'
@@ -330,100 +330,247 @@ router.delete('/projects/:slug/upload/accounts/:id', async (req, res) => {
 // adds a second source (project-level Upload Queue/ for non-episode items);
 // this endpoint will grow a merge-and-sort step at that point.
 
+// Two-stage queue loading. The slow part is metadata + thumbnail
+// resolution per episode (each touches the file system multiple times);
+// for a 300+ episode project a full scan can take 30-60 seconds on the
+// first call. Splitting it lets us:
+//   1. Build a CHEAP "index" of every queue item (just enough to filter
+//      + sort + paginate). Cached for 5 minutes.
+//   2. Enrich ONLY the visible page with the expensive metadata preview.
+// First-load wait drops from ~all-episodes to ~one-page-of-episodes.
+//
+// The index cache is busted on: legacy-uploaded flag changes (we already
+// do this), explicit ?nocache=1, and after a successful upload completes
+// (the upload generator should call invalidateQueueCache; future polish).
+const QUEUE_INDEX_TTL_MS = 5 * 60_000
+type QueueIndexItem = {
+  id: string
+  type: 'episode' | 'import'
+  episode_code: string
+  filename?: string
+  title: string                 // best-effort: idea title or filename, no metadata read
+  uploaded: boolean
+  video_id: string
+  scheduled_for: string | null
+  schedule_source: 'synced' | 'planned' | 'none'
+  position: number | null
+  // Carried into stage 2 — saves re-reading the sidecar.
+  _sidecar: any
+  _ideaTitle: string
+}
+const queueIndexCache = new Map<string, { ts: number; items: QueueIndexItem[] }>()
+function queueCacheKey(slug: string, platform: string) { return `${slug}:${platform}` }
+
+// Stage 1: the cheap index. Reads the per-episode sidecar (one small
+// JSON file each) but skips computeEpisodeStatus + resolveUploadMetadata.
+// Episode-has-video is determined cheaply by checking if any video file
+// path exists for the episode (still file-IO, but a single existsSync per
+// episode rather than the full status walk).
+async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Promise<QueueIndexItem[]> {
+  const ideas = await im.getIdeas(slug, 'accepted')
+  const itemSchedule = await plans.readItemSchedule(slug)
+  const sequence = await uq.readSequence(slug)
+  const items: QueueIndexItem[] = []
+  const CONCURRENCY = 32     // bumped from 8 — most ops are file existence checks
+  const queue = ideas.filter(i => i.episode_code)
+  let cursor = 0
+  async function worker() {
+    while (cursor < queue.length) {
+      const i = cursor++
+      const idea = queue[i]
+      if (!idea?.episode_code) continue
+      const code = idea.episode_code
+      // Fast video-presence check (single readdir of episode/video/) +
+      // sidecar in parallel. Sidecar tells us if it's uploaded; if so,
+      // the local file might be deleted but the episode still belongs in
+      // the queue (re-upload PATCHes metadata).
+      const [hasFinal, sidecar] = await Promise.all([
+        hasFinalVideoFast(slug, code, idea.title || ''),
+        readSidecar(slug, code, idea.title || '', platform),
+      ])
+      const inQueue = hasFinal || !!sidecar?.video_id
+      if (!inQueue) continue
+      const scheduled_for = sidecar?.scheduled_for || itemSchedule[code] || null
+      items.push({
+        id: `ep:${code}`,
+        type: 'episode',
+        episode_code: code,
+        title: idea.title || code,    // cheap title; enriched in stage 2
+        uploaded: !!sidecar?.video_id,
+        video_id: sidecar?.video_id || '',
+        scheduled_for,
+        schedule_source: sidecar?.scheduled_for ? 'synced' : (itemSchedule[code] ? 'planned' : 'none'),
+        position: typeof sequence[`ep:${code}`] === 'number' ? sequence[`ep:${code}`] : null,
+        _sidecar: sidecar,
+        _ideaTitle: idea.title || '',
+      })
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
+
+  // Imports — small in number, cheap to enrich. Add to the index.
+  try {
+    const scan = await uq.scanImports(slug)
+    for (const d of scan.discovered) {
+      const meta = await uq.readImportMeta(d.file_path)
+      items.push({
+        id: d.id,
+        type: 'import',
+        episode_code: '',
+        filename: d.filename,
+        title: meta?.title || d.title,
+        uploaded: false,
+        video_id: '',
+        scheduled_for: itemSchedule[d.id] || null,
+        schedule_source: itemSchedule[d.id] ? 'planned' : 'none',
+        position: d.position,
+        _sidecar: null,
+        _ideaTitle: '',
+      })
+    }
+  } catch { /* non-fatal */ }
+
+  // Default ordering: explicit position first, then natural episode_code.
+  items.sort((a, b) => {
+    const ap = a.position, bp = b.position
+    if (typeof ap === 'number' && typeof bp === 'number') return ap - bp
+    if (typeof ap === 'number') return -1
+    if (typeof bp === 'number') return 1
+    return (a.episode_code || '').localeCompare(b.episode_code || '', undefined, { numeric: true })
+  })
+  return items
+}
+
+// Stage 2: enrich just the page slice with metadata preview + thumbnail.
+// Each enrichment is the same expensive resolveUploadMetadata call from
+// before — but we run it for ~10 items instead of ~300.
+async function enrichPage(slug: string, platform: store.UploadPlatform, page: QueueIndexItem[]): Promise<any[]> {
+  const out = await Promise.all(page.map(async (item): Promise<any> => {
+    let metaPreview = {
+      title: item._ideaTitle || item.title || item.episode_code,
+      description: '',
+      tags: [] as string[],
+      thumbnailPath: '',
+    }
+    if (item.type === 'episode') {
+      try {
+        metaPreview = await resolveUploadMetadata({
+          slug,
+          episode_code: item.episode_code,
+          fallback_title: item._ideaTitle,
+          platform,
+        })
+      } catch { /* preview is cosmetic */ }
+    }
+    const sidecar = item._sidecar
+    return {
+      id: item.id,
+      type: item.type,
+      episode_code: item.episode_code,
+      filename: item.filename || undefined,
+      title: metaPreview.title || item._ideaTitle || item.episode_code,
+      has_metadata: !!(metaPreview.title && metaPreview.description),
+      has_thumbnail: !!metaPreview.thumbnailPath,
+      uploaded: item.uploaded,
+      video_id: item.video_id,
+      video_url: item.video_id ? `https://youtu.be/${item.video_id}` : '',
+      privacy_status: sidecar?.privacy_status || null,
+      scheduled_for: item.scheduled_for,
+      schedule_source: item.schedule_source,
+      last_sync_at: sidecar?.last_sync_at || '',
+      account_id: sidecar?.account_id || '',
+      position: item.position,
+    }
+  }))
+  return out
+}
+
+// Filter buckets (matches the frontend toolbar). 'failed' isn't tracked
+// per-item today — we only know if there's an active failed job, which
+// the frontend handles. So the backend filter for 'failed' returns []
+// (the frontend can derive its own from job state).
+type QueueFilter = 'all' | 'not_uploaded' | 'uploaded' | 'scheduled' | 'failed'
+type QueueSort = 'code_asc' | 'code_desc' | 'status' | 'scheduled_asc' | 'scheduled_desc'
+
+function filterAndSortIndex(items: QueueIndexItem[], filter: QueueFilter, sort: QueueSort): QueueIndexItem[] {
+  let out: QueueIndexItem[] = items
+  if (filter === 'not_uploaded') out = out.filter(i => !i.uploaded)
+  else if (filter === 'uploaded') out = out.filter(i => i.uploaded)
+  else if (filter === 'scheduled') out = out.filter(i => !!i.scheduled_for)
+  else if (filter === 'failed') out = []   // job-failed state isn't tracked at this layer; UI handles it
+  out = out.slice()
+  const cmpCode = (a: QueueIndexItem, b: QueueIndexItem) =>
+    (a.episode_code || a.filename || '').localeCompare(b.episode_code || b.filename || '', undefined, { numeric: true })
+  const cmpScheduled = (a: QueueIndexItem, b: QueueIndexItem) => {
+    const av = a.scheduled_for || ''
+    const bv = b.scheduled_for || ''
+    if (av && !bv) return -1
+    if (!av && bv) return 1
+    return av.localeCompare(bv)
+  }
+  switch (sort) {
+    case 'code_asc':       out.sort(cmpCode); break
+    case 'code_desc':      out.sort((a, b) => cmpCode(b, a)); break
+    case 'scheduled_asc':  out.sort(cmpScheduled); break
+    case 'scheduled_desc': out.sort((a, b) => cmpScheduled(b, a)); break
+    case 'status':
+      out.sort((a, b) => {
+        const rank = (i: QueueIndexItem) => i.uploaded ? 0 : (i.scheduled_for ? 1 : 2)
+        const r = rank(a) - rank(b)
+        return r !== 0 ? r : cmpCode(a, b)
+      })
+      break
+  }
+  return out
+}
+
 router.get('/projects/:slug/upload/queue', async (req, res) => {
   try {
     const slug = req.params.slug
     if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const platform = readPlatform(req.query.platform) || 'youtube'
 
-    const ideas = await im.getIdeas(slug, 'accepted')
-    const itemSchedule = await plans.readItemSchedule(slug)
-    const sequence = await uq.readSequence(slug)
-    const items: any[] = []
-    const CONCURRENCY = 8
-    const queue = ideas.filter(i => i.episode_code)
-    let cursor = 0
-    async function worker() {
-      while (cursor < queue.length) {
-        const i = cursor++
-        const idea = queue[i]
-        if (!idea?.episode_code) continue
-        const code = idea.episode_code
-        const [status, sidecar] = await Promise.all([
-          computeEpisodeStatus(slug, code),
-          readSidecar(slug, code, idea.title || '', platform),
-        ])
-        if (!status.video_assembly) continue   // only items with a final video make the queue
-        // Best-effort metadata preview so the UI can render the title.
-        let metaPreview = { title: idea.title || code, description: '', tags: [] as string[], thumbnailPath: '' }
-        try {
-          metaPreview = await resolveUploadMetadata({ slug, episode_code: code, fallback_title: idea.title, platform })
-        } catch { /* preview is cosmetic */ }
-        // Scheduled_for precedence: sidecar (live on YouTube) > local item-schedule map (planned).
-        const scheduled_for = sidecar?.scheduled_for || itemSchedule[code] || null
-        items.push({
-          id: `ep:${code}`,
-          type: 'episode' as const,
-          episode_code: code,
-          title: metaPreview.title || idea.title || code,
-          has_metadata: !!(metaPreview.title && metaPreview.description),
-          has_thumbnail: !!metaPreview.thumbnailPath,
-          uploaded: !!sidecar?.video_id,
-          video_id: sidecar?.video_id || '',
-          video_url: sidecar?.video_id ? `https://youtu.be/${sidecar.video_id}` : '',
-          privacy_status: sidecar?.privacy_status || null,
-          scheduled_for,
-          schedule_source: sidecar?.scheduled_for ? 'synced' : (itemSchedule[code] ? 'planned' : 'none'),
-          last_sync_at: sidecar?.last_sync_at || '',
-          account_id: sidecar?.account_id || '',
-          position: typeof sequence[`ep:${code}`] === 'number' ? sequence[`ep:${code}`] : null,
-        })
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
+    const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.page_size || '10'), 10) || 10))
+    const filter = (String(req.query.filter || 'all') as QueueFilter)
+    const sort = (String(req.query.sort || 'code_asc') as QueueSort)
+    const noCache = req.query.nocache === '1' || req.query.nocache === 'true'
+
+    const ckey = queueCacheKey(slug, platform)
+    const now = Date.now()
+    let index: QueueIndexItem[] | null = null
+    let cacheHit = false
+    if (!noCache) {
+      const hit = queueIndexCache.get(ckey)
+      if (hit && now - hit.ts < QUEUE_INDEX_TTL_MS) {
+        index = hit.items
+        cacheHit = true
       }
     }
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
+    if (!index) {
+      index = await buildQueueIndex(slug, platform)
+      queueIndexCache.set(ckey, { ts: now, items: index })
+    }
 
-    // Merge in project-level imports (Phase 4). A non-destructive scan
-    // runs on every queue fetch so newly-dropped files surface without
-    // requiring the user to click Scan explicitly. The dedicated Scan
-    // button is still useful for moving files + applying naming templates.
-    try {
-      const scan = await uq.scanImports(slug)
-      for (const d of scan.discovered) {
-        const meta = await uq.readImportMeta(d.file_path)
-        items.push({
-          id: d.id,
-          type: 'import' as const,
-          episode_code: '',
-          filename: d.filename,
-          title: meta?.title || d.title,
-          has_metadata: !!(meta?.title && meta?.description),
-          has_thumbnail: false,
-          uploaded: false,
-          video_id: '',
-          video_url: '',
-          privacy_status: null,
-          scheduled_for: itemSchedule[d.id] || null,
-          schedule_source: itemSchedule[d.id] ? 'planned' : 'none',
-          last_sync_at: '',
-          account_id: '',
-          position: d.position,
-          size_bytes: d.size_bytes,
-        })
-      }
-    } catch { /* non-fatal: keep episodes even if the import folder can't be walked */ }
+    const filtered = filterAndSortIndex(index, filter, sort)
+    const total = filtered.length
+    const totalPages = Math.max(1, Math.ceil(total / pageSize))
+    const start = (page - 1) * pageSize
+    const pageSlice = filtered.slice(start, start + pageSize)
+    // Stage 2: only the visible page pays the metadata-preview cost.
+    const items = await enrichPage(slug, platform, pageSlice)
 
-    // Unified sort: explicit `position` first (imports get positions
-    // assigned on scan; episodes use their sequence map entry if the
-    // user has ever reordered). Episodes without a position fall back
-    // to episode_code natural sort. Imports always have positions.
-    items.sort((a, b) => {
-      const ap = a.position, bp = b.position
-      if (typeof ap === 'number' && typeof bp === 'number') return ap - bp
-      if (typeof ap === 'number') return -1
-      if (typeof bp === 'number') return 1
-      return (a.episode_code || '').localeCompare(b.episode_code || '', undefined, { numeric: true })
+    res.json({
+      items,
+      total,
+      total_unfiltered: index.length,
+      page,
+      page_size: pageSize,
+      total_pages: totalPages,
+      filter,
+      sort,
+      cached: cacheHit,
     })
-    res.json({ items })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to load queue'))
   }
@@ -784,31 +931,117 @@ router.get('/projects/:slug/episodes/:code/imported/folder', async (req, res) =>
 // candidates for the per-episode import flow. The UI renders them as a
 // separate section below the main queue so the user can drop external
 // renders for them.
+// Same TTL as the queue index cache — same scan cost, same staleness
+// tolerance. Busted on legacy-uploaded changes (see endpoints below).
+const MISSING_VIDEO_TTL_MS = 5 * 60_000
+const missingVideoCache = new Map<string, { ts: number; episodes: Array<{ episode_code: string; title: string }> }>()
+
 router.get('/projects/:slug/upload/missing-video', async (req, res) => {
   try {
     const slug = req.params.slug
     if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-    const ideas = await im.getIdeas(slug, 'accepted')
-    const out: Array<{ episode_code: string; title: string }> = []
-    const CONCURRENCY = 8
-    const queue = ideas.filter(i => i.episode_code)
-    let cursor = 0
-    async function worker() {
-      while (cursor < queue.length) {
-        const i = cursor++
-        const idea = queue[i]
-        if (!idea?.episode_code) continue
-        const status = await computeEpisodeStatus(slug, idea.episode_code)
-        if (!status.video_assembly) {
-          out.push({ episode_code: idea.episode_code, title: idea.title || idea.episode_code })
+    const noCache = req.query.nocache === '1' || req.query.nocache === 'true'
+
+    // Episodes the user manually marked as "uploaded elsewhere".
+    const config = await pm.getConfig(slug) as any
+    const legacyUploaded: Record<string, boolean> = (config?.youtube_legacy_uploaded || {})
+
+    const now = Date.now()
+    let episodes: Array<{ episode_code: string; title: string }> | null = null
+    if (!noCache) {
+      const hit = missingVideoCache.get(slug)
+      if (hit && now - hit.ts < MISSING_VIDEO_TTL_MS) episodes = hit.episodes
+    }
+    if (!episodes) {
+      const ideas = await im.getIdeas(slug, 'accepted')
+      const out: Array<{ episode_code: string; title: string }> = []
+      const CONCURRENCY = 32
+      const queue = ideas.filter(i => i.episode_code)
+      let cursor = 0
+      async function worker() {
+        while (cursor < queue.length) {
+          const i = cursor++
+          const idea = queue[i]
+          if (!idea?.episode_code) continue
+          // Fast check (Path A only) + sidecar in parallel. Same shape as
+          // buildQueueIndex — episodes uploaded to YouTube don't count
+          // as "missing" even if the local file was deleted.
+          const [hasFinal, sidecar] = await Promise.all([
+            hasFinalVideoFast(slug, idea.episode_code, idea.title || ''),
+            readSidecar(slug, idea.episode_code, idea.title || '', 'youtube'),
+          ])
+          if (!hasFinal && !sidecar?.video_id) {
+            out.push({ episode_code: idea.episode_code, title: idea.title || idea.episode_code })
+          }
         }
       }
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
+      out.sort((a, b) => a.episode_code.localeCompare(b.episode_code, undefined, { numeric: true }))
+      episodes = out
+      missingVideoCache.set(slug, { ts: now, episodes })
     }
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
-    out.sort((a, b) => a.episode_code.localeCompare(b.episode_code, undefined, { numeric: true }))
-    res.json({ episodes: out })
+
+    // Filter out legacy-uploaded after the cache hit so the user gets
+    // immediate feedback when they mark/unmark without invalidating the
+    // expensive scan cache.
+    const filtered = episodes.filter(ep => !legacyUploaded[ep.episode_code])
+    res.json({
+      episodes: filtered,
+      legacy_uploaded_count: Object.keys(legacyUploaded).filter(k => legacyUploaded[k]).length,
+    })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to list missing-video episodes'))
+  }
+})
+
+// Mark / unmark an episode as "already uploaded elsewhere" — used for
+// legacy episodes (uploaded to YouTube years before Story Studio, where
+// no video file exists locally). Just a flag; no URL needed because the
+// names on YouTube vs on disk often differ enough that linking them
+// wouldn't be reliable. Reversible via { mark: false }.
+router.post('/projects/:slug/upload/mark-legacy-uploaded', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const episodeCode = typeof req.body?.episode_code === 'string' ? req.body.episode_code.trim() : ''
+    if (!episodeCode) return res.status(400).json({ detail: 'episode_code is required' })
+    const mark = req.body?.mark !== false   // default true; pass false to unmark
+
+    const config = await pm.getConfig(slug) as any
+    const current: Record<string, boolean> = (config?.youtube_legacy_uploaded || {})
+    if (mark) current[episodeCode] = true
+    else delete current[episodeCode]
+
+    await pm.updateConfig(slug, { youtube_legacy_uploaded: current } as any)
+    // Bust the queue cache so the next /upload/queue call sees the change.
+    queueIndexCache.delete(queueCacheKey(slug, 'youtube'))
+    res.json({ ok: true, marked: mark, episode_code: episodeCode, total_legacy: Object.keys(current).length })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to update legacy-uploaded flag'))
+  }
+})
+
+// Bulk variant — takes an array of episode_codes. Cheaper than N round-trips
+// when the user has 50+ legacy episodes to mark in one go.
+router.post('/projects/:slug/upload/mark-legacy-uploaded-bulk', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const codes = Array.isArray(req.body?.episode_codes) ? req.body.episode_codes.filter((c: any) => typeof c === 'string' && c.trim()) : []
+    if (!codes.length) return res.status(400).json({ detail: 'episode_codes (array) is required' })
+    const mark = req.body?.mark !== false
+
+    const config = await pm.getConfig(slug) as any
+    const current: Record<string, boolean> = (config?.youtube_legacy_uploaded || {})
+    for (const code of codes) {
+      if (mark) current[code.trim()] = true
+      else delete current[code.trim()]
+    }
+    await pm.updateConfig(slug, { youtube_legacy_uploaded: current } as any)
+    queueIndexCache.delete(queueCacheKey(slug, 'youtube'))
+    res.json({ ok: true, marked: mark, count: codes.length, total_legacy: Object.keys(current).length })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to bulk-update legacy-uploaded flags'))
   }
 })
 
