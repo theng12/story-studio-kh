@@ -763,7 +763,7 @@ function metadataFilenames(code: string, version: number): { json: string; txt: 
 
 router.post('/projects/:slug/generate/metadata/save', async (req, res) => {
   const { slug } = req.params
-  const { episode_id, title, metadata_title, description, tags, save_mode, version } = req.body
+  const { episode_id, title, metadata_title, title_options, description, tags, save_mode, version } = req.body
   try {
     const dir = await getMetadataDir(slug, episode_id, title)
     const files = await fs.readdir(dir).catch(() => [])
@@ -775,8 +775,18 @@ router.post('/projects/:slug/generate/metadata/save', async (req, res) => {
       writeVersion = version || 1
     }
 
+    // Preserve AI-generated title alternatives across saves so a user who
+    // overwrites v1 from the metadata page doesn't accidentally wipe the
+    // 4 alternates the pipeline saved alongside the picked title. The page
+    // round-trips them in the body (loaded → kept → saved); fall back to a
+    // single-entry list if the client didn't send them.
+    const cleanTitleOptions: string[] = Array.isArray(title_options)
+      ? title_options.filter((t: unknown): t is string => typeof t === 'string' && t.trim() !== '')
+      : (metadata_title ? [String(metadata_title)] : [])
+
     const meta = {
       title: metadata_title || '',
+      title_options: cleanTitleOptions,
       description: description || '',
       tags: Array.isArray(tags) ? tags : [],
       savedAt: new Date().toISOString(),
@@ -818,6 +828,13 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
         versions.push({
           version: v,
           title: data.title || '',
+          // Pipeline runs save all AI-generated alternatives so the user can
+          // later pick a different one without re-generating. May be absent
+          // on metadata files saved by older builds — fall back to a single
+          // entry derived from the active title.
+          title_options: Array.isArray(data.title_options) && data.title_options.length
+            ? data.title_options
+            : (data.title ? [data.title] : []),
           description: data.description || '',
           tags: Array.isArray(data.tags) ? data.tags : [],
           savedAt: data.savedAt || null,

@@ -448,7 +448,7 @@ const preview = reactive({
   description: '',
   tags: [] as string[],
 })
-const versions = ref<Array<{ version: number; title: string; description: string; tags: string[]; savedAt: string | null }>>([])
+const versions = ref<Array<{ version: number; title: string; title_options?: string[]; description: string; tags: string[]; savedAt: string | null }>>([])
 const selectedVersion = ref<number>(1)
 
 // Section builder
@@ -723,10 +723,17 @@ async function loadExistingMetadata() {
   }
 }
 
-function applyVersion(v: { title: string; description: string; tags: string[] }) {
+function applyVersion(v: { title: string; title_options?: string[]; description: string; tags: string[] }) {
   preview.title = v.title || ''
   preview.description = v.description || ''
   preview.tags = Array.isArray(v.tags) ? [...v.tags] : []
+  // Restore the AI-generated title alternatives if the saved version
+  // includes them (pipeline runs always do; on-page runs do too if the
+  // user hasn't cleared them). Lets the user pick a different title
+  // later without re-running generation.
+  if (Array.isArray(v.title_options) && v.title_options.length) {
+    titleOptions.value = [...v.title_options]
+  }
 }
 
 function loadVersion() {
@@ -927,6 +934,10 @@ const autoSave = useAutoSave({
       episode_id: episodeId.value,
       title: selectedEpisode.value?.title || '',
       metadata_title: preview.title,
+      // Round-trip the AI-generated title alternatives so an overwrite save
+      // doesn't wipe the alternates the pipeline saved. The backend defaults
+      // to a single-entry list if we don't send anything.
+      title_options: titleOptions.value,
       description: preview.description,
       tags: preview.tags,
       // First save in a session → new version. Re-saves in the same session

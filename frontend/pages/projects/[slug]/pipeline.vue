@@ -73,11 +73,55 @@
     <div class="card mt-2">
       <div class="flex items-center justify-between" style="flex-wrap:wrap; gap:8px">
         <h3>Episodes</h3>
-        <div class="flex gap-2" style="flex-wrap:wrap">
+        <div class="ep-actions-row">
+          <!-- Bulk mark/unmark — only visible when there's a selection so
+               the row stays uncluttered for the common (no-selection) case.
+               Sit at the front because they act on the current selection
+               and the user thinks "what do I do with these checked rows?"
+               left-to-right. -->
+          <template v-if="selectedEpisodes.size > 0">
+            <button
+              class="btn btn-sm btn-secondary"
+              :disabled="bulkMarking"
+              :title="`Mark all ${selectedEpisodes.size} selected episode(s) as already done. Asks for confirmation. Reversible.`"
+              @click="bulkMarkSelected(true)"
+            >
+              {{ bulkMarking ? 'Working…' : `✓ Mark ${selectedEpisodes.size} as done` }}
+            </button>
+            <button
+              class="btn btn-sm btn-secondary"
+              :disabled="bulkMarking"
+              :title="`Unmark all ${selectedEpisodes.size} selected episode(s). Asks for confirmation. Status falls back to file detection.`"
+              @click="bulkMarkSelected(false)"
+            >
+              ↻ Unmark {{ selectedEpisodes.size }}
+            </button>
+            <span class="ep-actions-divider" aria-hidden="true" />
+          </template>
+
+          <!-- Global selection (across all pages, respects current filter) -->
           <button class="btn btn-sm btn-secondary" :title="selectButtonTitle" @click="selectAllPending">Select all pending</button>
           <button class="btn btn-sm btn-secondary" :title="selectAllTitle" @click="selectAll">Select all</button>
+
+          <span class="ep-actions-divider" aria-hidden="true" />
+
+          <!-- Page-scoped selection — quick way to grab just the visible
+               page so you can review + mark-done one page at a time. -->
+          <button
+            class="btn btn-sm btn-secondary"
+            title="Select only the episodes visible on this page (respects current sort + filter)."
+            @click="selectAllOnPage"
+          >Select page</button>
+          <button
+            class="btn btn-sm btn-secondary"
+            title="Select only this page's episodes that still need at least one core step. Adds to the existing selection."
+            @click="selectAllPendingOnPage"
+          >Select pending on page</button>
+
+          <span class="ep-actions-divider" aria-hidden="true" />
+
           <button class="btn btn-sm btn-secondary" @click="selectNone">Clear</button>
-          <button class="btn btn-sm btn-ghost" :disabled="epLoading" @click="loadEpisodes">
+          <button class="btn btn-sm btn-ghost" :disabled="epLoading" @click="loadEpisodes" title="Re-scan the file system to refresh each episode's detected status. Useful after copying files in manually or after unmarking.">
             {{ epLoading ? 'Refreshing…' : '↻ Refresh' }}
           </button>
         </div>
@@ -90,6 +134,26 @@
            so selecting across multiple pages or after filter changes keeps
            the user's intent intact. -->
       <div v-if="episodes.length" class="episode-toolbar mt-2">
+        <!-- Search by episode code or title. Mirrors the Ideas page's search
+             box at the front of its filter row. Empty = no filter. -->
+        <div class="toolbar-group toolbar-search">
+          <input
+            v-model="searchQuery"
+            class="input input-sm pipeline-search-input"
+            type="search"
+            placeholder="Search episode code or title…"
+            title="Filter the list to episodes whose code or title contains this text. Combines with the Show filter on the right."
+          />
+          <button
+            v-if="searchQuery"
+            type="button"
+            class="search-clear-btn"
+            title="Clear search"
+            aria-label="Clear search"
+            @click="searchQuery = ''"
+          >✕</button>
+        </div>
+
         <div class="toolbar-group">
           <label class="toolbar-label">Sort</label>
           <select v-model="sortKey" class="select input-sm">
@@ -217,56 +281,72 @@
               :aria-expanded="openKebabFor === ep.episode_code"
               :aria-label="`Actions for ${ep.episode_code}`"
               title="More actions"
-              @click="toggleKebab(ep.episode_code)"
+              @click="toggleKebab(ep.episode_code, $event)"
             >⋮</button>
-            <div v-if="openKebabFor === ep.episode_code" class="kebab-menu" role="menu">
-              <button
-                v-if="!ep.marked_done"
-                class="kebab-item"
-                role="menuitem"
-                @click="onMarkDone(ep, true)"
+            <!-- Teleport to <body> with fixed positioning so the menu can
+                 never be clipped by the surrounding scroll container or
+                 the page-content overflow. positionKebabFor() computes
+                 top/left from the trigger's bounding rect when opening,
+                 and auto-flips upward if there's not enough room below. -->
+            <Teleport to="body">
+              <div
+                v-if="openKebabFor === ep.episode_code && kebabPos"
+                class="kebab-menu"
+                role="menu"
+                :style="{
+                  top: kebabPos.top + 'px',
+                  left: kebabPos.left + 'px',
+                  width: kebabPos.width + 'px',
+                }"
               >
-                <span class="kebab-icon">✓</span>
-                <div class="kebab-body">
-                  <strong>Mark as already done</strong>
-                  <span class="kebab-hint">Stop the pipeline from nagging about this episode. Useful for YouTube imports.</span>
-                </div>
-              </button>
-              <button
-                v-else
-                class="kebab-item"
-                role="menuitem"
-                @click="onMarkDone(ep, false)"
-              >
-                <span class="kebab-icon">↻</span>
-                <div class="kebab-body">
-                  <strong>Unmark — revert to file detection</strong>
-                  <span class="kebab-hint">Drop the manual override. Asset state will reflect what's actually on disk.</span>
-                </div>
-              </button>
-              <button
-                class="kebab-item"
-                role="menuitem"
-                @click="openImportFor(ep)"
-              >
-                <span class="kebab-icon">📥</span>
-                <div class="kebab-body">
-                  <strong>Import existing assets…</strong>
-                  <span class="kebab-hint">Copy weirdly-named files from disk into the canonical episode folders.</span>
-                </div>
-              </button>
-              <button
-                class="kebab-item"
-                role="menuitem"
-                @click="openOverridesFor(ep)"
-              >
-                <span class="kebab-icon">⚙</span>
-                <div class="kebab-body">
-                  <strong>Edit asset overrides…</strong>
-                  <span class="kebab-hint">Pin individual asset states (Force ✓ / Force ✗ / Detect) for this episode.</span>
-                </div>
-              </button>
-            </div>
+                <button
+                  v-if="!ep.marked_done"
+                  class="kebab-item"
+                  role="menuitem"
+                  @click="onMarkDone(ep, true)"
+                >
+                  <span class="kebab-icon">✓</span>
+                  <div class="kebab-body">
+                    <strong>Mark as already done</strong>
+                    <span class="kebab-hint">Stop the pipeline from nagging about this episode. Useful for YouTube imports.</span>
+                  </div>
+                </button>
+                <button
+                  v-else
+                  class="kebab-item"
+                  role="menuitem"
+                  @click="onMarkDone(ep, false)"
+                >
+                  <span class="kebab-icon">↻</span>
+                  <div class="kebab-body">
+                    <strong>Unmark — revert to file detection</strong>
+                    <span class="kebab-hint">Drop the manual override. Asset state will reflect what's actually on disk.</span>
+                  </div>
+                </button>
+                <button
+                  class="kebab-item"
+                  role="menuitem"
+                  @click="openImportFor(ep)"
+                >
+                  <span class="kebab-icon">📥</span>
+                  <div class="kebab-body">
+                    <strong>Import existing assets…</strong>
+                    <span class="kebab-hint">Copy weirdly-named files from disk into the canonical episode folders.</span>
+                  </div>
+                </button>
+                <button
+                  class="kebab-item"
+                  role="menuitem"
+                  @click="openOverridesFor(ep)"
+                >
+                  <span class="kebab-icon">⚙</span>
+                  <div class="kebab-body">
+                    <strong>Edit asset overrides…</strong>
+                    <span class="kebab-hint">Pin individual asset states (Force ✓ / Force ✗ / Detect) for this episode.</span>
+                  </div>
+                </button>
+              </div>
+            </Teleport>
           </div>
         </label>
       </div>
@@ -380,6 +460,7 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, patch: patchApi } = useApi()
 const { success, error: showError } = useToast()
+const { ask } = useConfirm()
 const { config } = useProject()
 
 // ── Step metadata ──────────────────────────────────────────────────────
@@ -555,6 +636,14 @@ function selectNone() {
   selectedEpisodes.clear()
 }
 
+// Page-scoped variants. Identical logic to selectAll / selectAllPending
+// but operate on `paginatedEpisodes` (just the visible 10/20/50/100) so
+// the user can mark-done one page at a time without dragging in episodes
+// they haven't reviewed yet on later pages.
+function selectAllOnPage() {
+  for (const ep of paginatedEpisodes.value) selectedEpisodes.add(ep.episode_code)
+}
+
 // ── Sort + filter + pagination ───────────────────────────────────────────
 // All client-side — `episodes.value` is the full list from /episodes,
 // these refs derive what's rendered. Designed for projects with 100+
@@ -592,6 +681,9 @@ const sortKey = ref<SortKey>('code-asc')
 const filterMode = ref<FilterMode>('all')
 const pageSize = ref<10 | 20 | 50 | 100>(10)
 const currentPage = ref(1)
+// Free-text search across episode_code + title. Mirrors the Ideas page's
+// search box. Pure derivation; no network call. Empty string = no filter.
+const searchQuery = ref('')
 
 // Count missing CORE steps per episode. Video (AI per-scene generation)
 // is opt-in and costly, so it's excluded. video_assembly IS included —
@@ -633,6 +725,16 @@ const sortedFilteredEpisodes = computed<Episode[]>(() => {
     filtered = episodes.value.filter(ep => missingCoreSteps(ep) > 0)
   } else {
     filtered = episodes.value.slice()
+  }
+  // Free-text narrow on episode_code + title. Case-insensitive substring
+  // match. Composes after the dropdown filter so "Missing audio" + "TN0042"
+  // does what you'd expect.
+  const q = searchQuery.value.trim().toLowerCase()
+  if (q) {
+    filtered = filtered.filter(ep =>
+      (ep.episode_code || '').toLowerCase().includes(q)
+      || (ep.title || '').toLowerCase().includes(q),
+    )
   }
   const sorted = filtered.slice()
   switch (sortKey.value) {
@@ -703,7 +805,7 @@ function goToPage(n: number) {
 
 // Reset to page 1 whenever filter, sort, or page-size changes — otherwise
 // the user can land on an empty page after the list shrinks.
-watch([filterMode, sortKey, pageSize], () => { currentPage.value = 1 })
+watch([filterMode, sortKey, pageSize, searchQuery], () => { currentPage.value = 1 })
 
 // Clamp if the filtered list shrinks below the current page (e.g. episode
 // finished and was filtered out of the missing-only view).
@@ -765,6 +867,20 @@ function selectAllPending() {
   }
 }
 
+// Page-scoped variant — same pending logic, scoped to just the visible
+// page. Doesn't clear existing selection so the user can build a working
+// set across pages if they really want to.
+function selectAllPendingOnPage() {
+  const EXCLUDED_FROM_PENDING: StepId[] = ['video']
+  for (const ep of paginatedEpisodes.value) {
+    const needsAny = checkedStepsOrdered.value.some(step => {
+      if (EXCLUDED_FROM_PENDING.includes(step.id)) return false
+      return !isStepDoneForEpisode(step.id, ep.status)
+    })
+    if (needsAny) selectedEpisodes.add(ep.episode_code)
+  }
+}
+
 // ── Mark-done kebab menu ────────────────────────────────────────────────
 // Per-episode action menu wired to the new mark-done route. Closes on any
 // document click that isn't on a kebab trigger/menu — single global handler
@@ -773,12 +889,51 @@ function selectAllPending() {
 const openKebabFor = ref<string | null>(null)
 const markingDone = ref<Set<string>>(new Set())
 
-function toggleKebab(code: string) {
-  openKebabFor.value = openKebabFor.value === code ? null : code
+// Teleport-to-body coords for the kebab menu. Computed from the trigger
+// button's bounding rect when the menu opens. Lets the menu escape the
+// scrolling Episodes container (otherwise the menu on the last visible
+// row gets clipped by the parent's overflow). Auto-flips upward when
+// there's not enough room below the trigger.
+const kebabPos = ref<{ top: number; left: number; width: number } | null>(null)
+const KEBAB_MENU_WIDTH = 300         // matches min-width below + padding
+const KEBAB_MENU_MAX_HEIGHT = 220    // tallest the menu gets with 4 items
+const KEBAB_GAP = 4                  // px between trigger and menu
+
+function positionKebabFor(triggerEl: HTMLElement) {
+  const r = triggerEl.getBoundingClientRect()
+  // Right-align the menu under the trigger by default.
+  let left = r.right - KEBAB_MENU_WIDTH
+  // Clamp to viewport with an 8px gutter so a narrow window still shows it fully.
+  left = Math.max(8, Math.min(left, window.innerWidth - KEBAB_MENU_WIDTH - 8))
+  // Auto-flip: if there's not enough space below, position above.
+  const spaceBelow = window.innerHeight - r.bottom
+  let top: number
+  if (spaceBelow < KEBAB_MENU_MAX_HEIGHT + KEBAB_GAP) {
+    top = r.top - KEBAB_GAP - KEBAB_MENU_MAX_HEIGHT
+    // If above is also tight (extreme tiny window), pin to viewport top.
+    if (top < 8) top = 8
+  } else {
+    top = r.bottom + KEBAB_GAP
+  }
+  kebabPos.value = { top, left, width: KEBAB_MENU_WIDTH }
+}
+
+function toggleKebab(code: string, ev?: MouseEvent) {
+  if (openKebabFor.value === code) {
+    openKebabFor.value = null
+    kebabPos.value = null
+    return
+  }
+  openKebabFor.value = code
+  // Position the teleported menu against the actual trigger button. The
+  // event target is the <button class="kebab-trigger"> the user clicked.
+  const trigger = ev?.currentTarget as HTMLElement | undefined
+  if (trigger) positionKebabFor(trigger)
 }
 
 function closeKebab() {
   openKebabFor.value = null
+  kebabPos.value = null
 }
 
 function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
@@ -866,24 +1021,128 @@ async function onMarkDone(ep: Episode, done: boolean) {
   }
 }
 
-// Outside-click handler — close kebab when clicking anywhere that isn't a
-// kebab trigger/menu. Mounted once at component setup time (Vue auto-cleans
-// on unmount via watchEffect's cleanup). Keydown Escape also closes.
+// ── Bulk mark/unmark (operates on the current checkbox selection) ──────
+// Sequential with a small concurrency cap so we don't fire 100 PATCH
+// requests at once if the user selects everything. Per-episode failures
+// don't block the rest — we collect counts and surface them in a toast
+// at the end.
+const bulkMarking = ref(false)
+
+async function bulkMarkSelected(done: boolean) {
+  if (bulkMarking.value) return
+  const codes = Array.from(selectedEpisodes)
+  if (!codes.length) return
+
+  // Filter out no-ops (already in target state) so the confirm count and
+  // the toast counts both reflect actual work.
+  const toUpdate: Episode[] = []
+  let alreadyInState = 0
+  for (const code of codes) {
+    const ep = episodes.value.find(e => e.episode_code === code)
+    if (!ep) continue
+    if (!!ep.marked_done === done) alreadyInState++
+    else toUpdate.push(ep)
+  }
+
+  if (!toUpdate.length) {
+    success(done
+      ? `All ${alreadyInState} selected episode(s) are already marked done.`
+      : `None of the ${alreadyInState} selected episode(s) are currently marked done.`,
+    )
+    return
+  }
+
+  // Confirm dialog — same pattern as the existing per-episode flow uses
+  // (TopActionBar's preset delete). danger=true gives the destructive-action
+  // styling. Spell out exactly what the action does so the user can't be
+  // surprised by it.
+  const ok = await ask({
+    title: done
+      ? `Mark ${toUpdate.length} episode(s) as already done?`
+      : `Unmark ${toUpdate.length} episode(s)?`,
+    message: done
+      ? `Stops the pipeline from nagging about ${toUpdate.length} episode${toUpdate.length === 1 ? '' : 's'}. ${alreadyInState ? `(${alreadyInState} already-marked episode${alreadyInState === 1 ? '' : 's'} in the selection will be skipped.)` : ''} No files are deleted — fully reversible from the per-episode menu or with "Unmark selected".`
+      : `Drops the manual override on ${toUpdate.length} episode${toUpdate.length === 1 ? '' : 's'} so their status reflects what's actually on disk. ${alreadyInState ? `(${alreadyInState} unmarked episode${alreadyInState === 1 ? '' : 's'} in the selection will be skipped.)` : ''} No files are deleted.`,
+    confirmLabel: done ? 'Mark done' : 'Unmark',
+    danger: !done,    // unmark feels more destructive (drops an override the user explicitly set)
+  })
+  if (!ok) return
+
+  bulkMarking.value = true
+  let okCount = 0
+  let failCount = 0
+  const CONCURRENCY = 5
+  try {
+    // Optimistic flip across the batch first so the UI feels snappy. We
+    // roll back failed ones below.
+    for (const ep of toUpdate) ep.marked_done = done
+    for (const ep of toUpdate) markingDone.value.add(ep.episode_code)
+
+    // Run in chunks of CONCURRENCY at a time. Promise.all per chunk keeps
+    // the loop simple without needing a real concurrency-limiter library.
+    for (let i = 0; i < toUpdate.length; i += CONCURRENCY) {
+      const chunk = toUpdate.slice(i, i + CONCURRENCY)
+      const results = await Promise.all(chunk.map(async (ep) => {
+        try {
+          await patchApi(`/projects/${slug.value}/episodes/${ep.episode_code}/mark-done`, { done })
+          return { ep, ok: true }
+        } catch (e: any) {
+          return { ep, ok: false, err: e?.data?.detail || e?.message }
+        }
+      }))
+      for (const r of results) {
+        if (r.ok) okCount++
+        else { failCount++; r.ep.marked_done = !done /* rollback */ }
+      }
+    }
+
+    // Pull the server's recomputed override-applied status. Same reasoning
+    // as the single-episode handler — file-detection pills haven't changed
+    // locally so we need a refetch to see the truth.
+    await refreshEpisodes()
+
+    const verb = done ? 'marked done' : 'unmarked'
+    if (failCount === 0) {
+      success(`${okCount} episode${okCount === 1 ? '' : 's'} ${verb}${alreadyInState ? ` · ${alreadyInState} skipped (already in state)` : ''}.`)
+    } else if (okCount === 0) {
+      showError(`Bulk ${verb} failed for all ${failCount} episode(s). Check the network or backend.`)
+    } else {
+      showError(`${okCount} ${verb}, ${failCount} failed${alreadyInState ? `, ${alreadyInState} skipped` : ''}. Failed rows reverted.`)
+    }
+  } finally {
+    for (const ep of toUpdate) markingDone.value.delete(ep.episode_code)
+    bulkMarking.value = false
+  }
+}
+
+// Outside-click + scroll + key handlers. The menu is teleported to <body>
+// with fixed positioning, so:
+//   - outside-click test must accept clicks inside .kebab-menu (it's no
+//     longer a descendant of .ep-kebab in the DOM tree)
+//   - we close on scroll because fixed positioning leaves the menu
+//     anchored to the viewport, not the trigger — when the user scrolls
+//     the row away, the menu would otherwise float orphaned. Closing is
+//     simpler than re-positioning continuously and matches native menus.
 if (typeof window !== 'undefined') {
   const onDocClick = (e: MouseEvent) => {
     if (!openKebabFor.value) return
     const t = e.target as HTMLElement | null
-    if (t && t.closest('.ep-kebab')) return
+    if (t && (t.closest('.ep-kebab') || t.closest('.kebab-menu'))) return
     closeKebab()
   }
   const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeKebab() }
+  // Capture phase so we catch scroll events on any ancestor (the
+  // <main class="main-content"> scroll container, the window, etc.).
+  const onScroll = () => { if (openKebabFor.value) closeKebab() }
   onMounted(() => {
     document.addEventListener('click', onDocClick)
     document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onScroll, true)
   })
   onBeforeUnmount(() => {
     document.removeEventListener('click', onDocClick)
     document.removeEventListener('keydown', onKey)
+    window.removeEventListener('scroll', onScroll, true)
   })
 }
 
@@ -1078,6 +1337,51 @@ async function submit() {
   color: var(--text-muted);
   font-weight: 500;
 }
+
+/* Episode-actions row — same flex layout as the inline `.flex.gap-2` it
+   replaced, but with a defined class so we can style the dividers. */
+.ep-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+/* Visual divider between groups (bulk · global · page · clear/refresh).
+   Thin vertical bar, slightly muted, just enough to read at a glance. */
+.ep-actions-divider {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+/* Search input + clear button. Sits at the front of the toolbar so it
+   reads naturally left-to-right ("find in this list, then sort/filter"). */
+.toolbar-search {
+  position: relative;
+  flex: 1 1 240px;
+  max-width: 320px;
+}
+.pipeline-search-input {
+  width: 100%;
+  padding-right: 26px;          /* leave room for the ✕ button */
+}
+.search-clear-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.search-clear-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
 .toolbar-count {
   margin-left: auto;
   color: var(--text-muted);
@@ -1219,17 +1523,28 @@ async function submit() {
   border-color: var(--border);
   color: var(--text-primary);
 }
+/* Kebab menu pane + items live in the unscoped <style> block at the
+   bottom of this file. The menu is teleported to <body>, which puts it
+   outside this scoped style scope (no data-v-* attribute on its DOM),
+   so the styles need to be global to apply. */
+</style>
+
+<!-- Unscoped — applies to the kebab menu after it teleports to <body>.
+     Anything still in DOM-tree-scope (.ep-kebab, .kebab-trigger) lives
+     above in the scoped block. -->
+<style>
 .kebab-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 20;
+  position: fixed;             /* teleported; coords come from kebabPos */
+  z-index: 250;
   min-width: 280px;
   padding: 4px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: 10px;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 .kebab-item {
   display: flex;
@@ -1239,10 +1554,11 @@ async function submit() {
   padding: 8px 10px;
   background: transparent;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   text-align: left;
   cursor: pointer;
   color: var(--text-primary);
+  font-family: inherit;
   transition: background 0.1s;
 }
 .kebab-item:hover { background: var(--bg-tertiary); }
@@ -1254,7 +1570,12 @@ async function submit() {
   text-align: center;
   margin-top: 1px;
 }
-.kebab-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kebab-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
 .kebab-body strong { font-size: 13px; font-weight: 600; }
 .kebab-hint { font-size: 11px; color: var(--text-muted); line-height: 1.35; }
 </style>

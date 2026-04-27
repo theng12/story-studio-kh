@@ -162,7 +162,7 @@ Requirements:
       .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim())
       .filter(Boolean)
       .slice(0, title_count)
-    job.output_lines.push(`  → ${titles.length} title(s); picking first: "${titles[0] || '(none)'}"`)
+    job.output_lines.push(`  → ${titles.length} title(s); picking first: "${titles[0] || '(none)'}" (others saved as alternatives)`)
 
     // ── 3. Tags ─────────────────────────────────────────────────────────
     job.output_lines.push(`Generating ${tag_count} tag(s)…`)
@@ -193,6 +193,10 @@ Requirements:
 
     const meta = {
       title: titles[0] || title,    // auto-pick the first title for batch mode
+      // Preserve all AI-generated title options so the user can pick a different
+      // one later from the metadata page without re-running generation. The
+      // metadata page hydrates its title-picker from this array on load.
+      title_options: titles.length ? titles : (title ? [title] : []),
       description,
       tags,
       savedAt: new Date().toISOString(),
