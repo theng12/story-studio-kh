@@ -116,57 +116,6 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
   res.status(201).json(job)
 })
 
-// ── Script style preset — analyze pasted reference scripts ──
-//
-// The Reference Styles panel on scripts.vue calls this endpoint with 1–5
-// pasted reference scripts. It asks the LLM to extract format/style/tone/
-// structure patterns so the user can later save them as a project-scoped
-// preset and have script generation follow that template. The analysis
-// fields are editable — the LLM output is a starting point, not final.
-router.post('/projects/:slug/presets/script-style/analyze', async (req, res) => {
-  try {
-    const { slug } = req.params
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-    const config = await pm.getConfig(slug)
-    if (!config) return res.status(400).json({ detail: 'Project config missing' })
-
-    const references = Array.isArray(req.body?.references) ? req.body.references : []
-    if (!references.length) return res.status(400).json({ detail: 'At least one reference script is required' })
-    if (references.length > 5) return res.status(400).json({ detail: 'Up to 5 reference scripts are supported' })
-
-    // Prefer Claude for long-form analysis (handles long contexts better);
-    // fall back to OpenAI if that's what the user has configured.
-    const claudeKey = (config as any).anthropic_api_key || ''
-    const openaiKey = (config as any).openai_api_key || ''
-    const requestedModel: string = typeof req.body?.model === 'string' ? req.body.model : ''
-    let model = requestedModel
-    let apiKey = ''
-    if (!model) {
-      if (claudeKey) { model = 'claude-sonnet-4-6'; apiKey = claudeKey }
-      else if (openaiKey) { model = 'gpt-4o'; apiKey = openaiKey }
-      else return res.status(400).json({ detail: 'No Anthropic or OpenAI API key configured. Add one in Settings.' })
-    } else if (model.startsWith('claude')) {
-      apiKey = claudeKey
-    } else if (model.startsWith('gpt')) {
-      apiKey = openaiKey
-    }
-    if (!apiKey) return res.status(400).json({ detail: `No API key configured for ${model}. Add one in Settings.` })
-
-    const { analyzeScriptStyle } = await import('../lib/script-style-analyzer.js')
-    const result = await analyzeScriptStyle({
-      references: references.map((r: any) => ({
-        label: typeof r?.label === 'string' ? r.label : '',
-        text: typeof r?.text === 'string' ? r.text : '',
-      })),
-      model,
-      apiKey,
-    })
-    res.json(result)
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Style analysis failed'))
-  }
-})
-
 // ── Get script content for preview ──
 
 router.get('/projects/:slug/episodes/:episodeId/script-content', async (req, res) => {

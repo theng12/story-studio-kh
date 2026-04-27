@@ -30,11 +30,12 @@ import { useApi } from './useApi.js'
 // it undefined and are treated as 'all'. New presets are tagged by
 // `usePresets({ presetType })` so the picker can filter per-section.
 //
-// `script-style` (added 2026) captures format/style/tone derived from
-// reference scripts the user pastes in — project-specific. Future types
-// (art-style, prompt-style, etc.) slot in via this union without schema
-// changes; they share the `configKey` storage pattern.
-export type PresetType = 'script' | 'introduction' | 'script-style' | 'art-style' | 'prompt-style' | 'all'
+// Future types (art-style, prompt-style, etc.) slot in via this union
+// without schema changes; they share the `configKey` storage pattern.
+// (`script-style` was a 2026 experiment that lived in the Script Generator's
+// "Reference Styles" panel — removed in favour of the more general Format
+// system + FormatFromSampleWizard, which cover the same need at a better scope.)
+export type PresetType = 'script' | 'introduction' | 'art-style' | 'prompt-style' | 'all'
 export interface Preset { id: string; name: string; data: any; type?: PresetType }
 
 export interface UsePresetsOptions<T> {

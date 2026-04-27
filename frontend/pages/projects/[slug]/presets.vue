@@ -123,15 +123,6 @@ const groupsMeta: Omit<PresetGroup, 'items'>[] = [
     editLink: '/scripts',
   },
   {
-    key: 'script-style',
-    label: 'Script Style (Reference)',
-    icon: '🎭',
-    hint: 'Format/style/tone/structure extracted from pasted reference scripts.',
-    configKey: 'script_style',
-    typeFilter: 'script-style',
-    editLink: '/scripts',
-  },
-  {
     key: 'image_prompts',
     label: 'Image Prompts',
     icon: '🎨',
