@@ -317,10 +317,34 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
  * array (the loader rejects formats with malformed examples, so they're safe
  * to embed).
  */
-function buildPastePrompt(format: Format): string {
+function buildPastePrompt(
+  format: Format,
+  pattern?: Pattern | null,
+  patternSubject?: string,
+): string {
   const exampleJson = format.idea.exampleIdeas?.length
     ? JSON.stringify(format.idea.exampleIdeas, null, 2)
     : '[\n  // (no examples in this format — match the shape above)\n]'
+
+  // Pattern guidance — same shape as the in-app generate flow uses
+  // (see buildIdeasPrompt above) so a paste-into-ChatGPT run produces
+  // ideas with the same title/opening style as a generate-in-app run.
+  // Only emitted when a pattern is actually selected.
+  const patternBlock = pattern
+    ? `\n⟂ TITLE STYLE (PATTERN PRESET) ⟂
+Each generated idea's title MUST follow this template literally, with {X} substituted by a concrete value:
+
+  Template: "${pattern.titleTemplate}"
+  {X} represents: ${pattern.subjectLabel}${patternSubject ? ` (e.g. "${patternSubject}", but pick a different concrete value per idea)` : ' (pick a different concrete value per idea — never write the literal word "X")'}
+
+Pattern rules:
+- Replace {X} with a SPECIFIC concrete noun every time (a place / era / craft / object / person / system, depending on the subjectLabel).
+- The {X} value should vary across the batch — don't repeat the same subject for two ideas.
+- Opening hook style for the logline: ${pattern.openingDevice}
+${pattern.metadataKeywordAdditions?.length
+    ? `- Themes/keywords this pattern cares about: ${pattern.metadataKeywordAdditions.join(', ')} (incorporate naturally — don't keyword-stuff)\n`
+    : ''}`
+    : ''
 
   return `${format.idea.systemPromptRole}
 Return a JSON array of idea objects ONLY — no prose before or after. If your
@@ -344,7 +368,7 @@ Rules:
 - suggested_length is one of: "30 min", "45 min", "60 min", "90 min".
 - Don't invent extra keys — the importer only reads the six above.
 - If you're unsure about a field, leave the idea out rather than guessing.
-
+${patternBlock}
 Produce N ideas. (Replace N with however many you want, e.g. 10.)
 
 Example of a valid response:
@@ -357,7 +381,19 @@ router.get('/projects/:slug/ideas/paste-prompt', async (req, res) => {
   const project = await pm.getProject(req.params.slug)
   if (!project) return res.status(404).json({ detail: 'Project not found' })
   const format = await getEffectiveFormat(req.params.slug)
-  res.type('text/plain').send(buildPastePrompt(format))
+  // Optional ?pattern_id=... &pattern_subject=... to fold a Pattern preset
+  // into the copied prompt, matching the in-app generate flow. When the
+  // pattern can't be loaded (deleted / typo), we fall through to the plain
+  // format-only prompt — better than 500-ing because the user picked a
+  // pattern that no longer exists.
+  const patternId = typeof req.query.pattern_id === 'string' ? req.query.pattern_id.trim() : ''
+  const patternSubject = typeof req.query.pattern_subject === 'string' ? req.query.pattern_subject.trim() : ''
+  let pattern: Pattern | null = null
+  if (patternId) {
+    try { pattern = await loadPattern(patternId) }
+    catch { pattern = null }
+  }
+  res.type('text/plain').send(buildPastePrompt(format, pattern, patternSubject))
 })
 
 /**

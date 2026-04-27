@@ -550,6 +550,29 @@
               {{ pastePromptCopied ? '✓ Copied' : 'Copy Prompt' }}
             </button>
           </div>
+          <!-- Source-of-truth strip: shows what the prompt is built from
+               (project's active format + optionally a Pattern preset).
+               Switching format requires a round-trip to Settings → Format
+               because format affects script + image-prompt generation
+               too — surfacing it here is informational, not editable. -->
+          <div class="paste-prompt-source">
+            <span class="paste-prompt-source-label">Built from</span>
+            <span class="paste-prompt-source-chip" :title="`This prompt is generated for the project's currently-active format (${formatDisplayName}). Change it from Settings → Format.`">
+              Format: <strong>{{ formatDisplayName }}</strong>
+            </span>
+            <NuxtLink :to="`/projects/${slug}/settings#format`" class="paste-prompt-source-link" title="Open Settings → Format to change the active format. The prompt will refresh when you come back.">Switch</NuxtLink>
+            <span v-if="form.pattern_id" class="paste-prompt-source-chip" title="A Pattern preset is folded into the prompt — title template + opening device. Change or clear it via the Pattern picker above.">
+              Pattern: <strong>{{ form.pattern_id }}</strong>
+              <button
+                type="button"
+                class="paste-prompt-source-clear"
+                title="Clear the Pattern — prompt falls back to format defaults."
+                aria-label="Clear pattern"
+                @click="form.pattern_id = ''; form.pattern_subject = ''"
+              >✕</button>
+            </span>
+            <span v-else class="paste-prompt-source-hint">No Pattern selected — pick one above to fold a title template into the prompt.</span>
+          </div>
           <pre class="paste-prompt-box">{{ pastePrompt || 'Loading…' }}</pre>
         </div>
 
@@ -789,9 +812,24 @@ const form = reactive({
 // `idea_generator_last_pattern` / `idea_generator_last_subject` —
 // matches the *_last_* convention used by other generator pages.
 const formatId = ref<string>('sleep-story')
+// Map of format-id → display name, populated from /api/formats. Used to
+// show "Format: Sleep Story" above the paste-prompt instead of "sleep-story",
+// and to surface a "Switch" link to Settings → Format. Best-effort: if the
+// fetch fails we fall back to displaying the id.
+const formatNamesById = ref<Record<string, string>>({})
+const formatDisplayName = computed(() => formatNamesById.value[formatId.value] || formatId.value)
 const LAST_PATTERN_KEY = 'idea_generator_last_pattern'
 const LAST_SUBJECT_KEY = 'idea_generator_last_subject'
 let patternHydrated = false
+
+async function loadFormatNames() {
+  try {
+    const list = await get<Array<{ id: string; name: string }>>('/formats')
+    const map: Record<string, string> = {}
+    for (const f of list || []) if (f && typeof f.id === 'string') map[f.id] = f.name || f.id
+    formatNamesById.value = map
+  } catch { /* fall back to displaying the id */ }
+}
 
 async function loadPatternPreferences() {
   try {
@@ -820,6 +858,7 @@ async function savePatternPreferences() {
 watch(() => form.pattern_id, savePatternPreferences)
 watch(() => form.pattern_subject, savePatternPreferences)
 onMounted(loadPatternPreferences)
+onMounted(loadFormatNames)
 
 // ── Preset pools (built-ins + custom from config) ─────────────
 const DEFAULT_GENRES = [
@@ -1162,22 +1201,37 @@ async function openPasteIdeas() {
   pastePreviewValid.value = []
   pastePreviewRejected.value = []
   pastePromptCopied.value = false
-  // Lazy-load the prompt the first time the modal opens (reopening later
-  // reuses the cached value — the prompt rarely changes and avoiding a
-  // second fetch keeps the modal snappy).
-  if (!pastePrompt.value) {
-    try {
-      // $fetch auto-detects the response type from Content-Type, and the
-      // backend returns text/plain, so this resolves to a string without
-      // having to override responseType.
-      pastePrompt.value = await get<string>(`/projects/${slug.value}/ideas/paste-prompt`)
-    } catch {
-      // Fall back to a minimal inline prompt if the route is unreachable —
-      // the user can still paste, the preview will validate the shape.
-      pastePrompt.value = 'Return a JSON array of objects with keys: title, logline, themes (array), suggested_chapters (int), suggested_length (string), mood (string).'
-    }
-  }
+  // Always re-fetch on open — the prompt now varies with the project's
+  // active format AND the selected Pattern, both of which the user can
+  // change between opens. Cheap (text/plain, server-side string assembly).
+  await refetchPastePrompt()
 }
+
+// Re-fetched whenever the format or pattern changes so the copied prompt
+// always reflects the user's current selection. Query-params follow the
+// same shape the in-app generate flow uses (pattern_id + pattern_subject).
+async function refetchPastePrompt() {
+  const qs = new URLSearchParams()
+  if (form.pattern_id) qs.set('pattern_id', form.pattern_id)
+  if (form.pattern_subject) qs.set('pattern_subject', form.pattern_subject)
+  const url = `/projects/${slug.value}/ideas/paste-prompt${qs.toString() ? `?${qs}` : ''}`
+  try {
+    pastePrompt.value = await get<string>(url)
+  } catch {
+    // Fall back to a minimal inline prompt if the route is unreachable —
+    // the user can still paste, the preview will validate the shape.
+    pastePrompt.value = 'Return a JSON array of objects with keys: title, logline, themes (array), suggested_chapters (int), suggested_length (string), mood (string).'
+  }
+  pastePromptCopied.value = false
+}
+
+// Live-refresh the prompt when the user changes pattern WHILE the modal
+// is open. Skipped when the modal is closed (no DOM to update; the
+// next open will refetch anyway).
+watch(
+  [() => form.pattern_id, () => form.pattern_subject],
+  () => { if (pasteOpen.value) refetchPastePrompt() },
+)
 
 async function copyPastePrompt() {
   if (!pastePrompt.value) return
@@ -1772,6 +1826,61 @@ onMounted(loadIdeas)
   word-wrap: break-word;
   max-height: 200px;
   overflow-y: auto;
+}
+
+/* Source-of-truth strip above the paste prompt: explains the prompt
+   varies with format + pattern, gives a Switch link to format settings
+   and a Clear button for the active pattern. Subtle so it doesn't fight
+   the prompt itself for attention. */
+.paste-prompt-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.paste-prompt-source-label {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.paste-prompt-source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+}
+.paste-prompt-source-chip strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.paste-prompt-source-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.paste-prompt-source-link:hover { color: var(--accent-hover); text-decoration: underline; }
+.paste-prompt-source-clear {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 0 0 4px;
+  font-size: 11px;
+  line-height: 1;
+}
+.paste-prompt-source-clear:hover { color: var(--error, #ef4444); }
+.paste-prompt-source-hint {
+  font-style: italic;
+  color: var(--text-muted);
+  opacity: 0.85;
 }
 .paste-input-box {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;

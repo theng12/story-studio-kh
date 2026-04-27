@@ -2213,6 +2213,14 @@ function applyHash() {
     nextTick(() => {
       document.getElementById('ffmpeg-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     })
+    return
+  }
+  // Generic hash → tab map. Anything that matches a tab id auto-switches
+  // (e.g. `#format` from the Ideas page's "Switch" link, `#about` from
+  // "Copy version" links, etc.). Unrecognised hashes leave activeTab alone.
+  if (h.startsWith('#')) {
+    const target = h.slice(1)
+    if (tabs.some(t => t.id === target)) activeTab.value = target
   }
 }
 onMounted(() => {
