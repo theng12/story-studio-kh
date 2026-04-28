@@ -22,6 +22,7 @@ import type {
 } from '../models/types.js'
 import { buildManifest, writeManifest, writeManifestCache, getMachineLabel } from './manifest.js'
 import { sanitizeProjectSlug } from './slug.js'
+import { getLinkedDirCache, listLinkedProjects } from './linked-projects.js'
 import { randomUUID } from 'crypto'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -384,10 +385,36 @@ async function syncManifest(slug: string): Promise<void> {
 // carry `portable: true` — that's fine, we just ignore it.)
 
 export async function listProjects(): Promise<ProjectSummary[]> {
-  let entries: string[] = []
+  // Build the unified candidate list: default-location projects (subdirs
+  // of PROJECTS_ROOT) merged with linked-paths projects (registered via
+  // Settings → Storage → Add existing project folder, or implicitly added
+  // when a user runs Move this project to… on a non-default destination).
+  // Default-location entries win on slug conflict so a hand-edited link
+  // can never shadow the canonical project still sitting in PROJECTS_ROOT.
+  type Candidate = { dir: string; folderName: string }
+  const candidates: Candidate[] = []
+  const seenSlugs = new Set<string>()
+
+  let defaultEntries: string[] = []
   try {
-    entries = await fs.readdir(PROJECTS_ROOT)
-  } catch { return [] }
+    defaultEntries = await fs.readdir(PROJECTS_ROOT)
+  } catch { /* PROJECTS_ROOT missing — fall through to linked-only */ }
+  for (const name of defaultEntries.sort()) {
+    if (name.startsWith('.')) continue
+    // Backup folders left behind by Move this project to… (delete_source
+    // off) — the user can verify + restore them but they shouldn't show
+    // up as live projects in the list.
+    if (/\.bak-/.test(name)) continue
+    candidates.push({ dir: path.join(PROJECTS_ROOT, name), folderName: name })
+  }
+
+  // Linked projects — read project.json's slug to populate the seen set
+  // accurately (basename-fallback when slug field is missing).
+  const linked = await listLinkedProjects()
+  for (const info of linked) {
+    if (!info.exists || !info.slug) continue
+    candidates.push({ dir: info.path, folderName: info.slug })
+  }
 
   const { readSecrets } = await import('./secrets-store.js')
 
@@ -396,34 +423,36 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   // collapses ~N×latency into a single round-trip. At 20+ projects the
   // diff is the difference between snappy and "feels frozen" on home-page
   // load. Returns null for corrupt/missing entries — filtered out below.
-  const summaries = await Promise.all(entries.sort().map(async (name): Promise<ProjectSummary | null> => {
-    const metaPath = path.join(PROJECTS_ROOT, name, 'project.json')
+  const summaries = await Promise.all(candidates.map(async (cand): Promise<ProjectSummary | null> => {
+    const metaPath = path.join(cand.dir, 'project.json')
     if (!existsSync(metaPath)) return null
 
     let meta: ProjectMeta
     try {
       meta = await readJson(metaPath)
     } catch (e: any) {
-      console.warn(`[projects] listProjects: skipping '${name}' — ${e.message}`)
+      console.warn(`[projects] listProjects: skipping '${cand.folderName}' — ${e.message}`)
       return null
     }
+    // Slug from project.json wins; fall back to folder name only when
+    // the field is absent (older projects or hand-rolled folders).
+    const slug = (typeof meta.slug === 'string' && meta.slug) ? meta.slug : cand.folderName
+    if (seenSlugs.has(slug)) return null  // dedupe — default already captured this slug
+    seenSlugs.add(slug)
 
     // Read secrets + legacy-config check in parallel — each is an independent
     // file read and the result is just a boolean for the summary flag.
-    const secretsP = readSecrets(name)
+    const secretsP = readSecrets(slug)
     let legacyConfigHasKeys = false
-    if (true) { // run the legacy-config probe in parallel
-      void 0  // no-op for clarity
-    }
     const [secrets, legacyKeys] = await Promise.all([
       secretsP,
       (async () => {
         try {
-          const raw = await readJson(path.join(PROJECTS_ROOT, name, 'config.json'))
+          const raw = await readJson(path.join(cand.dir, 'config.json'))
           return !!(raw?.openai_api_key || raw?.anthropic_api_key)
         } catch (e: any) {
           if (e?.code !== 'ENOENT') {
-            console.warn(`[projects] listProjects: config.json unreadable for '${name}' — ${e.message}`)
+            console.warn(`[projects] listProjects: config.json unreadable for '${slug}' — ${e.message}`)
           }
           return false
         }
@@ -439,12 +468,12 @@ export async function listProjects(): Promise<ProjectSummary[]> {
     const outputRootRaw = meta.output_root || ''
     const outputRootAbs = path.isAbsolute(outputRootRaw)
       ? outputRootRaw
-      : path.join(PROJECTS_ROOT, name, outputRootRaw || 'episodes')
+      : path.join(cand.dir, outputRootRaw || 'episodes')
     const outputRootExists = existsSync(outputRootAbs)
 
     return {
       name: meta.name,
-      slug: meta.slug,
+      slug,
       episode_prefix: meta.episode_prefix,
       created_at: meta.created_at,
       has_api_keys: !!(secrets.openai_api_key || secrets.anthropic_api_key) || legacyConfigHasKeys,
@@ -459,7 +488,11 @@ export async function listProjects(): Promise<ProjectSummary[]> {
 }
 
 export async function getProject(slug: string): Promise<ProjectMeta | null> {
-  const metaPath = path.join(PROJECTS_ROOT, slug, 'project.json')
+  // Resolve via getProjectDir so linked projects (those moved out of
+  // PROJECTS_ROOT into custom folders) are reachable by slug.
+  const projectDir = getProjectDir(slug)
+  if (!projectDir) return null
+  const metaPath = path.join(projectDir, 'project.json')
   if (!existsSync(metaPath)) return null
   // A corrupt project.json should surface as a 409 to the UI (via the error
   // middleware), not a 404 "Project not found" — the project exists, we just
@@ -567,7 +600,9 @@ export async function createProject(req: CreateProjectRequest): Promise<ProjectM
 }
 
 export async function updateProject(slug: string, req: UpdateProjectRequest): Promise<ProjectMeta | null> {
-  const metaPath = path.join(PROJECTS_ROOT, slug, 'project.json')
+  const projectDir = getProjectDir(slug)
+  if (!projectDir) return null
+  const metaPath = path.join(projectDir, 'project.json')
   if (!existsSync(metaPath)) return null
   let merged: ProjectMeta | null = null
   await withLock(metaPath, async () => {
@@ -581,8 +616,8 @@ export async function updateProject(slug: string, req: UpdateProjectRequest): Pr
 }
 
 export async function deleteProject(slug: string): Promise<boolean> {
-  const projectDir = path.join(PROJECTS_ROOT, slug)
-  if (!existsSync(projectDir)) return false
+  const projectDir = getProjectDir(slug)
+  if (!projectDir || !existsSync(projectDir)) return false
 
   // Read metadata before we delete it so we know where to find episodes.
   let meta: ProjectMeta | null = null
@@ -652,7 +687,9 @@ function mergeCatalog<T extends Record<string, any>>(
 }
 
 export async function getConfig(slug: string): Promise<ProjectConfig | null> {
-  const configPath = path.join(PROJECTS_ROOT, slug, 'config.json')
+  const projectDir = getProjectDir(slug)
+  if (!projectDir) return null
+  const configPath = path.join(projectDir, 'config.json')
   if (!existsSync(configPath)) return null
   const raw = await readJson(configPath)
 
@@ -712,7 +749,9 @@ export async function getConfig(slug: string): Promise<ProjectConfig | null> {
 export async function getSafeConfig(slug: string): Promise<any | null> {
   const config = await getConfig(slug)
   if (!config) return null
-  const raw = await readJson(path.join(PROJECTS_ROOT, slug, 'config.json'))
+  const projectDir = getProjectDir(slug)
+  if (!projectDir) return null
+  const raw = await readJson(path.join(projectDir, 'config.json'))
   // Account list (Delivery 2) — masked values only. The legacy `has_*_key`
   // booleans below stay populated from the default account for any UI
   // surface that hasn't migrated to the accounts map yet.
@@ -804,14 +843,16 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
 export async function updateApiKeys(slug: string, req: UpdateApiKeysRequest): Promise<boolean> {
   // API keys now live in a separate secrets.json file (not config.json) so they
   // can be locked down (0600) and stripped from logs. See secrets-store.ts.
-  if (!existsSync(path.join(PROJECTS_ROOT, slug))) return false
+  if (!getProjectDir(slug)) return false
   const { writeSecrets } = await import('./secrets-store.js')
   await writeSecrets(slug, req)
   return true
 }
 
 export async function updateConfig(slug: string, req: UpdateConfigRequest): Promise<boolean> {
-  const configPath = path.join(PROJECTS_ROOT, slug, 'config.json')
+  const projectDir = getProjectDir(slug)
+  if (!projectDir) return false
+  const configPath = path.join(projectDir, 'config.json')
   if (!existsSync(configPath)) return false
   // Read-modify-write must be atomic against concurrent updateConfig calls.
   await withLock(configPath, async () => {
@@ -859,23 +900,46 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
 // ── Standards ───────────────────────────────────────────────────────────────
 
 export async function getStandards(slug: string): Promise<string | null> {
-  const p = path.join(PROJECTS_ROOT, slug, 'production_standards.txt')
+  const projectDir = getProjectDir(slug)
+  if (!projectDir) return null
+  const p = path.join(projectDir, 'production_standards.txt')
   if (!existsSync(p)) return null
   return await fs.readFile(p, 'utf-8')
 }
 
 export async function updateStandards(slug: string, content: string): Promise<boolean> {
-  if (!existsSync(path.join(PROJECTS_ROOT, slug))) return false
-  await fs.writeFile(path.join(PROJECTS_ROOT, slug, 'production_standards.txt'), content)
+  const projectDir = getProjectDir(slug)
+  if (!projectDir) return false
+  await fs.writeFile(path.join(projectDir, 'production_standards.txt'), content)
   await syncManifest(slug)
   return true
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+/**
+ * Resolve a project's metadata folder by slug. Two locations are
+ * consulted, in priority order:
+ *   1. The default `<PROJECTS_ROOT>/<slug>/` location.
+ *   2. The per-Mac linked-projects registry — for projects that have
+ *      been moved out of PROJECTS_ROOT into custom folders (e.g. one
+ *      project in iCloud while others stay local).
+ *
+ * Sync by design: dozens of services call into this from hot paths
+ * that can't easily go async. The linked-paths lookup uses a sync
+ * cache built from a single readFileSync of app-settings.json — see
+ * linked-projects.ts:getLinkedDirCache for the cost model.
+ *
+ * Default-location entries win on slug conflict so a hand-edited
+ * linked path can never shadow the canonical project that's still
+ * sitting in PROJECTS_ROOT.
+ */
 export function getProjectDir(slug: string): string | null {
   const d = path.join(PROJECTS_ROOT, slug)
-  return existsSync(d) ? d : null
+  if (existsSync(d)) return d
+  const linked = getLinkedDirCache().get(slug)
+  if (linked && existsSync(linked)) return linked
+  return null
 }
 
 /**

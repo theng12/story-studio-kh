@@ -32,7 +32,7 @@ import { existsSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { createHash, randomUUID } from 'crypto'
-import { PROJECTS_ROOT } from './project-manager.js'
+import { PROJECTS_ROOT, getProjectDir } from './project-manager.js'
 import { writeJsonAtomic, withLock, readJsonOr } from '../lib/atomic-store.js'
 import { isEncryptionAvailable, encryptToBase64, decryptFromBase64 } from '../lib/safe-storage.js'
 
@@ -107,12 +107,21 @@ export interface SecretsV2 {
 
 // ── Paths ───────────────────────────────────────────────────────────────────
 
+/**
+ * Resolve a per-project file path that respects linked projects (those
+ * moved out of PROJECTS_ROOT into custom folders). Falls back to the
+ * default location if the slug isn't yet on disk — that matters during
+ * project creation, when getProjectDir returns null because nothing's
+ * been written yet but the caller about to write expects a usable path.
+ */
 function secretsPath(slug: string): string {
-  return path.join(PROJECTS_ROOT, slug, 'secrets.json')
+  const dir = getProjectDir(slug) || path.join(PROJECTS_ROOT, slug)
+  return path.join(dir, 'secrets.json')
 }
 
 function configPath(slug: string): string {
-  return path.join(PROJECTS_ROOT, slug, 'config.json')
+  const dir = getProjectDir(slug) || path.join(PROJECTS_ROOT, slug)
+  return path.join(dir, 'config.json')
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
