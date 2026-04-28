@@ -281,7 +281,6 @@
       <slot />
     </main>
     </div><!-- /.layout-body -->
-    <MigrationDialog />
   </div>
 </template>
 

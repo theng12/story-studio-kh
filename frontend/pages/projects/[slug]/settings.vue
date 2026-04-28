@@ -1393,19 +1393,9 @@ const { project, config, refreshConfig, loadProject } = useProject()
 const { success, error: showError } = useToast()
 const assetMigration = useAssetMigration()
 
-/** Compact byte formatter mirroring backend's lib/disk.ts:formatBytes. */
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let value = bytes
-  let i = 0
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024
-    i++
-  }
-  const decimals = i >= 2 ? (value < 10 ? 2 : 0) : 0
-  return `${value.toFixed(decimals)} ${units[i]}`
-}
+// `formatBytes` is already defined further down (used by the projects-
+// root migration banner); reusing it keeps a single source of truth for
+// byte formatting on this page.
 
 // Move-asset-location dialog state. The source-of-truth for "should I
 // migrate" + "what's the size" lives in the composable; this just

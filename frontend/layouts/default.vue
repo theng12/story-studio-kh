@@ -8,7 +8,6 @@
     <main id="main-content" class="page-content" tabindex="-1">
       <slot />
     </main>
-    <MigrationDialog />
   </div>
 </template>
 

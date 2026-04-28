@@ -5,8 +5,13 @@
  *
  *   POST /system/pick-folder         → opens the OS directory picker
  *   POST /system/reveal-folder       → reveals a folder in Finder / Explorer
- *   GET  /system/migrations/pending  → projects still stored in userData
- *   POST /system/migrations/migrate  → move one project to a visible folder
+ *
+ * (Removed in v1.0.14: GET /system/migrations/pending +
+ * POST /system/migrations/migrate. The userData-→-visible-folder
+ * migration they powered is fully superseded by the v1.0.13 Storage
+ * tab "Move projects to…" flow + the per-project Move asset location
+ * button + the dashboard recovery banner — all of which understand
+ * the iCloud case the legacy migrator misclassified as "hidden".)
  */
 
 import { Router } from 'express'
@@ -14,10 +19,6 @@ import { createRequire } from 'module'
 import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
-import {
-  getProjectsNeedingMigration,
-  migrateProjectTo,
-} from '../services/migration.js'
 import { setQueuePaused, isQueuePaused } from '../services/job-queue.js'
 import {
   listNamedRoots,
@@ -238,33 +239,6 @@ router.post('/system/queue/pause', (_req, res) => {
 router.post('/system/queue/resume', (_req, res) => {
   setQueuePaused(false)
   res.json({ paused: false })
-})
-
-// ── Migration ──────────────────────────────────────────────────────────────
-
-router.get('/system/migrations/pending', async (_req, res) => {
-  try {
-    const pending = await getProjectsNeedingMigration()
-    res.json({ projects: pending })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Could not list pending migrations'))
-  }
-})
-
-router.post('/system/migrations/migrate', async (req, res) => {
-  const { slug, new_root } = req.body || {}
-  if (!slug || !new_root) return res.status(400).json({ detail: 'slug and new_root required' })
-  if (!path.isAbsolute(new_root)) return res.status(400).json({ detail: 'new_root must be an absolute path' })
-
-  const project = await pm.getProject(slug)
-  if (!project) return res.status(404).json({ detail: 'Project not found' })
-
-  try {
-    const result = await migrateProjectTo(slug, new_root)
-    res.json({ ok: true, ...result })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Migration failed'))
-  }
 })
 
 // ── Named roots ────────────────────────────────────────────────────────────
