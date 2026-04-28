@@ -186,6 +186,30 @@
           @click="onResetForeignSecrets"
         >{{ secretsResetting ? 'Clearing…' : 'Clear and reset' }}</button>
       </div>
+
+      <!-- Decrypt-failed banner — distinct from the foreign-machine case
+           above. Same machine, same project, but the keychain-derived
+           encryption key changed (almost always after an Electron app
+           upgrade). The encrypted file is still on disk; we deliberately
+           don't overwrite it, so the user can re-enter keys and the
+           recovery write succeeds without losing the ciphertext until
+           that happens. The banner is the only signal — credit pills
+           and provider calls all silently 401 otherwise. -->
+      <div
+        v-if="secretsDecryptFailed && !secretsForeign"
+        class="foreign-secrets-banner secrets-decrypt-banner"
+        role="alert"
+      >
+        <span class="foreign-secrets-icon" aria-hidden="true">🔐</span>
+        <span class="foreign-secrets-text">
+          <strong>Couldn't decrypt your saved API keys.</strong>
+          This usually happens after an app update changes the system keychain.
+          Your encrypted keys are still on disk — re-entering them in
+          <NuxtLink :to="`/projects/${slug}/settings`" class="inline-link">Settings → API Keys</NuxtLink>
+          replaces the stale ciphertext on the next save.
+          We won't overwrite the existing file until you do, so nothing is lost in the meantime.
+        </span>
+      </div>
       <div
         v-if="uncleanShutdown"
         class="unclean-shutdown-banner"
@@ -267,7 +291,7 @@ const {
 // Cross-machine folder-copy guard: if `secrets.json` was written by another
 // machine (user copied the folder manually instead of using Import), show a
 // banner with a one-click reset so stale tokens can't be silently reused.
-const { foreign: secretsForeign, resetting: secretsResetting, resetSecrets } = useSecretsProvenance()
+const { foreign: secretsForeign, decryptFailed: secretsDecryptFailed, resetting: secretsResetting, resetSecrets } = useSecretsProvenance()
 const { success: toastSuccess, error: toastError } = useToast()
 async function onResetForeignSecrets() {
   const ok = await resetSecrets()
@@ -594,6 +618,17 @@ async function copyVersion() {
 }
 .foreign-secrets-reset:hover:not(:disabled) { background: #b91c1c; }
 .foreign-secrets-reset:disabled { opacity: 0.6; cursor: wait; }
+
+/* Decrypt-failed banner reuses the foreign banner's layout but in a calmer
+   amber palette — this is recoverable (just re-enter keys) rather than a
+   security-critical "different machine" warning. */
+.secrets-decrypt-banner {
+  background: rgba(245, 158, 11, 0.10);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+.secrets-decrypt-banner .foreign-secrets-icon { color: rgb(180, 83, 9); }
+.inline-link { color: var(--accent); text-decoration: underline; }
+.inline-link:hover { text-decoration: none; }
 
 /* Unclean-shutdown banner — prior run died without firing before-quit
    (force-quit, OOM, hard crash). Soft yellow accent. */

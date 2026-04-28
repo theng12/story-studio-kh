@@ -219,6 +219,32 @@ function classifyProvenance(raw: any): 'match' | 'legacy' | 'foreign' {
   return stored === computeMachineProvenance() ? 'match' : 'foreign'
 }
 
+/**
+ * Tagged error thrown when a secrets.json file is on disk but cannot be
+ * decrypted on this machine. The single most common cause is an Electron
+ * app upgrade that changed the keychain-derived key — the previous file
+ * stays on disk, just unreadable.
+ *
+ * Callers MUST distinguish this from "no file at all": the recovery path
+ * (user re-enters keys in Settings) is fine, but the data-loss path (a
+ * read-then-empty-write cycle that overwrites the encrypted file with an
+ * empty envelope on next save) MUST be blocked.
+ *
+ * We use a `__tag` discriminator instead of `instanceof` because Electron
+ * dev/prod and ESM/CJS module dual-loading have historically broken
+ * cross-module instance checks.
+ */
+export class SecretsDecryptError extends Error {
+  readonly __tag = 'SecretsDecryptError' as const
+  constructor(public readonly filePath: string, public readonly cause?: unknown) {
+    super(`Failed to decrypt secrets at ${filePath}`)
+    this.name = 'SecretsDecryptError'
+  }
+}
+export function isSecretsDecryptError(e: unknown): e is SecretsDecryptError {
+  return !!e && typeof e === 'object' && (e as any).__tag === 'SecretsDecryptError'
+}
+
 async function readSecretsFile(filePath: string): Promise<any> {
   const raw = await readJsonOr<any>(filePath, null)
   if (!raw) return null
@@ -248,12 +274,18 @@ async function readSecretsFile(filePath: string): Promise<any> {
     const plain = decryptFromBase64(raw.ciphertext)
     return JSON.parse(plain)
   } catch (e: any) {
-    // Decryption failed — most likely the file was restored from a backup
-    // onto a new machine, so the Keychain-derived key no longer matches.
-    // Treat the store as empty rather than crash the app; the user can
-    // re-enter their keys. Throwing here would make the whole app
-    // un-openable until the file is manually deleted.
-    return null
+    // Decryption failed — most likely an app/keychain change after an
+    // update made the previously-encrypted blob unreadable on this
+    // machine. Throw a tagged error so callers can distinguish "no file"
+    // from "file present but undecryptable" and refuse to overwrite the
+    // ciphertext with an empty envelope (which would silently destroy
+    // the user's keys forever — see Issue #1 in the 2026-04-28 batch).
+    console.warn(
+      `[secrets] decrypt failed at ${filePath} — refusing to silently overwrite. ` +
+      `User should re-enter keys in Settings → API Keys.`,
+      e?.message || e,
+    )
+    throw new SecretsDecryptError(filePath, e)
   }
 }
 
@@ -280,10 +312,29 @@ async function writeSecretsFile(filePath: string, value: SecretsV2): Promise<voi
 /**
  * Read the raw v2 secrets store, migrating from v1 on-disk if needed.
  * Internal — account-centric callers in `secrets-accounts.ts` use this.
+ *
+ * If the on-disk file exists but cannot be decrypted (e.g. after an app
+ * upgrade that changed the keychain-derived key), we return an empty v2
+ * store but DO NOT trigger a rewrite — leaving the unreadable ciphertext
+ * intact so the user can be prompted to re-enter their keys. The UI
+ * checks `getSecretsProvenanceStatus` to surface this state.
  */
 export async function readSecretsV2(slug: string): Promise<SecretsV2> {
   const p = secretsPath(slug)
-  const raw = await readSecretsFile(p)
+  let raw: any = null
+  try {
+    raw = await readSecretsFile(p)
+  } catch (e) {
+    if (isSecretsDecryptError(e)) {
+      // File is on disk but undecryptable. Hand back an empty store so the
+      // app keeps booting; skip the rewrite path so we don't clobber the
+      // ciphertext. The user re-enters keys via Settings, which goes
+      // through writeSecretsV2's recovery branch (non-empty mutation
+      // result is allowed to overwrite).
+      return emptyV2()
+    }
+    throw e
+  }
   const { v2, migrated } = normaliseToV2(raw)
   // Rewrite when: (a) we migrated v1→v2 in memory, (b) the file is v2 but
   // stored plaintext (upgrade to encrypted envelope on next write), or
@@ -309,7 +360,17 @@ export async function writeSecretsV2(
   const p = secretsPath(slug)
   let result: SecretsV2 = emptyV2()
   await withLock(p, async () => {
-    const raw = await readSecretsFile(p)
+    let raw: any = null
+    let priorWasUndecryptable = false
+    try {
+      raw = await readSecretsFile(p)
+    } catch (e) {
+      if (isSecretsDecryptError(e)) {
+        priorWasUndecryptable = true
+      } else {
+        throw e
+      }
+    }
     const { v2 } = normaliseToV2(raw)
     await mutate(v2)
     // Normalise default invariant per provider before writing.
@@ -321,6 +382,22 @@ export async function writeSecretsV2(
         continue
       }
       ensureOneDefault(bucket)
+    }
+    // Data-loss guard: if the on-disk file was undecryptable AND the
+    // post-mutate store has no accounts on any provider, refuse to write.
+    // Writing an empty envelope at this point would silently destroy the
+    // user's still-recoverable encrypted keys (they could re-decrypt by
+    // restoring keychain access, etc.). The recovery path is "user enters
+    // at least one key in Settings", which produces a non-empty store and
+    // is allowed through.
+    const hasAnyAccount = Object.values(v2.providers).some(
+      (b: any) => b && Array.isArray(b.accounts) && b.accounts.length > 0,
+    )
+    if (priorWasUndecryptable && !hasAnyAccount) {
+      throw new SecretsDecryptError(
+        p,
+        new Error('refused to overwrite undecryptable secrets file with empty store'),
+      )
     }
     await writeSecretsFile(p, v2)
     result = v2
@@ -339,6 +416,15 @@ export interface SecretsProvenanceStatus {
    * the UI should warn the user and offer a Clear-and-reset action.
    */
   foreign: boolean
+  /**
+   * True iff the file is an encrypted envelope on this machine but decryption
+   * fails (almost always: an Electron upgrade changed the keychain-derived
+   * key, leaving the previous ciphertext unreadable). The data is still on
+   * disk but unrecoverable through the normal API; the UI surfaces a banner
+   * so the user can re-enter keys, which writeSecretsV2's recovery branch
+   * accepts even though the prior file was undecryptable.
+   */
+  decryptFailed: boolean
 }
 
 /**
@@ -349,11 +435,20 @@ export interface SecretsProvenanceStatus {
 export async function getSecretsProvenanceStatus(slug: string): Promise<SecretsProvenanceStatus> {
   const p = secretsPath(slug)
   const raw = await readJsonOr<any>(p, null)
-  if (!raw) return { present: false, foreign: false }
-  return {
-    present: true,
-    foreign: classifyProvenance(raw) === 'foreign',
+  if (!raw) return { present: false, foreign: false, decryptFailed: false }
+  const foreign = classifyProvenance(raw) === 'foreign'
+  // Probe-decrypt encrypted envelopes. Foreign files don't get probed —
+  // their banner already covers the failure case and a probe would just
+  // throw on an envelope minted by a different keychain.
+  let decryptFailed = false
+  if (!foreign && isEnvelope(raw)) {
+    try {
+      decryptFromBase64(raw.ciphertext)
+    } catch {
+      decryptFailed = true
+    }
   }
+  return { present: true, foreign, decryptFailed }
 }
 
 /**

@@ -67,6 +67,38 @@ async function showOpenDialog(
   return win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options)
 }
 
+/**
+ * List immediate subfolders of a given parent path. Used by the Ideas
+ * Generator's "auto-import subfolders" mode: the user picks a parent dir
+ * and we surface every immediate child directory so they can preview /
+ * uncheck before kicking off the per-folder import loop.
+ *
+ * Read-only and shallow (one level) on purpose — recursion would invite
+ * surprises (e.g. an `images/` subfolder of an episode being treated as a
+ * sibling episode). Hidden dirs (leading dot) are skipped to keep results
+ * matched to what the user sees in Finder.
+ */
+router.post('/system/list-subfolders', async (req, res) => {
+  const parent = typeof req.body?.parent === 'string' ? req.body.parent : ''
+  if (!parent) {
+    return res.status(400).json({ detail: 'parent path required' })
+  }
+  try {
+    const stat = await fs.stat(parent)
+    if (!stat.isDirectory()) {
+      return res.status(400).json({ detail: 'parent is not a directory' })
+    }
+    const entries = await fs.readdir(parent, { withFileTypes: true })
+    const subfolders = entries
+      .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+      .map(e => ({ name: e.name, path: path.join(parent, e.name) }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    res.json({ subfolders })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to list subfolders'))
+  }
+})
+
 router.post('/system/pick-folder', async (req, res) => {
   const electron = loadElectron()
   if (!electron) return res.status(503).json({ detail: 'Folder picker not available — Electron main process not detected (are you running the server standalone?).' })

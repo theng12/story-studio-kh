@@ -21,6 +21,13 @@ import { useProject } from './useProject.js'
 interface ProvenanceStatus {
   present: boolean
   foreign: boolean
+  /**
+   * True iff the encrypted envelope on disk failed to decrypt — typically
+   * because an app/keychain upgrade invalidated the key. The credit pills
+   * disappear because all api_keys come back false; the banner explains
+   * why and points the user at Settings → API Keys to re-enter.
+   */
+  decryptFailed: boolean
 }
 
 export function useSecretsProvenance() {
@@ -28,6 +35,7 @@ export function useSecretsProvenance() {
   const { slug } = useProject()
 
   const foreign = ref(false)
+  const decryptFailed = ref(false)
   const resetting = ref(false)
 
   async function checkNow() {
@@ -36,10 +44,12 @@ export function useSecretsProvenance() {
     try {
       const status = await get<ProvenanceStatus>(`/projects/${s}/secrets-status`)
       foreign.value = status.foreign === true
+      decryptFailed.value = status.decryptFailed === true
     } catch {
       // Backend offline / project vanished — stay silent; the rest of the
       // app will surface the outage more prominently elsewhere.
       foreign.value = false
+      decryptFailed.value = false
     }
   }
 
@@ -50,6 +60,7 @@ export function useSecretsProvenance() {
     try {
       await post(`/projects/${s}/secrets-reset`)
       foreign.value = false
+      decryptFailed.value = false
       return true
     } catch {
       return false
@@ -60,8 +71,9 @@ export function useSecretsProvenance() {
 
   watch(() => slug.value, () => {
     foreign.value = false
+    decryptFailed.value = false
     checkNow()
   }, { immediate: true })
 
-  return { foreign, resetting, checkNow, resetSecrets }
+  return { foreign, decryptFailed, resetting, checkNow, resetSecrets }
 }

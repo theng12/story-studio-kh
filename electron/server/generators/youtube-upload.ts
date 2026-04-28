@@ -38,6 +38,15 @@ interface YouTubeUploadParams {
   scheduled_for?: string | null   // ISO 8601; null/omitted = upload as private, no publishAt
   privacy_status?: PrivacyStatus
   /**
+   * When true on the metadata-only path, omit the YouTube `status` block
+   * entirely so the existing video's privacyStatus and publishAt stay
+   * exactly as they are on YouTube. Default for the per-row "↻ Update
+   * metadata" button: users who just want to fix a title typo shouldn't
+   * silently flip a published video back to private. Ignored on the
+   * fresh-upload path (a new video must declare a privacyStatus).
+   */
+  preserve_status?: boolean
+  /**
    * Per-upload playlist override (A5). If set, wins over the project's
    * default-playlist config. Empty string or null means "fall through to
    * default"; the sentinel `_none_` means "do not add to any playlist
@@ -69,23 +78,46 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   if (!account) throw new Error(`YouTube account ${accountId} not found — reconnect in Upload Center.`)
   job.output_lines.push(`Using channel: ${account.remote_title} (${account.remote_id})`)
 
-  // Lookup episode's final video path.
+  // Lookup episode + paths.
   const ideas = await im.getIdeas(slug, 'accepted')
   const idea = ideas.find(i => (i.episode_code || '') === episodeId)
   if (!idea) throw new Error(`Accepted idea not found for ${episodeId}`)
   const paths = await resolveEpisodePaths(slug, episodeId, idea.title || '')
 
-  const videoPath = await findFinalVideoPath(paths)
-  if (!videoPath) {
-    throw new Error(`No final video file found for ${episodeId}. Run Video Assembly or drop a file into this episode's video folder.`)
-  }
-  job.output_lines.push(`Source video: ${path.relative(paths.episode_dir, videoPath)}`)
+  // Branch: fresh upload vs metadata-only update.
+  //
+  // A sidecar with a video_id means we've uploaded this episode before —
+  // any subsequent click is a metadata PATCH on the existing YouTube
+  // video, NOT a re-upload (video content is immutable by design). We
+  // check the sidecar BEFORE any video-file lookup because:
+  //   1. metadata-only PATCH doesn't need the local video at all — and
+  //      requiring it broke the "↻ Update metadata" button after users
+  //      cleared their local final-video to save disk space (Issue 5,
+  //      2026-04-28 batch). The job would fail with "No final video
+  //      file found" even though the upload was already on YouTube.
+  //   2. ffprobe also runs on the file, so reordering also avoids a
+  //      pointless probe on a file we'd never read.
+  const existing = await readSidecar(slug, episodeId, idea.title || '', 'youtube')
+  const shouldUpdateOnly = !!existing && !!existing.video_id
 
-  // ffprobe sanity check (duration / streams).
-  job.output_lines.push('Probing video with ffprobe…')
-  const probe = await probeForUpload(videoPath)
-  if (!probe.ok) throw new Error(probe.error || 'ffprobe rejected the file')
-  job.output_lines.push(`Probe OK — ${Math.round(probe.durationSec / 60)} min · ${probe.width}×${probe.height} · ${probe.hasAudio ? 'audio present' : 'no audio'}`)
+  let videoPath: string | null = null
+  if (!shouldUpdateOnly) {
+    // Fresh-upload path needs the local video file.
+    videoPath = await findFinalVideoPath(paths)
+    if (!videoPath) {
+      throw new Error(`No final video file found for ${episodeId}. Run Video Assembly or drop a file into this episode's video folder.`)
+    }
+    job.output_lines.push(`Source video: ${path.relative(paths.episode_dir, videoPath)}`)
+
+    // ffprobe sanity check (duration / streams) — only meaningful for
+    // fresh uploads since metadata-only PATCH never reads the file.
+    job.output_lines.push('Probing video with ffprobe…')
+    const probe = await probeForUpload(videoPath)
+    if (!probe.ok) throw new Error(probe.error || 'ffprobe rejected the file')
+    job.output_lines.push(`Probe OK — ${Math.round(probe.durationSec / 60)} min · ${probe.width}×${probe.height} · ${probe.hasAudio ? 'audio present' : 'no audio'}`)
+  } else {
+    job.output_lines.push(`Metadata-only update — skipping local video lookup (existing upload: ${existing!.video_id}).`)
+  }
 
   // Resolve metadata.
   const meta = await resolveUploadMetadata({
@@ -96,11 +128,22 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   })
   job.output_lines.push(`Metadata — title: "${meta.title}", tags: ${meta.tags.length}, thumbnail: ${meta.thumbnailPath ? 'yes' : 'no'}`)
 
-  // Decide: fresh upload or metadata-only update?
-  // A sidecar with a video_id means we've already uploaded this episode —
-  // PATCH metadata in place. Video content is immutable by design.
-  const existing = await readSidecar(slug, episodeId, idea.title || '', 'youtube')
-  const shouldUpdateOnly = !!existing && !!existing.video_id
+  // Update-only data-quality guard: if the user clicked "Update metadata"
+  // but no metadata.json exists on disk, resolveUploadMetadata silently
+  // falls back to title-only (the idea title). Pushing that to YouTube
+  // would erase the rich description/tags the user already had on the
+  // existing video — a stealth data loss. Refuse with an actionable
+  // error instead so the user generates metadata first.
+  if (shouldUpdateOnly) {
+    const hasMetadataFile = existsSync(paths.metadata_json) || existsSync(paths.metadata_txt)
+    if (!hasMetadataFile) {
+      throw new Error(
+        `No metadata file for ${episodeId}. Generate metadata in the Metadata Generator (or fill it manually) before updating YouTube — ` +
+        `pushing the title-only fallback would overwrite the description and tags currently on the YouTube video. ` +
+        `Expected file: ${path.relative(paths.episode_dir, paths.metadata_json)}`,
+      )
+    }
+  }
 
   const privacy: PrivacyStatus = params.privacy_status || 'private'
   // Private-first mode: user wants to manage scheduling inside YouTube
@@ -135,16 +178,32 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       )
     }
     job.output_lines.push(`Existing upload detected (${existing!.video_id}) — updating metadata in place.`)
+    // Preserve current YouTube privacy + publishAt by default. Re-pushing
+    // privacyStatus on a metadata-only update would silently flip a
+    // public video to private, or wipe an existing schedule, which is
+    // almost never what the user wants when they just clicked "↻ Update
+    // metadata" to fix a title typo. The caller can opt out by passing
+    // preserve_status: false (e.g. a future "Update metadata + privacy"
+    // affordance).
+    const preserveStatus = params.preserve_status !== false
+    if (preserveStatus) {
+      job.output_lines.push('Preserving current YouTube privacy + schedule (not changed). Pass preserve_status: false to also update them.')
+    }
     uploaded = await updateVideoMetadata({
       slug,
       accountId,
       videoId: existing!.video_id,
       snippet: snippetFromMeta(meta, job.output_lines),
-      status: { privacyStatus: privacy, publishAt },
+      ...(preserveStatus ? {} : { status: { privacyStatus: privacy, publishAt } }),
     })
     videoId = uploaded.id
     job.progress = 90
   } else {
+    // Fresh-upload branch — videoPath was assigned + non-null-checked in
+    // the matching !shouldUpdateOnly block above. Re-narrow for TS, since
+    // the type-narrowing from that block doesn't carry across the meta-
+    // resolution code that sits between them.
+    if (!videoPath) throw new Error('internal: missing videoPath in fresh-upload branch')
     // Restart-safe resume (audit-reports/10-uploads.md M4): if a transient
     // sidecar from a prior interrupted run exists AND its TTL hasn't
     // expired AND file_size matches AND account_id matches, hand the

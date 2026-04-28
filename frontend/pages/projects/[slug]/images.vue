@@ -44,13 +44,35 @@
           <select v-model="form.model" class="select">
             <optgroup v-for="g in imageModelGroups" :key="g.provider" :label="g.label">
               <option v-for="m in g.items" :key="m.id" :value="m.id">
-                {{ m.data.label }} ({{ m.data.credits_per_image }} cr)
+                {{ formatModelOption(m) }}
               </option>
             </optgroup>
           </select>
           <span v-if="form.mode === 'thumbs'" class="text-muted" style="font-size: 11px;">
             Tip: Use a higher-quality model for eye-catching thumbnails
           </span>
+        </div>
+
+        <!-- Tier picker — only renders for variable-priced models that
+             carry a `tiers[]` array (resolution/speed/etc.). Flat-priced
+             models hide it entirely. Inline cost preview ("8 cr · ~$0.04")
+             keeps the explain-as-you-go expectation: every option shows
+             both credits and rough USD so the user can compare without
+             pulling out a calculator. -->
+        <div v-if="modelTiers.length > 0" class="form-group">
+          <label>{{ modelTierLabel }}</label>
+          <div class="tier-picker">
+            <label
+              v-for="t in modelTiers"
+              :key="t.id"
+              class="tier-option"
+              :class="{ active: form.tier === t.id }"
+            >
+              <input type="radio" :value="t.id" v-model="form.tier" />
+              <span class="tier-option-label">{{ t.label }}</span>
+              <span class="tier-option-cost">{{ t.credits }} cr · ~{{ formatUsd(t.credits) }}</span>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -214,7 +236,70 @@ const form = reactive({
   // is purely a UI consolidation. Default 'skip' matches the prior
   // default behaviour (force=false).
   generation_mode: 'skip' as 'skip' | 'regenerate' | 'new_version',
+  // Tier id for variable-priced kie.ai models (nano-banana-2 1k/2k/4k,
+  // ideogram-v3 turbo/balanced/quality, etc.). Flat-priced models ignore
+  // this. Reset on model switch via the watcher below.
+  tier: '' as string,
 })
+
+// Per-credit USD rate at kie.ai (1 credit = $0.005, verified across the
+// 2026-04-28 pricing-page audit). Plumbed here so the dropdown labels
+// + tier picker share one source of truth — change in one place if the
+// rate shifts.
+const KIE_USD_PER_CREDIT = 0.005
+function formatUsd(credits: number): string {
+  if (!credits || credits <= 0) return ''
+  const usd = credits * KIE_USD_PER_CREDIT
+  // 3 decimals for sub-penny prices (z-image at $0.004), 2 otherwise.
+  return usd < 0.01 ? `$${usd.toFixed(3)}` : `$${usd.toFixed(usd < 0.1 ? 3 : 2)}`
+}
+
+// Renders a single line for the model dropdown. For tiered models we
+// show a price RANGE (cheapest tier → priciest) so the user sees at a
+// glance that the cost varies with resolution/speed; the tier picker
+// below the dropdown locks in the actual choice. Flat-priced models
+// just show one number.
+function formatModelOption(m: { data: any }): string {
+  const d = m.data
+  if (Array.isArray(d.tiers) && d.tiers.length > 1) {
+    const credits = d.tiers.map((t: any) => t.credits)
+    const min = Math.min(...credits)
+    const max = Math.max(...credits)
+    return `${d.label} (${min}–${max} cr · ${formatUsd(min)}–${formatUsd(max)})`
+  }
+  return `${d.label} (${d.credits_per_image} cr · ${formatUsd(d.credits_per_image)})`
+}
+
+// Tier helpers — exposed to the template via computeds so the picker
+// renders only when the active model has tiers.
+const modelTiers = computed<{ id: string; label: string; credits: number }[]>(() => {
+  const m = config.value?.image_models?.[form.model] as any
+  return Array.isArray(m?.tiers) ? m.tiers : []
+})
+const modelTierLabel = computed(() => {
+  // Naming the picker by axis: "Resolution" if tier ids look like 1k/2k/4k,
+  // "Quality" for turbo/balanced/quality, generic "Tier" otherwise. Keeps
+  // the label descriptive without forcing per-model schema config.
+  const ids = modelTiers.value.map(t => t.id.toLowerCase())
+  if (ids.some(id => /^\d+k(-\d+k)?$/.test(id))) return 'Resolution'
+  if (ids.some(id => ['turbo', 'balanced', 'quality'].includes(id))) return 'Quality'
+  return 'Tier'
+})
+
+// When the active model changes, snap the tier selection back to the new
+// model's default_tier (or first tier, or empty). Without this, switching
+// from gpt-image-2 (default '1k') to ideogram-v3 (default 'balanced')
+// would leave form.tier='1k', which isn't a valid ideogram tier.
+watch(() => form.model, () => {
+  const m = config.value?.image_models?.[form.model] as any
+  const tiers = Array.isArray(m?.tiers) ? m.tiers : []
+  if (!tiers.length) {
+    form.tier = ''
+    return
+  }
+  const def = tiers.find((t: any) => t.id === m.default_tier) ?? tiers[0]
+  form.tier = def?.id || ''
+}, { immediate: true })
 
 // ── Presets ─────────────────────────────────────────────────────────────
 const imgPresets = usePresets<any>({
@@ -366,6 +451,10 @@ async function submit() {
     aspect_ratio: form.aspect_ratio,
     force,
   }
+  // Forward tier only when the active model has tiers. Flat-priced models
+  // ignore the field server-side, but sending it would clutter the request
+  // log + the cost-confirmation receipt with a meaningless ' · ' suffix.
+  if (form.tier) params.tier = form.tier
 
   // Send the right optional # field per mode
   if (specificNum.value) {
@@ -424,6 +513,33 @@ async function submit() {
 .generation-mode-option input { margin-top: 2px; }
 .generation-mode-option strong { display: block; font-size: 13px; color: var(--text-primary); }
 .generation-mode-option .text-muted { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+/* Tier picker — compact pill row sized to fit alongside the model
+   dropdown. Matches the generation-mode option look but without the
+   helper-text line, since each tier already shows credits + USD. */
+.tier-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tier-option {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  font-size: 12px;
+  transition: border-color .12s, background .12s;
+}
+.tier-option:hover { border-color: var(--accent); }
+.tier-option.active {
+  border-color: var(--accent);
+  background: rgba(240, 198, 116, 0.10);
+}
+.tier-option input { margin: 0; }
+.tier-option-label { font-weight: 600; color: var(--text-primary); }
+.tier-option-cost { color: var(--text-muted); font-size: 11px; }
 
 .integrity-pill {
   display: inline-flex;

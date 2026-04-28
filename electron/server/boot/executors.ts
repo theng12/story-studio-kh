@@ -20,6 +20,7 @@ import { generateAudioMerge } from '../generators/audio-merge.js'
 import { generateMetadata } from '../generators/metadata.js'
 import { generateSubtitlesTranscribe } from '../generators/subtitles.js'
 import { generateYoutubeUpload } from '../generators/youtube-upload.js'
+import { generateYoutubePlaylistUpdate } from '../generators/youtube-playlist-update.js'
 
 export function registerAllExecutors(): void {
   // Legacy `'script'` executor (the coupled generateEpisode) was removed
@@ -51,4 +52,5 @@ export function registerAllExecutors(): void {
   registerExecutor('video_assembly', generateVideoAssembly)
   registerExecutor('subtitles_transcribe', generateSubtitlesTranscribe)
   registerExecutor('youtube_upload', generateYoutubeUpload)
+  registerExecutor('youtube_playlist_update', generateYoutubePlaylistUpdate)
 }

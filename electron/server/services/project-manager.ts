@@ -615,6 +615,42 @@ export async function deleteProject(slug: string): Promise<boolean> {
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
+/**
+ * Per-entry shallow merge of a built-in default catalog with a project's
+ * on-disk override. For each model id:
+ *   - If only the default has it → carry the default through (new model).
+ *   - If only the project has it → carry the project entry through
+ *     (user-added custom model — id not in defaults).
+ *   - If both have it → merge `{ ...default, ...project }` so user-edited
+ *     fields win on conflict, but default-only fields (e.g. `tiers` /
+ *     `default_tier` added in a later release) flow through to the
+ *     existing project without forcing a config rewrite.
+ *
+ * The previous full-dict override hid every new field behind whatever
+ * shape was on disk, which is why the 2026-04-28 Kie.ai tier additions
+ * didn't surface for existing projects until this merge changed.
+ */
+function mergeCatalog<T extends Record<string, any>>(
+  defaults: Record<string, T>,
+  saved: Record<string, T> | null | undefined,
+): Record<string, T> {
+  const out: Record<string, T> = {}
+  // Start with defaults so new ids appear unconditionally.
+  for (const [id, def] of Object.entries(defaults)) {
+    const projectEntry = saved?.[id]
+    out[id] = projectEntry
+      ? ({ ...def, ...projectEntry } as T)
+      : def
+  }
+  // Carry user-added custom entries that aren't in defaults.
+  if (saved) {
+    for (const [id, m] of Object.entries(saved)) {
+      if (!(id in out)) out[id] = m
+    }
+  }
+  return out
+}
+
 export async function getConfig(slug: string): Promise<ProjectConfig | null> {
   const configPath = path.join(PROJECTS_ROOT, slug, 'config.json')
   if (!existsSync(configPath)) return null
@@ -622,12 +658,21 @@ export async function getConfig(slug: string): Promise<ProjectConfig | null> {
 
   // Merge defaults into each catalog so new default entries (e.g. new
   // ElevenLabs models) surface in existing projects without forcing
-  // recreation. User-edited entries win on key conflict. We do NOT write
-  // to disk — if the user edits a model in Settings → Models and saves,
-  // updateConfig will persist whatever's in the reactive state.
-  raw.image_models = { ...DEFAULT_IMAGE_MODELS, ...(raw.image_models || {}) }
-  raw.audio_models = { ...DEFAULT_AUDIO_MODELS, ...(raw.audio_models || {}) }
-  raw.video_models = { ...DEFAULT_VIDEO_MODELS, ...(raw.video_models || {}) }
+  // recreation. We do NOT write to disk — if the user edits a model in
+  // Settings → Models and saves, updateConfig will persist whatever's
+  // in the reactive state.
+  //
+  // Per-entry shallow merge (NOT per-dict): for ids that exist in BOTH
+  // the default catalog and the project's saved config, we want
+  // user-edited fields (custom label, custom credits_per_image) to win
+  // BUT new default-only fields (e.g. tiers/default_tier added in the
+  // 2026-04-28 Kie.ai pricing refresh) to flow through to existing
+  // projects. The previous full-object override hid every new field
+  // behind whatever shape was on disk, so existing projects never saw
+  // tier-aware pricing despite running a tier-aware build.
+  raw.image_models = mergeCatalog(DEFAULT_IMAGE_MODELS, raw.image_models)
+  raw.audio_models = mergeCatalog(DEFAULT_AUDIO_MODELS, raw.audio_models)
+  raw.video_models = mergeCatalog(DEFAULT_VIDEO_MODELS, raw.video_models)
   if (!raw.voice_presets || !raw.voice_presets.length) {
     raw.voice_presets = [...DEFAULT_VOICE_PRESETS]
   }

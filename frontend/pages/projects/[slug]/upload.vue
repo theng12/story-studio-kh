@@ -2,9 +2,14 @@
   <div>
     <div class="upload-header">
       <h1>▶ YouTube Upload</h1>
-      <button class="btn btn-sm btn-ghost" :disabled="loading" @click="refreshAll">
+      <button
+        class="btn btn-sm btn-ghost"
+        :disabled="loading"
+        title="Reload accounts, OAuth status, and playlists across all tabs. Use after connecting/disconnecting a YouTube account or if a tab looks stale. Doesn't refresh the upload queue rows — use the Refresh queue button inside the queue for that."
+        @click="refreshAll"
+      >
         <LoadingSpinner v-if="loading" size="sm" />
-        {{ loading ? 'Loading…' : '↻ Refresh' }}
+        {{ loading ? 'Loading…' : '↻ Refresh accounts' }}
       </button>
     </div>
 
@@ -256,11 +261,11 @@
           <button
             class="btn btn-sm btn-ghost"
             :disabled="queueLoading"
-            title="Re-scan every episode for a final video and reload. Bypasses the 30-second backend cache so you see disk changes immediately."
+            title="Re-scan every episode for a final video and reload these queue rows. Bypasses the 30-second backend cache so disk changes show up immediately. Doesn't touch your account/OAuth state — use the Refresh accounts button at the top for that."
             @click="loadQueue({ nocache: true, page: queuePage })"
           >
             <LoadingSpinner v-if="queueLoading" size="sm" />
-            {{ queueLoading ? 'Loading…' : '↻ Refresh' }}
+            {{ queueLoading ? 'Loading…' : '↻ Refresh queue' }}
           </button>
         </div>
       </div>
@@ -329,6 +334,15 @@
       <table v-if="queueItems.length" class="queue-table mt-2">
         <thead>
           <tr>
+            <th class="col-select">
+              <input
+                type="checkbox"
+                :checked="allEpisodesOnPageSelected"
+                :indeterminate.prop="someEpisodesOnPageSelected && !allEpisodesOnPageSelected"
+                :title="allEpisodesOnPageSelected ? 'Deselect all episodes on this page' : 'Select all episode rows on this page'"
+                @change="toggleAllOnPage"
+              />
+            </th>
             <th>Type</th>
             <th>Identifier</th>
             <th>Title</th>
@@ -339,7 +353,16 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in queueItems" :key="item.id">
+          <tr v-for="item in queueItems" :key="item.id" :class="{ 'row-selected': item.type === 'episode' && selectedQueueIds.has(item.episode_code) }">
+            <td class="col-select">
+              <input
+                v-if="item.type === 'episode'"
+                type="checkbox"
+                :checked="selectedQueueIds.has(item.episode_code)"
+                :title="`Select ${item.episode_code} for bulk actions`"
+                @change="toggleQueueSelect(item.episode_code)"
+              />
+            </td>
             <td>
               <span :class="['type-chip', item.type]" :title="item.type === 'episode'
                 ? 'Episode — sourced from accepted ideas with a final assembled video.'
@@ -440,26 +463,44 @@
             </td>
             <td class="col-actions">
               <template v-if="item.type === 'episode'">
-                <!-- Primary action stays inline. Secondary controls
-                     (per-row playlist override, reset upload state) live
-                     in the ⋯ menu so the row stays narrow regardless of
-                     playlist title length — fixes the right-edge overflow
-                     that hit episode codes from TN0141 onwards (no
-                     uploaded-yet so the playlist <select> rendered for
-                     every row, pushing the Upload button off the page). -->
-                <button
-                  class="btn btn-sm btn-primary"
-                  :disabled="uploadingRow === item.id || (quota && !item.uploaded && quota.used >= quota.block_at)"
-                  :title="quota && !item.uploaded && quota.used >= quota.block_at
-                    ? `YouTube API quota nearly exhausted (${quota.used}/${quota.ceiling}). Wait for midnight Pacific reset, or request a higher quota in Google Cloud.`
-                    : item.uploaded
-                    ? 'Pushes title / description / tags / thumbnail to YouTube via the videos.update API. The video file, URL, view count, and comments are NOT replaced — only the metadata fields. Use this after editing metadata in the Metadata Generator.'
-                    : 'Uploads as private with publishAt from the active plan (if any). Use the Plans tab to schedule across the full queue.'"
-                  @click="doUpload(item)"
-                >
-                  <LoadingSpinner v-if="uploadingRow === item.id" size="sm" />
-                  {{ uploadingRow === item.id ? 'Queuing…' : (item.uploaded ? '↻ Update metadata' : '📤 Upload') }}
-                </button>
+                <!-- Three independent action buttons, smart-disabled per
+                     row state. Replaces the previous toggle button (which
+                     was overloaded: same click = upload OR metadata
+                     update depending on item.uploaded). The split makes
+                     intent unambiguous and lets each action fail
+                     independently in the Job Queue history. Secondary
+                     controls (per-row playlist override, reset upload
+                     state) still live in the ⋯ menu — different category
+                     of action (config, not execution). -->
+                <div class="row-actions">
+                  <button
+                    class="btn btn-sm btn-primary"
+                    :disabled="!canUploadRow(item)"
+                    :title="uploadButtonTitle(item)"
+                    @click="doUpload(item)"
+                  >
+                    <LoadingSpinner v-if="rowBusy[item.id] === 'upload'" size="sm" />
+                    {{ rowBusy[item.id] === 'upload' ? '…' : '📤 Upload' }}
+                  </button>
+                  <button
+                    class="btn btn-sm btn-secondary"
+                    :disabled="!canUpdateMetadataRow(item)"
+                    :title="metadataButtonTitle(item)"
+                    @click="doUpdateMetadata(item)"
+                  >
+                    <LoadingSpinner v-if="rowBusy[item.id] === 'metadata'" size="sm" />
+                    {{ rowBusy[item.id] === 'metadata' ? '…' : '↻ Metadata' }}
+                  </button>
+                  <button
+                    class="btn btn-sm btn-secondary"
+                    :disabled="!canUpdatePlaylistRow(item)"
+                    :title="playlistButtonTitle(item)"
+                    @click="doUpdatePlaylist(item)"
+                  >
+                    <LoadingSpinner v-if="rowBusy[item.id] === 'playlist'" size="sm" />
+                    {{ rowBusy[item.id] === 'playlist' ? '…' : '♫ Playlist' }}
+                  </button>
+                </div>
 
                 <!-- ⋯ menu for everything else. Only renders when there
                      is at least one secondary action available. Same
@@ -1251,6 +1292,40 @@
         This tab arrives in Phase {{ tabs.find(t => t.id === activeTab)?.phase }} of the Upload Center rollout.
       </p>
     </div>
+
+    <!-- Sticky bulk-action bar — appears when at least one queue row is
+         ticked. Mirrors the Ideas Generator Accept bar (same Transition,
+         same fixed positioning) so users build one mental model for
+         "selection toolbar in this app". Each bulk button is enabled
+         only when EVERY selected row supports that action — see the
+         can*Bulk computeds. We deliberately keep the toolbar visible
+         even when all bulk actions are disabled (with a hint) so the
+         user understands why the click isn't working without having to
+         open a tooltip per row. -->
+    <Transition name="bulk-bar">
+      <div v-if="activeTab === 'queue' && selectedQueueIds.size > 0" class="queue-bulk-bar" role="region" aria-label="Bulk upload actions">
+        <span class="queue-bulk-bar-count">{{ selectedQueueIds.size }} selected</span>
+        <button
+          class="btn btn-primary btn-sm"
+          :disabled="!canBulkUpload"
+          :title="bulkUploadTitle"
+          @click="doBulkUpload"
+        >📤 Upload</button>
+        <button
+          class="btn btn-secondary btn-sm"
+          :disabled="!canBulkMetadata"
+          :title="bulkMetadataTitle"
+          @click="doBulkMetadata"
+        >↻ Metadata</button>
+        <button
+          class="btn btn-secondary btn-sm"
+          :disabled="!canBulkPlaylist"
+          :title="bulkPlaylistTitle"
+          @click="doBulkPlaylist"
+        >♫ Playlist</button>
+        <button class="btn btn-ghost btn-sm" @click="selectedQueueIds.clear()">Clear</button>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -1335,6 +1410,8 @@ const {
   removeAccount,
   setDefault,
   triggerUpload,
+  triggerMetadataUpdate,
+  triggerPlaylistUpdate,
 } = uploadApi
 
 const { success, error: showError } = useToast()
@@ -2072,8 +2149,73 @@ async function doApplyPlan(plan: any) {
 // string = fall through to project default.
 const playlistOverrides = reactive<Record<string, string>>({})
 
+// ── Per-row action gating ──────────────────────────────────────────────
+// Each of the three action buttons is enabled only for rows where the
+// underlying YouTube call would actually do something. Quota check is
+// only applied to fresh uploads (1600 units each) — metadata + playlist
+// are 50 units, well within any reasonable quota cushion.
+const { confirmGeneration } = useConfirmation()
+
+// Per-row busy state, keyed by row id with the action that's in flight.
+// Lets each button render its own spinner without a shared "uploading"
+// flag (which previously made all three light up together).
+const rowBusy = reactive<Record<string, 'upload' | 'metadata' | 'playlist' | null>>({})
+
+function isRowBusy(item: any): boolean {
+  return !!rowBusy[item.id]
+}
+function quotaBlocksFreshUpload(): boolean {
+  return !!(quota.value && (quota.value as any).used >= (quota.value as any).block_at)
+}
+function effectivePlaylistFor(item: any): string {
+  const override = playlistOverrides[item.episode_code]
+  if (override === '_none_') return ''
+  if (override) return override
+  return defaultPlaylistId.value || ''
+}
+
+function canUploadRow(item: any): boolean {
+  if (isRowBusy(item)) return false
+  if (item.uploaded) return false
+  if (quotaBlocksFreshUpload()) return false
+  return true
+}
+function canUpdateMetadataRow(item: any): boolean {
+  if (isRowBusy(item)) return false
+  return !!item.uploaded
+}
+function canUpdatePlaylistRow(item: any): boolean {
+  if (isRowBusy(item)) return false
+  if (!item.uploaded) return false
+  return !!effectivePlaylistFor(item)
+}
+
+function uploadButtonTitle(item: any): string {
+  if (item.uploaded) return 'Already uploaded — use ↻ Metadata to update title/description/tags, or ♫ Playlist to add to a playlist.'
+  if (quotaBlocksFreshUpload()) {
+    const q = quota.value as any
+    return `YouTube API quota nearly exhausted (${q.used}/${q.ceiling}). Wait for midnight Pacific reset, or request higher quota in Google Cloud.`
+  }
+  return 'Uploads as private with publishAt from the active plan (if any). Use the Plans tab to schedule across the full queue.'
+}
+function metadataButtonTitle(item: any): string {
+  if (!item.uploaded) return 'Only available after the video is uploaded — Metadata updates push title/description/tags via videos.update without re-uploading the file.'
+  return 'Pushes title / description / tags / thumbnail to YouTube via the videos.update API. Privacy + schedule on the existing video are preserved.'
+}
+function playlistButtonTitle(item: any): string {
+  if (!item.uploaded) return 'Only available after the video is uploaded — Playlist adds the existing video to your project default (or row override) playlist.'
+  if (!effectivePlaylistFor(item)) return 'No target playlist. Set a project default in the Playlists tab, or pick a row-level override in the ⋯ menu.'
+  return 'Adds the video to its target playlist. Add-only — never removes from playlists you set up manually in YouTube Studio.'
+}
+
 async function doUpload(item: any) {
-  uploadingRow.value = item.id
+  if (!canUploadRow(item)) return
+  const ok = await confirmGeneration(slug.value, 'youtube_upload', {
+    episode_id: item.episode_code,
+    count: 1,
+  })
+  if (!ok) return
+  rowBusy[item.id] = 'upload'
   try {
     await triggerUpload({
       episode_id: item.episode_code,
@@ -2082,14 +2224,197 @@ async function doUpload(item: any) {
       playlist_id: playlistOverrides[item.episode_code] ?? null,
     })
     success(`Upload job queued for ${item.episode_code}. Watch progress in the Jobs tab.`)
-    // Re-fetch queue + quota; quota moved by ~1600 units after the
-    // resumable session init, so the banner should update promptly.
     setTimeout(() => { loadQueue('youtube'); loadQuota() }, 2000)
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to queue upload')
   } finally {
-    uploadingRow.value = null
+    rowBusy[item.id] = null
   }
+}
+
+async function doUpdateMetadata(item: any) {
+  if (!canUpdateMetadataRow(item)) return
+  const ok = await confirmGeneration(slug.value, 'youtube_metadata_update', {
+    episode_id: item.episode_code,
+    count: 1,
+  })
+  if (!ok) return
+  rowBusy[item.id] = 'metadata'
+  try {
+    await triggerMetadataUpdate({
+      episode_id: item.episode_code,
+      platform: 'youtube',
+    })
+    success(`Metadata update queued for ${item.episode_code} — privacy + schedule will stay as they are on YouTube.`)
+    setTimeout(() => { loadQueue('youtube'); loadQuota() }, 2000)
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to queue metadata update')
+  } finally {
+    rowBusy[item.id] = null
+  }
+}
+
+async function doUpdatePlaylist(item: any) {
+  if (!canUpdatePlaylistRow(item)) return
+  const ok = await confirmGeneration(slug.value, 'youtube_playlist_update', {
+    episode_id: item.episode_code,
+    count: 1,
+  })
+  if (!ok) return
+  rowBusy[item.id] = 'playlist'
+  try {
+    await triggerPlaylistUpdate({
+      episode_id: item.episode_code,
+      platform: 'youtube',
+      playlist_id: playlistOverrides[item.episode_code] ?? null,
+    })
+    success(`Playlist update queued for ${item.episode_code}.`)
+    setTimeout(() => { loadQueue('youtube'); loadQuota() }, 2000)
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to queue playlist update')
+  } finally {
+    rowBusy[item.id] = null
+  }
+}
+
+// ── Bulk-select state + handlers ───────────────────────────────────────
+// Selection lives in a Set keyed by episode_code so it survives queue
+// pagination + filter changes (the same pattern as the Pipeline page).
+// Imports (non-episode rows) aren't selectable — bulk operations only
+// make sense on accepted-idea rows that route through our generators.
+const selectedQueueIds = reactive(new Set<string>())
+
+function toggleQueueSelect(episodeCode: string) {
+  if (selectedQueueIds.has(episodeCode)) selectedQueueIds.delete(episodeCode)
+  else selectedQueueIds.add(episodeCode)
+}
+
+const episodeRowsOnPage = computed(() =>
+  queueItems.value.filter((i: any) => i.type === 'episode'),
+)
+const allEpisodesOnPageSelected = computed(() =>
+  episodeRowsOnPage.value.length > 0 &&
+  episodeRowsOnPage.value.every((i: any) => selectedQueueIds.has(i.episode_code)),
+)
+const someEpisodesOnPageSelected = computed(() =>
+  episodeRowsOnPage.value.some((i: any) => selectedQueueIds.has(i.episode_code)),
+)
+
+function toggleAllOnPage() {
+  if (allEpisodesOnPageSelected.value) {
+    for (const i of episodeRowsOnPage.value) selectedQueueIds.delete(i.episode_code)
+  } else {
+    for (const i of episodeRowsOnPage.value) selectedQueueIds.add(i.episode_code)
+  }
+}
+
+// Resolve the actual queue items for the selected codes — needed by
+// the bulk-action gates below so we can ask "is the row uploaded yet?"
+// per selection. Rows not visible on the current page (selected on a
+// previous page, then paginated away) are skipped; bulk fires only on
+// rows we can verify state for.
+const selectedQueueRows = computed(() =>
+  queueItems.value.filter((i: any) => i.type === 'episode' && selectedQueueIds.has(i.episode_code)),
+)
+
+const canBulkUpload = computed(() => {
+  if (selectedQueueRows.value.length === 0) return false
+  if (quotaBlocksFreshUpload()) return false
+  // Bulk upload only valid when EVERY selected row is not-yet-uploaded.
+  return selectedQueueRows.value.every((i: any) => !i.uploaded)
+})
+const canBulkMetadata = computed(() =>
+  selectedQueueRows.value.length > 0 &&
+  selectedQueueRows.value.every((i: any) => !!i.uploaded),
+)
+const canBulkPlaylist = computed(() =>
+  selectedQueueRows.value.length > 0 &&
+  selectedQueueRows.value.every((i: any) => i.uploaded && effectivePlaylistFor(i)),
+)
+
+const bulkUploadTitle = computed(() => {
+  if (selectedQueueRows.value.length === 0) return 'Select rows first'
+  if (quotaBlocksFreshUpload()) return 'YouTube quota near limit — bulk upload disabled'
+  if (!canBulkUpload.value) return 'Some selected rows are already uploaded — bulk Upload only works on a selection of not-yet-uploaded rows'
+  return `Upload ${selectedQueueRows.value.length} episode${selectedQueueRows.value.length === 1 ? '' : 's'} — each fires its own resumable upload job.`
+})
+const bulkMetadataTitle = computed(() => {
+  if (!canBulkMetadata.value) return 'All selected rows must already be uploaded — bulk Metadata only patches existing YouTube videos'
+  return `Update metadata on ${selectedQueueRows.value.length} uploaded video${selectedQueueRows.value.length === 1 ? '' : 's'}. Privacy + schedule preserved.`
+})
+const bulkPlaylistTitle = computed(() => {
+  if (!canBulkPlaylist.value) return 'Each selected row must be uploaded AND have a target playlist (project default or row override)'
+  return `Add ${selectedQueueRows.value.length} video${selectedQueueRows.value.length === 1 ? '' : 's'} to their target playlists. Idempotent — no removals.`
+})
+
+async function bulkRun(
+  type: 'youtube_upload' | 'youtube_metadata_update' | 'youtube_playlist_update',
+  rowsGetter: () => any[],
+  perItem: (item: any) => Promise<unknown>,
+  successPhrase: string,
+) {
+  const rows = rowsGetter()
+  if (rows.length === 0) return
+  const ok = await confirmGeneration(slug.value, type, {
+    episode_ids: rows.map(r => r.episode_code),
+    count: rows.length,
+  })
+  if (!ok) return
+  let succeeded = 0
+  let failed = 0
+  for (const row of rows) {
+    rowBusy[row.id] = type === 'youtube_upload' ? 'upload' : type === 'youtube_metadata_update' ? 'metadata' : 'playlist'
+    try {
+      await perItem(row)
+      succeeded++
+    } catch {
+      failed++
+    } finally {
+      rowBusy[row.id] = null
+    }
+  }
+  if (succeeded > 0) {
+    const tail = failed > 0 ? ` (${failed} failed to queue)` : ''
+    success(`${successPhrase} ${succeeded} episode${succeeded === 1 ? '' : 's'}${tail}.`)
+  } else {
+    showError(`Failed to queue ${type.replace('youtube_', '').replace('_', ' ')} for any of the ${rows.length} selected rows.`)
+  }
+  selectedQueueIds.clear()
+  setTimeout(() => { loadQueue('youtube'); loadQuota() }, 2000)
+}
+
+function doBulkUpload() {
+  return bulkRun(
+    'youtube_upload',
+    () => selectedQueueRows.value.filter((i: any) => !i.uploaded),
+    (item) => triggerUpload({
+      episode_id: item.episode_code,
+      platform: 'youtube',
+      privacy_status: 'private',
+      playlist_id: playlistOverrides[item.episode_code] ?? null,
+    }),
+    'Queued upload for',
+  )
+}
+function doBulkMetadata() {
+  return bulkRun(
+    'youtube_metadata_update',
+    () => selectedQueueRows.value.filter((i: any) => !!i.uploaded),
+    (item) => triggerMetadataUpdate({ episode_id: item.episode_code, platform: 'youtube' }),
+    'Queued metadata update for',
+  )
+}
+function doBulkPlaylist() {
+  return bulkRun(
+    'youtube_playlist_update',
+    () => selectedQueueRows.value.filter((i: any) => i.uploaded && effectivePlaylistFor(i)),
+    (item) => triggerPlaylistUpdate({
+      episode_id: item.episode_code,
+      platform: 'youtube',
+      playlist_id: playlistOverrides[item.episode_code] ?? null,
+    }),
+    'Queued playlist update for',
+  )
 }
 function formatScheduled(iso: string | null): string {
   if (!iso) return '—'
@@ -2525,6 +2850,55 @@ onMounted(() => {
   background: rgba(46, 160, 67, 0.08);
 }
 .col-actions { width: 1%; white-space: nowrap; text-align: right; }
+
+/* Three-button cluster per row. Right-aligned, tight gap, wraps onto a
+   second line on narrow viewports rather than overflowing the table. */
+.row-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  align-items: center;
+}
+
+/* Selection column — tight, just enough for the checkbox. */
+.col-select { width: 32px; text-align: center; padding: 0 4px; }
+.col-select input[type="checkbox"] { margin: 0; cursor: pointer; }
+.row-selected {
+  background: rgba(240, 198, 116, 0.06);
+}
+
+/* Sticky bulk-action bar — same recipe as Ideas Generator's accept bar
+   so the two surfaces share one visual language. Pinned bottom-center,
+   floats above content, fade-in on first selection. z-index sits below
+   modal overlays (z=1000) so dialogs still cover it. */
+.queue-bulk-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+}
+.queue-bulk-bar-count {
+  font-size: 12px; font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(240, 198, 116, 0.18);
+  color: var(--accent);
+}
+.bulk-bar-enter-active, .bulk-bar-leave-active {
+  transition: opacity .18s ease, transform .18s ease;
+}
+.bulk-bar-enter-from, .bulk-bar-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 12px);
+}
 
 .channel-cell { display: flex; align-items: center; gap: 10px; }
 .channel-thumb { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }

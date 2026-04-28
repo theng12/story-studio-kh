@@ -251,15 +251,77 @@ export function useUploadAccounts(slug: string) {
     account_id?: string
     scheduled_for?: string | null
     privacy_status?: 'private' | 'unlisted' | 'public'
+    /**
+     * For metadata-only updates on already-uploaded rows: when true, the
+     * backend omits the YouTube `status` block entirely so the existing
+     * video's privacyStatus + publishAt stay exactly as they are. Set
+     * by the per-row "↻ Update metadata" handler in upload.vue. Ignored
+     * on fresh uploads (a new video must declare a privacyStatus).
+     */
+    preserve_status?: boolean
     /** Per-upload playlist override. `_none_` = skip even if default is set. Empty/null = use project default. */
     playlist_id?: string | null
+  }) {
+    // When preserve_status is set, deliberately skip privacy_status in the
+    // request body so the backend's body parsing branch sees the absence
+    // and doesn't fall back to its default 'private'. (The route already
+    // honors preserve_status, but omitting privacy_status keeps the
+    // request body honest about user intent — easier to debug from logs.)
+    const body: Record<string, unknown> = {
+      platform: opts.platform || 'youtube',
+      episode_id: opts.episode_id,
+      account_id: opts.account_id,
+      scheduled_for: opts.scheduled_for ?? null,
+      playlist_id: opts.playlist_id ?? null,
+    }
+    if (opts.preserve_status) {
+      body.preserve_status = true
+    } else {
+      body.privacy_status = opts.privacy_status || 'private'
+    }
+    return post<{ job_id: string }>(`/projects/${slug}/upload/upload`, body)
+  }
+
+  /**
+   * Metadata-only update for an already-uploaded row. Same endpoint as
+   * triggerUpload (the backend branches on preserve_status), but distinct
+   * here so the per-row Metadata button is unambiguous from the call site
+   * — the request body always carries preserve_status: true regardless of
+   * what privacy/schedule fields the row carries. Saves the caller from
+   * remembering to opt out of every status-touching default.
+   */
+  async function triggerMetadataUpdate(opts: {
+    episode_id: string
+    platform?: UploadPlatform
+    account_id?: string
   }) {
     return post<{ job_id: string }>(`/projects/${slug}/upload/upload`, {
       platform: opts.platform || 'youtube',
       episode_id: opts.episode_id,
       account_id: opts.account_id,
-      scheduled_for: opts.scheduled_for ?? null,
-      privacy_status: opts.privacy_status || 'private',
+      preserve_status: true,
+    })
+  }
+
+  /**
+   * Playlist-only sync — adds the existing video to a playlist via the
+   * dedicated `/upload/update-playlist` route. Add-only / idempotent;
+   * never removes the video from playlists this app didn't track.
+   * `playlist_id` semantics match the upload endpoint:
+   *   - undefined / empty / null → use the project default
+   *   - '_none_' → server treats as a no-op
+   *   - explicit id → add to that playlist
+   */
+  async function triggerPlaylistUpdate(opts: {
+    episode_id: string
+    platform?: UploadPlatform
+    account_id?: string
+    playlist_id?: string | null
+  }) {
+    return post<{ job_id: string }>(`/projects/${slug}/upload/update-playlist`, {
+      platform: opts.platform || 'youtube',
+      episode_id: opts.episode_id,
+      account_id: opts.account_id,
       playlist_id: opts.playlist_id ?? null,
     })
   }
@@ -619,5 +681,7 @@ export function useUploadAccounts(slug: string) {
     removeAccount,
     setDefault,
     triggerUpload,
+    triggerMetadataUpdate,
+    triggerPlaylistUpdate,
   }
 }

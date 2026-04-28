@@ -5,11 +5,6 @@
         <h1>Ideas Generator</h1>
         <p class="text-muted mt-1">{{ allIdeas.length }} ideas &middot; {{ statusCounts.accepted }} accepted &middot; Next: {{ nextEpisode }}</p>
       </div>
-      <div class="flex gap-2 items-center" v-if="selectedIds.size > 0">
-        <span class="badge badge-queued">{{ selectedIds.size }} selected</span>
-        <button class="btn btn-primary btn-sm" @click="batchAccept">Accept Selected</button>
-        <button class="btn btn-secondary btn-sm" @click="selectedIds.clear()">Clear</button>
-      </div>
     </div>
 
     <!-- Generator -->
@@ -407,14 +402,40 @@
 
     <!-- Import Episode Folder modal -->
     <div v-if="importOpen" class="modal-overlay" @click.self="importOpen = false">
-      <div class="modal" style="max-width: 620px;">
+      <div class="modal" style="max-width: 680px;">
         <h2>Import Episode Folder</h2>
-        <p class="text-muted mt-1" style="font-size: 13px;">
+
+        <!-- Mode switch. Single-folder is the default so existing muscle
+             memory still works; flipping to Parent reveals the auto-scan
+             flow for bulk imports (e.g. dropping in 30 archive episodes
+             at once). The two modes share importCopy ("keep originals")
+             since that decision applies the same way to both. -->
+        <div class="import-mode-row mt-2" role="tablist" aria-label="Import mode">
+          <label class="import-mode-option" :class="{ active: importMode === 'single' }">
+            <input type="radio" value="single" v-model="importMode" :disabled="parentImporting" />
+            <span class="import-mode-label">Single folder</span>
+            <span class="import-mode-hint">Pick one episode folder.</span>
+          </label>
+          <label class="import-mode-option" :class="{ active: importMode === 'parent' }">
+            <input type="radio" value="parent" v-model="importMode" :disabled="parentImporting" />
+            <span class="import-mode-label">Parent (auto-import subfolders)</span>
+            <span class="import-mode-hint">Each immediate subfolder becomes its own episode. Subfolders inside subfolders are ignored.</span>
+          </label>
+        </div>
+
+        <p v-if="importMode === 'single'" class="text-muted mt-2" style="font-size: 13px;">
           Pick an existing folder named like <code>EP0009 - The Luminous Grove at Dawn</code>.
           We'll detect what's inside, add any missing subfolders, and register it as an accepted episode
           so it can flow through the pipeline.
         </p>
+        <p v-else class="text-muted mt-2" style="font-size: 13px;">
+          Pick a <strong>parent</strong> folder — we'll list every immediate subfolder so you can
+          tick which to import. Codes are auto-resolved (keep parsed if free, else next available).
+          Use single-folder mode if you need to override per-folder.
+        </p>
 
+        <!-- Single-folder mode -->
+        <template v-if="importMode === 'single'">
         <div class="flex gap-2 mt-2">
           <input v-model="importPath" class="input" placeholder="Path to episode folder" style="flex:1" />
           <button class="btn btn-sm btn-secondary" @click="browseImportFolder">Browse…</button>
@@ -508,11 +529,74 @@
             structure (or re-map any rows that look wrong).
           </div>
         </div>
+        </template>
+
+        <!-- Parent-folder mode -->
+        <template v-else>
+          <div class="flex gap-2 mt-2">
+            <input v-model="parentPath" class="input" placeholder="Path to parent folder" style="flex:1" :disabled="parentImporting" />
+            <button class="btn btn-sm btn-secondary" :disabled="parentImporting" @click="browseParentFolder">Browse…</button>
+            <button class="btn btn-sm btn-secondary" :disabled="!parentPath || parentScanning || parentImporting" @click="scanParentSubfolders">
+              {{ parentScanning ? 'Scanning…' : 'Scan' }}
+            </button>
+          </div>
+
+          <label class="flex gap-2 mt-2" style="align-items: center; font-size: 12px;">
+            <input type="checkbox" v-model="importCopy" :disabled="parentImporting" />
+            <span>
+              <strong>Keep originals</strong> — copy files into the project (recommended).
+              Applies to every subfolder. Uncheck to <em>move</em> files (originals deleted after a successful import).
+            </span>
+          </label>
+
+          <div v-if="parentSubfolders.length > 0" class="parent-sub-list mt-2">
+            <div class="parent-sub-header">
+              <span><strong>{{ parentSelectedCount }}</strong> of {{ parentSubfolders.length }} selected</span>
+              <button
+                class="btn btn-xs btn-ghost"
+                :disabled="parentImporting"
+                @click="parentSubfolders.forEach(r => r.selected = parentSelectedCount !== parentSubfolders.length)"
+              >
+                {{ parentSelectedCount === parentSubfolders.length ? 'Deselect all' : 'Select all' }}
+              </button>
+            </div>
+            <div class="parent-sub-rows">
+              <label v-for="row in parentSubfolders" :key="row.path" class="parent-sub-row" :class="['status-' + row.status]">
+                <input type="checkbox" v-model="row.selected" :disabled="parentImporting || row.status === 'importing'" />
+                <span class="parent-sub-name">{{ row.name }}</span>
+                <span class="parent-sub-status">
+                  <template v-if="row.status === 'pending'"></template>
+                  <template v-else-if="row.status === 'importing'">⟳ importing…</template>
+                  <template v-else-if="row.status === 'done'">✓ {{ row.message }}</template>
+                  <template v-else-if="row.status === 'error'">⚠ {{ row.message }}</template>
+                </span>
+              </label>
+            </div>
+          </div>
+          <p v-else-if="parentPath && !parentScanning" class="text-muted mt-2" style="font-size: 12px;">
+            No subfolders here yet. Click <em>Scan</em> after picking a parent.
+          </p>
+        </template>
 
         <div class="flex gap-2 mt-3" style="justify-content: flex-end;">
-          <button class="btn btn-secondary" @click="importOpen = false">Cancel</button>
-          <button class="btn btn-primary" :disabled="!canImport || importing" @click="doImport">
+          <button class="btn btn-secondary" :disabled="parentImporting" @click="importOpen = false">
+            {{ parentImporting ? 'Close after finish' : 'Cancel' }}
+          </button>
+          <button
+            v-if="importMode === 'single'"
+            class="btn btn-primary"
+            :disabled="!canImport || importing"
+            @click="doImport"
+          >
             {{ importing ? 'Importing…' : 'Import Episode' }}
+          </button>
+          <button
+            v-else
+            class="btn btn-primary"
+            :disabled="parentSelectedCount === 0 || parentImporting"
+            @click="doParentImport"
+          >
+            {{ parentImporting ? 'Importing…' : `Import ${parentSelectedCount} Episode${parentSelectedCount === 1 ? '' : 's'}` }}
           </button>
         </div>
       </div>
@@ -697,6 +781,19 @@
         </div>
       </div>
     </div>
+
+    <!-- Sticky multi-select action bar — floats at the bottom of the
+         viewport so the user can scroll the imported list and still
+         reach Accept without scrolling back to the top. Only renders
+         when something is selected; fade-in/out keeps it from snapping
+         in jarringly on first tick. -->
+    <Transition name="bulk-bar">
+      <div v-if="selectedIds.size > 0" class="ideas-bulk-bar" role="region" aria-label="Bulk selection actions">
+        <span class="ideas-bulk-bar-count">{{ selectedIds.size }} selected</span>
+        <button class="btn btn-primary btn-sm" @click="batchAccept">Accept Selected</button>
+        <button class="btn btn-secondary btn-sm" @click="selectedIds.clear()">Clear</button>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -1055,6 +1152,23 @@ const importCopy = ref(true)
 const importCodeChoice = ref<'parsed' | 'next'>('parsed')
 const inspectResult = ref<any>(null)
 
+// Parent-folder mode: user picks one parent dir, we list every immediate
+// subdir, they tick which to import, and we loop sequentially. Each row's
+// `status` drives the inline progress UI so the user can see exactly where
+// the loop is and which folders failed without losing the modal.
+type ParentSubRow = {
+  name: string
+  path: string
+  selected: boolean
+  status: 'pending' | 'importing' | 'done' | 'skipped' | 'error'
+  message: string
+}
+const importMode = ref<'single' | 'parent'>('single')
+const parentPath = ref('')
+const parentSubfolders = ref<ParentSubRow[]>([])
+const parentScanning = ref(false)
+const parentImporting = ref(false)
+
 const assetLabels: Record<string, string> = {
   script: 'Script',
   metadata: 'Metadata',
@@ -1079,9 +1193,108 @@ const anyClassifiableAssets = computed(() => {
 
 function openImportFolder() {
   importOpen.value = true
+  importMode.value = 'single'
   importPath.value = ''
   inspectResult.value = null
   importCopy.value = true
+  parentPath.value = ''
+  parentSubfolders.value = []
+}
+
+const parentSelectedCount = computed(() => parentSubfolders.value.filter(r => r.selected).length)
+
+async function browseParentFolder() {
+  try {
+    const r = await post<{ path: string | null }>('/system/pick-folder', {
+      title: 'Choose a parent folder — each subfolder will become its own episode',
+      buttonLabel: 'Use This Parent',
+    })
+    if (!r.path) return
+    parentPath.value = r.path
+    await scanParentSubfolders()
+  } catch (e: any) {
+    showError(e.data?.detail || 'Folder picker failed')
+  }
+}
+
+async function scanParentSubfolders() {
+  if (!parentPath.value) return
+  parentScanning.value = true
+  parentSubfolders.value = []
+  try {
+    const r = await post<{ subfolders: { name: string; path: string }[] }>(
+      '/system/list-subfolders',
+      { parent: parentPath.value },
+    )
+    parentSubfolders.value = (r.subfolders || []).map(s => ({
+      name: s.name,
+      path: s.path,
+      selected: true,
+      status: 'pending' as const,
+      message: '',
+    }))
+    if (parentSubfolders.value.length === 0) {
+      showError('No subfolders found in that parent.')
+    }
+  } catch (e: any) {
+    showError(e.data?.detail || 'Failed to scan parent folder')
+  } finally {
+    parentScanning.value = false
+  }
+}
+
+async function doParentImport() {
+  if (parentImporting.value) return
+  const queue = parentSubfolders.value.filter(r => r.selected)
+  if (queue.length === 0) return
+  parentImporting.value = true
+  let imported = 0
+  let failed = 0
+  try {
+    for (const row of queue) {
+      row.status = 'importing'
+      row.message = ''
+      try {
+        // Inspect first so we can auto-resolve the code: keep the parsed
+        // code when free, fall back to next available when taken. Mirrors
+        // the single-folder UX but without surfacing a radio per row —
+        // 12 popups would be miserable.
+        const inspect = await post<any>(`/projects/${slug.value}/episodes/inspect`, {
+          source_path: row.path,
+        })
+        if (!inspect?.ok) {
+          row.status = 'error'
+          row.message = inspect?.error || 'Inspection failed'
+          failed++
+          continue
+        }
+        const overrideCode = inspect.parsed_code_taken
+          ? inspect.next_available_code
+          : inspect.parsed_code
+        const r = await post<any>(`/projects/${slug.value}/episodes/import`, {
+          source_path: row.path,
+          copy_into_project: importCopy.value,
+          override_code: overrideCode,
+        })
+        row.status = 'done'
+        row.message = `${r.episode_code} — ${r.title}`
+        imported++
+      } catch (e: any) {
+        row.status = 'error'
+        row.message = e.data?.detail || 'Import failed'
+        failed++
+      }
+    }
+    await loadIdeas()
+    if (imported > 0) {
+      const tail = failed > 0 ? ` (${failed} failed)` : ''
+      success(`Imported ${imported} episode${imported === 1 ? '' : 's'}${tail}`)
+    } else if (failed > 0) {
+      showError(`All ${failed} folder${failed === 1 ? '' : 's'} failed to import`)
+    }
+  } finally {
+    parentImporting.value = false
+  }
 }
 
 async function browseImportFolder() {
@@ -1809,6 +2022,98 @@ onMounted(loadIdeas)
 .import-warnings {
   font-size: 11px; color: #eab308;
   display: flex; flex-direction: column; gap: 2px;
+}
+
+/* Mode switch sits above the path field — Single vs Parent. Two stacked
+   radio cards so the labels can carry a one-line hint each (per the
+   explain-as-you-go rule: every option needs an inline why). */
+.import-mode-row {
+  display: flex; gap: 8px;
+  flex-wrap: wrap;
+}
+.import-mode-option {
+  flex: 1; min-width: 240px;
+  display: grid; grid-template-columns: 18px 1fr; column-gap: 8px; row-gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.import-mode-option:hover { border-color: var(--accent); }
+.import-mode-option.active {
+  border-color: var(--accent);
+  background: rgba(240, 198, 116, 0.08);
+}
+.import-mode-option input { grid-row: span 2; align-self: center; }
+.import-mode-label { font-size: 13px; font-weight: 600; }
+.import-mode-hint { font-size: 11px; color: var(--text-muted); }
+
+/* Parent-mode subfolder list — checkable rows with an inline status
+   slot so per-folder progress (importing / done / error) shows up
+   without leaving the modal. */
+.parent-sub-list {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+.parent-sub-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px;
+  font-size: 12px; color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.parent-sub-rows {
+  max-height: 280px; overflow-y: auto;
+}
+.parent-sub-row {
+  display: grid; grid-template-columns: 18px 1fr auto; gap: 8px;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.parent-sub-row:last-child { border-bottom: none; }
+.parent-sub-row.status-importing { background: rgba(96, 165, 250, 0.08); }
+.parent-sub-row.status-done { color: var(--text-muted); }
+.parent-sub-row.status-error { background: rgba(239, 68, 68, 0.08); }
+.parent-sub-name { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.parent-sub-status { font-size: 11px; color: var(--text-muted); }
+.parent-sub-row.status-error .parent-sub-status { color: #ef4444; }
+.parent-sub-row.status-done .parent-sub-status { color: #34d399; }
+
+/* Floating bulk-action bar at the bottom of the viewport. Sits above the
+   modal-overlay z-index but below modals (z=1000) so opening a modal
+   while a selection is active still hides the bar visually. */
+.ideas-bulk-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+}
+.ideas-bulk-bar-count {
+  font-size: 12px; font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(240, 198, 116, 0.18);
+  color: var(--accent);
+}
+.bulk-bar-enter-active, .bulk-bar-leave-active {
+  transition: opacity .18s ease, transform .18s ease;
+}
+.bulk-bar-enter-from, .bulk-bar-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 12px);
 }
 
 /* Paste-ideas modal */

@@ -192,14 +192,14 @@ describe('getSecretsProvenanceStatus', () => {
     // exercise the missing-file branch.
     await fs.rm(secretsFile(slug), { force: true })
     const status = await secrets.getSecretsProvenanceStatus(slug)
-    assert.deepEqual(status, { present: false, foreign: false })
+    assert.deepEqual(status, { present: false, foreign: false, decryptFailed: false })
   })
 
   test('reports a locally-written file as present=true, foreign=false', async () => {
     const slug = await mkProject()
     await secrets.writeSecrets(slug, { openai_api_key: 'sk-one' })
     const status = await secrets.getSecretsProvenanceStatus(slug)
-    assert.deepEqual(status, { present: true, foreign: false })
+    assert.deepEqual(status, { present: true, foreign: false, decryptFailed: false })
   })
 
   test('reports a legacy (unstamped) file as present=true, foreign=false', async () => {
@@ -210,7 +210,7 @@ describe('getSecretsProvenanceStatus', () => {
       { mode: 0o600 },
     )
     const status = await secrets.getSecretsProvenanceStatus(slug)
-    assert.deepEqual(status, { present: true, foreign: false })
+    assert.deepEqual(status, { present: true, foreign: false, decryptFailed: false })
   })
 
   test('reports a foreign-stamped file as present=true, foreign=true', async () => {
@@ -225,7 +225,7 @@ describe('getSecretsProvenanceStatus', () => {
       { mode: 0o600 },
     )
     const status = await secrets.getSecretsProvenanceStatus(slug)
-    assert.deepEqual(status, { present: true, foreign: true })
+    assert.deepEqual(status, { present: true, foreign: true, decryptFailed: false })
   })
 })
 

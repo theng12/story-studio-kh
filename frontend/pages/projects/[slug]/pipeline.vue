@@ -18,7 +18,7 @@
     <p class="text-muted mt-1 mb-2">
       Select episodes and steps to run as a batch. Each episode's chain runs
       in sequence (<span title="Each step waits for the previous to finish on the same episode before starting.">
-        script → intro → image prompts → images → audio → audio merge → metadata → video assembly
+        script → intro → metadata → image prompts → images → video clips → audio → audio merge → video assembly
       </span>); different episodes' steps run concurrently when the queue has capacity.
       Uses each generator's last-used preset for step settings.
       <strong title="Pending = anything the 'Select all pending' button picks up. Includes every core step plus video assembly (added 2026 — previously excluded).">Video Assembly is now included in pending</strong>
@@ -121,8 +121,8 @@
           <span class="ep-actions-divider" aria-hidden="true" />
 
           <button class="btn btn-sm btn-secondary" @click="selectNone">Clear</button>
-          <button class="btn btn-sm btn-ghost" :disabled="epLoading" @click="loadEpisodes" title="Re-scan the file system to refresh each episode's detected status. Useful after copying files in manually or after unmarking.">
-            {{ epLoading ? 'Refreshing…' : '↻ Refresh' }}
+          <button class="btn btn-sm btn-ghost" :disabled="epLoading || epRevalidating" @click="loadEpisodes" title="Re-scan the file system to refresh each episode's detected status. Useful after copying files in manually or after unmarking.">
+            {{ (epLoading || epRevalidating) ? '⟳ Refreshing…' : '↻ Refresh' }}
           </button>
         </div>
       </div>
@@ -488,17 +488,19 @@ interface StepMeta {
   warning?: string
 }
 // Order in this array is the chain order for each episode's batch run.
-// script-only → introduction-only → image_prompts → images → audio →
-// audio_merge → metadata → (video → video_assembly if opted in).
+// script-only → introduction-only → metadata → image_prompts → images →
+// (video if opted in) → audio → audio_merge → video_assembly.
+// Metadata sits early so titles/descriptions are ready before any image work
+// — image prompts and the post-merge metadata-driven exports both benefit.
 const stepsMeta: StepMeta[] = [
   { id: 'script-only',       label: 'Script (chapters)', icon: '📝', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_script' },
   { id: 'introduction-only', label: 'Introduction',      icon: '🎙', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_introduction' },
+  { id: 'metadata',          label: 'Metadata',          icon: '📄', link: '/metadata',       presetList: 'metadata_presets',        presetActive: 'metadata_last_preset' },
   { id: 'image_prompts',     label: 'Image Prompts',     icon: '🎨', link: '/image-prompts',  presetList: 'image_prompts_presets',   presetActive: 'image_prompts_last_preset' },
   { id: 'images',            label: 'Images (all)',      icon: '📸', link: '/images',         presetList: 'image_generator_presets', presetActive: 'image_generator_last_preset' },
+  { id: 'video',             label: 'Video Clips',       icon: '🎬', link: '/video',          presetList: 'video_generator_presets', presetActive: 'video_generator_last_preset', costly: true, warning: '$0.50–$2 per clip — off by default' },
   { id: 'audio',             label: 'Audio (TTS)',       icon: '🎙', link: '/audio',          presetList: 'audio_generator_presets', presetActive: 'audio_generator_last_preset' },
   { id: 'audio_merge',       label: 'Audio Merge',       icon: '🎛', link: '/audio-merge',    presetList: 'audio_merge_presets',     presetActive: 'audio_merge_last_preset' },
-  { id: 'metadata',          label: 'Metadata',          icon: '📄', link: '/metadata',       presetList: 'metadata_presets',        presetActive: 'metadata_last_preset' },
-  { id: 'video',             label: 'Video clips (Veo)', icon: '🎬', link: '/video',          presetList: 'video_generator_presets', presetActive: 'video_generator_last_preset', costly: true, warning: '$0.50–$2 per clip — off by default' },
   { id: 'video_assembly',    label: 'Video Assembly',    icon: '🎞', link: '/video-assembly', presetList: 'video_bundle_presets',    presetActive: 'video_bundle_last_preset' },
 ]
 const stepChecked = reactive<Record<StepId, boolean>>({
@@ -520,13 +522,23 @@ const stepChecked = reactive<Record<StepId, boolean>>({
 watch(() => stepChecked['script-only'], (on) => {
   if (!on) stepChecked['introduction-only'] = false
 })
+// Metadata reads the finished script + intro to write titles/descriptions/
+// tags. Without either, the generator has nothing to summarise — auto-uncheck
+// it when its inputs disappear (mirrors the intro→script gate above).
+watch(() => [stepChecked['script-only'], stepChecked['introduction-only']] as const, ([s, i]) => {
+  if (!s || !i) stepChecked['metadata'] = false
+})
 function stepDisabled(stepId: StepId): boolean {
   if (stepId === 'introduction-only') return !stepChecked['script-only']
+  if (stepId === 'metadata') return !stepChecked['script-only'] || !stepChecked['introduction-only']
   return false
 }
 function stepDisabledReason(stepId: StepId): string {
   if (stepId === 'introduction-only' && !stepChecked['script-only']) {
     return 'Introduction needs the Script (chapters) step — enable that first.'
+  }
+  if (stepId === 'metadata' && (!stepChecked['script-only'] || !stepChecked['introduction-only'])) {
+    return 'Metadata needs both Script (chapters) and Introduction — enable those first.'
   }
   return ''
 }
@@ -611,7 +623,7 @@ const selectedEpisodes = reactive(new Set<string>())
 // Shared SWR cache so navigating away and back to /pipeline is instant.
 // Auto-revalidates when any job for this slug completes — selection state
 // stays intact because we only touch selectedEpisodes here, not episodes.
-const { episodes, isLoading: epLoading, refresh: refreshEpisodes, error: epError } = useEpisodes(slug)
+const { episodes, isLoading: epLoading, isRevalidating: epRevalidating, refresh: refreshEpisodes, error: epError } = useEpisodes(slug)
 
 // Surface the underlying load error in a toast (composable stores it but
 // doesn't toast — page decides whether to show).

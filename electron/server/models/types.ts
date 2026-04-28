@@ -452,9 +452,42 @@ export interface ProjectSummary {
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
+/**
+ * Variant tier for variable-priced image models — lets one entry describe
+ * a model whose cost depends on resolution (1K/2K/4K), rendering speed
+ * (turbo/balanced/quality), or any other axis the provider charges for.
+ *
+ * Only models with multiple price points need `tiers`. Flat-priced models
+ * keep using `credits_per_image` alone — readers fall back to it when no
+ * `tier` is specified in the request, and `default_tier` mirrors that
+ * legacy value for the variable-priced case.
+ */
+export interface ImageModelTier {
+  /** Stable id used in API requests (e.g. '1k', '4k', 'turbo'). */
+  id: string
+  /** Display label for the tier picker (e.g. '1K', 'Turbo'). */
+  label: string
+  /** Credits charged per image in this tier. */
+  credits: number
+}
+
 export interface ImageModelConfig {
   label: string
+  /**
+   * Default cost per image. For variable-priced models with `tiers`, this
+   * mirrors the credits of `default_tier` so legacy callers (no tier in
+   * request) get a sensible default. The cost calculator looks up
+   * `tiers[tier_id].credits` first, then falls through to this.
+   */
   credits_per_image: number
+  /**
+   * Optional price tiers. When present, the UI renders a tier picker
+   * (resolution / speed / etc.) and the cost calculator routes requests
+   * to the tier-specific credit cost. Absent = single flat price.
+   */
+  tiers?: ImageModelTier[]
+  /** Tier id whose credits == credits_per_image. Required when `tiers` is set. */
+  default_tier?: string
   endpoint: string
   poll: string
   type: string // 'jobs' | 'flux' | '4o' | 'gpt-image'
@@ -629,7 +662,7 @@ export interface UpdateConfigRequest {
 
 // ── Jobs ────────────────────────────────────────────────────────────────────
 
-export type JobType = 'script-only' | 'introduction-only' | 'chapter-only' | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'images_repair' | 'audio' | 'audio_merge' | 'metadata' | 'video' | 'video_repair' | 'video_assembly' | 'subtitles_transcribe' | 'youtube_upload'
+export type JobType = 'script-only' | 'introduction-only' | 'chapter-only' | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'images_repair' | 'audio' | 'audio_merge' | 'metadata' | 'video' | 'video_repair' | 'video_assembly' | 'subtitles_transcribe' | 'youtube_upload' | 'youtube_playlist_update'
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
 /**

@@ -9,22 +9,96 @@ import type { ImageModelConfig, AudioModelConfig, VoicePreset, VideoModelConfig 
 // Every built-in image model today is served by kie.ai; tagging them here
 // makes the provider explicit for the unified catalog view and avoids the
 // implicit fallback in `toUnified`.
+//
+// Pricing notes (2026-04-28 refresh):
+//   - All kie.ai credits convert at 1 credit = $0.005 USD.
+//   - Models with multiple price points carry `tiers` + `default_tier`.
+//     `credits_per_image` mirrors the default tier's credits so callers
+//     that don't pass a tier still get a sensible cost.
+//   - High-tier-topup discounts (~10%) are NOT modelled here — they apply
+//     globally on the kie.ai account, not per-call.
 export const DEFAULT_IMAGE_MODELS: Record<string, ImageModelConfig> = {
   // Phase 8: `supports_reference_images: true` marks the kie.ai models that
   // ingest character reference images (Flux Kontext via inputImages, Nano
   // Banana via image_urls). Other entries silently ignore reference paths
   // when passed — text-to-image only. The character picker reads this flag
   // to surface a "compatible models" hint per character.
-  'grok-imagine':    { label: 'Grok Imagine',              credits_per_image: 1,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'grok-imagine/text-to-image',   provider: 'kie' },
-  'flux-kontext-pro':{ label: 'Flux Kontext Pro',          credits_per_image: 2,  endpoint: '/flux/kontext/generate',     poll: '/flux/kontext/record-info',  type: 'flux',      api_model: 'flux-kontext-pro',             provider: 'kie', supports_reference_images: true },
-  'flux-kontext-max':{ label: 'Flux Kontext Max',          credits_per_image: 4,  endpoint: '/flux/kontext/generate',     poll: '/flux/kontext/record-info',  type: 'flux',      api_model: 'flux-kontext-max',             provider: 'kie', supports_reference_images: true },
-  '4o-image':        { label: '4o Image (OpenAI)',          credits_per_image: 3,  endpoint: '/gpt4o-image/generate',      poll: '/gpt4o-image/record-info',   type: '4o',        api_model: '4o-image',                     provider: 'kie' },
-  'gpt-image-1.5':   { label: 'GPT Image 1.5',              credits_per_image: 3,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'gpt-image', api_model: 'gpt-image/1.5-text-to-image',  provider: 'kie' },
-  'nano-banana':     { label: 'Nano Banana',                credits_per_image: 12, endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'google/nano-banana',           provider: 'kie', supports_reference_images: true },
-  'nano-banana-pro': { label: 'Nano Banana Pro',            credits_per_image: 18, endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'nano-banana-pro',              provider: 'kie', supports_reference_images: true },
-  'qwen-image':      { label: 'Qwen Image',                 credits_per_image: 2,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'qwen/text-to-image',           provider: 'kie' },
-  'seedream':        { label: 'Seedream (ByteDance)',       credits_per_image: 3,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'bytedance/seedream',           provider: 'kie' },
-  'imagen4':         { label: 'Imagen 4 (Google)',          credits_per_image: 4,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'google/imagen4',               provider: 'kie' },
+
+  // ── Flat-priced models (single credit cost, no tiers) ─────────────────
+  'z-image':         { label: 'Z-Image',                    credits_per_image: 0.8, endpoint: '/jobs/createTask',         poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'tongyi/z-image-text-to-image', provider: 'kie' },
+  'grok-imagine':    { label: 'Grok Imagine',               credits_per_image: 1,   endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'grok-imagine/text-to-image',   provider: 'kie' },
+  'qwen-image':      { label: 'Qwen Image',                 credits_per_image: 2,   endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'qwen/text-to-image',           provider: 'kie' },
+  'flux-kontext-pro':{ label: 'Flux Kontext Pro',           credits_per_image: 2,   endpoint: '/flux/kontext/generate',     poll: '/flux/kontext/record-info',  type: 'flux',      api_model: 'flux-kontext-pro',             provider: 'kie', supports_reference_images: true },
+  '4o-image':        { label: '4o Image (OpenAI)',          credits_per_image: 3,   endpoint: '/gpt4o-image/generate',      poll: '/gpt4o-image/record-info',   type: '4o',        api_model: '4o-image',                     provider: 'kie' },
+  'gpt-image-1.5':   { label: 'GPT Image 1.5',              credits_per_image: 3,   endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'gpt-image', api_model: 'gpt-image/1.5-text-to-image',  provider: 'kie' },
+  'seedream':        { label: 'Seedream (ByteDance)',       credits_per_image: 3,   endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'bytedance/seedream',           provider: 'kie' },
+  'imagen4':         { label: 'Imagen 4 (Google)',          credits_per_image: 4,   endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'google/imagen4',               provider: 'kie' },
+  'flux-kontext-max':{ label: 'Flux Kontext Max',           credits_per_image: 4,   endpoint: '/flux/kontext/generate',     poll: '/flux/kontext/record-info',  type: 'flux',      api_model: 'flux-kontext-max',             provider: 'kie', supports_reference_images: true },
+  'wan-2-7-image':   { label: 'WAN 2.7 Image',              credits_per_image: 4.8, endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'wan/2-7-image',                provider: 'kie' },
+  'seedream-5-lite': { label: 'Seedream 5 Lite',            credits_per_image: 5.5, endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'bytedance/seedream-5-lite-text-to-image', provider: 'kie' },
+  'qwen-image-2':    { label: 'Qwen Image 2',               credits_per_image: 5.6, endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'qwen2/image-edit',             provider: 'kie', supports_reference_images: true },
+  'seedream-4-5':    { label: 'Seedream 4.5',               credits_per_image: 6.5, endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'bytedance/seedream-4-5-text-to-image', provider: 'kie' },
+  'nano-banana':     { label: 'Nano Banana',                credits_per_image: 12,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'google/nano-banana',           provider: 'kie', supports_reference_images: true },
+  'wan-2-7-image-pro':{ label: 'WAN 2.7 Image Pro',         credits_per_image: 12,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'wan/2-7-image-pro',            provider: 'kie' },
+
+  // ── Tiered models — resolution and speed-based pricing ────────────────
+  'flux-2-pro': {
+    label: 'Flux 2 Pro',
+    credits_per_image: 5, default_tier: '1k',
+    tiers: [
+      { id: '1k', label: '1K', credits: 5 },
+      { id: '2k', label: '2K', credits: 7 },
+    ],
+    endpoint: '/jobs/createTask', poll: '/jobs/recordInfo', type: 'jobs',
+    api_model: 'flux-2/pro-text-to-image', provider: 'kie',
+    supports_reference_images: true,
+  },
+  'gpt-image-2': {
+    label: 'GPT Image 2',
+    credits_per_image: 6, default_tier: '1k',
+    tiers: [
+      { id: '1k', label: '1K', credits: 6 },
+      { id: '2k', label: '2K', credits: 10 },
+      { id: '4k', label: '4K', credits: 16 },
+    ],
+    endpoint: '/jobs/createTask', poll: '/jobs/recordInfo', type: 'gpt-image',
+    api_model: 'gpt-image-2-text-to-image', provider: 'kie',
+    supports_reference_images: true,
+  },
+  'nano-banana-2': {
+    label: 'Nano Banana 2',
+    credits_per_image: 8, default_tier: '1k',
+    tiers: [
+      { id: '1k', label: '1K', credits: 8 },
+      { id: '2k', label: '2K', credits: 12 },
+      { id: '4k', label: '4K', credits: 18 },
+    ],
+    endpoint: '/jobs/createTask', poll: '/jobs/recordInfo', type: 'jobs',
+    api_model: 'google/nano-banana-2', provider: 'kie',
+    supports_reference_images: true,
+  },
+  'nano-banana-pro': {
+    label: 'Nano Banana Pro',
+    credits_per_image: 18, default_tier: '1k-2k',
+    tiers: [
+      { id: '1k-2k', label: '1K / 2K', credits: 18 },
+      { id: '4k',    label: '4K',      credits: 24 },
+    ],
+    endpoint: '/jobs/createTask', poll: '/jobs/recordInfo', type: 'jobs',
+    api_model: 'nano-banana-pro', provider: 'kie',
+    supports_reference_images: true,
+  },
+  'ideogram-v3': {
+    label: 'Ideogram V3',
+    credits_per_image: 7, default_tier: 'balanced',
+    tiers: [
+      { id: 'turbo',    label: 'Turbo',    credits: 3.5 },
+      { id: 'balanced', label: 'Balanced', credits: 7   },
+      { id: 'quality',  label: 'Quality',  credits: 10  },
+    ],
+    endpoint: '/jobs/createTask', poll: '/jobs/recordInfo', type: 'jobs',
+    api_model: 'ideogram/v3-text-to-image', provider: 'kie',
+  },
 }
 
 export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {

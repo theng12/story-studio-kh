@@ -160,7 +160,17 @@ router.post('/projects/:slug/estimate-cost', validateBody(EstimateCostSchema), a
       // type === 'images' means both scenes + thumbnails (unified page "Both" mode).
       const model = params?.model || 'grok-imagine'
       const modelConfig = config.image_models?.[model]
-      const creditsPerImage = modelConfig?.credits_per_image || 1
+      // Tier-aware pricing: variable-priced models (nano-banana-2,
+      // ideogram-v3, etc.) carry a `tiers[]` array. The request can name
+      // a tier via params.tier; absent → default_tier → credits_per_image.
+      // Flat-priced models ignore params.tier silently.
+      const requestedTier: string | undefined = typeof params?.tier === 'string' ? params.tier : undefined
+      const tiers = (modelConfig as any)?.tiers as { id: string; label: string; credits: number }[] | undefined
+      const tierEntry = Array.isArray(tiers)
+        ? (tiers.find(t => t.id === requestedTier)
+            ?? tiers.find(t => t.id === (modelConfig as any)?.default_tier))
+        : undefined
+      const creditsPerImage = tierEntry?.credits ?? modelConfig?.credits_per_image ?? 1
       const wantThumbs = type === 'thumb_images'
       const wantBoth = type === 'images'
 
@@ -185,7 +195,8 @@ router.post('/projects/:slug/estimate-cost', validateBody(EstimateCostSchema), a
       estimate.cost_unit = 'credits'
       estimate.estimated_duration = formatDuration(durationSec)
       const kind = wantBoth ? 'image(s) (scenes + thumbnails)' : wantThumbs ? 'thumbnail(s)' : 'scene(s)'
-      estimate.details = `${promptCount} ${kind} × ${creditsPerImage} credit${creditsPerImage > 1 ? 's' : ''} (${modelConfig?.label || model})`
+      const tierSuffix = tierEntry ? ` · ${tierEntry.label}` : ''
+      estimate.details = `${promptCount} ${kind} × ${creditsPerImage} credit${creditsPerImage > 1 ? 's' : ''} (${modelConfig?.label || model}${tierSuffix})`
 
       // Include current kie balance
       try {
@@ -236,6 +247,39 @@ router.post('/projects/:slug/estimate-cost', validateBody(EstimateCostSchema), a
       estimate.cost_unit = 'USD'
       estimate.estimated_duration = formatDuration(durationSec)
       estimate.details = `~${(inputTokens + outputTokens).toLocaleString()} tokens (${model})`
+
+    } else if (type === 'youtube_upload' || type === 'youtube_metadata_update' || type === 'youtube_playlist_update') {
+      // YouTube API quota — units, not USD. The default daily allotment
+      // per Cloud project is 10,000 units (Google's setting, not ours).
+      // Per-action quota cost (verified against Google's quota table):
+      //   videos.insert       → 1600
+      //   videos.update       → 50
+      //   playlistItems.insert → 50
+      //   thumbnails.set      → 50  (charged on fresh-upload only)
+      // For bulk actions the UI passes count = number of episodes in
+      // the batch; we multiply so the dialog shows the aggregate impact
+      // before the user clicks Confirm.
+      const count = Math.max(1, Number(params?.count) || 1)
+      const perAction = type === 'youtube_upload'
+        ? 1650 // insert + thumbnails.set on the same row
+        : 50   // metadata or playlist
+      const totalUnits = perAction * count
+      const verb = type === 'youtube_upload'
+        ? 'upload'
+        : type === 'youtube_metadata_update'
+          ? 'metadata update'
+          : 'playlist update'
+      // Each action takes ~3-15s end-to-end depending on video size /
+      // network. Use an average for the duration estimate; bulk runs
+      // mostly in parallel via the queue, but show serial worst-case
+      // so the user isn't surprised if the queue is backed up.
+      const perActionSec = type === 'youtube_upload' ? 30 : 5
+      estimate.estimated_cost = totalUnits
+      estimate.cost_unit = 'YouTube quota units'
+      estimate.estimated_duration = formatDuration(perActionSec * count)
+      estimate.details = count === 1
+        ? `1 ${verb} × ${perAction} units`
+        : `${count} ${verb}s × ${perAction} units = ${totalUnits} units total`
 
     } else if (type === 'video') {
       // Video generation: local FFmpeg — no API cost, just time estimate

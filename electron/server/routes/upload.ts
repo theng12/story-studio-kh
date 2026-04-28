@@ -608,6 +608,13 @@ router.post('/projects/:slug/upload/upload', async (req, res) => {
       if (itemSchedule[episode_id]) scheduled_for = itemSchedule[episode_id]
     }
     const privacy_status = typeof req.body?.privacy_status === 'string' ? req.body.privacy_status : 'private'
+    // preserve_status routes through to the executor's metadata-only branch.
+    // `true` = leave YouTube's existing privacy + publishAt alone (the safe
+    // default for "↻ Update metadata" clicks on already-uploaded rows).
+    // `false` (or unset) = old behavior: re-push privacy/publishAt from the
+    // request, which is correct for fresh uploads that need to declare a
+    // privacyStatus. Frontend defaults to true when item.uploaded.
+    const preserve_status = req.body?.preserve_status === true
     // Per-upload playlist override (A5). Sentinel `_none_` means skip the
     // project default; empty/null/missing means "use project default (if any)".
     const playlist_id = typeof req.body?.playlist_id === 'string' ? req.body.playlist_id : null
@@ -633,11 +640,55 @@ router.post('/projects/:slug/upload/upload', async (req, res) => {
       type: 'youtube_upload' as JobType,
       episode_id,
       title: `YouTube upload — ${episode_id}`,
-      params: { episode_id, account_id, scheduled_for, privacy_status, playlist_id },
+      params: { episode_id, account_id, scheduled_for, privacy_status, playlist_id, preserve_status },
     })
     res.status(201).json(job)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to queue upload'))
+  }
+})
+
+// Playlist-only update for an already-uploaded video. Distinct from
+// /upload/upload's metadata branch because it has its own quota class
+// (50 units vs. 1600+ for an upload), its own job type for queue
+// scheduling, and a much narrower failure surface — easier to reason
+// about in bulk runs of 20+ rows than overloading the upload endpoint
+// with yet another mode flag.
+router.post('/projects/:slug/upload/update-playlist', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const platform = readPlatform(req.body?.platform) || 'youtube'
+    if (platform !== 'youtube') return res.status(400).json({ detail: `${platform} playlist update is not enabled yet.` })
+    const episode_id: string = typeof req.body?.episode_id === 'string' ? req.body.episode_id : ''
+    if (!episode_id) return res.status(400).json({ detail: 'episode_id required' })
+
+    const account_id = typeof req.body?.account_id === 'string' && req.body.account_id
+      ? req.body.account_id
+      : (await store.getDefaultAccountId(slug, 'youtube'))
+    if (!account_id) {
+      return res.status(400).json({ detail: 'No YouTube account connected. Open Upload Center → Accounts and connect a channel first.' })
+    }
+
+    if (jq.isDuplicate(slug, episode_id, 'youtube_playlist_update' as JobType)) {
+      return res.status(409).json({ detail: `Playlist update already queued/running for ${episode_id}` })
+    }
+
+    // Same body shape as /upload/upload's playlist override: empty/null
+    // means "use project default", `_none_` is a no-op short-circuit
+    // handled in the generator. Any other string is a literal playlist id.
+    const playlist_id = typeof req.body?.playlist_id === 'string' ? req.body.playlist_id : null
+
+    const job = jq.enqueue({
+      project_slug: slug,
+      type: 'youtube_playlist_update' as JobType,
+      episode_id,
+      title: `YouTube playlist — ${episode_id}`,
+      params: { episode_id, account_id, playlist_id },
+    })
+    res.status(201).json(job)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to queue playlist update'))
   }
 })
 

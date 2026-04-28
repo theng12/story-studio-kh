@@ -7,29 +7,76 @@
 
     <!-- Asset-integrity banner: surfaces gaps that survived a folder
          transfer / partial sync. Read-only; nothing is regenerated. See
-         services/manifest-audit.ts and the P7 note in Session 05. -->
+         services/manifest-audit.ts and the P7 note in Session 05.
+         The audit walks every episode's filesystem state, so on large
+         projects it can take 60+ seconds. We deliberately DON'T run it
+         on mount — the operator clicks "Run audit" when they want it,
+         and the result is cached for 30 min so re-visits are free. -->
     <div
-      v-if="auditBannerVisible"
       class="audit-banner"
+      :class="{ 'audit-banner-idle': !audit, 'audit-banner-clean': auditCleanVisible }"
       role="status"
       aria-live="polite"
     >
-      <span class="audit-banner-icon" aria-hidden="true">&#9888;</span>
+      <span class="audit-banner-icon" aria-hidden="true">
+        <template v-if="auditBannerVisible">&#9888;</template>
+        <template v-else-if="auditCleanVisible">&#10003;</template>
+        <template v-else>&#128270;</template>
+      </span>
       <div class="audit-banner-text">
-        <strong>{{ audit.total_missing }} asset{{ audit.total_missing === 1 ? '' : 's' }}
-          missing across {{ audit.episodes_with_missing }}
-          episode{{ audit.episodes_with_missing === 1 ? '' : 's' }}.</strong>
-        <span class="text-muted" style="margin-left: 6px;">
-          Likely a partial transfer or interrupted sync.
-          The Repair buttons on each asset page can re-download without spending credits.
-        </span>
+        <template v-if="auditRunning">
+          <strong>Auditing assets…</strong>
+          <span class="text-muted" style="margin-left: 6px;">
+            Walking every episode's folder. Slow on large projects (60s+ for 300+ episodes).
+          </span>
+        </template>
+        <template v-else-if="auditBannerVisible">
+          <strong>{{ audit.total_missing }} asset{{ audit.total_missing === 1 ? '' : 's' }}
+            missing across {{ audit.episodes_with_missing }}
+            episode{{ audit.episodes_with_missing === 1 ? '' : 's' }}.</strong>
+          <span class="text-muted" style="margin-left: 6px;">
+            Likely a partial transfer or interrupted sync.
+            The Repair buttons on each asset page can re-download without spending credits.
+            <span v-if="auditRanAtLabel" style="margin-left: 4px;">Last scanned {{ auditRanAtLabel }}.</span>
+          </span>
+        </template>
+        <template v-else-if="auditCleanVisible">
+          <strong>All assets present.</strong>
+          <span class="text-muted" style="margin-left: 6px;">
+            Last scanned {{ auditRanAtLabel }}. The audit walks every episode's folder, so we cache the result for 30 min.
+          </span>
+        </template>
+        <template v-else>
+          <strong>Asset audit not run yet.</strong>
+          <span class="text-muted" style="margin-left: 6px;">
+            Walks every episode's folder to find missing files. Skipped on mount because it's slow on large projects.
+          </span>
+        </template>
       </div>
       <div class="audit-banner-actions">
-        <button class="btn btn-sm btn-secondary" @click="showDialog = true">See what's missing</button>
-        <NuxtLink class="btn btn-sm btn-primary" :to="`/projects/${slug}/assets`">Repair</NuxtLink>
+        <button
+          v-if="auditBannerVisible"
+          class="btn btn-sm btn-secondary"
+          @click="showDialog = true"
+        >See what's missing</button>
+        <NuxtLink
+          v-if="auditBannerVisible"
+          class="btn btn-sm btn-primary"
+          :to="`/projects/${slug}/assets`"
+        >Repair</NuxtLink>
+        <button
+          class="btn btn-sm"
+          :class="auditBannerVisible ? 'btn-ghost' : 'btn-primary'"
+          :disabled="auditRunning"
+          @click="runAudit"
+        >
+          <LoadingSpinner v-if="auditRunning" size="sm" />
+          <template v-else>{{ audit ? '↻ Re-scan' : 'Run audit' }}</template>
+        </button>
       </div>
     </div>
     <MissingAssetsDialog
+      v-if="audit"
       :visible="showDialog"
       :slug="slug"
       :report="audit"
@@ -259,16 +306,35 @@ const statsLoadError = ref<string>('')
 const auditLoadError = ref<string>('')
 const accountsLoadError = ref<string>('')
 
-// On-open asset audit. Fires once per dashboard mount — directory listing
-// only, no file reads, no provider calls. See services/manifest-audit.ts.
-// We don't debounce because the dashboard itself isn't a tab the user
-// switches to repeatedly in a tight loop; the mount-based trigger is the
-// natural gate. If that changes, wrap the call in a session-scoped cache.
+// Asset audit — lazy + cached. The audit walks every episode's filesystem
+// state, which is O(episodes × asset-stages) and easily hits 60+ seconds on
+// large projects. We don't fire it on mount; the operator clicks "Run audit"
+// when they want it. Result is cached at module scope for 30 min so leaving
+// and re-entering the dashboard inside that window is free. See the agent's
+// 102.5s measurement on TerraNash (379 episodes) — the previous on-mount
+// fetch was the dominant cause of "dashboard takes forever".
 const audit = ref<ProjectAudit | null>(null)
+const auditRanAt = ref<number>(0)
+const auditRunning = ref(false)
 const showDialog = ref(false)
 const auditBannerVisible = computed(() =>
   !!audit.value && audit.value.total_missing > 0,
 )
+const auditCleanVisible = computed(() =>
+  !!audit.value && !auditRunning.value && audit.value.total_missing === 0,
+)
+const auditRanAtLabel = computed(() => {
+  if (!auditRanAt.value) return ''
+  const diff = Date.now() - auditRanAt.value
+  if (diff < 60_000) return 'just now'
+  if (diff < 3_600_000) return `${Math.round(diff / 60_000)} min ago`
+  return new Date(auditRanAt.value).toLocaleTimeString()
+})
+
+// Module-level cache so navigating away and back doesn't re-run the audit.
+// Keyed by slug because separate projects have separate audits. 30-min TTL.
+const _auditCacheBySlug = new Map<string, { result: ProjectAudit; ts: number }>()
+const AUDIT_TTL_MS = 30 * 60 * 1000
 
 
 const assetItems = computed(() => {
@@ -317,30 +383,59 @@ const workflowSteps = [
 const uploadAccountCount = ref<number | null>(null)
 
 async function reloadDashboard() {
-  try {
-    stats.value = await get(`/projects/${slug.value}/dashboard-stats`)
-    statsLoadError.value = ''
-  } catch (e: any) {
-    statsLoadError.value = e?.data?.detail || e?.message || 'Failed to load dashboard stats'
+  // Stats + accounts in parallel — neither is slow, and they're independent.
+  // The audit USED to live here too but was the bottleneck (60-100s on large
+  // projects); it's now opt-in via runAudit().
+  await Promise.all([
+    (async () => {
+      try {
+        stats.value = await get(`/projects/${slug.value}/dashboard-stats`)
+        statsLoadError.value = ''
+      } catch (e: any) {
+        statsLoadError.value = e?.data?.detail || e?.message || 'Failed to load dashboard stats'
+      }
+    })(),
+    (async () => {
+      try {
+        const r = await get<{ accounts: Record<string, any[]> }>(`/projects/${slug.value}/upload/accounts`)
+        const total = Object.values(r?.accounts || {}).reduce((n, arr) => n + (arr?.length || 0), 0)
+        uploadAccountCount.value = total
+        accountsLoadError.value = ''
+      } catch (e: any) {
+        // Treat fetch failure as "unknown" — don't show the missing-destinations
+        // banner if we can't confirm the gap (false alarm), but record the
+        // error so we render a separate "couldn't check" indicator instead of
+        // pretending the project has destinations configured.
+        uploadAccountCount.value = null
+        accountsLoadError.value = e?.data?.detail || e?.message || 'Could not check upload destinations'
+      }
+    })(),
+  ])
+  // Hydrate audit from the module-level cache if we have a fresh entry.
+  // No fetch — re-running the audit requires an explicit click.
+  const cached = _auditCacheBySlug.get(slug.value)
+  if (cached && Date.now() - cached.ts < AUDIT_TTL_MS) {
+    audit.value = cached.result
+    auditRanAt.value = cached.ts
+  } else {
+    audit.value = null
+    auditRanAt.value = 0
   }
+}
+
+async function runAudit() {
+  if (auditRunning.value) return
+  auditRunning.value = true
+  auditLoadError.value = ''
   try {
-    audit.value = await get<ProjectAudit>(`/projects/${slug.value}/assets-audit-detail`)
-    auditLoadError.value = ''
+    const result = await get<ProjectAudit>(`/projects/${slug.value}/assets-audit-detail`)
+    audit.value = result
+    auditRanAt.value = Date.now()
+    _auditCacheBySlug.set(slug.value, { result, ts: auditRanAt.value })
   } catch (e: any) {
     auditLoadError.value = e?.data?.detail || e?.message || 'Asset audit failed'
-  }
-  try {
-    const r = await get<{ accounts: Record<string, any[]> }>(`/projects/${slug.value}/upload/accounts`)
-    const total = Object.values(r?.accounts || {}).reduce((n, arr) => n + (arr?.length || 0), 0)
-    uploadAccountCount.value = total
-    accountsLoadError.value = ''
-  } catch (e: any) {
-    // Treat fetch failure as "unknown" — don't show the missing-destinations
-    // banner if we can't confirm the gap (false alarm), but record the
-    // error so we render a separate "couldn't check" indicator instead of
-    // pretending the project has destinations configured.
-    uploadAccountCount.value = null
-    accountsLoadError.value = e?.data?.detail || e?.message || 'Could not check upload destinations'
+  } finally {
+    auditRunning.value = false
   }
 }
 
@@ -400,6 +495,23 @@ onMounted(reloadDashboard)
 .audit-banner-icon { font-size: 16px; color: rgb(180, 83, 9); }
 .audit-banner-text { flex: 1 1 280px; min-width: 0; line-height: 1.4; }
 .audit-banner-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Idle state — audit hasn't run yet. Calmer colors than the missing-asset
+   warning state because there's nothing wrong, the operator just hasn't
+   asked to scan. */
+.audit-banner.audit-banner-idle {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+}
+.audit-banner.audit-banner-idle .audit-banner-icon { color: var(--text-muted); }
+
+/* Clean state — audit ran and everything's there. Subtle green so it
+   reads as "good news" without being loud. */
+.audit-banner.audit-banner-clean {
+  background: rgba(52, 211, 153, 0.08);
+  border-color: rgba(52, 211, 153, 0.35);
+}
+.audit-banner.audit-banner-clean .audit-banner-icon { color: #34d399; }
 
 /* No-upload-destinations banner — same shape as the audit banner but
    blue/info-toned so it doesn't scream over a genuine missing-asset

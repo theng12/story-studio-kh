@@ -149,4 +149,36 @@ describe('fromUnified', () => {
       assert.notEqual(m.is_custom, true, `built-in model ${m.id} should not be flagged custom`)
     }
   })
+
+  test('tiered image models round-trip with tiers + default_tier intact', () => {
+    // Sanity-check that the 2026-04-28 schema additions (tiers /
+    // default_tier on variable-priced kie.ai models) survive the
+    // toUnified → fromUnified projection. Without this guarantee the
+    // tier picker would lose its options on the next config save.
+    const unified = toUnified({ image_models: DEFAULT_IMAGE_MODELS })
+    const split = fromUnified(unified)
+
+    for (const [id, expected] of Object.entries(DEFAULT_IMAGE_MODELS)) {
+      const actual = split.image_models[id] as any
+      const exp = expected as any
+      if (Array.isArray(exp.tiers)) {
+        assert.ok(Array.isArray(actual.tiers), `${id} lost tiers in round-trip`)
+        assert.equal(actual.tiers.length, exp.tiers.length, `${id} tier count mismatch`)
+        assert.equal(actual.default_tier, exp.default_tier, `${id} default_tier mismatch`)
+        // Each tier id + credits preserved exactly.
+        for (let i = 0; i < exp.tiers.length; i++) {
+          assert.equal(actual.tiers[i].id, exp.tiers[i].id)
+          assert.equal(actual.tiers[i].credits, exp.tiers[i].credits)
+        }
+        // Invariant: default_tier names a real tier, and credits_per_image
+        // mirrors that tier's credits so legacy callers still get the
+        // right cost when they don't pass a tier.
+        const defTier = exp.tiers.find((t: any) => t.id === exp.default_tier)
+        assert.ok(defTier, `${id} default_tier "${exp.default_tier}" not in tiers[]`)
+        assert.equal(exp.credits_per_image, defTier.credits, `${id} credits_per_image must mirror default tier`)
+      } else {
+        assert.equal(actual.tiers, undefined, `${id} acquired tiers it shouldn't have`)
+      }
+    }
+  })
 })

@@ -39,6 +39,14 @@ const TYPE_LABELS: Record<string, string> = {
   images: 'Images (Scenes + Thumbnails)',
   audio: 'Audio Generator',
   description: 'Description Generator',
+  // YouTube Upload Center actions — all three flow through the same
+  // confirmation dialog so a single "don't ask again" toggle covers
+  // each of them. The cost-estimation endpoint reports YouTube API
+  // quota units (1600 per upload, 50 per metadata/playlist call) so
+  // the user sees the impact before bulk-applying to many rows.
+  youtube_upload: 'YouTube Upload',
+  youtube_metadata_update: 'YouTube Metadata Update',
+  youtube_playlist_update: 'YouTube Playlist Update',
 }
 
 export function useConfirmation() {

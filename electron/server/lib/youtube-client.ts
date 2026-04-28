@@ -592,12 +592,18 @@ export async function updateVideoMetadata(opts: {
   accountId: string
   videoId: string
   snippet: VideoSnippet
-  status: VideoStatus
+  /**
+   * Optional. When omitted, the PATCH only includes `snippet` (title /
+   * description / tags / categoryId) — YouTube's privacyStatus and
+   * publishAt stay untouched. This is the safe default for the per-row
+   * "↻ Update metadata" button: re-pushing privacyStatus would otherwise
+   * silently flip a public video back to private, or wipe an existing
+   * publishAt schedule, which is rarely what the user wants when they
+   * just fixed a typo in the title.
+   */
+  status?: VideoStatus
 }): Promise<UploadedVideo> {
-  // Same publishAt/privacy invariant as uploadVideo — enforce here too
-  // so metadata-only updates don't 400 on the "scheduled public" footgun.
-  const effectivePrivacy = opts.status.publishAt ? 'private' : opts.status.privacyStatus
-  const body = {
+  const body: Record<string, unknown> = {
     id: opts.videoId,
     snippet: {
       title: opts.snippet.title,
@@ -605,17 +611,29 @@ export async function updateVideoMetadata(opts: {
       tags: Array.isArray(opts.snippet.tags) ? opts.snippet.tags : [],
       categoryId: opts.snippet.categoryId || '22',
     },
-    status: {
+  }
+  // Same publishAt/privacy invariant as uploadVideo — enforce here too
+  // so metadata-only updates don't 400 on the "scheduled public" footgun.
+  // Only build the status block when the caller passed one; omitting it
+  // tells YouTube to leave the existing video's status alone.
+  if (opts.status) {
+    const effectivePrivacy = opts.status.publishAt ? 'private' : opts.status.privacyStatus
+    body.status = {
       privacyStatus: effectivePrivacy,
       ...(opts.status.publishAt ? { publishAt: opts.status.publishAt } : {}),
       ...(opts.status.selfDeclaredMadeForKids !== undefined
         ? { selfDeclaredMadeForKids: opts.status.selfDeclaredMadeForKids }
         : {}),
-    },
+    }
   }
+  // The `part` query param must list exactly the fields we're sending.
+  // Including `status` when we didn't send a status block makes YouTube
+  // wipe the existing status to defaults — defeating the whole point of
+  // the preserve-status path.
+  const partParam = opts.status ? 'snippet,status' : 'snippet'
   await checkQuota(opts.slug, 'videos_update')
   const resp = await fetchWithAuthRetry(opts.slug, opts.accountId, (accessToken) =>
-    fetch(`${VIDEOS_UPDATE_URL}?part=snippet,status`, {
+    fetch(`${VIDEOS_UPDATE_URL}?part=${partParam}`, {
       method: 'PUT',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
