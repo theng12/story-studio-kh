@@ -210,6 +210,33 @@
           We won't overwrite the existing file until you do, so nothing is lost in the meantime.
         </span>
       </div>
+
+      <!-- Asset-migration recovery banner — only fires when this
+           project's metadata appears to live in iCloud (or somewhere
+           syncable) but its `output_root` points at an external,
+           non-syncing path. That's the half-migrated state from
+           pre-v1.0.13 Storage moves: cross-Mac sync would carry the
+           metadata but render against missing assets. The banner
+           directs the operator to Settings → Project tab where the
+           Move asset location button runs the per-project migrator. -->
+      <div
+        v-if="assetMigration.status.value && assetMigration.status.value.needed && assetMigration.isProbablyUnsynced()"
+        class="foreign-secrets-banner asset-migration-banner"
+        role="alert"
+      >
+        <span class="foreign-secrets-icon" aria-hidden="true">☁️</span>
+        <span class="foreign-secrets-text">
+          <strong>This project's assets weren't moved with the metadata.</strong>
+          Metadata lives in the synced projects folder, but assets are still at
+          <code class="inline-code">{{ assetMigration.status.value.current_output_root }}</code>
+          — they won't sync to your other Mac.
+          Open
+          <NuxtLink :to="`/projects/${slug}/settings`" class="inline-link">Settings → Project</NuxtLink>
+          and click <strong>Move asset location</strong> to co-locate them.
+          ({{ formatBytes(assetMigration.status.value.estimated_bytes || 0) }} across
+          {{ assetMigration.status.value.estimated_files || 0 }} file(s).)
+        </span>
+      </div>
       <div
         v-if="uncleanShutdown"
         class="unclean-shutdown-banner"
@@ -292,6 +319,26 @@ const {
 // machine (user copied the folder manually instead of using Import), show a
 // banner with a one-click reset so stale tokens can't be silently reused.
 const { foreign: secretsForeign, decryptFailed: secretsDecryptFailed, resetting: secretsResetting, resetSecrets } = useSecretsProvenance()
+const assetMigration = useAssetMigration()
+
+/**
+ * Compact byte formatter for the recovery banner copy. Mirrors the
+ * backend's lib/disk.ts:formatBytes shape so the user reads the same
+ * units in both places (e.g. "274 GB" not "274.34 GB"). Defined inline
+ * because the layout doesn't otherwise pull in lib/disk.
+ */
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let i = 0
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024
+    i++
+  }
+  const decimals = i >= 2 ? (value < 10 ? 2 : 0) : 0
+  return `${value.toFixed(decimals)} ${units[i]}`
+}
 const { success: toastSuccess, error: toastError } = useToast()
 async function onResetForeignSecrets() {
   const ok = await resetSecrets()
@@ -629,6 +676,23 @@ async function copyVersion() {
 .secrets-decrypt-banner .foreign-secrets-icon { color: rgb(180, 83, 9); }
 .inline-link { color: var(--accent); text-decoration: underline; }
 .inline-link:hover { text-decoration: none; }
+
+/* Asset-migration recovery banner — sky-blue accent so the user reads
+   it as "iCloud-sync issue" distinct from the keys-related amber and
+   the security-red foreign-machine variants. */
+.asset-migration-banner {
+  background: rgba(56, 189, 248, 0.08);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+.asset-migration-banner .foreign-secrets-icon { color: rgb(14, 165, 233); }
+.inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  word-break: break-all;
+}
 
 /* Unclean-shutdown banner — prior run died without firing before-quit
    (force-quit, OOM, hard crash). Soft yellow accent. */

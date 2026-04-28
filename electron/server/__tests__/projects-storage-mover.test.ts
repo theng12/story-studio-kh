@@ -95,6 +95,57 @@ describe('projects-storage-mover', () => {
     assert.equal(r.source_path, pm.PROJECTS_ROOT)
     assert.equal(r.files, seeded.files)
     assert.equal(r.bytes, seeded.bytes)
+    // No external output_roots in the basic seed → asset breakdown zero.
+    assert.equal(r.asset_files, 0)
+    assert.equal(r.asset_bytes, 0)
+    assert.equal(r.projects_with_external_assets, 0)
+  })
+
+  test('bulk move co-locates external output_root assets + rewrites project.json', async () => {
+    // Seed one project whose project.json has an absolute `output_root`
+    // pointing at an external folder (the user's actual setup before
+    // 2026-04-29). The migration should copy the metadata to the new
+    // target AND copy the external asset folder into <newProjectDir>/
+    // episodes/, then rewrite the new project.json to './episodes'.
+    const projectDir = path.join(pm.PROJECTS_ROOT, 'external-proj')
+    await fs.mkdir(projectDir, { recursive: true })
+    const externalDir = path.join(tmp.dir, 'external-storage', 'external-proj-assets')
+    await fs.mkdir(externalDir, { recursive: true })
+    await fs.writeFile(
+      path.join(projectDir, 'project.json'),
+      JSON.stringify({ slug: 'external-proj', output_root: externalDir }),
+    )
+    await fs.writeFile(path.join(projectDir, 'config.json'), '{}')
+    // Seed external assets — the bytes that should follow the move.
+    await fs.mkdir(path.join(externalDir, 'audio'), { recursive: true })
+    await fs.writeFile(path.join(externalDir, 'audio', 'narration.mp3'), 'fake-audio')
+    await fs.writeFile(path.join(externalDir, 'final.mp4'), 'fake-video')
+
+    const target = path.join(tmp.dir, 'co-locate-target')
+    const r = await mover.migrateProjectsTo(target)
+
+    // Metadata moved.
+    assert.ok(existsSync(path.join(target, 'external-proj', 'project.json')))
+    // Assets co-located inside the new project dir's episodes/ folder.
+    assert.ok(
+      existsSync(path.join(target, 'external-proj', 'episodes', 'final.mp4')),
+      'external asset copied into co-located episodes folder',
+    )
+    assert.ok(
+      existsSync(path.join(target, 'external-proj', 'episodes', 'audio', 'narration.mp3')),
+      'nested asset copied',
+    )
+    // project.json rewritten to relative './episodes'.
+    const newMeta = JSON.parse(
+      await fs.readFile(path.join(target, 'external-proj', 'project.json'), 'utf-8'),
+    )
+    assert.equal(newMeta.output_root, './episodes')
+    // Source preserved at the original external location (copy + keep).
+    assert.ok(existsSync(externalDir), 'external source kept in place')
+    // Result reports the asset bytes separately.
+    assert.equal(r.assets_copied_files, 2)
+    assert.ok(r.assets_copied_bytes > 0)
+    assert.deepEqual(r.per_project_asset_warnings, [], 'no per-project warnings on the happy path')
   })
 
   test('refuses target == source (no-op)', async () => {

@@ -28,6 +28,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { PROJECTS_ROOT } from './project-manager.js'
+import { writeJsonAtomic } from '../lib/atomic-store.js'
 
 export interface MigrationOptions {
   /**
@@ -47,6 +48,23 @@ export interface MigrationResult {
   copied_files: number
   /** Total bytes copied across all files. */
   copied_bytes: number
+  /**
+   * Files copied for projects with external `output_root` (assets
+   * folders outside `PROJECTS_ROOT`). Subset of `copied_files` —
+   * surfaced separately so the UI can report "metadata X MB · assets
+   * Y GB · N projects co-located".
+   */
+  assets_copied_files: number
+  /** Bytes copied during the per-project asset co-location phase. */
+  assets_copied_bytes: number
+  /**
+   * Per-project notes from the asset phase. A project with .icloud
+   * placeholders, a missing source, or a destination collision lands
+   * here — its metadata still moves, but the assets stay where they
+   * were and the recovery banner picks the project up on the next
+   * boot. Empty when every project's assets co-located cleanly.
+   */
+  per_project_asset_warnings: Array<{ slug: string; warning: string }>
   /** Per-issue notes that didn't abort the run (e.g. unreadable files skipped). */
   warnings: string[]
 }
@@ -115,16 +133,94 @@ async function tallyDir(dir: string): Promise<{ files: number; bytes: number }> 
 }
 
 /**
+ * Read the on-disk `output_root` field for a project at a given root,
+ * resolved to an absolute path. Returns null if project.json is missing
+ * or unreadable. Pure read.
+ */
+async function readProjectOutputRoot(projectDir: string): Promise<{
+  raw_field: string | null
+  resolved_abs: string
+} | null> {
+  const metaPath = path.join(projectDir, 'project.json')
+  if (!existsSync(metaPath)) return null
+  try {
+    const meta = JSON.parse(await fs.readFile(metaPath, 'utf-8'))
+    const rawField = typeof meta.output_root === 'string' ? meta.output_root : null
+    const out = rawField || './episodes'
+    const resolved = path.isAbsolute(out) ? out : path.join(projectDir, out)
+    return { raw_field: rawField, resolved_abs: path.resolve(resolved) }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Determine whether a project's output_root lives OUTSIDE its project
+ * directory and therefore needs to be co-migrated alongside the
+ * metadata copy. Returns the absolute source path if yes, null if no
+ * (relative paths or absolute paths that already resolve inside the
+ * project dir are already co-located).
+ */
+async function externalOutputRootFor(projectDir: string): Promise<string | null> {
+  const r = await readProjectOutputRoot(projectDir)
+  if (!r) return null
+  // Relative path → resolves inside projectDir → already co-located.
+  if (!r.raw_field || !path.isAbsolute(r.raw_field)) return null
+  // Absolute → check containment. path.relative returns '..' or absolute
+  // when rootResolved is outside dirResolved.
+  const rel = path.relative(path.resolve(projectDir), r.resolved_abs)
+  if (rel === '' || (rel && !rel.startsWith('..') && !path.isAbsolute(rel))) return null
+  return r.resolved_abs
+}
+
+/**
  * Pre-flight tally — surfaces "this will copy N files (X GB)" for the
  * UI's confirmation dialog. Pure read-only.
+ *
+ * The breakdown lets the dialog show "metadata 38 MB · assets 274 GB
+ * across 2 projects" up front so the operator isn't surprised when
+ * a click that previously sized at "tens of MB" turns into a
+ * multi-hour copy.
  */
 export async function previewMigration(): Promise<{
   source_path: string
   files: number
   bytes: number
+  /** Subset of `files`/`bytes` accounted for by external `output_root`s. */
+  asset_files: number
+  asset_bytes: number
+  /** Number of projects whose assets need co-location during the move. */
+  projects_with_external_assets: number
 }> {
-  const t = await tallyDir(PROJECTS_ROOT)
-  return { source_path: PROJECTS_ROOT, files: t.files, bytes: t.bytes }
+  const metadataT = await tallyDir(PROJECTS_ROOT)
+  // Walk projects + add up external-asset bytes for each one that has
+  // its output_root pointing outside the metadata folder.
+  let assetFiles = 0
+  let assetBytes = 0
+  let withExternal = 0
+  let entries: any[] = []
+  try {
+    entries = await fs.readdir(PROJECTS_ROOT, { withFileTypes: true })
+  } catch { /* PROJECTS_ROOT missing — return metadata zeros */ }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue
+    if (e.name.startsWith('.')) continue
+    const projectDir = path.join(PROJECTS_ROOT, e.name)
+    const ext = await externalOutputRootFor(projectDir)
+    if (!ext || !existsSync(ext)) continue
+    withExternal++
+    const t = await tallyDir(ext)
+    assetFiles += t.files
+    assetBytes += t.bytes
+  }
+  return {
+    source_path: PROJECTS_ROOT,
+    files: metadataT.files + assetFiles,
+    bytes: metadataT.bytes + assetBytes,
+    asset_files: assetFiles,
+    asset_bytes: assetBytes,
+    projects_with_external_assets: withExternal,
+  }
 }
 
 /**
@@ -269,11 +365,97 @@ export async function migrateProjectsTo(
     )
   }
 
+  // Per-project asset co-location: walk every project at the NEW
+  // target. For each whose project.json has an external `output_root`,
+  // copy that source folder to <newProjectDir>/episodes/ + rewrite the
+  // new copy of project.json to use './episodes' (relative). This is
+  // what fixes the "I moved my project to iCloud but the assets stayed
+  // on the original Mac" bug — the absolute paths are valid on THIS
+  // machine, so we can reach them, copy them into the new layout, and
+  // ship a portable, ready-to-sync tree.
+  //
+  // We operate on the COPY at the target — never touch the source's
+  // project.json — so a mid-run failure leaves the original setup
+  // fully working. Failures per project don't halt the bulk operation;
+  // the project's metadata still moves, the asset gap surfaces via the
+  // recovery banner on the next boot.
+  let assetFiles = 0
+  let assetBytes = 0
+  const perProjectWarnings: Array<{ slug: string; warning: string }> = []
+  let targetEntries: any[] = []
+  try {
+    targetEntries = await fs.readdir(targetAbs, { withFileTypes: true })
+  } catch { /* unreadable — already warned via tally mismatch above */ }
+  for (const e of targetEntries) {
+    if (!e.isDirectory()) continue
+    if (e.name.startsWith('.')) continue
+    const slug = e.name
+    const newProjectDir = path.join(targetAbs, slug)
+    const externalSource = await externalOutputRootFor(newProjectDir)
+    if (!externalSource) continue  // already co-located — skip silently
+    if (!existsSync(externalSource)) {
+      perProjectWarnings.push({
+        slug,
+        warning:
+          `Asset folder missing on disk (${externalSource}) — metadata moved but assets weren't. ` +
+          `Open this project on the new machine and either restore the folder or use Reset to start fresh.`,
+      })
+      continue
+    }
+    const dest = path.join(newProjectDir, 'episodes')
+    if (existsSync(dest)) {
+      // Should be rare — would mean PROJECTS_ROOT/<slug>/episodes already
+      // had content alongside the absolute output_root. Refuse to
+      // clobber; the per-project recovery flow can resolve.
+      let destEntries: string[] = []
+      try { destEntries = await fs.readdir(dest) } catch { /* ignore */ }
+      const meaningful = destEntries.filter(n => n !== '.DS_Store' && !n.startsWith('._'))
+      if (meaningful.length > 0) {
+        perProjectWarnings.push({
+          slug,
+          warning:
+            `Destination ${dest} already had content; assets not co-located. ` +
+            `Resolve manually then use Project tab → Move asset location to retry.`,
+        })
+        continue
+      }
+    }
+    try {
+      await fs.cp(externalSource, dest, { recursive: true, preserveTimestamps: true })
+      const t = await tallyDir(dest)
+      assetFiles += t.files
+      assetBytes += t.bytes
+      // Rewrite the new copy's project.json so output_root points at
+      // the relative './episodes' — portable for the next sync hop.
+      const metaPath = path.join(newProjectDir, 'project.json')
+      try {
+        const meta = JSON.parse(await fs.readFile(metaPath, 'utf-8'))
+        meta.output_root = './episodes'
+        await writeJsonAtomic(metaPath, meta, { mode: 0o600 })
+      } catch (rewriteErr: any) {
+        perProjectWarnings.push({
+          slug,
+          warning:
+            `Assets co-located at ${dest} but project.json rewrite failed: ${rewriteErr?.message || rewriteErr}. ` +
+            `Open project.json manually and set "output_root": "./episodes".`,
+        })
+      }
+    } catch (cpErr: any) {
+      perProjectWarnings.push({
+        slug,
+        warning: `Asset copy failed: ${cpErr?.message || cpErr}. Metadata moved; assets stayed at ${externalSource}.`,
+      })
+    }
+  }
+
   return {
     target_path: targetAbs,
     kept_old_at: source,
-    copied_files: targetTally.files,
-    copied_bytes: targetTally.bytes,
+    copied_files: targetTally.files + assetFiles,
+    copied_bytes: targetTally.bytes + assetBytes,
+    assets_copied_files: assetFiles,
+    assets_copied_bytes: assetBytes,
+    per_project_asset_warnings: perProjectWarnings,
     warnings,
   }
 }

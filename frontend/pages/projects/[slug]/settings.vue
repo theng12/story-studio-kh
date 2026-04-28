@@ -1221,11 +1221,106 @@
           <button class="btn btn-sm btn-secondary" :disabled="!projectLocation" @click="revealInFinder">
             📂 Open in Finder
           </button>
+          <!-- Move asset location button — only renders when the
+               asset-migration status reports the assets are external
+               to the project's metadata folder (i.e. a move would
+               change something). Disabled while a check is in flight
+               or a previous migration hasn't finished. -->
+          <button
+            v-if="assetMigration.status.value && assetMigration.status.value.needed"
+            class="btn btn-sm btn-primary"
+            :disabled="assetMigration.migrating.value || assetMigration.loading.value"
+            :title="assetMigration.status.value.blockers.length > 0
+              ? assetMigration.status.value.blockers.join('\n')
+              : `Copy ${formatBytes(assetMigration.status.value.estimated_bytes || 0)} from the current location into the project folder so a single sync hop carries everything.`"
+            @click="openMoveAssetsDialog"
+          >
+            {{ assetMigration.migrating.value ? '↻ Moving…' : '📦 Move asset location' }}
+          </button>
         </div>
         <span class="text-muted" style="font-size:11px">
           Story Studio reads and writes all generated files here. Don't move this folder —
           if you do, use <strong>Repair Folder Structure</strong> below.
         </span>
+        <p
+          v-if="assetMigration.status.value && assetMigration.status.value.needed"
+          class="text-muted mt-1"
+          style="font-size:11px; max-width: 720px;"
+        >
+          Assets currently sit at this absolute path. For cross-Mac iCloud sync to actually carry the
+          files (not just the metadata), they need to live INSIDE the project's folder. Click
+          <strong>Move asset location</strong> to copy them to <code class="path-display"
+          >{{ assetMigration.status.value.projected_target }}</code> and rewrite this project's
+          <code class="path-display">project.json</code> so future moves carry everything.
+        </p>
+      </div>
+
+      <!-- Move asset location confirmation dialog -->
+      <div v-if="moveAssetsDialogOpen" class="modal-overlay" @click.self="closeMoveAssetsDialog">
+        <div class="modal" style="max-width: 620px;">
+          <h2>Move asset location</h2>
+          <p class="text-muted mt-1" style="font-size: 13px;">
+            This copies your assets from the current external folder into the project's metadata
+            folder so cross-Mac iCloud sync carries everything. Source files stay in place by
+            default — verify the new location renders correctly before deleting the old one.
+          </p>
+
+          <div class="move-assets-summary mt-2">
+            <div class="move-assets-row">
+              <span class="text-muted">From</span>
+              <code class="path-display">{{ assetMigration.status.value?.current_output_root || '' }}</code>
+            </div>
+            <div class="move-assets-row">
+              <span class="text-muted">To</span>
+              <code class="path-display">{{ assetMigration.status.value?.projected_target || '' }}</code>
+            </div>
+            <div class="move-assets-row">
+              <span class="text-muted">Size</span>
+              <span>
+                {{ formatBytes(assetMigration.status.value?.estimated_bytes || 0) }}
+                across {{ assetMigration.status.value?.estimated_files || 0 }} file(s)
+              </span>
+            </div>
+          </div>
+
+          <div
+            v-if="assetMigration.status.value?.blockers?.length"
+            class="move-assets-blockers mt-2"
+          >
+            <strong>⛔ Blocked — fix before retrying:</strong>
+            <ul>
+              <li v-for="(b, i) in assetMigration.status.value.blockers" :key="i">{{ b }}</li>
+            </ul>
+          </div>
+
+          <label class="flex gap-2 mt-2" style="align-items: center; font-size: 12px;">
+            <input type="checkbox" v-model="moveAssetsDeleteSource" />
+            <span>
+              <strong>Delete source folder after a successful copy.</strong>
+              Off by default — leaves the original at <code class="path-display">{{ assetMigration.status.value?.current_output_root || '' }}</code>
+              so you can verify the move before reclaiming the space.
+            </span>
+          </label>
+
+          <div v-if="assetMigration.lastError.value" class="move-assets-error mt-2">
+            {{ assetMigration.lastError.value }}
+          </div>
+
+          <div class="flex gap-2 mt-3" style="justify-content: flex-end;">
+            <button
+              class="btn btn-secondary"
+              :disabled="assetMigration.migrating.value"
+              @click="closeMoveAssetsDialog"
+            >Cancel</button>
+            <button
+              class="btn btn-primary"
+              :disabled="assetMigration.migrating.value || (assetMigration.status.value?.blockers?.length ?? 0) > 0"
+              @click="runMoveAssets"
+            >
+              {{ assetMigration.migrating.value ? 'Moving…' : 'Move now' }}
+            </button>
+          </div>
+        </div>
       </div>
       <div class="flex gap-2" style="align-items: center;">
         <button class="btn btn-primary" @click="saveProject">Save Project Settings</button>
@@ -1296,6 +1391,57 @@ const { get, post, put, del } = useApi()
 const { ask } = useConfirm()
 const { project, config, refreshConfig, loadProject } = useProject()
 const { success, error: showError } = useToast()
+const assetMigration = useAssetMigration()
+
+/** Compact byte formatter mirroring backend's lib/disk.ts:formatBytes. */
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let i = 0
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024
+    i++
+  }
+  const decimals = i >= 2 ? (value < 10 ? 2 : 0) : 0
+  return `${value.toFixed(decimals)} ${units[i]}`
+}
+
+// Move-asset-location dialog state. The source-of-truth for "should I
+// migrate" + "what's the size" lives in the composable; this just
+// gates the modal + holds the delete-source checkbox.
+const moveAssetsDialogOpen = ref(false)
+const moveAssetsDeleteSource = ref(false)
+
+function openMoveAssetsDialog(): void {
+  moveAssetsDeleteSource.value = false
+  // Refresh status before opening so the dialog reflects up-to-date
+  // blockers (e.g. user just downloaded an iCloud placeholder).
+  void assetMigration.checkNow()
+  moveAssetsDialogOpen.value = true
+}
+function closeMoveAssetsDialog(): void {
+  moveAssetsDialogOpen.value = false
+}
+async function runMoveAssets(): Promise<void> {
+  const r = await assetMigration.migrate({ delete_source: moveAssetsDeleteSource.value })
+  if (r.ok) {
+    success(
+      moveAssetsDeleteSource.value
+        ? 'Assets moved + source removed. Restart the app or re-render to confirm.'
+        : 'Assets moved. Source kept at the original location until you delete it manually.',
+    )
+    closeMoveAssetsDialog()
+    // Reload the project meta so projectLocation reflects the new
+    // (now-relative) output_root once the backend has rewritten
+    // project.json.
+    if (project.value) {
+      await loadProject((project.value as any).slug || '')
+    }
+  } else {
+    showError(r.error || 'Move failed — see banner for details.')
+  }
+}
 
 const activeTab = ref('keys')
 const syncing = ref(false)
@@ -1828,8 +1974,18 @@ async function browseAndMoveProjectsRoot() {
   if (!pick.path) return  // User cancelled.
 
   // Step 0.5: pre-flight sizing so the confirmation dialog tells the
-  // user what they're about to do.
-  let preview: { source_path: string; files: number; bytes: number }
+  // user what they're about to do. Now also includes the per-project
+  // external-asset tally — the v1.0.13 augmentation co-locates those
+  // alongside the metadata copy, so the user reads the real total
+  // before confirming a multi-hour run.
+  let preview: {
+    source_path: string
+    files: number
+    bytes: number
+    asset_files: number
+    asset_bytes: number
+    projects_with_external_assets: number
+  }
   try {
     preview = await post<typeof preview>('/app-settings/projects-root/preview-migration', {})
   } catch (e: any) {
@@ -1837,24 +1993,36 @@ async function browseAndMoveProjectsRoot() {
     projectsRootStatusKind.value = 'err'
     return
   }
-  const sizeStr = formatBytes(preview.bytes)
+  const totalSizeStr = formatBytes(preview.bytes)
+  const metadataBytes = preview.bytes - preview.asset_bytes
+  const breakdownLine = preview.projects_with_external_assets > 0
+    ? `\n  ${formatBytes(metadataBytes)} metadata + ${formatBytes(preview.asset_bytes)} assets ` +
+      `across ${preview.projects_with_external_assets} project(s) with external storage`
+    : ''
+  const longRunHint = preview.bytes > 50 * 1024 * 1024 * 1024
+    ? `\n\n⚠ This is a large copy (>50 GB) and will take hours. Start before bed; ` +
+      `closing the app mid-copy leaves the new location half-populated and the old one intact.`
+    : ''
   const ok = confirm(
     `Move projects to:\n  ${pick.path}\n\n` +
-    `This will COPY ${preview.files} file(s) (${sizeStr}). ` +
+    `This will COPY ${preview.files} file(s) (${totalSizeStr}).${breakdownLine}\n\n` +
     `The old location stays in place — delete it manually after verifying ` +
     `the new location works on next launch.\n\n` +
-    `The app will restart after the copy completes.`,
+    `The app will restart after the copy completes.${longRunHint}`,
   )
   if (!ok) return
 
   projectsRootBusy.value = true
-  projectsRootStatus.value = `Copying ${preview.files} file(s) (${sizeStr})…`
+  projectsRootStatus.value = `Copying ${preview.files} file(s) (${totalSizeStr})…`
   projectsRootStatusKind.value = 'ok'
   try {
     // Step 1: copy.
     const r = await post<{
       target_path: string; kept_old_at: string
-      copied_files: number; copied_bytes: number; warnings: string[]
+      copied_files: number; copied_bytes: number
+      assets_copied_files: number; assets_copied_bytes: number
+      per_project_asset_warnings: Array<{ slug: string; warning: string }>
+      warnings: string[]
     }>('/app-settings/projects-root/migrate', { target_path: pick.path })
 
     // Step 2: persist the override AFTER the copy succeeds. If migrate
@@ -1862,15 +2030,28 @@ async function browseAndMoveProjectsRoot() {
     // continues reading from the (still-intact) old location.
     await put('/app-settings/projects-root', { override: r.target_path })
 
-    const warnSummary = r.warnings.length
-      ? ` (${r.warnings.length} warning${r.warnings.length === 1 ? '' : 's'} — check the console)`
+    const warnCount = r.warnings.length + (r.per_project_asset_warnings?.length || 0)
+    const warnSummary = warnCount
+      ? ` (${warnCount} warning${warnCount === 1 ? '' : 's'} — check the console)`
+      : ''
+    const assetSummary = r.assets_copied_files > 0
+      ? ` (incl. ${r.assets_copied_files} asset file(s), ${formatBytes(r.assets_copied_bytes)} co-located)`
       : ''
     projectsRootStatus.value =
-      `✓ Copied ${r.copied_files} file(s), ${formatBytes(r.copied_bytes)}` +
+      `✓ Copied ${r.copied_files} file(s), ${formatBytes(r.copied_bytes)}${assetSummary}` +
       `${warnSummary}. Restarting…`
     projectsRootStatusKind.value = 'ok'
     if (r.warnings.length) {
       console.warn('[projects-root migration] warnings:', r.warnings)
+    }
+    if (r.per_project_asset_warnings?.length) {
+      console.warn('[projects-root migration] per-project asset warnings:', r.per_project_asset_warnings)
+      // Surface a concise message for each project the user should
+      // revisit on the new location. The recovery banner will pick
+      // these up automatically on next boot, but flagging them here
+      // shortens the feedback loop.
+      const lines = r.per_project_asset_warnings.map(p => `  ${p.slug}: ${p.warning}`).join('\n')
+      console.warn(`[projects-root migration] ${r.per_project_asset_warnings.length} project(s) need follow-up:\n${lines}`)
     }
 
     // Step 3: relaunch. Wait a beat so the user sees the success banner
@@ -3530,6 +3711,49 @@ async function deleteProject() {
   color: var(--accent);
   word-break: break-all;
   max-width: 100%;
+}
+
+/* Move-asset-location dialog. Uses .modal-overlay above. .modal is a
+   one-off here because most dialogs in this file inline their sizing
+   on .modal-small; the asset-move modal needs more room for the
+   blocker list + paths so we bake a wider variant. */
+.modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  width: 100%;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+}
+.move-assets-summary {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  padding: 8px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.move-assets-row {
+  display: grid; grid-template-columns: 60px 1fr; gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+.move-assets-blockers {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(239, 68, 68, 0.08);
+  border-left: 3px solid #ef4444;
+  font-size: 12px;
+  color: #ef4444;
+}
+.move-assets-blockers ul { margin: 4px 0 0 18px; padding: 0; }
+.move-assets-error {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(239, 68, 68, 0.08);
+  border-left: 3px solid #ef4444;
+  font-size: 12px;
+  color: #ef4444;
 }
 
 .custom-badge {
