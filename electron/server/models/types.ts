@@ -879,25 +879,69 @@ export type TimelineAnchor =
   | 'after_outro'    // very end, after the outro clip — sleep-story black padding etc.
 
 /**
- * A user-supplied video clip inserted at a named position in the final
- * render. Multiple clips sharing the same anchor play in list order.
- * Like `VideoOutroConfig`, these are ALWAYS effect-free — the existing
- * `sceneEndTime` gate covers after_scenes/after_outro; video.ts extends
- * the head-of-video gate to cover before_intro/after_intro.
- *
- * Portable-path token support (`${PROJECT}/foo`, `${NAME}/bar`) is
- * inherited from `resolveAssetPath` — saved presets travel across
- * machines without rewriting.
+ * Common fields every timeline clip carries regardless of source kind.
+ * Existing presets predate the discriminator and do NOT carry a `kind`
+ * field; readers MUST treat absence as `'video'` so old configs keep
+ * working without a migration write.
  */
-export interface VideoTimelineClip {
+interface VideoTimelineClipBase {
   /** Stable identifier for drag-reorder and row tracking. */
   id: string
-  video_path: string
   anchor: TimelineAnchor
   /** Per-row on/off so a preset can carry a clip without forcing it
    *  into every episode that uses the preset. */
   enabled: boolean
 }
+
+/**
+ * The original video-source timeline clip — a user-supplied .mp4/.mov
+ * inserted at a named position. The pipeline normalises it to match
+ * the project resolution/fps, strips audio (`-an`), and concats it
+ * alongside the scene clips.
+ */
+export interface VideoTimelineClipVideo extends VideoTimelineClipBase {
+  /** Discriminator. Optional for back-compat with presets saved before
+   *  the static variant existed — readers default missing kind to 'video'. */
+  kind?: 'video'
+  video_path: string
+}
+
+/**
+ * Static-image timeline clip — the operator points at a single still
+ * image plus a duration; the pipeline synthesises the segment via
+ * `ffmpeg -loop 1 -i image.jpg -t <dur>` instead of re-encoding a
+ * pre-rendered multi-hour MP4. Result: drastically smaller intermediate
+ * files (≈10-20 MB for 2 hours of static at 1080p instead of ≈2 GB),
+ * near-instant prep wall-clock (libx264 emits effectively-empty
+ * P-frames after the first keyframe), and a much faster authoring
+ * loop (swap the image instead of re-rendering).
+ *
+ * Audio for this segment is NOT carried by the clip — like every
+ * timeline clip, audio is stripped during prep. The post-narration
+ * ambient/music tail comes from the separate `music` config (which
+ * already loops via `-stream_loop -1`).
+ */
+export interface VideoTimelineClipStatic extends VideoTimelineClipBase {
+  kind: 'static'
+  /** Path to the still image (JPG/PNG/WebP). */
+  image_path: string
+  /** How long to display the image, in seconds. */
+  duration_sec: number
+}
+
+/**
+ * A user-supplied timeline clip inserted at a named position in the
+ * final render. Multiple clips sharing the same anchor play in list
+ * order. Like `VideoOutroConfig`, these are ALWAYS effect-free — the
+ * existing `sceneEndTime` gate covers after_scenes/after_outro;
+ * video.ts extends the head-of-video gate to cover
+ * before_intro/after_intro.
+ *
+ * Portable-path token support (`${PROJECT}/foo`, `${NAME}/bar`) is
+ * inherited from `resolveAssetPath` — saved presets travel across
+ * machines without rewriting.
+ */
+export type VideoTimelineClip = VideoTimelineClipVideo | VideoTimelineClipStatic
 
 export interface VideoTitleImageConfig {
   enabled: boolean
@@ -1052,9 +1096,12 @@ export interface GenerateVideoRequest {
   /** Compression effort. Decoupled from `quality` so users can mix CRF
    *  (visual quality bar) with preset (render-time-vs-size trade). `slow`
    *  at the same CRF emits ~30 % smaller files than `ultrafast` because
-   *  the encoder has more time to find savings. Defaults mirror the legacy
-   *  quality→preset mapping when omitted. */
-  encoding_effort?: 'ultrafast' | 'medium' | 'slow'
+   *  the encoder has more time to find savings. `hardware` routes the
+   *  encode through Apple's Media Engine via h264_videotoolbox — ~8-15×
+   *  faster than libx264 medium on M-series Macs, with a small file-size
+   *  penalty that's invisible on sleep-story-style footage. Defaults
+   *  mirror the legacy quality→preset mapping when omitted. */
+  encoding_effort?: 'ultrafast' | 'medium' | 'slow' | 'hardware'
   /** Output codec. H.264 is the universal default (every player since 2005).
    *  HEVC (H.265) encodes ~30–40 % smaller at equal visual quality but
    *  requires QuickTime 10.4+ / modern browsers. Only recommended for users

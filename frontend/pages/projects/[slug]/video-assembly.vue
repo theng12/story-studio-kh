@@ -281,6 +281,17 @@
             <label class="checkbox-label" style="margin:0" :title="clip.enabled ? 'Click to disable this clip' : 'Click to enable this clip'">
               <input type="checkbox" v-model="clip.enabled" />
             </label>
+            <select
+              :value="clip.kind || 'video'"
+              class="select select-sm"
+              style="max-width: 180px;"
+              :title="TIMELINE_KIND_OPTIONS.find(o => o.value === (clip.kind || 'video'))?.hint"
+              @change="setTimelineClipKind(clip.id, ($event.target as HTMLSelectElement).value as TimelineClipKind)"
+            >
+              <option v-for="opt in TIMELINE_KIND_OPTIONS" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
             <select v-model="clip.anchor" class="select select-sm" style="max-width: 220px;" :title="TIMELINE_ANCHOR_OPTIONS.find(o => o.value === clip.anchor)?.hint">
               <option v-for="opt in TIMELINE_ANCHOR_OPTIONS" :key="opt.value" :value="opt.value">
                 {{ opt.label }}
@@ -292,7 +303,10 @@
               <button class="btn btn-sm btn-danger" @click="removeTimelineClip(clip.id)" title="Remove this clip">✕</button>
             </div>
           </div>
+
+          <!-- Video kind: pick an .mp4/.mov/.mkv/.webm. -->
           <FilePicker
+            v-if="(clip.kind || 'video') === 'video'"
             v-model="clip.video_path"
             placeholder="Path to video file"
             :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
@@ -300,6 +314,40 @@
             :aria-label="`Timeline clip ${i + 1} path`"
             clearable
           />
+
+          <!-- Static kind: image picker + duration in minutes. Stored as
+               seconds on the clip; the UI converts for legibility (a 2-hour
+               sleep-story tail is much easier to enter as 120 min). -->
+          <template v-else>
+            <FilePicker
+              v-model="(clip as TimelineClipStatic).image_path"
+              placeholder="Path to still image"
+              :filters="[{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }]"
+              title="Choose a still image for the static segment"
+              :aria-label="`Timeline clip ${i + 1} image path`"
+              clearable
+            />
+            <div class="flex gap-2 mt-1" style="align-items: center;">
+              <label style="font-size: 12px; color: var(--text-muted);">Duration (min)</label>
+              <input
+                type="number"
+                class="input input-sm"
+                style="max-width: 100px;"
+                min="0.1"
+                step="0.5"
+                :value="clipDurationMinutes(clip as TimelineClipStatic)"
+                @input="setClipDurationMinutes(clip as TimelineClipStatic, parseFloat(($event.target as HTMLInputElement).value))"
+              />
+              <span class="text-muted" style="font-size: 11px;">
+                = {{ ((clip as TimelineClipStatic).duration_sec || 0).toFixed(0) }}s
+              </span>
+            </div>
+            <p class="text-muted mt-1" style="font-size: 11px;">
+              Static segment — pipeline synthesises this from the single image at the project's resolution + fps.
+              Audio (background music / ambient noise) comes from the Music tab in Step 4 and loops automatically across this duration.
+            </p>
+          </template>
+
           <p class="text-muted mt-1" style="font-size: 11px;">
             {{ TIMELINE_ANCHOR_OPTIONS.find(o => o.value === clip.anchor)?.hint }}
           </p>
@@ -1392,14 +1440,22 @@
         <div class="form-group">
           <label>Encoding Effort</label>
           <select v-model="exportSettings.encoding_effort" class="select">
-            <option value="ultrafast">Ultrafast — fastest render</option>
+            <option value="hardware">Fast (hardware) — Apple Media Engine, ~10× faster</option>
+            <option value="ultrafast">Ultrafast — fastest CPU render</option>
             <option value="medium">Medium — balanced</option>
             <option value="slow">Slow — smallest file</option>
           </select>
           <p class="text-muted mt-1" style="font-size: 12px;">
-            How hard the encoder works to compress. <strong>Slow</strong> emits ~30 % smaller
-            files at the same quality but takes 5–10× longer to render. Great for overnight
-            runs; painful for iterative testing.
+            <strong>Fast (hardware)</strong> routes the encode through your Mac's Media Engine
+            silicon (h264_videotoolbox) instead of the CPU. Around 8–15× faster than Medium —
+            a 2.5-hour render finishes in 15–25 min. Files are slightly larger at the same
+            visual quality, but for sleep-story footage (low motion, mostly static) the
+            difference is invisible. Recommended for routine renders.
+            <br><br>
+            CPU presets: <strong>Slow</strong> emits ~30 % smaller files at the same quality
+            but takes 5–10× longer than Medium. Use Slow for archival masters, Ultrafast for
+            iteration. Hardware fallback to Ultrafast happens automatically if videotoolbox
+            can't initialise on your hardware.
           </p>
         </div>
 
@@ -1690,12 +1746,39 @@ const outro = reactive({
 // multi-hour black screens on sleep-story channels. Stored as an ordered
 // list so multiple clips sharing the same anchor play in the order shown.
 type TimelineAnchor = 'before_intro' | 'after_intro' | 'after_scenes' | 'after_outro'
-interface TimelineClip {
+type TimelineClipKind = 'video' | 'static'
+/**
+ * Discriminated union: `video` clips need only a video_path; `static` clips
+ * pair a single image with an explicit duration. The pipeline synthesises
+ * the static segment via `ffmpeg -loop 1 -i image.jpg -t <dur>` instead
+ * of re-encoding a multi-hour MP4 the user pre-rendered elsewhere — same
+ * end result, ~99% smaller intermediate file, and the authoring loop
+ * collapses from "re-render in your editor" to "swap the image".
+ *
+ * Old presets predate `kind` and don't carry it on disk. We default
+ * undefined to 'video' on read so they keep working unchanged.
+ */
+interface TimelineClipBase {
   id: string
-  video_path: string
   anchor: TimelineAnchor
   enabled: boolean
 }
+interface TimelineClipVideo extends TimelineClipBase {
+  kind: 'video'
+  video_path: string
+  // Always-present keys retained on the union so v-model bindings type-check
+  // even when the picker is rendering the static-shape form. Kept empty
+  // until the user toggles to that kind.
+  image_path?: string
+  duration_sec?: number
+}
+interface TimelineClipStatic extends TimelineClipBase {
+  kind: 'static'
+  image_path: string
+  duration_sec: number
+  video_path?: string
+}
+type TimelineClip = TimelineClipVideo | TimelineClipStatic
 const timelineClips = ref<TimelineClip[]>([])
 
 const TIMELINE_ANCHOR_OPTIONS: Array<{ value: TimelineAnchor; label: string; hint: string }> = [
@@ -1705,13 +1788,72 @@ const TIMELINE_ANCHOR_OPTIONS: Array<{ value: TimelineAnchor; label: string; hin
   { value: 'after_outro',  label: 'After outro (very end)', hint: 'Very end — where multi-hour black screens go' },
 ]
 
+const TIMELINE_KIND_OPTIONS: Array<{ value: TimelineClipKind; label: string; hint: string }> = [
+  {
+    value: 'video',
+    label: 'Video file',
+    hint: 'Use an existing .mp4/.mov/.mkv/.webm — the file is normalised to project resolution + fps and concatenated as-is. Audio is stripped.',
+  },
+  {
+    value: 'static',
+    label: 'Static image (loop)',
+    hint: 'Display a single image for a fixed duration. Pipeline synthesises the segment internally — much faster prep, ~99% smaller intermediate, and you can swap the image without re-rendering.',
+  },
+]
+
 function addTimelineClip() {
+  // Default new clips to 'video' for back-compat with operators' muscle
+  // memory. The first per-row control is a kind toggle so switching is
+  // one click away.
   timelineClips.value.push({
     id: `clip-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    kind: 'video',
     video_path: '',
     anchor: 'after_outro',
     enabled: true,
   })
+}
+
+/**
+ * Switch a clip between kinds without losing the operator's anchor /
+ * enabled state. Each kind owns its own path field; we leave the
+ * other field intact so flip-flopping doesn't lose the picked file.
+ */
+function setTimelineClipKind(id: string, kind: TimelineClipKind) {
+  const i = timelineClips.value.findIndex(c => c.id === id)
+  if (i < 0) return
+  const cur = timelineClips.value[i]
+  if (cur.kind === kind) return
+  if (kind === 'static') {
+    timelineClips.value[i] = {
+      id: cur.id,
+      kind: 'static',
+      anchor: cur.anchor,
+      enabled: cur.enabled,
+      image_path: cur.image_path || '',
+      duration_sec: cur.duration_sec ?? 7200, // 2-hour default — the canonical sleep-story tail
+      video_path: cur.video_path,
+    }
+  } else {
+    timelineClips.value[i] = {
+      id: cur.id,
+      kind: 'video',
+      anchor: cur.anchor,
+      enabled: cur.enabled,
+      video_path: cur.video_path || '',
+      image_path: cur.image_path,
+      duration_sec: cur.duration_sec,
+    }
+  }
+}
+
+/** Helper for the duration input — converts seconds ↔ minutes for UX. */
+function clipDurationMinutes(clip: TimelineClipStatic): number {
+  return Math.round((clip.duration_sec || 0) / 60 * 10) / 10
+}
+function setClipDurationMinutes(clip: TimelineClipStatic, mins: number) {
+  const safe = Number.isFinite(mins) && mins > 0 ? mins : 0
+  clip.duration_sec = Math.round(safe * 60)
 }
 function removeTimelineClip(id: string) {
   timelineClips.value = timelineClips.value.filter(c => c.id !== id)
@@ -2121,7 +2263,7 @@ const exportSettings = reactive<{
   resolution: '720p' | '1080p' | '1440p' | '4k'
   quality: 'compact' | 'fast' | 'medium' | 'high'
   fps: 24 | 25 | 30 | 60
-  encoding_effort: 'ultrafast' | 'medium' | 'slow'
+  encoding_effort: 'ultrafast' | 'medium' | 'slow' | 'hardware'
   codec: 'h264' | 'h265'
   format: 'mp4' | 'mov' | 'webm'
 }>({
@@ -2183,9 +2325,30 @@ const introPresets = usePresets({
     else { outro.enabled = false; outro.video_path = '' }
     // Legacy presets predate this field → reset to empty. We always replace
     // rather than merge because these are user-owned list items, not
-    // fields that benefit from partial overlay.
+    // fields that benefit from partial overlay. Migrate-on-read: presets
+    // saved before the static variant existed don't carry `kind` — set
+    // it to 'video' so the union type is well-formed in memory.
     timelineClips.value = Array.isArray(data.timeline_clips)
-      ? data.timeline_clips.map((c: any) => ({ ...c }))
+      ? data.timeline_clips.map((c: any): TimelineClip => {
+          const kind: TimelineClipKind = c.kind === 'static' ? 'static' : 'video'
+          if (kind === 'static') {
+            return {
+              id: c.id,
+              kind: 'static',
+              anchor: c.anchor,
+              enabled: c.enabled !== false,
+              image_path: c.image_path || '',
+              duration_sec: typeof c.duration_sec === 'number' && c.duration_sec > 0 ? c.duration_sec : 7200,
+            }
+          }
+          return {
+            id: c.id,
+            kind: 'video',
+            anchor: c.anchor,
+            enabled: c.enabled !== false,
+            video_path: c.video_path || '',
+          }
+        })
       : []
   },
 })
@@ -2499,7 +2662,9 @@ const FPS_FACTOR: Record<number, number> = {
   24: 0.85, 25: 0.88, 30: 1.0, 60: 1.6,
 }
 const PRESET_FACTOR: Record<string, number> = {
-  ultrafast: 2.0, medium: 1.0, slow: 0.75,
+  // Hardware encodes are ~10-15% larger than libx264 medium at the same
+  // visual quality (Apple trades compression efficiency for speed).
+  ultrafast: 2.0, medium: 1.0, slow: 0.75, hardware: 1.15,
 }
 const CODEC_FACTOR: Record<string, number> = {
   h264: 1.0, h265: 0.65,
@@ -2508,10 +2673,11 @@ const CODEC_FACTOR: Record<string, number> = {
 /**
  * Rough single-thread encode-speed multiplier — how many wall-clock
  * seconds per 1 second of output, relative to medium preset. HEVC is
- * ~3× slower than H.264 at the same preset.
+ * ~3× slower than H.264 at the same preset. Hardware is ~10× faster
+ * than medium on M-series Macs (estimate; varies with chip generation).
  */
 const EFFORT_SPEED_FACTOR: Record<string, number> = {
-  ultrafast: 0.1, medium: 0.4, slow: 1.2,
+  ultrafast: 0.1, medium: 0.4, slow: 1.2, hardware: 0.04,
 }
 const CODEC_SPEED_FACTOR: Record<string, number> = {
   h264: 1.0, h265: 3.0,
@@ -2571,7 +2737,7 @@ interface QuickExportPreset {
     resolution: 'compact' | '720p' | '1080p' | '1440p' | '4k'
     fps: 24 | 25 | 30 | 60
     quality: 'compact' | 'fast' | 'medium' | 'high'
-    encoding_effort: 'ultrafast' | 'medium' | 'slow'
+    encoding_effort: 'ultrafast' | 'medium' | 'slow' | 'hardware'
     codec: 'h264' | 'h265'
     format: 'mp4' | 'mov' | 'webm'
   }
@@ -2579,18 +2745,26 @@ interface QuickExportPreset {
 
 const EXPORT_QUICK_PRESETS: QuickExportPreset[] = [
   {
+    id: 'youtube-fast-hw',
+    label: 'YouTube (hardware)',
+    icon: '⚡',
+    tagline: 'Hardware-accelerated. ~10× faster than the CPU preset.',
+    longHint: '1080p · 30 fps · Medium (CRF 23) · H.264 · h264_videotoolbox · MP4 — uses your Mac\'s Media Engine. Routine renders finish in minutes; sleep-story-style footage shows no visible quality loss.',
+    settings: { resolution: '1080p', fps: 30, quality: 'medium', encoding_effort: 'hardware', codec: 'h264', format: 'mp4' },
+  },
+  {
     id: 'youtube-common',
     label: 'YouTube Common',
     icon: '▶️',
-    tagline: 'Balanced quality + size. YouTube re-transcodes anyway.',
-    longHint: '1080p · 30 fps · Medium (CRF 23) · H.264 · MP4 — the safe default that plays everywhere and uploads cleanly.',
+    tagline: 'Balanced CPU encode. YouTube re-transcodes anyway.',
+    longHint: '1080p · 30 fps · Medium (CRF 23) · H.264 · MP4 — the safe default that plays everywhere and uploads cleanly. Use when you don\'t trust the hardware path on a specific machine.',
     settings: { resolution: '1080p', fps: 30, quality: 'medium', encoding_effort: 'medium', codec: 'h264', format: 'mp4' },
   },
   {
     id: 'fastest-render',
-    label: 'Fastest Render',
-    icon: '⚡',
-    tagline: 'Draft iteration — 5–10× faster than final.',
+    label: 'Fastest CPU',
+    icon: '🏎️',
+    tagline: 'Draft iteration — 5–10× faster than Medium CPU.',
     longHint: '720p · 24 fps · Fast (CRF 28) · Ultrafast preset · H.264 · MP4 — for reviewing pacing before the real render.',
     settings: { resolution: '720p', fps: 24, quality: 'fast', encoding_effort: 'ultrafast', codec: 'h264', format: 'mp4' },
   },

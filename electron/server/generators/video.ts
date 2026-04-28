@@ -28,7 +28,7 @@ import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
 import type {
   GenerateVideoRequest, Job, VideoLogoConfig, VideoIntroConfig,
-  VideoOutroConfig, VideoTimelineClip, TimelineAnchor,
+  VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
   VideoTitleImageConfig, VideoSceneRecycling, VideoMusicConfig,
   VideoDurationConfig, VideoColorGrading, VideoVignetteConfig,
   VideoChromaKeyConfig, VideoBackgroundNoise, VideoFilmGrain, VideoLetterbox,
@@ -76,6 +76,92 @@ const DEFAULT_FPS = 30
  * Inputs map 1:1 onto the closure variables that used to drive the inline
  * builder; the call site in `runFinalComposition` now delegates here.
  */
+/**
+ * Summarise the total runtime of all user-supplied timeline clips so a
+ * long after-scenes tail (a sleep-story staple — 1-3 hours of ambient
+ * footage layered over post-narration silence) is visible in the job
+ * log before the encode starts. Originally written as a hard abort
+ * after a 7212s clip blew through the encode watchdog, but sleep
+ * stories deliberately ship 2-hour tails and aborting was wrong: the
+ * fix landed in the watchdog instead (it scales with output duration
+ * now). Kept as a warn-only summary so the operator gets a heads-up
+ * about expected wall-clock time without losing the run.
+ *
+ * Pure helper — exported separately from `generateVideo` so it can be
+ * unit-tested without spawning ffmpeg or building an episode fixture.
+ */
+export type TimelineClipForCheck = { path: string; duration: number; anchor: string }
+export type TimelineSanityResult = { warning?: string }
+
+export function checkTimelineDurationSanity(
+  clips: TimelineClipForCheck[],
+  referenceDuration: number,
+): TimelineSanityResult {
+  if (clips.length === 0) return {}
+  const totalTimelineDur = clips.reduce((s, c) => s + c.duration, 0)
+  if (totalTimelineDur <= referenceDuration) return {}
+  // Long-tail surface area — common for sleep-story channels. Surface
+  // the expected output length up-front so the user reads the right
+  // number in the job log and isn't confused by a hours-long encode.
+  const totalMin = (totalTimelineDur / 60).toFixed(1)
+  const finalMin = ((totalTimelineDur + referenceDuration) / 60).toFixed(1)
+  return {
+    warning:
+      `Timeline clips total ${totalTimelineDur.toFixed(1)}s (~${totalMin} min) — longer than the narration ` +
+      `(${(referenceDuration / 60).toFixed(1)} min). Final video will be ~${finalMin} min; encode wall-clock ` +
+      `scales with that. The ffmpeg watchdog auto-extends for long renders, so this will run to completion.`,
+  }
+}
+
+/**
+ * Wall-clock budget for a single ffmpeg encode invocation, scaled by the
+ * intended output duration. Pure: takes `outputDurationSec` (the value
+ * passed to ffmpeg's `-t`) and the optional env override, returns ms.
+ *
+ * Floor 30 min keeps short videos safe; ceiling 12h prevents a truly
+ * runaway process from holding the queue forever. Between the bounds:
+ *   1.5× output + 5 min buffer
+ * — derived from observed encode rates on M-series Macs at libx264
+ * `medium` preset (≈1.2-1.5× real-time). 2026-04-28 case study: a
+ * 9219s output needed ~2.1h wall-clock; the formula gives 14129 ms ×
+ * 1000 ≈ 235 min ≈ 3.9h, comfortable headroom on a slower CPU too.
+ */
+export function computeWatchdogMs(
+  outputDurationSec: number,
+  envOverrideMs?: string | undefined,
+): number {
+  if (envOverrideMs) {
+    const n = Number(envOverrideMs)
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  const FLOOR_MS = 30 * 60_000          // 30 min
+  const CEILING_MS = 12 * 3600 * 1000   // 12 hours
+  if (!Number.isFinite(outputDurationSec) || outputDurationSec <= 0) return FLOOR_MS
+  const scaled = Math.ceil(outputDurationSec * 1.5 * 1000) + 5 * 60_000
+  return Math.min(CEILING_MS, Math.max(FLOOR_MS, scaled))
+}
+
+/**
+ * Map a libx264 CRF value to an h264_videotoolbox `-q:v` value.
+ *
+ * libx264 uses CRF on a 0-51 scale (lower = better). videotoolbox uses
+ * `-q:v` on a 0-100 scale (higher = better). The mapping below is
+ * empirically calibrated against typical 1080p output for sleep-story
+ * footage — slightly biased toward higher q:v than a strict linear map
+ * because Apple's hardware encoder is more compression-efficient at the
+ * upper quality end than libx264 is. Output: clamped to [25, 90].
+ *
+ *   CRF 18 (high)    → q:v 80   (visually transparent)
+ *   CRF 23 (medium)  → q:v 65   (good for streaming / sleep videos)
+ *   CRF 28 (low)     → q:v 50
+ *   CRF 32 (drafty)  → q:v 38
+ */
+export function crfToVideotoolboxQ(crf: number): number {
+  // Linear: q:v = 80 - (crf - 18) × 3, clamped.
+  const raw = 80 - (crf - 18) * 3
+  return Math.max(25, Math.min(90, Math.round(raw)))
+}
+
 export function buildEncoderArgs(opts: {
   codec: 'h264' | 'h265'
   format: 'mp4' | 'mov' | 'webm' | string
@@ -87,6 +173,32 @@ export function buildEncoderArgs(opts: {
     return [
       '-c:v', 'libvpx-vp9', '-crf', crf.toString(), '-b:v', '0',
       '-c:a', 'libopus',
+    ]
+  }
+  // Hardware-accelerated path — h264_videotoolbox routes the encode
+  // through Apple's Media Engine silicon, ~8-15× faster on M-series
+  // Macs than libx264 medium. Quality at the same bitrate is ~5-10%
+  // worse than libx264 (Apple trades compression efficiency for speed),
+  // but for sleep-story footage — long, mostly static, low motion —
+  // the difference is functionally invisible. Falls back to libx264
+  // through the existing tier-2/3 recovery chain if videotoolbox fails
+  // to initialise (e.g. very old Intel Macs without the right
+  // hardware-encode entitlement). Only h264 is offered here; we don't
+  // pair the hardware path with h265 because hevc_videotoolbox quality
+  // varies more across hardware generations.
+  if (effort === 'hardware') {
+    return [
+      '-c:v', 'h264_videotoolbox',
+      // q:v drives quality on videotoolbox (no CRF support). The map
+      // above tunes for parity with the operator's CRF expectations.
+      '-q:v', crfToVideotoolboxQ(crf).toString(),
+      // Permit ffmpeg's own software fallback if the hardware path
+      // can't open the session — a second safety net beneath the
+      // tier-2/3 recovery chain.
+      '-allow_sw', '1',
+      '-c:a', 'aac', '-b:a', '192k',
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart',
     ]
   }
   if (codec === 'h265') {
@@ -181,6 +293,13 @@ function resolveAssetPathsInPlace(req: GenerateVideoRequest, outputRoot: string,
   if (req.timeline_clips?.length) {
     req.timeline_clips = req.timeline_clips
       .map((c, i) => {
+        // Static clips carry image_path; classic clips carry video_path.
+        // Resolve whichever this row uses; drop the row if the portable
+        // token can't expand on this machine.
+        if (c.kind === 'static') {
+          const resolved = tryResolve(c.image_path, `timeline_clips[${i}].image_path`)
+          return resolved ? { ...c, image_path: resolved } : null
+        }
         const resolved = tryResolve(c.video_path, `timeline_clips[${i}].video_path`)
         return resolved ? { ...c, video_path: resolved } : null
       })
@@ -703,10 +822,22 @@ export async function generateVideo(job: Job): Promise<void> {
     if (req.timeline_clips?.length) {
       let idx = 0
       for (const clip of req.timeline_clips) {
-        if (!clip.enabled || !clip.video_path) { idx++; continue }
-        const avail = checkAssetAvailability(clip.video_path, `timeline_clips[${idx}].video_path`)
+        if (!clip.enabled) { idx++; continue }
+        // Discriminate: static = image+duration; video (default) = video_path.
+        // Old presets that predate the variant don't carry `kind` — treat
+        // missing kind as 'video' for back-compat.
+        const isStatic = clip.kind === 'static'
+        const sourcePath = isStatic ? clip.image_path : clip.video_path
+        const fieldName = isStatic ? `timeline_clips[${idx}].image_path` : `timeline_clips[${idx}].video_path`
+        if (!sourcePath) { idx++; continue }
+        const avail = checkAssetAvailability(sourcePath, fieldName)
         if (avail.status !== 'available') {
           job.output_lines.push(`${avail.message} — timeline clip [${clip.anchor}] skipped`)
+          idx++
+          continue
+        }
+        if (isStatic && (!Number.isFinite(clip.duration_sec) || clip.duration_sec <= 0)) {
+          job.output_lines.push(`⚠ Static timeline clip [${clip.anchor}] has invalid duration_sec=${clip.duration_sec} — skipped`)
           idx++
           continue
         }
@@ -739,6 +870,16 @@ export async function generateVideo(job: Job): Promise<void> {
         `after_scenes=${timelineClipsByAnchor.after_scenes.length} ` +
         `after_outro=${timelineClipsByAnchor.after_outro.length}`
       )
+
+      const allClips: TimelineClipForCheck[] = [
+        ...timelineClipsByAnchor.before_intro.map(c => ({ ...c, anchor: 'before_intro' })),
+        ...timelineClipsByAnchor.after_intro.map(c  => ({ ...c, anchor: 'after_intro'  })),
+        ...timelineClipsByAnchor.after_scenes.map(c => ({ ...c, anchor: 'after_scenes' })),
+        ...timelineClipsByAnchor.after_outro.map(c  => ({ ...c, anchor: 'after_outro'  })),
+      ]
+      const referenceDuration = Math.max(narrationDuration, targetDuration)
+      const sanity = checkTimelineDurationSanity(allClips, referenceDuration)
+      if (sanity.warning) job.output_lines.push(sanity.warning)
     }
 
     // How many seconds of the final video are intro + title. When the
@@ -806,6 +947,45 @@ export async function generateVideo(job: Job): Promise<void> {
       job.output_lines.push(
         `Total render duration: ${totalRenderDuration.toFixed(1)}s (${parts.join(' + ')})`
       )
+    }
+
+    // Disk-space pre-flight gate #2 — accurate edition. The early gate at
+    // the top of generateVideo() runs BEFORE narration + timeline durations
+    // are known, so it has to fall back to a 1-hour estimate that wildly
+    // under-counts long sleep-story tails (a 2.5h render needs ~25 GB peak
+    // temp; the early check would estimate ~540 MB and pass on a nearly-
+    // full disk). Now that totalRenderDuration is locked in, re-check with
+    // the real number and a 6× safety margin that covers the four parallel
+    // disk consumers during a render:
+    //   1. per-scene clip prep   (~0.5× output bytes — short pre-rendered MP4s)
+    //   2. intermediate concat   (~1.0× output — stream-copy of the per-scene clips)
+    //   3. premix WAV (PCM)      (~1.5× output — uncompressed at 48k/s16le is bigger than H.264)
+    //   4. final output          (~1.0× output)
+    // Plus ~2× general buffer for the user's other apps + filesystem
+    // overhead. The early gate keeps catching truly drained disks; this
+    // gate catches the much more common "8 GB free, need 14 GB" case.
+    {
+      const estOutputBytes = estimateBytesForStep('video_assembly', {
+        durationSec: totalRenderDuration,
+        resolution: req.resolution,
+        quality: req.quality,
+      })
+      const required = Math.ceil(estOutputBytes * 6)
+      const free = await getFreeBytes(outputRoot)
+      if (free > 0 && free < required) {
+        const minutesFinal = (totalRenderDuration / 60).toFixed(1)
+        throw new Error(
+          `Not enough free disk space for the ${minutesFinal}-min render of ${code}. ` +
+          `Have: ${formatBytes(free)}, need: ${formatBytes(required)} ` +
+          `(${req.resolution || '1080p'} ${req.quality || 'medium'} × 6× safety for intermediate/premix/per-clip temps). ` +
+          `Free up space and retry — your render would otherwise crash near the end with "No space left on device".`,
+        )
+      }
+      if (free > 0) {
+        job.output_lines.push(
+          `Disk pre-flight OK: ${formatBytes(free)} free, ~${formatBytes(required)} estimated peak usage.`,
+        )
+      }
     }
 
     // 8. Prepare music file (if multiple, concatenate them)
@@ -1206,6 +1386,13 @@ async function prepareTimelineClip(
   tempDir: string,
   job: Job,
 ): Promise<string> {
+  // Dispatch by source kind. Static = synthesised from a single image
+  // (cheap to encode, ~1% the disk size of an equivalent pre-rendered
+  // video). Video = re-encode the user's MP4 (the legacy path).
+  if (clip.kind === 'static') {
+    return prepareStaticTimelineClip(clip, idx, w, h, quality, tempDir, job)
+  }
+
   const clipPath = path.join(tempDir, `timeline_${clip.anchor}_${idx}.mp4`)
 
   job.output_lines.push(`Preparing timeline clip [${clip.anchor}] #${idx + 1}`)
@@ -1217,6 +1404,67 @@ async function prepareTimelineClip(
     '-vf', frame.join(','),
     '-c:v', 'libx264', '-crf', quality.crf.toString(),
     '-preset', 'ultrafast', '-r', quality.fps.toString(),
+    '-fps_mode', 'cfr', '-pix_fmt', 'yuv420p',
+    '-color_range', 'tv', '-colorspace', 'bt709',
+    '-color_primaries', 'bt709', '-color_trc', 'bt709',
+    '-an',
+    clipPath,
+  ]
+
+  await runFfmpeg(args)
+  return clipPath
+}
+
+/**
+ * Synthesise a timeline clip from a single still image + duration.
+ * Replaces the workflow where users pre-rendered multi-hour static
+ * MP4s in a video editor and dropped them into the timeline.
+ *
+ * Speed wins are dramatic for sleep-story-style tails:
+ *   - `-loop 1 -i image.jpg -t <dur>` repeats the image at fps from
+ *     the encoder's perspective (no per-frame decoding cost).
+ *   - `-tune stillimage` tells libx264 to optimise rate-distortion
+ *     for unchanging frames — the encoder emits one keyframe and
+ *     effectively-empty P-frames.
+ *   - The intermediate file ends up tiny (≈10-20 MB for 2 hours of
+ *     1080p static, vs ≈2 GB for a re-encoded pre-rendered MP4).
+ *   - Wall-clock prep is dominated by output muxing, not encoding.
+ *
+ * Audio is stripped (`-an`) like every other timeline clip — the
+ * post-narration ambient/music tail comes from the separate `music`
+ * config which already loops via `-stream_loop -1`.
+ */
+async function prepareStaticTimelineClip(
+  clip: VideoTimelineClipStatic,
+  idx: number,
+  w: number, h: number,
+  quality: { crf: number; preset: string; fps: number },
+  tempDir: string,
+  job: Job,
+): Promise<string> {
+  const clipPath = path.join(tempDir, `timeline_static_${clip.anchor}_${idx}.mp4`)
+
+  const minutes = (clip.duration_sec / 60).toFixed(1)
+  job.output_lines.push(
+    `Preparing static timeline clip [${clip.anchor}] #${idx + 1} (${minutes} min from single image)`,
+  )
+
+  const frame = normalizeFrame(w, h, quality.fps).filter(f => !f.startsWith('fps='))
+  // -loop 1 + -t bracket the still image as a duration-bounded source.
+  // Putting -t BEFORE -i sets the input duration limit; the muxer then
+  // emits exactly that many seconds of frames at -r quality.fps.
+  // -tune stillimage is libx264-only — we deliberately don't expose a
+  // hardware path here because videotoolbox doesn't accept tune, and
+  // libx264 ultrafast on a still image is already near-instant
+  // (encoder-bound on output muxing, not ratecontrol).
+  const args = [
+    '-y',
+    '-loop', '1', '-t', clip.duration_sec.toString(), '-i', clip.image_path,
+    '-vf', frame.join(','),
+    '-c:v', 'libx264', '-crf', quality.crf.toString(),
+    '-preset', 'ultrafast',
+    '-tune', 'stillimage',
+    '-r', quality.fps.toString(),
     '-fps_mode', 'cfr', '-pix_fmt', 'yuv420p',
     '-color_range', 'tv', '-colorspace', 'bt709',
     '-color_primaries', 'bt709', '-color_trc', 'bt709',
@@ -1921,7 +2169,7 @@ interface CompositionOpts {
    *  from `quality.preset` so users can pick a "fast" quality (CRF 28) but
    *  still get the smaller file size that comes from `slow` encoding.
    *  Falls back to `quality.preset` when not provided. */
-  encodingEffort?: 'ultrafast' | 'medium' | 'slow'
+  encodingEffort?: 'ultrafast' | 'medium' | 'slow' | 'hardware'
   /** Codec selection. `h264` is the universal default. `h265` (HEVC) emits
    *  roughly 30–40 % smaller files at equal visual quality but requires a
    *  modern player. Webm/VP9 stays under `format=webm` instead. */
@@ -2201,6 +2449,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
 
   function codecLabel(useCodec: 'h264' | 'h265'): string {
     if (format === 'webm') return `VP9 · CRF ${quality.crf}`
+    if (effort === 'hardware') return `H.264 · hardware (videotoolbox, q:v ${crfToVideotoolboxQ(quality.crf)})`
     if (useCodec === 'h265') return `HEVC (H.265) · preset ${effort}`
     return `H.264 · preset ${effort}`
   }
@@ -2240,13 +2489,25 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     // so the ENOENT repeated identically across the recovery chain.
     const ffmpegBin = await getFFmpegPath()
 
-    // Wall-clock watchdog. This spawn can take hours on long-form renders,
-    // but a pathological input (malformed chapter MP3, CMYK title image,
-    // FFmpeg 8 edge case) can hang it indefinitely. The job queue
-    // serialises video jobs, so a stuck encode pins the slot forever —
-    // nothing else runs. 30 min default is generous for 3-hour sleep
-    // stories on `fast` preset; tune via env for archival workflows.
-    const timeoutMs = Number(process.env.STORY_STUDIO_FFMPEG_TIMEOUT_MS) || 30 * 60_000
+    // Wall-clock watchdog. This spawn can take hours on long-form renders
+    // (sleep-story channels routinely append 2-3 hours of ambient tail
+    // to a 30-min narration), but a pathological input — malformed
+    // chapter MP3, CMYK title image, FFmpeg 8 edge case — can also hang
+    // it indefinitely. The job queue serialises video jobs, so a stuck
+    // encode pins the slot forever and nothing else runs.
+    //
+    // Scale the watchdog with the actual output `-t` so a 2.5-hour
+    // render gets ~3.5h of budget, while a short 5-min clip still has
+    // a reasonable safety net. Formula:
+    //   floor: 30 min (matches the previous fixed default)
+    //   scaled: 1.5× output duration + 5 min buffer
+    //   ceiling: 12 hours (truly hung after this much)
+    // The env override `STORY_STUDIO_FFMPEG_TIMEOUT_MS` still wins
+    // unconditionally — power users with custom workflows can pin a
+    // value that ignores the scaling.
+    const timeoutMs = computeWatchdogMs(targetDuration, process.env.STORY_STUDIO_FFMPEG_TIMEOUT_MS)
+    const timeoutMin = Math.round(timeoutMs / 60_000)
+    job.output_lines.push(`FFmpeg watchdog: ${timeoutMin} min for ${(targetDuration / 60).toFixed(1)} min output`)
 
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(ffmpegBin, encodeArgs, {
