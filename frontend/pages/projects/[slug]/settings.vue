@@ -1237,6 +1237,19 @@
           >
             {{ assetMigration.migrating.value ? '↻ Moving…' : '📦 Move asset location' }}
           </button>
+          <!-- Move THIS PROJECT to a different folder. Distinct from the
+               Storage tab's global "Move projects to…" — that one moves
+               every project at once; this lets the operator pick a
+               destination just for this one project (e.g. TerraNash to
+               iCloud, Dozing Knight stays local). The destination is
+               registered as a linked path so the slug keeps resolving
+               after the move. -->
+          <button
+            class="btn btn-sm btn-secondary"
+            :disabled="moveProjectDialogOpen || moveProjectMigrating"
+            title="Move this project's folder to a different location (iCloud, an external drive, anywhere). Doesn't affect other projects. Choose whether to delete the source after a successful copy."
+            @click="openMoveProjectDialog"
+          >📦 Move this project to…</button>
         </div>
         <span class="text-muted" style="font-size:11px">
           Story Studio reads and writes all generated files here. Don't move this folder —
@@ -1322,6 +1335,99 @@
           </div>
         </div>
       </div>
+
+      <!-- Move-this-project-to dialog. Distinct from the asset-migration
+           dialog above: this relocates the project's ENTIRE folder
+           (metadata + assets) to a chosen destination, then registers
+           it as a linked project so its slug keeps resolving after the
+           move. Powers the per-project "TerraNash to iCloud while
+           Dozing Knight stays local" workflow. -->
+      <div v-if="moveProjectDialogOpen" class="modal-overlay" @click.self="closeMoveProjectDialog">
+        <div class="modal" style="max-width: 660px;">
+          <h2>Move this project to…</h2>
+          <p class="text-muted mt-1" style="font-size: 13px;">
+            Moves the entire project folder (metadata + assets) to the destination of your choice.
+            The new location is registered as a linked folder so this Mac keeps finding the
+            project by slug. Other projects are unaffected.
+          </p>
+
+          <div v-if="moveProjectStatus" class="move-assets-summary mt-2">
+            <div class="move-assets-row">
+              <span class="text-muted">From</span>
+              <code class="path-display">{{ moveProjectStatus.current_path }}</code>
+            </div>
+            <div class="move-assets-row">
+              <span class="text-muted">Size</span>
+              <span>
+                {{ formatBytes(moveProjectStatus.estimated_bytes || 0) }}
+                across {{ moveProjectStatus.estimated_files || 0 }} file(s)
+              </span>
+            </div>
+          </div>
+
+          <div class="flex gap-2 mt-2" style="align-items: stretch; flex-wrap: wrap;">
+            <input
+              v-model="moveProjectDest"
+              class="input"
+              placeholder="Absolute parent folder for the project — the project's slug becomes a sub-folder there"
+              style="flex: 1; min-width: 280px;"
+            />
+            <button class="btn btn-secondary btn-sm" @click="browseMoveProjectDest">Browse…</button>
+          </div>
+          <p class="text-muted mt-1" style="font-size: 11px;">
+            The project lands at <code class="path-display">{{ moveProjectDest ? moveProjectDest + '/' + (moveProjectStatus?.current_path?.split('/').pop() || project?.slug || '') : '(pick a destination first)' }}</code>.
+          </p>
+
+          <div
+            v-if="moveProjectStatus?.icloud_blockers?.length"
+            class="move-assets-blockers mt-2"
+          >
+            <strong>⛔ Blocked — fix before retrying:</strong>
+            <p class="text-muted" style="font-size: 11px; margin: 4px 0;">
+              {{ moveProjectStatus.icloud_blockers.length }} file(s) in this project are
+              iCloud placeholders (not downloaded to this Mac). Right-click the project folder
+              in Finder → "Download Now", wait for every file to lose the cloud icon, then retry.
+            </p>
+            <ul style="font-size: 11px; margin: 4px 0 0 18px; padding: 0;">
+              <li v-for="(b, i) in moveProjectStatus.icloud_blockers.slice(0, 5)" :key="i">
+                <code>{{ b }}</code>
+              </li>
+            </ul>
+          </div>
+
+          <label class="flex gap-2 mt-2" style="align-items: center; font-size: 12px;">
+            <input type="checkbox" v-model="moveProjectDeleteSource" />
+            <span>
+              <strong>Delete the original folder after a successful copy.</strong>
+              Off by default — the source is kept (renamed with a <code>.bak-&lt;timestamp&gt;</code>
+              suffix when it's in the default location, or left in place when it's already linked)
+              so you can verify the move before reclaiming the space.
+            </span>
+          </label>
+
+          <div v-if="moveProjectError" class="move-assets-error mt-2">{{ moveProjectError }}</div>
+
+          <div class="flex gap-2 mt-3" style="justify-content: flex-end;">
+            <button
+              class="btn btn-secondary"
+              :disabled="moveProjectMigrating"
+              @click="closeMoveProjectDialog"
+            >Cancel</button>
+            <button
+              class="btn btn-primary"
+              :disabled="
+                moveProjectMigrating
+                  || !moveProjectDest
+                  || (moveProjectStatus?.icloud_blockers?.length ?? 0) > 0
+              "
+              @click="runMoveProject"
+            >
+              {{ moveProjectMigrating ? 'Moving…' : 'Move now' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div class="flex gap-2" style="align-items: center;">
         <button class="btn btn-primary" @click="saveProject">Save Project Settings</button>
         <SaveIndicator v-bind="savedHintProps('project')" />
@@ -1430,6 +1536,81 @@ async function runMoveAssets(): Promise<void> {
     }
   } else {
     showError(r.error || 'Move failed — see banner for details.')
+  }
+}
+
+// ── Move-this-project-to dialog ─────────────────────────────────────────
+// Per-project relocation — moves the entire project folder (metadata +
+// assets) to a chosen destination, then registers it as a linked path
+// so the slug keeps resolving. Distinct from the asset-migration above
+// which only co-locates assets inside the existing project folder.
+const linkedProjects = useLinkedProjects()
+const moveProjectDialogOpen = ref(false)
+const moveProjectDeleteSource = ref(false)
+const moveProjectMigrating = ref(false)
+const moveProjectError = ref('')
+const moveProjectDest = ref('')
+const moveProjectStatus = ref<{
+  current_path: string
+  is_default_location: boolean
+  is_linked: boolean
+  estimated_bytes: number
+  estimated_files: number
+  icloud_blockers: string[]
+} | null>(null)
+
+async function openMoveProjectDialog(): Promise<void> {
+  moveProjectDialogOpen.value = true
+  moveProjectDest.value = ''
+  moveProjectError.value = ''
+  moveProjectDeleteSource.value = false
+  moveProjectStatus.value = null
+  // Pre-fetch the size estimate + .icloud blocker scan so the dialog
+  // can render the warning before the user picks a destination.
+  try {
+    moveProjectStatus.value = await linkedProjects.getMoveStatus(slug.value)
+  } catch (e: any) {
+    moveProjectError.value = e?.data?.detail || e?.message || 'Failed to inspect project'
+  }
+}
+function closeMoveProjectDialog(): void {
+  moveProjectDialogOpen.value = false
+}
+async function browseMoveProjectDest(): Promise<void> {
+  try {
+    const r = await post<{ path: string | null }>('/system/pick-folder', {
+      title: 'Choose a destination folder for this project',
+      buttonLabel: 'Use This Folder',
+    })
+    if (r?.path) moveProjectDest.value = r.path
+  } catch (e: any) {
+    moveProjectError.value = e?.data?.detail || e?.message || 'Folder picker failed'
+  }
+}
+async function runMoveProject(): Promise<void> {
+  if (!moveProjectDest.value) return
+  moveProjectMigrating.value = true
+  moveProjectError.value = ''
+  try {
+    const result = await linkedProjects.moveProject(slug.value, moveProjectDest.value, {
+      delete_source: moveProjectDeleteSource.value,
+    })
+    const dispositionMsg = result.source_disposition === 'deleted'
+      ? 'Source folder deleted.'
+      : result.source_disposition === 'renamed'
+        ? `Source renamed to ${result.renamed_source_path}.`
+        : 'Source de-registered (was already linked).'
+    success(`Project moved to ${result.new_path}. ${dispositionMsg}`)
+    closeMoveProjectDialog()
+    // Reload project meta so the Project Files Location display reflects
+    // the new path once the linked entry resolves.
+    if (project.value) {
+      await loadProject((project.value as any).slug || slug.value)
+    }
+  } catch (e: any) {
+    moveProjectError.value = e?.data?.detail || e?.message || 'Move failed'
+  } finally {
+    moveProjectMigrating.value = false
   }
 }
 

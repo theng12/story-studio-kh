@@ -34,6 +34,11 @@
       <div class="flex justify-between items-center mb-2">
         <h2>Your Projects</h2>
         <div class="flex gap-2">
+          <button
+            class="btn btn-secondary"
+            title="Register a project folder that lives outside the default projects folder (e.g. a project synced from another Mac via iCloud Drive). Doesn't copy or move anything; just adds it to the list on this Mac."
+            @click="openAddLinked"
+          >🔗 Add existing project folder…</button>
           <button class="btn btn-secondary" @click="openImport">📥 Import existing…</button>
           <button class="btn btn-primary" @click="showCreate = true">+ New Project</button>
         </div>
@@ -54,9 +59,16 @@
                 class="badge badge-error"
                 :title="`Folder not found on disk: ${project.output_root}. Import from its new location via 'Import existing…' to relocate.`"
               >⚠ Folder missing</span>
-<!-- (Removed: 📡 Synced badge — projects no longer carry a portable
-                   flag. Cloud-sync state is managed at the app level via
-                   Settings → Storage, not per-project.) -->
+              <!-- Linked-location chip — fires when this project's folder
+                   lives outside the default PROJECTS_ROOT (registered via
+                   Add existing project folder… or moved here via the
+                   Project tab). Helps the operator distinguish "in iCloud"
+                   from "on local disk" at a glance. -->
+              <span
+                v-if="isLinkedSlug(project.slug)"
+                class="badge badge-linked"
+                :title="`Linked from ${linkedPathFor(project.slug)}. Right-click in the Project tab to relocate or unlink.`"
+              >🔗 Linked</span>
               <span class="badge" :class="project.has_api_keys ? 'badge-done' : 'badge-queued'">
                 {{ project.has_api_keys ? 'Ready' : 'Setup needed' }}
               </span>
@@ -66,6 +78,59 @@
             <span>Prefix: {{ project.episode_prefix }}</span>
             <span>Created {{ formatDate(project.created_at) }}</span>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add existing project folder modal -->
+    <div v-if="addLinkedOpen" class="modal-overlay" @click.self="closeAddLinked">
+      <div class="modal" style="max-width: 620px;">
+        <h2>Add existing project folder</h2>
+        <p class="text-muted mt-1" style="font-size: 13px;">
+          Register a Story Studio project folder that lives outside the default projects folder.
+          Use this when an iCloud sync has brought a project from another Mac and you want it
+          listed here, or when you've moved a project's folder manually on disk and need the
+          app to find it again. <strong>Nothing is copied or moved</strong> — the folder stays
+          where it is; this just adds it to this Mac's list.
+        </p>
+
+        <div class="flex gap-2 mt-2">
+          <input
+            v-model="addLinkedPath"
+            class="input"
+            placeholder="Absolute path to the project folder"
+            style="flex: 1;"
+          />
+          <button class="btn btn-sm btn-secondary" @click="browseLinkedFolder">Browse…</button>
+          <button
+            class="btn btn-sm btn-secondary"
+            :disabled="!addLinkedPath || addLinkedInspecting"
+            @click="inspectLinked"
+          >{{ addLinkedInspecting ? 'Inspecting…' : 'Inspect' }}</button>
+        </div>
+
+        <div v-if="addLinkedInspectResult" class="mt-2" style="font-size: 13px;">
+          <div v-if="addLinkedInspectResult.reason" class="add-linked-error">
+            ⚠ {{ addLinkedInspectResult.reason }}
+          </div>
+          <div v-else class="add-linked-preview">
+            <div><strong>Project:</strong> {{ addLinkedInspectResult.name }}</div>
+            <div><strong>Slug:</strong> <code>{{ addLinkedInspectResult.slug }}</code></div>
+            <div><strong>Path:</strong> <code>{{ addLinkedInspectResult.path }}</code></div>
+          </div>
+        </div>
+
+        <div v-if="addLinkedError" class="add-linked-error mt-2">{{ addLinkedError }}</div>
+
+        <div class="flex gap-2 mt-3" style="justify-content: flex-end;">
+          <button class="btn btn-secondary" @click="closeAddLinked">Cancel</button>
+          <button
+            class="btn btn-primary"
+            :disabled="!addLinkedInspectResult || !!addLinkedInspectResult.reason || addLinkedAdding"
+            @click="confirmAddLinked"
+          >
+            {{ addLinkedAdding ? 'Adding…' : 'Link this folder' }}
+          </button>
         </div>
       </div>
     </div>
@@ -836,10 +901,84 @@
 useHead({ title: 'Story Studio KH' })
 const { get, post, put } = useApi()
 const { success, error: showError } = useToast()
+const linkedProjects = useLinkedProjects()
 
 const loading = ref(true)
 const projects = ref<any[]>([])
 const templates = ref<any[]>([])
+
+// ── Linked-projects "Add existing project folder…" dialog ─────────────────
+const addLinkedOpen = ref(false)
+const addLinkedPath = ref('')
+const addLinkedInspecting = ref(false)
+const addLinkedAdding = ref(false)
+const addLinkedError = ref('')
+const addLinkedInspectResult = ref<{
+  path: string
+  exists: boolean
+  slug?: string
+  name?: string
+  reason?: string
+} | null>(null)
+
+function openAddLinked(): void {
+  addLinkedOpen.value = true
+  addLinkedPath.value = ''
+  addLinkedInspectResult.value = null
+  addLinkedError.value = ''
+}
+function closeAddLinked(): void {
+  addLinkedOpen.value = false
+}
+async function browseLinkedFolder(): Promise<void> {
+  try {
+    const r = await post<{ path: string | null }>('/system/pick-folder', {
+      title: 'Pick a Story Studio project folder',
+      buttonLabel: 'Use This Folder',
+    })
+    if (!r?.path) return
+    addLinkedPath.value = r.path
+    await inspectLinked()
+  } catch (e: any) {
+    addLinkedError.value = e?.data?.detail || e?.message || 'Folder picker failed'
+  }
+}
+async function inspectLinked(): Promise<void> {
+  if (!addLinkedPath.value) return
+  addLinkedInspecting.value = true
+  addLinkedError.value = ''
+  try {
+    addLinkedInspectResult.value = await linkedProjects.inspect(addLinkedPath.value)
+  } catch (e: any) {
+    addLinkedInspectResult.value = null
+    addLinkedError.value = e?.data?.detail || e?.message || 'Inspection failed'
+  } finally {
+    addLinkedInspecting.value = false
+  }
+}
+async function confirmAddLinked(): Promise<void> {
+  if (!addLinkedInspectResult.value || addLinkedInspectResult.value.reason) return
+  addLinkedAdding.value = true
+  addLinkedError.value = ''
+  try {
+    const info = await linkedProjects.add(addLinkedInspectResult.value.path)
+    success(`Linked '${info.name || info.slug}' — refresh to see it in the list.`)
+    closeAddLinked()
+    await loadData()
+  } catch (e: any) {
+    addLinkedError.value = e?.data?.detail || e?.message || 'Failed to add linked project'
+  } finally {
+    addLinkedAdding.value = false
+  }
+}
+
+/** True when the slug appears in the linked-projects registry. */
+function isLinkedSlug(slug: string): boolean {
+  return linkedProjects.linked.value.some(p => p.slug === slug && p.exists)
+}
+function linkedPathFor(slug: string): string {
+  return linkedProjects.linked.value.find(p => p.slug === slug)?.path || ''
+}
 
 function templateIcon(id: string): string {
   const map: Record<string, string> = {
@@ -1390,9 +1529,13 @@ function formatDate(date: string) {
 async function loadData() {
   loading.value = true
   try {
+    // Load projects + templates + linked-projects registry in parallel.
+    // The linked list powers the 🔗 Linked location chip and is per-Mac
+    // (lives in app-settings.json on the backend; never synced).
     const [p, t] = await Promise.all([
       get<any[]>('/projects'),
       get<any[]>('/projects/templates'),
+      linkedProjects.refresh(),
     ])
     projects.value = p
     templates.value = t
@@ -1766,6 +1909,38 @@ onMounted(async () => {
 }
 .project-card-badges .badge {
   white-space: nowrap;
+}
+
+/* "🔗 Linked" badge — distinct sky-blue accent so the operator scans
+   linked projects (synced via Add existing project folder…) apart
+   from default-location ones at a glance. */
+.badge-linked {
+  background: rgba(56, 189, 248, 0.15);
+  color: rgb(14, 165, 233);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}
+
+/* Add existing project folder modal — error + success summaries. */
+.add-linked-error {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(239, 68, 68, 0.08);
+  border-left: 3px solid #ef4444;
+  font-size: 12px;
+  color: #ef4444;
+}
+.add-linked-preview {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(52, 211, 153, 0.08);
+  border-left: 3px solid #34d399;
+  font-size: 12px;
+  display: grid; gap: 4px;
+}
+.add-linked-preview code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  word-break: break-all;
 }
 
 .project-card-meta {

@@ -29,6 +29,7 @@ import { router as lastSessionRouter } from './last-session.js'
 import { router as charactersRouter } from './characters.js'
 import { router as characterLibraryRouter } from './character-library.js'
 import { router as assetMigrateRouter } from './asset-migrate.js'
+import { router as linkedProjectsRouter } from './linked-projects.js'
 
 export function mountRoutes(app: Express): void {
   app.use('/api', projectsRouter)
@@ -54,4 +55,5 @@ export function mountRoutes(app: Express): void {
   app.use('/api', charactersRouter)
   app.use('/api', characterLibraryRouter)
   app.use('/api', assetMigrateRouter)
+  app.use('/api', linkedProjectsRouter)
 }
