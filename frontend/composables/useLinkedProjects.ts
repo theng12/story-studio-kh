@@ -21,6 +21,12 @@ export interface LinkedProjectInfo {
   slug?: string
   name?: string
   reason?: string
+  /**
+   * Populated when the user picked a *parent* folder by mistake — names
+   * each Story Studio project found one level deep so the UI can offer
+   * "did you mean…?" chips.
+   */
+  suggestions?: Array<{ path: string; slug: string; name: string }>
 }
 
 export interface ProjectMoveStatus {

@@ -18,13 +18,15 @@
           <button class="btn btn-primary btn-lg" @click="showCreate = true">
             Create Your First Project
           </button>
-          <button class="btn btn-secondary btn-lg" @click="openImport">
-            📥 Import existing…
+          <button class="btn btn-secondary btn-lg" @click="openAddLinked">
+            🔗 Add existing project folder…
           </button>
         </div>
         <p class="text-muted mt-2" style="font-size: 12px;">
-          Syncing your project folder from another computer via iCloud / Google Drive / OneDrive?
-          Click <strong>Import existing</strong> to register it here.
+          Got a project folder from another Mac via iCloud / Google Drive / OneDrive?
+          Click <strong>Add existing project folder</strong> and pick the folder named after
+          your project (the one that contains <code>project.json</code>). Nothing gets copied
+          or moved — your existing assets just appear in this Mac's list.
         </p>
       </div>
     </div>
@@ -39,7 +41,6 @@
             title="Register a project folder that lives outside the default projects folder (e.g. a project synced from another Mac via iCloud Drive). Doesn't copy or move anything; just adds it to the list on this Mac."
             @click="openAddLinked"
           >🔗 Add existing project folder…</button>
-          <button class="btn btn-secondary" @click="openImport">📥 Import existing…</button>
           <button class="btn btn-primary" @click="showCreate = true">+ New Project</button>
         </div>
       </div>
@@ -57,7 +58,7 @@
               <span
                 v-if="project.output_root_exists === false"
                 class="badge badge-error"
-                :title="`Folder not found on disk: ${project.output_root}. Import from its new location via 'Import existing…' to relocate.`"
+                :title="`Folder not found on disk: ${project.output_root}. Use 'Add existing project folder…' to register its new location, or open the Project tab → 'Move this project to…' to relocate.`"
               >⚠ Folder missing</span>
               <!-- Linked-location chip — fires when this project's folder
                    lives outside the default PROJECTS_ROOT (registered via
@@ -94,11 +95,23 @@
           where it is; this just adds it to this Mac's list.
         </p>
 
+        <!-- "What folder?" guidance — the most common confusion is people
+             pointing at the iCloud Drive root or the parent "Story Studio"
+             folder instead of the per-project folder. -->
+        <div class="add-linked-hint mt-2">
+          <strong>📂 Pick the folder named after your project</strong>
+          — the one that contains <code>project.json</code>.
+          <div class="text-muted mt-1" style="font-size: 12px;">
+            Example: <code>~/Library/Mobile Documents/com~apple~CloudDocs/Story Studio KH/projects/<strong>terranash</strong></code>
+            — not the parent <code>projects</code> folder, and not the iCloud Drive root.
+          </div>
+        </div>
+
         <div class="flex gap-2 mt-2">
           <input
             v-model="addLinkedPath"
             class="input"
-            placeholder="Absolute path to the project folder"
+            placeholder="Absolute path to the project folder (the one with project.json)"
             style="flex: 1;"
           />
           <button class="btn btn-sm btn-secondary" @click="browseLinkedFolder">Browse…</button>
@@ -112,6 +125,23 @@
         <div v-if="addLinkedInspectResult" class="mt-2" style="font-size: 13px;">
           <div v-if="addLinkedInspectResult.reason" class="add-linked-error">
             ⚠ {{ addLinkedInspectResult.reason }}
+            <!-- "Did you mean…?" chips for the parent-folder mistake.
+                 Click → re-fill the path input with the child folder
+                 + auto-rerun inspect so the user lands on the success
+                 preview without another Browse trip. -->
+            <div
+              v-if="addLinkedInspectResult.suggestions && addLinkedInspectResult.suggestions.length"
+              class="flex gap-2 mt-2"
+              style="flex-wrap: wrap;"
+            >
+              <button
+                v-for="sug in addLinkedInspectResult.suggestions"
+                :key="sug.path"
+                class="btn btn-sm btn-secondary"
+                :title="sug.path"
+                @click="pickSuggestion(sug.path)"
+              >📁 {{ sug.name }}</button>
+            </div>
           </div>
           <div v-else class="add-linked-preview">
             <div><strong>Project:</strong> {{ addLinkedInspectResult.name }}</div>
@@ -955,6 +985,15 @@ async function inspectLinked(): Promise<void> {
   } finally {
     addLinkedInspecting.value = false
   }
+}
+/**
+ * "Did you mean…?" chip handler for parent-folder picks. Re-fills the
+ * path input with the suggested child + immediately re-runs inspect so
+ * the user lands on the success preview without manual re-typing.
+ */
+async function pickSuggestion(childPath: string): Promise<void> {
+  addLinkedPath.value = childPath
+  await inspectLinked()
 }
 async function confirmAddLinked(): Promise<void> {
   if (!addLinkedInspectResult.value || addLinkedInspectResult.value.reason) return
@@ -1941,6 +1980,24 @@ onMounted(async () => {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
   word-break: break-all;
+}
+/* "What folder?" guidance card — explains which folder to pick. Lives
+   above the path input so it's seen BEFORE the user clicks Browse. */
+.add-linked-hint {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(56, 189, 248, 0.08);
+  border-left: 3px solid #38bdf8;
+  font-size: 13px;
+  color: var(--text);
+}
+.add-linked-hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  word-break: break-all;
+  background: rgba(0,0,0,0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
 }
 
 .project-card-meta {

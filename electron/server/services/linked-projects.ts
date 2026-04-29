@@ -87,6 +87,13 @@ export interface LinkedProjectInfo {
   name?: string
   /** Reason this entry isn't usable (only set when something's wrong). */
   reason?: string
+  /**
+   * When the picked folder is a *parent* of one or more Story Studio
+   * projects, list the children we found one level deep. The UI
+   * renders these as clickable chips so the user can re-target without
+   * re-opening Finder.
+   */
+  suggestions?: Array<{ path: string; slug: string; name: string }>
 }
 
 /**
@@ -142,10 +149,46 @@ export async function inspectLinkedPath(absPath: string): Promise<LinkedProjectI
   }
   const metaPath = path.join(norm, 'project.json')
   if (!existsSync(metaPath)) {
+    // Common confusion: the user picked the PARENT folder
+    // (e.g. iCloud's "Story Studio KH/projects/") instead of the
+    // per-project folder. Scan one level deep so the UI can suggest
+    // the right child(ren) instead of forcing them back to Finder.
+    const suggestions: Array<{ path: string; slug: string; name: string }> = []
+    try {
+      const entries = await fs.readdir(norm, { withFileTypes: true })
+      for (const e of entries) {
+        if (!e.isDirectory()) continue
+        if (e.name.startsWith('.')) continue        // skip dotfiles + .icloud stubs
+        if (/\.bak-/.test(e.name)) continue          // skip move-leftover backups
+        const child = path.join(norm, e.name)
+        const childMeta = path.join(child, 'project.json')
+        if (!existsSync(childMeta)) continue
+        try {
+          const meta = JSON.parse(await fs.readFile(childMeta, 'utf-8'))
+          const slug = typeof meta.slug === 'string' && meta.slug ? meta.slug : e.name
+          const name = typeof meta.name === 'string' && meta.name ? meta.name : slug
+          suggestions.push({ path: child, slug, name })
+        } catch { /* malformed child project.json — skip silently */ }
+      }
+    } catch { /* couldn't list dir — fall through to plain reason */ }
+
+    if (suggestions.length > 0) {
+      return {
+        path: norm,
+        exists: true,
+        reason: suggestions.length === 1
+          ? `That's a parent folder — the project itself is inside: ${path.basename(suggestions[0]!.path)}`
+          : `That's a parent folder. Found ${suggestions.length} projects inside — pick one below.`,
+        // The UI keys off `suggestions` to render clickable chips that
+        // re-fill the path input with the child folder.
+        suggestions,
+      }
+    }
+
     return {
       path: norm,
       exists: true,
-      reason: 'No project.json found in this folder — pick a Story Studio project root',
+      reason: 'No project.json found in this folder — pick a Story Studio project root (the folder named after your project, containing project.json)',
     }
   }
   try {
