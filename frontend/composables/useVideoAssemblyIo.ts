@@ -55,12 +55,17 @@ export interface VideoAssemblyIoState {
   outro: any
   /** User-supplied timeline clips (multi-position). Passed as a Ref of an
    *  array because the page owns the list (add / remove / reorder) — the
-   *  composable only reads it to build the payload. */
+   *  composable only reads it to build the payload. Discriminated by `kind`
+   *  ('video' = video_path, 'static' = image_path + duration_sec). Old
+   *  presets without `kind` are treated as 'video' on the page side. */
   timelineClips: Ref<Array<{
     id: string
-    video_path: string
     anchor: 'before_intro' | 'after_intro' | 'after_scenes' | 'after_outro'
     enabled: boolean
+    kind?: 'video' | 'static'
+    video_path?: string
+    image_path?: string
+    duration_sec?: number
   }>>
   titleImage: any
   sceneRecycling: any
@@ -239,17 +244,39 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     }
 
     // User-supplied timeline clips. Send only the fields the backend reads,
-    // and only rows that are enabled + have a path — the backend warns and
-    // skips the rest either way, but filtering here keeps the job log tidy
-    // and stops the cost estimator counting disabled rows.
+    // and only rows that are enabled + have a usable source. The backend
+    // accepts a discriminated union: 'video' clips need video_path, 'static'
+    // clips need image_path + duration_sec. Old presets without `kind`
+    // default to 'video' for back-compat.
     const clips = (s.timelineClips.value || [])
-      .filter(c => c.enabled && c.video_path)
-      .map(c => ({
-        id: c.id,
-        video_path: c.video_path,
-        anchor: c.anchor,
-        enabled: true,
-      }))
+      .filter((c) => {
+        if (!c.enabled) return false
+        const kind = c.kind ?? 'video'
+        if (kind === 'static') {
+          return !!c.image_path && Number.isFinite(c.duration_sec) && (c.duration_sec || 0) > 0
+        }
+        return !!c.video_path
+      })
+      .map((c) => {
+        const kind = c.kind ?? 'video'
+        if (kind === 'static') {
+          return {
+            id: c.id,
+            kind: 'static' as const,
+            image_path: c.image_path,
+            duration_sec: c.duration_sec,
+            anchor: c.anchor,
+            enabled: true,
+          }
+        }
+        return {
+          id: c.id,
+          kind: 'video' as const,
+          video_path: c.video_path,
+          anchor: c.anchor,
+          enabled: true,
+        }
+      })
     if (clips.length) payload.timeline_clips = clips
 
     if (s.titleImage.enabled && s.titleImage.image_path) {
