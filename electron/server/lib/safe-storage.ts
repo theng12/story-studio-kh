@@ -17,6 +17,31 @@
  * unchanged — callers must continue to rely on the 0600 file mode for
  * protection. This keeps the test suite working without a mock Electron
  * runtime, and keeps the production path encrypted.
+ *
+ * ── Personal-use opt-out ──────────────────────────────────────────────────
+ * Ad-hoc signed builds (no Apple Developer ID) get a fresh code signature
+ * on every rebuild. macOS treats each rebuild as a *new app* and prompts
+ * for keychain access ("Story Studio KH wants to use your confidential
+ * information stored in your keychain") — the user can't avoid the dialog
+ * because the previous version's grant doesn't transfer.
+ *
+ * For personal-use builds where the threat model is just "my Mac running
+ * my app", the 0600 file mode + the `_provenance` machine-stamp guard
+ * (refuses to load secrets that were stamped on a different machine) are
+ * sufficient. The keychain layer adds protection mostly against off-machine
+ * backup leakage, which doesn't apply when secrets.json never leaves the
+ * machine in the first place (it's per-Mac, never iCloud-synced).
+ *
+ * Default: safeStorage is OFF. Override with `STORY_STUDIO_FORCE_KEYCHAIN=1`
+ * if you have a real Developer ID Application certificate and want the
+ * extra defense-in-depth.
+ *
+ * Existing encrypted secrets.json files: when safeStorage flips off, an
+ * existing ciphertext envelope on disk becomes undecryptable. The
+ * surrounding code already handles this — readSecretsV2 returns an empty
+ * store + the dashboard surfaces the "Secrets were stamped on a different
+ * machine — reset" banner, with a one-click reset that re-enters the
+ * keys at plaintext. So the migration is "click reset, paste keys, done."
  */
 
 import { createRequire } from 'module'
@@ -47,7 +72,22 @@ function getSafeStorage(): ElectronSafeStorage | null {
   return cached
 }
 
+/**
+ * Personal-use opt-out: when this returns false, every safeStorage probe
+ * short-circuits to "unavailable" — no `isEncryptionAvailable()` call is
+ * made on the underlying API, so macOS never receives a keychain query
+ * and never prompts the user. New writes go through the plaintext-with-
+ * 0600 fallback (still provenance-stamped). See file header for rationale.
+ */
+function shouldUseKeychain(): boolean {
+  if (process.env.STORY_STUDIO_FORCE_KEYCHAIN === '1') return true
+  if (process.env.STORY_STUDIO_DISABLE_KEYCHAIN === '1') return false
+  // Default: OFF for personal-use ad-hoc-signed builds.
+  return false
+}
+
 export function isEncryptionAvailable(): boolean {
+  if (!shouldUseKeychain()) return false
   const ss = getSafeStorage()
   if (!ss) return false
   try {
@@ -61,8 +101,13 @@ export function isEncryptionAvailable(): boolean {
  * Encrypt a string using Electron's safeStorage. Returns base64. Throws if
  * encryption is not available — callers that want a plaintext fallback must
  * check `isEncryptionAvailable()` first.
+ *
+ * Honours the personal-use opt-out: when keychain is disabled, throws
+ * without ever calling into safeStorage so macOS doesn't get a
+ * keychain-access request.
  */
 export function encryptToBase64(plaintext: string): string {
+  if (!shouldUseKeychain()) throw new Error('safeStorage disabled (personal-use opt-out)')
   const ss = getSafeStorage()
   if (!ss) throw new Error('safeStorage not available (not running in Electron?)')
   if (!ss.isEncryptionAvailable()) throw new Error('safeStorage reports encryption unavailable')
@@ -72,8 +117,13 @@ export function encryptToBase64(plaintext: string): string {
 /**
  * Decrypt a base64-encoded ciphertext produced by `encryptToBase64`.
  * Throws if safeStorage is unavailable or the ciphertext is corrupt.
+ *
+ * Honours the personal-use opt-out: when keychain is disabled, throws
+ * without ever calling into safeStorage. Existing encrypted files surface
+ * via the "Secrets were stamped on a different machine — reset" banner.
  */
 export function decryptFromBase64(b64: string): string {
+  if (!shouldUseKeychain()) throw new Error('safeStorage disabled (personal-use opt-out)')
   const ss = getSafeStorage()
   if (!ss) throw new Error('safeStorage not available (not running in Electron?)')
   if (!ss.isEncryptionAvailable()) throw new Error('safeStorage reports encryption unavailable')

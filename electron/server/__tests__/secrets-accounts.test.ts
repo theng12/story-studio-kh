@@ -27,7 +27,21 @@ after(async () => { await cleanup() })
 
 beforeEach(async () => {
   const projectsDir = path.join(tempDir, 'projects')
-  await fs.rm(projectsDir, { recursive: true, force: true })
+  // The previous test may have enqueued a job whose persistJob writes
+  // to <slug>/jobs.json asynchronously. If we rm the dir before that
+  // write rounds the rename, the next test's setup races against the
+  // ENOENT. One retry-with-pause is enough — by the time the second rm
+  // runs the queue's dangling write has finished (or crashed silently
+  // on the now-deleted parent, which is fine).
+  for (let i = 0; i < 3; i++) {
+    try {
+      await fs.rm(projectsDir, { recursive: true, force: true })
+      break
+    } catch (e: any) {
+      if (e?.code !== 'ENOTEMPTY' || i === 2) throw e
+      await new Promise(resolve => setTimeout(resolve, 25))
+    }
+  }
   await fs.mkdir(projectsDir, { recursive: true })
 })
 
