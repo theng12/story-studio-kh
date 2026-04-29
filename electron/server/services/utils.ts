@@ -4,7 +4,19 @@
 
 import path from 'path'
 import { createHash } from 'crypto'
-import { PROJECTS_ROOT } from './project-manager.js'
+import { PROJECTS_ROOT, getProjectDir } from './project-manager.js'
+
+/**
+ * Resolve a project's directory regardless of whether it lives in the
+ * default PROJECTS_ROOT or in a linked location (registered via
+ * "Add existing project folder…"). Falls back to the default-location
+ * path when the registry doesn't know the slug yet — that branch only
+ * matters during fresh project creation, when the directory is about
+ * to be created on disk.
+ */
+function projectDirFor(slug: string): string {
+  return getProjectDir(slug) || path.join(PROJECTS_ROOT, slug)
+}
 
 // ── Episode path resolver ───────────────────────────────────────────────────
 
@@ -44,7 +56,8 @@ export interface EpisodePaths {
 export async function resolveEpisodePaths(slug: string, code: string, title: string): Promise<EpisodePaths> {
   const { readFile } = await import('fs/promises')
 
-  const metaRaw = await readFile(path.join(PROJECTS_ROOT, slug, 'project.json'), 'utf-8')
+  const projectDir = projectDirFor(slug)
+  const metaRaw = await readFile(path.join(projectDir, 'project.json'), 'utf-8')
   const meta = JSON.parse(metaRaw)
 
   const prefix = meta.episode_prefix || 'EP'
@@ -58,7 +71,11 @@ export async function resolveEpisodePaths(slug: string, code: string, title: str
 
   let outputRoot = meta.output_root || './episodes'
   if (!path.isAbsolute(outputRoot)) {
-    outputRoot = path.join(PROJECTS_ROOT, slug, outputRoot)
+    // Relative output_root resolves against the project's actual
+    // directory (linked or default) — not unconditionally against
+    // PROJECTS_ROOT — so iCloud-synced projects with output_root:
+    // './episodes' look in the right place.
+    outputRoot = path.join(projectDir, outputRoot)
   }
 
   const episodeRel = folderTemplate
@@ -140,7 +157,7 @@ export async function resolveSubfolderNames(slug: string, code: string): Promise
 
   let subfolder: Record<string, string> = {}
   try {
-    const metaRaw = await readFile(path.join(PROJECTS_ROOT, slug, 'project.json'), 'utf-8')
+    const metaRaw = await readFile(path.join(projectDirFor(slug), 'project.json'), 'utf-8')
     const meta = JSON.parse(metaRaw)
     subfolder = meta.subfolder_names || {}
   } catch { /* use defaults */ }

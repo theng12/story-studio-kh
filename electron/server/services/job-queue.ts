@@ -11,7 +11,7 @@ import { EventEmitter } from 'events'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { ChildProcess } from 'child_process'
 import { v4 as uuidv4 } from 'uuid'
-import { PROJECTS_ROOT } from './project-manager.js'
+import { PROJECTS_ROOT, getProjectDir } from './project-manager.js'
 import { trackGeneration } from './session-tracker.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type { Job, JobStats, JobType } from '../models/types.js'
@@ -223,7 +223,10 @@ const queues: Record<JobType, QueueState> = {
 // ── Persistence ─────────────────────────────────────────────────────────────
 
 function jobsPath(projectSlug: string): string {
-  return path.join(PROJECTS_ROOT, projectSlug, 'jobs.json')
+  // Honour linked-project locations so iCloud-synced projects read +
+  // write their jobs.json in the right place.
+  const dir = getProjectDir(projectSlug) || path.join(PROJECTS_ROOT, projectSlug)
+  return path.join(dir, 'jobs.json')
 }
 
 function safeJob(job: Job): Omit<Job, never> {

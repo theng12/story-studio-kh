@@ -167,7 +167,9 @@ function unescapeShellPath(p: string | undefined): string | undefined {
 async function resolveMergedAudioName(slug: string, code: string): Promise<string> {
   try {
     const metaRaw = await fs.readFile(
-      path.join(pm.PROJECTS_ROOT, slug, 'project.json'), 'utf-8',
+      // Linked-aware project.json read so iCloud projects pick up their
+      // own subfolder_names override.
+      path.join(pm.getProjectDir(slug) || path.join(pm.PROJECTS_ROOT, slug), 'project.json'), 'utf-8',
     )
     const meta = JSON.parse(metaRaw)
     const subfolder = meta.subfolder_names || {}

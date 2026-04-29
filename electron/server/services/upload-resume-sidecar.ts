@@ -24,7 +24,7 @@
 import fsp from 'fs/promises'
 import path from 'path'
 import { existsSync } from 'fs'
-import { PROJECTS_ROOT } from './project-manager.js'
+import { PROJECTS_ROOT, getProjectDir } from './project-manager.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
 import type { UploadPlatform } from './upload-store.js'
 
@@ -49,7 +49,10 @@ export interface UploadResumeSidecar {
 }
 
 function resumeDir(slug: string): string {
-  return path.join(PROJECTS_ROOT, slug, 'uploads-in-progress')
+  // Honour linked-project locations so resume sidecars stick with the
+  // project itself, not a phantom default-location dir.
+  const dir = getProjectDir(slug) || path.join(PROJECTS_ROOT, slug)
+  return path.join(dir, 'uploads-in-progress')
 }
 
 function resumeSidecarPath(slug: string, episodeCode: string, platform: UploadPlatform): string {

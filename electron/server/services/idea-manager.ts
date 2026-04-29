@@ -61,7 +61,12 @@ interface IdeasStore {
 // ── Persistence ─────────────────────────────────────────────────────────────
 
 function ideasPath(slug: string): string {
-  return path.join(PROJECTS_ROOT, slug, 'ideas.json')
+  // Use getProjectDir so linked-project locations (e.g. an iCloud-synced
+  // folder registered via "Add existing project folder…") resolve to the
+  // right ideas.json. Falling back to the default location keeps fresh
+  // project creation working before the dir exists on disk.
+  const dir = pm.getProjectDir(slug) || path.join(PROJECTS_ROOT, slug)
+  return path.join(dir, 'ideas.json')
 }
 
 /**

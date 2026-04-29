@@ -31,7 +31,11 @@ import type { Character } from '../models/types.js'
 const SCHEMA_VERSION = 1 as const
 
 function projectCharactersDir(slug: string): string {
-  return path.join(pm.PROJECTS_ROOT, slug, 'characters')
+  // Honour linked-project locations so iCloud-synced projects find their
+  // characters tree. Default-location fallback covers fresh-project
+  // creation flows.
+  const dir = pm.getProjectDir(slug) || path.join(pm.PROJECTS_ROOT, slug)
+  return path.join(dir, 'characters')
 }
 
 function characterDir(slug: string, characterId: string): string {

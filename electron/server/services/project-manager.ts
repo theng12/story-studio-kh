@@ -334,7 +334,8 @@ async function writeJson(filePath: string, data: any): Promise<void> {
  */
 async function syncManifest(slug: string): Promise<void> {
   try {
-    const projectDir = path.join(PROJECTS_ROOT, slug)
+    // Linked-aware: a moved project's manifest still needs to refresh.
+    const projectDir = getProjectDir(slug) || path.join(PROJECTS_ROOT, slug)
     const metaPath = path.join(projectDir, 'project.json')
     if (!existsSync(metaPath)) return
     const meta: ProjectMeta = await readJson(metaPath)

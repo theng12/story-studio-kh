@@ -125,7 +125,10 @@ export async function saveToLibrary(
   // folder; copy to the library folder so the library entry is
   // self-contained (project deletion shouldn't break the library).
   if (source.references?.images?.length) {
-    const sourceDir = path.join(pm.PROJECTS_ROOT, slug, 'characters', source.id)
+    const sourceDir = path.join(
+      pm.getProjectDir(slug) || path.join(pm.PROJECTS_ROOT, slug),
+      'characters', source.id,
+    )
     for (const filename of source.references.images) {
       try {
         const src = path.join(sourceDir, filename)
@@ -171,7 +174,10 @@ export async function importFromLibrary(
     throw new Error(`Invalid target id '${targetId}' — must be kebab-case`)
   }
 
-  const projectDir = path.join(pm.PROJECTS_ROOT, targetSlug, 'characters', targetId)
+  const projectDir = path.join(
+    pm.getProjectDir(targetSlug) || path.join(pm.PROJECTS_ROOT, targetSlug),
+    'characters', targetId,
+  )
   const projectJson = path.join(projectDir, 'character.json')
   if (existsSync(projectJson) && !opts?.overwrite) {
     const e = new Error(`Character id '${targetId}' already exists in project '${targetSlug}'. Pass overwrite:true to replace.`)

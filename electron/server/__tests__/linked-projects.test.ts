@@ -161,6 +161,125 @@ describe('linked-projects', () => {
     })
   })
 
+  /**
+   * Linked-aware read paths.
+   *
+   * Regression coverage for v1.0.16 — before this batch, services like
+   * idea-manager / character-manager / job-queue / session-tracker /
+   * upload-resume-sidecar / episode-status-cache / asset-status all
+   * hardcoded `path.join(PROJECTS_ROOT, slug, …)` and so silently
+   * returned empty data for linked (e.g. iCloud-synced) projects.
+   * Each test below seeds the data INSIDE the linked folder, links it,
+   * then asserts the corresponding service finds it.
+   */
+  describe('linked-aware service reads', () => {
+    test('idea-manager reads ideas.json from a linked project folder', async () => {
+      const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'idea-host')
+      // Plant ideas.json in the linked folder (the iCloud reality).
+      await fs.writeFile(
+        path.join(linkedDir, 'ideas.json'),
+        JSON.stringify({
+          ideas: [{
+            id: 'idea-1', title: 'Test', logline: 'lg', themes: [],
+            suggested_chapters: 1, suggested_length: 'short', mood: 'calm',
+            status: 'new', episode_code: null, generated_at: '2026-01-01T00:00:00Z',
+            accepted_at: null, batch_id: 'b1', model_used: 'test',
+          }],
+          next_episode_number: 1,
+        }),
+      )
+      await lp.addLinkedProject(linkedDir)
+      const im = await import('../services/idea-manager.js')
+      const ideas = await im.getIdeas('idea-host')
+      assert.equal(ideas.length, 1, 'idea-manager finds the seeded idea in the linked folder')
+      assert.equal(ideas[0]!.title, 'Test')
+    })
+
+    test('idea-manager writes ideas to the linked project folder, not PROJECTS_ROOT', async () => {
+      const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'idea-writer')
+      await lp.addLinkedProject(linkedDir)
+      const im = await import('../services/idea-manager.js')
+      // addIdeas (the real public writer) takes the user-facing shape +
+      // stamps id/status/etc. internally. We just need to know the file
+      // landed in the right place.
+      await im.addIdeas('idea-writer', [{
+        title: 'Written', logline: 'lg', themes: [],
+        suggested_chapters: 1, suggested_length: 'short', mood: 'calm',
+      }], 'test-model')
+      assert.equal(existsSync(path.join(linkedDir, 'ideas.json')), true,
+        'ideas.json should be at the linked location')
+      assert.equal(existsSync(path.join(pm.PROJECTS_ROOT, 'idea-writer', 'ideas.json')), false,
+        'ideas.json must NOT leak into PROJECTS_ROOT for a linked-only project')
+    })
+
+    test('utils.resolveEpisodePaths anchors relative output_root to the linked dir', async () => {
+      // Project has output_root: './episodes' (the v1.0.15 co-located default).
+      // For a linked project, episodes should resolve under the linked folder.
+      const linkedDir = path.join(tmp.dir, 'external', 'ep-host')
+      await fs.mkdir(linkedDir, { recursive: true })
+      await fs.writeFile(
+        path.join(linkedDir, 'project.json'),
+        JSON.stringify({
+          slug: 'ep-host',
+          name: 'Ep Host',
+          episode_prefix: 'EP',
+          episode_digits: 4,
+          season_size: 20,
+          season_prefix: 'Season',
+          folder_template: '{season_prefix} {season_num}/{code} - {title}/',
+          output_root: './episodes',
+        }),
+      )
+      await lp.addLinkedProject(linkedDir)
+      const utils = await import('../services/utils.js')
+      const paths = await utils.resolveEpisodePaths('ep-host', 'EP0001', 'Pilot')
+      assert.equal(paths.output_root, path.join(linkedDir, 'episodes'),
+        'relative output_root must anchor to the linked dir, not PROJECTS_ROOT')
+      assert.ok(paths.episode_dir.startsWith(linkedDir),
+        'episode_dir must live inside the linked folder')
+    })
+
+    test('character-manager points at the linked folder', async () => {
+      const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'char-host')
+      await lp.addLinkedProject(linkedDir)
+      // Seed a character in the linked folder.
+      const charsDir = path.join(linkedDir, 'characters', 'hero')
+      await fs.mkdir(charsDir, { recursive: true })
+      await fs.writeFile(
+        path.join(charsDir, 'character.json'),
+        JSON.stringify({
+          id: 'hero', name: 'Hero', scope: 'project',
+          schema_version: 1, created_at: '2026-01-01T00:00:00Z',
+        }),
+      )
+      const cm = await import('../services/character-manager.js')
+      const char = await cm.getCharacter('char-host', 'hero')
+      assert.ok(char, 'character-manager finds the seeded character')
+      assert.equal(char!.id, 'hero')
+    })
+
+    test('job-queue jobs.json lives next to the linked project', async () => {
+      const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'job-host')
+      await lp.addLinkedProject(linkedDir)
+      // Plant a jobs.json in the linked folder so getJobsForProject reads it.
+      const sampleJob = {
+        id: 'j1', type: 'idea_generation', status: 'completed',
+        project_slug: 'job-host', episode_id: '', episode_code: '',
+        progress: 100, message: 'done', metadata: {},
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
+        cost: 0,
+      }
+      await fs.writeFile(
+        path.join(linkedDir, 'jobs.json'),
+        JSON.stringify({ jobs: [sampleJob] }),
+      )
+      const jq = await import('../services/job-queue.js')
+      const jobs = await jq.getJobs('job-host')
+      assert.equal(jobs.length, 1)
+      assert.equal(jobs[0]!.id, 'j1')
+    })
+  })
+
   describe('moveProjectToFolder', () => {
     test('happy path: copies project, registers linked entry, renames source', async () => {
       const projDir = await seedProject(pm.PROJECTS_ROOT, 'mover-test', [

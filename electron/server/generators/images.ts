@@ -234,7 +234,12 @@ export async function generateImages(job: Job): Promise<void> {
     if (!matched.length) return []
     const out: string[] = []
     for (const c of matched) {
-      const charDir = path.join(pm.PROJECTS_ROOT, project_slug, 'characters', c.id)
+      // Linked-aware: characters live under the resolved project dir,
+      // not unconditionally under PROJECTS_ROOT — otherwise iCloud-synced
+      // projects would silently render scenes without their reference
+      // images attached.
+      const projDir = pm.getProjectDir(project_slug) || path.join(pm.PROJECTS_ROOT, project_slug)
+      const charDir = path.join(projDir, 'characters', c.id)
       for (const filename of (c.references!.images || [])) {
         out.push(path.join(charDir, filename))
       }

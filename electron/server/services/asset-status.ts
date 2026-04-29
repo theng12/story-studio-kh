@@ -429,7 +429,9 @@ export async function getAudioMergeStatus(slug: string, episodeId: string): Prom
   let subfolder: string
   try {
     const metaRaw = await fs.readFile(
-      path.join(pm.PROJECTS_ROOT, slug, 'project.json'), 'utf-8',
+      // Linked-aware: read project.json from the actual project dir,
+      // not the default-location guess.
+      path.join(pm.getProjectDir(slug) || path.join(pm.PROJECTS_ROOT, slug), 'project.json'), 'utf-8',
     )
     const meta = JSON.parse(metaRaw)
     const tmpl = meta.subfolder_names?.merged_audio || DEFAULT_SUBFOLDER_NAMES.merged_audio

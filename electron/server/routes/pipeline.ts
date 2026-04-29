@@ -445,7 +445,13 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
   // filesystem) so this never blocks legitimate work on exotic FSes.
   const estimateInputs = extractEstimateInputs(presetByStep, episode_ids.length)
   const estimatedBytes = estimateRunBatchBytes(steps as EstimateStep[], estimateInputs)
-  const freeBytes = await getFreeBytes(pm.PROJECTS_ROOT)
+  // Check free space on the volume the project's assets actually live
+  // on — for a linked project that's the iCloud / external folder, not
+  // PROJECTS_ROOT. Falls back to PROJECTS_ROOT for projects without a
+  // resolvable output folder yet.
+  const outputRoot = await pm.getProjectOutputRoot(slug)
+  const probePath = outputRoot || pm.PROJECTS_ROOT
+  const freeBytes = await getFreeBytes(probePath)
   if (freeBytes > 0 && freeBytes < estimatedBytes) {
     return res.status(400).json({
       detail: `Not enough free disk space for this batch. Have: ${formatBytes(freeBytes)}, need: ${formatBytes(estimatedBytes)} (estimated for ${episode_ids.length} episode${episode_ids.length === 1 ? '' : 's'} × ${steps.length} step${steps.length === 1 ? '' : 's'}, includes 1.5× safety margin). Free up space and retry.`,

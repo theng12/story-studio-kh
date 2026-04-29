@@ -7,7 +7,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { PROJECTS_ROOT } from './project-manager.js'
+import { PROJECTS_ROOT, getProjectDir } from './project-manager.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 
 interface SessionEntry {
@@ -45,7 +45,10 @@ const currentSessions = new Map<string, SessionEntry>()
 const SESSION_ID = `session-${Date.now()}`
 
 function sessionsPath(slug: string): string {
-  return path.join(PROJECTS_ROOT, slug, 'sessions.json')
+  // Honour linked-project locations so sessions land alongside the
+  // project rather than a phantom default-location dir.
+  const dir = getProjectDir(slug) || path.join(PROJECTS_ROOT, slug)
+  return path.join(dir, 'sessions.json')
 }
 
 async function loadSessions(slug: string): Promise<SessionsStore> {

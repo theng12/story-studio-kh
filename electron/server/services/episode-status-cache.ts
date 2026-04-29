@@ -40,9 +40,12 @@ const MAX_ENTRIES = 1000
 const FLUSH_DEBOUNCE_MS = 5000
 const CACHE_FILENAME = 'episode-status.json'
 
-/** Per-project disk cache file path: ${PROJECTS_ROOT}/${slug}/.cache/episode-status.json */
+/** Per-project disk cache file path: <projectDir>/.cache/episode-status.json */
 function diskCachePath(slug: string): string {
-  return path.join(pm.PROJECTS_ROOT, slug, '.cache', CACHE_FILENAME)
+  // Honour linked-project locations so the cache lives alongside the
+  // project rather than a phantom default-location dir.
+  const dir = pm.getProjectDir(slug) || path.join(pm.PROJECTS_ROOT, slug)
+  return path.join(dir, '.cache', CACHE_FILENAME)
 }
 
 interface DiskCacheFile {
