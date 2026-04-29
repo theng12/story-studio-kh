@@ -399,7 +399,18 @@ const sourceTooltip = computed(() => {
 })
 
 // ── Data loading ────────────────────────────────────────────────────────
+/**
+ * Race guard against route-transition slugs. props.projectSlug arrives
+ * via parent v-bind which can briefly be undefined / "undefined" during
+ * the navigation tick. Bailing here avoids /projects/undefined/voices/*
+ * 404 noise.
+ */
+function hasValidSlug(): boolean {
+  const s = props.projectSlug
+  return !!s && s !== 'undefined'
+}
 async function loadCatalog() {
+  if (!hasValidSlug()) return
   loading.value = true
   loadError.value = ''
   try {
@@ -416,6 +427,7 @@ async function loadCatalog() {
 }
 
 async function loadFavourites() {
+  if (!hasValidSlug()) return
   try {
     const data = await get<{ voice_ids: string[] }>(`/projects/${props.projectSlug}/voices/favourites`)
     favouriteIds.value = Array.isArray(data.voice_ids) ? data.voice_ids : []
@@ -423,6 +435,7 @@ async function loadFavourites() {
 }
 
 async function refreshCatalog() {
+  if (!hasValidSlug()) return
   refreshing.value = true
   loadError.value = ''
   try {

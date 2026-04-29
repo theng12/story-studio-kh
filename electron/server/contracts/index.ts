@@ -21,26 +21,36 @@ import { z } from 'zod'
 // ── Projects ────────────────────────────────────────────────────────────────
 
 export const CreateProjectSchema = z.object({
+  // `name` stays .min(1) — a project literally can't exist without one.
   name: z.string().min(1, 'name is required').max(120),
-  template: z.string().min(1).max(60).optional(),
-  episode_prefix: z.string().min(1).max(10).optional(),
+  // The fields below are all "optional with a sensible default" — frontend
+  // forms either start empty or let the user blank them out, sending '' to
+  // mean "use the default." Pairing .min(1) with .optional() rejects ''
+  // while .optional() alone allows undefined, so empty-string round-trips
+  // hit a 400. Drop .min(1); .max() still bounds the upper end, and the
+  // services that consume these fields apply their own defaults.
+  template: z.string().max(60).optional(),
+  episode_prefix: z.string().max(10).optional(),
   episode_digits: z.number().int().min(1).max(8).optional(),
-  season_prefix: z.string().min(1).max(40).optional(),
+  season_prefix: z.string().max(40).optional(),
   season_size: z.number().int().min(1).max(1000).optional(),
-  output_root: z.string().min(1).optional(),
+  output_root: z.string().optional(),
   portable: z.boolean().optional(),
 }).strict()
 export type CreateProjectBody = z.infer<typeof CreateProjectSchema>
 
 export const UpdateProjectSchema = z.object({
-  name: z.string().min(1).max(120).optional(),
-  episode_prefix: z.string().min(1).max(10).optional(),
+  // Same rationale as CreateProjectSchema — drop .min(1) on the optional
+  // string fields. The Settings → Project form's reactive v-model binds
+  // straight to projectForm.* and a user clearing any of these sends ''.
+  name: z.string().max(120).optional(),
+  episode_prefix: z.string().max(10).optional(),
   episode_digits: z.number().int().min(1).max(8).optional(),
   season_size: z.number().int().min(1).max(1000).optional(),
-  season_prefix: z.string().min(1).max(40).optional(),
-  folder_template: z.string().min(1).optional(),
+  season_prefix: z.string().max(40).optional(),
+  folder_template: z.string().optional(),
   subfolder_names: z.record(z.string(), z.string()).optional(),
-  output_root: z.string().min(1).optional(),
+  output_root: z.string().optional(),
   portable: z.boolean().optional(),
   youtube_channel_url: z.string().optional(),
   // Format primitive (Phase 1): selects the base format profile this project
@@ -49,7 +59,7 @@ export const UpdateProjectSchema = z.object({
   // structurally too rich to model in zod without duplicating the type tree;
   // format-loader.ts validates merge results, and the override editor UI
   // controls the legal field set.
-  format_id: z.string().min(1).max(80).optional(),
+  format_id: z.string().max(80).optional(),
   format_overrides: z.any().optional(),
 }).strict()
 export type UpdateProjectBody = z.infer<typeof UpdateProjectSchema>
@@ -254,7 +264,12 @@ export const GenerateImagesSchema = z.object({
   episode_id: EpisodeId,
   model: z.string().min(1),
   mode: z.enum(['all', 'scenes', 'thumbs']).optional(),
-  aspect_ratio: z.string().min(1).optional(),
+  // Same defensive pattern as elsewhere — '' = "use generator default
+  // (typically 16:9)" rather than a 400. Empty isn't sent today by the
+  // current Image Generator UI but keeping the schema tolerant means
+  // future entry points (CLI / API integrations / other surfaces) can
+  // omit the field cleanly.
+  aspect_ratio: z.string().optional(),
   scene_number: z.number().int().nonnegative().optional(),
   thumb_number: z.number().int().nonnegative().optional(),
   force: z.boolean().optional(),

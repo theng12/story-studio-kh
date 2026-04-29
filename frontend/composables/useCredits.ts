@@ -36,6 +36,13 @@ export function useCredits() {
   const { get } = useApi()
 
   async function fetchHealth(slug: string) {
+    // Race guard: route transitions can call this mid-tick when slug
+    // is briefly undefined or the literal string "undefined" (a
+    // route.params.slug template-literal artifact). Either form would
+    // hit /projects/undefined/health which is always 404. Skip
+    // silently — the next valid tick will take over once the route
+    // settles.
+    if (!slug || slug === 'undefined') return
     isRefreshing.value = true
     try {
       const [healthData, usageData] = await Promise.all([

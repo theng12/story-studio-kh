@@ -17,7 +17,7 @@ import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { getVideoStatus } from '../services/asset-status.js'
 import { BUILT_IN_VIDEO_PROMPTS } from '../models/video-prompts-builtin.js'
-import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-error.js'
 
 export const router = Router()
 
@@ -99,7 +99,7 @@ RETURN ONLY THIS JSON (no markdown):
     const parsed = JSON.parse(text.slice(start, end + 1))
     res.json({ scenes: parsed.scenes || [] })
   } catch (e: any) {
-    res.status(500).json({ detail: `Video prompt generation failed: ${e.message}` })
+    respondWithError(res, e, 'Video prompt generation failed')
   }
 })
 

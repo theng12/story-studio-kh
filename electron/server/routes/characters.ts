@@ -16,6 +16,7 @@
 
 import { Router } from 'express'
 import * as cm from '../services/character-manager.js'
+import { respondWithError } from '../lib/humanize-backend-error.js'
 
 export const router = Router()
 
@@ -24,7 +25,7 @@ router.get('/projects/:slug/characters', async (req, res) => {
     const episodeCode = typeof req.query.episode_code === 'string' ? req.query.episode_code : undefined
     res.json(await cm.listCharacters(req.params.slug, { episodeCode }))
   } catch (e: any) {
-    res.status(500).json({ detail: `Failed to list characters: ${e.message}` })
+    respondWithError(res, e, 'Failed to list characters')
   }
 })
 
@@ -34,7 +35,7 @@ router.get('/projects/:slug/characters/:id', async (req, res) => {
     if (!c) return res.status(404).json({ detail: 'Character not found' })
     res.json(c)
   } catch (e: any) {
-    res.status(500).json({ detail: `Failed to load character: ${e.message}` })
+    respondWithError(res, e, 'Failed to load character')
   }
 })
 
@@ -50,8 +51,13 @@ router.post('/projects/:slug/characters', async (req, res) => {
     const created = await cm.createCharacter(req.params.slug, body)
     res.status(201).json(created)
   } catch (e: any) {
-    const status = (e as any).status || 500
-    res.status(status).json({ detail: e.message })
+    // character-manager throws with .status set on validation/conflict
+    // errors; respondWithError honours .statusCode so we mirror via a
+    // small fallback to keep the existing 4xx mapping for `.status`.
+    if (typeof (e as any)?.status === 'number' && !(e as any)?.statusCode) {
+      ;(e as any).statusCode = (e as any).status
+    }
+    respondWithError(res, e, 'Failed to save character')
   }
 })
 
@@ -61,7 +67,7 @@ router.put('/projects/:slug/characters/:id', async (req, res) => {
     if (!updated) return res.status(404).json({ detail: 'Character not found' })
     res.json(updated)
   } catch (e: any) {
-    res.status(500).json({ detail: e.message })
+    respondWithError(res, e, 'Failed to update character')
   }
 })
 
@@ -71,7 +77,7 @@ router.put('/projects/:slug/characters/:id/promote', async (req, res) => {
     if (!updated) return res.status(404).json({ detail: 'Character not found' })
     res.json(updated)
   } catch (e: any) {
-    res.status(500).json({ detail: e.message })
+    respondWithError(res, e, 'Failed to promote character')
   }
 })
 
@@ -81,7 +87,7 @@ router.delete('/projects/:slug/characters/:id', async (req, res) => {
     if (!ok) return res.status(404).json({ detail: 'Character not found' })
     res.json({ ok: true, id: req.params.id })
   } catch (e: any) {
-    res.status(500).json({ detail: e.message })
+    respondWithError(res, e, 'Failed to delete character')
   }
 })
 

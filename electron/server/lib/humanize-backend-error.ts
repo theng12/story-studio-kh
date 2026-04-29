@@ -21,11 +21,29 @@
  * fallback used to provide.
  */
 
+import type { Response } from 'express'
 import { logLine } from '../services/logger.js'
 
 export interface HumanizedError {
   detail: string
   hint?: string
+}
+
+/**
+ * Convenience: write a humanized error to an Express response, picking
+ * the right status code from `e.statusCode` (set by services that throw
+ * domain-tagged errors) or defaulting to 500. Replaces the boilerplate
+ *
+ *   const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
+ *   res.status(status).json(humanizeBackendError(e, fallback))
+ *
+ * which got copy-pasted a lot. Keeps the error → response mapping in
+ * one place so future tweaks (e.g. adding a request-id, scrubbing
+ * paths) only need one edit.
+ */
+export function respondWithError(res: Response, e: unknown, fallback?: string): void {
+  const status = typeof (e as any)?.statusCode === 'number' ? (e as any).statusCode : 500
+  res.status(status).json(humanizeBackendError(e, fallback))
 }
 
 /**

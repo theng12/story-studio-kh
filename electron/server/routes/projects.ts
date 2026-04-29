@@ -19,7 +19,7 @@ import { buildPatternExtractionPrompt, parseExtractedPatternJson } from '../lib/
 import { buildFormatExtractionPrompt, parseExtractedFormatJson } from '../lib/format-extraction-prompt.js'
 import { callAi } from '../lib/ai-client.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
-import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-error.js'
 import type { ProjectMeta } from '../models/types.js'
 import type { JobType } from '../models/types.js'
 
@@ -45,7 +45,7 @@ router.get('/formats', async (_req, res) => {
     const formats = await listFormats()
     res.json(formats)
   } catch (e: any) {
-    res.status(500).json({ detail: `Failed to list formats: ${e.message}` })
+    respondWithError(res, e, 'Failed to list formats')
   }
 })
 
@@ -55,7 +55,7 @@ router.get('/formats/:id', async (req, res) => {
     if (!fmt) return res.status(404).json({ detail: `Format '${req.params.id}' not found` })
     res.json(fmt)
   } catch (e: any) {
-    res.status(500).json({ detail: `Failed to load format: ${e.message}` })
+    respondWithError(res, e, 'Failed to load format')
   }
 })
 
@@ -64,7 +64,7 @@ router.get('/projects/:slug/effective-format', async (req, res) => {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     res.json(await getEffectiveFormat(req.params.slug))
   } catch (e: any) {
-    res.status(500).json({ detail: `Failed to resolve effective format: ${e.message}` })
+    respondWithError(res, e, 'Failed to resolve effective format')
   }
 })
 
@@ -77,7 +77,7 @@ router.get('/patterns', async (_req, res) => {
   try {
     res.json(await listPatterns())
   } catch (e: any) {
-    res.status(500).json({ detail: `Failed to list patterns: ${e.message}` })
+    respondWithError(res, e, 'Failed to list patterns')
   }
 })
 
@@ -87,7 +87,7 @@ router.get('/patterns/:id', async (req, res) => {
     if (!p) return res.status(404).json({ detail: `Pattern '${req.params.id}' not found` })
     res.json(p)
   } catch (e: any) {
-    res.status(500).json({ detail: `Failed to load pattern: ${e.message}` })
+    respondWithError(res, e, 'Failed to load pattern')
   }
 })
 
@@ -143,7 +143,7 @@ router.put('/patterns/custom/:id', async (req, res) => {
     const saved = await saveUserPattern(candidate, { overwrite: true, allowShadowBuiltin: false })
     res.json({ pattern: saved })
   } catch (e: any) {
-    res.status(500).json({ detail: e?.message || 'Failed to update pattern' })
+    respondWithError(res, e, 'Failed to update pattern')
   }
 })
 
@@ -216,7 +216,7 @@ router.post('/projects/:slug/patterns/from-sample', async (req, res) => {
     }
     res.json({ pattern: parsed })
   } catch (e: any) {
-    res.status(500).json({ detail: `Pattern extraction failed: ${e.message}` })
+    respondWithError(res, e, 'Pattern extraction failed')
   }
 })
 
@@ -266,7 +266,7 @@ router.post('/projects/:slug/formats/from-sample', async (req, res) => {
     const parsed = parseExtractedFormatJson(raw)
     res.json({ format: parsed })
   } catch (e: any) {
-    res.status(500).json({ detail: `Format extraction failed: ${e.message}` })
+    respondWithError(res, e, 'Format extraction failed')
   }
 })
 
@@ -303,7 +303,7 @@ router.post('/formats/custom', async (req, res) => {
     _clearFormatCaches()
     res.json({ format: saveable, savedTo: filePath })
   } catch (e: any) {
-    res.status(500).json({ detail: `Failed to save format: ${e.message}` })
+    respondWithError(res, e, 'Failed to save format')
   }
 })
 
@@ -316,7 +316,7 @@ router.delete('/formats/custom/:id', async (req, res) => {
     _clearFormatCaches()
     res.json({ ok: true, id })
   } catch (e: any) {
-    res.status(500).json({ detail: `Failed to delete: ${e.message}` })
+    respondWithError(res, e, 'Failed to delete')
   }
 })
 

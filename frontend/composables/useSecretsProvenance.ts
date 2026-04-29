@@ -40,7 +40,10 @@ export function useSecretsProvenance() {
 
   async function checkNow() {
     const s = slug.value
-    if (!s) return
+    // Race guard: route transitions can leave slug.value briefly as
+    // undefined or the literal "undefined" string. Skip — the next
+    // valid tick will take over once the route settles.
+    if (!s || s === 'undefined') return
     try {
       const status = await get<ProvenanceStatus>(`/projects/${s}/secrets-status`)
       foreign.value = status.foreign === true

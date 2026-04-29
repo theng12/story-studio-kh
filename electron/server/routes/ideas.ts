@@ -293,7 +293,11 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
 
     res.json(stored)
   } catch (e: any) {
-    res.status(500).json({ detail: `AI generation failed: ${e.message}` })
+    // Honour explicit statusCode (provider 4xx, schema 400, …) so the
+    // frontend can distinguish "bad input" from "provider down" and
+    // route through humanizeBackendError to surface actionable hints.
+    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
+    res.status(status).json(humanizeBackendError(e, 'AI generation failed'))
   }
 })
 

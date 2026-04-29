@@ -416,7 +416,12 @@ No markdown, no commentary, just valid JSON.`
       aspect_ratio,
     })
   } catch (e: any) {
-    res.status(500).json({ detail: `Generation failed: ${e.message}` })
+    // Honour explicit statusCode (400 validation, 402 quota, …) and
+    // surface the raw error via humanizeBackendError so users see
+    // actionable detail (provider quota, missing key, etc.) rather
+    // than a flat "Generation failed: <terse>".
+    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
+    res.status(status).json(humanizeBackendError(e, 'Generation failed'))
   }
 })
 
@@ -518,7 +523,12 @@ router.post('/projects/:slug/generate/metadata/description', async (req, res) =>
     await trackGeneration(slug, 'description')
     res.json({ description: raw.trim() })
   } catch (e: any) {
-    res.status(500).json({ detail: `Generation failed: ${e.message}` })
+    // Honour explicit statusCode (400 validation, 402 quota, …) and
+    // surface the raw error via humanizeBackendError so users see
+    // actionable detail (provider quota, missing key, etc.) rather
+    // than a flat "Generation failed: <terse>".
+    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
+    res.status(status).json(humanizeBackendError(e, 'Generation failed'))
   }
 })
 
@@ -568,7 +578,12 @@ Output exactly ${count || 5} title options, one per line.`
       .slice(0, count || 5)
     res.json({ titles })
   } catch (e: any) {
-    res.status(500).json({ detail: `Generation failed: ${e.message}` })
+    // Honour explicit statusCode (400 validation, 402 quota, …) and
+    // surface the raw error via humanizeBackendError so users see
+    // actionable detail (provider quota, missing key, etc.) rather
+    // than a flat "Generation failed: <terse>".
+    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
+    res.status(status).json(humanizeBackendError(e, 'Generation failed'))
   }
 })
 
@@ -613,7 +628,12 @@ Output exactly ${count || 15} tags, one per line.`
       .slice(0, count || 15)
     res.json({ tags })
   } catch (e: any) {
-    res.status(500).json({ detail: `Generation failed: ${e.message}` })
+    // Honour explicit statusCode (400 validation, 402 quota, …) and
+    // surface the raw error via humanizeBackendError so users see
+    // actionable detail (provider quota, missing key, etc.) rather
+    // than a flat "Generation failed: <terse>".
+    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
+    res.status(status).json(humanizeBackendError(e, 'Generation failed'))
   }
 })
 
@@ -673,7 +693,12 @@ Requirements:
     await trackGeneration(slug, 'description')
     res.json({ titles, description, tags })
   } catch (e: any) {
-    res.status(500).json({ detail: `Generation failed: ${e.message}` })
+    // Honour explicit statusCode (400 validation, 402 quota, …) and
+    // surface the raw error via humanizeBackendError so users see
+    // actionable detail (provider quota, missing key, etc.) rather
+    // than a flat "Generation failed: <terse>".
+    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
+    res.status(status).json(humanizeBackendError(e, 'Generation failed'))
   }
 })
 

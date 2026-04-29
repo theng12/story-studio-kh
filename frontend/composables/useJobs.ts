@@ -125,6 +125,10 @@ function applyUpdate(job: Job, slug: string) {
 
 async function refreshFull(slug: string) {
   // Used after `cleared` events and as the fallback polling body.
+  // Race guard: route transitions can call this mid-tick when slug is
+  // briefly undefined or the literal "undefined" string (template-
+  // literal artifact). Skip — /projects/undefined/jobs is always 404.
+  if (!slug || slug === 'undefined') return
   const { get } = useApi()
   try {
     const data = await get<JobListResponse>(`/projects/${slug}/jobs`)

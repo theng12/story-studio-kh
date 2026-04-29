@@ -40,6 +40,12 @@ export function useProject() {
   const { get } = useApi()
 
   async function loadProject(slug: string) {
+    // Race guard: a route transition can briefly produce slug="undefined"
+    // (the literal string from a template-literal of an undefined value)
+    // or empty. Hitting /projects/undefined/* always 404s and the UI
+    // would show stale-state errors. The next valid call from the
+    // dashboard layout's slug watcher takes over.
+    if (!slug || slug === 'undefined') return
     // Switching projects — drop stale state synchronously so no component
     // renders the old project's data against the new slug.
     if (currentSlug.value && currentSlug.value !== slug) {
