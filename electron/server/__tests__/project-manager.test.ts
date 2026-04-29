@@ -118,17 +118,53 @@ describe('updateProject / deleteProject', () => {
     assert.equal(r, null)
   })
 
-  test('deleteProject removes entire directory', async () => {
+  test('deleteProject soft-deletes (folder stays on disk, hidden from list)', async () => {
+    // v1.0.19: Delete is non-destructive. The folder remains on disk so
+    // the user can recover or manually clean up; listProjects filters it.
+    // Hard delete is a separate explicit step via the soft-deleted-projects
+    // route.
     const p = await pm.createProject({ name: 'ToDelete' })
     const dir = path.join(tempDir, 'projects', p.slug)
     const existsBefore = await fs.stat(dir).then(() => true, () => false)
     assert.ok(existsBefore)
 
-    const ok = await pm.deleteProject(p.slug)
-    assert.equal(ok, true)
+    const result = await pm.deleteProject(p.slug)
+    assert.equal(result.ok, true, 'deleteProject reports ok')
+    assert.equal(result.disposition, 'soft_deleted', 'default-location → soft_deleted')
+    assert.equal(result.orphan_path, dir, 'orphan_path is the original folder')
+    assert.equal(result.name, 'ToDelete', 'name carries through from project.json')
 
+    // Folder is UNTOUCHED — that's the whole point of soft delete.
     const existsAfter = await fs.stat(dir).then(() => true, () => false)
-    assert.equal(existsAfter, false)
+    assert.equal(existsAfter, true, 'folder still on disk after soft delete')
+
+    // listProjects filters the slug out so the user no longer sees it
+    // in the live list.
+    const list = await pm.listProjects()
+    assert.equal(list.some(x => x.slug === p.slug), false, 'soft-deleted slug is hidden from listProjects')
+  })
+
+  test('deleteProject returns ok:false when slug does not exist', async () => {
+    const result = await pm.deleteProject('does-not-exist')
+    assert.equal(result.ok, false)
+  })
+
+  test('createProject with the same name auto-clears a prior soft-delete tombstone', async () => {
+    // The "I made a mistake, let me redo it" path. Create → delete →
+    // create again should succeed and leave the slug visible.
+    const first = await pm.createProject({ name: 'RedoMe' })
+    await pm.deleteProject(first.slug)
+    // listProjects hides it now…
+    const hidden = await pm.listProjects()
+    assert.equal(hidden.some(x => x.slug === first.slug), false)
+
+    // …but creating again with the same name (which produces a unique
+    // slug if the original folder still exists) should work, and the
+    // resulting project should be visible in the list.
+    const second = await pm.createProject({ name: 'RedoMe' })
+    const visible = await pm.listProjects()
+    assert.equal(visible.some(x => x.slug === second.slug), true,
+      'fresh project shows in list')
   })
 })
 

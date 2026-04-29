@@ -30,6 +30,7 @@ import { router as charactersRouter } from './characters.js'
 import { router as characterLibraryRouter } from './character-library.js'
 import { router as assetMigrateRouter } from './asset-migrate.js'
 import { router as linkedProjectsRouter } from './linked-projects.js'
+import { router as softDeletedProjectsRouter } from './soft-deleted-projects.js'
 
 export function mountRoutes(app: Express): void {
   app.use('/api', projectsRouter)
@@ -56,4 +57,5 @@ export function mountRoutes(app: Express): void {
   app.use('/api', characterLibraryRouter)
   app.use('/api', assetMigrateRouter)
   app.use('/api', linkedProjectsRouter)
+  app.use('/api', softDeletedProjectsRouter)
 }

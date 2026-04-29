@@ -223,6 +223,16 @@ export async function addLinkedProject(absPath: string): Promise<LinkedProjectIn
     current.push(info.path)
     await setLinkedProjectPaths(current)
   }
+  // Re-adding a slug that was previously soft-deleted is the user
+  // saying "I want this back" — auto-clear the tombstone. Lazy import
+  // to avoid a circular dep at module-load time (soft-delete imports
+  // PROJECTS_ROOT from project-manager which imports us).
+  if (info.slug) {
+    try {
+      const { forgetSoftDeletedProject } = await import('./soft-delete.js')
+      await forgetSoftDeletedProject(info.slug)
+    } catch { /* non-fatal */ }
+  }
   return info
 }
 

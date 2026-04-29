@@ -484,10 +484,16 @@ router.put('/projects/:slug', validateBody(UpdateProjectSchema), async (req, res
 })
 
 router.delete('/projects/:slug', async (req, res) => {
-  if (!await pm.deleteProject(req.params.slug)) {
+  // NON-DESTRUCTIVE delete: unregister the project but leave every
+  // byte on disk. The response includes the orphan path + project
+  // name so the dialog can say "files are still at <path>" and offer
+  // an Open-in-Finder button. Hard delete is a separate, explicit
+  // step via /soft-deleted-projects/:slug DELETE.
+  const result = await pm.deleteProject(req.params.slug)
+  if (!result.ok) {
     return res.status(404).json({ detail: 'Project not found' })
   }
-  res.json({ ok: true })
+  res.json(result)
 })
 
 // ── Manifest sync (Stage 5) ───────────────────────────────────────────────

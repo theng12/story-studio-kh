@@ -36,12 +36,79 @@
       <div class="flex justify-between items-center mb-2">
         <h2>Your Projects</h2>
         <div class="flex gap-2">
+          <!-- Hidden projects chip — visible only when the user has
+               soft-deleted at least one project. Click → toggles the
+               expandable panel below the chip row. -->
+          <button
+            v-if="softDeleted.items.value.length > 0"
+            class="btn btn-secondary"
+            :title="`${softDeleted.items.value.length} project folder${softDeleted.items.value.length === 1 ? '' : 's'} hidden from this list but still on disk. Click to manage.`"
+            @click="hiddenPanelOpen = !hiddenPanelOpen"
+          >🗑️ Hidden ({{ softDeleted.items.value.length }})</button>
           <button
             class="btn btn-secondary"
             title="Register a project folder that lives outside the default projects folder (e.g. a project synced from another Mac via iCloud Drive). Doesn't copy or move anything; just adds it to the list on this Mac."
             @click="openAddLinked"
           >🔗 Add existing project folder…</button>
           <button class="btn btn-primary" @click="showCreate = true">+ New Project</button>
+        </div>
+      </div>
+
+      <!-- Hidden projects panel — collapsed by default; expanded via
+           the chip. Each row shows the slug, name, path, size, and
+           three actions: open in Finder (non-destructive), restore
+           (re-add to live list), and delete from disk (irreversible,
+           confirmed). Empty disk + missing folder are surfaced as a
+           muted "(folder no longer on disk)" tag so the user can
+           one-click forget the stale tombstone. -->
+      <div v-if="hiddenPanelOpen && softDeleted.items.value.length > 0" class="hidden-projects-panel mb-2">
+        <div class="hidden-projects-header">
+          <span><strong>🗑️ Hidden projects</strong></span>
+          <span class="text-muted" style="font-size: 12px;">
+            Removed from the app but still on disk. Restore to bring back, or permanently delete the folder when you're done with it.
+          </span>
+        </div>
+        <div
+          v-for="row in softDeleted.items.value"
+          :key="row.slug"
+          class="hidden-project-row"
+        >
+          <div class="hidden-project-info">
+            <div><strong>{{ row.name }}</strong> <code style="font-size: 11px;">({{ row.slug }})</code></div>
+            <div class="text-muted" style="font-size: 11px; word-break: break-all;">
+              <code>{{ row.path }}</code>
+            </div>
+            <div class="text-muted" style="font-size: 11px;">
+              <template v-if="row.exists">
+                {{ formatBytes(row.estimated_bytes) }}
+                <template v-if="row.deleted_at"> · hidden {{ formatRelativeTime(row.deleted_at) }}</template>
+              </template>
+              <template v-else>
+                <span style="color: #f59e0b;">⚠ Folder no longer on disk</span>
+                — you can clear this entry by clicking <em>Restore</em> then re-hiding (or just <em>Delete from disk</em> below).
+              </template>
+            </div>
+          </div>
+          <div class="hidden-project-actions">
+            <button
+              v-if="row.exists"
+              class="btn btn-sm btn-secondary"
+              title="Reveal the folder in Finder so you can inspect or move files manually."
+              @click="softDeleted.revealInFinder(row.path)"
+            >📁 Open in Finder</button>
+            <button
+              class="btn btn-sm btn-secondary"
+              title="Bring this project back into the app's live list. Files are untouched."
+              @click="restoreHiddenProject(row.slug)"
+            >↩ Restore</button>
+            <button
+              class="btn btn-sm btn-danger"
+              :title="row.exists
+                ? `Permanently delete the folder + clear this entry. Cannot be undone.`
+                : `Forget this entry — the folder is already gone.`"
+              @click="hardDeleteHiddenProject(row)"
+            >🗑️ Delete from disk</button>
+          </div>
         </div>
       </div>
 
@@ -932,6 +999,11 @@ useHead({ title: 'Story Studio KH' })
 const { get, post, put } = useApi()
 const { success, error: showError } = useToast()
 const linkedProjects = useLinkedProjects()
+const softDeleted = useSoftDeletedProjects()
+// Expanded/collapsed state for the "🗑️ Hidden projects" panel — closed
+// by default so the home page stays clean even when there are leftovers.
+const hiddenPanelOpen = ref(false)
+const { ask } = useConfirm()
 
 const loading = ref(true)
 const projects = ref<any[]>([])
@@ -1561,6 +1633,71 @@ const nextBlockReason = computed(() => {
   return ''
 })
 
+/** Pretty-print a byte count for the hidden-projects panel. */
+function formatBytes(bytes: number): string {
+  if (bytes < 0) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+/** "5 minutes ago" / "yesterday" / "3 days ago" — coarse but clear. */
+function formatRelativeTime(iso: string): string {
+  try {
+    const ms = Date.now() - new Date(iso).getTime()
+    if (!isFinite(ms) || ms < 0) return ''
+    const min = Math.floor(ms / 60000)
+    if (min < 1) return 'just now'
+    if (min < 60) return `${min} minute${min === 1 ? '' : 's'} ago`
+    const h = Math.floor(min / 60)
+    if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`
+    const d = Math.floor(h / 24)
+    if (d === 1) return 'yesterday'
+    if (d < 30) return `${d} days ago`
+    return new Date(iso).toLocaleDateString()
+  } catch { return '' }
+}
+
+/**
+ * Restore a hidden project — re-shows it in the live list. Files were
+ * never deleted so this just flips the visibility flag.
+ */
+async function restoreHiddenProject(slug: string): Promise<void> {
+  const ok = await softDeleted.restore(slug)
+  if (ok) {
+    success(`Restored "${slug}"`)
+    await loadData()
+  } else {
+    showError(softDeleted.lastError.value || 'Failed to restore')
+  }
+}
+
+/**
+ * Hard-delete a hidden project — actually rm-rfs the folder. Two-step
+ * confirmation since this is the only irreversible action in the
+ * whole soft-delete flow.
+ */
+async function hardDeleteHiddenProject(row: { slug: string; path: string; exists: boolean; estimated_bytes: number }): Promise<void> {
+  const sizeStr = row.exists ? formatBytes(row.estimated_bytes) : '0 B (folder already gone)'
+  const ok = await ask({
+    title: `Permanently delete "${row.slug}"?`,
+    message:
+      `This will remove the folder + everything inside it from disk:\n\n${row.path}\n\n` +
+      `Size: ${sizeStr}\n\nThis CANNOT be undone. To keep the files, click Cancel and use "Restore" or "Open in Finder" instead.`,
+    confirmLabel: 'Delete from disk',
+    cancelLabel: 'Cancel',
+    danger: true,
+  })
+  if (!ok) return
+  const done = await softDeleted.hardDelete(row.slug)
+  if (done) {
+    success(`Permanently deleted "${row.slug}"`)
+  } else {
+    showError(softDeleted.lastError.value || 'Failed to delete')
+  }
+}
+
 function formatDate(date: string) {
   return new Date(date).toLocaleDateString()
 }
@@ -1588,6 +1725,7 @@ async function loadData() {
         return [] as any[]
       }),
       linkedProjects.refresh(),  // already swallows its own errors internally
+      softDeleted.refresh(),      // same — populates the 🗑️ Hidden chip
     ])
     projects.value = Array.isArray(p) ? p : []
     templates.value = Array.isArray(t) ? t : []
@@ -2024,6 +2162,51 @@ onMounted(async () => {
   background: rgba(0,0,0,0.06);
   padding: 1px 4px;
   border-radius: 3px;
+}
+
+/* Hidden projects panel — surfaces soft-deleted slugs so the user can
+   restore them, reveal in Finder, or permanently delete. Muted styling
+   so it doesn't compete with the live project list above it. */
+.hidden-projects-panel {
+  border: 1px solid var(--border, rgba(255,255,255,0.1));
+  border-radius: var(--radius-md, 8px);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 12px 16px;
+  display: grid;
+  gap: 8px;
+}
+.hidden-projects-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(255,255,255,0.08);
+  margin-bottom: 4px;
+}
+.hidden-project-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 8px 0;
+  border-bottom: 1px dashed rgba(255,255,255,0.06);
+}
+.hidden-project-row:last-child {
+  border-bottom: none;
+}
+.hidden-project-info {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.hidden-project-info code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.hidden-project-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .project-card-meta {

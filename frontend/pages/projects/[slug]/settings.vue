@@ -1450,9 +1450,17 @@
       </div>
 
       <div class="danger-zone mt-3">
-        <h3>Danger Zone</h3>
-        <p class="text-muted mt-1">Deleting a project removes all settings and job history. Generated files are not deleted.</p>
-        <button class="btn btn-danger mt-2" @click="deleteProject">Delete Project</button>
+        <h3>Hide / Remove Project</h3>
+        <p class="text-muted mt-1">
+          <strong>Non-destructive:</strong> the project is removed from this app's
+          list but every file stays on disk. You'll see a confirmation dialog with
+          the folder path so you can open it in Finder afterward and decide what
+          to keep or delete by hand. Re-importing the same folder via
+          <em>Add existing project folder…</em> brings it right back. The home page
+          shows a 🗑️ <em>Hidden projects</em> chip so you can restore or
+          permanently delete later.
+        </p>
+        <button class="btn btn-danger mt-2" @click="deleteProject">Hide project (keep files)</button>
       </div>
     </div>
 
@@ -3214,21 +3222,44 @@ async function syncFolders() {
 }
 
 async function deleteProject() {
-  // Themed in-app dialog (see ConfirmDialog.vue) — window.confirm would
-  // block the Electron renderer and look out of place in the dark theme.
+  // The delete is non-destructive — files stay on disk. Confirm reflects
+  // that ("hide" not "delete") so the user knows they can recover.
   const ok = await ask({
-    title: `Delete "${project.value?.name}"?`,
-    message: 'This removes the project metadata and all episode data under it. This cannot be undone.',
-    confirmLabel: 'Delete project',
-    danger: true,
+    title: `Hide "${project.value?.name}" from the app?`,
+    message:
+      'Files stay on disk — only the registration is removed. ' +
+      'You can restore the project anytime, or permanently delete it later from the home-page Hidden projects panel.',
+    confirmLabel: 'Hide project',
+    danger: false,
   })
   if (!ok) return
   try {
-    await del(`/projects/${slug.value}`)
-    success('Project deleted')
+    const result = await del<{ ok: boolean; disposition?: string; orphan_path?: string; name?: string }>(
+      `/projects/${slug.value}`,
+    )
+    success(`Hidden "${result?.name || slug.value}" — files kept at ${result?.orphan_path || 'their location'}`)
+    // Surface the orphan path in a follow-up dialog with Open-in-Finder.
+    // The user explicitly asked to be told where the bytes still live so
+    // they can manually clean up later.
+    if (result?.orphan_path) {
+      const reveal = await ask({
+        title: 'Files are still on disk',
+        message: `Your files are still at:\n\n${result.orphan_path}\n\nClick "Open in Finder" to reveal the folder, or "Got it" to dismiss. You can manage hidden projects from the home page anytime.`,
+        confirmLabel: 'Open in Finder',
+        cancelLabel: 'Got it',
+        danger: false,
+      })
+      if (reveal) {
+        try {
+          await post('/system/reveal-folder', { path: result.orphan_path })
+        } catch (e: any) {
+          showError(e?.data?.detail || 'Could not open Finder')
+        }
+      }
+    }
     navigateTo('/')
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to delete')
+    showError(e.data?.detail || 'Failed to hide project')
   }
 }
 </script>

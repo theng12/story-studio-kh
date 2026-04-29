@@ -23,6 +23,7 @@ import type {
 import { buildManifest, writeManifest, writeManifestCache, getMachineLabel } from './manifest.js'
 import { sanitizeProjectSlug } from './slug.js'
 import { getLinkedDirCache, listLinkedProjects } from './linked-projects.js'
+import { getSoftDeletedSlugSet, softDeleteProject, forgetSoftDeletedProject } from './soft-delete.js'
 import { randomUUID } from 'crypto'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -396,6 +397,12 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   const candidates: Candidate[] = []
   const seenSlugs = new Set<string>()
 
+  // Soft-deleted slugs (the user clicked "Delete project" but we kept
+  // the folder on disk). These should not surface in the live list —
+  // the home-page "🗑️ Hidden projects" panel surfaces them separately
+  // via /soft-deleted-projects.
+  const softDeleted = await getSoftDeletedSlugSet()
+
   let defaultEntries: string[] = []
   try {
     defaultEntries = await fs.readdir(PROJECTS_ROOT)
@@ -439,6 +446,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
     // the field is absent (older projects or hand-rolled folders).
     const slug = (typeof meta.slug === 'string' && meta.slug) ? meta.slug : cand.folderName
     if (seenSlugs.has(slug)) return null  // dedupe — default already captured this slug
+    if (softDeleted.has(slug)) return null  // hidden via soft-delete tombstone
     seenSlugs.add(slug)
 
     // Read secrets + legacy-config check in parallel — each is an independent
@@ -504,6 +512,10 @@ export async function getProject(slug: string): Promise<ProjectMeta | null> {
 export async function createProject(req: CreateProjectRequest): Promise<ProjectMeta> {
   const slug = uniqueSlug(slugify(req.name))
   const projectDir = path.join(PROJECTS_ROOT, slug)
+  // If a tombstone exists for this slug, clear it — the user is
+  // explicitly creating a project here; honour that over a stale
+  // "this slug was hidden earlier" memory. Cheap idempotent call.
+  await forgetSoftDeletedProject(slug).catch(() => { /* non-fatal */ })
 
   // ── Resolve + validate output_root ─────────────────────────────────────
   // If the user picked an absolute folder, scope it to {chosenFolder}/{ProjectName}
@@ -616,37 +628,79 @@ export async function updateProject(slug: string, req: UpdateProjectRequest): Pr
   return merged
 }
 
-export async function deleteProject(slug: string): Promise<boolean> {
-  const projectDir = getProjectDir(slug)
-  if (!projectDir || !existsSync(projectDir)) return false
+/**
+ * Result of a non-destructive delete. The dialog uses these fields to
+ * tell the user "your files are still at <path> — open in Finder?".
+ */
+export interface DeleteProjectResult {
+  /** True iff the project actually existed before the call. */
+  ok: boolean
+  /** What we did:
+   *  - 'soft_deleted': default-location project, slug added to the
+   *    soft-delete tombstone list. Folder untouched on disk.
+   *  - 'unlinked':     linked project, removed from the linked-projects
+   *    registry. Folder untouched on disk (it was always external).
+   */
+  disposition?: 'soft_deleted' | 'unlinked'
+  /** Absolute path that's now orphaned on disk — what the dialog
+   *  shows + what the "Open in Finder" button reveals. */
+  orphan_path?: string
+  /** Human name from project.json so the dialog can say
+   *  "TerraNash files are still at …" rather than just the slug. */
+  name?: string
+}
 
-  // Read metadata before we delete it so we know where to find episodes.
+/**
+ * Soft-delete a project: unregister it from the app, leave every byte
+ * on disk. The user gets a banner naming the path; the home-page
+ * "🗑️ Hidden projects" chip surfaces it for restore / open-in-Finder /
+ * explicit hard-delete.
+ *
+ * Linked projects skip the soft-delete tombstone because they were
+ * never in PROJECTS_ROOT to begin with — removing the registry entry
+ * is sufficient to hide them from the list, and re-adding via
+ * "Add existing project folder" brings them straight back.
+ *
+ * Default-location projects can't use the same trick: their folder is
+ * still in PROJECTS_ROOT and would be picked up by the next listProjects
+ * scan. So we record the slug in soft_deleted_slugs and listProjects
+ * filters by that set.
+ */
+export async function deleteProject(slug: string): Promise<DeleteProjectResult> {
+  const projectDir = getProjectDir(slug)
+  if (!projectDir || !existsSync(projectDir)) return { ok: false }
+
+  // Best-effort read of project.json so the post-delete dialog can
+  // show the human name. Missing/corrupt project.json is non-fatal —
+  // the dialog falls back to the slug.
   let meta: ProjectMeta | null = null
   try {
     const raw = await readJson(path.join(projectDir, 'project.json'))
     meta = raw as ProjectMeta
-  } catch { /* fall through — we'll still delete the metadata dir */ }
+  } catch { /* fall through */ }
 
-  await fs.rm(projectDir, { recursive: true })
+  const inDefaultLocation = path.resolve(projectDir).startsWith(path.resolve(PROJECTS_ROOT) + path.sep)
 
-  // If the project used an absolute output_root (user picked a custom folder
-  // via the wizard), its episodes live outside PROJECTS_ROOT and need their
-  // own cleanup. We only delete when the folder basename matches the
-  // project name — that's the scope we own (createProject auto-appends the
-  // project name to the chosen folder). Never touch anything shallower.
-  try {
-    if (meta && meta.output_root && path.isAbsolute(meta.output_root)) {
-      const expectedName = meta.name
-      const tail = path.basename(meta.output_root)
-      if (expectedName && tail === expectedName && existsSync(meta.output_root)) {
-        await fs.rm(meta.output_root, { recursive: true })
-      }
+  if (inDefaultLocation) {
+    await softDeleteProject(slug)
+    return {
+      ok: true,
+      disposition: 'soft_deleted',
+      orphan_path: projectDir,
+      name: meta?.name || slug,
     }
-  } catch (e) {
-    // Non-fatal: metadata is gone, user can clean assets manually if needed.
-    console.warn(`[projects] deleteProject: failed to remove output_root for ${slug}:`, e)
   }
-  return true
+
+  // Linked project: just unregister from the linked-projects list. The
+  // folder is external (e.g. iCloud), so we never touch it.
+  const { removeLinkedProject } = await import('./linked-projects.js')
+  await removeLinkedProject(projectDir)
+  return {
+    ok: true,
+    disposition: 'unlinked',
+    orphan_path: projectDir,
+    name: meta?.name || slug,
+  }
 }
 
 // ── Config ──────────────────────────────────────────────────────────────────
