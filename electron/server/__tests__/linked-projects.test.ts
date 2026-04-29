@@ -261,13 +261,20 @@ describe('linked-projects', () => {
     test('job-queue jobs.json lives next to the linked project', async () => {
       const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'job-host')
       await lp.addLinkedProject(linkedDir)
-      // Plant a jobs.json in the linked folder so getJobsForProject reads it.
+      // Plant a jobs.json in the linked folder so getJobs reads it.
       const sampleJob = {
-        id: 'j1', type: 'idea_generation', status: 'completed',
-        project_slug: 'job-host', episode_id: '', episode_code: '',
-        progress: 100, message: 'done', metadata: {},
-        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
-        cost: 0,
+        job_id: 'j1',
+        type: 'idea_generation',
+        status: 'done',
+        project_slug: 'job-host',
+        episode_id: '',
+        title: 'sample',
+        created_at: '2026-01-01T00:00:00Z',
+        started_at: '2026-01-01T00:00:00Z',
+        finished_at: '2026-01-01T00:00:00Z',
+        error: null,
+        output_lines: [],
+        params: {},
       }
       await fs.writeFile(
         path.join(linkedDir, 'jobs.json'),
@@ -276,7 +283,7 @@ describe('linked-projects', () => {
       const jq = await import('../services/job-queue.js')
       const jobs = await jq.getJobs('job-host')
       assert.equal(jobs.length, 1)
-      assert.equal(jobs[0]!.id, 'j1')
+      assert.equal(jobs[0]!.job_id, 'j1')
     })
   })
 
