@@ -1571,13 +1571,31 @@ async function loadData() {
     // Load projects + templates + linked-projects registry in parallel.
     // The linked list powers the 🔗 Linked location chip and is per-Mac
     // (lives in app-settings.json on the backend; never synced).
+    //
+    // Each promise has its own catch so one slow / failed endpoint
+    // doesn't blank out the whole list. /projects is the most important —
+    // if even that fails, we surface a toast + leave projects empty so
+    // the onboarding state renders (Welcome card with the buttons), not
+    // a forever-spinning blank screen.
     const [p, t] = await Promise.all([
-      get<any[]>('/projects'),
-      get<any[]>('/projects/templates'),
-      linkedProjects.refresh(),
+      get<any[]>('/projects').catch((e: any) => {
+        console.error('[index] /projects failed:', e)
+        showError(`Couldn't load projects — ${e?.data?.detail || e?.message || 'backend offline?'}`)
+        return [] as any[]
+      }),
+      get<any[]>('/projects/templates').catch((e: any) => {
+        console.error('[index] /projects/templates failed:', e)
+        return [] as any[]
+      }),
+      linkedProjects.refresh(),  // already swallows its own errors internally
     ])
-    projects.value = p
-    templates.value = t
+    projects.value = Array.isArray(p) ? p : []
+    templates.value = Array.isArray(t) ? t : []
+  } catch (e: any) {
+    // Catch-all for anything Promise.all couldn't tame (e.g. composable
+    // throwing during refresh). Logging-only — UI falls back to the
+    // empty-projects onboarding state.
+    console.error('[index] loadData unexpected failure:', e)
   } finally {
     loading.value = false
   }
@@ -1840,12 +1858,20 @@ onMounted(async () => {
   const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent.toLowerCase() : ''
   isMac.value = ua.includes('mac')
   isLinux.value = ua.includes('linux') && !ua.includes('android')
-  // Try restore first — if it succeeds we're navigating away, no point
-  // populating the project list. Leaving `loading` true avoids a flash of
-  // the home UI before the route swap.
-  const restored = await maybeRestoreLastSession()
-  if (restored) return
+  // Auto-restore is OFF by default — open the app, land on All Projects.
+  // The unclean-shutdown banner in dashboard.vue still surfaces "you
+  // crashed mid-render" so accidental shutdowns don't lose context, but
+  // a normal launch goes home. The "resume" mechanism is preserved for
+  // future opt-in via a "Resume where you left off →" chip on the home
+  // page (TODO) — leaving `maybeRestoreLastSession` defined so that work
+  // can call it without rebuilding the plumbing.
   loadData()
+  // Also write the sessionStorage gate so later home-page mounts in this
+  // window don't accidentally re-trigger the restore flow if it gets
+  // re-enabled later in the same session.
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.setItem(RESTORE_ATTEMPTED_KEY, '1')
+  }
 })
 </script>
 
