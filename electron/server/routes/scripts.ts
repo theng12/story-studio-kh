@@ -539,9 +539,25 @@ router.post('/projects/:slug/generate/metadata/seo-titles', async (req, res) => 
   const config = await pm.getConfig(slug)
   if (!config) return res.status(404).json({ detail: 'Config not found' })
 
-  const { episode_id, title, model, count, max_length, platform_preset, include_script_context } = req.body
+  const {
+    episode_id, title, model, count, max_length, platform_preset, include_script_context,
+    title_mode, title_suffix, manual_title,
+  } = req.body
   const credErr = checkProvider(model, config)
   if (credErr) return res.status(400).json({ detail: credErr })
+
+  // Fixed-title modes — no LLM call. Returns one title (count is ignored
+  // because the user chose the wording explicitly; nothing to compare).
+  if (title_mode === 'use_idea_title' || title_mode === 'manual') {
+    const base = title_mode === 'manual'
+      ? String(manual_title || '').trim()
+      : String(title || '').trim()
+    if (!base) {
+      return res.status(400).json({ detail: title_mode === 'manual' ? 'manual_title is required' : 'idea title is empty' })
+    }
+    const finalTitle = base + (title_suffix ? String(title_suffix) : '')
+    return res.json({ titles: [finalTitle] })
+  }
 
   const storyContext = include_script_context !== false
     ? await readStoryContext(slug, episode_id, title, 1500)
@@ -647,10 +663,22 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
   const {
     episode_id, title, model, sections, max_chars,
     title_count, title_max_length, title_platform_preset,
+    title_mode, title_suffix, manual_title,
     tag_count,
   } = req.body
   const credErr = checkProvider(model, config)
   if (credErr) return res.status(400).json({ detail: credErr })
+
+  // Validate fixed-title modes up-front so we don't half-do the batch
+  // (description + tags) and then 400 on a missing manual title.
+  if ((title_mode === 'use_idea_title' || title_mode === 'manual')) {
+    const base = title_mode === 'manual'
+      ? String(manual_title || '').trim()
+      : String(title || '').trim()
+    if (!base) {
+      return res.status(400).json({ detail: title_mode === 'manual' ? 'manual_title is required' : 'idea title is empty' })
+    }
+  }
 
   const storyContext = await readStoryContext(slug, episode_id, title)
 
@@ -660,12 +688,22 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
     const descRaw = await callAi(model, '', descPrompt, aiCreds(config), false, { slug })
     const description = descRaw.trim()
 
-    // Titles
-    const platformNote = title_platform_preset && title_platform_preset !== 'custom'
-      ? `Optimized for ${title_platform_preset} (max ${title_max_length} characters).`
-      : `Maximum ${title_max_length} characters per title.`
+    // Resolved once — used by both the LLM title path AND the tags
+    // prompt below. Cheap (project.json read + format-defaults merge).
     const format = await getEffectiveFormat(slug)
-    const titlePrompt = `Generate ${title_count || 5} SEO-optimized video title options ${format.metadata.purposeNote}.
+
+    // Titles — fixed modes return a single title without an LLM call.
+    let titles: string[]
+    if (title_mode === 'use_idea_title' || title_mode === 'manual') {
+      const base = title_mode === 'manual'
+        ? String(manual_title || '').trim()
+        : String(title || '').trim()
+      titles = [base + (title_suffix ? String(title_suffix) : '')]
+    } else {
+      const platformNote = title_platform_preset && title_platform_preset !== 'custom'
+        ? `Optimized for ${title_platform_preset} (max ${title_max_length} characters).`
+        : `Maximum ${title_max_length} characters per title.`
+      const titlePrompt = `Generate ${title_count || 5} SEO-optimized video title options ${format.metadata.purposeNote}.
 Episode: ${episode_id} — ${title}
 Story context:
 ${storyContext.slice(0, 1500)}
@@ -674,8 +712,9 @@ Requirements:
 - ${platformNote}
 - Tone: ${format.metadata.titleStyleHint}.
 - One per line. No numbering, quotes, or commentary.`
-    const titleRaw = await callAi(model, '', titlePrompt, aiCreds(config), false, { slug })
-    const titles = titleRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, title_count || 5)
+      const titleRaw = await callAi(model, '', titlePrompt, aiCreds(config), false, { slug })
+      titles = titleRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, title_count || 5)
+    }
 
     // Tags
     const tagPrompt = `Generate ${tag_count || 15} YouTube tags ${format.metadata.tagsContext}.

@@ -48,10 +48,57 @@
         <p class="text-muted" style="font-size:12px">Generate title options optimized for multiple platforms</p>
       </div>
 
-      <div class="grid-3 mt-1">
+      <!-- Title mode picker — drives whether we paraphrase via LLM,
+           use the episode's idea title verbatim, or the user's typed
+           string. Fixed modes (idea / manual) skip the LLM entirely
+           and produce one title; the count + platform-preset rows are
+           dimmed for those modes since they don't apply. -->
+      <div class="form-group mt-1">
+        <label>Title mode</label>
+        <div class="title-mode-row">
+          <label class="title-mode-option">
+            <input type="radio" value="paraphrase" v-model="titleConfig.mode" />
+            <span><strong>AI paraphrase</strong> — rewrite the title for SEO (current default).</span>
+          </label>
+          <label class="title-mode-option">
+            <input type="radio" value="use_idea_title" v-model="titleConfig.mode" />
+            <span><strong>Use idea title</strong> — copy the episode's title verbatim, with optional suffix.</span>
+          </label>
+          <label class="title-mode-option">
+            <input type="radio" value="manual" v-model="titleConfig.mode" />
+            <span><strong>Manual title</strong> — type your own, with optional suffix.</span>
+          </label>
+        </div>
+      </div>
+
+      <div v-if="titleConfig.mode === 'manual'" class="form-group mt-1">
+        <label>Manual title</label>
+        <input
+          v-model="titleConfig.manualTitle"
+          type="text"
+          class="input"
+          placeholder="e.g. The Tea Blender in the Morning Mist"
+        />
+      </div>
+
+      <div v-if="titleConfig.mode !== 'paraphrase'" class="form-group mt-1">
+        <label>Suffix <span class="text-muted">(optional, appended to the end)</span></label>
+        <input
+          v-model="titleConfig.suffix"
+          type="text"
+          class="input"
+          placeholder="e.g. — A Cozy Sleep Story"
+        />
+        <p class="text-muted" style="font-size:11px; margin-top:4px;">
+          Preview:
+          <code>{{ titlePreviewText }}</code>
+        </p>
+      </div>
+
+      <div class="grid-3 mt-1" :class="{ 'controls-dimmed': titleConfig.mode !== 'paraphrase' }">
         <div class="form-group">
           <label>Platform preset</label>
-          <select v-model="titleConfig.preset" @change="onTitlePresetChange" class="select">
+          <select v-model="titleConfig.preset" @change="onTitlePresetChange" class="select" :disabled="titleConfig.mode !== 'paraphrase'">
             <option value="Universal">Universal (100 — fits all)</option>
             <option value="YouTube">YouTube (100)</option>
             <option value="TikTok">TikTok (100)</option>
@@ -65,12 +112,24 @@
         </div>
         <div class="form-group">
           <label>Number of options</label>
-          <input v-model.number="titleConfig.count" type="number" min="1" max="20" class="input" />
+          <input
+            v-model.number="titleConfig.count"
+            type="number"
+            min="1"
+            max="20"
+            class="input"
+            :disabled="titleConfig.mode !== 'paraphrase'"
+            :title="titleConfig.mode !== 'paraphrase' ? 'Fixed-title modes always produce one title.' : ''"
+          />
         </div>
       </div>
 
-      <label class="checkbox-label mt-1">
-        <input type="checkbox" v-model="titleConfig.includeScriptContext" />
+      <label class="checkbox-label mt-1" :class="{ 'controls-dimmed': titleConfig.mode !== 'paraphrase' }">
+        <input
+          type="checkbox"
+          v-model="titleConfig.includeScriptContext"
+          :disabled="titleConfig.mode !== 'paraphrase'"
+        />
         Include script context for grounding
       </label>
 
@@ -437,6 +496,17 @@ const titleConfig = reactive({
   maxLength: 100,
   count: 5,
   includeScriptContext: true,
+  /**
+   * 'paraphrase' (default) — current LLM-rewrite behaviour.
+   * 'use_idea_title' — copy the episode's idea title verbatim.
+   * 'manual'         — use `manualTitle` verbatim.
+   * For both fixed modes, `suffix` is optionally appended ("a Cozy Sleep
+   * Story", " | Sleep Stories"). Fixed modes always emit one title; the
+   * count slider applies only to paraphrase.
+   */
+  mode: 'paraphrase' as 'paraphrase' | 'use_idea_title' | 'manual',
+  suffix: '',
+  manualTitle: '',
 })
 const descConfig = reactive({ maxChars: 5000 })
 const tagConfig = reactive({ count: 15 })
@@ -592,10 +662,40 @@ const sections = ref<Section[]>(JSON.parse(JSON.stringify(defaultSections)))
 // composable every other generator page uses. One-time migration below
 // converts pre-existing youtube_templates into the unified preset store
 // so the user never loses their saved layouts.
-const metadataPresets = usePresets<{ sections: Section[] }>({
+interface MetadataPresetSnapshot {
+  sections: Section[]
+  /**
+   * Title-generation config. Persisted alongside sections so picking a
+   * preset restores BOTH the description layout AND the title strategy
+   * (eg "Use idea title + cozy-sleep suffix"). Optional in the snapshot
+   * shape so older presets without this field still apply cleanly.
+   */
+  titleConfig?: {
+    preset?: string
+    maxLength?: number
+    count?: number
+    includeScriptContext?: boolean
+    mode?: 'paraphrase' | 'use_idea_title' | 'manual'
+    suffix?: string
+    manualTitle?: string
+  }
+}
+
+const metadataPresets = usePresets<MetadataPresetSnapshot>({
   slug: slug.value,
   configKey: 'metadata',
-  snapshot: () => ({ sections: JSON.parse(JSON.stringify(sections.value)) }),
+  snapshot: () => ({
+    sections: JSON.parse(JSON.stringify(sections.value)),
+    titleConfig: {
+      preset: titleConfig.preset,
+      maxLength: titleConfig.maxLength,
+      count: titleConfig.count,
+      includeScriptContext: titleConfig.includeScriptContext,
+      mode: titleConfig.mode,
+      suffix: titleConfig.suffix,
+      manualTitle: titleConfig.manualTitle,
+    },
+  }),
   apply: (data) => {
     if (!data?.sections) return
     // Run the schema migration before assigning. This handles any preset
@@ -605,6 +705,20 @@ const metadataPresets = usePresets<{ sections: Section[] }>({
     // info toast fires once per migrated preset (keyed in localStorage).
     const { migrated, didMigrate } = migrateSections(JSON.parse(JSON.stringify(data.sections)))
     sections.value = migrated
+    // Apply titleConfig if the preset has it (older presets won't —
+    // leave the user's current settings alone in that case).
+    const tc = data.titleConfig
+    if (tc) {
+      if (tc.preset !== undefined) titleConfig.preset = tc.preset
+      if (typeof tc.maxLength === 'number') titleConfig.maxLength = tc.maxLength
+      if (typeof tc.count === 'number') titleConfig.count = tc.count
+      if (typeof tc.includeScriptContext === 'boolean') titleConfig.includeScriptContext = tc.includeScriptContext
+      if (tc.mode === 'paraphrase' || tc.mode === 'use_idea_title' || tc.mode === 'manual') {
+        titleConfig.mode = tc.mode
+      }
+      if (typeof tc.suffix === 'string') titleConfig.suffix = tc.suffix
+      if (typeof tc.manualTitle === 'string') titleConfig.manualTitle = tc.manualTitle
+    }
     if (didMigrate) {
       const presetId = metadataPresets.activeId.value || 'unknown'
       const flagKey = `metadata-migration-toast-shown:${slug.value}:${presetId}`
@@ -620,6 +734,22 @@ const metadataPresets = usePresets<{ sections: Section[] }>({
 })
 
 // ── Computed ───────────────────────────────────────────────────────────────
+
+// Live preview of the final title for fixed modes — what the generator
+// will return (idea or manual title + optional suffix). Helps the user
+// verify the suffix lands where they expect before they click Generate.
+const titlePreviewText = computed(() => {
+  if (titleConfig.mode === 'paraphrase') return ''
+  const base = titleConfig.mode === 'manual'
+    ? (titleConfig.manualTitle || '').trim()
+    : (selectedEpisode.value?.title || '').trim()
+  if (!base) {
+    return titleConfig.mode === 'manual'
+      ? '(type your title above)'
+      : '(no episode selected)'
+  }
+  return base + (titleConfig.suffix || '')
+})
 
 const tagsAsString = computed({
   get: () => preview.tags.join(', '),
@@ -756,6 +886,9 @@ async function generateTitles() {
       max_length: titleConfig.maxLength,
       platform_preset: titleConfig.preset,
       include_script_context: titleConfig.includeScriptContext,
+      title_mode: titleConfig.mode,
+      title_suffix: titleConfig.suffix,
+      manual_title: titleConfig.manualTitle,
     })
     titleOptions.value = data.titles
     if (!preview.title && data.titles[0]) preview.title = data.titles[0]
@@ -828,6 +961,9 @@ async function generateAll() {
         title_count: titleConfig.count,
         title_max_length: titleConfig.maxLength,
         title_platform_preset: titleConfig.preset,
+        title_mode: titleConfig.mode,
+        title_suffix: titleConfig.suffix,
+        manual_title: titleConfig.manualTitle,
         tag_count: tagConfig.count,
       }
     )
@@ -999,6 +1135,32 @@ onMounted(async () => {
 .shared-settings-label { display: flex; flex-direction: column; gap: 2px; font-size: 13px; font-weight: 600; color: var(--text-secondary); min-width: 110px; }
 
 .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+
+/* Title-mode picker (radio rows + dimmed downstream controls) */
+.title-mode-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.title-mode-option {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 0;
+}
+.title-mode-option input[type="radio"] {
+  margin-top: 3px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.controls-dimmed {
+  opacity: 0.55;
+  pointer-events: none;
+}
 
 /* Title options */
 .title-options { display: flex; flex-direction: column; gap: 6px; }

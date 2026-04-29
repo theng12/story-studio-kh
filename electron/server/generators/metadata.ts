@@ -34,6 +34,17 @@ interface MetadataParams {
   title_count?: number
   title_max_length?: number
   title_platform_preset?: string
+  /**
+   * 'paraphrase' (default — current behaviour, LLM rewrites the title)
+   * 'use_idea_title' — copy the episode's idea title verbatim, optionally
+   *   appending `title_suffix` (eg ' | A Cozy Sleep Story')
+   * 'manual' — use `manual_title` verbatim, optionally with `title_suffix`
+   *
+   * Fixed modes skip the LLM call and emit exactly one title (no count).
+   */
+  title_mode?: 'paraphrase' | 'use_idea_title' | 'manual'
+  title_suffix?: string
+  manual_title?: string
   tag_count?: number
 }
 
@@ -143,11 +154,28 @@ export async function generateMetadata(job: Job): Promise<void> {
     job.output_lines.push(`  → ${description.length} chars`)
 
     // ── 2. Titles ───────────────────────────────────────────────────────
-    job.output_lines.push(`Generating ${title_count} title option(s)…`)
-    const platformNote = title_platform_preset && title_platform_preset !== 'custom'
-      ? `Optimized for ${title_platform_preset} (max ${title_max_length} characters).`
-      : `Maximum ${title_max_length} characters per title.`
-    const titlePrompt = `Generate ${title_count} SEO-optimized video title options for a sleep story episode.
+    // Fixed-title modes skip the LLM call and emit a single title.
+    const title_mode = req.title_mode || 'paraphrase'
+    const title_suffix = typeof req.title_suffix === 'string' ? req.title_suffix : ''
+    const manual_title = typeof req.manual_title === 'string' ? req.manual_title.trim() : ''
+
+    let titles: string[]
+    if (title_mode === 'use_idea_title' || title_mode === 'manual') {
+      const base = title_mode === 'manual' ? manual_title : (title || '').trim()
+      if (!base) {
+        throw Object.assign(
+          new Error(title_mode === 'manual' ? 'manual_title is required' : 'idea title is empty'),
+          { statusCode: 400 },
+        )
+      }
+      titles = [base + title_suffix]
+      job.output_lines.push(`Using ${title_mode === 'manual' ? 'manual' : 'idea'} title: "${titles[0]}"`)
+    } else {
+      job.output_lines.push(`Generating ${title_count} title option(s)…`)
+      const platformNote = title_platform_preset && title_platform_preset !== 'custom'
+        ? `Optimized for ${title_platform_preset} (max ${title_max_length} characters).`
+        : `Maximum ${title_max_length} characters per title.`
+      const titlePrompt = `Generate ${title_count} SEO-optimized video title options for a sleep story episode.
 Episode: ${episode_id} — ${title}
 Story context:
 ${storyContext.slice(0, 1500)}
@@ -156,13 +184,14 @@ Requirements:
 - ${platformNote}
 - Hook-y, curiosity-driven, calm/dreamlike tone.
 - One per line. No numbering, quotes, or commentary.`
-    const titleRaw = await callAi(model, '', titlePrompt, aiCreds(config), false,
-      { slug: project_slug, jobId: job.job_id, signal: controller.signal })
-    const titles = titleRaw.split('\n')
-      .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim())
-      .filter(Boolean)
-      .slice(0, title_count)
-    job.output_lines.push(`  → ${titles.length} title(s); picking first: "${titles[0] || '(none)'}" (others saved as alternatives)`)
+      const titleRaw = await callAi(model, '', titlePrompt, aiCreds(config), false,
+        { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+      titles = titleRaw.split('\n')
+        .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim())
+        .filter(Boolean)
+        .slice(0, title_count)
+      job.output_lines.push(`  → ${titles.length} title(s); picking first: "${titles[0] || '(none)'}" (others saved as alternatives)`)
+    }
 
     // ── 3. Tags ─────────────────────────────────────────────────────────
     job.output_lines.push(`Generating ${tag_count} tag(s)…`)
