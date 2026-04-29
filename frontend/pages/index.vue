@@ -6,15 +6,16 @@
         <h1>Story Studio KH</h1>
         <p class="text-muted">Create, generate, and produce story episodes</p>
       </div>
-      <NuxtLink
-        to="/app-settings"
+      <button
+        type="button"
         class="home-settings-btn"
         title="App-wide settings — API keys, notifications, FFmpeg"
         aria-label="Open App Settings"
+        @click="appSettingsModal.open()"
       >
         <span class="home-settings-icon" aria-hidden="true">⚙</span>
         <span class="home-settings-label">App Settings</span>
-      </NuxtLink>
+      </button>
     </header>
 
     <!-- Onboarding (no projects) -->
@@ -1034,6 +1035,7 @@ const softDeleted = useSoftDeletedProjects()
 // by default so the home page stays clean even when there are leftovers.
 const hiddenPanelOpen = ref(false)
 const { ask } = useConfirm()
+const appSettingsModal = useAppSettingsModal()
 
 const loading = ref(true)
 const projects = ref<any[]>([])

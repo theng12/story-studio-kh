@@ -94,9 +94,14 @@
         <NuxtLink :to="`/projects/${slug}/settings`" class="nav-item" active-class="active">
           <span class="nav-icon">&#9881;</span> Settings
         </NuxtLink>
-        <NuxtLink to="/app-settings" class="nav-item" active-class="active" title="App-wide settings — API keys live here, shared across every project on this Mac.">
+        <button
+          type="button"
+          class="nav-item nav-item-button"
+          title="App-wide settings — API keys live here, shared across every project on this Mac."
+          @click="appSettingsModal.open()"
+        >
           <span class="nav-icon">&#128273;</span> App Settings
-        </NuxtLink>
+        </button>
         <NuxtLink to="/character-library" class="nav-item" active-class="active" title="App-level character library shared across all projects on this machine. Save characters here to reuse across channels.">
           <span class="nav-icon">&#127991;</span> Character Library
         </NuxtLink>
@@ -281,6 +286,7 @@ const {
 // now, so the "credentials came from a different machine" condition can't
 // arise. (See app-secrets-store.ts.)
 const assetMigration = useAssetMigration()
+const appSettingsModal = useAppSettingsModal()
 
 /**
  * Compact byte formatter for the recovery banner copy. Mirrors the
@@ -468,6 +474,16 @@ async function copyVersion() {
 }
 .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 .nav-item.active { background: var(--accent-dim); color: var(--accent); }
+/* App Settings is a button, not a link — strip native button chrome so it
+   visually matches the surrounding NuxtLink rows. */
+.nav-item-button {
+  background: transparent;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
 .nav-icon { width: 16px; text-align: center; font-size: 13px; }
 
 .nav-divider-label,

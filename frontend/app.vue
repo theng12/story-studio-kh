@@ -7,6 +7,7 @@
     <ToastContainer />
     <CostConfirmationDialog />
     <ConfirmDialog />
+    <AppSettingsModal />
   </template>
 </template>
 
