@@ -209,7 +209,11 @@ export const GenerateScriptOnlySchema = z.object({
   // composes on top of the project's Format. {pattern_subject} is the
   // {X} value the pattern's titleTemplate substitutes ('London' for
   // 'The entire history of London explained').
-  pattern_id: z.string().min(1).max(120).optional(),
+  // Empty string = "no pattern (use format defaults)" — the dropdown's
+  // first option. Treat it the same as omitting the field entirely; the
+  // generator's truthiness check (`if (req.pattern_id) …`) already
+  // handles both.
+  pattern_id: z.string().max(120).optional(),
   pattern_subject: z.string().max(300).optional(),
   // Character primitive (Phase 5): optional cast list — the LLM uses
   // these names + descriptions instead of inventing characters.
