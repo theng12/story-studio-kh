@@ -19,6 +19,7 @@ import * as pm from '../services/project-manager.js'
 import { trackChild } from '../services/job-queue.js'
 import { resolveSubfolderNames } from '../services/utils.js'
 import { runFfmpeg, getAudioDuration, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
+import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import type {
   AudioMergeRequest, Job,
@@ -333,9 +334,11 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     || path.join(episodeDir, mergedAudioName)
   await fs.mkdir(mergedDir, { recursive: true })
 
-  // Create temp directory
-  const tempDir = path.join(mergedDir, `.tmp_${Date.now()}`)
-  await fs.mkdir(tempDir, { recursive: true })
+  // Create temp directory under os.tmpdir() so iCloud doesn't watch the
+  // intermediate normalised chapters / concat list / drawtext renders
+  // while ffmpeg is mid-merge. Final merged file is renamed back into
+  // mergedDir on success.
+  const tempDir = await getWorkTempDir(project_slug, code)
 
   try {
     // 3. Normalize volume (optional)

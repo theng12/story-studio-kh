@@ -61,6 +61,17 @@ const filteredEpisodes = computed(() => {
 // For video assembly specifically: ✓ rendered, ● ready to assemble, ○ missing inputs.
 function statusSuffix(ep: any): string {
   const s = ep.status || {}
+  // 'video_assembly' is the OUTPUT (final assembled file present anywhere
+  // — project tree, external root, or YouTube-uploaded). 'video' is the
+  // INPUT (per-scene AI clips done). The video-assembly page filters
+  // by the former; per-scene-clip pages still filter by the latter.
+  if (props.filterField === 'video_assembly') {
+    if (s.video_assembly) return ' ✓ rendered'
+    if (s.video_ready) return ' ● ready to assemble'
+    if (!s.images) return ' ○ missing scenes'
+    if (!s.merged_audio) return ' ○ missing merged audio'
+    return ' ○ not ready'
+  }
   if (props.filterField === 'video') {
     if (s.video) return ' ✓ rendered'
     if (s.video_ready) return ' ● ready'
@@ -77,7 +88,9 @@ function statusSuffix(ep: any): string {
 }
 
 const legend = computed(() => {
-  if (props.filterField === 'video') return '✓ rendered · ● ready · ○ missing inputs'
+  if (props.filterField === 'video' || props.filterField === 'video_assembly') {
+    return '✓ rendered · ● ready · ○ missing inputs'
+  }
   return ''
 })
 

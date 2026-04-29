@@ -8,7 +8,7 @@
       :project-slug="slug"
       :presets="videoBundlePresets"
       v-model:episode-id="episodeId"
-      filter-field="video"
+      filter-field="video_assembly"
       generate-label="Generate Video"
       loading-label="Rendering…"
       :generate-loading="generating"

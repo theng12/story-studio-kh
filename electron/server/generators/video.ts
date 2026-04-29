@@ -26,6 +26,7 @@ import { getAnimation } from '../models/animations.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
+import { getWorkTempDir } from '../lib/work-tempdir.js'
 import type {
   GenerateVideoRequest, Job, VideoLogoConfig, VideoIntroConfig,
   VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
@@ -704,9 +705,12 @@ export async function generateVideo(job: Job): Promise<void> {
   }
   job.output_lines.push(`Target duration: ${targetDuration.toFixed(1)}s`)
 
-  // 3. Create temp directory
-  const tempDir = path.join(videoDir, `.tmp_${Date.now()}`)
-  await fs.mkdir(tempDir, { recursive: true })
+  // 3. Create temp directory — under os.tmpdir() (never iCloud-synced)
+  // so the multi-GB intermediate clips/concat-list/premixed-audio don't
+  // trigger an iCloud upload while ffmpeg is mid-encode. The final
+  // rename to `videoDir` or the external root happens after success
+  // (see the EXDEV-aware copy fallback near the end of this function).
+  const tempDir = await getWorkTempDir(project_slug, code)
 
   // Debug mode: when STORY_STUDIO_VIDEO_DEBUG is truthy, preserve the
   // temp dir on every run (success OR failure) so the user can replay a
@@ -1027,8 +1031,13 @@ export async function generateVideo(job: Job): Promise<void> {
     })
 
     // 12. Run final composition (simple: concat video + premixed audio + logo/effects)
+    // Encode into the OS-tempdir scratch area so iCloud doesn't see the
+    // multi-GB output stream while ffmpeg is mid-encode. The rename
+    // below moves the finished file to videoDir or the external root —
+    // a same-volume rename is atomic + invisible to iCloud, and the
+    // existing EXDEV branch handles cross-volume moves.
     const timestamp = Date.now()
-    const outputFile = path.join(videoDir, `${code}_video_${timestamp}.${format}`)
+    const outputFile = path.join(tempDir, `${code}_video_${timestamp}.${format}`)
 
     // Concat all scene clips into a single intermediate MP4 (stream copy, near-instant)
     const intermediateVideoPath = await concatToIntermediate(concatListPath, tempDir, job)
@@ -1145,6 +1154,17 @@ export async function generateVideo(job: Job): Promise<void> {
     job.output_lines.push(`Video saved: ${path.basename(resolvedOutputPath)}`)
     job.output_lines.push(`Full path: ${resolvedOutputPath}`)
     job.output_dir = path.dirname(resolvedOutputPath)
+
+    // Invalidate the episode-status cache so the next /episodes call
+    // recomputes status.video_assembly. The chokidar watcher catches
+    // writes inside the project tree, but when the final video lands
+    // at an external path (eg ~/Downloads/YouTube - Channels/...) the
+    // watcher never fires — so we must signal the cache explicitly.
+    try {
+      const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+      episodeStatusCache.invalidate(project_slug, code)
+    } catch { /* best-effort — not worth failing the job over */ }
+
     succeeded = true
 
   } finally {

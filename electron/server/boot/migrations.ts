@@ -8,6 +8,7 @@
 
 import { migrateDescriptionToMetadata } from '../services/folder-migration.js'
 import { migrateAppSecrets } from './migrate-app-secrets.js'
+import { cleanOrphanWorkTempDirs } from '../lib/work-tempdir.js'
 
 export function runBootMigrations(): void {
   migrateDescriptionToMetadata().catch(e => console.error('[migration] failed:', e))
@@ -20,4 +21,11 @@ export function runBootMigrations(): void {
       )
     }
   }).catch(e => console.error('[migration] app-secrets failed:', e))
+  // Sweep orphan video/audio scratch dirs left by force-quits or
+  // crashes mid-encode. 24 h cutoff is comfortably past the longest
+  // plausible run; same-session orphans are removed by the generator's
+  // own try/finally on success or failure.
+  cleanOrphanWorkTempDirs().then((s) => {
+    if (s.removed > 0) console.log(`[migration] work-tempdir: removed ${s.removed} orphan(s) (scanned ${s.scanned})`)
+  }).catch(e => console.error('[migration] work-tempdir cleanup failed:', e))
 }
