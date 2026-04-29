@@ -161,10 +161,15 @@ export function humanizeBackendError(e: unknown, fallback?: string): HumanizedEr
     return { detail: 'This FFmpeg build does not include libass — subtitles cannot be rendered.', hint: 'Install an FFmpeg build with libass enabled.' }
   }
 
-  // ── Default: fall back to per-route context, then the raw message ────
-  // We keep the raw message as a last resort so we never *lose* signal —
-  // it just stops being the front-line UX.
-  if (fallback) return { detail: fallback }
+  // ── Default: prefer the raw error message; fallback is for the
+  //    truly-empty case (error with no .message). The previous order
+  //    (fallback first) silently masked actionable detail like
+  //    "Destination already exists with content: …" behind the route's
+  //    generic banner ("Asset migration failed"), forcing the user to
+  //    open the log file to diagnose anything. We log the raw message
+  //    via logLine above either way, but the front-line UX should also
+  //    carry the signal.
   if (rawMessage) return { detail: rawMessage }
+  if (fallback) return { detail: fallback }
   return { detail: 'Something went wrong. Please try again.' }
 }
