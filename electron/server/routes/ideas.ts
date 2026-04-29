@@ -691,6 +691,13 @@ router.get('/projects/:slug/episodes', async (req, res) => {
   if (req.query.refresh === '1') {
     episodeStatusCache.invalidateProject(slug)
   }
+  // `?rescan=1` is the "Rescan from disk" escape hatch — wipes the
+  // on-disk cache file too, so the next pass cannot serve a stale
+  // hydrated entry. Useful after an iCloud sync arrives if the watcher
+  // missed it for any reason.
+  if (req.query.rescan === '1') {
+    await episodeStatusCache.wipeProject(slug)
+  }
 
   // Source-doc checks (script / prompts / metadata) stay as cheap file-ext
   // scans — they're "is the input artifact present?" questions where a file

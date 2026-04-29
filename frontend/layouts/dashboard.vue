@@ -94,6 +94,9 @@
         <NuxtLink :to="`/projects/${slug}/settings`" class="nav-item" active-class="active">
           <span class="nav-icon">&#9881;</span> Settings
         </NuxtLink>
+        <NuxtLink to="/app-settings" class="nav-item" active-class="active" title="App-wide settings — API keys live here, shared across every project on this Mac.">
+          <span class="nav-icon">&#128273;</span> App Settings
+        </NuxtLink>
         <NuxtLink to="/character-library" class="nav-item" active-class="active" title="App-level character library shared across all projects on this machine. Save characters here to reuse across channels.">
           <span class="nav-icon">&#127991;</span> Character Library
         </NuxtLink>
@@ -166,50 +169,10 @@
     </aside>
 
     <main id="main-content" class="main-content" tabindex="-1">
-      <div
-        v-if="secretsForeign"
-        class="foreign-secrets-banner"
-        role="alert"
-      >
-        <span class="foreign-secrets-icon" aria-hidden="true">⚠️</span>
-        <span class="foreign-secrets-text">
-          <strong>This project's saved credentials came from a different machine.</strong>
-          For your safety we're ignoring them on this device — nothing will upload or
-          call a provider until you reconnect. Go to Settings → API Keys and
-          Settings → Upload to reconnect on this machine, or clear the stale file
-          to start fresh.
-        </span>
-        <button
-          type="button"
-          class="foreign-secrets-reset"
-          :disabled="secretsResetting"
-          @click="onResetForeignSecrets"
-        >{{ secretsResetting ? 'Clearing…' : 'Clear and reset' }}</button>
-      </div>
-
-      <!-- Decrypt-failed banner — distinct from the foreign-machine case
-           above. Same machine, same project, but the keychain-derived
-           encryption key changed (almost always after an Electron app
-           upgrade). The encrypted file is still on disk; we deliberately
-           don't overwrite it, so the user can re-enter keys and the
-           recovery write succeeds without losing the ciphertext until
-           that happens. The banner is the only signal — credit pills
-           and provider calls all silently 401 otherwise. -->
-      <div
-        v-if="secretsDecryptFailed && !secretsForeign"
-        class="foreign-secrets-banner secrets-decrypt-banner"
-        role="alert"
-      >
-        <span class="foreign-secrets-icon" aria-hidden="true">🔐</span>
-        <span class="foreign-secrets-text">
-          <strong>Couldn't decrypt your saved API keys.</strong>
-          This usually happens after an app update changes the system keychain.
-          Your encrypted keys are still on disk — re-entering them in
-          <NuxtLink :to="`/projects/${slug}/settings`" class="inline-link">Settings → API Keys</NuxtLink>
-          replaces the stale ciphertext on the next save.
-          We won't overwrite the existing file until you do, so nothing is lost in the meantime.
-        </span>
-      </div>
+      <!-- (Removed: foreign-provenance + decrypt-failed credential banners.
+           API keys now live app-level (per-machine, never synced), so the
+           cross-machine "credentials came from a different machine"
+           condition can't arise. See app-secrets-store.ts. -->
 
       <!-- Asset-migration recovery banner — only fires when this
            project's metadata appears to live in iCloud (or somewhere
@@ -314,10 +277,9 @@ const {
   audioGenerating, audioMergeGenerating, metaGenerating, videoGenerating,
 } = useGenerating()
 
-// Cross-machine folder-copy guard: if `secrets.json` was written by another
-// machine (user copied the folder manually instead of using Import), show a
-// banner with a one-click reset so stale tokens can't be silently reused.
-const { foreign: secretsForeign, decryptFailed: secretsDecryptFailed, resetting: secretsResetting, resetSecrets } = useSecretsProvenance()
+// Cross-machine credential warnings are retired — API keys live app-level
+// now, so the "credentials came from a different machine" condition can't
+// arise. (See app-secrets-store.ts.)
 const assetMigration = useAssetMigration()
 
 /**
@@ -337,12 +299,6 @@ function formatBytes(bytes: number): string {
   }
   const decimals = i >= 2 ? (value < 10 ? 2 : 0) : 0
   return `${value.toFixed(decimals)} ${units[i]}`
-}
-const { success: toastSuccess, error: toastError } = useToast()
-async function onResetForeignSecrets() {
-  const ok = await resetSecrets()
-  if (ok) toastSuccess('Credentials cleared — reconnect in Settings → API Keys.')
-  else toastError('Could not reset credentials — try again in a moment.')
 }
 
 watch(slug, async (s) => {

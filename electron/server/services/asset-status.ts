@@ -17,6 +17,7 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
+import { unwrapICloudPlaceholderName } from '../lib/sync-safe.js'
 import { resolveEpisodePaths, resolveSubfolderNames } from './utils.js'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
@@ -65,12 +66,16 @@ export function stripDecorativePrefix(name: string): string {
 // `introduction: false`. New runs always use the sidecar.
 
 export function isIntroductionMarker(filename: string): boolean {
+  // Match against the unwrapped name so an iCloud placeholder
+  // (`.foo.intro.json.icloud`) still counts as "introduction present"
+  // — the file exists, it just hasn't been materialized locally yet.
+  const name = unwrapICloudPlaceholderName(filename)
   // Sidecar JSON written by generateIntroductionOnly. Cheap O(1) check.
-  if (filename.endsWith('.intro.json')) return true
+  if (name.endsWith('.intro.json')) return true
   // Legacy file from the pre-merge era. Kept as a fallback so older
   // projects keep reporting introduction: true; new runs replace these
   // by overwriting the unified narration + writing the sidecar.
-  if (filename.endsWith('_Introduction.docx')) return true
+  if (name.endsWith('_Introduction.docx')) return true
   return false
 }
 
@@ -78,7 +83,11 @@ export function isScriptChaptersDocx(filename: string): boolean {
   // Any .docx not part of the legacy separate-intro file. The unified
   // narration docx (which now may contain the intro section inside)
   // counts as "script present" — that's the chapters file, by spec.
-  return filename.endsWith('.docx') && !filename.endsWith('_Introduction.docx')
+  // Unwrap iCloud placeholder names so a synced-but-not-yet-downloaded
+  // file is still detected as present (otherwise the app would offer to
+  // regenerate over a file that's mid-sync).
+  const name = unwrapICloudPlaceholderName(filename)
+  return name.endsWith('.docx') && !name.endsWith('_Introduction.docx')
 }
 
 export interface ScriptFolderState {

@@ -4,7 +4,12 @@
     <div class="toggle-row">
       <button :class="['toggle-btn', { active: !showAll }]" @click="showAll = false">Pending only</button>
       <button :class="['toggle-btn', { active: showAll }]" @click="showAll = true">Show all</button>
-      <button class="toggle-btn refresh-btn" :disabled="loading" @click="loadEpisodes" title="Re-scan folders">
+      <button
+        class="toggle-btn refresh-btn"
+        :disabled="loading"
+        @click="onRefreshClick"
+        title="Refresh (shift-click to rescan from disk — slower, use after iCloud sync)"
+      >
         {{ loading ? '…' : '↻' }}
       </button>
     </div>
@@ -40,7 +45,7 @@ const emit = defineEmits<{
 // concurrent fetches. Manual refresh + job-completion auto-refresh both
 // flow through the composable.
 const slugRef = computed(() => props.projectSlug)
-const { episodes, isLoading: loading, isRevalidating, refresh } = useEpisodes(slugRef)
+const { episodes, isLoading: loading, isRevalidating, refresh, rescan } = useEpisodes(slugRef)
 const showAll = ref(false)
 
 const filteredEpisodes = computed(() => {
@@ -85,12 +90,18 @@ function onSelect(code: string) {
 // Refresh + invalidation are handled inside useEpisodes:
 //  - Auto-revalidate on `done` job transitions (any type, current slug)
 //  - Manual ↻ button calls refresh() which forces ?refresh=1
-// Older code did its own jobs-watcher here; that's now dead, removed.
+//  - Shift+↻ calls rescan() which also wipes the on-disk cache (use
+//    after iCloud delivers files but the UI hasn't caught up).
 async function loadEpisodes() {
   await refresh()
 }
 
-defineExpose({ refresh })
+async function onRefreshClick(e: MouseEvent) {
+  if (e.shiftKey) await rescan()
+  else await refresh()
+}
+
+defineExpose({ refresh, rescan })
 </script>
 
 <style scoped>

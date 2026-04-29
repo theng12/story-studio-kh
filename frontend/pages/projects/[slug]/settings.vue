@@ -9,61 +9,10 @@
       </button>
     </div>
 
-    <!-- API Keys -->
-    <div v-if="activeTab === 'keys'" class="card mt-2">
-      <h3>API Keys</h3>
-      <p class="text-muted mt-1 mb-2">
-        Add one or more accounts per provider. One account per provider is the <strong>default</strong> — generators use it automatically. Keys live in this project's <code>secrets.json</code> (mode 0600) and never leave the server.
-      </p>
+    <!-- (API Keys moved out to app-level Settings — see <NuxtLink to="/app-settings">/app-settings</NuxtLink>.
+         Keys are now per-machine, configured once for the whole app
+         instead of per-project.) -->
 
-      <!-- Diagnose connectivity — runs the same precheck the wizard uses.
-           Useful when the per-key Test button surfaces "Invalid key or
-           network error" and the user can't tell which side is at fault.
-           The reachable/unreachable split answers that in one click. -->
-      <div class="precheck-diagnose">
-        <div class="flex gap-2" style="align-items: center; flex-wrap: wrap;">
-          <button
-            class="btn btn-sm btn-secondary"
-            :disabled="precheckState.loading"
-            @click="runConnectivityPrecheck"
-            title="Tests reachability to every AI provider host Story Studio talks to. Does not use your API keys."
-          >
-            <span v-if="precheckState.loading">Diagnosing…</span>
-            <span v-else>Diagnose connectivity</span>
-          </button>
-          <span v-if="precheckState.result" class="text-muted" style="font-size: 11px;">
-            {{ precheckState.result.reachable.length }}/{{ precheckState.result.reachable.length + precheckState.result.unreachable.length }} reachable
-            · {{ precheckState.result.elapsed_ms }} ms
-          </span>
-          <span v-if="precheckState.error" class="text-danger" style="font-size: 11px;">
-            {{ precheckState.error }}
-          </span>
-        </div>
-        <div v-if="precheckState.result && precheckState.result.unreachable.length > 0" class="precheck-host-list">
-          <code v-for="h in precheckState.result.unreachable" :key="h.host" class="precheck-host precheck-host-bad">
-            ✗ {{ h.host }} <span class="text-muted">({{ h.reason }})</span>
-          </code>
-        </div>
-        <div v-if="precheckState.result && precheckState.result.reachable.length > 0" class="precheck-host-list">
-          <code v-for="h in precheckState.result.reachable" :key="h.host" class="precheck-host precheck-host-ok">
-            ✓ {{ h.host }}
-          </code>
-        </div>
-      </div>
-
-      <ProviderAccounts
-        v-for="p in KEY_PROVIDERS"
-        :key="p.id"
-        :slug="slug"
-        :provider-id="p.id"
-        :provider-name="p.name"
-        :help-text="p.helpText"
-        :placeholder="p.placeholder"
-        :affiliate-url="(p as any).affiliateUrl"
-        :accounts="(config as any)?.accounts?.[p.id] || []"
-        @refresh="refreshConfig(slug)"
-      />
-    </div>
 
     <!-- Models (Editable) -->
     <div v-if="activeTab === 'models'" class="card mt-2">
@@ -1622,7 +1571,7 @@ async function runMoveProject(): Promise<void> {
   }
 }
 
-const activeTab = ref('keys')
+const activeTab = ref('models')
 const syncing = ref(false)
 const syncResults = ref<string[]>([])
 
@@ -1827,32 +1776,10 @@ async function saveFormatSettings() {
   }
 }
 
-// ── Connectivity precheck (API Keys tab) ─────────────────────────────────
-// Lets the user distinguish "my API key is wrong" from "my network can't
-// reach the provider" without having to interpret the ambiguous "Invalid
-// key or network error" message. Does not use any stored keys.
-interface PrecheckResult {
-  reachable: Array<{ host: string; label: string; status: number }>
-  unreachable: Array<{ host: string; label: string; reason: string }>
-  elapsed_ms: number
-}
-const precheckState = reactive<{ loading: boolean; result: PrecheckResult | null; error: string }>({
-  loading: false,
-  result: null,
-  error: '',
-})
-async function runConnectivityPrecheck() {
-  precheckState.loading = true
-  precheckState.error = ''
-  try {
-    precheckState.result = await get<PrecheckResult>('/connectivity/precheck')
-  } catch (e: any) {
-    precheckState.error = e?.data?.detail || e?.message || 'Precheck failed'
-    precheckState.result = null
-  } finally {
-    precheckState.loading = false
-  }
-}
+// (Removed: connectivity precheck state. It used to live alongside the
+// API Keys tab on this page; the tab is gone, and the wizard on /
+// runs its own precheck on entry to step 4.)
+
 // ── Storage tab state ─────────────────────────────────────────────────────
 //
 // Audit/cleanup talks to the new /storage-* endpoints. External-root
@@ -2371,7 +2298,8 @@ async function resetProjectsRoot() {
 }
 
 const tabs = [
-  { id: 'keys', label: 'API Keys' },
+  // API keys moved to app-level Settings (see /app-settings) — they're
+  // per-machine now, not per-project.
   { id: 'models', label: 'Models' },
   { id: 'voices', label: 'Voices' },
   { id: 'format', label: 'Format' },
@@ -2631,17 +2559,9 @@ async function saveNotifSettings() {
   }
 }
 
-// Keys tab: provider catalog driving the data-bound <ProviderAccounts> loop.
-// Order mirrors the help text users expect (LLMs first, then image, then TTS).
-const KEY_PROVIDERS = [
-  { id: 'openai',     name: 'OpenAI',     placeholder: 'sk-...',      helpText: 'LLM for script/metadata generation and Whisper subtitles.' },
-  { id: 'anthropic',  name: 'Anthropic',  placeholder: 'sk-ant-...',  helpText: 'Claude models for script/metadata generation.' },
-  { id: 'kie',        name: 'kie.ai',     placeholder: '',            helpText: 'Image generation (all default image models) and DeepSeek chat.' },
-  { id: 'fal',        name: 'fal.ai',     placeholder: '',            helpText: 'ElevenLabs TTS via fal, plus video models (Veo 3, Sora 2, Hailuo, Wan).' },
-  { id: 'genaipro',   name: 'GenAIPro',   placeholder: '',            helpText: 'ElevenLabs TTS via genaipro.vn, plus Veo video.', affiliateUrl: 'https://genaipro.vn?ref=terranash' },
-  { id: 'elevenlabs', name: 'ElevenLabs', placeholder: 'xi-api-key…', helpText: 'Official ElevenLabs API — select eleven_* models in the Audio tab.', affiliateUrl: 'https://try.elevenlabs.io/7q8n1q21uoau' },
-  { id: 'google',     name: 'Google AI Studio', placeholder: 'AIza…', helpText: 'Gemini 2.5 Flash Image (nano-banana) for natural-language image editing (Video Assembly → Magic Eraser).' },
-] as const
+// (Removed: KEY_PROVIDERS catalog. The API Keys tab moved to app-level
+// Settings — see /app-settings — so this page no longer drives a
+// per-project key UI.)
 
 // Assets audit logic moved to assets.vue (new top-level page).
 const standards = ref('')
@@ -3073,10 +2993,6 @@ watch(project, (p) => {
     projectForm.youtube_channel_url = (p as any).youtube_channel_url || ''
   }
 }, { immediate: true })
-
-// Key add/remove/test/set-default state now lives in ProviderAccounts.vue —
-// the data-driven Keys tab defers all per-provider interactions to that
-// component and just listens for `refresh` to re-read the safe config.
 
 async function saveImagePricing() {
   try {

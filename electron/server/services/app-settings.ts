@@ -2,9 +2,10 @@
  * App-level settings store — single JSON file alongside the projects/ directory.
  *
  * Scope today: `ffmpeg_path` / `ffprobe_path`. Keep additions to genuinely
- * app-level knobs (per-install, not per-project). Per-project config lives in
- * `{PROJECTS_ROOT}/{slug}/config.json`; per-project secrets live in
- * `secrets.json` (see `secrets-store.ts`).
+ * app-level knobs (per-install, not per-project). Per-project config lives
+ * in `{PROJECTS_ROOT}/{slug}/config.json`. Provider API keys live at app
+ * level (see `app-secrets-store.ts`); per-project `secrets.json` files
+ * still hold YouTube OAuth tokens but no API keys.
  */
 
 import fs from 'fs/promises'

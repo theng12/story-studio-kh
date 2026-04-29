@@ -1,0 +1,262 @@
+/**
+ * Per-project FS watcher that invalidates the episode-status cache when
+ * files appear/disappear under a project's `episodes/` tree.
+ *
+ * Why this exists
+ * ---------------
+ * The episode-status cache invalidates via point-in-time mtime comparison
+ * inside `cache.get()`. That works for changes the app itself makes, but
+ * iCloud-Drive-delivered files can land *between* requests, leaving a
+ * stale "no script" entry until the next request happens to re-stat.
+ *
+ * This watcher fires synchronously on file events (incl. iCloud Drive
+ * deliveries — they go through the file-provider extension which emits
+ * normal kernel FS events), parses the episode code from the path, and
+ * invalidates the cache entry. The next /episodes call recomputes from
+ * disk and the UI flips automatically — no user click, no waiting.
+ *
+ * Implementation notes
+ * --------------------
+ * - Uses Node's built-in `fs.watch` with `recursive: true` (macOS + Win;
+ *   the Story Studio target platforms). Avoids adding chokidar.
+ * - Watcher events are coarse — we don't care which subfolder changed,
+ *   we just invalidate the whole episode entry. The cache's mtime check
+ *   does the precise work on the next read.
+ * - Per-episode coalescing (250ms) so an iCloud burst that drops 13
+ *   files into `01 Script/` triggers one invalidation, not 13.
+ * - Watchers are created lazily on first cache access for a slug; they
+ *   stay alive for the life of the process. `.unref()` so a still-running
+ *   watcher doesn't block app shutdown.
+ */
+
+import fs from 'fs'
+import path from 'path'
+import * as pm from './project-manager.js'
+
+const COALESCE_MS = 250
+
+/**
+ * Cap on simultaneous active watchers. macOS uses FSEvents under the
+ * hood for `fs.watch(recursive: true)`; FSEvents has a per-process
+ * stream limit around 32 streams (silently coalesces beyond — events
+ * just stop firing for some watchers, no error). We stay well under
+ * with an LRU eviction strategy: opening a 26th project closes the
+ * least-recently-used watcher. The episode-status cache still
+ * recomputes from disk on demand, so the only effect of being evicted
+ * is that the project loses proactive (push) invalidation; mtime
+ * checks on the next `/episodes` call still catch any change.
+ */
+const MAX_WATCHERS = 25
+
+type InvalidateFn = (slug: string, code: string) => void
+
+interface WatcherState {
+  watcher: fs.FSWatcher
+  episodesDir: string
+  pendingInvalidations: Map<string, NodeJS.Timeout>
+}
+
+// Map iteration order is insertion order — we exploit that for LRU.
+// `touchSlug` re-inserts on access so the oldest key is always the
+// least-recently-used.
+const watchers = new Map<string, WatcherState>()
+/**
+ * In-flight ensureProjectWatcher promises, keyed by slug. Without this,
+ * two concurrent first-time `ensureProjectWatcher(slug)` calls both
+ * pass the `watchers.has(slug)` sync check, both fs.watch the same
+ * dir, and one of the FSWatcher handles is orphaned (never close()d).
+ * The cache's hydrate path already dedupes via its own pending-map,
+ * but the function is exported and could be called from anywhere.
+ */
+const ensurePending = new Map<string, Promise<void>>()
+let onInvalidate: InvalidateFn | null = null
+
+/**
+ * Wire the cache's invalidation hook. Called once at module load time
+ * from `episode-status-cache.ts` to avoid a circular import.
+ */
+export function bindInvalidator(fn: InvalidateFn): void {
+  onInvalidate = fn
+}
+
+/**
+ * Start watching this project's `episodes/` tree if not already watching.
+ * Idempotent. Failures (no `episodes/` dir, permission denied) are
+ * swallowed — the cache will still work, just without proactive
+ * invalidation.
+ */
+export async function ensureProjectWatcher(slug: string): Promise<void> {
+  if (watchers.has(slug)) {
+    // Already-watching slugs become MRU on access so the LRU eviction
+    // below kicks the right project when we hit the cap.
+    touchSlug(slug)
+    return
+  }
+  const inFlight = ensurePending.get(slug)
+  if (inFlight) return inFlight
+
+  const promise = startWatcherInner(slug)
+  ensurePending.set(slug, promise)
+  try {
+    await promise
+  } finally {
+    ensurePending.delete(slug)
+  }
+}
+
+/** Re-insert at the end of the Map so the oldest entry is always LRU. */
+function touchSlug(slug: string): void {
+  const state = watchers.get(slug)
+  if (!state) return
+  watchers.delete(slug)
+  watchers.set(slug, state)
+}
+
+/** Evict the least-recently-used watcher to free a slot under the cap. */
+function evictLRU(): void {
+  const oldest = watchers.keys().next().value
+  if (oldest === undefined) return
+  stopProjectWatcher(oldest)
+}
+
+async function startWatcherInner(slug: string): Promise<void> {
+  if (watchers.has(slug)) return
+
+  let episodesDir: string
+  try {
+    // resolveEpisodePaths needs an episode code to compute its episode
+    // dir; we just want the project's episodes root, which is the
+    // grandparent of any episode_dir. Cheaper to compute via project.json.
+    const projectDir = pm.getProjectDir(slug)
+    if (!projectDir) return
+    // Read project.json to get output_root (relative or absolute).
+    const projectJsonPath = path.join(projectDir, 'project.json')
+    const raw = await fs.promises.readFile(projectJsonPath, 'utf-8')
+    const meta = JSON.parse(raw)
+    let outputRoot: string = meta.output_root || './episodes'
+    if (!path.isAbsolute(outputRoot)) outputRoot = path.join(projectDir, outputRoot)
+    episodesDir = outputRoot
+  } catch {
+    return
+  }
+
+  // Sanity: the dir must exist before we can watch it.
+  try {
+    const st = await fs.promises.stat(episodesDir)
+    if (!st.isDirectory()) return
+  } catch {
+    return
+  }
+
+  // LRU eviction: free a slot if we're at the cap. Done here, AFTER
+  // the dir exists, AFTER the readFile of project.json — failed starts
+  // shouldn't punish a healthy old watcher.
+  while (watchers.size >= MAX_WATCHERS) {
+    evictLRU()
+  }
+
+  let watcher: fs.FSWatcher
+  try {
+    watcher = fs.watch(episodesDir, { recursive: true, persistent: false })
+  } catch (e) {
+    // recursive watch isn't supported on this platform, or some other
+    // setup error. Bail silently — the cache is still correct, just
+    // less reactive.
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn('[episode-folder-watcher] failed to watch', slug, ':', (e as Error)?.message)
+    }
+    return
+  }
+
+  const state: WatcherState = {
+    watcher,
+    episodesDir,
+    pendingInvalidations: new Map(),
+  }
+  watchers.set(slug, state)
+
+  // The 'change' handler receives both 'change' AND 'rename' eventTypes.
+  // On macOS with recursive: true (FSEvents) every disk change comes
+  // through this single event, so we don't need a separate 'rename'
+  // listener. Wrap the body so a thrown handler can't kill the watcher
+  // (some Node versions emit 'error' and detach on a synchronous throw).
+  watcher.on('change', (_event, rawName) => {
+    try {
+      if (typeof rawName !== 'string' || !rawName) return
+      const code = extractEpisodeCode(rawName)
+      if (!code) return
+      scheduleInvalidate(state, slug, code)
+    } catch (e) {
+      if (process.env.NODE_ENV !== 'test') {
+        console.warn('[episode-folder-watcher] dispatch error', (e as Error)?.message)
+      }
+    }
+  })
+  watcher.on('error', (e) => {
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn('[episode-folder-watcher] error on', slug, ':', e?.message)
+    }
+  })
+
+  // No further unref needed — `persistent: false` (passed to fs.watch
+  // above) is the documented way to keep the watcher off the event loop
+  // at shutdown. The previous _handle.unref() hack reached into Node
+  // internals that change between releases.
+}
+
+/** Stop one project's watcher (e.g. project deleted). */
+export function stopProjectWatcher(slug: string): void {
+  const state = watchers.get(slug)
+  if (!state) return
+  for (const t of state.pendingInvalidations.values()) clearTimeout(t)
+  state.pendingInvalidations.clear()
+  try { state.watcher.close() } catch { /* ignore */ }
+  watchers.delete(slug)
+}
+
+/** Stop all watchers — for graceful shutdown / tests. */
+export function stopAllWatchers(): void {
+  for (const slug of Array.from(watchers.keys())) stopProjectWatcher(slug)
+}
+
+/**
+ * Coalesce per-episode invalidations. fs.watch fires once per file
+ * event, so a 13-file iCloud burst produces 13 events for the same
+ * episode. We want one invalidation.
+ */
+function scheduleInvalidate(state: WatcherState, slug: string, code: string): void {
+  const existing = state.pendingInvalidations.get(code)
+  if (existing) clearTimeout(existing)
+  const t = setTimeout(() => {
+    state.pendingInvalidations.delete(code)
+    if (onInvalidate) onInvalidate(slug, code)
+  }, COALESCE_MS)
+  if (typeof t.unref === 'function') t.unref()
+  state.pendingInvalidations.set(code, t)
+}
+
+/**
+ * Extract an episode code (e.g. "SS0057") from a path relative to the
+ * episodes root. Folder layout is `Season XXX/<CODE> - <Title>/...`,
+ * so the second path segment starts with the code followed by " - ".
+ *
+ * Returns null for events that don't map to a recognisable episode
+ * folder (e.g. .DS_Store at the season level).
+ */
+function extractEpisodeCode(relPath: string): string | null {
+  // Normalise separators just in case.
+  const segs = relPath.split(/[\\/]/).filter(Boolean)
+  // Walk segments looking for one that starts with `<CODE> - `. Resilient
+  // to the tree being either Season-organised (`Season 003/SS0057 - ...`)
+  // or flat (`SS0057 - ...`).
+  for (const seg of segs) {
+    const m = seg.match(/^([A-Z]{1,4}\d{3,5}) - /)
+    if (m) return m[1]
+  }
+  return null
+}
+
+/** Test diagnostics. */
+export function _debugListWatchers(): { slug: string, episodesDir: string }[] {
+  return Array.from(watchers.entries()).map(([slug, s]) => ({ slug, episodesDir: s.episodesDir }))
+}

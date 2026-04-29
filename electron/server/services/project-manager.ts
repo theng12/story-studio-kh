@@ -160,6 +160,21 @@ export function getProjectsRootDefaultPath(): string {
   return path.join(getUserDataPath('Story Studio KH'), 'projects')
 }
 
+/**
+ * Per-machine user-data directory (NOT inside the projects root).
+ * Used by callers that need to store machine-local state — e.g. the
+ * episode-status cache, which must not be synced across machines via
+ * iCloud (see SS-icloud-cache fix).
+ */
+export function getUserDataDir(): string {
+  if (process.env.STORY_STUDIO_DATA_DIR) return process.env.STORY_STUDIO_DATA_DIR
+  try {
+    const { app } = require('electron')
+    if (app?.getPath) return app.getPath('userData')
+  } catch { /* not in Electron */ }
+  return getUserDataPath('Story Studio KH')
+}
+
 export function getProjectsRootAppSettingsPath(): string {
   return resolveAppSettingsPath()
 }
@@ -585,13 +600,10 @@ export async function createProject(req: CreateProjectRequest): Promise<ProjectM
       image_pricing_last_updated: '', audio_pricing_last_updated: '', video_pricing_last_updated: '',
     })
   }
-  // Ensure an empty secrets file exists so permissions are set up for the
-  // first `updateApiKeys` write (no race on the initial create).
-  const secretsPath = path.join(projectDir, 'secrets.json')
-  if (!existsSync(secretsPath)) {
-    const { writeSecrets } = await import('./secrets-store.js')
-    await writeSecrets(slug, {})
-  }
+  // No per-project secrets.json is seeded — API keys live in the
+  // app-level store (see app-secrets-store.ts). YouTube OAuth state is
+  // the only thing that still goes into a per-project secrets.json,
+  // and it's written on demand the first time a channel is connected.
 
   // Ensure production_standards.txt exists
   const standardsPath = path.join(projectDir, 'production_standards.txt')

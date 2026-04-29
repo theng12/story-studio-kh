@@ -109,8 +109,8 @@ export function useAssetMigration() {
     }
   }
 
-  // Auto-poll on slug change. Same shape as useSecretsProvenance — small
-  // ref, single call, no watchers further down the tree.
+  // Auto-poll on slug change — small ref, single call, no watchers
+  // further down the tree.
   watch(() => slug.value, () => {
     status.value = null
     lastError.value = ''

@@ -26,22 +26,20 @@
  * because the previous version's grant doesn't transfer.
  *
  * For personal-use builds where the threat model is just "my Mac running
- * my app", the 0600 file mode + the `_provenance` machine-stamp guard
- * (refuses to load secrets that were stamped on a different machine) are
- * sufficient. The keychain layer adds protection mostly against off-machine
- * backup leakage, which doesn't apply when secrets.json never leaves the
- * machine in the first place (it's per-Mac, never iCloud-synced).
+ * my app", the 0600 file mode is sufficient. The keychain layer adds
+ * protection mostly against off-machine backup leakage, which doesn't
+ * apply when the secrets file never leaves the machine in the first
+ * place (it lives in userData, never iCloud-synced).
  *
  * Default: safeStorage is OFF. Override with `STORY_STUDIO_FORCE_KEYCHAIN=1`
  * if you have a real Developer ID Application certificate and want the
  * extra defense-in-depth.
  *
- * Existing encrypted secrets.json files: when safeStorage flips off, an
- * existing ciphertext envelope on disk becomes undecryptable. The
- * surrounding code already handles this — readSecretsV2 returns an empty
- * store + the dashboard surfaces the "Secrets were stamped on a different
- * machine — reset" banner, with a one-click reset that re-enters the
- * keys at plaintext. So the migration is "click reset, paste keys, done."
+ * If a previously-encrypted file becomes undecryptable on this machine
+ * (eg the keychain identity changed after an app rebuild), the readers
+ * treat the store as empty rather than throwing. The user re-enters
+ * keys at app-level Settings and the next write replaces the unreadable
+ * blob. No banner, no Clear-and-reset workflow.
  */
 
 import { createRequire } from 'module'

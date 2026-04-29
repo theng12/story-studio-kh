@@ -6,6 +6,15 @@
         <h1>Story Studio KH</h1>
         <p class="text-muted">Create, generate, and produce story episodes</p>
       </div>
+      <NuxtLink
+        to="/app-settings"
+        class="home-settings-btn"
+        title="App-wide settings — API keys, notifications, FFmpeg"
+        aria-label="Open App Settings"
+      >
+        <span class="home-settings-icon" aria-hidden="true">⚙</span>
+        <span class="home-settings-label">App Settings</span>
+      </NuxtLink>
     </header>
 
     <!-- Onboarding (no projects) -->
@@ -427,7 +436,21 @@
 
         <!-- Step 4: API Keys -->
         <div v-if="step ===4">
-          <p class="text-muted mb-2">Add API keys for the services you want to use. You can skip this and add them later in Settings.</p>
+          <p class="text-muted mb-2">
+            Add API keys for the services you want to use. You can skip this
+            and add them later in
+            <NuxtLink to="/app-settings" style="color: var(--accent); text-decoration: underline;">App Settings</NuxtLink>.
+          </p>
+          <div class="precheck-banner precheck-info" style="margin-bottom: 12px;">
+            <span>
+              🔑 <strong>Keys are app-wide.</strong>
+              They're stored once on this Mac and used by every project you create.
+              <span v-if="appKeysAlreadyConfigured > 0">
+                You already have {{ appKeysAlreadyConfigured }} key{{ appKeysAlreadyConfigured === 1 ? '' : 's' }} configured —
+                leave a row blank to keep what's there, or paste a new value to replace it.
+              </span>
+            </span>
+          </div>
 
           <!-- Connectivity precheck banner.
                Without this, a user behind a corporate firewall, captive
@@ -521,6 +544,13 @@
                 title="You chose to advance without verifying this key. You can re-test in Settings later."
               >
                 ⤼ Bypassed
+              </span>
+              <span
+                v-if="appKeysExisting[row.provider] && !apiKeys[row.provider].trim()"
+                class="bypass-pill"
+                title="This provider already has a key configured at app level. Leave the row blank to keep it; type to replace."
+              >
+                ✓ Already configured
               </span>
             </label>
             <div class="key-row">
@@ -1251,6 +1281,32 @@ const apiKeys = reactive({
   genaipro: '',
 })
 
+// Track which providers already have an app-level key so the wizard can
+// say "✓ already configured" and skip overwriting on save when the row
+// is left blank. We never receive the actual key value — masked only.
+const appKeysExisting = reactive<Record<string, boolean>>({
+  openai: false,
+  anthropic: false,
+  kie: false,
+  fal: false,
+  genaipro: false,
+})
+const appKeysAlreadyConfigured = computed(
+  () => Object.values(appKeysExisting).filter(Boolean).length,
+)
+async function loadExistingAppKeys() {
+  try {
+    const res = await get<{ providers: Array<{ providerId: string; hasKey: boolean }> }>(
+      '/app-settings/api-keys',
+    )
+    for (const r of res.providers) {
+      if (r.providerId in appKeysExisting) appKeysExisting[r.providerId] = !!r.hasKey
+    }
+  } catch {
+    // Backend offline / fresh install — fine, nothing pre-configured.
+  }
+}
+
 // ── Upload destinations (wizard Step 5) ───────────────────────────────────
 // The OAuth loopback flow lives per-project (tokens land in secrets.json),
 // so we must create the project on disk BEFORE we can save the Google
@@ -1302,14 +1358,28 @@ async function ensureProjectCreated(): Promise<any> {
     season_size: form.season_size,
     output_root: form.output_root,
   })
-  const keys: Record<string, string> = {}
-  if (apiKeys.openai) keys.openai_api_key = apiKeys.openai
-  if (apiKeys.anthropic) keys.anthropic_api_key = apiKeys.anthropic
-  if (apiKeys.kie) keys.kie_api_key = apiKeys.kie
-  if (apiKeys.fal) keys.fal_api_key = apiKeys.fal
-  if (apiKeys.genaipro) keys.genaipro_api_key = apiKeys.genaipro
-  if (Object.keys(keys).length > 0) {
-    await put(`/projects/${project.slug}/settings/api-keys`, keys)
+  // API keys are stored at app level (per-Mac, not per-project). Write
+  // each non-empty value individually so a blank row in the wizard
+  // means "leave the existing app-level key untouched" rather than
+  // "overwrite with empty". See PUT /api/app-settings/api-keys/:providerId.
+  const entries: Array<[string, string]> = [
+    ['openai', apiKeys.openai],
+    ['anthropic', apiKeys.anthropic],
+    ['kie', apiKeys.kie],
+    ['fal', apiKeys.fal],
+    ['genaipro', apiKeys.genaipro],
+  ]
+  for (const [providerId, value] of entries) {
+    const trimmed = (value || '').trim()
+    if (!trimmed) continue
+    try {
+      await put(`/app-settings/api-keys/${providerId}`, { apiKey: trimmed })
+    } catch (e) {
+      // Don't block project creation on a single key write failing —
+      // the user can fix it from App Settings afterwards. Log to the
+      // existing toast surface.
+      console.warn('[wizard] failed to save api key for', providerId, e)
+    }
   }
   createdProject.value = project
   return project
@@ -1927,6 +1997,12 @@ watch(step, (s) => {
   if (s === 4 && !precheck.loading && !precheck.result) {
     runPrecheck()
   }
+  if (s === 4) {
+    // Pre-load which providers already have an app-level key so the
+    // wizard shows "✓ already configured" and we don't silently
+    // overwrite on save when the user leaves a row blank.
+    void loadExistingAppKeys()
+  }
 })
 
 // ── Auto-restore last open page ──────────────────────────────────────────
@@ -2022,12 +2098,42 @@ onMounted(async () => {
 
 .home-header {
   margin-bottom: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .home-header h1 {
   font-size: 32px;
   font-weight: 700;
   color: var(--accent);
+}
+
+.home-settings-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 13px;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.home-settings-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.home-settings-icon {
+  font-size: 16px;
+  line-height: 1;
 }
 
 .onboarding {

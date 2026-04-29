@@ -65,6 +65,31 @@ export async function writeAtomic(dest: string, data: string | Buffer): Promise<
  *
  * Returns false for symlinks that dangle and for directories.
  */
+/**
+ * True iff `name` is an iCloud placeholder filename (e.g. macOS replaces
+ * `foo.docx` on disk with `.foo.docx.icloud` while it's only synced-in-cloud,
+ * not yet downloaded). Operates on the bare basename — caller's responsibility
+ * to pass the leaf, not a path.
+ */
+export function isICloudPlaceholderName(name: string): boolean {
+  return name.startsWith('.') && name.endsWith('.icloud')
+}
+
+/**
+ * Given a leaf filename, return the underlying real filename it represents
+ * if it's an iCloud placeholder; otherwise return the input unchanged.
+ *
+ * `.foo.docx.icloud` → `foo.docx`. Useful for *name-based* detection
+ * (e.g. "is there a *.docx in this folder?") so a synced-but-not-yet-
+ * downloaded file still counts as present. Do NOT use this to build a
+ * read path — use `isFileMaterialized` / `checkAssetAvailability` for
+ * that, since the unwrapped name does not exist on disk yet.
+ */
+export function unwrapICloudPlaceholderName(name: string): string {
+  if (!isICloudPlaceholderName(name)) return name
+  return name.slice(1, -'.icloud'.length)
+}
+
 export function isFileMaterialized(p: string): boolean {
   if (!existsSync(p)) return false
   try {

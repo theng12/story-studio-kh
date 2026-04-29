@@ -133,11 +133,10 @@ describe('importProjectFromFolder — manifest handling', () => {
 })
 
 describe('importProjectFromFolder — channel isolation', () => {
-  test('always writes an empty secrets.json at the destination', async () => {
+  test('source-folder secrets.json is not copied or seeded into the destination', async () => {
     const src = await makeSourceFolder('secrets')
     // Plant a decoy file that LOOKS like a secrets bundle inside the
-    // source folder — the importer must not copy or read it. The real
-    // secrets.json lives in userData, never in the synced folder.
+    // source folder — the importer must not copy or read it.
     await fs.writeFile(
       path.join(src, 'secrets.json'),
       JSON.stringify({ openai_api_key: 'sk-leaked-from-source' }),
@@ -161,13 +160,21 @@ describe('importProjectFromFolder — channel isolation', () => {
 
     const result = await importSvc.importProjectFromFolder(src)
     const destSecrets = path.join(projectsRoot, result.slug, 'secrets.json')
-    const txt = await fs.readFile(destSecrets, 'utf-8')
-    const parsed = JSON.parse(txt)
-    // The v2 secrets shape stores per-provider account arrays; whatever
-    // the schema details, NO API key from the decoy file may have leaked.
-    const flat = JSON.stringify(parsed)
-    assert.ok(!flat.includes('sk-leaked-from-source'), 'no key from the source folder may leak into secrets.json')
-    assert.ok(!flat.includes('openai_api_key'), 'legacy openai_api_key field must not be seeded from the source')
+    // After the rework, no per-project secrets.json is seeded by import.
+    // The file is created on demand only when YouTube OAuth state is
+    // first written (no decoy key from the source folder is ever copied).
+    const exists = await fs.access(destSecrets).then(() => true).catch(() => false)
+    if (exists) {
+      const txt = await fs.readFile(destSecrets, 'utf-8')
+      assert.ok(!txt.includes('sk-leaked-from-source'), 'no key from the source folder may leak')
+      assert.ok(!txt.includes('openai_api_key'), 'legacy openai_api_key field must not be seeded')
+    }
+    // Defense in depth: provider API keys live app-level. None from the
+    // source folder should have made it into the app-level store either.
+    const { readAppSecrets } = await import('../services/app-secrets-store.js')
+    const appSecrets = await readAppSecrets()
+    assert.equal(appSecrets.providers.openai?.apiKey, undefined,
+      'no key from the source folder may leak into the app-level store')
   })
 })
 

@@ -121,7 +121,7 @@
           <span class="ep-actions-divider" aria-hidden="true" />
 
           <button class="btn btn-sm btn-secondary" @click="selectNone">Clear</button>
-          <button class="btn btn-sm btn-ghost" :disabled="epLoading || epRevalidating" @click="loadEpisodes" title="Re-scan the file system to refresh each episode's detected status. Useful after copying files in manually or after unmarking.">
+          <button class="btn btn-sm btn-ghost" :disabled="epLoading || epRevalidating" @click="onRefreshClick" title="Refresh episode statuses. Shift-click for a deeper rescan that wipes the on-disk cache too — use after iCloud delivers files from another Mac.">
             {{ (epLoading || epRevalidating) ? '⟳ Refreshing…' : '↻ Refresh' }}
           </button>
         </div>
@@ -623,7 +623,7 @@ const selectedEpisodes = reactive(new Set<string>())
 // Shared SWR cache so navigating away and back to /pipeline is instant.
 // Auto-revalidates when any job for this slug completes — selection state
 // stays intact because we only touch selectedEpisodes here, not episodes.
-const { episodes, isLoading: epLoading, isRevalidating: epRevalidating, refresh: refreshEpisodes, error: epError } = useEpisodes(slug)
+const { episodes, isLoading: epLoading, isRevalidating: epRevalidating, refresh: refreshEpisodes, rescan: rescanEpisodes, error: epError } = useEpisodes(slug)
 
 // Surface the underlying load error in a toast (composable stores it but
 // doesn't toast — page decides whether to show).
@@ -632,6 +632,11 @@ watch(epError, (e) => {
 })
 
 async function loadEpisodes() { await refreshEpisodes() }
+
+async function onRefreshClick(e: MouseEvent) {
+  if (e.shiftKey) await rescanEpisodes()
+  else await refreshEpisodes()
+}
 
 function toggleEpisode(code: string) {
   if (selectedEpisodes.has(code)) selectedEpisodes.delete(code)

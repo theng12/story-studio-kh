@@ -27,11 +27,13 @@
 
 import fs from 'fs/promises'
 import path from 'path'
+import os from 'os'
 import { computeEpisodeStatus, type EpisodeStatus } from './asset-status.js'
 import { resolveEpisodePaths } from './utils.js'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
+import { bindInvalidator, ensureProjectWatcher } from './episode-folder-watcher.js'
 
 export const SCHEMA_VERSION = 1 as const
 const MAX_ENTRIES = 1000
@@ -40,10 +42,26 @@ const MAX_ENTRIES = 1000
 const FLUSH_DEBOUNCE_MS = 5000
 const CACHE_FILENAME = 'episode-status.json'
 
-/** Per-project disk cache file path: <projectDir>/.cache/episode-status.json */
+/**
+ * Per-project disk cache file path: <userData>/cache/<slug>/episode-status.json
+ *
+ * Lives in userData (per-machine) — NOT inside the project folder. The
+ * project folder may be in iCloud Drive, in which case anything inside
+ * it gets synced across machines. Cache state is per-machine (folder
+ * mtimes are inherently local), so synced cache files would clobber
+ * each other and produce iCloud "(Conflicted copy)" files.
+ */
 function diskCachePath(slug: string): string {
-  // Honour linked-project locations so the cache lives alongside the
-  // project rather than a phantom default-location dir.
+  return path.join(pm.getUserDataDir(), 'cache', slug, CACHE_FILENAME)
+}
+
+/**
+ * Legacy cache path that older builds wrote to: <projectDir>/.cache/episode-status.json.
+ * Delete on hydrate so the file (which iCloud is currently syncing
+ * across machines) stops bouncing. Best-effort — failure to delete is
+ * harmless, the file just continues to occupy a few hundred KB.
+ */
+function legacyDiskCachePath(slug: string): string {
   const dir = pm.getProjectDir(slug) || path.join(pm.PROJECTS_ROOT, slug)
   return path.join(dir, '.cache', CACHE_FILENAME)
 }
@@ -52,6 +70,8 @@ interface DiskCacheFile {
   schemaVersion: typeof SCHEMA_VERSION
   slug: string
   writtenAt: number
+  /** os.hostname() at write time. Diagnostic only — no behaviour depends on it. */
+  writtenBy?: string
   entries: EpisodeStatusCacheEntry[]
 }
 
@@ -298,6 +318,28 @@ class EpisodeStatusCache {
     if (dropped) this.scheduleFlush(slug)
   }
 
+  /**
+   * Hard reset for one project: drop in-memory entries, delete the on-disk
+   * cache file, and reset hydration so the next access starts fresh.
+   *
+   * Used by the "Rescan from disk" UI action — when the user wants to
+   * force a full readdir of every episode folder (e.g. an iCloud sync
+   * arrived and they don't want to wait for the watcher / mtime check
+   * to notice).
+   */
+  async wipeProject(slug: string): Promise<void> {
+    this.invalidateProject(slug)
+    this.hydrated.delete(slug)
+    const t = this.flushTimers.get(slug)
+    if (t) { clearTimeout(t); this.flushTimers.delete(slug) }
+    const filePath = diskCachePath(slug)
+    try {
+      await withLock(filePath, async () => {
+        await fs.rm(filePath, { force: true })
+      })
+    } catch { /* best-effort */ }
+  }
+
   /** Test/diagnostics — wipe everything. Does NOT touch disk caches. */
   clear(): void {
     this.entries.clear()
@@ -334,6 +376,20 @@ class EpisodeStatusCache {
         }
         if (loaded > 0) this.stats.diskHydrates++
       }
+      // Best-effort cleanup of the legacy in-project cache file. Older
+      // builds wrote to <projectDir>/.cache/episode-status.json which
+      // iCloud was syncing across machines; remove it so it stops
+      // bouncing. Deletion failure is harmless.
+      try {
+        const legacy = legacyDiskCachePath(slug)
+        await fs.rm(legacy, { force: true })
+        // Try to remove the now-empty .cache dir too, but only if empty.
+        try { await fs.rmdir(path.dirname(legacy)) } catch { /* not empty / not present */ }
+      } catch { /* best-effort */ }
+      // Start the FS watcher for this project so iCloud-delivered
+      // changes invalidate cache entries proactively. Best-effort; if
+      // watching fails the cache still works via mtime checks.
+      try { await ensureProjectWatcher(slug) } catch { /* best-effort */ }
       // Mark hydrated AFTER population so concurrent callers awaiting this
       // promise observe the populated cache — not "marked hydrated, empty".
       this.hydrated.add(slug)
@@ -394,6 +450,7 @@ class EpisodeStatusCache {
         schemaVersion: SCHEMA_VERSION,
         slug,
         writtenAt: Date.now(),
+        writtenBy: os.hostname(),
         entries,
       }
       await writeJsonAtomic(filePath, payload)
@@ -445,3 +502,8 @@ class EpisodeStatusCache {
 }
 
 export const episodeStatusCache = new EpisodeStatusCache()
+
+// Let the FS watcher invalidate cache entries when iCloud delivers
+// files into a project's episodes tree. Wired here (not in the watcher
+// module) to avoid a circular import.
+bindInvalidator((slug, code) => episodeStatusCache.invalidate(slug, code))

@@ -386,11 +386,9 @@ async function writeProjectFromInspection(
   // user sets them up in Settings (~5 min per-machine setup, by design).
   await writeJsonAtomic(path.join(projectDir, 'config.json'), {})
 
-  const secretsPath = path.join(projectDir, 'secrets.json')
-  if (!existsSync(secretsPath)) {
-    const { writeSecrets } = await import('./secrets-store.js')
-    await writeSecrets(slug, {})
-  }
+  // No empty secrets.json is seeded any more — provider API keys live
+  // app-level (see app-secrets-store.ts). The per-project secrets.json
+  // is created on-demand only when a YouTube OAuth account is connected.
 
   const jobsPath = path.join(projectDir, 'jobs.json')
   if (!existsSync(jobsPath)) {

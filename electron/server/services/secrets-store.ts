@@ -1,93 +1,57 @@
 /**
- * Per-project secrets store — isolates API keys from the rest of config.
+ * Secrets surface — split between app-level API keys and per-project
+ * upload/OAuth state.
  *
- * Keys live in `{PROJECTS_ROOT}/{slug}/secrets.json` (perm 0600 on POSIX)
- * rather than being mixed into `config.json`. This gives us:
- *   - A single file to lock down, exclude from backups, or swap for keychain.
- *   - No risk of keys bleeding into config-shaped logs, diffs, or exports.
- *   - A migration hook for existing projects whose keys still live in config.
+ * Why this module looks like a shim
+ * ---------------------------------
+ * Pre-rework, every secret lived in `<projectDir>/secrets.json` (one file
+ * per project). That file synced via iCloud across the user's Macs, so
+ * each device-switch produced "credentials came from a different
+ * machine" warnings + a Clear-and-reset prompt. Annoying, error-prone.
  *
- * ── Schema versions ──────────────────────────────────────────────────────
- *   v1 (legacy): flat `{ openai_api_key: "sk-...", fal_api_key: "...", ... }`
- *   v2 (current): nested, multi-account:
- *     {
- *       schema_version: 2,
- *       providers: {
- *         openai: { accounts: [{ id, label, apiKey, isDefault }] },
- *         ...
- *       }
- *     }
+ * Post-rework:
+ *   - Provider API keys → single app-level file at
+ *     `<userData>/app-secrets.json`. One key per provider, no accounts,
+ *     no provenance check. Implemented in `app-secrets-store.ts`.
+ *   - YouTube OAuth tokens + OAuth client credentials → still per-project
+ *     (each project has its own channel/account context), but persisted
+ *     in `<projectDir>/secrets.json` *without* the foreign-provenance
+ *     guard. The user reconnects on each Mac if needed; no banner.
  *
- * `readSecrets` / `writeSecrets` still read and accept the legacy flat shape —
- * they project over v2 using each provider's default account. Account-centric
- * callers use `services/secrets-accounts.ts` which operates on v2 directly.
+ * The historical v2 shape (`{ schema_version: 2, providers, upload?,
+ * upload_oauth_client? }`) is preserved across `readSecretsV2` /
+ * `writeSecretsV2` so `upload-store.ts` keeps working unchanged. On write,
+ * the shim splits: the `providers` field is forwarded to the app-level
+ * store, everything else stays in the per-project file. On read, the two
+ * are merged back into a synthetic v2 view.
  *
- * This is NOT end-to-end encryption. Contents remain plaintext on disk — the
- * win here is isolation + redaction. A later pass can swap this store for a
- * `keytar`-backed implementation without changing callers.
+ * The legacy flat-shape API (`readSecrets`, `writeSecrets`) and the
+ * provenance helpers (`getSecretsProvenanceStatus`,
+ * `resetSecretsForCurrentMachine`) are kept as compatibility shims so
+ * existing callers compile. The provenance helpers always report
+ * non-foreign now.
  */
 
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
-import os from 'os'
 import path from 'path'
-import { createHash, randomUUID } from 'crypto'
-import { PROJECTS_ROOT, getProjectDir } from './project-manager.js'
-import { writeJsonAtomic, withLock, readJsonOr } from '../lib/atomic-store.js'
+import { getProjectDir, PROJECTS_ROOT } from './project-manager.js'
+import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
 import { isEncryptionAvailable, encryptToBase64, decryptFromBase64 } from '../lib/safe-storage.js'
+import {
+  SECRET_PROVIDERS,
+  type ProviderId,
+  readAppSecrets,
+  writeAppSecrets,
+} from './app-secrets-store.js'
 
-// ── Machine provenance ──────────────────────────────────────────────────────
-//
-// If the user manually copies a project folder between their machines (rsync,
-// drag-and-drop, cp -r) instead of using the Import flow, `secrets.json`
-// travels intact. safeStorage-encrypted blobs are typically inert on the new
-// machine (different Keychain-derived key → decrypt fails), but:
-//   - on the plaintext fallback path the file is still readable as-is, and
-//   - shared iCloud Keychain configurations can in rare cases decrypt a
-//     foreign blob.
-//
-// Either way we must NOT silently activate another machine's OAuth tokens —
-// the #1 correctness hazard in the personal-multi-machine threat model is
-// uploading to the wrong channel. We stamp every write with a hash derived
-// from the current user + userData path (stable within a machine/account,
-// distinct across machines and Apple IDs) and refuse to load a store whose
-// stamp doesn't match. Missing stamp = legacy file, accepted and re-stamped
-// on next write.
-function computeMachineProvenance(): string {
-  const username = os.userInfo().username || ''
-  // PROJECTS_ROOT is `<userData>/projects`; the userData path is its parent
-  // and is what Electron's `app.getPath('userData')` returns. Using it rather
-  // than os.hostname() avoids the "user renames their Mac" weakness.
-  const userDataPath = path.dirname(PROJECTS_ROOT)
-  return createHash('sha256').update(`${username}|${userDataPath}`).digest('hex')
-}
+export { SECRET_PROVIDERS }
+export type { ProviderId }
 
-// ── Providers ────────────────────────────────────────────────────────────────
-
-/** Canonical provider ids — one per column in secrets v2.providers. */
-export const SECRET_PROVIDERS = [
-  'kie',
-  'fal',
-  'openai',
-  'anthropic',
-  'genaipro',
-  'elevenlabs',
-  'google',
-] as const
-
-export type ProviderId = typeof SECRET_PROVIDERS[number]
-
-/**
- * Legacy flat-key names — still exported so `redactSecrets` and any one-shot
- * log-scrubbing code can target them. Equal to `{providerId}_api_key` for
- * every entry in `SECRET_PROVIDERS`.
- */
 export const SECRET_KEYS = SECRET_PROVIDERS.map(p => `${p}_api_key` as const)
 export type SecretKey = typeof SECRET_KEYS[number]
 
 export type ProjectSecrets = Partial<Record<SecretKey, string>>
-
-// ── v2 shape ────────────────────────────────────────────────────────────────
 
 export interface ProviderAccount {
   id: string
@@ -105,144 +69,9 @@ export interface SecretsV2 {
   providers: Partial<Record<ProviderId, ProviderAccounts>>
 }
 
-// ── Paths ───────────────────────────────────────────────────────────────────
-
-/**
- * Resolve a per-project file path that respects linked projects (those
- * moved out of PROJECTS_ROOT into custom folders). Falls back to the
- * default location if the slug isn't yet on disk — that matters during
- * project creation, when getProjectDir returns null because nothing's
- * been written yet but the caller about to write expects a usable path.
- */
-function secretsPath(slug: string): string {
-  const dir = getProjectDir(slug) || path.join(PROJECTS_ROOT, slug)
-  return path.join(dir, 'secrets.json')
-}
-
-function configPath(slug: string): string {
-  const dir = getProjectDir(slug) || path.join(PROJECTS_ROOT, slug)
-  return path.join(dir, 'config.json')
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-function providerIdFromLegacyKey(k: string): ProviderId | null {
-  if (!k.endsWith('_api_key')) return null
-  const p = k.slice(0, -'_api_key'.length)
-  return (SECRET_PROVIDERS as readonly string[]).includes(p) ? (p as ProviderId) : null
-}
-
-function emptyV2(): SecretsV2 {
-  return { schema_version: 2, providers: {} }
-}
-
-/**
- * Ensure a v2 shape. Accepts:
- *   - an empty object (fresh project)
- *   - a v1 flat shape (legacy)
- *   - a v2 nested shape (passthrough)
- * Returns a normalised v2 without writing to disk.
- */
-function normaliseToV2(raw: any): { v2: SecretsV2; migrated: boolean } {
-  if (raw && typeof raw === 'object' && raw.schema_version === 2 && raw.providers) {
-    return { v2: raw as SecretsV2, migrated: false }
-  }
-  const v2 = emptyV2()
-  if (!raw || typeof raw !== 'object') return { v2, migrated: false }
-
-  let touched = false
-  for (const [k, v] of Object.entries(raw)) {
-    const pid = providerIdFromLegacyKey(k)
-    if (!pid) continue
-    if (typeof v !== 'string' || !v) continue
-    v2.providers[pid] = {
-      accounts: [{ id: randomUUID(), label: 'Default', apiKey: v, isDefault: true }],
-    }
-    touched = true
-  }
-  return { v2, migrated: touched }
-}
-
-/** Project a v2 store to the legacy flat `{provider}_api_key` shape. */
-function projectToLegacy(v2: SecretsV2): ProjectSecrets {
-  const out: ProjectSecrets = {}
-  for (const pid of SECRET_PROVIDERS) {
-    const bucket = v2.providers[pid]
-    if (!bucket?.accounts?.length) continue
-    const def = bucket.accounts.find(a => a.isDefault) ?? bucket.accounts[0]
-    if (def?.apiKey) out[`${pid}_api_key` as SecretKey] = def.apiKey
-  }
-  return out
-}
-
-function ensureOneDefault(bucket: ProviderAccounts): void {
-  if (!bucket.accounts.length) return
-  const defaults = bucket.accounts.filter(a => a.isDefault)
-  if (defaults.length === 1) return
-  if (defaults.length === 0) {
-    bucket.accounts[0].isDefault = true
-    return
-  }
-  // More than one default — keep the first, demote the rest.
-  let kept = false
-  for (const a of bucket.accounts) {
-    if (a.isDefault) {
-      if (kept) a.isDefault = false
-      else kept = true
-    }
-  }
-}
-
-// ── Core v2 read/write ──────────────────────────────────────────────────────
-
-// On-disk envelope for encrypted secrets. The file is still JSON (so mode
-// 0600 and atomic rename semantics carry over unchanged), but the provider
-// data is base64-encoded ciphertext produced by Electron safeStorage.
-//
-// Legacy files written before encryption landed are unwrapped plaintext
-// SecretsV2 objects; the reader accepts both shapes and the next write
-// upgrades to the encrypted shape. See lib/safe-storage.ts for the why.
-interface EncryptedEnvelope {
-  __encrypted: true
-  version: 1
-  ciphertext: string
-  /** sha256 of `${username}|${userData}` — see computeMachineProvenance. */
-  _provenance?: string
-}
-
-function isEnvelope(raw: any): raw is EncryptedEnvelope {
-  return !!raw && typeof raw === 'object' && raw.__encrypted === true
-    && typeof raw.ciphertext === 'string'
-}
-
-/**
- * Inspect a raw on-disk secrets file and decide whether it belongs to this
- * machine. Legacy files (no `_provenance` field) are treated as `legacy` —
- * readers accept them, and the next write will stamp the current machine's
- * hash without invalidating anything.
- */
-function classifyProvenance(raw: any): 'match' | 'legacy' | 'foreign' {
-  if (!raw || typeof raw !== 'object') return 'legacy'
-  const stored = typeof raw._provenance === 'string' ? raw._provenance : null
-  if (!stored) return 'legacy'
-  return stored === computeMachineProvenance() ? 'match' : 'foreign'
-}
-
-/**
- * Tagged error thrown when a secrets.json file is on disk but cannot be
- * decrypted on this machine. The single most common cause is an Electron
- * app upgrade that changed the keychain-derived key — the previous file
- * stays on disk, just unreadable.
- *
- * Callers MUST distinguish this from "no file at all": the recovery path
- * (user re-enters keys in Settings) is fine, but the data-loss path (a
- * read-then-empty-write cycle that overwrites the encrypted file with an
- * empty envelope on next save) MUST be blocked.
- *
- * We use a `__tag` discriminator instead of `instanceof` because Electron
- * dev/prod and ESM/CJS module dual-loading have historically broken
- * cross-module instance checks.
- */
+// Preserved for callers that imported it. Never thrown by the new read
+// path — undecryptable per-project files are returned as empty so the
+// user can simply reconnect.
 export class SecretsDecryptError extends Error {
   readonly __tag = 'SecretsDecryptError' as const
   constructor(public readonly filePath: string, public readonly cause?: unknown) {
@@ -254,350 +83,274 @@ export function isSecretsDecryptError(e: unknown): e is SecretsDecryptError {
   return !!e && typeof e === 'object' && (e as any).__tag === 'SecretsDecryptError'
 }
 
-async function readSecretsFile(filePath: string): Promise<any> {
-  const raw = await readJsonOr<any>(filePath, null)
-  if (!raw) return null
+// ── Per-project file (OAuth/upload state only, no provider keys) ────────────
 
-  // If the file carries a provenance stamp that doesn't match this machine,
-  // refuse to load. The user either moved the project folder manually, or
-  // two machines share an unusual Keychain configuration — either way the
-  // OAuth tokens inside were minted for a different channel context and
-  // must not be silently activated here. The UI surfaces this via
-  // `getSecretsProvenanceStatus` and offers a Clear-and-reset action.
-  const provenance = classifyProvenance(raw)
-  if (provenance === 'foreign') {
-    console.warn(
-      `[secrets] ignoring foreign-provenance secrets.json at ${filePath} — ` +
-      `the file was written by a different machine. Reset via Settings → API Keys.`
-    )
-    return null
-  }
-
-  if (!isEnvelope(raw)) {
-    // Plaintext shape — strip the envelope-level `_provenance` sibling
-    // before handing the bag to normaliseToV2 so SecretsV2 stays clean.
-    const { _provenance, ...rest } = raw as Record<string, any>
-    return rest
-  }
-  try {
-    const plain = decryptFromBase64(raw.ciphertext)
-    return JSON.parse(plain)
-  } catch (e: any) {
-    // Decryption failed — most likely an app/keychain change after an
-    // update made the previously-encrypted blob unreadable on this
-    // machine. Throw a tagged error so callers can distinguish "no file"
-    // from "file present but undecryptable" and refuse to overwrite the
-    // ciphertext with an empty envelope (which would silently destroy
-    // the user's keys forever — see Issue #1 in the 2026-04-28 batch).
-    console.warn(
-      `[secrets] decrypt failed at ${filePath} — refusing to silently overwrite. ` +
-      `User should re-enter keys in Settings → API Keys.`,
-      e?.message || e,
-    )
-    throw new SecretsDecryptError(filePath, e)
-  }
+interface EncryptedEnvelope {
+  __encrypted: true
+  version: 1
+  ciphertext: string
 }
 
-async function writeSecretsFile(filePath: string, value: SecretsV2): Promise<void> {
-  const provenance = computeMachineProvenance()
-  const plain = JSON.stringify(value)
+function isEnvelope(raw: any): raw is EncryptedEnvelope {
+  return !!raw && typeof raw === 'object' && raw.__encrypted === true
+    && typeof raw.ciphertext === 'string'
+}
+
+function projectSecretsPath(slug: string): string {
+  const dir = getProjectDir(slug) || path.join(PROJECTS_ROOT, slug)
+  return path.join(dir, 'secrets.json')
+}
+
+async function readProjectFile(slug: string): Promise<Record<string, any>> {
+  const filePath = projectSecretsPath(slug)
+  const raw = await readJsonOr<any>(filePath, null)
+  if (raw == null) return {}
+  if (isEnvelope(raw)) {
+    try {
+      const plain = decryptFromBase64(raw.ciphertext)
+      const obj = JSON.parse(plain)
+      return (obj && typeof obj === 'object') ? obj : {}
+    } catch {
+      // Undecryptable on this machine — surface as empty. The user will
+      // reconnect when they next try to upload; no banner needed.
+      return {}
+    }
+  }
+  if (raw && typeof raw === 'object') {
+    // Strip stale fields from older versions; we never want to honour
+    // them again.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { _provenance, schema_version: _ignored, providers: _alsoIgnored, ...rest } = raw
+    return rest
+  }
+  return {}
+}
+
+/**
+ * Write the per-project file with no internal lock. Callers MUST hold
+ * `withLock(projectSecretsPath(slug), ...)` themselves — this is reachable
+ * from inside that same lock during writeSecretsV2, and re-entering would
+ * deadlock.
+ */
+async function writeProjectFileLocked(slug: string, value: Record<string, any>): Promise<void> {
+  const filePath = projectSecretsPath(slug)
+  const isEmpty = Object.keys(value).length === 0
+  if (isEmpty) {
+    await fs.rm(filePath, { force: true })
+    return
+  }
   if (isEncryptionAvailable()) {
     const envelope: EncryptedEnvelope = {
       __encrypted: true,
       version: 1,
-      ciphertext: encryptToBase64(plain),
-      _provenance: provenance,
+      ciphertext: encryptToBase64(JSON.stringify(value)),
     }
     await writeJsonAtomic(filePath, envelope, { mode: 0o600 })
     return
   }
-  // Fallback: test env under tsx, or a machine with no keychain. 0600 is
-  // still enforced by writeJsonAtomic, so file-mode protection carries on.
-  // `_provenance` rides as a top-level sibling of the v2 shape; readers
-  // strip it before handing the bag off to normaliseToV2.
-  await writeJsonAtomic(filePath, { ...value, _provenance: provenance }, { mode: 0o600 })
+  await writeJsonAtomic(filePath, value, { mode: 0o600 })
 }
 
-/**
- * Read the raw v2 secrets store, migrating from v1 on-disk if needed.
- * Internal — account-centric callers in `secrets-accounts.ts` use this.
- *
- * If the on-disk file exists but cannot be decrypted (e.g. after an app
- * upgrade that changed the keychain-derived key), we return an empty v2
- * store but DO NOT trigger a rewrite — leaving the unreadable ciphertext
- * intact so the user can be prompted to re-enter their keys. The UI
- * checks `getSecretsProvenanceStatus` to surface this state.
- */
-export async function readSecretsV2(slug: string): Promise<SecretsV2> {
-  const p = secretsPath(slug)
-  let raw: any = null
-  try {
-    raw = await readSecretsFile(p)
-  } catch (e) {
-    if (isSecretsDecryptError(e)) {
-      // File is on disk but undecryptable. Hand back an empty store so the
-      // app keeps booting; skip the rewrite path so we don't clobber the
-      // ciphertext. The user re-enters keys via Settings, which goes
-      // through writeSecretsV2's recovery branch (non-empty mutation
-      // result is allowed to overwrite).
-      return emptyV2()
-    }
-    throw e
-  }
-  const { v2, migrated } = normaliseToV2(raw)
-  // Rewrite when: (a) we migrated v1→v2 in memory, (b) the file is v2 but
-  // stored plaintext (upgrade to encrypted envelope on next write), or
-  // (c) the schema_version is missing. Best-effort — a failed write here
-  // shouldn't break the caller.
-  const needsRewrite =
-    migrated ||
-    (raw && !raw.schema_version && !isEnvelope(raw)) ||
-    (raw && !isEnvelope(raw) && isEncryptionAvailable())
-  if (needsRewrite) {
-    await withLock(p, async () => {
-      await writeSecretsFile(p, v2)
-    }).catch(() => {})
-  }
-  return v2
-}
+// ── Provider-keys split ────────────────────────────────────────────────────
 
-/** Atomically mutate the v2 store. The callback receives a mutable copy. */
-export async function writeSecretsV2(
-  slug: string,
-  mutate: (v2: SecretsV2) => void | Promise<void>,
-): Promise<SecretsV2> {
-  const p = secretsPath(slug)
-  let result: SecretsV2 = emptyV2()
-  await withLock(p, async () => {
-    let raw: any = null
-    let priorWasUndecryptable = false
-    try {
-      raw = await readSecretsFile(p)
-    } catch (e) {
-      if (isSecretsDecryptError(e)) {
-        priorWasUndecryptable = true
-      } else {
-        throw e
-      }
-    }
-    const { v2 } = normaliseToV2(raw)
-    await mutate(v2)
-    // Normalise default invariant per provider before writing.
+function appProvidersToV2Providers(): Promise<SecretsV2['providers']> {
+  return readAppSecrets().then((v3) => {
+    const out: SecretsV2['providers'] = {}
     for (const pid of SECRET_PROVIDERS) {
-      const bucket = v2.providers[pid]
-      if (!bucket) continue
-      if (!bucket.accounts.length) {
-        delete v2.providers[pid]
-        continue
+      const k = v3.providers[pid]?.apiKey
+      if (!k) continue
+      out[pid] = {
+        accounts: [{ id: 'default', label: 'Default', apiKey: k, isDefault: true }],
       }
-      ensureOneDefault(bucket)
     }
-    // Data-loss guard: if the on-disk file was undecryptable AND the
-    // post-mutate store has no accounts on any provider, refuse to write.
-    // Writing an empty envelope at this point would silently destroy the
-    // user's still-recoverable encrypted keys (they could re-decrypt by
-    // restoring keychain access, etc.). The recovery path is "user enters
-    // at least one key in Settings", which produces a non-empty store and
-    // is allowed through.
-    const hasAnyAccount = Object.values(v2.providers).some(
-      (b: any) => b && Array.isArray(b.accounts) && b.accounts.length > 0,
-    )
-    if (priorWasUndecryptable && !hasAnyAccount) {
-      throw new SecretsDecryptError(
-        p,
-        new Error('refused to overwrite undecryptable secrets file with empty store'),
-      )
-    }
-    await writeSecretsFile(p, v2)
-    result = v2
+    return out
   })
-  return result
 }
 
-// ── Provenance status (surfaced to UI) ──────────────────────────────────────
-
-export interface SecretsProvenanceStatus {
-  /** True iff a secrets.json file exists on disk for this project. */
-  present: boolean
-  /**
-   * True iff the file's _provenance stamp exists and does NOT match the
-   * current machine. The store is treated as empty while `foreign` is true;
-   * the UI should warn the user and offer a Clear-and-reset action.
-   */
-  foreign: boolean
-  /**
-   * True iff the file is an encrypted envelope on this machine but decryption
-   * fails (almost always: an Electron upgrade changed the keychain-derived
-   * key, leaving the previous ciphertext unreadable). The data is still on
-   * disk but unrecoverable through the normal API; the UI surfaces a banner
-   * so the user can re-enter keys, which writeSecretsV2's recovery branch
-   * accepts even though the prior file was undecryptable.
-   */
-  decryptFailed: boolean
-}
-
-/**
- * Inspect a project's secrets.json without going through the decryption
- * path so we can tell the UI "this file was written by a different machine"
- * without fully loading (and ignoring) the foreign data.
- */
-export async function getSecretsProvenanceStatus(slug: string): Promise<SecretsProvenanceStatus> {
-  const p = secretsPath(slug)
-  const raw = await readJsonOr<any>(p, null)
-  if (!raw) return { present: false, foreign: false, decryptFailed: false }
-  const foreign = classifyProvenance(raw) === 'foreign'
-  // Probe-decrypt encrypted envelopes. Foreign files don't get probed —
-  // their banner already covers the failure case and a probe would just
-  // throw on an envelope minted by a different keychain.
-  let decryptFailed = false
-  if (!foreign && isEnvelope(raw)) {
-    try {
-      decryptFromBase64(raw.ciphertext)
-    } catch {
-      decryptFailed = true
-    }
+function v2ProvidersToAppPatch(providers: SecretsV2['providers']): Record<ProviderId, string> {
+  // For each provider, take the default account's apiKey (or first if
+  // no default flag set). Empty / missing → cleared.
+  const out: Partial<Record<ProviderId, string>> = {}
+  for (const pid of SECRET_PROVIDERS) {
+    const bucket = providers[pid]
+    const def = bucket?.accounts?.find(a => a.isDefault) ?? bucket?.accounts?.[0]
+    out[pid] = def?.apiKey ?? ''
   }
-  return { present: true, foreign, decryptFailed }
+  return out as Record<ProviderId, string>
 }
 
-/**
- * Overwrite a project's secrets.json with an empty v2 store stamped with
- * the current machine's provenance. Used by the "Clear and reset" UI action
- * on a foreign-provenance banner, and by the Import flow to shed secrets
- * from a transferred project folder.
- */
-export async function resetSecretsForCurrentMachine(slug: string): Promise<void> {
-  const p = secretsPath(slug)
-  await withLock(p, async () => {
-    await writeSecretsFile(p, emptyV2())
-  })
+// ── Public API ──────────────────────────────────────────────────────────────
+
+function providerIdFromLegacyKey(k: string): ProviderId | null {
+  if (!k.endsWith('_api_key')) return null
+  const p = k.slice(0, -'_api_key'.length)
+  return (SECRET_PROVIDERS as readonly string[]).includes(p) ? (p as ProviderId) : null
 }
 
-// ── Legacy-shape compat shim ────────────────────────────────────────────────
-
-export async function readSecrets(slug: string): Promise<ProjectSecrets> {
-  const v2 = await readSecretsV2(slug)
-  return projectToLegacy(v2)
+/** Legacy flat-shape read. Slug ignored — keys are app-wide. */
+export async function readSecrets(_slug: string): Promise<ProjectSecrets> {
+  const v3 = await readAppSecrets()
+  const out: ProjectSecrets = {}
+  for (const pid of SECRET_PROVIDERS) {
+    const k = v3.providers[pid]?.apiKey
+    if (k) out[`${pid}_api_key` as SecretKey] = k
+  }
+  return out
 }
 
-/**
- * Merge a legacy-shape `patch` into the current store. Only known keys are
- * accepted. For each `{provider}_api_key` field:
- *   - A non-empty string upserts the provider's DEFAULT account (updating the
- *     existing default's key, or creating a 'Default' account if none).
- *   - An empty string (`''`) clears the default account. Remaining accounts
- *     keep their order and the next one in the list is promoted to default.
- *   - `undefined` leaves that provider untouched.
- *
- * Multi-account callers should use `services/secrets-accounts.ts` directly.
- */
-export async function writeSecrets(slug: string, patch: ProjectSecrets): Promise<void> {
-  await writeSecretsV2(slug, (v2) => {
+/** Legacy flat-shape write. Slug ignored — keys go to the app store. */
+export async function writeSecrets(_slug: string, patch: ProjectSecrets): Promise<void> {
+  await writeAppSecrets((v3) => {
     for (const key of SECRET_KEYS) {
       if (!(key in patch)) continue
       const value = patch[key]
       if (value === undefined) continue
       const pid = providerIdFromLegacyKey(key)!
-      const bucket = v2.providers[pid] ?? { accounts: [] }
+      if (value === '') delete v3.providers[pid]
+      else v3.providers[pid] = { apiKey: value }
+    }
+  })
+}
 
-      if (value === '') {
-        // Clear default account only; leave any other accounts alone.
-        const i = bucket.accounts.findIndex(a => a.isDefault)
-        if (i >= 0) bucket.accounts.splice(i, 1)
-        if (bucket.accounts.length) {
-          bucket.accounts[0].isDefault = true
-          v2.providers[pid] = bucket
-        } else {
-          delete v2.providers[pid]
+/**
+ * Synthetic v2 view: providers come from app-level, upload/OAuth fields
+ * from the per-project file. Used by `upload-store.ts` (YouTube OAuth).
+ */
+export async function readSecretsV2(slug: string): Promise<SecretsV2> {
+  const [providers, project] = await Promise.all([
+    appProvidersToV2Providers(),
+    readProjectFile(slug),
+  ])
+  const merged: SecretsV2 = { schema_version: 2, providers }
+  // Merge any non-providers fields the per-project file held (upload,
+  // upload_oauth_client, future extensions).
+  for (const [k, v] of Object.entries(project)) {
+    (merged as any)[k] = v
+  }
+  return merged
+}
+
+/**
+ * Mutate the synthetic v2 view, then split the result back across the
+ * app-level store (providers) and the per-project file (everything else).
+ */
+export async function writeSecretsV2(
+  slug: string,
+  mutate: (v2: SecretsV2) => void | Promise<void>,
+): Promise<SecretsV2> {
+  const filePath = projectSecretsPath(slug)
+  let result: SecretsV2 = { schema_version: 2, providers: {} }
+  await withLock(filePath, async () => {
+    const current = await readSecretsV2(slug)
+    // Snapshot the providers BEFORE mutate so we can tell which keys
+    // (if any) the caller actually changed. Most v2 callers (upload-store)
+    // only touch the upload/upload_oauth_client extension fields and
+    // don't intend to change provider API keys at all — without this
+    // snapshot, a concurrent `setApiKey` write would be silently rolled
+    // back by our split-write.
+    const providersBefore = v2ProvidersToAppPatch(current.providers)
+    await mutate(current)
+    const providersAfter = v2ProvidersToAppPatch(current.providers)
+
+    // Apply only the per-provider DIFF to the app-level store. Providers
+    // the caller didn't touch get left as-is (preserves any concurrent
+    // edits that landed during this critical section).
+    const providersChanged = SECRET_PROVIDERS.some(
+      (pid) => providersBefore[pid] !== providersAfter[pid],
+    )
+    if (providersChanged) {
+      await writeAppSecrets((v3) => {
+        for (const pid of SECRET_PROVIDERS) {
+          if (providersBefore[pid] === providersAfter[pid]) continue
+          const next = providersAfter[pid]
+          if (next) v3.providers[pid] = { apiKey: next }
+          else delete v3.providers[pid]
         }
-        continue
-      }
-
-      // Non-empty: update existing default, or create one.
-      const def = bucket.accounts.find(a => a.isDefault)
-      if (def) {
-        def.apiKey = value
-      } else {
-        bucket.accounts.unshift({
-          id: randomUUID(),
-          label: 'Default',
-          apiKey: value,
-          isDefault: true,
-        })
-      }
-      v2.providers[pid] = bucket
+      })
     }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { schema_version: _v, providers: _p, ...rest } = current as any
+    await writeProjectFileLocked(slug, rest)
+    result = current
   })
+  return result
 }
 
-// ── Legacy config.json → secrets.json migration (unchanged behaviour) ───────
+// ── Provenance — retained as no-ops ────────────────────────────────────────
 
-/**
- * One-shot migration: if a project's config.json still carries API keys
- * (older projects pre-secrets-store), move them to secrets.json and strip
- * them from config. Idempotent — a no-op once keys are already isolated.
- */
+export interface SecretsProvenanceStatus {
+  present: boolean
+  foreign: boolean
+  decryptFailed: boolean
+}
+
+export async function getSecretsProvenanceStatus(_slug: string): Promise<SecretsProvenanceStatus> {
+  // `present` reflects the app-level store now; the warning flags are
+  // permanently false because the foreign-provenance flow is retired.
+  const v3 = await readAppSecrets()
+  const present = Object.values(v3.providers).some((b) => !!b?.apiKey)
+  return { present, foreign: false, decryptFailed: false }
+}
+
+export async function resetSecretsForCurrentMachine(_slug: string): Promise<void> {
+  // No-op. Individual provider keys can be cleared from the app-level
+  // Settings page.
+}
+
+// ── Legacy config.json → app secrets one-shot migrator ──────────────────────
+
 export async function migrateSecretsFromConfig(slug: string): Promise<void> {
-  const cp = configPath(slug)
-  if (!existsSync(cp)) return
-  await withLock(cp, async () => {
-    let config: any
-    try {
-      config = JSON.parse(await fs.readFile(cp, 'utf-8'))
-    } catch {
-      return // corrupt/missing — leave alone
-    }
-
-    const patch: ProjectSecrets = {}
-    let configChanged = false
-    for (const k of SECRET_KEYS) {
-      if (k in config) {
-        if (typeof config[k] === 'string' && config[k]) patch[k] = config[k]
-        delete config[k]
-        configChanged = true
+  const dir = getProjectDir(slug) ?? path.join(PROJECTS_ROOT, slug)
+  const configPath = path.join(dir, 'config.json')
+  if (!existsSync(configPath)) return
+  let raw: any
+  try {
+    const text = await fs.readFile(configPath, 'utf-8')
+    raw = JSON.parse(text)
+  } catch {
+    return
+  }
+  let configMutated = false
+  await writeAppSecrets((v3) => {
+    for (const pid of SECRET_PROVIDERS) {
+      const legacyKey = `${pid}_api_key`
+      const value = raw?.[legacyKey]
+      if (typeof value === 'string' && value) {
+        if (!v3.providers[pid]?.apiKey) v3.providers[pid] = { apiKey: value }
+        raw[legacyKey] = ''
+        configMutated = true
       }
     }
-
-    if (!configChanged) return
-    if (Object.keys(patch).length > 0) await writeSecrets(slug, patch)
-    await writeJsonAtomic(cp, config)
   })
+  if (configMutated) {
+    await writeJsonAtomic(configPath, raw)
+  }
 }
 
-// ── Redaction ───────────────────────────────────────────────────────────────
+// ── Redaction helper (sanitise before logging/serialisation) ────────────────
 
-/**
- * Scrub secret-looking values from an arbitrary object tree. Use before
- * writing anything derived from user config into logs or HTTP responses.
- *
- * Redacts:
- *   - Legacy `{provider}_api_key` fields (non-empty strings).
- *   - Any `apiKey` property anywhere in the tree (v2 accounts).
- *
- * Empty strings are left untouched so "has this key?" checks still read
- * correctly (e.g. for UI `has_*` flags computed off the legacy shape).
- */
-export function redactSecrets<T>(value: T): T {
-  return redactInternal(value, new WeakSet()) as T
+const REDACTED = '[REDACTED]'
+
+export function redactSecrets<T>(input: T): T {
+  if (input == null || typeof input !== 'object') return input
+  return walk(input as any) as T
 }
 
-function redactInternal(value: any, seen: WeakSet<object>): any {
-  if (value === null || typeof value !== 'object') return value
-  if (seen.has(value)) return value
-  seen.add(value)
-
-  if (Array.isArray(value)) return value.map(v => redactInternal(v, seen))
-
-  const out: Record<string, any> = {}
-  for (const k of Object.keys(value)) {
-    const v = value[k]
-    const isLegacyKey = (SECRET_KEYS as readonly string[]).includes(k)
-    const isAccountKey = k === 'apiKey'
-    if ((isLegacyKey || isAccountKey) && typeof v === 'string' && v) {
-      out[k] = '[REDACTED]'
-    } else {
-      out[k] = redactInternal(v, seen)
+function walk(node: any): any {
+  if (Array.isArray(node)) return node.map(walk)
+  if (!node || typeof node !== 'object') return node
+  const out: any = {}
+  for (const [k, v] of Object.entries(node)) {
+    if (k.endsWith('_api_key') && typeof v === 'string') {
+      out[k] = v ? REDACTED : ''
+      continue
     }
+    if (k === 'apiKey' && typeof v === 'string') {
+      out[k] = v ? REDACTED : ''
+      continue
+    }
+    out[k] = walk(v)
   }
   return out
 }

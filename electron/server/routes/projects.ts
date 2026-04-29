@@ -501,17 +501,22 @@ router.delete('/projects/:slug', async (req, res) => {
 // machine has the project loaded. The status endpoint is the read; the
 // sync endpoint is the reconcile.
 
-// ── Secrets provenance (cross-machine folder-copy guard) ──────────────────
-// On manual folder copies between machines, `secrets.json` travels intact.
-// The store stamps every write with a machine-derived hash and refuses to
-// load a file whose stamp doesn't match. This endpoint lets the UI surface
-// a banner + offer a one-click reset without blocking the rest of the app.
+// ── Secrets-status (compat shim — provenance flow is retired) ────────────
+//
+// API keys live app-level now (`<userData>/app-secrets.json`); the
+// per-project foreign-provenance check + Clear-and-reset banner are gone
+// for good. This endpoint stays so the dashboard's old composable doesn't
+// 404, but it always reports `foreign: false` / `decryptFailed: false`.
+// `present` reflects whether ANY app-level key is configured.
 router.get('/projects/:slug/secrets-status', async (req, res) => {
   if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
   const status = await getSecretsProvenanceStatus(req.params.slug)
   res.json(status)
 })
 
+// No-op kept so the legacy "Clear and reset" button in older dashboards
+// doesn't 404 mid-deploy. Individual provider keys can be cleared from
+// the app-level Settings → API Keys page.
 router.post('/projects/:slug/secrets-reset', async (req, res) => {
   if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
   try {

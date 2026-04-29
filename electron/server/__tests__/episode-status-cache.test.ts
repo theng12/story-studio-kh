@@ -210,7 +210,7 @@ describe('episode-status-cache', () => {
     await cache.get(SLUG, CODE)
     await cache.flushProjectNow(SLUG)
 
-    const filePath = path.join(pm.PROJECTS_ROOT, SLUG, '.cache', 'episode-status.json')
+    const filePath = path.join(tmp.dir, 'cache', SLUG, 'episode-status.json')
     const raw = JSON.parse(await fs.readFile(filePath, 'utf-8'))
     assert.equal(raw.schemaVersion, cacheMod.SCHEMA_VERSION)
     assert.equal(raw.slug, SLUG)
@@ -237,7 +237,7 @@ describe('episode-status-cache', () => {
     const cache = cacheMod.episodeStatusCache
 
     // Write a malformed cache file directly.
-    const filePath = path.join(pm.PROJECTS_ROOT, SLUG, '.cache', 'episode-status.json')
+    const filePath = path.join(tmp.dir, 'cache', SLUG, 'episode-status.json')
     await fs.mkdir(path.dirname(filePath), { recursive: true })
     await fs.writeFile(filePath, JSON.stringify({
       schemaVersion: 99,
@@ -261,7 +261,7 @@ describe('episode-status-cache', () => {
 
     await cache.get(SLUG, CODE)
     await cache.flushProjectNow(SLUG)
-    const filePath = path.join(pm.PROJECTS_ROOT, SLUG, '.cache', 'episode-status.json')
+    const filePath = path.join(tmp.dir, 'cache', SLUG, 'episode-status.json')
     assert.ok(await fs.stat(filePath).then(() => true).catch(() => false), 'file written')
 
     cache.invalidateProject(SLUG)

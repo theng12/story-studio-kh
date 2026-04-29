@@ -1,26 +1,26 @@
 /**
- * Account-centric secrets API — adds/removes/selects accounts per provider.
+ * Compatibility shim over the new app-level secrets store.
  *
- * Operates on the v2 secrets shape directly (see secrets-store.ts). Callers
- * that still want the legacy single-key view use `readSecrets` / `writeSecrets`
- * from secrets-store, which project over the default account of each provider.
+ * Background: API keys used to live in per-project `secrets.json` files,
+ * which iCloud synced across machines and produced "credentials came from
+ * a different machine" warnings on every device switch. The rework moves
+ * keys to a single per-machine file in userData (see app-secrets-store.ts).
  *
- * Backing layer invariants — enforced inside writeSecretsV2 on every write:
- *   - Exactly one `isDefault: true` per non-empty provider bucket.
- *   - Account ids are unique within a provider.
- *   - A provider with zero accounts is removed from the `providers` map.
+ * This module preserves the historical API surface — `resolveApiKey(slug,
+ * providerId, accountId)`, `listAllAccounts(slug)`, etc. — so existing
+ * callers (registry.ts, routes/health.ts, project-manager export, the few
+ * test fixtures) keep working without change. The `slug` and `accountId`
+ * arguments are accepted but IGNORED: there is now exactly zero or one
+ * key per provider, app-wide. A future cleanup can drop the slug params at
+ * the call sites; doing so up-front isn't worth the diff.
  */
 
-import { randomUUID } from 'crypto'
 import {
-  readSecretsV2,
-  writeSecretsV2,
-  SECRET_PROVIDERS,
-  type ProviderId,
-  type ProviderAccount,
-} from './secrets-store.js'
+  getApiKey, setApiKey, clearApiKey, listProviderKeys,
+  SECRET_PROVIDERS, type ProviderId,
+} from './app-secrets-store.js'
 
-/** Shape returned to the frontend — never carries the raw key. */
+/** UI shape — historical name, single-account semantics now. */
 export interface AccountSummary {
   id: string
   label: string
@@ -36,206 +36,117 @@ export class AccountsError extends Error {
   }
 }
 
+const SINGLETON_ACCOUNT_ID = 'default'
+const SINGLETON_ACCOUNT_LABEL = 'Default'
+
 function assertKnownProvider(providerId: string): asserts providerId is ProviderId {
   if (!(SECRET_PROVIDERS as readonly string[]).includes(providerId)) {
     throw new AccountsError(`Unknown provider: ${providerId}`, 'unknown_provider')
   }
 }
 
-function maskKey(k: string): string {
-  if (!k) return ''
-  if (k.length <= 8) return '••••'
-  return `${k.slice(0, 4)}…${k.slice(-4)}`
-}
-
-function toSummary(a: ProviderAccount): AccountSummary {
-  return {
-    id: a.id,
-    label: a.label,
-    isDefault: !!a.isDefault,
-    keyMasked: maskKey(a.apiKey),
-  }
+function summaryFor(providerId: ProviderId, keyMasked: string): AccountSummary {
+  return { id: SINGLETON_ACCOUNT_ID, label: SINGLETON_ACCOUNT_LABEL, isDefault: true, keyMasked }
 }
 
 // ── Queries ─────────────────────────────────────────────────────────────────
 
-/** List every provider's accounts in UI-friendly (masked) form. */
-export async function listAllAccounts(
-  slug: string,
-): Promise<Record<string, AccountSummary[]>> {
-  const v2 = await readSecretsV2(slug)
+/**
+ * Return one entry per provider. Empty array when no key configured;
+ * one-element array (with id 'default') when configured.
+ *
+ * `_slug` ignored — kept for API compatibility with the per-project era.
+ */
+export async function listAllAccounts(_slug: string): Promise<Record<string, AccountSummary[]>> {
+  const rows = await listProviderKeys()
   const out: Record<string, AccountSummary[]> = {}
-  for (const pid of SECRET_PROVIDERS) {
-    const bucket = v2.providers[pid]
-    out[pid] = bucket?.accounts?.map(toSummary) ?? []
+  for (const r of rows) {
+    out[r.providerId] = r.hasKey ? [summaryFor(r.providerId, r.keyMasked)] : []
   }
   return out
 }
 
-/** List accounts for one provider in UI-friendly (masked) form. */
-export async function listAccounts(
-  slug: string,
-  providerId: string,
-): Promise<AccountSummary[]> {
+export async function listAccounts(_slug: string, providerId: string): Promise<AccountSummary[]> {
   assertKnownProvider(providerId)
-  const v2 = await readSecretsV2(slug)
-  const bucket = v2.providers[providerId]
-  return bucket?.accounts?.map(toSummary) ?? []
+  const k = await getApiKey(providerId)
+  if (!k) return []
+  return [summaryFor(providerId, maskKey(k))]
 }
 
-/**
- * Look up the raw API key to use for a provider. Returns `null` when the
- * provider has no accounts. If `accountId` is omitted, picks the default
- * (or the first account if no default is set — shouldn't happen post-write
- * invariants, but we still tolerate it on read).
- *
- * Throws `account_not_found` when `accountId` is passed but unknown.
- */
 export async function resolveApiKey(
-  slug: string,
+  _slug: string,
   providerId: string,
-  accountId?: string,
+  _accountId?: string,
 ): Promise<{ apiKey: string; accountId: string; label: string } | null> {
   assertKnownProvider(providerId)
-  const v2 = await readSecretsV2(slug)
-  const bucket = v2.providers[providerId]
-  if (!bucket?.accounts?.length) return null
-
-  const pick = accountId
-    ? bucket.accounts.find(a => a.id === accountId)
-    : bucket.accounts.find(a => a.isDefault) ?? bucket.accounts[0]
-
-  if (!pick) {
-    if (accountId) {
-      throw new AccountsError(
-        `No account ${accountId} for provider ${providerId}`,
-        'account_not_found',
-      )
-    }
-    return null
-  }
-  return { apiKey: pick.apiKey, accountId: pick.id, label: pick.label }
+  const apiKey = await getApiKey(providerId)
+  if (!apiKey) return null
+  return { apiKey, accountId: SINGLETON_ACCOUNT_ID, label: SINGLETON_ACCOUNT_LABEL }
 }
 
 // ── Mutations ───────────────────────────────────────────────────────────────
 
 /**
- * Create an account. The first account added to an empty provider is
- * auto-marked as default.
+ * "Add an account" → set the (single) key for this provider. Existing key
+ * is overwritten. The `label` arg is accepted for API compat but ignored.
  */
 export async function addAccount(
-  slug: string,
+  _slug: string,
   providerId: string,
   input: { label: string; apiKey: string },
 ): Promise<AccountSummary> {
   assertKnownProvider(providerId)
-  const label = input.label?.trim()
-  const apiKey = input.apiKey?.trim()
-  if (!label) throw new AccountsError('Label is required', 'empty_label')
+  const apiKey = (input.apiKey ?? '').trim()
   if (!apiKey) throw new AccountsError('API key is required', 'empty_key')
-
-  const created: ProviderAccount = {
-    id: randomUUID(),
-    label,
-    apiKey,
-    isDefault: false,
-  }
-
-  await writeSecretsV2(slug, (v2) => {
-    const bucket = v2.providers[providerId] ?? { accounts: [] }
-    if (!bucket.accounts.length) created.isDefault = true
-    bucket.accounts.push(created)
-    v2.providers[providerId] = bucket
-  })
-
-  return toSummary(created)
+  await setApiKey(providerId, apiKey)
+  return summaryFor(providerId, maskKey(apiKey))
 }
 
 export async function updateAccount(
-  slug: string,
+  _slug: string,
   providerId: string,
-  accountId: string,
+  _accountId: string,
   patch: { label?: string; apiKey?: string },
 ): Promise<AccountSummary> {
   assertKnownProvider(providerId)
-  let updated: ProviderAccount | undefined
-
-  await writeSecretsV2(slug, (v2) => {
-    const bucket = v2.providers[providerId]
-    const acc = bucket?.accounts.find(a => a.id === accountId)
-    if (!acc) {
-      throw new AccountsError(
-        `No account ${accountId} for provider ${providerId}`,
-        'account_not_found',
-      )
-    }
-    if (patch.label !== undefined) {
-      const trimmed = patch.label.trim()
-      if (!trimmed) throw new AccountsError('Label cannot be empty', 'empty_label')
-      acc.label = trimmed
-    }
-    if (patch.apiKey !== undefined) {
-      const trimmed = patch.apiKey.trim()
-      if (!trimmed) throw new AccountsError('API key cannot be empty', 'empty_key')
-      acc.apiKey = trimmed
-    }
-    updated = acc
-  })
-
-  return toSummary(updated!)
+  if (patch.apiKey !== undefined) {
+    const trimmed = patch.apiKey.trim()
+    if (!trimmed) throw new AccountsError('API key cannot be empty', 'empty_key')
+    await setApiKey(providerId, trimmed)
+  }
+  // Label changes are a no-op now (only one implicit "Default" label).
+  const apiKey = await getApiKey(providerId)
+  return summaryFor(providerId, maskKey(apiKey))
 }
 
 /**
- * Remove an account. If the removed account was the default and other
- * accounts remain, the first remaining account is promoted to default.
+ * "Remove account" → clear the provider's key.
  */
 export async function removeAccount(
-  slug: string,
+  _slug: string,
   providerId: string,
-  accountId: string,
+  _accountId: string,
 ): Promise<void> {
   assertKnownProvider(providerId)
-
-  await writeSecretsV2(slug, (v2) => {
-    const bucket = v2.providers[providerId]
-    if (!bucket) {
-      throw new AccountsError(
-        `No account ${accountId} for provider ${providerId}`,
-        'account_not_found',
-      )
-    }
-    const i = bucket.accounts.findIndex(a => a.id === accountId)
-    if (i < 0) {
-      throw new AccountsError(
-        `No account ${accountId} for provider ${providerId}`,
-        'account_not_found',
-      )
-    }
-    const wasDefault = !!bucket.accounts[i].isDefault
-    bucket.accounts.splice(i, 1)
-    if (wasDefault && bucket.accounts.length) {
-      bucket.accounts[0].isDefault = true
-    }
-    // writeSecretsV2 prunes empty buckets.
-  })
+  await clearApiKey(providerId)
 }
 
+/**
+ * "Set default" — no-op. There's only one slot per provider now.
+ */
 export async function setDefaultAccount(
-  slug: string,
+  _slug: string,
   providerId: string,
-  accountId: string,
+  _accountId: string,
 ): Promise<void> {
   assertKnownProvider(providerId)
+  // Nothing to do — kept for API compat.
+}
 
-  await writeSecretsV2(slug, (v2) => {
-    const bucket = v2.providers[providerId]
-    const target = bucket?.accounts.find(a => a.id === accountId)
-    if (!target) {
-      throw new AccountsError(
-        `No account ${accountId} for provider ${providerId}`,
-        'account_not_found',
-      )
-    }
-    for (const a of bucket!.accounts) a.isDefault = a.id === accountId
-  })
+function maskKey(k: string): string {
+  if (!k) return ''
+  // Mirrors the threshold in app-secrets-store.ts:maskKey — below 12
+  // chars we mask everything; otherwise show first4 and last4.
+  if (k.length < 12) return '••••'
+  return `${k.slice(0, 4)}…${k.slice(-4)}`
 }

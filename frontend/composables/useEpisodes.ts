@@ -150,13 +150,15 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
     return getOrCreateSlot(slugRef.value)
   }
 
-  async function fetchOnce(force: boolean): Promise<EpisodeRow[]> {
+  async function fetchOnce(force: boolean | 'rescan'): Promise<EpisodeRow[]> {
     const slot = currentSlot()
     if (slot.inflight && !force) return slot.inflight
 
-    const path = force
-      ? `/projects/${slugRef.value}/episodes?refresh=1`
-      : `/projects/${slugRef.value}/episodes`
+    const path = force === 'rescan'
+      ? `/projects/${slugRef.value}/episodes?rescan=1`
+      : force
+        ? `/projects/${slugRef.value}/episodes?refresh=1`
+        : `/projects/${slugRef.value}/episodes`
 
     const promise = (async () => {
       try {
@@ -199,6 +201,18 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
     const slot = currentSlot()
     slot.isRevalidating.value = true
     try { await fetchOnce(true) } catch { /* error stored */ }
+  }
+
+  /**
+   * Heavier "Rescan from disk" — wipes the backend's on-disk cache file
+   * for this project too, so the next pass is guaranteed to readdir
+   * every episode folder fresh. Use when an iCloud sync arrived but the
+   * UI hasn't caught up.
+   */
+  async function rescan() {
+    const slot = currentSlot()
+    slot.isRevalidating.value = true
+    try { await fetchOnce('rescan') } catch { /* error stored */ }
   }
 
   /** Drop the cache for the current slug. Next access refetches. */
@@ -251,6 +265,7 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
       return t === 0 || (Date.now() - t) > TTL_MS
     }),
     refresh,
+    rescan,
     invalidate,
   }
 }

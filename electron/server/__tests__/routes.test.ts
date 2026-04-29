@@ -318,6 +318,10 @@ describe('Error handling', () => {
 // the GET /settings/config response now carries the masked `accounts` block.
 
 describe('Account endpoints', () => {
+  // Post-rework: provider keys are app-level and there's exactly one
+  // slot per provider (no real multi-account UI any more). The legacy
+  // /accounts/* routes are kept as a compat shim until callers migrate
+  // to /app-settings/api-keys; these tests pin the shim's behaviour.
   let slug: string
 
   before(async () => {
@@ -325,16 +329,15 @@ describe('Account endpoints', () => {
     slug = res.body.slug
   })
 
-  test('POST /accounts/:providerId creates first account as default', async () => {
+  test('POST /accounts/:providerId stores the (single) key for the provider', async () => {
     const res = await request(app)
       .post(`/api/projects/${slug}/settings/accounts/openai`)
       .send({ label: 'A', apiKey: 'sk-aaaabbbb1111' })
     assert.equal(res.status, 201)
-    assert.equal(res.body.label, 'A')
+    // The shim always returns the synthetic 'Default' label/id.
+    assert.equal(res.body.id, 'default')
     assert.equal(res.body.isDefault, true)
     assert.ok(res.body.keyMasked.includes('…'))
-    // The mask format is intentionally first 4 + last 4 so users can
-    // identify which account is which. Only the key *body* must stay hidden.
     assert.ok(!res.body.keyMasked.includes('aaaabbbb'), 'key body must not leak in response')
   })
 
@@ -352,67 +355,51 @@ describe('Account endpoints', () => {
     assert.equal(res.status, 400)
   })
 
-  test('POST + PUT .../default flips the default', async () => {
+  test('POST overwrites the existing key for the same provider', async () => {
+    await request(app)
+      .post(`/api/projects/${slug}/settings/accounts/openai`)
+      .send({ label: 'A', apiKey: 'sk-aaaabbbb1111' })
     const b = await request(app)
       .post(`/api/projects/${slug}/settings/accounts/openai`)
-      .send({ label: 'B', apiKey: 'sk-bbbb2222' })
+      .send({ label: 'B', apiKey: 'sk-bbbb22229999' })
     assert.equal(b.status, 201)
-    assert.equal(b.body.isDefault, false)
-
-    const flip = await request(app)
-      .put(`/api/projects/${slug}/settings/accounts/openai/${b.body.id}/default`)
-    assert.equal(flip.status, 200)
-
     const list = await request(app).get(`/api/projects/${slug}/settings/accounts`)
-    assert.equal(list.status, 200)
-    const openaiAccounts = list.body.accounts.openai
-    const byId: Record<string, any> = Object.fromEntries(openaiAccounts.map((a: any) => [a.id, a]))
-    assert.equal(byId[b.body.id].isDefault, true)
+    assert.equal(list.body.accounts.openai.length, 1)
+    assert.ok(list.body.accounts.openai[0].keyMasked.includes('9999'),
+      'masked key reflects the latest write')
   })
 
-  test('PATCH updates label, never echoes raw key', async () => {
-    const c = await request(app)
+  test('PATCH never echoes raw key', async () => {
+    await request(app)
       .post(`/api/projects/${slug}/settings/accounts/anthropic`)
-      .send({ label: 'Before', apiKey: 'sk-cccc3333' })
-    assert.equal(c.status, 201)
-
+      .send({ label: 'L', apiKey: 'sk-cccc3333' })
     const patched = await request(app)
-      .patch(`/api/projects/${slug}/settings/accounts/anthropic/${c.body.id}`)
+      .patch(`/api/projects/${slug}/settings/accounts/anthropic/default`)
       .send({ label: 'After' })
     assert.equal(patched.status, 200)
-    assert.equal(patched.body.label, 'After')
-    assert.ok(!JSON.stringify(patched.body).includes('sk-cccc'), 'raw key must not leak on patch')
+    assert.ok(!JSON.stringify(patched.body).includes('sk-cccc3333'), 'raw key must not leak on patch')
   })
 
-  test('DELETE removes an account and promotes next', async () => {
-    // State from earlier tests: openai has A (was default) + B (now default)
-    const list = await request(app).get(`/api/projects/${slug}/settings/accounts`)
-    const openai = list.body.accounts.openai
-    const defaultBefore = openai.find((a: any) => a.isDefault)
-    assert.ok(defaultBefore)
-
+  test('DELETE clears the provider key', async () => {
+    await request(app)
+      .post(`/api/projects/${slug}/settings/accounts/anthropic`)
+      .send({ label: 'L', apiKey: 'sk-todelete' })
     const del = await request(app)
-      .delete(`/api/projects/${slug}/settings/accounts/openai/${defaultBefore.id}`)
+      .delete(`/api/projects/${slug}/settings/accounts/anthropic/default`)
     assert.equal(del.status, 200)
 
     const after = await request(app).get(`/api/projects/${slug}/settings/accounts`)
-    const openaiAfter = after.body.accounts.openai
-    assert.equal(openaiAfter.length, 1)
-    assert.equal(openaiAfter[0].isDefault, true, 'remaining account must be promoted')
-  })
-
-  test('DELETE returns 404 for unknown account id', async () => {
-    const res = await request(app)
-      .delete(`/api/projects/${slug}/settings/accounts/openai/not-a-real-id`)
-    assert.equal(res.status, 404)
+    assert.equal(after.body.accounts.anthropic.length, 0, 'provider has no accounts after delete')
   })
 
   test('GET /settings/config carries masked accounts block', async () => {
+    await request(app)
+      .post(`/api/projects/${slug}/settings/accounts/openai`)
+      .send({ label: 'X', apiKey: 'sk-mask-me-1234' })
     const res = await request(app).get(`/api/projects/${slug}/settings/config`)
     assert.equal(res.status, 200)
     assert.ok(res.body.accounts, 'accounts field present')
     assert.ok(Array.isArray(res.body.accounts.openai))
-    // Raw apiKey values never appear in the safe config.
-    assert.ok(!JSON.stringify(res.body).includes('sk-cccc'), 'no raw keys in safe config')
+    assert.ok(!JSON.stringify(res.body).includes('sk-mask-me-1234'), 'no raw keys in safe config')
   })
 })
