@@ -102,10 +102,15 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
 
   let videoPath: string | null = null
   if (!shouldUpdateOnly) {
-    // Fresh-upload path needs the local video file.
-    videoPath = await findFinalVideoPath(paths)
+    // Fresh-upload path needs the local video file. We pass slug + code
+    // + title so the lookup can check the external_final_video_root
+    // (per-machine Settings → Storage path) BEFORE falling back to the
+    // project-tree video_dir — same precedence the asset-status detector
+    // uses so the pipeline view and the upload generator never disagree
+    // about whether the final exists.
+    videoPath = await findFinalVideoPath(paths, slug, episodeId, idea.title || '')
     if (!videoPath) {
-      throw new Error(`No final video file found for ${episodeId}. Run Video Assembly or drop a file into this episode's video folder.`)
+      throw new Error(`No final video file found for ${episodeId}. Run Video Assembly or drop a file into this episode's video folder (or the external final-video root if configured in Settings → Storage).`)
     }
     job.output_lines.push(`Source video: ${path.relative(paths.episode_dir, videoPath)}`)
 
@@ -350,10 +355,35 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
  * detection in asset-status.ts but returns a concrete path rather than a
  * boolean — pick the first match the detection logic surfaces.
  */
-async function findFinalVideoPath(paths: { episode_dir: string; video_dir: string }): Promise<string> {
+async function findFinalVideoPath(
+  paths: { episode_dir: string; video_dir: string },
+  slug: string,
+  code: string,
+  title: string,
+): Promise<string> {
   const VIDEO_EXTS = ['.mp4', '.mov', '.mkv', '.webm', '.m4v']
   const isVideo = (n: string) => VIDEO_EXTS.some(e => n.toLowerCase().endsWith(e))
   const isScene = (n: string) => /[_\- ]scene[_\- ]?\d+/i.test(n)
+
+  // 0. EXTERNAL final-video root takes priority over the project tree.
+  // When the user has configured `external_final_video_root` (Settings →
+  // Storage), the video-assembly generator writes finals there, NOT into
+  // the iCloud-synced project tree's video_dir. Without this branch the
+  // upload generator would fail with "No final video file found" even
+  // though the file is sitting on disk at the user's chosen external
+  // location. Mirrors Path E in asset-status.ts so detection + upload
+  // stay in lockstep.
+  try {
+    const { resolveExternalFinalVideoDir } = await import('../services/external-video-store.js')
+    const externalDir = await resolveExternalFinalVideoDir(slug, code, title)
+    if (externalDir) {
+      try {
+        const extFiles = await fsp.readdir(externalDir)
+        const final = extFiles.find(n => /^[A-Z]+\d+_final_video\./i.test(n) && isVideo(n))
+        if (final) return path.join(externalDir, final)
+      } catch { /* external dir not yet created — fall through */ }
+    }
+  } catch { /* import failure — fall through */ }
 
   // 1. Native `{code}_final_video.*` wins.
   try {

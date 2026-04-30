@@ -18,7 +18,28 @@
       </button>
     </header>
 
-    <!-- Onboarding (no projects) -->
+    <!-- iCloud-syncing banner: surfaces when one or more project rows
+         are blocked on a macOS-level cloud download. The list still
+         renders + Create / Add buttons stay clickable, so the user
+         isn't trapped waiting for sync to finish before they can do
+         anything. Polling at 5s promotes downloading rows once the
+         file is local. -->
+    <div
+      v-if="downloadingProjects.length > 0"
+      class="icloud-syncing-banner"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="icb-icon" aria-hidden="true">⏬</span>
+      <span class="icb-text">
+        <strong>{{ downloadingProjects.length }} project{{ downloadingProjects.length === 1 ? '' : 's' }} downloading from iCloud Drive…</strong>
+        They'll show up here once macOS finishes syncing the metadata.
+        You can keep using the app meanwhile — Create and Add Existing work as usual.
+      </span>
+    </div>
+
+    <!-- Onboarding (no projects yet — and not just because they're all
+         mid-download from iCloud). -->
     <div v-if="!loading && projects.length === 0" class="onboarding">
       <div class="onboarding-card">
         <div class="onboarding-icon">&#10024;</div>
@@ -41,8 +62,27 @@
       </div>
     </div>
 
+    <!-- Initial first-paint placeholder while we don't know yet whether
+         the user has any projects. We keep this minimal so the shell
+         (header + Create button below) renders immediately even when
+         the projects API is slow on a fresh iCloud setup. -->
+    <div v-else-if="loading && projects.length === 0" class="project-list">
+      <div class="flex justify-between items-center mb-2">
+        <h2>Your Projects</h2>
+        <div class="flex gap-2">
+          <button
+            class="btn btn-secondary"
+            title="Register a project folder that lives outside the default projects folder."
+            @click="openAddLinked"
+          >🔗 Add existing project folder…</button>
+          <button class="btn btn-primary" @click="showCreate = true">+ New Project</button>
+        </div>
+      </div>
+      <p class="text-muted">Scanning projects…</p>
+    </div>
+
     <!-- Project list -->
-    <div v-else-if="!loading" class="project-list">
+    <div v-else class="project-list">
       <div class="flex justify-between items-center mb-2">
         <h2>Your Projects</h2>
         <div class="flex gap-2">
@@ -123,40 +163,65 @@
       </div>
 
       <div class="grid-3">
-        <div
-          v-for="project in projects"
-          :key="project.slug"
-          class="project-card"
-          @click="navigateTo(`/projects/${project.slug}`)"
-        >
-          <div class="project-card-header">
-            <h3>{{ project.name }}</h3>
-            <div class="project-card-badges">
-              <span
-                v-if="project.output_root_exists === false"
-                class="badge badge-error"
-                :title="`Folder not found on disk: ${project.output_root}. Use 'Add existing project folder…' to register its new location, or open the Project tab → 'Move this project to…' to relocate.`"
-              >⚠ Folder missing</span>
-              <!-- Linked-location chip — fires when this project's folder
-                   lives outside the default PROJECTS_ROOT (registered via
-                   Add existing project folder… or moved here via the
-                   Project tab). Helps the operator distinguish "in iCloud"
-                   from "on local disk" at a glance. -->
-              <span
-                v-if="isLinkedSlug(project.slug)"
-                class="badge badge-linked"
-                :title="`Linked from ${linkedPathFor(project.slug)}. Right-click in the Project tab to relocate or unlink.`"
-              >🔗 Linked</span>
-              <span class="badge" :class="project.has_api_keys ? 'badge-done' : 'badge-queued'">
-                {{ project.has_api_keys ? 'Ready' : 'Setup needed' }}
+        <template v-for="project in projects" :key="project.slug">
+          <!-- iCloud-downloading row: greyed out, no click target, an
+               inline pill showing the syncing state. The folder name
+               (used as the slug) + path stay visible so the user knows
+               which project this is. Promoted to the regular row below
+               on the next /projects poll once the placeholder clears. -->
+          <div
+            v-if="project.status === 'downloading'"
+            class="project-card project-card--downloading"
+            :title="`Waiting for macOS to finish downloading metadata from iCloud Drive — path: ${project.output_root || project.slug}`"
+          >
+            <div class="project-card-header">
+              <h3>{{ project.name || project.slug }}</h3>
+              <div class="project-card-badges">
+                <span class="badge badge-syncing">⏬ Syncing from iCloud</span>
+              </div>
+            </div>
+            <div class="project-card-meta">
+              <span style="word-break: break-all; font-family: ui-monospace, monospace; font-size: 11px;">
+                {{ project.output_root || '' }}
               </span>
             </div>
           </div>
-          <div class="project-card-meta">
-            <span>Prefix: {{ project.episode_prefix }}</span>
-            <span>Created {{ formatDate(project.created_at) }}</span>
+
+          <!-- Regular ready/error row -->
+          <div
+            v-else
+            class="project-card"
+            @click="navigateTo(`/projects/${project.slug}`)"
+          >
+            <div class="project-card-header">
+              <h3>{{ project.name }}</h3>
+              <div class="project-card-badges">
+                <span
+                  v-if="project.output_root_exists === false"
+                  class="badge badge-error"
+                  :title="`Folder not found on disk: ${project.output_root}. Use 'Add existing project folder…' to register its new location, or open the Project tab → 'Move this project to…' to relocate.`"
+                >⚠ Folder missing</span>
+                <!-- Linked-location chip — fires when this project's folder
+                     lives outside the default PROJECTS_ROOT (registered via
+                     Add existing project folder… or moved here via the
+                     Project tab). Helps the operator distinguish "in iCloud"
+                     from "on local disk" at a glance. -->
+                <span
+                  v-if="isLinkedSlug(project.slug)"
+                  class="badge badge-linked"
+                  :title="`Linked from ${linkedPathFor(project.slug)}. Right-click in the Project tab to relocate or unlink.`"
+                >🔗 Linked</span>
+                <span class="badge" :class="project.has_api_keys ? 'badge-done' : 'badge-queued'">
+                  {{ project.has_api_keys ? 'Ready' : 'Setup needed' }}
+                </span>
+              </div>
+            </div>
+            <div class="project-card-meta">
+              <span>Prefix: {{ project.episode_prefix }}</span>
+              <span>Created {{ formatDate(project.created_at) }}</span>
+            </div>
           </div>
-        </div>
+        </template>
       </div>
     </div>
 
@@ -1801,6 +1866,9 @@ async function loadData() {
     ])
     projects.value = Array.isArray(p) ? p : []
     templates.value = Array.isArray(t) ? t : []
+    // If any project came back as 'downloading', poll until they all
+    // settle — see startDownloadPoll for cap + cadence rationale.
+    if (downloadingProjects.value.length > 0) startDownloadPoll()
   } catch (e: any) {
     // Catch-all for anything Promise.all couldn't tame (e.g. composable
     // throwing during refresh). Logging-only — UI falls back to the
@@ -1810,6 +1878,62 @@ async function loadData() {
     loading.value = false
   }
 }
+
+// ── iCloud-aware project loading ─────────────────────────────────────────
+// On a fresh Mac with iCloud just set up, project.json files are still
+// placeholders (`.<name>.icloud`) and `fs.readFile` on them blocks while
+// macOS fetches from the cloud. The backend now returns those rows with
+// `status: 'downloading'` so the home page can render them as greyed-out
+// placeholders instead of hanging the whole list. We poll /projects
+// every 5s while any are downloading to promote them to 'ready'.
+
+const downloadingProjects = computed(() =>
+  projects.value.filter((p: any) => p?.status === 'downloading'),
+)
+
+const POLL_INTERVAL_MS = 5_000
+const MAX_POLL_ITERATIONS = 60   // ~5 min cap
+let pollTimer: ReturnType<typeof setInterval> | null = null
+let pollIterations = 0
+
+function stopDownloadPoll() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+  pollIterations = 0
+}
+
+function startDownloadPoll() {
+  if (pollTimer) return  // already polling
+  pollIterations = 0
+  pollTimer = setInterval(async () => {
+    pollIterations++
+    try {
+      const fresh = await get<any[]>('/projects')
+      projects.value = Array.isArray(fresh) ? fresh : []
+    } catch {
+      // Poll failures are non-fatal — keep the existing list and try again
+      // next tick. A persistent backend outage would already have shown
+      // a toast on the initial load.
+    }
+    if (downloadingProjects.value.length === 0) {
+      stopDownloadPoll()
+      return
+    }
+    if (pollIterations >= MAX_POLL_ITERATIONS) {
+      stopDownloadPoll()
+      showError(
+        'iCloud sync is taking longer than usual — open Finder, right-click ' +
+        'the project folder, and choose "Download Now" to force the download.',
+      )
+    }
+  }, POLL_INTERVAL_MS)
+}
+
+// Stop the poll if the user navigates away — Vue auto-runs onUnmounted
+// cleanup, so this is just a safety net.
+onBeforeUnmount(() => stopDownloadPoll())
 
 async function createProject() {
   creating.value = true
@@ -2182,6 +2306,47 @@ onMounted(async () => {
   border-color: var(--accent);
   transform: translateY(-2px);
   box-shadow: var(--shadow);
+}
+
+/* iCloud-syncing banner: cyan/info tone (not amber) — the situation is
+   recoverable, just slow. Single-row layout matching the
+   restart-recovery banner on the Jobs page so the design language stays
+   consistent across the app. */
+.icloud-syncing-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 4px;
+  padding: 10px 14px;
+  background: rgba(99, 145, 200, 0.10);
+  border: 1px solid rgba(99, 145, 200, 0.30);
+  border-left: 3px solid rgb(99, 145, 200);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.icb-icon { font-size: 16px; flex-shrink: 0; }
+.icb-text { flex: 1; line-height: 1.45; }
+.icb-text strong { color: var(--text-primary); }
+
+/* Downloading project card: greyed out, no hover / click feedback so
+   the user understands it isn't actionable yet. The pill + path
+   substitute for the usual project metadata. */
+.project-card--downloading {
+  opacity: 0.65;
+  cursor: progress;
+  background: var(--bg-primary);
+}
+.project-card--downloading:hover {
+  border-color: var(--border);
+  transform: none;
+  box-shadow: none;
+}
+
+.badge-syncing {
+  background: rgba(99, 145, 200, 0.18);
+  color: rgb(140, 175, 220);
+  border: 1px solid rgba(99, 145, 200, 0.35);
 }
 
 .project-card-header {

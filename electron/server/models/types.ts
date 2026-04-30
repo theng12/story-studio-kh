@@ -424,6 +424,24 @@ export interface UpdateProjectRequest {
   format_overrides?: DeepPartial<Format>
 }
 
+/**
+ * iCloud-aware sync state for a project candidate.
+ *
+ *   'ready'       — project.json + config.json read successfully.
+ *   'downloading' — project.json is an iCloud placeholder OR the read
+ *                   timed out (30s). All metadata fields except `slug`
+ *                   and `output_root` may be empty/absent. The home page
+ *                   renders these as greyed-out rows with a "Syncing
+ *                   from iCloud" pill, and polls /api/projects every 5s
+ *                   until they promote to 'ready'.
+ *   'error'       — corrupt JSON, permission denied, etc. The home page
+ *                   shows a red pill (existing error path).
+ *
+ * Absent/undefined `status` from older backend builds is treated as
+ * 'ready' by the frontend so cross-version response shapes stay safe.
+ */
+export type ProjectSummaryStatus = 'ready' | 'downloading' | 'error'
+
 export interface ProjectSummary {
   name: string
   slug: string
@@ -448,6 +466,8 @@ export interface ProjectSummary {
    * "Relocate…" affordance so generation doesn't fail silently later.
    */
   output_root_exists?: boolean
+  /** iCloud sync state — see `ProjectSummaryStatus`. */
+  status?: ProjectSummaryStatus
 }
 
 // ── Config ──────────────────────────────────────────────────────────────────

@@ -446,16 +446,84 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   // collapses ~N×latency into a single round-trip. At 20+ projects the
   // diff is the difference between snappy and "feels frozen" on home-page
   // load. Returns null for corrupt/missing entries — filtered out below.
+  //
+  // iCloud-aware path:
+  //   1. Check for `.<basename>.icloud` placeholder via
+  //      isCloudEvictedPlaceholder. If present, the file is downloading
+  //      from iCloud — don't try to read it (would block the OS-level
+  //      sync request). Return a 'downloading' stub immediately.
+  //   2. Race the readJson against a 30s timeout. If the read doesn't
+  //      come back, treat that project as 'downloading' too — the read
+  //      is still in flight inside macOS's sync layer; we just stop
+  //      waiting for it.
+  // The frontend polls /api/projects every 5s while any are
+  // 'downloading'; rows promote to 'ready' on the next successful read.
+  const READ_TIMEOUT_MS = 30_000
+  const { isCloudEvictedPlaceholder } = await import('../lib/http-retry.js')
   const summaries = await Promise.all(candidates.map(async (cand): Promise<ProjectSummary | null> => {
     const metaPath = path.join(cand.dir, 'project.json')
-    if (!existsSync(metaPath)) return null
+    if (!existsSync(metaPath)) {
+      // Not a real file → maybe an iCloud placeholder is sitting next to
+      // it. Surface the row as downloading so the user sees it instead
+      // of silently dropping the candidate.
+      if (await isCloudEvictedPlaceholder(metaPath)) {
+        return {
+          name: cand.folderName,
+          slug: cand.folderName,
+          episode_prefix: '',
+          created_at: '',
+          has_api_keys: false,
+          output_root: cand.dir,
+          status: 'downloading',
+        }
+      }
+      return null
+    }
+    // Quick placeholder probe before any blocking read.
+    if (await isCloudEvictedPlaceholder(metaPath)) {
+      return {
+        name: cand.folderName,
+        slug: cand.folderName,
+        episode_prefix: '',
+        created_at: '',
+        has_api_keys: false,
+        output_root: cand.dir,
+        status: 'downloading',
+      }
+    }
 
     let meta: ProjectMeta
+    let timer: NodeJS.Timeout | undefined
     try {
-      meta = await readJson(metaPath)
+      // Race the read against a 30s timeout. Clearing the timer in
+      // `finally` is critical: an unbounded setTimeout keeps Node's
+      // event loop alive past test completion (and after every
+      // listProjects call in the running app), so the test runner hangs
+      // and the dev process leaks pending timers per request.
+      const timeoutPromise = new Promise<ProjectMeta>((_, rej) => {
+        timer = setTimeout(() => rej(new Error('READ_TIMEOUT')), READ_TIMEOUT_MS)
+      })
+      meta = await Promise.race<ProjectMeta>([readJson(metaPath), timeoutPromise])
     } catch (e: any) {
+      // Timeout = still syncing. Surface as downloading so the user can
+      // see the row + come back when iCloud finishes. Other errors
+      // (corrupt JSON, perm denied) get the existing skip-and-warn path.
+      if (e?.message === 'READ_TIMEOUT') {
+        console.warn(`[projects] listProjects: '${cand.folderName}' read timed out after ${READ_TIMEOUT_MS}ms — likely iCloud-syncing`)
+        return {
+          name: cand.folderName,
+          slug: cand.folderName,
+          episode_prefix: '',
+          created_at: '',
+          has_api_keys: false,
+          output_root: cand.dir,
+          status: 'downloading',
+        }
+      }
       console.warn(`[projects] listProjects: skipping '${cand.folderName}' — ${e.message}`)
       return null
+    } finally {
+      if (timer) clearTimeout(timer)
     }
     // Slug from project.json wins; fall back to folder name only when
     // the field is absent (older projects or hand-rolled folders).
@@ -505,6 +573,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       // the synced badge it powered is gone.)
       output_root: outputRootAbs,
       output_root_exists: outputRootExists,
+      status: 'ready',
     }
   }))
 
