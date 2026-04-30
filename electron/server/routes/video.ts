@@ -492,6 +492,10 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
       language: req.body?.language,
       model: req.body?.model || 'whisper-1',
       audio_path: req.body?.audio_path,
+      // When true, re-run Whisper even if {code}_whisper.srt exists. Default
+      // false: the generator now skips when the SRT is already on disk to
+      // avoid re-billing the paid Whisper API.
+      force: req.body?.force === true,
     },
   })
   res.status(201).json(job)

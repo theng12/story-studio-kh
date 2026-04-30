@@ -189,6 +189,34 @@ export async function fileExistsWithContent(filePath: string): Promise<boolean> 
 }
 
 /**
+ * Detect a macOS iCloud Drive placeholder ("evicted" file) for `filePath`.
+ *
+ * Returns true when the actual file is missing AND a `.<basename>.icloud`
+ * stub sits alongside it — which is what iCloud's "Optimize Storage"
+ * leaves behind after evicting the local copy of an asset to free disk.
+ *
+ * Why this helper exists: without it, generators that key off
+ * `fileExistsWithContent` would treat an evicted asset as "missing" and
+ * re-bill the provider to recreate work that's actually still recoverable
+ * for free (open in Finder → iCloud pulls it back). Callers should:
+ *   1. Check `fileExistsWithContent` — if true, the file is locally usable.
+ *   2. Otherwise check this helper — if true, surface a "download in
+ *      Finder before regenerating" hint and DO NOT submit a fresh request.
+ *   3. Otherwise the file is genuinely missing — fresh submit is correct.
+ */
+export async function isCloudEvictedPlaceholder(filePath: string): Promise<boolean> {
+  const fs = await import('fs/promises')
+  const path = await import('path')
+  const stub = path.join(path.dirname(filePath), `.${path.basename(filePath)}.icloud`)
+  try {
+    const s = await fs.stat(stub)
+    return s.isFile()
+  } catch {
+    return false
+  }
+}
+
+/**
  * Run `count` tasks with at most `concurrency` in flight at once.
  *
  * Uses `Promise.allSettled` so one submit failure doesn't discard the other

@@ -49,7 +49,7 @@ export interface TaskManifestEntry {
   result_url?: string
 }
 
-interface Manifest {
+export interface Manifest {
   schema_version: 1
   tasks: Record<string, TaskManifestEntry>
 }

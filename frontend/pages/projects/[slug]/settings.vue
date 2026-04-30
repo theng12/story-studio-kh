@@ -791,6 +791,19 @@
         </div>
       </div>
 
+      <div class="form-group mt-2" style="max-width: 360px;">
+        <label>Launch stagger ({{ imageLaunchStaggerMs }} ms)</label>
+        <SliderWithNumber v-model="imageLaunchStaggerMs" :min="0" :max="5000" :step="100" />
+        <p class="text-muted mt-1" style="font-size: 12px;">
+          Delays each parallel worker's first request by N×stagger so all
+          {{ imageConcurrency }} workers don't hit the provider in the same
+          millisecond. Set to <strong>0</strong> to disable.
+          <strong>1000–2000 ms</strong> typically eliminates per-second 429s
+          with no measurable throughput cost (only the first wave is delayed;
+          rolling pool continues at full speed afterward).
+        </p>
+      </div>
+
       <!-- Audio (TTS) concurrency — default 3 matches ElevenLabs Starter -->
       <!-- tier's safe limit. fal.ai/GenAIPro handle backpressure via their -->
       <!-- queue APIs, so feel free to go higher on those providers. -->
@@ -808,6 +821,18 @@
         </div>
       </div>
 
+      <div class="form-group mt-2" style="max-width: 360px;">
+        <label>Launch stagger ({{ audioLaunchStaggerMs }} ms)</label>
+        <SliderWithNumber v-model="audioLaunchStaggerMs" :min="0" :max="5000" :step="100" />
+        <p class="text-muted mt-1" style="font-size: 12px;">
+          Delays each TTS worker's first request by N×stagger to avoid bursty
+          rate-limits at the start of a job. Set to <strong>0</strong> to
+          disable. ElevenLabs is most sensitive to bursts at the Free/Starter
+          tiers — try <strong>1000–1500 ms</strong> if you see 429s. fal.ai
+          and GenAIPro queue server-side; stagger usually unnecessary there.
+        </p>
+      </div>
+
       <!-- Video concurrency — clips cost $0.50–$2 each so default is lower. -->
       <!-- fal.ai scales the concurrent-request limit from 2 to 40 as the -->
       <!-- account buys credits; 2 is the safe new-account default. -->
@@ -823,6 +848,17 @@
           <span class="text-muted">1 (serial)</span>
           <span class="text-muted" style="margin-left:auto">8 (heavy)</span>
         </div>
+      </div>
+
+      <div class="form-group mt-2" style="max-width: 360px;">
+        <label>Launch stagger ({{ videoLaunchStaggerMs }} ms)</label>
+        <SliderWithNumber v-model="videoLaunchStaggerMs" :min="0" :max="5000" :step="100" />
+        <p class="text-muted mt-1" style="font-size: 12px;">
+          Delays each video worker's first submit by N×stagger. Veo / fal /
+          Kie all rate-limit per-second submit attempts. Set to
+          <strong>0</strong> to disable. <strong>1500–2500 ms</strong> is a
+          safe starting point if you see 429s during video clip generation.
+        </p>
       </div>
 
       <!-- TTS timeout: clients default to 20 min for GenAIPro, 5 min for -->
@@ -2943,6 +2979,12 @@ watch(activeTab, async (tab) => {
 const imageConcurrency = ref(5)
 const audioConcurrency = ref(3)   // ElevenLabs Starter-tier safe default
 const videoConcurrency = ref(2)   // fal.ai new-account safe default
+// Launch stagger (ms) per modality. 0 = no stagger (default behaviour).
+// Non-zero values delay each pool worker's FIRST task by index*stagger to
+// smooth the initial-burst submit that triggers per-second 429s.
+const imageLaunchStaggerMs = ref(0)
+const audioLaunchStaggerMs = ref(0)
+const videoLaunchStaggerMs = ref(0)
 // Empty string means "use provider default" (no override stored). We keep
 // the empty state distinct from 0 so users can clear it without saving 0.
 const ttsTimeoutMinutes = ref<number | ''>('')
@@ -2956,6 +2998,13 @@ watch(config, (c) => {
   if (c && (c as any).video_concurrency) {
     videoConcurrency.value = Math.max(1, Math.min(8, Number((c as any).video_concurrency) || 2))
   }
+  // Stagger values default to 0 when unset; clamp 0..5000 to match backend.
+  imageLaunchStaggerMs.value = Math.max(0, Math.min(5000,
+    Number((c as any)?.image_launch_stagger_ms) || 0))
+  audioLaunchStaggerMs.value = Math.max(0, Math.min(5000,
+    Number((c as any)?.audio_launch_stagger_ms) || 0))
+  videoLaunchStaggerMs.value = Math.max(0, Math.min(5000,
+    Number((c as any)?.video_launch_stagger_ms) || 0))
   const t = (c as any)?.generation_timeouts?.tts_minutes
   ttsTimeoutMinutes.value = typeof t === 'number' && t > 0 ? t : ''
 }, { immediate: true })
@@ -2966,6 +3015,9 @@ async function savePerformance() {
       image_concurrency: imageConcurrency.value,
       audio_concurrency: audioConcurrency.value,
       video_concurrency: videoConcurrency.value,
+      image_launch_stagger_ms: imageLaunchStaggerMs.value,
+      audio_launch_stagger_ms: audioLaunchStaggerMs.value,
+      video_launch_stagger_ms: videoLaunchStaggerMs.value,
     }
     // Only persist the timeout when the user set one. An empty field means
     // "use the provider default" — store null so we don't accumulate stale

@@ -16,8 +16,9 @@ import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { resolveApiKeyForProviderId } from '../providers/registry.js'
 import { assertBalanceAvailable } from '../services/utils.js'
-import { sleepCancellable, fileExistsWithContent } from '../lib/http-retry.js'
-import { recordTask, hashInput } from '../services/task-manifest.js'
+import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
+import { recordTask, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
+import { tryRecoverAudioFromManifest } from '../lib/manifest-recovery.js'
 import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
@@ -126,6 +127,13 @@ export async function generateAudio(job: Job): Promise<void> {
 
   const audioDir = await resolveAudioDir(project_slug, narrationPath, episode_id)
   await fs.mkdir(audioDir, { recursive: true })
+  // Read the per-folder task manifest once so we can attempt free recovery
+  // (existing-task poll) before issuing fresh submits. Only GenAIPro records
+  // task_ids today (ElevenLabs streams direct, fal-audio doesn't); other
+  // entries fall through to fresh generation.
+  const audioManifest: Manifest = await readManifest(audioDir).catch(
+    () => ({ schema_version: 1 as const, tasks: {} }),
+  )
 
   const allSections = await parseNarrationDocx(narrationPath)
   job.output_lines.push(`Sections: ${allSections.length} found`)
@@ -233,6 +241,13 @@ export async function generateAudio(job: Job): Promise<void> {
         `${section.label} (routed: ${plan.segments.length} speaker segment(s))`,
       )
 
+      // iCloud-evicted: file is recoverable for free, don't re-bill.
+      if (!req.force && await isCloudEvictedPlaceholder(savePath)) {
+        job.output_lines.push(
+          `  ⚠ ${path.basename(savePath)} is iCloud-evicted (download in Finder). Skipped to avoid re-billing.`,
+        )
+        continue
+      }
       // Skip semantics for routed sections — only skip if the FINAL
       // section file already exists with content. Per-segment intermediates
       // are always regenerated (cheap to redo if a prior run was partial).
@@ -263,6 +278,13 @@ export async function generateAudio(job: Job): Promise<void> {
     for (let i = 0; i < chunks.length; i++) {
       let chunkPath = chunks.length > 1 ? savePath.replace('.mp3', `_part${i + 1}.mp3`) : savePath
 
+      // iCloud-evicted: skip regeneration to avoid re-billing.
+      if (!req.force && await isCloudEvictedPlaceholder(chunkPath)) {
+        job.output_lines.push(
+          `  ⚠ ${path.basename(chunkPath)} is iCloud-evicted (download in Finder). Skipped to avoid re-billing.`,
+        )
+        continue
+      }
       // Only skip on a non-empty existing file. A zero-byte leftover from a
       // prior failure must be regenerated, not treated as a cache hit.
       if (await fileExistsWithContent(chunkPath) && !req.force) {
@@ -309,9 +331,17 @@ export async function generateAudio(job: Job): Promise<void> {
   // ── Concurrency pool ───────────────────────────────────────────────────
   const rawConcurrency = Number((config as any).audio_concurrency) || 0
   const concurrency = Math.max(1, Math.min(15, rawConcurrency || 3))
+  // Launch stagger: delay each pool worker's FIRST task by `i * staggerMs`
+  // so all N workers don't submit to ElevenLabs/fal/GenAIPro in the same
+  // millisecond. Default 0 (no stagger) — opt-in via Settings → Audio →
+  // Launch stagger. Clamp 0..5000.
+  const cfgAudioStagger = Number((config as any).audio_launch_stagger_ms) || 0
+  const launchStaggerMs = Math.max(0, Math.min(5000, cfgAudioStagger))
   if (tasks.length > 1) {
     job.output_lines.push(
-      `Pool: ${Math.min(concurrency, tasks.length)} in parallel (configure via Settings → Audio → Concurrency)`,
+      `Pool: ${Math.min(concurrency, tasks.length)} in parallel` +
+      (launchStaggerMs > 0 ? `, launch stagger ${launchStaggerMs}ms` : '') +
+      ' (configure via Settings → Audio)',
     )
   }
 
@@ -349,6 +379,26 @@ export async function generateAudio(job: Job): Promise<void> {
         const timeoutMinutes = (config as any)?.generation_timeouts?.tts_minutes
         const timeoutMs = typeof timeoutMinutes === 'number' && timeoutMinutes > 0
           ? timeoutMinutes * 60_000 : undefined
+        // Auto-recovery (GenAIPro only): before issuing a fresh submit,
+        // see if the task-manifest sidecar has a stored task_id from a
+        // previous run. If the provider still has the result, polling it
+        // is free; only the fresh submit below would charge a second time.
+        // ElevenLabs streams direct, no task_id to recover. fal-audio
+        // doesn't currently record manifest entries — it falls through.
+        if (providerId === 'genaipro' && !req.force) {
+          const recovered = await tryRecoverAudioFromManifest(
+            audioManifest.tasks[chunkFilename] || null,
+            apiKey, isCancelled, timeoutMs,
+          )
+          if (recovered) {
+            await downloadAudio(recovered.url, task.outputPath)
+            job.output_lines.push(
+              `  Recovered: ${chunkFilename} from existing task ` +
+              `${recovered.taskId.slice(0, 12)}… (no charge)`,
+            )
+            return
+          }
+        }
         const commonOpts = {
           model: req.model,
           voiceId: effectiveVoice,
@@ -386,7 +436,15 @@ export async function generateAudio(job: Job): Promise<void> {
   }
 
   let cursor = 0
-  async function worker(): Promise<void> {
+  // i-th worker delays its first task by i * launchStaggerMs to smooth the
+  // initial-burst submit. sleepCancellable ticks every 200ms so a user
+  // cancel during the stagger window unwinds without hanging.
+  async function worker(workerIndex: number): Promise<void> {
+    if (launchStaggerMs > 0 && workerIndex > 0) {
+      try {
+        await sleepCancellable(workerIndex * launchStaggerMs, isCancelled)
+      } catch { return /* cancelled mid-stagger */ }
+    }
     while (cursor < tasks.length) {
       if (isCancelled()) return
       const i = cursor++
@@ -395,14 +453,14 @@ export async function generateAudio(job: Job): Promise<void> {
   }
   try {
     await Promise.all(
-      Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()),
+      Array.from(
+        { length: Math.min(concurrency, tasks.length) },
+        (_, i) => worker(i),
+      ),
     )
   } finally {
     clearInterval(cancelWatcher)
   }
-  // Silence unused-import lint if sleepCancellable is no longer referenced
-  // elsewhere (it was the old pacing hook). Left imported for any future use.
-  void sleepCancellable
 
   // Phase 6: post-pool concat for routed sections. Each concatPlans entry
   // pairs a final section path with its ordered intermediate segment files.

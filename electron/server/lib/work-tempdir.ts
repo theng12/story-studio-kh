@@ -111,3 +111,89 @@ export async function cleanOrphanWorkTempDirs(maxAgeMs = 24 * 60 * 60 * 1000): P
 function sanitize(name: string): string {
   return name.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80) || 'unknown'
 }
+
+/**
+ * Sweep legacy `.tmp_<ts>/` directories that pre-v1.0.24 builds wrote
+ * inside the project's `Video Assembly Output/` and `Audio Merge Output/`
+ * folders. v1.0.24+ routes those to `os.tmpdir()` (see `getWorkTempDir`),
+ * but builds <= v1.0.23 wrote them inline — and on iCloud-synced project
+ * trees those orphans can each balloon to 5–10 GB of intermediate
+ * scene/concat/premixed-audio data.
+ *
+ * Best-effort + idempotent. The 24 h cutoff is the same shape as
+ * `cleanOrphanWorkTempDirs` so a hypothetical concurrent older build
+ * mid-encode is never disturbed.
+ *
+ * @param outputRoots — absolute paths to project output_root directories
+ *   (each contains `Season NNN/<code> - <title>/<code> - 10 Video
+ *   Assembly Output/.tmp_<ts>/` and the matching 08 Audio Merge Output
+ *   equivalent).
+ */
+export async function cleanLegacyInProjectTempDirs(
+  outputRoots: string[],
+  maxAgeMs = 24 * 60 * 60 * 1000,
+): Promise<{ scanned: number; removed: number; bytesFreed: number }> {
+  const summary = { scanned: 0, removed: 0, bytesFreed: 0 }
+  const cutoff = Date.now() - maxAgeMs
+  // Match the two folder labels used by SUBFOLDER_LINKAGE for steps that
+  // own multi-GB scratch dirs. Word-boundary ensures we don't catch
+  // arbitrary user-renamed folders that merely include the substring.
+  const STEP_FOLDER_RE = /\b(?:10 Video Assembly Output|08 Audio Merge Output)\b/
+
+  for (const root of outputRoots) {
+    let seasons: string[]
+    try { seasons = await fs.readdir(root) } catch { continue }
+    for (const season of seasons) {
+      const seasonPath = path.join(root, season)
+      let seasonStat
+      try { seasonStat = await fs.stat(seasonPath) } catch { continue }
+      if (!seasonStat.isDirectory()) continue
+      let episodes: string[]
+      try { episodes = await fs.readdir(seasonPath) } catch { continue }
+      for (const episode of episodes) {
+        const episodePath = path.join(seasonPath, episode)
+        let epStat
+        try { epStat = await fs.stat(episodePath) } catch { continue }
+        if (!epStat.isDirectory()) continue
+        let stepFolders: string[]
+        try { stepFolders = await fs.readdir(episodePath) } catch { continue }
+        for (const step of stepFolders) {
+          if (!STEP_FOLDER_RE.test(step)) continue
+          const stepPath = path.join(episodePath, step)
+          let runs: string[]
+          try { runs = await fs.readdir(stepPath) } catch { continue }
+          for (const run of runs) {
+            if (!run.startsWith('.tmp_')) continue
+            summary.scanned++
+            const runPath = path.join(stepPath, run)
+            try {
+              const rs = await fs.stat(runPath)
+              if (rs.mtimeMs >= cutoff) continue
+              const size = await dirBytes(runPath).catch(() => 0)
+              await fs.rm(runPath, { recursive: true, force: true })
+              summary.removed++
+              summary.bytesFreed += size
+            } catch { /* race / permission — skip */ }
+          }
+        }
+      }
+    }
+  }
+  return summary
+}
+
+async function dirBytes(dir: string): Promise<number> {
+  let total = 0
+  let entries
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true })
+  } catch { return 0 }
+  for (const e of entries) {
+    const p = path.join(dir, e.name)
+    if (e.isDirectory()) total += await dirBytes(p)
+    else if (e.isFile()) {
+      try { const s = await fs.stat(p); total += s.size } catch { /* skip */ }
+    }
+  }
+  return total
+}

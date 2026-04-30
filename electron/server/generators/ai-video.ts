@@ -24,8 +24,9 @@ import { resolveSubfolderNames, assertBalanceAvailable } from '../services/utils
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
 import { downloadVideo } from '../lib/genaipro-veo-client.js'
 import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
-import { recordTask, hashInput } from '../services/task-manifest.js'
-import { sleepCancellable, fileExistsWithContent } from '../lib/http-retry.js'
+import { recordTask, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
+import { tryRecoverVideoFromManifest } from '../lib/manifest-recovery.js'
+import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
 import type { GenerateVideoRequest, Job, VideoModelConfig } from '../models/types.js'
 
 async function findEpisodeDir(projectDir: string, code: string): Promise<string | null> {
@@ -191,6 +192,12 @@ export async function generateAiVideo(job: Job): Promise<void> {
   if (!epDir) throw new Error(`Episode folder not found for ${code}. Create the episode (via script or ideas) first.`)
   const videoDir = path.join(epDir, names.video)
   await fs.mkdir(videoDir, { recursive: true })
+  // Read the per-folder task manifest once so we can attempt free recovery
+  // (existing-task poll) before issuing fresh submits. Covers all three
+  // providers — kie, fal, genaipro-veo — via tryRecoverVideoFromManifest.
+  const videoManifest: Manifest = await readManifest(videoDir).catch(
+    () => ({ schema_version: 1 as const, tasks: {} }),
+  )
 
   const aspect = req.aspect_ratio || 'landscape'
   const nPerPrompt = Math.max(1, Math.min(4, req.number_of_videos_per_prompt || 1))
@@ -204,9 +211,17 @@ export async function generateAiVideo(job: Job): Promise<void> {
   // has the credits / quota to handle it.
   const rawConcurrency = Number((config as any).video_concurrency) || 0
   const concurrency = Math.max(1, Math.min(8, rawConcurrency || 2))
+  // Launch stagger: delay each pool worker's FIRST submit by `i * staggerMs`
+  // so all workers don't hit Veo / fal / Kie in the same millisecond.
+  // Default 0 (no stagger) — opt-in via Settings → Video → Launch stagger.
+  // Clamp 0..5000.
+  const cfgVideoStagger = Number((config as any).video_launch_stagger_ms) || 0
+  const launchStaggerMs = Math.max(0, Math.min(5000, cfgVideoStagger))
   if (prompts.length > 1) {
     job.output_lines.push(
-      `Pool: ${Math.min(concurrency, prompts.length)} in parallel (configure via Settings → Video → Concurrency)`,
+      `Pool: ${Math.min(concurrency, prompts.length)} in parallel` +
+      (launchStaggerMs > 0 ? `, launch stagger ${launchStaggerMs}ms` : '') +
+      ' (configure via Settings → Video)',
     )
   }
 
@@ -223,6 +238,40 @@ export async function generateAiVideo(job: Job): Promise<void> {
     if (!req.force && candidate && await fileExistsWithContent(path.join(videoDir, candidate))) {
       job.output_lines.push(`Skipping ${stem} (exists)`)
       return
+    }
+    // iCloud-evicted: video clips are the most expensive assets in this app
+    // ($0.50–$2 each). If the local copy was evicted we MUST not re-bill.
+    if (!req.force && await isCloudEvictedPlaceholder(path.join(videoDir, `${stem}_v1.mp4`))) {
+      job.output_lines.push(
+        `⚠ ${stem}_v1.mp4 is iCloud-evicted (right-click in Finder → Download Now). ` +
+        `Skipped to avoid re-billing for an expensive video clip.`,
+      )
+      return
+    }
+
+    // Auto-recovery: before issuing a fresh (charged) submit, see if the
+    // task-manifest sidecar has a stored task_id from a previous run. If
+    // the provider still has the result, polling it is free; otherwise
+    // we fall through to the regular submit path below.
+    if (!req.force) {
+      const recovered = await tryRecoverVideoFromManifest(
+        videoManifest.tasks[`${stem}_v1.mp4`] || null,
+        config as any,
+        isCancelled,
+      )
+      if (recovered) {
+        for (let v = 0; v < recovered.urls.length; v++) {
+          const savePath = path.join(videoDir, `${stem}_v${v + 1}.mp4`)
+          if (await fileExistsWithContent(savePath)) continue
+          await downloadVideo(recovered.urls[v], savePath)
+          job.output_lines.push(`  Saved ${path.basename(savePath)}`)
+        }
+        job.output_lines.push(
+          `[${index + 1}/${prompts.length}] ${p.title || `Clip ${p.number}`} — recovered from existing task ` +
+          `${recovered.taskId.slice(0, 12)}… (no charge)`,
+        )
+        return
+      }
     }
 
     job.output_lines.push(`[${index + 1}/${prompts.length}] ${p.title || `Clip ${p.number}`}`)
@@ -276,7 +325,16 @@ export async function generateAiVideo(job: Job): Promise<void> {
   }
 
   let cursor = 0
-  async function worker(): Promise<void> {
+  // i-th worker delays its first submit by i * launchStaggerMs to smooth
+  // the initial-burst hit on Veo/fal/Kie. sleepCancellable breaks the
+  // sleep into 200ms ticks so a user cancel during the stagger window
+  // unwinds promptly.
+  async function worker(workerIndex: number): Promise<void> {
+    if (launchStaggerMs > 0 && workerIndex > 0) {
+      try {
+        await sleepCancellable(workerIndex * launchStaggerMs, isCancelled)
+      } catch { return /* cancelled mid-stagger */ }
+    }
     while (cursor < prompts.length) {
       if (isCancelled()) return
       const i = cursor++
@@ -284,9 +342,11 @@ export async function generateAiVideo(job: Job): Promise<void> {
     }
   }
   await Promise.all(
-    Array.from({ length: Math.min(concurrency, prompts.length) }, () => worker()),
+    Array.from(
+      { length: Math.min(concurrency, prompts.length) },
+      (_, i) => worker(i),
+    ),
   )
-  void sleepCancellable  // kept imported for any future pacing needs
 
   // Partial-failure semantics: throw so the queue stamps status='error'
   // instead of 'done'. Same contract as images/audio generators. The queue's

@@ -154,6 +154,48 @@ export async function getTaskById(apiKey: string, taskId: string): Promise<LabsT
 }
 
 /**
+ * Poll an EXISTING task by its ID until it completes, fails, or times out.
+ *
+ * Used by the auto-recovery path inside generators (audio.ts) when the
+ * task-manifest sidecar shows a stored task_id for a missing chunk:
+ * polling the existing task is free, whereas re-submitting would charge
+ * the user a second time.
+ *
+ * Returns the result URL on success, throws on failure / timeout / cancel.
+ * Mirrors the structure of `generateTts`'s in-flight poll loop so the same
+ * retention window and cancel semantics apply.
+ */
+export async function pollExistingTask(
+  apiKey: string,
+  taskId: string,
+  opts: { isCancelled?: () => boolean; timeoutMs?: number } = {},
+): Promise<string> {
+  if (!apiKey) throw new Error('GenAIPro: no API key')
+  if (!taskId) throw new Error('GenAIPro: no task id')
+  const headers = { Authorization: `Bearer ${apiKey}` }
+  const deadline = Date.now() + (opts.timeoutMs && opts.timeoutMs > 0 ? opts.timeoutMs : MAX_WAIT)
+  while (Date.now() < deadline) {
+    if (opts.isCancelled?.()) throw new Error('Cancelled by user')
+    const poll = await fetch(`${BASE}/v1/labs/task/${taskId}`, { headers })
+    if (poll.status === 404) {
+      throw new Error(`GenAIPro task ${taskId} not found (likely expired or invalid)`)
+    }
+    if (!poll.ok) {
+      // Treat transient non-OK as poll-again, with a longer wait.
+      await sleepCancellable(POLL_INTERVAL * 2, opts.isCancelled)
+      continue
+    }
+    const task = await poll.json() as LabsTask
+    if (task.status === 'completed' && task.result) return task.result
+    if (task.status === 'failed' || task.status === 'error') {
+      throw new Error(`GenAIPro task ${taskId} failed on provider side`)
+    }
+    await sleepCancellable(POLL_INTERVAL, opts.isCancelled)
+  }
+  throw new Error(`GenAIPro task ${taskId} did not complete within ${Math.round((Date.now() - (deadline - (opts.timeoutMs || MAX_WAIT))) / 1000)}s`)
+}
+
+/**
  * Paginate through the Labs task history.
  *
  * GenAIPro only retains TTS history for ~1 day, so this will typically

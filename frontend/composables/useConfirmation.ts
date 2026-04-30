@@ -12,6 +12,28 @@ interface CostEstimate {
   current_balance?: number | string
 }
 
+/**
+ * Auto-confirm threshold per cost unit. Below the threshold we skip the
+ * dialog entirely — showing it for every "1 credit" operation trains the
+ * user to dismiss it and then disable the type via "Skip future". Above
+ * the threshold, the dialog fires as usual.
+ *
+ * `force=true` ALWAYS bypasses the threshold (regenerating paid work is
+ * the costly path we always want to confirm).
+ *
+ * Numbers chosen for sleep-story workloads: ~$0.05 USD-equivalent — small
+ * enough that a typical 1-scene retest doesn't nag, large enough that any
+ * batch of >5 images on a paid model trips the dialog.
+ */
+const COST_THRESHOLDS: Record<string, number> = {
+  USD: 0.05,
+  credits: 10,    // kie.ai: 1 credit = $0.005, so 10 credits = $0.05
+}
+
+// (USD-per-credit conversion lives in CostConfirmationDialog.vue where
+// the dialog formats the figure for display. Threshold logic above only
+// needs raw cost vs. unit-specific threshold.)
+
 interface ConfirmationState {
   visible: boolean
   type: string
@@ -66,24 +88,48 @@ export function useConfirmation() {
   ): Promise<boolean> {
     if (!shouldConfirm(type)) return true
 
-    // Fetch cost estimate from backend
-    state.visible = true
-    state.type = type
-    state.typeLabel = TYPE_LABELS[type] || type
-    state.loading = true
-    state.estimate = null
-
+    // Pre-fetch the estimate BEFORE deciding whether to show the dialog —
+    // we need the cost number to compare against the threshold. If it's a
+    // tiny op (< $0.05 USD-equivalent), skip the dialog entirely so the
+    // user isn't trained to dismiss-and-disable.
+    let estimate: CostEstimate
     try {
-      state.estimate = await post<CostEstimate>(`/projects/${slug}/estimate-cost`, { type, params })
+      estimate = await post<CostEstimate>(`/projects/${slug}/estimate-cost`, { type, params })
     } catch {
-      state.estimate = {
+      estimate = {
         estimated_cost: '?',
         cost_unit: '',
         estimated_duration: 'Unknown',
         details: 'Could not estimate cost',
       }
     }
+
+    // Auto-confirm path. Three exits:
+    //   1. cost is unknown ('?') → fall through and show the dialog so the
+    //      user can decide rather than auto-proceeding into a black box.
+    //   2. force=true → always show; regenerating paid work is the path
+    //      we never want to silently pass.
+    //   3. cost < threshold for its unit → auto-proceed.
+    const numericCost = typeof estimate.estimated_cost === 'number'
+      ? estimate.estimated_cost
+      : Number(estimate.estimated_cost)
+    const threshold = COST_THRESHOLDS[estimate.cost_unit]
+    const isForceRegen = params?.force === true
+    if (
+      Number.isFinite(numericCost) &&
+      threshold !== undefined &&
+      numericCost < threshold &&
+      !isForceRegen
+    ) {
+      return true
+    }
+
+    // Show the dialog. Dialog component reads from `state` reactively.
+    state.visible = true
+    state.type = type
+    state.typeLabel = TYPE_LABELS[type] || type
     state.loading = false
+    state.estimate = estimate
 
     // Wait for user to confirm or cancel
     return new Promise<boolean>((resolve) => {

@@ -25,6 +25,37 @@
       </div>
     </div>
 
+    <!-- Restart-recovery banner: surfaces when one or more jobs got
+         marked as "Interrupted by app restart" (job-queue.ts boots running
+         jobs into 'error' state with that exact message). The user might
+         not realise that Repair & Retry on each one is FREE — it polls
+         the existing provider task before charging anything new. The
+         button fans out to the existing per-job retry path. -->
+    <div
+      v-if="!restartBannerDismissed && interruptedJobs.length > 0"
+      class="restart-recovery-banner"
+    >
+      <span class="rrb-icon" aria-hidden="true">↻</span>
+      <span class="rrb-text">
+        <strong>{{ interruptedJobs.length }} job{{ interruptedJobs.length === 1 ? '' : 's' }} interrupted by app restart.</strong>
+        Tasks already submitted to the provider may be recoverable for
+        free — Repair &amp; Retry polls them before charging anything new.
+      </span>
+      <button
+        class="btn btn-xs btn-primary"
+        :disabled="repairingAllInterrupted"
+        @click="repairAllInterrupted"
+      >
+        {{ repairingAllInterrupted ? 'Repairing…' : `Repair & Retry all (${interruptedJobs.length})` }}
+      </button>
+      <button
+        class="rrb-dismiss"
+        title="Dismiss for this session"
+        aria-label="Dismiss restart-recovery banner"
+        @click="restartBannerDismissed = true"
+      >✕</button>
+    </div>
+
     <!-- Post-bulk summary banner: surfaces once a bulk pipeline run settles.
          Dismissal is session-only — reloading re-derives the summary from
          `jobs.json` via pipeline_batch_id, so the operator sees it again
@@ -186,18 +217,20 @@
           </div>
           <div class="flex items-center gap-1">
             <button
-              v-if="job.status === 'queued'"
+              v-if="job.status === 'queued' || job.status === 'running'"
               class="btn btn-xs btn-danger"
-              @click="cancelJob(job.job_id)"
+              @click="cancelJob(job)"
+              :title="job.status === 'running' ? 'Stops local polling. In-flight provider tasks may still complete and bill — use Repair & Retry afterward to recover them for free.' : 'Removes from queue before any submit happens. No charge.'"
             >
-              Cancel
+              {{ job.status === 'running' ? 'Stop' : 'Cancel' }}
             </button>
             <button
-              v-if="job.status === 'error'"
+              v-if="job.status === 'error' || job.status === 'cancelled'"
               class="btn btn-xs btn-primary"
               @click="retryJob(job)"
+              title="Recovers any in-flight tasks for free first (poll the provider for already-paid-for results), then submits fresh requests only for what's truly missing. Avoids double-billing for tasks that were submitted but didn't finish downloading."
             >
-              Retry
+              Repair &amp; Retry
             </button>
             <button
               v-if="['done', 'error', 'cancelled'].includes(job.status)"
@@ -346,11 +379,12 @@
             </div>
             <div class="flex items-center gap-1">
               <button
-                v-if="job.status === 'error'"
+                v-if="job.status === 'error' || job.status === 'cancelled'"
                 class="btn btn-xs btn-primary"
                 @click="retryJob(job)"
+                title="Recovers any in-flight tasks for free first (poll the provider for already-paid-for results), then submits fresh requests only for what's truly missing. Avoids double-billing."
               >
-                Retry
+                Repair &amp; Retry
               </button>
               <button class="btn-icon" @click="removeJob(job.job_id)" title="Dismiss">&#10005;</button>
             </div>
@@ -471,6 +505,33 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 // or navigates to Assets — dismissal is in-memory only, so a reload
 // re-derives the summary from jobs.json and shows it again.
 const bulkBannerDismissed = ref(false)
+
+// ── Restart-recovery banner ───────────────────────────────────────────────
+// Detects jobs that the boot process marked as "Interrupted by app restart"
+// (job-queue.ts:279). Surfaces a session-dismissible info banner with a
+// fan-out "Repair & Retry all" button — each click delegates to the
+// existing per-job retryJob, which already triggers the auto-recovery
+// (manifest task_id polled before any fresh submit, no double-charge).
+const restartBannerDismissed = ref(false)
+const repairingAllInterrupted = ref(false)
+const INTERRUPTED_ERROR_TEXT = 'Interrupted by app restart'
+const interruptedJobs = computed(() =>
+  jobs.value.filter((j: RJob) => j.status === 'error' && j.error === INTERRUPTED_ERROR_TEXT)
+)
+async function repairAllInterrupted() {
+  // Snapshot the list — retryJob() deletes each job + re-enqueues, so
+  // iterating a reactive array directly would shrink under our feet.
+  const snapshot = [...interruptedJobs.value]
+  if (snapshot.length === 0) return
+  repairingAllInterrupted.value = true
+  try {
+    for (const job of snapshot) {
+      await retryJob(job)
+    }
+  } finally {
+    repairingAllInterrupted.value = false
+  }
+}
 
 // The aggregator handles "no batch / still mid-flight" by returning null,
 // which the banner treats as "don't render". This keeps the template
@@ -825,10 +886,36 @@ function toggleExpand(jobId: string) {
   expanded.value = expanded.value === jobId ? null : jobId
 }
 
-async function cancelJob(jobId: string) {
+// Job types that can have in-flight provider charges at cancel time. A
+// queued cancel (worker hasn't picked up yet) never charges; a running
+// cancel of a "free" type (local ffmpeg, YouTube upload) doesn't either.
+// This set is used to decide whether to surface the Repair & Retry hint
+// — over-warning on free jobs would teach users to dismiss the toast.
+const COST_INCURRING_TYPES = new Set([
+  'script-only', 'introduction-only', 'chapter-only',
+  'image_prompts', 'metadata',
+  'images', 'scene_images', 'thumb_images',
+  'audio',
+  'video',
+  'subtitles_transcribe',
+])
+
+async function cancelJob(job: RJob) {
+  const wasRunningWithCost = job.status === 'running' && COST_INCURRING_TYPES.has(job.type)
   try {
-    await del(`/projects/${slug.value}/jobs/${jobId}`)
-    success('Job cancelled')
+    await del(`/projects/${slug.value}/jobs/${job.job_id}`)
+    if (wasRunningWithCost) {
+      // Multi-line toast — local cancel doesn't signal upstream, so
+      // already-submitted provider tasks may complete on their side and
+      // bill the account. The new Repair & Retry path can pick them up
+      // for free if the user wants to come back to it.
+      success(
+        'Stopped — in-flight tasks may still complete on the provider. ' +
+        'Use Repair & Retry on this job to download them for free.'
+      )
+    } else {
+      success(job.status === 'queued' ? 'Job cancelled (no charge)' : 'Job stopped')
+    }
   } catch (e: any) { showError(e.data?.detail || 'Failed to cancel job') }
 }
 
@@ -896,6 +983,46 @@ async function clearFinished() {
    optional expand-for-details, action row, and an explainer. The card
    re-tints amber when there are failures so the eye catches "something
    needs attention" vs. "all green" without reading the numbers. */
+/* Restart-recovery banner: same shape as bulk-finished but in an info
+   tone (cyan/blue) since it's actionable but not alarming — interrupted
+   jobs are RECOVERABLE, not lost. Layout is single-row so the action
+   button sits inline with the explainer. */
+.restart-recovery-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 4px;
+  padding: 10px 14px;
+  background: rgba(99, 145, 200, 0.10);
+  border: 1px solid rgba(99, 145, 200, 0.30);
+  border-left: 3px solid rgb(99, 145, 200);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.rrb-icon {
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.rrb-text {
+  flex: 1;
+  line-height: 1.45;
+}
+.rrb-text strong {
+  color: var(--text-primary);
+}
+.rrb-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+.rrb-dismiss:hover { color: var(--text-primary); }
+
 .bulk-finished-banner {
   display: flex;
   flex-direction: column;

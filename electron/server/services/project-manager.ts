@@ -847,6 +847,13 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     audio_concurrency: typeof (config as any).audio_concurrency === 'number' ? (config as any).audio_concurrency : undefined,
     video_concurrency: typeof (config as any).video_concurrency === 'number' ? (config as any).video_concurrency : undefined,
     image_concurrency: typeof (config as any).image_concurrency === 'number' ? (config as any).image_concurrency : undefined,
+    // Per-modality launch stagger (ms). 0 / undefined = no stagger; non-zero
+    // delays each pool worker's first task by index*stagger to smooth the
+    // initial-burst submit that triggers per-second 429s on Kie / fal /
+    // ElevenLabs / Veo. See generators/{images,audio,ai-video}.ts.
+    image_launch_stagger_ms: typeof (config as any).image_launch_stagger_ms === 'number' ? (config as any).image_launch_stagger_ms : undefined,
+    audio_launch_stagger_ms: typeof (config as any).audio_launch_stagger_ms === 'number' ? (config as any).audio_launch_stagger_ms : undefined,
+    video_launch_stagger_ms: typeof (config as any).video_launch_stagger_ms === 'number' ? (config as any).video_launch_stagger_ms : undefined,
     audio_models: (config.audio_models && Object.keys(config.audio_models).length)
       ? config.audio_models
       : { ...DEFAULT_AUDIO_MODELS },

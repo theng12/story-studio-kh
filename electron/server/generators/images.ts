@@ -13,7 +13,9 @@ import { resolveSubfolderNames, assertBalanceAvailable } from '../services/utils
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
-import { fileExistsWithContent } from '../lib/http-retry.js'
+import { fileExistsWithContent, isCloudEvictedPlaceholder, sleepCancellable } from '../lib/http-retry.js'
+import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
+import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
 import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
@@ -254,6 +256,23 @@ export async function generateImages(job: Job): Promise<void> {
   const configConcurrency = Number((config as any).image_concurrency) || 0
   const reqConcurrency = Number((req as any).concurrency) || 0
   const concurrency = Math.max(1, Math.min(10, reqConcurrency || configConcurrency || 5))
+  // Launch stagger: delay each pool worker's FIRST task by `i * staggerMs` so
+  // the initial-burst submit doesn't trip per-second 429s on Kie / fal.
+  // After the spread the rolling pool runs at full concurrency. Default 0
+  // (no stagger) — opt-in via Settings → Images → Launch stagger. Clamp 0..5000.
+  const cfgImageStagger = Number((config as any).image_launch_stagger_ms) || 0
+  const launchStaggerMs = Math.max(0, Math.min(5000, cfgImageStagger))
+
+  // Read the per-folder task manifests once at the top so we can attempt
+  // free recovery (existing-task poll) before issuing any fresh submit.
+  // Best-effort — a missing/corrupt sidecar just means recovery isn't
+  // available for those items, fresh generation still works.
+  const sceneManifest: Manifest = await readManifest(bgDir).catch(
+    () => ({ schema_version: 1 as const, tasks: {} }),
+  )
+  const thumbManifest: Manifest = await readManifest(thumbDir).catch(
+    () => ({ schema_version: 1 as const, tasks: {} }),
+  )
 
   let processed = 0
   let totalToProcess = 0
@@ -266,6 +285,39 @@ export async function generateImages(job: Job): Promise<void> {
     if (await fileExistsWithContent(v1Path) && !req.scene_number && !force) {
       job.output_lines.push(`Skipping ${stem} (exists)`)
       return
+    }
+    // iCloud-evicted asset: file is recoverable for free by opening it in
+    // Finder; re-billing the provider would be a waste. Skip this scene
+    // and surface a clear hint. User downloads, re-runs, no charge.
+    if (!force && await isCloudEvictedPlaceholder(v1Path)) {
+      job.output_lines.push(
+        `⚠ ${stem}_v1.png is iCloud-evicted (right-click in Finder → Download Now). ` +
+        `Skipped to avoid re-billing for an asset you already paid for.`,
+      )
+      return
+    }
+    // Auto-recovery: before issuing a fresh (charged) submit, see if the
+    // task-manifest sidecar has a stored task_id from a previous run. If
+    // the provider still has the result (success / pending), download it
+    // for free. Skip when --force regen was requested. Failures here
+    // silently fall through to the fresh-submit path below.
+    if (!force) {
+      const recovered = await tryRecoverImageFromManifest(
+        sceneManifest.tasks[`${stem}_v1.png`] || null,
+        apiKey, modelConfig,
+        () => jq.isCancelled(job.job_id),
+      )
+      if (recovered) {
+        for (let i = 0; i < recovered.urls.length; i++) {
+          await downloadImage(recovered.urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`))
+        }
+        processed++
+        job.output_lines.push(
+          `Scene ${scene.number}/${totalToProcess}: ${scene.title} — recovered ` +
+          `${recovered.urls.length} variant(s) from existing task ${recovered.taskId.slice(0, 12)}… (no charge)`,
+        )
+        return
+      }
     }
     try {
       const referenceImagePaths = resolveSceneReferenceImages(scene.prompt)
@@ -308,6 +360,34 @@ export async function generateImages(job: Job): Promise<void> {
       job.output_lines.push(`Skipping ${stem} (exists)`)
       return
     }
+    // iCloud-evicted (same handling as runScene).
+    if (!force && await isCloudEvictedPlaceholder(v1Path)) {
+      job.output_lines.push(
+        `⚠ ${stem}_v1.png is iCloud-evicted (right-click in Finder → Download Now). ` +
+        `Skipped to avoid re-billing.`,
+      )
+      return
+    }
+    // Auto-recovery (same as runScene above) — try to recover from a
+    // previously-submitted task before charging for a fresh submit.
+    if (!force) {
+      const recovered = await tryRecoverImageFromManifest(
+        thumbManifest.tasks[`${stem}_v1.png`] || null,
+        apiKey, modelConfig,
+        () => jq.isCancelled(job.job_id),
+      )
+      if (recovered) {
+        for (let i = 0; i < recovered.urls.length; i++) {
+          await downloadImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`))
+        }
+        processed++
+        job.output_lines.push(
+          `Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — recovered ` +
+          `${recovered.urls.length} variant(s) from existing task ${recovered.taskId.slice(0, 12)}… (no charge)`,
+        )
+        return
+      }
+    }
     const enhanced = enhanceThumbnailPrompt(thumb.prompt, episodeTitle, thumb.number)
     try {
       // Thumbnail prompts also reference characters — use the original
@@ -343,17 +423,30 @@ export async function generateImages(job: Job): Promise<void> {
   /** Run tasks with a concurrency cap (simple pool). Stops picking up new
    *  items as soon as the job is cancelled so the user isn't billed for
    *  work they already aborted — in-flight provider calls can't be
-   *  interrupted but at least we won't start new ones. */
+   *  interrupted but at least we won't start new ones.
+   *
+   *  When `launchStaggerMs > 0`, the i-th worker delays its FIRST task by
+   *  `i * launchStaggerMs`. The sleep is broken into 200ms ticks so a
+   *  user-cancel during the stagger window unwinds promptly. */
   async function runPool<T>(items: T[], worker: (item: T) => Promise<void>) {
     let cursor = 0
-    async function next(): Promise<void> {
+    const isCancelled = () => jq.isCancelled(job.job_id)
+    async function next(workerIndex: number): Promise<void> {
+      if (launchStaggerMs > 0 && workerIndex > 0) {
+        try {
+          await sleepCancellable(workerIndex * launchStaggerMs, isCancelled)
+        } catch { return /* cancelled mid-stagger */ }
+      }
       while (cursor < items.length) {
-        if (jq.isCancelled(job.job_id)) return
+        if (isCancelled()) return
         const i = cursor++
         await worker(items[i]!)
       }
     }
-    await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => next()))
+    await Promise.all(Array.from(
+      { length: Math.min(concurrency, items.length) },
+      (_, i) => next(i),
+    ))
   }
 
   // Scene images
@@ -362,7 +455,11 @@ export async function generateImages(job: Job): Promise<void> {
     if (req.scene_number) filteredScenes = filteredScenes.filter(s => s.number === req.scene_number)
     totalToProcess = filteredScenes.length
     processed = 0
-    job.output_lines.push(`Generating ${filteredScenes.length} scene image(s) with concurrency=${concurrency}...`)
+    job.output_lines.push(
+      `Generating ${filteredScenes.length} scene image(s) with concurrency=${concurrency}` +
+      (launchStaggerMs > 0 ? `, launch stagger ${launchStaggerMs}ms` : '') +
+      '...',
+    )
     await runPool(filteredScenes, runScene)
   }
 
@@ -372,7 +469,11 @@ export async function generateImages(job: Job): Promise<void> {
     if (req.thumb_number) thumbs = thumbs.filter(t => t.number === req.thumb_number)
     totalToProcess = thumbs.length
     processed = 0
-    job.output_lines.push(`Generating ${thumbs.length} thumbnail(s) with concurrency=${concurrency}...`)
+    job.output_lines.push(
+      `Generating ${thumbs.length} thumbnail(s) with concurrency=${concurrency}` +
+      (launchStaggerMs > 0 ? `, launch stagger ${launchStaggerMs}ms` : '') +
+      '...',
+    )
     await runPool(thumbs, runThumb)
   }
 

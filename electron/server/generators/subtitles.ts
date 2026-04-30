@@ -17,6 +17,7 @@ import { resolveSubfolderNames } from '../services/utils.js'
 import { scanEpisodeAssets } from './video.js'
 import { transcribeToSrt } from '../lib/whisper-client.js'
 import { normalizeSrtOrVtt } from '../lib/subtitle-builder.js'
+import { fileExistsWithContent } from '../lib/http-retry.js'
 import type { Job } from '../models/types.js'
 
 export interface TranscribeSubtitlesRequest {
@@ -24,6 +25,14 @@ export interface TranscribeSubtitlesRequest {
   audio_path?: string        // overrides the default merged-audio discovery
   language?: string
   model?: string
+  /**
+   * When true, re-run Whisper even if `{code}_whisper.srt` already exists.
+   * Default false: a previously-transcribed episode is silently skipped to
+   * avoid re-billing the paid Whisper API. Surface in the UI as a "Re-run
+   * transcription" checkbox so the user has to consciously opt into the
+   * cost.
+   */
+  force?: boolean
 }
 
 export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
@@ -33,6 +42,21 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
 
   job.progress = 0
   job.output_lines.push(`Starting Whisper transcription for ${code}`)
+
+  // Cost-saver: if {code}_whisper.srt already exists with content, skip the
+  // (paid) Whisper API call. Whisper has no manifest/recovery flow because
+  // the API is one-shot (no task_id), so the only protection against
+  // double-billing is this existence check. The user can pass force=true
+  // (UI: "Re-run transcription") to consciously opt into the cost.
+  const outDir = await resolveSubtitlesDir(project_slug, code)
+  const outPath = path.join(outDir, `${code}_whisper.srt`)
+  if (!req.force && await fileExistsWithContent(outPath)) {
+    job.output_lines.push(`Skipping — ${code}_whisper.srt already exists. Tick "Re-run transcription" to overwrite.`)
+    job.output_dir = outDir
+    ;(job as any).result = { srt_path: outPath, skipped: true }
+    job.progress = 100
+    return
+  }
 
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project not found')

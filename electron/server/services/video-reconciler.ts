@@ -74,13 +74,13 @@ async function fileNonEmpty(p: string): Promise<boolean> {
 
 // ── Per-provider single-shot fetchers ───────────────────────────────────
 
-interface FetchResult {
+export interface FetchResult {
   urls: string[]
   status: 'success' | 'pending' | 'failed' | 'expired' | 'unknown'
   message?: string
 }
 
-async function fetchGenaiproVeo(taskId: string, apiKey: string): Promise<FetchResult> {
+export async function fetchGenaiproVeo(taskId: string, apiKey: string): Promise<FetchResult> {
   const resp = await fetch(`https://api.genaipro.vn/v2/veo/tasks/${encodeURIComponent(taskId)}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
     signal: AbortSignal.timeout(30000),
@@ -98,7 +98,7 @@ async function fetchGenaiproVeo(taskId: string, apiKey: string): Promise<FetchRe
   return { urls: [], status: 'pending', message: `Status: ${task.status || 'unknown'}` }
 }
 
-async function fetchKieVideo(taskId: string, pollPath: string, apiKey: string): Promise<FetchResult> {
+export async function fetchKieVideo(taskId: string, pollPath: string, apiKey: string): Promise<FetchResult> {
   const path = pollPath || '/jobs/recordInfo'
   const resp = await fetch(`${KIE_BASE_URL}${path}?taskId=${encodeURIComponent(taskId)}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
@@ -146,7 +146,7 @@ async function fetchKieVideo(taskId: string, pollPath: string, apiKey: string): 
   return { urls: [], status: 'pending', message: `Status: ${status || 'unknown'}` }
 }
 
-async function fetchFalVideo(resultUrl: string): Promise<FetchResult> {
+export async function fetchFalVideo(resultUrl: string): Promise<FetchResult> {
   if (!resultUrl) return { urls: [], status: 'unknown', message: 'No result_url stored' }
   const resp = await fetch(resultUrl, { signal: AbortSignal.timeout(30000) })
   if (resp.status === 404 || resp.status === 410) return { urls: [], status: 'expired', message: 'fal queue result expired' }

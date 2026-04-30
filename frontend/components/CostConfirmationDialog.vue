@@ -27,6 +27,9 @@
             <template v-if="state.estimate.cost_unit === 'USD'">${{ state.estimate.estimated_cost }}</template>
             <template v-else>{{ state.estimate.estimated_cost }} {{ state.estimate.cost_unit }}</template>
           </div>
+          <!-- USD-equivalent for credit-based costs: 1 kie credit = $0.005.
+               Helps users mentally calibrate without leaving the dialog. -->
+          <div v-if="usdEquivalent" class="estimate-subvalue">{{ usdEquivalent }}</div>
         </div>
         <div class="estimate-item">
           <div class="estimate-label">Duration</div>
@@ -38,6 +41,8 @@
             <template v-if="state.estimate.cost_unit === 'USD'">${{ state.estimate.current_balance }}</template>
             <template v-else>{{ state.estimate.current_balance }} {{ state.estimate.cost_unit }}</template>
           </div>
+          <!-- Balance USD-equivalent — same conversion as cost above. -->
+          <div v-if="balanceUsdEquivalent" class="estimate-subvalue">{{ balanceUsdEquivalent }}</div>
         </div>
       </div>
 
@@ -66,6 +71,29 @@
  */
 const { state, confirm, cancel } = useConfirmation()
 const skipFuture = ref(false)
+
+// 1 kie.ai credit = $0.005 USD (per defaults.ts:14). Hardcoded for the
+// at-a-glance conversion shown next to credit-based costs.
+const USD_PER_CREDIT = 0.005
+
+function toUsdString(n: unknown): string {
+  const v = typeof n === 'number' ? n : Number(n)
+  if (!Number.isFinite(v)) return ''
+  const usd = v * USD_PER_CREDIT
+  return `≈ $${usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2)}`
+}
+
+const usdEquivalent = computed(() => {
+  const e = state.estimate
+  if (!e || e.cost_unit !== 'credits') return ''
+  return toUsdString(e.estimated_cost)
+})
+
+const balanceUsdEquivalent = computed(() => {
+  const e = state.estimate
+  if (!e || e.cost_unit !== 'credits' || e.current_balance == null) return ''
+  return toUsdString(e.current_balance)
+})
 
 // Reset the skip checkbox each time the dialog is re-opened — a user who
 // checked it for one generation type shouldn't carry that intent into the next.
@@ -119,6 +147,7 @@ function onConfirm() {
 .estimate-value { font-size: 18px; font-weight: 600; color: var(--text-primary); }
 .estimate-value.cost { color: var(--accent); }
 .estimate-value.balance { color: var(--text-secondary); font-size: 16px; }
+.estimate-subvalue { margin-top: 2px; font-size: 11px; color: var(--text-muted); font-weight: 400; }
 
 .estimate-details { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
 

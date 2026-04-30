@@ -1286,10 +1286,20 @@
                class="validation-msg" style="font-size: 12px;">
               No merged audio file found. Run Audio Assembly for this episode first.
             </p>
+            <p v-if="hasExistingWhisperSrt" class="text-muted" style="font-size: 12px;">
+              <strong>{{ existingWhisperSrtName }}</strong> already exists — the job will skip
+              the (paid) Whisper API and reuse it. Tick below to re-run with a fresh charge.
+            </p>
+            <label v-if="hasExistingWhisperSrt"
+                   class="flex items-center gap-1 mt-1"
+                   style="font-size: 12px;">
+              <input type="checkbox" v-model="whisperForce" />
+              Re-run transcription (charges Whisper API again)
+            </label>
             <button class="btn btn-sm btn-secondary mt-1"
               :disabled="subtitlesGenerating || !episodeId || !subtitlesStatus?.has_merged_audio || !subtitlesStatus?.has_openai_key"
               @click="transcribeWithWhisper">
-              {{ subtitlesGenerating ? 'Queued — check Jobs panel' : 'Transcribe now' }}
+              {{ subtitlesGenerating ? 'Queued — check Jobs panel' : (hasExistingWhisperSrt && !whisperForce ? 'Reuse existing transcript' : 'Transcribe now') }}
             </button>
           </div>
 
@@ -2214,15 +2224,33 @@ async function importSubtitles() {
   }
 }
 
+// Whether a previous Whisper SRT (`{code}_whisper.srt`) already exists for
+// this episode — the backend skips re-billing in that case unless `force`
+// is true, so the UI surfaces that explicitly.
+const hasExistingWhisperSrt = computed(() => {
+  const list = subtitlesStatus.value?.existing_srts || []
+  return list.some(s => /_whisper\.srt$/i.test(s.filename))
+})
+const existingWhisperSrtName = computed(() => {
+  const list = subtitlesStatus.value?.existing_srts || []
+  const found = list.find(s => /_whisper\.srt$/i.test(s.filename))
+  return found?.filename || ''
+})
+const whisperForce = ref(false)
+
 async function transcribeWithWhisper() {
   if (!episodeId.value) return
   subtitlesGenerating.value = true
   try {
     await post(
       `/projects/${slug.value}/video-editor/subtitles/transcribe/${episodeId.value}`,
-      { language: 'en' },
+      { language: 'en', force: whisperForce.value },
     )
-    success('Whisper transcription queued — check Jobs panel for progress')
+    success(
+      hasExistingWhisperSrt.value && !whisperForce.value
+        ? 'Existing transcript will be reused — no Whisper charge'
+        : 'Whisper transcription queued — check Jobs panel for progress'
+    )
     // We don't set srt_path here because the job is async. The user reloads
     // the status pill when the job finishes and can then pick the SRT.
   } catch (e: any) {
