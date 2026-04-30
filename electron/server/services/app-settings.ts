@@ -82,3 +82,65 @@ export async function setAppSetting(key: string, value: any): Promise<void> {
     await writeSettings(settings)
   })
 }
+
+// ── Voice presets + favourites (global, not per-project) ──────────────────
+//
+// Voices the user curates (named presets, ★ favourites) are personal-taste
+// signals — they don't change between channels. Storing them per-project
+// duplicates work (re-favourite the same voice in 5 projects). The
+// ElevenLabs voice CATALOG was already per-machine via voices-cache; this
+// lifts the user's CURATION to the same scope.
+//
+// Schema:
+//   app-settings.json
+//     "voice_presets":    [{ "name": "Vincent", "voice_id": "..." }, ...]
+//     "voice_favourites": ["voice_id_1", "voice_id_2", ...]
+//
+// Migration: boot/migrations.ts merges each project's legacy
+// `voice_presets`/`voice_favourites` into these keys on first run after
+// upgrade. Per-project fields stay readable for older app builds.
+
+export const VOICE_PRESETS_KEY = 'voice_presets'
+export const VOICE_FAVOURITES_KEY = 'voice_favourites'
+
+export interface GlobalVoicePreset {
+  name: string
+  voice_id: string
+}
+
+export async function getVoicePresetsGlobal(): Promise<GlobalVoicePreset[]> {
+  const v = await getAppSetting(VOICE_PRESETS_KEY)
+  if (!Array.isArray(v)) return []
+  return v.filter(
+    (e): e is GlobalVoicePreset =>
+      e && typeof e === 'object' &&
+      typeof e.name === 'string' && typeof e.voice_id === 'string',
+  )
+}
+
+export async function setVoicePresetsGlobal(value: GlobalVoicePreset[]): Promise<void> {
+  await setAppSetting(VOICE_PRESETS_KEY, value)
+}
+
+export async function getVoiceFavouritesGlobal(): Promise<string[]> {
+  const v = await getAppSetting(VOICE_FAVOURITES_KEY)
+  if (!Array.isArray(v)) return []
+  return v.filter((e): e is string => typeof e === 'string' && e.length > 0)
+}
+
+export async function setVoiceFavouritesGlobal(value: string[]): Promise<void> {
+  await setAppSetting(VOICE_FAVOURITES_KEY, value)
+}
+
+/**
+ * Returns true when neither key exists yet — the boot migration uses
+ * this to decide whether to run the per-project merge. We require BOTH
+ * to be unset so a partial migration (e.g. presets set, favourites not)
+ * doesn't trigger a re-merge that would reintroduce already-removed
+ * entries.
+ */
+export async function voiceCurationGlobalIsUnset(): Promise<boolean> {
+  const settings = await readSettings()
+  return settings[VOICE_PRESETS_KEY] === undefined
+    && settings[VOICE_FAVOURITES_KEY] === undefined
+}

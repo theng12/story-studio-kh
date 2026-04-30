@@ -839,10 +839,26 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
       ? config.image_models
       : { ...DEFAULT_IMAGE_MODELS },
     image_pricing_last_updated: config.image_pricing_last_updated || '',
-    voice_presets: (config.voice_presets && config.voice_presets.length)
-      ? config.voice_presets
-      : [...DEFAULT_VOICE_PRESETS],
-    voice_favourites: Array.isArray(config.voice_favourites) ? config.voice_favourites : [],
+    // Voice curation is now per-machine (app-settings.json); the boot
+    // migration merges legacy per-project lists into global. Falls back
+    // to the project value during the transition window so a user who
+    // upgrades and immediately opens the settings page still sees their
+    // curation. After the migration runs once, project-side values are
+    // ignored on read but kept on disk so older app builds still see them.
+    voice_presets: await (async () => {
+      const { getVoicePresetsGlobal } = await import('./app-settings.js')
+      const global = await getVoicePresetsGlobal()
+      if (global.length > 0) return global
+      // Pre-migration fallback: per-project value if set, else seeded default.
+      if (config.voice_presets && config.voice_presets.length) return config.voice_presets
+      return [...DEFAULT_VOICE_PRESETS]
+    })(),
+    voice_favourites: await (async () => {
+      const { getVoiceFavouritesGlobal } = await import('./app-settings.js')
+      const global = await getVoiceFavouritesGlobal()
+      if (global.length > 0) return global
+      return Array.isArray(config.voice_favourites) ? config.voice_favourites : []
+    })(),
     // Concurrency knobs (undefined = generator uses its safe default).
     audio_concurrency: typeof (config as any).audio_concurrency === 'number' ? (config as any).audio_concurrency : undefined,
     video_concurrency: typeof (config as any).video_concurrency === 'number' ? (config as any).video_concurrency : undefined,
@@ -928,6 +944,20 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
   if (!projectDir) return false
   const configPath = path.join(projectDir, 'config.json')
   if (!existsSync(configPath)) return false
+  // Voice curation is now global (app-settings.json) — divert before the
+  // per-project write so the slug-bearing settings/config endpoint stays
+  // a transparent read/write proxy for the frontend. The project-side
+  // field is intentionally NOT cleared here — older app builds still
+  // expect it to exist.
+  if (req.voice_presets) {
+    const { setVoicePresetsGlobal } = await import('./app-settings.js')
+    await setVoicePresetsGlobal(req.voice_presets as any)
+  }
+  if ((req as any).voice_favourites) {
+    const { setVoiceFavouritesGlobal } = await import('./app-settings.js')
+    const ids = (req as any).voice_favourites
+    if (Array.isArray(ids)) await setVoiceFavouritesGlobal(ids)
+  }
   // Read-modify-write must be atomic against concurrent updateConfig calls.
   await withLock(configPath, async () => {
     const data = await readJson(configPath)
@@ -935,14 +965,16 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
       data.image_models = req.image_models
       data.image_pricing_last_updated = new Date().toISOString().split('T')[0]
     }
-    if (req.voice_presets) data.voice_presets = req.voice_presets
     if (req.audio_models) {
       data.audio_models = req.audio_models
       data.audio_pricing_last_updated = new Date().toISOString().split('T')[0]
     }
     // Pass through any extra settings (script_settings, youtube_templates, etc.)
+    // Excludes voice_presets / voice_favourites — those went to global above
+    // and must not be re-written into the project config.
+    const PROJECT_LEVEL_EXCLUDES = ['image_models', 'voice_presets', 'voice_favourites', 'audio_models', 'models']
     for (const key of Object.keys(req)) {
-      if (!['image_models', 'voice_presets', 'audio_models', 'models'].includes(key)) {
+      if (!PROJECT_LEVEL_EXCLUDES.includes(key)) {
         (data as any)[key] = (req as any)[key]
       }
     }

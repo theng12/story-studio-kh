@@ -1,19 +1,25 @@
 /**
- * Voice catalog routes — drives the per-project voice picker.
+ * Voice catalog routes — drives the voice picker.
  *
  *   GET  /projects/:slug/voices/catalog        → merged live/cache/snapshot catalog
  *   POST /projects/:slug/voices/refresh        → force live fetch + update cache
  *   POST /projects/:slug/voices/probe          → { voice_id } → { available: bool }
- *   GET  /projects/:slug/voices/favourites     → { voice_ids: [] }  per-project
+ *   GET  /projects/:slug/voices/favourites     → { voice_ids: [] }  per-MACHINE
  *   PUT  /projects/:slug/voices/favourites     → { voice_ids: [] }  replace list
  *
- * Cache is per-machine (see services/voices-cache.ts); favourites are
- * per-project (stored in project.json alongside voice_presets).
+ * The slug in the favourites paths is now ceremonial — favourites moved
+ * to app-settings.json (per-machine) so they don't have to be re-curated
+ * for every new channel. Catalog cache and favourites both live alongside
+ * app-settings.json. The slug-bearing paths remain for frontend
+ * compat — the value is the same regardless of which slug is passed.
  */
 import { Router } from 'express'
 import * as pm from '../services/project-manager.js'
 import { resolveCatalog, fetchAndCache, loadCache } from '../services/voices-cache.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import {
+  getVoiceFavouritesGlobal, setVoiceFavouritesGlobal,
+} from '../services/app-settings.js'
 
 export const router = Router()
 
@@ -69,20 +75,20 @@ router.post('/projects/:slug/voices/probe', async (req, res) => {
   res.json({ available: found, fetched_at: cache.fetched_at })
 })
 
-// ── Per-project favourites ─────────────────────────────────────────────────
+// ── Global favourites (slug param ceremonial — list is per-machine) ───────
 
 router.get('/projects/:slug/voices/favourites', async (req, res) => {
-  const { slug } = req.params
-  const config = await pm.getConfig(slug)
-  if (!config) return res.status(404).json({ detail: 'Project not found' })
-  const ids = Array.isArray(config.voice_favourites) ? config.voice_favourites : []
+  // Project-existence check kept so the picker still surfaces a clean
+  // 404 when the URL has a stale slug; payload itself is global.
+  const project = await pm.getProject(req.params.slug)
+  if (!project) return res.status(404).json({ detail: 'Project not found' })
+  const ids = await getVoiceFavouritesGlobal()
   res.json({ voice_ids: ids })
 })
 
 router.put('/projects/:slug/voices/favourites', async (req, res) => {
-  const { slug } = req.params
-  const config = await pm.getConfig(slug)
-  if (!config) return res.status(404).json({ detail: 'Project not found' })
+  const project = await pm.getProject(req.params.slug)
+  if (!project) return res.status(404).json({ detail: 'Project not found' })
 
   const input = req.body?.voice_ids
   if (!Array.isArray(input)) {
@@ -101,7 +107,7 @@ router.put('/projects/:slug/voices/favourites', async (req, res) => {
   }
 
   try {
-    await pm.updateConfig(slug, { voice_favourites: clean })
+    await setVoiceFavouritesGlobal(clean)
     res.json({ voice_ids: clean })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save favourites'))
