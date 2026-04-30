@@ -781,11 +781,20 @@ router.get('/projects/:slug/episodes', async (req, res) => {
       //   thumbnails     — every expected thumbnail present (≥1 variant per number).
       //   audio          — every required audio chunk on disk (per audio-reconciler).
       //   merged_audio   — at least one merged_audio.mp3 with content.
-      //   video          — every video clip present.
+      //   video          — every per-scene AI clip present (input to assembly).
+      //   video_assembly — final assembled video on disk anywhere (project
+      //                    tree OR external_final_video_root).
       //   video_ready    — derivable: images && merged_audio && !video.
-      //   publishable    — derivable: images && thumbnails && merged_audio && video.
+      //   publishable    — derivable: images && thumbnails && merged_audio &&
+      //                    final video on disk. NOTE: uses video_assembly
+      //                    (the OUTPUT of the pipeline) not video (per-scene
+      //                    clips, an OPTIONAL input). Sleep-story episodes
+      //                    are assembled directly from still images and
+      //                    never have per-scene AI clips, so keying off
+      //                    `video` would falsely mark them not publishable
+      //                    even with a finished render on disk.
       //   metadata       — at least one metadata file (.txt/.json/.md) in the metadata folder.
-      //   all_done       — every primary asset present.
+      //   all_done       — every primary asset present (output, not inputs).
       status: {
         script: scriptDone,
         introduction: introductionDone,
@@ -802,11 +811,11 @@ router.get('/projects/:slug/episodes', async (req, res) => {
         // missing, even after the broader disk detection landed.
         video_assembly: videoAssemblyDone,
         video_ready: imagesDone && mergedAudioDone && !videoDone,
-        publishable: imagesDone && thumbsDone && mergedAudioDone && videoDone,
+        publishable: imagesDone && thumbsDone && mergedAudioDone && videoAssemblyDone,
         metadata: metadataDone,
         all_done: scriptDone && scenePromptsDone && thumbPromptsDone
           && imagesDone && thumbsDone && audioDone && metadataDone
-          && mergedAudioDone && videoDone,
+          && mergedAudioDone && videoAssemblyDone,
       },
       episode_dir: episodeDir,
     }

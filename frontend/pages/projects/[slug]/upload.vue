@@ -175,6 +175,16 @@
             Upload private, schedule in YouTube Studio
           </label>
         </div>
+        <!-- Plain-language clarifier — closes the common misconception
+             that scheduling is "internal" and requires Story Studio
+             running. publishAt is a YouTube-side primitive; once an
+             upload completes with it set, YouTube auto-publishes server-
+             side regardless of whether the app is open. -->
+        <p class="text-muted mt-1" style="font-size: 11px;">
+          {{ uploadMode === 'private'
+            ? 'In private mode, every video uploads as private with no publishAt. You schedule each one inside YouTube Studio.'
+            : 'In Apply-plan mode, scheduled publishing is handled by YouTube server-side via publishAt — Story Studio doesn\'t need to be running at the publish moment.' }}
+        </p>
 
         <!-- Connected account card (single) -->
         <div v-if="youtubeAccounts[0]" class="connected-account mt-2">
@@ -444,6 +454,24 @@
                   <span v-if="item.schedule_source === 'planned'" class="sched-pill" title="Scheduled by an Upload Plan. When you click Upload, this time is pushed to YouTube as publishAt.">📅</span>
                   <span v-else-if="item.schedule_source === 'synced'" class="sched-pill ok" title="Time is live on YouTube via publishAt.">☁️</span>
                 </button>
+                <!-- Plain-language clarifier: today the schedule cell only
+                     shows emoji pills with the explanation buried in
+                     tooltips, so users can't tell from glance who
+                     actually drives the publish moment. This chip makes
+                     the YouTube-native flow visible: in apply-plan mode,
+                     YouTube handles publish via publishAt; in private
+                     mode, the user does it from YT Studio. -->
+                <div v-if="item.scheduled_for && item.type === 'episode'" class="sched-explainer">
+                  <span v-if="uploadMode === 'private'" class="sched-chip sched-chip--muted">
+                    Manual schedule in YouTube Studio
+                  </span>
+                  <span v-else-if="item.uploaded" class="sched-chip sched-chip--ok">
+                    ✓ YouTube auto-publishes at this time
+                  </span>
+                  <span v-else class="sched-chip sched-chip--pending">
+                    YouTube will publish on upload
+                  </span>
+                </div>
                 <div v-if="item.scheduled_for && item.type === 'episode'" class="unschedule-actions">
                   <button
                     class="btn-unschedule"
@@ -938,7 +966,7 @@
             <td class="col-actions">
               <button
                 class="btn btn-sm btn-primary"
-                :disabled="applying || uploadMode === 'private'"
+                :disabled="applying || applyAndUploading || uploadMode === 'private'"
                 :title="uploadMode === 'private'
                   ? 'Apply-plan is disabled while Schedule mode is set to \u201CUpload private, schedule in YouTube Studio\u201D. Change mode on the Accounts tab to re-enable.'
                   : `Distribute the current Upload Queue (${queueItems.length} items) across this plan's next ${queueItems.length} slots and PATCH any already-uploaded video's publishAt.`"
@@ -947,8 +975,26 @@
                 <LoadingSpinner v-if="applying" size="sm" />
                 {{ applying ? 'Applying…' : (uploadMode === 'private' ? '🔒 Apply (disabled in private mode)' : '📅 Apply to Queue') }}
               </button>
+              <!-- Bulk path: applies the plan AND fires uploads for every
+                   not-yet-uploaded queue item, each carrying its planned
+                   publishAt. After this single click YouTube handles the
+                   publish moment server-side — Story Studio doesn't need
+                   to be running. Disabled in private mode (publishAt is
+                   never written there, so the bulk path makes no sense). -->
+              <button
+                class="btn btn-sm btn-primary"
+                :disabled="applying || applyAndUploading || uploadMode === 'private'"
+                :title="uploadMode === 'private'
+                  ? 'Apply + Upload is disabled in private mode (no publishAt is written). Switch to Apply-plan mode on the Accounts tab.'
+                  : `Apply this plan AND queue an upload for every not-yet-uploaded episode in the Queue (${queueItems.length} item${queueItems.length === 1 ? '' : 's'}). Each upload carries its planned publishAt, so YouTube auto-publishes at the scheduled time and the app can be off afterward.`"
+                @click="doApplyAndUpload(p)"
+              >
+                <LoadingSpinner v-if="applyAndUploading" size="sm" />
+                {{ applyAndUploading ? 'Working…' : '🚀 Apply + Upload all' }}
+              </button>
               <button
                 class="btn btn-sm btn-ghost"
+                :disabled="applying || applyAndUploading"
                 title="Remove any per-item schedule entries this plan applied. Useful if you applied the wrong plan and want to undo without deleting it."
                 @click="doUnapplyPlan(p)"
               >↩ Unapply</button>
@@ -1987,6 +2033,10 @@ const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const editing = ref<any>(null)
 const previewSlots = ref<string[]>([])
 const applying = ref(false)
+// Bulk "Apply + Upload all" gate. Distinct from `applying` so the
+// button can show its own progress label and the regular Apply button
+// can stay disabled-but-not-busy during the fan-out phase.
+const applyAndUploading = ref(false)
 
 // Sensible timezone default — detect from the browser; user can override.
 const defaultTz = (() => {
@@ -2141,6 +2191,142 @@ async function doApplyPlan(plan: any) {
     showError(e?.data?.detail || 'Failed to apply plan')
   } finally {
     applying.value = false
+  }
+}
+
+/**
+ * Apply the plan AND fan out an upload for every not-yet-uploaded
+ * episode in it, each carrying its planned publishAt. After this
+ * single click, every queued video is on YouTube as private+publishAt
+ * and YouTube handles the publish moment server-side — Story Studio
+ * doesn't need to be running. The user's stated misconception was
+ * that scheduling is "internal" and requires the app on; this surface
+ * makes the YouTube-native flow a one-click action.
+ *
+ * Sequencing:
+ *   1. applyPlan() — same as the Apply button. Writes the per-item
+ *      schedule map server-side and PATCHes already-uploaded videos
+ *      with their new publishAt.
+ *   2. Compute notYetUploaded by subtracting the patched.episode_code
+ *      set from assignments. Patched = already on YouTube; everything
+ *      else needs an upload.
+ *   3. Skip episodes that don't pass hasFinalVideoFast (shouldn't
+ *      happen if the plan was built from queueItems, but guards
+ *      against stale state on the frontend).
+ *   4. Cost confirm via the existing dialog so the user sees
+ *      N × 1600 = M YouTube quota units before fan-out.
+ *   5. Fire triggerUpload() per item sequentially. Backend reads the
+ *      per-item publishAt from the schedule map we wrote in step 1
+ *      (upload.ts:606-608), so each upload includes its scheduled
+ *      time without us re-passing it.
+ *   6. Summary toast counts succeeded vs failed. Common failure mode
+ *      is 429 quota exceeded mid-batch; uploads that DID succeed
+ *      stay queued, so the user keeps the work they paid for.
+ */
+async function doApplyAndUpload(plan: any) {
+  if (!queueItems.value.length) await loadQueue('youtube')
+  const episode_codes = queueItems.value.map((i: any) => i.episode_code)
+  if (!episode_codes.length) {
+    showError('No queue items to schedule. Assemble at least one final video first.')
+    return
+  }
+  applyAndUploading.value = true
+  try {
+    // Step 1 — apply schedule + PATCH already-uploaded.
+    const r = await applyPlan(plan.id, episode_codes)
+    const patchedOk = r.patched.filter((p: any) => p.ok).length
+    const patchedFail = r.patched.length - patchedOk
+
+    // Step 2 — derive the set that needs a fresh upload.
+    const patchedSet = new Set(r.patched.map((p: any) => p.episode_code))
+    const notYetUploaded = r.assignments.filter((a: any) => !patchedSet.has(a.episode_code))
+
+    // Step 3 — guardrail: only upload episodes that have a final on
+    // disk. queueItems already filters to publishable rows.
+    const codeToItem = new Map(queueItems.value.map((i: any) => [i.episode_code, i]))
+    const ready = notYetUploaded.filter((a: any) => codeToItem.has(a.episode_code))
+    const skipped = notYetUploaded.length - ready.length
+
+    if (ready.length === 0) {
+      // Nothing to fan out — surface what just happened so the toast
+      // doesn't go silent after a click.
+      const parts = [
+        `${r.assignments.length} item(s) scheduled`,
+        patchedOk ? `${patchedOk} live video(s) patched` : '',
+        patchedFail ? `${patchedFail} patch failure(s)` : '',
+        skipped ? `${skipped} skipped (no final video on disk)` : '',
+      ].filter(Boolean)
+      success(parts.join(' · '))
+      await loadQueue('youtube')
+      return
+    }
+
+    // Step 4 — pre-flight cost confirm. The shared cost dialog gates
+    // every cost-incurring action; passing count=N drives the
+    // bulk-total figure inside it.
+    const ok = await confirmGeneration(slug.value, 'youtube_upload', {
+      count: ready.length,
+    })
+    if (!ok) {
+      // Schedule was already applied (PATCHes happened) — surface
+      // what's on YouTube even though the user cancelled the bulk
+      // upload step.
+      const parts = [
+        `${r.assignments.length} item(s) scheduled`,
+        patchedOk ? `${patchedOk} live video(s) patched` : '',
+        patchedFail ? `${patchedFail} patch failure(s)` : '',
+      ].filter(Boolean)
+      success(`${parts.join(' · ')} · upload step cancelled`)
+      await loadQueue('youtube')
+      return
+    }
+
+    // Step 5 — fan out uploads sequentially. The job queue is FIFO
+    // per-type so even if we awaited concurrently they'd serialise;
+    // sequential await keeps the toast count accurate.
+    let uploaded = 0
+    let failed = 0
+    const failures: string[] = []
+    for (const a of ready) {
+      try {
+        await triggerUpload({
+          episode_id: a.episode_code,
+          platform: 'youtube',
+          privacy_status: 'private',
+        })
+        uploaded++
+      } catch (e: any) {
+        failed++
+        const detail = e?.data?.detail || e?.message || 'unknown error'
+        failures.push(`${a.episode_code}: ${detail}`)
+      }
+    }
+
+    // Step 6 — summary toast.
+    const summaryParts = [
+      `📅 Scheduled ${r.assignments.length}`,
+      patchedOk ? `↻ Patched ${patchedOk}` : '',
+      uploaded ? `☁️ Queued ${uploaded} upload(s) — YouTube will publish at scheduled time` : '',
+      failed ? `⚠ ${failed} failed` : '',
+      skipped ? `${skipped} skipped` : '',
+    ].filter(Boolean).join(' · ')
+    if (failed > 0) {
+      // Show the first few failures inline so the user knows what to
+      // retry, plus a summary if there are more.
+      const preview = failures.slice(0, 3).join('; ')
+      const overflow = failed > 3 ? `; +${failed - 3} more` : ''
+      showError(`${summaryParts} — ${preview}${overflow}`)
+    } else {
+      success(summaryParts)
+    }
+    await loadQueue('youtube')
+  } catch (e: any) {
+    // applyPlan failure (most likely past-slot validation) — abort
+    // before any uploads. The detail message from the backend is
+    // already actionable ("Edit the plan's start_date to today or later").
+    showError(e?.data?.detail || 'Failed to apply plan')
+  } finally {
+    applyAndUploading.value = false
   }
 }
 
@@ -3026,6 +3212,38 @@ onMounted(() => {
   vertical-align: middle;
 }
 .sched-pill.ok { background: rgba(46, 160, 67, 0.15); }
+
+/* Plain-language clarifier under each scheduled queue cell. Three tones
+   matching the meaning: green (✓ auto-publishes — YouTube has it),
+   cyan-pending (will publish on upload — YouTube doesn't have it yet),
+   muted (private mode — user schedules manually). Sized to the same
+   visual weight as the existing emoji pills so it doesn't dominate the
+   row. */
+.sched-explainer { margin-top: 3px; }
+.sched-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.sched-chip--ok {
+  background: rgba(46, 160, 67, 0.12);
+  color: rgb(140, 210, 150);
+  border-color: rgba(46, 160, 67, 0.30);
+}
+.sched-chip--pending {
+  background: rgba(99, 145, 200, 0.12);
+  color: rgb(150, 180, 220);
+  border-color: rgba(99, 145, 200, 0.30);
+}
+.sched-chip--muted {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
 
 .schedule-cell {
   background: none;

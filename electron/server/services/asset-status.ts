@@ -679,11 +679,29 @@ export async function hasFinalVideoFast(
   title: string,
 ): Promise<boolean> {
   try {
+    // Path A: project tree (canonical _final_video, or any non-scene mp4).
     const paths = await resolveEpisodePaths(slug, code, title || '')
     const videoDirFiles = await safeReaddir(paths.video_dir)
-    return videoDirFiles.some(f =>
+    if (videoDirFiles.some(f =>
       _isVideoFile(f) && (f.startsWith(`${code}_final_video.`) || !_isPerSceneClip(f)),
-    )
+    )) return true
+
+    // Path B: external_final_video_root (per-machine Settings → Storage).
+    // Mirror Path E in computeEpisodeStatus so the upload queue and the
+    // pipeline-status detector never disagree about whether a final
+    // exists. Without this branch, an episode whose final lives at the
+    // user's external root would have video_assembly: true on the
+    // pipeline page but be missing from the upload queue.
+    try {
+      const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
+      const externalDir = await resolveExternalFinalVideoDir(slug, code, title || '')
+      if (externalDir) {
+        const extFiles = await safeReaddir(externalDir)
+        if (extFiles.some(f => _isVideoFile(f) && f.startsWith(`${code}_final_video.`))) return true
+      }
+    } catch { /* external store not configured / import failure → skip */ }
+
+    return false
   } catch {
     return false
   }
