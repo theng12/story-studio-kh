@@ -2,15 +2,28 @@
   <div>
     <div class="upload-header">
       <h1>▶ YouTube Upload</h1>
-      <button
-        class="btn btn-sm btn-ghost"
-        :disabled="loading"
-        title="Reload accounts, OAuth status, and playlists across all tabs. Use after connecting/disconnecting a YouTube account or if a tab looks stale. Doesn't refresh the upload queue rows — use the Refresh queue button inside the queue for that."
-        @click="refreshAll"
-      >
-        <LoadingSpinner v-if="loading" size="sm" />
-        {{ loading ? 'Loading…' : '↻ Refresh accounts' }}
-      </button>
+      <div class="upload-header-right">
+        <div
+          v-if="quota"
+          class="quota-chip"
+          :class="{ warn: quotaPct >= 80 && quotaPct < 95, danger: quotaPct >= 95, stale: quota.stale }"
+          :title="quotaTooltip"
+        >
+          <span class="chip-icon">📊</span>
+          <span class="chip-text">
+            {{ quota.used.toLocaleString() }} / {{ quota.ceiling.toLocaleString() }}<span class="chip-divider"> · </span><template v-if="quotaResetSeconds > 0">resets in {{ formatDuration(quotaResetSeconds) }}</template><template v-else>resetting…</template><template v-if="quota.stale"> · stale</template>
+          </span>
+        </div>
+        <button
+          class="btn btn-sm btn-ghost"
+          :disabled="loading"
+          title="Reload accounts, OAuth status, and playlists across all tabs. Use after connecting/disconnecting a YouTube account or if a tab looks stale. Doesn't refresh the upload queue rows — use the Refresh queue button inside the queue for that."
+          @click="refreshAll"
+        >
+          <LoadingSpinner v-if="loading" size="sm" />
+          {{ loading ? 'Loading…' : '↻ Refresh accounts' }}
+        </button>
+      </div>
     </div>
 
     <p class="text-muted mt-1 mb-2" style="font-size: 13px; max-width: 860px;">
@@ -18,48 +31,6 @@
       moment via its own <code>publishAt</code>. Each project is bound to exactly one channel — reconnecting swaps the
       binding without leaving stale tokens behind. TikTok + Facebook have their own pages in the sidebar (coming in v2).
     </p>
-
-    <!-- Quota banner — shows when we're approaching or past the daily limit. -->
-    <div
-      v-if="quota && quota.used >= quota.warn_at"
-      class="quota-banner"
-      :class="{ block: quota.used >= quota.block_at }"
-    >
-      <span class="quota-icon">{{ quota.used >= quota.block_at ? '🛑' : '⚠️' }}</span>
-      <span class="quota-text">
-        <strong>YouTube API quota:</strong>
-        {{ quota.used.toLocaleString() }} / {{ quota.ceiling.toLocaleString() }} units used today
-        ({{ Math.round(quota.used / quota.ceiling * 100) }}%).
-        <template v-if="quota.used >= quota.block_at">
-          New uploads are paused to avoid mid-stream 403s.
-        </template>
-        <template v-else>
-          ~{{ Math.max(0, Math.floor((quota.ceiling - quota.used) / 1600)) }} more upload(s) before the block threshold.
-        </template>
-        Resets at {{ new Date(quota.resets_at).toLocaleString() }} (midnight Pacific).
-        <a href="https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas" target="_blank" rel="noopener noreferrer">Request a quota increase</a>.
-      </span>
-    </div>
-
-    <!-- Stale-ledger warning — shown independently of the quota banner so
-         the user sees it even when their displayed `used` count is low. The
-         flag gets set when a recordQuotaUsage write fails (disk full, lock
-         contention, permissions drift); it clears on the next successful
-         write. See electron/server/services/upload-quota.ts. -->
-    <div
-      v-if="quota && quota.stale"
-      class="quota-banner stale"
-      title="The local quota counter is updated after each YouTube API call by writing to config.json. The most recent write failed, so the number above may be lower than what YouTube has actually billed today. Check Google Cloud Console → YouTube Data API → Quotas if uploads start returning 403."
-    >
-      <span class="quota-icon">⚠</span>
-      <span class="quota-text">
-        <strong>Local quota count may be stale.</strong>
-        The last ledger write failed — the displayed total above is behind what YouTube has actually billed.
-        Check
-        <a href="https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas" target="_blank" rel="noopener noreferrer">Google Cloud Console</a>
-        if uploads start failing.
-      </span>
-    </div>
 
     <!-- Tab strip -->
     <div class="upload-tabs">
@@ -238,6 +209,33 @@
         </button>
       </div>
 
+      <!-- Reconcile-suggestions banner — only renders when a background
+           reconcile preview surfaced channel videos that look like they
+           match local episodes (and aren't linked yet). One click opens
+           the Reconcile tab pre-loaded with the cached preview so you can
+           link them before uploading and avoid creating duplicates. -->
+      <div
+        v-if="showReconcileBanner"
+        class="reconcile-banner"
+        :title="'These videos exist on your YouTube channel but no local sidecar links them to an episode yet. Linking writes the sidecar so the queue marks them as uploaded — then you can use Edit schedule to publish private ones, and re-uploads will only PATCH metadata instead of duplicating.'"
+      >
+        <span class="rb-icon" aria-hidden="true">🔗</span>
+        <span class="rb-text">
+          <strong>{{ actionableReconcileMatches.length }} video{{ actionableReconcileMatches.length === 1 ? '' : 's' }}</strong>
+          on your channel look like {{ actionableReconcileMatches.length === 1 ? 'it matches' : 'they match' }} local episode{{ actionableReconcileMatches.length === 1 ? '' : 's' }} — review &amp; link before uploading to avoid duplicates.
+        </span>
+        <button
+          class="btn btn-sm btn-primary"
+          title="Open the Reconcile tab with the matches pre-loaded. You confirm each link, then the queue marks those episodes as uploaded."
+          @click="gotoReconcileTab"
+        >Review &amp; link →</button>
+        <button
+          class="btn btn-sm btn-ghost"
+          title="Hide this banner. It will reappear if a different set of channel videos starts matching."
+          @click="dismissReconcileBanner"
+        >Dismiss</button>
+      </div>
+
       <div class="flex items-center justify-between" style="flex-wrap: wrap; gap: 10px;">
         <div>
           <h3 style="margin: 0">Upload Queue — YouTube</h3>
@@ -271,11 +269,20 @@
           <button
             class="btn btn-sm btn-ghost"
             :disabled="queueLoading"
-            title="Re-scan every episode for a final video and reload these queue rows. Bypasses the 30-second backend cache so disk changes show up immediately. Doesn't touch your account/OAuth state — use the Refresh accounts button at the top for that."
+            title="Re-scan local files and reload these queue rows. Local-only — fast, no quota cost. Doesn't ask YouTube for current privacy/schedule state; use the Sync from YouTube button next to it for that."
             @click="loadQueue({ nocache: true, page: queuePage })"
           >
             <LoadingSpinner v-if="queueLoading" size="sm" />
-            {{ queueLoading ? 'Loading…' : '↻ Refresh queue' }}
+            {{ queueLoading ? 'Loading…' : '↻ Refresh (local)' }}
+          </button>
+          <button
+            class="btn btn-sm btn-ghost"
+            :disabled="ytSyncing || queueLoading"
+            title="Pull current privacy + schedule from YouTube for every uploaded row in this queue, and rewrite the local sidecar(s) to match. Fixes drift when a video auto-publishes, gets edited in YT Studio, or shows up here as private when it's actually public. Costs ~1 YouTube quota unit per 50 videos."
+            @click="doSyncFromYoutube"
+          >
+            <LoadingSpinner v-if="ytSyncing" size="sm" />
+            {{ ytSyncing ? 'Syncing…' : '☁ Sync from YouTube' }}
           </button>
         </div>
       </div>
@@ -363,7 +370,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in queueItems" :key="item.id" :class="{ 'row-selected': item.type === 'episode' && selectedQueueIds.has(item.episode_code) }">
+          <tr v-for="item in displayedQueueItems" :key="item.id" :class="{ 'row-selected': item.type === 'episode' && selectedQueueIds.has(item.episode_code) }">
             <td class="col-select">
               <input
                 v-if="item.type === 'episode'"
@@ -395,15 +402,44 @@
               </span>
               <span v-if="item.has_thumbnail" class="meta-pill ok" title="Highest-version thumbnail will be uploaded after the video.">🖼 Thumb</span>
               <span v-else-if="item.type === 'episode'" class="meta-pill muted" title="No thumbnail file found — YouTube will auto-generate one.">no thumb</span>
+              <!-- Playlist chip — resolves the row's effective playlist
+                   (per-row override → project default → none) and looks
+                   up the title from the loaded playlists list. Surfaces
+                   the playlist target the user otherwise can't see
+                   without opening the row's actions menu. -->
+              <span v-if="item._playlist"
+                    class="meta-pill playlist"
+                    :title="item._playlist.title">
+                🎵 Playlist: {{ item._playlist.label }}
+              </span>
+              <span v-else-if="item.type === 'episode'"
+                    class="meta-pill muted"
+                    title="No playlist will be applied to this upload. Open the row actions to override per-row, or set a project default in the Playlists tab.">
+                🎵 No playlist
+              </span>
             </td>
             <td>
-              <template v-if="uploadJobFor(item.episode_code) && ['queued', 'running'].includes(uploadJobFor(item.episode_code)!.status)">
+              <template v-if="uploadJobFor(item.episode_code) && uploadJobFor(item.episode_code)!.status === 'queued'">
                 <!-- Live job state beats the sidecar display — user sees
                      progress the moment the job starts running. -->
-                <span class="progress-pill" :title="`Job status: ${uploadJobFor(item.episode_code)!.status}. Click Jobs in the sidebar to see the live log.`">
+                <span class="progress-pill" title="Job is queued. It will start as soon as the queue worker picks it up — click Jobs in the sidebar to see queue position.">
                   <span class="progress-dot" />
-                  {{ uploadJobFor(item.episode_code)!.status === 'queued' ? 'Queued…' : `Uploading ${uploadJobFor(item.episode_code)!.progress}%` }}
+                  Queued…
                 </span>
+              </template>
+              <template v-else-if="uploadJobFor(item.episode_code) && uploadJobFor(item.episode_code)!.status === 'running'">
+                <!-- Running upload: show full ProgressBar with bytes,
+                     speed, and ETA. Hover any metric for an inline
+                     explanation. -->
+                <ProgressBar
+                  :progress="uploadJobFor(item.episode_code)!.progress"
+                  :bytes-done="uploadJobFor(item.episode_code)!.bytes_done"
+                  :bytes-total="uploadJobFor(item.episode_code)!.bytes_total"
+                  :speed-bps="uploadJobFor(item.episode_code)!.speed_bps"
+                  :eta-seconds="uploadJobFor(item.episode_code)!.eta_seconds"
+                  label="Uploading to YouTube"
+                  label-title="Live progress for this row's resumable YouTube upload. Bytes, speed, and ETA come straight from the upload PUT — they freeze if the connection drops, and the queue auto-resumes on the next click."
+                />
               </template>
               <template v-else-if="uploadJobFor(item.episode_code) && uploadJobFor(item.episode_code)!.status === 'error'">
                 <span class="progress-pill err" :title="uploadJobFor(item.episode_code)!.error || 'Upload failed — check Jobs tab for details.'">
@@ -414,11 +450,35 @@
                 <a :href="item.video_url" target="_blank" rel="noopener" class="video-link" :title="`Video id: ${item.video_id} — opens in YouTube. Click Upload again to PATCH metadata only, not replace the video.`">
                   ✓ Uploaded
                 </a>
+                <!-- Privacy chip on uploaded rows. Same renderer as the
+                     not-yet-uploaded branch below, so the user sees
+                     consistent language about privacy state. The
+                     last-sync timestamp moves to its own muted line so
+                     the chip can dominate visually. -->
+                <div class="row-chip-stack">
+                  <span :class="['privacy-chip', `privacy-chip--${item._privacy.tone}`]">
+                    {{ item._privacy.label }}
+                  </span>
+                </div>
                 <span class="text-muted" style="font-size: 11px; display: block;">
-                  {{ item.privacy_status }} · last sync {{ formatScheduled(item.last_sync_at) }}
+                  last sync {{ formatScheduled(item.last_sync_at) }}
                 </span>
               </template>
-              <span v-else class="text-muted">Not uploaded</span>
+              <template v-else>
+                <span class="text-muted">Not uploaded</span>
+                <!-- Privacy chip for not-yet-uploaded rows. Surfaces the
+                     fact that all fresh uploads land on YouTube as
+                     private (with publishAt set when scheduled, so
+                     YouTube auto-publishes). Removes the user's
+                     "is there an indicator that this will be private?"
+                     blind spot. -->
+                <div class="row-chip-stack">
+                  <span :class="['privacy-chip', `privacy-chip--${item._privacy.tone}`]"
+                        title="Every fresh upload lands on YouTube as private. If a publishAt is scheduled, YouTube auto-flips to public at that time.">
+                    {{ item._privacy.label }}
+                  </span>
+                </div>
+              </template>
             </td>
             <td style="font-size: 12px; color: var(--text-secondary);">
               <template v-if="uploadMode === 'private' && item.uploaded && item.video_id">
@@ -446,13 +506,45 @@
               <template v-else>
                 <button
                   class="schedule-cell"
-                  :title="item.type === 'episode' ? 'Click to change the scheduled publish time for this episode.' : ''"
+                  :title="item.type === 'episode'
+                    ? (item.scheduled_for ? `Scheduled for ${formatScheduled(item.scheduled_for)} — click to change.` : 'Click to set a scheduled publish time for this episode.')
+                    : ''"
                   :disabled="item.type !== 'episode'"
                   @click="startEditSchedule(item)"
                 >
-                  {{ formatScheduled(item.scheduled_for) }}
-                  <span v-if="item.schedule_source === 'planned'" class="sched-pill" title="Scheduled by an Upload Plan. When you click Upload, this time is pushed to YouTube as publishAt.">📅</span>
-                  <span v-else-if="item.schedule_source === 'synced'" class="sched-pill ok" title="Time is live on YouTube via publishAt.">☁️</span>
+                  <!-- Rich schedule display: weekday + date as the lead
+                       line so the user can scan a column of dates at a
+                       glance, time + relative ("tomorrow" / "in 3d") on
+                       the second line for context. The em-dash dash
+                       fallback is rendered as the lead line when no
+                       time is set, so empty rows still take the same
+                       vertical space and the column doesn't jump. -->
+                  <template v-if="item.scheduled_for">
+                    <template v-if="item._isStale">
+                      <!-- Already public on YouTube — the local schedule is
+                           historical noise (sidecar wasn't refreshed after
+                           YouTube auto-published). Show a muted, italic
+                           note so users don't read it as live state, and
+                           point them at the sync button via the tooltip. -->
+                      <div class="sched-stale" title="This video is already public on YouTube. The local schedule is leftover from when it was uploaded — click ☁ Sync from YouTube to clear it. You can still re-schedule via Edit (the video will revert to private until the new time).">
+                        ⓘ Was scheduled — already public
+                      </div>
+                    </template>
+                    <template v-else>
+                      <div class="sched-date">{{ item._sched.date }}</div>
+                      <div class="sched-time">
+                        {{ item._sched.time }}
+                        <span v-if="item._sched.relative" class="sched-relative">
+                          · {{ item._sched.relative }}
+                        </span>
+                      </div>
+                    </template>
+                  </template>
+                  <template v-else>
+                    <div class="sched-date">—</div>
+                  </template>
+                  <span v-if="item.schedule_source === 'planned' && !item._isStale" class="sched-pill" title="Scheduled by an Upload Plan. When you click Upload, this time is pushed to YouTube as publishAt.">📅</span>
+                  <span v-else-if="item.schedule_source === 'synced' && !item._isStale" class="sched-pill ok" title="Time is live on YouTube via publishAt.">☁️</span>
                 </button>
                 <!-- Plain-language clarifier: today the schedule cell only
                      shows emoji pills with the explanation buried in
@@ -461,7 +553,7 @@
                      the YouTube-native flow visible: in apply-plan mode,
                      YouTube handles publish via publishAt; in private
                      mode, the user does it from YT Studio. -->
-                <div v-if="item.scheduled_for && item.type === 'episode'" class="sched-explainer">
+                <div v-if="item.scheduled_for && item.type === 'episode' && !item._isStale" class="sched-explainer">
                   <span v-if="uploadMode === 'private'" class="sched-chip sched-chip--muted">
                     Manual schedule in YouTube Studio
                   </span>
@@ -472,25 +564,29 @@
                     YouTube will publish on upload
                   </span>
                 </div>
-                <div v-if="item.scheduled_for && item.type === 'episode'" class="unschedule-actions">
+                <div v-if="item.type === 'episode' && (item.scheduled_for || item.uploaded)" class="unschedule-actions">
                   <button
                     class="btn-unschedule"
                     :disabled="unschedulingFor === item.episode_code"
-                    title="Clear this publish time. Video stays private on YouTube so you can schedule it via YT Studio."
-                    @click="doUnschedule(item, 'private')"
-                  >✕ Clear</button>
-                  <button
-                    v-if="item.uploaded"
-                    class="btn-unschedule danger"
-                    :disabled="unschedulingFor === item.episode_code"
-                    title="Publish now — flips this video to PUBLIC immediately. The schedule is cleared."
-                    @click="doUnschedule(item, 'public')"
-                  >▶ Publish now</button>
+                    title="Edit this row's schedule: pick a new publish time, clear the schedule, or publish now."
+                    @click="openSchedulePopover(item)"
+                  >📅 Edit</button>
                 </div>
               </template>
             </td>
             <td class="col-actions">
               <template v-if="item.type === 'episode'">
+                <!-- Final-video size chip — surfaces what's about to fly
+                     up to YouTube before the user clicks Upload. Renders
+                     an em-dash when the local file isn't found (e.g.
+                     sidecar-only rows where the file was deleted post-
+                     upload), so the column never goes empty. -->
+                <span
+                  class="size-chip"
+                  :title="item.final_video_bytes != null
+                    ? `Final assembled video size — what gets uploaded to YouTube. Local file: ${formatBytes(item.final_video_bytes)}.`
+                    : 'No local final-video file found. The video may have been deleted after upload, or the file lives outside the standard locations Story Studio scans.'"
+                >📦 {{ formatBytes(item.final_video_bytes) }}</span>
                 <!-- Three independent action buttons, smart-disabled per
                      row state. Replaces the previous toggle button (which
                      was overloaded: same click = upload OR metadata
@@ -710,29 +806,32 @@
             <td><strong>{{ ep.episode_code }}</strong></td>
             <td class="col-title">{{ ep.title }}</td>
             <td class="col-actions">
-              <button
-                class="btn btn-sm btn-secondary"
-                title="Reveal this episode's Imported/ folder in Finder so you can drop a rendered video file into it."
-                @click="doRevealEpisodeImport(ep)"
-              >📂 Open folder</button>
-              <button
-                class="btn btn-sm btn-primary"
-                :disabled="episodeScanInFlight === ep.episode_code"
-                :title="`Walk this episode's Imported/ folder. Every video file found will be moved into ${ep.episode_code}'s video/ folder as the canonical final render — Pipeline + Queue stop marking this episode as pending.`"
-                @click="doEpisodeScan(ep)"
-              >
-                <LoadingSpinner v-if="episodeScanInFlight === ep.episode_code" size="sm" />
-                {{ episodeScanInFlight === ep.episode_code ? 'Scanning…' : '📥 Import + Scan' }}
-              </button>
-              <button
-                class="btn btn-sm btn-ghost"
-                :disabled="legacyMarkInFlight === ep.episode_code"
-                title="Mark this episode as already uploaded to YouTube (the video lives only there, no local file). Removes it from this list. Reversible from the Reconcile or Unlinked tabs if you ever pull it back in."
-                @click="doMarkLegacyUploaded(ep)"
-              >
-                <LoadingSpinner v-if="legacyMarkInFlight === ep.episode_code" size="sm" />
-                {{ legacyMarkInFlight === ep.episode_code ? 'Marking…' : '✓ Mark as uploaded' }}
-              </button>
+              <div class="row-actions">
+                <button
+                  class="btn btn-sm btn-secondary"
+                  title="Reveal this episode's Imported/ folder in Finder so you can drop a rendered video file into it."
+                  @click="doRevealEpisodeImport(ep)"
+                >📂 Open folder</button>
+                <button
+                  class="btn btn-sm btn-primary"
+                  :disabled="episodeScanInFlight === ep.episode_code"
+                  :title="`Walk this episode's Imported/ folder. Every video file found will be moved into ${ep.episode_code}'s video/ folder as the canonical final render — Pipeline + Queue stop marking this episode as pending.`"
+                  @click="doEpisodeScan(ep)"
+                >
+                  <LoadingSpinner v-if="episodeScanInFlight === ep.episode_code" size="sm" />
+                  {{ episodeScanInFlight === ep.episode_code ? 'Scanning…' : '📥 Import + Scan' }}
+                </button>
+                <span class="row-actions-divider" aria-hidden="true" />
+                <button
+                  class="btn btn-sm btn-ghost"
+                  :disabled="legacyMarkInFlight === ep.episode_code"
+                  title="Mark this episode as already uploaded to YouTube (the video lives only there, no local file). Removes it from this list. Reversible from the Reconcile or Unlinked tabs if you ever pull it back in."
+                  @click="doMarkLegacyUploaded(ep)"
+                >
+                  <LoadingSpinner v-if="legacyMarkInFlight === ep.episode_code" size="sm" />
+                  {{ legacyMarkInFlight === ep.episode_code ? 'Marking…' : '✓ Mark as uploaded' }}
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -941,14 +1040,14 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="p in plans" :key="p.id">
+          <tr v-for="p in displayedPlans" :key="p.id">
             <td><strong>{{ p.name }}</strong></td>
             <td style="font-size: 12px;">
               <template v-if="p.schedule.monthly_day">
                 Monthly · day {{ p.schedule.monthly_day }} at {{ p.schedule.time_local }} {{ p.schedule.timezone }}
               </template>
               <template v-else>
-                {{ (p.schedule.weekdays || []).map(d => WEEKDAY_LABELS[d]).join(', ') || '—' }}
+                {{ p._weekdayLabel }}
                 at {{ p.schedule.time_local }} {{ p.schedule.timezone }}
                 <span v-if="p.schedule.interval_weeks && p.schedule.interval_weeks > 1">
                   · every {{ p.schedule.interval_weeks }} weeks
@@ -964,6 +1063,7 @@
               <button v-else class="btn btn-sm btn-ghost" @click="doActivatePlan(p)">Make active</button>
             </td>
             <td class="col-actions">
+              <div class="row-actions">
               <button
                 class="btn btn-sm btn-primary"
                 :disabled="applying || applyAndUploading || uploadMode === 'private'"
@@ -998,8 +1098,10 @@
                 title="Remove any per-item schedule entries this plan applied. Useful if you applied the wrong plan and want to undo without deleting it."
                 @click="doUnapplyPlan(p)"
               >↩ Unapply</button>
+              <span class="row-actions-divider" aria-hidden="true" />
               <button class="btn btn-sm btn-ghost" @click="startEditPlan(p)">Edit</button>
               <button class="btn btn-sm btn-danger" @click="doDeletePlan(p)">Delete</button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -1070,7 +1172,22 @@
         <tbody>
           <tr v-for="pl in playlists" :key="pl.id" :class="{ 'is-default': defaultPlaylistId === pl.id }">
             <td>
+              <span v-if="defaultPlaylistId === pl.id" class="default-badge"
+                    :title="'This playlist is the project default. New uploads to this channel will be auto-added.'">
+                ✓ DEFAULT
+              </span>
+              <button v-else
+                class="btn btn-sm btn-ghost btn-make-default"
+                title="Make this playlist the project default. New uploads will be auto-added."
+                @click="doSetDefaultPlaylist(pl.id)"
+              >
+                Make default
+              </button>
+              <!-- Old radio kept commented out for reference; the badge +
+                   button pair above replaces it because the disabled
+                   radio didn't read as "currently active". -->
               <input
+                v-if="false"
                 type="radio"
                 name="default-playlist"
                 class="default-radio"
@@ -1091,13 +1208,15 @@
             </td>
             <td style="font-size: 12px;">{{ pl.itemCount }}</td>
             <td class="col-actions">
-              <a :href="`https://www.youtube.com/playlist?list=${pl.id}`" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">Open ↗</a>
-              <button
-                v-if="defaultPlaylistId === pl.id"
-                class="btn btn-sm btn-ghost"
-                title="Remove this playlist as the default. New uploads won't be auto-added to any playlist."
-                @click="doSetDefaultPlaylist('')"
-              >Clear default</button>
+              <div class="row-actions">
+                <a :href="`https://www.youtube.com/playlist?list=${pl.id}`" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">Open ↗</a>
+                <button
+                  v-if="defaultPlaylistId === pl.id"
+                  class="btn btn-sm btn-ghost"
+                  title="Remove this playlist as the default. New uploads won't be auto-added to any playlist."
+                  @click="doSetDefaultPlaylist('')"
+                >Clear default</button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -1127,23 +1246,77 @@
       </div>
 
       <div v-else class="mt-2">
-        <div style="font-size: 12px; color: var(--text-secondary);">
-          <strong>{{ reconcileState.remote_count }}</strong> channel video(s) ·
-          <strong>{{ reconcileState.local_count }}</strong> local episode(s) ·
-          <strong>{{ reconcileState.already_linked.length }}</strong> already linked via sidecar
+        <!-- Status chips: count of each link state across the WHOLE preview
+             (not the filtered view), so the user always knows the full
+             scope. The "showing N–M of total" segment shows what's
+             currently rendered after filter + pagination. -->
+        <div class="reconcile-summary">
+          <span class="state-chip linked" :title="'Already confirmed in a previous reconcile run — sidecar exists.'">
+            🔗 {{ reconcileStateCounts.linked }} linked
+          </span>
+          <span class="state-chip suggested" :title="'High-confidence auto-match — verify the dropdown and Save to confirm.'">
+            ✅ {{ reconcileStateCounts.suggested }} suggested
+          </span>
+          <span class="state-chip review" :title="'Lower-confidence title match — verify the dropdown carefully before saving.'">
+            ⚠️ {{ reconcileStateCounts.review }} review
+          </span>
+          <span class="state-chip manual" :title="'No automatic match — pick an episode in the dropdown manually.'">
+            ❓ {{ reconcileStateCounts.manual }} manual
+          </span>
+          <span class="reconcile-shown text-muted">
+            <template v-if="reconcileShownRange.total > 0">
+              showing {{ reconcileShownRange.from }}–{{ reconcileShownRange.to }} of {{ reconcileShownRange.total }}
+            </template>
+            <template v-else>no rows match this filter</template>
+          </span>
+        </div>
+
+        <!-- Filter + sort + page-size controls. Filter defaults to
+             "Unlinked only" so re-running reconcile after a confirm
+             doesn't surface the rows we just saved. -->
+        <div class="reconcile-controls">
+          <label class="control-label" title="Show only the rows you can act on. Switch to All to see everything, or Linked to review what's already confirmed.">
+            Filter
+            <select v-model="reconcileFilter" class="select select-sm">
+              <option value="unlinked">Unlinked only</option>
+              <option value="all">All</option>
+              <option value="linked">Linked</option>
+              <option value="suggested">Suggested</option>
+              <option value="review">Needs review</option>
+              <option value="manual">Manual</option>
+            </select>
+          </label>
+          <label class="control-label" title="Episode-code matches always rank highest, then title-similarity by score.">
+            Sort
+            <select v-model="reconcileSort" class="select select-sm">
+              <option value="confidence_desc">Match confidence</option>
+              <option value="published_desc">Newest published</option>
+              <option value="published_asc">Oldest published</option>
+              <option value="title_asc">Title A→Z</option>
+            </select>
+          </label>
+          <label class="control-label">
+            Per page
+            <select v-model.number="reconcilePageSize" class="select select-sm">
+              <option :value="10">10</option>
+              <option :value="20">20</option>
+              <option :value="50">50</option>
+              <option :value="100">100</option>
+            </select>
+          </label>
         </div>
 
         <table class="queue-table mt-2">
           <thead>
             <tr>
               <th>Channel video</th>
-              <th>Match confidence</th>
+              <th>Status</th>
               <th>Link to episode</th>
               <th class="col-actions"></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in reconcileState.rows" :key="row.videoId">
+            <tr v-for="row in reconcileDisplayRows" :key="row.videoId" :class="{ 'row-linked': row._state === 'linked' }">
               <td>
                 <a :href="`https://youtu.be/${row.videoId}`" target="_blank" rel="noopener" class="video-link">
                   {{ row.title || '(untitled)' }}
@@ -1155,16 +1328,20 @@
                 </div>
               </td>
               <td>
-                <span :class="[
-                  'meta-pill',
-                  row.reason === 'episode_code' ? 'ok' : row.reason === 'title_similarity' ? (row.score > 0.6 ? 'ok' : 'warn') : 'muted',
-                ]">
-                  {{ reasonLabel(row) }}
+                <span :class="['meta-pill', row._state]" :title="row._label">
+                  {{ row._label }}
                 </span>
               </td>
               <td>
-                <select v-model="row.selected_episode_code" class="select select-sm" style="min-width: 140px;">
-                  <option value="">— don't link —</option>
+                <select
+                  v-model="row.selected_episode_code"
+                  class="select select-sm"
+                  style="min-width: 140px;"
+                  :title="row._state === 'linked' ? 'This video is already linked. Change this dropdown to re-link to a different episode (you’ll be asked to confirm before saving). To unlink entirely, delete the episode’s sidecar on disk.' : ''"
+                >
+                  <!-- Linked rows: empty option is hidden (use sidecar
+                       deletion for unlink). All other rows allow "don't link". -->
+                  <option v-if="row._state !== 'linked'" value="">— don't link —</option>
                   <option v-for="ep in missingVideoEpisodes.concat(queueItems.filter(i => i.type === 'episode'))"
                           :key="ep.episode_code" :value="ep.episode_code">
                     {{ ep.episode_code }} · {{ ep.title?.slice(0, 60) || '' }}
@@ -1175,8 +1352,9 @@
                      realizes this remote video doesn't match any local
                      episode. Bypasses the Save-selected-links flow and
                      adopts the video as a brand-new episode with the code
-                     typed here. -->
-                <div style="margin-top: 4px; display: flex; gap: 4px; align-items: center;">
+                     typed here. Hidden for already-linked rows since the
+                     video already maps to an episode. -->
+                <div v-if="row._state !== 'linked'" style="margin-top: 4px; display: flex; gap: 4px; align-items: center;">
                   <input
                     v-model="orphanCodeDraft[row.videoId]"
                     class="input input-sm"
@@ -1193,14 +1371,36 @@
                 </div>
               </td>
               <td class="col-actions">
-                <span v-if="row.suggested_episode_code && row.selected_episode_code !== row.suggested_episode_code"
+                <span v-if="row._state === 'linked' && row.selected_episode_code !== reconcileState.linked_videos[row.videoId]"
+                      class="meta-pill warn" style="font-size: 11px;" :title="`Will replace the existing link from ${reconcileState.linked_videos[row.videoId]} to ${row.selected_episode_code}.`">
+                  ⚠ re-link
+                </span>
+                <span v-else-if="row.suggested_episode_code && row.selected_episode_code !== row.suggested_episode_code"
                       class="text-muted" style="font-size: 11px;" :title="`Matcher suggested ${row.suggested_episode_code}; you changed it.`">
                   ✎ edited
                 </span>
               </td>
             </tr>
+            <tr v-if="!reconcileDisplayRows.length">
+              <td colspan="4" class="text-muted" style="text-align: center; padding: 24px; font-size: 12px;">
+                No videos match the current filter. Try switching to <strong>All</strong> or <strong>Unlinked only</strong>, or run preview again.
+              </td>
+            </tr>
           </tbody>
         </table>
+
+        <!-- Pagination — mirrors the Queue tab pattern. Disabled buttons
+             when at the boundary; clamped goToReconcilePage handles edge
+             cases. -->
+        <div v-if="reconcileTotalPages > 1" class="reconcile-pager mt-2">
+          <button class="btn btn-sm btn-secondary" :disabled="reconcilePage <= 1" @click="goToReconcilePage(1)" title="First page">«</button>
+          <button class="btn btn-sm btn-secondary" :disabled="reconcilePage <= 1" @click="goToReconcilePage(reconcilePage - 1)">← Prev</button>
+          <span class="page-indicator">
+            Page <strong>{{ reconcilePage }}</strong> of {{ reconcileTotalPages }}
+          </span>
+          <button class="btn btn-sm btn-secondary" :disabled="reconcilePage >= reconcileTotalPages" @click="goToReconcilePage(reconcilePage + 1)">Next →</button>
+          <button class="btn btn-sm btn-secondary" :disabled="reconcilePage >= reconcileTotalPages" @click="goToReconcilePage(reconcileTotalPages)" title="Last page">»</button>
+        </div>
 
         <div class="flex gap-2 mt-2">
           <button class="btn btn-primary" :disabled="reconcileConfirming" @click="doReconcileConfirm">
@@ -1339,6 +1539,80 @@
       </p>
     </div>
 
+    <!-- Per-row schedule editor — opens when the user clicks "📅 Edit"
+         on an uploaded queue row. Teleported to body so the modal isn't
+         clipped by the table. Three actions:
+           - Apply: PATCH the new publishAt to YouTube + sidecar
+           - Clear schedule: DELETE schedule, keep the video private
+           - Publish now: DELETE schedule with make='public' (only when
+             the video isn't already public — checked from sidecar) -->
+    <Teleport to="body">
+      <div v-if="schedulePopoverItem" class="sched-modal-backdrop" @click="closeSchedulePopover">
+        <div class="sched-modal" @click.stop>
+          <div class="sched-modal-header">
+            <strong>Edit schedule</strong>
+            <span class="text-muted" style="font-size: 12px;">— {{ schedulePopoverItem.episode_code }}</span>
+          </div>
+          <div class="sched-modal-body">
+            <p style="font-size: 12px; margin: 0 0 8px; color: var(--text-secondary);">
+              Sets the YouTube <code>publishAt</code> for this video. The video stays
+              private until then. Times are interpreted in your local timezone
+              ({{ Intl.DateTimeFormat().resolvedOptions().timeZone }}).
+            </p>
+            <p v-if="schedulePopoverItem.privacy_status === 'public'" class="sched-modal-note">
+              ℹ This video is already <strong>public</strong> on YouTube. Setting a
+              new publish time will revert it to private until that time.
+            </p>
+            <p v-if="schedulePopoverItem.scheduled_for" class="sched-modal-note">
+              Currently scheduled: <strong>{{ new Date(schedulePopoverItem.scheduled_for).toLocaleString() }}</strong>
+            </p>
+            <label class="sched-modal-label">
+              New publish time
+              <input
+                v-model="scheduleDraft"
+                type="datetime-local"
+                class="input"
+                :min="scheduleMinLocal"
+              />
+            </label>
+            <p v-if="scheduleApplyError" class="sched-modal-error">{{ scheduleApplyError }}</p>
+          </div>
+          <div class="sched-modal-actions">
+            <button
+              class="btn btn-primary"
+              :disabled="!scheduleDraft || schedulePopoverBusy"
+              :title="!scheduleDraft ? 'Pick a date and time first' : 'Push this publishAt to YouTube and update the sidecar'"
+              @click="doApplySchedule"
+            >
+              <LoadingSpinner v-if="schedulePopoverBusy === 'apply'" size="sm" />
+              {{ schedulePopoverBusy === 'apply' ? 'Applying…' : '✓ Apply' }}
+            </button>
+            <button
+              v-if="schedulePopoverItem.scheduled_for"
+              class="btn btn-secondary"
+              :disabled="!!schedulePopoverBusy"
+              title="Removes the publishAt from YouTube. The video stays private — schedule it again later or hand off to YT Studio."
+              @click="doClearScheduleFromPopover"
+            >
+              <LoadingSpinner v-if="schedulePopoverBusy === 'clear'" size="sm" />
+              {{ schedulePopoverBusy === 'clear' ? 'Clearing…' : '✕ Clear schedule' }}
+            </button>
+            <button
+              v-if="schedulePopoverItem.privacy_status !== 'public'"
+              class="btn btn-danger"
+              :disabled="!!schedulePopoverBusy"
+              title="Flips this video to PUBLIC immediately. Skips the schedule and goes live now."
+              @click="doPublishNowFromPopover"
+            >
+              <LoadingSpinner v-if="schedulePopoverBusy === 'publish'" size="sm" />
+              {{ schedulePopoverBusy === 'publish' ? 'Publishing…' : '▶ Publish now' }}
+            </button>
+            <button class="btn btn-ghost" :disabled="!!schedulePopoverBusy" @click="closeSchedulePopover">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <!-- Sticky bulk-action bar — appears when at least one queue row is
          ticked. Mirrors the Ideas Generator Accept bar (same Transition,
          same fixed positioning) so users build one mental model for
@@ -1424,14 +1698,20 @@ const {
   revealFolder,
   reconcilePreview,
   reconcileConfirm,
+  reconcilePreviewState,
+  getCachedReconcilePreview,
+  invalidateReconcilePreview,
   quota,
   loadQuota,
+  startQuotaPolling,
+  stopQuotaPolling,
   uploadMode,
   loadUploadMode,
   setUploadModeFor,
   editSchedule,
   unschedule,
   clearItemSchedule,
+  syncQueueFromYoutube,
   resetUploadState,
   orphans,
   orphansNextNumber,
@@ -1649,10 +1929,26 @@ const uploadJobByEpisode = computed(() => {
 })
 
 // Helper for template lookups — returns a small shape or null.
-function uploadJobFor(episode_code: string): { status: string; progress: number; error?: string | null } | null {
+function uploadJobFor(episode_code: string): {
+  status: string
+  progress: number
+  error?: string | null
+  bytes_done?: number
+  bytes_total?: number
+  speed_bps?: number
+  eta_seconds?: number
+} | null {
   const j = uploadJobByEpisode.value.get(episode_code)
   if (!j) return null
-  return { status: j.status, progress: Number(j.progress) || 0, error: j.error }
+  return {
+    status: j.status,
+    progress: Number(j.progress) || 0,
+    error: j.error,
+    bytes_done: j.bytes_done,
+    bytes_total: j.bytes_total,
+    speed_bps: j.speed_bps,
+    eta_seconds: j.eta_seconds,
+  }
 }
 
 // Auto-refresh the queue when any youtube_upload job we were tracking
@@ -1848,11 +2144,14 @@ async function doRevealEpisodeImport(ep: { episode_code: string }) {
 }
 
 // ── Reconcile (Phase 6) ─────────────────────────────────────────────────
+type ReconcileLinkState = 'linked' | 'suggested' | 'review' | 'manual'
+
 const reconcileState = ref<null | {
   account_id: string
   remote_count: number
   local_count: number
   already_linked: string[]
+  linked_videos: Record<string, string>
   rows: Array<{
     videoId: string
     title: string
@@ -1867,33 +2166,242 @@ const reconcileState = ref<null | {
 const reconcileLoading = ref(false)
 const reconcileConfirming = ref(false)
 
-async function runReconcilePreview() {
-  reconcileLoading.value = true
-  try {
-    const r = await reconcilePreview()
-    reconcileState.value = {
-      account_id: r.account_id,
-      remote_count: r.remote_count,
-      local_count: r.local_count,
-      already_linked: r.already_linked,
-      rows: r.suggestions.map((s: any) => ({
+// Filter / sort / pagination state for the Reconcile table. Default filter
+// is "unlinked" so the user only sees actionable rows on first load — they
+// can switch to "all" or "linked" to see the rest. Mirrors the Queue tab's
+// pagination model.
+const reconcileFilter = ref<'all' | 'unlinked' | 'linked' | 'suggested' | 'review' | 'manual'>('unlinked')
+const reconcileSort = ref<'confidence_desc' | 'published_desc' | 'published_asc' | 'title_asc'>('confidence_desc')
+const reconcilePage = ref(1)
+const reconcilePageSize = ref<10 | 20 | 50 | 100>(10)
+
+function seedReconcileFromPayload(p: { account_id: string; remote_count: number; local_count: number; already_linked: string[]; linked_videos?: Record<string, string>; suggestions: any[] }) {
+  const linked = p.linked_videos || {}
+  reconcileState.value = {
+    account_id: p.account_id,
+    remote_count: p.remote_count,
+    local_count: p.local_count,
+    already_linked: p.already_linked,
+    linked_videos: linked,
+    rows: p.suggestions.map((s: any) => {
+      const linkedCode = linked[s.remote.videoId]
+      return {
         videoId: s.remote.videoId,
         title: s.remote.title,
         publishedAt: s.remote.publishedAt,
         privacyStatus: s.remote.privacyStatus,
         suggested_episode_code: s.suggested_episode_code,
-        selected_episode_code: s.suggested_episode_code || '',
+        // For Linked rows the dropdown reflects the *current* binding so
+        // hitting Save without a change is a no-op (rather than overwriting
+        // the linked episode with the matcher's suggestion).
+        selected_episode_code: linkedCode || s.suggested_episode_code || '',
         score: s.score,
         reason: s.reason,
-      })),
+      }
+    }),
+  }
+  reconcilePage.value = 1
+}
+
+// Per-row link-state cascade. Linked wins outright (we already confirmed
+// this video before); otherwise score/reason determine which badge shows.
+function reconcileLinkState(row: { videoId: string; reason: string; score: number }): ReconcileLinkState {
+  const s = reconcileState.value
+  if (s && s.linked_videos[row.videoId]) return 'linked'
+  if (row.reason === 'episode_code') return 'suggested'
+  if (row.reason === 'title_similarity' && row.score >= 0.6) return 'suggested'
+  if (row.reason === 'title_similarity') return 'review'
+  return 'manual'
+}
+
+// Tag every row with its computed link-state and badge label *once*. Both
+// `reconcileFilteredRows` and `reconcileStateCounts` consume this so we
+// don't pay the linkState-cascade twice (and the template doesn't pay
+// reconcileBadgeLabel twice via the title + content bindings). For a
+// 400-row preview, this halves the per-update workload from ~800 cascade
+// evaluations to ~400.
+const reconcileTaggedRows = computed(() => {
+  const s = reconcileState.value
+  if (!s) return [] as Array<typeof s.rows[number] & { _state: ReconcileLinkState; _label: string }>
+  return s.rows.map(r => {
+    const _state = reconcileLinkState(r)
+    return { ...r, _state, _label: reconcileBadgeLabelFor(r, _state) }
+  })
+})
+
+const reconcileFilteredRows = computed(() => {
+  const tagged = reconcileTaggedRows.value
+  let out = tagged
+  switch (reconcileFilter.value) {
+    case 'linked':    out = tagged.filter(r => r._state === 'linked'); break
+    case 'unlinked':  out = tagged.filter(r => r._state !== 'linked'); break
+    case 'suggested': out = tagged.filter(r => r._state === 'suggested'); break
+    case 'review':    out = tagged.filter(r => r._state === 'review'); break
+    case 'manual':    out = tagged.filter(r => r._state === 'manual'); break
+    case 'all':
+    default:          /* no filter */ break
+  }
+  switch (reconcileSort.value) {
+    case 'published_desc':
+      out = [...out].sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''))
+      break
+    case 'published_asc':
+      out = [...out].sort((a, b) => (a.publishedAt || '').localeCompare(b.publishedAt || ''))
+      break
+    case 'title_asc':
+      out = [...out].sort((a, b) => (a.title || '').localeCompare(b.title || ''))
+      break
+    case 'confidence_desc':
+    default:
+      // Sort: episode_code (1.0) first, then title_similarity by score, then none.
+      // Stable on score ties — keep YouTube's natural recency order.
+      out = [...out].sort((a, b) => {
+        const rank = (r: typeof a) => r.reason === 'episode_code' ? 2 : r.reason === 'title_similarity' ? 1 : 0
+        const dr = rank(b) - rank(a)
+        if (dr !== 0) return dr
+        return (b.score || 0) - (a.score || 0)
+      })
+      break
+  }
+  return out
+})
+
+const reconcileDisplayRows = computed(() => {
+  const all = reconcileFilteredRows.value
+  const start = (reconcilePage.value - 1) * reconcilePageSize.value
+  return all.slice(start, start + reconcilePageSize.value)
+})
+
+const reconcileTotalPages = computed(() => {
+  const total = reconcileFilteredRows.value.length
+  return Math.max(1, Math.ceil(total / reconcilePageSize.value))
+})
+
+const reconcileStateCounts = computed(() => {
+  const tagged = reconcileTaggedRows.value
+  if (!tagged.length) return { linked: 0, suggested: 0, review: 0, manual: 0, total: 0 }
+  let linked = 0, suggested = 0, review = 0, manual = 0
+  for (const r of tagged) {
+    switch (r._state) {
+      case 'linked':    linked++; break
+      case 'suggested': suggested++; break
+      case 'review':    review++; break
+      case 'manual':    manual++; break
     }
-    success(`Fetched ${r.remote_count} channel video(s) · ${r.local_count} local episode(s) considered.`)
+  }
+  return { linked, suggested, review, manual, total: tagged.length }
+})
+
+const reconcileShownRange = computed(() => {
+  const total = reconcileFilteredRows.value.length
+  if (!total) return { from: 0, to: 0, total: 0 }
+  const from = (reconcilePage.value - 1) * reconcilePageSize.value + 1
+  const to = Math.min(total, from + reconcilePageSize.value - 1)
+  return { from, to, total }
+})
+
+function goToReconcilePage(n: number) {
+  const clamped = Math.max(1, Math.min(reconcileTotalPages.value, Math.floor(n)))
+  reconcilePage.value = clamped
+}
+
+// Pure variant that takes the already-computed state to avoid re-running
+// the linkState cascade. Used by `reconcileTaggedRows` so each row gets
+// `_label` materialised once instead of computing it twice via title +
+// content bindings in the template.
+function reconcileBadgeLabelFor(row: { reason: string; score: number; videoId: string }, state: ReconcileLinkState): string {
+  const linked = reconcileState.value?.linked_videos[row.videoId]
+  if (state === 'linked') return `Linked → ${linked}`
+  if (state === 'suggested') {
+    if (row.reason === 'episode_code') return 'Suggested · code match'
+    return `Suggested · score ${row.score.toFixed(2)}`
+  }
+  if (state === 'review') return `Low confidence · score ${row.score.toFixed(2)}`
+  return 'No match — pick manually'
+}
+
+watch([reconcileFilter, reconcileSort, reconcilePageSize], () => {
+  reconcilePage.value = 1
+})
+
+async function runReconcilePreview() {
+  reconcileLoading.value = true
+  try {
+    // Manual button always force-refreshes — bypasses the 10-min cache that
+    // backs the Queue-tab banner. Auto-fetch from onMounted goes through the
+    // cached path so revisiting the page doesn't burn YouTube quota.
+    const p = await getCachedReconcilePreview(undefined, { force: true })
+    if (!p) { showError('No default YouTube account set. Connect one in the Accounts tab first.'); return }
+    seedReconcileFromPayload(p)
+    success(`Fetched ${p.remote_count} channel video(s) · ${p.local_count} local episode(s) considered.`)
   } catch (e: any) {
     showError(e?.data?.detail || 'Reconcile preview failed')
   } finally {
     reconcileLoading.value = false
   }
 }
+
+// Actionable suggestions = ones with a probable local match (score ≥ 0.6
+// or episode-code 1.0) where the matched episode isn't already linked to
+// some other video. Drives the Queue-tab banner count.
+const actionableReconcileMatches = computed(() => {
+  const p = reconcilePreviewState.value
+  if (!p) return [] as any[]
+  return p.suggestions.filter(s =>
+    s.suggested_episode_code
+    && s.score >= 0.6
+    && !p.already_linked.includes(s.suggested_episode_code),
+  )
+})
+
+// Banner dismissal — keyed per (slug, account). The stored value hashes
+// the actionable set so a NEW match resurfaces the banner even if the
+// previous one was dismissed.
+const reconcileBannerDismissedHash = ref<string | null>(null)
+function reconcileBannerKey() {
+  const acctId = defaults.value.youtube || ''
+  return `upload-reconcile-banner-dismissed:${slug.value}:${acctId}`
+}
+function currentReconcileBannerHash() {
+  return actionableReconcileMatches.value
+    .map((s: any) => `${s.remote.videoId}:${s.suggested_episode_code}`)
+    .sort()
+    .join('|')
+}
+const showReconcileBanner = computed(() => {
+  if (!actionableReconcileMatches.value.length) return false
+  return reconcileBannerDismissedHash.value !== currentReconcileBannerHash()
+})
+function dismissReconcileBanner() {
+  try {
+    const h = currentReconcileBannerHash()
+    localStorage.setItem(reconcileBannerKey(), h)
+    reconcileBannerDismissedHash.value = h
+  } catch { /* private mode — banner just stays until next match change */ }
+}
+function gotoReconcileTab() {
+  // Seed the editable rows from the cache so the Reconcile tab renders
+  // immediately (no second spinner) when the user clicks the banner.
+  if (!reconcileState.value && reconcilePreviewState.value) {
+    seedReconcileFromPayload(reconcilePreviewState.value)
+  }
+  activeTab.value = 'reconcile'
+}
+
+// Background fetch on page mount — silent, non-blocking. Only runs when
+// a default YouTube account is set (otherwise there's nothing to fetch).
+async function maybeBackgroundReconcile() {
+  const acctId = defaults.value.youtube || ''
+  if (!acctId) return
+  try { await getCachedReconcilePreview(acctId) } catch { /* silent */ }
+}
+watch(() => defaults.value.youtube, (id) => {
+  if (!id) return
+  // Re-read dismissal hash for this account — onMounted ran before
+  // loadAccounts populated defaults.youtube, so the key was wrong then.
+  try { reconcileBannerDismissedHash.value = localStorage.getItem(reconcileBannerKey()) } catch {}
+  maybeBackgroundReconcile()
+})
 
 async function doReconcileConfirm() {
   const s = reconcileState.value
@@ -1930,6 +2438,32 @@ async function doReconcileConfirm() {
     return
   }
 
+  // Re-link guard: if the user changed a Linked row's dropdown to a
+  // different episode, surface a confirm modal listing each replacement
+  // before we overwrite the sidecar(s). Re-linking is rare and destructive
+  // — silent overwrite was the user-flagged UX concern.
+  const reLinks = links
+    .map(l => ({
+      ...l,
+      previous_episode_code: s.linked_videos[l.video_id],
+    }))
+    .filter(l => l.previous_episode_code && l.previous_episode_code !== l.episode_code)
+  if (reLinks.length) {
+    const list = reLinks
+      .map(l => `• ${l.previous_episode_code} → ${l.episode_code}  (${l.video_id})`)
+      .join('\n')
+    const ok = await ask({
+      title: reLinks.length === 1 ? 'Replace existing link?' : `Replace ${reLinks.length} existing links?`,
+      message:
+        `${reLinks.length === 1 ? 'This video is already linked to a different episode' : 'These videos are already linked to different episodes'}. ` +
+        `Saving will overwrite the existing sidecar${reLinks.length === 1 ? '' : 's'}:\n\n${list}\n\n` +
+        `The previous link${reLinks.length === 1 ? '' : 's'} will be lost.`,
+      confirmLabel: 'Replace',
+      danger: true,
+    })
+    if (!ok) return
+  }
+
   reconcileConfirming.value = true
   try {
     const r = await reconcileConfirm(s.account_id, links)
@@ -1939,8 +2473,22 @@ async function doReconcileConfirm() {
     success(msg)
     // Refresh queue so newly-linked episodes show as uploaded.
     await loadQueue('youtube')
+    // Optimistic local update: every row we just wrote becomes "linked"
+    // immediately so the badges reflect reality without forcing a full
+    // re-fetch. The next backend preview refresh will reconcile.
+    for (const link of links) {
+      if (r.written.includes(link.episode_code)) {
+        s.linked_videos[link.video_id] = link.episode_code
+        if (!s.already_linked.includes(link.episode_code)) s.already_linked.push(link.episode_code)
+      }
+    }
     // Drop from the reconcile table.
     s.rows = s.rows.filter((row: any) => !r.written.includes(row.selected_episode_code))
+    // Invalidate the cached preview so the Queue-tab banner reflects the
+    // new state on next render. Then re-prime it (cheap if cache fresh,
+    // forced if not — and after a confirm it isn't fresh).
+    invalidateReconcilePreview(s.account_id)
+    maybeBackgroundReconcile()
   } catch (e: any) {
     showError(e?.data?.detail || 'Reconcile confirm failed')
   } finally {
@@ -2030,6 +2578,16 @@ async function doRemoveImport(item: any) {
 // Plan editor form. `editing` holds either an in-flight edit of an
 // existing plan (id set) or a draft for a new plan (id empty). Save upserts.
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// Pre-format the plans table's weekday label so the template doesn't run
+// `weekdays.map(...).join(...)` on every reactive update. The map+join is
+// O(weekday count) per plan per render — small but pointless to repeat.
+const displayedPlans = computed(() =>
+  (plans.value || []).map((p: any) => ({
+    ...p,
+    _weekdayLabel: ((p.schedule?.weekdays as number[] | undefined) || []).map((d: number) => WEEKDAY_LABELS[d]).join(', ') || '—',
+  })),
+)
 const editing = ref<any>(null)
 const previewSlots = ref<string[]>([])
 const applying = ref(false)
@@ -2607,6 +3165,80 @@ function formatScheduled(iso: string | null): string {
   try { return new Date(iso).toLocaleString() } catch { return iso }
 }
 
+/**
+ * Richer schedule formatter for the queue's Scheduled cell.
+ * Returns a two-line shape:
+ *   "Sat, May 3"
+ *   "8:00 AM · in 2 days"
+ * The weekday + date helps the operator scan a column of uploads at a
+ * glance (Tuesdays look different from Wednesdays). The relative
+ * suffix calls out anything happening today / tomorrow / overdue,
+ * which is otherwise easy to miss in an absolute timestamp.
+ */
+function formatScheduledRich(iso: string | null): { date: string; time: string; relative: string } {
+  if (!iso) return { date: '—', time: '', relative: '' }
+  try {
+    const d = new Date(iso)
+    const date = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+    const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+    const diffMs = d.getTime() - Date.now()
+    const diffDays = Math.round(diffMs / 86_400_000)
+    let relative = ''
+    if (diffMs < 0 && diffMs > -3_600_000) relative = 'just now'
+    else if (diffMs < 0) relative = `${Math.abs(diffDays)}d overdue`
+    else if (diffDays === 0) relative = 'today'
+    else if (diffDays === 1) relative = 'tomorrow'
+    else if (diffDays < 7) relative = `in ${diffDays}d`
+    else if (diffDays < 60) relative = `in ${Math.round(diffDays / 7)}w`
+    else relative = `in ${Math.round(diffDays / 30)}mo`
+    return { date, time, relative }
+  } catch {
+    return { date: iso, time: '', relative: '' }
+  }
+}
+
+/**
+ * Privacy chip for the queue Status column. Returns label + tone class
+ * so the same renderer covers fresh-upload (will be private) and
+ * already-uploaded states. The point: the user wants to see at a
+ * glance what privacy a row HAS or WILL HAVE on YouTube.
+ */
+function privacyChip(item: any): { label: string; tone: 'muted' | 'ok' | 'pending' } {
+  if (!item.uploaded) {
+    return { label: '🔒 Will upload as Private', tone: 'pending' }
+  }
+  const p = (item.privacy_status || '').toLowerCase()
+  if (p === 'private') {
+    // Uploaded private: if there's a publishAt, YouTube auto-publishes.
+    return item.scheduled_for
+      ? { label: '🔒 Private (auto-publishes)', tone: 'pending' }
+      : { label: '🔒 Private', tone: 'muted' }
+  }
+  if (p === 'unlisted') return { label: '👁 Unlisted', tone: 'muted' }
+  if (p === 'public')   return { label: '🌍 Public', tone: 'ok' }
+  return { label: `· ${item.privacy_status || 'unknown'}`, tone: 'muted' }
+}
+
+/**
+ * Playlist chip for the queue Metadata column. Resolves the per-row
+ * effective playlist (override → project default → none) and looks
+ * up the title from the loaded playlists list. Returns null when
+ * no playlist applies, so the chip stays out of the DOM in that case.
+ */
+function playlistChipFor(item: any): { label: string; title: string } | null {
+  if (item.type !== 'episode') return null
+  const id = effectivePlaylistFor(item)
+  if (!id) return null
+  const pl = playlists.value.find((p: any) => p.id === id)
+  const title = pl?.title || id
+  // Truncate titles past ~18 chars so the "Playlist: " prefix has room
+  // — total chip width stays compact alongside the other meta-pills.
+  return {
+    label: title.length > 18 ? title.slice(0, 17) + '…' : title,
+    title: `Playlist: ${title}${pl ? '' : ' (id only — list still loading)'}`,
+  }
+}
+
 // OAuth client form state — bound to inputs, flushed on Save.
 const ytClientIdInput = ref('')
 const ytClientSecretInput = ref('')
@@ -2765,6 +3397,175 @@ async function doUnschedule(item: any, make: 'private' | 'public') {
 }
 
 // ── Bulk clear + plan unapply (A3) ────────────────────────────────────────
+// Stale-schedule detector: a row whose local sidecar still says
+// `scheduled_for: <date>` even though YouTube has already flipped the video
+// to public. The schedule is historical noise — YouTube auto-published the
+// video at the original time and cleared its own publishAt; Story Studio
+// just hasn't refreshed the sidecar yet (the ☁ Sync from YouTube button
+// fixes it permanently). Used to suppress the bright date, the "auto-
+// publishes at this time" badge, and the schedule-source pills, replacing
+// them with a muted "ⓘ Was scheduled — already public" note.
+function isStalePublicSchedule(item: any): boolean {
+  return !!(item?.uploaded && item?.privacy_status === 'public' && item?.scheduled_for)
+}
+
+// Pre-enrich queue rows with derived render data so the template can read
+// `item._sched.date` / `item._isStale` directly instead of calling
+// `formatScheduledRich(item.scheduled_for)` four times per row and
+// `isStalePublicSchedule(item)` three times. Naïvely, a 10-row queue page
+// re-evaluated 70 cheap-but-not-free function calls per render; with this
+// computed, each row's derived state is materialised once when queueItems
+// changes and reused on every subsequent render until the next reload.
+const displayedQueueItems = computed(() => {
+  return queueItems.value.map((item: any) => ({
+    ...item,
+    _sched: formatScheduledRich(item.scheduled_for),
+    _isStale: isStalePublicSchedule(item),
+    // _privacy and _playlist are read multiple times per row (once for the
+    // class binding, once for the label text, sometimes once more for a
+    // tooltip). Materialise them once so the template's :class / {{ }} /
+    // :title bindings are O(1) reads instead of re-running the function.
+    _privacy: privacyChip(item),
+    _playlist: playlistChipFor(item),
+  }))
+})
+
+// ── Per-row schedule editor (📅 Edit popover) ──────────────────────────
+const schedulePopoverItem = ref<any | null>(null)
+const scheduleDraft = ref<string>('')   // datetime-local input value (no TZ)
+const schedulePopoverBusy = ref<'apply' | 'clear' | 'publish' | null>(null)
+const scheduleApplyError = ref<string>('')
+
+// ISO → datetime-local string (`YYYY-MM-DDTHH:MM`) using the browser's
+// local TZ, so the value renders in the user's wall-clock time.
+function isoToLocalInput(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+const scheduleMinLocal = computed(() => {
+  // Five minutes from now — gives the user a tiny buffer so YouTube doesn't
+  // reject the timestamp as in-the-past during the round-trip.
+  const d = new Date(Date.now() + 5 * 60_000)
+  return isoToLocalInput(d.toISOString())
+})
+
+function openSchedulePopover(item: any) {
+  schedulePopoverItem.value = item
+  scheduleDraft.value = isoToLocalInput(item.scheduled_for)
+  scheduleApplyError.value = ''
+}
+function closeSchedulePopover() {
+  if (schedulePopoverBusy.value) return  // don't close mid-API-call
+  schedulePopoverItem.value = null
+  scheduleDraft.value = ''
+  scheduleApplyError.value = ''
+}
+
+async function doApplySchedule() {
+  const item = schedulePopoverItem.value
+  if (!item || !scheduleDraft.value) return
+  // Convert the local datetime string back to an ISO instant. `new Date('YYYY-MM-DDTHH:MM')` interprets the string in the local TZ, then toISOString() emits UTC — which is what YouTube wants.
+  const iso = new Date(scheduleDraft.value).toISOString()
+  if (Date.parse(iso) < Date.now()) {
+    scheduleApplyError.value = 'Pick a future time — past timestamps are rejected by YouTube.'
+    return
+  }
+  schedulePopoverBusy.value = 'apply'
+  scheduleApplyError.value = ''
+  try {
+    const r = await editSchedule(item.episode_code, iso)
+    success(r.patched
+      ? `Scheduled ${item.episode_code} for ${new Date(iso).toLocaleString()}.`
+      : `Local schedule saved for ${item.episode_code}${r.patch_error ? ` (YouTube update failed: ${r.patch_error})` : ''}`)
+    closeSchedulePopoverForce()
+    await loadQueue('youtube')
+  } catch (e: any) {
+    scheduleApplyError.value = e?.data?.detail || 'Apply failed'
+  } finally {
+    schedulePopoverBusy.value = null
+  }
+}
+
+async function doClearScheduleFromPopover() {
+  const item = schedulePopoverItem.value
+  if (!item) return
+  schedulePopoverBusy.value = 'clear'
+  try {
+    const r = await unschedule(item.episode_code, 'private')
+    success(r.patched
+      ? `Cleared schedule; ${item.episode_code} is private on YouTube.`
+      : `Cleared local schedule for ${item.episode_code}${r.patch_error ? ` (YouTube update failed: ${r.patch_error})` : ''}`)
+    closeSchedulePopoverForce()
+    await loadQueue('youtube')
+  } catch (e: any) {
+    scheduleApplyError.value = e?.data?.detail || 'Clear failed'
+  } finally {
+    schedulePopoverBusy.value = null
+  }
+}
+
+async function doPublishNowFromPopover() {
+  const item = schedulePopoverItem.value
+  if (!item) return
+  schedulePopoverBusy.value = 'publish'
+  try {
+    const r = await unschedule(item.episode_code, 'public')
+    success(r.patched
+      ? `Published ${item.episode_code}.`
+      : `Local schedule cleared${r.patch_error ? ` (YouTube update failed: ${r.patch_error})` : ''}`)
+    closeSchedulePopoverForce()
+    await loadQueue('youtube')
+  } catch (e: any) {
+    scheduleApplyError.value = e?.data?.detail || 'Publish failed'
+  } finally {
+    schedulePopoverBusy.value = null
+  }
+}
+
+// Close even when busy is still set — used after a successful API call.
+function closeSchedulePopoverForce() {
+  schedulePopoverBusy.value = null
+  schedulePopoverItem.value = null
+  scheduleDraft.value = ''
+  scheduleApplyError.value = ''
+}
+
+const ytSyncing = ref(false)
+async function doSyncFromYoutube() {
+  ytSyncing.value = true
+  try {
+    const r = await syncQueueFromYoutube()
+    if (r.checked === 0) {
+      success('No uploaded rows to sync.')
+    } else if (r.updated === 0) {
+      success(`Checked ${r.checked} row(s) — all up to date.`)
+    } else {
+      // Build a short human-readable diff list (capped at 3 entries) so the
+      // toast tells the user *what* changed without dumping a wall of text.
+      const sample = r.drift.slice(0, 3).map(d => {
+        const before = d.before.privacy_status + (d.before.scheduled_for ? ` @ ${new Date(d.before.scheduled_for).toLocaleDateString()}` : '')
+        const after = d.after.privacy_status + (d.after.scheduled_for ? ` @ ${new Date(d.after.scheduled_for).toLocaleDateString()}` : '')
+        return `${d.episode_code}: ${before} → ${after}`
+      })
+      const more = r.drift.length > 3 ? ` (+${r.drift.length - 3} more)` : ''
+      success(`Synced ${r.updated} of ${r.checked} row(s):\n${sample.join('\n')}${more}`)
+    }
+    if (r.errors?.length) {
+      showError(`${r.errors.length} sidecar write(s) failed during sync — check server logs.`)
+    }
+    if (r.updated > 0) {
+      await loadQueue({ nocache: true, page: queuePage.value })
+    }
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Sync from YouTube failed')
+  } finally {
+    ytSyncing.value = false
+  }
+}
+
 const bulkClearing = ref(false)
 async function doBulkClear(syncYoutube: boolean) {
   const ok = await ask({
@@ -2856,10 +3657,40 @@ async function doSetUploadMode(mode: 'apply-plan' | 'private') {
   }
 }
 
+// Quota chip computeds. Tooltip explains the ledger is a local estimate;
+// the chip ticks down a "resets in 7h 41m" countdown by re-deriving from
+// `quota.resets_at` on every reactive read (the ref refreshes every 30s
+// via the polling loop, which is fine — the digit doesn't need to flip
+// every second to be useful).
+const quotaPct = computed(() => {
+  const q = quota.value
+  if (!q || !q.ceiling) return 0
+  return Math.round((q.used / q.ceiling) * 100)
+})
+const quotaResetSeconds = computed(() => {
+  const q = quota.value
+  if (!q?.resets_at) return 0
+  const ms = Date.parse(q.resets_at) - Date.now()
+  return Math.max(0, Math.floor(ms / 1000))
+})
+const quotaTooltip = computed(() => {
+  const base = 'Estimated based on local call counts. Authoritative number is in Google Cloud Console → APIs → YouTube Data API → Quotas.'
+  const lines: string[] = []
+  if (quotaPct.value >= 95) lines.push('Approaching daily limit — uploads may fail.')
+  else if (quotaPct.value >= 80) lines.push('Approaching daily limit.')
+  if (quota.value?.stale) lines.push('Last ledger write failed — count may be behind what YouTube has billed.')
+  lines.push(base)
+  return lines.join('\n')
+})
+
 onMounted(() => {
   refreshAll()
-  loadQuota()
+  startQuotaPolling()
   loadUploadMode()
+})
+
+onBeforeUnmount(() => {
+  stopQuotaPolling()
 })
 </script>
 
@@ -2871,34 +3702,55 @@ onMounted(() => {
 }
 .upload-header h1 { margin: 0; font-size: 22px; }
 
-.quota-banner {
+.upload-header-right {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
-  margin: 12px 0 4px;
-  padding: 10px 12px;
-  background: rgba(240, 140, 60, 0.10);
-  border: 1px solid rgba(240, 140, 60, 0.30);
-  border-left: 3px solid #e4903a;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+/* Always-visible YouTube quota chip. Replaces the threshold-gated quota
+ * banner — see electron/server/services/upload-quota.ts for the underlying
+ * per-account JSONL ledger.
+ *
+ * Color tiers:
+ *   default → neutral, sits in the header without nagging
+ *   .warn   → amber at >=80% used
+ *   .danger → red at >=95% used; tooltip warns uploads may fail
+ *   .stale  → muted yellow when the last ledger write failed
+ */
+.quota-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
   color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: help;
 }
-.quota-banner.block {
-  background: rgba(248, 81, 73, 0.10);
-  border-color: rgba(248, 81, 73, 0.40);
-  border-left-color: #f85149;
+.quota-chip .chip-icon { font-size: 13px; line-height: 1; }
+.quota-chip .chip-text { font-variant-numeric: tabular-nums; }
+.quota-chip .chip-divider { opacity: 0.55; margin: 0 2px; }
+.quota-chip.warn {
+  background: rgba(240, 140, 60, 0.12);
+  border-color: rgba(240, 140, 60, 0.45);
+  color: #e4903a;
 }
-.quota-banner.stale {
-  background: rgba(196, 165, 60, 0.10);
-  border-color: rgba(196, 165, 60, 0.35);
-  border-left-color: #c4a53c;
+.quota-chip.danger {
+  background: rgba(248, 81, 73, 0.14);
+  border-color: rgba(248, 81, 73, 0.55);
+  color: #f85149;
 }
-.quota-icon { font-size: 14px; line-height: 1.4; flex-shrink: 0; }
-.quota-text { flex: 1; line-height: 1.5; }
-.quota-text strong { color: var(--text-primary); }
-.quota-text a { color: var(--accent); text-decoration: none; }
-.quota-text a:hover { text-decoration: underline; }
+.quota-chip.stale {
+  background: rgba(196, 165, 60, 0.12);
+  border-color: rgba(196, 165, 60, 0.45);
+  color: #c4a53c;
+}
 
 .upload-tabs {
   display: flex; gap: 4px;
@@ -3035,16 +3887,77 @@ onMounted(() => {
 .accounts-table tr.is-default td {
   background: rgba(46, 160, 67, 0.08);
 }
-.col-actions { width: 1%; white-space: nowrap; text-align: right; }
+.col-actions {
+  /* Was width:1% + nowrap which crammed every button into one line and
+     refused to wrap on narrow viewports. Give it a sensible min-width
+     and let the cluster wrap so buttons aren't squeezed shoulder-to-
+     shoulder. white-space: normal allows wrapping. */
+  min-width: 220px;
+  white-space: normal;
+  text-align: right;
+  padding: 8px 10px;
+  vertical-align: middle;
+}
 
-/* Three-button cluster per row. Right-aligned, tight gap, wraps onto a
-   second line on narrow viewports rather than overflowing the table. */
+/* Per-row action cluster. Right-aligned, generous gap, wraps onto a
+   second line on narrow viewports. Buttons get consistent height +
+   horizontal padding via .row-actions .btn so a row with two
+   different btn-* variants doesn't look ragged. */
 .row-actions {
   display: inline-flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 4px;
   align-items: center;
+  gap: 6px 8px;   /* row-gap × col-gap */
+}
+.row-actions .btn {
+  /* Even out variant heights — primary/secondary/ghost/danger were
+     drifting because of mixed icon characters changing the line-height.
+     Fixed min-height + uniform padding makes the cluster read as a
+     single control group. */
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* col-actions content inside the table — wrap any direct-child buttons
+   in the same cluster shape so missing-video / plans / playlists rows
+   get the same breathing room. The .row-actions class is the
+   first-class form, but legacy markup just drops buttons inline; this
+   selector catches both. */
+td.col-actions > .btn,
+td.col-actions > a.btn,
+td.col-actions > .btn + .btn,
+td.col-actions > .btn + a.btn,
+td.col-actions > a.btn + .btn {
+  margin-left: 6px;
+  vertical-align: middle;
+}
+td.col-actions > .btn,
+td.col-actions > a.btn {
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Soft separator between primary actions and destructive ones in the
+   plans row — a thin vertical line so Edit/Delete read as their own
+   tier without being shouty. Marked via the new .row-actions-divider
+   span the template adds where appropriate. */
+.row-actions-divider {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 4px;
+  vertical-align: middle;
 }
 
 /* Selection column — tight, just enough for the checkbox. */
@@ -3103,6 +4016,43 @@ onMounted(() => {
 
 .default-radio { accent-color: #3fb950; cursor: pointer; }
 .default-radio:disabled { cursor: default; }
+
+/* Playlists tab — default-row visual treatment.
+   Old design: the "default" signal was a disabled radio button. Disabled
+   reads as "broken" or "loading", not "active state", so users were
+   missing it. Replaced with:
+   1. ✓ DEFAULT pill on the active row (clear, can't miss)
+   2. "Make default" button on the others (obvious affordance)
+   3. Accent left-border + tinted bg + accent title color so the active
+      row stands out at a row-level glance, not just inside one cell. */
+.default-cell { min-width: 110px; }
+.default-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  border-radius: 999px;
+  background: rgba(46, 160, 67, 0.18);
+  color: rgb(140, 210, 150);
+  border: 1px solid rgba(46, 160, 67, 0.45);
+  white-space: nowrap;
+}
+.btn-make-default {
+  font-size: 11px;
+}
+.plans-table tr.is-default {
+  background: rgba(46, 160, 67, 0.06);
+  border-left: 3px solid rgb(46, 160, 67);
+}
+.plans-table tr.is-default td:first-child {
+  /* The border-left lives on the tr, but tr borders don't render in
+     all browsers — back it up with the first cell's left border so
+     the accent shows even where tr-borders are dropped. */
+  border-left: 3px solid rgb(46, 160, 67);
+  margin-left: -3px;
+}
+.default-title { color: rgb(140, 210, 150); }
 
 .tab-placeholder {
   padding: 32px 18px;
@@ -3165,6 +4115,146 @@ onMounted(() => {
 .meta-pill.ok { background: rgba(46, 160, 67, 0.15); color: #3fb950; }
 .meta-pill.warn { background: rgba(240, 140, 60, 0.15); color: rgb(228, 148, 66); }
 .meta-pill.muted { background: var(--bg-tertiary); color: var(--text-muted); }
+/* Reconcile link-state variants — matches the .state-chip set below.
+ * `linked` (blue): already confirmed, sidecar exists.
+ * `suggested` (green): high-confidence auto-match, ready to confirm.
+ * `review` (amber): low-confidence title match, verify before saving.
+ * `manual` (grey): no auto-match, user picks manually. */
+.meta-pill.linked { background: rgba(80, 130, 200, 0.18); color: #6e9bd6; }
+.meta-pill.suggested { background: rgba(46, 160, 67, 0.15); color: #3fb950; }
+.meta-pill.review { background: rgba(240, 140, 60, 0.15); color: rgb(228, 148, 66); }
+.meta-pill.manual { background: var(--bg-tertiary); color: var(--text-muted); }
+
+/* Reconcile-tab specific elements */
+.reconcile-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-top: 8px;
+}
+.reconcile-summary .state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  cursor: help;
+}
+.reconcile-summary .state-chip.linked { background: rgba(80, 130, 200, 0.10); border-color: rgba(80, 130, 200, 0.35); color: #6e9bd6; }
+.reconcile-summary .state-chip.suggested { background: rgba(46, 160, 67, 0.10); border-color: rgba(46, 160, 67, 0.35); color: #3fb950; }
+.reconcile-summary .state-chip.review { background: rgba(240, 140, 60, 0.10); border-color: rgba(240, 140, 60, 0.35); color: rgb(228, 148, 66); }
+.reconcile-summary .state-chip.manual { color: var(--text-muted); }
+.reconcile-summary .reconcile-shown { margin-left: auto; font-size: 11px; }
+
+.reconcile-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.reconcile-controls .control-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.reconcile-controls .control-label .select { font-size: 13px; min-width: 140px; text-transform: none; letter-spacing: 0; }
+
+/* Subtle background tint on already-linked rows so the eye skims past
+ * confirmed entries when the user switches to "All". The dropdown stays
+ * fully usable — re-linking just shows the confirmation modal. */
+.queue-table tr.row-linked td { background: rgba(80, 130, 200, 0.05); color: var(--text-muted); }
+.queue-table tr.row-linked .video-link { color: var(--text-secondary); }
+
+.reconcile-pager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.reconcile-pager .page-indicator { padding: 0 8px; color: var(--text-secondary); }
+
+/* Per-row schedule editor modal — used by the 📅 Edit button on uploaded
+ * queue rows. Centered fixed overlay so it never gets clipped by the
+ * table cell. Backdrop click closes the modal. */
+.sched-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.sched-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px;
+  min-width: 380px;
+  max-width: 480px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+.sched-modal-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+.sched-modal-body { font-size: 13px; }
+.sched-modal-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.sched-modal-label .input { font-size: 13px; padding: 6px 8px; }
+.sched-modal-note {
+  font-size: 12px;
+  margin: 6px 0;
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border-left: 2px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+.sched-modal-error {
+  font-size: 12px;
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  background: rgba(248, 81, 73, 0.10);
+  border-left: 2px solid #f85149;
+  border-radius: 4px;
+  color: #f85149;
+}
+.sched-modal-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
 
 .video-link { color: var(--accent); text-decoration: none; font-weight: 500; }
 .video-link:hover { text-decoration: underline; }
@@ -3182,6 +4272,23 @@ onMounted(() => {
   color: var(--accent);
 }
 .progress-pill.err { background: rgba(248, 81, 73, 0.15); color: #f85149; }
+
+/* Final-video size chip — sits above the action buttons in the actions
+   column. Always renders (em-dash when size is unknown) so the column
+   width doesn't jump between rows. */
+.size-chip {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 6px;
+  background: var(--bg-secondary, rgba(148, 163, 184, 0.12));
+  color: var(--text-secondary, #94a3b8);
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+
 .progress-dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: currentColor;
@@ -3220,6 +4327,81 @@ onMounted(() => {
    visual weight as the existing emoji pills so it doesn't dominate the
    row. */
 .sched-explainer { margin-top: 3px; }
+
+/* Rich schedule cell layout — date on top, time + relative below.
+   Both lines stay tightly packed inside the existing schedule-cell
+   button so the inline date-time picker (which replaces the cell when
+   editingScheduleFor === item.episode_code) sits in the same vertical
+   space without the row height jumping during the swap. */
+.sched-date {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+.sched-time {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+.sched-relative {
+  color: var(--text-muted);
+}
+/* Stale-public schedule: shown in place of the bright date/time when a
+ * row's sidecar still has scheduled_for set even though the video is
+ * already public on YouTube. Italic + muted so it reads as historical
+ * info, not live state. Tooltip points the user at ☁ Sync from YouTube. */
+.sched-stale {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  line-height: 1.4;
+  cursor: help;
+}
+
+/* Privacy chip — three tones matching the privacy state. Sized to
+   sit inline next to the existing meta-pill and progress-pill chips,
+   so the Status column reads as a chip stack rather than a single
+   value. */
+.row-chip-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 2px;
+}
+.privacy-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.privacy-chip--muted {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+.privacy-chip--pending {
+  background: rgba(99, 145, 200, 0.12);
+  color: rgb(150, 180, 220);
+  border-color: rgba(99, 145, 200, 0.30);
+}
+.privacy-chip--ok {
+  background: rgba(46, 160, 67, 0.12);
+  color: rgb(140, 210, 150);
+  border-color: rgba(46, 160, 67, 0.30);
+}
+
+/* Playlist chip — sits inline with the other meta-pill chips. Distinct
+   tone (purple-ish) so it doesn't get visually confused with the
+   ✓ Ready / 🖼 Thumb pills. */
+.meta-pill.playlist {
+  background: rgba(166, 135, 220, 0.14);
+  color: rgb(190, 165, 230);
+  border: 1px solid rgba(166, 135, 220, 0.32);
+}
 .sched-chip {
   display: inline-block;
   padding: 1px 6px;
@@ -3411,6 +4593,28 @@ onMounted(() => {
 .dpb-icon { font-size: 14px; flex-shrink: 0; }
 .dpb-text { flex: 1; line-height: 1.4; }
 .dpb-text strong { color: var(--text-primary); }
+
+/* ── Reconcile-suggestions banner ────────────────────────────────────
+   Sits above the queue toolbar when a background channel scan found
+   videos that probably match local episodes. Distinct from the
+   default-playlist banner: this one is actionable (call-out tone) so
+   the user notices BEFORE clicking Upload and creating a duplicate. */
+.reconcile-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: rgba(240, 140, 60, 0.10);
+  border: 1px solid rgba(240, 140, 60, 0.30);
+  border-left: 3px solid #e4903a;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.rb-icon { font-size: 14px; flex-shrink: 0; }
+.rb-text { flex: 1; line-height: 1.4; }
+.rb-text strong { color: var(--text-primary); }
 
 /* ── Queue toolbar (filter / sort / per-page / pager) ────────────────
    Shared between the Queue tab and the new Missing Video tab. Reuses

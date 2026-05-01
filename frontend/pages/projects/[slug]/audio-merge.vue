@@ -173,13 +173,19 @@
       </div>
 
       <div v-if="music.enabled" class="mt-2">
-        <!-- Music File List with Play Buttons -->
+        <!-- Music File List with Play Buttons. The full path is shown on
+             each row (filename in primary text, directory dimmed below)
+             so the user can tell at a glance where each file lives —
+             same transparency as the Intro Audio path input above. -->
         <div v-if="music.files.length" class="music-file-list">
-          <div v-for="(file, i) in music.files" :key="i" class="music-file-item">
+          <div v-for="(file, i) in music.files" :key="i" class="music-file-item" :title="file">
             <button class="btn-icon play-btn" @click="togglePreview(file)" :title="playingPath === file ? 'Stop' : 'Preview'">
               {{ playingPath === file ? '&#9724;' : '&#9654;' }}
             </button>
-            <span class="music-filename">{{ file.split('/').pop() }}</span>
+            <div class="music-file-path">
+              <div class="music-filename">{{ file.split('/').pop() }}</div>
+              <div class="music-dir text-muted">{{ file.split('/').slice(0, -1).join('/') || '/' }}</div>
+            </div>
             <button class="btn-icon danger" @click="music.files.splice(i, 1)" title="Remove">&#10005;</button>
           </div>
         </div>
@@ -192,12 +198,15 @@
           <button class="btn btn-sm btn-secondary" @click="addMusicFile" :disabled="!newMusicPath">Add</button>
         </div>
 
-        <!-- Quick-add from scanned files -->
+        <!-- Quick-add from scanned files. Hover any chip to see the full
+             source path — useful when the project has multiple music
+             folders or files with similar names across them. -->
         <div v-if="scannedMusicFiles.length" class="quick-add-music mt-1">
           <span class="text-muted" style="font-size: 11px;">Found in project:</span>
           <div class="flex gap-2 mt-1" style="flex-wrap: wrap;">
             <button v-for="mf in scannedMusicFiles" :key="mf.path"
               class="btn btn-sm btn-secondary"
+              :title="mf.path"
               :disabled="music.files.includes(mf.path)"
               @click="music.files.push(mf.path)">
               + {{ mf.filename }}
@@ -781,7 +790,12 @@ onUnmounted(() => {
 
 .music-file-list { display: flex; flex-direction: column; gap: 4px; }
 .music-file-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--bg-primary); border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 13px; }
-.music-filename { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+/* Two-line path display: filename in primary text, directory dimmed
+ * below. Surfaces the source folder so the user can tell which file
+ * is which when several music folders contain similarly-named files. */
+.music-file-path { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.music-filename { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-dir { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 
 .quick-add-music { padding: 8px; background: var(--bg-primary); border-radius: var(--radius-sm); border: 1px dashed var(--border); }
 

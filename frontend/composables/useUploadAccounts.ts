@@ -37,6 +37,37 @@ export interface PlatformInfo {
   coming_soon?: string
 }
 
+export interface ReconcileSuggestion {
+  remote: { videoId: string; title: string; publishedAt: string; privacyStatus?: string }
+  suggested_episode_code: string | null
+  score: number
+  reason: 'episode_code' | 'title_similarity' | 'none'
+}
+
+export interface ReconcilePreviewPayload {
+  account_id: string
+  remote_count: number
+  local_count: number
+  suggestions: ReconcileSuggestion[]
+  already_linked: string[]
+  /**
+   * Reverse of `already_linked`: keys are YouTube videoIds, values are the
+   * episode codes they're currently bound to. Lets the Reconcile table
+   * mark a specific row as "🔗 Linked → EP001" rather than just showing a
+   * count in the header.
+   */
+  linked_videos: Record<string, string>
+}
+
+interface ReconcilePreviewCacheEntry extends ReconcilePreviewPayload {
+  fetched_at: number
+}
+
+const RECONCILE_TTL_MS = 10 * 60 * 1000
+const reconcilePreviewCache = new Map<string, ReconcilePreviewCacheEntry>()
+const reconcilePreviewState = ref<ReconcilePreviewCacheEntry | null>(null)
+function reconcileCacheKey(slug: string, accountId: string) { return `${slug}:${accountId}` }
+
 export interface OAuthClientStatus {
   configured: boolean
   client_id?: string
@@ -429,24 +460,53 @@ export function useUploadAccounts(slug: string) {
 
   // ── Reconcile (Phase 6) ──────────────────────────────────────────────
   async function reconcilePreview(account_id?: string) {
-    return post<{
-      account_id: string
-      remote_count: number
-      local_count: number
-      suggestions: Array<{
-        remote: { videoId: string; title: string; publishedAt: string; privacyStatus?: string }
-        suggested_episode_code: string | null
-        score: number
-        reason: 'episode_code' | 'title_similarity' | 'none'
-      }>
-      already_linked: string[]
-    }>(`/projects/${slug}/upload/reconcile/preview`, { account_id })
+    return post<ReconcilePreviewPayload>(`/projects/${slug}/upload/reconcile/preview`, { account_id })
   }
 
   async function reconcileConfirm(account_id: string, links: Array<{ episode_code: string; video_id: string; remote_title?: string; published_at?: string }>) {
     return post<{ written: string[]; errors: Array<{ episode_code: string; error: string }> }>(
       `/projects/${slug}/upload/reconcile/confirm`, { account_id, links },
     )
+  }
+
+  // Cached reconcile preview — backs the Queue tab's "review & link" banner
+  // and the Reconcile tab itself so they share a single fetch. TTL keeps
+  // page-back navigation cheap; the manual "Fetch channel + preview" button
+  // forces a fresh call.
+  async function getCachedReconcilePreview(account_id?: string, opts: { force?: boolean } = {}) {
+    const acctId = account_id || defaults.value.youtube || (accounts.value.youtube?.[0]?.id || '')
+    if (!acctId) return null
+    const key = reconcileCacheKey(slug, acctId)
+    if (!opts.force) {
+      const cached = reconcilePreviewCache.get(key)
+      if (cached && Date.now() - cached.fetched_at < RECONCILE_TTL_MS) {
+        reconcilePreviewState.value = cached
+        return cached
+      }
+    }
+    const r = await reconcilePreview(acctId)
+    const payload: ReconcilePreviewCacheEntry = {
+      account_id: r.account_id,
+      remote_count: r.remote_count,
+      local_count: r.local_count,
+      already_linked: r.already_linked,
+      suggestions: r.suggestions,
+      fetched_at: Date.now(),
+    }
+    reconcilePreviewCache.set(key, payload)
+    reconcilePreviewState.value = payload
+    return payload
+  }
+
+  function invalidateReconcilePreview(account_id?: string) {
+    const acctId = account_id || defaults.value.youtube || ''
+    if (!acctId) {
+      reconcilePreviewCache.clear()
+      reconcilePreviewState.value = null
+      return
+    }
+    reconcilePreviewCache.delete(reconcileCacheKey(slug, acctId))
+    if (reconcilePreviewState.value?.account_id === acctId) reconcilePreviewState.value = null
   }
 
   // ── Reset upload state (recalibrate after wrong-account upload) ──────
@@ -469,6 +529,20 @@ export function useUploadAccounts(slug: string) {
       throw { data: body }
     }
     return r.json() as Promise<{ ok: true; publish_at: string; patched: boolean; patch_error: string | null }>
+  }
+
+  // Pull current privacy + schedule from YouTube for every uploaded queue
+  // row (or just the codes passed in) and rewrite local sidecars to match.
+  // Used by the queue toolbar's "☁ Sync from YouTube" button to fix drift
+  // caused by manual edits in YT Studio or videos that auto-published.
+  async function syncQueueFromYoutube(episode_codes?: string[]) {
+    const r = await post<{
+      checked: number
+      updated: number
+      drift: Array<{ episode_code: string; video_id: string; before: { privacy_status: string; scheduled_for: string | null }; after: { privacy_status: string; scheduled_for: string | null } }>
+      errors: Array<{ episode_code: string; error: string }>
+    }>(`/projects/${slug}/upload/queue/sync-from-youtube`, episode_codes ? { episode_codes } : {})
+    return r
   }
 
   async function unschedule(episode_code: string, make: 'private' | 'public') {
@@ -607,6 +681,49 @@ export function useUploadAccounts(slug: string) {
     quota.value = await put(`/projects/${slug}/upload/quota/ceiling`, { ceiling })
   }
 
+  // 30s visibility-aware polling. The interval is paused while the tab is
+  // hidden so we don't burn CPU + a network round-trip every 30s on a
+  // backgrounded window. On resume we fire an immediate fetch so the chip
+  // doesn't show up to 30s of staleness right after switching back.
+  const QUOTA_POLL_MS = 30_000
+  let quotaPollHandle: ReturnType<typeof setInterval> | null = null
+  let visibilityHandler: (() => void) | null = null
+  function startQuotaPolling() {
+    if (typeof document === 'undefined') return // SSR safety
+    stopQuotaPolling()
+    loadQuota()
+    const start = () => {
+      if (quotaPollHandle != null) return
+      quotaPollHandle = setInterval(() => { loadQuota() }, QUOTA_POLL_MS)
+    }
+    const stop = () => {
+      if (quotaPollHandle != null) {
+        clearInterval(quotaPollHandle)
+        quotaPollHandle = null
+      }
+    }
+    if (document.visibilityState !== 'hidden') start()
+    visibilityHandler = () => {
+      if (document.visibilityState === 'hidden') {
+        stop()
+      } else {
+        loadQuota()
+        start()
+      }
+    }
+    document.addEventListener('visibilitychange', visibilityHandler)
+  }
+  function stopQuotaPolling() {
+    if (quotaPollHandle != null) {
+      clearInterval(quotaPollHandle)
+      quotaPollHandle = null
+    }
+    if (visibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', visibilityHandler)
+      visibilityHandler = null
+    }
+  }
+
   return {
     platforms,
     accounts,
@@ -638,9 +755,13 @@ export function useUploadAccounts(slug: string) {
     revealFolder,
     reconcilePreview,
     reconcileConfirm,
+    reconcilePreviewState,
+    getCachedReconcilePreview,
+    invalidateReconcilePreview,
     editSchedule,
     unschedule,
     clearItemSchedule,
+    syncQueueFromYoutube,
     resetUploadState,
     orphans,
     orphansNextNumber,
@@ -653,6 +774,8 @@ export function useUploadAccounts(slug: string) {
     quota,
     loadQuota,
     setQuotaCeiling,
+    startQuotaPolling,
+    stopQuotaPolling,
     uploadMode,
     loadUploadMode,
     setUploadModeFor,
