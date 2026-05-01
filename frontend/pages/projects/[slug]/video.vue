@@ -4,6 +4,10 @@
       <Breadcrumb />
       <h1 class="page-title">Video Generator</h1>
     </div>
+    <!-- Live download speed while AI-video clips are streaming back from
+         the provider. Veo clips can be hundreds of MB each — this strip
+         shows the user where the connection is at. Auto-hides between runs. -->
+    <AssetDownloadStrip :job-types="['video', 'video_repair']" />
     <TopActionBar
       :project-slug="slug"
       :presets="videoPresets"

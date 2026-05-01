@@ -283,12 +283,43 @@
 
             <div v-if="section.id === 'playlists'">
               <label style="font-size:12px; color:var(--text-muted); margin-bottom:8px; display:block">Add playlist links to feature in the description</label>
+              <!-- Dropdown picker: pulls playlists from the project's
+                   connected YouTube channel via the same endpoint the
+                   Upload page uses. Picking a playlist inserts a new
+                   row prefilled with the title + canonical URL — no
+                   more copy/pasting playlist links. The manual
+                   "+ Add Playlist" below stays for playlists from
+                   OTHER channels (collabs, recommended, etc). -->
+              <div v-if="availablePlaylists.length" class="link-row mt-1" style="margin-bottom: 6px;">
+                <select
+                  class="input"
+                  style="flex: 2.5;"
+                  :value="''"
+                  title="Pick a playlist from your connected YouTube channel. Inserts the title + URL into a new row below — no copy/pasting."
+                  @change="e => addPlaylistFromChannel((e.target as HTMLSelectElement).value)"
+                >
+                  <option value="" disabled>📥 Add from your YouTube channel…</option>
+                  <option v-for="pl in availablePlaylists" :key="pl.id" :value="pl.id">
+                    {{ pl.title }}{{ pl.itemCount != null ? ` (${pl.itemCount} videos)` : '' }}
+                  </option>
+                </select>
+                <button
+                  class="btn-icon"
+                  :disabled="playlistsLoading"
+                  title="Refresh the playlist list from YouTube. Cached 60s otherwise."
+                  @click="loadAvailablePlaylists(true)"
+                >↻</button>
+              </div>
+              <div v-else-if="!playlistsLoading && playlistsError"
+                   style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">
+                Couldn't load YouTube playlists ({{ playlistsError }}). You can still paste links manually below.
+              </div>
               <div v-for="(pl, pi) in section.config.playlists" :key="pi" class="link-row">
                 <input v-model="pl.name" class="input" placeholder="Playlist name" style="flex:1" />
                 <input v-model="pl.url" class="input" placeholder="https://youtube.com/playlist?list=..." style="flex:1.5" />
                 <button class="btn-icon danger" @click="section.config.playlists.splice(pi, 1)">✕</button>
               </div>
-              <button class="btn btn-sm btn-secondary mt-1" @click="section.config.playlists.push({ name: '', url: '' })">+ Add Playlist</button>
+              <button class="btn btn-sm btn-secondary mt-1" @click="section.config.playlists.push({ name: '', url: '' })">+ Add Playlist (manual link)</button>
             </div>
 
             <!-- CTA: subscribe/like only — separate from the support section now.
@@ -1119,9 +1150,66 @@ watch(selectedVersion, () => {
   sessionVersion.value = null
 })
 
+// ── YouTube-playlist picker for the Playlists section ────────────────────
+// The Playlists metadata section used to be manual {name, url} inputs the
+// user filled by copy-pasting links from YouTube. This dropdown pulls the
+// channel's actual playlists via the same /upload/playlists endpoint the
+// Upload Center uses, so the user can pick one and we prefill name + URL.
+// Errors are non-fatal — if the call fails the manual inputs still work.
+interface ChannelPlaylist {
+  id: string
+  title: string
+  itemCount?: number
+}
+const availablePlaylists = ref<ChannelPlaylist[]>([])
+const playlistsLoading = ref(false)
+const playlistsError = ref('')
+
+async function loadAvailablePlaylists(forceRefresh = false) {
+  playlistsLoading.value = true
+  playlistsError.value = ''
+  try {
+    // Backend route: /projects/:slug/upload/playlists?force=1
+    const r = await get<{ playlists: ChannelPlaylist[] }>(
+      `/projects/${slug.value}/upload/playlists${forceRefresh ? '?force=1' : ''}`,
+    )
+    availablePlaylists.value = Array.isArray(r?.playlists) ? r.playlists : []
+  } catch (e: any) {
+    // Most common reason: no YouTube account connected on this project,
+    // or quota exceeded. Either way the user can still paste URLs.
+    playlistsError.value = e?.data?.detail || e?.message || 'unknown'
+    availablePlaylists.value = []
+  } finally {
+    playlistsLoading.value = false
+  }
+}
+
+function addPlaylistFromChannel(playlistId: string) {
+  if (!playlistId) return
+  const pl = availablePlaylists.value.find(p => p.id === playlistId)
+  if (!pl) return
+  const url = `https://youtube.com/playlist?list=${pl.id}`
+  // Resolve the playlists section from the page-level `sections` ref —
+  // can't reference the v-for `section` from here. Section ids are
+  // unique within the active preset.
+  const playlistSection = sections.value.find((s: any) => s.id === 'playlists')
+  if (!playlistSection) return
+  // If the user has an empty initial row sitting there (the seeded
+  // {name:'', url:''}), fill that one rather than push a duplicate.
+  const empty = (playlistSection.config.playlists as any[]).find((p: any) => !p.name && !p.url)
+  if (empty) {
+    empty.name = pl.title
+    empty.url = url
+  } else {
+    ;(playlistSection.config.playlists as any[]).push({ name: pl.title, url })
+  }
+}
+
 onMounted(async () => {
   await migrateLegacyMetadataTemplates()
   await metadataPresets.load()
+  // Best-effort load — failure is fine, the manual inputs still work.
+  loadAvailablePlaylists().catch(() => {})
 })
 </script>
 

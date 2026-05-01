@@ -4,6 +4,9 @@
       <Breadcrumb />
       <h1 class="page-title">Audio Generator</h1>
     </div>
+    <!-- Live TTS download speed while voice bytes are streaming back from
+         ElevenLabs / fal / GenAIPro. Auto-hides between runs. -->
+    <AssetDownloadStrip :job-types="['audio']" />
     <TopActionBar
       :project-slug="slug"
       :presets="audioPresets"

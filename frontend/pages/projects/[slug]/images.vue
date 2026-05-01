@@ -4,6 +4,10 @@
       <Breadcrumb />
       <h1 class="page-title">Images</h1>
     </div>
+    <!-- Live download speed for the running image-generation job. Only
+         visible while bytes are flowing in from the provider CDN; auto-
+         hides between jobs. Hover any metric for an inline explainer. -->
+    <AssetDownloadStrip :job-types="['images', 'scene_images', 'thumb_images', 'images_repair']" />
     <TopActionBar
       :project-slug="slug"
       :presets="imgPresets"
