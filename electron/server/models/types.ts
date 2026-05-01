@@ -707,6 +707,17 @@ export interface Job {
   error: string | null
   output_lines: string[]
   progress?: number
+  /**
+   * Live transfer metrics for jobs that move bytes (YouTube uploads, asset
+   * downloads). All four fields are optional and additive — missing on jobs
+   * that don't transfer anything, and on rehydrated jobs from before the
+   * field shipped. The job `type` disambiguates direction (upload vs
+   * download); UI labels accordingly.
+   */
+  bytes_done?: number
+  bytes_total?: number       // undefined when Content-Length absent → indeterminate UI
+  speed_bps?: number          // rolling 5-second average
+  eta_seconds?: number        // undefined when bytes_total unknown
   params: Record<string, any>
   queue_position?: number
   /**

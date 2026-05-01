@@ -13,7 +13,7 @@ import fs from 'fs/promises'
 import { createWriteStream } from 'fs'
 import path from 'path'
 import { pipeline } from 'stream/promises'
-import { Readable } from 'stream'
+import { Readable, Transform } from 'stream'
 
 /**
  * Default model id if none specified. Mirrors the ElevenLabs web app default.
@@ -40,6 +40,8 @@ export interface ElevenLabsTtsOptions {
   speed?: number
   /** Abort signal for caller-level timeouts. */
   signal?: AbortSignal
+  /** Streaming progress callback — fires per chunk while the MP3 is downloading. */
+  onProgress?: (bytesReceived: number, totalBytes?: number) => void
 }
 
 /** Shared POST helper — both the file writer and the buffer reader call this. */
@@ -90,12 +92,22 @@ export async function generateTtsToFile(
 ): Promise<void> {
   const resp = await callTts(text, apiKey, opts)
   await fs.mkdir(path.dirname(outPath), { recursive: true })
+  const cl = resp.headers.get('content-length')
+  const total = cl ? Number(cl) || undefined : undefined
+  let received = 0
+  const counter = new Transform({
+    transform(chunk, _enc, cb) {
+      received += chunk.length
+      try { opts.onProgress?.(received, total) } catch { /* never let UI plumbing kill a download */ }
+      cb(null, chunk)
+    },
+  })
   const out = createWriteStream(outPath)
   // Delete partial file on mid-stream error — otherwise the audio generator's
   // fileExistsWithContent cache guard would treat a truncated MP3 as a valid
   // hit on retry and skip regeneration.
   try {
-    await pipeline(Readable.fromWeb(resp.body as any), out)
+    await pipeline(Readable.fromWeb(resp.body as any), counter, out)
   } catch (e) {
     await fs.rm(outPath, { force: true }).catch(() => {})
     throw e

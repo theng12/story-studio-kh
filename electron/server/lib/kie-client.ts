@@ -8,7 +8,7 @@ import fs from 'fs/promises'
 import { createWriteStream } from 'fs'
 import path from 'path'
 import { pipeline } from 'stream/promises'
-import { Readable } from 'stream'
+import { Readable, Transform } from 'stream'
 import { sleepCancellable } from './http-retry.js'
 import { redactSecrets } from './redact-secrets.js'
 import type { ImageModelConfig } from '../models/types.js'
@@ -309,15 +309,29 @@ export async function pollForImageUrls(
   throw new Error(`Task ${taskId} did not complete within ${MAX_WAIT / 1000} seconds`)
 }
 
-export async function downloadImage(url: string, savePath: string): Promise<void> {
+export async function downloadImage(
+  url: string,
+  savePath: string,
+  onProgress?: (bytesReceived: number, totalBytes?: number) => void,
+): Promise<void> {
   await fs.mkdir(path.dirname(savePath), { recursive: true })
   const resp = await fetch(url, { signal: AbortSignal.timeout(120000) })
   if (!resp.ok || !resp.body) throw new Error(`Download failed: ${resp.status}`)
+  const cl = resp.headers.get('content-length')
+  const total = cl ? Number(cl) || undefined : undefined
+  let received = 0
+  const counter = new Transform({
+    transform(chunk, _enc, cb) {
+      received += chunk.length
+      try { onProgress?.(received, total) } catch { /* never let UI plumbing kill a download */ }
+      cb(null, chunk)
+    },
+  })
   const writeStream = createWriteStream(savePath)
   // Clean up a partial/truncated file on stream error so the generator's
   // `existsSync` skip guard doesn't mistake it for a valid cache hit next run.
   try {
-    await pipeline(Readable.fromWeb(resp.body as any), writeStream)
+    await pipeline(Readable.fromWeb(resp.body as any), counter, writeStream)
   } catch (e) {
     await fs.rm(savePath, { force: true }).catch(() => {})
     throw e

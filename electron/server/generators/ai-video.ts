@@ -23,6 +23,7 @@ import * as jq from '../services/job-queue.js'
 import { resolveSubfolderNames, assertBalanceAvailable } from '../services/utils.js'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
 import { downloadVideo } from '../lib/genaipro-veo-client.js'
+import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
 import { recordTask, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { tryRecoverVideoFromManifest } from '../lib/manifest-recovery.js'
@@ -133,6 +134,29 @@ async function loadSceneImages(slug: string, episodeId: string): Promise<Array<{
 export async function generateAiVideo(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as GenerateVideoRequest
+
+  // Phase-wide download metrics (one tracker shared across every clip).
+  // Veo clips can be hundreds of MB each — streaming bytes through the
+  // tracker means the user sees live download speed instead of a frozen
+  // "downloading…" line.
+  const speedTracker = new SpeedTracker()
+  let cumulativeBytes = 0
+  const writeProgress = throttle(() => {
+    const { speedBps } = speedTracker.update(cumulativeBytes)
+    job.bytes_done = cumulativeBytes
+    job.speed_bps = speedBps
+  }, 250)
+  const makeChunkCb = () => {
+    let lastReceived = 0
+    return (received: number, _total?: number) => {
+      const delta = received - lastReceived
+      if (delta > 0) {
+        cumulativeBytes += delta
+        lastReceived = received
+        writeProgress()
+      }
+    }
+  }
 
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
@@ -263,7 +287,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
         for (let v = 0; v < recovered.urls.length; v++) {
           const savePath = path.join(videoDir, `${stem}_v${v + 1}.mp4`)
           if (await fileExistsWithContent(savePath)) continue
-          await downloadVideo(recovered.urls[v], savePath)
+          await downloadVideo(recovered.urls[v], savePath, makeChunkCb())
           job.output_lines.push(`  Saved ${path.basename(savePath)}`)
         }
         job.output_lines.push(
@@ -314,7 +338,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
       for (let v = 0; v < result.videoUrls.length; v++) {
         const savePath = path.join(videoDir, `${stem}_v${v + 1}.mp4`)
         if (!req.force && await fileExistsWithContent(savePath)) continue
-        await downloadVideo(result.videoUrls[v], savePath)
+        await downloadVideo(result.videoUrls[v], savePath, makeChunkCb())
         job.output_lines.push(`  Saved ${path.basename(savePath)}`)
       }
     } catch (e: any) {

@@ -7,6 +7,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { parseImagePromptsDocx, type ParsedPrompts } from '../lib/docx-parser.js'
 import { downloadImage } from '../lib/kie-client.js'
+import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
 import { recordTask, hashInput } from '../services/task-manifest.js'
 import { resolveSubfolderNames, assertBalanceAvailable } from '../services/utils.js'
@@ -132,6 +133,31 @@ export async function resolveImageDirs(projectSlug: string, promptsPath: string,
 export async function generateImages(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as GenerateImagesRequest
+
+  // Phase-wide download metrics: aggregate bytes received across every
+  // image we pull from the CDN. Many CDNs omit Content-Length so we skip
+  // bytes_total — UI renders an indeterminate bar with a live speed.
+  const tracker = new SpeedTracker()
+  let cumulativeBytes = 0
+  const writeProgress = throttle(() => {
+    const { speedBps } = tracker.update(cumulativeBytes)
+    job.bytes_done = cumulativeBytes
+    job.speed_bps = speedBps
+  }, 250)
+  /** Returns a fresh per-asset onProgress callback that adds chunk deltas
+   *  into the cumulative phase counter. Each downloadImage call gets its
+   *  own closure so per-asset `received` resets to 0 cleanly. */
+  const makeChunkCb = () => {
+    let lastReceived = 0
+    return (received: number, _total?: number) => {
+      const delta = received - lastReceived
+      if (delta > 0) {
+        cumulativeBytes += delta
+        lastReceived = received
+        writeProgress()
+      }
+    }
+  }
 
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
@@ -309,7 +335,7 @@ export async function generateImages(job: Job): Promise<void> {
       )
       if (recovered) {
         for (let i = 0; i < recovered.urls.length; i++) {
-          await downloadImage(recovered.urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`))
+          await downloadImage(recovered.urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
         }
         processed++
         job.output_lines.push(
@@ -342,7 +368,7 @@ export async function generateImages(job: Job): Promise<void> {
         })))
       }
       for (let i = 0; i < urls.length; i++) {
-        await downloadImage(urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`))
+        await downloadImage(urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb())
       }
       processed++
       job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: ${scene.title} — saved ${urls.length} variant(s)`)
@@ -378,7 +404,7 @@ export async function generateImages(job: Job): Promise<void> {
       )
       if (recovered) {
         for (let i = 0; i < recovered.urls.length; i++) {
-          await downloadImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`))
+          await downloadImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
         }
         processed++
         job.output_lines.push(
@@ -409,7 +435,7 @@ export async function generateImages(job: Job): Promise<void> {
         })))
       }
       for (let i = 0; i < urls.length; i++) {
-        await downloadImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`))
+        await downloadImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb())
       }
       processed++
       job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — saved ${urls.length} variant(s)`)

@@ -617,6 +617,15 @@ export interface EpisodeStatus {
   // the episode's video_dir (same folder the per-scene clips live in).
   // Detected by file presence; absent = user still needs to run assembly.
   video_assembly: boolean
+  /**
+   * Size in bytes of the final assembled video file, when one was located
+   * on disk. Undefined when only the YouTube sidecar (path D) flagged the
+   * episode as assembled — the local file may have been deleted post-
+   * upload, which is fine; the chip just renders as "—" in that case.
+   * Surfaced on the upload page so the user knows how big the file is
+   * before pressing Upload.
+   */
+  final_video_bytes?: number
 }
 
 function emptyStatus(): EpisodeStatus {
@@ -704,6 +713,51 @@ export async function hasFinalVideoFast(
     return false
   } catch {
     return false
+  }
+}
+
+/**
+ * Cheap byte-size lookup for the final assembled video. Mirrors the
+ * project-tree + external-root paths used by `hasFinalVideoFast`, then
+ * stats the matched file. Returns `undefined` when nothing was found —
+ * the upload page renders that as an em-dash chip ("file not local").
+ *
+ * Two-path scan only (no episode_dir / sidecar / "Output" subfolder
+ * walk like `computeEpisodeStatus`): the queue is paginated and runs
+ * this per visible row, so we keep it tight. Anything more exotic that
+ * the user produced themselves shows up as size-unknown — same UX as
+ * sidecar-only uploads where the local file was deleted.
+ */
+export async function getFinalVideoBytes(
+  slug: string,
+  code: string,
+  title: string,
+): Promise<number | undefined> {
+  try {
+    const paths = await resolveEpisodePaths(slug, code, title || '')
+    const videoDirFiles = await safeReaddir(paths.video_dir)
+    const localMatch = videoDirFiles.find(f =>
+      _isVideoFile(f) && (f.startsWith(`${code}_final_video.`) || !_isPerSceneClip(f)),
+    )
+    if (localMatch) {
+      const st = await fs.stat(path.join(paths.video_dir, localMatch)).catch(() => null)
+      if (st?.isFile() && st.size > 0) return st.size
+    }
+    try {
+      const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
+      const externalDir = await resolveExternalFinalVideoDir(slug, code, title || '')
+      if (externalDir) {
+        const extFiles = await safeReaddir(externalDir)
+        const extMatch = extFiles.find(f => _isVideoFile(f) && f.startsWith(`${code}_final_video.`))
+        if (extMatch) {
+          const st = await fs.stat(path.join(externalDir, extMatch)).catch(() => null)
+          if (st?.isFile() && st.size > 0) return st.size
+        }
+      }
+    } catch { /* external store not configured → skip */ }
+    return undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -874,11 +928,18 @@ export async function computeEpisodeStatus(
     const title = idea?.title || ''
     const paths = await resolveEpisodePaths(slug, code, title)
 
+    // Track the absolute path of whichever final-video candidate matched
+    // first. Used at the end to stat the file and surface its size on the
+    // upload page. Null when only the sidecar path (D) confirmed assembly.
+    let finalVideoAbsPath: string | null = null
+
     // Path A + B — inside video_dir
     const videoDirFiles = await safeReaddir(paths.video_dir)
-    const hasFinalInVideoDir = videoDirFiles.some(f =>
+    const finalInVideoDir = videoDirFiles.find(f =>
       isVideoFile(f) && (f.startsWith(`${code}_final_video.`) || !isPerSceneClip(f)),
     )
+    const hasFinalInVideoDir = !!finalInVideoDir
+    if (finalInVideoDir) finalVideoAbsPath = path.join(paths.video_dir, finalInVideoDir)
 
     // Path C — episode_dir root + "final"/"assembled"/"output" subfolders
     let hasFinalAtEpisodeLevel = false
@@ -886,15 +947,23 @@ export async function computeEpisodeStatus(
       try {
         const epEntries = await fs.readdir(paths.episode_dir, { withFileTypes: true })
         // Root-level videos (user dropped the finished file next to the folders)
-        if (epEntries.some(e => e.isFile() && isVideoFile(e.name))) {
+        const rootVideo = epEntries.find(e => e.isFile() && isVideoFile(e.name))
+        if (rootVideo) {
           hasFinalAtEpisodeLevel = true
+          finalVideoAbsPath = path.join(paths.episode_dir, rootVideo.name)
         } else {
           // Sibling folders like "Final", "Assembled Output", "Exports"
           const finalishFolders = epEntries.filter(e => e.isDirectory()
             && /(final|assembl|output|export)/i.test(e.name))
           for (const f of finalishFolders) {
-            const inner = await safeReaddir(path.join(paths.episode_dir, f.name))
-            if (inner.some(n => isVideoFile(n))) { hasFinalAtEpisodeLevel = true; break }
+            const innerDir = path.join(paths.episode_dir, f.name)
+            const inner = await safeReaddir(innerDir)
+            const innerVideo = inner.find(n => isVideoFile(n))
+            if (innerVideo) {
+              hasFinalAtEpisodeLevel = true
+              finalVideoAbsPath = path.join(innerDir, innerVideo)
+              break
+            }
           }
         }
       } catch { /* ignore */ }
@@ -931,9 +1000,13 @@ export async function computeEpisodeStatus(
         const externalDir = await resolveExternalFinalVideoDir(slug, code, title)
         if (externalDir) {
           const extFiles = await safeReaddir(externalDir)
-          hasFinalAtExternalRoot = extFiles.some(f =>
+          const extFinal = extFiles.find(f =>
             isVideoFile(f) && f.startsWith(`${code}_final_video.`),
           )
+          if (extFinal) {
+            hasFinalAtExternalRoot = true
+            finalVideoAbsPath = path.join(externalDir, extFinal)
+          }
         }
       } catch { /* external root unset or unreadable → leave false */ }
     }
@@ -942,6 +1015,16 @@ export async function computeEpisodeStatus(
       || hasFinalAtEpisodeLevel
       || hasSidecarUploaded
       || hasFinalAtExternalRoot
+
+    // Surface file size for whichever local path matched. Sidecar-only
+    // (path D) leaves this undefined — by design, since the local file
+    // may have been deleted post-upload.
+    if (finalVideoAbsPath) {
+      try {
+        const st = await fs.stat(finalVideoAbsPath)
+        if (st.isFile() && st.size > 0) status.final_video_bytes = st.size
+      } catch { /* file disappeared between readdir + stat — leave undefined */ }
+    }
   } catch {
     status.video_assembly = false
   }
@@ -960,9 +1043,17 @@ export async function computeEpisodeStatus(
       return allDoneStatus()
     }
     if (idea?.status_overrides) {
-      for (const k of Object.keys(idea.status_overrides) as Array<keyof EpisodeStatus>) {
-        const v = idea.status_overrides[k]
-        if (typeof v === 'boolean') status[k] = v
+      // Overrides only carry the boolean asset-presence flags — the
+      // `final_video_bytes` numeric field is detected from disk, never
+      // overridden.  Cast through `Record` to silence the union-narrowing
+      // that the new optional number field introduces.
+      const overrides = idea.status_overrides as Record<string, unknown>
+      const target = status as unknown as Record<string, unknown>
+      for (const k of Object.keys(overrides)) {
+        const v = overrides[k]
+        if (typeof v === 'boolean' && k in target) {
+          target[k] = v
+        }
       }
     }
   } catch { /* if we can't load ideas, fall through with detected status — back-compat */ }

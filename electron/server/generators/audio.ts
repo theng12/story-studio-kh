@@ -9,6 +9,7 @@ import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
 import { chunkText } from '../lib/text-chunker.js'
 import { generateTts as generateTtsFal, downloadAudio } from '../lib/fal-client.js'
+import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { generateTts as generateTtsGenaipro } from '../lib/genaipro-client.js'
 import { generateTtsToFile as generateTtsElevenLabs } from '../lib/elevenlabs-client.js'
 import * as pm from '../services/project-manager.js'
@@ -99,6 +100,29 @@ export async function resolveAudioDir(projectSlug: string, narrationPath: string
 export async function generateAudio(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as GenerateAudioRequest
+
+  // Phase-wide download metrics (TTS streaming + fal/genaipro download).
+  // Fires per chunk while audio bytes flow back; speed is a 5-second
+  // rolling avg, total bytes left undefined (most TTS responses don't
+  // send Content-Length) → UI shows indeterminate bar + speed.
+  const speedTracker = new SpeedTracker()
+  let cumulativeBytes = 0
+  const writeProgress = throttle(() => {
+    const { speedBps } = speedTracker.update(cumulativeBytes)
+    job.bytes_done = cumulativeBytes
+    job.speed_bps = speedBps
+  }, 250)
+  const makeChunkCb = () => {
+    let lastReceived = 0
+    return (received: number, _total?: number) => {
+      const delta = received - lastReceived
+      if (delta > 0) {
+        cumulativeBytes += delta
+        lastReceived = received
+        writeProgress()
+      }
+    }
+  }
 
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
@@ -371,6 +395,7 @@ export async function generateAudio(job: Job): Promise<void> {
           stability: req.stability,
           similarity: req.similarity,
           signal: controller.signal,
+          onProgress: makeChunkCb(),
         })
       } else {
         const chunkFilename = path.basename(task.outputPath)
@@ -391,7 +416,7 @@ export async function generateAudio(job: Job): Promise<void> {
             apiKey, isCancelled, timeoutMs,
           )
           if (recovered) {
-            await downloadAudio(recovered.url, task.outputPath)
+            await downloadAudio(recovered.url, task.outputPath, makeChunkCb())
             job.output_lines.push(
               `  Recovered: ${chunkFilename} from existing task ` +
               `${recovered.taskId.slice(0, 12)}… (no charge)`,
@@ -424,7 +449,7 @@ export async function generateAudio(job: Job): Promise<void> {
               },
             })
           : await generateTtsFal(task.chunkText, apiKey, commonOpts)
-        await downloadAudio(audioUrl, task.outputPath)
+        await downloadAudio(audioUrl, task.outputPath, makeChunkCb())
       }
       job.output_lines.push(`  Saved: ${path.basename(task.outputPath)}`)
     } catch (e: any) {

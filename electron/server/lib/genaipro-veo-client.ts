@@ -8,7 +8,10 @@
  */
 
 import fs from 'fs/promises'
+import { createWriteStream } from 'fs'
 import path from 'path'
+import { pipeline } from 'stream/promises'
+import { Readable, Transform } from 'stream'
 import { redactSecrets } from './redact-secrets.js'
 import { sleepCancellable } from './http-retry.js'
 
@@ -157,17 +160,40 @@ export async function ingredientsToVideo(opts: {
 
 /** Download a video URL to disk.
  *  Cleans up a partial/empty file if the download fails so the generator's
- *  "skip if exists" guard doesn't mistake a truncated clip for cache. */
-export async function downloadVideo(url: string, destPath: string): Promise<void> {
+ *  "skip if exists" guard doesn't mistake a truncated clip for cache.
+ *
+ *  Streams via pipeline so the optional `onProgress` can report bytes
+ *  received as they arrive (rather than the old behavior of buffering the
+ *  whole video in memory before writing).
+ */
+export async function downloadVideo(
+  url: string,
+  destPath: string,
+  onProgress?: (bytesReceived: number, totalBytes?: number) => void,
+): Promise<void> {
   const resp = await fetch(url, { signal: AbortSignal.timeout(300_000) })
-  if (!resp.ok) throw new Error(`Video download failed: ${resp.status}`)
+  if (!resp.ok || !resp.body) throw new Error(`Video download failed: ${resp.status}`)
   await fs.mkdir(path.dirname(destPath), { recursive: true })
+  const cl = resp.headers.get('content-length')
+  const total = cl ? Number(cl) || undefined : undefined
+  let received = 0
+  const counter = new Transform({
+    transform(chunk, _enc, cb) {
+      received += chunk.length
+      try { onProgress?.(received, total) } catch { /* never let UI plumbing kill a download */ }
+      cb(null, chunk)
+    },
+  })
+  const writeStream = createWriteStream(destPath)
   try {
-    const buf = Buffer.from(await resp.arrayBuffer())
-    if (buf.length === 0) throw new Error('Video download returned 0 bytes')
-    await fs.writeFile(destPath, buf)
+    await pipeline(Readable.fromWeb(resp.body as any), counter, writeStream)
   } catch (e) {
     await fs.rm(destPath, { force: true }).catch(() => {})
     throw e
+  }
+  const stat = await fs.stat(destPath)
+  if (stat.size === 0) {
+    await fs.rm(destPath, { force: true }).catch(() => {})
+    throw new Error('Video download returned 0 bytes')
   }
 }

@@ -31,6 +31,7 @@ import {
   isSidecarUsable,
   sessionUrlHash,
 } from '../services/upload-resume-sidecar.js'
+import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 
 interface YouTubeUploadParams {
   episode_id: string
@@ -259,6 +260,19 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     // stream. When the user clicks Cancel on a long upload, we abort the
     // PUT request so we stop shovelling bytes at Google immediately.
     const abort = new AbortController()
+    let uploadTracker: SpeedTracker | null = null
+    // Throttle Job-state writes so the SSE stream doesn't get flooded —
+    // YouTube's resumable PUT can fire onProgress 50×/s.
+    const writeProgress = throttle((sent: number, total: number) => {
+      if (!uploadTracker) uploadTracker = new SpeedTracker(5000, total)
+      const { speedBps, etaSeconds } = uploadTracker.update(sent)
+      job.bytes_done = sent
+      job.bytes_total = total
+      job.speed_bps = speedBps
+      job.eta_seconds = etaSeconds
+      const pct = Math.floor((sent / total) * 85)
+      if (pct !== job.progress) job.progress = pct
+    }, 250)
     uploaded = await uploadVideo({
       slug,
       accountId,
@@ -277,12 +291,13 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
         // Reserve 0-85 for the upload phase; thumbnail + sidecar take the
         // remaining 15. Progress is byte-accurate since we stream through
         // a ReadableStream that reports chunk sizes.
-        const pct = Math.floor((sent / total) * 85)
-        if (pct !== job.progress) {
-          job.progress = pct
-        }
+        writeProgress(sent, total)
       },
     })
+    // Freeze metrics at completion so the UI stops mid-flight tickers.
+    job.bytes_done = job.bytes_total
+    job.speed_bps = 0
+    job.eta_seconds = 0
     videoId = uploaded.id
     job.progress = 85
     job.output_lines.push(`Upload complete — video id: ${videoId}`)

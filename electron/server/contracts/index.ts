@@ -320,6 +320,17 @@ export interface JobEnqueuedResponse {
    * falls back to extracting a path from output_lines for those.
    */
   output_dir?: string
+  /** Percentage 0-100 — set by generators that report progress (uploads,
+   *  long-running encodes). UI renders a progress bar when present. */
+  progress?: number
+  /** Live bytes-transferred metric for jobs that move data (YouTube
+   *  uploads, asset downloads). All four fields are optional and additive —
+   *  pre-existing rehydrated jobs from before they shipped won't have them,
+   *  and jobs that don't transfer anything leave them undefined. */
+  bytes_done?: number
+  bytes_total?: number
+  speed_bps?: number
+  eta_seconds?: number
 }
 
 /** Response from `GET /projects/:slug/jobs`. */
