@@ -203,12 +203,14 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
       try { dirEntries = await fs.readdir(status.audio_dir) } catch { return false }
       const matchingChunks = dirEntries.filter(n => chunkRe.test(n))
       if (!matchingChunks.length) return false // nothing generated → not "stale", just not done
-      for (const c of matchingChunks) {
-        try {
-          const cs = await fs.stat(path.join(status.audio_dir, c))
-          if (cs.mtimeMs >= sourceMs) return false // at least one fresh chunk → not stale
-        } catch { /* skip unreadable */ }
-      }
+      // Stat all chunks in parallel — they're independent files. Sequential
+      // awaits made multi-chunk sections pay N round-trips of disk latency
+      // before we could decide; parallel stats finish in one round-trip.
+      const chunkStats = await Promise.all(
+        matchingChunks.map(c => fs.stat(path.join(status.audio_dir, c)).catch(() => null)),
+      )
+      // "Not stale" iff at least one chunk is newer than the source.
+      if (chunkStats.some(s => s != null && s.mtimeMs >= sourceMs)) return false
       return true
     }
 

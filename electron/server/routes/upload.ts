@@ -16,7 +16,7 @@ import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as store from '../services/upload-store.js'
 import { startOAuthFlow, getFlowStatus } from '../lib/youtube-oauth.js'
-import { computeEpisodeStatus, hasFinalVideoFast } from '../services/asset-status.js'
+import { computeEpisodeStatus, hasFinalVideoFast, getFinalVideoBytes } from '../services/asset-status.js'
 import { readSidecar } from '../services/upload-sidecar.js'
 import { resolveUploadMetadata, snippetFromMeta } from '../lib/upload-metadata.js'
 import * as plans from '../services/upload-plans.js'
@@ -25,7 +25,7 @@ import * as reconciler from '../services/upload-reconciler.js'
 import * as quota from '../services/upload-quota.js'
 import * as playlistsSvc from '../services/upload-playlists.js'
 import * as orphans from '../services/upload-orphans.js'
-import { updateVideoMetadata, createPlaylist } from '../lib/youtube-client.js'
+import { updateVideoMetadata, createPlaylist, listVideoStatuses } from '../lib/youtube-client.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import type { JobType } from '../models/types.js'
 
@@ -452,15 +452,22 @@ async function enrichPage(slug: string, platform: store.UploadPlatform, page: Qu
       tags: [] as string[],
       thumbnailPath: '',
     }
+    let finalVideoBytes: number | undefined
     if (item.type === 'episode') {
-      try {
-        metaPreview = await resolveUploadMetadata({
+      // Run the metadata preview and the final-video stat in parallel —
+      // both hit disk; doing them serially adds ~10ms per row. Stat is
+      // cheap enough to do on every visible row (page size ≤100).
+      const [meta, bytes] = await Promise.all([
+        resolveUploadMetadata({
           slug,
           episode_code: item.episode_code,
           fallback_title: item._ideaTitle,
           platform,
-        })
-      } catch { /* preview is cosmetic */ }
+        }).catch(() => null),
+        getFinalVideoBytes(slug, item.episode_code, item._ideaTitle || item.title || ''),
+      ])
+      if (meta) metaPreview = meta
+      finalVideoBytes = bytes
     }
     const sidecar = item._sidecar
     return {
@@ -480,6 +487,7 @@ async function enrichPage(slug: string, platform: store.UploadPlatform, page: Qu
       last_sync_at: sidecar?.last_sync_at || '',
       account_id: sidecar?.account_id || '',
       position: item.position,
+      final_video_bytes: finalVideoBytes,
     }
   }))
   return out
@@ -837,11 +845,24 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
     // surfaced per-row so the user sees which ones synced.
     const ideas = await im.getIdeas(slug, 'accepted')
     const ideaByCode = new Map(ideas.filter(i => i.episode_code).map(i => [i.episode_code!, i]))
+    // Pre-fetch sidecars in parallel — sidecar reads are pure I/O and
+    // independent. Sequential awaits made an N-episode plan apply pay
+    // N round-trips of disk latency before the first PATCH could fire;
+    // parallel reads collapse that to ~1 disk round-trip total.
+    const sidecarsByCode = new Map<string, Awaited<ReturnType<typeof readSidecar>>>()
+    await Promise.all(assignments.map(async (a) => {
+      const idea = ideaByCode.get(a.episode_code)
+      if (!idea) return
+      sidecarsByCode.set(a.episode_code, await readSidecar(slug, a.episode_code, idea.title || '', plan.platform))
+    }))
     const patched: Array<{ episode_code: string; video_id: string; ok: boolean; error?: string }> = []
+    // PATCH calls stay sequential — they hit YouTube's API and benefit
+    // from natural rate limiting; per-row error reporting also expects
+    // ordered execution.
     for (const a of assignments) {
       const idea = ideaByCode.get(a.episode_code)
       if (!idea) continue
-      const sidecar = await readSidecar(slug, a.episode_code, idea.title || '', plan.platform)
+      const sidecar = sidecarsByCode.get(a.episode_code) || null
       if (!sidecar?.video_id) continue
       try {
         const meta = await resolveUploadMetadata({
@@ -1392,6 +1413,105 @@ router.delete('/projects/:slug/upload/queue/:episode_code/schedule', async (req,
   }
 })
 
+// ── Sync from YouTube ────────────────────────────────────────────────────
+// Pull the current `status` block (privacyStatus + publishAt) from YouTube
+// for every uploaded queue row and rewrite each sidecar to match. Fixes
+// drift caused by manual edits in YT Studio or by scheduled videos that
+// have auto-published since the last local refresh.
+//
+// Cost: ~1 quota unit per 50 videos (videos.list batches at 50). The user
+// triggers this explicitly from the queue toolbar — not on every refresh —
+// so the cost stays low.
+//
+// Body: { episode_codes?: string[] } — optional. When omitted, syncs all
+// queue rows that have a video_id.
+//
+// Returns: { checked, updated, drift: [{ episode_code, video_id, before, after }], errors }
+router.post('/projects/:slug/upload/queue/sync-from-youtube', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+    const accountId = await store.getDefaultAccountId(slug, 'youtube')
+    if (!accountId) return res.status(400).json({ detail: 'No default YouTube account set for this project.' })
+
+    const filterCodes: string[] | null = Array.isArray(req.body?.episode_codes)
+      ? req.body.episode_codes.filter((c: any) => typeof c === 'string' && c)
+      : null
+
+    // Build the list of (episode_code, video_id, sidecar) tuples we'll sync.
+    // Read every candidate sidecar in parallel — they're independent files
+    // and the sequential await chain made N-episode syncs pay N round-trips
+    // of disk latency before videos.list could fire.
+    const ideas = await im.getIdeas(slug, 'accepted')
+    interface Row { code: string; idea: typeof ideas[number]; sidecar: NonNullable<Awaited<ReturnType<typeof readSidecar>>> }
+    const candidates = ideas.filter((idea) => {
+      const code = idea.episode_code || ''
+      if (!code) return false
+      if (filterCodes && !filterCodes.includes(code)) return false
+      return true
+    })
+    const sidecarsByIdea = await Promise.all(
+      candidates.map((idea) => readSidecar(slug, idea.episode_code!, idea.title || '', 'youtube')),
+    )
+    const rows: Row[] = []
+    candidates.forEach((idea, i) => {
+      const sidecar = sidecarsByIdea[i]
+      if (!sidecar?.video_id) return
+      // Only sync rows that belong to the *currently active* account —
+      // calling videos.list with someone else's tokens would 404 those ids.
+      if (sidecar.account_id && sidecar.account_id !== accountId) return
+      rows.push({ code: idea.episode_code!, idea, sidecar: sidecar as Row['sidecar'] })
+    })
+
+    if (!rows.length) {
+      return res.json({ checked: 0, updated: 0, drift: [], errors: [] })
+    }
+
+    const liveById = await listVideoStatuses(slug, accountId, rows.map(r => r.sidecar.video_id))
+
+    const drift: Array<{ episode_code: string; video_id: string; before: { privacy_status: string; scheduled_for: string | null }; after: { privacy_status: string; scheduled_for: string | null } }> = []
+    const errors: Array<{ episode_code: string; error: string }> = []
+    let updated = 0
+    const { writeSidecar } = await import('../services/upload-sidecar.js')
+
+    for (const r of rows) {
+      const live = liveById[r.sidecar.video_id]
+      if (!live) {
+        // Video missing from YouTube's response — could be deleted or no
+        // longer accessible. Don't touch the sidecar (preserves history).
+        continue
+      }
+      const before = { privacy_status: r.sidecar.privacy_status || 'private', scheduled_for: r.sidecar.scheduled_for ?? null }
+      const after = { privacy_status: live.privacyStatus, scheduled_for: live.publishAt }
+      const driftedPrivacy = before.privacy_status !== after.privacy_status
+      const driftedSchedule = (before.scheduled_for || null) !== (after.scheduled_for || null)
+      if (!driftedPrivacy && !driftedSchedule) continue
+
+      try {
+        await writeSidecar(slug, r.code, r.idea.title || '', {
+          ...r.sidecar,
+          privacy_status: after.privacy_status,
+          scheduled_for: after.scheduled_for,
+          last_sync_at: new Date().toISOString(),
+        })
+        updated++
+        drift.push({ episode_code: r.code, video_id: r.sidecar.video_id, before, after })
+      } catch (e: any) {
+        errors.push({ episode_code: r.code, error: e?.message || 'Sidecar write failed' })
+      }
+    }
+
+    // Drop the queue cache so the next page load surfaces the updated
+    // sidecars without waiting out the 5-min TTL.
+    if (updated > 0) queueIndexCache.delete(queueCacheKey(slug, 'youtube'))
+
+    res.json({ checked: rows.length, updated, drift, errors })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to sync from YouTube'))
+  }
+})
+
 // Manual clear of the per-item schedule map. Two modes:
 //   `?plan_id=X` → only wipe entries equal to slots this plan would have
 //                 assigned (approximation: entries present in the map that
@@ -1441,10 +1561,20 @@ router.delete('/projects/:slug/upload/item-schedule', async (req, res) => {
     const patched: string[] = []
     const patch_errors: Array<{ episode_code: string; error: string }> = []
     if (syncYoutube) {
+      // Pre-fetch sidecars in parallel so the YouTube PATCH loop below
+      // doesn't pay disk-read latency between every PATCH call. Reads
+      // are independent; PATCHes stay sequential to be friendly to
+      // YouTube's rate limiter.
+      const sidecarsByClearCode = new Map<string, Awaited<ReturnType<typeof readSidecar>>>()
+      await Promise.all(toClear.map(async (code) => {
+        const idea = ideaByCode.get(code)
+        if (!idea) return
+        sidecarsByClearCode.set(code, await readSidecar(slug, code, idea.title || '', 'youtube'))
+      }))
       for (const code of toClear) {
         const idea = ideaByCode.get(code)
         if (!idea) continue
-        const sidecar = await readSidecar(slug, code, idea.title || '', 'youtube')
+        const sidecar = sidecarsByClearCode.get(code) || null
         if (!sidecar?.video_id) continue
         try {
           const meta = await resolveUploadMetadata({ slug, episode_code: code, fallback_title: idea.title, platform: 'youtube' })

@@ -832,12 +832,20 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
     const re = new RegExp(`^${episodeId}_Metadata(?:_v(\\d+))?\\.json$`)
     const versions: any[] = []
 
-    for (const f of files) {
-      const m = f.match(re)
-      if (!m) continue
+    // Pre-fetch each matching file's contents in parallel — disk I/O is
+    // the bottleneck here and reads are independent. Parsing stays
+    // sequential (cheap, and per-file errors are still skipped).
+    const jsonMatches = files.map(f => ({ f, m: f.match(re) })).filter(x => x.m) as Array<{ f: string; m: RegExpMatchArray }>
+    const jsonContents = await Promise.all(
+      jsonMatches.map(({ f }) => fs.readFile(pathMod.join(dir, f), 'utf-8').catch(() => null)),
+    )
+    for (let i = 0; i < jsonMatches.length; i++) {
+      const { m } = jsonMatches[i]
+      const text = jsonContents[i]
+      if (!text) continue
       const v = m[1] ? parseInt(m[1], 10) : 1
       try {
-        const data = JSON.parse(await fs.readFile(pathMod.join(dir, f), 'utf-8'))
+        const data = JSON.parse(text)
         versions.push({
           version: v,
           title: data.title || '',
@@ -858,12 +866,17 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
     // Fallback: if no .json, parse .txt files
     if (!versions.length) {
       const txtRe = new RegExp(`^${episodeId}_Metadata(?:_v(\\d+))?\\.txt$`)
-      for (const f of files) {
-        const m = f.match(txtRe)
-        if (!m) continue
+      const txtMatches = files.map(f => ({ f, m: f.match(txtRe) })).filter(x => x.m) as Array<{ f: string; m: RegExpMatchArray }>
+      const txtContents = await Promise.all(
+        txtMatches.map(({ f }) => fs.readFile(pathMod.join(dir, f), 'utf-8').catch(() => null)),
+      )
+      for (let i = 0; i < txtMatches.length; i++) {
+        const { m } = txtMatches[i]
+        const text = txtContents[i]
+        if (!text) continue
         const v = m[1] ? parseInt(m[1], 10) : 1
         try {
-          const parsed = parseMetadataTxt(await fs.readFile(pathMod.join(dir, f), 'utf-8'))
+          const parsed = parseMetadataTxt(text)
           versions.push({ version: v, ...parsed, savedAt: null })
         } catch {}
       }

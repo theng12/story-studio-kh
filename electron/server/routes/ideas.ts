@@ -997,8 +997,12 @@ router.post('/projects/:slug/episodes/migrate', async (req, res) => {
 
   const results: Array<{ episode: string; actions: string[] }> = []
 
-  // Recursively find all episode folders
-  async function findEpisodeDirs(dir: string): Promise<string[]> {
+  // Recursively find all episode folders. Capped depth so a malformed
+  // / accidentally-symlinked tree can't hang the request indefinitely —
+  // matches the safety pattern dashboard-stats uses.
+  const FIND_EPISODES_DEPTH_LIMIT = 8
+  async function findEpisodeDirs(dir: string, depth = 0): Promise<string[]> {
+    if (depth > FIND_EPISODES_DEPTH_LIMIT) return []
     const dirs: string[] = []
     try {
       const entries = await fsP.readdir(dir, { withFileTypes: true })
@@ -1011,7 +1015,7 @@ router.post('/projects/:slug/episodes/migrate', async (req, res) => {
           dirs.push(fp)
         } else {
           // Search inside any subfolder (Season, Batch, Volume, episodes, etc.)
-          dirs.push(...await findEpisodeDirs(fp))
+          dirs.push(...await findEpisodeDirs(fp, depth + 1))
         }
       }
     } catch {}
@@ -1019,6 +1023,19 @@ router.post('/projects/:slug/episodes/migrate', async (req, res) => {
   }
 
   const episodeDirs = await findEpisodeDirs(outputRoot)
+
+  // Pre-batch the per-episode config-derived subfolder names so the loop
+  // below doesn't re-read project config N times. resolveSubfolderNames
+  // is pure config lookup; running them in parallel collapses the chain.
+  const subfolderNamesByCode = new Map<string, Awaited<ReturnType<typeof resolveSubfolderNames>>>()
+  await Promise.all(episodeDirs.map(async (epDir) => {
+    const dirName = pathMod.basename(epDir)
+    const m = dirName.match(/^([A-Z]{2}\d{3,})/)
+    if (!m) return
+    const code = m[1]
+    if (subfolderNamesByCode.has(code)) return
+    subfolderNamesByCode.set(code, await resolveSubfolderNames(slug, code))
+  }))
 
   for (const epDir of episodeDirs) {
     const dirName = pathMod.basename(epDir)
@@ -1030,8 +1047,8 @@ router.post('/projects/:slug/episodes/migrate', async (req, res) => {
     const subs = await fsP.readdir(epDir)
     const cleanSubs = subs.map(s => ({ original: s, clean: s }))
 
-    // Resolve configured subfolder names for this episode
-    const names = await resolveSubfolderNames(slug, code)
+    // Resolve configured subfolder names for this episode (pre-batched above)
+    const names = subfolderNamesByCode.get(code) || await resolveSubfolderNames(slug, code)
 
     // 1. Create separate prompt folders if missing (migrate from combined Image Prompts)
     const hasScenePromptsFolder = cleanSubs.some(s => s.clean.toLowerCase().includes('scene prompt'))
@@ -1131,8 +1148,11 @@ router.post('/projects/:slug/sync-folders', async (req, res) => {
   const pathMod = await import('path')
   const actions: string[] = []
 
-  // 1. Find all episode folders
-  async function findEpisodeDirs(dir: string): Promise<string[]> {
+  // 1. Find all episode folders. Capped depth so a malformed /
+  // accidentally-symlinked tree can't hang the request indefinitely.
+  const FIND_EPISODES_DEPTH_LIMIT = 8
+  async function findEpisodeDirs(dir: string, depth = 0): Promise<string[]> {
+    if (depth > FIND_EPISODES_DEPTH_LIMIT) return []
     const dirs: string[] = []
     try {
       const entries = await fsP.readdir(dir, { withFileTypes: true })
@@ -1143,7 +1163,7 @@ router.post('/projects/:slug/sync-folders', async (req, res) => {
         if (/^[A-Z]{2,}\d{2,} - /.test(clean)) {
           dirs.push(fp)
         } else {
-          dirs.push(...await findEpisodeDirs(fp))
+          dirs.push(...await findEpisodeDirs(fp, depth + 1))
         }
       }
     } catch {}
