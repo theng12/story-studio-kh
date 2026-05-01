@@ -1,25 +1,23 @@
 /**
- * Stale-ledger tests for upload-quota.
+ * Stale-ledger tests for upload-quota — per-account JSONL edition.
  *
- * Pins the M2 fix from audit-reports/10-uploads.md: a swallowed
- * `recordQuotaUsage` failure used to leave the local "X / 10,000 used"
- * banner stale while YouTube's real counter ticked up. The fix:
- *   1. recordQuotaUsage now THROWS on write failure (caller logs).
- *   2. recordQuotaUsage attempts to set `youtube_quota_ledger_stale: true`
- *      in config.json so the UI can warn even when the failure is silent.
- *   3. recordQuotaUsage clears that flag on the next successful write.
- *   4. readQuota surfaces `stale: true` so the upload page shows a badge.
+ * Pins the M2 fix from audit-reports/10-uploads.md, but adapted to the
+ * post-migration storage layout: stale state lives in
+ * `<userData>/youtube-quota/<accountId>.meta.json`, not in the project's
+ * config.json. The behavioural contract is the same:
  *
- * We can't cleanly mock `pm.updateConfig` here — ES module namespaces are
- * frozen, so mock.method on the imported namespace is a no-go. Instead we
- * exercise the real code paths against a temp-dir project:
- *   - planting the flag through pm.updateConfig and checking readQuota
- *     surfaces it (covers the "stale-true is visible to UI" path)
- *   - calling recordQuotaUsage on a clean ledger and checking the flag is
- *     cleared (covers the "successful write clears stale" path)
- *   - corrupting config.json into a directory so the read-modify-write
- *     fails, and checking recordQuotaUsage throws rather than silently
- *     swallowing (covers the "no more silent failure" path).
+ *   1. recordQuotaUsage THROWS on append failure (caller logs).
+ *   2. recordQuotaUsage attempts to set `stale: true` in the meta file
+ *      so the UI can warn even when the failure is silent.
+ *   3. recordQuotaUsage clears that flag on the next successful append.
+ *   4. readQuota surfaces `stale: true` so the upload page chip can
+ *      render the muted-yellow state.
+ *
+ * We exercise the real code paths against a temp-dir project. The "make
+ * the append fail" trick is to replace the `<accountId>.jsonl` file with
+ * a directory of the same name — fs.appendFile then rejects with EISDIR,
+ * which is a deterministic stand-in for "disk full / lock contention /
+ * permissions drift".
  */
 
 import { test, describe, before, after, beforeEach } from 'node:test'
@@ -33,6 +31,8 @@ let cleanup: () => Promise<void>
 let pm: typeof import('../services/project-manager.js')
 let quotaMod: typeof import('../services/upload-quota.js')
 
+const TEST_ACCOUNT_ID = 'test-account-uuid'
+
 before(async () => {
   const t = await useTempDataDir()
   tempDir = t.dir
@@ -45,93 +45,106 @@ after(async () => { await cleanup() })
 
 beforeEach(async () => {
   const projectsDir = path.join(tempDir, 'projects')
+  const quotaDir = path.join(tempDir, 'youtube-quota')
   await fs.rm(projectsDir, { recursive: true, force: true })
+  await fs.rm(quotaDir, { recursive: true, force: true })
   await fs.mkdir(projectsDir, { recursive: true })
+  quotaMod.__resetQuotaCache()
 })
 
-describe('readQuota — stale flag surfacing', () => {
-  test('returns stale: true when youtube_quota_ledger_stale is true in config', async () => {
-    const p = await pm.createProject({ name: 'StaleRead' })
-    await pm.updateConfig(p.slug, { youtube_quota_ledger_stale: true } as any)
+async function makeProjectWithAccount(name: string): Promise<string> {
+  const p = await pm.createProject({ name })
+  await pm.updateConfig(p.slug, {
+    upload_default_account: { youtube: TEST_ACCOUNT_ID },
+  } as any)
+  return p.slug
+}
 
-    const snap = await quotaMod.readQuota(p.slug)
+function metaFilePath(): string {
+  return path.join(tempDir, 'youtube-quota', `${TEST_ACCOUNT_ID}.meta.json`)
+}
+
+function ledgerFilePath(): string {
+  return path.join(tempDir, 'youtube-quota', `${TEST_ACCOUNT_ID}.jsonl`)
+}
+
+describe('readQuota — stale flag surfacing', () => {
+  test('returns stale: true when meta file says so', async () => {
+    const slug = await makeProjectWithAccount('StaleRead')
+    await fs.mkdir(path.dirname(metaFilePath()), { recursive: true })
+    await fs.writeFile(metaFilePath(), JSON.stringify({ stale: true }))
+
+    const snap = await quotaMod.readQuota(slug)
     assert.equal(snap.stale, true, 'readQuota must surface the persisted stale flag')
   })
 
-  test('returns stale: false when flag is absent', async () => {
-    const p = await pm.createProject({ name: 'StaleAbsent' })
-    const snap = await quotaMod.readQuota(p.slug)
-    assert.notEqual(snap.stale, true, 'fresh project should not look stale')
+  test('returns stale: false when meta file is absent', async () => {
+    const slug = await makeProjectWithAccount('StaleAbsent')
+    const snap = await quotaMod.readQuota(slug)
+    assert.notEqual(snap.stale, true, 'fresh account should not look stale')
   })
 
   test('returns stale: false when flag is explicitly false', async () => {
-    const p = await pm.createProject({ name: 'StaleFalse' })
-    await pm.updateConfig(p.slug, { youtube_quota_ledger_stale: false } as any)
-    const snap = await quotaMod.readQuota(p.slug)
+    const slug = await makeProjectWithAccount('StaleFalse')
+    await fs.mkdir(path.dirname(metaFilePath()), { recursive: true })
+    await fs.writeFile(metaFilePath(), JSON.stringify({ stale: false, ceiling: 10000 }))
+    const snap = await quotaMod.readQuota(slug)
     assert.notEqual(snap.stale, true)
-  })
-
-  test('stale flag is preserved across the day-rollover branch of readQuota', async () => {
-    // The "tracking_day rolled over" branch returns a fresh-snapshot object;
-    // make sure we don't lose the stale flag in that path.
-    const p = await pm.createProject({ name: 'StaleRollover' })
-    await pm.updateConfig(p.slug, {
-      youtube_quota: { used: 9000, ceiling: 10000, tracking_day: '1999-01-01' },
-      youtube_quota_ledger_stale: true,
-    } as any)
-    const snap = await quotaMod.readQuota(p.slug)
-    assert.equal(snap.used, 0, 'old day should reset to zero')
-    assert.equal(snap.stale, true, 'stale flag still surfaces after day reset')
   })
 })
 
 describe('recordQuotaUsage — clears stale flag on success', () => {
-  test('a successful ledger write resets youtube_quota_ledger_stale to false', async () => {
-    const p = await pm.createProject({ name: 'StaleClear' })
-    // Plant a stale flag as if a prior write had failed.
-    await pm.updateConfig(p.slug, { youtube_quota_ledger_stale: true } as any)
-    let snap = await quotaMod.readQuota(p.slug)
+  test('a successful ledger append resets stale to false', async () => {
+    const slug = await makeProjectWithAccount('StaleClear')
+    // Plant a stale flag as if a prior append had failed.
+    await fs.mkdir(path.dirname(metaFilePath()), { recursive: true })
+    await fs.writeFile(metaFilePath(), JSON.stringify({ stale: true }))
+    let snap = await quotaMod.readQuota(slug)
     assert.equal(snap.stale, true, 'precondition: flag is set')
 
     // A successful recordQuotaUsage should clear it.
-    await quotaMod.recordQuotaUsage(p.slug, 'videos_update')
+    await quotaMod.recordQuotaUsage(slug, 'videos_update')
 
-    snap = await quotaMod.readQuota(p.slug)
-    assert.notEqual(snap.stale, true, 'stale flag should be cleared after a successful write')
+    snap = await quotaMod.readQuota(slug)
+    assert.notEqual(snap.stale, true, 'stale flag should be cleared after a successful append')
     assert.equal(snap.used, 50, 'videos_update costs 50 units; ledger advanced')
   })
 
-  test('repeated successful writes keep stale flag clear', async () => {
-    const p = await pm.createProject({ name: 'StaleRepeat' })
-    await quotaMod.recordQuotaUsage(p.slug, 'videos_update')
-    await quotaMod.recordQuotaUsage(p.slug, 'videos_update')
-    const snap = await quotaMod.readQuota(p.slug)
+  test('repeated successful appends keep stale flag clear', async () => {
+    const slug = await makeProjectWithAccount('StaleRepeat')
+    await quotaMod.recordQuotaUsage(slug, 'videos_update')
+    await quotaMod.recordQuotaUsage(slug, 'videos_update')
+    const snap = await quotaMod.readQuota(slug)
     assert.notEqual(snap.stale, true)
     assert.equal(snap.used, 100)
   })
 })
 
 describe('recordQuotaUsage — propagates write failures instead of swallowing', () => {
-  test('throws when config.json read-modify-write fails', async () => {
+  test('throws when the JSONL append fails', async () => {
     // M2 fix proof: the old `.catch(() => {})` in youtube-client.ts hid
     // exactly this kind of failure. With the new behaviour, recordQuotaUsage
-    // surfaces the error so the call site can log it and so the per-route
-    // wrapper can mark the ledger stale.
-    const p = await pm.createProject({ name: 'StaleThrow' })
-    const configPath = path.join(tempDir, 'projects', p.slug, 'config.json')
+    // surfaces the error so the call site can log it and so the meta file
+    // gets marked stale.
+    const slug = await makeProjectWithAccount('StaleThrow')
 
-    // Replace config.json (a regular file) with a directory of the same
-    // name. existsSync() still returns true, so updateConfig enters the
-    // read-modify-write branch — and then fs.readFile rejects with EISDIR.
-    // This is a deterministic stand-in for "disk full / lock contention /
-    // permissions drift" — the audit-reports/10-uploads.md M2 scenario.
-    await fs.unlink(configPath)
-    await fs.mkdir(configPath)
+    // Replace `<accountId>.jsonl` (a file that doesn't exist yet) with a
+    // directory of the same name. fs.appendFile then rejects with EISDIR
+    // — a deterministic stand-in for disk full / lock contention.
+    await fs.mkdir(path.dirname(ledgerFilePath()), { recursive: true })
+    await fs.mkdir(ledgerFilePath())
 
     await assert.rejects(
-      () => quotaMod.recordQuotaUsage(p.slug, 'videos_insert'),
+      () => quotaMod.recordQuotaUsage(slug, 'videos_insert'),
       /EISDIR|illegal operation|directory/i,
-      'recordQuotaUsage must propagate the underlying write error'
+      'recordQuotaUsage must propagate the underlying append error'
     )
+
+    // The meta file should now carry the stale flag so the chip warns.
+    // We read it directly rather than via readQuota, because readQuota's
+    // ledger read would also hit EISDIR in this contrived setup.
+    const metaText = await fs.readFile(metaFilePath(), 'utf-8')
+    const meta = JSON.parse(metaText)
+    assert.equal(meta.stale, true, 'failed append must mark the meta stale')
   })
 })

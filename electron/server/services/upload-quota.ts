@@ -1,5 +1,5 @@
 /**
- * YouTube Data API quota tracker.
+ * YouTube Data API quota tracker — per-account JSONL ledger.
  *
  * YouTube's default project quota is 10,000 units/day, reset at midnight
  * Pacific time. Costly operations:
@@ -10,14 +10,19 @@
  *   - playlistItems.list:    1 unit / page
  *
  * On the default quota, that's ~6 uploads/day before hitting the ceiling.
- * This module:
- *   1. Tracks outbound units per-project in config.json (cheap to render
- *      in the UI; secrets.json is wrong bucket since usage isn't secret).
- *   2. Resets the counter automatically when the current Pacific day rolls.
- *   3. Offers a pre-check so callers refuse to start an upload that would
- *      go over the ceiling.
- *   4. Parses 403 bodies for `reason: 'quotaExceeded'` so error messages
- *      can be translated to actionable copy rather than raw JSON.
+ * Storage is per YouTube *account* (not per project) because each OAuth
+ * client lives in its own Google Cloud project and therefore has its own
+ * quota bucket. Public functions still take `slug` and resolve it to the
+ * project's active account internally — call sites stay unchanged.
+ *
+ * Layout under `<userData>/youtube-quota/`:
+ *   - `<accountId>.jsonl`     — append-only events: {"ts","op","units"}
+ *   - `<accountId>.meta.json` — { ceiling, stale }
+ *
+ * Append-only is cheap (single fs.appendFile syscall, atomic for a small
+ * line on POSIX/NTFS) and means the meta sidecar never has to be rewritten
+ * on the hot path. Reads filter the JSONL by the most recent Pacific
+ * midnight boundary and sum `units` — no persisted "tracking_day" needed.
  *
  * The counter is best-effort and local. If the user's Google Cloud project
  * has a different quota OR they used it from another tool, our count
@@ -25,8 +30,12 @@
  * try to flag locally before we burn an upload on a doomed attempt.
  */
 
+import fs from 'fs/promises'
+import path from 'path'
 import * as pm from './project-manager.js'
+import * as store from './upload-store.js'
 import { logLine } from './logger.js'
+import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 
 export const YOUTUBE_DEFAULT_QUOTA = 10_000
 
@@ -40,6 +49,7 @@ export const QUOTA_COST = {
   playlists_list: 1,
   playlists_insert: 50,
   playlist_items_insert: 50,
+  videos_list: 1,
 } as const
 export type QuotaKey = keyof typeof QUOTA_COST
 
@@ -65,7 +75,18 @@ export interface QuotaSnapshot {
   stale?: boolean
 }
 
-/** 80% of ceiling → show the warning banner. */
+interface LedgerEntry {
+  ts: string
+  op: string
+  units: number
+}
+
+interface MetaFile {
+  ceiling?: number
+  stale?: boolean
+}
+
+/** 80% of ceiling → show the warning badge. */
 function warnThreshold(ceiling: number) { return Math.floor(ceiling * 0.8) }
 /** 90% of ceiling → pre-check refuses to start the upload. */
 function blockThreshold(ceiling: number) { return Math.floor(ceiling * 0.9) }
@@ -119,29 +140,150 @@ function nextMidnightPacific(d: Date = new Date()): Date {
   return guess
 }
 
-export async function readQuota(slug: string): Promise<QuotaSnapshot> {
-  const config = (await pm.getConfig(slug)) as any
-  const stored = config?.youtube_quota
-  const stale = config?.youtube_quota_ledger_stale === true
-  const today = pacificDayString()
-  const ceiling = Number(stored?.ceiling) || YOUTUBE_DEFAULT_QUOTA
-  // Auto-reset if the tracking day has rolled. Don't persist the reset
-  // here — the next increment will write.
-  if (stored?.tracking_day !== today) {
-    return {
-      used: 0,
-      ceiling,
-      tracking_day: today,
-      resets_at: nextMidnightPacific().toISOString(),
-      warn_at: warnThreshold(ceiling),
-      block_at: blockThreshold(ceiling),
-      stale,
+/** The most recent Pacific midnight boundary as a UTC instant. */
+function mostRecentPacificMidnight(d: Date = new Date()): Date {
+  // The next midnight is always within the next 24h; the previous midnight
+  // is always exactly 24h earlier from the perspective of nextMidnightPacific
+  // applied to the previous day. Easier: compute next midnight, subtract 24h.
+  // Note: DST transition days are 23 or 25h, so we compute by stepping back.
+  const next = nextMidnightPacific(d)
+  // Step back ~24h, then re-forward to the previous midnight using the same
+  // round-trip helper. nextMidnightPacific(yesterday) == today's midnight.
+  const yesterday = new Date(d.getTime() - 86_400_000)
+  return nextMidnightPacific(yesterday)
+}
+
+// ── Storage primitives ────────────────────────────────────────────────────
+
+function getQuotaDir(): string {
+  return path.join(pm.getUserDataDir(), 'youtube-quota')
+}
+
+function ledgerPath(accountId: string): string {
+  return path.join(getQuotaDir(), `${accountId}.jsonl`)
+}
+
+function metaPath(accountId: string): string {
+  return path.join(getQuotaDir(), `${accountId}.meta.json`)
+}
+
+async function readLedger(accountId: string): Promise<LedgerEntry[]> {
+  let text: string
+  try {
+    text = await fs.readFile(ledgerPath(accountId), 'utf-8')
+  } catch (e: any) {
+    if (e?.code === 'ENOENT') return []
+    throw e
+  }
+  const out: LedgerEntry[] = []
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      const parsed = JSON.parse(trimmed) as LedgerEntry
+      if (parsed && typeof parsed.ts === 'string' && typeof parsed.units === 'number') {
+        out.push(parsed)
+      }
+    } catch {
+      // Skip malformed lines — append-only ledger may have been touched
+      // by an interrupted write; corrupt lines are dropped on read.
     }
   }
+  return out
+}
+
+async function appendEvent(accountId: string, op: QuotaKey, units: number): Promise<void> {
+  await fs.mkdir(getQuotaDir(), { recursive: true })
+  const entry: LedgerEntry = { ts: new Date().toISOString(), op, units }
+  // appendFile with the default flag is a single syscall — atomic at the OS
+  // level for line-sized writes. No lock needed for our volume.
+  await fs.appendFile(ledgerPath(accountId), JSON.stringify(entry) + '\n')
+}
+
+async function readMeta(accountId: string): Promise<MetaFile> {
+  try {
+    const text = await fs.readFile(metaPath(accountId), 'utf-8')
+    const parsed = JSON.parse(text) as MetaFile
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+async function writeMeta(accountId: string, partial: Partial<MetaFile>): Promise<void> {
+  await fs.mkdir(getQuotaDir(), { recursive: true })
+  const file = metaPath(accountId)
+  await withLock(file, async () => {
+    const current = await readMeta(accountId)
+    const next: MetaFile = { ...current, ...partial }
+    await writeJsonAtomic(file, next)
+  })
+}
+
+/**
+ * Opportunistic trim: if the oldest ledger entry is more than 30 days old,
+ * rewrite the file keeping only the last 30 days. Cheap and rare — the file
+ * stays small the rest of the time.
+ */
+async function maybeTrim(accountId: string, entries: LedgerEntry[]): Promise<LedgerEntry[]> {
+  if (entries.length === 0) return entries
+  const cutoff = Date.now() - 30 * 86_400_000
+  const oldestTs = Date.parse(entries[0].ts)
+  if (!Number.isFinite(oldestTs) || oldestTs >= cutoff) return entries
+  const trimmed = entries.filter(e => {
+    const t = Date.parse(e.ts)
+    return Number.isFinite(t) && t >= cutoff
+  })
+  const file = ledgerPath(accountId)
+  await withLock(file, async () => {
+    const body = trimmed.map(e => JSON.stringify(e)).join('\n') + (trimmed.length ? '\n' : '')
+    await fs.writeFile(file, body)
+  })
+  return trimmed
+}
+
+// ── Account resolution ────────────────────────────────────────────────────
+
+async function resolveAccountId(slug: string): Promise<string | null> {
+  try {
+    const id = await store.getDefaultAccountId(slug, 'youtube')
+    return id ? id : null
+  } catch {
+    return null
+  }
+}
+
+// ── In-memory cache (5s TTL per account) ──────────────────────────────────
+
+interface CacheEntry { snap: QuotaSnapshot; expiresAt: number }
+const snapshotCache = new Map<string, CacheEntry>()
+const CACHE_TTL_MS = 5_000
+
+function cacheGet(accountId: string): QuotaSnapshot | null {
+  const hit = snapshotCache.get(accountId)
+  if (!hit) return null
+  if (hit.expiresAt < Date.now()) {
+    snapshotCache.delete(accountId)
+    return null
+  }
+  return hit.snap
+}
+
+function cachePut(accountId: string, snap: QuotaSnapshot): void {
+  snapshotCache.set(accountId, { snap, expiresAt: Date.now() + CACHE_TTL_MS })
+}
+
+function cacheInvalidate(accountId: string): void {
+  snapshotCache.delete(accountId)
+}
+
+// ── Public API ────────────────────────────────────────────────────────────
+
+function zeroSnapshot(ceiling: number, stale = false): QuotaSnapshot {
   return {
-    used: Number(stored.used) || 0,
+    used: 0,
     ceiling,
-    tracking_day: today,
+    tracking_day: pacificDayString(),
     resets_at: nextMidnightPacific().toISOString(),
     warn_at: warnThreshold(ceiling),
     block_at: blockThreshold(ceiling),
@@ -149,11 +291,50 @@ export async function readQuota(slug: string): Promise<QuotaSnapshot> {
   }
 }
 
+export async function readQuota(slug: string): Promise<QuotaSnapshot> {
+  const accountId = await resolveAccountId(slug)
+  if (!accountId) {
+    return zeroSnapshot(YOUTUBE_DEFAULT_QUOTA)
+  }
+  const cached = cacheGet(accountId)
+  if (cached) return cached
+
+  const meta = await readMeta(accountId)
+  const ceiling = Number(meta.ceiling) > 0 ? Number(meta.ceiling) : YOUTUBE_DEFAULT_QUOTA
+  const stale = meta.stale === true
+
+  let entries = await readLedger(accountId)
+  entries = await maybeTrim(accountId, entries)
+
+  const cutoff = mostRecentPacificMidnight().getTime()
+  let used = 0
+  for (const e of entries) {
+    const t = Date.parse(e.ts)
+    if (Number.isFinite(t) && t >= cutoff) used += Number(e.units) || 0
+  }
+
+  const snap: QuotaSnapshot = {
+    used,
+    ceiling,
+    tracking_day: pacificDayString(),
+    resets_at: nextMidnightPacific().toISOString(),
+    warn_at: warnThreshold(ceiling),
+    block_at: blockThreshold(ceiling),
+    stale,
+  }
+  cachePut(accountId, snap)
+  return snap
+}
+
 export async function setQuotaCeiling(slug: string, ceiling: number): Promise<void> {
-  const snap = await readQuota(slug)
-  await pm.updateConfig(slug, {
-    youtube_quota: { used: snap.used, ceiling, tracking_day: snap.tracking_day },
-  } as any)
+  const accountId = await resolveAccountId(slug)
+  if (!accountId) {
+    // No active account → nothing to persist. Surface as a no-op rather
+    // than throwing; the UI's PUT will simply read back zero on the GET.
+    return
+  }
+  await writeMeta(accountId, { ceiling })
+  cacheInvalidate(accountId)
 }
 
 /** Pre-check before an API call. Throws a quota-aware error if we'd cross the block threshold. */
@@ -169,30 +350,41 @@ export async function checkQuota(slug: string, key: QuotaKey): Promise<void> {
 }
 
 export async function recordQuotaUsage(slug: string, key: QuotaKey): Promise<void> {
-  const snap = await readQuota(slug)
-  const nextUsed = snap.used + QUOTA_COST[key]
+  const accountId = await resolveAccountId(slug)
+  if (!accountId) {
+    // Recording without an active account is meaningless — the call must
+    // have used somebody's tokens, but we have nowhere to attribute it.
+    // Log at debug rather than throwing so the API call result still
+    // bubbles up cleanly to the user.
+    // No active account — the call must have used somebody's tokens, but
+    // we have nowhere to attribute it. Don't throw; log at info so the
+    // operator can spot it in server logs without alarm bells.
+    logLine('info', '[upload-quota] skipping record — no active YouTube account', { slug, key })
+    return
+  }
+  const cost = QUOTA_COST[key]
   try {
+    await appendEvent(accountId, key, cost)
+    cacheInvalidate(accountId)
     // On a successful write, also clear the stale flag — the ledger is
     // back in sync with what we've actually spent.
-    await pm.updateConfig(slug, {
-      youtube_quota: {
-        used: nextUsed,
-        ceiling: snap.ceiling,
-        tracking_day: snap.tracking_day,
-      },
-      youtube_quota_ledger_stale: false,
-    } as any)
+    const meta = await readMeta(accountId)
+    if (meta.stale === true) {
+      await writeMeta(accountId, { stale: false })
+    }
   } catch (err) {
     // Best-effort: try to mark the ledger stale so the UI can warn. If
     // this write also fails (the original cause likely persists), swallow
     // the secondary error — the primary error is what callers need to see.
-    await pm.updateConfig(slug, { youtube_quota_ledger_stale: true } as any).catch((flagErr) => {
+    await writeMeta(accountId, { stale: true }).catch((flagErr) => {
       logLine('warn', '[upload-quota] failed to set stale flag after ledger write failed', {
         slug,
+        accountId,
         key,
         flag_error: (flagErr as any)?.message || 'unknown',
       })
     })
+    cacheInvalidate(accountId)
     throw err
   }
 }
@@ -226,4 +418,11 @@ export function friendlyQuotaErrorMessage(respStatus: number, body: string): str
     'Retry after midnight Pacific time, or request a quota increase at',
     'console.cloud.google.com → APIs → YouTube Data API → Quotas.',
   ].join(' ')
+}
+
+// ── Test-only hooks ───────────────────────────────────────────────────────
+
+/** Test helper: drop the in-memory snapshot cache. */
+export function __resetQuotaCache(): void {
+  snapshotCache.clear()
 }
