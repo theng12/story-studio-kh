@@ -5,6 +5,44 @@
       <p class="text-muted">Your story production pipeline</p>
     </div>
 
+    <!-- Loading indicator for the dashboard-stats fetch. Visible until the
+         first fetch resolves (`statsLoading` flips false). On iCloud-backed
+         projects this can run 5-30s on first entry while macOS materialises
+         folder metadata from the cloud; the elapsed counter + escalating
+         copy makes the wait obvious instead of leaving the panel blank. -->
+    <div v-if="statsLoading" class="dash-loading-banner" role="status" aria-live="polite">
+      <LoadingSpinner size="sm" />
+      <div class="dash-loading-text">
+        <strong>Loading project data…</strong>
+        <span class="text-muted" style="margin-left: 6px;">{{ statsPhase }}</span>
+      </div>
+    </div>
+    <!-- Partial-scan banner: surfaces when the backend hit its 25s safety
+         timeout or skipped iCloud-evicted folders. Tells the user the
+         counts they see are incomplete and offers a retry once macOS has
+         materialised more files. -->
+    <div
+      v-else-if="stats?.scan?.partial || (stats?.scan?.icloud_skipped > 0)"
+      class="dash-partial-banner"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="dash-partial-icon">⚠</span>
+      <div class="dash-partial-text">
+        <strong>Partial scan.</strong>
+        <span class="text-muted" style="margin-left: 6px;">
+          <template v-if="stats?.scan?.partial">
+            The folder walk hit the {{ Math.round((stats?.scan?.duration_ms || 0) / 1000) }}s safety timeout — counts below are partial.
+          </template>
+          <template v-else-if="stats?.scan?.icloud_skipped > 0">
+            {{ stats.scan.icloud_skipped }} folder{{ stats.scan.icloud_skipped === 1 ? '' : 's' }} skipped — likely still downloading from iCloud.
+          </template>
+          Wait a moment for iCloud to finish, then click Retry.
+        </span>
+      </div>
+      <button class="btn btn-sm btn-secondary" @click="reloadDashboard">↻ Retry</button>
+    </div>
+
     <!-- Asset-integrity banner: surfaces gaps that survived a folder
          transfer / partial sync. Read-only; nothing is regenerated. See
          services/manifest-audit.ts and the P7 note in Session 05.
@@ -306,6 +344,22 @@ const statsLoadError = ref<string>('')
 const auditLoadError = ref<string>('')
 const accountsLoadError = ref<string>('')
 
+// Loading-progress UI state. Until `stats.value` resolves, the dashboard
+// would otherwise render zeros + a blank panel — which on iCloud-backed
+// projects (where the scan can take 30s+ on first entry while macOS
+// rematerialises evicted folder metadata) reads as "broken" instead of
+// "loading". We surface elapsed time + a phase label so the user sees
+// progress; copy escalates after 5s to acknowledge slow projects, and
+// after 20s to suggest the iCloud download case.
+const statsLoading = ref(true)
+const statsElapsedSec = ref(0)
+let statsElapsedTimer: ReturnType<typeof setInterval> | null = null
+const statsPhase = computed(() => {
+  if (statsElapsedSec.value < 5) return 'Scanning episodes…'
+  if (statsElapsedSec.value < 20) return `Still scanning (${statsElapsedSec.value}s) — large project, hold tight…`
+  return `Still scanning (${statsElapsedSec.value}s) — likely an iCloud download in progress. macOS is materialising files from the cloud; this finishes once and stays fast afterwards.`
+})
+
 // Asset audit — lazy + cached. The audit walks every episode's filesystem
 // state, which is O(episodes × asset-stages) and easily hits 60+ seconds on
 // large projects. We don't fire it on mount; the operator clicks "Run audit"
@@ -383,6 +437,16 @@ const workflowSteps = [
 const uploadAccountCount = ref<number | null>(null)
 
 async function reloadDashboard() {
+  // Spin up the elapsed-time ticker so the loading banner can show progress.
+  // Reset to 0 on every reload so the user sees the new fetch's elapsed
+  // time, not stale state from a prior load.
+  statsLoading.value = true
+  statsElapsedSec.value = 0
+  if (statsElapsedTimer) clearInterval(statsElapsedTimer)
+  const startedAt = Date.now()
+  statsElapsedTimer = setInterval(() => {
+    statsElapsedSec.value = Math.floor((Date.now() - startedAt) / 1000)
+  }, 1000)
   // Stats + accounts in parallel — neither is slow, and they're independent.
   // The audit USED to live here too but was the bottleneck (60-100s on large
   // projects); it's now opt-in via runAudit().
@@ -393,6 +457,9 @@ async function reloadDashboard() {
         statsLoadError.value = ''
       } catch (e: any) {
         statsLoadError.value = e?.data?.detail || e?.message || 'Failed to load dashboard stats'
+      } finally {
+        statsLoading.value = false
+        if (statsElapsedTimer) { clearInterval(statsElapsedTimer); statsElapsedTimer = null }
       }
     })(),
     (async () => {
@@ -440,10 +507,52 @@ async function runAudit() {
 }
 
 onMounted(reloadDashboard)
+onBeforeUnmount(() => {
+  if (statsElapsedTimer) { clearInterval(statsElapsedTimer); statsElapsedTimer = null }
+})
 </script>
 
 <style scoped>
 .dash-header h1 { font-size: 28px; }
+
+/* Loading banner — visible while dashboard-stats is in flight on first
+ * project entry. Sits between the header and the audit banner so it
+ * occupies the spot the user is staring at while waiting. */
+.dash-loading-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: rgba(96, 165, 250, 0.08);
+  border: 1px solid rgba(96, 165, 250, 0.30);
+  border-left: 3px solid #60a5fa;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.dash-loading-text { line-height: 1.4; }
+.dash-loading-text strong { color: var(--text-primary); }
+
+/* Partial-scan warning — surfaces when the backend hit its 25s safety
+ * timeout or skipped iCloud-evicted folders. Distinct color from the
+ * loading banner (amber) so the user notices it as a state to act on
+ * rather than a passive progress indicator. */
+.dash-partial-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: rgba(240, 140, 60, 0.10);
+  border: 1px solid rgba(240, 140, 60, 0.35);
+  border-left: 3px solid #e4903a;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.dash-partial-icon { font-size: 16px; color: #e4903a; }
+.dash-partial-text { flex: 1 1 280px; min-width: 0; line-height: 1.4; }
+.dash-partial-text strong { color: var(--text-primary); }
 
 /* Dashboard fetch-failure banner. Distinct from the audit banner: this
    means "we couldn't load the panel data", not "the project itself has
