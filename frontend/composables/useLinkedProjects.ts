@@ -50,10 +50,7 @@ export interface ProjectMoveResult {
 }
 
 export function useLinkedProjects() {
-  const { get, post, del } = useApi() as any
-  // Some useApi instances ship without `del` — in that case we'll fall
-  // back to a fetch wrapper at the call site. Both behaviours are
-  // covered.
+  const { get, post, del } = useApi()
 
   const linked = ref<LinkedProjectInfo[]>([])
   const loading = ref(false)

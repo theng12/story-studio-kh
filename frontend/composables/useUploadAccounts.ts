@@ -490,6 +490,10 @@ export function useUploadAccounts(slug: string) {
       remote_count: r.remote_count,
       local_count: r.local_count,
       already_linked: r.already_linked,
+      // Defensive default for older backends that don't yet send linked_videos
+      // — happens during dev when frontend is on this branch but Electron is
+      // still running main. The chip falls back to "0 linked" gracefully.
+      linked_videos: r.linked_videos || {},
       suggestions: r.suggestions,
       fetched_at: Date.now(),
     }

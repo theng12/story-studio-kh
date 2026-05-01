@@ -24,7 +24,7 @@ export interface SoftDeletedProjectInfo {
 }
 
 export function useSoftDeletedProjects() {
-  const { get, post, del } = useApi() as any
+  const { get, post, del } = useApi()
 
   const items = ref<SoftDeletedProjectInfo[]>([])
   const loading = ref(false)

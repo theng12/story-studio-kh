@@ -43,7 +43,7 @@ export function useConfirmSkip() {
 
   async function askSkippable(opts: SkippableConfirmOptions): Promise<boolean> {
     const slug = route.params.slug as string
-    const prefs = (config.value as any)?.confirmation_preferences || {}
+    const prefs = config.value?.confirmation_preferences || {}
     // `false` means the user ticked "don't ask again" previously. Default
     // (undefined or true) means confirm as usual.
     if (prefs[opts.skipKey] === false) return true

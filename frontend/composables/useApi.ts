@@ -10,6 +10,14 @@
 
 export interface ApiOptions {
   headers?: Record<string, string>
+  /**
+   * Optional body for methods that don't take one as a positional arg
+   * (currently `del`). DELETE-with-body is unusual but valid HTTP and
+   * useful for "delete by criteria" endpoints — e.g. linked-projects
+   * unregister sends the path in the body so the URL stays free of
+   * filesystem characters that would need escaping.
+   */
+  body?: any
 }
 
 export function useApi() {

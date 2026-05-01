@@ -76,7 +76,7 @@ export function useConfirmation() {
   const { config, refreshConfig } = useProject()
 
   function shouldConfirm(generatorType: string): boolean {
-    const prefs = (config.value as any)?.confirmation_preferences
+    const prefs = config.value?.confirmation_preferences
     if (!prefs) return true // default: confirm everything
     return prefs[generatorType] !== false
   }
