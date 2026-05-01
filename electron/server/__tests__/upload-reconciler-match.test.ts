@@ -6,7 +6,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizeTitle, diceCoefficient } from '../services/upload-reconciler.js'
+import { normalizeTitle, diceCoefficient, deriveLinkedFromSidecars } from '../services/upload-reconciler.js'
 
 describe('normalizeTitle', () => {
   test('strips episode codes', () => {
@@ -57,5 +57,42 @@ describe('fuzzy regression: sleep-story titles rank correctly', () => {
     // a↔b should beat a↔c.
     assert.ok(diceCoefficient(a, b) > diceCoefficient(a, c),
       'identical prefix should outrank unrelated episode')
+  })
+})
+
+describe('deriveLinkedFromSidecars — linked_videos shape contract', () => {
+  test('no episodes have a sidecar → both fields empty', () => {
+    const r = deriveLinkedFromSidecars([
+      { episode_code: 'TN0001', video_id: undefined },
+      { episode_code: 'TN0002', video_id: null },
+    ])
+    assert.deepEqual(r.already_linked, [])
+    assert.deepEqual(r.linked_videos, {})
+  })
+
+  test('two linked episodes → both fields populated and consistent', () => {
+    const r = deriveLinkedFromSidecars([
+      { episode_code: 'TN0001', video_id: 'vid_AAA' },
+      { episode_code: 'TN0002', video_id: 'vid_BBB' },
+      { episode_code: 'TN0003', video_id: undefined },
+    ])
+    assert.deepEqual(r.already_linked.sort(), ['TN0001', 'TN0002'])
+    assert.deepEqual(r.linked_videos, { vid_AAA: 'TN0001', vid_BBB: 'TN0002' })
+    // Cross-check: every linked_videos value is in already_linked.
+    for (const code of Object.values(r.linked_videos)) {
+      assert.ok(r.already_linked.includes(code), `${code} must appear in already_linked`)
+    }
+  })
+
+  test('sidecar without video_id is excluded from both fields', () => {
+    // Real-world case: a sidecar exists holding privacy_status / scheduled_for
+    // metadata but the video itself hasn't been uploaded yet — shouldn't
+    // count as linked.
+    const r = deriveLinkedFromSidecars([
+      { episode_code: 'TN0001', video_id: undefined },
+      { episode_code: 'TN0002', video_id: '' },
+    ])
+    assert.deepEqual(r.already_linked, [])
+    assert.deepEqual(r.linked_videos, {})
   })
 })

@@ -806,12 +806,77 @@ export async function addVideoToPlaylist(opts: {
 
 // ── Reconcile helpers (used in Phase 6) ───────────────────────────────────
 
+/**
+ * Bulk-fetch the live `status` block (privacyStatus + publishAt) for a list
+ * of videoIds. Used by the queue's "Sync from YouTube" flow to detect drift
+ * between the local sidecar and YouTube's actual state — e.g. a scheduled
+ * video that auto-published, or a video the user manually flipped to public
+ * in YT Studio.
+ *
+ * Batches into groups of 50 (YouTube's cap on the `id` parameter). Each
+ * batch costs 1 quota unit (`videos_list`), so syncing 200 rows is 4 units.
+ *
+ * Returns a map keyed by videoId. Videos that don't come back in the
+ * response (deleted on YouTube, no longer accessible) are simply absent
+ * from the map — callers should treat that as "couldn't sync, skip".
+ */
+export interface VideoStatusFromYouTube {
+  privacyStatus: 'private' | 'unlisted' | 'public'
+  /** ISO 8601 — only present when YouTube has the video scheduled. */
+  publishAt: string | null
+}
+export async function listVideoStatuses(slug: string, accountId: string, videoIds: string[]): Promise<Record<string, VideoStatusFromYouTube>> {
+  const out: Record<string, VideoStatusFromYouTube> = {}
+  // Strip empty / dup ids — YouTube's API treats `id=,X,` as a syntax error
+  // on some edge cases, and dups burn payload size.
+  const unique = Array.from(new Set(videoIds.filter(Boolean)))
+  if (!unique.length) return out
+  for (let i = 0; i < unique.length; i += 50) {
+    const batch = unique.slice(i, i + 50)
+    await checkQuota(slug, 'videos_list')
+    const url = `${VIDEOS_UPDATE_URL}?part=status&id=${batch.map(encodeURIComponent).join(',')}`
+    const resp = await fetchWithAuthRetry(slug, accountId, (accessToken) =>
+      fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
+    )
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '')
+      const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
+      throw new Error(quotaMsg || `videos.list failed (${resp.status}): ${text.slice(0, 300)}`)
+    }
+    await recordQuotaOrLog(slug, 'videos_list')
+    const data = await resp.json() as any
+    for (const item of (data.items || [])) {
+      const vid = item.id as string | undefined
+      if (!vid) continue
+      const st = item.status || {}
+      const privacyStatus: 'private' | 'unlisted' | 'public' = (st.privacyStatus === 'public' || st.privacyStatus === 'unlisted')
+        ? st.privacyStatus
+        : 'private'
+      // `status.publishAt` is YouTube's scheduled-publish time. It's only
+      // meaningful when the video is `private` AND scheduled to flip to
+      // public at a specific time. We coerce to null for public/unlisted
+      // even if YouTube echoes back a historical value — a public video
+      // already published, an unlisted video is live but hidden, neither
+      // is awaiting a future flip. Belt-and-suspenders for the queue
+      // sync-drift detection: if YouTube's response retains an old
+      // publishAt on already-public videos, naïvely passing it through
+      // would make the drift check think nothing changed.
+      const publishAt = (privacyStatus === 'private' && typeof st.publishAt === 'string' && st.publishAt)
+        ? st.publishAt
+        : null
+      out[vid] = { privacyStatus, publishAt }
+    }
+  }
+  return out
+}
+
 export async function getUploadsPlaylistId(slug: string, accountId: string): Promise<string> {
   const url = `${CHANNELS_URL}?${new URLSearchParams({ part: 'contentDetails', mine: 'true' })}`
   const resp = await fetchWithAuthRetry(slug, accountId, (accessToken) =>
     fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
   )
   if (!resp.ok) throw new Error(`channels.list failed (${resp.status})`)
+  await recordQuotaOrLog(slug, 'channels_list')
   const data = await resp.json() as any
   const id = data?.items?.[0]?.contentDetails?.relatedPlaylists?.uploads
   if (!id) throw new Error('No uploads playlist found on authenticated channel.')
@@ -835,6 +900,7 @@ export async function listRecentUploads(slug: string, accountId: string, opts: {
       fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
     )
     if (!resp.ok) throw new Error(`playlistItems.list failed (${resp.status})`)
+    await recordQuotaOrLog(slug, 'playlist_items_list')
     const data = await resp.json() as any
     for (const it of data.items || []) {
       items.push({
