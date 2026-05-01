@@ -10,11 +10,9 @@
  * forever, and the same load path will re-apply the same interrupt
  * mutation on every restart.
  *
- * The fix is one `persistJob(j)` call inside the loop. This test pins the
- * desired behaviour — it's currently expected to FAIL — and is marked
- * `t.skip(...)` with a TODO so it lands as a known-failing reference rather
- * than masking the bug behind a green check. Remove the skip when the fix
- * lands and verify the assertion passes.
+ * The fix landed via `persistJob(j)` inside the loop's mutation branch —
+ * see job-queue.ts `loadPersistedJobs`. This test pins the contract so a
+ * future regression that drops the persist call is caught immediately.
  */
 
 import { test, describe, before, after } from 'node:test'
@@ -39,7 +37,7 @@ before(async () => {
 after(async () => { await cleanup() })
 
 describe('loadPersistedJobs — interrupt mutation must persist to disk', () => {
-  test('jobs.json reflects status=error after the in-memory interrupt rewrite', { skip: 'TODO: bug — job-queue.ts:228-234 mutates j.status=error in-memory only; never writes jobs.json. Add persistJob(j) inside the loop in loadPersistedJobs.' }, async (t) => {
+  test('jobs.json reflects status=error after the in-memory interrupt rewrite', async (t) => {
     const proj = await pm.createProject({ name: 'JQPersistDisk' })
     const jobsFile = path.join(tempDir, 'projects', proj.slug, 'jobs.json')
     const interruptedJob = {
@@ -62,10 +60,9 @@ describe('loadPersistedJobs — interrupt mutation must persist to disk', () => 
     assert.ok(inMem, 'in-memory job present')
     assert.equal(inMem!.status, 'error', 'in-memory mutation already correct (this is the existing covered behaviour)')
 
-    // The bug: the same mutation must be reflected in jobs.json. Currently
-    // it isn't — the on-disk record still says 'running'. When the fix
-    // lands (one persistJob() call inside the loop), this assertion will
-    // hold and the skip can be removed.
+    // The fix: the same mutation must be reflected in jobs.json. With
+    // the persistJob(j) call inside the loop, the on-disk record now
+    // matches the in-memory state.
     const onDisk = JSON.parse(await fs.readFile(jobsFile, 'utf-8'))
     const persisted = onDisk.jobs.find((j: any) => j.job_id === 'fake-disk-interrupt')
     assert.ok(persisted, 'persisted job present on disk')

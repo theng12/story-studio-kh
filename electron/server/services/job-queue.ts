@@ -273,13 +273,32 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
       const data = JSON.parse(await fs.readFile(p, 'utf-8'))
       for (const j of data.jobs || []) {
         if (!jobs.has(j.job_id)) {
-          // Mark any previously-running/queued jobs as interrupted
+          // Mark any previously-running/queued jobs as interrupted.
+          // Persist the mutation so the on-disk record matches what the
+          // in-memory map says — without this, jobs.json keeps reporting
+          // the stale 'running'/'queued' status forever, and any
+          // out-of-process tool inspecting the file (or a future restart
+          // of this same process) sees a contradictory state.
+          // See __tests__/job-queue-stale-running-persist.test.ts.
+          let mutated = false
           if (j.status === 'running' || j.status === 'queued') {
             j.status = 'error'
             j.error = 'Interrupted by app restart'
             j.finished_at = j.finished_at || new Date().toISOString()
+            mutated = true
           }
           jobs.set(j.job_id, j)
+          if (mutated) {
+            try { await persistJob(j) } catch (e: any) {
+              // Best-effort — disk full / perms drift. The in-memory
+              // mutation still applies for this process; next successful
+              // persist (e.g. when the user clicks "clear" or a new job
+              // runs) will heal the file via the queue's atomic-rewrite
+              // path. Logging at warn level so the operator can spot it
+              // if it becomes chronic.
+              console.warn('[job-queue] failed to persist interrupted-job mutation', { job_id: j.job_id, error: e?.message })
+            }
+          }
         }
       }
     }
