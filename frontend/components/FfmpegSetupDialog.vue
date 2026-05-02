@@ -101,11 +101,23 @@ onMounted(async () => {
 async function installFFmpeg() {
   installing.value = true
   error.value = ''
-  progressMessage.value = 'Downloading FFmpeg...'
-  progressPercent.value = 10
+  progressMessage.value = 'Starting download…'
+  progressPercent.value = 0
+
+  // Poll backend install state every second so the bar reflects real
+  // download / extract progress instead of sitting frozen for 1-5 min.
+  const poll = setInterval(async () => {
+    try {
+      const p = await get<any>('/ffmpeg/install-progress')
+      if (typeof p.percent === 'number') progressPercent.value = p.percent
+      if (p.message) progressMessage.value = p.message
+      if (p.status === 'done' || p.status === 'error' || p.status === 'idle') {
+        clearInterval(poll)
+      }
+    } catch { /* best-effort */ }
+  }, 1000)
 
   try {
-    // Start download (backend handles the actual download)
     const result = await post<any>('/ffmpeg/install', {})
 
     if (result.ok && result.status?.installed) {
@@ -119,6 +131,7 @@ async function installFFmpeg() {
   } catch (e: any) {
     error.value = e.data?.detail || 'Download failed. Please try manual installation.'
   } finally {
+    clearInterval(poll)
     installing.value = false
   }
 }

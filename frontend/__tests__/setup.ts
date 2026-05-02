@@ -18,3 +18,14 @@ if (!(globalThis as any).__happyDomRegistered) {
   GlobalRegistrator.register()
   ;(globalThis as any).__happyDomRegistered = true
 }
+
+// Pre-resolve the boot-ready gate inside useApi.ts so unit tests don't
+// see an unexpected /api/health probe at the head of every captured-
+// fetch list. The gate is meaningful in production (waits for backend
+// migrations to settle) but is a pure nuisance in tests where every
+// $fetch call is mocked anyway. Best-effort: the test suite as a whole
+// gets gated only if the import resolves; if it doesn't, the 15 s gate
+// timeout is the long-stop.
+import('../composables/useApi.js').then((m: any) => {
+  m._markBootReadyForTests?.()
+}).catch(() => { /* silent */ })

@@ -17,7 +17,7 @@ import cors from 'cors'
 import './boot/providers.js'              // side-effect: self-register providers
 import { mountRoutes } from './routes/index.js'
 import { registerAllExecutors } from './boot/executors.js'
-import { runBootMigrations } from './boot/migrations.js'
+import { runBootMigrations, isBootComplete } from './boot/migrations.js'
 import { logLine } from './services/logger.js'
 import { requireLocalHost, csrfTokenHandler } from './lib/security.js'
 
@@ -64,8 +64,18 @@ mountRoutes(app)
 
 // Global health (duplicated inside healthRouter for completeness — leave it
 // here so a broken health router never masks the liveness probe).
+//
+// `boot_complete` flips true once every async boot migration has settled
+// (or after the 20 s safety-net timeout). The frontend uses it to delay
+// the parallel page-load fan-out, avoiding transient "Project not found"
+// / "COULDN'T VERIFY" flashes that came from API requests landing while
+// migrateAppSecrets / migrateDescriptionToMetadata were mid-rewrite.
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', version: '0.1.0' })
+  res.json({
+    status: 'ok',
+    version: '0.1.0',
+    boot_complete: isBootComplete(),
+  })
 })
 
 // CSRF token distribution — Origin-gated inside the handler so only the

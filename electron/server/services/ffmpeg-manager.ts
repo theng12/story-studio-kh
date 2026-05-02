@@ -49,6 +49,59 @@ function getFFmpegDir(): string {
 let _ffmpegPath: string | null = null
 let _ffprobePath: string | null = null
 
+// ── Install progress state ────────────────────────────────────────────────
+//
+// Held in memory so the frontend can poll GET /ffmpeg/install-progress
+// while the synchronous POST /ffmpeg/install is still in flight. The
+// progress callback inside downloadFFmpeg writes here on every phase
+// transition; the polling endpoint reads these fields straight out.
+//
+// Idle is the default state. After a successful install, we keep the
+// 'done' state around so a poll that lands AFTER the POST resolves
+// still sees a sensible terminal state (rather than reverting to idle
+// and confusing the UI).
+
+export type InstallStatus = 'idle' | 'running' | 'done' | 'error'
+export interface InstallProgressState {
+  status: InstallStatus
+  phase?: 'downloading' | 'extracting' | 'done' | 'error'
+  /** 0-100 */
+  percent: number
+  message: string
+  started_at?: number
+  finished_at?: number
+  error?: string
+  result_path?: string
+}
+
+let _installState: InstallProgressState = { status: 'idle', percent: 0, message: '' }
+
+export function getInstallProgressState(): InstallProgressState {
+  return { ..._installState }
+}
+
+export function _resetInstallProgressState(): void {
+  _installState = { status: 'idle', percent: 0, message: '' }
+}
+
+function setInstallProgress(patch: Partial<InstallProgressState>): void {
+  _installState = { ..._installState, ...patch }
+}
+
+/** Mark the in-flight install as failed. Called by the route handler
+ *  when downloadFFmpeg throws — the download function itself can't
+ *  always settle the state cleanly because the throw bubbles up through
+ *  the `phase` helper. Idempotent / safe to call multiple times. */
+export function _markInstallError(message: string): void {
+  setInstallProgress({
+    status: 'error',
+    phase: 'error',
+    message: message || 'FFmpeg install failed',
+    error: message || 'FFmpeg install failed',
+    finished_at: Date.now(),
+  })
+}
+
 /**
  * Common install locations on macOS/Linux/Windows.
  * GUI-launched Electron apps don't inherit the user's shell PATH,
@@ -359,6 +412,32 @@ export async function downloadFFmpeg(
   const startedAt = Date.now()
   const platform = process.platform
   const arch = process.arch
+
+  // Mirror every progress event into the polling state so the UI can
+  // observe progress even though the POST /ffmpeg/install endpoint
+  // doesn't stream. The `userOnProgress` parameter is preserved so any
+  // future SSE/streaming caller still works without code changes.
+  const userOnProgress = onProgress
+  setInstallProgress({
+    status: 'running',
+    phase: 'downloading',
+    percent: 0,
+    message: 'Starting…',
+    started_at: startedAt,
+    finished_at: undefined,
+    error: undefined,
+    result_path: undefined,
+  })
+  const progressSink: (p: DownloadProgress) => void = (p) => {
+    setInstallProgress({
+      phase: p.phase,
+      percent: Math.max(0, Math.min(100, Math.round(p.percent))),
+      message: p.message,
+    })
+    userOnProgress?.(p)
+  }
+  // From here on, prefer `progressSink` over the original `onProgress`.
+  onProgress = progressSink
   // Story Studio KH is macOS-only. Two-level lookup: platform (darwin) THEN
   // arch (arm64/x64). Falling through either level produces the
   // unsupported-platform error below and is logged so a failure is
@@ -529,6 +608,14 @@ export async function downloadFFmpeg(
   await setAppSetting('ffprobe_path', ffprobePath)
 
   onProgress?.({ phase: 'done', percent: 100, message: 'FFmpeg installed successfully!' })
+  setInstallProgress({
+    status: 'done',
+    phase: 'done',
+    percent: 100,
+    message: 'FFmpeg installed successfully!',
+    finished_at: Date.now(),
+    result_path: ffmpegPath,
+  })
   logLine('info', 'ffmpeg-install:complete', { ms: Date.now() - startedAt, ffmpegPath, ffprobePath })
 
   return ffmpegPath
@@ -722,11 +809,31 @@ async function downloadBinary(
   url: string, savePath: string,
   onProgress?: (fraction: number) => void,
 ): Promise<void> {
-  const resp = await fetch(url, {
-    signal: AbortSignal.timeout(300000), // 5 min timeout
-    headers: { 'User-Agent': 'Story-Studio/0.1.0' },
-    redirect: 'follow',
-  })
+  let resp: Response
+  try {
+    resp = await fetch(url, {
+      signal: AbortSignal.timeout(300000), // 5 min timeout
+      headers: { 'User-Agent': 'Story-Studio/0.1.0' },
+      redirect: 'follow',
+    })
+  } catch (e: any) {
+    // AbortSignal.timeout fires a TimeoutError after 5 min of slow / no
+    // progress on the connection. Translate to a user-actionable message
+    // — the raw "operation was aborted due to timeout" tells nobody
+    // anything about WHY the fallback download is failing OR what to do.
+    const isTimeout = e?.name === 'TimeoutError' || /aborted due to timeout/i.test(String(e?.message || ''))
+    if (isTimeout) {
+      throw new Error(
+        `Download timed out after 5 minutes from ${new URL(url).host}. ` +
+        `The fallback download host may be slow or unreachable from your network. ` +
+        `Two ways to recover: install FFmpeg via Homebrew (\`brew install ffmpeg\` in Terminal — the app will detect it automatically), ` +
+        `OR ignore this — the FFmpeg that ships inside the app should already be working ` +
+        `(you can confirm on the Settings → FFmpeg tab). ` +
+        `If the app says FFmpeg is "Bundled with app" and "ready", you don't need to install anything.`,
+      )
+    }
+    throw e
+  }
 
   if (!resp.ok) {
     throw new Error(`Download failed: HTTP ${resp.status} from ${url}`)

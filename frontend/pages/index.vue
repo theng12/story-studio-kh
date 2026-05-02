@@ -440,10 +440,22 @@
             <span class="ffmpeg-status-icon" aria-hidden="true">✓</span>
             <div style="min-width: 0;">
               <strong>FFmpeg is ready.</strong>
-              <div class="text-muted" style="font-size: 12px; margin-top: 2px;">
-                Version <code>{{ ffmpegStatus.version }}</code>
-                · {{ ffmpegStatus.source === 'bundled' ? 'Bundled with app' : 'Detected on your system' }}
-              </div>
+              <template v-if="ffmpegStatus.source === 'bundled'">
+                <div class="text-muted" style="font-size: 12px; margin-top: 2px;">
+                  Version <code>{{ ffmpegStatus.version }}</code> ·
+                  Built into Story Studio — no system install needed.
+                </div>
+                <div class="text-muted" style="font-size: 11px; margin-top: 4px;">
+                  (You won't see this binary in <code>which ffmpeg</code> or in <code>/usr/local/bin</code> —
+                  it lives inside the .app and only Story Studio uses it.)
+                </div>
+              </template>
+              <template v-else>
+                <div class="text-muted" style="font-size: 12px; margin-top: 2px;">
+                  Version <code>{{ ffmpegStatus.version }}</code>
+                  · Detected on your system
+                </div>
+              </template>
               <div v-if="ffmpegStatus.path" class="text-muted" style="font-size: 11px; word-break: break-all; margin-top: 4px;">
                 <code>{{ ffmpegStatus.path }}</code>
               </div>
@@ -1310,14 +1322,22 @@ async function checkFFmpeg() {
 async function installFFmpeg() {
   ffmpegInstalling.value = true
   ffmpegError.value = ''
-  ffmpegProgressMessage.value = 'Downloading FFmpeg…'
-  ffmpegProgressPercent.value = 10
-  // The backend currently doesn't stream progress, so we drive a best-effort
-  // indeterminate tick so the bar visibly moves during the ~1min download.
-  // If /ffmpeg/install gains SSE later, swap this for real progress.
-  const tick = setInterval(() => {
-    if (ffmpegProgressPercent.value < 85) ffmpegProgressPercent.value += 2
-  }, 800)
+  ffmpegProgressMessage.value = 'Starting download…'
+  ffmpegProgressPercent.value = 0
+  // Poll the backend's in-memory install state every second. Replaced an
+  // earlier "fake tick" that just drifted the bar by 2% every 800ms; the
+  // real polling now reflects actual download / extract progress and
+  // surfaces the correct message at each phase.
+  const poll = setInterval(async () => {
+    try {
+      const p = await get<any>('/ffmpeg/install-progress')
+      if (typeof p.percent === 'number') ffmpegProgressPercent.value = p.percent
+      if (p.message) ffmpegProgressMessage.value = p.message
+      if (p.status === 'done' || p.status === 'error' || p.status === 'idle') {
+        clearInterval(poll)
+      }
+    } catch { /* polling is best-effort */ }
+  }, 1000)
   try {
     const result = await post<any>('/ffmpeg/install', {})
     if (result?.ok && result.status?.installed) {
@@ -1334,7 +1354,7 @@ async function installFFmpeg() {
   } catch (e: any) {
     ffmpegError.value = e.data?.detail || 'Download failed. Try manual installation.'
   } finally {
-    clearInterval(tick)
+    clearInterval(poll)
     ffmpegInstalling.value = false
   }
 }

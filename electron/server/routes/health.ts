@@ -7,7 +7,7 @@ import { getKieCredits, getFalBalance, getElevenLabsBalance, getGenaiproBalance,
 import { MODEL_LABELS, SUPPORTED_MODELS } from '../models/types.js'
 import { getSessionUsage, getModelPricing } from '../services/usage-tracker.js'
 import { getSessionStats } from '../services/session-tracker.js'
-import { getFFmpegStatus, downloadFFmpeg } from '../services/ffmpeg-manager.js'
+import { getFFmpegStatus, downloadFFmpeg, getInstallProgressState, _markInstallError } from '../services/ffmpeg-manager.js'
 import { getLogDir, logLine } from '../services/logger.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
@@ -31,16 +31,44 @@ router.get('/ffmpeg/status', async (_req, res) => {
 })
 
 router.post('/ffmpeg/install', async (_req, res) => {
-  try {
-    const ffmpegPath = await downloadFFmpeg((progress) => {
-      // Progress is sent but not streamed — for now just log it
-      // Future: use SSE or websocket for live progress
+  // Refuse a parallel install — the in-memory progress state machine
+  // can only track one in-flight install at a time, and downloads to
+  // the same paths would race. The frontend should disable the button
+  // while running, but this is the server-side guard.
+  const current = getInstallProgressState()
+  if (current.status === 'running') {
+    return res.status(409).json({
+      detail: 'FFmpeg install already in progress.',
+      code: 'INSTALL_IN_PROGRESS',
     })
+  }
+  try {
+    // downloadFFmpeg internally writes to the same shared state we
+    // return from GET /ffmpeg/install-progress, so the frontend sees
+    // live phase / percent / message updates while this POST is still
+    // in flight.
+    const ffmpegPath = await downloadFFmpeg()
     const status = await getFFmpegStatus()
     res.json({ ok: true, path: ffmpegPath, status })
   } catch (e: any) {
+    // Mirror the failure into the polling state so a poll that lands
+    // AFTER the POST resolves still sees the error (rather than the
+    // stale 'running' state). downloadFFmpeg itself already logged the
+    // structured `ffmpeg-install:* failed` entry via logLine.
+    _markInstallError(e?.message || 'FFmpeg install failed')
     res.status(500).json(humanizeBackendError(e, 'FFmpeg install failed'))
   }
+})
+
+/**
+ * Live install progress for the FFmpeg download flow. The frontend polls
+ * this every second while POST /ffmpeg/install is in flight (or for a
+ * couple of seconds after, to capture the terminal state).
+ *
+ * Returned shape mirrors `InstallProgressState` from ffmpeg-manager.
+ */
+router.get('/ffmpeg/install-progress', (_req, res) => {
+  res.json(getInstallProgressState())
 })
 
 // Returns the most recent ffmpeg-install log entries from today's log file,

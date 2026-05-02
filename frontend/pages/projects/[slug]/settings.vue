@@ -932,10 +932,28 @@
         and/or <strong>libass</strong> (subtitle burn-in). The downloaded build below includes both.
       </p>
 
-      <!-- One-click install -->
-      <div class="ffmpeg-install-block mt-2">
-        <h4 style="margin: 0 0 8px 0;">One-click install</h4>
-        <p class="text-muted" style="font-size: 12px; margin: 0 0 8px 0;">
+      <!-- One-click install. When a working FFmpeg is already detected,
+           the install path is rarely useful — the bundled binary is what
+           the app actually uses, and re-running the download just kicks
+           off an unnecessary 80 MB hit. Collapse it behind a disclosure
+           in that case. The full inline card stays visible when FFmpeg
+           is genuinely missing OR while an install is in progress so
+           the user can monitor it. -->
+      <details
+        :open="!ffmpegStatus?.installed || ffmpegInstalling"
+        class="ffmpeg-install-block mt-2"
+      >
+        <summary
+          v-if="ffmpegStatus?.installed && !ffmpegInstalling"
+          class="ffmpeg-install-summary"
+        >
+          <span style="font-size: 13px;">Advanced: replace FFmpeg binary</span>
+          <span class="text-muted" style="font-size: 11px;">
+            (rarely needed — the bundled binary already works)
+          </span>
+        </summary>
+        <h4 v-else style="margin: 0 0 8px 0;">One-click install</h4>
+        <p class="text-muted" style="font-size: 12px; margin: 8px 0;">
           Downloads ffmpeg + ffprobe (~50 MB) from the official release mirror and installs them
           into the app's user-data folder. Safe to run multiple times. No admin password required.
         </p>
@@ -944,11 +962,11 @@
           @click="installFfmpeg"
           :disabled="ffmpegInstalling"
         >
-          <span v-if="ffmpegInstalling">Installing… {{ ffmpegInstallProgress }}%</span>
+          <span v-if="ffmpegInstalling">{{ ffmpegInstallMessage || 'Installing…' }} {{ ffmpegInstallProgress }}%</span>
           <span v-else-if="ffmpegStatus?.installed">Re-install / update FFmpeg</span>
           <span v-else>Install FFmpeg</span>
         </button>
-        <div v-if="ffmpegInstallMessage" class="mt-1" style="font-size: 12px;" :style="{ color: ffmpegInstallError ? 'var(--error)' : 'var(--text-muted)' }">
+        <div v-if="ffmpegInstallMessage && !ffmpegInstalling" class="mt-1" style="font-size: 12px;" :style="{ color: ffmpegInstallError ? 'var(--error)' : 'var(--text-muted)' }">
           {{ ffmpegInstallMessage }}
         </div>
 
@@ -995,7 +1013,7 @@
             No ffmpeg-install entries in the last hour. The error may have happened before logging was wired up — try clicking Install again.
           </p>
         </div>
-      </div>
+      </details>
 
       <!-- Manual install fallback -->
       <details class="ffmpeg-manual mt-3">
@@ -2451,11 +2469,24 @@ async function installFfmpeg() {
   ffmpegInstallProgress.value = 0
   ffmpegInstallError.value = false
   ffmpegInstallMessage.value = 'Starting download…'
-  // The endpoint is synchronous (waits for the download to finish before
-  // responding). Backend fires progress callbacks but we don't have an SSE
-  // stream yet — the message updates are limited to start / done / error.
-  // If the download takes longer than 5 minutes, the backend's fetch
-  // timeout fires and the call returns an error message.
+
+  // Poll the install-progress endpoint every second while the POST is in
+  // flight. The POST is synchronous (waits for the whole download to
+  // finish), so without polling the user sees a frozen progress bar for
+  // up to 5 minutes. The polling endpoint reads the same in-memory state
+  // that downloadFFmpeg writes to on every phase transition.
+  let pollHandle: ReturnType<typeof setInterval> | null = null
+  pollHandle = setInterval(async () => {
+    try {
+      const p = await get<{ status: string; phase?: string; percent: number; message: string; error?: string }>('/ffmpeg/install-progress')
+      if (typeof p.percent === 'number') ffmpegInstallProgress.value = p.percent
+      if (p.message) ffmpegInstallMessage.value = p.message
+      if (p.status === 'done' || p.status === 'error' || p.status === 'idle') {
+        if (pollHandle) { clearInterval(pollHandle); pollHandle = null }
+      }
+    } catch { /* polling is best-effort */ }
+  }, 1000)
+
   try {
     const result = await post<{ ok: boolean; path: string; status: FfmpegStatus }>('/ffmpeg/install', {})
     ffmpegInstallProgress.value = 100
@@ -2468,6 +2499,7 @@ async function installFfmpeg() {
     ffmpegInstallMessage.value = e?.data?.detail || e?.message || 'Install failed — see manual instructions below'
     showError('FFmpeg install failed')
   } finally {
+    if (pollHandle) clearInterval(pollHandle)
     ffmpegInstalling.value = false
   }
 }
@@ -3386,6 +3418,21 @@ async function deleteProject() {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
+.ffmpeg-install-block > .ffmpeg-install-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.ffmpeg-install-block > .ffmpeg-install-summary::-webkit-details-marker { display: none; }
+.ffmpeg-install-block > .ffmpeg-install-summary::before {
+  content: '▸';
+  color: var(--text-muted);
+  font-size: 10px;
+  transition: transform 0.15s;
+}
+.ffmpeg-install-block[open] > .ffmpeg-install-summary::before { transform: rotate(90deg); }
 .ffmpeg-cmd {
   background: var(--bg-primary);
   border: 1px solid var(--border);
