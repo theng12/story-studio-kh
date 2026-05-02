@@ -44,6 +44,28 @@ function resolveAudioProvider(
   return 'fal'
 }
 
+/**
+ * Thrown by findNarrationFile when the expected `_Script_Narration.docx`
+ * isn't on disk yet. Carries `code: 'NARRATION_MISSING'` so the frontend
+ * can match on a stable string instead of regex-parsing the message.
+ *
+ * Mirrors the JsonCorruptError pattern in project-manager.ts: `expose: true`
+ * tells humanizeBackendError it's safe to forward the code in the response.
+ */
+export class NarrationMissingError extends Error {
+  readonly code = 'NARRATION_MISSING' as const
+  readonly statusCode = 404
+  readonly expose = true
+  readonly episode_id: string
+  readonly filename: string
+  constructor(episodeId: string, filename: string) {
+    super(`Could not find ${filename}. Generate the script first.`)
+    this.name = 'NarrationMissingError'
+    this.episode_id = episodeId
+    this.filename = filename
+  }
+}
+
 export async function findNarrationFile(slug: string, episodeId: string): Promise<string> {
   const code = episodeId.toUpperCase()
   const filename = `${code}_Script_Narration.docx`
@@ -68,7 +90,7 @@ export async function findNarrationFile(slug: string, episodeId: string): Promis
 
   const found = await findRecursive(outputRoot)
   if (found) return found
-  throw new Error(`Could not find ${filename}. Generate the script first.`)
+  throw new NarrationMissingError(episodeId, filename)
 }
 
 export async function resolveAudioDir(projectSlug: string, narrationPath: string, episodeId: string): Promise<string> {

@@ -364,8 +364,15 @@ async function refreshAudioStatus() {
   } catch (e: any) {
     // The endpoint errors when the narration.docx doesn't exist yet — treat
     // that as "nothing expected" rather than a real error the user has to act on.
+    // Backend now flags this case with `code: 'NARRATION_MISSING'`; we also
+    // keep the legacy message regex as a fallback so older bundled backends
+    // (pre-2026-05-02) still hit the soft-fail branch.
+    const code = e?.data?.code || ''
     const msg = e?.data?.detail || e?.message || ''
-    if (/Could not find .*_Script_Narration\.docx/i.test(msg)) {
+    const isNarrationMissing =
+      code === 'NARRATION_MISSING'
+      || /Could not find .*_Script_Narration\.docx/i.test(msg)
+    if (isNarrationMissing) {
       audioStatus.total = 0; audioStatus.present = 0; audioStatus.missing = 0
       audioStatus.missing_files = []
     } else {

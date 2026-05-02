@@ -27,6 +27,15 @@ import { logLine } from '../services/logger.js'
 export interface HumanizedError {
   detail: string
   hint?: string
+  /**
+   * Stable string the frontend can match on instead of regex-parsing
+   * `detail`. Set when the thrown error has both an `expose: true`
+   * marker (matching the JsonCorruptError pattern) and a string `code`
+   * field — typical of domain-defined errors like NARRATION_MISSING.
+   * Plain Node errnos (ENOENT, EACCES…) are NOT forwarded here; those
+   * get folded into a friendlier message above.
+   */
+  code?: string
 }
 
 /**
@@ -187,7 +196,10 @@ export function humanizeBackendError(e: unknown, fallback?: string): HumanizedEr
   //    open the log file to diagnose anything. We log the raw message
   //    via logLine above either way, but the front-line UX should also
   //    carry the signal.
-  if (rawMessage) return { detail: rawMessage }
-  if (fallback) return { detail: fallback }
-  return { detail: 'Something went wrong. Please try again.' }
+  const exposed = (e as any)?.expose === true && typeof (e as any)?.code === 'string'
+    ? { code: (e as any).code as string }
+    : {}
+  if (rawMessage) return { detail: rawMessage, ...exposed }
+  if (fallback) return { detail: fallback, ...exposed }
+  return { detail: 'Something went wrong. Please try again.', ...exposed }
 }

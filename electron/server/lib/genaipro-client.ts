@@ -33,6 +33,42 @@ const MODEL_MAP: Record<string, string> = {
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
+/**
+ * GenAIPro periodically returns HTML maintenance / proxy-error pages
+ * with non-200 statuses (most commonly a 503 with a Vietnamese-language
+ * "Đang Bảo Trì" page). Surfacing the raw HTML to the user produces a
+ * wall of `<!DOCTYPE html>...` markup in the job log + UI.
+ *
+ * This helper detects HTML-shaped bodies and returns a short, action-
+ * oriented sentence instead. Plain-text + JSON bodies fall through
+ * unchanged so genuine API errors (rate-limit JSON, validation errors)
+ * still surface their detail.
+ *
+ * Returns the message that should follow `GenAIPro <op> failed (<status>):`
+ * — i.e. just the body summary, not the full prefix.
+ */
+export function summarizeGenaiproErrorBody(status: number, body: string): string {
+  const trimmed = (body || '').trim()
+  const looksLikeHtml = /^<!DOCTYPE\s+html|^<html[\s>]/i.test(trimmed)
+  if (!looksLikeHtml) {
+    return trimmed.slice(0, 300)
+  }
+  // Pull <title> when present — the Vietnamese maintenance page sets
+  // it to "Đang Bảo Trì - Maintenance" which is usefully descriptive.
+  const titleMatch = trimmed.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+  const title = titleMatch?.[1]?.replace(/\s+/g, ' ').trim() || ''
+  if (status === 503) {
+    const titlePart = title ? ` (${title})` : ''
+    return `GenAIPro is temporarily unavailable${titlePart}. The provider is likely under maintenance — try again in a few minutes, or switch the audio model in Settings → Voices.`
+  }
+  if (status === 502 || status === 504) {
+    return `GenAIPro upstream gateway error. Try again in a moment.`
+  }
+  return title
+    ? `GenAIPro returned an HTML error page (${title}). Check the provider's status page or try again.`
+    : `GenAIPro returned an HTML error page (no parseable detail). Check the provider's status page or try again.`
+}
+
 export interface GenerateTtsOpts {
   model?: string
   voiceId?: string
@@ -89,7 +125,7 @@ export async function generateTts(
   })
   if (!submit.ok) {
     const err = await submit.text()
-    throw new Error(`GenAIPro submit failed (${submit.status}): ${redactSecrets(err, apiKey).slice(0, 300)}`)
+    throw new Error(`GenAIPro submit failed (${submit.status}): ${summarizeGenaiproErrorBody(submit.status, redactSecrets(err, apiKey))}`)
   }
   const { task_id } = await submit.json() as { task_id: string }
   if (!task_id) throw new Error('GenAIPro did not return a task_id')
@@ -107,7 +143,7 @@ export async function generateTts(
     const poll = await fetch(`${BASE}/v1/labs/task/${task_id}`, { headers })
     if (!poll.ok) {
       const err = await poll.text()
-      throw new Error(`GenAIPro poll failed (${poll.status}): ${redactSecrets(err, apiKey).slice(0, 200)}`)
+      throw new Error(`GenAIPro poll failed (${poll.status}): ${summarizeGenaiproErrorBody(poll.status, redactSecrets(err, apiKey))}`)
     }
     const task = await poll.json() as { status?: string; result?: string; error?: string }
     if (task.status === 'completed' && task.result) return task.result
@@ -213,7 +249,7 @@ export async function listAllLabsTasks(apiKey: string): Promise<LabsTask[]> {
     })
     if (!resp.ok) {
       const err = await resp.text()
-      throw new Error(`GenAIPro task history failed (${resp.status}): ${redactSecrets(err, apiKey).slice(0, 200)}`)
+      throw new Error(`GenAIPro task history failed (${resp.status}): ${summarizeGenaiproErrorBody(resp.status, redactSecrets(err, apiKey))}`)
     }
     const data = await resp.json() as { tasks?: LabsTask[]; total?: number }
     const tasks = data.tasks || []
