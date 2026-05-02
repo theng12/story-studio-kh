@@ -10,6 +10,7 @@ import { callAi } from '../lib/ai-client.js'
 import { buildNarrationDocx, buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
+import { getEffectiveBrand } from '../services/brand-loader.js'
 import { loadPattern, applyPatternSubject } from '../services/pattern-loader.js'
 import { resolveCharacters } from '../services/character-manager.js'
 
@@ -79,7 +80,7 @@ function narratorStyleFor(format: Format, styleId: string): NarratorStyle {
     ?? list[0]
 }
 
-function systemPrompt(format: Format, productionStandards: string): string {
+function systemPrompt(format: Format, productionStandards: string, brand?: import('../models/types.js').Brand | null): string {
   // Format-specific addendum is prepended to the user's free-form standards.
   // Both flow into the same "Follow these production standards exactly:" block
   // so the LLM treats them with the same priority. Empty addendum = no change.
@@ -88,7 +89,7 @@ function systemPrompt(format: Format, productionStandards: string): string {
 
   const additionalRules = format.script.additionalRules.map(r => `- ${r}`).join('\n')
 
-  return `${format.script.systemPromptRole}
+  const baseSystem = `${format.script.systemPromptRole}
 
 Follow these production standards exactly:
 
@@ -96,6 +97,16 @@ ${standardsBody}
 
 Additional rules:
 ${additionalRules}`
+
+  // Brand persona (if the project has a brand attached) wins position-wise:
+  // it sets channel-level voice context that the format-level role refines.
+  // No brand → unchanged. Use a synchronous import via lazy require so this
+  // function stays sync-safe; callers fetch the brand themselves and pass
+  // it down.
+  if (brand?.narration?.persona) {
+    return `${brand.narration.persona.trim()}\n\n${baseSystem}`
+  }
+  return baseSystem
 }
 
 interface IntroSettings {
@@ -405,7 +416,8 @@ async function generateEpisode(job: Job): Promise<void> {
   }
 
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
-  const sysPrompt = systemPrompt(format, standards)
+  const brand = await getEffectiveBrand(project_slug)
+  const sysPrompt = systemPrompt(format, standards, brand)
 
   const skipImages = !req.generate_image_prompts
   const skipYoutube = !req.generate_youtube_desc
@@ -567,8 +579,9 @@ export async function generateChapterOnly(job: Job): Promise<void> {
 
   const standards = await pm.getStandards(project_slug) || ''
   const format = await getEffectiveFormat(project_slug)
+  const brand = await getEffectiveBrand(project_slug)
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
-  const sysPrompt = systemPrompt(format, standards)
+  const sysPrompt = systemPrompt(format, standards, brand)
   const paths = await resolveEpisodePaths(project_slug, episode_id, title)
 
   const {
@@ -709,7 +722,8 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   await fs.mkdir(paths.script_dir, { recursive: true })
 
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
-  const sysPrompt = systemPrompt(format, standards)
+  const brand = await getEffectiveBrand(project_slug)
+  const sysPrompt = systemPrompt(format, standards, brand)
   const introStandardsText = (config as any).intro_standards || ''
 
   job.output_lines.push(`Generating introduction...`)

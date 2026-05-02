@@ -27,6 +27,12 @@
       <strong>Generate just this</strong> button inside each section to regenerate selectively.
     </p>
 
+    <!-- Channel "what worked" inspiration. Auto-included server-side in
+         the title generator's LLM prompt; this card surfaces the titles
+         being used as a vibe reference. Hides silently when no analytics
+         data is available. -->
+    <TopPerformersInspiration :slug="slug" class="mt-3" />
+
     <!-- Shared AI model — applies to every section below. Labelled as -->
     <!-- such so users don't wonder why moving this control changes all -->
     <!-- three generators (consistency with image-prompts, which uses one -->
@@ -458,6 +464,19 @@
         </div>
       </div>
 
+      <!-- Brand banned-word warning chip. Server-side scan persists the
+           list onto the saved metadata; chip renders only when the active
+           version had matches. The warning is non-blocking — user can
+           keep the metadata as-is or edit and save again. -->
+      <div v-if="brandWarnings.length" class="brand-warning" role="status">
+        <span class="brand-warning-icon" aria-hidden="true">⚠</span>
+        <span>
+          <strong>Brand banned words found:</strong>
+          <code v-for="w in brandWarnings" :key="w" class="brand-warning-term">{{ w }}</code>
+        </span>
+        <span class="brand-warning-hint text-muted">Edit + save to clear, or accept and move on.</span>
+      </div>
+
       <div class="form-group mt-1">
         <label>
           Title
@@ -475,6 +494,12 @@
           <span class="char-count" :class="{ 'over-limit': preview.description.length > descConfig.maxChars }">
             {{ preview.description.length }} / {{ descConfig.maxChars }}
           </span>
+          <button
+            class="btn-icon"
+            :title="insertChaptersHint"
+            :disabled="insertingChapters"
+            @click="insertChapterTimestamps"
+          >📑</button>
           <button class="btn-icon" @click="copy(preview.description, 'Description')" title="Copy description">📋</button>
         </label>
         <textarea v-model="preview.description" class="textarea preview-textarea" placeholder="Generated description will appear here" />
@@ -549,8 +574,18 @@ const preview = reactive({
   description: '',
   tags: [] as string[],
 })
-const versions = ref<Array<{ version: number; title: string; title_options?: string[]; description: string; tags: string[]; savedAt: string | null }>>([])
+const versions = ref<Array<{ version: number; title: string; title_options?: string[]; description: string; tags: string[]; brand_warnings?: string[]; savedAt: string | null }>>([])
 const selectedVersion = ref<number>(1)
+
+// Brand banned-word matches recorded at the latest save. Surfaced as a
+// chip above the Preview card so the user notices flagged terms after
+// generation or save without having to scan the job log. Empty array =
+// no chip rendered. Older metadata files won't carry the field; treated
+// as no-warnings for back-compat.
+const brandWarnings = computed<string[]>(() => {
+  const active = versions.value.find(v => v.version === selectedVersion.value)
+  return active?.brand_warnings ?? []
+})
 
 // Section builder
 interface SectionConfig { [key: string]: any }
@@ -1035,6 +1070,65 @@ async function copy(text: string, label: string) {
   }
 }
 
+const insertingChapters = ref(false)
+const insertChaptersHint = computed(() =>
+  insertingChapters.value
+    ? 'Loading chapter timestamps…'
+    : 'Insert YouTube chapter timestamps from this episode’s audio durations',
+)
+
+/**
+ * Pull chapter durations from the episode's audio assets and prepend a
+ * formatted "0:00 Intro / 4:32 Chapter 1 / …" block to the description.
+ * Skipped when fewer than 3 chapters (YouTube needs 3+ to render the
+ * clickable chapter UI) — surfaces a friendly toast instead.
+ *
+ * Already-prepended blocks are detected by a sentinel comment so a
+ * second click doesn't stack duplicates; we replace the existing block
+ * in place.
+ */
+async function insertChapterTimestamps() {
+  if (!episodeId.value) {
+    showError('Pick an episode first.')
+    return
+  }
+  insertingChapters.value = true
+  try {
+    const title = (selectedEpisode.value?.title || '').trim()
+    const params = new URLSearchParams({ title })
+    const r = await get<{ formatted: string; chapters: any[]; reason?: string }>(
+      `/projects/${slug.value}/episodes/${encodeURIComponent(episodeId.value)}/chapter-timestamps?${params}`,
+    )
+    if (!r.formatted) {
+      const detail = r.reason === 'fewer-than-3-chapters'
+        ? 'Need at least 3 chapter audio files for YouTube to render the chapter UI.'
+        : 'No chapter audio found for this episode.'
+      showError(detail)
+      return
+    }
+    const SENTINEL_BEGIN = '<!-- chapters:start -->'
+    const SENTINEL_END = '<!-- chapters:end -->'
+    const block = `${SENTINEL_BEGIN}\n${r.formatted}\n${SENTINEL_END}`
+    const current = preview.description || ''
+    if (current.includes(SENTINEL_BEGIN) && current.includes(SENTINEL_END)) {
+      // Replace the existing block in place — preserves user-edited
+      // content surrounding it.
+      preview.description = current.replace(
+        new RegExp(`${SENTINEL_BEGIN}[\\s\\S]*?${SENTINEL_END}`),
+        block,
+      )
+      success('Chapters refreshed')
+    } else {
+      preview.description = `${block}\n\n${current}`.trim()
+      success(`Inserted ${r.chapters.length} chapters`)
+    }
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to load chapter timestamps')
+  } finally {
+    insertingChapters.value = false
+  }
+}
+
 function formatDate(iso: string): string {
   try {
     return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -1379,4 +1473,36 @@ onMounted(async () => {
   max-width: calc(100vw - 48px);
 }
 .modal-small h3 { font-size: 16px; font-weight: 600; }
+
+/* Brand banned-word warning chip — non-blocking, sits above the Preview
+ * fields. Uses a warm amber tint so it reads as "heads up" not "error". */
+.brand-warning {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.brand-warning-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+.brand-warning-term {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: 2px 8px;
+  border-radius: 3px;
+  margin-left: 6px;
+  font-size: 12px;
+}
+.brand-warning-hint {
+  margin-left: auto;
+  font-size: 12px;
+}
 </style>

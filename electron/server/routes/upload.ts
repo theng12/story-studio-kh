@@ -95,6 +95,148 @@ router.put('/projects/:slug/upload/playlists/default', async (req, res) => {
   }
 })
 
+// ── Analytics ─────────────────────────────────────────────────────────────
+// Per-channel YouTube Analytics rollup for the connected account. Closes
+// the open-loop "fire and forget" upload flow by surfacing per-episode
+// performance + a "what worked" feed for the Ideas + Metadata generators.
+//
+// Requires the `yt-analytics.readonly` OAuth scope. Accounts connected
+// before that scope was added need a re-auth pass — the route returns
+// 403 with `reauth_required: true` so the frontend can show a CTA.
+
+router.get('/projects/:slug/upload/analytics', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const accountId = (req.query.account_id as string)
+      || await store.getDefaultAccountId(slug, 'youtube')
+    if (!accountId) {
+      return res.status(400).json({ detail: 'No YouTube account connected. Connect one in the Accounts tab first.' })
+    }
+    const tokens = await store.readTokens(slug, 'youtube', accountId)
+    if (!tokens) {
+      return res.status(404).json({ detail: 'No tokens for this account — reconnect YouTube.' })
+    }
+    const { tokenHasAnalyticsScope } = await import('../lib/youtube-oauth.js')
+    if (!tokenHasAnalyticsScope(tokens.scope)) {
+      return res.status(403).json({
+        detail: 'This YouTube account is missing the analytics scope. Reconnect to grant access.',
+        reauth_required: true,
+      })
+    }
+
+    const startDate = (req.query.start_date as string) || undefined
+    const endDate = (req.query.end_date as string) || undefined
+    const maxResults = req.query.max_results
+      ? Math.min(Math.max(parseInt(String(req.query.max_results), 10) || 50, 1), 200)
+      : undefined
+    const force = req.query.force === '1' || req.query.force === 'true'
+
+    const { getEpisodeAnalyticsCached } = await import('../lib/youtube-analytics.js')
+    const result = await getEpisodeAnalyticsCached(slug, accountId, { startDate, endDate, maxResults, force })
+    res.json(result)
+  } catch (e: any) {
+    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
+    res.status(status).json(humanizeBackendError(e, 'Failed to load analytics'))
+  }
+})
+
+// ── Comments inbox + reply assistant ──────────────────────────────────────
+// List comment threads on an uploaded video, draft LLM reply candidates,
+// and post the chosen reply. No new OAuth scope — the existing `youtube`
+// scope covers commentThreads.list + comments.insert.
+
+router.get('/projects/:slug/upload/comments', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const accountId = (req.query.account_id as string)
+      || await store.getDefaultAccountId(slug, 'youtube')
+    if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected.' })
+    const tokens = await store.readTokens(slug, 'youtube', accountId)
+    if (!tokens) return res.status(404).json({ detail: 'No tokens for this account — reconnect YouTube.' })
+    const videoId = String(req.query.video_id || '').trim()
+    if (!videoId) return res.status(400).json({ detail: 'video_id query param is required' })
+    const order = (req.query.order === 'relevance' ? 'relevance' : 'time') as 'time' | 'relevance'
+    const maxResults = req.query.max_results
+      ? Math.min(Math.max(parseInt(String(req.query.max_results), 10) || 50, 1), 100)
+      : undefined
+
+    const { listVideoCommentThreads } = await import('../lib/youtube-comments.js')
+    const result = await listVideoCommentThreads(slug, accountId, videoId, { order, maxResults })
+    res.json(result)
+  } catch (e: any) {
+    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
+    res.status(status).json(humanizeBackendError(e, 'Failed to load comments'))
+  }
+})
+
+router.post('/projects/:slug/upload/comments/draft', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const config = await pm.getConfig(slug)
+    if (!config) return res.status(404).json({ detail: 'Project config not found' })
+
+    const commentId = String(req.body?.comment_id || '').trim()
+    const commentText = String(req.body?.comment_text || '').trim()
+    if (!commentText) return res.status(400).json({ detail: 'comment_text is required' })
+    const commentAuthor = String(req.body?.comment_author || '').trim()
+    const videoTitle = req.body?.video_title ? String(req.body.video_title).trim() : undefined
+    const count = Math.max(1, Math.min(parseInt(String(req.body?.count || 3), 10) || 3, 5))
+    const model = String(req.body?.model || '').trim()
+    if (!model) return res.status(400).json({ detail: 'model is required' })
+
+    const { buildReplyDraftPrompt, parseReplyDrafts } = await import('../lib/reply-drafter.js')
+    const { getEffectiveBrand } = await import('../services/brand-loader.js')
+    const project = await pm.getProject(slug)
+    const brand = await getEffectiveBrand(slug)
+
+    const prompt = buildReplyDraftPrompt({
+      commentText, commentAuthor, videoTitle, count, brand, projectName: project?.name,
+    })
+
+    const apiKeys = {
+      anthropic_api_key: (config as any).anthropic_api_key,
+      openai_api_key: (config as any).openai_api_key,
+      kie_api_key: (config as any).kie_api_key,
+    }
+    const { callAi } = await import('../lib/ai-client.js')
+    // Pass an empty system so callAi's brand-persona auto-injection kicks
+    // in when applicable. The reply-draft prompt is the user message.
+    const raw = await callAi(model, '', prompt, apiKeys, false, { slug })
+    const drafts = parseReplyDrafts(raw, count)
+    res.json({ comment_id: commentId, drafts })
+  } catch (e: any) {
+    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
+    res.status(status).json(humanizeBackendError(e, 'Failed to draft reply'))
+  }
+})
+
+router.post('/projects/:slug/upload/comments/reply', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const accountId = String(req.body?.account_id || '').trim()
+      || await store.getDefaultAccountId(slug, 'youtube')
+    if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected.' })
+    const tokens = await store.readTokens(slug, 'youtube', accountId)
+    if (!tokens) return res.status(404).json({ detail: 'No tokens for this account — reconnect YouTube.' })
+
+    const parentCommentId = String(req.body?.parent_comment_id || '').trim()
+    const text = String(req.body?.text || '')
+    if (!parentCommentId) return res.status(400).json({ detail: 'parent_comment_id is required' })
+    if (!text.trim()) return res.status(400).json({ detail: 'text is required' })
+
+    const { postCommentReply } = await import('../lib/youtube-comments.js')
+    const reply = await postCommentReply(slug, accountId, parentCommentId, text)
+    res.json({ ok: true, reply })
+  } catch (e: any) {
+    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
+    res.status(status).json(humanizeBackendError(e, 'Failed to post reply'))
+  }
+})
+
 // ── Upload mode (apply-plan vs private-first) ─────────────────────────────
 // Per-project, per-platform. Private-first means the upload job ignores
 // publishAt entirely — user schedules in YouTube Studio after upload.

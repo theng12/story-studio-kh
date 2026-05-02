@@ -101,6 +101,35 @@ export async function generateAudio(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as GenerateAudioRequest
 
+  // Load the project's effective brand once. Two downstream consumers
+  // need it: the voice-fallback below, and the lexicon substitution
+  // applied to parsed sections further down. Best-effort — a brand
+  // load failure must never break audio generation.
+  let brand: import('../models/types.js').Brand | null = null
+  try {
+    const { getEffectiveBrand } = await import('../services/brand-loader.js')
+    brand = await getEffectiveBrand(project_slug)
+  } catch { /* brand layer must never break audio generation */ }
+
+  // Brand fallback for voice: when the request didn't pin a voice id,
+  // use the project's brand-default voice (and any default settings).
+  // Episode/per-character overrides downstream still win — this only
+  // covers the "user didn't pick a voice" path that would otherwise
+  // depend on the provider's hardcoded default.
+  if ((!req.voice || !String(req.voice).trim()) && brand) {
+    const fallbackVoice = brand.narration?.default_voice_id?.trim()
+    if (fallbackVoice) {
+      req.voice = fallbackVoice
+      const settings = brand.narration?.default_voice_settings
+      if (settings) {
+        if (typeof settings.stability === 'number' && req.stability === undefined) req.stability = settings.stability
+        if (typeof settings.similarity === 'number' && req.similarity === undefined) req.similarity = settings.similarity
+        if (typeof settings.speed === 'number' && req.speed === undefined) req.speed = settings.speed
+      }
+      job.output_lines.push(`Voice fallback from brand: ${fallbackVoice}`)
+    }
+  }
+
   // Phase-wide download metrics (TTS streaming + fal/genaipro download).
   // Fires per chunk while audio bytes flow back; speed is a 5-second
   // rolling avg, total bytes left undefined (most TTS responses don't
@@ -163,6 +192,42 @@ export async function generateAudio(job: Job): Promise<void> {
   job.output_lines.push(`Sections: ${allSections.length} found`)
   for (const s of allSections) {
     job.output_lines.push(`  ${s.label} (${s.text.length.toLocaleString()} chars)`)
+  }
+
+  // Apply the brand's pronunciation lexicon (pre-TTS substitution) to
+  // every section's text BEFORE chunking + character routing. One log
+  // line summarises every term that fired — the user can verify which
+  // proper nouns were respelled without scanning the audio output. No
+  // brand or empty lexicon = no-op.
+  if (brand?.pronunciation_lexicon?.length) {
+    try {
+      const { applyLexicon, formatSubstitutionsLog } = await import('../lib/pronunciation.js')
+      // Direct ElevenLabs supports SSML phoneme tags; other providers
+      // (Fal-proxied ElevenLabs, GenAIPro) fall back to alt_spelling.
+      // When a provider gains SSML support, flip its branch here.
+      const ssmlSupported = providerId === 'elevenlabs'
+      const totalCounts = new Map<string, { replacement: string; count: number }>()
+      for (const s of allSections) {
+        const result = applyLexicon(s.text, brand.pronunciation_lexicon, { ssmlSupported })
+        if (result.substitutions.length) {
+          s.text = result.text
+          for (const sub of result.substitutions) {
+            const prev = totalCounts.get(sub.term)
+            totalCounts.set(sub.term, {
+              replacement: sub.replacement,
+              count: (prev?.count ?? 0) + sub.count,
+            })
+          }
+        }
+      }
+      if (totalCounts.size) {
+        const records = [...totalCounts.entries()].map(([term, v]) => ({
+          term, replacement: v.replacement, count: v.count,
+        }))
+        const log = formatSubstitutionsLog(records)
+        if (log) job.output_lines.push(log)
+      }
+    } catch { /* brand layer must never break audio generation */ }
   }
 
   // Filter sections

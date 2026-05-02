@@ -183,7 +183,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   }
   const castBlock = castImagePromptBlock(characters)
 
-  const prompt = buildPrompt({
+  const basePrompt = buildPrompt({
     episode_id,
     title,
     storyContext,
@@ -198,6 +198,30 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     thumb_text_style_custom: req.thumb_text_style_custom,
     thumb_text_position: req.thumb_text_position || 'center',
   })
+
+  // Brand-level image styling: prepend channel keywords + append the
+  // long-form style sheet so every generated prompt inherits the look.
+  // Per-project format overrides on `defaultStyleTag` still apply to
+  // individual scene/thumb prompts above; brand keywords are an additive
+  // channel-wide layer.
+  let prompt = basePrompt
+  try {
+    const { getEffectiveBrand } = await import('../services/brand-loader.js')
+    const brand = await getEffectiveBrand(project_slug)
+    const keywords = brand?.imagePrompts?.style_keywords
+    if (keywords?.length) {
+      prompt = `${prompt}\n\nBrand style keywords (include on every image prompt you produce): ${keywords.join(', ')}`
+      job.output_lines.push(`Brand style keywords applied: ${keywords.join(', ')}`)
+    }
+    const sheet = brand?.imagePrompts?.style_sheet?.trim()
+    if (sheet) {
+      prompt = `${prompt}\n\nStyle reference:\n${sheet}`
+    }
+    const negatives = brand?.imagePrompts?.negative_prompts
+    if (negatives?.length) {
+      prompt = `${prompt}\n\nAvoid in all images: ${negatives.join(', ')}`
+    }
+  } catch { /* brand layer must never break image-prompt generation */ }
 
   job.output_lines.push(`Calling ${model} (mode=${mode}, scenes=${sceneCount}, thumbs=${thumbs})…`)
   const controller = new AbortController()

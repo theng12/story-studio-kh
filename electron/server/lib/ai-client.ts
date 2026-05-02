@@ -65,9 +65,27 @@ export async function callAi(
     apiKey = apiKeys[keyField] || ''
   }
 
+  // Brand persona injection: when the caller didn't provide a system
+  // prompt and we have a slug, prepend the project's brand persona (if
+  // any). Call sites that build their own system prompt (e.g. the
+  // episode generator's systemPrompt(format, standards, brand)) are
+  // expected to inject the persona themselves and pass a non-empty
+  // system here, so this only kicks in for the metadata / ideas / one-shot
+  // route paths that historically passed `''`.
+  let effectiveSystem = system
+  if ((!system || !system.trim()) && ctx.slug) {
+    try {
+      const { getBrandForSlug } = await import('./brand-prompt.js')
+      const brand = await getBrandForSlug(ctx.slug)
+      if (brand?.narration?.persona?.trim()) {
+        effectiveSystem = brand.narration.persona.trim()
+      }
+    } catch { /* brand layer must never break a generation */ }
+  }
+
   const result = await provider.callText({
     model,
-    system,
+    system: effectiveSystem,
     userMessage: userMsg,
     apiKey,
     stream,
@@ -75,7 +93,7 @@ export async function callAi(
   })
 
   // Track usage
-  trackFromText(model, system + userMsg, result)
+  trackFromText(model, effectiveSystem + userMsg, result)
 
   return result
 }

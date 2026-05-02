@@ -153,7 +153,9 @@ async function forceRefreshAccessToken(slug: string, accountId: string): Promise
 // "reconnect required" error from refreshAndPersist bubbles; if the second
 // attempt also 401s, we surface that 401 to the caller rather than looping
 // (a revoked grant would otherwise burn quota and confuse the user).
-async function fetchWithAuthRetry(
+/** Exported so sibling modules (e.g. youtube-analytics.ts) can reuse the
+ *  proactive-refresh + 401-retry pattern without duplicating the logic. */
+export async function fetchWithAuthRetry(
   slug: string,
   accountId: string,
   buildRequest: (accessToken: string) => Promise<Response>,

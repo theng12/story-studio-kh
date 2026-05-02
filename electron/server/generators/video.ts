@@ -615,6 +615,23 @@ export async function generateVideo(job: Job): Promise<void> {
   // Keeps legacy absolute paths unchanged.
   resolveAssetPathsInPlace(req, outputRoot, job)
 
+  // Brand fallback for the logo overlay. When the project has a brand
+  // attached and the user enabled the logo overlay but didn't pin a
+  // specific image, fall back to brand.visual.logo_path. Symmetric with
+  // the audio voice fallback. Per-project / per-episode overrides on
+  // req.logo.image_path still win — this only fills the empty case.
+  if (req.logo?.enabled && (!req.logo.image_path || !req.logo.image_path.trim())) {
+    try {
+      const { getEffectiveBrand } = await import('../services/brand-loader.js')
+      const brand = await getEffectiveBrand(project_slug)
+      const brandLogo = brand?.visual?.logo_path?.trim()
+      if (brandLogo) {
+        req.logo.image_path = brandLogo
+        job.output_lines.push(`Logo fallback from brand: ${brandLogo}`)
+      }
+    } catch { /* brand layer must never break video assembly */ }
+  }
+
   const names = await resolveSubfolderNames(project_slug, code)
   // Prefer the titled folder when the user has leftover renamed siblings.
   let titleHint: string | undefined

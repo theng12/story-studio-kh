@@ -274,6 +274,21 @@ export async function getEffectiveFormatFor(project: ProjectMeta): Promise<Forma
     }
     base = await ensureLoaded(DEFAULT_FORMAT_ID)
   }
+  // Apply the brand's format_overrides BEFORE the project's, so project
+  // overrides win on conflict. The brand layer is where channel-wide
+  // format tweaks live (narrator-style preference, broad keywords);
+  // project-level overrides remain the per-project escape hatch.
+  if (project.brand_id) {
+    try {
+      const brandLoader = await import('./brand-loader.js')
+      const brand = await brandLoader.loadBrand(project.brand_id)
+      if (brand?.format_overrides) {
+        base = mergeFormatOverrides(base, brand.format_overrides)
+      }
+    } catch (e: any) {
+      console.warn(`[format-loader] failed applying brand '${project.brand_id}' overrides: ${e.message}`)
+    }
+  }
   return mergeFormatOverrides(base, project.format_overrides)
 }
 

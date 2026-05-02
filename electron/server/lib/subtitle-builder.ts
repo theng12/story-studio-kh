@@ -196,3 +196,44 @@ export function chaptersFromDurations(
   }
   return out
 }
+
+/**
+ * Format a chapter list as the YouTube-description timestamp block:
+ *
+ *   0:00 Intro
+ *   4:32 Chapter 1
+ *   12:08 Chapter 2
+ *
+ * YouTube auto-detects this format and turns it into clickable chapter
+ * markers ONLY when:
+ *   - the first line starts at 0:00
+ *   - timestamps are non-decreasing
+ *   - there are at least 3 of them
+ *
+ * We force the first line to 0:00 (overriding the helper's first start
+ * if it was nonzero), and we skip output entirely when fewer than 3
+ * chapters are present so an under-3 list doesn't render as broken.
+ */
+export function formatChapterTimestamps(chapters: Chapter[]): string {
+  if (!chapters || chapters.length < 3) return ''
+  const lines: string[] = []
+  for (let i = 0; i < chapters.length; i++) {
+    const ch = chapters[i]!
+    const start = i === 0 ? 0 : Math.max(0, Math.floor(ch.start_sec))
+    lines.push(`${formatTimestamp(start)} ${ch.title || `Chapter ${i + 1}`}`)
+  }
+  return lines.join('\n')
+}
+
+/** Format `seconds` as `M:SS` (under 1 hour) or `H:MM:SS`. YouTube
+ *  accepts both; the H:MM:SS form kicks in past 60 minutes. */
+function formatTimestamp(secs: number): string {
+  const s = Math.max(0, Math.floor(secs))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+  }
+  return `${m}:${String(sec).padStart(2, '0')}`
+}

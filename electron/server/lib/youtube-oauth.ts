@@ -30,12 +30,31 @@ const GOOGLE_REVOKE_URL = 'https://oauth2.googleapis.com/revoke'
 const GOOGLE_CHANNELS_URL = 'https://www.googleapis.com/youtube/v3/channels'
 
 // `youtube.upload` is the bare minimum for videos.insert; `youtube` (full)
-// is needed so Reconcile (Phase 6) can list channel uploads. We ask for
-// both up front — YouTube merges consent so the user sees one prompt.
+// is needed so Reconcile (Phase 6) can list channel uploads. `yt-analytics
+// .readonly` powers the Analytics tab + the "what worked" feedback into
+// the Ideas + Metadata generators. We ask for all three up front — YouTube
+// merges consent so the user sees one prompt.
+//
+// The exported `ANALYTICS_SCOPE` lets routes detect tokens issued by an
+// older build that didn't request analytics access; those accounts need
+// a re-auth pass to add the scope.
+export const ANALYTICS_SCOPE = 'https://www.googleapis.com/auth/yt-analytics.readonly'
 const SCOPES = [
   'https://www.googleapis.com/auth/youtube.upload',
   'https://www.googleapis.com/auth/youtube',
+  ANALYTICS_SCOPE,
 ]
+
+/**
+ * True iff the stored token bundle was minted with the analytics scope.
+ * Returns false for legacy bundles whose `scope` string predates the
+ * 2026-05-02 expansion. Routes consuming analytics data should gate on
+ * this and prompt the user to re-authorize when false.
+ */
+export function tokenHasAnalyticsScope(scope: string | undefined | null): boolean {
+  if (!scope) return false
+  return scope.split(/\s+/).includes(ANALYTICS_SCOPE)
+}
 
 export interface OAuthTokenBundle {
   access_token: string

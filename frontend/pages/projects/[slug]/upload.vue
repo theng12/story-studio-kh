@@ -1531,6 +1531,207 @@
       </template>
     </div>
 
+    <!-- ── Analytics tab ────────────────────────────────────────────── -->
+    <div v-else-if="activeTab === 'analytics'" class="card mt-2">
+      <div class="card-header">
+        <h3>Analytics</h3>
+        <div class="flex gap-2 items-center">
+          <label class="text-muted" style="font-size: 12px">From</label>
+          <input v-model="analyticsStart" type="date" class="input input-sm" />
+          <label class="text-muted" style="font-size: 12px">to</label>
+          <input v-model="analyticsEnd" type="date" class="input input-sm" />
+          <button class="btn btn-sm btn-secondary" :disabled="analyticsLoading" @click="loadAnalytics(false)">
+            {{ analyticsLoading ? 'Loading…' : 'Apply' }}
+          </button>
+          <button class="btn btn-sm btn-secondary" :disabled="analyticsLoading" title="Skip the 6h cache and pull fresh numbers from YouTube." @click="loadAnalytics(true)">
+            ↻ Refresh
+          </button>
+        </div>
+      </div>
+      <p class="text-muted mt-1" style="font-size: 12px">
+        Per-episode performance pulled from YouTube Analytics. Cached for 6h — Refresh forces a new pull.
+        Top performers (by views) feed the "what worked" panel on the Ideas + Metadata pages.
+      </p>
+
+      <!-- Re-auth banner for accounts connected before the analytics scope shipped -->
+      <div v-if="analyticsReauthRequired" class="reauth-banner mt-2" role="status">
+        <span class="reauth-icon" aria-hidden="true">⚠</span>
+        <span>
+          <strong>Analytics access not granted.</strong>
+          This YouTube account was connected before we requested the analytics permission.
+          Re-connect to grant it.
+        </span>
+        <button class="btn btn-sm btn-primary" @click="goToAccountsForReauth">Reconnect on Accounts tab</button>
+      </div>
+
+      <div v-if="analyticsError && !analyticsReauthRequired" class="error-card mt-2">
+        <strong>Couldn't load analytics.</strong>
+        <p>{{ analyticsError }}</p>
+        <button class="btn btn-sm btn-secondary" @click="loadAnalytics(true)">Retry</button>
+      </div>
+
+      <div v-if="analyticsResult?.totals" class="totals-strip mt-2">
+        <div class="totals-card">
+          <div class="totals-label">Views</div>
+          <div class="totals-value">{{ formatNumber(analyticsResult.totals.views) }}</div>
+        </div>
+        <div class="totals-card">
+          <div class="totals-label">Watch time</div>
+          <div class="totals-value">{{ formatMinutes(analyticsResult.totals.watch_minutes) }}</div>
+        </div>
+        <div class="totals-card">
+          <div class="totals-label">Avg retention</div>
+          <div class="totals-value">{{ analyticsResult.totals.avg_view_percentage.toFixed(1) }}%</div>
+        </div>
+        <div class="totals-card">
+          <div class="totals-label">Episodes</div>
+          <div class="totals-value">{{ analyticsResult.rows.length }}</div>
+        </div>
+      </div>
+
+      <table v-if="analyticsResult?.rows?.length" class="analytics-table mt-2">
+        <thead>
+          <tr>
+            <th @click="setAnalyticsSort('title')" :class="{ sortable: true, sorted: analyticsSort === 'title' }">Episode</th>
+            <th @click="setAnalyticsSort('views')" :class="{ sortable: true, sorted: analyticsSort === 'views' }" class="num">Views</th>
+            <th @click="setAnalyticsSort('watch_minutes')" :class="{ sortable: true, sorted: analyticsSort === 'watch_minutes' }" class="num">Watch (min)</th>
+            <th @click="setAnalyticsSort('avg_view_percentage')" :class="{ sortable: true, sorted: analyticsSort === 'avg_view_percentage' }" class="num" title="Average percentage of the video watched">Retention</th>
+            <th @click="setAnalyticsSort('avg_view_seconds')" :class="{ sortable: true, sorted: analyticsSort === 'avg_view_seconds' }" class="num">Avg view</th>
+            <th @click="setAnalyticsSort('ctr_percentage')" :class="{ sortable: true, sorted: analyticsSort === 'ctr_percentage' }" class="num" title="Card click rate (closest YouTube Analytics proxy for thumbnail performance)">CTR</th>
+            <th @click="setAnalyticsSort('likes')" :class="{ sortable: true, sorted: analyticsSort === 'likes' }" class="num">Likes</th>
+            <th @click="setAnalyticsSort('published_at')" :class="{ sortable: true, sorted: analyticsSort === 'published_at' }">Published</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in sortedAnalyticsRows" :key="row.video_id">
+            <td>
+              <a :href="`https://youtube.com/watch?v=${row.video_id}`" target="_blank" rel="noopener">
+                {{ row.title || row.video_id }}
+              </a>
+            </td>
+            <td class="num">{{ formatNumber(row.views) }}</td>
+            <td class="num">{{ formatNumber(Math.round(row.watch_minutes)) }}</td>
+            <td class="num">{{ row.avg_view_percentage.toFixed(1) }}%</td>
+            <td class="num">{{ formatDuration(row.avg_view_seconds) }}</td>
+            <td class="num">{{ row.ctr_percentage != null ? row.ctr_percentage.toFixed(2) + '%' : '—' }}</td>
+            <td class="num">{{ formatNumber(row.likes) }}</td>
+            <td>{{ row.published_at ? row.published_at.slice(0, 10) : '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div v-else-if="!analyticsLoading && !analyticsError && !analyticsReauthRequired" class="empty-state mt-2">
+        <p>No analytics data yet. Click Apply to fetch.</p>
+      </div>
+
+      <p v-if="analyticsResult?.fetched_at" class="text-muted mt-2" style="font-size: 11px">
+        Fetched {{ formatRelativeTime(analyticsResult.fetched_at) }}.
+        Date range: {{ analyticsResult.start_date }} to {{ analyticsResult.end_date }}.
+      </p>
+    </div>
+
+    <!-- ── Comments tab ─────────────────────────────────────────────── -->
+    <div v-else-if="activeTab === 'comments'" class="card mt-2">
+      <div class="card-header">
+        <h3>Comments</h3>
+        <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
+          <select v-model="commentsVideoSelection" class="input input-sm" style="min-width: 280px;" @change="onCommentsVideoChange">
+            <option value="">— Pick an uploaded episode —</option>
+            <option v-for="item in commentsVideoOptions" :key="item.video_id" :value="item.video_id">
+              {{ item.label }}
+            </option>
+            <option value="__other__">Other video (paste URL)…</option>
+          </select>
+          <input
+            v-if="commentsVideoSelection === '__other__'"
+            v-model="commentsVideoInput"
+            class="input input-sm"
+            type="text"
+            placeholder="Paste YouTube video URL or ID"
+            style="min-width: 280px"
+            @keydown.enter="loadComments(true)"
+          />
+          <button class="btn btn-sm btn-primary" :disabled="commentsLoading || !commentsResolvedVideoId" @click="loadComments(true)">
+            {{ commentsLoading ? 'Loading…' : 'Load comments' }}
+          </button>
+        </div>
+      </div>
+      <p class="text-muted mt-1" style="font-size: 12px">
+        Top-level comments on a single video, newest first. AI-drafted replies use the brand's narrator persona + the same language the viewer wrote in.
+        Posting a reply costs 50 YouTube quota units.
+      </p>
+
+      <div v-if="commentsError" class="error-card mt-2">
+        <strong>Couldn't load comments.</strong>
+        <p>{{ commentsError }}</p>
+      </div>
+
+      <div v-if="commentsResult && !commentsResult.threads.length && !commentsLoading" class="empty-state mt-2">
+        <p>No top-level comments on this video yet.</p>
+      </div>
+
+      <ul v-if="commentsResult?.threads?.length" class="thread-list mt-2">
+        <li v-for="thread in commentsResult.threads" :key="thread.id" class="thread">
+          <header class="thread-head">
+            <img v-if="thread.top_comment.author_avatar" :src="thread.top_comment.author_avatar" alt="" class="thread-avatar" />
+            <div class="thread-meta">
+              <strong class="thread-author">{{ thread.top_comment.author }}</strong>
+              <span class="text-muted thread-stamp">{{ formatRelativeTime(thread.top_comment.published_at) }} · {{ thread.top_comment.like_count }} like{{ thread.top_comment.like_count === 1 ? '' : 's' }}</span>
+            </div>
+          </header>
+          <p class="thread-text">{{ thread.top_comment.text }}</p>
+
+          <ul v-if="thread.replies.length" class="thread-replies">
+            <li v-for="reply in thread.replies" :key="reply.id" class="thread-reply">
+              <strong>{{ reply.author }}</strong>
+              <span class="text-muted thread-stamp">{{ formatRelativeTime(reply.published_at) }}</span>
+              <span class="reply-text">{{ reply.text }}</span>
+            </li>
+          </ul>
+          <p v-if="thread.reply_count > thread.replies.length" class="text-muted thread-more">
+            +{{ thread.reply_count - thread.replies.length }} more reply(s) on YouTube
+          </p>
+
+          <!-- Reply composer -->
+          <div v-if="thread.can_reply" class="reply-composer">
+            <textarea
+              v-model="replyDrafts[thread.id]"
+              class="input"
+              rows="2"
+              placeholder="Write a reply, or click Draft AI replies for options"
+            />
+            <div class="reply-actions">
+              <button class="btn btn-sm btn-secondary" :disabled="draftingThreadId === thread.id" @click="draftReplies(thread)">
+                {{ draftingThreadId === thread.id ? 'Drafting…' : '✨ Draft AI replies' }}
+              </button>
+              <button class="btn btn-sm btn-primary" :disabled="postingThreadId === thread.id || !replyDrafts[thread.id]?.trim()" @click="postReply(thread)">
+                {{ postingThreadId === thread.id ? 'Posting…' : 'Post reply' }}
+              </button>
+            </div>
+
+            <div v-if="draftCandidates[thread.id]?.length" class="draft-candidates">
+              <p class="text-muted draft-hint">Click a draft to put it in the reply box:</p>
+              <button
+                v-for="(draft, i) in draftCandidates[thread.id]"
+                :key="i"
+                type="button"
+                class="draft-pill"
+                :title="draft"
+                @click="replyDrafts[thread.id] = draft"
+              >
+                {{ draft }}
+              </button>
+            </div>
+          </div>
+          <p v-else class="text-muted">Replies are disabled on this thread.</p>
+        </li>
+      </ul>
+
+      <p v-if="commentsResult?.has_more" class="text-muted mt-2" style="font-size: 11px">
+        Showing the first 50 threads. Older comments aren't paginated yet — open the video on YouTube to see the rest.
+      </p>
+    </div>
+
     <!-- Placeholder for not-yet-built tabs so the navigation reads honestly -->
     <div v-else class="card mt-2 tab-placeholder">
       <h3>{{ tabs.find(t => t.id === activeTab)?.label }}</h3>
@@ -1743,7 +1944,7 @@ const {
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 
-type TabId = 'accounts' | 'queue' | 'missing' | 'plans' | 'playlists' | 'reconcile' | 'orphans'
+type TabId = 'accounts' | 'queue' | 'missing' | 'plans' | 'playlists' | 'reconcile' | 'orphans' | 'analytics' | 'comments'
 const tabs: Array<{ id: TabId; label: string; phase: number; disabled: boolean; hint?: string }> = [
   { id: 'accounts', label: 'Accounts', phase: 1, disabled: false, hint: 'Connect the YouTube channel for this project (single account).' },
   { id: 'queue', label: 'Upload Queue', phase: 2, disabled: false, hint: 'Per-episode queue with per-row upload. Re-running on an uploaded item updates metadata only.' },
@@ -1752,6 +1953,8 @@ const tabs: Array<{ id: TabId; label: string; phase: number; disabled: boolean; 
   { id: 'playlists', label: 'Playlists', phase: 3, disabled: false, hint: 'Manage the YouTube playlists on your channel. Create new ones and pick a default that new uploads auto-add to.' },
   { id: 'reconcile', label: 'Reconcile', phase: 6, disabled: false, hint: 'Fetch channel videos, fuzzy-match to local episodes, confirm links. One-time per video \u2014 saved to sidecar.' },
   { id: 'orphans', label: 'Unlinked Uploads', phase: 7, disabled: false, hint: 'Channel videos that don\u2019t match any local episode. Adopt them one at a time or in bulk (continuation codes or full-system renumber).' },
+  { id: 'analytics', label: 'Analytics', phase: 7, disabled: false, hint: 'Per-episode YouTube performance \u2014 views, watch time, retention, CTR. Feeds the "what worked" inspiration into the Ideas + Metadata generators.' },
+  { id: 'comments', label: 'Comments', phase: 7, disabled: false, hint: 'Read viewer comments on uploaded videos and post replies. AI drafts use the brand persona + the same language the viewer wrote in.' },
 ]
 const activeTab = ref<TabId>('accounts')
 
@@ -1846,7 +2049,324 @@ watch(activeTab, (t) => {
     missingLoading.value = true
     loadMissingVideoEpisodes().finally(() => { missingLoading.value = false })
   }
+  if (t === 'analytics') {
+    // Auto-load the first time the user opens the tab. Subsequent visits
+    // hit the 6h cache server-side, so the loadAnalytics() call is cheap.
+    if (!analyticsResult.value && !analyticsLoading.value) loadAnalytics(false)
+  }
 })
+
+// ── Analytics tab state ───────────────────────────────────────────────
+// Date range defaults: 90 days ago → today. The user can narrow / widen
+// from the date inputs, then Apply. Refresh skips the 6h server cache.
+
+interface AnalyticsRow {
+  video_id: string
+  title: string
+  published_at: string
+  views: number
+  watch_minutes: number
+  avg_view_seconds: number
+  avg_view_percentage: number
+  ctr_percentage?: number
+  impressions?: number
+  likes: number
+  comments: number
+  shares: number
+}
+interface AnalyticsResultShape {
+  fetched_at: string
+  start_date: string
+  end_date: string
+  rows: AnalyticsRow[]
+  totals?: { views: number; watch_minutes: number; avg_view_percentage: number }
+}
+
+function isoNDaysAgo(n: number): string {
+  const d = new Date()
+  d.setUTCDate(d.getUTCDate() - n)
+  return d.toISOString().slice(0, 10)
+}
+const analyticsStart = ref<string>(isoNDaysAgo(90))
+const analyticsEnd = ref<string>(isoNDaysAgo(0))
+const analyticsLoading = ref(false)
+const analyticsError = ref<string | null>(null)
+const analyticsReauthRequired = ref(false)
+const analyticsResult = ref<AnalyticsResultShape | null>(null)
+type AnalyticsSortKey = 'title' | 'views' | 'watch_minutes' | 'avg_view_percentage' | 'avg_view_seconds' | 'ctr_percentage' | 'likes' | 'published_at'
+const analyticsSort = ref<AnalyticsSortKey>('views')
+const analyticsSortDir = ref<'asc' | 'desc'>('desc')
+
+function setAnalyticsSort(key: AnalyticsSortKey) {
+  if (analyticsSort.value === key) {
+    analyticsSortDir.value = analyticsSortDir.value === 'desc' ? 'asc' : 'desc'
+  } else {
+    analyticsSort.value = key
+    // Numeric columns default to desc (biggest first); text/date default asc.
+    analyticsSortDir.value = (key === 'title' || key === 'published_at') ? 'asc' : 'desc'
+  }
+}
+
+const sortedAnalyticsRows = computed<AnalyticsRow[]>(() => {
+  const rows = analyticsResult.value?.rows ? [...analyticsResult.value.rows] : []
+  const key = analyticsSort.value
+  const dir = analyticsSortDir.value === 'asc' ? 1 : -1
+  rows.sort((a, b) => {
+    const va = (a as any)[key]
+    const vb = (b as any)[key]
+    // Undefined sorts to the bottom regardless of direction.
+    if (va == null && vb == null) return 0
+    if (va == null) return 1
+    if (vb == null) return -1
+    if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir
+    return String(va).localeCompare(String(vb)) * dir
+  })
+  return rows
+})
+
+async function loadAnalytics(force: boolean) {
+  analyticsLoading.value = true
+  analyticsError.value = null
+  analyticsReauthRequired.value = false
+  try {
+    const params = new URLSearchParams({
+      start_date: analyticsStart.value,
+      end_date: analyticsEnd.value,
+      max_results: '200',
+    })
+    if (force) params.set('force', '1')
+    const { get: apiGet } = useApi()
+    const r = await apiGet<AnalyticsResultShape>(`/projects/${slug.value}/upload/analytics?${params}`)
+    analyticsResult.value = r
+  } catch (e: any) {
+    // Nuxt's $fetch surfaces server errors with `statusCode` on the
+    // FetchError, and the parsed body on `e.data`. The 403 reauth case
+    // bubbles `reauth_required: true` so the banner can fire instead of
+    // a generic error card.
+    const code = e?.statusCode || e?.response?.status || e?.status
+    const data = e?.data || e?.response?._data
+    if (code === 403 && data?.reauth_required) {
+      analyticsReauthRequired.value = true
+      analyticsError.value = data.detail || 'Reauthorize to grant analytics access.'
+    } else {
+      analyticsError.value = data?.detail || e?.message || 'Failed to load analytics'
+    }
+  } finally {
+    analyticsLoading.value = false
+  }
+}
+
+function goToAccountsForReauth() {
+  activeTab.value = 'accounts'
+}
+
+function formatNumber(n: number): string {
+  if (!n) return '0'
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+  if (n >= 10_000) return (n / 1_000).toFixed(0) + 'K'
+  return n.toLocaleString()
+}
+function formatMinutes(m: number): string {
+  if (m < 60) return `${Math.round(m)}m`
+  const h = Math.floor(m / 60)
+  const rem = Math.round(m - h * 60)
+  return `${h}h ${rem}m`
+}
+function formatDuration(secs: number): string {
+  if (!secs) return '0:00'
+  const m = Math.floor(secs / 60)
+  const s = Math.floor(secs - m * 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+function formatRelativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  if (ms < 60_000) return 'just now'
+  if (ms < 3_600_000) return Math.floor(ms / 60_000) + 'm ago'
+  if (ms < 86_400_000) return Math.floor(ms / 3_600_000) + 'h ago'
+  return Math.floor(ms / 86_400_000) + 'd ago'
+}
+
+// ── Comments tab state ────────────────────────────────────────────────
+// Free-form video input for v1 — paste a URL or bare video id. Deeper
+// integration (dropdown sourced from sidecars) lands in a later pass.
+
+interface CommentReplyShape {
+  id: string
+  author: string
+  author_avatar?: string
+  text: string
+  like_count: number
+  published_at: string
+  updated_at: string
+}
+interface CommentThreadShape {
+  id: string
+  video_id: string
+  top_comment: CommentReplyShape
+  reply_count: number
+  replies: CommentReplyShape[]
+  can_reply: boolean
+  is_public: boolean
+}
+interface CommentsResultShape {
+  fetched_at: string
+  video_id: string
+  threads: CommentThreadShape[]
+  has_more: boolean
+}
+
+const commentsVideoInput = ref<string>('')
+const commentsVideoSelection = ref<string>('')
+const commentsLoading = ref(false)
+
+/** Episodes with a sidecar.video_id, eligible for the picker. Source
+ *  comes from queueItems which the Queue tab already loads — clicking
+ *  Comments without ever touching Queue triggers a one-shot loadQueue. */
+const commentsVideoOptions = computed<Array<{ video_id: string; label: string }>>(() => {
+  return (queueItems.value || [])
+    .filter((i: any) => i?.uploaded && typeof i.video_id === 'string' && i.video_id.length === 11)
+    .map((i: any) => {
+      const code = i.episode_code || ''
+      const title = (i.title || '').trim()
+      const display = title.length > 60 ? title.slice(0, 57) + '…' : title
+      return {
+        video_id: i.video_id,
+        label: `${code}${code && display ? ' — ' : ''}${display || `(video ${i.video_id})`}`,
+      }
+    })
+    // Most-recent uploads first — queueItems is sorted by code, but
+    // newest episodes typically have the highest codes, so reverse.
+    .reverse()
+})
+
+/** The video id we'll actually query, factoring the selector + the
+ *  free-form override input. */
+const commentsResolvedVideoId = computed<string>(() => {
+  if (commentsVideoSelection.value === '__other__') {
+    return parseVideoIdInput(commentsVideoInput.value)
+  }
+  return commentsVideoSelection.value
+})
+
+function onCommentsVideoChange() {
+  // Auto-load when a real episode is picked (skip auto-load for "other"
+  // — user still needs to paste).
+  if (commentsVideoSelection.value && commentsVideoSelection.value !== '__other__') {
+    loadComments(true)
+  }
+}
+
+// Lazy-load the queue the first time the user opens the Comments tab so
+// the dropdown isn't empty if they haven't visited the Queue tab yet.
+watch(activeTab, async (t) => {
+  if (t === 'comments' && !queueItems.value.length) {
+    try { await loadQueue('youtube') } catch { /* non-fatal */ }
+  }
+})
+const commentsError = ref<string | null>(null)
+const commentsResult = ref<CommentsResultShape | null>(null)
+/** Map of threadId → in-progress reply text. */
+const replyDrafts = reactive<Record<string, string>>({})
+/** Map of threadId → AI draft candidates (1-3 strings). */
+const draftCandidates = reactive<Record<string, string[]>>({})
+const draftingThreadId = ref<string | null>(null)
+const postingThreadId = ref<string | null>(null)
+
+/** Extract a YouTube video id from a pasted URL or bare id. Returns
+ *  the input unchanged when no recognizable URL — let the API surface
+ *  "video not found" for bad ids rather than reject up front. */
+function parseVideoIdInput(s: string): string {
+  const trimmed = s.trim()
+  if (!trimmed) return ''
+  // youtu.be/<id>
+  let m = trimmed.match(/youtu\.be\/([A-Za-z0-9_-]{11})/)
+  if (m) return m[1]!
+  // youtube.com/watch?v=<id>
+  m = trimmed.match(/[?&]v=([A-Za-z0-9_-]{11})/)
+  if (m) return m[1]!
+  // youtube.com/shorts/<id>
+  m = trimmed.match(/\/shorts\/([A-Za-z0-9_-]{11})/)
+  if (m) return m[1]!
+  return trimmed
+}
+
+async function loadComments(reset: boolean) {
+  const videoId = commentsResolvedVideoId.value
+  if (!videoId) return
+  commentsLoading.value = true
+  commentsError.value = null
+  if (reset) commentsResult.value = null
+  try {
+    const { get: apiGet } = useApi()
+    const r = await apiGet<CommentsResultShape>(`/projects/${slug.value}/upload/comments?video_id=${encodeURIComponent(videoId)}&max_results=50`)
+    commentsResult.value = r
+    // Reset per-thread drafts on a fresh load so old text doesn't linger.
+    Object.keys(replyDrafts).forEach(k => delete replyDrafts[k])
+    Object.keys(draftCandidates).forEach(k => delete draftCandidates[k])
+  } catch (e: any) {
+    const data = e?.data || e?.response?._data
+    commentsError.value = data?.detail || e?.message || 'Failed to load comments'
+  } finally {
+    commentsLoading.value = false
+  }
+}
+
+async function draftReplies(thread: CommentThreadShape) {
+  draftingThreadId.value = thread.id
+  draftCandidates[thread.id] = []
+  try {
+    const { post: apiPost } = useApi()
+    // Reuse whichever text model the metadata generator is on. The
+    // user's most-recent metadata model selection is on safe-config;
+    // fall back to a known-good Anthropic default.
+    const cfg = await useApi().get<any>(`/projects/${slug.value}/settings/config`).catch(() => null)
+    const model = cfg?.metadata_last_model || cfg?.last_text_model || 'claude-sonnet-4-6'
+    // Best-effort: lookup the queue item by video_id to feed the LLM
+    // a real video title for context. Falls back to undefined if the
+    // user is querying a video outside their queue.
+    const queueItem = (queueItems.value || []).find((i: any) => i.video_id === commentsResolvedVideoId.value)
+    const r = await apiPost<{ drafts: string[] }>(`/projects/${slug.value}/upload/comments/draft`, {
+      comment_id: thread.top_comment.id,
+      comment_text: thread.top_comment.text,
+      comment_author: thread.top_comment.author,
+      video_title: queueItem?.title,
+      count: 3,
+      model,
+    })
+    draftCandidates[thread.id] = r.drafts || []
+    if (!replyDrafts[thread.id] && draftCandidates[thread.id]!.length) {
+      replyDrafts[thread.id] = draftCandidates[thread.id]![0]!
+    }
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to draft replies')
+  } finally {
+    draftingThreadId.value = null
+  }
+}
+
+async function postReply(thread: CommentThreadShape) {
+  const text = (replyDrafts[thread.id] || '').trim()
+  if (!text) return
+  postingThreadId.value = thread.id
+  try {
+    const { post: apiPost } = useApi()
+    const r = await apiPost<{ ok: boolean; reply: CommentReplyShape }>(`/projects/${slug.value}/upload/comments/reply`, {
+      parent_comment_id: thread.top_comment.id,
+      text,
+    })
+    // Optimistic insert into the local thread so the user sees their
+    // reply without a refetch.
+    if (r?.reply) thread.replies.push(r.reply)
+    thread.reply_count += 1
+    delete replyDrafts[thread.id]
+    delete draftCandidates[thread.id]
+    success('Reply posted')
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to post reply')
+  } finally {
+    postingThreadId.value = null
+  }
+}
 
 // ── Per-row kebab menu ───────────────────────────────────────────────
 // Same Teleport-to-body + fixed-positioning pattern as the pipeline page,
@@ -4086,6 +4606,190 @@ td.col-actions > a.btn {
   font-size: 12px;
   color: var(--text-secondary);
   margin: 0 6px;
+}
+
+/* ── Analytics tab ────────────────────────────────────────────────── */
+.totals-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.totals-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+}
+.totals-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.totals-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 2px;
+}
+.analytics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.analytics-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.analytics-table th.num { text-align: right; }
+.analytics-table th.sortable { cursor: pointer; user-select: none; }
+.analytics-table th.sortable:hover { color: var(--text-primary); }
+.analytics-table th.sorted { color: var(--accent); }
+.analytics-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.analytics-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.analytics-table td a {
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.analytics-table td a:hover { color: var(--accent); text-decoration: underline; }
+.input-sm {
+  padding: 4px 8px;
+  font-size: 12px;
+  height: 28px;
+}
+.reauth-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.reauth-icon { font-size: 18px; }
+
+/* ── Comments tab ─────────────────────────────────────────────────── */
+.thread-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.thread {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+}
+.thread-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.thread-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  flex-shrink: 0;
+}
+.thread-meta {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}
+.thread-author { color: var(--text-primary); }
+.thread-stamp { font-size: 11px; }
+.thread-text {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.thread-replies {
+  list-style: none;
+  padding: 8px 0 0 32px;
+  margin: 8px 0 0;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.thread-reply {
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.thread-reply strong { color: var(--text-primary); }
+.thread-reply .reply-text {
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.thread-more {
+  margin: 6px 0 0;
+  padding-left: 32px;
+  font-size: 11px;
+}
+.reply-composer {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.reply-composer textarea { resize: vertical; }
+.reply-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.draft-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--bg-primary);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
+.draft-hint { margin: 0; font-size: 11px; }
+.draft-pill {
+  text-align: left;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: normal;
+  line-height: 1.4;
+}
+.draft-pill:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
 }
 
 .queue-table { width: 100%; border-collapse: collapse; font-size: 13px; }

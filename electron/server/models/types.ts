@@ -94,6 +94,13 @@ export interface ProjectMeta {
    */
   format_id?: string
   format_overrides?: DeepPartial<Format>
+
+  /**
+   * Brand primitive — channel-level identity layer above Format. Selects
+   * a brand profile from ${PROJECTS_ROOT}/.brands/{id}.json. Unset = no
+   * brand, generators fall back to today's literal defaults.
+   */
+  brand_id?: string
 }
 
 // ── Format primitive (Phase 1 of format/character/pattern system) ──────────
@@ -218,6 +225,138 @@ export interface Format {
    * guidelines without polluting the project's free-form standards file.
    */
   productionStandardsAddendum?: string
+}
+
+// ── Brand primitive (channel-level identity layer) ─────────────────────────
+//
+// A Brand sits ABOVE Format in the resolution chain. Format is "what shape
+// of content" (sleep-story, adventure, true-crime). Brand is "whose channel
+// it is" — channel name, narrator persona, default voice, logo, brand-style
+// keywords for image prompts. Multiple projects can share one Brand
+// (different episodes, same channel). Future steps (#5 pronunciation
+// lexicon, #1 analytics persona, #3 comment-reply tone) hang off this.
+//
+// Resolution chain (extends today's Format chain):
+//   base format → brand.format_overrides → project.format_overrides
+//
+// Brand also exposes direct fields the generators read at specific call
+// sites (channel name, voice fallback, banned words). Those bypass the
+// merge — they're consumed where they apply.
+//
+// User-defined brands live at ${PROJECTS_ROOT}/.brands/{id}.json. No
+// built-in brands ship — brands are inherently per-channel.
+
+export interface BrandChannel {
+  /** Channel name. Replaces any literal channel-name reference in
+   *  metadata templates via {channel_name} placeholder. */
+  name?: string
+  youtube_url?: string
+  /** Channel handle, e.g. "@channelname". */
+  handle?: string
+}
+
+export interface BrandColorPalette {
+  primary?: string
+  accent?: string
+  background?: string
+}
+
+export interface BrandVisual {
+  /** Absolute path to the channel logo on disk. Defaults the
+   *  video-assembly logo when the project hasn't overridden. */
+  logo_path?: string
+  color_palette?: BrandColorPalette
+  /** e.g. "Inter" — feeds video-assembly text styling. */
+  font_family?: string
+}
+
+export interface BrandVoiceSettings {
+  stability?: number
+  similarity?: number
+  speed?: number
+}
+
+export interface BrandNarration {
+  /** 1-3 sentences. Prepended to the LLM system prompt for ideas /
+   *  scripts / metadata when present. */
+  persona?: string
+  /** Default ElevenLabs (or other TTS provider) voice id. Used when
+   *  the project hasn't picked a preset for the episode. */
+  default_voice_id?: string
+  default_voice_settings?: BrandVoiceSettings
+}
+
+export interface BrandImagePrompts {
+  /** Tokens prepended to every image prompt, e.g. ["cinematic", "moody"]. */
+  style_keywords?: string[]
+  /** Long-form style reference appended as a "Style reference:" block. */
+  style_sheet?: string
+  negative_prompts?: string[]
+}
+
+export interface BrandMetadata {
+  /** Boilerplate ending appended to YouTube descriptions. */
+  description_outro_template?: string
+  /** Format string for music/asset credits, e.g.
+   *  "Music: {track_name} by {artist} — {license}". */
+  attribution_template?: string
+  /** Post-generation flag list. Matches surface as warnings (don't block). */
+  banned_words?: string[]
+}
+
+/**
+ * One entry in a brand's pronunciation lexicon. Applied as a pre-TTS
+ * substitution pass on the narration text so a single mispronounced
+ * proper noun doesn't force a full re-render.
+ *
+ * Match semantics (see lib/pronunciation.ts):
+ *   - Word-boundary match for ASCII-only terms (so "Sok" inside
+ *     "Sokhom" is left alone).
+ *   - Substring match for terms containing non-ASCII characters (\b
+ *     is ASCII-only and would skip valid Khmer / accented matches).
+ *   - Case-insensitive by default. Set `case_sensitive: true` for
+ *     terms where casing matters (rare).
+ *
+ * Replacement priority on TTS time: SSML (if provider supports + ssml
+ * field is set) → alt_spelling → ipa-as-alt-spelling. Today only
+ * alt_spelling is wired; ssml + ipa are stored for forward-compat.
+ */
+export interface BrandPronunciation {
+  /** The word as it appears in the script (e.g. "Sokhom"). Required. */
+  term: string
+  /** TTS-friendly respelling (e.g. "Soh-Khohm"). Primary substitution. */
+  alt_spelling?: string
+  /** IPA notation (e.g. "/sɔːkˈhɔːm/"). Stored, not yet applied. */
+  ipa?: string
+  /** Full SSML override (e.g. <phoneme alphabet="ipa" ph="...">…</phoneme>).
+   *  Stored, not yet applied — wiring deferred until SSML support lands
+   *  in our TTS provider clients. */
+  ssml?: string
+  /** Default false. Match case-insensitively unless this is true. */
+  case_sensitive?: boolean
+}
+
+export interface Brand {
+  /** Stable slug, unique within ${PROJECTS_ROOT}/.brands/. */
+  id: string
+  /** Display name. */
+  name: string
+  schemaVersion: 1
+
+  channel?: BrandChannel
+  visual?: BrandVisual
+  narration?: BrandNarration
+  imagePrompts?: BrandImagePrompts
+  metadata?: BrandMetadata
+
+  /** Pre-TTS substitution table. See BrandPronunciation. */
+  pronunciation_lexicon?: BrandPronunciation[]
+
+  /** Optional: this brand's preferred Format for new projects. */
+  format_default_id?: string
+
+  /** Format overrides applied between base format and project.format_overrides. */
+  format_overrides?: DeepPartial<Format>
 }
 
 // ── Pattern primitive (Phase 4b of format/character/pattern system) ────────
@@ -422,6 +561,7 @@ export interface UpdateProjectRequest {
   youtube_channel_url?: string
   format_id?: string
   format_overrides?: DeepPartial<Format>
+  brand_id?: string
 }
 
 /**
@@ -863,6 +1003,110 @@ export interface VideoBackgroundMusic {
   fade_in: number      // seconds
   fade_out: number     // seconds
   duck_narration: boolean  // lower music when narration plays
+}
+
+// ── YouTube Comments ───────────────────────────────────────────────────────
+//
+// Normalized shape for YouTube commentThreads — exposes the top-level
+// comment + a slice of its replies for the Comments inbox tab. The
+// reply assistant produces 1-3 LLM-drafted candidates that the user
+// can edit and post via the same client.
+
+export interface CommentReply {
+  /** YouTube comment id — needed when posting a reply (parentId). */
+  id: string
+  author: string
+  /** Avatar URL (small, square). May be empty for some authors. */
+  author_avatar?: string
+  /** Plain-text content. We deliberately use textOriginal (not textDisplay)
+   *  to avoid baking YouTube's HTML-escaped + auto-linked output back into
+   *  prompts and reply UIs. */
+  text: string
+  like_count: number
+  published_at: string
+  updated_at: string
+}
+
+export interface CommentThread {
+  /** YouTube commentThread id (different from the comment id). */
+  id: string
+  video_id: string
+  /** The top-level comment that started this thread. */
+  top_comment: CommentReply
+  /** Total reply count YouTube knows about; may exceed `replies.length`
+   *  when we capped pagination. */
+  reply_count: number
+  /** Most-recent N replies (capped at 5 in v1). */
+  replies: CommentReply[]
+  /** Whether the channel can post a reply on this thread. False on
+   *  threads where commenting is disabled or restricted. */
+  can_reply: boolean
+  /** False when the comment is held for review or marked spam. UI hides
+   *  these to avoid wasting a reply on a comment the public can't see. */
+  is_public: boolean
+}
+
+export interface CommentThreadsResult {
+  /** ISO-8601 timestamp the snapshot was fetched. */
+  fetched_at: string
+  video_id: string
+  threads: CommentThread[]
+  /** True when there are more threads beyond `threads.length`. v1 caps at
+   *  one page (100 threads) so this surfaces "open in YouTube for the rest". */
+  has_more: boolean
+}
+
+// ── YouTube Analytics ──────────────────────────────────────────────────────
+//
+// Per-episode performance metrics fetched from the YouTube Analytics API.
+// Surfaced on the Upload Center → Analytics tab and fed back into the Ideas
+// + Metadata generators as few-shot examples ("here's what worked").
+//
+// Stored cache key: ${userData}/analytics-cache/{slug}_{accountId}.json
+// (per-machine, not synced across iCloud — analytics pull from the API
+// freshly per machine).
+
+export interface EpisodeAnalytics {
+  /** YouTube video id (matches the upload sidecar). */
+  video_id: string
+  /** Title at the time of fetch (snapshot — channel renames don't propagate). */
+  title: string
+  /** ISO-8601 publish timestamp from YouTube. */
+  published_at: string
+  /** Total views in the requested date range. */
+  views: number
+  /** Total minutes watched in the requested date range. */
+  watch_minutes: number
+  /** Average view duration (seconds) — engagement quality signal. */
+  avg_view_seconds: number
+  /** Average percentage of the video watched (0-100) — retention signal. */
+  avg_view_percentage: number
+  /** Click-through rate from impressions (0-100). May be undefined when
+   *  YouTube hasn't computed it (very new videos / restricted accounts). */
+  ctr_percentage?: number
+  /** Total impressions in the date range. */
+  impressions?: number
+  likes: number
+  comments: number
+  shares: number
+}
+
+export interface AnalyticsResult {
+  /** ISO-8601 timestamp of when this snapshot was fetched from YouTube. */
+  fetched_at: string
+  /** Date range honoured by YouTube (inclusive). */
+  start_date: string
+  end_date: string
+  /** Per-video rows, sorted by views descending. */
+  rows: EpisodeAnalytics[]
+  /** Channel-level totals across the same date range, for the dashboard
+   *  header card. Optional — older cached results from before this field
+   *  shipped won't have it. */
+  totals?: {
+    views: number
+    watch_minutes: number
+    avg_view_percentage: number
+  }
 }
 
 export interface VideoLogoConfig {

@@ -167,6 +167,20 @@ router.get('/usage/pricing', (_req, res) => {
   res.json(getModelPricing())
 })
 
+/** Cross-session cost rollup, sourced from the on-disk JSONL history.
+ *  Powers the Cost dashboard. Date params are inclusive YYYY-MM-DD. */
+router.get('/usage/rollup', async (req, res) => {
+  try {
+    const { getUsageRollup } = await import('../services/usage-tracker.js')
+    const since = typeof req.query.since === 'string' ? req.query.since : undefined
+    const until = typeof req.query.until === 'string' ? req.query.until : undefined
+    const r = await getUsageRollup({ since, until })
+    res.json(r)
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to load usage rollup' })
+  }
+})
+
 // Dashboard stats
 router.get('/projects/:slug/dashboard-stats', async (req, res) => {
   const { slug } = req.params

@@ -7,6 +7,12 @@
       </div>
     </div>
 
+    <!-- Channel "what worked" inspiration. Auto-included server-side in
+         the LLM prompt; this card surfaces what's being injected so the
+         user can see the vibe reference. Hides silently when no analytics
+         data is available. -->
+    <TopPerformersInspiration :slug="slug" class="mt-3" />
+
     <!-- Generator -->
     <div class="generator-panel mt-3">
       <h3 class="generator-title">Generate New Ideas</h3>

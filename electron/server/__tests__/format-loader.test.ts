@@ -175,6 +175,91 @@ describe('format-loader', () => {
     assert.equal(fmt!.builtin, false)
   })
 
+  test('getEffectiveFormat: brand format_overrides apply between format and project', async () => {
+    // Set up a brand with format_overrides on broadKeywords + closingHint
+    const brandsDir = path.join(pm.PROJECTS_ROOT, '.brands')
+    await fs.mkdir(brandsDir, { recursive: true })
+    await fs.writeFile(path.join(brandsDir, 'demo.json'), JSON.stringify({
+      id: 'demo', name: 'Demo Brand', schemaVersion: 1,
+      format_overrides: {
+        script: { closingHint: 'BRAND closing.' },
+        metadata: { broadKeywords: ['brand-kw'] },
+      },
+    }))
+
+    // Drop brand-loader's cache so the new file is read fresh
+    const brandLoader = await import('../services/brand-loader.js')
+    brandLoader._clearBrandCaches()
+
+    // Project has only brand_id, no project-level overrides
+    const projDir = path.join(pm.PROJECTS_ROOT, 'brand-only-project')
+    await fs.mkdir(projDir, { recursive: true })
+    await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
+      name: 'Brand Only', slug: 'brand-only-project',
+      episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season',
+      folder_template: '{season_prefix} {season_num}/{code} - {title}/',
+      subfolder_names: {}, output_root: 'episodes', created_at: new Date().toISOString(),
+      format_id: 'sleep-story',
+      brand_id: 'demo',
+    }))
+
+    const fmt = await loader.getEffectiveFormat('brand-only-project')
+    assert.equal(fmt.script.closingHint, 'BRAND closing.', 'brand override should win over base format')
+    assert.deepEqual(fmt.metadata.broadKeywords, ['brand-kw'], 'brand keywords replace base')
+  })
+
+  test('getEffectiveFormat: project overrides win over brand', async () => {
+    // Same brand as previous test, but the project also has overrides
+    const brandsDir = path.join(pm.PROJECTS_ROOT, '.brands')
+    await fs.mkdir(brandsDir, { recursive: true })
+    await fs.writeFile(path.join(brandsDir, 'demo.json'), JSON.stringify({
+      id: 'demo', name: 'Demo Brand', schemaVersion: 1,
+      format_overrides: {
+        script: { closingHint: 'BRAND closing.' },
+        metadata: { broadKeywords: ['brand-kw'] },
+      },
+    }))
+    const brandLoader = await import('../services/brand-loader.js')
+    brandLoader._clearBrandCaches()
+
+    const projDir = path.join(pm.PROJECTS_ROOT, 'brand-and-project-override')
+    await fs.mkdir(projDir, { recursive: true })
+    await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
+      name: 'Both', slug: 'brand-and-project-override',
+      episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season',
+      folder_template: '{season_prefix} {season_num}/{code} - {title}/',
+      subfolder_names: {}, output_root: 'episodes', created_at: new Date().toISOString(),
+      format_id: 'sleep-story',
+      brand_id: 'demo',
+      format_overrides: {
+        script: { closingHint: 'PROJECT closing.' },
+        // metadata.broadKeywords intentionally NOT overridden — brand value should survive
+      },
+    }))
+
+    const fmt = await loader.getEffectiveFormat('brand-and-project-override')
+    assert.equal(fmt.script.closingHint, 'PROJECT closing.', 'project override wins over brand')
+    assert.deepEqual(fmt.metadata.broadKeywords, ['brand-kw'], 'brand keywords survive when project does not override')
+  })
+
+  test('getEffectiveFormat: dangling brand_id falls back gracefully', async () => {
+    const projDir = path.join(pm.PROJECTS_ROOT, 'dangling-brand')
+    await fs.mkdir(projDir, { recursive: true })
+    await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
+      name: 'Dangling', slug: 'dangling-brand',
+      episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season',
+      folder_template: '{season_prefix} {season_num}/{code} - {title}/',
+      subfolder_names: {}, output_root: 'episodes', created_at: new Date().toISOString(),
+      format_id: 'sleep-story',
+      brand_id: 'this-brand-does-not-exist',
+    }))
+
+    // Should not throw — generators must keep working with literal defaults
+    const fmt = await loader.getEffectiveFormat('dangling-brand')
+    assert.equal(fmt.id, 'sleep-story')
+    assert.ok(fmt.script.closingHint.length > 0, 'falls back to base format closing hint')
+  })
+
   test('fillPacingArcPlaceholders substitutes {last} and {lastButOne}', () => {
     const arc = [
       'Chapters 1-3: setup',

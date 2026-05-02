@@ -18,6 +18,11 @@
 
 import { z } from 'zod'
 
+// Re-export domain types the frontend needs for editor UIs. Wire schemas
+// validate at the HTTP boundary; frontends pull the inferred type for
+// reactive forms.
+export type { Brand } from '../models/types.js'
+
 // ── Projects ────────────────────────────────────────────────────────────────
 
 export const CreateProjectSchema = z.object({
@@ -61,8 +66,92 @@ export const UpdateProjectSchema = z.object({
   // controls the legal field set.
   format_id: z.string().max(80).optional(),
   format_overrides: z.any().optional(),
+  // Brand primitive — channel-level identity layer above Format. Empty
+  // string clears back to "no brand" (generator literal defaults).
+  brand_id: z.string().max(80).optional(),
 }).strict()
 export type UpdateProjectBody = z.infer<typeof UpdateProjectSchema>
+
+// ── Brand primitive ─────────────────────────────────────────────────────────
+//
+// Wire validation for /brands endpoints. The on-disk shape (Brand interface
+// in models/types.ts) is the source of truth — these schemas just gate the
+// HTTP boundary.
+
+const BrandColorPaletteSchema = z.object({
+  primary: z.string().max(40).optional(),
+  accent: z.string().max(40).optional(),
+  background: z.string().max(40).optional(),
+}).strict().optional()
+
+const BrandChannelSchema = z.object({
+  name: z.string().max(120).optional(),
+  youtube_url: z.string().max(500).optional(),
+  handle: z.string().max(80).optional(),
+}).strict().optional()
+
+const BrandVisualSchema = z.object({
+  logo_path: z.string().max(2000).optional(),
+  color_palette: BrandColorPaletteSchema,
+  font_family: z.string().max(120).optional(),
+}).strict().optional()
+
+const BrandVoiceSettingsSchema = z.object({
+  stability: z.number().min(0).max(1).optional(),
+  similarity: z.number().min(0).max(1).optional(),
+  speed: z.number().min(0.1).max(4).optional(),
+}).strict().optional()
+
+const BrandNarrationSchema = z.object({
+  persona: z.string().max(2000).optional(),
+  default_voice_id: z.string().max(120).optional(),
+  default_voice_settings: BrandVoiceSettingsSchema,
+}).strict().optional()
+
+const BrandImagePromptsSchema = z.object({
+  style_keywords: z.array(z.string().min(1).max(80)).max(40).optional(),
+  style_sheet: z.string().max(4000).optional(),
+  negative_prompts: z.array(z.string().min(1).max(120)).max(40).optional(),
+}).strict().optional()
+
+const BrandMetadataSchema = z.object({
+  description_outro_template: z.string().max(4000).optional(),
+  attribution_template: z.string().max(500).optional(),
+  banned_words: z.array(z.string().min(1).max(80)).max(200).optional(),
+}).strict().optional()
+
+const BrandPronunciationSchema = z.object({
+  term: z.string().min(1, 'term is required').max(120),
+  alt_spelling: z.string().max(200).optional(),
+  ipa: z.string().max(200).optional(),
+  ssml: z.string().max(500).optional(),
+  case_sensitive: z.boolean().optional(),
+}).strict()
+
+/** Body for POST /brands and PUT /brands/:id (full-document replace). */
+export const BrandSchema = z.object({
+  id: z.string()
+    .min(1, 'id is required')
+    .max(80)
+    .regex(/^[a-z0-9][a-z0-9_-]*$/, 'id must be a slug: lowercase letters, digits, dashes, underscores'),
+  name: z.string().min(1, 'name is required').max(120),
+  schemaVersion: z.literal(1),
+  channel: BrandChannelSchema,
+  visual: BrandVisualSchema,
+  narration: BrandNarrationSchema,
+  imagePrompts: BrandImagePromptsSchema,
+  metadata: BrandMetadataSchema,
+  pronunciation_lexicon: z.array(BrandPronunciationSchema).max(500).optional(),
+  format_default_id: z.string().max(80).optional(),
+  format_overrides: z.any().optional(),
+}).strict()
+export type BrandBody = z.infer<typeof BrandSchema>
+
+/** Body for PUT /projects/:slug/brand. `null` clears the association. */
+export const SetProjectBrandSchema = z.object({
+  brand_id: z.string().max(80).nullable(),
+}).strict()
+export type SetProjectBrandBody = z.infer<typeof SetProjectBrandSchema>
 
 /**
  * Shape of `GET /projects/:slug` — the project metadata the backend returns.

@@ -1191,6 +1191,21 @@
         <input v-model="projectForm.youtube_channel_url" class="input" placeholder="https://youtube.com/@yourchannel" />
       </div>
 
+      <div class="form-group">
+        <label>Brand <span class="text-muted" style="font-weight:normal">(channel-level identity — narrator persona, default voice, brand style keywords)</span></label>
+        <div class="brand-picker">
+          <select v-model="brandSelection" class="input" :disabled="brandsLoading">
+            <option value="">— None (use literal defaults) —</option>
+            <option v-for="b in availableBrands" :key="b.id" :value="b.id">{{ b.name }}</option>
+          </select>
+          <NuxtLink v-if="brandSelection" :to="`/brands/${brandSelection}`" class="btn btn-secondary btn-sm">
+            Edit brand
+          </NuxtLink>
+          <NuxtLink to="/brands" class="btn btn-secondary btn-sm">Manage all brands…</NuxtLink>
+        </div>
+        <span v-if="brandSaveMessage" class="text-muted" style="font-size:11px">{{ brandSaveMessage }}</span>
+      </div>
+
       <!-- Per-project cloud-sync mode toggle removed alongside the
            legacy manifest-sync feature. There's now only one mode —
            cloud sync is configured app-wide via Settings → Storage →
@@ -2781,6 +2796,47 @@ async function saveStandardsCurrent() {
   }
 }
 const projectForm = reactive({ name: '', episode_prefix: '', season_prefix: 'Season', season_size: 20, youtube_channel_url: '' })
+
+// ── Brand picker ───────────────────────────────────────────────────────────
+// Brand sits above Format in the resolution chain (channel-level identity).
+// Selection is saved immediately via PUT /api/projects/:slug/brand so the
+// dropdown behaves like an inline setting, not a form submission.
+const { brands: availableBrands, loadAll: loadAllBrands, setProjectBrand } = useBrands()
+const brandsLoading = ref(false)
+const brandSelection = ref<string>('')
+const brandSaveMessage = ref<string>('')
+let brandSelectionInitialized = false
+
+async function refreshBrandPicker() {
+  brandsLoading.value = true
+  try { await loadAllBrands() } finally { brandsLoading.value = false }
+}
+
+watch(project, async (p) => {
+  if (!p) return
+  await refreshBrandPicker()
+  // Only set the initial value once — subsequent project re-fetches must
+  // not stomp the user's in-progress selection.
+  if (!brandSelectionInitialized) {
+    brandSelection.value = (p as any).brand_id || ''
+    brandSelectionInitialized = true
+  }
+}, { immediate: true })
+
+watch(brandSelection, async (next, prev) => {
+  if (!brandSelectionInitialized) return
+  if (next === prev) return
+  brandSaveMessage.value = 'Saving…'
+  try {
+    await setProjectBrand(slug.value, next || null)
+    brandSaveMessage.value = next ? 'Brand assigned' : 'Brand cleared'
+    setTimeout(() => { brandSaveMessage.value = '' }, 2500)
+  } catch (e: any) {
+    brandSaveMessage.value = e?.data?.detail || e?.message || 'Failed to save brand selection'
+    // Roll back the visible value so the dropdown matches what's persisted.
+    brandSelection.value = prev || ''
+  }
+})
 // (Removed: per-project enable/disable cloud-sync handlers + portable
 // form field. Cloud sync is now app-wide via Settings → Storage; the
 // per-project mode toggle is dead.)
@@ -3233,6 +3289,15 @@ async function deleteProject() {
 </script>
 
 <style scoped>
+/* ── Brand picker (Project tab) ────────────────────────────────────────── */
+.brand-picker {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.brand-picker .input { flex: 1; min-width: 200px; }
+
 /* ── Format tab ──────────────────────────────────────────────────────── */
 .format-tab-header {
   display: flex;

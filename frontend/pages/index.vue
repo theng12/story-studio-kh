@@ -6,16 +6,34 @@
         <h1>Story Studio KH</h1>
         <p class="text-muted">Create, generate, and produce story episodes</p>
       </div>
-      <button
-        type="button"
-        class="home-settings-btn"
-        title="App-wide settings — API keys, notifications, FFmpeg"
-        aria-label="Open App Settings"
-        @click="appSettingsModal.open()"
-      >
-        <span class="home-settings-icon" aria-hidden="true">⚙</span>
-        <span class="home-settings-label">App Settings</span>
-      </button>
+      <div class="home-header-actions">
+        <NuxtLink
+          to="/usage"
+          class="home-settings-btn"
+          title="Cost dashboard — text-model API spend across all projects"
+        >
+          <span class="home-settings-icon" aria-hidden="true">$</span>
+          <span class="home-settings-label">Usage</span>
+        </NuxtLink>
+        <NuxtLink
+          to="/brands"
+          class="home-settings-btn"
+          title="Channel-level identity (name, persona, voice, logo) shared across projects"
+        >
+          <span class="home-settings-icon" aria-hidden="true">◈</span>
+          <span class="home-settings-label">Brands</span>
+        </NuxtLink>
+        <button
+          type="button"
+          class="home-settings-btn"
+          title="App-wide settings — API keys, notifications, FFmpeg"
+          aria-label="Open App Settings"
+          @click="appSettingsModal.open()"
+        >
+          <span class="home-settings-icon" aria-hidden="true">⚙</span>
+          <span class="home-settings-label">App Settings</span>
+        </button>
+      </div>
     </header>
 
     <!-- iCloud-syncing banner: surfaces when one or more project rows
@@ -2234,6 +2252,11 @@ onMounted(async () => {
   font-size: 32px;
   font-weight: 700;
   color: var(--accent);
+}
+
+.home-header-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .home-settings-btn {

@@ -50,6 +50,8 @@ export const QUOTA_COST = {
   playlists_insert: 50,
   playlist_items_insert: 50,
   videos_list: 1,
+  comment_threads_list: 1,
+  comments_insert: 50,
 } as const
 export type QuotaKey = keyof typeof QUOTA_COST
 

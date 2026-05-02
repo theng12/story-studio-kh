@@ -74,6 +74,7 @@ function buildPrompt(
   avoid: AvoidItem[],
   extraAvoidNote?: string,
   pattern?: Pattern | null,
+  topPerformersBlock: string = '',
 ): string {
   const keywords = req.keywords?.length ? req.keywords.join(', ') : 'none specified'
   const standardsSection = standards
@@ -126,7 +127,7 @@ ${pattern.metadataKeywordAdditions?.length
   return `Generate exactly ${req.count} story episode ideas for a narrative audio production.
 
 ${formatGuidance}
-${patternBlock}
+${patternBlock}${topPerformersBlock}
 PARAMETERS:
 - Genre: ${req.genre}
 - Theme: ${req.theme || 'open / surprise me'}
@@ -235,7 +236,15 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     // leaves us at body.count without a retry.
     const wantedCount = body.count
     const overshoot = { ...body, count: wantedCount + 3 }
-    const firstPrompt = buildPrompt(overshoot, format, standards, avoid, undefined, pattern)
+    // Pull the channel's top performers as inspiration. Best-effort —
+    // returns '' when no account / no scope / API down. The block joins
+    // the existing format + pattern guidance so the LLM picks up the
+    // channel vibe from titles that already worked.
+    const { getTopPerformersForSlug } = await import('../lib/youtube-analytics.js')
+    const { formatTopPerformersBlock } = await import('../lib/brand-prompt.js')
+    const topPerformers = await getTopPerformersForSlug(slug, 5)
+    const topBlock = formatTopPerformersBlock(topPerformers)
+    const firstPrompt = buildPrompt(overshoot, format, standards, avoid, undefined, pattern, topBlock)
     const firstRaw = await callAi(body.model, '', firstPrompt, apiKeys, false, { slug })
     const firstBatch = normalizeIdeas(parseIdeas(firstRaw))
 
@@ -261,7 +270,7 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
         ...avoid,
         ...kept.map(k => ({ title: k.title, mood: k.mood, themes: k.themes })),
       ]
-      const retryPrompt = buildPrompt(retryReq, format, standards, retryAvoid, rejectedTitles, pattern)
+      const retryPrompt = buildPrompt(retryReq, format, standards, retryAvoid, rejectedTitles, pattern, topBlock)
       try {
         const retryRaw = await callAi(body.model, '', retryPrompt, apiKeys, false, { slug })
         const retryBatch = normalizeIdeas(parseIdeas(retryRaw))

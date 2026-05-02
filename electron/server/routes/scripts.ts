@@ -703,11 +703,21 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
       const platformNote = title_platform_preset && title_platform_preset !== 'custom'
         ? `Optimized for ${title_platform_preset} (max ${title_max_length} characters).`
         : `Maximum ${title_max_length} characters per title.`
+      // Same "what worked" inspiration injection as the batch metadata
+      // generator. Best-effort — empty string when analytics is
+      // unavailable.
+      let topBlock = ''
+      try {
+        const { getTopPerformersForSlug } = await import('../lib/youtube-analytics.js')
+        const { formatTopPerformersBlock } = await import('../lib/brand-prompt.js')
+        const top = await getTopPerformersForSlug(slug, 5)
+        topBlock = formatTopPerformersBlock(top)
+      } catch { /* analytics is best-effort */ }
       const titlePrompt = `Generate ${title_count || 5} SEO-optimized video title options ${format.metadata.purposeNote}.
 Episode: ${episode_id} — ${title}
 Story context:
 ${storyContext.slice(0, 1500)}
-
+${topBlock}
 Requirements:
 - ${platformNote}
 - Tone: ${format.metadata.titleStyleHint}.
@@ -797,11 +807,36 @@ router.post('/projects/:slug/generate/metadata/save', async (req, res) => {
       ? title_options.filter((t: unknown): t is string => typeof t === 'string' && t.trim() !== '')
       : (metadata_title ? [String(metadata_title)] : [])
 
+    // Brand-aware post-processing on the user-edited fields, mirroring the
+    // batch generator's behaviour: interpolate {channel_name}, then scan
+    // for banned-word matches and persist them on the saved metadata so
+    // the page can render a warning chip after Save without re-scanning
+    // client-side.
+    let resolvedTitle = metadata_title || ''
+    let resolvedDescription = description || ''
+    let resolvedTitleOptions = cleanTitleOptions
+    let resolvedTags = Array.isArray(tags) ? tags : []
+    let bandWarnings: string[] = []
+    try {
+      const { getEffectiveBrand } = await import('../services/brand-loader.js')
+      const { interpolateBrandPlaceholders, findBannedWords } = await import('../lib/brand-prompt.js')
+      const project = await pm.getProject(slug)
+      const brand = await getEffectiveBrand(slug)
+      const interp = (s: string) => interpolateBrandPlaceholders(s, brand, project)
+      resolvedTitle = interp(resolvedTitle)
+      resolvedDescription = interp(resolvedDescription)
+      resolvedTitleOptions = resolvedTitleOptions.map(interp)
+      resolvedTags = resolvedTags.map((t: any) => interp(typeof t === 'string' ? t : String(t ?? '')))
+      const haystack = [resolvedTitleOptions.join('\n'), resolvedDescription, resolvedTags.join(' ')].join('\n')
+      bandWarnings = findBannedWords(haystack, brand)
+    } catch { /* brand layer must never break the save */ }
+
     const meta = {
-      title: metadata_title || '',
-      title_options: cleanTitleOptions,
-      description: description || '',
-      tags: Array.isArray(tags) ? tags : [],
+      title: resolvedTitle,
+      title_options: resolvedTitleOptions,
+      description: resolvedDescription,
+      tags: resolvedTags,
+      brand_warnings: bandWarnings,
       savedAt: new Date().toISOString(),
       version: writeVersion,
     }
@@ -818,6 +853,41 @@ router.post('/projects/:slug/generate/metadata/save', async (req, res) => {
     res.json({ ok: true, version: writeVersion, json, txt })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save metadata'))
+  }
+})
+
+/**
+ * Derive YouTube-format chapter timestamps from the episode's chapter
+ * audio durations. Returns a string ready to drop into the metadata
+ * description (the "0:00 Intro / 4:32 Chapter 1 / …" block YouTube
+ * auto-renders as clickable chapter markers).
+ *
+ * v1 uses the audio file labels (e.g. "Chapter 01") for titles. Users
+ * who want richer titles can edit the inserted block manually.
+ */
+router.get('/projects/:slug/episodes/:episodeId/chapter-timestamps', async (req, res) => {
+  try {
+    const { slug, episodeId } = req.params
+    const { scanEpisodeAssets } = await import('../generators/video.js')
+    const { chaptersFromDurations, formatChapterTimestamps } = await import('../lib/subtitle-builder.js')
+    const assets = await scanEpisodeAssets(slug, episodeId)
+    const items = assets.audio_sections
+      .filter(s => typeof s.duration === 'number' && s.duration > 0)
+      .map(s => ({ title: s.label, duration_sec: s.duration as number }))
+    if (items.length < 3) {
+      // YouTube's auto-detection requires 3+ chapters with the first at
+      // 0:00. Below that threshold the block would render broken; tell
+      // the caller and let it surface a friendly empty state.
+      return res.json({ formatted: '', chapters: [], reason: 'fewer-than-3-chapters' })
+    }
+    const chapters = chaptersFromDurations(items, 0)
+    const formatted = formatChapterTimestamps(chapters)
+    res.json({
+      formatted,
+      chapters: chapters.map(c => ({ title: c.title, start_sec: c.start_sec })),
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to derive chapter timestamps'))
   }
 })
 
@@ -858,6 +928,9 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
             : (data.title ? [data.title] : []),
           description: data.description || '',
           tags: Array.isArray(data.tags) ? data.tags : [],
+          // Brand banned-word matches at last save. Absent on older
+          // metadata files saved before the brand layer landed.
+          brand_warnings: Array.isArray(data.brand_warnings) ? data.brand_warnings : [],
           savedAt: data.savedAt || null,
         })
       } catch {}
