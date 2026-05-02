@@ -15,12 +15,13 @@ export const router = Router()
 function resolveAudioProvider(
   modelId: string | undefined,
   audioModels: Record<string, AudioModelConfig> | undefined,
-): 'fal' | 'genaipro' | 'elevenlabs' {
+): 'fal' | 'genaipro' | 'elevenlabs' | 'chatterbox' {
   if (!modelId) return 'fal'
   const entry = audioModels?.[modelId]
   if (entry?.provider) return entry.provider
   if (modelId.startsWith('eleven_')) return 'elevenlabs'
   if (modelId.startsWith('genaipro-')) return 'genaipro'
+  if (modelId.startsWith('chatterbox-')) return 'chatterbox'
   return 'fal'
 }
 
@@ -32,17 +33,23 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
   if (!config) return res.status(400).json({ detail: 'Project config missing.' })
 
   // Pick the TTS provider for the model the user selected and verify the
-  // right key is configured — the Audio Generator now supports three
-  // providers (fal / genaipro / ElevenLabs direct), so gating on fal only
-  // would reject every eleven_* / genaipro-* job.
+  // right key (or, for Chatterbox, the per-project enable flag) is set —
+  // the Audio Generator now supports four providers, so gating on fal
+  // only would reject every eleven_* / genaipro-* / chatterbox-* job.
   const providerId = resolveAudioProvider(req.body.model, config.audio_models)
-  const apiKey = providerId === 'elevenlabs' ? ((config as any).elevenlabs_api_key || '')
-    : providerId === 'genaipro' ? ((config as any).genaipro_api_key || '')
-    : (config.fal_api_key || '')
-  if (!apiKey) {
-    const label = providerId === 'elevenlabs' ? 'ElevenLabs'
-      : providerId === 'genaipro' ? 'GenAIPro' : 'fal.ai'
-    return res.status(400).json({ detail: `No ${label} API key configured. Add one in Settings → API Keys.` })
+  if (providerId === 'chatterbox') {
+    if (!(config as any).chatterbox_enabled) {
+      return res.status(400).json({ detail: 'Chatterbox (Local TTS) is not enabled for this project. Turn it on in Settings → Local TTS.' })
+    }
+  } else {
+    const apiKey = providerId === 'elevenlabs' ? ((config as any).elevenlabs_api_key || '')
+      : providerId === 'genaipro' ? ((config as any).genaipro_api_key || '')
+      : (config.fal_api_key || '')
+    if (!apiKey) {
+      const label = providerId === 'elevenlabs' ? 'ElevenLabs'
+        : providerId === 'genaipro' ? 'GenAIPro' : 'fal.ai'
+      return res.status(400).json({ detail: `No ${label} API key configured. Add one in Settings → API Keys.` })
+    }
   }
 
   if (jq.isDuplicate(slug, req.body.episode_id, 'audio')) {
@@ -72,13 +79,23 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
   if (!config) return res.status(400).json({ detail: 'Project config missing.' })
 
   const providerId = resolveAudioProvider(model, config.audio_models)
-  const apiKey = providerId === 'elevenlabs' ? ((config as any).elevenlabs_api_key || '')
-    : providerId === 'genaipro' ? ((config as any).genaipro_api_key || '')
-    : (config.fal_api_key || '')
-  if (!apiKey) {
-    const label = providerId === 'elevenlabs' ? 'ElevenLabs'
-      : providerId === 'genaipro' ? 'GenAIPro' : 'fal.ai'
-    return res.status(400).json({ detail: `No ${label} API key configured. Add one in Settings → API Keys.` })
+  let apiKey = ''
+  if (providerId === 'chatterbox') {
+    if (!(config as any).chatterbox_enabled) {
+      return res.status(400).json({ detail: 'Chatterbox (Local TTS) is not enabled for this project.' })
+    }
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const { DEFAULT_CHATTERBOX_BASE_URL } = await import('../lib/chatterbox-client.js')
+    apiKey = (await getApiKey('chatterbox')) || DEFAULT_CHATTERBOX_BASE_URL
+  } else {
+    apiKey = providerId === 'elevenlabs' ? ((config as any).elevenlabs_api_key || '')
+      : providerId === 'genaipro' ? ((config as any).genaipro_api_key || '')
+      : (config.fal_api_key || '')
+    if (!apiKey) {
+      const label = providerId === 'elevenlabs' ? 'ElevenLabs'
+        : providerId === 'genaipro' ? 'GenAIPro' : 'fal.ai'
+      return res.status(400).json({ detail: `No ${label} API key configured. Add one in Settings → API Keys.` })
+    }
   }
 
   const sample = typeof text === 'string' && text.trim().length > 0
@@ -86,6 +103,29 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
     : 'Welcome to the story. Take a deep breath, settle in, and let your mind drift.'
 
   try {
+    if (providerId === 'chatterbox') {
+      // Generate to a temp WAV, inline as a data URL, delete the file. Keeps
+      // the preview-voice contract (return playable URL) without exposing
+      // file:// or making the browser hit the local Chatterbox server itself.
+      const fs = await import('fs/promises')
+      const provider = registry.getAudioProvider('chatterbox')
+      if (!provider) return res.status(500).json({ detail: 'chatterbox audio provider not registered' })
+      const result = await provider.generateAudio({
+        text: sample,
+        apiKey,
+        modelId: model || 'chatterbox-default',
+        voiceId: voice_id || undefined,
+        speed, stability, similarity,
+      })
+      const filePath = result.audioUrl.startsWith('file://')
+        ? new URL(result.audioUrl).pathname
+        : result.audioUrl
+      const buf = await fs.readFile(filePath)
+      await fs.rm(filePath, { force: true }).catch(() => {})
+      const dataUrl = `data:audio/wav;base64,${buf.toString('base64')}`
+      return res.json({ audio_url: dataUrl })
+    }
+
     if (providerId === 'elevenlabs') {
       // Direct API returns MP3 bytes inline — we can't get a hosted URL for
       // them, so encode as a data: URL the browser can play directly.
@@ -249,5 +289,93 @@ router.post('/projects/:slug/episodes/:code/audio-repair', async (req, res) => {
     res.json(result)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Repair failed'))
+  }
+})
+
+// ── Chatterbox (Local TTS) helper routes ───────────────────────────────────
+// Tiny endpoints that the Settings → Local TTS panel calls for:
+//   - reading/writing the per-machine base URL (stored in app-secrets bucket)
+//   - probing /health + /api/status with a chosen URL ("Test connection")
+//   - uploading a reference voice clip and storing the returned UUID on the
+//     project config
+
+router.get('/chatterbox/base-url', async (_req, res) => {
+  try {
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const { DEFAULT_CHATTERBOX_BASE_URL } = await import('../lib/chatterbox-client.js')
+    const stored = await getApiKey('chatterbox')
+    res.json({ baseUrl: stored || '', defaultBaseUrl: DEFAULT_CHATTERBOX_BASE_URL })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not read Chatterbox base URL'))
+  }
+})
+
+router.put('/chatterbox/base-url', async (req, res) => {
+  try {
+    const baseUrl = typeof req.body?.baseUrl === 'string' ? req.body.baseUrl.trim() : ''
+    // Reject empty (use DELETE if the user wants to clear) — silent acceptance
+    // would leave the user thinking it saved while the next generation falls
+    // back to the default URL.
+    if (!baseUrl) return res.status(400).json({ detail: 'baseUrl is required' })
+    if (!/^https?:\/\//i.test(baseUrl)) {
+      return res.status(400).json({ detail: 'baseUrl must start with http:// or https://' })
+    }
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    await setApiKey('chatterbox', baseUrl.replace(/\/+$/, ''))
+    res.json({ ok: true, baseUrl })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not save Chatterbox base URL'))
+  }
+})
+
+router.post('/chatterbox/test', async (req, res) => {
+  try {
+    const { health: cbHealth, DEFAULT_CHATTERBOX_BASE_URL } = await import('../lib/chatterbox-client.js')
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const incoming = typeof req.body?.baseUrl === 'string' ? req.body.baseUrl.trim() : ''
+    const baseUrl = incoming || (await getApiKey('chatterbox')) || DEFAULT_CHATTERBOX_BASE_URL
+    const result = await cbHealth(baseUrl)
+    res.json({ ...result, baseUrl })
+  } catch (e: any) {
+    res.json({ ok: false, error: e?.message || String(e) })
+  }
+})
+
+// Reference voice upload — base64-in-JSON to avoid adding a multipart parser.
+// Mirror of the pattern in routes/characters.ts. The frontend reads the
+// file via FileReader.readAsDataURL and strips the `data:*;base64,` prefix.
+const MAX_REFERENCE_BYTES = 10 * 1024 * 1024
+
+router.post('/projects/:slug/chatterbox/reference', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const config = await pm.getConfig(slug)
+    if (!config) return res.status(400).json({ detail: 'Project config missing' })
+
+    const { filename, data_base64 } = req.body || {}
+    if (typeof filename !== 'string' || !filename.trim()) {
+      return res.status(400).json({ detail: 'filename is required' })
+    }
+    if (typeof data_base64 !== 'string' || !data_base64) {
+      return res.status(400).json({ detail: 'data_base64 is required' })
+    }
+    const buf = Buffer.from(data_base64, 'base64')
+    if (buf.length === 0) return res.status(400).json({ detail: 'decoded audio is empty' })
+    if (buf.length > MAX_REFERENCE_BYTES) {
+      return res.status(413).json({ detail: `Reference clip too large (${buf.length} bytes, max ${MAX_REFERENCE_BYTES})` })
+    }
+
+    const { uploadReference, DEFAULT_CHATTERBOX_BASE_URL } = await import('../lib/chatterbox-client.js')
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const baseUrl = (await getApiKey('chatterbox')) || DEFAULT_CHATTERBOX_BASE_URL
+    const { referenceId } = await uploadReference(baseUrl, buf, filename)
+
+    // Persist the UUID on ProjectConfig so chatterbox-cloned generations
+    // pick it up automatically.
+    await pm.updateConfig(slug, { chatterbox_reference_id: referenceId } as any)
+    res.json({ ok: true, referenceId })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Reference voice upload failed'))
   }
 })

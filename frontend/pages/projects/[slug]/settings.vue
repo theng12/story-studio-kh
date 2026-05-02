@@ -135,23 +135,92 @@
     <!-- Voices (Editable) -->
     <div v-if="activeTab === 'voices'" class="card mt-2">
       <h3>Voice Presets</h3>
-      <p class="text-muted mt-1 mb-2">Add ElevenLabs voice IDs for quick selection in the Audio panel.</p>
+      <p class="text-muted mt-1 mb-2">
+        Save ElevenLabs voice IDs for quick access from the Audio Generator.
+        These show up as <strong>My Custom Voices</strong> in the picker.
+      </p>
+
+      <!-- Where-to-find-the-id helper. New users don't know ElevenLabs's
+           voice URLs, and copy/paste from the dashboard isn't obvious. -->
+      <p class="text-muted voice-helper-line">
+        💡 Find a voice's ID in
+        <a href="https://elevenlabs.io/app/voice-library" target="_blank" rel="noopener" class="voice-helper-link">ElevenLabs → Voice Library</a>:
+        click any voice → "View Voice" → copy the long alphanumeric ID from the URL or the "Voice ID" field.
+      </p>
+
+      <div v-if="catalogLoadError" class="voice-catalog-warn">
+        ⚠ Couldn't load your live ElevenLabs catalog ({{ catalogLoadError }}). Voice availability won't be checked here.
+      </div>
 
       <div class="voice-list">
-        <div v-for="(voice, i) in editVoices" :key="i" class="voice-row-edit">
-          <input v-model="voice.name" class="input input-sm" placeholder="Voice name" style="flex:1" />
-          <input v-model="voice.voice_id" class="input input-sm" placeholder="ElevenLabs voice ID" style="flex:1.5" />
+        <div
+          v-for="(voice, i) in editVoices"
+          :key="i"
+          class="voice-row-edit"
+          :class="{ 'voice-row-unavailable': isVoicePresetUnavailable(voice.voice_id) }"
+        >
+          <input v-model="voice.name" class="input input-sm voice-name-input" placeholder="Voice name" />
+          <input v-model="voice.voice_id" class="input input-sm voice-id-input" placeholder="ElevenLabs voice ID" />
+          <span
+            v-if="isVoicePresetUnavailable(voice.voice_id)"
+            class="voice-unavailable-pill"
+            title="This voice isn't in your current ElevenLabs catalog — generation will fail until you re-add it or remove the preset."
+          >
+            unavailable
+          </span>
+          <button
+            class="btn-icon"
+            :disabled="!voice.voice_id || isVoicePresetUnavailable(voice.voice_id) || previewingVoiceId === voice.voice_id"
+            :title="!voice.voice_id ? 'Enter a voice ID first' : isVoicePresetUnavailable(voice.voice_id) ? 'Voice unavailable in your ElevenLabs account' : (previewingVoiceId === voice.voice_id ? 'Stop preview' : 'Preview voice (1-sentence sample)')"
+            @click="togglePreviewVoicePreset(voice.voice_id)"
+          >
+            {{ previewingVoiceId === voice.voice_id ? '◼' : '▶' }}
+          </button>
           <button class="btn-icon danger" @click="editVoices.splice(i, 1)" title="Remove">&#10005;</button>
         </div>
       </div>
 
-      <div class="flex gap-2 mt-2" style="align-items: center;">
+      <div class="flex gap-2 mt-2 items-center flex-wrap">
         <button class="btn btn-secondary btn-sm" @click="editVoices.push({ name: '', voice_id: '' })">
           + Add Voice
+        </button>
+        <button
+          class="btn btn-secondary btn-sm"
+          :disabled="catalogLoading"
+          :title="catalogLoading ? 'Loading catalog…' : 'Pick from your ElevenLabs voices instead of pasting an ID'"
+          @click="openCatalogPickerForPreset"
+        >
+          {{ catalogLoading ? 'Loading…' : '+ Add from catalog…' }}
         </button>
         <button class="btn btn-primary btn-sm" @click="saveVoices">Save Voice Presets</button>
         <SaveIndicator v-bind="savedHintProps('voices')" />
       </div>
+
+      <!-- Catalog picker dialog — minimal flow: VoicePicker is reused, the
+           emitted `update:modelValue` fills the next blank row (or appends
+           one), and the dialog closes. -->
+      <Modal v-if="showCatalogPicker" :visible="showCatalogPicker" size="md" labelledby="vp-add-from-catalog-title" @close="showCatalogPicker = false">
+        <h3 id="vp-add-from-catalog-title">Add from your ElevenLabs catalog</h3>
+        <p class="text-muted text-sm mt-1 mb-2">
+          Pick any voice from your current ElevenLabs library — we'll fill the name and voice ID on a new preset row for you.
+        </p>
+        <VoicePicker
+          v-model="pendingCatalogPick"
+          :project-slug="slug"
+          :custom-voices="[]"
+          default-label="Pick a voice…"
+        />
+        <div class="flex gap-2 mt-3 justify-end">
+          <button class="btn btn-secondary btn-sm" @click="showCatalogPicker = false">Cancel</button>
+          <button
+            class="btn btn-primary btn-sm"
+            :disabled="!pendingCatalogPick"
+            @click="confirmCatalogPick"
+          >
+            Add as preset
+          </button>
+        </div>
+      </Modal>
     </div>
 
     <!-- Format -->
@@ -897,6 +966,102 @@
       </div>
     </div>
 
+    <!-- Local TTS (Chatterbox) -->
+    <div v-if="activeTab === 'local-tts'" class="card mt-2">
+      <h3>Local TTS — Chatterbox (self-hosted)</h3>
+      <p class="text-muted mt-1" style="font-size: 12px;">
+        Generate narration using a Chatterbox TTS server running on your own
+        machine (typically a Mac mini reached over Tailscale). No per-character
+        cost, no upstream rate limits. Requires the server to be running and
+        reachable. <a href="https://github.com/resemble-ai/chatterbox" target="_blank" rel="noopener" style="color: var(--accent);">Learn more →</a>
+      </p>
+
+      <div class="local-tts-row mt-3">
+        <label class="local-tts-toggle">
+          <input type="checkbox" v-model="chatterboxEnabledDraft" />
+          <span><strong>Enable for this project</strong></span>
+          <span class="text-muted" style="font-size: 11px; margin-left: 6px;">
+            (When off, "Chatterbox – Default Voice" / "Chatterbox – Cloned Voice" are hidden from the audio model picker.)
+          </span>
+        </label>
+      </div>
+
+      <div class="local-tts-row mt-3">
+        <label class="local-tts-label">Server URL (per machine)</label>
+        <div class="local-tts-url-row">
+          <input
+            v-model="chatterboxBaseUrlDraft"
+            type="text"
+            class="input input-sm"
+            :placeholder="chatterboxDefaultBaseUrl"
+            spellcheck="false"
+          />
+          <button
+            class="btn btn-sm btn-secondary"
+            :disabled="chatterboxBaseUrlSaving"
+            @click="saveChatterboxBaseUrl"
+          >
+            {{ chatterboxBaseUrlSaving ? 'Saving…' : 'Save URL' }}
+          </button>
+          <button
+            class="btn btn-sm btn-secondary"
+            :disabled="chatterboxTesting"
+            @click="testChatterboxConnection"
+          >
+            {{ chatterboxTesting ? 'Testing…' : 'Test connection' }}
+          </button>
+        </div>
+        <p class="text-muted mt-1" style="font-size: 11px;">
+          Stored once per Mac (in app secrets), so moving this project to a
+          machine without Tailscale won't carry a stale URL. Default:
+          <code>{{ chatterboxDefaultBaseUrl }}</code>.
+        </p>
+        <div v-if="chatterboxTestResult" class="local-tts-pill mt-2" :class="{ ok: chatterboxTestResult.ok, err: !chatterboxTestResult.ok }">
+          <span v-if="chatterboxTestResult.ok">
+            ✓ Reachable
+            <span v-if="chatterboxTestResult.device"> · device {{ chatterboxTestResult.device }}</span>
+            <span v-if="chatterboxTestResult.modelLoaded === true"> · model loaded</span>
+            <span v-else-if="chatterboxTestResult.modelLoaded === false"> · model not loaded yet</span>
+            <span v-if="chatterboxTestResult.sampleRate"> · {{ chatterboxTestResult.sampleRate }} Hz</span>
+          </span>
+          <span v-else>
+            ✗ {{ chatterboxTestResult.error || 'Unreachable' }}
+          </span>
+        </div>
+      </div>
+
+      <div class="local-tts-row mt-4">
+        <label class="local-tts-label">Cloned voice reference (5–15 s clip)</label>
+        <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+          Upload a short, clean recording of the voice you want to clone. Used
+          when you pick "Chatterbox – Cloned Voice" as the audio model. The
+          file is sent to your local server and the returned reference id is
+          stored on this project. One reference per project; uploading replaces.
+        </p>
+        <div class="local-tts-upload-row mt-2">
+          <input
+            ref="chatterboxFileInput"
+            type="file"
+            accept="audio/*"
+            class="input input-sm"
+            @change="onChatterboxReferenceFile"
+          />
+          <span v-if="chatterboxUploading" class="text-muted" style="font-size: 11px;">Uploading…</span>
+        </div>
+        <div v-if="chatterboxReferenceIdLocal" class="local-tts-current mt-2">
+          <span class="text-muted" style="font-size: 11px;">Current reference id:</span>
+          <code style="font-size: 11px;">{{ chatterboxReferenceIdLocal }}</code>
+        </div>
+      </div>
+
+      <div class="flex gap-2 mt-3" style="align-items: center;">
+        <button class="btn btn-primary" :disabled="chatterboxEnabledSaving" @click="saveChatterboxEnabled">
+          {{ chatterboxEnabledSaving ? 'Saving…' : 'Save project settings' }}
+        </button>
+        <SaveIndicator v-bind="savedHintProps('chatterbox')" />
+      </div>
+    </div>
+
     <!-- FFmpeg -->
     <div v-if="activeTab === 'ffmpeg'" id="ffmpeg-section" class="card mt-2">
       <h3>FFmpeg</h3>
@@ -1516,7 +1681,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'dashboard' })
-useHead({ title: "Settings — Story Studio KH" })
+useAppTitle('Settings')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put, del } = useApi()
@@ -2366,6 +2531,123 @@ async function resetProjectsRoot() {
   }
 }
 
+// ── Local TTS (Chatterbox) tab state ────────────────────────────────────
+// Per-project enable + per-project cloned reference id come from `config`.
+// The base URL itself is per-machine (app secrets bucket), fetched on tab
+// mount via /chatterbox/base-url. Test connection hits the live server.
+const chatterboxDefaultBaseUrl = ref('http://100.66.3.3:5052')
+const chatterboxBaseUrlDraft = ref('')
+const chatterboxBaseUrlSaving = ref(false)
+const chatterboxTesting = ref(false)
+const chatterboxTestResult = ref<{ ok: boolean; device?: string; modelLoaded?: boolean; sampleRate?: number; error?: string } | null>(null)
+const chatterboxEnabledDraft = ref(false)
+const chatterboxEnabledSaving = ref(false)
+const chatterboxReferenceIdLocal = ref('')
+const chatterboxUploading = ref(false)
+const chatterboxFileInput = ref<HTMLInputElement | null>(null)
+
+async function loadChatterboxBaseUrl() {
+  try {
+    const r = await get<{ baseUrl: string; defaultBaseUrl: string }>('/chatterbox/base-url')
+    chatterboxBaseUrlDraft.value = r.baseUrl || r.defaultBaseUrl
+    if (r.defaultBaseUrl) chatterboxDefaultBaseUrl.value = r.defaultBaseUrl
+  } catch {
+    chatterboxBaseUrlDraft.value = chatterboxDefaultBaseUrl.value
+  }
+}
+
+async function saveChatterboxBaseUrl() {
+  const url = chatterboxBaseUrlDraft.value.trim()
+  if (!url) {
+    showError('Server URL is required.')
+    return
+  }
+  chatterboxBaseUrlSaving.value = true
+  try {
+    await put('/chatterbox/base-url', { baseUrl: url })
+    success('Chatterbox URL saved.')
+    chatterboxTestResult.value = null
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to save URL')
+  } finally {
+    chatterboxBaseUrlSaving.value = false
+  }
+}
+
+async function testChatterboxConnection() {
+  chatterboxTesting.value = true
+  chatterboxTestResult.value = null
+  try {
+    chatterboxTestResult.value = await post('/chatterbox/test', { baseUrl: chatterboxBaseUrlDraft.value.trim() })
+  } catch (e: any) {
+    chatterboxTestResult.value = { ok: false, error: e?.data?.detail || e?.message || 'Test failed' }
+  } finally {
+    chatterboxTesting.value = false
+  }
+}
+
+async function saveChatterboxEnabled() {
+  chatterboxEnabledSaving.value = true
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { chatterbox_enabled: chatterboxEnabledDraft.value })
+    stampSaved('chatterbox')
+    success('Local TTS settings saved.')
+    await refreshConfig()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to save')
+  } finally {
+    chatterboxEnabledSaving.value = false
+  }
+}
+
+async function onChatterboxReferenceFile(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  // Lightweight validation — duration check needs decoding which we skip
+  // here (server enforces the 10MB cap); type check is enough for V1.
+  if (!file.type.startsWith('audio/')) {
+    showError('Please upload an audio file (wav/mp3/m4a/etc.).')
+    input.value = ''
+    return
+  }
+  chatterboxUploading.value = true
+  try {
+    const buf = await file.arrayBuffer()
+    // FileReader.readAsDataURL would also work but base64-encoding the
+    // ArrayBuffer is straightforward and avoids the Promise dance.
+    const base64 = btoa(
+      new Uint8Array(buf).reduce((acc, b) => acc + String.fromCharCode(b), ''),
+    )
+    const resp = await post<{ ok: boolean; referenceId: string }>(
+      `/projects/${slug.value}/chatterbox/reference`,
+      { filename: file.name, data_base64: base64 },
+    )
+    chatterboxReferenceIdLocal.value = resp.referenceId
+    success(`Reference uploaded — id ${resp.referenceId.slice(0, 12)}…`)
+    await refreshConfig()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Reference upload failed')
+  } finally {
+    chatterboxUploading.value = false
+    if (chatterboxFileInput.value) chatterboxFileInput.value.value = ''
+  }
+}
+
+// Hydrate from project config (per-project enable + reference id) and from
+// the per-machine base URL endpoint whenever config arrives or slug changes.
+watch(config, (c) => {
+  const cfg = c as any
+  chatterboxEnabledDraft.value = !!cfg?.chatterbox_enabled
+  chatterboxReferenceIdLocal.value = cfg?.chatterbox_reference_id || ''
+}, { immediate: true })
+
+watch(activeTab, (t) => {
+  if (t === 'local-tts' && !chatterboxBaseUrlDraft.value) {
+    void loadChatterboxBaseUrl()
+  }
+})
+
 const tabs = [
   // API keys moved to app-level Settings (see /app-settings) — they're
   // per-machine now, not per-project.
@@ -2383,6 +2665,7 @@ const tabs = [
   { id: 'roots', label: 'Named Roots' },
   { id: 'confirmations', label: 'Confirmations' },
   { id: 'performance', label: 'Performance' },
+  { id: 'local-tts', label: 'Local TTS' },
   { id: 'ffmpeg', label: 'FFmpeg' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'project', label: 'Project' },
@@ -2931,6 +3214,164 @@ const editImageModels = ref<Record<string, any>>({})
 const editAudioModels = ref<Record<string, any>>({})
 const editVideoModels = ref<Record<string, any>>({})
 const editVoices = ref<Array<{ name: string; voice_id: string }>>([])
+
+// ── Voice catalog probe (Settings → Voices tab) ─────────────────────────
+// We pull the live ElevenLabs catalog once when the user opens this tab so
+// we can grey out saved presets that are no longer in their account
+// (deleted upstream, subscription lapsed). Loaded lazily — not on every
+// settings open — to avoid a wasted fetch on users who never visit this tab.
+interface VoiceCatalogVoice { voice_id: string; name: string; category?: string }
+const voiceCatalogIds = ref<Set<string>>(new Set())
+const catalogLoading = ref(false)
+const catalogLoadError = ref('')
+const catalogLoadedOnce = ref(false)
+
+async function loadVoiceCatalogForSettings() {
+  if (catalogLoadedOnce.value || catalogLoading.value) return
+  catalogLoading.value = true
+  catalogLoadError.value = ''
+  try {
+    const data = await get<{ voices: VoiceCatalogVoice[]; source: string }>(
+      `/projects/${slug.value}/voices/catalog`,
+    )
+    // Snapshot source can't tell us about cloned voices the user owns —
+    // skip the availability check in that case (treat all as available).
+    if (data.source === 'snapshot') {
+      voiceCatalogIds.value = new Set()  // empty set → isVoicePresetUnavailable always false
+    } else {
+      voiceCatalogIds.value = new Set(data.voices.map(v => v.voice_id))
+    }
+    catalogLoadedOnce.value = true
+  } catch (e: any) {
+    catalogLoadError.value = e?.data?.detail || e?.message || 'Network error'
+  } finally {
+    catalogLoading.value = false
+  }
+}
+
+function isVoicePresetUnavailable(voiceId: string): boolean {
+  if (!voiceId) return false
+  // While loading or if the catalog isn't usable, optimistic — don't
+  // flash "unavailable" on every preset for several seconds.
+  if (catalogLoading.value || !catalogLoadedOnce.value) return false
+  if (voiceCatalogIds.value.size === 0) return false  // snapshot or empty
+  return !voiceCatalogIds.value.has(voiceId)
+}
+
+// Per-row preview for saved voice presets. Reuses the same /preview-voice
+// endpoint Audio Generator uses, with sensible TTS defaults so the user
+// can audition a saved voice without leaving Settings.
+const previewingVoiceId = ref<string>('')
+const previewAudioEl = ref<HTMLAudioElement | null>(null)
+
+function stopVoicePreview() {
+  if (previewAudioEl.value) {
+    previewAudioEl.value.pause()
+    previewAudioEl.value = null
+  }
+  previewingVoiceId.value = ''
+}
+
+async function togglePreviewVoicePreset(voiceId: string) {
+  if (!voiceId) return
+  if (previewingVoiceId.value === voiceId) {
+    stopVoicePreview()
+    return
+  }
+  stopVoicePreview()
+  previewingVoiceId.value = voiceId
+  try {
+    const resp = await post<{ audio_url?: string }>(
+      `/projects/${slug.value}/preview-voice`,
+      { voice_id: voiceId, model: 'turbo-v2.5', speed: 1.0, stability: 0.5, similarity: 0.75 },
+    )
+    if (!resp?.audio_url) {
+      throw new Error('No audio returned')
+    }
+    const audio = new Audio(resp.audio_url)
+    audio.addEventListener('ended', () => { stopVoicePreview() })
+    audio.addEventListener('error', () => {
+      stopVoicePreview()
+      showError('Voice preview audio failed to load — the voice may be unavailable in your ElevenLabs account.')
+    })
+    previewAudioEl.value = audio
+    await audio.play().catch((err) => {
+      console.error('[settings/voices] preview play failed:', err)
+      stopVoicePreview()
+      showError(`Couldn't play preview for ${voiceId.slice(0, 8)}… — see console for details.`)
+    })
+  } catch (e: any) {
+    console.error('[settings/voices] preview request failed:', e)
+    stopVoicePreview()
+    showError(e?.data?.detail || `Voice preview failed for ${voiceId.slice(0, 8)}…`)
+  }
+}
+
+// "+ Add from catalog…" flow. The picker writes the picked voice_id to
+// `pendingCatalogPick`; confirmCatalogPick then resolves it against the
+// loaded catalog to fill name + voice_id on a new preset row.
+const showCatalogPicker = ref(false)
+const pendingCatalogPick = ref<string | null>(null)
+const lastCatalogVoices = ref<VoiceCatalogVoice[]>([])
+
+async function openCatalogPickerForPreset() {
+  // Make sure we have catalog data so confirmCatalogPick can resolve names.
+  // The picker itself fetches independently, but we need the same data
+  // here for the name lookup on confirm.
+  if (!catalogLoadedOnce.value) {
+    catalogLoading.value = true
+    try {
+      const data = await get<{ voices: VoiceCatalogVoice[]; source: string }>(
+        `/projects/${slug.value}/voices/catalog`,
+      )
+      lastCatalogVoices.value = data.voices || []
+      voiceCatalogIds.value = new Set(lastCatalogVoices.value.map(v => v.voice_id))
+      catalogLoadedOnce.value = true
+    } catch (e: any) {
+      catalogLoadError.value = e?.data?.detail || e?.message || 'Network error'
+      showError('Could not load ElevenLabs catalog — paste a voice ID manually instead.')
+      catalogLoading.value = false
+      return
+    } finally {
+      catalogLoading.value = false
+    }
+  }
+  pendingCatalogPick.value = null
+  showCatalogPicker.value = true
+}
+
+function confirmCatalogPick() {
+  const id = pendingCatalogPick.value
+  if (!id) return
+  // Look up the name in the cached catalog. If we missed it (cache was
+  // empty at fetch time), fall back to the id as the name — user can
+  // rename inline before saving.
+  const found = lastCatalogVoices.value.find(v => v.voice_id === id)
+  const name = found?.name || id.slice(0, 12) + '…'
+  // If there's an empty trailing row, fill that — otherwise append.
+  const last = editVoices.value[editVoices.value.length - 1]
+  if (last && !last.name && !last.voice_id) {
+    last.name = name
+    last.voice_id = id
+  } else {
+    editVoices.value.push({ name, voice_id: id })
+  }
+  showCatalogPicker.value = false
+  pendingCatalogPick.value = null
+  success(`Added "${name}" — remember to hit Save below.`)
+}
+
+// Trigger catalog probe when the user lands on the voices tab.
+watch(activeTab, (tab) => {
+  if (tab === 'voices') {
+    void loadVoiceCatalogForSettings()
+  } else if (previewingVoiceId.value) {
+    // Stop any in-flight preview when leaving the tab.
+    stopVoicePreview()
+  }
+})
+
+onUnmounted(() => stopVoicePreview())
 
 // Folder config
 interface FolderEntry { key: string; label: string; generator: string; order: number; template: string }
@@ -3584,6 +4025,46 @@ async function deleteProject() {
   gap: 8px;
   align-items: center;
 }
+/* Two-column input split — name compact, voice ID wider since it's longer. */
+.voice-row-edit .voice-name-input { flex: 1; }
+.voice-row-edit .voice-id-input   { flex: 1.5; }
+/* Saved presets that ElevenLabs no longer has — dim the row so the user
+ * notices, and the "unavailable" pill renders inline beside the inputs. */
+.voice-row-edit.voice-row-unavailable .voice-name-input,
+.voice-row-edit.voice-row-unavailable .voice-id-input {
+  opacity: 0.55;
+}
+.voice-unavailable-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.18);
+  color: rgb(180, 83, 9);
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+
+/* Helper line + warning above the voice list. */
+.voice-helper-line {
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.voice-helper-link {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.voice-helper-link:hover {
+  filter: brightness(1.1);
+}
+.voice-catalog-warn {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: rgb(180, 83, 9);
+}
 
 .sync-zone {
   border-top: 1px solid var(--accent);
@@ -4086,4 +4567,22 @@ async function deleteProject() {
   font-size: 13px;
   user-select: text;
 }
+
+/* Local TTS (Chatterbox) tab */
+.local-tts-row { display: flex; flex-direction: column; gap: 4px; }
+.local-tts-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.local-tts-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+.local-tts-url-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.local-tts-url-row .input { flex: 1; min-width: 240px; }
+.local-tts-upload-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.local-tts-current { display: flex; gap: 6px; align-items: center; }
+.local-tts-pill {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+}
+.local-tts-pill.ok  { background: rgba(34,197,94,0.12);   color: rgb(22,163,74);   border: 1px solid rgba(34,197,94,0.35); }
+.local-tts-pill.err { background: rgba(220,38,38,0.10);   color: rgb(190,18,60);   border: 1px solid rgba(220,38,38,0.35); }
 </style>

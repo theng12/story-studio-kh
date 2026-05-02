@@ -262,18 +262,48 @@ label {
 /* ── Utilities ───────────────────────────────────────────────────────────── */
 
 .text-center { text-align: center; }
+.text-right  { text-align: right; }
 .text-muted { color: var(--text-muted); }
 .text-accent { color: var(--accent); }
+.text-danger { color: var(--error); }
+.text-success { color: var(--success); }
+.text-warning { color: var(--warning); }
+
+/* Font-size scale — keep in sync with --font-* tokens above. */
+.text-xs { font-size: var(--font-xs); }   /* 11px */
+.text-sm { font-size: var(--font-sm); }   /* 12px */
+.text-md { font-size: var(--font-md); }   /* 13px */
+.text-lg { font-size: var(--font-lg); }   /* 14px */
+
+.font-normal { font-weight: 400; }
+.font-medium { font-weight: 500; }
+.font-semibold { font-weight: 600; }
+.font-bold { font-weight: 700; }
+
 .mt-1 { margin-top: 8px; }
 .mt-2 { margin-top: 16px; }
 .mt-3 { margin-top: 24px; }
 .mb-1 { margin-bottom: 8px; }
 .mb-2 { margin-bottom: 16px; }
+.ml-auto { margin-left: auto; }
+.mr-auto { margin-right: auto; }
+
+.gap-1 { gap: 8px; }
 .gap-2 { gap: 16px; }
+.gap-3 { gap: 24px; }
 .flex { display: flex; }
 .flex-col { flex-direction: column; }
+.flex-1 { flex: 1; }
+.flex-wrap { flex-wrap: wrap; }
 .items-center { align-items: center; }
+.items-start { align-items: flex-start; }
+.items-end { align-items: flex-end; }
 .justify-between { justify-content: space-between; }
+.justify-end { justify-content: flex-end; }
+.justify-center { justify-content: center; }
+
+.w-full { width: 100%; }
+.col-span-2 { grid-column: span 2; }
 
 /* ── Toast notifications ─────────────────────────────────────────────────── */
 

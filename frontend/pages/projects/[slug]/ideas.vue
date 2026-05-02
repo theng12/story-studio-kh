@@ -16,6 +16,10 @@
     <!-- Generator -->
     <div class="generator-panel mt-3">
       <h3 class="generator-title">Generate New Ideas</h3>
+      <p class="text-muted text-sm generator-blurb">
+        Pick the audience and a few flavour fields, hit <strong>Generate Ideas</strong>, and the LLM returns a short list of episode candidates.
+        Use <strong>🎲 Randomize</strong> to fill the form from your existing pools, or <strong>📋 Paste from LLM</strong> if you already prompted one elsewhere.
+      </p>
       <div class="generator-body">
         <div class="grid-2">
           <div class="form-group">
@@ -41,7 +45,7 @@
           </div>
         </div>
         <div class="grid-3">
-          <div class="form-group" style="grid-column: span 2;">
+          <div class="form-group col-span-2">
             <label>Keywords</label>
             <ChipInput v-model="form.keywords" :suggestions="allKeywords" placeholder="Pick from common keywords or type to add…" allow-custom :max="12" @add-custom="onAddKeyword" />
           </div>
@@ -253,7 +257,7 @@
                   <p class="expand-logline">{{ idea.logline }}</p>
                   <div class="expand-tags">
                     <span v-for="t in idea.themes" :key="t" class="idea-tag">{{ t }}</span>
-                    <span class="text-muted" style="font-size:11px">Model: {{ idea.model_used }}</span>
+                    <span class="text-muted text-xs">Model: {{ idea.model_used }}</span>
                   </div>
                 </div>
               </td>
@@ -337,19 +341,17 @@
       </div>
       <div class="accept-options mt-3">
         <button
-          class="btn btn-secondary btn-lg"
-          style="flex:1"
+          class="btn btn-secondary btn-lg flex-1"
           :disabled="!acceptCodeValid"
           @click="doAccept('folders')"
         >Create Folders Only</button>
         <button
-          class="btn btn-primary btn-lg"
-          style="flex:1"
+          class="btn btn-primary btn-lg flex-1"
           :disabled="!acceptCodeValid"
           @click="doAccept('script')"
         >Folders &amp; Open Script</button>
       </div>
-      <button class="btn btn-sm btn-secondary mt-2" style="width:100%" @click="acceptDialogIdea = null">Cancel</button>
+      <button class="btn btn-sm btn-secondary mt-2 w-full" @click="acceptDialogIdea = null">Cancel</button>
     </Modal>
 
     <!-- Renumber dialog (per-episode rename) -->
@@ -395,15 +397,14 @@
       </div>
       <div class="accept-options mt-3">
         <button
-          class="btn btn-primary btn-lg"
-          style="flex:1"
+          class="btn btn-primary btn-lg flex-1"
           :disabled="!renumberValid || renumberRunning"
           @click="doRenumber"
         >
           {{ renumberRunning ? 'Renumbering…' : 'Renumber' }}
         </button>
       </div>
-      <button class="btn btn-sm btn-secondary mt-2" style="width:100%" @click="renumberDialogIdea = null">Cancel</button>
+      <button class="btn btn-sm btn-secondary mt-2 w-full" @click="renumberDialogIdea = null">Cancel</button>
     </Modal>
 
     <!-- Import Episode Folder modal -->
@@ -429,12 +430,12 @@
           </label>
         </div>
 
-        <p v-if="importMode === 'single'" class="text-muted mt-2" style="font-size: 13px;">
+        <p v-if="importMode === 'single'" class="text-muted text-md mt-2">
           Pick an existing folder named like <code>EP0009 - The Luminous Grove at Dawn</code>.
           We'll detect what's inside, add any missing subfolders, and register it as an accepted episode
           so it can flow through the pipeline.
         </p>
-        <p v-else class="text-muted mt-2" style="font-size: 13px;">
+        <p v-else class="text-muted text-md mt-2">
           Pick a <strong>parent</strong> folder — we'll list every immediate subfolder so you can
           tick which to import. Codes are auto-resolved (keep parsed if free, else next available).
           Use single-folder mode if you need to override per-folder.
@@ -443,7 +444,7 @@
         <!-- Single-folder mode -->
         <template v-if="importMode === 'single'">
         <div class="flex gap-2 mt-2">
-          <input v-model="importPath" class="input" placeholder="Path to episode folder" style="flex:1" />
+          <input v-model="importPath" class="input flex-1" placeholder="Path to episode folder" />
           <button class="btn btn-sm btn-secondary" @click="browseImportFolder">Browse…</button>
           <button class="btn btn-sm btn-secondary" :disabled="!importPath || inspecting" @click="doInspect">
             {{ inspecting ? 'Inspecting…' : 'Inspect' }}
@@ -498,7 +499,7 @@
             <div v-for="c in inspectResult.conflicts" :key="c" class="conflict-item">⚠ {{ c }}</div>
           </div>
 
-          <h4 class="mt-2" style="font-size: 13px;">Detected assets</h4>
+          <h4 class="mt-2 text-md">Detected assets</h4>
           <div class="asset-grid">
             <div v-for="(bucket, key) in assetLabels" :key="key" class="asset-cell">
               <span class="asset-check">{{ inspectResult.assets[key] ? '✓' : '·' }}</span>
@@ -512,7 +513,7 @@
             <code>{{ inspectResult.missing_subfolders.slice(0, 3).join(', ') }}{{ inspectResult.missing_subfolders.length > 3 ? '…' : '' }}</code>
           </div>
 
-          <label class="flex gap-2 mt-2" style="align-items: center; font-size: 12px;">
+          <label class="flex gap-2 mt-2 items-center text-sm">
             <input type="checkbox" v-model="importCopy" />
             <span>
               <strong>Keep originals</strong> — copy files into the project (recommended).
@@ -540,14 +541,14 @@
         <!-- Parent-folder mode -->
         <template v-else>
           <div class="flex gap-2 mt-2">
-            <input v-model="parentPath" class="input" placeholder="Path to parent folder" style="flex:1" :disabled="parentImporting" />
+            <input v-model="parentPath" class="input flex-1" placeholder="Path to parent folder" :disabled="parentImporting" />
             <button class="btn btn-sm btn-secondary" :disabled="parentImporting" @click="browseParentFolder">Browse…</button>
             <button class="btn btn-sm btn-secondary" :disabled="!parentPath || parentScanning || parentImporting" @click="scanParentSubfolders">
               {{ parentScanning ? 'Scanning…' : 'Scan' }}
             </button>
           </div>
 
-          <label class="flex gap-2 mt-2" style="align-items: center; font-size: 12px;">
+          <label class="flex gap-2 mt-2 items-center text-sm">
             <input type="checkbox" v-model="importCopy" :disabled="parentImporting" />
             <span>
               <strong>Keep originals</strong> — copy files into the project (recommended).
@@ -579,12 +580,12 @@
               </label>
             </div>
           </div>
-          <p v-else-if="parentPath && !parentScanning" class="text-muted mt-2" style="font-size: 12px;">
+          <p v-else-if="parentPath && !parentScanning" class="text-muted text-sm mt-2">
             No subfolders here yet. Click <em>Scan</em> after picking a parent.
           </p>
         </template>
 
-        <div class="flex gap-2 mt-3" style="justify-content: flex-end;">
+        <div class="flex gap-2 mt-3 justify-end">
           <button class="btn btn-secondary" :disabled="parentImporting" @click="importOpen = false">
             {{ parentImporting ? 'Close after finish' : 'Cancel' }}
           </button>
@@ -628,15 +629,15 @@
     <div v-if="pasteOpen" class="modal-overlay" @click.self="pasteOpen = false">
       <div class="modal" style="max-width: 760px;">
         <h2>Paste Ideas from LLM</h2>
-        <p class="text-muted mt-1" style="font-size: 13px;">
+        <p class="text-muted text-md mt-1">
           Copy the prompt below into ChatGPT, Claude, or any LLM. Paste the JSON array it produces into the box below and click <strong>Preview</strong>.
         </p>
 
         <!-- Pane 1: Preset prompt -->
         <div class="mt-2">
-          <div class="flex gap-2" style="align-items: center;">
-            <label style="font-size: 12px; font-weight: 600;">1. Preset prompt</label>
-            <button class="btn btn-sm btn-secondary" style="margin-left:auto;" :disabled="!pastePrompt" @click="copyPastePrompt">
+          <div class="flex gap-2 items-center">
+            <label class="text-sm font-semibold">1. Preset prompt</label>
+            <button class="btn btn-sm btn-secondary ml-auto" :disabled="!pastePrompt" @click="copyPastePrompt">
               {{ pastePromptCopied ? '✓ Copied' : 'Copy Prompt' }}
             </button>
           </div>
@@ -668,18 +669,18 @@
 
         <!-- Pane 2: Paste box -->
         <div class="mt-2">
-          <label style="font-size: 12px; font-weight: 600;">2. Paste the JSON array your LLM produced</label>
+          <label class="text-sm font-semibold">2. Paste the JSON array your LLM produced</label>
           <textarea
             v-model="pasteInput"
             class="textarea paste-input-box"
             rows="8"
             placeholder='[&#10;  { "title": "...", "logline": "...", "themes": [...], "suggested_chapters": 10, "suggested_length": "45 min", "mood": "..." }&#10;]'
           />
-          <div class="flex gap-2 mt-1" style="align-items: center;">
+          <div class="flex gap-2 mt-1 items-center">
             <button class="btn btn-sm btn-primary" :disabled="!pasteInput.trim() || pastePreviewing" @click="doPastePreview">
               {{ pastePreviewing ? 'Previewing…' : 'Preview' }}
             </button>
-            <span v-if="pastePreviewError" class="text-muted" style="color: var(--danger); font-size: 12px;">
+            <span v-if="pastePreviewError" class="text-danger text-sm">
               {{ pastePreviewError }}
             </span>
           </div>
@@ -687,34 +688,34 @@
 
         <!-- Pane 3: Preview table -->
         <div v-if="pastePreviewValid.length || pastePreviewRejected.length" class="mt-3">
-          <label style="font-size: 12px; font-weight: 600;">
+          <label class="text-sm font-semibold">
             3. Preview — {{ pastePreviewValid.length }} ready to import{{ pastePreviewRejected.length ? `, ${pastePreviewRejected.length} rejected` : '' }}
           </label>
           <div v-if="pastePreviewValid.length" class="paste-preview-table mt-1">
             <div class="paste-preview-row paste-preview-header">
-              <span style="min-width: 24px"></span>
-              <span style="flex: 1.5">Title</span>
-              <span style="flex: 2">Logline</span>
-              <span style="flex: 1">Themes</span>
-              <span style="width: 70px">Chapters</span>
-              <span style="width: 80px">Length</span>
-              <span style="flex: 1">Mood</span>
-              <span style="width: 28px"></span>
+              <span class="ppr-num"></span>
+              <span class="ppr-title">Title</span>
+              <span class="ppr-logline">Logline</span>
+              <span class="ppr-themes">Themes</span>
+              <span class="ppr-chapters">Chapters</span>
+              <span class="ppr-length">Length</span>
+              <span class="ppr-mood">Mood</span>
+              <span class="ppr-remove"></span>
             </div>
             <div v-for="(row, i) in pastePreviewValid" :key="`v-${i}`" class="paste-preview-row">
-              <span style="min-width: 24px; color: var(--text-muted); font-size: 11px;">{{ i + 1 }}</span>
-              <span style="flex: 1.5; font-weight: 600;">{{ row.title }}</span>
-              <span style="flex: 2; font-size: 12px;">{{ row.logline }}</span>
-              <span style="flex: 1; font-size: 12px;">{{ row.themes.join(', ') }}</span>
-              <span style="width: 70px; text-align: center;">{{ row.suggested_chapters }}</span>
-              <span style="width: 80px; font-size: 12px;">{{ row.suggested_length }}</span>
-              <span style="flex: 1; font-size: 12px;">{{ row.mood }}</span>
-              <button class="btn-icon" style="width: 28px;" @click="pastePreviewValid.splice(i, 1)" title="Remove this row">✕</button>
+              <span class="ppr-num">{{ i + 1 }}</span>
+              <span class="ppr-title">{{ row.title }}</span>
+              <span class="ppr-logline">{{ row.logline }}</span>
+              <span class="ppr-themes">{{ row.themes.join(', ') }}</span>
+              <span class="ppr-chapters">{{ row.suggested_chapters }}</span>
+              <span class="ppr-length">{{ row.suggested_length }}</span>
+              <span class="ppr-mood">{{ row.mood }}</span>
+              <button class="btn-icon ppr-remove" @click="pastePreviewValid.splice(i, 1)" title="Remove this row">✕</button>
             </div>
           </div>
 
           <div v-if="pastePreviewRejected.length" class="paste-rejected mt-2">
-            <div style="font-size: 12px; font-weight: 600; color: var(--danger);">
+            <div class="text-sm font-semibold text-danger">
               Rejected rows ({{ pastePreviewRejected.length }}) — fix the LLM output and re-preview, or ignore and import the rest:
             </div>
             <div v-for="rej in pastePreviewRejected" :key="rej.index" class="paste-rejected-row">
@@ -725,7 +726,7 @@
           </div>
         </div>
 
-        <div class="flex gap-2 mt-3" style="justify-content: flex-end;">
+        <div class="flex gap-2 mt-3 justify-end">
           <button class="btn btn-secondary" @click="pasteOpen = false">Cancel</button>
           <button
             class="btn btn-primary"
@@ -742,7 +743,7 @@
     <div v-if="editorOpen" class="modal-overlay" @click.self="editorOpen = false">
       <div class="modal" style="max-width: 560px;">
         <h2>{{ editorMode === 'add' ? 'Add Idea' : 'Edit Idea' }}</h2>
-        <p v-if="editorMode === 'edit' && editorIdea?.status === 'accepted'" class="text-muted mt-1" style="font-size: 12px;">
+        <p v-if="editorMode === 'edit' && editorIdea?.status === 'accepted'" class="text-muted text-sm mt-1">
           This idea is already accepted — editing won't rename the episode folder.
         </p>
         <div class="form-group mt-2">
@@ -779,7 +780,7 @@
             </datalist>
           </div>
         </div>
-        <div class="flex gap-2 mt-3" style="justify-content: flex-end;">
+        <div class="flex gap-2 mt-3 justify-end">
           <button class="btn btn-secondary" @click="editorOpen = false">Cancel</button>
           <button class="btn btn-primary" :disabled="!editorForm.title.trim() || editorSaving" @click="saveEditor">
             {{ editorSaving ? 'Saving…' : (editorMode === 'add' ? 'Add Idea' : 'Save Changes') }}
@@ -805,7 +806,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'dashboard' })
-useHead({ title: "Ideas — Story Studio KH" })
+useAppTitle('Ideas')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, del, patch } = useApi()
@@ -1855,7 +1856,8 @@ onMounted(loadIdeas)
 <style scoped>
 /* Generator panel */
 .generator-panel { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px 20px; }
-.generator-title { margin: 0 0 12px; }
+.generator-title { margin: 0 0 4px; }
+.generator-blurb { margin: 0 0 12px; }
 .generator-body { display: flex; flex-direction: column; gap: 12px; }
 .generator-actions { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 10px; }
 .generator-actions-primary { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -2223,6 +2225,27 @@ onMounted(loadIdeas)
   letter-spacing: 0.02em;
   position: sticky;
   top: 0;
+}
+/* Paste-preview column shape — matches the per-row layout. */
+.paste-preview-row .ppr-num      { min-width: 24px; color: var(--text-muted); font-size: 11px; }
+.paste-preview-row .ppr-title    { flex: 1.5; font-weight: 600; }
+.paste-preview-row .ppr-logline  { flex: 2; }
+.paste-preview-row .ppr-themes   { flex: 1; }
+.paste-preview-row .ppr-chapters { width: 70px; text-align: center; }
+.paste-preview-row .ppr-length   { width: 80px; }
+.paste-preview-row .ppr-mood     { flex: 1; }
+.paste-preview-row .ppr-remove   { width: 28px; }
+/* In header row: the title-column override above (font-weight 600) shouldn't
+   stack on top of the header's own font-weight; keep it clean. */
+.paste-preview-header .ppr-num,
+.paste-preview-header .ppr-title,
+.paste-preview-header .ppr-logline,
+.paste-preview-header .ppr-themes,
+.paste-preview-header .ppr-chapters,
+.paste-preview-header .ppr-length,
+.paste-preview-header .ppr-mood {
+  font-weight: 600;
+  color: var(--text-muted);
 }
 .paste-rejected {
   padding: 8px 10px;

@@ -94,7 +94,7 @@ import { ref, computed, watch } from 'vue'
 import type { Character } from '../composables/useCharacters.js'
 
 definePageMeta({ layout: 'dashboard' })
-useHead({ title: 'Character Library — Story Studio KH' })
+useAppTitle('Character Library')
 
 const cl = useCharacterLibrary()
 const { get } = useApi()

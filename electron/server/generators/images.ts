@@ -236,6 +236,12 @@ export async function generateImages(job: Job): Promise<void> {
   const cast = await cm.listCharacters(project_slug, { episodeCode: episode_id })
     .catch(() => [] as Character[])
   const castWithRefs = cast.filter(c => c.references?.images?.length)
+  // Phase 8b (2026-05-03) — characters can also carry persistent style
+  // keywords ("cel-shaded", "photoreal", etc.) appended to any prompt
+  // that mentions them. Separate set from `castWithRefs` because a
+  // character can have keywords without uploading a reference image
+  // (and vice versa). Both pools feed the same name-match function below.
+  const castWithStyle = cast.filter(c => (c.references?.style_keywords?.length ?? 0) > 0)
   if (castWithRefs.length) {
     const supports = providerParams?.supports_reference_images === true
     const note = supports
@@ -243,6 +249,11 @@ export async function generateImages(job: Job): Promise<void> {
       : `model '${modelName}' does NOT support references — they'll be ignored (use Flux Kontext or Nano Banana for reference-driven gen)`
     job.output_lines.push(
       `Cast with reference images: ${castWithRefs.map(c => c.name).join(', ')} — ${note}`,
+    )
+  }
+  if (castWithStyle.length) {
+    job.output_lines.push(
+      `Cast with style keywords: ${castWithStyle.map(c => `${c.name} (${(c.references!.style_keywords || []).join(', ')})`).join('; ')} — appended to prompts when these characters appear`,
     )
   }
 
@@ -273,6 +284,45 @@ export async function generateImages(job: Job): Promise<void> {
       }
     }
     return out
+  }
+
+  /**
+   * Phase 8b — collect every style keyword from characters whose names
+   * appear in the prompt. De-duped + lowercase-trimmed so "Cel-shaded"
+   * vs "cel-shaded" doesn't end up in the prompt twice. Returns [] when
+   * no characters match or no characters have keywords. The caller
+   * appends these to the prompt sent to the provider so the visual
+   * style stays consistent across episodes when a character recurs.
+   */
+  function resolveSceneStyleKeywords(promptText: string): string[] {
+    const matched = findReferencedCharacters(promptText, castWithStyle)
+    if (!matched.length) return []
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const c of matched) {
+      for (const kw of (c.references!.style_keywords || [])) {
+        const norm = kw.trim()
+        if (!norm) continue
+        const key = norm.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push(norm)
+      }
+    }
+    return out
+  }
+
+  /**
+   * Append matched-character style keywords to a prompt. Keywords land
+   * after the user's prompt as a `, kw1, kw2, kw3` clause — image-gen
+   * models read trailing comma-separated keywords as style modifiers,
+   * which is the format every kie.ai / fal model in our catalog expects.
+   * Returns the original prompt unchanged when no keywords matched.
+   */
+  function applyStyleKeywords(promptText: string, keywords: string[]): string {
+    if (!keywords.length) return promptText
+    const trimmed = promptText.replace(/[\s,]+$/, '')
+    return `${trimmed}, ${keywords.join(', ')}`
   }
 
   const aspectRatio = req.aspect_ratio || '16:9'
@@ -347,8 +397,10 @@ export async function generateImages(job: Job): Promise<void> {
     }
     try {
       const referenceImagePaths = resolveSceneReferenceImages(scene.prompt)
+      const styleKeywords = resolveSceneStyleKeywords(scene.prompt)
+      const finalPrompt = applyStyleKeywords(scene.prompt, styleKeywords)
       const result = await imageProvider!.generateImage({
-        prompt: scene.prompt, apiKey, aspectRatio, modelId: modelName, providerParams,
+        prompt: finalPrompt, apiKey, aspectRatio, modelId: modelName, providerParams,
         referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
         isCancelled: () => jq.isCancelled(job.job_id),
       })
@@ -418,10 +470,14 @@ export async function generateImages(job: Job): Promise<void> {
     try {
       // Thumbnail prompts also reference characters — use the original
       // (un-enhanced) prompt for matching so the title overlay text doesn't
-      // confuse the name detector.
+      // confuse the name detector. Style keywords get appended to the
+      // already-enhanced prompt so they ride alongside the title overlay
+      // instructions, not before them.
       const referenceImagePaths = resolveSceneReferenceImages(thumb.prompt)
+      const styleKeywords = resolveSceneStyleKeywords(thumb.prompt)
+      const finalPrompt = applyStyleKeywords(enhanced, styleKeywords)
       const result = await imageProvider!.generateImage({
-        prompt: enhanced, apiKey, aspectRatio, modelId: modelName, providerParams,
+        prompt: finalPrompt, apiKey, aspectRatio, modelId: modelName, providerParams,
         referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
         isCancelled: () => jq.isCancelled(job.job_id),
       })

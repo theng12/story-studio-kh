@@ -10,6 +10,7 @@
 import '../providers/image/kie.js'
 import '../providers/audio/fal.js'
 import '../providers/audio/genaipro.js'
+import '../providers/audio/chatterbox.js'
 import '../providers/video/genaipro-veo.js'
 import '../providers/video/fal.js'
 import '../providers/video/kie.js'

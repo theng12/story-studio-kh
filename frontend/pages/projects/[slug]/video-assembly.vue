@@ -60,7 +60,7 @@
                the operator's next move is "fix the backend / re-run the
                check", not "click Install FFmpeg". -->
           <span class="badge badge-warn" :title="ffmpegStatus.check_error">FFmpeg check failed</span>
-          <button class="btn btn-sm btn-secondary" style="margin-left: 8px;" @click="checkFfmpeg">Retry check</button>
+          <button class="btn btn-sm btn-secondary ml-2-tight" @click="checkFfmpeg">Retry check</button>
         </template>
         <template v-else>
           <span class="badge badge-error">FFmpeg not found</span>
@@ -68,7 +68,7 @@
                (xfade, encode, vignette, etc). When missing, route the
                user straight to Settings → FFmpeg where the one-click
                installer lives. -->
-          <NuxtLink :to="`/projects/${slug}/settings#ffmpeg`" class="btn btn-sm btn-primary" style="margin-left: 8px;">
+          <NuxtLink :to="`/projects/${slug}/settings#ffmpeg`" class="btn btn-sm btn-primary ml-2-tight">
             Install FFmpeg →
           </NuxtLink>
         </template>
@@ -76,7 +76,7 @@
         <span v-if="ffmpegStatus.installed && !ffmpegStatus.has_drawtext" class="badge badge-warn">Text overlays unavailable</span>
       </div>
       <div v-if="ffmpegStatus?.check_error" class="ffmpeg-warning mt-1">
-        <p class="text-muted" style="font-size: 13px;">
+        <p class="text-muted text-md">
           We couldn't determine FFmpeg's status: <code>{{ ffmpegStatus.check_error }}</code>.
           This is different from "not installed" — likely the backend is unreachable, the
           binary isn't executable, or detection hit a permissions error. Try the
@@ -85,19 +85,19 @@
         </p>
       </div>
       <div v-else-if="ffmpegStatus && !ffmpegStatus.installed" class="ffmpeg-warning mt-1">
-        <p class="text-muted" style="font-size: 13px;">
+        <p class="text-muted text-md">
           FFmpeg is required to assemble videos. Use the
           <NuxtLink :to="`/projects/${slug}/settings#ffmpeg`" class="ffmpeg-inline-link">one-click installer in Settings</NuxtLink>,
           or install manually with <code>brew install ffmpeg</code>.
         </p>
       </div>
       <div v-if="ffmpegStatus?.installed && !ffmpegStatus?.has_drawtext" class="ffmpeg-warning mt-1">
-        <p class="text-muted" style="font-size: 13px;">
+        <p class="text-muted text-md">
           Text overlays (title cards, chapter titles) require the <code>drawtext</code> filter. The
           <NuxtLink :to="`/projects/${slug}/settings#ffmpeg`" class="ffmpeg-inline-link">bundled FFmpeg</NuxtLink>
           in Settings includes drawtext + libass — re-installing from there usually fixes this.
         </p>
-        <p class="text-muted" style="font-size: 12px; margin-top: 4px;">
+        <p class="text-muted text-sm hint-line">
           Videos will still generate without text — just the black/colored cards without the text overlay.
         </p>
       </div>
@@ -123,7 +123,7 @@
               {{ img.number || Number(i) + 1 }}
             </div>
           </div>
-          <p v-else class="text-muted" style="font-size: 13px;">No scene images found</p>
+          <p v-else class="text-muted text-md">No scene images found</p>
         </div>
 
         <!-- Thumbnails -->
@@ -145,14 +145,14 @@
         <div class="asset-section mt-2">
           <label>Merged Audio</label>
           <div v-if="hasMergedAudio" class="merged-audio-row">
-            <span class="badge badge-success" style="margin-right: 8px;">✓ Ready</span>
-            <span class="audio-name" style="flex:1">{{ scannedAssets.merged_audio[0].filename }}</span>
-            <span class="text-muted" style="font-size: 12px;">{{ formatDuration(scannedAssets.merged_audio[0].duration) }}</span>
+            <span class="badge badge-success mr-2-tight">✓ Ready</span>
+            <span class="audio-name flex-1">{{ scannedAssets.merged_audio[0].filename }}</span>
+            <span class="text-muted text-sm">{{ formatDuration(scannedAssets.merged_audio[0].duration) }}</span>
           </div>
           <div v-else class="validation-msg">
             No merged audio file found. Run the <strong>Audio Assembly</strong> step first to produce a single merged track.
           </div>
-          <p v-if="scannedAssets.skip_chapters" class="text-muted" style="font-size: 11px; margin-top: 4px;">
+          <p v-if="scannedAssets.skip_chapters" class="text-muted text-xs hint-line">
             Individual chapter/intro audio files are ignored — the merged track is authoritative.
           </p>
         </div>
@@ -163,10 +163,10 @@
           <div class="audio-list mt-1">
             <div v-for="(v, i) in scannedAssets.rendered_videos" :key="i" class="audio-item">
               <span class="audio-name">{{ v.filename }}</span>
-              <span class="text-muted" style="font-size: 12px;">{{ formatRelativeTime(v.mtime) }}</span>
+              <span class="text-muted text-sm">{{ formatRelativeTime(v.mtime) }}</span>
             </div>
           </div>
-          <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+          <p class="text-muted text-xs hint-line">
             Re-running assembly will produce a new versioned file — it will not overwrite these.
           </p>
         </div>
@@ -203,7 +203,7 @@
 
       <!-- Intro Video -->
       <div class="settings-section mt-2">
-        <div class="flex gap-2" style="align-items: center;">
+        <div class="flex gap-2 items-center">
           <label class="checkbox-label" @click.stop>
             <input type="checkbox" v-model="intro.enabled" />
           </label>
@@ -212,7 +212,7 @@
 
         <div v-if="intro.enabled" class="mt-2">
           <div class="form-group">
-            <label>Intro Video Path <span class="text-muted" style="font-size: 11px;">(.mp4, .mov, .mkv, .webm)</span></label>
+            <label>Intro Video Path <span class="text-muted text-xs">(.mp4, .mov, .mkv, .webm)</span></label>
             <FilePicker
               v-model="intro.video_path"
               placeholder="Path to intro video file"
@@ -226,13 +226,13 @@
             <input type="checkbox" v-model="intro.save_as_default" />
             Set as project default
           </label>
-          <p class="text-muted mt-1" style="font-size: 12px;">The intro video will play before the title image and scenes</p>
+          <p class="text-muted text-sm mt-1">The intro video will play before the title image and scenes</p>
         </div>
       </div>
 
       <!-- Outro Video -->
       <div class="settings-section mt-2">
-        <div class="flex gap-2" style="align-items: center;">
+        <div class="flex gap-2 items-center">
           <label class="checkbox-label" @click.stop>
             <input type="checkbox" v-model="outro.enabled" />
           </label>
@@ -241,7 +241,7 @@
 
         <div v-if="outro.enabled" class="mt-2">
           <div class="form-group">
-            <label>Outro Video Path <span class="text-muted" style="font-size: 11px;">(.mp4, .mov, .mkv, .webm)</span></label>
+            <label>Outro Video Path <span class="text-muted text-xs">(.mp4, .mov, .mkv, .webm)</span></label>
             <FilePicker
               v-model="outro.video_path"
               placeholder="Path to outro video file"
@@ -251,7 +251,7 @@
               clearable
             />
           </div>
-          <p class="text-muted mt-1" style="font-size: 12px;">
+          <p class="text-muted text-sm mt-1">
             The outro clip plays at the very end — after the post-audio tail. It never receives
             effects (no colour grading, vignette, or grain), so a pre-made black-screen or
             branded clip slots in cleanly without bloating file size.
@@ -261,30 +261,29 @@
 
       <!-- Timeline clips (user-supplied, multi-position) -->
       <div class="settings-section mt-2">
-        <div class="flex gap-2" style="align-items: center; justify-content: space-between;">
-          <h4 style="margin:0">Timeline Clips</h4>
+        <div class="flex gap-2 items-center justify-between">
+          <h4 class="m-0">Timeline Clips</h4>
           <button class="btn btn-sm btn-secondary" @click="addTimelineClip">+ Add clip</button>
         </div>
-        <p class="text-muted mt-1" style="font-size: 12px;">
+        <p class="text-muted text-sm mt-1">
           Insert your own video clips at named positions in the final render — sponsor stings, credits,
           black-screen padding, etc. Clips play in the order shown within each anchor. They're always
           effect-free (no colour grade, vignette, or grain) and don't go through the scene transitions.
           Use <strong>After outro (very end)</strong> for sleep-story black screens so the channel
           "dark room" stays uninterrupted.
         </p>
-        <div v-if="!timelineClips.length" class="text-muted mt-1" style="font-size: 12px; font-style: italic;">
+        <div v-if="!timelineClips.length" class="text-muted text-sm mt-1 italic-empty">
           No timeline clips yet. Use the button above to add one.
         </div>
         <div v-for="(clip, i) in timelineClips" :key="clip.id" class="timeline-clip-row mt-2">
-          <div class="flex gap-2" style="align-items: center; margin-bottom: 6px;">
-            <span class="text-muted" style="font-size: 11px; min-width: 28px;">#{{ i + 1 }}</span>
-            <label class="checkbox-label" style="margin:0" :title="clip.enabled ? 'Click to disable this clip' : 'Click to enable this clip'">
+          <div class="flex gap-2 items-center timeline-clip-header">
+            <span class="text-muted text-xs timeline-clip-num">#{{ i + 1 }}</span>
+            <label class="checkbox-label m-0" :title="clip.enabled ? 'Click to disable this clip' : 'Click to enable this clip'">
               <input type="checkbox" v-model="clip.enabled" />
             </label>
             <select
               :value="clip.kind || 'video'"
-              class="select select-sm"
-              style="max-width: 180px;"
+              class="select select-sm timeline-kind-select"
               :title="TIMELINE_KIND_OPTIONS.find(o => o.value === (clip.kind || 'video'))?.hint"
               @change="setTimelineClipKind(clip.id, ($event.target as HTMLSelectElement).value as TimelineClipKind)"
             >
@@ -292,12 +291,12 @@
                 {{ opt.label }}
               </option>
             </select>
-            <select v-model="clip.anchor" class="select select-sm" style="max-width: 220px;" :title="TIMELINE_ANCHOR_OPTIONS.find(o => o.value === clip.anchor)?.hint">
+            <select v-model="clip.anchor" class="select select-sm timeline-anchor-select" :title="TIMELINE_ANCHOR_OPTIONS.find(o => o.value === clip.anchor)?.hint">
               <option v-for="opt in TIMELINE_ANCHOR_OPTIONS" :key="opt.value" :value="opt.value">
                 {{ opt.label }}
               </option>
             </select>
-            <div class="flex gap-1" style="margin-left:auto;">
+            <div class="flex gap-1 ml-auto">
               <button class="btn btn-sm btn-secondary" :disabled="i === 0" @click="moveTimelineClip(clip.id, -1)" title="Move up">▲</button>
               <button class="btn btn-sm btn-secondary" :disabled="i === timelineClips.length - 1" @click="moveTimelineClip(clip.id, 1)" title="Move down">▼</button>
               <button class="btn btn-sm btn-danger" @click="removeTimelineClip(clip.id)" title="Remove this clip">✕</button>
@@ -327,28 +326,27 @@
               :aria-label="`Timeline clip ${i + 1} image path`"
               clearable
             />
-            <div class="flex gap-2 mt-1" style="align-items: center;">
-              <label style="font-size: 12px; color: var(--text-muted);">Duration (min)</label>
+            <div class="flex gap-2 mt-1 items-center">
+              <label class="dim-inline-label">Duration (min)</label>
               <input
                 type="number"
-                class="input input-sm"
-                style="max-width: 100px;"
+                class="input input-sm input-w-100"
                 min="0.1"
                 step="0.5"
                 :value="clipDurationMinutes(clip as TimelineClipStatic)"
                 @input="setClipDurationMinutes(clip as TimelineClipStatic, parseFloat(($event.target as HTMLInputElement).value))"
               />
-              <span class="text-muted" style="font-size: 11px;">
+              <span class="text-muted text-xs">
                 = {{ ((clip as TimelineClipStatic).duration_sec || 0).toFixed(0) }}s
               </span>
             </div>
-            <p class="text-muted mt-1" style="font-size: 11px;">
+            <p class="text-muted text-xs mt-1">
               Static segment — pipeline synthesises this from the single image at the project's resolution + fps.
               Audio (background music / ambient noise) comes from the Music tab in Step 4 and loops automatically across this duration.
             </p>
           </template>
 
-          <p class="text-muted mt-1" style="font-size: 11px;">
+          <p class="text-muted text-xs mt-1">
             {{ TIMELINE_ANCHOR_OPTIONS.find(o => o.value === clip.anchor)?.hint }}
           </p>
         </div>
@@ -379,7 +377,7 @@
 
       <!-- Title Image -->
       <div class="settings-section mt-2">
-        <div class="flex gap-2" style="align-items: center;">
+        <div class="flex gap-2 items-center">
           <label class="checkbox-label" @click.stop>
             <input type="checkbox" v-model="titleImage.enabled" />
           </label>
@@ -418,8 +416,8 @@
 
           <!-- Title Image Preview -->
           <div v-if="titleImage.enabled && titleImage.image_path" class="title-image-preview mt-2">
-            <div class="flex gap-2" style="align-items: center; justify-content: space-between; flex-wrap: wrap;">
-              <label style="font-size: 13px; font-weight: 600; color: var(--text-secondary);">Preview</label>
+            <div class="flex gap-2 items-center justify-between flex-wrap">
+              <label class="sub-section-label">Preview</label>
               <button
                 type="button"
                 class="btn btn-sm btn-secondary"
@@ -432,14 +430,14 @@
             <div class="preview-frame mt-1">
               <img :src="getImagePreviewUrl(titleImage.image_path)" alt="Title image preview" class="preview-img" />
             </div>
-            <p class="text-muted" style="font-size: 11px; margin-top: 4px;">This image will display for {{ titleImage.duration }}s before scenes begin</p>
+            <p class="text-muted text-xs hint-line">This image will display for {{ titleImage.duration }}s before scenes begin</p>
           </div>
 
           <div class="grid-3 mt-1">
             <div class="form-group">
               <label>Duration ({{ titleImage.duration }}s)</label>
               <SliderWithNumber v-model="titleImage.duration" :min="1" :max="15" :step="1" suffix="s" />
-              <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+              <p class="text-muted text-xs hint-line">
                 Adds {{ titleImage.duration }}s to the total runtime. Typical sleep-story range: 3–5s.
               </p>
             </div>
@@ -457,13 +455,13 @@
             </div>
             <div class="form-group">
               <label>Transition Duration ({{ titleImage.transition_duration || transition.duration }}s)</label>
-              <input
-                v-model.number="titleImage.transition_duration"
-                type="range"
-                min="0.5"
-                max="3.0"
-                step="0.1"
-                class="slider"
+              <SliderWithNumber
+                v-model="titleImage.transition_duration"
+                :min="0.5"
+                :max="3.0"
+                :step="0.1"
+                :decimals="1"
+                suffix="s"
                 :disabled="titleImage.transition_type === 'none'"
               />
             </div>
@@ -474,7 +472,7 @@
       <!-- Scene Recycling -->
       <div class="settings-section mt-2">
         <h4>Scene Recycling</h4>
-        <p class="text-muted" style="font-size: 12px; margin-top: 4px;">
+        <p class="text-muted text-sm hint-line">
           Scenes cycle through in order, repeating until the audio finishes. Video length is fixed by the narration —
           recycling only affects <em>pacing</em>: fewer seconds per scene = faster cuts, more seconds = slower pacing.
           Excluded scenes are skipped entirely.
@@ -483,8 +481,8 @@
         <div class="grid-2 mt-2">
           <div class="form-group">
             <label>Seconds Per Scene</label>
-            <input v-model.number="sceneRecycling.seconds_per_scene" type="number" min="1" max="60" class="input input-sm" style="width: 80px;" />
-            <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+            <input v-model.number="sceneRecycling.seconds_per_scene" type="number" min="1" max="60" class="input input-sm input-w-80" />
+            <p class="text-muted text-xs hint-line">
               Sleep-story default 20–40s. Shorter is more energetic; longer keeps the viewer settled.
             </p>
           </div>
@@ -493,7 +491,7 @@
               <input type="checkbox" v-model="sceneRecycling.shuffle" />
               Shuffle scene order on each cycle
             </label>
-            <p class="text-muted" style="font-size: 11px; margin-top: 2px;">
+            <p class="text-muted text-xs hint-line-tight">
               Off = scenes play in numerical order. On = random order per cycle, reduces repetition feeling.
             </p>
           </div>
@@ -501,8 +499,8 @@
 
         <!-- Scene Exclude Cards -->
         <div v-if="scenes.length" class="mt-2">
-          <label style="font-size: 13px; font-weight: 600; color: var(--text-secondary);">
-            Scene Selection <span class="text-muted" style="font-weight: 400;">(click to exclude)</span>
+          <label class="sub-section-label">
+            Scene Selection <span class="text-muted font-normal">(click to exclude)</span>
           </label>
           <div class="scene-exclude-grid mt-1">
             <div v-for="scene in scenes" :key="scene.number"
@@ -513,7 +511,7 @@
               {{ scene.number }}
             </div>
           </div>
-          <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+          <p class="text-muted text-xs hint-line">
             {{ scenes.length - sceneRecycling.excluded_scenes.length }} of {{ scenes.length }} scenes active
           </p>
         </div>
@@ -521,9 +519,9 @@
 
       <!-- Transition Settings -->
       <div class="settings-section mt-2">
-        <div class="flex gap-2" style="align-items: center; justify-content: space-between; flex-wrap: wrap;">
+        <div class="flex gap-2 items-center justify-between flex-wrap">
           <h4>Scene Transitions</h4>
-          <div class="flex gap-2" style="align-items: center;">
+          <div class="flex gap-2 items-center">
             <button class="btn btn-sm btn-secondary" @click="transition.type = 'none'">Hard cut</button>
             <PresetPicker
               v-if="transitionPresets"
@@ -538,11 +536,11 @@
             />
           </div>
         </div>
-        <p class="text-muted" style="font-size: 12px; margin-top: 4px;">
+        <p class="text-muted text-sm hint-line">
           Pick one primary transition, optionally tick additional ones into a pool for randomization.
         </p>
 
-        <div v-if="!transitionsCatalog.length" class="text-muted" style="font-size: 12px; margin-top: 8px;">Loading transitions…</div>
+        <div v-if="!transitionsCatalog.length" class="text-muted text-sm catalog-loading">Loading transitions…</div>
         <TransitionPicker
           v-else
           :slug="slug"
@@ -561,7 +559,7 @@
 
       <!-- Scene Animation -->
       <div class="settings-section mt-2">
-        <div class="flex gap-2" style="align-items: center; justify-content: space-between; flex-wrap: wrap;">
+        <div class="flex gap-2 items-center justify-between flex-wrap">
           <h4>Scene Animation</h4>
           <PresetPicker
             v-if="animationPresets"
@@ -575,11 +573,11 @@
             @delete="animationPresets.remove(); success('Animation preset deleted')"
           />
         </div>
-        <p class="text-muted" style="font-size: 12px; margin-top: 4px;">
+        <p class="text-muted text-sm hint-line">
           How each scene image moves — pick one, or tick a pool and turn on randomize.
         </p>
 
-        <div v-if="!animationsCatalog.length" class="text-muted" style="font-size: 12px; margin-top: 8px;">Loading animations…</div>
+        <div v-if="!animationsCatalog.length" class="text-muted text-sm catalog-loading">Loading animations…</div>
         <AnimationPicker
           v-else
           :slug="slug"
@@ -598,11 +596,11 @@
           <div class="grid-2">
             <div class="form-group">
               <label>Start Zoom ({{ sceneAnimation.zoom_start }}%)</label>
-              <input v-model.number="sceneAnimation.zoom_start" type="range" min="90" max="120" step="1" class="slider" />
+              <SliderWithNumber v-model="sceneAnimation.zoom_start" :min="90" :max="120" :step="1" suffix="%" />
             </div>
             <div class="form-group">
               <label>End Zoom ({{ sceneAnimation.zoom_end }}%)</label>
-              <input v-model.number="sceneAnimation.zoom_end" type="range" min="95" max="130" step="1" class="slider" />
+              <SliderWithNumber v-model="sceneAnimation.zoom_end" :min="95" :max="130" :step="1" suffix="%" />
             </div>
           </div>
         </div>
@@ -621,7 +619,7 @@
             </div>
             <div class="form-group">
               <label>Speed ({{ sceneAnimation.parallax_speed }})</label>
-              <input v-model.number="sceneAnimation.parallax_speed" type="range" min="1" max="5" step="1" class="slider" />
+              <SliderWithNumber v-model="sceneAnimation.parallax_speed" :min="1" :max="5" :step="1" />
             </div>
           </div>
         </div>
@@ -631,25 +629,25 @@
           <div class="grid-2">
             <div class="form-group">
               <label>Base Zoom ({{ sceneAnimation.breathe_base_zoom }}%)</label>
-              <input v-model.number="sceneAnimation.breathe_base_zoom" type="range" min="100" max="110" step="1" class="slider" />
+              <SliderWithNumber v-model="sceneAnimation.breathe_base_zoom" :min="100" :max="110" :step="1" suffix="%" />
             </div>
             <div class="form-group">
               <label>Amplitude ({{ sceneAnimation.breathe_amplitude }}%)</label>
-              <input v-model.number="sceneAnimation.breathe_amplitude" type="range" min="1" max="5" step="1" class="slider" />
+              <SliderWithNumber v-model="sceneAnimation.breathe_amplitude" :min="1" :max="5" :step="1" suffix="%" />
             </div>
           </div>
         </div>
 
         <!-- Fade-in info -->
         <div v-if="sceneAnimation.type === 'fade-in'" class="mt-2">
-          <p class="text-muted" style="font-size: 12px;">Each scene will fade in from black over 1.5 seconds</p>
+          <p class="text-muted text-sm">Each scene will fade in from black over 1.5 seconds</p>
         </div>
       </div>
 
       <!-- Target Duration -->
       <div class="settings-section mt-2">
         <h4>Target Duration</h4>
-        <div class="flex gap-2 mt-1" style="align-items: center;">
+        <div class="flex gap-2 mt-1 items-center">
           <button
             :class="['btn btn-sm', duration.mode === 'auto' ? 'btn-primary' : 'btn-secondary']"
             @click="duration.mode = 'auto'"
@@ -664,23 +662,23 @@
           <div class="form-group">
             <label>Minimum Duration</label>
             <div class="flex gap-2">
-              <input v-model.number="duration.min_hours" type="number" min="0" max="10" class="input input-sm" style="width:60px" />
-              <span class="text-muted" style="line-height:32px">h</span>
-              <input v-model.number="duration.min_minutes" type="number" min="0" max="59" class="input input-sm" style="width:60px" />
-              <span class="text-muted" style="line-height:32px">m</span>
+              <input v-model.number="duration.min_hours" type="number" min="0" max="10" class="input input-sm hm-num-input" />
+              <span class="text-muted hm-num-suffix">h</span>
+              <input v-model.number="duration.min_minutes" type="number" min="0" max="59" class="input input-sm hm-num-input" />
+              <span class="text-muted hm-num-suffix">m</span>
             </div>
           </div>
           <div class="form-group">
             <label>Maximum Duration</label>
             <div class="flex gap-2">
-              <input v-model.number="duration.max_hours" type="number" min="0" max="10" class="input input-sm" style="width:60px" />
-              <span class="text-muted" style="line-height:32px">h</span>
-              <input v-model.number="duration.max_minutes" type="number" min="0" max="59" class="input input-sm" style="width:60px" />
-              <span class="text-muted" style="line-height:32px">m</span>
+              <input v-model.number="duration.max_hours" type="number" min="0" max="10" class="input input-sm hm-num-input" />
+              <span class="text-muted hm-num-suffix">h</span>
+              <input v-model.number="duration.max_minutes" type="number" min="0" max="59" class="input input-sm hm-num-input" />
+              <span class="text-muted hm-num-suffix">m</span>
             </div>
           </div>
         </div>
-        <p v-if="duration.mode === 'custom'" class="text-muted mt-1" style="font-size: 12px;">
+        <p v-if="duration.mode === 'custom'" class="text-muted text-sm mt-1">
           A random duration between min and max will be chosen each time to vary video length
         </p>
 
@@ -698,7 +696,7 @@
       <!-- Post-Audio Behavior -->
       <div class="settings-section mt-2">
         <h4>After Narration Ends</h4>
-        <p class="text-muted" style="font-size: 12px; margin-top: 4px;">What happens to the video after all narration audio has played</p>
+        <p class="text-muted text-sm hint-line">What happens to the video after all narration audio has played</p>
 
         <div class="post-audio-grid mt-2">
           <div v-for="pa in postAudioOptions" :key="pa.id"
@@ -711,9 +709,9 @@
         </div>
 
         <div v-if="postAudio.behavior === 'fade-to-black'" class="mt-2">
-          <div class="form-group" style="max-width: 300px;">
+          <div class="form-group field-narrow">
             <label>Fade Duration ({{ postAudio.fade_duration }}s)</label>
-            <input v-model.number="postAudio.fade_duration" type="range" min="3" max="15" step="1" class="slider" />
+            <SliderWithNumber v-model="postAudio.fade_duration" :min="3" :max="15" :step="1" suffix="s" />
           </div>
         </div>
 
@@ -769,7 +767,7 @@
               @load="logoLoadError = false"
             />
           </div>
-          <p class="text-muted" style="font-size: 10px; margin-top: 6px; text-align: center;">Live CSS preview — not FFmpeg render</p>
+          <p class="text-muted preview-watermark">Live CSS preview — not FFmpeg render</p>
           <!-- Pain-point #14 fix: make the silent logo-load failure visible. -->
           <!-- Previously logoLoadError was set but never rendered, so users -->
           <!-- only discovered the broken path on export. -->
@@ -783,7 +781,7 @@
 
       <!-- Logo Overlay (moved from old Step 2) -->
       <div class="settings-section mt-2">
-        <div class="flex gap-2" style="align-items: center;">
+        <div class="flex gap-2 items-center">
           <label class="checkbox-label" @click.stop>
             <input type="checkbox" v-model="logo.enabled" />
           </label>
@@ -792,7 +790,7 @@
 
         <div v-if="logo.enabled" class="mt-2">
           <div class="form-group">
-            <label>Logo Image Path <span class="text-muted" style="font-size: 11px;">(PNG recommended)</span></label>
+            <label>Logo Image Path <span class="text-muted text-xs">(PNG recommended)</span></label>
             <FilePicker
               v-model="logo.image_path"
               placeholder="Path to logo image (e.g. /path/to/logo.png)"
@@ -814,7 +812,7 @@
 
           <div class="grid-2 mt-1">
             <div>
-              <label style="font-size: 13px; font-weight: 600; color: var(--text-secondary);">Position</label>
+              <label class="sub-section-label">Position</label>
               <div class="position-grid mt-1">
                 <div v-for="pos in logoPositions" :key="pos.id"
                   :class="['pos-cell', { active: logo.position === pos.id }]"
@@ -824,17 +822,16 @@
                 </div>
               </div>
               <button
-                :class="['btn btn-sm mt-1', logo.position === 'custom' ? 'btn-primary' : 'btn-secondary']"
+                :class="['btn btn-sm mt-1 text-xs', logo.position === 'custom' ? 'btn-primary' : 'btn-secondary']"
                 @click="logo.position = 'custom'"
-                style="font-size: 11px;"
               >Custom</button>
 
               <div v-if="logo.position === 'custom'" class="flex gap-2 mt-1">
-                <div class="form-group" style="flex:1">
+                <div class="form-group flex-1">
                   <label>X (px)</label>
                   <input v-model.number="logo.custom_x" type="number" min="0" class="input input-sm" />
                 </div>
-                <div class="form-group" style="flex:1">
+                <div class="form-group flex-1">
                   <label>Y (px)</label>
                   <input v-model.number="logo.custom_y" type="number" min="0" class="input input-sm" />
                 </div>
@@ -852,13 +849,13 @@
               </div>
               <div class="form-group mt-1">
                 <label>Margin ({{ logo.margin }}px)</label>
-                <input v-model.number="logo.margin" type="number" min="0" max="200" class="input input-sm" style="width: 80px;" />
+                <input v-model.number="logo.margin" type="number" min="0" max="200" class="input input-sm input-w-80" />
               </div>
               <label class="checkbox-label mt-1" title="When enabled, the logo stays hidden for the full duration of the intro clip and fades in as the title image appears. Useful when your intro already has its own branding.">
                 <input type="checkbox" v-model="logo.hide_during_intro" />
                 Hide during intro
               </label>
-              <p class="text-muted" style="font-size: 11px; margin-top: 2px;">
+              <p class="text-muted text-xs hint-line-tight">
                 Logo is invisible for the intro's full duration, then fades in over the title image.
               </p>
             </div>
@@ -868,7 +865,7 @@
 
       <!-- Color Grading -->
       <div class="settings-section mt-2">
-        <div class="flex gap-2" style="align-items: center;">
+        <div class="flex gap-2 items-center">
           <label class="checkbox-label" @click.stop>
             <input type="checkbox" v-model="colorGrading.enabled" />
           </label>
@@ -879,7 +876,7 @@
           <!-- Preset grid: 1 None + 18 themed presets in a responsive
                auto-fill grid; Custom button sits below to make "I'm
                dialing my own values" a first-class state. -->
-          <label style="font-size: 13px; font-weight: 600; color: var(--text-secondary);">Preset</label>
+          <label class="sub-section-label">Preset</label>
           <div class="preset-grid mt-1">
             <div v-for="cp in colorGradingPresets" :key="cp.id"
               :class="['preset-card', { active: colorGrading.preset === cp.id }]"
@@ -899,8 +896,8 @@
           </button>
 
           <!-- Fine-tune sliders -->
-          <label class="mt-2" style="font-size: 13px; font-weight: 600; color: var(--text-secondary); display: block;">Fine-Tune Adjustments</label>
-          <p class="text-muted" style="font-size: 11px; margin: 2px 0 6px;">
+          <label class="sub-section-label sub-section-block mt-2">Fine-Tune Adjustments</label>
+          <p class="text-muted text-xs fine-tune-hint">
             Small changes go a long way on video — try staying within ±0.15 for brightness/warmth/tint, and 0.85–1.15 for contrast/saturation unless you're going for an obvious stylised look.
           </p>
           <div class="grid-3 mt-1">
@@ -919,11 +916,11 @@
           </div>
           <div class="grid-2 mt-1">
             <div class="form-group">
-              <label>Warmth ({{ colorGrading.warmth > 0 ? '+' : '' }}{{ colorGrading.warmth.toFixed(2) }}) <span class="text-muted" style="font-size:11px">cool &larr;&rarr; warm</span></label>
+              <label>Warmth ({{ colorGrading.warmth > 0 ? '+' : '' }}{{ colorGrading.warmth.toFixed(2) }}) <span class="text-muted text-xs">cool &larr;&rarr; warm</span></label>
               <SliderWithNumber v-model="colorGrading.warmth" :min="-0.5" :max="0.5" :step="0.01" :decimals="2" />
             </div>
             <div class="form-group">
-              <label>Tint ({{ colorGrading.tint > 0 ? '+' : '' }}{{ colorGrading.tint.toFixed(2) }}) <span class="text-muted" style="font-size:11px">green &larr;&rarr; magenta</span></label>
+              <label>Tint ({{ colorGrading.tint > 0 ? '+' : '' }}{{ colorGrading.tint.toFixed(2) }}) <span class="text-muted text-xs">green &larr;&rarr; magenta</span></label>
               <SliderWithNumber v-model="colorGrading.tint" :min="-0.5" :max="0.5" :step="0.01" :decimals="2" />
             </div>
           </div>
@@ -933,18 +930,18 @@
 
       <!-- Vignette -->
       <div class="settings-section mt-2">
-        <div class="flex gap-2" style="align-items: center;">
+        <div class="flex gap-2 items-center">
           <label class="checkbox-label" @click.stop>
             <input type="checkbox" v-model="vignette.enabled" />
           </label>
           <h4>Vignette</h4>
-          <span class="text-muted" style="font-size: 12px;">(dark edges)</span>
+          <span class="text-muted text-sm">(dark edges)</span>
         </div>
         <div v-if="vignette.enabled" class="mt-2">
           <div class="form-group">
             <label>Strength ({{ Math.round(vignette.strength * 100) }}%)</label>
             <SliderWithNumber v-model="vignette.strength" :min="0.05" :max="1.0" :step="0.01" :decimals="2" />
-            <p class="text-muted mt-1" style="font-size: 11px;">
+            <p class="text-muted text-xs mt-1">
               Subtle (0.20–0.35) keeps things natural; dramatic (&gt;0.60) is noticeable and can crush edge detail. Free-slidable at 0.01 precision.
             </p>
           </div>
@@ -953,18 +950,18 @@
 
       <!-- Film Grain -->
       <div class="settings-section mt-2">
-        <div class="flex gap-2" style="align-items: center;">
+        <div class="flex gap-2 items-center">
           <label class="checkbox-label" @click.stop>
             <input type="checkbox" v-model="filmGrain.enabled" />
           </label>
           <h4>Film Grain</h4>
-          <span class="text-muted" style="font-size: 12px;">(cinematic texture)</span>
+          <span class="text-muted text-sm">(cinematic texture)</span>
         </div>
         <div v-if="filmGrain.enabled" class="mt-2">
           <div class="form-group">
             <label>Strength ({{ filmGrain.strength }})</label>
             <SliderWithNumber v-model="filmGrain.strength" :min="1" :max="50" :step="1" />
-            <p class="text-muted mt-1" style="font-size: 12px;">
+            <p class="text-muted text-sm mt-1">
               Values above 20 add visible noise and can significantly increase final file size —
               random noise doesn't compress well. <strong>10–15</strong> is a subtle cinematic look.
             </p>
@@ -974,12 +971,12 @@
 
       <!-- Letterbox -->
       <div class="settings-section mt-2">
-        <div class="flex gap-2" style="align-items: center;">
+        <div class="flex gap-2 items-center">
           <label class="checkbox-label" @click.stop>
             <input type="checkbox" v-model="letterbox.enabled" />
           </label>
           <h4>Cinematic Letterbox</h4>
-          <span class="text-muted" style="font-size: 12px;">(black bars top/bottom)</span>
+          <span class="text-muted text-sm">(black bars top/bottom)</span>
         </div>
         <div v-if="letterbox.enabled" class="mt-2">
           <div class="grid-2">
@@ -1005,7 +1002,7 @@
 
       <!-- Chroma Key -->
       <div class="settings-section mt-2">
-        <div class="flex gap-2" style="align-items: center;">
+        <div class="flex gap-2 items-center">
           <label class="checkbox-label" @click.stop>
             <input type="checkbox" v-model="chromaKey.enabled" />
           </label>
@@ -1013,27 +1010,27 @@
         </div>
         <div v-if="chromaKey.enabled" class="mt-2">
           <div class="form-group">
-            <label>Green Screen Source <span class="text-muted" style="font-size:11px">(video or image with green background)</span></label>
+            <label>Green Screen Source <span class="text-muted text-xs">(video or image with green background)</span></label>
             <input v-model="chromaKey.source_path" class="input" placeholder="Path to green screen video/image" />
           </div>
           <div class="grid-3 mt-1">
             <div class="form-group">
               <label>Key Color</label>
-              <div class="flex gap-2" style="align-items: center;">
-                <input v-model="chromaKey.color" type="color" style="width:40px; height:32px; padding:0; border:1px solid var(--border); border-radius:4px; cursor:pointer;" />
-                <input v-model="chromaKey.color" class="input input-sm" style="width:100px;" />
+              <div class="flex gap-2 items-center">
+                <input v-model="chromaKey.color" type="color" class="color-swatch-input" />
+                <input v-model="chromaKey.color" class="input input-sm input-w-100" />
               </div>
             </div>
             <div class="form-group">
               <label>Similarity ({{ chromaKey.similarity.toFixed(2) }})</label>
-              <input v-model.number="chromaKey.similarity" type="range" min="0.01" max="0.5" step="0.01" class="slider" />
+              <SliderWithNumber v-model="chromaKey.similarity" :min="0.01" :max="0.5" :step="0.01" :decimals="2" />
             </div>
             <div class="form-group">
               <label>Edge Blend ({{ chromaKey.blend.toFixed(2) }})</label>
-              <input v-model.number="chromaKey.blend" type="range" min="0.0" max="0.5" step="0.01" class="slider" />
+              <SliderWithNumber v-model="chromaKey.blend" :min="0.0" :max="0.5" :step="0.01" :decimals="2" />
             </div>
           </div>
-          <p class="text-muted mt-1" style="font-size: 12px;">
+          <p class="text-muted text-sm mt-1">
             The green-screen source will be composited on top of your scene images after removing the keyed color.
           </p>
         </div>
@@ -1048,18 +1045,18 @@
           <input type="checkbox" v-model="excludeIntroFromEffects" />
           Exclude intro and title from effects
         </label>
-        <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+        <p class="text-muted text-xs hint-line">
           Color grading, vignette, film grain, subtitles, logo, and chroma key only start after the title image ends. Letterbox still applies throughout (it changes the frame shape).
         </p>
       </div>
 
       <!-- Text Overlays (collapsed by default) -->
-      <h4 class="mt-3" style="color: var(--text-secondary);">Text Overlays <span class="text-muted" style="font-size: 11px; font-weight: 400;">(optional)</span></h4>
+      <h4 class="mt-3 text-overlays-heading">Text Overlays <span class="text-muted text-xs font-normal">(optional)</span></h4>
 
       <!-- Title Card -->
       <div class="collapsible mt-1">
         <div class="collapsible-header" @click="titleCardOpen = !titleCardOpen">
-          <div class="flex gap-2" style="align-items: center;">
+          <div class="flex gap-2 items-center">
             <label class="checkbox-label" @click.stop>
               <input type="checkbox" v-model="titleCard.enabled" />
             </label>
@@ -1082,7 +1079,7 @@
           <div class="grid-3 mt-1">
             <div class="form-group">
               <label>Duration ({{ titleCard.duration }}s)</label>
-              <input v-model.number="titleCard.duration" type="range" min="1" max="10" step="1" class="slider" :disabled="!titleCard.enabled" />
+              <SliderWithNumber v-model="titleCard.duration" :min="1" :max="10" :step="1" suffix="s" :disabled="!titleCard.enabled" />
             </div>
             <div class="form-group">
               <label>Style</label>
@@ -1108,7 +1105,7 @@
       <!-- Chapter Titles -->
       <div class="collapsible mt-1">
         <div class="collapsible-header" @click="chapterTitlesOpen = !chapterTitlesOpen">
-          <div class="flex gap-2" style="align-items: center;">
+          <div class="flex gap-2 items-center">
             <label class="checkbox-label" @click.stop>
               <input type="checkbox" v-model="chapterTitles.enabled" />
             </label>
@@ -1147,7 +1144,7 @@
           </div>
           <div class="form-group mt-1">
             <label>Duration ({{ chapterTitles.duration }}s)</label>
-            <input v-model.number="chapterTitles.duration" type="range" min="1" max="5" step="1" class="slider" :disabled="!chapterTitles.enabled" />
+            <SliderWithNumber v-model="chapterTitles.duration" :min="1" :max="5" :step="1" suffix="s" :disabled="!chapterTitles.enabled" />
           </div>
         </div>
       </div>
@@ -1155,7 +1152,7 @@
       <!-- Outro Card -->
       <div class="collapsible mt-1">
         <div class="collapsible-header" @click="outroCardOpen = !outroCardOpen">
-          <div class="flex gap-2" style="align-items: center;">
+          <div class="flex gap-2 items-center">
             <label class="checkbox-label" @click.stop>
               <input type="checkbox" v-model="outroCard.enabled" />
             </label>
@@ -1182,7 +1179,7 @@
           </div>
           <div class="form-group mt-1">
             <label>Duration ({{ outroCard.duration }}s)</label>
-            <input v-model.number="outroCard.duration" type="range" min="2" max="8" step="1" class="slider" :disabled="!outroCard.enabled" />
+            <SliderWithNumber v-model="outroCard.duration" :min="2" :max="8" :step="1" suffix="s" :disabled="!outroCard.enabled" />
           </div>
         </div>
       </div>
@@ -1216,10 +1213,10 @@
       <div class="settings-section mt-2">
         <label class="checkbox-label">
           <input type="checkbox" v-model="subtitles.enabled" />
-          <span style="margin-left: 6px;">Enable subtitles</span>
+          <span class="ml-1-tight">Enable subtitles</span>
         </label>
         <p v-if="subtitles.enabled && ffmpegStatus && !ffmpegStatus.has_libass"
-           class="validation-msg mt-1" style="font-size: 12px;">
+           class="validation-msg text-sm mt-1">
           ⚠ This FFmpeg build doesn't include libass — subtitles can't be burned in.
           Install a build with libass (e.g. <code>brew install ffmpeg</code> with freetype+libass).
         </p>
@@ -1240,11 +1237,11 @@
 
           <!-- Chapters -->
           <div v-if="subtitles.source === 'chapters'" class="mt-2">
-            <p class="text-muted" style="font-size: 12px;">
+            <p class="text-muted text-sm">
               Derives one cue per chapter from the individual chapter audio files — fast, free, chapter-level only.
             </p>
             <p v-if="subtitlesStatus && !subtitlesStatus.has_chapter_audio"
-               class="validation-msg" style="font-size: 12px;">
+               class="validation-msg text-sm">
               No chapter audio files found. Either run Audio Generator for this episode or pick a different source.
             </p>
             <button class="btn btn-sm btn-secondary mt-1"
@@ -1256,8 +1253,8 @@
 
           <!-- Upload -->
           <div v-if="subtitles.source === 'upload'" class="mt-2">
-            <p class="text-muted" style="font-size: 12px;">Pick a subtitle file from disk — we'll copy and normalize it.</p>
-            <div class="flex gap-2 mt-1" style="align-items: center;">
+            <p class="text-muted text-sm">Pick a subtitle file from disk — we'll copy and normalize it.</p>
+            <div class="flex gap-2 mt-1 items-center">
               <FilePicker
                 v-model="subtitleUploadPath"
                 placeholder="/path/to/subtitles.srt"
@@ -1275,24 +1272,23 @@
 
           <!-- Whisper -->
           <div v-if="subtitles.source === 'whisper'" class="mt-2">
-            <p class="text-muted" style="font-size: 12px;">
+            <p class="text-muted text-sm">
               Transcribes the merged audio via OpenAI Whisper. Gives word-level captions. Costs ~$0.006 per minute of audio.
             </p>
             <p v-if="subtitlesStatus && !subtitlesStatus.has_openai_key"
-               class="validation-msg" style="font-size: 12px;">
+               class="validation-msg text-sm">
               OpenAI API key not set. Add one under Settings → API Keys.
             </p>
             <p v-if="subtitlesStatus && !subtitlesStatus.has_merged_audio"
-               class="validation-msg" style="font-size: 12px;">
+               class="validation-msg text-sm">
               No merged audio file found. Run Audio Assembly for this episode first.
             </p>
-            <p v-if="hasExistingWhisperSrt" class="text-muted" style="font-size: 12px;">
+            <p v-if="hasExistingWhisperSrt" class="text-muted text-sm">
               <strong>{{ existingWhisperSrtName }}</strong> already exists — the job will skip
               the (paid) Whisper API and reuse it. Tick below to re-run with a fresh charge.
             </p>
             <label v-if="hasExistingWhisperSrt"
-                   class="flex items-center gap-1 mt-1"
-                   style="font-size: 12px;">
+                   class="flex items-center gap-1 mt-1 text-sm">
               <input type="checkbox" v-model="whisperForce" />
               Re-run transcription (charges Whisper API again)
             </label>
@@ -1304,16 +1300,16 @@
           </div>
 
           <!-- Current SRT -->
-          <div v-if="subtitles.srt_path" class="mt-2" style="font-size: 12px;">
+          <div v-if="subtitles.srt_path" class="text-sm mt-2">
             <label class="text-muted">Active SRT</label>
-            <div class="flex gap-2" style="align-items: center;">
-              <span style="flex:1; font-family: ui-monospace, monospace;">{{ subtitles.srt_path.split('/').pop() }}</span>
+            <div class="flex gap-2 items-center">
+              <span class="flex-1 srt-path-mono">{{ subtitles.srt_path.split('/').pop() }}</span>
               <button class="btn-icon" @click="subtitles.srt_path = ''">✕</button>
             </div>
           </div>
-          <div v-if="subtitlesStatus?.existing_srts?.length" class="mt-1" style="font-size: 12px;">
+          <div v-if="subtitlesStatus?.existing_srts?.length" class="text-sm mt-1">
             <label class="text-muted">Other subtitle files found</label>
-            <div class="flex gap-2 mt-1" style="flex-wrap: wrap;">
+            <div class="flex gap-2 mt-1 flex-wrap">
               <button v-for="srt in subtitlesStatus.existing_srts" :key="srt.path"
                 class="btn btn-sm btn-secondary"
                 :disabled="subtitles.srt_path === srt.path"
@@ -1367,7 +1363,7 @@
       <!-- can compare before committing. -->
       <div class="quick-preset-section mt-3">
         <label class="quick-preset-label">Quick-start presets</label>
-        <p class="text-muted" style="font-size: 11px; margin: 2px 0 8px;">
+        <p class="text-muted text-xs hint-line-loose">
           One-click defaults tuned for the most common scenarios. Pick one and fine-tune below, or go straight to custom.
         </p>
         <div class="quick-preset-grid">
@@ -1375,20 +1371,27 @@
             v-for="preset in EXPORT_QUICK_PRESETS"
             :key="preset.id"
             type="button"
-            :class="['quick-preset-card', { active: activeQuickPreset === preset.id }]"
-            :title="preset.longHint"
+            :class="['quick-preset-card', {
+              active: activeQuickPreset === preset.id,
+              'hw-unavailable': isPresetHardwareMissing(preset),
+            }]"
+            :title="hardwareCardTooltip(preset)"
             @click="applyQuickPreset(preset)"
           >
             <div class="qp-header">
               <span class="qp-icon" aria-hidden="true">{{ preset.icon }}</span>
               <span class="qp-label">{{ preset.label }}</span>
               <span v-if="activeQuickPreset === preset.id" class="qp-active-badge">Active</span>
+              <span v-if="isPresetHardwareMissing(preset)" class="qp-hw-warn-badge" title="Hardware encoder isn't available on this FFmpeg build — render falls back to CPU.">CPU fallback</span>
             </div>
             <span class="qp-tagline">{{ preset.tagline }}</span>
             <div class="qp-stats">
-              <span>~{{ sizeForSettings(preset.settings) }} GB</span>
-              <span class="qp-stat-sep">·</span>
-              <span>~{{ renderTimeForSettings(preset.settings) }}</span>
+              <template v-if="canEstimate">
+                <span>~{{ sizeForSettings(preset.settings) }} GB</span>
+                <span class="qp-stat-sep">·</span>
+                <span>~{{ renderTimeForSettings(preset.settings) }}</span>
+              </template>
+              <span v-else class="qp-stat-pending">size + render time appear once duration is known</span>
             </div>
           </button>
         </div>
@@ -1408,7 +1411,7 @@
             <option value="1440p">1440p — 2560×1440</option>
             <option value="4k">4K — 3840×2160</option>
           </select>
-          <p class="text-muted mt-1" style="font-size: 12px;">
+          <p class="text-muted text-sm mt-1">
             Bigger = sharper on larger screens, but file size scales roughly with pixel count.
             <strong>720p</strong> is ~44 % smaller than 1080p with barely-perceptible loss
             on sleep-story content (audience eyes are closed).
@@ -1424,7 +1427,7 @@
             <option :value="30">30 fps — YouTube default</option>
             <option :value="60">60 fps — smooth motion (largest)</option>
           </select>
-          <p class="text-muted mt-1" style="font-size: 12px;">
+          <p class="text-muted text-sm mt-1">
             For still-image sleep stories, <strong>24 fps</strong> looks identical to 30 and
             saves ~20 % file size. 60 fps is for action/gaming — roughly doubles file size.
           </p>
@@ -1439,7 +1442,7 @@
             <option value="medium">Medium — YouTube sweet spot (CRF 23)</option>
             <option value="high">High — archival (CRF 18)</option>
           </select>
-          <p class="text-muted mt-1" style="font-size: 12px;">
+          <p class="text-muted text-sm mt-1">
             Controls visual quality vs file size. <strong>Compact</strong> is for sleep
             stories where YouTube re-transcodes the upload anyway. <strong>High</strong>
             is for local archival — files are ~4× bigger than Fast.
@@ -1455,7 +1458,7 @@
             <option value="medium">Medium — balanced</option>
             <option value="slow">Slow — smallest file</option>
           </select>
-          <p class="text-muted mt-1" style="font-size: 12px;">
+          <p class="text-muted text-sm mt-1">
             <strong>Fast (hardware)</strong> routes the encode through your Mac's Media Engine
             silicon (h264_videotoolbox) instead of the CPU. Around 8–15× faster than Medium —
             a 2.5-hour render finishes in 15–25 min. Files are slightly larger at the same
@@ -1476,7 +1479,7 @@
             <option value="h264">H.264 — universal (default)</option>
             <option value="h265">H.265 / HEVC — ~30 % smaller</option>
           </select>
-          <p class="text-muted mt-1" style="font-size: 12px;">
+          <p class="text-muted text-sm mt-1">
             <strong>H.264</strong> plays everywhere (any Mac/Windows/Android/browser since ~2005).
             <strong>HEVC</strong> is ~30 % smaller at equal quality but needs QuickTime 10.4+ /
             Safari 11+ / modern Chrome/Edge. Codec is ignored when format is WebM
@@ -1492,7 +1495,7 @@
             <option value="mov">MOV — Apple ecosystem</option>
             <option value="webm">WebM — web-optimized (VP9)</option>
           </select>
-          <p class="text-muted mt-1" style="font-size: 12px;">
+          <p class="text-muted text-sm mt-1">
             <strong>MP4</strong> for YouTube uploads and general sharing. <strong>MOV</strong>
             for Final Cut / iMovie ingest. <strong>WebM</strong> for direct browser embedding
             (smallest web delivery, but not accepted by all upload services).
@@ -1507,15 +1510,28 @@
       <div class="estimator mt-3">
         <div class="estimator-row">
           <span class="estimator-label">Estimated file size</span>
-          <span class="estimator-value">~{{ sizeEstimateGb }} GB</span>
-          <span class="estimator-hint">for {{ estimatedDurationMin }} min at current settings</span>
+          <span class="estimator-value">
+            <template v-if="sizeEstimateGb !== null">~{{ sizeEstimateGb }} GB</template>
+            <template v-else>—</template>
+          </span>
+          <span class="estimator-hint">
+            <template v-if="sizeEstimateGb !== null">for {{ estimatedDurationMin }} min at current settings</template>
+            <template v-else-if="duration.mode === 'auto'">scan an episode with merged audio first</template>
+            <template v-else>set a target duration above</template>
+          </span>
         </div>
         <div class="estimator-row">
           <span class="estimator-label">Estimated render time</span>
-          <span class="estimator-value">~{{ renderTimeEstimate }}</span>
-          <span class="estimator-hint">varies with scene animation + effects complexity</span>
+          <span class="estimator-value">
+            <template v-if="renderTimeEstimate !== null">~{{ renderTimeEstimate }}</template>
+            <template v-else>—</template>
+          </span>
+          <span class="estimator-hint">
+            <template v-if="renderTimeEstimate !== null">varies with scene animation + effects complexity</template>
+            <template v-else>needs target duration to compute</template>
+          </span>
         </div>
-        <p class="text-muted mt-1" style="font-size: 11px;">
+        <p class="text-muted text-xs mt-1">
           These are rough estimates based on bitrate math, not a guarantee. Actual output
           depends on scene motion, film-grain strength, and post-processing load.
         </p>
@@ -1645,13 +1661,16 @@
           </div>
           <div class="summary-row">
             <span class="text-muted">Estimated Size</span>
-            <span>~{{ estimatedFileSize }}MB</span>
+            <span>
+              <template v-if="estimatedFileSize > 0">~{{ estimatedFileSize }}MB</template>
+              <span v-else class="text-muted">— (need merged audio or a target duration)</span>
+            </span>
           </div>
         </div>
       </div>
 
       <!-- Low-asset warning (shows when scenes will recycle many times) -->
-      <div v-if="lowAssetWarning" class="validation-msg mt-2" style="font-size: 12px;">
+      <div v-if="lowAssetWarning" class="validation-msg text-sm mt-2">
         ⚠ {{ lowAssetWarning }}
       </div>
 
@@ -1701,7 +1720,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'dashboard' })
-useHead({ title: "Video Assembly — Story Studio KH" })
+useAppTitle('Video Assembly')
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -2723,7 +2742,17 @@ const estimatedDurationSec = computed(() => {
 
 const estimatedDurationMin = computed(() => Math.round(estimatedDurationSec.value / 60))
 
+/**
+ * Whether the duration is large enough to give a meaningful estimate.
+ * In auto mode, this is gated on merged audio being scanned — the previous
+ * implementation clamped size to 0.1 GB and rendered "~0.10 GB for 0 min"
+ * which looked like a real estimate but was just the floor. 5s is the
+ * smallest useful figure (anything shorter renders as a frame's worth).
+ */
+const canEstimate = computed(() => estimatedDurationSec.value >= 5)
+
 const sizeEstimateGb = computed(() => {
+  if (!canEstimate.value) return null
   const mbps = (BASE_MBPS_BY_QUALITY[exportSettings.quality] || 3)
     * (RESOLUTION_FACTOR[exportSettings.resolution] || 1)
     * (FPS_FACTOR[exportSettings.fps] || 1)
@@ -2734,6 +2763,7 @@ const sizeEstimateGb = computed(() => {
 })
 
 const renderTimeEstimate = computed(() => {
+  if (!canEstimate.value) return null
   // Baseline: 1080p medium preset H.264 takes ~0.4s per output-second
   // on a modern Apple Silicon. Scales with effort + codec + resolution.
   const perSec = (EFFORT_SPEED_FACTOR[exportSettings.encoding_effort] || 0.4)
@@ -2747,8 +2777,14 @@ const renderTimeEstimate = computed(() => {
   return `${h}h ${m}m`
 })
 
-// Legacy `estimatedFileSize` consumed elsewhere — return MB number.
-const estimatedFileSize = computed(() => Math.max(1, Math.round(parseFloat(sizeEstimateGb.value) * 1024)))
+// Legacy `estimatedFileSize` consumed in the bottom Summary panel — MB number.
+// Returns 0 when duration is too short to estimate so the Summary row reads
+// "~0MB" rather than misleadingly showing the floor. Template can detect 0
+// and substitute "—" if it wants softer copy.
+const estimatedFileSize = computed(() => {
+  if (!canEstimate.value) return 0
+  return Math.max(1, Math.round(parseFloat(sizeEstimateGb.value!) * 1024))
+})
 
 // ── Quick-start export presets ────────────────────────────────────────────
 // Three hard-coded defaults covering the common cases. User-saved presets
@@ -2774,19 +2810,27 @@ interface QuickExportPreset {
 const EXPORT_QUICK_PRESETS: QuickExportPreset[] = [
   {
     id: 'youtube-fast-hw',
-    label: 'YouTube (hardware)',
+    label: 'YouTube — Fast (recommended)',
     icon: '⚡',
-    tagline: 'Hardware-accelerated. ~10× faster than the CPU preset.',
-    longHint: '1080p · 30 fps · Medium (CRF 23) · H.264 · h264_videotoolbox · MP4 — uses your Mac\'s Media Engine. Routine renders finish in minutes; sleep-story-style footage shows no visible quality loss.',
+    tagline: 'Hardware-accelerated. ~10× faster than the CPU fallback below.',
+    longHint: '1080p · 30 fps · Medium (CRF 23) · H.264 · h264_videotoolbox · MP4 — uses your Mac\'s Media Engine. Routine renders finish in minutes; sleep-story-style footage shows no visible quality loss. Same final file as the Compatible (CPU) preset, just produced faster.',
     settings: { resolution: '1080p', fps: 30, quality: 'medium', encoding_effort: 'hardware', codec: 'h264', format: 'mp4' },
   },
   {
     id: 'youtube-common',
-    label: 'YouTube Common',
+    label: 'YouTube — Compatible (CPU)',
     icon: '▶️',
-    tagline: 'Balanced CPU encode. YouTube re-transcodes anyway.',
-    longHint: '1080p · 30 fps · Medium (CRF 23) · H.264 · MP4 — the safe default that plays everywhere and uploads cleanly. Use when you don\'t trust the hardware path on a specific machine.',
+    tagline: 'CPU fallback. Same output as Fast, just slower.',
+    longHint: '1080p · 30 fps · Medium (CRF 23) · H.264 · MP4 — produces an identical file to the Fast (hardware) preset via the CPU encoder. Use this when the hardware path doesn\'t initialise on a specific machine (rare on Apple Silicon, more common on older Macs / non-Apple hardware).',
     settings: { resolution: '1080p', fps: 30, quality: 'medium', encoding_effort: 'medium', codec: 'h264', format: 'mp4' },
+  },
+  {
+    id: 'compact-sharing',
+    label: 'Compact / Sharing',
+    icon: '📱',
+    tagline: 'Phone-friendly. ~⅓ the size of YouTube — fits in iMessage.',
+    longHint: '720p · 30 fps · Medium (CRF 23) · H.265/HEVC · MP4 (hardware) — phone-screen resolution at the same visual quality as YouTube, with HEVC\'s ~30 % savings on top. Small enough for iMessage / WhatsApp / AirDrop without splitting. Needs a modern device for playback (any iPhone / Mac since 2017, recent Android, modern browsers).',
+    settings: { resolution: '720p', fps: 30, quality: 'medium', encoding_effort: 'hardware', codec: 'h265', format: 'mp4' },
   },
   {
     id: 'fastest-render',
@@ -2806,7 +2850,8 @@ const EXPORT_QUICK_PRESETS: QuickExportPreset[] = [
   },
 ]
 
-function sizeForSettings(s: QuickExportPreset['settings']): string {
+function sizeForSettings(s: QuickExportPreset['settings']): string | null {
+  if (!canEstimate.value) return null
   const mbps = (BASE_MBPS_BY_QUALITY[s.quality] || 3)
     * (RESOLUTION_FACTOR[s.resolution] || 1)
     * (FPS_FACTOR[s.fps] || 1)
@@ -2816,7 +2861,8 @@ function sizeForSettings(s: QuickExportPreset['settings']): string {
   return Math.max(0.1, sizeGb).toFixed(sizeGb < 1 ? 2 : 1)
 }
 
-function renderTimeForSettings(s: QuickExportPreset['settings']): string {
+function renderTimeForSettings(s: QuickExportPreset['settings']): string | null {
+  if (!canEstimate.value) return null
   const perSec = (EFFORT_SPEED_FACTOR[s.encoding_effort] || 0.4)
     * (CODEC_SPEED_FACTOR[s.format === 'webm' ? 'h264' : s.codec] || 1)
     * (RESOLUTION_SPEED_FACTOR[s.resolution] || 1)
@@ -2826,6 +2872,32 @@ function renderTimeForSettings(s: QuickExportPreset['settings']): string {
   const h = Math.floor(secs / 3600)
   const m = Math.round((secs % 3600) / 60)
   return `${h}h ${m}m`
+}
+
+/**
+ * True when the preset asks for hardware encoding (`encoding_effort: 'hardware'`)
+ * AND the corresponding videotoolbox encoder is missing from this FFmpeg
+ * build (probed at status-check time on the backend). Returning false when
+ * `hw_encoders` is undefined preserves back-compat with cached status
+ * objects from older app versions — we only mark as unavailable when we
+ * have positive evidence the encoder is missing.
+ */
+function isPresetHardwareMissing(preset: QuickExportPreset): boolean {
+  if (preset.settings.encoding_effort !== 'hardware') return false
+  const hw = ffmpegStatus.value?.hw_encoders
+  if (!hw) return false
+  // Hardware presets pick the encoder via the codec field. WebM is special-
+  // cased to h264 in the size-math elsewhere, but no hardware preset uses
+  // WebM today, so this branch is safe.
+  return preset.settings.codec === 'h265' ? !hw.h265 : !hw.h264
+}
+
+function hardwareCardTooltip(preset: QuickExportPreset): string {
+  if (isPresetHardwareMissing(preset)) {
+    const codecLabel = preset.settings.codec === 'h265' ? 'hevc_videotoolbox' : 'h264_videotoolbox'
+    return `${preset.longHint}\n\n⚠ ${codecLabel} isn't in this FFmpeg build — picking this preset will render via the CPU fallback (slower, same output).`
+  }
+  return preset.longHint
 }
 
 function applyQuickPreset(preset: QuickExportPreset) {
@@ -3147,15 +3219,12 @@ const logoPreviewStyle = computed(() => {
 })
 
 // --------------- Functions ---------------
-function formatDuration(seconds: number): string {
-  if (!seconds || seconds <= 0) return '0s'
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.round(seconds % 60)
-  if (h > 0) return `${h}h ${m}m ${s}s`
-  if (m === 0) return `${s}s`
-  return `${m}m ${s}s`
-}
+// formatDuration moved to ~/composables/useFormat.ts (formatDurationPrecise).
+// Auto-imported by Nuxt — call sites in this file's template now resolve
+// to the centralised version. `formatDurationLong` (a different terse
+// "1h2m" / "5m" format used by the duration summary copy below) stays
+// local since its format is unique to this page.
+const formatDuration = formatDurationPrecise
 
 function formatDurationLong(seconds: number): string {
   if (!seconds || seconds <= 0) return '0m'
@@ -3340,6 +3409,84 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ── Inline-style sweep helpers (2026-05-02) ─────────────────────────────
+ * The cluster below replaced ~135 inline `style="..."` blocks. They keep
+ * the existing visuals 1:1 — the only goal is to make the markup re-themable
+ * by funnelling all values through tokens or shared classes. */
+
+/* Tight margin/spacing variants (smaller than the .ml-2 / .mt-1 family). */
+.ml-1-tight { margin-left: 6px; }
+.ml-2-tight { margin-left: 8px; }
+.mr-2-tight { margin-right: 8px; }
+.m-0 { margin: 0; }
+
+/* Helper-line below an input. -loose has more bottom space; -tight less top. */
+.hint-line { margin-top: 4px; }
+.hint-line-tight { margin-top: 2px; }
+.hint-line-loose { margin: 2px 0 8px; }
+
+/* Form-field width constraints. */
+.field-narrow { max-width: 300px; }
+.input-w-80  { width: 80px; }
+.input-w-100 { width: 100px; }
+
+/* Sub-section labels — one-step smaller than h4, in muted-secondary tone.
+ * Use .sub-section-block to force a block flow. */
+.sub-section-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.sub-section-block { display: block; }
+
+/* Dim, secondary inline label that sits next to a number input. */
+.dim-inline-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Hours/minutes pair inputs in the duration picker. */
+.hm-num-input { width: 60px; }
+.hm-num-suffix { line-height: 32px; }
+
+/* Italic placeholder when a list is empty. */
+.italic-empty { font-style: italic; }
+
+/* Timeline-clip row controls. */
+.timeline-clip-header  { margin-bottom: 6px; }
+.timeline-clip-num     { min-width: 28px; }
+.timeline-kind-select  { max-width: 180px; }
+.timeline-anchor-select { max-width: 220px; }
+
+/* Logo-effect preview watermark — tiny tag glued under the preview. */
+.preview-watermark {
+  font-size: 10px;
+  margin-top: 6px;
+  text-align: center;
+}
+
+/* Catalog-loading state for transitions/animations selectors. */
+.catalog-loading { margin-top: 8px; }
+
+/* Color-picker: small swatch input + hex text input combo. */
+.color-swatch-input {
+  width: 40px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* Subtitles SRT path display (monospaced filename). */
+.srt-path-mono { font-family: ui-monospace, monospace; }
+
+/* Color-grading "Fine-Tune" hint sits very close to the label above. */
+.fine-tune-hint { margin: 2px 0 6px; }
+
+/* "(optional)" rider beside the Text Overlays heading. */
+.text-overlays-heading { color: var(--text-secondary); }
+
 /* Stepper */
 .stepper { display: flex; align-items: center; justify-content: center; gap: 0; padding: 20px 0 4px; }
 .step-circle { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; border: 2px solid var(--border); color: var(--text-muted); background: var(--bg-secondary); cursor: pointer; transition: all 0.2s; flex-shrink: 0; }
@@ -3643,9 +3790,30 @@ onUnmounted(() => {
 .qp-icon { font-size: 18px; line-height: 1; }
 .qp-label { font-size: 13px; font-weight: 600; color: var(--text-primary); flex: 1; }
 .qp-active-badge { font-size: 10px; padding: 2px 6px; border-radius: 999px; background: var(--accent); color: var(--bg-primary); font-weight: 600; }
+/* Hardware-encoder-missing state: preset still clickable (backend falls
+ * back to CPU automatically) but visually de-emphasised + warn-tinted so
+ * the user knows their pick won't deliver the speed promise. */
+.qp-hw-warn-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.18);
+  color: rgb(180, 83, 9);
+  font-weight: 600;
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+.quick-preset-card.hw-unavailable {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.05);
+}
+.quick-preset-card.hw-unavailable .qp-tagline {
+  opacity: 0.75;
+}
 .qp-tagline { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
 .qp-stats { display: flex; gap: 6px; font-size: 11px; color: var(--text-secondary); font-variant-numeric: tabular-nums; margin-top: 2px; }
 .qp-stat-sep { color: var(--text-muted); }
+.qp-stat-pending { color: var(--text-muted); font-style: italic; }
 @media (max-width: 900px) {
   .effects-split-layout { flex-direction: column; }
   .effects-preview-sticky { position: static; width: 100%; }

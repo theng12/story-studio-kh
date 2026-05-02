@@ -256,6 +256,18 @@ export interface FFmpegStatus {
   path?: string
   has_drawtext: boolean
   has_libass: boolean   // needed to burn subtitles via the `subtitles=` filter
+  /**
+   * Apple Media Engine hardware encoder availability. Used by the Video
+   * Assembly export presets to grey out cards that depend on
+   * `h264_videotoolbox` / `hevc_videotoolbox` when the underlying ffmpeg
+   * build doesn't expose them — happens on Linux/Windows builds, on older
+   * Macs without Media Engine silicon, and occasionally on quirky brewed
+   * builds that omitted videotoolbox at compile time. Backend silently
+   * falls back to CPU encoding when missing; this flag lets the UI tell
+   * the user upfront so they don't pick a "Fast (hardware)" preset and
+   * wonder why their render is slow.
+   */
+  hw_encoders: { h264: boolean; h265: boolean }
 }
 
 export async function getFFmpegStatus(): Promise<FFmpegStatus> {
@@ -265,6 +277,7 @@ export async function getFFmpegStatus(): Promise<FFmpegStatus> {
     source: 'not-found',
     has_drawtext: false,
     has_libass: false,
+    hw_encoders: { h264: false, h265: false },
   }
 
   // Inline watchdog (can't import from ffmpeg-utils — that'd be circular).
@@ -314,24 +327,43 @@ export async function getFFmpegStatus(): Promise<FFmpegStatus> {
     (bundledDir !== null && ffmpegBin.startsWith(bundledDir))
   result.source = isAppManaged ? 'bundled' : 'system'
 
-  // Check drawtext + libass (subtitles filter) in a single -filters call.
-  // Both filters appear in the same output, so we only spawn once.
-  const filters = await new Promise<string>((resolve) => {
-    const proc = spawn(ffmpegBin, ['-filters'], { stdio: ['ignore', 'pipe', 'pipe'] })
-    let output = ''
-    const t = setTimeout(() => {
-      try { proc.kill('SIGTERM') } catch { /* already exited */ }
-      const k = setTimeout(() => { try { proc.kill('SIGKILL') } catch { /* exited */ } }, 5000)
-      proc.once('close', () => clearTimeout(k))
-    }, STATUS_TIMEOUT_MS)
-    proc.stdout.on('data', (data: Buffer) => { output += data.toString() })
-    proc.on('error', () => { clearTimeout(t); resolve('') })
-    proc.on('close', () => { clearTimeout(t); resolve(output) })
-  })
+  // Spawn helper: shared across the filters + encoders probes below.
+  // Returns stdout text on a clean exit, or '' on timeout/error so the
+  // caller's regex tests just don't match (graceful degrade).
+  async function captureFfmpeg(args: string[]): Promise<string> {
+    return await new Promise<string>((resolve) => {
+      const proc = spawn(ffmpegBin, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+      let output = ''
+      const t = setTimeout(() => {
+        try { proc.kill('SIGTERM') } catch { /* already exited */ }
+        const k = setTimeout(() => { try { proc.kill('SIGKILL') } catch { /* exited */ } }, 5000)
+        proc.once('close', () => clearTimeout(k))
+      }, STATUS_TIMEOUT_MS)
+      proc.stdout.on('data', (data: Buffer) => { output += data.toString() })
+      proc.on('error', () => { clearTimeout(t); resolve('') })
+      proc.on('close', () => { clearTimeout(t); resolve(output) })
+    })
+  }
+
+  // Probe filters + encoders in parallel — both spawn the same ffmpeg
+  // binary independently, so there's no reason to wait one out before
+  // starting the next.
+  const [filters, encoders] = await Promise.all([
+    captureFfmpeg(['-filters']),
+    captureFfmpeg(['-encoders']),
+  ])
+
   result.has_drawtext = /\bdrawtext\b/.test(filters)
   // libass binds two related filters: `subtitles` (from .srt/.ass files)
   // and `ass` (from ASS files). Both imply libass is present.
   result.has_libass = /\bsubtitles\b/.test(filters) && /\bass\b/.test(filters)
+
+  // `ffmpeg -encoders` lists each encoder on its own line as e.g.
+  //   `V..... h264_videotoolbox    VideoToolbox H.264 Encoder`
+  // The leading "V" flag column distinguishes encoders from decoders;
+  // for our purposes any line containing the encoder name is enough.
+  result.hw_encoders.h264 = /\bh264_videotoolbox\b/.test(encoders)
+  result.hw_encoders.h265 = /\bhevc_videotoolbox\b/.test(encoders)
 
   return result
 }

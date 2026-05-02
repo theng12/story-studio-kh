@@ -4,7 +4,7 @@ import path from 'path'
 import { createRequire } from 'module'
 import * as pm from '../services/project-manager.js'
 import { getKieCredits, getFalBalance, getElevenLabsBalance, getGenaiproBalance, testApiKey } from '../services/utils.js'
-import { MODEL_LABELS, SUPPORTED_MODELS } from '../models/types.js'
+import { MODEL_LABELS, SUPPORTED_MODELS, KNOWN_UNAVAILABLE_REASONS } from '../models/types.js'
 import { getSessionUsage, getModelPricing } from '../services/usage-tracker.js'
 import { getSessionStats } from '../services/session-tracker.js'
 import { getFFmpegStatus, downloadFFmpeg, getInstallProgressState, _markInstallError } from '../services/ffmpeg-manager.js'
@@ -182,6 +182,7 @@ router.get('/models', async (req, res) => {
     label,
     provider: SUPPORTED_MODELS[id],
     available: hasKeys[SUPPORTED_MODELS[id]] ?? false,
+    disabled_reason: KNOWN_UNAVAILABLE_REASONS[id] ?? null,
   }))
   res.json(models)
 })

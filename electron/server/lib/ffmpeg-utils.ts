@@ -187,13 +187,20 @@ export async function getAudioDuration(filePath: string): Promise<number | undef
 
 // ── Check FFmpeg Availability ───────────────────────────────────────────
 
-export async function checkFfmpeg(): Promise<{ installed: boolean; version?: string; has_drawtext: boolean; has_libass: boolean }> {
+export async function checkFfmpeg(): Promise<{
+  installed: boolean
+  version?: string
+  has_drawtext: boolean
+  has_libass: boolean
+  hw_encoders: { h264: boolean; h265: boolean }
+}> {
   const status = await getFFmpegStatus()
   return {
     installed: status.installed,
     version: status.version,
     has_drawtext: status.has_drawtext,
     has_libass: status.has_libass,
+    hw_encoders: status.hw_encoders,
   }
 }
 

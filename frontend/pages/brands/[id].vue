@@ -222,7 +222,10 @@ const dirty = computed(() => brand.value && JSON.stringify(brand.value) !== orig
 const loadError = ref<string | null>(null)
 const saving = ref(false)
 
-useHead(() => ({ title: brand.value ? `${brand.value.name} — Brand` : 'Brand — Story Studio KH' }))
+// Reactive title — refreshes once the brand loads. Loaded state reads
+// "Foo — Brand — Story Studio KH" (consistent with the rest of the app);
+// loading/missing state falls back to "Brand — Story Studio KH".
+useAppTitle(() => brand.value ? `${brand.value.name} — Brand` : 'Brand')
 
 // Keyword lists are edited as textareas (one entry per line); split on
 // input. Trailing/leading whitespace per line is stripped, blank lines

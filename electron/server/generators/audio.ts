@@ -12,6 +12,9 @@ import { generateTts as generateTtsFal, downloadAudio } from '../lib/fal-client.
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { generateTts as generateTtsGenaipro } from '../lib/genaipro-client.js'
 import { generateTtsToFile as generateTtsElevenLabs } from '../lib/elevenlabs-client.js'
+import { generateTtsToFile as generateTtsChatterbox } from '../providers/audio/chatterbox.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { DEFAULT_CHATTERBOX_BASE_URL } from '../lib/chatterbox-client.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
@@ -24,7 +27,7 @@ import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
 
-type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs'
+type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'chatterbox'
 
 /**
  * Pick the TTS provider for a given model. Prefers the explicit `provider`
@@ -40,6 +43,7 @@ function resolveAudioProvider(
   if (typeof modelId === 'string') {
     if (modelId.startsWith('eleven_')) return 'elevenlabs'
     if (modelId.startsWith('genaipro-')) return 'genaipro'
+    if (modelId.startsWith('chatterbox-')) return 'chatterbox'
   }
   return 'fal'
 }
@@ -183,17 +187,35 @@ export async function generateAudio(job: Job): Promise<void> {
   const providerId = resolveAudioProvider(req.model, config.audio_models)
   const providerLabel = providerId === 'elevenlabs' ? 'ElevenLabs (direct)'
     : providerId === 'genaipro' ? 'GenAIPro'
+    : providerId === 'chatterbox' ? 'Chatterbox (Local)'
     : 'fal.ai'
-  const apiKey = await resolveApiKeyForProviderId(project_slug, providerId, {
-    model: req.model,
-    jobId: job.job_id,
-  })
-  if (!apiKey) throw new Error(`No ${providerLabel} API key configured. Add one in Settings → API Keys.`)
+
+  // Chatterbox is special — there is no API key. The "key" we resolve is the
+  // base URL stored in the per-machine secrets bucket (default 100.66.3.3:5052
+  // over Tailscale). The per-project `chatterbox_enabled` toggle gates whether
+  // the model is even allowed to run.
+  let apiKey: string
+  if (providerId === 'chatterbox') {
+    if (!(config as any).chatterbox_enabled) {
+      throw new Error(
+        'Chatterbox (Local TTS) is not enabled for this project. ' +
+        'Turn it on in Settings → Local TTS, then try again.',
+      )
+    }
+    apiKey = (await getApiKey('chatterbox')) || DEFAULT_CHATTERBOX_BASE_URL
+  } else {
+    apiKey = await resolveApiKeyForProviderId(project_slug, providerId, {
+      model: req.model,
+      jobId: job.job_id,
+    })
+    if (!apiKey) throw new Error(`No ${providerLabel} API key configured. Add one in Settings → API Keys.`)
+  }
 
   // Preflight: for providers that expose a numeric balance, refuse the job
   // up front if it's definitively empty. GenAIPro doesn't expose a balance
   // endpoint we can query cheaply, so the preflight is skipped there and
-  // the provider surfaces any quota issue on first call.
+  // the provider surfaces any quota issue on first call. Chatterbox is local
+  // — no balance to check.
   if (providerId === 'fal') await assertBalanceAvailable('fal', apiKey)
   else if (providerId === 'elevenlabs') await assertBalanceAvailable('elevenlabs', apiKey)
 
@@ -482,6 +504,23 @@ export async function generateAudio(job: Job): Promise<void> {
           stability: req.stability,
           similarity: req.similarity,
           signal: controller.signal,
+          onProgress: makeChunkCb(),
+        })
+      } else if (providerId === 'chatterbox') {
+        // Chatterbox writes the WAV straight to the output path. The "apiKey"
+        // we resolved is the base URL. For chatterbox-cloned, pass the
+        // project's stored reference_id; chatterbox-default ignores it.
+        const referenceId = (config as any).chatterbox_reference_id || undefined
+        await generateTtsChatterbox(apiKey, task.outputPath, {
+          text: task.chunkText,
+          apiKey, // ignored by the helper but required by the type
+          modelId: req.model,
+          voiceId: effectiveVoice,
+          speed: req.speed,
+        }, {
+          referenceId,
+          signal: controller.signal,
+          isCancelled,
           onProgress: makeChunkCb(),
         })
       } else {

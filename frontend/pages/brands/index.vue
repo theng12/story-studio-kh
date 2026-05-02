@@ -105,7 +105,7 @@
 <script setup lang="ts">
 import type { Brand } from '@shared/contracts'
 
-useHead({ title: 'Brands — Story Studio KH' })
+useAppTitle('Brands')
 
 const router = useRouter()
 const { brands, loading, error, loadAll, create, remove } = useBrands()

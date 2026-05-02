@@ -117,7 +117,7 @@
 </template>
 
 <script setup lang="ts">
-useHead({ title: 'Cost Dashboard — Story Studio KH' })
+useAppTitle('Cost Dashboard')
 
 interface RollupShape {
   total_cost: number

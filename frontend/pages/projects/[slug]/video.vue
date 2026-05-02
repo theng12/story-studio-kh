@@ -41,7 +41,7 @@
               </option>
             </optgroup>
           </select>
-          <span class="text-muted" style="font-size:11px">
+          <span class="text-muted text-xs">
             Supported modes: {{ currentModelModes.join(', ') || '—' }}
           </span>
         </div>
@@ -71,14 +71,14 @@
               @click="form.mode = 'frames'"
             >Image → Video</button>
           </div>
-          <span class="text-muted" style="font-size:11px">
+          <span class="text-muted text-xs">
             Image-to-video uses your generated scene images as the starting frame.
           </span>
         </div>
         <div class="form-group">
           <label>Videos per prompt</label>
-          <input v-model.number="form.number_of_videos_per_prompt" type="number" min="1" max="4" class="input" style="max-width:120px" />
-          <span class="text-muted" style="font-size:11px">Most models cap at 4.</span>
+          <input v-model.number="form.number_of_videos_per_prompt" type="number" min="1" max="4" class="input input-narrow" />
+          <span class="text-muted text-xs">Most models cap at 4.</span>
         </div>
       </div>
     </div>
@@ -87,7 +87,7 @@
     <div class="card mt-2">
       <div class="card-header">
         <h3>Prompt source</h3>
-        <p class="text-muted" style="font-size: 12px; margin-top: 4px;">
+        <p class="text-muted text-sm hint-line">
           <strong>Reuse scene prompts</strong> keeps visual consistency with your stills (best for story cohesion).
           <strong>Dedicated video prompts</strong> adds motion/camera language — more cinematic, less tied to existing scenes.
           <strong>Manual</strong> when you want full control.
@@ -114,18 +114,20 @@
 
       <!-- Dedicated video-prompts generator -->
       <div v-if="form.prompt_source === 'video_prompts'" class="mt-2">
-        <div class="flex gap-2 items-center" style="flex-wrap:wrap">
+        <div class="flex gap-2 items-center flex-wrap">
           <button class="btn btn-secondary btn-sm" :disabled="!episodeId || generatingPrompts" @click="generateVideoPrompts">
             {{ generatingPrompts ? 'Generating…' : 'Generate video prompts' }}
           </button>
-          <input v-model.number="promptsForm.count" type="number" min="1" max="60" class="input input-sm" style="max-width:90px" title="How many clips" />
-          <input v-model="promptsForm.style_hint" class="input input-sm" placeholder="Style hint (e.g. slow cinematic push-ins)" style="flex:1; min-width:200px" />
-          <ModelSelector v-model="promptsForm.model" :project-slug="slug" style="max-width:220px" />
+          <input v-model.number="promptsForm.count" type="number" min="1" max="60" class="input input-sm prompt-count-input" title="How many clips" />
+          <input v-model="promptsForm.style_hint" class="input input-sm prompt-style-input" placeholder="Style hint (e.g. slow cinematic push-ins)" />
+          <div class="prompt-model-select">
+            <ModelSelector v-model="promptsForm.model" :project-slug="slug" />
+          </div>
         </div>
         <div v-if="generatedPrompts.length" class="prompts-preview mt-2">
           <div v-for="(p, i) in generatedPrompts" :key="i" class="prompt-row">
             <strong>Scene {{ p.number }}: {{ p.title }}</strong>
-            <textarea v-model="p.prompt" class="textarea" style="min-height:60px; font-size:12px" />
+            <textarea v-model="p.prompt" class="textarea prompt-textarea" />
           </div>
           <button class="btn btn-primary btn-sm mt-2" @click="saveVideoPrompts">💾 Save prompts to episode folder</button>
         </div>
@@ -133,13 +135,13 @@
 
       <!-- Manual prompts -->
       <div v-if="form.prompt_source === 'manual'" class="mt-2">
-        <label style="font-size:12px; color:var(--text-muted); margin-bottom:8px; display:block">
+        <label class="section-helper-label">
           One prompt per line. Each line becomes one video.
         </label>
 
         <!-- Quick-start built-in prompts: curated loopable templates. -->
-        <div v-if="builtInVideoPrompts.length" class="flex gap-2 mt-1 mb-2" style="align-items: center; flex-wrap: wrap;">
-          <span class="text-muted" style="font-size: 11px;">Quick-start:</span>
+        <div v-if="builtInVideoPrompts.length" class="flex gap-2 mt-1 mb-2 items-center flex-wrap">
+          <span class="text-muted text-xs">Quick-start:</span>
           <button
             v-for="p in builtInVideoPrompts"
             :key="p.id"
@@ -152,7 +154,7 @@
           </button>
         </div>
 
-        <textarea v-model="manualPromptsText" class="textarea" style="min-height: 140px; font-size:13px" placeholder="A slow cinematic dolly over a moonlit forest...&#10;A close-up of a hand turning a brass key in an old wooden door..." />
+        <textarea v-model="manualPromptsText" class="textarea manual-prompts-textarea" placeholder="A slow cinematic dolly over a moonlit forest...&#10;A close-up of a hand turning a brass key in an old wooden door..." />
       </div>
     </div>
 
@@ -163,13 +165,13 @@
     <div v-if="form.mode === 'frames' || form.prompt_source === 'scene_prompts'" class="card mt-2">
       <div class="card-header">
         <h3>Scene images</h3>
-        <p class="text-muted" style="font-size:12px">
+        <p class="text-muted text-sm">
           {{ sceneImages.length
             ? `${sceneImages.length} image(s) found. Each clip uses the scene image matching its prompt number. Tiles show the scene number; any gaps mean that scene's image is missing and the clip will be skipped.`
             : 'No scene images found. Generate scene images first, or switch to Text → Video mode.' }}
         </p>
       </div>
-      <p class="text-muted" style="font-size: 11px; margin: 4px 0 10px;">
+      <p class="text-muted text-xs scene-images-hint">
         Click the ▶ on any tile to generate <strong>just that scene's clip</strong>, or use
         <strong>Generate Videos</strong> at the top to batch-generate all missing ones (respects the
         concurrency setting in Settings → Performance).
@@ -206,23 +208,23 @@
     <!-- Video integrity pill + Repair. Generators skip existing .mp4s, -->
     <!-- so Repair = re-submit with force=false regenerates only missing. -->
     <div v-if="episodeId" class="card mt-2" aria-labelledby="video-integrity-heading">
-      <h3 id="video-integrity-heading" style="margin-bottom: 6px;">Video integrity</h3>
-      <p class="text-muted" style="font-size: 12px; margin-bottom: 10px;">
+      <h3 id="video-integrity-heading" class="integrity-title">Video integrity</h3>
+      <p class="text-muted text-sm integrity-blurb">
         Check whether every expected video clip is on disk. <strong>Repair missing</strong>
         queues a job that regenerates only the missing clips (existing clips are skipped).
       </p>
 
-      <div v-if="videoStatus.loading" class="text-muted" style="font-size: 13px;">
+      <div v-if="videoStatus.loading" class="text-muted text-md">
         <LoadingSpinner size="sm" /> Checking…
       </div>
-      <div v-else-if="videoStatus.error" class="text-danger" style="font-size: 13px;">
+      <div v-else-if="videoStatus.error" class="text-danger text-md">
         {{ videoStatus.error }}
         <button class="btn btn-sm btn-ghost ml-2" @click="refreshVideoStatus">Retry</button>
       </div>
-      <div v-else-if="videoStatus.total === 0" class="text-muted" style="font-size: 13px;">
+      <div v-else-if="videoStatus.total === 0" class="text-muted text-md">
         No video prompts found for this episode yet. Generate prompts above first.
       </div>
-      <div v-else class="flex items-center gap-2" style="flex-wrap: wrap;">
+      <div v-else class="flex items-center gap-2 flex-wrap">
         <span class="integrity-pill" :class="videoStatus.missing.length ? 'warn' : 'ok'">
           <template v-if="videoStatus.missing.length === 0">✓ All {{ videoStatus.total }} video clips present</template>
           <template v-else>⚠ {{ videoStatus.missing.length }} of {{ videoStatus.total }} clips missing</template>
@@ -239,7 +241,7 @@
           Refresh
         </button>
       </div>
-      <div v-if="videoStatus.missing.length > 0" class="text-muted mt-1" style="font-size: 12px; font-family: var(--font-mono, monospace);">
+      <div v-if="videoStatus.missing.length > 0" class="text-muted text-sm mt-1 missing-list-mono">
         Missing clips: {{ videoStatus.missing.join(', ') }}
       </div>
     </div>
@@ -249,7 +251,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'dashboard' })
-useHead({ title: 'Video Generator — Story Studio KH' })
+useAppTitle('Video Generator')
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -374,7 +376,8 @@ async function generateVideoPrompts() {
     generatedPrompts.value = r.scenes || []
     if (!generatedPrompts.value.length) showError('No prompts returned — try a different model.')
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to generate prompts')
+    console.error('[video] generate video prompts failed:', e)
+    showError(e.data?.detail || `Failed to generate video prompts (model=${promptsForm.model})`)
   } finally {
     generatingPrompts.value = false
   }
@@ -389,7 +392,8 @@ async function saveVideoPrompts() {
     })
     success('Video prompts saved!')
   } catch (e: any) {
-    showError(e.data?.detail || 'Save failed')
+    console.error('[video] save video prompts failed:', e)
+    showError(e.data?.detail || 'Failed to save video prompts to disk')
   }
 }
 
@@ -465,7 +469,14 @@ async function submitVideo() {
     success('Queued! Follow progress in the Jobs tab.')
     videoGenerating.value = true
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to queue video generation')
+    // Surface which prompt-source path broke — debugging "video failed"
+    // is otherwise a guessing game when the backend's path branches on
+    // scene_prompts vs video_prompts vs manual.
+    const sourceLabel = form.prompt_source === 'scene_prompts' ? 'scene prompts'
+      : form.prompt_source === 'video_prompts' ? 'video prompts'
+      : 'manual prompts'
+    console.error(`[video] queue failed (source=${form.prompt_source}):`, e)
+    showError(e.data?.detail || `Failed to queue video generation (${sourceLabel})`)
   } finally {
     submitting.value = false
   }
@@ -513,6 +524,41 @@ async function generateSingleScene(img: { filename: string; path: string; scene_
 </script>
 
 <style scoped>
+/* Form-field width tokens. */
+.input-narrow { max-width: 120px; }
+
+/* Helper line that hangs directly under an input. */
+.hint-line { margin-top: 4px; }
+
+/* "section helper" small label above an array of inputs. */
+.section-helper-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  display: block;
+}
+
+/* Inline form for the "Generate video prompts" row. */
+.prompt-count-input { max-width: 90px; }
+.prompt-style-input { flex: 1; min-width: 200px; }
+.prompt-model-select { max-width: 220px; }
+
+/* Per-prompt textarea (one row per generated scene prompt). */
+.prompt-textarea { min-height: 60px; font-size: 12px; }
+
+/* Manual-prompts paste box. */
+.manual-prompts-textarea { min-height: 140px; font-size: 13px; }
+
+/* Hint paragraph immediately above the scene-image grid. */
+.scene-images-hint { margin: 4px 0 10px; }
+
+/* Integrity card title and blurb (mirrors images.vue). */
+.integrity-title { margin-bottom: 6px; }
+.integrity-blurb { margin-bottom: 10px; }
+
+/* Monospace listing of missing clip filenames. */
+.missing-list-mono { font-family: var(--font-mono, monospace); }
+
 .integrity-pill {
   display: inline-flex;
   align-items: center;

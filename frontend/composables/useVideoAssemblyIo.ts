@@ -37,7 +37,20 @@ export interface VideoAssemblyIoState {
   slug: Ref<string>
   episodeId: Ref<string>
   selectedEpisode: Ref<any>
-  ffmpegStatus: Ref<{ installed: boolean; version?: string; has_drawtext?: boolean; has_libass?: boolean; check_error?: string } | null>
+  ffmpegStatus: Ref<{
+    installed: boolean
+    version?: string
+    has_drawtext?: boolean
+    has_libass?: boolean
+    /** Apple Media Engine encoders. Backend probes via `ffmpeg -encoders`
+     *  on every status check. Used by the Video Assembly export-preset cards
+     *  to grey out hardware-accelerated presets when the underlying ffmpeg
+     *  build doesn't expose them. Optional for back-compat — old cached
+     *  status objects in the renderer will read as undefined and the UI
+     *  treats that as "unknown, leave the cards enabled". */
+    hw_encoders?: { h264: boolean; h265: boolean }
+    check_error?: string
+  } | null>
   scannedAssets: Ref<any>
   scanning: Ref<boolean>
   scenes: Ref<Array<{
@@ -99,7 +112,13 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
 
   async function checkFfmpeg() {
     try {
-      s.ffmpegStatus.value = await get<{ installed: boolean; version?: string; has_drawtext?: boolean; has_libass?: boolean }>(
+      s.ffmpegStatus.value = await get<{
+        installed: boolean
+        version?: string
+        has_drawtext?: boolean
+        has_libass?: boolean
+        hw_encoders?: { h264: boolean; h265: boolean }
+      }>(
         `/projects/${s.slug.value}/video-editor/check-ffmpeg`,
       )
     } catch (e: any) {

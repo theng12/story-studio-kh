@@ -35,6 +35,11 @@ export default defineNuxtConfig({
       // tell two builds of the same version apart.
       appVersion,
       buildDate,
+      // Product name surfaced in browser tab titles via `useAppTitle()`.
+      // Centralised here so a future rebrand / whitelabel touches one place
+      // instead of nineteen `useHead({ title: '... — Story Studio KH' })`
+      // calls across pages.
+      appName: 'Story Studio KH',
     },
   },
 

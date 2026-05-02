@@ -119,6 +119,10 @@ export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {
   'genaipro-turbo-v2.5':      { label: 'ElevenLabs Turbo v2.5 [GenAIPro]',      cost_per_1k_chars: 0.05, provider: 'genaipro' },
   'genaipro-flash-v2.5':      { label: 'ElevenLabs Flash v2.5 [GenAIPro]',      cost_per_1k_chars: 0.03, provider: 'genaipro' },
   'genaipro-v3':              { label: 'ElevenLabs v3 [GenAIPro]',              cost_per_1k_chars: 0.10, provider: 'genaipro' },
+  // Chatterbox — self-hosted TTS over Tailscale. Cost is $0 (local compute).
+  // Hidden from projects that haven't set chatterbox_enabled in their config.
+  'chatterbox-default':       { label: 'Chatterbox – Default Voice [local]',    cost_per_1k_chars: 0,    provider: 'chatterbox' },
+  'chatterbox-cloned':        { label: 'Chatterbox – Cloned Voice [local]',     cost_per_1k_chars: 0,    provider: 'chatterbox' },
 }
 
 export const DEFAULT_VOICE_PRESETS: VoicePreset[] = [

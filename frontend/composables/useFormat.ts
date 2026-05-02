@@ -41,9 +41,30 @@ export function formatDuration(sec?: number | null): string {
   return mr ? `${h}h ${mr}m` : `${h}h`
 }
 
+/**
+ * Always-show-seconds variant for audio/video durations where
+ * second-level precision matters (a 23m 0s chapter vs. a 23m 47s chapter
+ * is meaningful, but "ETA 5m" is fine even when the underlying value is
+ * 5m 23s — that's what `formatDuration` above is for).
+ *
+ * Output: `5s` / `2m 5s` / `1h 2m 5s`. Empty / non-positive values render
+ * as `0s` to match the prior page-local copies (audio-merge / video-assembly)
+ * this consolidated.
+ */
+export function formatDurationPrecise(sec?: number | null): string {
+  if (sec == null || !Number.isFinite(sec) || sec <= 0) return '0s'
+  const total = Math.round(sec)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  if (h > 0) return `${h}h ${m}m ${s}s`
+  if (m === 0) return `${s}s`
+  return `${m}m ${s}s`
+}
+
 /** Convenience composable form — Nuxt auto-imports both the named exports
  *  above and `useFormat()` below. Returning the function bag lets callers
  *  use `const { formatBytes } = useFormat()` when they prefer that style. */
 export function useFormat() {
-  return { formatBytes, formatSpeed, formatDuration }
+  return { formatBytes, formatSpeed, formatDuration, formatDurationPrecise }
 }

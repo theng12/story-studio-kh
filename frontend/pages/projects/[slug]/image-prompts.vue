@@ -32,7 +32,7 @@
            LLM prompt so every scene/thumbnail prompt actually includes
            the character description as the requirements demand (instead
            of the LLM inventing or drifting between regenerations). -->
-      <div v-if="form.episode_id" class="form-group" style="max-width: 720px;">
+      <div v-if="form.episode_id" class="form-group field-wide">
         <CharacterPicker
           v-model="form.character_ids"
           :project-slug="slug"
@@ -40,7 +40,7 @@
         />
       </div>
 
-      <div class="form-group" style="max-width: 520px;">
+      <div class="form-group field-medium">
         <ModelSelector v-model="form.model" :project-slug="slug" />
       </div>
 
@@ -82,7 +82,7 @@
 
       <div class="form-group" v-if="form.style_preset === 'custom' || showStyleEditor">
         <label>Style Tag</label>
-        <textarea v-model="form.style_tag" class="textarea" style="min-height: 60px; font-size: 13px;"
+        <textarea v-model="form.style_tag" class="textarea style-tag-textarea"
           placeholder="Describe the visual style…" />
 
         <!-- Reference-image style extraction (pain-point #7). Upload an -->
@@ -103,7 +103,7 @@
               {{ referenceImagePath ? 'Change reference…' : 'Extract from reference image…' }}
             </button>
 
-            <select v-if="visionModels.length" v-model="visionModel" class="select select-sm" style="max-width: 220px;" :disabled="extracting">
+            <select v-if="visionModels.length" v-model="visionModel" class="select select-sm vision-model-select" :disabled="extracting">
               <option v-for="m in visionModels" :key="m.id" :value="m.id" :disabled="!m.has_key">
                 {{ formatVisionModelLabel(m) }}
               </option>
@@ -114,12 +114,30 @@
               type="button"
               class="btn btn-sm btn-primary"
               :disabled="extracting"
-              title="Re-run analysis on the same reference (useful after changing the model or focus hint)"
+              title="Re-run analysis on the same reference (useful after changing the focus hint below or the vision model above)"
               @click="extractStyle"
             >
               <LoadingSpinner v-if="extracting" size="sm" />
               ⟳ Re-analyze
             </button>
+          </div>
+
+          <!-- Optional focus hint — biases the vision model's vocabulary
+               (e.g. "lighting", "palette", "illustration"). Backend's
+               /analyze-style accepts this; UI exposes it so the user can
+               re-analyze with a different focus without re-picking the
+               reference. -->
+          <div class="style-extract-focus-row mt-1">
+            <label class="style-extract-focus-label" for="style-focus">Focus hint <span class="text-muted">(optional)</span></label>
+            <input
+              id="style-focus"
+              v-model="extractFocus"
+              type="text"
+              class="input input-sm style-extract-focus-input"
+              :disabled="extracting"
+              placeholder="e.g. lighting, illustration, painterly mood"
+              @keydown.enter.prevent="referenceImagePath && extractStyle()"
+            />
           </div>
 
           <div v-if="referenceImagePath" class="style-extract-preview mt-2">
@@ -131,23 +149,81 @@
             />
             <div class="style-extract-meta">
               <div class="style-extract-filename">{{ referenceImageName }}</div>
-              <div v-if="lastAnalyzedAt" class="text-muted" style="font-size: 11px;">
+              <div v-if="lastAnalyzedAt" class="text-muted text-xs">
                 Analyzed {{ lastAnalysisModel }} · {{ lastAnalyzedAtRelative }}
               </div>
-              <div v-else class="text-muted" style="font-size: 11px;">
+              <div v-else class="text-muted text-xs">
                 Hit Re-analyze to extract the style description.
               </div>
-              <button
-                type="button"
-                class="btn btn-ghost btn-sm style-extract-clear"
-                @click="clearReference"
-              >
-                Remove reference
-              </button>
+              <div class="flex gap-2 mt-1 flex-wrap">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  title="Clean up the reference with AI before re-analysing — useful if it has watermarks or unwanted text."
+                  @click="openReferenceEdit"
+                >
+                  ✨ Edit with AI
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  :disabled="!form.style_tag.trim() || savingStylePreset"
+                  :title="!form.style_tag.trim() ? 'Generate or write a style description first' : 'Save the current description as a named custom style preset, reusable across episodes'"
+                  @click="openSaveStylePreset"
+                >
+                  💾 Save as preset…
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  @click="clearReference"
+                >
+                  Remove reference
+                </button>
+              </div>
             </div>
           </div>
 
-          <p class="text-muted mt-1" style="font-size: 11px;">
+          <!-- Inline name-the-preset form. Hidden by default; flips open
+               on "Save as preset" click. Keep it inline (vs. a Modal) so
+               the user can still see the source description they're naming. -->
+          <div v-if="showSavePresetForm" class="style-save-preset-form mt-2">
+            <label class="style-save-preset-label">Name this style preset</label>
+            <div class="flex gap-2">
+              <input
+                v-model="newPresetName"
+                type="text"
+                class="input input-sm flex-1"
+                placeholder="e.g. Watercolour Sunset"
+                :disabled="savingStylePreset"
+                @keydown.enter.prevent="saveStylePreset"
+                @keydown.escape="cancelSaveStylePreset"
+                ref="savePresetInputEl"
+              />
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="!newPresetName.trim() || savingStylePreset"
+                @click="saveStylePreset"
+              >
+                <LoadingSpinner v-if="savingStylePreset" size="sm" />
+                {{ savingStylePreset ? 'Saving…' : 'Save' }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                :disabled="savingStylePreset"
+                @click="cancelSaveStylePreset"
+              >
+                Cancel
+              </button>
+            </div>
+            <p class="text-muted text-xs mt-1">
+              Saved per-project under "Custom" in the Art Style dropdown above. Source model + reference path are recorded so you can trace later.
+            </p>
+          </div>
+
+          <p class="text-muted text-xs mt-1">
             Tip: pick a thumbnail or scene image that matches the look you want. The vision model describes only the
             style (medium, palette, lighting, texture) — not the subject — and drops it into the textarea above.
             Costs a few cents per extract.
@@ -158,8 +234,8 @@
       <!-- ── Scene Prompts section ─────────────────────────────────────── -->
       <div class="split-section mt-2">
         <div class="split-header">
-          <h3 style="font-size:14px; margin:0">🎬 Scene Prompts</h3>
-          <span class="text-muted" style="font-size:11px">~{{ estimatedScenes }} prompts will be generated</span>
+          <h3 class="split-title">🎬 Scene Prompts</h3>
+          <span class="text-muted text-xs">~{{ estimatedScenes }} prompts will be generated</span>
         </div>
         <div class="grid-2">
           <div class="form-group">
@@ -171,7 +247,7 @@
               <option :value="4">4 per chapter</option>
               <option :value="0">Custom total...</option>
             </select>
-            <span class="text-muted" style="font-size:11px; display:block; margin-top:4px;">
+            <span class="text-muted text-xs scene-count-hint">
               Start with 1 to keep costs low — you can always generate more scenes for specific chapters later.
             </span>
           </div>
@@ -198,8 +274,8 @@
       <!-- ── Thumbnail Prompts section ─────────────────────────────────── -->
       <div class="split-section mt-2">
         <div class="split-header">
-          <h3 style="font-size:14px; margin:0">🖼️ Thumbnail Prompts</h3>
-          <span class="text-muted" style="font-size:11px">{{ safeThumbCount }} thumbnail variations</span>
+          <h3 class="split-title">🖼️ Thumbnail Prompts</h3>
+          <span class="text-muted text-xs">{{ safeThumbCount }} thumbnail variations</span>
         </div>
         <div class="grid-2">
           <div class="form-group">
@@ -218,7 +294,7 @@
               placeholder="e.g. holographic rainbow foil, pastel sparkles with subtle glow…"
               maxlength="240"
             />
-            <p v-if="form.thumb_text_style === 'custom'" class="text-muted" style="font-size: 11px; margin-top: 4px;">
+            <p v-if="form.thumb_text_style === 'custom'" class="text-muted text-xs hint-line">
               Free-form description (up to 240 chars). Dropped verbatim into the LLM prompt — be specific.
             </p>
           </div>
@@ -250,7 +326,7 @@
         <!-- Randomize + Surprise Me: full-size like the Ideas generator's -->
         <!-- action cluster so these feel like first-class actions, not -->
         <!-- afterthoughts (pain-point from test feedback). -->
-        <div class="flex gap-2 mt-2" style="align-items: center; flex-wrap: wrap;">
+        <div class="flex gap-2 mt-2 items-center flex-wrap">
           <button
             type="button"
             class="btn btn-secondary"
@@ -379,22 +455,49 @@
       </div>
     </div>
 
+    <!-- Shared AI image-edit dialog for the reference image. Mounted at -->
+    <!-- the page root; openReferenceEdit() flips the v-model. -->
+    <ImageEditDialog
+      v-model="referenceEditOpen"
+      :project-slug="slug"
+      :image-path="referenceImagePath || ''"
+      @accepted="onReferenceEditAccepted"
+    />
+
   </div>
 </template>
 
 <script setup lang="ts">
 definePageMeta({ layout: 'dashboard' })
-useHead({ title: "Image Prompts — Story Studio KH" })
+useAppTitle('Image Prompts')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const { get, post } = useApi()
+const { get, post, put } = useApi()
 const { success, error: showError } = useToast()
 
 const generating = ref(false)
 const showStyleEditor = ref(false)
 const generatedPrompts = ref<any>(null)
-const customStyles = ref<any[]>([])
 const activeTab = ref('current')
+
+// User-saved style presets (Gap A from audit pain-point #7).
+// Sourced reactively from the project config so a save flows back into
+// the dropdown without a manual refresh. Tolerates `style_presets` being
+// absent on older configs by treating undefined as an empty array.
+interface StylePresetMeta {
+  id: string
+  name: string
+  description: string
+  source_model?: string
+  source_reference?: string
+  created_at: string
+}
+const { config, refreshConfig } = useProject()
+const customStyles = computed<StylePresetMeta[]>(
+  () => Array.isArray((config.value as any)?.style_presets)
+    ? (config.value as any).style_presets
+    : [],
+)
 
 // ── Reference-image style extraction (pain-point #7) ─────────────────────
 interface VisionModelCap { id: string; provider: 'anthropic' | 'openai' | 'unknown'; has_key: boolean }
@@ -584,10 +687,31 @@ const VISION_CAPABLE = new Set<string>([
   'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-5',
 ])
 
+// Bumped after each accepted AI edit so the <img> re-fetches the file
+// instead of showing the stale cached pre-edit pixels.
+const referenceEditKey = ref(0)
 const referencePreviewUrl = computed(() => {
   if (!referenceImagePath.value) return ''
-  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(referenceImagePath.value)}`
+  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(referenceImagePath.value)}&k=${referenceEditKey.value}`
 })
+
+// "✨ Edit with AI" button on the reference-image preview row. Reuses the
+// shared ImageEditDialog (mounted at template root). On accept, the dialog
+// returns the new path; we keep the same path bound here when the user
+// chooses Replace, or swap to the new versioned file otherwise.
+const referenceEditOpen = ref(false)
+function openReferenceEdit() {
+  if (!referenceImagePath.value) return
+  referenceEditOpen.value = true
+}
+function onReferenceEditAccepted(newPath: string) {
+  referenceImagePath.value = newPath
+  referenceEditKey.value++  // bust the preview cache
+  // Clear any stale "Analyzed N min ago" — the image's content changed,
+  // so the previous style extraction no longer describes it.
+  lastAnalyzedAt.value = ''
+  lastAnalysisModel.value = ''
+}
 
 const referenceImageName = computed(() => {
   const p = referenceImagePath.value || ''
@@ -649,6 +773,11 @@ async function pickReferenceImage() {
   }
 }
 
+// Optional focus hint sent alongside the image+prompt on /analyze-style.
+// Backend uses it to bias the vision model's vocabulary (e.g. "lighting"
+// vs "palette" vs "illustration").
+const extractFocus = ref('')
+
 async function extractStyle() {
   if (!referenceImagePath.value) {
     showError('Pick a reference image first')
@@ -661,6 +790,10 @@ async function extractStyle() {
       {
         image_path: referenceImagePath.value,
         model: visionModel.value,
+        // Empty string = no focus; backend tolerates either undefined or
+        // empty. Trim defensively in case the user accidentally pasted
+        // whitespace.
+        focus: extractFocus.value.trim() || undefined,
       },
     )
     // Switch to custom style so the textarea is visible + editable.
@@ -683,12 +816,128 @@ function clearReference() {
   lastAnalysisModel.value = null
 }
 
+// ── Save-as-preset flow ─────────────────────────────────────────────────
+// Captures whatever's in form.style_tag right now (could be a vision-
+// extracted description, a hand-written one, or a fork of an existing
+// custom preset) and persists it under a name in config.style_presets.
+const showSavePresetForm = ref(false)
+const newPresetName = ref('')
+const savingStylePreset = ref(false)
+const savePresetInputEl = ref<HTMLInputElement | null>(null)
+
+function openSaveStylePreset() {
+  if (!form.style_tag.trim()) return
+  showSavePresetForm.value = true
+  newPresetName.value = ''
+  // Focus the input on next tick so keyboard users can type immediately
+  // without an extra Tab press.
+  nextTick(() => savePresetInputEl.value?.focus())
+}
+
+function cancelSaveStylePreset() {
+  showSavePresetForm.value = false
+  newPresetName.value = ''
+}
+
+/**
+ * Generate a stable, file-system-safe id from a name. Collision with an
+ * existing id is resolved by suffixing `-2`, `-3`, … so a user saving
+ * "Watercolour" twice ends up with `watercolour` and `watercolour-2`
+ * rather than overwriting the first silently.
+ */
+function makeStylePresetId(name: string, existing: StylePresetMeta[]): string {
+  const base = name.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'style'
+  if (!existing.some(c => c.id === base)) return base
+  for (let n = 2; n < 1000; n++) {
+    const candidate = `${base}-${n}`
+    if (!existing.some(c => c.id === candidate)) return candidate
+  }
+  return `${base}-${Date.now()}`
+}
+
+async function saveStylePreset() {
+  const name = newPresetName.value.trim()
+  if (!name || !form.style_tag.trim() || savingStylePreset.value) return
+  savingStylePreset.value = true
+  try {
+    const existing = customStyles.value
+    const newPreset: StylePresetMeta = {
+      id: makeStylePresetId(name, existing),
+      name,
+      description: form.style_tag.trim(),
+      source_model: lastAnalysisModel.value || undefined,
+      source_reference: referenceImagePath.value || undefined,
+      created_at: new Date().toISOString(),
+    }
+    // Persist via the existing settings/config PUT — same path voice_presets
+    // uses. The route's UpdateConfig schema passes `style_presets` through
+    // (we registered it in contracts/index.ts), so this single round-trip
+    // both saves the preset and refreshes the dropdown via the reactive
+    // config ref.
+    await put(`/projects/${slug.value}/settings/config`, {
+      style_presets: [...existing, newPreset],
+    })
+    await refreshConfig(slug.value)
+    // Switch the dropdown to the new entry so the user immediately sees
+    // their save reflected. Selecting it also re-fills the textarea (a no-op
+    // here since it already matches), keeping behaviour predictable.
+    form.style_preset = newPreset.id
+    showSavePresetForm.value = false
+    newPresetName.value = ''
+    success(`Saved "${newPreset.name}" — pick it from the Art Style dropdown next time.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to save style preset')
+  } finally {
+    savingStylePreset.value = false
+  }
+}
+
+// ── Reference path persistence (Gap C from audit pain-point #7) ──────────
+// Per-project localStorage key so iCloud-synced project switches stay
+// remembered across reloads. Cleared explicitly via clearReference.
+const REF_PATH_LS_KEY = computed(() => `story-studio:${slug.value}:image-prompts:reference-path`)
+
+function loadPersistedReferencePath() {
+  if (typeof window === 'undefined') return  // SSR safety, even though Nuxt runs in SPA mode here
+  try {
+    const raw = window.localStorage.getItem(REF_PATH_LS_KEY.value)
+    if (raw && typeof raw === 'string' && raw.trim()) {
+      referenceImagePath.value = raw
+    }
+  } catch { /* localStorage may be unavailable in private mode — ignore */ }
+}
+
+watch(referenceImagePath, (v) => {
+  if (typeof window === 'undefined') return
+  try {
+    if (v) window.localStorage.setItem(REF_PATH_LS_KEY.value, v)
+    else   window.localStorage.removeItem(REF_PATH_LS_KEY.value)
+  } catch { /* ignore quota / private-mode errors */ }
+})
+
+onMounted(() => loadPersistedReferencePath())
+
 function onStyleChange() {
   if (form.style_preset in STYLE_PRESETS) {
     form.style_tag = STYLE_PRESETS[form.style_preset]
     showStyleEditor.value = false
-  } else if (form.style_preset === 'custom') {
+    return
+  }
+  if (form.style_preset === 'custom') {
     form.style_tag = ''
+    showStyleEditor.value = true
+    return
+  }
+  // User-saved custom preset — id matches an entry in config.style_presets.
+  // Treat selection as "load this description and put me in editable mode"
+  // so the user can fork the preset (tweak + save under a new name) without
+  // mutating the original.
+  const saved = customStyles.value.find(cs => cs.id === form.style_preset)
+  if (saved) {
+    form.style_tag = saved.description
     showStyleEditor.value = true
   }
 }
@@ -781,7 +1030,14 @@ async function runGenerate(mode: PromptMode) {
       : `Generated ${sceneCt} scene + ${thumbCt} thumbnail prompts`
     success(msg)
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to generate image prompts')
+    // Name the pool that failed so the toast is actionable. Multi-pool
+    // 'all' runs aggregate errors at the backend, so the detail message
+    // (when present) carries the per-pool breakdown.
+    const poolLabel = mode === 'scenes' ? 'scene prompts'
+      : mode === 'thumbnails' ? 'thumbnail prompts'
+      : 'image prompts (scenes + thumbnails)'
+    console.error(`[image-prompts] ${poolLabel} generation failed:`, e)
+    showError(e.data?.detail || `Failed to generate ${poolLabel}`)
   } finally {
     generating.value = false
     isGenerating.value = false
@@ -808,6 +1064,56 @@ async function saveToFile() {
 </script>
 
 <style scoped>
+/* Form-field width tokens (mirror scripts.vue). */
+.field-medium { max-width: 520px; }
+.field-wide   { max-width: 720px; }
+
+/* Helper line that hangs directly under an input. */
+.hint-line { margin-top: 4px; }
+
+/* Style-tag textarea — short, no monospace. */
+.style-tag-textarea { min-height: 60px; font-size: 13px; }
+
+/* Vision-model dropdown sits inline with the file picker. */
+.vision-model-select { max-width: 220px; }
+
+/* Optional focus-hint row beneath the extract / re-analyze buttons.
+ * Compact label-input pair so it doesn't dominate the section. */
+.style-extract-focus-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.style-extract-focus-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.style-extract-focus-input { flex: 1; min-width: 200px; }
+
+/* Inline name-the-preset form. Lives under the reference preview block,
+ * sized to read as a small subordinate flow (not a competing card). */
+.style-save-preset-form {
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.style-save-preset-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+/* Sub-section title for Scenes / Thumbnails split — smaller than h3. */
+.split-title { font-size: 14px; margin: 0; }
+
+/* Inline hint that appears under the "Scenes per Chapter" select. */
+.scene-count-hint { display: block; margin-top: 4px; }
+
 /* Visual separation for the per-section blocks (Scenes vs Thumbnails) */
 .split-section {
   background: var(--bg-tertiary);

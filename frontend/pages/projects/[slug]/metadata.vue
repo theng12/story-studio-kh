@@ -9,7 +9,7 @@
       :presets="metadataPresets"
       v-model:episode-id="episodeId"
       filter-field="metadata"
-      generate-label="Generate"
+      generate-label="Generate Metadata"
       loading-label="Generating…"
       :generate-loading="genAll"
       :generate-disabled="!episodeId || !scriptReady"
@@ -23,7 +23,7 @@
 
     <p class="text-muted mt-1 mb-2">
       SEO title, description, and tags — all saved as a single metadata file per episode.
-      Use <strong>Generate</strong> above to run all three sections at once, or the
+      Use <strong>Generate Metadata</strong> above to run all three sections at once, or the
       <strong>Generate just this</strong> button inside each section to regenerate selectively.
     </p>
 
@@ -40,9 +40,9 @@
     <div class="card mt-3 shared-settings">
       <div class="shared-settings-label">
         <span>AI Model</span>
-        <span class="text-muted" style="font-size: 11px; font-weight: normal;">used by all sections below</span>
+        <span class="text-muted text-xs font-normal">used by all sections below</span>
       </div>
-      <div class="form-group" style="max-width: 420px; margin: 0;">
+      <div class="form-group shared-settings-control">
         <ModelSelector v-model="model" :project-slug="slug" />
       </div>
     </div>
@@ -51,7 +51,7 @@
     <div class="card mt-2">
       <div class="card-header">
         <h3>1. SEO Video Title</h3>
-        <p class="text-muted" style="font-size:12px">Generate title options optimized for multiple platforms</p>
+        <p class="text-muted text-sm">Generate title options optimized for multiple platforms</p>
       </div>
 
       <!-- Title mode picker — drives whether we paraphrase via LLM,
@@ -95,7 +95,7 @@
           class="input"
           placeholder="e.g. — A Cozy Sleep Story"
         />
-        <p class="text-muted" style="font-size:11px; margin-top:4px;">
+        <p class="text-muted text-xs hint-line">
           Preview:
           <code>{{ titlePreviewText }}</code>
         </p>
@@ -166,15 +166,15 @@
     <div class="card mt-2">
       <div class="card-header">
         <h3>2. Description</h3>
-        <p class="text-muted" style="font-size:12px">Toggle sections on/off, drag to reorder. AI fills content per episode.</p>
+        <p class="text-muted text-sm">Toggle sections on/off, drag to reorder. AI fills content per episode.</p>
       </div>
 
-      <div class="form-group mt-1" style="max-width: 280px;">
+      <div class="form-group mt-1 narrow-field">
         <label>Max length (characters) — YouTube max is 5000</label>
         <input v-model.number="descConfig.maxChars" type="number" min="100" max="5000" class="input" />
       </div>
 
-      <p class="text-muted" style="font-size: 12px; margin-top: 8px;">
+      <p class="text-muted text-sm mt-1">
         <span aria-hidden="true">⋮⋮</span>
         Drag sections to reorder, or use the arrow buttons. Toggle the checkbox to include/exclude.
         <strong>Order matters</strong> — the final description renders each enabled section top-to-bottom in the order shown here.
@@ -224,15 +224,15 @@
             <div v-if="section.id === 'hook'">
               <div class="form-group">
                 <label>Hook length (characters)</label>
-                <input v-model.number="section.config.characters" type="number" min="80" max="500" step="10" class="input" style="max-width:140px" />
-                <p class="text-muted" style="font-size:11px; margin-top:4px;">
+                <input v-model.number="section.config.characters" type="number" min="80" max="500" step="10" class="input input-narrow" />
+                <p class="text-muted text-xs hint-line">
                   Soft target the LLM aims for, ±15%. ~250 chars is the YouTube SEO snippet sweet spot.
                 </p>
               </div>
               <div class="form-group">
-                <label>Starting format <span class="text-muted" style="font-weight:normal">(optional — leave blank for LLM-suggested opener)</span></label>
+                <label>Starting format <span class="text-muted font-normal">(optional — leave blank for LLM-suggested opener)</span></label>
                 <input v-model="section.config.starting_format" class="input" placeholder="e.g. 🌙 Welcome back to [Your Channel Name]." />
-                <p class="text-muted" style="font-size:11px; margin-top:4px;">
+                <p class="text-muted text-xs hint-line">
                   If set, every hook will begin with EXACTLY this text, then continue naturally.
                 </p>
               </div>
@@ -262,33 +262,33 @@
 
             <!-- CHANNELS: array (own + recommended) using the videos[] pattern -->
             <div v-if="section.id === 'channels'">
-              <label style="font-size:12px; color:var(--text-muted); margin-bottom:8px; display:block">
+              <label class="section-helper-label">
                 Add your own channel(s) and recommended channels. Mark each so the description groups them correctly.
               </label>
               <div v-for="(ch, ci) in section.config.channels" :key="ci" class="link-row">
-                <select v-model="ch.kind" class="select" style="max-width:140px">
+                <select v-model="ch.kind" class="select link-select-kind">
                   <option value="own">Our channel</option>
                   <option value="recommended">Recommended</option>
                 </select>
-                <input v-model="ch.name" class="input" placeholder="Channel name" style="flex:1" />
-                <input v-model="ch.url" class="input" placeholder="https://youtube.com/@..." style="flex:1.5" />
+                <input v-model="ch.name" class="input link-input-name" placeholder="Channel name" />
+                <input v-model="ch.url" class="input link-input-url" placeholder="https://youtube.com/@..." />
                 <button class="btn-icon danger" @click="section.config.channels.splice(ci, 1)" aria-label="Remove channel">✕</button>
               </div>
               <button class="btn btn-sm btn-secondary mt-1" @click="section.config.channels.push({ name: '', url: '', kind: 'recommended' })">+ Add Channel</button>
             </div>
 
             <div v-if="section.id === 'videos'">
-              <label style="font-size:12px; color:var(--text-muted); margin-bottom:8px; display:block">Add video links to recommend in the description</label>
+              <label class="section-helper-label">Add video links to recommend in the description</label>
               <div v-for="(vid, vi) in section.config.videos" :key="vi" class="link-row">
-                <input v-model="vid.name" class="input" placeholder="Video title" style="flex:1" />
-                <input v-model="vid.url" class="input" placeholder="https://youtube.com/watch?v=..." style="flex:1.5" />
+                <input v-model="vid.name" class="input link-input-name" placeholder="Video title" />
+                <input v-model="vid.url" class="input link-input-url" placeholder="https://youtube.com/watch?v=..." />
                 <button class="btn-icon danger" @click="section.config.videos.splice(vi, 1)">✕</button>
               </div>
               <button class="btn btn-sm btn-secondary mt-1" @click="section.config.videos.push({ name: '', url: '' })">+ Add Video</button>
             </div>
 
             <div v-if="section.id === 'playlists'">
-              <label style="font-size:12px; color:var(--text-muted); margin-bottom:8px; display:block">Add playlist links to feature in the description</label>
+              <label class="section-helper-label">Add playlist links to feature in the description</label>
               <!-- Dropdown picker: pulls playlists from the project's
                    connected YouTube channel via the same endpoint the
                    Upload page uses. Picking a playlist inserts a new
@@ -296,10 +296,9 @@
                    more copy/pasting playlist links. The manual
                    "+ Add Playlist" below stays for playlists from
                    OTHER channels (collabs, recommended, etc). -->
-              <div v-if="availablePlaylists.length" class="link-row mt-1" style="margin-bottom: 6px;">
+              <div v-if="availablePlaylists.length" class="link-row playlist-picker-row mt-1">
                 <select
-                  class="input"
-                  style="flex: 2.5;"
+                  class="input playlist-picker-select"
                   :value="''"
                   title="Pick a playlist from your connected YouTube channel. Inserts the title + URL into a new row below — no copy/pasting."
                   @change="e => addPlaylistFromChannel((e.target as HTMLSelectElement).value)"
@@ -316,13 +315,12 @@
                   @click="loadAvailablePlaylists(true)"
                 >↻</button>
               </div>
-              <div v-else-if="!playlistsLoading && playlistsError"
-                   style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">
+              <div v-else-if="!playlistsLoading && playlistsError" class="text-muted text-xs playlist-picker-error">
                 Couldn't load YouTube playlists ({{ playlistsError }}). You can still paste links manually below.
               </div>
               <div v-for="(pl, pi) in section.config.playlists" :key="pi" class="link-row">
-                <input v-model="pl.name" class="input" placeholder="Playlist name" style="flex:1" />
-                <input v-model="pl.url" class="input" placeholder="https://youtube.com/playlist?list=..." style="flex:1.5" />
+                <input v-model="pl.name" class="input link-input-name" placeholder="Playlist name" />
+                <input v-model="pl.url" class="input link-input-url" placeholder="https://youtube.com/playlist?list=..." />
                 <button class="btn-icon danger" @click="section.config.playlists.splice(pi, 1)">✕</button>
               </div>
               <button class="btn btn-sm btn-secondary mt-1" @click="section.config.playlists.push({ name: '', url: '' })">+ Add Playlist (manual link)</button>
@@ -332,11 +330,11 @@
                  Keeps the "free way to help" ask distinct from the "pay to support"
                  ask, which the user wanted broken apart. -->
             <div v-if="section.id === 'cta'">
-              <label style="font-size:12px; color:var(--text-muted); margin-bottom:8px; display:block">
+              <label class="section-helper-label">
                 Optional custom subscribe/like lines. Leave empty to let the LLM write its own short CTA.
               </label>
               <div v-for="(line, li) in section.config.custom_lines" :key="li" class="link-row">
-                <input v-model="section.config.custom_lines[li]" class="input" style="flex:1" placeholder="e.g. Hit the bell so you never miss a new story." />
+                <input v-model="section.config.custom_lines[li]" class="input flex-1" placeholder="e.g. Hit the bell so you never miss a new story." />
                 <button class="btn-icon danger" @click="section.config.custom_lines.splice(li, 1)" aria-label="Remove line">✕</button>
               </div>
               <button class="btn btn-sm btn-secondary mt-1" @click="section.config.custom_lines.push('')">+ Add CTA Line</button>
@@ -346,11 +344,11 @@
                  Keeps the same UX as videos/channels (kind dropdown + URL +
                  optional label only when kind='custom'). -->
             <div v-if="section.id === 'support'">
-              <label style="font-size:12px; color:var(--text-muted); margin-bottom:8px; display:block">
+              <label class="section-helper-label">
                 Where can viewers support the channel? Patreon, Ko-fi, Buy Me a Coffee, YouTube Members, or any custom platform.
               </label>
               <div v-for="(plat, pi) in section.config.platforms" :key="pi" class="link-row support-row">
-                <select v-model="plat.kind" class="select" style="max-width:170px">
+                <select v-model="plat.kind" class="select support-select-kind">
                   <option value="patreon">Patreon</option>
                   <option value="kofi">Ko-fi</option>
                   <option value="buymeacoffee">Buy Me a Coffee</option>
@@ -360,11 +358,10 @@
                 <input
                   v-if="plat.kind === 'custom'"
                   v-model="plat.label"
-                  class="input"
+                  class="input support-input-label"
                   placeholder="Label (e.g. Stripe link)"
-                  style="max-width:160px"
                 />
-                <input v-model="plat.url" class="input" placeholder="https://..." style="flex:1" />
+                <input v-model="plat.url" class="input flex-1" placeholder="https://..." />
                 <button class="btn-icon danger" @click="section.config.platforms.splice(pi, 1)" aria-label="Remove platform">✕</button>
               </div>
               <button class="btn btn-sm btn-secondary mt-1" @click="section.config.platforms.push({ kind: 'patreon', url: '' })">+ Add Platform</button>
@@ -382,7 +379,7 @@
 
             <div v-if="section.id === 'hashtags'" class="form-group">
               <label>Number of hashtags to generate (inside description)</label>
-              <input v-model.number="section.config.count" type="number" min="5" max="30" class="input" style="max-width:120px" />
+              <input v-model.number="section.config.count" type="number" min="5" max="30" class="input input-narrow" />
             </div>
 
             <div v-if="section.type === 'custom'">
@@ -399,7 +396,7 @@
         </div>
       </div>
 
-      <div class="flex items-center gap-2 mt-2" style="flex-wrap: wrap;">
+      <div class="flex items-center gap-2 mt-2 flex-wrap">
         <button class="btn btn-sm btn-secondary" @click="addCustomBlock">+ Add Custom Section</button>
         <button
           class="btn btn-sm btn-primary"
@@ -417,9 +414,9 @@
     <div class="card mt-2">
       <div class="card-header">
         <h3>3. YouTube Tags</h3>
-        <p class="text-muted" style="font-size:12px">Tags boost discoverability — separate from in-description hashtags</p>
+        <p class="text-muted text-sm">Tags boost discoverability — separate from in-description hashtags</p>
       </div>
-      <div class="form-group mt-1" style="max-width: 200px;">
+      <div class="form-group mt-1 narrow-field-wide">
         <label>Number of tags</label>
         <input v-model.number="tagConfig.count" type="number" min="1" max="50" class="input" />
       </div>
@@ -441,13 +438,13 @@
         <h3>Preview</h3>
         <div class="flex gap-2 items-center">
           <SaveIndicator :state="autoSave.state.value" :saved-at="autoSave.savedAt.value" :error-message="autoSave.errorMessage.value" />
-          <span class="text-muted" style="font-size:11px">
+          <span class="text-muted text-xs">
             <template v-if="sessionVersion">Editing v{{ sessionVersion }} (auto-saving)</template>
             <template v-else-if="versions.length">Loaded v{{ selectedVersion }} — first edit creates v{{ nextVersionNumber }}</template>
             <template v-else>First save will create v1</template>
           </span>
-          <div v-if="versions.length" class="form-group" style="margin-bottom:0">
-            <label class="text-muted" style="font-size:11px; display:block; margin-bottom:2px">History</label>
+          <div v-if="versions.length" class="form-group history-picker">
+            <label class="text-muted history-label">History</label>
             <select v-model.number="selectedVersion" @change="loadVersion" class="select select-sm" :title="`${versions.length} version(s) on disk`">
               <option v-for="v in versions" :key="v.version" :value="v.version">
                 v{{ v.version }}{{ v.savedAt ? ` — ${formatDate(v.savedAt)}` : '' }}
@@ -520,7 +517,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'dashboard' })
-useHead({ title: "Metadata Generator — Story Studio KH" })
+useAppTitle('Metadata Generator')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
@@ -960,7 +957,8 @@ async function generateTitles() {
     if (!preview.title && data.titles[0]) preview.title = data.titles[0]
     success(`Generated ${data.titles.length} title options`)
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to generate titles')
+    console.error('[metadata] generate titles failed:', e)
+    showError(e.data?.detail || `Failed to generate titles (model=${model.value}). Check that the model's API key is set in Settings.`)
   } finally {
     genTitles.value = false
     metaGenerating.value = false
@@ -982,7 +980,8 @@ async function generateDescription() {
     preview.description = data.description
     success('Description generated')
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to generate description')
+    console.error('[metadata] generate description failed:', e)
+    showError(e.data?.detail || `Failed to generate description (model=${model.value}). Check that the model's API key is set in Settings.`)
   } finally {
     genDesc.value = false
     metaGenerating.value = false
@@ -1004,7 +1003,8 @@ async function generateTags() {
     preview.tags = data.tags
     success(`Generated ${data.tags.length} tags`)
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to generate tags')
+    console.error('[metadata] generate tags failed:', e)
+    showError(e.data?.detail || `Failed to generate tags (model=${model.value}). Check that the model's API key is set in Settings.`)
   } finally {
     genTags.value = false
     metaGenerating.value = false
@@ -1042,7 +1042,8 @@ async function generateAll() {
     preview.tags = data.tags
     success('All metadata generated — autosaving as new version…')
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to generate metadata')
+    console.error('[metadata] generate all failed:', e)
+    showError(e.data?.detail || `Failed to generate metadata (model=${model.value}). One of titles/description/tags broke — try generating each section individually to find which.`)
   } finally {
     genAll.value = false
     metaGenerating.value = false
@@ -1315,6 +1316,48 @@ onMounted(async () => {
 
 .shared-settings { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 16px; }
 .shared-settings-label { display: flex; flex-direction: column; gap: 2px; font-size: 13px; font-weight: 600; color: var(--text-secondary); min-width: 110px; }
+.shared-settings-control { max-width: 420px; margin: 0; }
+
+/* Inline helper line directly under an input (e.g. "soft target ±15%"). */
+.hint-line { margin-top: 4px; }
+
+/* Section helper label — a short cue above an array of inputs.
+ * Used for the channels / videos / playlists / cta / support pickers
+ * where "label" wouldn't apply to a single input. */
+.section-helper-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  display: block;
+}
+
+/* Narrow form-field widths (used by per-section number inputs). */
+.input-narrow { max-width: 140px; }
+.narrow-field { max-width: 280px; }
+.narrow-field-wide { max-width: 200px; }
+
+/* Description "Number of tags" / "Hashtag count" use input-narrow.
+ * Hashtags-section has its own width via the same class. */
+
+/* Link-row column widths — name, url, kind selector. */
+.link-row .link-input-name { flex: 1; }
+.link-row .link-input-url  { flex: 1.5; }
+.link-row .link-select-kind { max-width: 140px; }
+.link-row .support-select-kind { max-width: 170px; }
+.link-row .support-input-label { max-width: 160px; }
+
+/* Playlist picker (the "+ Add from your YouTube channel" combo row). */
+.playlist-picker-row { margin-bottom: 6px; }
+.playlist-picker-row .playlist-picker-select { flex: 2.5; }
+.playlist-picker-error { margin-bottom: 6px; }
+
+/* Description-area version history dropdown. */
+.history-picker { margin-bottom: 0; }
+.history-picker .history-label {
+  font-size: 11px;
+  display: block;
+  margin-bottom: 2px;
+}
 
 .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 

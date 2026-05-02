@@ -59,7 +59,7 @@
             ■ Stop
           </button>
         </div>
-        <span class="text-muted" style="font-size: 11px;">
+        <span class="text-muted text-xs">
           Click ▶ next to any voice for a 1-sentence preview. ★ to pin favourites to the top (per-project).
           Hit <strong>Refresh</strong> inside the picker to pull the latest voices from ElevenLabs.
         </span>
@@ -83,21 +83,21 @@
         <div class="form-group">
           <label>Speed ({{ form.speed.toFixed(2) }}) <span class="field-hint">Playback pace</span></label>
           <SliderWithNumber v-model="form.speed" :min="0.5" :max="2" :step="0.01" :decimals="2" />
-          <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+          <p class="text-muted text-xs hint-line">
             ElevenLabs recommends <strong>0.95–1.05</strong> for natural narration. Below 0.9 can sound sluggish; above 1.1 rushes the delivery.
           </p>
         </div>
         <div class="form-group">
           <label>Stability ({{ form.stability.toFixed(2) }}) <span class="field-hint">Higher = less variation</span></label>
           <SliderWithNumber v-model="form.stability" :min="0" :max="1" :step="0.01" :decimals="2" />
-          <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+          <p class="text-muted text-xs hint-line">
             Sleep-story default <strong>0.50–0.65</strong>. Higher = more consistent tone; lower = more expressive but risk of drift on long reads.
           </p>
         </div>
         <div class="form-group">
           <label>Similarity ({{ form.similarity.toFixed(2) }}) <span class="field-hint">Voice cloning closeness</span></label>
           <SliderWithNumber v-model="form.similarity" :min="0" :max="1" :step="0.01" :decimals="2" />
-          <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+          <p class="text-muted text-xs hint-line">
             Default <strong>0.75</strong>. Higher sticks closer to the reference voice; too high (&gt;0.9) amplifies background artifacts in the original sample.
           </p>
         </div>
@@ -142,29 +142,29 @@
     <!-- to disk (usually due to client-side timeouts). GenAIPro keeps -->
     <!-- history for ~1 day so this is time-sensitive after a failed batch. -->
     <div v-if="form.episode_id" class="card mt-2" aria-labelledby="audio-integrity-heading">
-      <h3 id="audio-integrity-heading" style="margin-bottom: 6px;">Audio integrity</h3>
-      <p class="text-muted" style="font-size: 12px; margin-bottom: 10px;">
+      <h3 id="audio-integrity-heading" class="integrity-title">Audio integrity</h3>
+      <p class="text-muted text-sm integrity-blurb">
         Check whether every expected audio chunk is on disk. If GenAIPro
         completed tasks but the download was lost (e.g. 5-minute client
         timeout), <strong>Repair missing</strong> re-fetches them from
         GenAIPro's task history.
       </p>
 
-      <div v-if="audioStatus.loading" class="text-muted" style="font-size: 13px;">
+      <div v-if="audioStatus.loading" class="text-muted text-md">
         <LoadingSpinner size="sm" /> Checking…
       </div>
 
-      <div v-else-if="audioStatus.error" class="text-danger" style="font-size: 13px;">
+      <div v-else-if="audioStatus.error" class="text-danger text-md">
         {{ audioStatus.error }}
         <button class="btn btn-sm btn-ghost ml-2" @click="refreshAudioStatus">Retry</button>
       </div>
 
-      <div v-else-if="audioStatus.total === 0" class="text-muted" style="font-size: 13px;">
+      <div v-else-if="audioStatus.total === 0" class="text-muted text-md">
         No audio chunks expected for this episode yet. Generate the script first,
         then the system will know what to check.
       </div>
 
-      <div v-else class="flex items-center gap-2" style="flex-wrap: wrap;">
+      <div v-else class="flex items-center gap-2 flex-wrap">
         <span
           class="integrity-pill"
           :class="audioStatus.missing === 0 ? 'ok' : 'warn'"
@@ -205,7 +205,7 @@
           </span>
         </div>
         <details class="mt-1">
-          <summary style="cursor: pointer; font-size: 12px;">Details ({{ repairResult.logs.length }} log lines)</summary>
+          <summary class="repair-details-summary">Details ({{ repairResult.logs.length }} log lines)</summary>
           <pre class="repair-log">{{ repairResult.logs.join('\n') }}</pre>
         </details>
       </div>
@@ -215,7 +215,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'dashboard' })
-useHead({ title: "Audio Generator — Story Studio KH" })
+useAppTitle('Audio Generator')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { post, get } = useApi()
@@ -307,7 +307,8 @@ async function previewVoiceId(voiceId?: string) {
       await audio.play()
     }
   } catch (e: any) {
-    showError(e.data?.detail || 'Voice preview failed')
+    console.error(`[audio] voice preview failed (voice=${id}, model=${form.model}):`, e)
+    showError(e.data?.detail || `Voice preview failed for ${id}. Check your TTS provider key in Settings.`)
   } finally {
     previewing.value = false
   }
@@ -400,7 +401,8 @@ async function runRepair() {
     }
     await refreshAudioStatus()
   } catch (e: any) {
-    showError(e?.data?.detail || 'Repair failed')
+    console.error('[audio] repair failed:', e)
+    showError(e?.data?.detail || 'Audio repair failed — GenAIPro task history may have aged out (1-day window).')
   } finally {
     repairing.value = false
   }
@@ -448,7 +450,8 @@ async function submit() {
     await post(`/projects/${slug.value}/generate/audio`, payload)
     success(`Audio generation queued for ${sections === 'all' ? 'all sections' : effectiveSections.value.length + ' section(s)'}`)
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to queue audio generation')
+    console.error('[audio] queue failed:', e, 'payload:', payload)
+    showError(e.data?.detail || `Failed to queue audio generation (model=${form.model}, voice=${form.voice || 'unset'}). Check the TTS provider key in Settings.`)
     audioGenerating.value = false
   } finally {
     submitting.value = false
@@ -457,6 +460,16 @@ async function submit() {
 </script>
 
 <style scoped>
+/* Helper line that hangs directly under an input. */
+.hint-line { margin-top: 4px; }
+
+/* Integrity card title and blurb (mirrors images/video). */
+.integrity-title { margin-bottom: 6px; }
+.integrity-blurb { margin-bottom: 10px; }
+
+/* Repair-result <details> summary. */
+.repair-details-summary { cursor: pointer; font-size: 12px; }
+
 .required { color: var(--error); margin-left: 2px; }
 .field-hint { color: var(--text-muted); font-size: 11px; font-weight: 400; margin-left: 4px; }
 

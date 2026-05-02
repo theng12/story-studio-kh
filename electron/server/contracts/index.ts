@@ -221,6 +221,7 @@ export interface AccountSummaryResponse {
 export const UpdateConfigSchema = z.object({
   image_models: z.record(z.string(), z.any()).optional(),
   voice_presets: z.array(z.any()).optional(),
+  style_presets: z.array(z.any()).optional(),
   audio_models: z.record(z.string(), z.any()).optional(),
   video_models: z.record(z.string(), z.any()).optional(),
   confirmation_preferences: z.record(z.string(), z.any()).optional(),
@@ -247,6 +248,14 @@ export interface SafeProjectConfigResponse {
   accounts?: Record<string, AccountSummaryResponse[]>
   image_models: Record<string, any>
   voice_presets: Array<{ name: string; voice_id: string }>
+  style_presets?: Array<{
+    id: string
+    name: string
+    description: string
+    source_model?: string
+    source_reference?: string
+    created_at: string
+  }>
   audio_models: Record<string, any>
   video_models?: Record<string, any>
   /** Unified catalog — mirror of the three typed dicts plus any custom entries. */
@@ -263,6 +272,10 @@ export interface SafeProjectConfigResponse {
   audio_pricing_last_updated: string
   video_pricing_last_updated?: string
   confirmation_preferences?: Record<string, boolean>
+  /** Per-project Chatterbox (Local TTS) gate; when false the model dropdown hides chatterbox-* entries. */
+  chatterbox_enabled?: boolean
+  /** UUID returned by Chatterbox /api/upload-reference, used when chatterbox-cloned is selected. */
+  chatterbox_reference_id?: string
 }
 
 // Standards accepts either { content: string } or a raw string body.

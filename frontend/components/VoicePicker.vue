@@ -1,12 +1,13 @@
 <template>
   <div class="voice-picker" @click.stop>
     <!-- Trigger row: current selection + star + expand chevron -->
-    <button type="button" class="vp-trigger" :class="{ open: expanded }" @click="toggle">
+    <button type="button" class="vp-trigger" :class="{ open: expanded, 'has-unavailable': currentVoice && !isAvailable(currentVoice.voice_id) }" @click="toggle">
       <span class="vp-current" :title="currentVoice?.description || currentVoice?.name || defaultLabel">
         {{ currentVoice?.name || defaultLabel }}
       </span>
       <span v-if="currentVoice && isFavourite(currentVoice.voice_id)" class="vp-star-badge" title="Favourited" aria-hidden="true">★</span>
-      <span v-if="currentVoice" class="vp-badge" :class="`cat-${currentVoice.category}`">
+      <span v-if="currentVoice && !isAvailable(currentVoice.voice_id)" class="vp-badge cat-unavailable" title="This voice isn't in your current ElevenLabs catalog — generation will fail. Pick another voice or refresh the catalog.">unavailable</span>
+      <span v-else-if="currentVoice" class="vp-badge" :class="`cat-${currentVoice.category}`">
         {{ categoryLabel(currentVoice.category) }}
       </span>
       <span class="vp-chev" aria-hidden="true">▾</span>
@@ -107,14 +108,19 @@
                 <span v-if="!isAvailable(v.voice_id)" class="vp-chip warn">unavailable</span>
               </span>
             </button>
-            <button type="button" class="vp-preview" :disabled="!v.voice_id" title="Preview voice" @click.stop="$emit('preview', v.voice_id)" aria-label="Preview">▶</button>
+            <button type="button" class="vp-preview" :disabled="!v.voice_id || !isAvailable(v.voice_id)" :title="isAvailable(v.voice_id) ? 'Preview voice' : 'Voice unavailable'" @click.stop="$emit('preview', v.voice_id)" aria-label="Preview">▶</button>
           </div>
         </div>
 
         <!-- My Custom Voices (project presets) -->
         <div v-if="filteredCustomVoices.length" class="vp-section">
           <div class="vp-section-heading">My Custom Voices ({{ filteredCustomVoices.length }})</div>
-          <div v-for="v in filteredCustomVoices" :key="'custom-' + v.voice_id" class="vp-row" :class="{ selected: modelValue === v.voice_id }">
+          <div
+            v-for="v in filteredCustomVoices"
+            :key="'custom-' + v.voice_id"
+            class="vp-row"
+            :class="{ selected: modelValue === v.voice_id, unavailable: !isAvailable(v.voice_id) }"
+          >
             <button type="button" class="vp-star" :class="{ favourited: isFavourite(v.voice_id) }" @click.stop="toggleFavourite(v.voice_id)" :title="isFavourite(v.voice_id) ? 'Unfavourite' : 'Favourite this voice'">
               {{ isFavourite(v.voice_id) ? '★' : '☆' }}
             </button>
@@ -122,9 +128,10 @@
               <span class="vp-row-name">{{ v.name }}</span>
               <span class="vp-row-meta">
                 <span class="vp-chip subtle">saved voice</span>
+                <span v-if="!isAvailable(v.voice_id)" class="vp-chip warn" title="This voice isn't in your current ElevenLabs catalog — it may have been deleted or the subscription lapsed.">unavailable</span>
               </span>
             </button>
-            <button type="button" class="vp-preview" title="Preview voice" @click.stop="$emit('preview', v.voice_id)" aria-label="Preview">▶</button>
+            <button type="button" class="vp-preview" :disabled="!isAvailable(v.voice_id)" :title="isAvailable(v.voice_id) ? 'Preview voice' : 'Voice unavailable'" @click.stop="$emit('preview', v.voice_id)" aria-label="Preview">▶</button>
           </div>
         </div>
 
@@ -290,10 +297,18 @@ function isFavourite(voiceId: string): boolean {
 }
 
 function isAvailable(voiceId: string): boolean {
-  // Available = present in the catalog. Custom voices are always
-  // available (they're user-owned). Snapshots don't probe availability.
-  if (source.value === 'snapshot') return true
-  if (props.customVoices.some(p => p.voice_id === voiceId)) return true
+  // Optimistic during load / on snapshot source — we can't tell what the
+  // user's live catalog contains in those states, and grey-flashing every
+  // voice for a few seconds on first open looks broken.
+  if (loading.value || refreshing.value) return true
+  if (source.value === 'snapshot' || source.value === null) return true
+  // Once a live/cached catalog is in hand, treat it as authoritative for
+  // BOTH premade voices AND user-cloned voices. ElevenLabs `/v1/voices`
+  // returns the entire account-wide list (premade + cloned + library +
+  // generated), so a custom voice missing from the catalog means the user
+  // either deleted it upstream or lost subscription access — surface as
+  // unavailable so they can unfavourite / re-add. (Per audit pain-point
+  // #11/#12 "when a cloned voice can't be used, grey it out".)
   return catalogById.value.has(voiceId)
 }
 
@@ -546,6 +561,8 @@ watch([search, filterGender, filterUseCase], () => { showAllCatalog.value = fals
 .vp-badge.cat-professional { background: rgba(250,204,21,0.18); color: rgb(161,98,7); }
 .vp-badge.cat-generated { background: rgba(251,146,60,0.15); color: rgb(234,88,12); }
 .vp-badge.cat-unknown { background: var(--bg-tertiary); color: var(--text-muted); }
+.vp-badge.cat-unavailable { background: rgba(245, 158, 11, 0.18); color: rgb(180, 83, 9); }
+.vp-trigger.has-unavailable { border-color: rgba(245, 158, 11, 0.5); }
 .vp-chev { font-size: 12px; color: var(--text-muted); }
 .vp-trigger.open .vp-chev { transform: rotate(180deg); }
 

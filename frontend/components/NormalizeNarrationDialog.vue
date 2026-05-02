@@ -107,7 +107,7 @@ const emit = defineEmits<{
   (e: 'normalized', result: any): void
 }>()
 
-const { post, get, put } = useApi()
+const { post, get } = useApi()
 const { success, error: showError } = useToast()
 
 const sourcePath = ref('')
@@ -115,57 +115,56 @@ const model = ref('')
 const busy = ref(false)
 const result = ref<any>(null)
 
-/**
- * Project-config key for the last-used model. Mirrors the `_last_preset`
- * convention used elsewhere (scripts/audio/image presets). Per-project
- * so each project remembers its own preferred model.
- */
-const LAST_MODEL_KEY = 'narration_normalizer_last_model'
+// Global preference (shared across all projects). Lives in localStorage,
+// matching the convention used elsewhere in the app
+// (e.g. image-prompts.vue's REF_PATH_LS_KEY).
+const LAST_MODEL_LS_KEY = 'story-studio.narration_normalizer.last_model'
+// Legacy per-project key that earlier versions wrote into project config.
+// We migrate from it on first open if localStorage hasn't been seeded yet.
+const LEGACY_PROJECT_CONFIG_KEY = 'narration_normalizer_last_model'
 
-// Tracks what we loaded from disk so we don't write it back unchanged on
-// every dialog open. Empty string means "haven't loaded yet" — the
-// initial empty model.value is also empty, so the watch below skips
-// firing until loadLastUsedModel resolves and the user actually picks.
-const loadedModel = ref('')
+// Gates the persistence watch: stays false until loadLastUsedModel has
+// finished its read (and any migration). Without this, ModelSelector's
+// auto-fallback emit fires on first mount before our load completes and
+// silently overwrites the saved value with whatever model happens to be
+// first in the registry.
+const loaded = ref(false)
+
+function readLocal(): string {
+  try { return window.localStorage.getItem(LAST_MODEL_LS_KEY) || '' }
+  catch { return '' }
+}
+function writeLocal(value: string) {
+  try { window.localStorage.setItem(LAST_MODEL_LS_KEY, value) }
+  catch { /* private mode / quota → non-fatal */ }
+}
 
 async function loadLastUsedModel() {
-  try {
-    const config = await get<any>(`/projects/${props.slug}/settings/config`)
-    const saved = typeof config?.[LAST_MODEL_KEY] === 'string' ? config[LAST_MODEL_KEY] : ''
-    if (saved) {
-      model.value = saved
-      loadedModel.value = saved
-    }
-  } catch { /* config unreadable → leave empty; ModelSelector will show its default */ }
+  let saved = readLocal()
+  if (!saved) {
+    // One-time migration from the old per-project store so users who
+    // saved a value under v1 don't have to repick. We only consult the
+    // current project's config; legacy values from other projects stay
+    // dormant until those projects open the dialog.
+    try {
+      const config = await get<any>(`/projects/${props.slug}/settings/config`)
+      const legacy = typeof config?.[LEGACY_PROJECT_CONFIG_KEY] === 'string'
+        ? config[LEGACY_PROJECT_CONFIG_KEY]
+        : ''
+      if (legacy) {
+        saved = legacy
+        writeLocal(legacy)
+      }
+    } catch { /* config unreadable → no migration, fresh start */ }
+  }
+  if (saved) model.value = saved
+  loaded.value = true
 }
 
-async function saveLastUsedModel() {
-  if (!model.value || model.value === loadedModel.value) return
-  try {
-    await put(`/projects/${props.slug}/settings/config`, {
-      [LAST_MODEL_KEY]: model.value,
-    })
-    loadedModel.value = model.value
-  } catch { /* non-fatal: persistence failure shouldn't block the dialog flow */ }
-}
-
-// Persist the model the moment the user picks one — don't wait for them
-// to click Normalize. ModelSelector emits update:modelValue on every
-// pick (and also auto-swaps when the saved model isn't available),
-// so this captures both the user's intent AND the auto-fallback. Both
-// are equally valid as "last used" — the goal is "open the dialog and
-// see whatever I last had selected".
-//
-// We also debounce by relying on Vue's watch deduplication — back-to-
-// back changes within a tick coalesce naturally. The PUT itself is
-// fast (~10ms) and idempotent, so even if a few extra fire it's fine.
 watch(model, (m, prev) => {
+  if (!loaded.value) return // ignore ModelSelector's auto-fallback during initial load
   if (!m || m === prev) return
-  // Skip the initial load-from-config write (loadLastUsedModel sets
-  // both model.value and loadedModel.value, but the watch fires on the
-  // first change too — the loadedModel === model check above guards
-  // against the round-trip).
-  saveLastUsedModel()
+  writeLocal(m)
 })
 
 interface PickFileResp { path: string | null }
@@ -218,16 +217,23 @@ function onClose() {
   emit('close')
 }
 
+// `immediate: true` matters here: the dialog is rendered with v-if and
+// mounts with visible already true, so a lazy watcher would never fire
+// on the first open and loadLastUsedModel would never run. With immediate
+// the very first synchronous tick triggers the load, ahead of the
+// ModelSelector auto-fallback emit (which still gets neutralised by the
+// `loaded` gate, but we'd rather honour the saved value when we have one).
 watch(() => props.visible, (v) => {
   if (v) {
     sourcePath.value = ''
     result.value = null
-    // Load last-used model. If nothing's saved yet, ModelSelector falls
-    // back to its first-available default. Awaited via .then so the
-    // dialog open isn't blocked on a slow config read.
-    loadLastUsedModel().catch(() => {})
+    // Re-arm the load gate so the watch doesn't persist anything until
+    // we've finished reading localStorage / migrating. Otherwise a
+    // re-open could mistake the auto-fallback for a deliberate pick.
+    loaded.value = false
+    loadLastUsedModel().catch(() => { loaded.value = true })
   }
-})
+}, { immediate: true })
 </script>
 
 <style scoped>

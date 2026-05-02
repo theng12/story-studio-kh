@@ -29,7 +29,7 @@
     <div class="card mt-3">
       <div class="flex items-center justify-between">
         <h3>Steps to Run</h3>
-        <span class="text-muted" style="font-size:12px">
+        <span class="text-muted text-sm">
           Each checked step uses the <strong>last-used preset</strong> on its generator page.
         </span>
       </div>
@@ -71,7 +71,7 @@
 
     <!-- ── Episodes to include ──────────────────────────────────────────── -->
     <div class="card mt-2">
-      <div class="flex items-center justify-between" style="flex-wrap:wrap; gap:8px">
+      <div class="flex items-center justify-between flex-wrap episodes-header">
         <h3>Episodes</h3>
         <div class="ep-actions-row">
           <!-- Bulk mark/unmark — only visible when there's a selection so
@@ -210,15 +210,15 @@
         </div>
       </div>
 
-      <div v-if="epLoading && !episodes.length" class="text-muted mt-2" style="font-size:13px">
+      <div v-if="epLoading && !episodes.length" class="text-muted text-md mt-2">
         <LoadingSpinner size="sm" /> Loading episodes…
       </div>
 
-      <div v-else-if="!episodes.length" class="text-muted mt-2" style="font-size:13px">
+      <div v-else-if="!episodes.length" class="text-muted text-md mt-2">
         No accepted ideas yet. Go to <NuxtLink :to="`/projects/${slug}/ideas`">Ideas Generator</NuxtLink> and accept some first.
       </div>
 
-      <div v-else-if="!sortedFilteredEpisodes.length" class="text-muted mt-2" style="font-size:13px">
+      <div v-else-if="!sortedFilteredEpisodes.length" class="text-muted text-md mt-2">
         No episodes match the current filter. Switch "Show" back to All to see everything.
       </div>
 
@@ -389,7 +389,7 @@
         <button class="btn btn-sm btn-secondary" :disabled="currentPage >= totalPages" @click="goToPage(totalPages)" title="Last page">Last »</button>
       </div>
 
-      <div v-if="episodes.length" class="selection-summary mt-2 text-muted" style="font-size:12px">
+      <div v-if="episodes.length" class="selection-summary mt-2 text-muted text-sm">
         <strong>{{ selectedEpisodes.size }}</strong> of {{ episodes.length }} episode(s) selected · queued jobs = {{ selectedEpisodes.size * checkedStepCount }}
         <template v-if="filterMode === 'missing-only' || sortKey !== 'code-asc'">
           · showing <strong>{{ sortedFilteredEpisodes.length }}</strong> after filter/sort
@@ -400,7 +400,7 @@
     <!-- ── Blocking problems summary ────────────────────────────────────── -->
     <div v-if="blockingIssues.length" class="card mt-2 problems-card">
       <strong>⚠ Can't start yet</strong>
-      <ul class="mt-1" style="font-size:13px; padding-left:18px">
+      <ul class="mt-1 problems-list">
         <li v-for="(msg, i) in blockingIssues" :key="i">{{ msg }}</li>
       </ul>
     </div>
@@ -409,7 +409,7 @@
     <!-- ── Confirmation modal ───────────────────────────────────────────── -->
     <Modal :visible="showConfirm" size="md" labelledby="batch-confirm-title" @close="showConfirm = false">
       <h3 id="batch-confirm-title">Run batch?</h3>
-      <p class="text-muted mt-1" style="font-size:13px">
+      <p class="text-muted text-md mt-1">
         About to queue <strong>{{ selectedEpisodes.size * checkedStepCount }}</strong> job(s):
         <strong>{{ selectedEpisodes.size }}</strong> episodes ×
         <strong>{{ checkedStepCount }}</strong> step(s) each.
@@ -421,7 +421,7 @@
           <span v-if="i < checkedStepsOrdered.length - 1" class="chain-arrow">→</span>
         </span>
       </div>
-      <p class="text-muted mt-2" style="font-size:12px">
+      <p class="text-muted text-sm mt-2">
         Steps within each episode run in order. Different episodes' steps run
         concurrently when the queue has capacity. If a step fails for an
         episode, that episode's chain stops; other episodes continue.
@@ -441,7 +441,7 @@
         </span>
       </label>
 
-      <div class="flex gap-2 mt-3" style="justify-content:flex-end">
+      <div class="flex gap-2 mt-3 justify-end">
         <button class="btn btn-secondary" :disabled="submitting" @click="showConfirm = false">Cancel</button>
         <button class="btn btn-primary" :disabled="submitting" @click="submit">
           <LoadingSpinner v-if="submitting" size="sm" />
@@ -454,7 +454,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'dashboard' })
-useHead({ title: 'Pipeline — Story Studio KH' })
+useAppTitle('Pipeline')
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -1232,6 +1232,14 @@ async function submit() {
 </script>
 
 <style scoped>
+/* Episodes-card header — wraps onto a second line on narrow viewports
+ * with a smaller gap than the rest of the page. */
+.episodes-header { gap: 8px; }
+
+/* "Can't start yet" problems list — bullet indent + slightly smaller
+ * type than body copy. */
+.problems-list { font-size: 13px; padding-left: 18px; }
+
 /* ── Steps grid ───────────────────────────────────────────────────────── */
 .steps-grid {
   display: grid;

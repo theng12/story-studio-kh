@@ -27,11 +27,18 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
 export const router = Router()
 
-function keyFor(config: any, model: ImageEditModel): { apiKey: string; provider: 'google' | 'openai' } {
+function keyFor(config: any, model: ImageEditModel): {
+  apiKey: string
+  provider: 'google' | 'openai' | 'kie' | 'fal'
+} {
   const info = imageEditModelInfo(model)
   if (!info) return { apiKey: '', provider: 'google' }
-  if (info.provider === 'google') return { apiKey: (config.google_api_key || '').trim(), provider: 'google' }
-  return { apiKey: (config.openai_api_key || '').trim(), provider: 'openai' }
+  switch (info.provider) {
+    case 'google': return { apiKey: (config.google_api_key   || '').trim(), provider: 'google' }
+    case 'openai': return { apiKey: (config.openai_api_key   || '').trim(), provider: 'openai' }
+    case 'kie':    return { apiKey: (config.kie_api_key      || '').trim(), provider: 'kie' }
+    case 'fal':    return { apiKey: (config.fal_api_key      || '').trim(), provider: 'fal' }
+  }
 }
 
 router.get('/projects/:slug/image-edit/caps', async (req, res) => {
@@ -39,19 +46,26 @@ router.get('/projects/:slug/image-edit/caps', async (req, res) => {
   const config = await pm.getConfig(slug)
   if (!config) return res.status(404).json({ detail: 'Project not found' })
 
-  const hasGoogle = !!config.google_api_key
-  const hasOpenAi = !!config.openai_api_key
+  const hasKey: Record<string, boolean> = {
+    google: !!config.google_api_key,
+    openai: !!config.openai_api_key,
+    kie:    !!config.kie_api_key,
+    fal:    !!config.fal_api_key,
+  }
 
   const models = IMAGE_EDIT_MODELS.map(m => ({
     id: m.id,
     provider: m.provider,
     label: m.label,
     flat_cost_usd: m.flatCostUsd,
-    has_key: m.provider === 'google' ? hasGoogle : hasOpenAi,
+    supports_mask: !!m.supportsMask,
+    has_key: hasKey[m.provider],
   }))
   res.json({
     models,
-    // First model with a key becomes the UI default; fall back to Gemini.
+    // Pick the first model with a key as the UI default. Falling back to
+    // Gemini matches the prior behaviour for users with only a Google key
+    // configured.
     default: models.find(m => m.has_key)?.id || 'gemini-2.5-flash-image',
   })
 })
@@ -65,6 +79,12 @@ router.post('/projects/:slug/edit-image', async (req, res) => {
   const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : ''
   const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : 'gemini-2.5-flash-image'
   const replaceOriginal = req.body?.replace_original === true
+  // Optional mask from BrushCanvas. May arrive as a `data:image/png;base64,...`
+  // URL or just the bare base64 chunk; both are accepted by `editImage`.
+  // Empty/whitespace strings are treated as "no mask" so the prompt-only
+  // path is used.
+  const maskB64Raw = typeof req.body?.mask_b64 === 'string' ? req.body.mask_b64.trim() : ''
+  const maskB64 = maskB64Raw.length > 0 ? maskB64Raw : undefined
 
   if (!imagePath) return res.status(400).json({ detail: 'image_path is required' })
   if (!prompt) return res.status(400).json({ detail: 'prompt is required' })
@@ -77,14 +97,18 @@ router.post('/projects/:slug/edit-image', async (req, res) => {
 
   const { apiKey, provider } = keyFor(config, modelInfo.id)
   if (!apiKey) {
-    const label = provider === 'google' ? 'Google AI Studio' : 'OpenAI'
+    const label = provider === 'google' ? 'Google AI Studio'
+      : provider === 'openai' ? 'OpenAI'
+      : provider === 'kie'    ? 'kie.ai'
+      : provider === 'fal'    ? 'fal.ai'
+      : provider
     return res.status(400).json({
       detail: `No ${label} API key configured. Add one in Settings → API Keys, or pick a different model.`,
     })
   }
 
   try {
-    const { imageBytes, model_used } = await editImage({ imagePath, prompt, model: modelInfo.id, apiKey })
+    const { imageBytes, model_used } = await editImage({ imagePath, prompt, model: modelInfo.id, apiKey, maskB64 })
 
     const outputPath = await nextEditedVersionPath(imagePath)
     await fs.writeFile(outputPath, imageBytes)

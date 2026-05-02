@@ -38,10 +38,10 @@
              mix step. When it's missing, give the user a one-tap path to
              the Settings → FFmpeg tab where the auto-installer lives,
              instead of leaving them with just an error badge. -->
-        <NuxtLink :to="`/projects/${slug}/settings#ffmpeg`" class="btn btn-sm btn-primary" style="margin-left: 8px;">
+        <NuxtLink :to="`/projects/${slug}/settings#ffmpeg`" class="btn btn-sm btn-primary ffmpeg-install-link">
           Install FFmpeg →
         </NuxtLink>
-        <span class="text-muted" style="font-size: 11px; margin-left: 8px;">
+        <span class="text-muted text-xs ffmpeg-install-hint">
           One-click installer in Settings · no admin needed
         </span>
       </template>
@@ -85,11 +85,11 @@
       <div v-if="chapters.length" class="audio-list-reorder mt-2">
         <div v-for="(ch, i) in chapters" :key="ch.path" class="audio-item-reorder">
           <span class="audio-order-num">{{ i + 1 }}</span>
-          <button class="btn-icon play-btn" @click="toggleChapterPreview(ch.path)" :title="playingPath === ch.path ? 'Stop' : 'Play'">
+          <button class="btn-icon play-btn" @click="togglePreview(ch.path)" :title="playingPath === ch.path ? 'Stop' : 'Play'">
             {{ playingPath === ch.path ? '&#9724;' : '&#9654;' }}
           </button>
-          <span class="audio-name" style="flex:1">{{ ch.label || ch.filename }}</span>
-          <span class="text-muted" style="font-size: 12px; min-width: 60px; text-align: right;">{{ formatDuration(ch.duration) }}</span>
+          <span class="audio-name">{{ ch.label || ch.filename }}</span>
+          <span class="text-muted text-sm audio-duration">{{ formatDuration(ch.duration) }}</span>
           <div class="audio-reorder-btns">
             <button class="btn-icon" :disabled="i === 0" @click="moveChapter(i, -1)" title="Move up">&#9650;</button>
             <button class="btn-icon" :disabled="i === chapters.length - 1" @click="moveChapter(i, 1)" title="Move down">&#9660;</button>
@@ -98,10 +98,10 @@
       </div>
 
       <!-- Gap Duration -->
-      <div class="form-group mt-2" style="max-width: 300px;">
+      <div class="form-group mt-2 gap-duration-field">
         <label>Silence Between Chapters ({{ gapDuration }}s)</label>
-        <input v-model.number="gapDuration" type="range" min="0" max="30" step="1" class="slider" />
-        <span class="text-muted" style="font-size: 11px;">Inserted between each chapter (Introduction → Ch1 → Ch2 → ...)</span>
+        <SliderWithNumber v-model="gapDuration" :min="0" :max="30" :step="1" suffix="s" />
+        <span class="text-muted text-xs">Inserted between each chapter (Introduction → Ch1 → Ch2 → ...)</span>
       </div>
 
       <!-- Total Duration -->
@@ -112,19 +112,19 @@
 
     <!-- Intro Audio -->
     <div v-if="chapters.length" class="card mt-2">
-      <div class="flex gap-2" style="align-items: center;">
+      <div class="flex gap-2 items-center">
         <label class="checkbox-label" @click.stop>
           <input type="checkbox" v-model="intro.enabled" />
         </label>
         <h3>Intro Audio</h3>
       </div>
-      <p class="text-muted mt-1" style="font-size: 12px;">
+      <p class="text-muted text-sm mt-1">
         Optional intro clip prepended to the narration (e.g. channel jingle, theme music).
       </p>
 
       <div v-if="intro.enabled" class="mt-2">
         <div class="flex gap-2">
-          <input v-model="intro.file" class="input" placeholder="Path to intro audio file" style="flex:1" />
+          <input v-model="intro.file" class="input flex-1" placeholder="Path to intro audio file" />
           <button class="btn btn-sm btn-secondary" @click="browseIntroFile">Browse…</button>
           <button v-if="intro.file"
             :class="['btn btn-sm', playingPath === intro.file ? 'btn-primary' : 'btn-secondary']"
@@ -136,11 +136,11 @@
         <div class="grid-2 mt-2">
           <div class="form-group">
             <label>Volume ({{ intro.volume }}%)</label>
-            <input v-model.number="intro.volume" type="range" min="0" max="100" step="1" class="slider" />
+            <SliderWithNumber v-model="intro.volume" :min="0" :max="100" :step="1" suffix="%" />
           </div>
           <div class="form-group">
             <label>Gap after intro ({{ intro.gap_after }}s)</label>
-            <input v-model.number="intro.gap_after" type="range" min="0" max="10" step="0.5" class="slider" />
+            <SliderWithNumber v-model="intro.gap_after" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" />
           </div>
         </div>
       </div>
@@ -148,7 +148,7 @@
 
     <!-- Volume Normalization -->
     <div v-if="chapters.length" class="card mt-2">
-      <div class="flex gap-2" style="align-items: center;">
+      <div class="flex gap-2 items-center">
         <label class="checkbox-label" @click.stop>
           <input type="checkbox" v-model="normalizeVolume" />
         </label>
@@ -158,19 +158,22 @@
         Equalize volume levels across all chapters using FFmpeg's loudnorm filter (EBU R128 standard).
         This ensures consistent volume throughout the narration.
       </p>
-      <p v-if="normalizeVolume" class="text-muted mt-1" style="font-size: 12px;">
+      <p v-if="normalizeVolume" class="text-muted text-sm mt-1">
         Two-pass normalization: first measures each chapter, then applies corrections. Adds processing time.
       </p>
     </div>
 
     <!-- Background Music -->
     <div v-if="chapters.length" class="card mt-2">
-      <div class="flex gap-2" style="align-items: center;">
+      <div class="flex gap-2 items-center">
         <label class="checkbox-label" @click.stop>
           <input type="checkbox" v-model="music.enabled" />
         </label>
         <h3>Background Music</h3>
       </div>
+      <p class="text-muted text-sm mt-1">
+        Loops one or more music files under the narration. The post-narration volume kicks in once the last chapter ends, in case you want music to swell or fade out.
+      </p>
 
       <div v-if="music.enabled" class="mt-2">
         <!-- Music File List with Play Buttons. The full path is shown on
@@ -189,11 +192,11 @@
             <button class="btn-icon danger" @click="music.files.splice(i, 1)" title="Remove">&#10005;</button>
           </div>
         </div>
-        <p v-else class="text-muted" style="font-size: 12px;">No music files added yet</p>
+        <p v-else class="text-muted text-sm">No music files added yet</p>
 
         <!-- Add music file -->
         <div class="flex gap-2 mt-1">
-          <input v-model="newMusicPath" class="input" placeholder="Path to audio file" style="flex:1" />
+          <input v-model="newMusicPath" class="input flex-1" placeholder="Path to audio file" />
           <button class="btn btn-sm btn-secondary" @click="browseMusicFile">Browse…</button>
           <button class="btn btn-sm btn-secondary" @click="addMusicFile" :disabled="!newMusicPath">Add</button>
         </div>
@@ -202,8 +205,8 @@
              source path — useful when the project has multiple music
              folders or files with similar names across them. -->
         <div v-if="scannedMusicFiles.length" class="quick-add-music mt-1">
-          <span class="text-muted" style="font-size: 11px;">Found in project:</span>
-          <div class="flex gap-2 mt-1" style="flex-wrap: wrap;">
+          <span class="text-muted text-xs">Found in project:</span>
+          <div class="flex gap-2 mt-1 flex-wrap">
             <button v-for="mf in scannedMusicFiles" :key="mf.path"
               class="btn btn-sm btn-secondary"
               :title="mf.path"
@@ -218,21 +221,21 @@
         <div class="grid-2 mt-2">
           <div class="form-group">
             <label>Volume During Narration ({{ music.volume }}%)</label>
-            <input v-model.number="music.volume" type="range" min="0" max="100" step="1" class="slider" />
+            <SliderWithNumber v-model="music.volume" :min="0" :max="100" :step="1" suffix="%" />
           </div>
           <div class="form-group">
             <label>Volume After Narration ({{ music.post_narration_volume }}%)</label>
-            <input v-model.number="music.post_narration_volume" type="range" min="0" max="100" step="1" class="slider" />
+            <SliderWithNumber v-model="music.post_narration_volume" :min="0" :max="100" :step="1" suffix="%" />
           </div>
         </div>
         <div class="grid-2 mt-1">
           <div class="form-group">
             <label>Fade In ({{ music.fade_in }}s)</label>
-            <input v-model.number="music.fade_in" type="range" min="0" max="10" step="0.5" class="slider" />
+            <SliderWithNumber v-model="music.fade_in" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" />
           </div>
           <div class="form-group">
             <label>Fade Out ({{ music.fade_out }}s)</label>
-            <input v-model.number="music.fade_out" type="range" min="0" max="10" step="0.5" class="slider" />
+            <SliderWithNumber v-model="music.fade_out" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" />
           </div>
         </div>
       </div>
@@ -240,12 +243,15 @@
 
     <!-- Background Noise -->
     <div v-if="chapters.length" class="card mt-2">
-      <div class="flex gap-2" style="align-items: center;">
+      <div class="flex gap-2 items-center">
         <label class="checkbox-label" @click.stop>
           <input type="checkbox" v-model="backgroundNoise.enabled" />
         </label>
         <h3>Background Noise / Ambience</h3>
       </div>
+      <p class="text-muted text-sm mt-1">
+        Subtle bed of ambience (rain, fire, wind, or your own audio file) that plays under the whole episode for atmosphere.
+      </p>
 
       <div v-if="backgroundNoise.enabled" class="mt-2">
         <div class="flex gap-2 mt-1">
@@ -274,7 +280,7 @@
         <!-- Custom file -->
         <div v-if="backgroundNoise.mode === 'custom'" class="mt-2">
           <div class="flex gap-2">
-            <input v-model="backgroundNoise.custom_file" class="input" placeholder="Path to ambience audio file" style="flex:1" />
+            <input v-model="backgroundNoise.custom_file" class="input flex-1" placeholder="Path to ambience audio file" />
             <button class="btn btn-sm btn-secondary" @click="browseNoiseFile">Browse…</button>
             <button v-if="backgroundNoise.custom_file"
               :class="['btn btn-sm', playingPath === backgroundNoise.custom_file ? 'btn-primary' : 'btn-secondary']"
@@ -288,15 +294,15 @@
         <div class="grid-3 mt-2">
           <div class="form-group">
             <label>Volume ({{ backgroundNoise.volume }}%)</label>
-            <input v-model.number="backgroundNoise.volume" type="range" min="0" max="100" step="1" class="slider" />
+            <SliderWithNumber v-model="backgroundNoise.volume" :min="0" :max="100" :step="1" suffix="%" />
           </div>
           <div class="form-group">
             <label>Fade In ({{ backgroundNoise.fade_in }}s)</label>
-            <input v-model.number="backgroundNoise.fade_in" type="range" min="0" max="10" step="0.5" class="slider" />
+            <SliderWithNumber v-model="backgroundNoise.fade_in" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" />
           </div>
           <div class="form-group">
             <label>Fade Out ({{ backgroundNoise.fade_out }}s)</label>
-            <input v-model.number="backgroundNoise.fade_out" type="range" min="0" max="10" step="0.5" class="slider" />
+            <SliderWithNumber v-model="backgroundNoise.fade_out" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" />
           </div>
         </div>
       </div>
@@ -305,20 +311,23 @@
     <!-- Generate -->
     <div v-if="chapters.length" class="card mt-2">
       <h3>Generate Merged Audio</h3>
+      <p class="text-muted text-sm mt-1">
+        Combines everything above (chapters → silence gaps → optional intro / music / ambience) into a single track that downstream Video Assembly consumes.
+      </p>
 
       <!-- Existing merged audio + write-mode decision (surfaced upfront so -->
       <!-- the user picks before hitting Generate, not in a mid-flow modal). -->
       <div v-if="existingMergedAudio" class="write-mode-panel mt-2">
         <div class="write-mode-header">
           <span class="badge badge-success">Merged audio exists</span>
-          <span class="text-muted" style="font-size: 12px;">
+          <span class="text-muted text-sm">
             {{ existingMergedAudio.path.split('/').pop() }} ({{ formatDuration(existingMergedAudio.duration) }})
           </span>
           <button class="btn-icon play-btn" @click="togglePreview(existingMergedAudio.path)" :title="playingPath === existingMergedAudio.path ? 'Stop' : 'Preview'">
             {{ playingPath === existingMergedAudio.path ? '&#9724;' : '&#9654;' }}
           </button>
         </div>
-        <p class="text-muted mt-1" style="font-size: 12px;">
+        <p class="text-muted text-sm mt-1">
           Choose what happens when you click Generate:
         </p>
         <div class="write-mode-options mt-1">
@@ -371,15 +380,18 @@
     <!-- = no {code}_merged_audio*.mp3 with content. Refresh-only here; use the -->
     <!-- Generate button above to actually create the file. -->
     <div v-if="episodeId" class="card mt-2" aria-labelledby="merge-integrity-heading">
-      <h3 id="merge-integrity-heading" style="margin-bottom: 6px;">Merged audio integrity</h3>
-      <div v-if="mergeStatus.loading" class="text-muted" style="font-size: 13px;">
+      <h3 id="merge-integrity-heading" class="merge-integrity-title">Merged audio integrity</h3>
+      <p class="text-muted text-sm merge-integrity-blurb">
+        Quick check on whether a final merged track exists for this episode — useful after restarting the app or syncing from another machine.
+      </p>
+      <div v-if="mergeStatus.loading" class="text-muted text-md">
         <LoadingSpinner size="sm" /> Checking…
       </div>
-      <div v-else-if="mergeStatus.error" class="text-danger" style="font-size: 13px;">
+      <div v-else-if="mergeStatus.error" class="text-danger text-md">
         {{ mergeStatus.error }}
         <button class="btn btn-sm btn-ghost ml-2" @click="refreshMergeStatus">Retry</button>
       </div>
-      <div v-else class="flex items-center gap-2" style="flex-wrap: wrap;">
+      <div v-else class="flex items-center gap-2 flex-wrap">
         <span class="integrity-pill" :class="mergeStatus.present ? 'ok' : 'warn'">
           <template v-if="mergeStatus.present">✓ Merged audio present ({{ mergeStatus.file }})</template>
           <template v-else>⚠ Merged audio not yet generated</template>
@@ -395,7 +407,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'dashboard' })
-useHead({ title: 'Audio Assembly — Story Studio KH' })
+useAppTitle('Audio Assembly')
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -433,7 +445,43 @@ async function refreshMergeStatus() {
   }
 }
 
-watch(() => episodeId.value, (v) => { if (v) refreshMergeStatus() }, { immediate: true })
+/**
+ * Refresh both the asset scan and the integrity pill in parallel whenever
+ * the episode changes. The previous setup split this across two paths
+ * (`onEpisodeSelected` for scanAssets, this watcher for refreshMergeStatus),
+ * which meant a page load with a remembered episodeId only refreshed the
+ * integrity pill — the chapter list stayed empty until the user re-picked
+ * the episode. Combining them fixes that and halves the time-to-data on
+ * episode switches.
+ */
+async function loadEpisodeData() {
+  if (!episodeId.value) return
+  await Promise.all([scanAssets(), refreshMergeStatus()])
+}
+
+/**
+ * Trailing-edge debounce — collapses a burst of episodeId changes (e.g.
+ * a future bulk-selection flow that programmatically cycles episodes)
+ * into one fetch. 200 ms is below human-noticeable latency for an
+ * interactive selector and well above the typical event-loop tick.
+ */
+let episodeLoadTimer: ReturnType<typeof setTimeout> | null = null
+function loadEpisodeDataDebounced() {
+  if (episodeLoadTimer) clearTimeout(episodeLoadTimer)
+  episodeLoadTimer = setTimeout(() => {
+    episodeLoadTimer = null
+    void loadEpisodeData()
+  }, 200)
+}
+
+watch(() => episodeId.value, (v) => { if (v) loadEpisodeDataDebounced() }, { immediate: true })
+
+onUnmounted(() => {
+  if (episodeLoadTimer) {
+    clearTimeout(episodeLoadTimer)
+    episodeLoadTimer = null
+  }
+})
 
 const gapDuration = ref(5)
 const normalizeVolume = ref(false)
@@ -521,15 +569,10 @@ const existingMergedAudio = computed(() => {
 })
 
 // ── Functions ──
-function formatDuration(seconds: number | undefined): string {
-  if (!seconds || seconds <= 0) return '0s'
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.round(seconds % 60)
-  if (h > 0) return `${h}h ${m}m ${s}s`
-  if (m === 0) return `${s}s`
-  return `${m}m ${s}s`
-}
+// formatDuration moved to ~/composables/useFormat.ts (formatDurationPrecise).
+// Auto-imported by Nuxt — call sites in this file's template now resolve
+// to the centralised version. See `formatDurationPrecise` for output format.
+const formatDuration = formatDurationPrecise
 
 function moveChapter(index: number, direction: -1 | 1) {
   const newIndex = index + direction
@@ -552,13 +595,17 @@ function togglePreview(filePath: string) {
   const url = `/api/projects/${slug.value}/audio-editor/preview-audio?path=${encodeURIComponent(filePath)}`
   const audio = new Audio(url)
   audio.onended = () => { playingPath.value = ''; previewAudio.value = null }
-  audio.play()
+  // play() returns a Promise that rejects on missing files / unsupported
+  // codec / autoplay block. Without this catch the click silently does
+  // nothing and the user has no signal anything went wrong.
+  audio.play().catch((err) => {
+    console.error(`[audio-merge] preview failed for ${filePath}:`, err)
+    showError(`Couldn't play preview — file may be missing or in an unsupported format: ${filePath.split('/').pop()}`)
+    playingPath.value = ''
+    previewAudio.value = null
+  })
   previewAudio.value = audio
   playingPath.value = filePath
-}
-
-function toggleChapterPreview(filePath: string) {
-  togglePreview(filePath)
 }
 
 function addMusicFile() {
@@ -639,7 +686,8 @@ async function scanAssets() {
       chapters.value = [...scannedAssets.value.chapters]
     }
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to scan assets')
+    console.error(`[audio-merge] scan failed for ${episodeId.value}:`, e)
+    showError(e.data?.detail || `Failed to scan audio assets for ${episodeId.value} — check the episode folder exists.`)
   } finally {
     scanning.value = false
   }
@@ -647,7 +695,17 @@ async function scanAssets() {
 
 function onEpisodeSelected(ep: any) {
   selectedEpisode.value = ep
-  scanAssets()
+  // Stop any in-flight preview from the previous episode — otherwise
+  // the audio keeps playing while the UI swaps to a different episode's
+  // chapter list, which is disorienting.
+  if (previewAudio.value) {
+    previewAudio.value.pause()
+    previewAudio.value = null
+    playingPath.value = ''
+  }
+  // scanAssets() + refreshMergeStatus() now fire via the episodeId watcher
+  // (loadEpisodeDataDebounced) whenever v-model:episode-id updates, which
+  // happens in lockstep with this event. No need to duplicate the call here.
 }
 
 // Write-mode radio choice lives inline in the Generate card (see template).
@@ -728,7 +786,11 @@ async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite')
     await post<any>(`/projects/${slug.value}/generate/audio-merge`, payload)
     success('Audio merge queued!')
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to start audio merge')
+    console.error('[audio-merge] queue failed:', e, 'payload:', payload)
+    const fallback = !ffmpegStatus.value?.installed
+      ? 'FFmpeg is not installed — install it from Settings → FFmpeg first.'
+      : 'Failed to queue audio merge. Check that all selected files exist on disk.'
+    showError(e.data?.detail || fallback)
     audioMergeGenerating.value = false
   } finally {
     generating.value = false
@@ -779,7 +841,20 @@ onUnmounted(() => {
 .audio-reorder-btns { display: flex; flex-direction: column; gap: 0; flex-shrink: 0; }
 .audio-reorder-btns .btn-icon { font-size: 10px; padding: 1px 4px; line-height: 1; }
 .audio-reorder-btns .btn-icon:disabled { opacity: 0.2; cursor: default; }
-.audio-name { color: var(--text-secondary); }
+.audio-name { color: var(--text-secondary); flex: 1; }
+.audio-duration { min-width: 60px; text-align: right; }
+
+/* Sub-controls under the FFmpeg "not installed" badge. */
+.ffmpeg-install-link { margin-left: 8px; }
+.ffmpeg-install-hint { margin-left: 8px; }
+
+/* Width-constrained gap-duration slider — keeps it from stretching across
+ * the full card on wide screens. */
+.gap-duration-field { max-width: 300px; }
+
+/* Title above the merged-audio integrity pill. */
+.merge-integrity-title { margin-bottom: 4px; }
+.merge-integrity-blurb { margin-bottom: 10px; }
 
 .btn-icon { background: none; border: none; cursor: pointer; font-size: 14px; color: var(--text-muted); padding: 4px; line-height: 1; }
 .btn-icon:hover { color: var(--text-primary); }

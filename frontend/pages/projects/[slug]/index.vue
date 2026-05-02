@@ -329,7 +329,7 @@
 import type { ProjectAudit } from '~/types/audit'
 
 definePageMeta({ layout: 'dashboard' })
-useHead({ title: 'Dashboard — Story Studio KH' })
+useAppTitle('Dashboard')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { project } = useProject()

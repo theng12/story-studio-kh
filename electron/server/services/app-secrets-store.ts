@@ -41,6 +41,12 @@ export const SECRET_PROVIDERS = [
   'genaipro',
   'elevenlabs',
   'google',
+  // Chatterbox is a self-hosted TTS server reached over Tailscale. The
+  // "apiKey" slot here actually carries the base URL (e.g.
+  // `http://100.66.3.3:5052`) — Tailscale handles auth at the network
+  // layer so there's no real secret to store. Reusing the secrets store
+  // gives us per-machine semantics without spinning up a separate file.
+  'chatterbox',
 ] as const
 export type ProviderId = typeof SECRET_PROVIDERS[number]
 

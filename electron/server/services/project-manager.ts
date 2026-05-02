@@ -902,6 +902,12 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     has_genaipro_key: !!(config as any).genaipro_api_key,
     has_elevenlabs_key: !!(config as any).elevenlabs_api_key,
     has_google_key: !!(config as any).google_api_key,
+    // Chatterbox (Local TTS) — per-project gate + per-project cloned-voice id.
+    // No `has_chatterbox_key` boolean: there's no API key, just a base URL
+    // stored per-machine in the secrets bucket.
+    chatterbox_enabled: !!(config as any).chatterbox_enabled,
+    chatterbox_reference_id: typeof (config as any).chatterbox_reference_id === 'string'
+      ? (config as any).chatterbox_reference_id : undefined,
     // Fall back to defaults when the project was created before defaults
     // were seeded (keeps the Settings → Models tab populated for old projects).
     image_models: (config.image_models && Object.keys(config.image_models).length)
@@ -928,6 +934,12 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
       if (global.length > 0) return global
       return Array.isArray(config.voice_favourites) ? config.voice_favourites : []
     })(),
+    // User-saved style presets (from /analyze-style or manual entry). Per-
+    // project — passes through unchanged. Older configs without the field
+    // surface as an empty array so the frontend dropdown stays well-behaved.
+    style_presets: Array.isArray((config as any).style_presets)
+      ? (config as any).style_presets
+      : [],
     // Concurrency knobs (undefined = generator uses its safe default).
     audio_concurrency: typeof (config as any).audio_concurrency === 'number' ? (config as any).audio_concurrency : undefined,
     video_concurrency: typeof (config as any).video_concurrency === 'number' ? (config as any).video_concurrency : undefined,

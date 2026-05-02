@@ -9,13 +9,44 @@
       <div class="iedit-body">
         <!-- STAGE 1: compose prompt -->
         <div v-if="stage === 'compose'" class="iedit-stage">
-          <div class="iedit-thumb-row">
+          <!-- Top-of-dialog row: collapsed thumb + filename. The user can
+               toggle the brush below to switch to the painting view. -->
+          <div v-if="!brushOpen" class="iedit-thumb-row">
             <img :src="sourcePreviewUrl" :alt="sourceName" class="iedit-thumb" />
             <div class="iedit-thumb-meta">
               <div class="iedit-filename">{{ sourceName }}</div>
               <div class="text-muted" style="font-size: 11px;">{{ imagePath }}</div>
             </div>
           </div>
+
+          <!-- Brush toggle — only meaningful when the selected model accepts
+               masks. For prompt-only models the brush stays hidden so the
+               user isn't tempted to paint a mask that'll be ignored. -->
+          <div v-if="selectedModelSupportsMask" class="iedit-brush-toggle-row">
+            <button
+              type="button"
+              :class="['btn btn-sm', brushOpen ? 'btn-primary' : 'btn-secondary']"
+              :disabled="generating"
+              @click="brushOpen = !brushOpen"
+              :title="brushOpen ? 'Collapse brush — keep your mask' : 'Paint over the area to erase'"
+            >
+              {{ brushOpen ? '🖌 Hide brush' : '🖌 Paint a mask…' }}
+            </button>
+            <span v-if="brushHasMask" class="iedit-brush-status has-mask">Mask drawn — will be sent with the prompt.</span>
+            <span v-else-if="brushOpen" class="iedit-brush-status">No mask yet — paint over what you want erased.</span>
+          </div>
+          <p v-else class="text-muted iedit-brush-disabled-hint">
+            Selected model is prompt-only. Pick a model with brush support (fal.ai LaMa, OpenAI gpt-image-1) to paint a mask.
+          </p>
+
+          <BrushCanvas
+            v-if="brushOpen && selectedModelSupportsMask"
+            ref="brushRef"
+            :image-url="sourcePreviewUrl"
+            :alt="sourceName"
+            class="iedit-brush mt-2"
+            @update:hasMask="brushHasMask = $event"
+          />
 
           <div class="form-group mt-2">
             <label>Describe the edit</label>
@@ -41,28 +72,39 @@
 
           <div class="form-group mt-2">
             <label>Model</label>
-            <div class="iedit-models">
-              <label
-                v-for="m in models"
-                :key="m.id"
-                :class="['iedit-model-card', { active: selectedModel === m.id, disabled: !m.has_key }]"
-              >
-                <input
-                  type="radio"
-                  name="iedit-model"
-                  :value="m.id"
-                  v-model="selectedModel"
-                  :disabled="!m.has_key || generating"
-                />
-                <div class="iedit-model-body">
-                  <span class="iedit-model-label">{{ m.label }}</span>
-                  <span class="iedit-model-meta">
-                    {{ m.flat_cost_usd ? `~$${m.flat_cost_usd.toFixed(3)}/edit` : '~$0.04–0.19/edit' }}
-                    <template v-if="!m.has_key"> · <span class="iedit-nokey">no {{ m.provider === 'google' ? 'Google AI' : 'OpenAI' }} key</span></template>
-                  </span>
+            <p class="text-muted iedit-model-blurb">
+              Direct providers go straight to the source API; kie.ai routes
+              several alternative models through your existing kie credits.
+              Try <strong>Flux Kontext Pro</strong> first — it's the cheapest at ~$0.02/edit
+              and is purpose-built for image edits (less drift than general-purpose vision LLMs).
+            </p>
+            <template v-for="group in groupedModels" :key="group.provider">
+              <div v-if="group.models.length" class="iedit-model-group">
+                <div class="iedit-model-group-heading">{{ group.label }}</div>
+                <div class="iedit-models">
+                  <label
+                    v-for="m in group.models"
+                    :key="m.id"
+                    :class="['iedit-model-card', { active: selectedModel === m.id, disabled: !m.has_key }]"
+                  >
+                    <input
+                      type="radio"
+                      name="iedit-model"
+                      :value="m.id"
+                      v-model="selectedModel"
+                      :disabled="!m.has_key || generating"
+                    />
+                    <div class="iedit-model-body">
+                      <span class="iedit-model-label">{{ m.label }}</span>
+                      <span class="iedit-model-meta">
+                        {{ formatCost(m) }}
+                        <template v-if="!m.has_key"> · <span class="iedit-nokey">no {{ providerKeyName(m.provider) }} key</span></template>
+                      </span>
+                    </div>
+                  </label>
                 </div>
-              </label>
-            </div>
+              </div>
+            </template>
           </div>
         </div>
 
@@ -112,8 +154,8 @@
           v-if="stage === 'compose'"
           type="button"
           class="btn btn-sm btn-primary"
-          :disabled="!prompt.trim() || !selectedModelAvailable || generating"
-          :title="!selectedModelAvailable ? 'Add the matching API key in Settings' : ''"
+          :disabled="!canGenerate || generating"
+          :title="generateBtnTooltip"
           @click="generate"
         >
           <LoadingSpinner v-if="generating" size="sm" />
@@ -141,10 +183,19 @@
 
 interface ImageEditModel {
   id: string
-  provider: 'google' | 'openai'
+  provider: 'google' | 'openai' | 'kie' | 'fal'
   label: string
   flat_cost_usd: number | null
   has_key: boolean
+  /** True when the model accepts a binary mask. Surfaced for the future
+   *  brush UI so the mask layer can hide for prompt-only models. */
+  supports_mask?: boolean
+}
+
+interface ModelGroup {
+  provider: ImageEditModel['provider']
+  label: string
+  models: ImageEditModel[]
 }
 
 const props = withDefaults(defineProps<{
@@ -179,6 +230,13 @@ const resultKey = ref(0)  // bumped after accept to bust the img cache if needed
 const models = ref<ImageEditModel[]>([])
 const selectedModel = ref<string>('gemini-2.5-flash-image')
 
+// Brush state. Hidden by default — many users will use prompt-only edits;
+// the brush opens only when they explicitly click "Paint a mask…" AND the
+// selected model supports it.
+const brushOpen = ref(false)
+const brushHasMask = ref(false)
+const brushRef = ref<{ getMaskBase64: () => string | null; clearMask: () => void } | null>(null)
+
 const sourcePreviewUrl = computed(() => {
   if (!props.imagePath) return ''
   return `/api/projects/${props.projectSlug}/video-editor/preview-image?path=${encodeURIComponent(props.imagePath)}&k=${resultKey.value}`
@@ -206,6 +264,89 @@ function modelLabel(id: string): string {
   return models.value.find(m => m.id === id)?.label || id
 }
 
+/**
+ * Groups the flat models[] into provider-titled buckets for the picker.
+ * Order matters — direct providers first (cheapest paths, most predictable),
+ * then kie.ai (large catalog, some are tiered), then fal (Session 3+).
+ * Empty groups are filtered out by the template.
+ */
+const PROVIDER_LABELS: Record<ImageEditModel['provider'], string> = {
+  google: 'Direct providers — Google',
+  openai: 'Direct providers — OpenAI',
+  kie:    'kie.ai (uses your kie credits)',
+  fal:    'fal.ai',
+}
+const groupedModels = computed<ModelGroup[]>(() => {
+  const order: ImageEditModel['provider'][] = ['google', 'openai', 'kie', 'fal']
+  return order.map(p => ({
+    provider: p,
+    label: PROVIDER_LABELS[p],
+    models: models.value.filter(m => m.provider === p),
+  }))
+})
+
+/**
+ * Cost label per model. Flat cost → "$0.039/edit". Tiered/variable
+ * (flat_cost_usd === null) → a per-provider hint based on the typical
+ * range of that provider's models.
+ */
+function formatCost(m: ImageEditModel): string {
+  if (m.flat_cost_usd != null) return `~$${m.flat_cost_usd.toFixed(3)}/edit`
+  if (m.provider === 'openai') return '~$0.04–0.19/edit'
+  if (m.provider === 'kie')    return '~$0.05–0.24/edit (tiered)'
+  return '~varies/edit'
+}
+
+function providerKeyName(p: ImageEditModel['provider']): string {
+  switch (p) {
+    case 'google': return 'Google AI'
+    case 'openai': return 'OpenAI'
+    case 'kie':    return 'kie.ai'
+    case 'fal':    return 'fal.ai'
+  }
+}
+
+const selectedModelSupportsMask = computed(() => {
+  return models.value.find(m => m.id === selectedModel.value)?.supports_mask === true
+})
+
+/**
+ * Whether the user has provided enough input for `generate()` to proceed.
+ *
+ *   - fal.ai LaMa: mask required, prompt ignored.
+ *   - Other mask-capable models: prompt required (mask optional — strengthens
+ *     precision when present, but the model can still run prompt-only).
+ *   - Prompt-only models: prompt required.
+ */
+const canGenerate = computed(() => {
+  if (!selectedModelAvailable.value) return false
+  if (selectedModel.value === 'fal-lama') {
+    return brushOpen.value && brushHasMask.value
+  }
+  return prompt.value.trim().length > 0
+})
+
+const generateBtnTooltip = computed(() => {
+  if (!selectedModelAvailable.value) return 'Add the matching API key in Settings'
+  if (selectedModel.value === 'fal-lama' && !(brushOpen.value && brushHasMask.value)) {
+    return 'fal.ai LaMa needs a mask — open the brush above and paint over the area to erase.'
+  }
+  if (!prompt.value.trim() && selectedModel.value !== 'fal-lama') {
+    return 'Describe the edit before generating.'
+  }
+  return ''
+})
+
+// When the user picks a non-mask-capable model while the brush is open,
+// auto-collapse it so the painted mask isn't silently ignored on submit.
+// We don't clear the painted strokes — switching back to a mask-capable
+// model restores them.
+watch(selectedModelSupportsMask, (supports) => {
+  if (!supports && brushOpen.value) {
+    brushOpen.value = false
+  }
+})
+
 async function loadCaps() {
   try {
     const data = await get<{ models: ImageEditModel[]; default: string }>(`/projects/${props.projectSlug}/image-edit/caps`)
@@ -222,7 +363,21 @@ function applyChip(text: string) {
 }
 
 async function generate() {
-  if (!prompt.value.trim() || !selectedModelAvailable.value) return
+  if (!selectedModelAvailable.value) return
+  // fal.ai LaMa is mask-only and ignores the prompt — guard the input
+  // contract so the user can't generate without a mask.
+  const usingMask = selectedModelSupportsMask.value && brushOpen.value && brushHasMask.value
+  const isFalLama = selectedModel.value === 'fal-lama'
+  if (isFalLama && !usingMask) {
+    showError('fal.ai LaMa needs a mask — open the brush above and paint over the area to erase.')
+    return
+  }
+  if (!isFalLama && !prompt.value.trim()) return
+
+  // Snapshot the mask BEFORE we toggle to "generating" — that hides the
+  // BrushCanvas and we lose the ref to its export helper.
+  const maskB64 = usingMask ? (brushRef.value?.getMaskBase64() || null) : null
+
   generating.value = true
   stage.value = 'generating'
   try {
@@ -230,9 +385,10 @@ async function generate() {
       `/projects/${props.projectSlug}/edit-image`,
       {
         image_path: props.imagePath,
-        prompt: prompt.value.trim(),
+        prompt: isFalLama ? '' : prompt.value.trim(),
         model: selectedModel.value,
         replace_original: false,  // never replace on first pass — user confirms in preview
+        mask_b64: maskB64 || undefined,
       },
     )
     resultPath.value = r.output_path
@@ -303,6 +459,8 @@ watch(() => props.modelValue, (open) => {
     prompt.value = ''
     replaceOriginal.value = false
     resultPath.value = null
+    brushOpen.value = false
+    brushHasMask.value = false
     void loadCaps()
   }
 })
@@ -366,6 +524,47 @@ onMounted(() => {
 }
 .iedit-chip:hover { border-color: var(--accent); color: var(--accent); }
 .iedit-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Inline blurb above the provider-grouped model list. */
+.iedit-model-blurb { font-size: 11px; margin-top: 2px; margin-bottom: 8px; line-height: 1.5; }
+
+/* Brush toggle row — sits where the source-thumb row would normally
+ * appear, swapping in only when a mask-capable model is selected. */
+.iedit-brush-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.iedit-brush-status {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.iedit-brush-status.has-mask {
+  color: var(--accent);
+  font-weight: 500;
+}
+.iedit-brush-disabled-hint {
+  font-size: 11px;
+  margin-top: 4px;
+  font-style: italic;
+}
+.iedit-brush { width: 100%; }
+
+/* Provider buckets — each group has its own heading + grid of cards.
+ * Heading is small + uppercase to read as section break, not as a competing
+ * label with the cards beneath it. */
+.iedit-model-group { margin-top: 8px; }
+.iedit-model-group:first-child { margin-top: 0; }
+.iedit-model-group-heading {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
 
 .iedit-models { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .iedit-model-card {

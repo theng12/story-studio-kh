@@ -472,7 +472,7 @@ import { buildLatestBatchSummary, formatElapsed } from '~/composables/useBatchSu
 type RJob = DeepReadonly<Job>
 
 definePageMeta({ layout: 'dashboard' })
-useHead({ title: "Jobs — Story Studio KH" })
+useAppTitle('Jobs')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { del, post } = useApi()

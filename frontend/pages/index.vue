@@ -1121,7 +1121,7 @@
 </template>
 
 <script setup lang="ts">
-useHead({ title: 'Story Studio KH' })
+useAppTitle()
 const { get, post, put } = useApi()
 const { success, error: showError } = useToast()
 const linkedProjects = useLinkedProjects()

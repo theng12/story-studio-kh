@@ -44,14 +44,14 @@
     </p>
 
     <div class="card mt-3">
-      <div class="form-group" style="max-width: 520px;">
+      <div class="form-group field-medium">
         <label>Episode Title</label>
         <input v-model="form.title" class="input" placeholder="The Whispering Forest" />
       </div>
 
       <!-- Pattern picker (Phase 4b) — optional per-episode template that
            composes on top of the project's format. Empty = format defaults. -->
-      <div class="form-group mt-2" style="max-width: 720px;">
+      <div class="form-group mt-2 field-wide">
         <PatternPicker
           v-model="form.pattern_id"
           v-model:subject="form.pattern_subject"
@@ -61,7 +61,7 @@
 
       <!-- Character picker (Phase 5) — optional cast. The LLM uses these
            names + descriptions instead of inventing characters. Multi-select. -->
-      <div v-if="form.episode_id" class="form-group mt-2" style="max-width: 720px;">
+      <div v-if="form.episode_id" class="form-group mt-2 field-wide">
         <CharacterPicker
           v-model="form.character_ids"
           :project-slug="slug"
@@ -73,13 +73,13 @@
            picker because it's a cousin of the script-generation flow:
            "I have a script already, just need it in our format." Hides
            when no episode is selected (the route needs a code). -->
-      <div v-if="form.episode_id" class="form-group mt-2" style="max-width: 720px;">
+      <div v-if="form.episode_id" class="form-group mt-2 field-wide">
         <button
           class="btn btn-sm btn-secondary"
           title="Restructure a pre-Story-Studio narration docx into the canonical per-chapter format. Idempotent — already-canonical files are skipped."
           @click="normalizeOpen = true"
         >🛠 Normalize legacy narration…</button>
-        <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+        <p class="text-muted text-xs hint-line">
           Got a script from before Story Studio (or hand-written prose)?
           Normalize it once and the rest of the pipeline (audio, subtitles,
           assembly) will read it correctly.
@@ -101,7 +101,7 @@
             <input type="checkbox" v-model="intro.enabled" />
             <h3>Introduction</h3>
           </label>
-          <span v-if="intro.enabled" class="text-muted" style="font-size:12px">~{{ intro.word_target }} words</span>
+          <span v-if="intro.enabled" class="text-muted text-sm">~{{ intro.word_target }} words</span>
         </div>
         <div v-if="intro.enabled" class="intro-body">
           <!-- Intro-specific preset picker (separate pool from script presets) -->
@@ -120,7 +120,7 @@
             <div class="form-group">
               <label>Host / Narrator Name</label>
               <input v-model="intro.host_name" class="input" placeholder="e.g. Vincent, Luna, your own name…" />
-              <span class="text-muted" style="font-size:11px">Leave blank to let the AI skip the host name.</span>
+              <span class="text-muted text-xs">Leave blank to let the AI skip the host name.</span>
             </div>
             <div class="form-group">
               <label>Intro Word Target</label>
@@ -131,7 +131,7 @@
             <label>Custom Opening Line (optional)</label>
             <input v-model="intro.custom_opening" class="input" placeholder="Hello, and welcome back..." />
           </div>
-          <label style="font-size:12px; color:var(--text-muted); margin-bottom:8px; display:block">
+          <label class="section-helper-label">
             Reorder, toggle each on/off, and click ▸ to add specific wording for any beat. Disabled beats are skipped entirely, not summarised.
           </label>
           <div class="intro-beats">
@@ -158,11 +158,10 @@
               <div v-if="beat.expanded" class="beat-detail">
                 <textarea
                   v-model="beat.customText"
-                  class="textarea"
-                  style="min-height: 54px; font-size: 12px;"
+                  class="textarea beat-textarea"
                   :placeholder="`Optional — specific wording or points you want this beat to cover. Example for '${beat.label}': ${beatPlaceholder(beat.id)}`"
                 />
-                <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+                <p class="text-muted text-xs hint-line">
                   Leave blank to let the AI write from the beat label only. Filled-in text is passed to the LLM as "specifically cover: {your text}".
                 </p>
               </div>
@@ -190,7 +189,7 @@
             <LoadingSpinner v-if="submitting" size="sm" />
             Generate Introduction
           </button>
-          <div v-if="intro.enabled && !scriptGenerated" class="mt-2" style="font-size: 12px; color: var(--text-secondary); padding: 8px; background: var(--bg-tertiary); border-radius: var(--radius-sm); border-left: 3px solid var(--border-warning);">
+          <div v-if="intro.enabled && !scriptGenerated" class="intro-needs-script mt-2">
             ⓘ Generate the script first before creating the introduction. The introduction uses the chapter content as context.
           </div>
         </div>
@@ -236,16 +235,16 @@
           </select>
           <div v-if="form.style === 'custom' || showStyleDesc" class="mt-1">
             <div class="flex justify-between items-center mb-1" v-if="form.style !== 'custom'">
-              <label style="margin:0; font-size:11px">Style description</label>
-              <button class="btn-icon" style="font-size:11px" @click="showStyleDesc = false">Hide</button>
+              <label class="style-desc-label">Style description</label>
+              <button class="btn-icon style-desc-toggle" @click="showStyleDesc = false">Hide</button>
             </div>
-            <textarea v-model="customStyleText" class="textarea" style="min-height:50px; font-size:12px"
+            <textarea v-model="customStyleText" class="textarea style-textarea"
               placeholder="Describe the narrator's tone, perspective, and personality..." />
             <div class="flex gap-2 mt-1" v-if="form.style === 'custom'">
               <button class="btn btn-sm btn-secondary" @click="saveCustomStyle">Save as preset</button>
             </div>
           </div>
-          <button v-if="form.style !== 'custom' && form.style !== 'auto' && !showStyleDesc" class="btn-icon" style="font-size:11px; margin-top:4px" @click="showStyleDesc = true">
+          <button v-if="form.style !== 'custom' && form.style !== 'auto' && !showStyleDesc" class="btn-icon style-desc-toggle style-desc-show" @click="showStyleDesc = true">
             View / edit description
           </button>
         </div>
@@ -253,7 +252,7 @@
 
       <!-- Word count section — edit any field; others recalc from your primary input -->
       <div class="word-count-section">
-        <p class="text-muted mb-1" style="font-size: 12px;">
+        <p class="text-muted text-sm mb-1">
           Edit any field below — the others auto-update. The field you last edited drives the calculation.
         </p>
         <div class="grid-4">
@@ -308,12 +307,12 @@
         </div>
       </div>
 
-      <div class="flex items-center gap-2 mt-2" style="flex-wrap: wrap;">
+      <div class="flex items-center gap-2 mt-2 flex-wrap">
         <label class="checkbox-label">
           <input type="checkbox" v-model="form.force" />
           Force regenerate (overwrite existing)
         </label>
-        <span class="text-muted" style="font-size: 11px;">
+        <span class="text-muted text-xs">
           Per-chapter regeneration is below — fix one chapter without redoing the rest.
         </span>
       </div>
@@ -352,7 +351,7 @@
     <div v-if="showSaveStyle" class="modal-overlay" @click.self="showSaveStyle = false">
       <div class="modal-small">
         <h3>Save style preset</h3>
-        <p class="text-muted mt-1 mb-2" style="font-size:12px">Give this narrator style a name so you can reuse it.</p>
+        <p class="text-muted text-sm mt-1 mb-2">Give this narrator style a name so you can reuse it.</p>
         <input
           v-model="newStyleName"
           class="input"
@@ -360,7 +359,7 @@
           @keydown.enter="confirmSaveCustomStyle"
           @keydown.escape="showSaveStyle = false"
         />
-        <div class="flex gap-2 mt-2" style="justify-content:flex-end">
+        <div class="flex gap-2 mt-2 justify-end">
           <button class="btn btn-secondary" @click="showSaveStyle = false">Cancel</button>
           <button class="btn btn-primary" :disabled="!newStyleName.trim()" @click="confirmSaveCustomStyle">Save</button>
         </div>
@@ -372,7 +371,7 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'dashboard' })
-useHead({ title: "Script Generator — Story Studio KH" })
+useAppTitle('Script Generator')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { post } = useApi()
@@ -775,7 +774,16 @@ async function submitScript(): Promise<boolean> {
     const ok = await waitForJob(job.job_id)
     return ok
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to queue script generation')
+    // Distinguish "couldn't even queue it" (backend down / validation /
+    // missing preset) from "queued but the job itself failed" — those go
+    // through the SSE path and surface via the Jobs tab. Console log
+    // keeps the raw error reachable when only the toast is shown.
+    console.error('[scripts] queue script generation failed:', e)
+    const detail = e.data?.detail
+    const fallback = e?.status === 0 || e?.message?.includes('fetch')
+      ? 'Backend unreachable — restart the app or check the Jobs panel.'
+      : 'Failed to queue script generation. Check the form fields above.'
+    showError(detail || fallback)
     scriptGenerating.value = false
     return false
   } finally {
@@ -846,7 +854,12 @@ async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true 
     success('Introduction generation queued!')
     return await waitForJob(job.job_id)
   } catch (e: any) {
-    showError(e.data?.detail || 'Failed to queue introduction generation')
+    console.error('[scripts] queue introduction generation failed:', e)
+    const detail = e.data?.detail
+    const fallback = e?.status === 0 || e?.message?.includes('fetch')
+      ? 'Backend unreachable — restart the app or check the Jobs panel.'
+      : 'Failed to queue introduction generation. Make sure the script is generated first.'
+    showError(detail || fallback)
     return false
   } finally {
     submitting.value = false
@@ -891,6 +904,43 @@ async function generateAll() {
 </script>
 
 <style scoped>
+/* Form-field width tokens used across the page. */
+.field-medium { max-width: 520px; }
+.field-wide   { max-width: 720px; }
+
+/* Helper line that hangs directly under an input. */
+.hint-line { margin-top: 4px; }
+
+/* Repeating "short cue above an array of inputs" label style.
+ * Mirrors the same class in metadata.vue. */
+.section-helper-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  display: block;
+}
+
+/* Beat detail textarea — compact, monospace-friendly. */
+.beat-textarea { min-height: 54px; font-size: 12px; }
+
+/* Banner shown when intro is enabled but the script hasn't been generated
+ * yet. The amber border-left echoes "warning" without using the toast colour. */
+.intro-needs-script {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--warning);
+}
+
+/* Custom-style picker — the "Style description" mini-form that appears
+ * when the user picks "+ Write custom style…". */
+.style-desc-label { margin: 0; font-size: 11px; }
+.style-desc-toggle { font-size: 11px; }
+.style-desc-show { margin-top: 4px; }
+.style-textarea { min-height: 50px; font-size: 12px; }
+
 .word-count-section {
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);

@@ -705,7 +705,7 @@ export interface AudioModelConfig {
    * if missing, the audio generator falls back to prefix-based detection
    * (`genaipro-*` → genaipro, `eleven_*` → elevenlabs, else fal).
    */
-  provider?: 'fal' | 'genaipro' | 'elevenlabs'
+  provider?: 'fal' | 'genaipro' | 'elevenlabs' | 'chatterbox'
   /** Set on user-added entries. See `ImageModelConfig.is_custom` for rationale. */
   is_custom?: boolean
 }
@@ -727,6 +727,31 @@ export interface VoicePreset {
   voice_id: string
 }
 
+/**
+ * User-saved image-style description, typically captured from
+ * `/analyze-style` (vision-LLM extraction off a reference image) and named
+ * for reuse across episodes. The dropdown on image-prompts.vue shows
+ * these in a "Custom" optgroup beside the built-in style presets.
+ *
+ * Stored on ProjectConfig (per-project) — not a global library — because
+ * style choice is tightly coupled to a channel's brand identity. A future
+ * audit might add a project → library promotion flow, but YAGNI today.
+ */
+export interface StylePreset {
+  /** File-system-safe slug. Generated server-side from the name on save. */
+  id: string
+  /** Display name shown in the picker (e.g. "Watercolor sunset"). */
+  name: string
+  /** The full multi-sentence style description that gets folded into image prompts. */
+  description: string
+  /** Vision model that produced the description, if extracted via /analyze-style. Free-form for manually-typed presets. */
+  source_model?: string
+  /** Reference image relative path (project-portable), if the description was derived from one. Cleared when the project is exported. */
+  source_reference?: string
+  /** ISO timestamp of creation. */
+  created_at: string
+}
+
 export interface ConfirmationPreferences {
   script?: boolean
   scene_prompts?: boolean
@@ -746,11 +771,23 @@ export interface ProjectConfig {
   genaipro_api_key?: string
   elevenlabs_api_key?: string
   google_api_key?: string
+  /**
+   * Per-project gate for the self-hosted Chatterbox TTS provider. Off by
+   * default so the chatterbox-* models stay hidden from projects that
+   * don't use it. Base URL itself lives per-machine in the app secrets
+   * store under provider id `chatterbox` (so moving the project to a
+   * machine without Tailscale doesn't carry a stale URL).
+   */
+  chatterbox_enabled?: boolean
+  /** Reference clip UUID returned by Chatterbox's /api/upload-reference. */
+  chatterbox_reference_id?: string
   image_models: Record<string, ImageModelConfig>
   image_pricing_last_updated: string
   voice_presets: VoicePreset[]
   /** Per-project list of favourited voice_ids, pinned to the top of the picker. */
   voice_favourites?: string[]
+  /** User-saved image-style descriptions (typically from `/analyze-style`). */
+  style_presets?: StylePreset[]
   audio_models: Record<string, AudioModelConfig>
   audio_pricing_last_updated: string
   video_models?: Record<string, VideoModelConfig>
@@ -782,10 +819,13 @@ export interface SafeProjectConfig {
   has_genaipro_key?: boolean
   has_elevenlabs_key?: boolean
   has_google_key?: boolean
+  chatterbox_enabled?: boolean
+  chatterbox_reference_id?: string
   image_models: Record<string, ImageModelConfig>
   image_pricing_last_updated: string
   voice_presets: VoicePreset[]
   voice_favourites?: string[]
+  style_presets?: StylePreset[]
   audio_models: Record<string, AudioModelConfig>
   audio_pricing_last_updated: string
   video_models?: Record<string, VideoModelConfig>
@@ -1504,4 +1544,13 @@ export const MODEL_LABELS: Record<string, string> = {
   'genaipro-gpt-4.1':           'GPT-4.1 [genaipro]',
   'genaipro-claude-sonnet-4':   'Claude Sonnet 4 [genaipro]',
   'genaipro-claude-opus-4':     'Claude Opus 4 [genaipro]',
+}
+
+// Models that the OpenAI-key check would otherwise mark "available" but
+// the user's account can't actually call. The frontend treats any model
+// with a reason here as disabled and shows the reason as a tooltip.
+// Edit this map (or remove an entry) once account access changes.
+export const KNOWN_UNAVAILABLE_REASONS: Record<string, string> = {
+  'gpt-5':      'Your OpenAI account does not have GPT-5 access. Use GPT-4o or Claude.',
+  'gpt-5-mini': 'Your OpenAI account does not have GPT-5 access. Use GPT-4o-mini or Claude Haiku.',
 }

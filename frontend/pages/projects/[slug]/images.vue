@@ -52,7 +52,7 @@
               </option>
             </optgroup>
           </select>
-          <span v-if="form.mode === 'thumbs'" class="text-muted" style="font-size: 11px;">
+          <span v-if="form.mode === 'thumbs'" class="text-muted text-xs">
             Tip: Use a higher-quality model for eye-catching thumbnails
           </span>
         </div>
@@ -139,28 +139,28 @@
     <!-- Image integrity pill + Repair. Generators skip existing non-empty -->
     <!-- files natively, so Repair = re-submit the same form with force=false. -->
     <div v-if="form.episode_id" class="card mt-2" aria-labelledby="image-integrity-heading">
-      <h3 id="image-integrity-heading" style="margin-bottom: 6px;">Image integrity</h3>
-      <p class="text-muted" style="font-size: 12px; margin-bottom: 10px;">
+      <h3 id="image-integrity-heading" class="integrity-title">Image integrity</h3>
+      <p class="text-muted text-sm integrity-blurb">
         Check whether every expected image is on disk. <strong>Repair missing</strong>
         queues a new job with the current form settings — the generator automatically
         skips scenes/thumbnails that already have ≥1 variant with content.
       </p>
 
-      <div v-if="imageStatus.loading" class="text-muted" style="font-size: 13px;">
+      <div v-if="imageStatus.loading" class="text-muted text-md">
         <LoadingSpinner size="sm" /> Checking…
       </div>
 
-      <div v-else-if="imageStatus.error" class="text-danger" style="font-size: 13px;">
+      <div v-else-if="imageStatus.error" class="text-danger text-md">
         {{ imageStatus.error }}
         <button class="btn btn-sm btn-ghost ml-2" @click="refreshImageStatus">Retry</button>
       </div>
 
-      <div v-else-if="!imageStatus.hasAny" class="text-muted" style="font-size: 13px;">
+      <div v-else-if="!imageStatus.hasAny" class="text-muted text-md">
         No scene or thumbnail prompts found for this episode yet. Generate prompts
         first on the <NuxtLink :to="`/projects/${slug}/image-prompts`">Image Prompts</NuxtLink> page.
       </div>
 
-      <div v-else class="flex items-center gap-2" style="flex-wrap: wrap;">
+      <div v-else class="flex items-center gap-2 flex-wrap">
         <span v-if="imageStatus.scenes" class="integrity-pill" :class="imageStatus.scenes.missing.length ? 'warn' : 'ok'">
           <template v-if="imageStatus.scenes.missing.length === 0">✓ {{ imageStatus.scenes.total }} scenes present</template>
           <template v-else>⚠ {{ imageStatus.scenes.missing.length }} of {{ imageStatus.scenes.total }} scenes missing</template>
@@ -185,13 +185,81 @@
       </div>
 
       <div v-if="imageStatus.missingScenesList || imageStatus.missingThumbsList" class="missing-detail mt-2">
-        <div v-if="imageStatus.missingScenesList" class="text-muted" style="font-size: 12px;">
+        <div v-if="imageStatus.missingScenesList" class="text-muted text-sm">
           Missing scenes: {{ imageStatus.missingScenesList }}
         </div>
-        <div v-if="imageStatus.missingThumbsList" class="text-muted" style="font-size: 12px;">
+        <div v-if="imageStatus.missingThumbsList" class="text-muted text-sm">
           Missing thumbnails: {{ imageStatus.missingThumbsList }}
         </div>
       </div>
+    </div>
+
+    <!-- ── Edit existing image (AI clean-up / removal) ────────────────────
+         Tile grid that lists already-generated scenes + thumbnails and
+         opens the shared ImageEditDialog on click. Audit pain-point #14. -->
+    <div v-if="form.episode_id" class="card mt-2">
+      <div class="card-header">
+        <h3>Edit Existing Images</h3>
+        <button
+          class="btn btn-sm btn-ghost"
+          :disabled="editScanLoading"
+          :title="editScanLoading ? 'Refreshing…' : 'Re-scan the disk for newly-generated images'"
+          @click="loadEditScan"
+        >
+          <LoadingSpinner v-if="editScanLoading" size="sm" />
+          <span v-else aria-hidden="true">↻</span>
+          Refresh
+        </button>
+      </div>
+      <p class="text-muted text-sm mt-1">
+        Click any image to clean up unwanted text, watermarks, or details with AI.
+        Each edit is saved as <code>_edited_v1.png</code> next to the original — no destructive overwrites.
+      </p>
+
+      <div v-if="editScanError" class="text-danger text-sm mt-2">{{ editScanError }}</div>
+
+      <!-- Scenes -->
+      <div v-if="editScenes.length" class="mt-2">
+        <h4 class="edit-grid-heading">Scenes ({{ editScenes.length }})</h4>
+        <div class="edit-image-grid">
+          <button
+            v-for="scn in editScenes"
+            :key="scn.path"
+            type="button"
+            class="edit-image-tile"
+            :title="`Preview ${scn.filename}`"
+            @click="openLightboxAt(scn.path)"
+          >
+            <img :src="getImagePreviewUrlImages(scn.path)" :alt="scn.filename" class="edit-image-thumb" />
+            <span class="edit-image-label">S{{ scn.scene_number ?? '?' }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Thumbnails -->
+      <div v-if="editThumbs.length" class="mt-2">
+        <h4 class="edit-grid-heading">Thumbnails ({{ editThumbs.length }})</h4>
+        <div class="edit-image-grid">
+          <button
+            v-for="(thumb, ti) in editThumbs"
+            :key="thumb.path"
+            type="button"
+            class="edit-image-tile"
+            :title="`Preview ${thumb.filename}`"
+            @click="openLightboxAt(thumb.path)"
+          >
+            <img :src="getImagePreviewUrlImages(thumb.path)" :alt="thumb.filename" class="edit-image-thumb" />
+            <span class="edit-image-label">T{{ ti + 1 }}</span>
+          </button>
+        </div>
+      </div>
+
+      <p
+        v-if="!editScenes.length && !editThumbs.length && !editScanLoading && !editScanError"
+        class="text-muted text-sm mt-2"
+      >
+        No images on disk yet for {{ form.episode_id }}. Generate some first using the form above.
+      </p>
     </div>
 
     <!-- Contextual help -->
@@ -205,12 +273,32 @@
       </div>
     </div>
 
+    <!-- Lightbox: fullscreen preview + carousel. Tile clicks open this -->
+    <!-- first; the user browses / decides, then triggers Edit which -->
+    <!-- closes the lightbox and opens ImageEditDialog on the same path. -->
+    <ImagePreviewLightbox
+      v-model:visible="lightboxOpen"
+      v-model:index="lightboxIndex"
+      :images="allEditableImages"
+      :project-slug="slug"
+      @edit="onLightboxEdit"
+    />
+
+    <!-- Shared AI image-edit dialog. Mounted once at the page root; -->
+    <!-- triggered from inside the lightbox (Edit with AI button / Enter). -->
+    <ImageEditDialog
+      v-model="imageEditOpen"
+      :project-slug="slug"
+      :image-path="imageEditTarget || ''"
+      @accepted="onImageEditAccepted"
+    />
+
   </div>
 </template>
 
 <script setup lang="ts">
 definePageMeta({ layout: 'dashboard' })
-useHead({ title: "Images — Story Studio KH" })
+useAppTitle('Images')
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -441,7 +529,126 @@ async function repairMissing() {
   }
 }
 
-watch(() => form.episode_id, (v) => { if (v) refreshImageStatus() }, { immediate: true })
+// ── Edit-existing-images grid (audit pain-point #14) ─────────────────────
+// Reuses the same `/video-editor/scan/{episodeId}` endpoint Video Assembly
+// uses to enumerate already-on-disk images. Cheap (one read of the
+// scenes / thumbnails subfolders) so re-fetching after each accepted edit
+// is fine.
+//
+// IMPORTANT: declared BEFORE the episode-id watcher below. Earlier this
+// block lived after the watch, but `{ immediate: true }` fires the watch
+// synchronously during setup — and the watch's else-branch touches
+// `editScenes.value`. With the refs declared after, that synchronous fire
+// hit a temporal dead zone and crashed the whole page on first load.
+interface ScannedImage { filename: string; path: string; scene_number?: number | null }
+const editScenes = ref<ScannedImage[]>([])
+const editThumbs = ref<ScannedImage[]>([])
+const editScanLoading = ref(false)
+const editScanError = ref('')
+
+async function loadEditScan() {
+  if (!form.episode_id) return
+  editScanLoading.value = true
+  editScanError.value = ''
+  try {
+    const r = await get<{ scenes?: ScannedImage[]; thumbnails?: ScannedImage[] }>(
+      `/projects/${slug.value}/video-editor/scan/${form.episode_id}`,
+    )
+    editScenes.value = (r.scenes || []).slice().sort(
+      (a, b) => (a.scene_number ?? 999) - (b.scene_number ?? 999),
+    )
+    editThumbs.value = r.thumbnails || []
+  } catch (e: any) {
+    console.error('[images/edit-scan] failed:', e)
+    editScanError.value = e?.data?.detail || e?.message || 'Could not list existing images'
+  } finally {
+    editScanLoading.value = false
+  }
+}
+
+const imageEditOpen = ref(false)
+const imageEditTarget = ref<string | null>(null)
+function openEditOnPath(path: string) {
+  imageEditTarget.value = path
+  imageEditOpen.value = true
+}
+
+// ── Lightbox / carousel (preview-then-edit flow) ─────────────────────────
+// Tile clicks now open this fullscreen preview first. The user browses
+// with ← / → and Esc-closes; the "Edit with AI" CTA inside the lightbox
+// closes itself and forwards to openEditOnPath() above.
+const lightboxOpen = ref(false)
+const lightboxIndex = ref(0)
+
+/**
+ * Flat list backing the lightbox carousel. Order matches the on-page grid
+ * — scenes first (sorted by scene_number), then thumbnails — so left/right
+ * arrow navigation feels predictable. Section + scene_number ride along
+ * for the position-indicator label inside the lightbox.
+ */
+interface LightboxImage {
+  filename: string
+  path: string
+  section: 'scenes' | 'thumbnails'
+  scene_number?: number | null
+}
+const allEditableImages = computed<LightboxImage[]>(() => {
+  const out: LightboxImage[] = []
+  for (const s of editScenes.value) {
+    out.push({ filename: s.filename, path: s.path, section: 'scenes', scene_number: s.scene_number ?? null })
+  }
+  for (const t of editThumbs.value) {
+    out.push({ filename: t.filename, path: t.path, section: 'thumbnails' })
+  }
+  return out
+})
+
+function openLightboxAt(path: string) {
+  const i = allEditableImages.value.findIndex(img => img.path === path)
+  lightboxIndex.value = i >= 0 ? i : 0
+  lightboxOpen.value = true
+}
+
+/**
+ * Wired to the lightbox's `edit` emit. Sequence matters: close the
+ * lightbox first so its document-level keydown listener detaches before
+ * ImageEditDialog mounts. Otherwise ArrowLeft inside the dialog's prompt
+ * textarea would also navigate the lightbox in the background.
+ */
+function onLightboxEdit(path: string) {
+  lightboxOpen.value = false
+  openEditOnPath(path)
+}
+function onImageEditAccepted(newPath: string) {
+  // After an edit, refresh the grid so the new `_edited_v1.png` (or its
+  // replaced original) shows up. The grid uses absolute paths as keys, so
+  // an existing tile updates in place when the path stays the same.
+  void loadEditScan()
+  // Bust the preview-img cache for the affected path so the displayed
+  // thumbnail reflects the new content. _editKey changes drive the
+  // `getImagePreviewUrlImages` cache-busting query param below.
+  _editKey.value++
+  void newPath
+}
+
+// Cache-buster bumped after each accepted edit so <img> tags re-fetch.
+const _editKey = ref(0)
+function getImagePreviewUrlImages(path: string): string {
+  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(path)}&k=${_editKey.value}`
+}
+
+// Episode-id watcher MUST come after the editScenes/editThumbs
+// declarations above — `{ immediate: true }` fires this synchronously
+// during setup, and the else-branch reads those refs. See comment above.
+watch(() => form.episode_id, (v) => {
+  if (v) {
+    refreshImageStatus()
+    void loadEditScan()
+  } else {
+    editScenes.value = []
+    editThumbs.value = []
+  }
+}, { immediate: true })
 
 async function submit() {
   // Translate Generation Mode (M6) → backend `force`. The image generator
@@ -486,6 +693,59 @@ async function submit() {
 </script>
 
 <style scoped>
+/* "Image integrity" card title and blurb beneath it. */
+.integrity-title { margin-bottom: 6px; }
+.integrity-blurb { margin-bottom: 10px; }
+
+/* Edit-existing-images grid — section heading + tile grid. Tiles match
+ * the size of the title-image picker in Video Assembly so the visual
+ * vocabulary is consistent across pages. */
+.edit-grid-heading {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.edit-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+.edit-image-tile {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-md);
+  border: 2px solid var(--border);
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.edit-image-tile:hover {
+  border-color: var(--accent);
+  transform: scale(1.02);
+}
+.edit-image-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.edit-image-label {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
 .required { color: var(--error); margin-left: 2px; }
 
 /* Generation Mode (M6) — three-up radio cards. Mirror of audio.vue;

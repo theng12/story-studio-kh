@@ -11,7 +11,7 @@
         >
           <span class="chip-icon">📊</span>
           <span class="chip-text">
-            {{ quota.used.toLocaleString() }} / {{ quota.ceiling.toLocaleString() }}<span class="chip-divider"> · </span><template v-if="quotaResetSeconds > 0">resets in {{ formatDuration(quotaResetSeconds) }}</template><template v-else>resetting…</template><template v-if="quota.stale"> · stale</template>
+            {{ quota.used.toLocaleString() }} / {{ quota.ceiling.toLocaleString() }}<span class="chip-divider"> · </span><template v-if="quotaResetSeconds > 0">resets in {{ formatTimecode(quotaResetSeconds) }}</template><template v-else>resetting…</template><template v-if="quota.stale"> · stale</template>
           </span>
         </div>
         <button
@@ -1612,7 +1612,7 @@
             <td class="num">{{ formatNumber(row.views) }}</td>
             <td class="num">{{ formatNumber(Math.round(row.watch_minutes)) }}</td>
             <td class="num">{{ row.avg_view_percentage.toFixed(1) }}%</td>
-            <td class="num">{{ formatDuration(row.avg_view_seconds) }}</td>
+            <td class="num">{{ formatTimecode(row.avg_view_seconds) }}</td>
             <td class="num">{{ row.ctr_percentage != null ? row.ctr_percentage.toFixed(2) + '%' : '—' }}</td>
             <td class="num">{{ formatNumber(row.likes) }}</td>
             <td>{{ row.published_at ? row.published_at.slice(0, 10) : '—' }}</td>
@@ -2172,7 +2172,13 @@ function formatMinutes(m: number): string {
   const rem = Math.round(m - h * 60)
   return `${h}h ${rem}m`
 }
-function formatDuration(secs: number): string {
+/**
+ * Compact mm:ss timecode for tabular / chip-density displays where the
+ * named-units format ("5m 23s") is too wide. Renamed from `formatDuration`
+ * on 2026-05-03 to stop shadowing the auto-imported helper of the same
+ * name in ~/composables/useFormat.ts.
+ */
+function formatTimecode(secs: number): string {
   if (!secs) return '0:00'
   const m = Math.floor(secs / 60)
   const s = Math.floor(secs - m * 60)
