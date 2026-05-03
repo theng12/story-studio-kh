@@ -290,7 +290,7 @@ all use pills) so users don't have to learn a new affordance.
 
 ### [x] I · Promote per-item schedule map into the sidecar
 
-**Shipped:** v1.0.39 · commit `<HASH-PENDING>`. Sidecar gains
+**Shipped:** v1.0.39 · commit `1e325ed`. Sidecar gains
 `readSidecarRaw` + `setScheduledFor` helpers; planning-only stubs
 (video_id='') carry `scheduled_for` pre-upload and get overwritten
 by the real sidecar at upload time. `upload-plans.ts`
