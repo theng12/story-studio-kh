@@ -44,6 +44,11 @@ electron/logs/
 # Test output
 test-results.txt
 
+# normalize-icloud-project.ts run artifacts (per-machine, may contain absolute paths)
+scripts/normalization-plan.json
+scripts/normalization-plan.md
+scripts/normalization-execution.log
+
 # OS files
 .DS_Store
 Thumbs.db
