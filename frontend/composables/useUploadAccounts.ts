@@ -240,6 +240,14 @@ export function useUploadAccounts(slug: string) {
     filter?: QueueFilter
     sort?: QueueSort
     nocache?: boolean
+    /**
+     * Item 10 — restrict the queue to a specific list of episode_codes
+     * regardless of filter/page. When provided, takes precedence over
+     * paginated browsing — used by the "View selected" bulk-bar button
+     * to show only-the-selected rows in one enriched page. Pass null /
+     * undefined to clear and return to normal pagination.
+     */
+    episodeCodes?: string[] | null
   }) {
     const opts = typeof arg === 'string' ? { platform: arg } : (arg || {})
     if (opts.platform) queueLastParams.platform = opts.platform
@@ -257,6 +265,7 @@ export function useUploadAccounts(slug: string) {
         sort: queueLastParams.sort,
       })
       if (opts.nocache) qs.set('nocache', '1')
+      if (opts.episodeCodes && opts.episodeCodes.length) qs.set('episode_codes', opts.episodeCodes.join(','))
       const r = await get<{
         items: any[]
         total: number

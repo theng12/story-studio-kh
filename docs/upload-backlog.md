@@ -112,7 +112,9 @@ count, not user behaviour.
 
 ## P1 — Medium effort, high value
 
-### [ ] B · Schedule-map drift fix in sync-from-youtube
+### [x] B · Schedule-map drift fix in sync-from-youtube
+
+**Shipped:** v1.0.36 (commit pending)
 
 **Why:** When YouTube's `publishAt` changes, sync updates the sidecar's
 `scheduled_for` but never the `upload_item_schedule` map. Local "I planned
@@ -132,7 +134,11 @@ this for Tuesday" can quietly disagree with reality.
 
 ---
 
-### [ ] H · Restore "Apply + Upload" as a fourth verb in the scope popover
+### [x] H · Restore "Apply + Upload" as a fourth verb in the scope popover
+
+**Shipped:** v1.0.36 (commit pending). Four verbs now: 📅 Apply
+(schedule only), ☁️ Upload only (skip re-apply), 🚀 Apply + Upload
+(combo, the common case), ↩ Unapply.
 
 **Why:** v1.0.32 split the bundled "Apply + Upload all" button into
 separate verbs because the old one was misleading on quota. Splitting
@@ -153,7 +159,12 @@ and upload as many as quota allows") is now two clicks of friction.
 
 ---
 
-### [ ] 9 · Imports as first-class scope-picker citizens
+### [x] 9 · Imports as first-class scope-picker citizens (documented)
+
+**Shipped:** v1.0.36 (commit pending). Went with the documented-limitation
+option — every scope-picker tooltip now ends with "Imports are not
+included — manage them via the per-row Upload button or the selection
+bulk bar." Full first-class support deferred (low ROI for personal use).
 
 **Why:** Imports have no `episode_code` so the scope picker silently
 excludes them — they get the bulk bar but not the Plans modal. For users
@@ -177,7 +188,12 @@ limitation? Imports are a small minority of uploads for most projects._
 
 ---
 
-### [ ] 10 · Page-aware metadata enrichment for off-page selections
+### [x] 10 · Page-aware metadata enrichment for off-page selections
+
+**Shipped:** v1.0.36 (commit pending). New "👁 View selected" button on
+the bulk bar pulls the entire selection (across pages) into a single
+enriched view via `?episode_codes=` post-filter on /upload/queue.
+Toggles back to paginated browsing via "↺ Show all".
 
 **Why:** The "✓ Ready / ⚠ Missing" badges + thumbnail status are
 computed only for visible page rows. Selecting on page 1 + paginating
@@ -342,3 +358,7 @@ been done across versions.
 - **v1.0.35** (2026-05-03) — P0 bundle: **C+G** tombstone safety net
   (un-mark verb + auto-show 🪦 chip), **D** Apply preview, **F** auto-Sync
   on 24h cooldown.
+- **v1.0.36** (2026-05-03) — P1 bundle: **B** schedule-map drift fix in
+  sync, **H** four-verb scope popover (📅 Apply / ☁️ Upload only /
+  🚀 Apply + Upload / ↩ Unapply), **9** imports limitation documented in
+  picker tooltips, **10** "👁 View selected" bulk-bar action.

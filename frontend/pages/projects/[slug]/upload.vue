@@ -1192,22 +1192,34 @@
                 <LoadingSpinner v-if="applying && scopeBusyPlanId === p.id" size="sm" />
                 📅 Apply ▾
               </button>
-              <!-- Upload verb is now separate from Apply (was a single
-                   "Apply + Upload all" button). Apply writes the schedule;
-                   Upload fans out actual uploads with a quota cap. Each
-                   opens a scope picker so the action targets the user's
-                   choice (Selection / All unuploaded / Next 5 / This page)
-                   instead of just the visible page. -->
+              <!-- Item H — three split-out verbs:
+                     ☁️ Upload only — fan out uploads; assumes schedule
+                                       already applied (or you don't care).
+                     🚀 Apply + Upload — combo: apply schedule THEN fan
+                                          out uploads. The common case.
+                   Both quota-capped. Each opens the scope picker so the
+                   action targets exactly what the user means. -->
               <button
                 class="btn btn-sm btn-primary plan-action-btn"
                 :disabled="applying || applyAndUploading || uploadMode === 'private'"
                 :title="uploadMode === 'private'
                   ? 'Upload-with-plan is disabled in private mode. Switch to Apply-plan mode on the Accounts tab.'
-                  : 'Fan out actual uploads. Capped by today’s remaining YouTube quota — pick a scope and we’ll only upload as many as the quota allows.'"
+                  : 'Fan out actual uploads — assumes the schedule has already been applied. Quota-capped. For one-click apply+upload, use the next button.'"
                 @click="openPlanScopePicker($event, p, 'upload')"
               >
                 <LoadingSpinner v-if="applyAndUploading && scopeBusyPlanId === p.id" size="sm" />
-                ☁️ Upload ▾
+                ☁️ Upload only ▾
+              </button>
+              <button
+                class="btn btn-sm btn-primary plan-action-btn"
+                :disabled="applying || applyAndUploading || uploadMode === 'private'"
+                :title="uploadMode === 'private'
+                  ? 'Apply + Upload is disabled in private mode. Switch to Apply-plan mode on the Accounts tab.'
+                  : 'Apply this plan AND fan out uploads in one click. Quota-capped — uploads stop when today’s quota is spent. The common case.'"
+                @click="openPlanScopePicker($event, p, 'apply_upload')"
+              >
+                <LoadingSpinner v-if="applyAndUploading && scopeBusyPlanId === p.id" size="sm" />
+                🚀 Apply + Upload ▾
               </button>
               <button
                 class="btn btn-sm btn-ghost plan-action-btn"
@@ -1984,9 +1996,15 @@
               <button
                 class="btn btn-primary plan-action-btn"
                 :disabled="applying || applyAndUploading || uploadMode === 'private' || !uploadPlanModalSelected"
-                title="Fan out actual uploads. Capped by today’s remaining YouTube quota."
+                title="Fan out uploads only — assumes the schedule has already been applied. Quota-capped. Use the combo button if you also need to apply the schedule first."
                 @click="openPlanScopePicker($event, uploadPlanModalSelected, 'upload')"
-              >☁️ Upload ▾</button>
+              >☁️ Upload only ▾</button>
+              <button
+                class="btn btn-primary plan-action-btn"
+                :disabled="applying || applyAndUploading || uploadMode === 'private' || !uploadPlanModalSelected"
+                title="Apply this plan AND fan out uploads in one click. Quota-capped — the common case."
+                @click="openPlanScopePicker($event, uploadPlanModalSelected, 'apply_upload')"
+              >🚀 Apply + Upload ▾</button>
               <button
                 class="btn btn-ghost plan-action-btn"
                 :disabled="applying || applyAndUploading || !uploadPlanModalSelected"
@@ -2100,7 +2118,12 @@
         @click.stop
       >
         <div class="scope-popover-head">
-          <strong>{{ scopePicker.verb === 'apply' ? '📅 Apply' : scopePicker.verb === 'upload' ? '☁️ Upload' : '↩ Unapply' }}</strong>
+          <strong>{{
+            scopePicker.verb === 'apply' ? '📅 Apply'
+              : scopePicker.verb === 'upload' ? '☁️ Upload only'
+              : scopePicker.verb === 'apply_upload' ? '🚀 Apply + Upload'
+              : '↩ Unapply'
+          }}</strong>
           <span class="text-muted" style="font-size: 11px; margin-left: 4px;">— {{ scopePicker.plan?.name }}</span>
         </div>
 
@@ -2127,7 +2150,7 @@
               <span class="scope-option-count" :class="{ zero: opt.count === 0 }">{{ opt.count }}</span>
             </button>
           </div>
-          <div v-if="scopePicker.verb === 'upload' && quota" class="scope-popover-foot text-muted" style="font-size: 11px;">
+          <div v-if="(scopePicker.verb === 'upload' || scopePicker.verb === 'apply_upload') && quota" class="scope-popover-foot text-muted" style="font-size: 11px;">
             Today’s YouTube quota: {{ quota.used }} / {{ quota.block_at }} units
             (~{{ Math.max(0, Math.floor((quota.block_at - quota.used) / 1600)) }} uploads left).
           </div>
@@ -2177,7 +2200,11 @@
                 :disabled="!!scopePicker.previewError"
                 @click="confirmScopePreview"
               >
-                {{ scopePicker.verb === 'upload' ? `☁️ Upload ${scopePicker.previewing.count}` : `📅 Apply to ${scopePicker.previewing.count}` }}
+                {{
+                  scopePicker.verb === 'upload' ? `☁️ Upload ${scopePicker.previewing.count}`
+                    : scopePicker.verb === 'apply_upload' ? `🚀 Apply + Upload ${scopePicker.previewing.count}`
+                    : `📅 Apply to ${scopePicker.previewing.count}`
+                }}
               </button>
             </div>
           </template>
@@ -2188,6 +2215,23 @@
     <Transition name="bulk-bar">
       <div v-if="activeTab === 'queue' && selectedQueueIds.size > 0" class="queue-bulk-bar" role="region" aria-label="Bulk upload actions">
         <span class="queue-bulk-bar-count">{{ selectedQueueIds.size }} selected</span>
+        <!-- Item 10 — "View selected" pulls the user's selection (which
+             may be spread across pages) into a single enriched page so
+             metadata/thumbnail badges are visible for every selected
+             row. Toggles back to the normal paginated view via the
+             "↺ Show all" button when the view is active. -->
+        <button
+          v-if="!viewingSelectedOnly"
+          class="btn btn-secondary btn-sm"
+          title="Pull every selected row into a single page so you can see metadata + thumbnail badges for off-page selections."
+          @click="enterViewSelected"
+        >👁 View selected</button>
+        <button
+          v-else
+          class="btn btn-secondary btn-sm"
+          title="Return to the normal paginated queue view."
+          @click="exitViewSelected"
+        >↺ Show all</button>
         <button
           class="btn btn-primary btn-sm"
           :disabled="!canBulkUpload"
@@ -2206,7 +2250,7 @@
           :title="bulkPlaylistTitle"
           @click="doBulkPlaylist"
         >♫ Playlist</button>
-        <button class="btn btn-ghost btn-sm" @click="selectedQueueIds.clear()">Clear</button>
+        <button class="btn btn-ghost btn-sm" @click="selectedQueueIds.clear(); exitViewSelected()">Clear</button>
       </div>
     </Transition>
   </div>
@@ -3783,6 +3827,77 @@ async function doApplyPlan(plan: any, episode_codes: string[]) {
  *      is 429 quota exceeded mid-batch; uploads that DID succeed
  *      stay queued, so the user keeps the work they paid for.
  */
+/**
+ * Item H — Upload-only path. Skips the apply step entirely; just fans
+ * out triggerUpload for each episode_code. Right verb when the schedule
+ * was applied earlier (or doesn't matter — private-mode uploads don't
+ * carry a publishAt anyway) and the user just wants to push the actual
+ * video files now. The combo "🚀 Apply + Upload" verb is the path that
+ * does both in one click.
+ */
+async function doUploadOnly(plan: any, episode_codes: string[]) {
+  if (!episode_codes.length) {
+    showError('No episodes in the chosen scope.')
+    return
+  }
+  applyAndUploading.value = true
+  scopeBusyPlanId.value = plan.id
+  try {
+    // Filter to episodes with a local final on disk — the queue pipes
+    // can include "uploaded·local freed" rows whose video file is gone,
+    // and triggerUpload would fail loudly on those.
+    const codeToItem = new Map(queueItems.value.map((i: any) => [i.episode_code, i]))
+    const ready = episode_codes.filter(code => {
+      const item = codeToItem.get(code) as any
+      return item && item.has_local_final && !item.uploaded
+    })
+    const skipped = episode_codes.length - ready.length
+
+    if (ready.length === 0) {
+      success(`Nothing to upload — ${skipped ? `${skipped} skipped (already uploaded or no local final)` : '0 episodes'}.`)
+      return
+    }
+
+    const ok = await confirmGeneration(slug.value, 'youtube_upload', { count: ready.length })
+    if (!ok) {
+      success(`Upload cancelled (${ready.length} episode(s) ready).`)
+      return
+    }
+
+    let uploaded = 0
+    let failed = 0
+    const failures: string[] = []
+    for (const code of ready) {
+      try {
+        await triggerUpload({ episode_id: code, platform: 'youtube', privacy_status: 'private' })
+        uploaded++
+      } catch (e: any) {
+        failed++
+        failures.push(`${code}: ${e?.data?.detail || e?.message || 'unknown error'}`)
+      }
+    }
+
+    const summary = [
+      uploaded ? `☁️ Queued ${uploaded} upload(s)` : '',
+      failed ? `⚠ ${failed} failed` : '',
+      skipped ? `${skipped} skipped` : '',
+    ].filter(Boolean).join(' · ')
+    if (failed > 0) {
+      const preview = failures.slice(0, 3).join('; ')
+      const overflow = failed > 3 ? `; +${failed - 3} more` : ''
+      showError(`${summary} — ${preview}${overflow}`)
+    } else {
+      success(summary)
+    }
+    await loadQueue('youtube')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Upload failed')
+  } finally {
+    applyAndUploading.value = false
+    scopeBusyPlanId.value = ''
+  }
+}
+
 async function doApplyAndUpload(plan: any, episode_codes: string[]) {
   if (!episode_codes.length) {
     showError('No episodes in the chosen scope. Pick a different scope or assemble more videos first.')
@@ -4054,6 +4169,35 @@ function toggleAllOnPage() {
   }
 }
 
+// Item 10 — "View selected" mode pulls the entire selection into a single
+// enriched page so metadata/thumbnail badges are visible for off-page
+// rows too. Backed by the new ?episode_codes= query param on /upload/queue.
+// `viewingSelectedOnly` is true while the view is active so the bulk bar
+// can swap "View selected" for a "↺ Show all" toggle.
+const viewingSelectedOnly = ref(false)
+async function enterViewSelected() {
+  if (selectedQueueIds.size === 0) return
+  viewingSelectedOnly.value = true
+  // Bump page size up so all selections fit on one page when reasonable.
+  // The backend caps at 100 anyway.
+  const targetSize = Math.max(queuePageSize.value, Math.min(100, selectedQueueIds.size))
+  if (targetSize !== queuePageSize.value) queuePageSize.value = targetSize as 10 | 20 | 50 | 100
+  await loadQueue({
+    page: 1,
+    pageSize: targetSize,
+    nocache: false,
+    episodeCodes: Array.from(selectedQueueIds),
+  })
+  queuePage.value = 1
+}
+function exitViewSelected() {
+  if (!viewingSelectedOnly.value) return
+  viewingSelectedOnly.value = false
+  // Reload without the codes filter — back to normal paginated view.
+  loadQueue({ page: 1, episodeCodes: null })
+  queuePage.value = 1
+}
+
 // ── Plan scope picker ──────────────────────────────────────────────────
 // Each plan row's Apply / Upload / Unapply button opens this picker so the
 // verb runs against an explicit scope (Selection / All unuploaded / Next 5
@@ -4061,7 +4205,12 @@ function toggleAllOnPage() {
 // is fetched lazily via the lightweight ids_only=1 endpoint when the picker
 // opens — avoids paying enrichment cost just to count.
 const NEXT_BATCH_SIZE = 5
-type PlanVerb = 'apply' | 'upload' | 'unapply'
+// Item H — four verbs:
+//   apply        — write schedule map + PATCH already-uploaded videos
+//   upload       — fan out fresh uploads only (assumes schedule already applied)
+//   apply_upload — combo: apply, then fan out uploads (the common case)
+//   unapply      — clear schedule map entries for the chosen scope
+type PlanVerb = 'apply' | 'upload' | 'apply_upload' | 'unapply'
 interface ScopeOption {
   id: 'selection' | 'all_unuploaded' | 'next_n' | 'this_page'
   label: string
@@ -4149,12 +4298,14 @@ const scopePopoverStyle = computed(() => ({
 
 /**
  * Cap "All unuploaded" / "Next N" counts at the remaining quota for the
- * Upload verb so the picker doesn't suggest more than YouTube will let us
- * push today. floor((block_at - used) / 1600) — same formula the chip uses.
- * Apply / Unapply are unaffected (no quota cost).
+ * Upload-firing verbs so the picker doesn't suggest more than YouTube
+ * will let us push today. floor((block_at - used) / 1600) — same formula
+ * the chip uses. Apply / Unapply are unaffected (no quota cost). Both
+ * `upload` (Item H upload-only) and `apply_upload` (Item H combo) fan
+ * out actual uploads, so both share the cap.
  */
 function uploadCapForCodes(codes: string[]): string[] {
-  if (scopePicker.verb !== 'upload') return codes
+  if (scopePicker.verb !== 'upload' && scopePicker.verb !== 'apply_upload') return codes
   const q = quota.value
   if (!q) return codes
   const remaining = Math.max(0, q.block_at - q.used)
@@ -4165,13 +4316,19 @@ function uploadCapForCodes(codes: string[]): string[] {
 const scopeOptions = computed<ScopeOption[]>(() => {
   const verb = scopePicker.verb
   const allCodes = scopePicker.allUnuploadedCodes
-  const selCodes = Array.from(selectedQueueIds).filter(c => allCodes.includes(c) || verb !== 'upload')
+  // For upload-firing verbs, restrict the Selection scope to codes that
+  // are actually unuploaded — uploading an already-uploaded episode would
+  // PATCH metadata only (likely not what the user meant when picking
+  // Selection). For apply / unapply, include the user's literal pick.
+  const isUploadFiring = verb === 'upload' || verb === 'apply_upload'
+  const selCodes = Array.from(selectedQueueIds).filter(c => allCodes.includes(c) || !isUploadFiring)
   const pageCodes = episodeRowsOnPage.value.map((i: any) => i.episode_code as string)
   const nextCodes = allCodes.slice(0, NEXT_BATCH_SIZE)
 
   const wrap = (id: ScopeOption['id'], label: string, codes: string[], tooltip: string): ScopeOption => {
     const capped = uploadCapForCodes(codes)
-    const cappedNote = scopePicker.verb === 'upload' && capped.length < codes.length
+    const isUploadFiring = scopePicker.verb === 'upload' || scopePicker.verb === 'apply_upload'
+    const cappedNote = isUploadFiring && capped.length < codes.length
       ? ` (${codes.length - capped.length} skipped to respect today’s quota)`
       : ''
     return {
@@ -4183,19 +4340,28 @@ const scopeOptions = computed<ScopeOption[]>(() => {
     }
   }
 
+  // Item 9 — every scope counts EPISODES only. Imports (rows dropped
+  // into the project-level Upload Queue/ folder) are second-class for
+  // plan-driven actions: they have no episode_code so they can't ride
+  // the schedule map, plan apply, or scope picker. To act on imports,
+  // use the per-row Upload button OR select them and use the bulk bar
+  // (which works on import ids). The tooltip below makes that explicit
+  // so users don't waste time wondering why the "All" count excludes
+  // their import rows.
+  const importsNote = ' Imports are not included — manage them via the per-row Upload button or the selection bulk bar.'
   return [
     wrap('selection', 'Selection',
       selCodes,
-      `Episodes you've checked in the Queue tab. Survives pagination.`),
+      `Episodes you've checked in the Queue tab. Survives pagination.${importsNote}`),
     wrap('all_unuploaded', 'All unuploaded',
       allCodes,
-      `Every episode that has a final video on disk and isn't uploaded yet, across all pages.`),
+      `Every episode that has a final video on disk and isn't uploaded yet, across all pages.${importsNote}`),
     wrap('next_n', `Next ${NEXT_BATCH_SIZE} from top`,
       nextCodes,
-      `The first ${NEXT_BATCH_SIZE} unuploaded episodes in current sort order — quick batch.`),
+      `The first ${NEXT_BATCH_SIZE} unuploaded episodes in current sort order — quick batch.${importsNote}`),
     wrap('this_page', 'This page',
       pageCodes,
-      `Only the episodes visible on the current page.`),
+      `Only the episodes visible on the current page.${importsNote}`),
   ]
 })
 
@@ -4320,6 +4486,13 @@ async function runScopedAction(opt: ScopeOption) {
     if (verb === 'apply') {
       await doApplyPlan(plan, opt.episodeCodes)
     } else if (verb === 'upload') {
+      // Item H — Upload-only path. doApplyAndUpload is now the explicit
+      // combo verb (apply_upload below); this verb skips re-applying the
+      // schedule and just fans out the actual upload jobs.
+      await doUploadOnly(plan, opt.episodeCodes)
+    } else if (verb === 'apply_upload') {
+      // Item H — combo verb: write schedule, PATCH live videos, fan out
+      // uploads for the not-yet-uploaded subset. The common case.
       await doApplyAndUpload(plan, opt.episodeCodes)
     } else {
       await doUnapplyPlan(plan, opt.episodeCodes)

@@ -780,6 +780,15 @@ router.get('/projects/:slug/upload/queue', async (req, res) => {
     // alias map — see parseFilterParam.
     const filter = String(req.query.filter || 'all')
     const sort = (String(req.query.sort || 'code_asc') as QueueSort)
+    // Item 10 — when present, restricts the queue to a specific list of
+    // episode_codes regardless of filter/page. Lets the frontend show a
+    // "View selected" view that pulls only-the-selected rows into a single
+    // page with full enrichment, even if those rows are spread across
+    // many pages of the underlying paginated view. Comma-separated.
+    const codesFilterRaw = typeof req.query.episode_codes === 'string' ? req.query.episode_codes : ''
+    const codesFilter = codesFilterRaw
+      ? new Set(codesFilterRaw.split(',').map(s => s.trim()).filter(Boolean))
+      : null
     const noCache = req.query.nocache === '1' || req.query.nocache === 'true'
     // Lightweight mode for "select all across all pages" / "all unuploaded" /
     // "next N" scope pickers in the Plans tab. Skips the expensive per-row
@@ -804,7 +813,14 @@ router.get('/projects/:slug/upload/queue', async (req, res) => {
       queueIndexCache.set(ckey, { ts: now, items: index })
     }
 
-    const filtered = filterAndSortIndex(index, filter, sort)
+    let filtered = filterAndSortIndex(index, filter, sort)
+    // Item 10 — episode_codes[] post-filter, applied AFTER the chip filter
+    // so the user's "show me my selection" view honours both the filter
+    // chips (in case they want to combine) AND the explicit list. When
+    // codesFilter is empty, this is a no-op.
+    if (codesFilter) {
+      filtered = filtered.filter(it => it.episode_code && codesFilter.has(it.episode_code))
+    }
     const total = filtered.length
 
     if (idsOnly) {
@@ -1894,6 +1910,14 @@ router.post('/projects/:slug/upload/queue/sync-from-youtube', async (req, res) =
     const tombstoned: Array<{ episode_code: string; video_id: string }> = []
     let updated = 0
     const { writeSidecar } = await import('../services/upload-sidecar.js')
+    // Item B — keep the per-item schedule map in lockstep with what we
+    // just learned from YouTube. Without this, the local map can quietly
+    // disagree with reality after a manual YT-Studio edit (sidecar
+    // updates but the map doesn't), so the next plan-driven action picks
+    // a stale publishAt. We accumulate the diffs here and flush in one
+    // write at the end so we don't pay N file-locks per sync.
+    let scheduleMapDirty = false
+    const itemScheduleMap = await plans.readItemSchedule(slug)
 
     for (const r of rows) {
       const live = liveById[r.sidecar.video_id]
@@ -1934,14 +1958,38 @@ router.post('/projects/:slug/upload/queue/sync-from-youtube', async (req, res) =
         })
         updated++
         drift.push({ episode_code: r.code, video_id: r.sidecar.video_id, before, after })
+        // Item B — schedule-map drift. If YouTube's publishAt changed we
+        // also need to reconcile the per-item schedule map; otherwise the
+        // next plan-apply or upload will pick the stale local time. Three
+        // cases:
+        //   (a) YT now has a publishAt, map has no entry → record it.
+        //   (b) YT now has a publishAt, map has a different entry → overwrite.
+        //   (c) YT has no publishAt (already public, or schedule cleared in
+        //       YT Studio) → drop the map entry so future plans don't
+        //       resurrect a phantom time.
+        if (after.scheduled_for) {
+          if (itemScheduleMap[r.code] !== after.scheduled_for) {
+            itemScheduleMap[r.code] = after.scheduled_for
+            scheduleMapDirty = true
+          }
+        } else if (r.code in itemScheduleMap) {
+          delete itemScheduleMap[r.code]
+          scheduleMapDirty = true
+        }
       } catch (e: any) {
         errors.push({ episode_code: r.code, error: e?.message || 'Sidecar write failed' })
       }
     }
 
+    // Flush the schedule-map diff in a single write — Item B.
+    if (scheduleMapDirty) {
+      try { await plans.writeItemSchedule(slug, itemScheduleMap) }
+      catch (e: any) { errors.push({ episode_code: '*', error: `Schedule-map write failed: ${e?.message || e}` }) }
+    }
+
     // Drop the queue cache so the next page load surfaces the updated
     // sidecars without waiting out the 5-min TTL.
-    if (updated > 0 || tombstoned.length > 0) queueIndexCache.delete(queueCacheKey(slug, 'youtube'))
+    if (updated > 0 || tombstoned.length > 0 || scheduleMapDirty) queueIndexCache.delete(queueCacheKey(slug, 'youtube'))
 
     res.json({ checked: rows.length, updated, drift, tombstoned, errors })
   } catch (e: any) {
