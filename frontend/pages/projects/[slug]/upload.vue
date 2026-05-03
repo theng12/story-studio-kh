@@ -537,6 +537,25 @@
                     :title="`A YouTube video on this channel matches this episode's title (${Math.round(orphanMatchByCode[item.episode_code].score * 100)}% match): &quot;${orphanMatchByCode[item.episode_code].title.slice(0, 80)}&quot;. Click to link instead of re-uploading.`"
                     @click="openLinkVideoModal(item)"
                   >🔗 Looks already on YouTube</button>
+                  <!-- Item E — "Uploaded elsewhere" pill. Shows on every
+                       legacy-flagged row regardless of URL/note (so the
+                       user always sees a visible signal that this row
+                       was marked manually and isn't part of the upload
+                       pipeline). With a URL → click opens it in a new
+                       tab; without → click opens the edit modal so the
+                       user can paste one in. Tooltip surfaces the note
+                       as secondary text under the URL. -->
+                  <component
+                    v-if="item.legacy_uploaded"
+                    :is="item.legacy_external_url ? 'a' : 'button'"
+                    type="button"
+                    :class="['external-pill', { 'external-pill--no-url': !item.legacy_external_url }]"
+                    :href="item.legacy_external_url || undefined"
+                    :target="item.legacy_external_url ? '_blank' : undefined"
+                    :rel="item.legacy_external_url ? 'noopener' : undefined"
+                    :title="legacyExternalTooltip(item)"
+                    @click.stop="item.legacy_external_url ? null : openLegacyEditModal(item)"
+                  >🔗 External</component>
                 </div>
               </template>
             </td>
@@ -938,12 +957,10 @@
                 <span class="row-actions-divider" aria-hidden="true" />
                 <button
                   class="btn btn-sm btn-ghost"
-                  :disabled="legacyMarkInFlight === ep.episode_code"
-                  title="Mark this episode as already uploaded to YouTube (the video lives only there, no local file). Removes it from this list. Reversible from the Reconcile or Unlinked tabs if you ever pull it back in."
+                  title="Mark this episode as uploaded elsewhere (different account, archived link, etc.). Opens a small form where you can record a URL + note. Episode shows up in the Queue with a 🔗 External pill so you don't lose track."
                   @click="doMarkLegacyUploaded(ep)"
                 >
-                  <LoadingSpinner v-if="legacyMarkInFlight === ep.episode_code" size="sm" />
-                  {{ legacyMarkInFlight === ep.episode_code ? 'Marking…' : '✓ Mark as uploaded' }}
+                  ✓ Mark as uploaded
                 </button>
               </div>
             </td>
@@ -1565,6 +1582,43 @@
         </button>
       </div>
 
+      <!-- Item L — renumber-undo banner. Visible only when a recent
+           bulk-renumber wrote a `.renumber-undo.json` sidecar to the
+           project root. Lets the user fully revert (orphans removed +
+           ideas.json restored + folders renamed back) within 30 days.
+           Auto-cleans on Electron boot, but the user can also dismiss
+           the safety net early once they're confident. -->
+      <div v-if="renumberUndoStatus.available" class="renumber-undo-banner mt-2">
+        <div class="renumber-undo-banner-icon" aria-hidden="true">↩</div>
+        <div class="renumber-undo-banner-body">
+          <strong>A renumber is reversible</strong>
+          <div class="text-muted" style="font-size: 12px; margin-top: 2px;">
+            On <strong>{{ formatScheduled(renumberUndoStatus.plan?.performed_at || '') }}</strong>,
+            this project renumbered <strong>{{ renumberUndoStatus.renamed_count }}</strong>
+            existing episode{{ renumberUndoStatus.renamed_count === 1 ? '' : 's' }}
+            and adopted <strong>{{ renumberUndoStatus.adopted_count }}</strong>
+            channel video{{ renumberUndoStatus.adopted_count === 1 ? '' : 's' }} into the leading slots.
+            <br />
+            Click <em>Revert</em> to undo every stage (folders renamed back, adopted episodes removed,
+            ideas.json restored). The safety net auto-deletes after 30 days, or click <em>Dismiss</em> when you're confident.
+          </div>
+        </div>
+        <div class="renumber-undo-banner-actions">
+          <button
+            class="btn btn-sm btn-secondary"
+            :disabled="renumberUndoBusy"
+            title="Open the revert confirmation modal — shows exactly what will be undone before any state changes."
+            @click="openRevertRenumberModal"
+          >↩ Revert renumber</button>
+          <button
+            class="btn btn-sm btn-ghost"
+            :disabled="renumberUndoBusy"
+            title="Delete the .renumber-undo.json sidecar — the project state stays as it is, but a future revert won't be available."
+            @click="dismissRenumberUndo"
+          >Dismiss</button>
+        </div>
+      </div>
+
       <div v-if="orphansError" class="text-danger mt-2" style="font-size: 13px; padding: 10px 12px; background: rgba(248, 81, 73, 0.06); border: 1px solid rgba(248, 81, 73, 0.25); border-radius: var(--radius-sm);">
         ⚠ {{ orphansError }}
       </div>
@@ -2102,6 +2156,169 @@
       </div>
     </Teleport>
 
+    <!-- Item L — Renumber revert confirmation modal. Lists exactly which
+         folders will be renamed back + which adopted orphans will be
+         removed (idea + sidecar + folder), so the user can audit before
+         the (destructive-ish) revert runs. The actual revert is done
+         server-side via /upload/renumber-undo/revert. -->
+    <Teleport to="body">
+      <div v-if="revertRenumberModal.open" class="upload-plan-modal-backdrop" @click="closeRevertRenumberModal" />
+      <div v-if="revertRenumberModal.open" class="upload-plan-modal" role="dialog" aria-label="Revert renumber" @click.stop style="max-width: 600px;">
+        <div class="upload-plan-modal-header">
+          <strong>↩ Revert renumber?</strong>
+          <button class="upload-plan-modal-close" type="button" title="Close" @click="closeRevertRenumberModal">✕</button>
+        </div>
+        <div class="upload-plan-modal-body">
+          <p class="text-muted" style="font-size: 12px; margin: 0;">
+            Performed <strong>{{ formatScheduled(renumberUndoStatus.plan?.performed_at || '') }}</strong>.
+            The revert runs three stages — review the lists below, then click confirm.
+          </p>
+
+          <div class="form-group" style="margin-top: 12px;">
+            <strong style="font-size: 12px;">1. Adopted channel videos to remove
+              ({{ renumberUndoStatus.plan?.adopted?.length || 0 }})</strong>
+            <p class="text-muted" style="font-size: 11px; margin: 2px 0 4px;">
+              The synthesised ideas + sidecars + folders will be deleted. The remote YouTube videos stay on your channel — Story Studio just unlinks them.
+            </p>
+            <div class="renumber-undo-list" v-if="renumberUndoStatus.plan?.adopted?.length">
+              <div v-for="a in renumberUndoStatus.plan.adopted.slice(0, 8)" :key="a.video_id" class="renumber-undo-row">
+                <code>{{ a.code }}</code>
+                <span class="text-muted">·</span>
+                <code>{{ a.video_id }}</code>
+              </div>
+              <div v-if="renumberUndoStatus.plan.adopted.length > 8" class="text-muted" style="font-size: 11px; padding: 4px 0;">
+                + {{ renumberUndoStatus.plan.adopted.length - 8 }} more
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top: 12px;">
+            <strong style="font-size: 12px;">2. Episodes to renumber back
+              ({{ renumberUndoStatus.plan?.rename_plan?.length || 0 }})</strong>
+            <p class="text-muted" style="font-size: 11px; margin: 2px 0 4px;">
+              ideas.json codes will be reverted and disk folders will be renamed in place.
+            </p>
+            <div class="renumber-undo-list" v-if="renumberUndoStatus.plan?.rename_plan?.length">
+              <div v-for="r in renumberUndoStatus.plan.rename_plan.slice(0, 8)" :key="r.old_code" class="renumber-undo-row">
+                <code>{{ r.new_code }}</code>
+                <span class="text-muted">→</span>
+                <code>{{ r.old_code }}</code>
+              </div>
+              <div v-if="renumberUndoStatus.plan.rename_plan.length > 8" class="text-muted" style="font-size: 11px; padding: 4px 0;">
+                + {{ renumberUndoStatus.plan.rename_plan.length - 8 }} more
+              </div>
+            </div>
+          </div>
+
+          <p v-if="revertRenumberModal.error" class="text-danger" style="font-size: 12px; margin: 8px 0 0;">
+            ⚠ {{ revertRenumberModal.error }}
+          </p>
+        </div>
+        <div class="upload-plan-modal-footer">
+          <button type="button" class="btn btn-ghost btn-sm" @click="closeRevertRenumberModal">Cancel</button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="revertRenumberModal.busy"
+            @click="confirmRevertRenumber"
+          >
+            <LoadingSpinner v-if="revertRenumberModal.busy" size="sm" />
+            {{ revertRenumberModal.busy ? 'Reverting…' : 'Confirm revert' }}
+          </button>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Item E — "Mark uploaded elsewhere" modal. Captures the optional
+         external URL + note alongside the legacy-uploaded flag. Opens
+         from the Missing Video tab "Mark as uploaded" button (with a
+         pre-filled empty form for new marks) and from clicking the
+         🔗 External pill on a no-URL row (with the existing meta
+         pre-loaded so the user can edit / unmark from one place). -->
+    <Teleport to="body">
+      <div v-if="legacyEditModal.open" class="upload-plan-modal-backdrop" @click="closeLegacyEditModal" />
+      <div v-if="legacyEditModal.open" class="upload-plan-modal" role="dialog" aria-label="Mark as uploaded elsewhere" @click.stop style="max-width: 520px;">
+        <div class="upload-plan-modal-header">
+          <strong>🔗 {{ legacyEditModal.mode === 'edit' ? 'Edit external link' : 'Mark as uploaded elsewhere' }}</strong>
+          <button class="upload-plan-modal-close" type="button" title="Close" @click="closeLegacyEditModal">✕</button>
+        </div>
+        <div class="upload-plan-modal-body">
+          <p class="text-muted" style="font-size: 12px; margin: 0;">
+            <template v-if="legacyEditModal.mode === 'mark'">
+              Removes <strong>{{ legacyEditModal.episodeCode }}</strong> from the Missing Video list. Use this for episodes uploaded to a different account / channel / platform — Story Studio leaves them alone but records where they live.
+            </template>
+            <template v-else>
+              <strong>{{ legacyEditModal.episodeCode }}</strong> is marked as uploaded elsewhere. Edit the link / note below, or click "Unmark" to revert (the episode goes back to the Missing Video list).
+            </template>
+          </p>
+
+          <div class="form-group" style="margin-top: 12px;">
+            <label class="form-label" style="display: flex; align-items: center; gap: 6px;">
+              External URL
+              <span class="text-muted" style="font-weight: normal; font-size: 11px;">(optional)</span>
+            </label>
+            <input
+              v-model="legacyEditModal.externalUrl"
+              type="url"
+              class="input input-sm"
+              placeholder="https://youtube.com/watch?v=…"
+              spellcheck="false"
+              @keydown.enter="saveLegacyEdit"
+            />
+            <p class="text-muted" style="font-size: 11px; margin: 4px 0 0;">
+              Where this video lives. Pasted into a new tab when you click the 🔗 External pill on the row. Must start with <code>http://</code> or <code>https://</code>; otherwise free-text.
+            </p>
+            <p v-if="legacyEditModal.error" class="text-danger" style="font-size: 12px; margin: 4px 0 0;">
+              ⚠ {{ legacyEditModal.error }}
+            </p>
+          </div>
+
+          <div class="form-group" style="margin-top: 10px;">
+            <label class="form-label" style="display: flex; align-items: center; gap: 6px;">
+              Note
+              <span class="text-muted" style="font-weight: normal; font-size: 11px;">(optional)</span>
+            </label>
+            <input
+              v-model="legacyEditModal.note"
+              type="text"
+              class="input input-sm"
+              placeholder="e.g. on Bob's channel, Vimeo backup, archived"
+              maxlength="200"
+              @keydown.enter="saveLegacyEdit"
+            />
+            <p class="text-muted" style="font-size: 11px; margin: 4px 0 0;">
+              Free-form annotation. Shown as the secondary line in the pill tooltip so you remember why this episode is on a different account next time you see it.
+            </p>
+          </div>
+        </div>
+        <div class="upload-plan-modal-footer" style="justify-content: space-between;">
+          <button
+            v-if="legacyEditModal.mode === 'edit'"
+            type="button"
+            class="btn btn-ghost btn-sm"
+            title="Remove the legacy-uploaded mark — this episode goes back to the Missing Video list and Story Studio resumes managing it normally."
+            :disabled="legacyEditModal.busy"
+            @click="unmarkFromLegacyEdit"
+          >Unmark</button>
+          <span v-else />
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-ghost btn-sm" @click="closeLegacyEditModal">Cancel</button>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="legacyEditModal.busy"
+              @click="saveLegacyEdit"
+            >
+              <LoadingSpinner v-if="legacyEditModal.busy" size="sm" />
+              {{ legacyEditModal.busy
+                ? 'Saving…'
+                : (legacyEditModal.mode === 'mark' ? 'Mark uploaded' : 'Save') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <!-- Plan scope picker — opens from the Apply / Upload / Unapply buttons
          on each plan row OR from inside the Upload Plan modal. Anchored to
          the click-target so it floats next to the button, doesn't take a
@@ -2339,6 +2556,9 @@ const {
   adoptSingleOrphan,
   linkExistingVideo,
   adoptBulkOrphans,
+  getRenumberUndoStatus,
+  revertRenumber,
+  dismissRenumberUndoSidecar,
   playlists,
   defaultPlaylistId,
   playlistsLoading,
@@ -2512,7 +2732,6 @@ const missingLoading = ref(false)
 const missingSearch = ref('')
 const missingPage = ref(1)
 const missingPageSize = ref<10 | 20 | 50 | 100>(20)
-const legacyMarkInFlight = ref<string | null>(null)
 
 const missingFilteredEpisodes = computed(() => {
   const q = missingSearch.value.trim().toLowerCase()
@@ -2530,26 +2749,13 @@ const missingPaginatedEpisodes = computed(() => {
 watch([missingSearch, missingPageSize], () => { missingPage.value = 1 })
 watch(missingTotalPages, (tp) => { if (missingPage.value > tp) missingPage.value = Math.max(1, tp) })
 
-async function doMarkLegacyUploaded(ep: { episode_code: string; title: string }) {
-  // Confirm because this changes which episodes show as "needing attention"
-  // — easy to misclick and confuse the operator later about why an
-  // episode is missing from the missing-video list.
-  const ok = await ask({
-    title: `Mark ${ep.episode_code} as already uploaded?`,
-    message: `Removes "${ep.title || ep.episode_code}" from this list. Use this for episodes uploaded to YouTube before Story Studio existed (no local video file). Reversible — flag is stored in the project config under youtube_legacy_uploaded.`,
-    confirmLabel: 'Mark uploaded',
-  })
-  if (!ok) return
-  legacyMarkInFlight.value = ep.episode_code
-  try {
-    await markLegacyUploaded(ep.episode_code, true)
-    success(`${ep.episode_code} marked as already uploaded`)
-    await loadMissingVideoEpisodes()
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to mark episode as uploaded')
-  } finally {
-    legacyMarkInFlight.value = null
-  }
+function doMarkLegacyUploaded(ep: { episode_code: string; title: string }) {
+  // Item E — open the dedicated modal instead of a plain confirm so the
+  // user can capture an external URL + note in the same step. The
+  // modal's Save handler runs the API call + refreshes both the
+  // missing-video and queue lists (the row may now appear in the queue
+  // with a 🔗 External pill).
+  openLegacyMarkModal(ep)
 }
 
 // Refresh missing-video data when entering the tab so it's never stale
@@ -3036,7 +3242,13 @@ watch(activeTab, (tab) => {
   }
   if (tab === 'plans' && !plans.value.length) loadPlans()
   if (tab === 'playlists' && !playlists.value.length) loadPlaylists()
-  if (tab === 'orphans') loadOrphans()
+  if (tab === 'orphans') {
+    loadOrphans()
+    // Item L — refresh the renumber-undo status when the user enters
+    // the tab so the banner state matches reality (e.g. another window
+    // already dismissed the sidecar, or it expired since last visit).
+    loadRenumberUndoStatus()
+  }
 })
 
 // ── Orphan management state (#7) ─────────────────────────────────────────
@@ -3120,10 +3332,102 @@ async function doBulkAdoptOrphans() {
     success(parts.join(' · '))
     selectedOrphanIds.value = new Set()
     await Promise.all([loadOrphans(), loadQueue('youtube')])
+    // Item L — bulk-renumber writes a `.renumber-undo.json` sidecar.
+    // Refresh status so the banner appears immediately after the
+    // operation lands, not just on the next tab visit.
+    if (mode === 'renumber') {
+      await loadRenumberUndoStatus()
+    }
   } catch (e: any) {
     showError(e?.data?.detail || 'Bulk adopt failed')
   } finally {
     orphanConfirming.value = false
+  }
+}
+
+// ── Item L — Renumber rollback state + handlers ──────────────────────────
+// Banner appears on the Unlinked Uploads tab while a `.renumber-undo.json`
+// sidecar exists in the project root (any time a bulk-renumber landed in
+// the last 30 days, or a future renumber adoption that hasn't been
+// dismissed). The actual revert is a destructive-ish operation handled
+// by the backend revertRenumber service; the modal here just confirms.
+const renumberUndoStatus = ref<{
+  available: boolean
+  plan?: any
+  adopted_count?: number
+  renamed_count?: number
+  expired?: boolean
+}>({ available: false })
+const renumberUndoBusy = ref(false)
+const revertRenumberModal = reactive<{
+  open: boolean
+  busy: boolean
+  error: string
+}>({ open: false, busy: false, error: '' })
+
+async function loadRenumberUndoStatus() {
+  try {
+    renumberUndoStatus.value = await getRenumberUndoStatus()
+  } catch {
+    renumberUndoStatus.value = { available: false }
+  }
+}
+
+function openRevertRenumberModal() {
+  if (!renumberUndoStatus.value.available) return
+  revertRenumberModal.open = true
+  revertRenumberModal.busy = false
+  revertRenumberModal.error = ''
+}
+function closeRevertRenumberModal() {
+  if (revertRenumberModal.busy) return
+  revertRenumberModal.open = false
+}
+
+async function confirmRevertRenumber() {
+  if (revertRenumberModal.busy) return
+  revertRenumberModal.busy = true
+  revertRenumberModal.error = ''
+  try {
+    const r = await revertRenumber()
+    const parts: string[] = []
+    if (r.removed_adoptions.length) parts.push(`removed ${r.removed_adoptions.length} adoption(s)`)
+    if (r.reverted_renames.length) parts.push(`reverted ${r.reverted_renames.length} rename(s)`)
+    if (r.reverted_folders.length) parts.push(`renamed back ${r.reverted_folders.length} folder(s)`)
+    if (r.errors.length) parts.push(`${r.errors.length} error(s) — see logs`)
+    success('Renumber reverted · ' + (parts.length ? parts.join(', ') : 'no-op'))
+    revertRenumberModal.open = false
+    // Refresh the related views so the user sees the post-revert state
+    // immediately (orphan list + queue + the now-empty undo banner).
+    await Promise.all([
+      loadRenumberUndoStatus(),
+      loadOrphans().catch(() => {}),
+      loadQueue('youtube').catch(() => {}),
+    ])
+  } catch (e: any) {
+    revertRenumberModal.error = e?.data?.detail || e?.message || 'Revert failed'
+  } finally {
+    revertRenumberModal.busy = false
+  }
+}
+
+async function dismissRenumberUndo() {
+  if (renumberUndoBusy.value) return
+  const confirmed = await ask({
+    title: 'Dismiss the rollback safety net?',
+    message: 'Deletes .renumber-undo.json. The project state stays as it is, but you won\'t be able to revert this renumber later. The sidecar would auto-delete after 30 days anyway — dismissing just clears it now.',
+    confirmLabel: 'Dismiss',
+  })
+  if (!confirmed) return
+  renumberUndoBusy.value = true
+  try {
+    await dismissRenumberUndoSidecar()
+    success('Renumber-undo sidecar dismissed')
+    await loadRenumberUndoStatus()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to dismiss sidecar')
+  } finally {
+    renumberUndoBusy.value = false
   }
 }
 
@@ -5228,6 +5532,131 @@ function closeLinkVideoModal() {
   linkVideoModal.item = null
 }
 
+// ── Item E — "Mark uploaded elsewhere" modal state + handlers ─────────────
+// `mode` distinguishes the two entry paths so the modal copy + the primary
+// CTA wording match what the user is actually doing:
+//   - 'mark' from the Missing Video tab (creates the legacy mark + optional
+//     annotations in one step).
+//   - 'edit' from clicking the 🔗 External pill on a row that has no URL
+//     yet, or from a future edit affordance — lets the user fill in / fix
+//     the URL or note, or unmark entirely.
+const legacyEditModal = reactive<{
+  open: boolean
+  mode: 'mark' | 'edit'
+  episodeCode: string
+  title: string
+  externalUrl: string
+  note: string
+  busy: boolean
+  error: string
+  /** Optional callback fired after the modal closes successfully. */
+  onSaved: ((episodeCode: string) => void) | null
+}>({
+  open: false,
+  mode: 'mark',
+  episodeCode: '',
+  title: '',
+  externalUrl: '',
+  note: '',
+  busy: false,
+  error: '',
+  onSaved: null,
+})
+
+function openLegacyMarkModal(ep: { episode_code: string; title?: string }, onSaved?: (code: string) => void) {
+  legacyEditModal.mode = 'mark'
+  legacyEditModal.episodeCode = ep.episode_code
+  legacyEditModal.title = ep.title || ep.episode_code
+  legacyEditModal.externalUrl = ''
+  legacyEditModal.note = ''
+  legacyEditModal.busy = false
+  legacyEditModal.error = ''
+  legacyEditModal.onSaved = onSaved || null
+  legacyEditModal.open = true
+}
+
+function openLegacyEditModal(item: any) {
+  legacyEditModal.mode = 'edit'
+  legacyEditModal.episodeCode = item.episode_code
+  legacyEditModal.title = item.title || item._ideaTitle || item.episode_code
+  legacyEditModal.externalUrl = item.legacy_external_url || ''
+  legacyEditModal.note = item.legacy_note || ''
+  legacyEditModal.busy = false
+  legacyEditModal.error = ''
+  legacyEditModal.onSaved = null
+  legacyEditModal.open = true
+}
+
+function closeLegacyEditModal() {
+  if (legacyEditModal.busy) return
+  legacyEditModal.open = false
+}
+
+// Shared tooltip renderer — primary line is "Click pill to open URL" or
+// the URL itself, secondary line is the note. Used by the row pill
+// `:title` binding so the tooltip carries both pieces without needing a
+// custom tooltip component.
+function legacyExternalTooltip(item: any): string {
+  const url = item.legacy_external_url || ''
+  const note = item.legacy_note || ''
+  const lines: string[] = []
+  if (url) lines.push(url)
+  else lines.push('No URL set — click to add one or unmark.')
+  if (note) lines.push('— ' + note)
+  lines.push('')
+  lines.push('Marked as uploaded elsewhere — Story Studio leaves this episode alone.')
+  return lines.join('\n')
+}
+
+async function saveLegacyEdit() {
+  if (legacyEditModal.busy) return
+  const url = legacyEditModal.externalUrl.trim()
+  if (url && !/^https?:\/\//i.test(url)) {
+    legacyEditModal.error = 'URL must start with http:// or https://'
+    return
+  }
+  legacyEditModal.error = ''
+  legacyEditModal.busy = true
+  try {
+    await markLegacyUploaded(legacyEditModal.episodeCode, true, {
+      external_url: url,
+      note: legacyEditModal.note.trim(),
+    })
+    success(`${legacyEditModal.episodeCode} ${legacyEditModal.mode === 'mark' ? 'marked as uploaded elsewhere' : 'updated'}`)
+    const cb = legacyEditModal.onSaved
+    const code = legacyEditModal.episodeCode
+    legacyEditModal.open = false
+    // Refresh queue + missing-video so the pill / list reflect the new state.
+    await Promise.all([
+      loadQueue({ nocache: true }).catch(() => {}),
+      loadMissingVideoEpisodes().catch(() => {}),
+    ])
+    if (cb) cb(code)
+  } catch (e: any) {
+    legacyEditModal.error = e?.data?.detail || e?.message || 'Failed to save'
+  } finally {
+    legacyEditModal.busy = false
+  }
+}
+
+async function unmarkFromLegacyEdit() {
+  if (legacyEditModal.busy) return
+  legacyEditModal.busy = true
+  try {
+    await markLegacyUploaded(legacyEditModal.episodeCode, false)
+    success(`${legacyEditModal.episodeCode} unmarked — back in Missing Video`)
+    legacyEditModal.open = false
+    await Promise.all([
+      loadQueue({ nocache: true }).catch(() => {}),
+      loadMissingVideoEpisodes().catch(() => {}),
+    ])
+  } catch (e: any) {
+    legacyEditModal.error = e?.data?.detail || e?.message || 'Failed to unmark'
+  } finally {
+    legacyEditModal.busy = false
+  }
+}
+
 /**
  * Crude title-similarity score, 0..1. Tokenises both titles, lowercases,
  * strips non-alphanumerics, and returns Jaccard overlap on the token sets
@@ -6414,6 +6843,42 @@ td.col-actions > a.btn {
   font-size: 12px;
 }
 
+/* Item L — renumber rollback banner. Amber-toned to read as "advisory
+   safety net", distinct from the red destructive-action wording in
+   the bulk-mode picker below it. */
+.renumber-undo-banner {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  background: rgba(217, 119, 6, 0.08);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.renumber-undo-banner-icon {
+  font-size: 18px;
+  line-height: 1;
+  color: rgb(217, 119, 6);
+  padding-top: 2px;
+}
+.renumber-undo-banner-body { flex: 1; min-width: 0; }
+.renumber-undo-banner-actions {
+  display: flex; flex-direction: column; gap: 6px;
+  flex-shrink: 0;
+}
+.renumber-undo-list {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  max-height: 160px;
+  overflow-y: auto;
+}
+.renumber-undo-row {
+  display: flex; gap: 6px;
+  font-size: 12px;
+  padding: 2px 0;
+}
+
 .explainer {
   margin-top: 8px;
   padding: 8px 12px;
@@ -6926,6 +7391,39 @@ td.col-actions > a.btn {
 .orphan-match-pill:hover {
   background: rgba(96, 165, 250, 0.22);
   color: rgb(59, 130, 246);
+}
+
+/* Item E — "Uploaded elsewhere" pill. Distinct color from the orphan-
+   match pill (which is also blue) so users can tell them apart at a
+   glance: orphan-match = "we found a YouTube video that might be this",
+   external = "you told us this lives on a different account". */
+.external-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(168, 85, 247, 0.14);
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  color: rgb(168, 85, 247);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.1s, color 0.1s;
+}
+.external-pill:hover {
+  background: rgba(168, 85, 247, 0.24);
+  color: rgb(147, 51, 234);
+}
+.external-pill--no-url {
+  /* Muted appearance when there's no URL yet — the click action is
+     "open the edit modal" rather than "follow a link", so the pill
+     should look slightly less inviting than a normal action. */
+  background: rgba(168, 85, 247, 0.08);
+  color: rgba(168, 85, 247, 0.85);
+  border-style: dashed;
 }
 
 /* Link Video modal — wider than the plan modal so titles aren't truncated. */

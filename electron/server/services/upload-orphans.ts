@@ -40,6 +40,7 @@ import { writeJsonAtomic } from '../lib/atomic-store.js'
 import { listRecentUploads } from '../lib/youtube-client.js'
 import { writeSidecar, readSidecar } from './upload-sidecar.js'
 import * as store from './upload-store.js'
+import { writeUndoSidecar, type RenumberUndoSidecar } from './upload-renumber-undo.js'
 
 export interface OrphanVideo {
   videoId: string
@@ -308,6 +309,47 @@ export async function adoptBulkRenumber(
     const bn = episodeNumber(b.episode_code!, meta.episode_prefix)
     return bn - an
   })
+
+  // Stage 0 (item L): dump the rollback plan to .renumber-undo.json BEFORE
+  // any disk renames or ideas.json mutations land. Even a crash between
+  // here and Stage 3 leaves the user with a recoverable state — the
+  // sidecar names every rename + every adopted code, so the revert flow
+  // can chase it back to the pre-renumber world.
+  //
+  // We compute the planned renames + adoptions up-front (no fs work yet)
+  // so the sidecar is honest about the *intended* operation. Errors that
+  // surface during Stages 1-3 are reported in the response; revert can
+  // tolerate partial state because each stage is independently reversible.
+  const plannedRenames: Array<{ old_code: string; new_code: string }> = []
+  for (const idea of accepted) {
+    const oldCode = idea.episode_code!
+    const oldNum = episodeNumber(oldCode, meta.episode_prefix)
+    const newNum = oldNum + N
+    const newCode = formatEpisodeCode(newNum, meta.episode_prefix, meta.episode_digits)
+    plannedRenames.push({ old_code: oldCode, new_code: newCode })
+  }
+  const plannedAdopted: Array<{ video_id: string; code: string }> = videos.map((v, i) => ({
+    video_id: v.videoId,
+    code: formatEpisodeCode(i + 1, meta.episode_prefix, meta.episode_digits),
+  }))
+  const undoPlan: RenumberUndoSidecar = {
+    schema_version: 1,
+    performed_at: new Date().toISOString(),
+    rename_plan: plannedRenames,
+    adopted: plannedAdopted,
+    previous_next_episode_number: currentNext,
+    episode_prefix: meta.episode_prefix,
+    episode_digits: meta.episode_digits,
+  }
+  try {
+    await writeUndoSidecar(slug, undoPlan)
+  } catch (e: any) {
+    errors.push({ stage: 'write undo sidecar', detail: e?.message || 'undo write failed' })
+    // Hard-fail: without the sidecar the user has no rollback path,
+    // and the locked acceptance for item L promises one. Better to
+    // refuse the renumber than silently strip the safety net.
+    return { renamed, adopted, errors }
+  }
 
   // Stage 1 (fs only): rename folder + subfolders for each existing
   // episode. We do NOT touch ideas.json here — the rename plan is

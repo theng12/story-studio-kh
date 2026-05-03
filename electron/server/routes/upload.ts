@@ -26,6 +26,7 @@ import * as reconciler from '../services/upload-reconciler.js'
 import * as quota from '../services/upload-quota.js'
 import * as playlistsSvc from '../services/upload-playlists.js'
 import * as orphans from '../services/upload-orphans.js'
+import * as renumberUndo from '../services/upload-renumber-undo.js'
 import { updateVideoMetadata, createPlaylist, listVideoStatuses } from '../lib/youtube-client.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import type { JobType } from '../models/types.js'
@@ -509,6 +510,14 @@ type QueueIndexItem = {
   scheduled_for: string | null
   schedule_source: 'synced' | 'planned' | 'none'
   position: number | null
+  // Item E: "uploaded elsewhere" marker + optional annotations. Set when
+  // the episode appears in `youtube_legacy_uploaded` (boolean flag) and,
+  // optionally, in `youtube_legacy_uploaded_meta` (URL / note). The flag
+  // alone keeps the row out of upload defaults; the meta drives the
+  // 🔗 External pill renderer.
+  legacy_uploaded: boolean
+  legacy_external_url: string
+  legacy_note: string
   // Carried into stage 2 — saves re-reading the sidecar.
   _sidecar: any
   _ideaTitle: string
@@ -525,6 +534,13 @@ async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Pr
   const ideas = await im.getIdeas(slug, 'accepted')
   const itemSchedule = await plans.readItemSchedule(slug)
   const sequence = await uq.readSequence(slug)
+  // Item E: "uploaded elsewhere" — read once up front so per-row checks
+  // are cheap (and so we know which non-queueable episodes still need
+  // synthetic rows for the 🔗 External pill).
+  const cfg = (await pm.getConfig(slug) as any) || {}
+  const legacyFlag: Record<string, boolean> = (cfg.youtube_legacy_uploaded || {})
+  const legacyMeta: Record<string, { external_url?: string; note?: string }>
+    = (cfg.youtube_legacy_uploaded_meta || {})
   const items: QueueIndexItem[] = []
   const CONCURRENCY = 32     // bumped from 8 — most ops are file existence checks
   const queue = ideas.filter(i => i.episode_code)
@@ -543,9 +559,15 @@ async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Pr
         hasFinalVideoFast(slug, code, idea.title || ''),
         readSidecar(slug, code, idea.title || '', platform),
       ])
-      const inQueue = hasFinal || !!sidecar?.video_id
+      const isLegacy = !!legacyFlag[code]
+      // Legacy-uploaded items get a synthetic queue row even with no local
+      // final + no sidecar, so the user can see what they marked + the
+      // 🔗 External pill. Without this they'd vanish from the UI after
+      // marking and the only revert path would be config-file editing.
+      const inQueue = hasFinal || !!sidecar?.video_id || isLegacy
       if (!inQueue) continue
       const scheduled_for = sidecar?.scheduled_for || itemSchedule[code] || null
+      const meta = legacyMeta[code] || {}
       items.push({
         id: `ep:${code}`,
         type: 'episode',
@@ -558,6 +580,9 @@ async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Pr
         scheduled_for,
         schedule_source: sidecar?.scheduled_for ? 'synced' : (itemSchedule[code] ? 'planned' : 'none'),
         position: typeof sequence[`ep:${code}`] === 'number' ? sequence[`ep:${code}`] : null,
+        legacy_uploaded: isLegacy,
+        legacy_external_url: meta.external_url || '',
+        legacy_note: meta.note || '',
         _sidecar: sidecar,
         _ideaTitle: idea.title || '',
       })
@@ -585,6 +610,9 @@ async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Pr
         scheduled_for: itemSchedule[d.id] || null,
         schedule_source: itemSchedule[d.id] ? 'planned' : 'none',
         position: d.position,
+        legacy_uploaded: false,
+        legacy_external_url: '',
+        legacy_note: '',
         _sidecar: null,
         _ideaTitle: '',
       })
@@ -652,6 +680,12 @@ async function enrichPage(slug: string, platform: store.UploadPlatform, page: Qu
       account_id: sidecar?.account_id || '',
       position: item.position,
       final_video_bytes: finalVideoBytes,
+      // Item E — surface the legacy-uploaded marker + annotations so the
+      // row can render the 🔗 External pill. Empty strings when unset
+      // (frontend treats falsy as "no pill").
+      legacy_uploaded: item.legacy_uploaded,
+      legacy_external_url: item.legacy_external_url,
+      legacy_note: item.legacy_note,
     }
   }))
   return out
@@ -1488,11 +1522,30 @@ router.get('/projects/:slug/upload/missing-video', async (req, res) => {
   }
 })
 
+// Soft URL validation — keeps the field free-text-ish so users can paste
+// shortlinks without a deeper-parse rejection, but at least catches typos
+// like missing protocol or accidental `mailto:` etc. Returning null = OK.
+function validateExternalUrlOrErr(raw: unknown): string | null {
+  if (raw == null || raw === '') return null
+  if (typeof raw !== 'string') return 'external_url must be a string'
+  const t = raw.trim()
+  if (!t) return null
+  if (!/^https?:\/\//i.test(t)) return 'external_url must start with http:// or https://'
+  return null
+}
+
 // Mark / unmark an episode as "already uploaded elsewhere" — used for
 // legacy episodes (uploaded to YouTube years before Story Studio, where
-// no video file exists locally). Just a flag; no URL needed because the
-// names on YouTube vs on disk often differ enough that linking them
-// wouldn't be reliable. Reversible via { mark: false }.
+// no video file exists locally) AND for episodes that live on a different
+// account / platform we want to record but not manage. Reversible via
+// { mark: false }.
+//
+// Optional fields (additive, item E):
+//   - external_url: pasteable URL where the video lives (must start http(s)://)
+//   - note: free-form annotation ("on Bob's channel", "Vimeo backup", etc.)
+// These ride alongside the boolean flag in `youtube_legacy_uploaded_meta`
+// so call sites that only check `youtube_legacy_uploaded[code]` keep
+// working without migration.
 router.post('/projects/:slug/upload/mark-legacy-uploaded', async (req, res) => {
   try {
     const slug = req.params.slug
@@ -1501,15 +1554,52 @@ router.post('/projects/:slug/upload/mark-legacy-uploaded', async (req, res) => {
     if (!episodeCode) return res.status(400).json({ detail: 'episode_code is required' })
     const mark = req.body?.mark !== false   // default true; pass false to unmark
 
+    const urlErr = validateExternalUrlOrErr(req.body?.external_url)
+    if (urlErr) return res.status(400).json({ detail: urlErr })
+    const externalUrl = typeof req.body?.external_url === 'string' ? req.body.external_url.trim() : ''
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim() : ''
+
     const config = await pm.getConfig(slug) as any
     const current: Record<string, boolean> = (config?.youtube_legacy_uploaded || {})
-    if (mark) current[episodeCode] = true
-    else delete current[episodeCode]
+    const meta: Record<string, { external_url?: string; note?: string }> = (config?.youtube_legacy_uploaded_meta || {})
+    if (mark) {
+      current[episodeCode] = true
+      // Only write a meta entry when at least one annotation field is set,
+      // so old marks without metadata don't get a {} sidecar that lies
+      // about "had an annotation". Existing entries are preserved when
+      // the request omits the fields entirely.
+      const next: { external_url?: string; note?: string } = {
+        ...(meta[episodeCode] || {}),
+      }
+      if (typeof req.body?.external_url === 'string') {
+        if (externalUrl) next.external_url = externalUrl
+        else delete next.external_url
+      }
+      if (typeof req.body?.note === 'string') {
+        if (note) next.note = note
+        else delete next.note
+      }
+      if (next.external_url || next.note) meta[episodeCode] = next
+      else delete meta[episodeCode]
+    } else {
+      delete current[episodeCode]
+      delete meta[episodeCode]
+    }
 
-    await pm.updateConfig(slug, { youtube_legacy_uploaded: current } as any)
+    await pm.updateConfig(slug, {
+      youtube_legacy_uploaded: current,
+      youtube_legacy_uploaded_meta: meta,
+    } as any)
     // Bust the queue cache so the next /upload/queue call sees the change.
     queueIndexCache.delete(queueCacheKey(slug, 'youtube'))
-    res.json({ ok: true, marked: mark, episode_code: episodeCode, total_legacy: Object.keys(current).length })
+    res.json({
+      ok: true,
+      marked: mark,
+      episode_code: episodeCode,
+      external_url: meta[episodeCode]?.external_url || null,
+      note: meta[episodeCode]?.note || null,
+      total_legacy: Object.keys(current).length,
+    })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to update legacy-uploaded flag'))
   }
@@ -1517,6 +1607,11 @@ router.post('/projects/:slug/upload/mark-legacy-uploaded', async (req, res) => {
 
 // Bulk variant — takes an array of episode_codes. Cheaper than N round-trips
 // when the user has 50+ legacy episodes to mark in one go.
+//
+// The optional `external_url` / `note` fields are applied uniformly to every
+// code in the request. Per-episode metadata is rare in bulk flows (you'd
+// typically annotate one-by-one), so the simple "same value for all"
+// behaviour is fine.
 router.post('/projects/:slug/upload/mark-legacy-uploaded-bulk', async (req, res) => {
   try {
     const slug = req.params.slug
@@ -1525,13 +1620,34 @@ router.post('/projects/:slug/upload/mark-legacy-uploaded-bulk', async (req, res)
     if (!codes.length) return res.status(400).json({ detail: 'episode_codes (array) is required' })
     const mark = req.body?.mark !== false
 
+    const urlErr = validateExternalUrlOrErr(req.body?.external_url)
+    if (urlErr) return res.status(400).json({ detail: urlErr })
+    const externalUrl = typeof req.body?.external_url === 'string' ? req.body.external_url.trim() : ''
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim() : ''
+    const haveAnnotations = !!(externalUrl || note)
+
     const config = await pm.getConfig(slug) as any
     const current: Record<string, boolean> = (config?.youtube_legacy_uploaded || {})
+    const meta: Record<string, { external_url?: string; note?: string }> = (config?.youtube_legacy_uploaded_meta || {})
     for (const code of codes) {
-      if (mark) current[code.trim()] = true
-      else delete current[code.trim()]
+      const c = code.trim()
+      if (mark) {
+        current[c] = true
+        if (haveAnnotations) {
+          const entry: { external_url?: string; note?: string } = {}
+          if (externalUrl) entry.external_url = externalUrl
+          if (note) entry.note = note
+          meta[c] = entry
+        }
+      } else {
+        delete current[c]
+        delete meta[c]
+      }
     }
-    await pm.updateConfig(slug, { youtube_legacy_uploaded: current } as any)
+    await pm.updateConfig(slug, {
+      youtube_legacy_uploaded: current,
+      youtube_legacy_uploaded_meta: meta,
+    } as any)
     queueIndexCache.delete(queueCacheKey(slug, 'youtube'))
     res.json({ ok: true, marked: mark, count: codes.length, total_legacy: Object.keys(current).length })
   } catch (e: any) {
@@ -1665,6 +1781,66 @@ router.post('/projects/:slug/upload/orphans/adopt-bulk', async (req, res) => {
     }
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Bulk adopt failed'))
+  }
+})
+
+// ── Renumber rollback (item L) ───────────────────────────────────────────
+//
+// `adopt-bulk mode=renumber` writes `.renumber-undo.json` to the project
+// root before any disk renames or ideas.json mutations land. The three
+// endpoints below let the UI:
+//   - GET  /upload/renumber-undo  → check whether a rollback is available
+//                                    + show the user a banner with the
+//                                    planned undo
+//   - POST /upload/renumber-undo/revert → run the full inverse operation
+//   - DELETE /upload/renumber-undo → user manually dismisses the safety
+//                                     net once they're confident
+// Auto-cleanup of stale (>30d) sidecars happens on Electron boot —
+// see boot/migrations.ts.
+
+router.get('/projects/:slug/upload/renumber-undo', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const plan = await renumberUndo.readUndoSidecar(slug)
+    if (!plan) return res.json({ available: false })
+    res.json({
+      available: true,
+      plan,
+      // Pre-computed convenience fields for the banner — keeps the
+      // frontend dumb (no need to format dates / count items twice).
+      adopted_count: plan.adopted.length,
+      renamed_count: plan.rename_plan.length,
+      expired: renumberUndo.isExpired(plan),
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to read renumber-undo sidecar'))
+  }
+})
+
+router.post('/projects/:slug/upload/renumber-undo/revert', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const result = await renumberUndo.revertRenumber(slug)
+    // Bust caches that depend on episode codes — most importantly the
+    // queue index, which built up assuming the renumbered codes.
+    queueIndexCache.delete(queueCacheKey(slug, 'youtube'))
+    missingVideoCache.delete(slug)
+    res.json({ ok: true, ...result })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to revert renumber'))
+  }
+})
+
+router.delete('/projects/:slug/upload/renumber-undo', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const deleted = await renumberUndo.deleteUndoSidecar(slug)
+    res.json({ ok: true, deleted })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to dismiss renumber-undo sidecar'))
   }
 })
 

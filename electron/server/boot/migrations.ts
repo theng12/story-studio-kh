@@ -10,6 +10,7 @@ import { migrateDescriptionToMetadata } from '../services/folder-migration.js'
 import { migrateAppSecrets } from './migrate-app-secrets.js'
 import { cleanOrphanWorkTempDirs, cleanLegacyInProjectTempDirs } from '../lib/work-tempdir.js'
 import * as pm from '../services/project-manager.js'
+import { cleanupStaleUndoSidecars } from '../services/upload-renumber-undo.js'
 import { proactiveRecoverySweep } from '../services/boot-recovery.js'
 import { readLastSession } from '../services/last-session.js'
 import {
@@ -121,6 +122,17 @@ export function runBootMigrations(): void {
       )
     }
   })()).catch(e => console.error('[migration] voice-curation lift failed:', e?.message || e)))
+
+  // Item L: auto-clean stale renumber-undo sidecars (>30 days old).
+  // Cheap walk — bounded by project count (typically <10 for personal
+  // use) and most projects never carry an undo sidecar at all. Logs a
+  // one-line summary if any were swept so the user can scan boot
+  // output for "did my safety net just expire?".
+  tasks.push(cleanupStaleUndoSidecars().then((cleaned) => {
+    if (cleaned.length > 0) {
+      console.log(`[migration] renumber-undo: auto-cleaned ${cleaned.length} stale sidecar(s) [${cleaned.join(', ')}]`)
+    }
+  }).catch(e => console.error('[migration] renumber-undo cleanup failed:', e?.message || e)))
 
   // Proactive recovery sweep — only fires on unclean shutdown so a clean
   // boot has zero overhead. Walks every project's accepted episodes,

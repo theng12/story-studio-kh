@@ -313,16 +313,45 @@ export function useUploadAccounts(slug: string) {
   // also busts the queue cache so the missing-video list updates next
   // time it's fetched. Returns the new total count of legacy-flagged
   // episodes for any UI that wants to badge it.
-  async function markLegacyUploaded(episode_code: string, mark = true) {
-    return post<{ ok: true; marked: boolean; total_legacy: number }>(
-      `/projects/${slug}/upload/mark-legacy-uploaded`,
-      { episode_code, mark },
-    )
+  //
+  // Item E: optional `external_url` + `note` annotate where the video
+  // actually lives (different account, Vimeo backup, etc.). When marking
+  // (mark=true), passing a string for either field overwrites the prior
+  // value; passing undefined leaves it untouched. When unmarking, both
+  // annotations are cleared along with the flag. Soft URL validation
+  // happens server-side (must start with http:// or https://).
+  async function markLegacyUploaded(
+    episode_code: string,
+    mark = true,
+    annotations?: { external_url?: string; note?: string },
+  ) {
+    const body: Record<string, unknown> = { episode_code, mark }
+    if (annotations && typeof annotations.external_url === 'string') {
+      body.external_url = annotations.external_url
+    }
+    if (annotations && typeof annotations.note === 'string') {
+      body.note = annotations.note
+    }
+    return post<{
+      ok: true; marked: boolean; total_legacy: number;
+      external_url: string | null; note: string | null;
+    }>(`/projects/${slug}/upload/mark-legacy-uploaded`, body)
   }
-  async function markLegacyUploadedBulk(episode_codes: string[], mark = true) {
+  async function markLegacyUploadedBulk(
+    episode_codes: string[],
+    mark = true,
+    annotations?: { external_url?: string; note?: string },
+  ) {
+    const body: Record<string, unknown> = { episode_codes, mark }
+    if (annotations && typeof annotations.external_url === 'string') {
+      body.external_url = annotations.external_url
+    }
+    if (annotations && typeof annotations.note === 'string') {
+      body.note = annotations.note
+    }
     return post<{ ok: true; marked: boolean; count: number; total_legacy: number }>(
       `/projects/${slug}/upload/mark-legacy-uploaded-bulk`,
-      { episode_codes, mark },
+      body,
     )
   }
 
@@ -792,6 +821,47 @@ export function useUploadAccounts(slug: string) {
     }>(`/projects/${slug}/upload/orphans/adopt-bulk`, { videos, mode })
   }
 
+  // ── Renumber rollback (item L) ──────────────────────────────────────
+  // adoptBulkRenumber writes `.renumber-undo.json` to the project root
+  // before mutating any state. These three helpers let the UI surface a
+  // banner on the Unlinked Uploads tab and run the inverse operation
+  // when the user clicks Revert. Auto-cleanup of stale (>30d) sidecars
+  // happens server-side on Electron boot, so the frontend only ever
+  // sees a fresh-enough plan.
+  interface RenumberUndoPlan {
+    schema_version: 1
+    performed_at: string
+    rename_plan: Array<{ old_code: string; new_code: string }>
+    adopted: Array<{ video_id: string; code: string }>
+    previous_next_episode_number: number
+    episode_prefix: string
+    episode_digits: number
+  }
+
+  async function getRenumberUndoStatus() {
+    return get<{
+      available: boolean
+      plan?: RenumberUndoPlan
+      adopted_count?: number
+      renamed_count?: number
+      expired?: boolean
+    }>(`/projects/${slug}/upload/renumber-undo`)
+  }
+
+  async function revertRenumber() {
+    return post<{
+      ok: true
+      removed_adoptions: Array<{ code: string; video_id: string; idea_id: string | null }>
+      reverted_renames: Array<{ from_code: string; to_code: string }>
+      reverted_folders: Array<{ from_dir: string; to_dir: string }>
+      errors: Array<{ stage: string; detail: string }>
+    }>(`/projects/${slug}/upload/renumber-undo/revert`, {})
+  }
+
+  async function dismissRenumberUndoSidecar() {
+    return del<{ ok: true; deleted: boolean }>(`/projects/${slug}/upload/renumber-undo`)
+  }
+
   // ── Quota status ─────────────────────────────────────────────────────
   const quota = ref<{
     used: number; ceiling: number; tracking_day: string; resets_at: string; warn_at: number; block_at: number; stale?: boolean
@@ -899,6 +969,9 @@ export function useUploadAccounts(slug: string) {
     adoptSingleOrphan,
     linkExistingVideo,
     adoptBulkOrphans,
+    getRenumberUndoStatus,
+    revertRenumber,
+    dismissRenumberUndoSidecar,
     quota,
     loadQuota,
     setQuotaCeiling,
