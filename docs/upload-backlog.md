@@ -249,7 +249,17 @@ covers the single-video case. A1 gets ~80% of the clarity benefit for
 
 ---
 
-### [ ] E · "Uploaded elsewhere" with external account note
+### [x] E · "Uploaded elsewhere" with external account note
+
+**Shipped:** v1.0.38 · commit `f765151`. Extended
+`mark-legacy-uploaded` (+ bulk variant) with optional `external_url`
++ `note` fields stored in a parallel `youtube_legacy_uploaded_meta`
+config map (boolean flag stays put — no migration). Legacy-marked
+episodes now appear as queue rows with a 🔗 External pill (URL as
+primary tooltip, note as secondary; click opens URL or, when no URL
+is set, an edit modal where the user can paste one in or unmark).
+Missing Video tab's "Mark as uploaded" button replaced with a
+dedicated modal that captures URL + note in the same step.
 
 **Why:** Today: mark-legacy-uploaded (no video_id) OR link-existing-video
 (full sidecar). Sometimes you want the in-between: "this is on a
@@ -388,7 +398,20 @@ land. Read-side widening means no migration is needed for old sidecars.
 
 ---
 
-### [ ] L · Renumber rollback
+### [x] L · Renumber rollback
+
+**Shipped:** v1.0.38 · commit `f765151`. `adoptBulkRenumber` now writes
+`.renumber-undo.json` to the project root as Stage 0 before any
+disk/state mutations. New `upload-renumber-undo.ts` service owns the
+sidecar lifecycle + the inverse operation (deletes adopted ideas +
+sidecars + folders, applies the inverse rename patch, renames disk
+folders back). Routes: `GET /upload/renumber-undo` (status for
+banner), `POST /upload/renumber-undo/revert` (full undo), `DELETE
+/upload/renumber-undo` (manual dismiss). Unlinked Uploads tab gains
+an amber banner + Revert/Dismiss buttons + a confirmation modal
+listing every planned undo. Boot-time auto-cleans sidecars >30 days
+old via `cleanupStaleUndoSidecars` hooked into
+`electron/server/boot/migrations.ts`.
 
 **Why:** The atomic three-stage commit is fine for 99% of cases but the
 failure mode is bad — half-renumbered project with no rollback path.
@@ -468,3 +491,7 @@ been done across versions.
   `DeletedReason` enum, **A** Reconcile tab renamed to "Match unlinked"
   with asymmetry-clear copy, **J** YouTube category as project setting
   with 7-day cache + soft fallback dropdown.
+- **v1.0.38** (2026-05-03) — P2 next bundle: **E** "Uploaded elsewhere"
+  with optional URL + note (🔗 External pill on queue rows), **L**
+  renumber rollback (`.renumber-undo.json` Stage-0 sidecar + Revert
+  banner + 30-day auto-cleanup).
