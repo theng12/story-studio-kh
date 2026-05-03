@@ -388,6 +388,16 @@ export async function adoptBulkRenumber(
       // Per-subfolder rename — the subfolder names include {code}, so
       // `{code} - 01 Script` becomes `{newcode} - 01 Script`.
       await renameCodeScopedSubfolders(newPaths.episode_dir, oldCode, newCode)
+      // v1.0.41: rewrite any pinned `selected_thumbnail` filenames in
+      // upload_metadata_overrides.json — pinned filenames carry the
+      // old code prefix and only a content rewrite keeps the pin
+      // pointing at the now-renamed file on disk.
+      try {
+        const { rewriteSelectedThumbnailOnRename } = await import('./upload-overrides.js')
+        await rewriteSelectedThumbnailOnRename(slug, newCode, idea.title || '', oldCode)
+      } catch (e: any) {
+        errors.push({ stage: `rewrite pin ${oldCode} → ${newCode}`, detail: e?.message || 'pin rewrite failed' })
+      }
 
       renamed.push({
         old_code: oldCode, new_code: newCode,

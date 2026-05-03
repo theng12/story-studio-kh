@@ -522,3 +522,17 @@ been done across versions.
   on idea remove / dismiss / accept / reset, plus the ↻ Refresh button
   now passes `?nocache=1` so it actually re-scans instead of returning
   the cached snapshot.
+- **v1.0.41** (2026-05-04) — Thumbnail control bundle: **per-episode
+  thumbnail pin** lives in `upload_metadata_overrides.json` and wins
+  over the auto-pick rule (highest `_v{N}`) at upload time. Images
+  page picker — click any thumb tile to open the existing lightbox,
+  use the new 📌 Pin / Unpin button to lock the variant that gets
+  uploaded. Pinned thumbs get a corner badge + amber outline in the
+  grid. **Pre-upload preview modal** opens on per-row Upload click
+  (bulk paths skip it), showing the exact title / description / tags /
+  thumbnail + quota cost before the upload fires. Pinned filenames
+  migrate automatically through Renumber, Compact, and orphan-renumber
+  cascades via a new `rewriteSelectedThumbnailOnRename` helper. ↻
+  Update metadata re-pushes the resolved thumbnail for free (the
+  generator's `setThumbnail` runs on both fresh-upload + metadata-
+  only branches).

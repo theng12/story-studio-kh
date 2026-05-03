@@ -64,19 +64,32 @@
         >›</button>
       </div>
 
-      <!-- Bottom bar: edit CTA + keyboard hint -->
+      <!-- Bottom bar: edit CTA + keyboard hint + (v1.0.41) pin toggle -->
       <footer class="ipl-bottombar">
         <span class="ipl-shortcut-hint" aria-hidden="true">
           <kbd>Esc</kbd> close · <kbd>←</kbd> / <kbd>→</kbd> browse · <kbd>Enter</kbd> edit
         </span>
-        <button
-          type="button"
-          class="btn btn-primary ipl-edit-btn"
-          :disabled="!currentImage || loadError"
-          @click="emitEdit"
-        >
-          ✨ Edit with AI
-        </button>
+        <div class="ipl-actions">
+          <button
+            v-if="pinEnabled && currentImage"
+            type="button"
+            :class="['btn btn-sm', currentImage.is_pinned ? 'btn-secondary ipl-pin-btn--active' : 'btn-secondary']"
+            :title="currentImage.is_pinned
+              ? 'Unpin — uploads will fall back to the auto-picked thumbnail (highest version).'
+              : 'Pin this thumbnail — every upload of this episode will use it. Reversible from this same button.'"
+            @click="emitPinToggle"
+          >
+            {{ currentImage.is_pinned ? '📌 Pinned · Unpin' : '📌 Pin for upload' }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary ipl-edit-btn"
+            :disabled="!currentImage || loadError"
+            @click="emitEdit"
+          >
+            ✨ Edit with AI
+          </button>
+        </div>
       </footer>
     </div>
   </Teleport>
@@ -105,6 +118,8 @@ interface PreviewImage {
   section?: 'scenes' | 'thumbnails'
   /** Scene number when the image is a generated scene; surfaces in the position label. */
   scene_number?: number | null
+  /** v1.0.41 — when true, the thumbnail-pin button shows "Pinned" + offers Unpin. */
+  is_pinned?: boolean
 }
 
 const props = withDefaults(defineProps<{
@@ -112,9 +127,17 @@ const props = withDefaults(defineProps<{
   images: PreviewImage[]
   index: number
   projectSlug: string
+  /**
+   * v1.0.41 — show a Pin / Unpin button in the bottom bar. The parent
+   * decides whether the action is meaningful for the current image
+   * (typically: only thumbnails, never scenes) and handles the
+   * `pin-toggle` emit.
+   */
+  pinEnabled?: boolean
 }>(), {
   images: () => [],
   index: 0,
+  pinEnabled: false,
 })
 
 const emit = defineEmits<{
@@ -122,6 +145,13 @@ const emit = defineEmits<{
   'update:index':   [i: number]
   /** Caller should close the lightbox and open whatever edit UI it owns. */
   'edit':           [path: string]
+  /**
+   * v1.0.41 — fired when the Pin / Unpin button is clicked. Payload
+   * carries the current image path + the desired post-toggle state
+   * (true = pin, false = unpin) so the parent can run the right
+   * write without re-checking the props.
+   */
+  'pin-toggle':     [{ path: string; filename: string; pin: boolean }]
 }>()
 
 // ── Image state ─────────────────────────────────────────────────────────
@@ -192,6 +222,17 @@ function close() {
 function emitEdit() {
   if (!currentImage.value || loadError.value) return
   emit('edit', currentImage.value.path)
+}
+function emitPinToggle() {
+  const c = currentImage.value
+  if (!c) return
+  emit('pin-toggle', {
+    path: c.path,
+    filename: c.filename,
+    // Toggle the current state — `is_pinned` may be undefined when the
+    // parent hasn't supplied it yet, treat that as not-pinned.
+    pin: !c.is_pinned,
+  })
 }
 
 // ── Keyboard handling ───────────────────────────────────────────────────
@@ -435,6 +476,17 @@ onBeforeUnmount(() => {
 }
 .ipl-edit-btn {
   flex-shrink: 0;
+}
+.ipl-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.ipl-pin-btn--active {
+  background: rgba(217, 119, 6, 0.18);
+  border-color: rgba(217, 119, 6, 0.55);
+  color: rgb(252, 211, 77);
 }
 
 /* Tighten the chrome on narrow viewports — the Electron window can get

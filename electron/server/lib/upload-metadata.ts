@@ -102,21 +102,45 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
     title = input.fallback_title || input.episode_code
   }
 
-  // Pick highest-version thumbnail file from the thumbnails dir. Files
-  // follow `{code}_Thumb{NN}_v{version}.png` or similar — we just pick
-  // the first .png/.jpg file encountered, biased toward higher version
-  // suffixes.
+  // Resolve the thumbnail file. Two-tier:
+  //   1. Pinned (per-platform `selected_thumbnail` in
+  //      upload_metadata_overrides.json, set via the Images-page picker
+  //      in v1.0.41+). Wins if the pinned filename still exists on disk.
+  //   2. Auto-pick: highest `_v{N}` version, lex-desc tie-break. Files
+  //      follow `{code}_Thumb{NN}_v{V}.png` or similar.
+  // The auto rule preserves pre-v1.0.41 behaviour for episodes the user
+  // never touched the picker for, so installs upgrade silently.
   let thumbnailPath = ''
   try {
     if (existsSync(paths.thumb_dir)) {
       const thumbs = await fsp.readdir(paths.thumb_dir)
-      const candidates = thumbs
-        .filter(f => /\.(png|jpe?g)$/i.test(f))
-        // Sort descending so '_v3' wins over '_v2'/'_v1'; lexicographic works
-        // fine on zero-padded version suffixes but we split on `_v` just in case.
-        .sort((a, b) => versionOf(b) - versionOf(a) || b.localeCompare(a))
-      if (candidates.length) {
-        thumbnailPath = path.join(paths.thumb_dir, candidates[0])
+      const validImages = thumbs.filter(f => /\.(png|jpe?g)$/i.test(f))
+
+      // 1. Honour the pin if it points at a still-existing file.
+      let pinned = ''
+      if (existsSync(overridesPath)) {
+        try {
+          const raw = await fsp.readFile(overridesPath, 'utf-8')
+          const data = JSON.parse(raw)
+          const platformBlock = input.platform && typeof data[input.platform] === 'object' ? data[input.platform] : null
+          if (platformBlock && typeof platformBlock.selected_thumbnail === 'string') {
+            pinned = platformBlock.selected_thumbnail
+          }
+        } catch { /* fall through to auto-pick */ }
+      }
+      if (pinned && validImages.includes(pinned)) {
+        thumbnailPath = path.join(paths.thumb_dir, pinned)
+      } else {
+        // 2. Fall back to auto-pick. Sort descending so '_v3' wins over
+        // '_v2'/'_v1'; lexicographic tie-break covers `Thumb01_v1` vs
+        // `Thumb02_v1` (later variant wins — preserves pre-v1.0.41
+        // behaviour).
+        const candidates = validImages
+          .slice()
+          .sort((a, b) => versionOf(b) - versionOf(a) || b.localeCompare(a))
+        if (candidates.length) {
+          thumbnailPath = path.join(paths.thumb_dir, candidates[0])
+        }
       }
     }
   } catch { /* swallow */ }

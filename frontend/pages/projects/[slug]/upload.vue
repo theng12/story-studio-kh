@@ -2156,6 +2156,122 @@
       </div>
     </Teleport>
 
+    <!-- v1.0.41 — Pre-upload preview modal. Shown when the user clicks
+         the per-row Upload button. Renders the EXACT title / description /
+         tags / thumbnail that will be pushed to YouTube, so a wrong
+         thumbnail or stale metadata can be caught before the upload
+         lands. Bulk-upload paths (Apply + Upload, scope picker actions)
+         skip this modal — the user already opted into "trust the plan,
+         just go" by using a bulk verb. -->
+    <Teleport to="body">
+      <div v-if="uploadPreview.open" class="upload-plan-modal-backdrop" @click="closeUploadPreview" />
+      <div v-if="uploadPreview.open" class="upload-plan-modal" role="dialog" aria-label="Pre-upload preview" @click.stop style="max-width: 720px;">
+        <div class="upload-plan-modal-header">
+          <strong>{{ uploadPreview.data?.already_uploaded ? '↻ Update metadata preview' : '☁️ Upload preview' }}</strong>
+          <button class="upload-plan-modal-close" type="button" title="Close" @click="closeUploadPreview">✕</button>
+        </div>
+        <div class="upload-plan-modal-body" v-if="uploadPreview.data">
+          <p class="text-muted" style="font-size: 12px; margin: 0;">
+            <template v-if="uploadPreview.data.already_uploaded">
+              <strong>{{ uploadPreview.data.episode_code }}</strong> is already uploaded as <code>{{ uploadPreview.data.video_id }}</code>.
+              Confirming will <strong>PATCH</strong> the live YouTube video's title / description / tags / thumbnail in place — no re-upload, ~50 quota units.
+            </template>
+            <template v-else>
+              Fresh upload of <strong>{{ uploadPreview.data.episode_code }}</strong> — about <strong>{{ uploadPreview.data.estimated_quota }}</strong> quota units against today's daily cap.
+              Privacy starts as <strong>{{ uploadPreview.data.privacy_status }}</strong>.
+              <template v-if="uploadPreview.data.scheduled_for">
+                publishAt <strong>{{ formatScheduled(uploadPreview.data.scheduled_for) }}</strong>.
+              </template>
+            </template>
+          </p>
+
+          <!-- Thumbnail preview — clickable to expand inline. The big
+               preview helps catch "wrong thumb" mistakes that the small
+               tile in the queue row can't surface. -->
+          <div class="upload-preview-thumb-block" style="margin-top: 12px;">
+            <h4 style="margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
+              Thumbnail
+              <span v-if="uploadPreview.data.thumbnail_pinned" style="font-weight: normal; text-transform: none; letter-spacing: 0; margin-left: 6px;">
+                · 📌 Pinned
+              </span>
+              <span v-else-if="uploadPreview.data.thumbnail_filename" style="font-weight: normal; text-transform: none; letter-spacing: 0; margin-left: 6px;">
+                · auto-picked (highest version)
+              </span>
+            </h4>
+            <div v-if="uploadPreview.data.thumbnail_filename" class="upload-preview-thumb-row">
+              <img
+                :src="uploadPreviewThumbUrl"
+                :alt="uploadPreview.data.thumbnail_filename"
+                class="upload-preview-thumb-img"
+                @click="uploadPreview.thumbExpanded = !uploadPreview.thumbExpanded"
+                :class="{ 'is-expanded': uploadPreview.thumbExpanded }"
+              />
+              <div class="upload-preview-thumb-meta">
+                <code style="font-size: 11px;">{{ uploadPreview.data.thumbnail_filename }}</code>
+                <p class="text-muted" style="font-size: 11px; margin: 4px 0 0;">
+                  Click image to {{ uploadPreview.thumbExpanded ? 'shrink' : 'enlarge' }}.
+                  To use a different thumbnail, open the
+                  <NuxtLink :to="`/projects/${slug}/images`">Images page</NuxtLink>
+                  → click any thumbnail → 📌 Pin for upload.
+                </p>
+              </div>
+            </div>
+            <p v-else class="text-danger" style="font-size: 12px; margin: 4px 0 0;">
+              ⚠ No thumbnail file found in the episode's thumbnails folder. YouTube will use whatever it auto-generates from the video — usually a low-quality middle frame.
+            </p>
+          </div>
+
+          <!-- Title -->
+          <div class="form-group" style="margin-top: 12px;">
+            <h4 style="margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">Title</h4>
+            <p style="margin: 0; font-weight: 500;">{{ uploadPreview.data.title || '(empty — YouTube will reject)' }}</p>
+          </div>
+
+          <!-- Description (collapsible) -->
+          <div class="form-group" style="margin-top: 12px;">
+            <h4 style="margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
+              Description
+              <span v-if="uploadPreview.data.description.length > 200" style="font-weight: normal; text-transform: none; letter-spacing: 0; margin-left: 6px;">
+                <button class="link-btn" type="button" @click="uploadPreview.descExpanded = !uploadPreview.descExpanded">
+                  {{ uploadPreview.descExpanded ? 'show less' : `show all ${uploadPreview.data.description.length} chars` }}
+                </button>
+              </span>
+            </h4>
+            <pre class="upload-preview-desc" :class="{ 'is-collapsed': !uploadPreview.descExpanded }">{{ uploadPreview.data.description || '(empty)' }}</pre>
+          </div>
+
+          <!-- Tags -->
+          <div class="form-group" style="margin-top: 12px;">
+            <h4 style="margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">
+              Tags
+              <span v-if="uploadPreview.data.tags.length" style="font-weight: normal; text-transform: none; letter-spacing: 0; margin-left: 6px; color: var(--text-muted);">
+                · {{ uploadPreview.data.tags.length }}
+              </span>
+            </h4>
+            <div v-if="uploadPreview.data.tags.length" class="upload-preview-tags">
+              <span v-for="t in uploadPreview.data.tags" :key="t" class="idea-tag">{{ t }}</span>
+            </div>
+            <p v-else class="text-muted" style="font-size: 12px; margin: 0;">(none)</p>
+          </div>
+        </div>
+        <p v-if="uploadPreview.error" class="text-danger" style="font-size: 12px; margin: 0 16px 8px;">⚠ {{ uploadPreview.error }}</p>
+        <div class="upload-plan-modal-footer">
+          <button type="button" class="btn btn-ghost btn-sm" @click="closeUploadPreview">Cancel</button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="uploadPreview.busy || !uploadPreview.data"
+            @click="confirmUploadPreview"
+          >
+            <LoadingSpinner v-if="uploadPreview.busy" size="sm" />
+            {{ uploadPreview.busy
+              ? (uploadPreview.data?.already_uploaded ? 'Updating…' : 'Uploading…')
+              : (uploadPreview.data?.already_uploaded ? '↻ Confirm metadata update' : '☁️ Confirm upload') }}
+          </button>
+        </div>
+      </div>
+    </Teleport>
+
     <!-- Item L — Renumber revert confirmation modal. Lists exactly which
          folders will be renamed back + which adopted orphans will be
          removed (idea + sidecar + folder), so the user can audit before
@@ -4382,24 +4498,109 @@ function playlistButtonTitle(item: any): string {
 
 async function doUpload(item: any) {
   if (!canUploadRow(item)) return
-  const ok = await confirmGeneration(slug.value, 'youtube_upload', {
-    episode_id: item.episode_code,
-    count: 1,
-  })
-  if (!ok) return
-  rowBusy[item.id] = 'upload'
+  // v1.0.41 — open the pre-upload preview instead of going straight
+  // to the cost-confirm dialog. The preview surfaces title /
+  // description / tags / thumbnail (the bits that aren't visible from
+  // the queue row) AND the quota cost. Cost-confirm becomes redundant
+  // since the modal lists the quota explicitly. Bulk paths
+  // (doUploadOnly, scope-picker actions) skip this — they're
+  // explicitly "trust the plan, just go".
+  await openUploadPreview(item)
+}
+
+// ── Pre-upload preview modal (v1.0.41) ───────────────────────────────────
+interface UploadPreviewData {
+  episode_code: string
+  title: string
+  description: string
+  tags: string[]
+  thumbnail_filename: string
+  thumbnail_pinned: boolean
+  thumbnail_path: string
+  already_uploaded: boolean
+  video_id: string
+  privacy_status: string
+  scheduled_for: string | null
+  estimated_quota: number
+}
+const uploadPreview = reactive<{
+  open: boolean
+  busy: boolean
+  loading: boolean
+  data: UploadPreviewData | null
+  item: any | null
+  thumbExpanded: boolean
+  descExpanded: boolean
+  error: string
+}>({
+  open: false,
+  busy: false,
+  loading: false,
+  data: null,
+  item: null,
+  thumbExpanded: false,
+  descExpanded: false,
+  error: '',
+})
+
+const uploadPreviewThumbUrl = computed(() => {
+  if (!uploadPreview.data?.thumbnail_path) return ''
+  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(uploadPreview.data.thumbnail_path)}`
+})
+
+async function openUploadPreview(item: any) {
+  uploadPreview.item = item
+  uploadPreview.loading = true
+  uploadPreview.error = ''
+  uploadPreview.thumbExpanded = false
+  uploadPreview.descExpanded = false
+  uploadPreview.data = null
+  uploadPreview.open = true
   try {
-    await triggerUpload({
-      episode_id: item.episode_code,
-      platform: 'youtube',
-      privacy_status: 'private',
-      playlist_id: playlistOverrides[item.episode_code] ?? null,
-    })
-    success(`Upload job queued for ${item.episode_code}. Watch progress in the Jobs tab.`)
+    uploadPreview.data = await get<UploadPreviewData>(
+      `/projects/${slug.value}/upload/queue/${encodeURIComponent(item.episode_code)}/preview?platform=youtube`,
+    )
+  } catch (e: any) {
+    uploadPreview.error = e?.data?.detail || e?.message || 'Failed to load preview'
+  } finally {
+    uploadPreview.loading = false
+  }
+}
+
+function closeUploadPreview() {
+  if (uploadPreview.busy) return
+  uploadPreview.open = false
+  uploadPreview.data = null
+  uploadPreview.item = null
+}
+
+async function confirmUploadPreview() {
+  if (uploadPreview.busy || !uploadPreview.data || !uploadPreview.item) return
+  const item = uploadPreview.item
+  const isUpdateOnly = uploadPreview.data.already_uploaded
+  uploadPreview.busy = true
+  rowBusy[item.id] = isUpdateOnly ? 'metadata' : 'upload'
+  try {
+    if (isUpdateOnly) {
+      await triggerMetadataUpdate({ episode_id: item.episode_code, platform: 'youtube' })
+      success(`Metadata update queued for ${item.episode_code} — privacy + schedule will stay as they are on YouTube.`)
+    } else {
+      await triggerUpload({
+        episode_id: item.episode_code,
+        platform: 'youtube',
+        privacy_status: 'private',
+        playlist_id: playlistOverrides[item.episode_code] ?? null,
+      })
+      success(`Upload job queued for ${item.episode_code}. Watch progress in the Jobs tab.`)
+    }
+    uploadPreview.open = false
+    uploadPreview.data = null
+    uploadPreview.item = null
     setTimeout(() => { loadQueue('youtube'); loadQuota() }, 2000)
   } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to queue upload')
+    uploadPreview.error = e?.data?.detail || e?.message || 'Failed to queue upload'
   } finally {
+    uploadPreview.busy = false
     rowBusy[item.id] = null
   }
 }
@@ -7555,4 +7756,72 @@ td.col-actions > a.btn {
 }
 .rkm-body strong { font-size: 13px; font-weight: 600; }
 .rkm-hint { font-size: 11px; color: var(--text-muted); line-height: 1.35; }
+
+/* v1.0.41 — pre-upload preview modal. Reuses the upload-plan-modal
+   shell but needs a taller body for the description block + click-to-
+   expand thumbnail. The modal element itself overrides max-width
+   inline (style="max-width: 720px"); these rules govern the inner
+   layout. */
+.upload-plan-modal-body { max-height: calc(100vh - 200px); overflow-y: auto; }
+.upload-preview-thumb-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.upload-preview-thumb-img {
+  width: 240px;
+  height: 135px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+  transition: width 0.2s, height 0.2s;
+  flex-shrink: 0;
+}
+.upload-preview-thumb-img.is-expanded {
+  width: 480px;
+  height: 270px;
+  cursor: zoom-out;
+}
+.upload-preview-thumb-meta {
+  flex: 1;
+  min-width: 0;
+}
+.upload-preview-desc {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.upload-preview-desc.is-collapsed {
+  max-height: 80px;
+  overflow: hidden;
+  position: relative;
+}
+.upload-preview-desc.is-collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 30px;
+  background: linear-gradient(transparent, var(--bg-tertiary));
+  pointer-events: none;
+}
+.upload-preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.upload-preview-tags .idea-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 999px;
+  color: var(--text-muted);
+}
 </style>

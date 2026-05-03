@@ -224,6 +224,15 @@ export async function compactAcceptedEpisodes(slug: string): Promise<CompactResu
       }
       // Per-subfolder rename for {code}-scoped names (e.g. "TN0008 - 01 Script").
       await renameCodeScopedSubfolders(newPaths.episode_dir, r.old_code, r.new_code)
+      // v1.0.41: rewrite any pinned `selected_thumbnail` filenames in
+      // upload_metadata_overrides.json — pinned filenames carry the old
+      // code prefix, and the file move alone doesn't update content.
+      try {
+        const { rewriteSelectedThumbnailOnRename } = await import('./upload-overrides.js')
+        await rewriteSelectedThumbnailOnRename(slug, r.new_code, r.title, r.old_code)
+      } catch (e: any) {
+        errors.push({ stage: `rewrite pin ${r.old_code} → ${r.new_code}`, detail: e?.message || 'pin rewrite failed' })
+      }
       renamed.push({
         old_code: r.old_code,
         new_code: r.new_code,

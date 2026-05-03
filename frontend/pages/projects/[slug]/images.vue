@@ -238,18 +238,33 @@
 
       <!-- Thumbnails -->
       <div v-if="editThumbs.length" class="mt-2">
-        <h4 class="edit-grid-heading">Thumbnails ({{ editThumbs.length }})</h4>
+        <div class="edit-grid-heading-row">
+          <h4 class="edit-grid-heading">Thumbnails ({{ editThumbs.length }})</h4>
+          <span class="text-muted" style="font-size: 11px;">
+            <template v-if="pinnedThumbnailFilename">
+              📌 <strong>{{ pinnedThumbnailFilename }}</strong> will be uploaded.
+              <button class="link-btn" type="button" @click="setThumbnailPin(null)">Unpin</button>
+            </template>
+            <template v-else-if="autoThumbnailFilename">
+              Auto-picking <strong>{{ autoThumbnailFilename }}</strong> for upload (highest version).
+              Click any thumbnail and use 📌 Pin to lock a different one.
+            </template>
+          </span>
+        </div>
         <div class="edit-image-grid">
           <button
             v-for="(thumb, ti) in editThumbs"
             :key="thumb.path"
             type="button"
-            class="edit-image-tile"
-            :title="`Preview ${thumb.filename}`"
+            :class="['edit-image-tile', { 'is-pinned-thumb': thumb.filename === pinnedThumbnailFilename }]"
+            :title="thumb.filename === pinnedThumbnailFilename
+              ? `📌 Pinned for upload — ${thumb.filename}. Click to preview, or use the Unpin button to revert to auto-pick.`
+              : `Preview ${thumb.filename}`"
             @click="openLightboxAt(thumb.path)"
           >
             <img :src="getImagePreviewUrlImages(thumb.path)" :alt="thumb.filename" class="edit-image-thumb" />
             <span class="edit-image-label">T{{ ti + 1 }}</span>
+            <span v-if="thumb.filename === pinnedThumbnailFilename" class="pinned-badge" aria-label="Pinned for upload">📌</span>
           </button>
         </div>
       </div>
@@ -276,12 +291,16 @@
     <!-- Lightbox: fullscreen preview + carousel. Tile clicks open this -->
     <!-- first; the user browses / decides, then triggers Edit which -->
     <!-- closes the lightbox and opens ImageEditDialog on the same path. -->
+    <!-- v1.0.41: pin-toggle is enabled when the current image is a -->
+    <!-- thumbnail (the lightbox + parent both gate on `section`). -->
     <ImagePreviewLightbox
       v-model:visible="lightboxOpen"
       v-model:index="lightboxIndex"
-      :images="allEditableImages"
+      :images="allEditableImagesWithPin"
       :project-slug="slug"
+      :pin-enabled="currentLightboxIsThumbnail"
       @edit="onLightboxEdit"
+      @pin-toggle="onLightboxPinToggle"
     />
 
     <!-- Shared AI image-edit dialog. Mounted once at the page root; -->
@@ -558,6 +577,10 @@ async function loadEditScan() {
       (a, b) => (a.scene_number ?? 999) - (b.scene_number ?? 999),
     )
     editThumbs.value = r.thumbnails || []
+    // v1.0.41: refresh pin state alongside the scan so the badge +
+    // hint stay in sync with what's actually on disk after edits /
+    // re-renders / external file moves.
+    void loadThumbnailPinState()
   } catch (e: any) {
     console.error('[images/edit-scan] failed:', e)
     editScanError.value = e?.data?.detail || e?.message || 'Could not list existing images'
@@ -603,6 +626,19 @@ const allEditableImages = computed<LightboxImage[]>(() => {
   return out
 })
 
+// v1.0.41 — augment with `is_pinned` so the lightbox's Pin button
+// reflects current state without a per-render API hit. The pin metadata
+// lives in `pinnedThumbnailFilename` (loaded alongside the editScan).
+const allEditableImagesWithPin = computed(() => allEditableImages.value.map(img => ({
+  ...img,
+  is_pinned: img.section === 'thumbnails' && img.filename === pinnedThumbnailFilename.value,
+})))
+const currentLightboxIsThumbnail = computed(() => {
+  const i = lightboxIndex.value
+  const img = allEditableImages.value[i]
+  return !!(img && img.section === 'thumbnails')
+})
+
 function openLightboxAt(path: string) {
   const i = allEditableImages.value.findIndex(img => img.path === path)
   lightboxIndex.value = i >= 0 ? i : 0
@@ -618,6 +654,56 @@ function openLightboxAt(path: string) {
 function onLightboxEdit(path: string) {
   lightboxOpen.value = false
   openEditOnPath(path)
+}
+
+// ── Thumbnail pin state (v1.0.41) ────────────────────────────────────────
+// Mirrors the GET /thumbnails response keyed by current episode_id. The
+// editScan loader (loadEditScan) is augmented to refresh this on every
+// scan, so the pin badge stays in sync with the disk view.
+const pinnedThumbnailFilename = ref<string | null>(null)
+const autoThumbnailFilename = ref<string | null>(null)
+
+async function loadThumbnailPinState() {
+  const code = form.episode_id
+  if (!code) {
+    pinnedThumbnailFilename.value = null
+    autoThumbnailFilename.value = null
+    return
+  }
+  try {
+    const r = await get<{
+      files: Array<{ filename: string; size_bytes: number; is_pinned: boolean }>
+      pinned: string | null
+      pinned_missing: boolean
+      resolved: string
+      auto_pick: string
+    }>(`/projects/${slug.value}/episodes/${code}/thumbnails?platform=youtube`)
+    pinnedThumbnailFilename.value = r.pinned
+    autoThumbnailFilename.value = r.auto_pick || null
+  } catch {
+    // Non-fatal — fall back to "no pin known", grid still renders fine.
+    pinnedThumbnailFilename.value = null
+    autoThumbnailFilename.value = null
+  }
+}
+
+async function setThumbnailPin(filename: string | null) {
+  const code = form.episode_id
+  if (!code) return
+  try {
+    await post<{ ok: true; pinned: string | null }>(
+      `/projects/${slug.value}/episodes/${code}/thumbnails/pin`,
+      { filename, platform: 'youtube' },
+    )
+    pinnedThumbnailFilename.value = filename
+    success(filename ? `📌 Pinned ${filename}` : 'Pin cleared — uploads use auto-pick')
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to update pin')
+  }
+}
+
+async function onLightboxPinToggle(payload: { filename: string; pin: boolean }) {
+  await setThumbnailPin(payload.pin ? payload.filename : null)
 }
 function onImageEditAccepted(newPath: string) {
   // After an edit, refresh the grid so the new `_edited_v1.png` (or its
@@ -745,6 +831,46 @@ async function submit() {
   padding: 2px 6px;
   border-radius: 4px;
 }
+
+/* v1.0.41 — pinned-thumbnail visuals. Amber border + corner badge so a
+   single glance at the grid tells the user "this one will go to YouTube". */
+.edit-image-tile.is-pinned-thumb {
+  border-color: rgba(217, 119, 6, 0.85);
+  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.35);
+}
+.edit-image-tile .pinned-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(217, 119, 6, 0.92);
+  color: white;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+.edit-grid-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.edit-grid-heading-row .edit-grid-heading {
+  margin-bottom: 0;
+}
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.link-btn:hover { color: var(--accent-hover, var(--accent)); }
 
 .required { color: var(--error); margin-left: 2px; }
 

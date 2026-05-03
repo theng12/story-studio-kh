@@ -303,6 +303,14 @@ export async function revertRenumber(slug: string): Promise<RevertResult> {
         // Subfolder rename — same logic as forward direction in
         // upload-orphans.ts but with old/new swapped.
         await renameCodeScopedSubfolders(toPaths.episode_dir, r.new_code, r.old_code)
+        // v1.0.41: rewrite the pinned `selected_thumbnail` filename
+        // back from `{new_code}_Thumb...` to `{old_code}_Thumb...`.
+        try {
+          const { rewriteSelectedThumbnailOnRename } = await import('./upload-overrides.js')
+          await rewriteSelectedThumbnailOnRename(slug, r.old_code, title, r.new_code)
+        } catch (e: any) {
+          result.errors.push({ stage: `rewrite pin ${r.new_code} → ${r.old_code}`, detail: e?.message || 'pin rewrite failed' })
+        }
         result.reverted_folders.push({ from_dir: fromPaths.episode_dir, to_dir: toPaths.episode_dir })
       }
     } catch (e: any) {

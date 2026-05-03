@@ -149,6 +149,19 @@ export async function renameAcceptedEpisode(
     }
   }
 
+  // 6b. Rewrite pinned `selected_thumbnail` filenames inside
+  //     upload_metadata_overrides.json — the file moved with the
+  //     episode dir already, but its CONTENT may reference the old
+  //     code (pinned filenames look like `{old_code}_Thumb02_v1.png`).
+  //     Step 5 renamed the actual file on disk to use the new code, so
+  //     the pin needs the same string-replace to keep pointing at it.
+  try {
+    const { rewriteSelectedThumbnailOnRename } = await import('./upload-overrides.js')
+    await rewriteSelectedThumbnailOnRename(slug, canonicalNew, source.title || '', source.episode_code!)
+  } catch (e: any) {
+    warnings.push(`pin rewrite failed: ${e?.message || e}`)
+  }
+
   // 7. Atomic ideas.json patch via the helper that ALSO runs auto-heal,
   //    so the old code becomes a recyclable gap and any stale recycled
   //    entries get cleaned in the same write. advance_next_to keeps

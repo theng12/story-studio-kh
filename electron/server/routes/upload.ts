@@ -933,6 +933,70 @@ router.get('/projects/:slug/upload/queue', async (req, res) => {
   }
 })
 
+// ── Pre-upload preview (v1.0.41) ────────────────────────────────────────
+//
+// Returns the exact metadata + thumbnail that would be pushed to YouTube
+// for a single episode. The Upload Center's per-row Upload button opens
+// a confirm modal populated by this endpoint so the user can audit the
+// title / description / tags / thumbnail BEFORE the upload runs.
+//
+// Cheap: same path as `enrichPage` for one row, plus the
+// upload_metadata_overrides.json read in resolveUploadMetadata. No cache
+// — preview is a per-click action, freshness wins over speed.
+
+router.get('/projects/:slug/upload/queue/:episode_code/preview', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const code = req.params.episode_code
+    const platform = readPlatform(req.query.platform) || 'youtube'
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+    const idea = (await im.getIdeas(slug, 'accepted')).find(i => i.episode_code === code)
+    if (!idea) return res.status(404).json({ detail: `Episode ${code} not found` })
+
+    const meta = await resolveUploadMetadata({
+      slug,
+      episode_code: code,
+      fallback_title: idea.title,
+      platform,
+    })
+
+    // Whether the resolved thumbnail came from a pin vs. auto-pick — the
+    // modal surfaces this so the user knows where the file came from.
+    const { readSelectedThumbnail } = await import('../services/upload-overrides.js')
+    const pinned = await readSelectedThumbnail(slug, code, idea.title || '', platform)
+
+    // Sidecar state — drives "this would be a metadata PATCH not a
+    // fresh upload" copy in the modal so the user understands when
+    // YouTube quota is and isn't spent.
+    const sidecar = await readSidecar(slug, code, idea.title || '', platform)
+    const itemSchedule = await plans.readItemSchedule(slug)
+    const scheduled_for = sidecar?.scheduled_for || itemSchedule[code] || null
+
+    const thumbnailFilename = meta.thumbnailPath ? meta.thumbnailPath.split('/').pop() || '' : ''
+
+    res.json({
+      episode_code: code,
+      title: meta.title,
+      description: meta.description,
+      tags: meta.tags,
+      thumbnail_filename: thumbnailFilename,
+      thumbnail_pinned: !!(pinned && pinned === thumbnailFilename),
+      thumbnail_path: meta.thumbnailPath,
+      already_uploaded: !!sidecar?.video_id,
+      video_id: sidecar?.video_id || '',
+      privacy_status: sidecar?.privacy_status || 'private',
+      scheduled_for,
+      // ~1600 quota units per fresh upload (videos.insert); ~50 per
+      // metadata-only PATCH (videos.update). Surface so the user can
+      // weigh against their daily 10k cap.
+      estimated_quota: sidecar?.video_id ? 50 : 1600,
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to load upload preview'))
+  }
+})
+
 // Kick off an upload. Either starts a fresh resumable upload or queues a
 // metadata-only update depending on sidecar state (see job executor).
 router.post('/projects/:slug/upload/upload', async (req, res) => {
