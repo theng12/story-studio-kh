@@ -522,6 +522,15 @@ been done across versions.
   on idea remove / dismiss / accept / reset, plus the ↻ Refresh button
   now passes `?nocache=1` so it actually re-scans instead of returning
   the cached snapshot.
+- **v1.0.42** (2026-05-04) — Apply-plan skip-claimed-slots: repeat
+  applies of a plan now SKIP timestamps already claimed by other
+  episodes instead of double-booking them. Episodes inside the apply
+  target release their old slots so they can re-claim them. The
+  scope-picker preview reflects the same skip logic — what you see
+  is what Apply will write. Standalone "preview the plan" tester
+  keeps the raw N-slots-from-start_date behaviour. Surfaces a clear
+  "ran out of free slots within 2-year horizon" error when the plan's
+  density can't accommodate the apply.
 - **v1.0.41** (2026-05-04) — Thumbnail control bundle: **per-episode
   thumbnail pin** lives in `upload_metadata_overrides.json` and wins
   over the auto-pick rule (highest `_v{N}`) at upload time. Images

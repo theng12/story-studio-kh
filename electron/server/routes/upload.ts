@@ -1325,6 +1325,14 @@ router.put('/projects/:slug/upload/plans/:id/active', async (req, res) => {
 // Preview what the plan would do: returns N computed slots without writing.
 // Also surfaces any slots that would land in the past so the UI can warn
 // before the user commits (Apply will hard-reject past slots).
+//
+// v1.0.42 — accepts an optional `episode_codes` body field so the
+// preview can reflect the same skip-claimed-slots logic as Apply. When
+// supplied, we exclude target codes from the claimed set (they're
+// being re-scheduled) and skip every other episode's already-claimed
+// slot, so the preview rows match what Apply would actually write.
+// When omitted (e.g. the standalone "preview the plan" tester), we
+// fall back to the old "raw N slots from start_date" behaviour.
 router.post('/projects/:slug/upload/plans/:id/preview', async (req, res) => {
   try {
     const slug = req.params.slug
@@ -1332,10 +1340,33 @@ router.post('/projects/:slug/upload/plans/:id/preview', async (req, res) => {
     const plan = await plans.getPlan(slug, req.params.id)
     if (!plan) return res.status(404).json({ detail: 'Plan not found' })
     const count = Math.max(1, Math.min(500, Number(req.body?.count) || 10))
-    const slots = plans.computeSlots(plan.schedule, count)
+    const targetCodes: string[] = Array.isArray(req.body?.episode_codes)
+      ? req.body.episode_codes.filter((c: any) => typeof c === 'string' && c)
+      : []
+
+    let claimedSlots: Set<string> | undefined
+    if (targetCodes.length > 0) {
+      const targetSet = new Set(targetCodes)
+      const allAccepted = await im.getIdeas(slug, 'accepted')
+      claimedSlots = new Set<string>()
+      await Promise.all(allAccepted.map(async (idea) => {
+        if (!idea.episode_code || targetSet.has(idea.episode_code)) return
+        const sc = await readSidecarRaw(slug, idea.episode_code, idea.title || '', plan.platform)
+        if (sc?.scheduled_for) claimedSlots!.add(sc.scheduled_for)
+      }))
+    }
+
+    const overshoot = claimedSlots ? count * 2 + 10 : count
+    const allSlots = plans.computeSlots(plan.schedule, overshoot, claimedSlots)
+    const slots = allSlots.slice(0, count)
     const now = Date.now()
     const past_slots = slots.filter(s => new Date(s).getTime() < now - 60_000)
-    res.json({ slots, past_slots, has_past_slots: past_slots.length > 0 })
+    res.json({
+      slots,
+      past_slots,
+      has_past_slots: past_slots.length > 0,
+      claimed_slots_skipped: claimedSlots ? claimedSlots.size : 0,
+    })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to preview plan'))
   }
@@ -1368,7 +1399,43 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
       : []
     if (!episode_codes.length) return res.status(400).json({ detail: 'episode_codes (ordered) required' })
 
-    const slots = plans.computeSlots(plan.schedule, episode_codes.length)
+    // v1.0.42 — collect every other accepted episode's existing
+    // scheduled_for so computeSlots can SKIP already-claimed slots
+    // instead of re-emitting them. Without this, repeat-applies of a
+    // plan would walk back to start_date every time and double-book
+    // the same dates. Episodes IN the apply target are excluded from
+    // the claimed set (their old slots are released; the apply is
+    // re-assigning them).
+    const targetSet = new Set(episode_codes)
+    const allAccepted = await im.getIdeas(slug, 'accepted')
+    const claimedSlots = new Set<string>()
+    await Promise.all(allAccepted.map(async (idea) => {
+      if (!idea.episode_code || targetSet.has(idea.episode_code)) return
+      const sc = await readSidecarRaw(slug, idea.episode_code, idea.title || '', plan.platform)
+      if (sc?.scheduled_for) claimedSlots.add(sc.scheduled_for)
+    }))
+
+    // Generous overshoot count so skip-claimed has room to walk forward
+    // without immediately running out. 2x + 10 covers a reasonable
+    // density of claimed slots (every other slot taken still works).
+    const overshoot = episode_codes.length * 2 + 10
+    const allSlots = plans.computeSlots(plan.schedule, overshoot, claimedSlots)
+    const slots = allSlots.slice(0, episode_codes.length)
+
+    // If skip-claimed exhausted the 2-year horizon before yielding
+    // enough free slots, surface a clear error instead of a silent
+    // partial-apply.
+    if (slots.length < episode_codes.length) {
+      return res.status(400).json({
+        detail:
+          `Plan "${plan.name}" ran out of free slots within its 2-year horizon. ` +
+          `${slots.length} free slot(s) remain after skipping ${claimedSlots.size} already-scheduled time(s). ` +
+          `Either extend the plan's end_date, increase the slot density (more weekdays / shorter interval), ` +
+          `or unschedule some existing episodes first.`,
+        free_slots_available: slots.length,
+        claimed_slots: claimedSlots.size,
+      })
+    }
 
     // Hard-reject past slots. YouTube returns a cryptic 400 when publishAt
     // is in the past; catching it here gives the user a clear next step

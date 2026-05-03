@@ -4167,7 +4167,12 @@ async function runPreview() {
     return
   }
   try {
-    previewSlots.value = await previewPlan(editing.value.id, 10)
+    // Standalone "what does this plan look like?" tester — no episode
+    // context, so the preview falls back to raw N slots from
+    // start_date (no skip-claimed). The scope-picker preview that the
+    // user sees on Apply uses the skip-claimed variant — see pickScope.
+    const r = await previewPlan(editing.value.id, 10)
+    previewSlots.value = r.slots
   } catch (e: any) {
     showError(e?.data?.detail || 'Preview failed')
   }
@@ -4937,12 +4942,21 @@ async function pickScope(opt: ScopeOption) {
   scopePicker.previewRows = []
   scopePicker.previewPastSlots = 0
   try {
-    const slots = await previewPlan(plan.id, opt.count)
+    // v1.0.42 — pass `opt.episodeCodes` so the preview slots match the
+    // skip-claimed-slots logic Apply uses. Without this, the preview
+    // would show "TN0006 → Mon-1, TN0007 → Mon-2" but Apply would
+    // actually skip Mon-1 (already claimed by TN0001) and use Mon-6 +
+    // Mon-7 — confusing.
+    const r = await previewPlan(plan.id, opt.count, opt.episodeCodes)
+    const slots = r.slots
     if (!slots || slots.length < opt.count) {
       // computeSlots can return fewer than `count` if the plan's end_date
-      // truncates the slot stream. Surface clearly so the user sees what
-      // would actually happen.
-      scopePicker.previewError = `Plan only produces ${slots?.length ?? 0} slot(s) for ${opt.count} episode(s). Edit the plan’s end_date or pick a smaller scope.`
+      // truncates the slot stream OR if skip-claimed exhausted the
+      // 2-year horizon before yielding enough free slots. Either way,
+      // surface clearly so the user sees what would actually happen.
+      scopePicker.previewError = r.claimed_slots_skipped > 0
+        ? `Plan only produces ${slots?.length ?? 0} free slot(s) for ${opt.count} episode(s) — ${r.claimed_slots_skipped} time(s) skipped because other episodes already claim them. Extend the plan's end_date, increase slot density, or unschedule existing episodes first.`
+        : `Plan only produces ${slots?.length ?? 0} slot(s) for ${opt.count} episode(s). Edit the plan's end_date or pick a smaller scope.`
     }
     const now = Date.now()
     const rows: ScopePreviewRow[] = []

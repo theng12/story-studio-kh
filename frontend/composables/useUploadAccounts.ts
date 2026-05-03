@@ -468,9 +468,29 @@ export function useUploadAccounts(slug: string) {
     await loadPlans()
   }
 
-  async function previewPlan(id: string, count: number): Promise<string[]> {
-    const r = await post<{ slots: string[] }>(`/projects/${slug}/upload/plans/${id}/preview`, { count })
-    return r.slots || []
+  /**
+   * Preview the plan's next slots. When `episode_codes` is supplied, the
+   * backend skips slots already claimed by OTHER episodes (target codes
+   * release their existing slots so they can re-claim them) — match for
+   * the apply behaviour shipped in v1.0.42. Without `episode_codes`, the
+   * preview shows raw N slots from the plan's start_date (the standalone
+   * "what does this plan look like?" tester case).
+   */
+  async function previewPlan(
+    id: string,
+    count: number,
+    episode_codes?: string[],
+  ): Promise<{ slots: string[]; claimed_slots_skipped: number }> {
+    const body: Record<string, unknown> = { count }
+    if (episode_codes && episode_codes.length) body.episode_codes = episode_codes
+    const r = await post<{ slots: string[]; claimed_slots_skipped?: number }>(
+      `/projects/${slug}/upload/plans/${id}/preview`,
+      body,
+    )
+    return {
+      slots: r.slots || [],
+      claimed_slots_skipped: r.claimed_slots_skipped || 0,
+    }
   }
 
   async function applyPlan(id: string, episode_codes: string[]): Promise<{

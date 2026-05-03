@@ -130,8 +130,20 @@ export async function removePlan(slug: string, id: string): Promise<boolean> {
 // N ISO 8601 timestamps (UTC) for the next N slots starting at
 // `schedule.start_date` (or "today in tz"). Caps at `end_date` when set;
 // returns fewer than N if the stream runs out.
+//
+// `skipClaimed` (v1.0.42) — when supplied, slots whose ISO timestamp
+// matches any string in the set are skipped over instead of emitted.
+// Use this to make repeat-applies of a plan land in the next FREE
+// slot rather than re-claiming an already-scheduled time. Episodes
+// being re-scheduled by the current apply should be subtracted from
+// the set BEFORE passing in (the route layer handles that — see
+// /upload/plans/:id/apply).
 
-export function computeSlots(schedule: UploadSchedule, count: number): string[] {
+export function computeSlots(
+  schedule: UploadSchedule,
+  count: number,
+  skipClaimed?: ReadonlySet<string>,
+): string[] {
   // Validate the timezone up front so `new Intl.DateTimeFormat({ timeZone })`
   // never throws mid-loop. An invalid tz (typo, legacy "America/Buenos_Aires"
   // style) falls back to UTC so compute proceeds with reasonable behavior
@@ -177,7 +189,13 @@ export function computeSlots(schedule: UploadSchedule, count: number): string[] 
     }
 
     if (matches) {
-      slots.push(isoAtTz(cursor, hh, mm, tz))
+      const candidate = isoAtTz(cursor, hh, mm, tz)
+      // Skip already-claimed slots — see header comment. The walk
+      // continues so the next match keeps the user's chosen rhythm
+      // instead of compressing all skipped occurrences into one.
+      if (!skipClaimed || !skipClaimed.has(candidate)) {
+        slots.push(candidate)
+      }
     }
 
     cursor = addDays(cursor, 1)
