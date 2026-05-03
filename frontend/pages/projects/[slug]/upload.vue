@@ -755,6 +755,24 @@
                           <span class="rkm-hint">Use when YouTube took this video down or you deleted it and DON'T want it back. The historical link is preserved (so audit / reconcile still works), but bulk-upload skips this row going forward.</span>
                         </div>
                       </button>
+                      <!-- Un-mark verb: clears the tombstone WITHOUT touching
+                           video_id / account_id / schedule. Counterpart to
+                           the heavier "Forget link" which wipes the whole
+                           sidecar. Right verb when the user marked deleted
+                           by accident or confirmed the video is actually
+                           fine — keeps the historical link intact. -->
+                      <button
+                        v-if="item.uploaded && item.deleted_at"
+                        class="rkm-item"
+                        role="menuitem"
+                        @click="doUnmarkDeletedUpstream(item); closeRowMenu()"
+                      >
+                        <span class="rkm-icon">↩</span>
+                        <div class="rkm-body">
+                          <strong>Un-mark deleted (keep link)</strong>
+                          <span class="rkm-hint">Clears the 🪦 tombstone without touching video_id / account / schedule. Use when you marked this row deleted by accident, or confirmed the upstream video is actually still there. To re-upload from scratch instead, use "Forget link" below.</span>
+                        </div>
+                      </button>
                       <button
                         v-if="item.uploaded"
                         class="rkm-item"
@@ -2075,6 +2093,7 @@
       <div
         v-if="scopePicker.open"
         class="scope-popover"
+        :class="{ 'scope-popover--preview': scopePicker.previewing }"
         :style="scopePopoverStyle"
         role="dialog"
         aria-label="Pick which episodes the action targets"
@@ -2084,27 +2103,85 @@
           <strong>{{ scopePicker.verb === 'apply' ? '📅 Apply' : scopePicker.verb === 'upload' ? '☁️ Upload' : '↩ Unapply' }}</strong>
           <span class="text-muted" style="font-size: 11px; margin-left: 4px;">— {{ scopePicker.plan?.name }}</span>
         </div>
-        <div v-if="scopePicker.loading" class="scope-popover-loading">
-          <LoadingSpinner size="sm" /> Counting episodes…
-        </div>
-        <div v-else class="scope-popover-list">
-          <button
-            v-for="opt in scopeOptions"
-            :key="opt.id"
-            type="button"
-            class="scope-option"
-            :disabled="opt.count === 0"
-            :title="opt.tooltip"
-            @click="runScopedAction(opt)"
-          >
-            <span class="scope-option-label">{{ opt.label }}</span>
-            <span class="scope-option-count" :class="{ zero: opt.count === 0 }">{{ opt.count }}</span>
-          </button>
-        </div>
-        <div v-if="scopePicker.verb === 'upload' && quota" class="scope-popover-foot text-muted" style="font-size: 11px;">
-          Today’s YouTube quota: {{ quota.used }} / {{ quota.block_at }} units
-          (~{{ Math.max(0, Math.floor((quota.block_at - quota.used) / 1600)) }} uploads left).
-        </div>
+
+        <!-- Step 1: scope-list (default). User picks Selection / All
+             unuploaded / Next 5 / This page. Clicking a scope option
+             advances to the preview screen for Apply / Upload verbs;
+             Unapply skips preview because it has its own confirm dialog
+             that already lists episode codes. -->
+        <template v-if="!scopePicker.previewing">
+          <div v-if="scopePicker.loading" class="scope-popover-loading">
+            <LoadingSpinner size="sm" /> Counting episodes…
+          </div>
+          <div v-else class="scope-popover-list">
+            <button
+              v-for="opt in scopeOptions"
+              :key="opt.id"
+              type="button"
+              class="scope-option"
+              :disabled="opt.count === 0"
+              :title="opt.tooltip"
+              @click="pickScope(opt)"
+            >
+              <span class="scope-option-label">{{ opt.label }}</span>
+              <span class="scope-option-count" :class="{ zero: opt.count === 0 }">{{ opt.count }}</span>
+            </button>
+          </div>
+          <div v-if="scopePicker.verb === 'upload' && quota" class="scope-popover-foot text-muted" style="font-size: 11px;">
+            Today’s YouTube quota: {{ quota.used }} / {{ quota.block_at }} units
+            (~{{ Math.max(0, Math.floor((quota.block_at - quota.used) / 1600)) }} uploads left).
+          </div>
+        </template>
+
+        <!-- Step 2: preview (Item D). Shows the episode → slot mapping the
+             plan would produce against the chosen scope, so the user can
+             confirm it's the schedule they meant before any state writes
+             or YouTube PATCHes happen. computeSlots is the same pure
+             function the backend uses, so the preview is exact, not an
+             approximation. -->
+        <template v-else>
+          <div v-if="scopePicker.previewLoading" class="scope-popover-loading">
+            <LoadingSpinner size="sm" /> Computing slot mapping…
+          </div>
+          <template v-else>
+            <div class="scope-preview-summary">
+              <strong>{{ scopePicker.previewing.count }}</strong> episode{{ scopePicker.previewing.count === 1 ? '' : 's' }}
+              <span class="text-muted">· scope: {{ scopePicker.previewing.label }}</span>
+            </div>
+            <div v-if="scopePicker.previewError" class="scope-preview-error">
+              ⚠ {{ scopePicker.previewError }}
+            </div>
+            <div v-if="scopePicker.previewPastSlots > 0" class="scope-preview-warn">
+              ⚠ {{ scopePicker.previewPastSlots }} slot(s) land in the past — Apply will reject these. Edit the plan’s start_date or skip those episodes.
+            </div>
+            <div class="scope-preview-list">
+              <div
+                v-for="(row, idx) in scopePicker.previewRows.slice(0, 10)"
+                :key="row.episode_code + idx"
+                class="scope-preview-row"
+                :class="{ 'is-past': row.is_past }"
+              >
+                <span class="scope-preview-code">{{ row.episode_code }}</span>
+                <span class="scope-preview-arrow text-muted">→</span>
+                <span class="scope-preview-slot">{{ row.slot_label }}</span>
+              </div>
+              <div v-if="scopePicker.previewRows.length > 10" class="scope-preview-more text-muted">
+                + {{ scopePicker.previewRows.length - 10 }} more
+              </div>
+            </div>
+            <div class="scope-preview-actions">
+              <button type="button" class="btn btn-ghost btn-sm" @click="cancelScopePreview">← Back</button>
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="!!scopePicker.previewError"
+                @click="confirmScopePreview"
+              >
+                {{ scopePicker.verb === 'upload' ? `☁️ Upload ${scopePicker.previewing.count}` : `📅 Apply to ${scopePicker.previewing.count}` }}
+              </button>
+            </div>
+          </template>
+        </template>
       </div>
     </Teleport>
 
@@ -2201,6 +2278,7 @@ const {
   syncQueueFromYoutube,
   resetUploadState,
   markDeletedUpstream,
+  unmarkDeletedUpstream,
   orphans,
   orphansNextNumber,
   orphansAlreadyLinked,
@@ -2283,6 +2361,42 @@ const queueFilterString = computed(() => {
   return parts.length ? parts.join(',') : 'all'
 })
 
+/**
+ * Tracks whether the user has explicitly dismissed the 🪦 chip this
+ * session. The auto-activate logic (G) won't re-enable the chip while
+ * this is true — toggling it back on resets the flag. Avoids the chip
+ * fighting the user when they say "yes I see the tombstones, hide them".
+ */
+const tombstoneChipManuallyDismissed = ref(false)
+
+/**
+ * Auto-activate the 🪦 "Deleted upstream" chip when the project has at
+ * least one tombstoned row, UNLESS the user has manually dismissed it
+ * this session. This makes takedowns surface immediately after
+ * sync-from-youtube auto-tombstones them, instead of hiding behind a
+ * default-off filter.
+ *
+ * We can't just watch queueItems for `.deleted_at` — the default filter
+ * (Ready + Uploaded·local kept) excludes tombstoned rows, so they never
+ * appear in queueItems to be detected. Instead, do a lightweight
+ * `ids_only` fetch with the deleted_upstream filter whenever the queue
+ * reloads. Single round-trip, no enrichment cost.
+ */
+async function detectTombstonedAndAutoActivateChip() {
+  if (tombstoneChipManuallyDismissed.value) return
+  if (queueStateFilters.has('deleted_upstream')) return
+  try {
+    const r = await fetchQueueEpisodeCodes({ filter: 'deleted_upstream' })
+    if ((r.episode_codes?.length || 0) > 0) {
+      queueStateFilters.add('deleted_upstream')
+    }
+  } catch { /* tolerate — chip stays off, user can toggle manually */ }
+}
+watch(queueItems, () => {
+  // Fire-and-forget; the await would loop the watcher.
+  void detectTombstonedAndAutoActivateChip()
+})
+
 interface FilterChip {
   id: 'ready' | 'uploaded_local' | 'uploaded_freed' | 'deleted_upstream' | 'imports' | 'scheduled'
   kind: 'state' | 'overlay'
@@ -2301,8 +2415,16 @@ const QUEUE_FILTER_CHIPS: FilterChip[] = [
 
 function toggleQueueFilter(chip: FilterChip) {
   const set = chip.kind === 'state' ? queueStateFilters : queueOverlayFilters
-  if (set.has(chip.id)) set.delete(chip.id)
-  else set.add(chip.id)
+  if (set.has(chip.id)) {
+    set.delete(chip.id)
+    // Track manual-off for the tombstone chip so the auto-activate logic
+    // (G) doesn't immediately re-enable it after the user explicitly
+    // dismissed it. Re-arms when the user manually turns it back on.
+    if (chip.id === 'deleted_upstream') tombstoneChipManuallyDismissed.value = true
+  } else {
+    set.add(chip.id)
+    if (chip.id === 'deleted_upstream') tombstoneChipManuallyDismissed.value = false
+  }
 }
 function isQueueFilterActive(chip: FilterChip): boolean {
   const set = chip.kind === 'state' ? queueStateFilters : queueOverlayFilters
@@ -2854,6 +2976,12 @@ watch(activeTab, (tab) => {
     if (!orphans.value.length && !orphansError.value && youtubeAccounts.value.length) {
       loadOrphans()
     }
+    // Item F: auto-Sync from YouTube on a 24h cooldown. Catches takedowns
+    // / drift / tombstones automatically so the user never sits on stale
+    // state. Cooldown stored in localStorage per (project, account) pair
+    // so navigating between projects doesn't re-fire constantly. Cost is
+    // bounded by sidecar count (one quota unit per linked video).
+    autoSyncFromYoutubeIfStale()
   }
   if (tab === 'plans' && !plans.value.length) loadPlans()
   if (tab === 'playlists' && !playlists.value.length) loadPlaylists()
@@ -3941,6 +4069,12 @@ interface ScopeOption {
   episodeCodes: string[]
   tooltip: string
 }
+interface ScopePreviewRow {
+  episode_code: string
+  slot_iso: string
+  slot_label: string
+  is_past: boolean
+}
 const scopePicker = reactive<{
   open: boolean
   plan: any | null
@@ -3948,6 +4082,16 @@ const scopePicker = reactive<{
   loading: boolean
   allUnuploadedCodes: string[]
   anchor: { left: number; top: number }
+  // Item D — preview state. When `previewing` is set, the popover swaps
+  // from the scope-list to the preview screen for that scope. `previewRows`
+  // is the episode → computed slot mapping, derived from the same
+  // computeSlots logic the backend uses (via /upload/plans/:id/preview),
+  // so the preview is exact rather than approximate.
+  previewing: ScopeOption | null
+  previewLoading: boolean
+  previewRows: ScopePreviewRow[]
+  previewPastSlots: number
+  previewError: string
 }>({
   open: false,
   plan: null,
@@ -3955,6 +4099,11 @@ const scopePicker = reactive<{
   loading: false,
   allUnuploadedCodes: [],
   anchor: { left: 0, top: 0 },
+  previewing: null,
+  previewLoading: false,
+  previewRows: [],
+  previewPastSlots: 0,
+  previewError: '',
 })
 const scopeBusyPlanId = ref('')
 
@@ -4076,9 +4225,90 @@ async function openPlanScopePicker(ev: MouseEvent, plan: any, verb: PlanVerb) {
   }
 }
 
+function resetScopePreview() {
+  scopePicker.previewing = null
+  scopePicker.previewLoading = false
+  scopePicker.previewRows = []
+  scopePicker.previewPastSlots = 0
+  scopePicker.previewError = ''
+}
+
 function closePlanScopePicker() {
   scopePicker.open = false
   scopePicker.plan = null
+  resetScopePreview()
+}
+
+/**
+ * Item D — when a scope is picked, advance to the preview screen for
+ * Apply / Upload (so the user sees the exact episode → slot mapping
+ * before any state writes / YouTube PATCHes). Unapply skips the preview
+ * because its existing confirm dialog already lists episode codes.
+ */
+async function pickScope(opt: ScopeOption) {
+  const plan = scopePicker.plan
+  if (!plan || opt.count === 0) return
+  if (scopePicker.verb === 'unapply') {
+    // Unapply has its own confirm dialog — skip preview.
+    runScopedAction(opt)
+    return
+  }
+  scopePicker.previewing = opt
+  scopePicker.previewLoading = true
+  scopePicker.previewError = ''
+  scopePicker.previewRows = []
+  scopePicker.previewPastSlots = 0
+  try {
+    const slots = await previewPlan(plan.id, opt.count)
+    if (!slots || slots.length < opt.count) {
+      // computeSlots can return fewer than `count` if the plan's end_date
+      // truncates the slot stream. Surface clearly so the user sees what
+      // would actually happen.
+      scopePicker.previewError = `Plan only produces ${slots?.length ?? 0} slot(s) for ${opt.count} episode(s). Edit the plan’s end_date or pick a smaller scope.`
+    }
+    const now = Date.now()
+    const rows: ScopePreviewRow[] = []
+    let past = 0
+    for (let i = 0; i < opt.episodeCodes.length; i++) {
+      const code = opt.episodeCodes[i]
+      const iso = slots[i]
+      if (!iso) {
+        rows.push({ episode_code: code, slot_iso: '', slot_label: '— no slot —', is_past: false })
+        continue
+      }
+      const isPast = new Date(iso).getTime() < now - 60_000
+      if (isPast) past++
+      rows.push({
+        episode_code: code,
+        slot_iso: iso,
+        slot_label: new Date(iso).toLocaleString(undefined, {
+          weekday: 'short', month: 'short', day: 'numeric',
+          hour: 'numeric', minute: '2-digit',
+        }),
+        is_past: isPast,
+      })
+    }
+    scopePicker.previewRows = rows
+    scopePicker.previewPastSlots = past
+  } catch (e: any) {
+    scopePicker.previewError = e?.data?.detail || e?.message || 'Could not compute slot mapping'
+  } finally {
+    scopePicker.previewLoading = false
+  }
+}
+
+/** Item D — back to the scope list without committing. */
+function cancelScopePreview() {
+  resetScopePreview()
+}
+
+/** Item D — commit the previewed scope. Reuses the existing run path. */
+function confirmScopePreview() {
+  if (!scopePicker.previewing) return
+  const opt = scopePicker.previewing
+  // Don't reset state here; runScopedAction calls closePlanScopePicker which
+  // resets via the closer, so order doesn't matter.
+  runScopedAction(opt)
 }
 
 async function runScopedAction(opt: ScopeOption) {
@@ -4581,14 +4811,55 @@ function closeSchedulePopoverForce() {
 }
 
 const ytSyncing = ref(false)
-async function doSyncFromYoutube() {
+
+/**
+ * Item F — auto-fire sync-from-YouTube once per 24h per project on Queue
+ * tab entry. Skips when:
+ *   - the project has no uploaded sidecars (nothing to sync)
+ *   - the last auto-sync was less than 24h ago
+ *   - the user is currently running a manual sync
+ *   - YouTube isn't connected for this project
+ *
+ * Cooldown lives in localStorage so it survives reloads but doesn't need
+ * a backend round-trip. Manual "Sync from YouTube" button clicks (via
+ * doSyncFromYoutube) also stamp the cooldown so we don't double-fire.
+ */
+const AUTO_SYNC_COOLDOWN_MS = 24 * 60 * 60 * 1000   // 24h
+function autoSyncStorageKey() { return `upload:lastAutoSync:${slug.value}` }
+function readLastAutoSync(): number {
+  try { return Number(localStorage.getItem(autoSyncStorageKey()) || '0') || 0 }
+  catch { return 0 }
+}
+function stampLastAutoSync() {
+  try { localStorage.setItem(autoSyncStorageKey(), String(Date.now())) } catch { /* private mode etc. */ }
+}
+function autoSyncFromYoutubeIfStale() {
+  if (ytSyncing.value) return
+  if (!youtubeAccounts.value.length) return
+  if (Date.now() - readLastAutoSync() < AUTO_SYNC_COOLDOWN_MS) return
+  // The backend's sync-from-youtube short-circuits when there are no
+  // sidecars to check ({ checked: 0, ... }), so we don't pre-filter on
+  // queueItems — that filter is page-scoped and can hide uploaded rows
+  // (e.g. when the user has only `ready,uploaded_local` chips on but
+  // their queue is all `uploaded_freed`). Fire-and-forget; the silent
+  // mode keeps no-ops from popping toasts.
+  void doSyncFromYoutube({ silent: true })
+}
+
+async function doSyncFromYoutube(opts: { silent?: boolean } = {}) {
+  // `silent` mode (used by the 24h auto-sync) suppresses no-op toasts
+  // ("nothing to sync", "all up to date") so the auto path doesn't nag
+  // the user every time they open the Queue tab. Drift updates and
+  // tombstones still surface — those are the whole point.
+  const silent = !!opts.silent
   ytSyncing.value = true
   try {
     const r = await syncQueueFromYoutube()
+    stampLastAutoSync()   // also satisfies the cooldown for manual runs
     if (r.checked === 0) {
-      success('No uploaded rows to sync.')
+      if (!silent) success('No uploaded rows to sync.')
     } else if (r.updated === 0) {
-      success(`Checked ${r.checked} row(s) — all up to date.`)
+      if (!silent) success(`Checked ${r.checked} row(s) — all up to date.`)
     } else {
       // Build a short human-readable diff list (capped at 3 entries) so the
       // toast tells the user *what* changed without dumping a wall of text.
@@ -4615,7 +4886,7 @@ async function doSyncFromYoutube() {
       showError(`🪦 ${r.tombstoned.length} video(s) gone from YouTube and tombstoned: ${codes}${more}. Filter by "Deleted upstream" to review.`)
     }
   } catch (e: any) {
-    showError(e?.data?.detail || 'Sync from YouTube failed')
+    if (!silent) showError(e?.data?.detail || 'Sync from YouTube failed')
   } finally {
     ytSyncing.value = false
   }
@@ -4691,6 +4962,27 @@ async function doResetUploadState(item: any) {
  * when the video was taken down / removed and the user does NOT want
  * Story Studio to re-upload the local final.
  */
+/**
+ * Counterpart to doMarkDeletedUpstream — clears the tombstone without
+ * touching the rest of the sidecar. The "Forget link" verb wipes the
+ * whole sidecar, which is wrong when the user just wants to un-do an
+ * accidental tombstone (or when sync-from-youtube tombstoned a row that
+ * turned out to be fine after all).
+ */
+async function doUnmarkDeletedUpstream(item: any) {
+  try {
+    const r = await unmarkDeletedUpstream(item.episode_code)
+    if (r.already_unmarked) {
+      success(`${item.episode_code} wasn't tombstoned — no change.`)
+    } else {
+      success(`↩ Un-marked ${item.episode_code} — link preserved.`)
+    }
+    await loadQueue('youtube')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Un-mark failed')
+  }
+}
+
 async function doMarkDeletedUpstream(item: any) {
   const ok = await ask({
     title: `Mark ${item.episode_code} as deleted upstream?`,
@@ -6264,6 +6556,81 @@ td.col-actions > a.btn {
   margin-top: 2px;
 }
 .plan-action-btn { white-space: nowrap; }
+
+/* Item D — Apply preview panel inside the scope popover. Wider variant
+   when previewing so the episode → slot rows fit. */
+.scope-popover.scope-popover--preview { width: 360px; }
+.scope-preview-summary {
+  font-size: 13px;
+  padding: 0 2px 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.scope-preview-warn {
+  font-size: 11px;
+  padding: 6px 8px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: rgb(180, 83, 9);
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+.scope-preview-error {
+  font-size: 11px;
+  padding: 6px 8px;
+  background: rgba(220, 38, 38, 0.12);
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  color: rgb(190, 18, 60);
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+.scope-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px;
+  margin-bottom: 6px;
+}
+.scope-preview-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 6px;
+  font-size: 12px;
+  border-radius: 3px;
+}
+.scope-preview-row.is-past {
+  background: rgba(220, 38, 38, 0.08);
+  color: rgb(190, 18, 60);
+}
+.scope-preview-code {
+  font-family: 'JetBrains Mono', SFMono-Regular, Menlo, Monaco, monospace;
+  font-weight: 600;
+}
+.scope-preview-arrow { font-size: 11px; }
+.scope-preview-slot {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scope-preview-more {
+  padding: 4px 6px;
+  font-size: 11px;
+  text-align: center;
+}
+.scope-preview-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
 
 /* Upload Plan modal — opens from the Queue tab's quick-apply button.
    Lighter weight than the schedule modal: no form inputs, just a plan

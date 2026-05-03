@@ -588,6 +588,21 @@ export function useUploadAccounts(slug: string) {
     )
   }
 
+  /**
+   * Un-mark a tombstoned row WITHOUT wiping the sidecar. Clears `deleted_at`
+   * and `deleted_reason` only — the video_id, account_id, schedule, etc.
+   * stay intact. Right verb when the user marked deleted by accident or
+   * confirmed the upstream video is actually fine. Counterpart to the
+   * heavier-handed `resetUploadState` ("Forget link"), which throws away
+   * the whole sidecar.
+   */
+  async function unmarkDeletedUpstream(episode_code: string, platform: UploadPlatform = 'youtube') {
+    return post<{ ok: true; cleared?: boolean; already_unmarked?: boolean }>(
+      `/projects/${slug}/upload/queue/${encodeURIComponent(episode_code)}/mark-deleted`,
+      { platform, clear: true },
+    )
+  }
+
   // ── Per-item schedule ops (A2) ────────────────────────────────────────
   async function editSchedule(episode_code: string, publish_at: string) {
     const r = await fetch(`/api/projects/${slug}/upload/queue/${encodeURIComponent(episode_code)}/schedule`, {
@@ -848,6 +863,7 @@ export function useUploadAccounts(slug: string) {
     syncQueueFromYoutube,
     resetUploadState,
     markDeletedUpstream,
+    unmarkDeletedUpstream,
     orphans,
     orphansNextNumber,
     orphansAlreadyLinked,

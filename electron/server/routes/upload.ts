@@ -1656,6 +1656,12 @@ router.post('/projects/:slug/upload/queue/:episode_code/mark-deleted', async (re
     if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const code = req.params.episode_code
     const platform = readPlatform(req.body?.platform) || 'youtube'
+    // `clear: true` un-marks a tombstoned row WITHOUT touching the rest of
+    // the sidecar. Right verb when the user marked deleted by accident or
+    // when they confirmed the upstream video is actually fine after all.
+    // The existing "Forget link" path wipes the sidecar entirely; this is
+    // the lighter-touch counterpart.
+    const clear = req.body?.clear === true
 
     const ideas = await im.getIdeas(slug, 'accepted')
     const idea = ideas.find(i => (i.episode_code || '') === code)
@@ -1664,7 +1670,22 @@ router.post('/projects/:slug/upload/queue/:episode_code/mark-deleted', async (re
     const { readSidecar: peek, writeSidecar } = await import('../services/upload-sidecar.js')
     const sidecar = await peek(slug, code, idea.title || '', platform)
     if (!sidecar) {
-      return res.status(400).json({ detail: `Episode ${code} has no upload sidecar — nothing to mark as deleted. Use Reset if the row is already in a confused state.` })
+      return res.status(400).json({ detail: `Episode ${code} has no upload sidecar — nothing to ${clear ? 'un-mark' : 'mark as deleted'}. Use Reset if the row is already in a confused state.` })
+    }
+    if (clear) {
+      if (!sidecar.deleted_at) {
+        // Idempotent — un-marking a row that isn't tombstoned is a no-op.
+        return res.json({ ok: true, already_unmarked: true })
+      }
+      const now = new Date().toISOString()
+      await writeSidecar(slug, code, idea.title || '', {
+        ...sidecar,
+        deleted_at: null,
+        deleted_reason: undefined,
+        last_sync_at: now,
+      })
+      queueIndexCache.delete(queueCacheKey(slug, platform))
+      return res.json({ ok: true, cleared: true })
     }
     if (sidecar.deleted_at) {
       // Idempotent — re-marking is a no-op so the user can click without fear.
@@ -1680,7 +1701,7 @@ router.post('/projects/:slug/upload/queue/:episode_code/mark-deleted', async (re
     queueIndexCache.delete(queueCacheKey(slug, platform))
     res.json({ ok: true, deleted_at: now })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to mark video as deleted upstream'))
+    res.status(500).json(humanizeBackendError(e, 'Failed to mark/un-mark video as deleted upstream'))
   }
 })
 
