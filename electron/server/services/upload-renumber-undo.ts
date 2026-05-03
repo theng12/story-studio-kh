@@ -218,6 +218,24 @@ export async function revertRenumber(slug: string): Promise<RevertResult> {
         }
       }
 
+      // v1.0.43: clean up the external-root dir for the same code if
+      // the user happened to render / drop a final video under the
+      // adopted orphan. Without this, the external subtree gets
+      // a permanent orphaned dir that won't match any current
+      // episode_code lookup.
+      try {
+        const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
+        const extDir = await resolveExternalFinalVideoDir(slug, adopt.code, idea.title || '')
+        if (extDir && existsSync(extDir)) {
+          try { await fs.rm(extDir, { recursive: true, force: true }) }
+          catch (e: any) {
+            result.errors.push({ stage: `remove external ${adopt.code}`, detail: e?.message || 'rm failed' })
+          }
+        }
+      } catch (e: any) {
+        result.errors.push({ stage: `remove external ${adopt.code}`, detail: e?.message || 'external cleanup failed' })
+      }
+
       await im.removeIdea(slug, idea.id)
       result.removed_adoptions.push({ code: adopt.code, video_id: adopt.video_id, idea_id: idea.id })
     } catch (e: any) {
@@ -310,6 +328,20 @@ export async function revertRenumber(slug: string): Promise<RevertResult> {
           await rewriteSelectedThumbnailOnRename(slug, r.old_code, title, r.new_code)
         } catch (e: any) {
           result.errors.push({ stage: `rewrite pin ${r.new_code} → ${r.old_code}`, detail: e?.message || 'pin rewrite failed' })
+        }
+        // v1.0.43: revert the external-root mirror dir + inner
+        // files. Direction reversed from the forward rename: source
+        // is the new code (current location after the original
+        // adoption / compact / renumber), target is the old code
+        // (where we're rolling back to).
+        try {
+          const { renameExternalEpisodeDir } = await import('./external-video-store.js')
+          const ext = await renameExternalEpisodeDir(slug, r.new_code, r.old_code, title)
+          if (ext.attempted && !ext.renamed && ext.detail) {
+            result.errors.push({ stage: `external revert ${r.new_code} → ${r.old_code}`, detail: ext.detail })
+          }
+        } catch (e: any) {
+          result.errors.push({ stage: `external revert ${r.new_code} → ${r.old_code}`, detail: e?.message || 'external revert failed' })
         }
         result.reverted_folders.push({ from_dir: fromPaths.episode_dir, to_dir: toPaths.episode_dir })
       }

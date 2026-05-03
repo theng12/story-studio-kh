@@ -522,6 +522,17 @@ been done across versions.
   on idea remove / dismiss / accept / reset, plus the ↻ Refresh button
   now passes `?nocache=1` so it actually re-scans instead of returning
   the cached snapshot.
+- **v1.0.43** (2026-05-04) — External root rename cascade: every code-
+  changing operation (Compact codes, single Renumber, orphan-renumber
+  bulk, and the renumber-undo revert) now also renames the matching
+  folder + inner files inside `external_final_video_root` when
+  configured. Closes a silent reliability bug where renamed episodes
+  couldn't find their final video at upload time because the external
+  mirror still carried the old code. Failures are non-fatal warnings
+  (drive unmounted / unset on this machine / cross-fs EXDEV → all
+  surfaced in the result's errors array, project-tree state stays
+  correct). Revert path also cleans up external dirs left behind by
+  adopted orphans being undone.
 - **v1.0.42** (2026-05-04) — Apply-plan skip-claimed-slots: repeat
   applies of a plan now SKIP timestamps already claimed by other
   episodes instead of double-booking them. Episodes inside the apply

@@ -128,3 +128,153 @@ export async function externalRootIsReachable(): Promise<{ ok: boolean; root: st
   }
   return { ok: true, root }
 }
+
+// ── External rename cascade (v1.0.43) ─────────────────────────────────────
+//
+// All in-project rename ops (Compact, single Renumber, orphan-renumber,
+// and their reverts) walk the project tree to update folders + asset
+// filenames when an episode_code changes. Until v1.0.43 they didn't
+// touch the external root mirror — so any episode whose final video
+// lived in `external_final_video_root/{slug}/Season NNN/{code} - {title}/`
+// kept its OLD code in the path. The next upload of that episode
+// then failed with "No final video file found" because the resolver
+// looked at the new code's external path and got an empty dir.
+//
+// `renameExternalEpisodeDir` closes that gap. Each rename caller
+// invokes it after the project-tree rename succeeds. Failures are
+// non-fatal: external root might be unmounted, on a different
+// filesystem (USB / NAS), or unset entirely on this machine — none
+// of those should block the project-tree rename, which is the more
+// load-bearing path. Callers should append any returned error
+// message to their result's `errors` array so the user can see what
+// didn't migrate.
+
+export interface RenameExternalResult {
+  /** True when the external root is configured AND the old dir existed. */
+  attempted: boolean
+  /** True when the actual rename + inner file walk succeeded. */
+  renamed: boolean
+  /** Resolved path the rename moved FROM (or null when not attempted). */
+  from_dir: string | null
+  /** Resolved path the rename moved TO. */
+  to_dir: string | null
+  /** Human-readable reason when something didn't go through. */
+  detail?: string
+}
+
+/**
+ * Rename the external mirror dir for one episode + its inner files.
+ *
+ * Three reasons this might no-op (all return `attempted: false`):
+ *   1. No external root configured on this machine — fine, project
+ *      data is still consistent and other machines that DO have the
+ *      external root configured will see the renamed code via
+ *      resolveExternalFinalVideoDir on next access.
+ *   2. Old dir doesn't exist — the user hasn't rendered to external
+ *      yet for this episode, or already manually moved it. Either
+ *      way, nothing to do.
+ *   3. Old + new dirs resolve to the same path (caller passed
+ *      identical codes) — guard against silent destructive renames.
+ *
+ * EXDEV (cross-filesystem) is handled by recursive copy + rm —
+ * matches the same fallback every other rename helper uses.
+ */
+export async function renameExternalEpisodeDir(
+  slug: string,
+  oldCode: string,
+  newCode: string,
+  title: string,
+): Promise<RenameExternalResult> {
+  if (oldCode === newCode) {
+    return { attempted: false, renamed: false, from_dir: null, to_dir: null, detail: 'old_code === new_code' }
+  }
+  const oldDir = await resolveExternalFinalVideoDir(slug, oldCode, title)
+  const newDir = await resolveExternalFinalVideoDir(slug, newCode, title)
+  if (!oldDir || !newDir) {
+    return { attempted: false, renamed: false, from_dir: oldDir, to_dir: newDir, detail: 'External final video root is not configured on this machine.' }
+  }
+  if (!existsSync(oldDir)) {
+    return { attempted: false, renamed: false, from_dir: oldDir, to_dir: newDir, detail: 'No external dir for this episode — skipping.' }
+  }
+
+  try {
+    await fs.mkdir(path.dirname(newDir), { recursive: true })
+    try {
+      await fs.rename(oldDir, newDir)
+    } catch (e: any) {
+      if (e?.code === 'EXDEV') {
+        // Cross-filesystem fallback — same pattern as upload-orphans.ts.
+        await copyDirRecursive(oldDir, newDir)
+        await fs.rm(oldDir, { recursive: true, force: true })
+      } else if (e?.code === 'ENOTEMPTY' || e?.code === 'EEXIST' || e?.code === 'EISDIR') {
+        return {
+          attempted: true, renamed: false, from_dir: oldDir, to_dir: newDir,
+          detail: `Target external dir already exists at ${newDir}. Move or delete it manually, then re-run.`,
+        }
+      } else {
+        throw e
+      }
+    }
+    // Per-file rename inside the new dir — the external root only
+    // holds the final video + its supporting files (transcript,
+    // thumbnail copy if the user pinned one), so this is shallow.
+    // Recurse one level for any subfolder the user happened to
+    // create (e.g. side-by-side captions/) — same pattern the
+    // project-tree helper uses.
+    await renameCodeScopedFilesIn(newDir, oldCode, newCode)
+
+    return { attempted: true, renamed: true, from_dir: oldDir, to_dir: newDir }
+  } catch (e: any) {
+    return {
+      attempted: true, renamed: false, from_dir: oldDir, to_dir: newDir,
+      detail: e?.message || 'External rename failed',
+    }
+  }
+}
+
+async function copyDirRecursive(src: string, dest: string): Promise<void> {
+  await fs.mkdir(dest, { recursive: true })
+  const entries = await fs.readdir(src, { withFileTypes: true })
+  for (const e of entries) {
+    const s = path.join(src, e.name)
+    const d = path.join(dest, e.name)
+    if (e.isDirectory()) await copyDirRecursive(s, d)
+    else if (e.isFile()) await fs.copyFile(s, d)
+  }
+}
+
+async function renameCodeScopedFilesIn(dir: string, oldCode: string, newCode: string): Promise<void> {
+  if (!existsSync(dir)) return
+  const entries = await fs.readdir(dir, { withFileTypes: true })
+  // Files at the top level: `{oldCode}_final.mp4`, `{oldCode}_Thumb01_v1.png`, etc.
+  for (const e of entries) {
+    if (!e.isFile()) continue
+    if (!e.name.startsWith(oldCode)) continue
+    const oldP = path.join(dir, e.name)
+    const newName = e.name.replace(oldCode, newCode)
+    const newP = path.join(dir, newName)
+    try { await fs.rename(oldP, newP) } catch { /* non-fatal — the external dir is already at the new path */ }
+  }
+  // One level of subfolders (rare but possible: a `captions/` or
+  // `proxy/` dir the user dropped). Subfolder NAMES with the code
+  // get rewritten too, then their inner files get scanned.
+  for (const e of entries) {
+    if (!e.isDirectory()) continue
+    let subDir = path.join(dir, e.name)
+    if (e.name.includes(oldCode)) {
+      const newSubName = e.name.replaceAll(oldCode, newCode)
+      const newSub = path.join(dir, newSubName)
+      try { await fs.rename(subDir, newSub); subDir = newSub } catch { /* leave as-is */ }
+    }
+    if (existsSync(subDir)) {
+      const inner = await fs.readdir(subDir)
+      for (const f of inner) {
+        if (!f.startsWith(oldCode)) continue
+        const oldP = path.join(subDir, f)
+        const newName = f.replace(oldCode, newCode)
+        const newP = path.join(subDir, newName)
+        try { await fs.rename(oldP, newP) } catch { /* non-fatal */ }
+      }
+    }
+  }
+}

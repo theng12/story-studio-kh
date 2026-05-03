@@ -162,6 +162,21 @@ export async function renameAcceptedEpisode(
     warnings.push(`pin rewrite failed: ${e?.message || e}`)
   }
 
+  // 6c. Rename the external-root mirror dir + inner files (v1.0.43).
+  //     Without this, `findFinalVideoPath` in the upload generator
+  //     would look at the new code's external path and miss the
+  //     final video that's still parked at the old code's path —
+  //     uploads silently fail with "No final video file found".
+  try {
+    const { renameExternalEpisodeDir } = await import('./external-video-store.js')
+    const ext = await renameExternalEpisodeDir(slug, source.episode_code!, canonicalNew, source.title || '')
+    if (ext.attempted && !ext.renamed && ext.detail) {
+      warnings.push(`external rename: ${ext.detail}`)
+    }
+  } catch (e: any) {
+    warnings.push(`external rename failed: ${e?.message || e}`)
+  }
+
   // 7. Atomic ideas.json patch via the helper that ALSO runs auto-heal,
   //    so the old code becomes a recyclable gap and any stale recycled
   //    entries get cleaned in the same write. advance_next_to keeps

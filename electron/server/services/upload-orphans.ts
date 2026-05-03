@@ -398,6 +398,18 @@ export async function adoptBulkRenumber(
       } catch (e: any) {
         errors.push({ stage: `rewrite pin ${oldCode} → ${newCode}`, detail: e?.message || 'pin rewrite failed' })
       }
+      // v1.0.43: rename the external-root mirror so the per-episode
+      // upload lookup at `external_final_video_root/{slug}/Season NNN/
+      // {newCode} - {title}/` still finds the final video.
+      try {
+        const { renameExternalEpisodeDir } = await import('./external-video-store.js')
+        const ext = await renameExternalEpisodeDir(slug, oldCode, newCode, idea.title || '')
+        if (ext.attempted && !ext.renamed && ext.detail) {
+          errors.push({ stage: `external rename ${oldCode} → ${newCode}`, detail: ext.detail })
+        }
+      } catch (e: any) {
+        errors.push({ stage: `external rename ${oldCode} → ${newCode}`, detail: e?.message || 'external rename failed' })
+      }
 
       renamed.push({
         old_code: oldCode, new_code: newCode,

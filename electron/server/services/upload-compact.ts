@@ -233,6 +233,19 @@ export async function compactAcceptedEpisodes(slug: string): Promise<CompactResu
       } catch (e: any) {
         errors.push({ stage: `rewrite pin ${r.old_code} → ${r.new_code}`, detail: e?.message || 'pin rewrite failed' })
       }
+      // v1.0.43: rename the external root mirror dir + inner files
+      // when configured. Non-fatal: external root may be unmounted
+      // or unset on this machine — project-tree state is already
+      // correct by this point.
+      try {
+        const { renameExternalEpisodeDir } = await import('./external-video-store.js')
+        const ext = await renameExternalEpisodeDir(slug, r.old_code, r.new_code, r.title)
+        if (ext.attempted && !ext.renamed && ext.detail) {
+          errors.push({ stage: `external rename ${r.old_code} → ${r.new_code}`, detail: ext.detail })
+        }
+      } catch (e: any) {
+        errors.push({ stage: `external rename ${r.old_code} → ${r.new_code}`, detail: e?.message || 'external rename failed' })
+      }
       renamed.push({
         old_code: r.old_code,
         new_code: r.new_code,
