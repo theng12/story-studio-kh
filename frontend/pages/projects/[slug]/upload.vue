@@ -2203,7 +2203,7 @@
          just go" by using a bulk verb. -->
     <Teleport to="body">
       <div v-if="uploadPreview.open" class="upload-plan-modal-backdrop" @click="closeUploadPreview" />
-      <div v-if="uploadPreview.open" class="upload-plan-modal" role="dialog" aria-label="Pre-upload preview" @click.stop style="max-width: 720px;">
+      <div v-if="uploadPreview.open" class="upload-plan-modal upload-plan-modal--preview" role="dialog" aria-label="Pre-upload preview" @click.stop>
         <div class="upload-plan-modal-header">
           <strong>{{ uploadPreview.data?.already_uploaded ? '↻ Update metadata preview' : '☁️ Upload preview' }}</strong>
           <button class="upload-plan-modal-close" type="button" title="Close" @click="closeUploadPreview">✕</button>
@@ -2555,6 +2555,16 @@
             <div v-if="scopePicker.previewPastSlots > 0" class="scope-preview-warn">
               ⚠ {{ scopePicker.previewPastSlots }} slot(s) land in the past — Apply will reject these. Edit the plan’s start_date or skip those episodes.
             </div>
+            <!-- v1.0.46 — public-skip transparency. Apply-plan refuses
+                 to PATCH already-public videos because that would
+                 silently unpublish them (privacyStatus reverts to
+                 'private' alongside publishAt). Surface the count
+                 here so the user knows N rows in their selection
+                 won't actually be touched. -->
+            <div v-if="scopePicker.previewPublicSkipCount > 0" class="scope-preview-warn">
+              👁 {{ scopePicker.previewPublicSkipCount }} public episode{{ scopePicker.previewPublicSkipCount === 1 ? '' : 's' }} will be skipped by Apply (touching them would unpublish the live videos). Use the
+              <strong>🔒 Not yet public</strong> filter chip to scope this to non-public rows only.
+            </div>
             <div class="scope-preview-list">
               <div
                 v-for="(row, idx) in scopePicker.previewRows.slice(0, 10)"
@@ -2823,7 +2833,7 @@ watch(queueItems, () => {
 })
 
 interface FilterChip {
-  id: 'ready' | 'uploaded_local' | 'uploaded_freed' | 'deleted_upstream' | 'imports' | 'scheduled'
+  id: 'ready' | 'uploaded_local' | 'uploaded_freed' | 'deleted_upstream' | 'imports' | 'scheduled' | 'public' | 'not_public'
   kind: 'state' | 'overlay'
   icon: string
   label: string
@@ -2836,6 +2846,8 @@ const QUEUE_FILTER_CHIPS: FilterChip[] = [
   { id: 'deleted_upstream', kind: 'state',   icon: '🪦', label: 'Deleted upstream',       tooltip: 'Was uploaded, then removed from YouTube (takedown, manual delete, or you marked it). Excluded from bulk-upload defaults so it doesn’t come back. Sync from YouTube auto-stamps these when it sees the video is gone.' },
   { id: 'imports',          kind: 'state',   icon: '📦', label: 'Imports',                tooltip: 'Files dropped into the project-level imports folder.' },
   { id: 'scheduled',        kind: 'overlay', icon: '📅', label: 'Scheduled',              tooltip: 'Overlay filter — combine with any state chips above to narrow to scheduled rows only.' },
+  { id: 'public',           kind: 'overlay', icon: '👁',  label: 'Public',                 tooltip: 'Overlay filter — only rows whose YouTube video is currently public. Apply-plan REFUSES to touch these (it would silently unpublish them by setting privacyStatus=private + a new publishAt).' },
+  { id: 'not_public',       kind: 'overlay', icon: '🔒', label: 'Not yet public',         tooltip: 'Overlay filter — only rows that aren’t public yet (private, unlisted, or not uploaded). The targets you actually want when re-applying a plan.' },
 ]
 
 function toggleQueueFilter(chip: FilterChip) {
@@ -2849,6 +2861,11 @@ function toggleQueueFilter(chip: FilterChip) {
   } else {
     set.add(chip.id)
     if (chip.id === 'deleted_upstream') tombstoneChipManuallyDismissed.value = false
+    // v1.0.46 — `public` and `not_public` are mutually exclusive (a row
+    // can't be both at once). Turning one on auto-untoggles the other
+    // so the user doesn't accidentally AND them into an empty list.
+    if (chip.id === 'public' && queueOverlayFilters.has('not_public')) queueOverlayFilters.delete('not_public')
+    if (chip.id === 'not_public' && queueOverlayFilters.has('public')) queueOverlayFilters.delete('public')
   }
 }
 function isQueueFilterActive(chip: FilterChip): boolean {
@@ -4332,10 +4349,12 @@ async function doApplyPlan(plan: any, episode_codes: string[]) {
     const r = await applyPlan(plan.id, episode_codes)
     const patchedOk = r.patched.filter((p: any) => p.ok).length
     const patchedFail = r.patched.length - patchedOk
+    const skippedPublic = r.skipped_public?.length || 0
     const msg = [
-      `${r.assignments.length} items scheduled`,
+      `${r.assignments.length - skippedPublic} items scheduled`,
       patchedOk ? `${patchedOk} live video(s) patched` : '',
       patchedFail ? `${patchedFail} patch failure(s)` : '',
+      skippedPublic ? `${skippedPublic} public video(s) skipped` : '',
     ].filter(Boolean).join(' · ')
     success(msg)
     await loadQueue('youtube')
@@ -4459,6 +4478,7 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
     const r = await applyPlan(plan.id, episode_codes)
     const patchedOk = r.patched.filter((p: any) => p.ok).length
     const patchedFail = r.patched.length - patchedOk
+    const skippedPublic = r.skipped_public?.length || 0
 
     // Step 2 — derive the set that needs a fresh upload.
     const patchedSet = new Set(r.patched.map((p: any) => p.episode_code))
@@ -4474,10 +4494,11 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
       // Nothing to fan out — surface what just happened so the toast
       // doesn't go silent after a click.
       const parts = [
-        `${r.assignments.length} item(s) scheduled`,
+        `${r.assignments.length - skippedPublic} item(s) scheduled`,
         patchedOk ? `${patchedOk} live video(s) patched` : '',
         patchedFail ? `${patchedFail} patch failure(s)` : '',
         skipped ? `${skipped} skipped (no final video on disk)` : '',
+        skippedPublic ? `${skippedPublic} public video(s) skipped` : '',
       ].filter(Boolean)
       success(parts.join(' · '))
       await loadQueue('youtube')
@@ -4495,9 +4516,10 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
       // what's on YouTube even though the user cancelled the bulk
       // upload step.
       const parts = [
-        `${r.assignments.length} item(s) scheduled`,
+        `${r.assignments.length - skippedPublic} item(s) scheduled`,
         patchedOk ? `${patchedOk} live video(s) patched` : '',
         patchedFail ? `${patchedFail} patch failure(s)` : '',
+        skippedPublic ? `${skippedPublic} public video(s) skipped` : '',
       ].filter(Boolean)
       success(`${parts.join(' · ')} · upload step cancelled`)
       await loadQueue('youtube')
@@ -4880,6 +4902,11 @@ const scopePicker = reactive<{
   previewLoading: boolean
   previewRows: ScopePreviewRow[]
   previewPastSlots: number
+  /** v1.0.46 — count of target codes whose YouTube video is already
+   *  public. Apply-plan skips these (Layer 2 server guard); preview
+   *  surfaces the count up-front so the user knows N rows won't
+   *  actually be touched before clicking Confirm. */
+  previewPublicSkipCount: number
   previewError: string
 }>({
   open: false,
@@ -4892,6 +4919,7 @@ const scopePicker = reactive<{
   previewLoading: false,
   previewRows: [],
   previewPastSlots: 0,
+  previewPublicSkipCount: 0,
   previewError: '',
 })
 const scopeBusyPlanId = ref('')
@@ -5036,6 +5064,7 @@ function resetScopePreview() {
   scopePicker.previewLoading = false
   scopePicker.previewRows = []
   scopePicker.previewPastSlots = 0
+  scopePicker.previewPublicSkipCount = 0
   scopePicker.previewError = ''
 }
 
@@ -5064,6 +5093,7 @@ async function pickScope(opt: ScopeOption) {
   scopePicker.previewError = ''
   scopePicker.previewRows = []
   scopePicker.previewPastSlots = 0
+  scopePicker.previewPublicSkipCount = 0
   try {
     // v1.0.42 — pass `opt.episodeCodes` so the preview slots match the
     // skip-claimed-slots logic Apply uses. Without this, the preview
@@ -5105,6 +5135,10 @@ async function pickScope(opt: ScopeOption) {
     }
     scopePicker.previewRows = rows
     scopePicker.previewPastSlots = past
+    // v1.0.46 — bring through the count of target codes whose YouTube
+    // video is already public. Apply will skip these per the Layer 2
+    // guard; the warn line in the modal reads from this value.
+    scopePicker.previewPublicSkipCount = r.public_skip_count
   } catch (e: any) {
     scopePicker.previewError = e?.data?.detail || e?.message || 'Could not compute slot mapping'
   } finally {
@@ -7894,31 +7928,57 @@ td.col-actions > a.btn {
 .rkm-body strong { font-size: 13px; font-weight: 600; }
 .rkm-hint { font-size: 11px; color: var(--text-muted); line-height: 1.35; }
 
-/* v1.0.41 — pre-upload preview modal. Reuses the upload-plan-modal
-   shell but needs a taller body for the description block + click-to-
-   expand thumbnail. The modal element itself overrides max-width
-   inline (style="max-width: 720px"); these rules govern the inner
-   layout. */
-.upload-plan-modal-body { max-height: calc(100vh - 200px); overflow-y: auto; }
+/* v1.0.41 — pre-upload preview modal. v1.0.46 — modal scales with the
+   viewport instead of capping at 720px (which cramped meta + zoomed
+   thumbnail into the same row). Wider on big screens, scales down on
+   small ones; body is taller so description / tags don't push out
+   when the thumbnail expands. */
+.upload-plan-modal--preview {
+  /* Override the base upload-plan-modal `width: 460px` with a
+     viewport-aware budget. On a 1440px Mac display this gives ~960px;
+     on a 1080p laptop ~870px; on a small Electron window it shrinks
+     gracefully. */
+  width: min(960px, calc(100vw - 48px));
+  max-width: min(960px, calc(100vw - 48px));
+  /* Taller default than the generic plan modal — the content runs
+     thumbnail → title → description → tags, so even at small zoom
+     it benefits from extra vertical room. */
+  max-height: calc(100vh - 64px);
+}
+.upload-plan-modal--preview .upload-plan-modal-body {
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+}
 .upload-preview-thumb-row {
   display: flex;
   gap: 12px;
   align-items: flex-start;
+  flex-wrap: wrap;
 }
 .upload-preview-thumb-img {
-  width: 240px;
-  height: 135px;
+  width: 320px;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
   object-fit: cover;
   border-radius: 6px;
   border: 1px solid var(--border);
   cursor: zoom-in;
-  transition: width 0.2s, height 0.2s;
+  transition: width 0.2s;
   flex-shrink: 0;
 }
 .upload-preview-thumb-img.is-expanded {
-  width: 480px;
-  height: 270px;
+  /* Expanded mode takes the FULL row width (no longer side-by-side).
+     The .is-expanded class also flips the parent into a column via
+     :has() so the meta column drops below the image instead of
+     getting squeezed to the right. Falls back gracefully in browsers
+     without :has() — the image just wraps to the next line. */
+  width: 100%;
+  max-width: 760px;
   cursor: zoom-out;
+}
+.upload-preview-thumb-row:has(.upload-preview-thumb-img.is-expanded) {
+  flex-direction: column;
 }
 .upload-preview-thumb-meta {
   flex: 1;

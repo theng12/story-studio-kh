@@ -522,6 +522,19 @@ been done across versions.
   on idea remove / dismiss / accept / reset, plus the ↻ Refresh button
   now passes `?nocache=1` so it actually re-scans instead of returning
   the cached snapshot.
+- **v1.0.46** (2026-05-04) — Public-video safety + bigger preview
+  modal: two new overlay chips (👁 Public / 🔒 Not yet public) on
+  the queue toolbar. Apply-plan **server-side** refuses to PATCH
+  rows whose sidecar carries `privacy_status: 'public'` — the prior
+  PATCH would silently unpublish a live YouTube video by setting
+  `privacyStatus: 'private'` alongside the new `publishAt`. Skips
+  are reported per-row (`skipped_public`) and surfaced in the apply
+  toast + the scope-picker preview ("👁 N public episode(s) will be
+  skipped by Apply"). Local item-schedule map also excludes public
+  codes so the queue stays in sync with reality. Pre-upload preview
+  modal scales with the viewport (`min(960px, 100vw - 48px)`) and
+  the zoomed thumbnail now flips the row into a column so meta /
+  description stay readable instead of getting squeezed.
 - **v1.0.45** (2026-05-04) — Reseason: change `season_size` and have
   every episode folder rebalanced into the new grouping in one click.
   Settings → Project → "Episodes per Group" now shows a "↻ Rebalance

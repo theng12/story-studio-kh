@@ -744,9 +744,20 @@ type QueueFilterLegacy = 'all' | 'not_uploaded' | 'uploaded' | 'scheduled' | 'fa
 // on lets the user audit/sweep without mixing them into routine bulk runs.
 type QueueStateToken = 'ready' | 'uploaded_local' | 'uploaded_freed' | 'deleted_upstream' | 'imports'
 // Overlay tokens — applied as additional AND filters on top of the state
-// union. Currently just `scheduled`; structured this way so we can grow it
-// (e.g. `failed`, `iCloud_evicted`) without re-shaping the wire format.
-type QueueOverlayToken = 'scheduled'
+// union.
+//
+// `scheduled`            — has `scheduled_for` set
+// `public` (v1.0.46)     — sidecar carries `privacy_status: 'public'`. The
+//                          row is live on YouTube; bulk reschedule paths
+//                          should leave these alone.
+// `not_public` (v1.0.46) — anything that isn't public yet (private,
+//                          unlisted, or no sidecar). Mutually exclusive
+//                          with `public` — the chip strip enforces that
+//                          on the frontend; the backend just AND's
+//                          whatever the client sends so a malformed
+//                          request returns an empty list rather than
+//                          surprising results.
+type QueueOverlayToken = 'scheduled' | 'public' | 'not_public'
 type QueueSort = 'code_asc' | 'code_desc' | 'status' | 'scheduled_asc' | 'scheduled_desc'
 
 interface ParsedFilter {
@@ -774,6 +785,10 @@ function parseFilterParam(raw: string): ParsedFilter {
       continue
     }
     if (t === 'scheduled') { overlays.add('scheduled'); continue }
+    if (t === 'public' || t === 'not_public') {
+      overlays.add(t as QueueOverlayToken)
+      continue
+    }
   }
   // No state tokens AND no `all` → treat as "all". Avoids the user seeing an
   // empty list when only an overlay chip (Scheduled) is active.
@@ -804,6 +819,20 @@ function matchesFilter(item: QueueIndexItem, parsed: ParsedFilter): boolean {
   }
   // Overlay AND-filters
   if (parsed.overlays.has('scheduled') && !item.scheduled_for) return false
+  // v1.0.46 privacy overlays — `public` matches only sidecar-confirmed
+  // public videos; `not_public` is its complement (no sidecar / not-yet-
+  // uploaded counts as not-public). The two chips are mutually exclusive
+  // in the UI; if a client sends both we AND them and naturally produce
+  // an empty list — defensible since "public AND not_public" is a
+  // degenerate query.
+  if (parsed.overlays.has('public')) {
+    const privacy = item._sidecar?.privacy_status
+    if (privacy !== 'public') return false
+  }
+  if (parsed.overlays.has('not_public')) {
+    const privacy = item._sidecar?.privacy_status
+    if (privacy === 'public') return false
+  }
   return true
 }
 
@@ -1345,15 +1374,32 @@ router.post('/projects/:slug/upload/plans/:id/preview', async (req, res) => {
       : []
 
     let claimedSlots: Set<string> | undefined
+    let publicSkipCodes: string[] = []
     if (targetCodes.length > 0) {
       const targetSet = new Set(targetCodes)
       const allAccepted = await im.getIdeas(slug, 'accepted')
       claimedSlots = new Set<string>()
+      // v1.0.46 — also count which target codes are already public on
+      // YouTube. Apply will skip those (Layer 2 guard); the modal
+      // shows the count up-front so the user knows N rows won't be
+      // touched before they hit Confirm.
+      const targetIdeas = new Map<string, { title: string }>()
+      for (const idea of allAccepted) {
+        if (!idea.episode_code) continue
+        if (targetSet.has(idea.episode_code)) {
+          targetIdeas.set(idea.episode_code, { title: idea.title || '' })
+        }
+      }
       await Promise.all(allAccepted.map(async (idea) => {
         if (!idea.episode_code || targetSet.has(idea.episode_code)) return
         const sc = await readSidecarRaw(slug, idea.episode_code, idea.title || '', plan.platform)
         if (sc?.scheduled_for) claimedSlots!.add(sc.scheduled_for)
       }))
+      const publicChecks = await Promise.all(Array.from(targetIdeas.entries()).map(async ([code, info]) => {
+        const sc = await readSidecarRaw(slug, code, info.title, plan.platform)
+        return sc?.privacy_status === 'public' ? code : null
+      }))
+      publicSkipCodes = publicChecks.filter((c): c is string => !!c)
     }
 
     const overshoot = claimedSlots ? count * 2 + 10 : count
@@ -1366,6 +1412,8 @@ router.post('/projects/:slug/upload/plans/:id/preview', async (req, res) => {
       past_slots,
       has_past_slots: past_slots.length > 0,
       claimed_slots_skipped: claimedSlots ? claimedSlots.size : 0,
+      public_skip_codes: publicSkipCodes,
+      public_skip_count: publicSkipCodes.length,
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to preview plan'))
@@ -1463,12 +1511,6 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
       assignments.push({ episode_code: episode_codes[i]!, publishAt: slots[i]! })
     }
 
-    // Persist in-memory plan → per-item schedule map.
-    const existing = await plans.readItemSchedule(slug)
-    const nextMap = { ...existing }
-    for (const a of assignments) nextMap[a.episode_code] = a.publishAt
-    await plans.writeItemSchedule(slug, nextMap)
-
     // For already-uploaded videos, PATCH publishAt live. Failures are
     // surfaced per-row so the user sees which ones synced.
     const ideas = await im.getIdeas(slug, 'accepted')
@@ -1483,7 +1525,30 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
       if (!idea) return
       sidecarsByCode.set(a.episode_code, await readSidecar(slug, a.episode_code, idea.title || '', plan.platform))
     }))
+
+    // v1.0.46 — partition assignments into "public" (skipped) vs the
+    // rest BEFORE writing the local item-schedule map. Writing public
+    // codes into the local map would create a UI/YouTube desync
+    // (queue says "scheduled at X" but the live video stayed public
+    // and ignored the PATCH skip).
+    const publicCodes = new Set<string>()
+    for (const a of assignments) {
+      const sc = sidecarsByCode.get(a.episode_code)
+      if (sc?.privacy_status === 'public') publicCodes.add(a.episode_code)
+    }
+
+    // Persist in-memory plan → per-item schedule map. Exclude public
+    // codes so the local view stays honest about what actually got
+    // pushed to YouTube.
+    const existing = await plans.readItemSchedule(slug)
+    const nextMap = { ...existing }
+    for (const a of assignments) {
+      if (publicCodes.has(a.episode_code)) continue
+      nextMap[a.episode_code] = a.publishAt
+    }
+    await plans.writeItemSchedule(slug, nextMap)
     const patched: Array<{ episode_code: string; video_id: string; ok: boolean; error?: string }> = []
+    const skipped_public: Array<{ episode_code: string; video_id: string }> = []
     // PATCH calls stay sequential — they hit YouTube's API and benefit
     // from natural rate limiting; per-row error reporting also expects
     // ordered execution.
@@ -1492,6 +1557,18 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
       if (!idea) continue
       const sidecar = sidecarsByCode.get(a.episode_code) || null
       if (!sidecar?.video_id) continue
+      // v1.0.46 — public-video safety guard. The PATCH below sets
+      // `privacyStatus: plan.defaults.privacy_status` (typically
+      // 'private') alongside publishAt, which would silently
+      // **unpublish a live YouTube video** and reschedule it. Skip
+      // any row whose last-known sidecar privacy is 'public' so
+      // bulk apply-plan can never destroy live videos. The skip is
+      // reported per-row so the UI can show a "skipped N public"
+      // badge in the result toast.
+      if (sidecar.privacy_status === 'public') {
+        skipped_public.push({ episode_code: a.episode_code, video_id: sidecar.video_id })
+        continue
+      }
       try {
         const meta = await resolveUploadMetadata({
           slug, episode_code: a.episode_code, fallback_title: idea.title, platform: plan.platform,
@@ -1521,7 +1598,7 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
     // uploads default to it without an extra UI step.
     await plans.setActivePlanId(slug, plan.platform, plan.account_id, plan.id)
 
-    res.json({ assignments, patched })
+    res.json({ assignments, patched, skipped_public })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to apply plan'))
   }

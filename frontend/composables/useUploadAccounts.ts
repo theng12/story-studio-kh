@@ -480,22 +480,33 @@ export function useUploadAccounts(slug: string) {
     id: string,
     count: number,
     episode_codes?: string[],
-  ): Promise<{ slots: string[]; claimed_slots_skipped: number }> {
+  ): Promise<{
+    slots: string[]
+    claimed_slots_skipped: number
+    public_skip_codes: string[]
+    public_skip_count: number
+  }> {
     const body: Record<string, unknown> = { count }
     if (episode_codes && episode_codes.length) body.episode_codes = episode_codes
-    const r = await post<{ slots: string[]; claimed_slots_skipped?: number }>(
-      `/projects/${slug}/upload/plans/${id}/preview`,
-      body,
-    )
+    const r = await post<{
+      slots: string[]
+      claimed_slots_skipped?: number
+      public_skip_codes?: string[]
+      public_skip_count?: number
+    }>(`/projects/${slug}/upload/plans/${id}/preview`, body)
     return {
       slots: r.slots || [],
       claimed_slots_skipped: r.claimed_slots_skipped || 0,
+      public_skip_codes: r.public_skip_codes || [],
+      public_skip_count: r.public_skip_count || 0,
     }
   }
 
   async function applyPlan(id: string, episode_codes: string[]): Promise<{
     assignments: Array<{ episode_code: string; publishAt: string }>
     patched: Array<{ episode_code: string; video_id: string; ok: boolean; error?: string }>
+    /** v1.0.46 — already-public rows the server refused to PATCH. */
+    skipped_public?: Array<{ episode_code: string; video_id: string }>
   }> {
     return post(`/projects/${slug}/upload/plans/${id}/apply`, { episode_codes })
   }
