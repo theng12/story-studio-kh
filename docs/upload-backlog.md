@@ -32,7 +32,7 @@ notes live under each item as we work through them.
 
 ### [x] C+G · Tombstone safety net (un-mark verb + auto-show 🪦 chip)
 
-**Shipped:** v1.0.35 (commit pending)
+**Shipped:** v1.0.35 · commit `c031f57`
 
 **Why bundled:** Together they make the recent tombstone work properly safe
 to use. Without C, marking-by-accident is irreversible (the only path back
@@ -60,7 +60,7 @@ enable the chip.
 
 ### [x] D · Apply preview before commit
 
-**Shipped:** v1.0.35 (commit pending)
+**Shipped:** v1.0.35 · commit `c031f57`
 
 **Why:** Today the scope picker says "All unuploaded (47)" and you click —
 no preview of which episode lands in which slot. Confidence drops as N
@@ -83,7 +83,7 @@ grows.
 
 ### [x] F · Auto-Sync from YouTube on 24h cooldown
 
-**Shipped:** v1.0.35 (commit pending). Cooldown stored in localStorage
+**Shipped:** v1.0.35 · commit `c031f57`. Cooldown stored in localStorage
 per project (`upload:lastAutoSync:<slug>`). Manual sync button also
 stamps the cooldown so it doesn't double-fire.
 
