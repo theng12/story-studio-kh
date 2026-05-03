@@ -18,6 +18,7 @@ import { existsSync } from 'fs'
 import type { Job } from '../models/types.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import * as im from '../services/idea-manager.js'
+import * as pm from '../services/project-manager.js'
 import { isCancelled } from '../services/job-queue.js'
 import { probeForUpload } from '../lib/ffprobe-check.js'
 import { resolveUploadMetadata, snippetFromMeta } from '../lib/upload-metadata.js'
@@ -84,6 +85,17 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   const idea = ideas.find(i => (i.episode_code || '') === episodeId)
   if (!idea) throw new Error(`Accepted idea not found for ${episodeId}`)
   const paths = await resolveEpisodePaths(slug, episodeId, idea.title || '')
+
+  // Item J — resolve the project's YouTube videoCategories.list ID once
+  // for this run; threaded into both snippetFromMeta call sites below
+  // (fresh upload + metadata-only PATCH). Falls back to undefined on any
+  // error → snippetFromMeta defaults to '22' ("People & Blogs"), the
+  // historical hard-code.
+  const projectConfig = await pm.getConfig(slug).catch(() => null) as any
+  const categoryId: number | undefined = (typeof projectConfig?.category_id === 'number'
+    && Number.isFinite(projectConfig.category_id)
+    && projectConfig.category_id > 0)
+    ? projectConfig.category_id : undefined
 
   // Branch: fresh upload vs metadata-only update.
   //
@@ -199,7 +211,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       slug,
       accountId,
       videoId: existing!.video_id,
-      snippet: snippetFromMeta(meta, job.output_lines),
+      snippet: snippetFromMeta(meta, job.output_lines, categoryId),
       ...(preserveStatus ? {} : { status: { privacyStatus: privacy, publishAt } }),
     })
     videoId = uploaded.id
@@ -277,7 +289,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       slug,
       accountId,
       filePath: videoPath,
-      snippet: snippetFromMeta(meta, job.output_lines),
+      snippet: snippetFromMeta(meta, job.output_lines, categoryId),
       status: { privacyStatus: privacy, publishAt },
       signal: abort.signal,
       episodeCode: episodeId,

@@ -214,7 +214,16 @@ function cleanTags(tags: string[], logs?: string[]): string[] {
 // Exposed for unit tests only. Call `snippetFromMeta` for production paths.
 export const __sanitize = { stripControl, capLength, stripUrlsFromTitle, cleanTags }
 
-export function snippetFromMeta(meta: EpisodeMetadataForUpload, logs?: string[]): VideoSnippet {
+/**
+ * Build the YouTube `snippet` payload from a project's metadata.
+ *
+ * `categoryId` defaults to `'22'` ("People & Blogs") for back-compat with
+ * older projects + the original sleep-stories use case. Pass an explicit
+ * value to override per-project — Item J wires `ProjectConfig.category_id`
+ * through the call sites in upload.ts. Coerced to string because YouTube
+ * expects it as a string in the API.
+ */
+export function snippetFromMeta(meta: EpisodeMetadataForUpload, logs?: string[], categoryId?: string | number): VideoSnippet {
   // Title: strip control chars + angle brackets (YouTube rejects < and >
   // silently in titles), strip URLs with a warning, then cap length.
   let title = stripControl(meta.title).replace(/[<>]/g, '')
@@ -227,10 +236,23 @@ export function snippetFromMeta(meta: EpisodeMetadataForUpload, logs?: string[])
 
   const tags = cleanTags(meta.tags, logs)
 
+  // Coerce to string and validate it's a positive integer before sending —
+  // YouTube rejects non-numeric or negative categoryIds with a vague
+  // "invalid value" error.
+  let resolvedCategoryId = '22'   // default = "People & Blogs"
+  if (categoryId != null) {
+    const asNum = typeof categoryId === 'number' ? categoryId : parseInt(String(categoryId), 10)
+    if (Number.isFinite(asNum) && asNum > 0) {
+      resolvedCategoryId = String(asNum)
+    } else {
+      logs?.push(`category_id "${categoryId}" is not a positive integer — falling back to 22 (People & Blogs)`)
+    }
+  }
+
   return {
     title,
     description,
     tags,
-    categoryId: '22',   // "People & Blogs" — safe default for sleep stories
+    categoryId: resolvedCategoryId,
   }
 }

@@ -11,6 +11,7 @@
  */
 
 import { Router } from 'express'
+import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -979,6 +980,148 @@ router.post('/projects/:slug/upload/update-playlist', async (req, res) => {
   }
 })
 
+/**
+ * Item J — resolve the project's `category_id` ProjectConfig setting for a
+ * `snippetFromMeta` call. Defaults to undefined → snippetFromMeta falls
+ * back to '22' ("People & Blogs") for back-compat. Returns undefined on
+ * any error so the upload path is never blocked by a missing config.
+ */
+async function resolveCategoryIdForSlug(slug: string): Promise<number | undefined> {
+  try {
+    const cfg = await pm.getConfig(slug) as any
+    const v = cfg?.category_id
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v
+    return undefined
+  } catch { return undefined }
+}
+
+/**
+ * Item J — YouTube videoCategories.list cache.
+ *
+ * Cache location: `<userData>/youtube-category-cache/<region>.json`
+ * Cache TTL: 7 days. Categories essentially never change — the list is a
+ * stable enum maintained by YouTube — so a long TTL keeps the cache hit
+ * rate ~100% in practice.
+ *
+ * Read flow:
+ *   1. If cache fresh, return it (1 disk read, 0 quota).
+ *   2. Otherwise fetch via videoCategories.list (1 quota unit), persist,
+ *      return.
+ *   3. If the fetch fails AND we have a stale cache on disk, return the
+ *      stale entries instead of erroring — soft fallback per the locked
+ *      acceptance for this item. The UI dropdown is more useful with
+ *      stale-but-readable category names than blocked entirely.
+ */
+const CATEGORY_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000   // 7 days
+function categoryCacheDir(): string {
+  return path.join(pm.getUserDataDir(), 'youtube-category-cache')
+}
+function categoryCachePath(regionCode: string): string {
+  // Sanitise region code — YouTube expects ISO 3166-1 alpha-2 (e.g. "US").
+  const safe = (regionCode || 'US').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2) || 'US'
+  return path.join(categoryCacheDir(), `${safe}.json`)
+}
+interface CategoryEntry { id: string; title: string }
+interface CategoryCache {
+  schema_version: 1
+  fetched_at: string         // ISO 8601
+  region: string
+  categories: CategoryEntry[]
+}
+
+async function readCategoryCache(regionCode: string): Promise<CategoryCache | null> {
+  try {
+    const raw = await (await import('fs/promises')).readFile(categoryCachePath(regionCode), 'utf8')
+    const parsed = JSON.parse(raw) as CategoryCache
+    if (!parsed?.categories || !Array.isArray(parsed.categories)) return null
+    return parsed
+  } catch { return null }
+}
+async function writeCategoryCache(regionCode: string, categories: CategoryEntry[]): Promise<void> {
+  const fs = await import('fs/promises')
+  await fs.mkdir(categoryCacheDir(), { recursive: true }).catch(() => {})
+  const payload: CategoryCache = {
+    schema_version: 1,
+    fetched_at: new Date().toISOString(),
+    region: regionCode,
+    categories,
+  }
+  await fs.writeFile(categoryCachePath(regionCode), JSON.stringify(payload, null, 2), 'utf8')
+}
+function isCategoryCacheFresh(cache: CategoryCache | null): boolean {
+  if (!cache) return false
+  const age = Date.now() - Date.parse(cache.fetched_at)
+  return Number.isFinite(age) && age < CATEGORY_CACHE_TTL_MS
+}
+
+async function fetchYouTubeCategories(slug: string, accountId: string, regionCode: string): Promise<CategoryEntry[]> {
+  const { fetchWithAuthRetry } = await import('../lib/youtube-client.js')
+  const url = `https://www.googleapis.com/youtube/v3/videoCategories?part=snippet&regionCode=${encodeURIComponent(regionCode)}`
+  const resp = await fetchWithAuthRetry(slug, accountId, async (token) => fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  }))
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => '')
+    throw new Error(`videoCategories.list ${resp.status}: ${txt.slice(0, 200)}`)
+  }
+  const data = await resp.json() as { items?: Array<{ id?: string; snippet?: { title?: string; assignable?: boolean } }> }
+  const out: CategoryEntry[] = []
+  for (const item of data.items || []) {
+    const id = item.id
+    const title = item.snippet?.title
+    if (!id || !title) continue
+    // Only return assignable categories — YouTube has many legacy /
+    // archived categories the API still returns but won't accept on
+    // upload (assignable=false). Filter them so the dropdown is honest.
+    if (item.snippet?.assignable === false) continue
+    out.push({ id, title })
+  }
+  out.sort((a, b) => Number(a.id) - Number(b.id))
+  return out
+}
+
+router.get('/projects/:slug/upload/youtube-categories', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const regionCode = (typeof req.query.region === 'string' && req.query.region) ? req.query.region : 'US'
+
+    const cached = await readCategoryCache(regionCode)
+    if (isCategoryCacheFresh(cached)) {
+      return res.json({ source: 'cache', region: regionCode, fetched_at: cached!.fetched_at, categories: cached!.categories })
+    }
+
+    const accountId = await store.getDefaultAccountId(slug, 'youtube')
+    if (!accountId) {
+      // No connected account — return whatever we have (even if stale)
+      // so the Settings dropdown still shows category names. If nothing
+      // cached either, return empty + a hint instead of erroring.
+      if (cached) return res.json({ source: 'stale', region: regionCode, fetched_at: cached.fetched_at, categories: cached.categories, hint: 'No YouTube account connected — showing last cached list.' })
+      return res.json({ source: 'empty', region: regionCode, categories: [], hint: 'Connect a YouTube account to fetch the live category list.' })
+    }
+
+    try {
+      const categories = await fetchYouTubeCategories(slug, accountId, regionCode)
+      await writeCategoryCache(regionCode, categories).catch(() => {})
+      // Quota cost: 1 unit per call. Not tracked in our ledger because
+      // it's de minimis (1 unit per 7d per region) and the existing
+      // ledger schema doesn't have a key for videoCategories.list.
+      res.json({ source: 'live', region: regionCode, fetched_at: new Date().toISOString(), categories })
+    } catch (e: any) {
+      // Item J — soft fallback. If the live fetch fails (network down,
+      // token issue, quota exhausted), serve the stale cache when one
+      // exists. The user can still pick a category from the last-known
+      // list without being blocked by a transient outage.
+      if (cached) {
+        return res.json({ source: 'stale', region: regionCode, fetched_at: cached.fetched_at, categories: cached.categories, hint: `Live fetch failed: ${e?.message || e}. Showing last cached list.` })
+      }
+      throw e
+    }
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to load YouTube categories'))
+  }
+})
+
 // ── Plans CRUD ────────────────────────────────────────────────────────────
 
 router.get('/projects/:slug/upload/plans', async (req, res) => {
@@ -1151,7 +1294,7 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
           slug,
           accountId: plan.account_id,
           videoId: sidecar.video_id,
-          snippet: snippetFromMeta(meta),
+          snippet: snippetFromMeta(meta, undefined, await resolveCategoryIdForSlug(slug)),
           status: { privacyStatus: plan.defaults.privacy_status, publishAt: a.publishAt },
         })
         // Refresh sidecar's scheduled_for so the queue view reflects the
@@ -1707,11 +1850,19 @@ router.post('/projects/:slug/upload/queue/:episode_code/mark-deleted', async (re
       // Idempotent — re-marking is a no-op so the user can click without fear.
       return res.json({ ok: true, already_marked: true, deleted_at: sidecar.deleted_at })
     }
+    // Item K — coerce caller-supplied `reason` to a typed DeletedReason
+    // value or fall back to 'manual'. Closed enum at write time; reads
+    // accept any string so old sidecars from before this commit don't
+    // suddenly fail validation.
+    const VALID_REASONS = new Set(['sync_404', 'manual', 'takedown', 'duplicate'])
+    const rawReason = typeof req.body?.reason === 'string' ? req.body.reason : ''
+    const reason: 'sync_404' | 'manual' | 'takedown' | 'duplicate' =
+      VALID_REASONS.has(rawReason) ? rawReason as any : 'manual'
     const now = new Date().toISOString()
     await writeSidecar(slug, code, idea.title || '', {
       ...sidecar,
       deleted_at: now,
-      deleted_reason: typeof req.body?.reason === 'string' && req.body.reason ? req.body.reason : 'manual',
+      deleted_reason: reason,
       last_sync_at: now,
     })
     queueIndexCache.delete(queueCacheKey(slug, platform))
@@ -1768,7 +1919,7 @@ router.patch('/projects/:slug/upload/queue/:episode_code/schedule', async (req, 
           slug,
           accountId: sidecar.account_id,
           videoId: sidecar.video_id,
-          snippet: snippetFromMeta(meta),
+          snippet: snippetFromMeta(meta, undefined, await resolveCategoryIdForSlug(slug)),
           status: { privacyStatus: 'private', publishAt: publish_at },
         })
         // Refresh sidecar so the queue shows the new time immediately.
@@ -1817,7 +1968,7 @@ router.delete('/projects/:slug/upload/queue/:episode_code/schedule', async (req,
           slug,
           accountId: sidecar.account_id,
           videoId: sidecar.video_id,
-          snippet: snippetFromMeta(meta),
+          snippet: snippetFromMeta(meta, undefined, await resolveCategoryIdForSlug(slug)),
           // No publishAt → video detaches from its scheduled publish. Privacy
           // is either 'private' (for YT-Studio hand-off) or 'public' (go live now).
           status: { privacyStatus: make },
@@ -2082,7 +2233,7 @@ router.delete('/projects/:slug/upload/item-schedule', async (req, res) => {
             slug,
             accountId: sidecar.account_id,
             videoId: sidecar.video_id,
-            snippet: snippetFromMeta(meta),
+            snippet: snippetFromMeta(meta, undefined, await resolveCategoryIdForSlug(slug)),
             status: { privacyStatus: 'private' },
           })
           const { writeSidecar } = await import('../services/upload-sidecar.js')

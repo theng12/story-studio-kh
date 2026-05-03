@@ -908,6 +908,11 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     chatterbox_enabled: !!(config as any).chatterbox_enabled,
     chatterbox_reference_id: typeof (config as any).chatterbox_reference_id === 'string'
       ? (config as any).chatterbox_reference_id : undefined,
+    // Item J — YouTube videoCategories.list ID for fresh uploads + PATCHes.
+    // Pass through unchanged; default-22 logic lives in upload-metadata.ts
+    // so old projects without the field keep working without migration.
+    category_id: typeof (config as any).category_id === 'number'
+      ? (config as any).category_id : undefined,
     // Fall back to defaults when the project was created before defaults
     // were seeded (keeps the Settings → Models tab populated for old projects).
     image_models: (config.image_models && Object.keys(config.image_models).length)

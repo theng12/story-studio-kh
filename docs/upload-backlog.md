@@ -218,7 +218,13 @@ selection size.
 
 ## P2 — Architectural / long-tail
 
-### [ ] A · Rename Reconcile / unify with Queue's Link-existing flow
+### [x] A · Rename Reconcile / unify with Queue's Link-existing flow
+
+**Shipped:** v1.0.37 (commit pending). Tab renamed to **"Match unlinked"**;
+header copy now spells out the asymmetry: "Sync = is what we already
+linked still accurate? · Match unlinked = are there channel videos we
+don't know about?". Internal route id (`'reconcile'`) kept for code
+stability; only user-facing copy + the inline banner button hint changed.
 
 **Why:** "Sync" and "Reconcile" sound the same to a fresh reader. They're
 solving asymmetric problems (drift on linked vs. matching unlinked). The
@@ -303,7 +309,14 @@ disagree with reality.
 
 ---
 
-### [ ] J · CategoryId as a project setting
+### [x] J · CategoryId as a project setting
+
+**Shipped:** v1.0.37 (commit pending). New `ProjectConfig.category_id`
+threaded through `snippetFromMeta` at all call sites (4 in upload.ts,
+2 in the executor). `GET /upload/youtube-categories` endpoint with
+7-day on-disk cache at `<userData>/youtube-category-cache/<region>.json`,
+soft fallback to stale cache when YouTube fetch fails. Settings →
+Project dropdown auto-loads; lazy-loaded on tab entry.
 
 **Why:** Hard-coded to 22 ("People & Blogs"). Fine for sleep-stories but
 not universal.
@@ -337,7 +350,13 @@ the cache field invisible to the user.
 
 ---
 
-### [ ] K · Typed `deleted_reason` enum
+### [x] K · Typed `deleted_reason` enum
+
+**Shipped:** v1.0.37 (commit pending). Closed union
+`'sync_404' | 'manual' | 'takedown' | 'duplicate'` typed at write sites;
+`UploadSidecar.deleted_reason` widened to `DeletedReason | string` on
+the read side so old sidecars from v1.0.34/35/36 with arbitrary strings
+keep parsing.
 
 **Why:** Free-form string today (`'sync_404' | 'manual' | <whatever>`).
 Easy to drift as new detection paths add their own.
@@ -445,3 +464,7 @@ been done across versions.
   sync, **H** four-verb scope popover (📅 Apply / ☁️ Upload only /
   🚀 Apply + Upload / ↩ Unapply), **9** imports limitation documented in
   picker tooltips, **10** "👁 View selected" bulk-bar action.
+- **v1.0.37** (2026-05-03) — P2 starter bundle: **K** typed
+  `DeletedReason` enum, **A** Reconcile tab renamed to "Match unlinked"
+  with asymmetry-clear copy, **J** YouTube category as project setting
+  with 7-day cache + soft fallback dropdown.

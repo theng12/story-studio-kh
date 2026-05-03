@@ -598,6 +598,22 @@ export function useUploadAccounts(slug: string) {
   }
 
   /**
+   * Item J — fetch YouTube's videoCategories.list (cached 7d on the
+   * backend per region). Returns the category list shape used by the
+   * Settings dropdown. Soft-fallback: backend returns stale cache if
+   * the live fetch fails, so this call rarely throws.
+   */
+  async function loadYoutubeCategories(regionCode: string = 'US'): Promise<{
+    source: 'cache' | 'live' | 'stale' | 'empty'
+    region: string
+    fetched_at?: string
+    categories: Array<{ id: string; title: string }>
+    hint?: string
+  }> {
+    return get(`/projects/${slug}/upload/youtube-categories?region=${encodeURIComponent(regionCode)}`)
+  }
+
+  /**
    * Un-mark a tombstoned row WITHOUT wiping the sidecar. Clears `deleted_at`
    * and `deleted_reason` only — the video_id, account_id, schedule, etc.
    * stay intact. Right verb when the user marked deleted by accident or
@@ -873,6 +889,7 @@ export function useUploadAccounts(slug: string) {
     resetUploadState,
     markDeletedUpstream,
     unmarkDeletedUpstream,
+    loadYoutubeCategories,
     orphans,
     orphansNextNumber,
     orphansAlreadyLinked,

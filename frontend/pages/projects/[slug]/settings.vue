@@ -1410,6 +1410,57 @@
         <input v-model="projectForm.youtube_channel_url" class="input" placeholder="https://youtube.com/@yourchannel" />
       </div>
 
+      <!-- Item J — YouTube videoCategories.list ID. Applied to every fresh
+           upload + metadata-only PATCH for this project. Default 22
+           ("People & Blogs") if unset. Dropdown is populated from the
+           backend's 7-day cache of YouTube's category list; soft fallback
+           lets the user type a number even if the cache is empty / API
+           is down. -->
+      <div class="form-group">
+        <label>
+          YouTube Category
+          <span class="text-muted" style="font-weight:normal">(applied to every upload + metadata PATCH)</span>
+        </label>
+        <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
+          <select
+            v-if="ytCategoryList.length"
+            v-model.number="projectForm.category_id"
+            class="input"
+            style="flex: 1; min-width: 240px;"
+          >
+            <option :value="undefined">— Default (22 · People & Blogs) —</option>
+            <option v-for="c in ytCategoryList" :key="c.id" :value="Number(c.id)">
+              {{ c.id }} · {{ c.title }}
+            </option>
+          </select>
+          <input
+            v-else
+            v-model.number="projectForm.category_id"
+            type="number"
+            min="1"
+            class="input"
+            style="flex: 1; min-width: 240px;"
+            :placeholder="'22 (default — People & Blogs)'"
+          />
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            :disabled="ytCategoryLoading"
+            @click="loadYoutubeCategoryList"
+          >
+            {{ ytCategoryLoading ? '↻ Fetching…' : '↻ Refresh categories' }}
+          </button>
+        </div>
+        <span class="text-muted" style="font-size: 11px;">
+          <template v-if="ytCategoryHint">⚠ {{ ytCategoryHint }}</template>
+          <template v-else-if="ytCategorySource">
+            {{ ytCategorySource === 'live' ? 'Just fetched' : ytCategorySource === 'cache' ? 'From cache' : ytCategorySource === 'stale' ? 'Stale cache (fetch failed)' : 'Empty' }}
+            · {{ ytCategoryList.length }} assignable categor{{ ytCategoryList.length === 1 ? 'y' : 'ies' }}
+          </template>
+          <template v-else>Click Refresh to load YouTube’s category list (cached 7 days).</template>
+        </span>
+      </div>
+
       <div class="form-group">
         <label>Brand <span class="text-muted" style="font-weight:normal">(channel-level identity — narrator persona, default voice, brand style keywords)</span></label>
         <div class="brand-picker">
@@ -2709,13 +2760,54 @@ watch(config, (c) => {
   const cfg = c as any
   chatterboxEnabledDraft.value = !!cfg?.chatterbox_enabled
   chatterboxReferenceIdLocal.value = cfg?.chatterbox_reference_id || ''
+  // Item J — `projectForm.category_id` is hydrated in a later watch
+  // (line ~3654) because projectForm is declared after this point and
+  // `immediate: true` would TDZ-error here.
 }, { immediate: true })
 
 watch(activeTab, (t) => {
   if (t === 'local-tts' && !chatterboxBaseUrlDraft.value) {
     void loadChatterboxBaseUrl()
   }
+  // Item J — lazy-load the YouTube category list when the user enters
+  // the Project tab so the dropdown is populated without a click. Cached
+  // 7d on the backend, so the cost is one extra fetch per session at
+  // most (and usually zero — fully cache-served).
+  if (t === 'project' && !ytCategoryList.value.length) {
+    void loadYoutubeCategoryList()
+  }
 })
+
+// ── Item J — YouTube videoCategories.list state ────────────────────────
+// Direct fetch via `get` rather than instantiating the full
+// useUploadAccounts composable here (which pulls a lot of unrelated
+// state into Settings). The endpoint handles 7d caching + soft fallback
+// server-side.
+interface YtCategoriesResponse {
+  source: 'cache' | 'live' | 'stale' | 'empty'
+  region: string
+  fetched_at?: string
+  categories: Array<{ id: string; title: string }>
+  hint?: string
+}
+const ytCategoryList = ref<Array<{ id: string; title: string }>>([])
+const ytCategorySource = ref<'cache' | 'live' | 'stale' | 'empty' | ''>('')
+const ytCategoryHint = ref<string>('')
+const ytCategoryLoading = ref(false)
+async function loadYoutubeCategoryList() {
+  ytCategoryLoading.value = true
+  ytCategoryHint.value = ''
+  try {
+    const r = await get<YtCategoriesResponse>(`/projects/${slug.value}/upload/youtube-categories?region=US`)
+    ytCategoryList.value = r.categories || []
+    ytCategorySource.value = (r.source || '') as any
+    ytCategoryHint.value = r.hint || ''
+  } catch (e: any) {
+    ytCategoryHint.value = e?.data?.detail || e?.message || 'Failed to load categories'
+  } finally {
+    ytCategoryLoading.value = false
+  }
+}
 
 const tabs = [
   // API keys moved to app-level Settings (see /app-settings) — they're
@@ -3179,7 +3271,20 @@ async function saveStandardsCurrent() {
     showError('Failed to save')
   }
 }
-const projectForm = reactive({ name: '', episode_prefix: '', season_prefix: 'Season', season_size: 20, youtube_channel_url: '' })
+const projectForm = reactive<{
+  name: string
+  episode_prefix: string
+  season_prefix: string
+  season_size: number
+  youtube_channel_url: string
+  /**
+   * Item J — YouTube videoCategories.list ID. Stored in ProjectConfig
+   * (not project meta), so saveProject() splits this off and PUTs it to
+   * /settings/config separately. Undefined = use the upload-metadata
+   * default (22 · People & Blogs).
+   */
+  category_id: number | undefined
+}>({ name: '', episode_prefix: '', season_prefix: 'Season', season_size: 20, youtube_channel_url: '', category_id: undefined })
 
 // ── Brand picker ───────────────────────────────────────────────────────────
 // Brand sits above Format in the resolution chain (channel-level identity).
@@ -3548,6 +3653,13 @@ function resetFolderDefaults() {
 // Sync editable data from config
 watch(config, (c) => {
   if (c) {
+    // Item J — hydrate the YouTube category_id from config when it
+    // arrives. Lives in this watch (not the chatterbox one above)
+    // because projectForm is declared between them and the
+    // `immediate: true` in the upper watch would TDZ-fault.
+    const cAny = c as any
+    projectForm.category_id = typeof cAny?.category_id === 'number' && cAny.category_id > 0
+      ? cAny.category_id : undefined
     editImageModels.value = JSON.parse(JSON.stringify(c.image_models || {}))
     editAudioModels.value = JSON.parse(JSON.stringify(c.audio_models || {}))
     editVideoModels.value = JSON.parse(JSON.stringify((c as any).video_models || {}))
@@ -3641,6 +3753,11 @@ watch(project, (p) => {
     projectForm.season_prefix = p.season_prefix || 'Season'
     projectForm.season_size = p.season_size || 20
     projectForm.youtube_channel_url = (p as any).youtube_channel_url || ''
+    // Item J — category_id lives on ProjectConfig (not project meta), so
+    // it's hydrated from `config` after refreshConfig fires (see watch
+    // below). The initial undefined here means "show the default option
+    // until config arrives".
+    projectForm.category_id = undefined
   }
 }, { immediate: true })
 
@@ -3758,8 +3875,16 @@ async function saveStandards() {
 
 async function saveProject() {
   try {
-    await put(`/projects/${slug.value}`, projectForm)
+    // Item J — split the form: project-meta fields go to /projects/:slug,
+    // ProjectConfig fields (currently only category_id) go to
+    // /projects/:slug/settings/config. Two PUTs because the backend
+    // routes are split — accepted as the simpler path vs. unifying the
+    // two endpoints, which would touch a much larger surface.
+    const { category_id, ...projectMeta } = projectForm as any
+    await put(`/projects/${slug.value}`, projectMeta)
+    await put(`/projects/${slug.value}/settings/config`, { category_id: typeof category_id === 'number' && category_id > 0 ? category_id : undefined })
     await loadProject(slug.value)
+    if (typeof refreshConfig === 'function') await refreshConfig()
     stampSaved('project')
     success('Project settings saved!')
   } catch (e: any) {

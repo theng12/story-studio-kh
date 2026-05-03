@@ -20,6 +20,33 @@ import { resolveEpisodePaths } from './utils.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
 import type { UploadPlatform } from './upload-store.js'
 
+/**
+ * Why a sidecar's upstream link was tombstoned. Closed enum so new
+ * detection paths have to declare themselves explicitly instead of
+ * stamping arbitrary strings (which was the v1.0.34 reality and made
+ * future analytics on takedown trends impossible). Values:
+ *
+ *   - `sync_404`  — sync-from-youtube saw the video_id missing in the
+ *                   videos.list response (auto-detected takedown,
+ *                   manual delete in YouTube Studio, or a privacy flip
+ *                   to a tier our token can't see).
+ *   - `manual`    — user explicitly clicked "Mark as deleted upstream"
+ *                   on the row.
+ *   - `takedown`  — RESERVED for a future hook when YouTube returns a
+ *                   takedown reason via the API. No write-site uses
+ *                   this today; the value exists so we don't have to
+ *                   refactor the type when that ships.
+ *   - `duplicate` — RESERVED for cross-project dedup detection (same
+ *                   final video uploaded from two projects). Same
+ *                   "future-proofed but unused" status as `takedown`.
+ *
+ * Read-side widening: existing on-disk sidecars from v1.0.34/35/36 may
+ * carry arbitrary strings here. The typed union is enforced on writes
+ * only; reads accept any string and the UI surfaces unknown values
+ * as-is. After a release or two, all live sidecars will conform.
+ */
+export type DeletedReason = 'sync_404' | 'manual' | 'takedown' | 'duplicate'
+
 export interface UploadSidecar {
   platform: UploadPlatform
   video_id: string
@@ -54,13 +81,13 @@ export interface UploadSidecar {
    */
   deleted_at?: string | null
   /**
-   * Why this sidecar was tombstoned. Two values today:
-   *   `'sync_404'`  — sync-from-youtube saw the video_id missing in the
-   *                   videos.list response.
-   *   `'manual'`    — user clicked "Mark as deleted upstream" on the row.
-   * Free-form so future detection paths can stamp their own reason.
+   * Why this sidecar was tombstoned. See `DeletedReason` for the
+   * canonical write-time values. Typed as `string` here (not the union)
+   * so reads of older v1.0.34/35/36 sidecars carrying arbitrary strings
+   * don't fail validation. New writes should always use a `DeletedReason`
+   * value — see `markSidecarDeleted` callers.
    */
-  deleted_reason?: string
+  deleted_reason?: DeletedReason | string
 }
 
 function sidecarPath(episodeDir: string, platform: UploadPlatform): string {

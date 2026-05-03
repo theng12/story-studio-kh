@@ -209,11 +209,11 @@
         </button>
       </div>
 
-      <!-- Reconcile-suggestions banner — only renders when a background
-           reconcile preview surfaced channel videos that look like they
-           match local episodes (and aren't linked yet). One click opens
-           the Reconcile tab pre-loaded with the cached preview so you can
-           link them before uploading and avoid creating duplicates. -->
+      <!-- Match-unlinked banner — only renders when a background scan
+           surfaced channel videos that look like they match local episodes
+           (and aren't linked yet). One click opens the Match unlinked tab
+           pre-loaded with the cached preview so you can link them before
+           uploading and avoid creating duplicates. -->
       <div
         v-if="showReconcileBanner"
         class="reconcile-banner"
@@ -226,7 +226,7 @@
         </span>
         <button
           class="btn btn-sm btn-primary"
-          title="Open the Reconcile tab with the matches pre-loaded. You confirm each link, then the queue marks those episodes as uploaded."
+          title="Open the Match unlinked tab with the matches pre-loaded. You confirm each link, then the queue marks those episodes as uploaded."
           @click="gotoReconcileTab"
         >Review &amp; link →</button>
         <button
@@ -1352,21 +1352,28 @@
       </table>
     </div>
 
-    <!-- ── Reconcile tab ───────────────────────────────────────────── -->
+    <!-- ── Match unlinked tab (was: Reconcile) ───────────────────────── -->
+    <!-- Item A — renamed to make the asymmetry vs. Sync explicit:
+         Sync = "is what we already linked still accurate?" (drift detection
+                 on rows that already have a sidecar)
+         Match unlinked = "are there channel videos we don't know about?"
+                          (fuzzy-match scan finding orphans to link)
+         Same code, clearer copy. -->
     <div v-else-if="activeTab === 'reconcile'" class="card mt-2">
       <div class="flex items-center justify-between" style="flex-wrap: wrap; gap: 10px;">
         <div>
-          <h3 style="margin: 0">Reconcile channel</h3>
+          <h3 style="margin: 0">Match unlinked videos</h3>
           <p class="text-muted" style="font-size: 12px; margin: 4px 0 0; max-width: 720px;">
-            Fetches up to ~400 recent videos from your default YouTube channel, fuzzy-matches them to local episodes, and lets you
-            confirm the links. Confirmed matches write per-episode sidecars so <strong>re-uploading an episode from Story Studio
-            patches metadata on the existing video</strong> (never creates a duplicate). Safe to re-run — videos already linked
-            are marked below and skipped by default.
+            Finds channel videos Story Studio doesn't know about yet and proposes which local episode each one is.
+            Distinct from <strong>Sync from YouTube</strong> (which only checks already-linked rows for drift) — this scans
+            for <strong>missing</strong> links. Fuzzy-matches up to ~400 recent videos against your local episodes; you confirm
+            each link, and Story Studio writes the per-episode sidecar so re-uploading from here PATCHes metadata on the
+            existing video instead of creating a duplicate. Safe to re-run.
           </p>
         </div>
         <button class="btn btn-sm btn-primary" :disabled="reconcileLoading" @click="runReconcilePreview">
           <LoadingSpinner v-if="reconcileLoading" size="sm" />
-          {{ reconcileLoading ? 'Fetching…' : '🔍 Fetch channel + preview' }}
+          {{ reconcileLoading ? 'Fetching…' : '🔍 Scan channel for matches' }}
         </button>
       </div>
 
@@ -2361,7 +2368,7 @@ const tabs: Array<{ id: TabId; label: string; phase: number; disabled: boolean; 
   { id: 'missing', label: 'Missing Video', phase: 2, disabled: false, hint: 'Episodes whose final video isn’t on disk yet. Render via Video Assembly, drop a file via Import + Scan, or mark as already uploaded if the video lives only on YouTube (legacy episodes).' },
   { id: 'plans', label: 'Plans', phase: 3, disabled: false, hint: 'Saved schedule plans — pick weekdays + time, preview slots, apply to the queue.' },
   { id: 'playlists', label: 'Playlists', phase: 3, disabled: false, hint: 'Manage the YouTube playlists on your channel. Create new ones and pick a default that new uploads auto-add to.' },
-  { id: 'reconcile', label: 'Reconcile', phase: 6, disabled: false, hint: 'Fetch channel videos, fuzzy-match to local episodes, confirm links. One-time per video \u2014 saved to sidecar.' },
+  { id: 'reconcile', label: 'Match unlinked', phase: 6, disabled: false, hint: 'Finds channel videos Story Studio doesn\u2019t know about yet and proposes which local episode each one is. Distinct from Sync from YouTube, which only checks already-linked rows for drift.' },
   { id: 'orphans', label: 'Unlinked Uploads', phase: 7, disabled: false, hint: 'Channel videos that don\u2019t match any local episode. Adopt them one at a time or in bulk (continuation codes or full-system renumber).' },
   { id: 'analytics', label: 'Analytics', phase: 7, disabled: false, hint: 'Per-episode YouTube performance \u2014 views, watch time, retention, CTR. Feeds the "what worked" inspiration into the Ideas + Metadata generators.' },
   { id: 'comments', label: 'Comments', phase: 7, disabled: false, hint: 'Read viewer comments on uploaded videos and post replies. AI drafts use the brand persona + the same language the viewer wrote in.' },

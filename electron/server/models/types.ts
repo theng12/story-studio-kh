@@ -781,6 +781,13 @@ export interface ProjectConfig {
   chatterbox_enabled?: boolean
   /** Reference clip UUID returned by Chatterbox's /api/upload-reference. */
   chatterbox_reference_id?: string
+  /**
+   * YouTube videoCategories.list ID applied to every fresh upload
+   * + metadata-only PATCH for this project. Default 22 ("People &
+   * Blogs") for back-compat. Set per-project on Settings → Project.
+   * See [docs/upload-backlog.md] item J.
+   */
+  category_id?: number
   image_models: Record<string, ImageModelConfig>
   image_pricing_last_updated: string
   voice_presets: VoicePreset[]
