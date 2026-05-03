@@ -15,7 +15,17 @@ export type UploadPlatform = 'youtube' | 'tiktok' | 'facebook'
 // Queue filter/sort buckets — match the backend's QueueFilter/QueueSort
 // in electron/server/routes/upload.ts. Hoisted to module scope (not inside
 // the composable) so they can be imported as types in component setup.
-export type QueueFilter = 'all' | 'not_uploaded' | 'uploaded' | 'scheduled' | 'failed'
+//
+// Filter is now multi-select. The four state tokens are mutually exclusive
+// per row, but the UI lets the user combine multiple state chips. The
+// `scheduled` overlay AND-filters on top of whatever states are active.
+// Legacy single-value tokens (`all`, `not_uploaded`, `uploaded`, `failed`)
+// are still parsed by the backend for back-compat with old bookmarks.
+export type QueueStateToken = 'ready' | 'uploaded_local' | 'uploaded_freed' | 'imports'
+export type QueueOverlayToken = 'scheduled'
+export type QueueFilterToken = QueueStateToken | QueueOverlayToken | 'all'
+/** Comma-separated multi-token string (e.g. `ready,uploaded_local,scheduled`). */
+export type QueueFilter = string
 export type QueueSort = 'code_asc' | 'code_desc' | 'status' | 'scheduled_asc' | 'scheduled_desc'
 
 export interface UploadAccount {
@@ -211,7 +221,12 @@ export function useUploadAccounts(slug: string) {
     platform: 'youtube' as UploadPlatform,
     page: 1,
     pageSize: 10,
-    filter: 'not_uploaded' as QueueFilter,   // default: hide uploaded items
+    // Default: "Ready" + "Uploaded · local kept" — covers the two states
+    // a user typically wants to act on (ready to upload, or recently
+    // uploaded with the local copy still around). Excludes
+    // `uploaded_freed` (older private videos cleaned up after upload)
+    // so bulk actions don't accidentally re-touch them.
+    filter: 'ready,uploaded_local' as QueueFilter,
     sort: 'code_asc' as QueueSort,
   }
 

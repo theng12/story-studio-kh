@@ -295,15 +295,33 @@
            page 1 automatically. The default filter is "Not uploaded"
            because the dominant use case is "show me what's left to do". -->
       <div class="queue-toolbar mt-2">
-        <div class="qt-group">
-          <label class="qt-label" title="Filter the list to a specific status. Counts reflect the current selection.">Show</label>
-          <select v-model="queueFilter" class="select select-sm">
-            <option value="all">All ({{ queueTotalUnfiltered }})</option>
-            <option value="not_uploaded">Not uploaded</option>
-            <option value="uploaded">Uploaded</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="failed" title="Episodes whose most recent upload job failed">Failed</option>
-          </select>
+        <!-- Multi-select filter chip strip. Tick any combination of state
+             chips (Ready / Uploaded·local kept / Uploaded·local freed /
+             Imports) plus the Scheduled overlay. Defaults to
+             "Ready + Uploaded · local kept" so older private videos whose
+             local copy was freed don't show up in bulk-action targets. -->
+        <div class="qt-group qt-filter-group">
+          <label class="qt-label" title="Pick which categories of rows to include. State chips combine; the Scheduled chip narrows further.">Show</label>
+          <div class="filter-chips">
+            <button
+              v-for="chip in QUEUE_FILTER_CHIPS"
+              :key="chip.id"
+              type="button"
+              :class="['filter-chip', `filter-chip--${chip.kind}`, { 'is-active': isQueueFilterActive(chip) }]"
+              :title="chip.tooltip"
+              @click="toggleQueueFilter(chip)"
+            >
+              <span class="filter-chip-icon" aria-hidden="true">{{ chip.icon }}</span>
+              {{ chip.label }}
+            </button>
+            <button
+              v-if="queueStateFilters.size !== FILTER_DEFAULT.length || queueOverlayFilters.size > 0 || ![...queueStateFilters].every(s => (FILTER_DEFAULT as string[]).includes(s))"
+              type="button"
+              class="filter-chip-reset"
+              title="Reset filters to default (Ready + Uploaded · local kept)"
+              @click="clearQueueFilters"
+            >Reset</button>
+          </div>
         </div>
         <div class="qt-group">
           <label class="qt-label">Sort</label>
@@ -325,6 +343,21 @@
           </select>
         </div>
         <div class="qt-spacer" />
+        <div class="qt-group">
+          <!-- Quick-apply path: opens a modal showing the active plan + the
+               same Apply / Upload / Unapply scope picker that lives on the
+               Plans tab. Saves a tab switch for the dominant workflow
+               ("apply the plan to the queue I'm looking at"). The Plans
+               tab still owns CRUD (create / edit / delete / activate). -->
+          <button
+            class="btn btn-sm btn-primary"
+            :disabled="!plans.length"
+            :title="plans.length ? 'Apply the active upload plan to the queue without leaving this tab' : 'Create a plan on the Plans tab first'"
+            @click="openUploadPlanModal"
+          >
+            📅 Upload Plan ▾
+          </button>
+        </div>
         <div class="qt-group qt-pager">
           <button class="btn btn-sm btn-secondary" :disabled="queuePage <= 1 || queueLoading" @click="goToQueuePage(1)" title="First page">«</button>
           <button class="btn btn-sm btn-secondary" :disabled="queuePage <= 1 || queueLoading" @click="goToQueuePage(queuePage - 1)">← Prev</button>
@@ -1826,12 +1859,81 @@
          even when all bulk actions are disabled (with a hint) so the
          user understands why the click isn't working without having to
          open a tooltip per row. -->
+    <!-- Upload Plan modal — opened by the Queue tab's "📅 Upload Plan ▾"
+         button. Surfaces the active plan inline so the user doesn't have
+         to leave the queue to apply / upload / unapply. The three verb
+         buttons reuse the same scope picker the Plans tab uses. -->
+    <Teleport to="body">
+      <div v-if="uploadPlanModalOpen" class="upload-plan-modal-backdrop" @click="closeUploadPlanModal" />
+      <div v-if="uploadPlanModalOpen" class="upload-plan-modal" role="dialog" aria-label="Upload plan" @click.stop>
+        <div class="upload-plan-modal-header">
+          <strong>📅 Upload Plan</strong>
+          <button class="upload-plan-modal-close" type="button" title="Close" @click="closeUploadPlanModal">✕</button>
+        </div>
+        <div class="upload-plan-modal-body">
+          <p v-if="!plans.length" class="text-muted" style="font-size: 13px;">
+            No plans yet. Head over to the Plans tab to create one.
+          </p>
+          <template v-else>
+            <label class="upload-plan-modal-label">
+              Plan
+              <select v-model="uploadPlanModalPlanId" class="select select-sm">
+                <option v-for="p in plans" :key="p.id" :value="p.id">
+                  {{ p.name }}{{ activePlanIdsSet.has(p.id) ? ' · active' : '' }}
+                </option>
+              </select>
+            </label>
+            <p v-if="uploadPlanModalSelected" class="upload-plan-modal-desc text-muted">
+              <span v-if="uploadPlanModalSelected._weekdayLabel">
+                {{ uploadPlanModalSelected._weekdayLabel }}
+                at {{ uploadPlanModalSelected.schedule.time_local }}
+                {{ uploadPlanModalSelected.schedule.timezone }}
+              </span>
+              <span v-if="uploadPlanModalSelected.schedule.interval_weeks && uploadPlanModalSelected.schedule.interval_weeks > 1">
+                · every {{ uploadPlanModalSelected.schedule.interval_weeks }} weeks
+              </span>
+            </p>
+            <div class="upload-plan-modal-actions">
+              <button
+                class="btn btn-primary plan-action-btn"
+                :disabled="applying || applyAndUploading || uploadMode === 'private' || !uploadPlanModalSelected"
+                title="Pick which episodes this plan should schedule. Writes per-item publishAt + patches any already-uploaded video."
+                @click="openPlanScopePicker($event, uploadPlanModalSelected, 'apply')"
+              >📅 Apply ▾</button>
+              <button
+                class="btn btn-primary plan-action-btn"
+                :disabled="applying || applyAndUploading || uploadMode === 'private' || !uploadPlanModalSelected"
+                title="Fan out actual uploads. Capped by today’s remaining YouTube quota."
+                @click="openPlanScopePicker($event, uploadPlanModalSelected, 'upload')"
+              >☁️ Upload ▾</button>
+              <button
+                class="btn btn-ghost plan-action-btn"
+                :disabled="applying || applyAndUploading || !uploadPlanModalSelected"
+                title="Remove per-item schedule entries this plan would have produced for the chosen scope."
+                @click="openPlanScopePicker($event, uploadPlanModalSelected, 'unapply')"
+              >↩ Unapply ▾</button>
+            </div>
+          </template>
+        </div>
+        <div class="upload-plan-modal-footer">
+          <button type="button" class="btn btn-ghost btn-sm" @click="closeUploadPlanModal">Close</button>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            title="Open the Plans tab to create / edit / delete plans"
+            @click="goToPlansTab"
+          >Manage plans →</button>
+        </div>
+      </div>
+    </Teleport>
+
     <!-- Plan scope picker — opens from the Apply / Upload / Unapply buttons
-         on each plan row. Anchored to the click-target so it floats next to
-         the button, doesn't take a column. Same picker for all three verbs;
-         the verb determines the scope counts (Upload caps by remaining
-         quota), the action label ("Apply", "Upload N (quota-capped)",
-         "Unapply"), and what runs on click. -->
+         on each plan row OR from inside the Upload Plan modal. Anchored to
+         the click-target so it floats next to the button, doesn't take a
+         column. Same picker for all three verbs; the verb determines the
+         scope counts (Upload caps by remaining quota), the action label
+         ("Apply", "Upload N (quota-capped)", "Unapply"), and what runs on
+         click. -->
     <Teleport to="body">
       <div
         v-if="scopePicker.open"
@@ -2021,13 +2123,61 @@ const scanning = ref(false)
 // the cache via `nocache: true`.
 //
 // Defaults (all configurable via the toolbar):
-//   filter = 'not_uploaded' — main use case is "show me what's left to upload"
+//   filter = 'ready,uploaded_local' — show what's left to upload + recently
+//                                     uploaded items still on disk; hide the
+//                                     older private videos whose local copy
+//                                     was cleaned up.
 //   sort   = 'code_asc'     — natural episode order
 //   page   = 1, pageSize = 10
-const queueFilter = ref<import('~/composables/useUploadAccounts').QueueFilter>('not_uploaded')
+//
+// Filter is now multi-select: four mutually-exclusive state chips
+// (Ready / Uploaded·local kept / Uploaded·local freed / Imports) plus a
+// Scheduled overlay that AND-filters on top. Stored as a Set so toggling
+// a chip is O(1) and we can derive the canonical comma-string for the API
+// at request time. Default state matches `queueLastParams.filter` in
+// useUploadAccounts so a cold reload starts with the same view.
+const FILTER_DEFAULT: Array<'ready' | 'uploaded_local'> = ['ready', 'uploaded_local']
+const queueStateFilters = reactive(new Set<string>(FILTER_DEFAULT))
+const queueOverlayFilters = reactive(new Set<string>())
 const queueSort   = ref<import('~/composables/useUploadAccounts').QueueSort>('code_asc')
 const queuePage = ref(1)
 const queuePageSize = ref<10 | 20 | 50 | 100>(10)
+
+/** Canonical filter string sent to the backend (`ready,uploaded_local,scheduled`). */
+const queueFilterString = computed(() => {
+  const parts = [...queueStateFilters, ...queueOverlayFilters]
+  return parts.length ? parts.join(',') : 'all'
+})
+
+interface FilterChip {
+  id: 'ready' | 'uploaded_local' | 'uploaded_freed' | 'imports' | 'scheduled'
+  kind: 'state' | 'overlay'
+  icon: string
+  label: string
+  tooltip: string
+}
+const QUEUE_FILTER_CHIPS: FilterChip[] = [
+  { id: 'ready',          kind: 'state',   icon: '🟢', label: 'Ready',                tooltip: 'Has a final video on disk and is not yet uploaded.' },
+  { id: 'uploaded_local', kind: 'state',   icon: '✅', label: 'Uploaded · local kept', tooltip: 'Already on YouTube AND the local final-video file is still on disk.' },
+  { id: 'uploaded_freed', kind: 'state',   icon: '☁️', label: 'Uploaded · local freed', tooltip: 'On YouTube; the local final has been cleaned up. Older private videos typically live here. Excluded by default so bulk actions don’t target them.' },
+  { id: 'imports',        kind: 'state',   icon: '📦', label: 'Imports',              tooltip: 'Files dropped into the project-level imports folder.' },
+  { id: 'scheduled',      kind: 'overlay', icon: '📅', label: 'Scheduled',            tooltip: 'Overlay filter — combine with any state chips above to narrow to scheduled rows only.' },
+]
+
+function toggleQueueFilter(chip: FilterChip) {
+  const set = chip.kind === 'state' ? queueStateFilters : queueOverlayFilters
+  if (set.has(chip.id)) set.delete(chip.id)
+  else set.add(chip.id)
+}
+function isQueueFilterActive(chip: FilterChip): boolean {
+  const set = chip.kind === 'state' ? queueStateFilters : queueOverlayFilters
+  return set.has(chip.id)
+}
+function clearQueueFilters() {
+  queueStateFilters.clear()
+  queueOverlayFilters.clear()
+  for (const t of FILTER_DEFAULT) queueStateFilters.add(t)
+}
 
 function goToQueuePage(n: number) {
   const clamped = Math.max(1, Math.min(queueTotalPages.value, Math.floor(n)))
@@ -2037,9 +2187,9 @@ function goToQueuePage(n: number) {
 
 // When filter or sort changes, jump back to page 1 — the prior page
 // number probably doesn't make sense in the new filtered list.
-watch([queueFilter, queueSort], () => {
+watch([queueFilterString, queueSort], () => {
   queuePage.value = 1
-  loadQueue({ filter: queueFilter.value, sort: queueSort.value, page: 1, pageSize: queuePageSize.value })
+  loadQueue({ filter: queueFilterString.value, sort: queueSort.value, page: 1, pageSize: queuePageSize.value })
 })
 watch(queuePageSize, (s) => {
   queuePage.value = 1
@@ -2557,6 +2707,10 @@ watch(activeTab, (tab) => {
     // Playlists are needed in the queue too for the per-row override
     // dropdown. Cheap (60s-cached) so no quota concerns.
     if (!playlists.value.length && youtubeAccounts.value.length) loadPlaylists()
+    // Plans are needed for the Queue tab's "Upload Plan ▾" quick-apply
+    // button — without this, the button stays disabled until the user
+    // visits the Plans tab. List is tiny so the prefetch is free.
+    if (!plans.value.length) loadPlans()
   }
   if (tab === 'plans' && !plans.value.length) loadPlans()
   if (tab === 'playlists' && !playlists.value.length) loadPlaylists()
@@ -3660,6 +3814,41 @@ const scopePicker = reactive<{
   anchor: { left: 0, top: 0 },
 })
 const scopeBusyPlanId = ref('')
+
+// ── Upload Plan modal (Queue-tab quick-apply) ──────────────────────────
+// Lets the user run Apply / Upload / Unapply against the active plan
+// without leaving the Queue tab. Defaults to the first active plan for
+// YouTube (or the first plan period if none is active). The three verb
+// buttons reuse openPlanScopePicker, so the popover anchors to whichever
+// button was clicked inside the modal.
+const uploadPlanModalOpen = ref(false)
+const uploadPlanModalPlanId = ref('')
+
+const activePlanIdsSet = computed(() => new Set(Object.values(activePlanMap.value || {}) as string[]))
+
+const uploadPlanModalSelected = computed<any>(() => {
+  if (!uploadPlanModalPlanId.value) return null
+  return plans.value.find((p: any) => p.id === uploadPlanModalPlanId.value) || null
+})
+
+function openUploadPlanModal() {
+  // Pick the most useful plan to start with: the active one for YouTube
+  // if there is one; otherwise the first plan in the list.
+  let initial = ''
+  for (const [k, v] of Object.entries(activePlanMap.value || {})) {
+    if (k.startsWith('youtube:') && typeof v === 'string') { initial = v; break }
+  }
+  if (!initial && plans.value.length) initial = plans.value[0].id
+  uploadPlanModalPlanId.value = initial
+  uploadPlanModalOpen.value = true
+}
+function closeUploadPlanModal() {
+  uploadPlanModalOpen.value = false
+}
+function goToPlansTab() {
+  activeTab.value = 'plans'
+  closeUploadPlanModal()
+}
 
 const scopePopoverStyle = computed(() => ({
   left: `${scopePicker.anchor.left}px`,
@@ -5553,6 +5742,54 @@ td.col-actions > a.btn {
   letter-spacing: 0.04em;
   font-size: 11px;
 }
+.qt-filter-group { flex: 1 1 100%; align-items: flex-start; gap: 8px; }
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.filter-chip:hover { background: var(--bg-hover, var(--bg-tertiary)); color: var(--text-primary); }
+.filter-chip.is-active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.filter-chip--overlay {
+  border-style: dashed;
+}
+.filter-chip--overlay.is-active {
+  background: rgba(96, 165, 250, 0.12);
+  border-color: rgb(96, 165, 250);
+  color: rgb(96, 165, 250);
+  border-style: solid;
+}
+.filter-chip-icon { font-size: 13px; line-height: 1; }
+.filter-chip-reset {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 6px;
+  text-decoration: underline;
+}
+.filter-chip-reset:hover { color: var(--text-primary); }
 .qt-search {
   position: relative;
   flex: 1 1 240px;
@@ -5702,6 +5939,88 @@ td.col-actions > a.btn {
   margin-top: 2px;
 }
 .plan-action-btn { white-space: nowrap; }
+
+/* Upload Plan modal — opens from the Queue tab's quick-apply button.
+   Lighter weight than the schedule modal: no form inputs, just a plan
+   chooser + the three scope-popover trigger buttons. */
+.upload-plan-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  background: rgba(0, 0, 0, 0.45);
+}
+.upload-plan-modal {
+  position: fixed;
+  z-index: 250;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 460px;
+  max-width: calc(100vw - 32px);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+}
+.upload-plan-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.upload-plan-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  line-height: 1;
+  border-radius: 4px;
+}
+.upload-plan-modal-close:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.upload-plan-modal-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.upload-plan-modal-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.upload-plan-modal-label .select { font-size: 13px; }
+.upload-plan-modal-desc {
+  font-size: 12px;
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.upload-plan-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.upload-plan-modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--border);
+  gap: 8px;
+}
 
 .row-kebab-menu {
   position: fixed;

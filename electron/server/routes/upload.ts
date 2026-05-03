@@ -492,6 +492,11 @@ type QueueIndexItem = {
   filename?: string
   title: string                 // best-effort: idea title or filename, no metadata read
   uploaded: boolean
+  // True when a final-video file is present on disk (project tree OR external
+  // root). Lets the UI distinguish "uploaded with local copy still" (safe to
+  // re-render / re-upload) from "uploaded, local cleaned up" (older private
+  // videos the user no longer wants targeted by bulk actions).
+  has_local_final: boolean
   video_id: string
   scheduled_for: string | null
   schedule_source: 'synced' | 'planned' | 'none'
@@ -539,6 +544,7 @@ async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Pr
         episode_code: code,
         title: idea.title || code,    // cheap title; enriched in stage 2
         uploaded: !!sidecar?.video_id,
+        has_local_final: hasFinal,
         video_id: sidecar?.video_id || '',
         scheduled_for,
         schedule_source: sidecar?.scheduled_for ? 'synced' : (itemSchedule[code] ? 'planned' : 'none'),
@@ -562,6 +568,9 @@ async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Pr
         filename: d.filename,
         title: meta?.title || d.title,
         uploaded: false,
+        // Imports always represent a file the user dropped into the imports
+        // folder, so by definition they have a local file backing them.
+        has_local_final: true,
         video_id: '',
         scheduled_for: itemSchedule[d.id] || null,
         schedule_source: itemSchedule[d.id] ? 'planned' : 'none',
@@ -639,15 +648,75 @@ async function enrichPage(slug: string, platform: store.UploadPlatform, page: Qu
 // per-item today — we only know if there's an active failed job, which
 // the frontend handles. So the backend filter for 'failed' returns []
 // (the frontend can derive its own from job state).
-type QueueFilter = 'all' | 'not_uploaded' | 'uploaded' | 'scheduled' | 'failed'
+// Legacy single-value tokens still accepted for back-compat (older clients
+// or saved bookmarks). The frontend now sends a comma-separated multi-token
+// string built from the four mutually-exclusive state chips below + a
+// `scheduled` overlay chip that AND-filters on top.
+type QueueFilterLegacy = 'all' | 'not_uploaded' | 'uploaded' | 'scheduled' | 'failed'
+// Mutually-exclusive state buckets. A row matches at most one. Empty list =
+// don't apply a state filter (i.e. include all rows).
+type QueueStateToken = 'ready' | 'uploaded_local' | 'uploaded_freed' | 'imports'
+// Overlay tokens — applied as additional AND filters on top of the state
+// union. Currently just `scheduled`; structured this way so we can grow it
+// (e.g. `failed`, `iCloud_evicted`) without re-shaping the wire format.
+type QueueOverlayToken = 'scheduled'
 type QueueSort = 'code_asc' | 'code_desc' | 'status' | 'scheduled_asc' | 'scheduled_desc'
 
-function filterAndSortIndex(items: QueueIndexItem[], filter: QueueFilter, sort: QueueSort): QueueIndexItem[] {
-  let out: QueueIndexItem[] = items
-  if (filter === 'not_uploaded') out = out.filter(i => !i.uploaded)
-  else if (filter === 'uploaded') out = out.filter(i => i.uploaded)
-  else if (filter === 'scheduled') out = out.filter(i => !!i.scheduled_for)
-  else if (filter === 'failed') out = []   // job-failed state isn't tracked at this layer; UI handles it
+interface ParsedFilter {
+  states: Set<QueueStateToken>
+  overlays: Set<QueueOverlayToken>
+  /** true = include all rows by state (no state filter applied) */
+  allStates: boolean
+}
+
+function parseFilterParam(raw: string): ParsedFilter {
+  const tokens = raw.split(',').map(s => s.trim()).filter(Boolean)
+  const states = new Set<QueueStateToken>()
+  const overlays = new Set<QueueOverlayToken>()
+  let allStates = false
+  for (const t of tokens) {
+    // Legacy aliases first — keep old bookmarks + URL-shared filter strings
+    // working without forcing a migration.
+    if (t === 'all') { allStates = true; continue }
+    if (t === 'not_uploaded') { states.add('ready'); states.add('imports'); continue }
+    if (t === 'uploaded') { states.add('uploaded_local'); states.add('uploaded_freed'); continue }
+    if (t === 'failed') continue   // never matched anything at this layer anyway
+    // New tokens.
+    if (t === 'ready' || t === 'uploaded_local' || t === 'uploaded_freed' || t === 'imports') {
+      states.add(t as QueueStateToken)
+      continue
+    }
+    if (t === 'scheduled') { overlays.add('scheduled'); continue }
+  }
+  // No state tokens AND no `all` → treat as "all". Avoids the user seeing an
+  // empty list when only an overlay chip (Scheduled) is active.
+  if (states.size === 0 && !allStates) allStates = true
+  return { states, overlays, allStates }
+}
+
+function matchesFilter(item: QueueIndexItem, parsed: ParsedFilter): boolean {
+  // State match
+  if (!parsed.allStates) {
+    let stateOk = false
+    if (item.type === 'import') {
+      stateOk = parsed.states.has('imports')
+    } else if (item.uploaded && item.has_local_final) {
+      stateOk = parsed.states.has('uploaded_local')
+    } else if (item.uploaded && !item.has_local_final) {
+      stateOk = parsed.states.has('uploaded_freed')
+    } else if (!item.uploaded && item.has_local_final) {
+      stateOk = parsed.states.has('ready')
+    }
+    if (!stateOk) return false
+  }
+  // Overlay AND-filters
+  if (parsed.overlays.has('scheduled') && !item.scheduled_for) return false
+  return true
+}
+
+function filterAndSortIndex(items: QueueIndexItem[], filterRaw: string, sort: QueueSort): QueueIndexItem[] {
+  const parsed = parseFilterParam(filterRaw)
+  let out: QueueIndexItem[] = items.filter(i => matchesFilter(i, parsed))
   out = out.slice()
   const cmpCode = (a: QueueIndexItem, b: QueueIndexItem) =>
     (a.episode_code || a.filename || '').localeCompare(b.episode_code || b.filename || '', undefined, { numeric: true })
@@ -682,7 +751,11 @@ router.get('/projects/:slug/upload/queue', async (req, res) => {
 
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
     const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.page_size || '10'), 10) || 10))
-    const filter = (String(req.query.filter || 'all') as QueueFilter)
+    // `filter` is now a comma-separated multi-token string (e.g.
+    // `ready,uploaded_local,scheduled`). Legacy single-value tokens (`all`,
+    // `not_uploaded`, `uploaded`, `scheduled`, `failed`) still parse via the
+    // alias map — see parseFilterParam.
+    const filter = String(req.query.filter || 'all')
     const sort = (String(req.query.sort || 'code_asc') as QueueSort)
     const noCache = req.query.nocache === '1' || req.query.nocache === 'true'
     // Lightweight mode for "select all across all pages" / "all unuploaded" /
