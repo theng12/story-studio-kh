@@ -522,6 +522,20 @@ been done across versions.
   on idea remove / dismiss / accept / reset, plus the ↻ Refresh button
   now passes `?nocache=1` so it actually re-scans instead of returning
   the cached snapshot.
+- **v1.0.45** (2026-05-04) — Reseason: change `season_size` and have
+  every episode folder rebalanced into the new grouping in one click.
+  Settings → Project → "Episodes per Group" now shows a "↻ Rebalance
+  N/group" button when the value differs from the saved one — opens
+  a preview modal listing every move (`Season 002/TN0011 → Season
+  001/TN0011`), confirm runs the bulk fs move + commits the new
+  size + cleans up emptied old `Season NNN/` parent dirs. External-
+  root mirror is rebalanced in the same step (uses the v1.0.43
+  cascade pattern). New `.reseason-undo.json` safety net at the
+  project root with sibling Revert banner on Unlinked Uploads tab —
+  30-day TTL, boot-time auto-cleanup. Regular Save no longer commits
+  a dirty `season_size` (that path silently broke folder lookups
+  before this release; now reset + toast nudges the user toward the
+  Rebalance button).
 - **v1.0.44** (2026-05-04) — Hotfix: pre-upload preview modal threw
   "get is not defined" when clicked. `openUploadPreview` in upload.vue
   used a bare `get` reference, but upload.vue doesn't destructure

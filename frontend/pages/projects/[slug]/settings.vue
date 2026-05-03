@@ -1402,7 +1402,26 @@
         </div>
         <div class="form-group">
           <label>Episodes per Group</label>
-          <input v-model.number="projectForm.season_size" class="input" type="number" min="1" />
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <input v-model.number="projectForm.season_size" class="input" type="number" min="1" max="1000" style="max-width: 120px;" />
+            <button
+              v-if="seasonSizeChanged"
+              type="button"
+              class="btn btn-sm btn-secondary"
+              :disabled="reseasonState.opening"
+              :title="`Preview the folder rebalance from ${serverSeasonSize} → ${projectForm.season_size} episodes per group, then commit. Reversible from the Unlinked Uploads tab for 30 days.`"
+              @click="openReseasonPreview"
+            >
+              <LoadingSpinner v-if="reseasonState.opening" size="sm" />
+              {{ reseasonState.opening ? 'Loading…' : `↻ Rebalance ${projectForm.season_size}/group →` }}
+            </button>
+          </div>
+          <span class="text-muted" style="font-size: 11px;">
+            Changing this rebalances every episode folder into the new grouping.
+            <strong>Use the Rebalance button</strong> — the regular Save below ignores this field
+            because a silent value change would mismatch all the on-disk folders.
+            Reversible from the Unlinked Uploads tab for 30 days after rebalance.
+          </span>
         </div>
       </div>
       <div class="form-group">
@@ -1763,6 +1782,85 @@
         The same version is also pinned in the bottom-left of the sidebar so you can see it from any page.
       </p>
     </div>
+
+    <!-- v1.0.45 — Reseason preview modal. Lists every episode that
+         would move from its current `Season NNN/` parent to a new
+         one at the requested season_size. Confirm runs the bulk fs
+         move + commits the new size + leaves a `.reseason-undo.json`
+         on the project root for 30-day rollback via the Unlinked
+         Uploads tab. -->
+    <Teleport to="body">
+      <div v-if="reseasonState.open" class="reseason-modal-backdrop" @click="closeReseasonPreview" />
+      <div v-if="reseasonState.open" class="reseason-modal" role="dialog" aria-label="Rebalance season folders" @click.stop>
+        <div class="reseason-modal-header">
+          <strong>↻ Rebalance season folders</strong>
+          <button class="reseason-modal-close" type="button" title="Close" @click="closeReseasonPreview">✕</button>
+        </div>
+        <div class="reseason-modal-body">
+          <template v-if="reseasonState.preview && reseasonState.preview.moves.length === 0">
+            <p class="text-muted" style="font-size: 13px; margin: 0;">
+              Nothing to rebalance — all
+              {{ reseasonState.preview.total_accepted }} accepted episode{{ reseasonState.preview.total_accepted === 1 ? '' : 's' }}
+              already sit at the same season number under
+              <strong>{{ reseasonState.preview.new_season_size }}</strong> per group as they did at
+              <strong>{{ reseasonState.preview.current_season_size }}</strong>.
+              Confirming still updates the saved size so future episodes follow the new grouping.
+            </p>
+          </template>
+          <template v-else-if="reseasonState.preview">
+            <p class="text-muted" style="font-size: 13px; margin: 0;">
+              From <strong>{{ reseasonState.preview.current_season_size }}</strong> →
+              <strong>{{ reseasonState.preview.new_season_size }}</strong> episodes per group.
+              <strong>{{ reseasonState.preview.moves.length }}</strong>
+              folder{{ reseasonState.preview.moves.length === 1 ? '' : 's' }} will move,
+              <span v-if="reseasonState.preview.noop_count > 0">
+                {{ reseasonState.preview.noop_count }} stay where they are.
+              </span>
+              <br />
+              External-root mirror (when configured) is rebalanced in the same step.
+              The <code>.reseason-undo.json</code> safety net is written first — fully reversible from the
+              Unlinked Uploads tab for 30 days.
+            </p>
+            <div class="reseason-move-list">
+              <div
+                v-for="(m, idx) in reseasonState.preview.moves.slice(0, 12)"
+                :key="m.code"
+                class="reseason-move-row"
+              >
+                <code>{{ m.code }}</code>
+                <span class="text-muted">·</span>
+                <span class="text-muted">{{ projectForm.season_prefix || 'Season' }} {{ String(m.old_season).padStart(3, '0') }} →
+                  {{ projectForm.season_prefix || 'Season' }} {{ String(m.new_season).padStart(3, '0') }}</span>
+                <span class="reseason-move-title text-muted">{{ m.title }}</span>
+              </div>
+              <div v-if="reseasonState.preview.moves.length > 12" class="text-muted" style="font-size: 11px; padding: 4px 0;">
+                + {{ reseasonState.preview.moves.length - 12 }} more
+              </div>
+            </div>
+          </template>
+          <p v-if="reseasonState.error" class="text-danger" style="font-size: 12px; margin: 8px 0 0;">
+            ⚠ {{ reseasonState.error }}
+          </p>
+        </div>
+        <div class="reseason-modal-footer">
+          <button type="button" class="btn btn-ghost btn-sm" @click="closeReseasonPreview">Cancel</button>
+          <button
+            v-if="reseasonState.preview"
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="reseasonState.running"
+            @click="confirmReseason"
+          >
+            <LoadingSpinner v-if="reseasonState.running" size="sm" />
+            {{ reseasonState.running
+              ? 'Rebalancing…'
+              : (reseasonState.preview.moves.length === 0
+                ? 'Save new size'
+                : `Rebalance ${reseasonState.preview.moves.length} folder${reseasonState.preview.moves.length === 1 ? '' : 's'}`) }}
+          </button>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1774,7 +1872,7 @@ const slug = computed(() => route.params.slug as string)
 const { get, post, put, del } = useApi()
 const { ask } = useConfirm()
 const { project, config, refreshConfig, loadProject } = useProject()
-const { success, error: showError } = useToast()
+const { success, error: showError, info } = useToast()
 const assetMigration = useAssetMigration()
 
 // `formatBytes` is already defined further down (used by the projects-
@@ -3745,13 +3843,18 @@ async function savePerformance() {
   }
 }
 
-// Sync project form
+// Sync project form. v1.0.45 — track the server-side season_size
+// separately so the Reseason flow can detect "user wants to change it"
+// and offer the rebalance preview, while the regular save flow filters
+// out season_size to avoid silent mismatches with on-disk folders.
+const serverSeasonSize = ref(20)
 watch(project, (p) => {
   if (p) {
     projectForm.name = p.name
     projectForm.episode_prefix = p.episode_prefix
     projectForm.season_prefix = p.season_prefix || 'Season'
     projectForm.season_size = p.season_size || 20
+    serverSeasonSize.value = p.season_size || 20
     projectForm.youtube_channel_url = (p as any).youtube_channel_url || ''
     // Item J — category_id lives on ProjectConfig (not project meta), so
     // it's hydrated from `config` after refreshConfig fires (see watch
@@ -3760,6 +3863,95 @@ watch(project, (p) => {
     projectForm.category_id = undefined
   }
 }, { immediate: true })
+const seasonSizeChanged = computed(() =>
+  Number.isInteger(projectForm.season_size)
+  && projectForm.season_size >= 1
+  && projectForm.season_size !== serverSeasonSize.value,
+)
+
+// ── Reseason preview / apply (v1.0.45) ────────────────────────────────────
+interface ReseasonMove {
+  code: string
+  title: string
+  old_dir: string
+  new_dir: string
+  old_season: number
+  new_season: number
+}
+interface ReseasonPreviewData {
+  current_season_size: number
+  new_season_size: number
+  moves: ReseasonMove[]
+  noop_count: number
+  total_accepted: number
+}
+const reseasonState = reactive<{
+  open: boolean
+  opening: boolean
+  running: boolean
+  preview: ReseasonPreviewData | null
+  error: string
+}>({
+  open: false,
+  opening: false,
+  running: false,
+  preview: null,
+  error: '',
+})
+
+async function openReseasonPreview() {
+  if (!seasonSizeChanged.value) return
+  if (reseasonState.opening || reseasonState.running) return
+  reseasonState.opening = true
+  reseasonState.error = ''
+  try {
+    reseasonState.preview = await get<ReseasonPreviewData>(
+      `/projects/${slug.value}/episodes/reseason-preview?new_size=${projectForm.season_size}`,
+    )
+    reseasonState.open = true
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to compute reseason plan')
+  } finally {
+    reseasonState.opening = false
+  }
+}
+
+function closeReseasonPreview() {
+  if (reseasonState.running) return
+  reseasonState.open = false
+  reseasonState.preview = null
+  reseasonState.error = ''
+}
+
+async function confirmReseason() {
+  if (reseasonState.running || !reseasonState.preview) return
+  reseasonState.running = true
+  reseasonState.error = ''
+  try {
+    const r = await post<{
+      ok: true
+      moves: ReseasonMove[]
+      moved: Array<{ code: string; from: string; to: string }>
+      moved_external: Array<{ code: string; from: string; to: string }>
+      errors: Array<{ stage: string; detail: string }>
+    }>(`/projects/${slug.value}/episodes/reseason`, { new_size: reseasonState.preview.new_season_size })
+    const movedCount = r.moved.length
+    const externalCount = r.moved_external.length
+    const errorCount = r.errors.length
+    const parts: string[] = []
+    if (movedCount) parts.push(`${movedCount} folder${movedCount === 1 ? '' : 's'} moved`)
+    if (externalCount) parts.push(`${externalCount} external`)
+    if (errorCount) parts.push(`${errorCount} error${errorCount === 1 ? '' : 's'}`)
+    success(`Rebalanced · ${parts.length ? parts.join(', ') : 'no-op'}. Reversible from Unlinked Uploads tab for 30 days.`)
+    reseasonState.open = false
+    reseasonState.preview = null
+    await loadProject(slug.value)
+  } catch (e: any) {
+    reseasonState.error = e?.data?.detail || e?.message || 'Rebalance failed'
+  } finally {
+    reseasonState.running = false
+  }
+}
 
 async function saveImagePricing() {
   try {
@@ -3880,7 +4072,19 @@ async function saveProject() {
     // /projects/:slug/settings/config. Two PUTs because the backend
     // routes are split — accepted as the simpler path vs. unifying the
     // two endpoints, which would touch a much larger surface.
-    const { category_id, ...projectMeta } = projectForm as any
+    //
+    // v1.0.45 — strip `season_size` from the regular save path. A
+    // raw value-change wouldn't move on-disk folders, leaving every
+    // season-aware path resolution silently broken. The Rebalance
+    // button next to the field is the only path that commits a new
+    // season_size (via /episodes/reseason, which moves folders too).
+    const { category_id, season_size: _droppedSize, ...projectMeta } = projectForm as any
+    if (seasonSizeChanged.value) {
+      // Reset the input to the server value so the Rebalance button's
+      // "differs from server" gate doesn't keep firing after save.
+      projectForm.season_size = serverSeasonSize.value
+      info('Episodes per Group not saved — use the ↻ Rebalance button next to the field to apply size changes.')
+    }
     await put(`/projects/${slug.value}`, projectMeta)
     await put(`/projects/${slug.value}/settings/config`, { category_id: typeof category_id === 'number' && category_id > 0 ? category_id : undefined })
     await loadProject(slug.value)
@@ -4809,4 +5013,66 @@ async function deleteProject() {
 }
 .local-tts-pill.ok  { background: rgba(34,197,94,0.12);   color: rgb(22,163,74);   border: 1px solid rgba(34,197,94,0.35); }
 .local-tts-pill.err { background: rgba(220,38,38,0.10);   color: rgb(190,18,60);   border: 1px solid rgba(220,38,38,0.35); }
+
+/* v1.0.45 — Reseason preview modal. Same shape as Compact's preview
+   modal (defined in upload.vue scope) — small, scrollable list of
+   moves + a Confirm. Lives at the page root via Teleport so it
+   overlays everything. */
+.reseason-modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+}
+.reseason-modal {
+  position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(620px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  display: flex; flex-direction: column;
+  z-index: 1000;
+}
+.reseason-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.reseason-modal-close {
+  background: none; border: none; font-size: 16px;
+  color: var(--text-secondary);
+  cursor: pointer; padding: 0 4px;
+}
+.reseason-modal-close:hover { color: var(--text-primary); }
+.reseason-modal-body {
+  padding: 14px 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+.reseason-modal-footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+.reseason-move-list {
+  margin-top: 12px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.reseason-move-row {
+  display: flex; gap: 8px; align-items: center;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.reseason-move-title {
+  flex: 1; min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 </style>

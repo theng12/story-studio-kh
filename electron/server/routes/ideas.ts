@@ -17,6 +17,10 @@ import { filterGenerated, type SimilarityCandidate } from '../services/idea-simi
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { invalidateProjectUploadCaches } from '../services/upload-caches.js'
 import { previewCompact, compactAcceptedEpisodes } from '../services/upload-compact.js'
+import {
+  previewReseason, applyReseason, revertReseason,
+  readReseasonUndo, deleteReseasonUndo, isReseasonUndoExpired,
+} from '../services/upload-reseason.js'
 
 export const router = Router()
 
@@ -1439,5 +1443,79 @@ router.post('/projects/:slug/episodes/compact', async (req, res) => {
     res.json({ ok: true, ...result })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Compact failed'))
+  }
+})
+
+// ── Reseason (v1.0.45) ──────────────────────────────────────────────────────
+//
+// Bulk-rebalance episode folders when season_size changes. Naively
+// editing the value silently breaks every season-aware path
+// resolution; this flow moves folders to match. Same shape as
+// Compact: preview → apply → revert (with .reseason-undo.json safety
+// net), banner on the Unlinked Uploads tab while undo is alive.
+
+router.get('/projects/:slug/episodes/reseason-preview', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const newSize = parseInt(String(req.query.new_size || ''), 10)
+    if (!Number.isInteger(newSize) || newSize < 1 || newSize > 1000) {
+      return res.status(400).json({ detail: 'new_size must be a positive integer ≤ 1000' })
+    }
+    const preview = await previewReseason(req.params.slug, newSize)
+    res.json(preview)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Reseason preview failed'))
+  }
+})
+
+router.post('/projects/:slug/episodes/reseason', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const newSize = parseInt(String(req.body?.new_size || ''), 10)
+    if (!Number.isInteger(newSize) || newSize < 1 || newSize > 1000) {
+      return res.status(400).json({ detail: 'new_size must be a positive integer ≤ 1000' })
+    }
+    const result = await applyReseason(req.params.slug, newSize)
+    invalidateProjectUploadCaches(req.params.slug)
+    res.json({ ok: true, ...result })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Reseason failed'))
+  }
+})
+
+router.get('/projects/:slug/episodes/reseason-undo', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const plan = await readReseasonUndo(req.params.slug)
+    if (!plan) return res.json({ available: false })
+    res.json({
+      available: true,
+      plan,
+      moves_count: plan.moves.length,
+      expired: isReseasonUndoExpired(plan),
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to read reseason-undo sidecar'))
+  }
+})
+
+router.post('/projects/:slug/episodes/reseason-undo/revert', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const result = await revertReseason(req.params.slug)
+    invalidateProjectUploadCaches(req.params.slug)
+    res.json({ ok: true, ...result })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to revert reseason'))
+  }
+})
+
+router.delete('/projects/:slug/episodes/reseason-undo', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const deleted = await deleteReseasonUndo(req.params.slug)
+    res.json({ ok: true, deleted })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to dismiss reseason-undo sidecar'))
   }
 })

@@ -1619,6 +1619,44 @@
         </div>
       </div>
 
+      <!-- v1.0.45 — reseason-undo banner (sibling to renumber). Visible
+           only when a recent Settings → Project → Rebalance wrote a
+           `.reseason-undo.json` sidecar. Lets the user move every
+           rebalanced folder back to its original Season NNN/ parent
+           and restore the previous season_size in one click. Same
+           30-day TTL + Dismiss pattern as the renumber banner. -->
+      <div v-if="reseasonUndoStatus.available" class="renumber-undo-banner mt-2">
+        <div class="renumber-undo-banner-icon" aria-hidden="true">↩</div>
+        <div class="renumber-undo-banner-body">
+          <strong>A reseason is reversible</strong>
+          <div class="text-muted" style="font-size: 12px; margin-top: 2px;">
+            On <strong>{{ formatScheduled(reseasonUndoStatus.plan?.performed_at || '') }}</strong>,
+            this project rebalanced <strong>{{ reseasonUndoStatus.moves_count }}</strong>
+            episode folder{{ reseasonUndoStatus.moves_count === 1 ? '' : 's' }} from
+            <strong>{{ reseasonUndoStatus.plan?.previous_season_size }}</strong> →
+            <strong>{{ reseasonUndoStatus.plan?.new_season_size }}</strong> per group.
+            <br />
+            Click <em>Revert</em> to move folders back AND restore the previous group size.
+            External-root mirror is reverted in the same step. Auto-deletes after 30 days,
+            or click <em>Dismiss</em> when you're confident.
+          </div>
+        </div>
+        <div class="renumber-undo-banner-actions">
+          <button
+            class="btn btn-sm btn-secondary"
+            :disabled="reseasonUndoBusy"
+            title="Move every rebalanced folder back to its original Season parent and restore the old season_size."
+            @click="openRevertReseasonModal"
+          >↩ Revert reseason</button>
+          <button
+            class="btn btn-sm btn-ghost"
+            :disabled="reseasonUndoBusy"
+            title="Delete the .reseason-undo.json sidecar. State stays as it is; future revert won't be available."
+            @click="dismissReseasonUndo"
+          >Dismiss</button>
+        </div>
+      </div>
+
       <div v-if="orphansError" class="text-danger mt-2" style="font-size: 13px; padding: 10px 12px; background: rgba(248, 81, 73, 0.06); border: 1px solid rgba(248, 81, 73, 0.25); border-radius: var(--radius-sm);">
         ⚠ {{ orphansError }}
       </div>
@@ -3364,6 +3402,9 @@ watch(activeTab, (tab) => {
     // the tab so the banner state matches reality (e.g. another window
     // already dismissed the sidecar, or it expired since last visit).
     loadRenumberUndoStatus()
+    // v1.0.45 — same for reseason-undo. Independent file/sidecar so
+    // both banners can coexist if both ops are pending revert.
+    loadReseasonUndoStatus()
   }
 })
 
@@ -3544,6 +3585,82 @@ async function dismissRenumberUndo() {
     showError(e?.data?.detail || e?.message || 'Failed to dismiss sidecar')
   } finally {
     renumberUndoBusy.value = false
+  }
+}
+
+// ── Reseason undo (v1.0.45) ─────────────────────────────────────────────
+// Sibling to the renumber-undo flow above. Fires when the user has
+// rebalanced season folders within the last 30 days.
+const reseasonUndoStatus = ref<{
+  available: boolean
+  plan?: { performed_at: string; previous_season_size: number; new_season_size: number; moves: any[] }
+  moves_count?: number
+  expired?: boolean
+}>({ available: false })
+const reseasonUndoBusy = ref(false)
+
+async function loadReseasonUndoStatus() {
+  try {
+    const { get: apiGet } = useApi()
+    reseasonUndoStatus.value = await apiGet(`/projects/${slug.value}/episodes/reseason-undo`)
+  } catch {
+    reseasonUndoStatus.value = { available: false }
+  }
+}
+
+async function openRevertReseasonModal() {
+  if (!reseasonUndoStatus.value.available || reseasonUndoBusy.value) return
+  const confirmed = await ask({
+    title: 'Revert reseason?',
+    message: `Move every rebalanced folder back to its original ${reseasonUndoStatus.value.plan?.previous_season_size}-per-group parent and restore that as the project's season size. External-root mirror is reverted in the same step. Reversible by re-running Settings → Project → Rebalance.`,
+    confirmLabel: 'Revert',
+    danger: true,
+  })
+  if (!confirmed) return
+  reseasonUndoBusy.value = true
+  try {
+    const { post: apiPost } = useApi()
+    const r = await apiPost<{
+      ok: true
+      reverted: any[]
+      reverted_external: any[]
+      restored_parents: string[]
+      errors: any[]
+    }>(`/projects/${slug.value}/episodes/reseason-undo/revert`, {})
+    const parts: string[] = []
+    if (r.reverted.length) parts.push(`${r.reverted.length} folder${r.reverted.length === 1 ? '' : 's'} moved back`)
+    if (r.reverted_external.length) parts.push(`${r.reverted_external.length} external`)
+    if (r.errors.length) parts.push(`${r.errors.length} error${r.errors.length === 1 ? '' : 's'}`)
+    success('Reseason reverted · ' + (parts.length ? parts.join(', ') : 'no-op'))
+    await Promise.all([
+      loadReseasonUndoStatus(),
+      loadQueue('youtube').catch(() => {}),
+    ])
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Revert failed')
+  } finally {
+    reseasonUndoBusy.value = false
+  }
+}
+
+async function dismissReseasonUndo() {
+  if (reseasonUndoBusy.value) return
+  const confirmed = await ask({
+    title: 'Dismiss the rollback safety net?',
+    message: 'Deletes .reseason-undo.json. The rebalanced folders stay where they are; you just won\'t be able to revert this rebalance later. Auto-deletes after 30 days anyway.',
+    confirmLabel: 'Dismiss',
+  })
+  if (!confirmed) return
+  reseasonUndoBusy.value = true
+  try {
+    const { del: apiDel } = useApi()
+    await apiDel(`/projects/${slug.value}/episodes/reseason-undo`)
+    success('Reseason-undo sidecar dismissed')
+    await loadReseasonUndoStatus()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to dismiss sidecar')
+  } finally {
+    reseasonUndoBusy.value = false
   }
 }
 

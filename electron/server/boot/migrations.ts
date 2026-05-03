@@ -11,6 +11,7 @@ import { migrateAppSecrets } from './migrate-app-secrets.js'
 import { cleanOrphanWorkTempDirs, cleanLegacyInProjectTempDirs } from '../lib/work-tempdir.js'
 import * as pm from '../services/project-manager.js'
 import { cleanupStaleUndoSidecars } from '../services/upload-renumber-undo.js'
+import { cleanupStaleReseasonUndoSidecars } from '../services/upload-reseason.js'
 import { migrateScheduleMapsToSidecars } from '../services/upload-schedule-migration.js'
 import { proactiveRecoverySweep } from '../services/boot-recovery.js'
 import { readLastSession } from '../services/last-session.js'
@@ -154,6 +155,15 @@ export function runBootMigrations(): void {
       console.log(`[migration] renumber-undo: auto-cleaned ${cleaned.length} stale sidecar(s) [${cleaned.join(', ')}]`)
     }
   }).catch(e => console.error('[migration] renumber-undo cleanup failed:', e?.message || e)))
+
+  // v1.0.45: same 30-day TTL for the reseason-undo sidecars. Single
+  // boot-time pass keeps stale safety nets from cluttering project
+  // dirs forever after the user's confidence in the change settles.
+  tasks.push(cleanupStaleReseasonUndoSidecars().then((cleaned) => {
+    if (cleaned.length > 0) {
+      console.log(`[migration] reseason-undo: auto-cleaned ${cleaned.length} stale sidecar(s) [${cleaned.join(', ')}]`)
+    }
+  }).catch(e => console.error('[migration] reseason-undo cleanup failed:', e?.message || e)))
 
   // Proactive recovery sweep — only fires on unclean shutdown so a clean
   // boot has zero overhead. Walks every project's accepted episodes,
