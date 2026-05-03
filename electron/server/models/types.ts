@@ -1435,7 +1435,6 @@ export interface GenerateVideoRequest {
   chapter_titles: VideoChapterTitles
   scene_animation?: VideoSceneAnimation
   post_audio?: VideoPostAudio       // what happens after narration ends, default fade-to-black
-  ken_burns?: boolean               // DEPRECATED — kept for backward compat, maps to scene_animation 'ken-burns'
   audio_gap?: number                // seconds of silence between narration chapters, default 5
   narration_chapters?: string[]     // individual chapter audio file paths (for gap insertion)
   merged_audio_path?: string        // path to pre-merged audio from audio-merge step (skips chapter concat)

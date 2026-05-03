@@ -773,12 +773,13 @@ export async function generateVideo(job: Job): Promise<void> {
       narrationFilePath = req.narration_path
     }
 
-    // 5. Resolve scene animation (backward compat: convert old ken_burns boolean)
-    const sceneAnimation: VideoSceneAnimation = req.scene_animation ?? (
-      req.ken_burns
-        ? { type: 'ken-burns', zoom_start: 100, zoom_end: 108, parallax_direction: 'right', parallax_speed: 2, breathe_amplitude: 2, breathe_base_zoom: 103 }
-        : { type: 'none', zoom_start: 100, zoom_end: 108, parallax_direction: 'right', parallax_speed: 2, breathe_amplitude: 2, breathe_base_zoom: 103 }
-    )
+    // 5. Resolve scene animation — defaults to 'none' when the request
+    // omits it. The breathe/parallax knobs are only consulted by the
+    // animation pipeline when type !== 'none', so the values below are
+    // a sensible no-op default rather than meaningful settings.
+    const sceneAnimation: VideoSceneAnimation = req.scene_animation ?? {
+      type: 'none', zoom_start: 100, zoom_end: 108, parallax_direction: 'right', parallax_speed: 2, breathe_amplitude: 2, breathe_base_zoom: 103,
+    }
 
     // 6. Prepare scene clips
     const sceneClips = await prepareSceneClips(
