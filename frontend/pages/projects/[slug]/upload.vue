@@ -4562,7 +4562,13 @@ async function openUploadPreview(item: any) {
   uploadPreview.data = null
   uploadPreview.open = true
   try {
-    uploadPreview.data = await get<UploadPreviewData>(
+    // upload.vue doesn't destructure `get` at the top of <script setup>
+    // — every other handler does an inline `const { get: apiGet } =
+    // useApi()`. v1.0.41 missed that pattern here and shipped the bare
+    // `get` reference, which threw "get is not defined" at runtime
+    // when the user clicked Upload (caught in v1.0.43 beta).
+    const { get: apiGet } = useApi()
+    uploadPreview.data = await apiGet<UploadPreviewData>(
       `/projects/${slug.value}/upload/queue/${encodeURIComponent(item.episode_code)}/preview?platform=youtube`,
     )
   } catch (e: any) {

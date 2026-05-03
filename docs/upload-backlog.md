@@ -522,6 +522,13 @@ been done across versions.
   on idea remove / dismiss / accept / reset, plus the ↻ Refresh button
   now passes `?nocache=1` so it actually re-scans instead of returning
   the cached snapshot.
+- **v1.0.44** (2026-05-04) — Hotfix: pre-upload preview modal threw
+  "get is not defined" when clicked. `openUploadPreview` in upload.vue
+  used a bare `get` reference, but upload.vue doesn't destructure
+  `get` at the top of `<script setup>` like other pages do — every
+  other handler in this file does an inline
+  `const { get: apiGet } = useApi()`. Fixed to follow the same
+  pattern. Caught during v1.0.43 beta testing.
 - **v1.0.43** (2026-05-04) — External root rename cascade: every code-
   changing operation (Compact codes, single Renumber, orphan-renumber
   bulk, and the renumber-undo revert) now also renames the matching
