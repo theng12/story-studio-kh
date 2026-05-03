@@ -574,6 +574,20 @@ export function useUploadAccounts(slug: string) {
     )
   }
 
+  /**
+   * Mark an episode's upstream video as deleted (tombstone). Distinct from
+   * resetUploadState: the sidecar is KEPT (preserves video_id / account_id
+   * for audit) but stamped with `deleted_at`, so the row moves to the
+   * "Deleted upstream" filter chip and bulk-upload skips it by default.
+   * Right verb when the video was taken down and you DON'T want it back.
+   */
+  async function markDeletedUpstream(episode_code: string, platform: UploadPlatform = 'youtube', reason: string = 'manual') {
+    return post<{ ok: true; deleted_at: string; already_marked?: boolean }>(
+      `/projects/${slug}/upload/queue/${encodeURIComponent(episode_code)}/mark-deleted`,
+      { platform, reason },
+    )
+  }
+
   // ── Per-item schedule ops (A2) ────────────────────────────────────────
   async function editSchedule(episode_code: string, publish_at: string) {
     const r = await fetch(`/api/projects/${slug}/upload/queue/${encodeURIComponent(episode_code)}/schedule`, {
@@ -716,6 +730,19 @@ export function useUploadAccounts(slug: string) {
     )
   }
 
+  /**
+   * Link a YouTube video to an EXISTING local episode by writing / overwriting
+   * the sidecar. Distinct from adoptSingleOrphan, which creates a NEW idea +
+   * folder tree and refuses if the episode_code is already in use. This is
+   * the right call for the Queue-tab "🔗 Link existing YouTube video" flow.
+   */
+  async function linkExistingVideo(episode_code: string, video: OrphanVideo, platform: UploadPlatform = 'youtube') {
+    return post<{ ok: true; episode_code: string; video_id: string; replaced_prior: boolean }>(
+      `/projects/${slug}/upload/queue/${encodeURIComponent(episode_code)}/link-existing-video`,
+      { video, platform },
+    )
+  }
+
   async function adoptBulkOrphans(videos: OrphanVideo[], mode: 'continuation' | 'renumber') {
     return post<{
       ok: true; mode: string
@@ -820,6 +847,7 @@ export function useUploadAccounts(slug: string) {
     clearItemSchedule,
     syncQueueFromYoutube,
     resetUploadState,
+    markDeletedUpstream,
     orphans,
     orphansNextNumber,
     orphansAlreadyLinked,
@@ -827,6 +855,7 @@ export function useUploadAccounts(slug: string) {
     orphansLoading,
     loadOrphans,
     adoptSingleOrphan,
+    linkExistingVideo,
     adoptBulkOrphans,
     quota,
     loadQuota,

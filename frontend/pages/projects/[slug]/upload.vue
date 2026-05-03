@@ -479,6 +479,21 @@
                   ⚠ Failed
                 </span>
               </template>
+              <template v-else-if="item.uploaded && item.deleted_at">
+                <!-- Tombstoned: video used to exist on YouTube but is gone now.
+                     Distinct from "✓ Uploaded" so the user doesn't think the
+                     link is healthy. The video_url still opens YouTube — most
+                     of the time it'll 404, which is the right confirmation. -->
+                <span class="tombstone-pill"
+                      :title="`Was uploaded as ${item.video_id || '?'} (${item.deleted_reason || 'manual'}) — marked deleted upstream ${item.deleted_at ? new Date(item.deleted_at).toLocaleString() : ''}. Bulk-upload skips this row by default. Use “Forget link” in the row menu if you want to re-upload from scratch.`">
+                  🪦 Deleted upstream
+                </span>
+                <div class="row-chip-stack">
+                  <span class="text-muted" style="font-size: 11px;">
+                    last seen {{ item.last_sync_at ? formatScheduled(item.last_sync_at) : '?' }}
+                  </span>
+                </div>
+              </template>
               <template v-else-if="item.uploaded">
                 <a :href="item.video_url" target="_blank" rel="noopener" class="video-link" :title="`Video id: ${item.video_id} — opens in YouTube. Click Upload again to PATCH metadata only, not replace the video.`">
                   ✓ Uploaded
@@ -510,6 +525,18 @@
                         title="Every fresh upload lands on YouTube as private. If a publishAt is scheduled, YouTube auto-flips to public at that time.">
                     {{ item._privacy.label }}
                   </span>
+                  <!-- Inline orphan-match hint — shows when an unlinked
+                       video on the channel has a title close enough to
+                       this row's title that it's probably the same
+                       thing. One click opens the Link Video modal pre-
+                       focused on the orphan list. -->
+                  <button
+                    v-if="orphanMatchByCode[item.episode_code]"
+                    type="button"
+                    class="orphan-match-pill"
+                    :title="`A YouTube video on this channel matches this episode's title (${Math.round(orphanMatchByCode[item.episode_code].score * 100)}% match): &quot;${orphanMatchByCode[item.episode_code].title.slice(0, 80)}&quot;. Click to link instead of re-uploading.`"
+                    @click="openLinkVideoModal(item)"
+                  >🔗 Looks already on YouTube</button>
                 </div>
               </template>
             </td>
@@ -694,16 +721,52 @@
                           <option v-for="pl in playlists" :key="pl.id" :value="pl.id">{{ pl.title }}</option>
                         </select>
                       </div>
+                      <!-- Ready rows (or any not-uploaded row): offer the
+                           "Link existing YouTube video" action so users
+                           who uploaded manually elsewhere can connect
+                           Story Studio to the live video without leaving
+                           the Queue. -->
+                      <button
+                        v-if="!item.uploaded && item.type === 'episode'"
+                        class="rkm-item"
+                        role="menuitem"
+                        @click="openLinkVideoModal(item); closeRowMenu()"
+                      >
+                        <span class="rkm-icon">🔗</span>
+                        <div class="rkm-body">
+                          <strong>Link existing YouTube video…</strong>
+                          <span class="rkm-hint">Already uploaded this video manually (e.g. via YouTube Studio while travelling)? Pick the orphan video on your channel and we'll write the sidecar so Story Studio knows they're the same — no re-upload.</span>
+                        </div>
+                      </button>
+                      <!-- Two distinct verbs split out of the old "Reset
+                           upload state" — the takedown / "I don't want it
+                           back" path got buried under generic "reset"
+                           wording. Now each verb does ONE thing and the
+                           tooltip tells the user when to pick which. -->
+                      <button
+                        v-if="item.uploaded && !item.deleted_at"
+                        class="rkm-item"
+                        role="menuitem"
+                        @click="doMarkDeletedUpstream(item); closeRowMenu()"
+                      >
+                        <span class="rkm-icon">🪦</span>
+                        <div class="rkm-body">
+                          <strong>Mark as deleted upstream</strong>
+                          <span class="rkm-hint">Use when YouTube took this video down or you deleted it and DON'T want it back. The historical link is preserved (so audit / reconcile still works), but bulk-upload skips this row going forward.</span>
+                        </div>
+                      </button>
                       <button
                         v-if="item.uploaded"
                         class="rkm-item"
                         role="menuitem"
                         @click="doResetUploadState(item); closeRowMenu()"
                       >
-                        <span class="rkm-icon">♻</span>
+                        <span class="rkm-icon">🔗</span>
                         <div class="rkm-body">
-                          <strong>Reset upload state</strong>
-                          <span class="rkm-hint">Forget this episode's link to its YouTube video. Use when you uploaded to the wrong account or the video was deleted on YouTube. Next Upload creates a fresh video.</span>
+                          <strong>{{ item.deleted_at ? 'Restore: forget link' : 'Forget link' }}</strong>
+                          <span class="rkm-hint">{{ item.deleted_at
+                            ? 'Wipes the tombstone so this episode goes back to Ready. Bulk-upload will then re-upload the local final video as a fresh YouTube video.'
+                            : 'Wipes the sidecar so this episode goes back to Ready. Use when you uploaded to the WRONG account by accident — the next bulk-upload will re-upload from scratch.' }}</span>
                         </div>
                       </button>
                     </div>
@@ -1927,6 +1990,75 @@
       </div>
     </Teleport>
 
+    <!-- Link existing YouTube video modal — opened from the Queue row
+         menu on a Ready row. Lists orphans on the channel (fetched fresh
+         on open) ranked by title similarity against the episode's local
+         title. One click adopts: writes the sidecar so Story Studio
+         knows the local episode and the live YouTube video are the
+         same. Use case: user uploaded the file manually via YouTube
+         Studio while traveling and now wants to reconnect. -->
+    <Teleport to="body">
+      <div v-if="linkVideoModal.open" class="upload-plan-modal-backdrop" @click="closeLinkVideoModal" />
+      <div v-if="linkVideoModal.open" class="upload-plan-modal link-video-modal" role="dialog" aria-label="Link existing YouTube video" @click.stop>
+        <div class="upload-plan-modal-header">
+          <strong>🔗 Link existing YouTube video</strong>
+          <button class="upload-plan-modal-close" type="button" title="Close" @click="closeLinkVideoModal">✕</button>
+        </div>
+        <div class="upload-plan-modal-body">
+          <p class="text-muted" style="font-size: 12px; margin: 0;">
+            Linking <strong>{{ linkVideoModal.item?.episode_code }}</strong>
+            <template v-if="linkVideoModal.item?.title"> · {{ linkVideoModal.item.title.slice(0, 60) }}</template>
+          </p>
+          <input
+            v-model="linkVideoModal.search"
+            type="text"
+            class="input input-sm"
+            placeholder="Search by title or video id…"
+            spellcheck="false"
+          />
+          <div v-if="linkVideoModal.searching" class="text-muted" style="font-size: 12px; padding: 8px 0;">
+            <LoadingSpinner size="sm" /> Loading orphan videos…
+          </div>
+          <div v-else-if="!linkVideoCandidates.length" class="text-muted" style="font-size: 12px; padding: 8px 0;">
+            No unlinked videos on the channel match. Try a search term, or check the Unlinked Uploads tab to refresh from YouTube.
+          </div>
+          <div v-else class="link-video-list">
+            <button
+              v-for="{ video, score } in linkVideoCandidates"
+              :key="video.videoId"
+              type="button"
+              class="link-video-row"
+              :disabled="!!linkVideoModal.busyVideoId"
+              :title="`Link this YouTube video to ${linkVideoModal.item?.episode_code}. Writes the sidecar — no re-upload.`"
+              @click="doLinkOrphan(video)"
+            >
+              <div class="link-video-row-main">
+                <div class="link-video-row-title">{{ video.title || '(no title)' }}</div>
+                <div class="link-video-row-meta">
+                  <code style="font-size: 11px;">{{ video.videoId }}</code>
+                  <span v-if="video.publishedAt" class="text-muted">· {{ new Date(video.publishedAt).toLocaleDateString() }}</span>
+                  <span v-if="video.privacyStatus" :class="['privacy-chip', `privacy-chip--${video.privacyStatus === 'public' ? 'public' : video.privacyStatus === 'unlisted' ? 'unlisted' : 'private'}`]">{{ video.privacyStatus }}</span>
+                </div>
+              </div>
+              <div class="link-video-row-score" :class="{ 'high-match': score >= 0.5 }">
+                <LoadingSpinner v-if="linkVideoModal.busyVideoId === video.videoId" size="sm" />
+                <template v-else>{{ Math.round(score * 100) }}% match</template>
+              </div>
+            </button>
+          </div>
+        </div>
+        <div class="upload-plan-modal-footer">
+          <button type="button" class="btn btn-ghost btn-sm" @click="closeLinkVideoModal">Cancel</button>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            title="Open the Unlinked Uploads tab for the full orphan flow (bulk adopt, renumber)"
+            @click="activeTab = 'orphans'; closeLinkVideoModal()"
+          >See all unlinked →</button>
+        </div>
+      </div>
+    </Teleport>
+
     <!-- Plan scope picker — opens from the Apply / Upload / Unapply buttons
          on each plan row OR from inside the Upload Plan modal. Anchored to
          the click-target so it floats next to the button, doesn't take a
@@ -2068,6 +2200,7 @@ const {
   clearItemSchedule,
   syncQueueFromYoutube,
   resetUploadState,
+  markDeletedUpstream,
   orphans,
   orphansNextNumber,
   orphansAlreadyLinked,
@@ -2075,6 +2208,7 @@ const {
   orphansLoading,
   loadOrphans,
   adoptSingleOrphan,
+  linkExistingVideo,
   adoptBulkOrphans,
   playlists,
   defaultPlaylistId,
@@ -2150,18 +2284,19 @@ const queueFilterString = computed(() => {
 })
 
 interface FilterChip {
-  id: 'ready' | 'uploaded_local' | 'uploaded_freed' | 'imports' | 'scheduled'
+  id: 'ready' | 'uploaded_local' | 'uploaded_freed' | 'deleted_upstream' | 'imports' | 'scheduled'
   kind: 'state' | 'overlay'
   icon: string
   label: string
   tooltip: string
 }
 const QUEUE_FILTER_CHIPS: FilterChip[] = [
-  { id: 'ready',          kind: 'state',   icon: '🟢', label: 'Ready',                tooltip: 'Has a final video on disk and is not yet uploaded.' },
-  { id: 'uploaded_local', kind: 'state',   icon: '✅', label: 'Uploaded · local kept', tooltip: 'Already on YouTube AND the local final-video file is still on disk.' },
-  { id: 'uploaded_freed', kind: 'state',   icon: '☁️', label: 'Uploaded · local freed', tooltip: 'On YouTube; the local final has been cleaned up. Older private videos typically live here. Excluded by default so bulk actions don’t target them.' },
-  { id: 'imports',        kind: 'state',   icon: '📦', label: 'Imports',              tooltip: 'Files dropped into the project-level imports folder.' },
-  { id: 'scheduled',      kind: 'overlay', icon: '📅', label: 'Scheduled',            tooltip: 'Overlay filter — combine with any state chips above to narrow to scheduled rows only.' },
+  { id: 'ready',            kind: 'state',   icon: '🟢', label: 'Ready',                  tooltip: 'Has a final video on disk and is not yet uploaded.' },
+  { id: 'uploaded_local',   kind: 'state',   icon: '✅', label: 'Uploaded · local kept',  tooltip: 'Already on YouTube AND the local final-video file is still on disk.' },
+  { id: 'uploaded_freed',   kind: 'state',   icon: '☁️', label: 'Uploaded · local freed', tooltip: 'On YouTube; the local final has been cleaned up. Older private videos typically live here. Excluded by default so bulk actions don’t target them.' },
+  { id: 'deleted_upstream', kind: 'state',   icon: '🪦', label: 'Deleted upstream',       tooltip: 'Was uploaded, then removed from YouTube (takedown, manual delete, or you marked it). Excluded from bulk-upload defaults so it doesn’t come back. Sync from YouTube auto-stamps these when it sees the video is gone.' },
+  { id: 'imports',          kind: 'state',   icon: '📦', label: 'Imports',                tooltip: 'Files dropped into the project-level imports folder.' },
+  { id: 'scheduled',        kind: 'overlay', icon: '📅', label: 'Scheduled',              tooltip: 'Overlay filter — combine with any state chips above to narrow to scheduled rows only.' },
 ]
 
 function toggleQueueFilter(chip: FilterChip) {
@@ -2711,6 +2846,14 @@ watch(activeTab, (tab) => {
     // button — without this, the button stays disabled until the user
     // visits the Plans tab. List is tiny so the prefetch is free.
     if (!plans.value.length) loadPlans()
+    // Orphans power the inline "Looks already on YouTube" pill on Ready
+    // rows + the Link Video modal. Costs YouTube quota (one channel
+    // listing) so we lazy-load once per session, not on every tab
+    // switch. The user's "I uploaded this manually" workflow becomes
+    // discoverable without leaving the Queue.
+    if (!orphans.value.length && !orphansError.value && youtubeAccounts.value.length) {
+      loadOrphans()
+    }
   }
   if (tab === 'plans' && !plans.value.length) loadPlans()
   if (tab === 'playlists' && !playlists.value.length) loadPlaylists()
@@ -4460,8 +4603,16 @@ async function doSyncFromYoutube() {
     if (r.errors?.length) {
       showError(`${r.errors.length} sidecar write(s) failed during sync — check server logs.`)
     }
-    if (r.updated > 0) {
+    if (r.updated > 0 || (r.tombstoned && r.tombstoned.length > 0)) {
       await loadQueue({ nocache: true, page: queuePage.value })
+    }
+    // Surface tombstones found this run as a separate toast — these are the
+    // user's "older private videos that got taken down" and they probably
+    // want to know about them rather than have the row silently flip.
+    if (r.tombstoned && r.tombstoned.length > 0) {
+      const codes = r.tombstoned.map((t: any) => t.episode_code).slice(0, 5).join(', ')
+      const more = r.tombstoned.length > 5 ? `, +${r.tombstoned.length - 5} more` : ''
+      showError(`🪦 ${r.tombstoned.length} video(s) gone from YouTube and tombstoned: ${codes}${more}. Filter by "Deleted upstream" to review.`)
     }
   } catch (e: any) {
     showError(e?.data?.detail || 'Sync from YouTube failed')
@@ -4497,19 +4648,29 @@ async function doBulkClear(syncYoutube: boolean) {
 }
 
 async function doResetUploadState(item: any) {
+  // Phrasing differs based on whether this is a tombstone restore or a
+  // fresh-cut wipe. The destructive consequences are different ("about to
+  // re-upload" vs. "the video on YouTube is still there but we forget it"),
+  // so the confirm dialog text matters.
+  const isTombstone = !!item.deleted_at
   const ok = await ask({
-    title: `Reset upload state for ${item.episode_code}?`,
-    message: [
-      'Clears the local upload record so the next Upload creates a fresh video on your currently-connected YouTube channel.',
-      '',
-      `Current remote: ${item.video_url || '(no video_id)'} — this video is NOT deleted; remove it manually in YouTube Studio if it\'s on the wrong account.`,
-      '',
-      'Use this when:',
-      '• You uploaded to the wrong YouTube account by accident',
-      '• You deleted the video on YouTube but Story Studio still thinks it\'s uploaded',
-      '• You want to treat this episode as never-uploaded',
-    ].join('\n'),
-    confirmLabel: 'Reset state',
+    title: isTombstone
+      ? `Forget link & re-upload ${item.episode_code}?`
+      : `Forget link for ${item.episode_code}?`,
+    message: isTombstone
+      ? [
+          `Removes the tombstone from ${item.episode_code}. The episode goes back to Ready, and the next bulk-upload will re-upload your local final video as a fresh YouTube video.`,
+          '',
+          'Pick this only if you DO want it back on YouTube — otherwise leave the tombstone in place.',
+        ].join('\n')
+      : [
+          'Clears the local upload record so the next Upload creates a fresh video on your currently-connected YouTube channel.',
+          '',
+          `Current remote: ${item.video_url || '(no video_id)'} — this video is NOT deleted; remove it manually in YouTube Studio if it's on the wrong account.`,
+          '',
+          'Use this when you uploaded to the WRONG account by accident. If the video was taken down and you DON\'T want it back, use "🪦 Mark as deleted upstream" instead.',
+        ].join('\n'),
+    confirmLabel: isTombstone ? 'Forget & restore' : 'Forget link',
     danger: true,
   })
   if (!ok) return
@@ -4521,6 +4682,170 @@ async function doResetUploadState(item: any) {
     await loadQueue('youtube')
   } catch (e: any) {
     showError(e?.data?.detail || 'Reset failed')
+  }
+}
+
+/**
+ * Tombstone path — set deleted_at on the sidecar so the row stops pretending
+ * to be a healthy upload, but the historical link is preserved. Right verb
+ * when the video was taken down / removed and the user does NOT want
+ * Story Studio to re-upload the local final.
+ */
+async function doMarkDeletedUpstream(item: any) {
+  const ok = await ask({
+    title: `Mark ${item.episode_code} as deleted upstream?`,
+    message: [
+      `Records that the YouTube video (${item.video_id || '?'}) is gone (takedown, deleted in YT Studio, or you no longer want it).`,
+      '',
+      'After this:',
+      '• Bulk-upload skips this row by default — it won\'t be re-uploaded.',
+      '• The historical link (video_id, account_id) is kept for audit.',
+      '• Filter by "🪦 Deleted upstream" to review tombstoned rows later.',
+      '',
+      'If you change your mind later: open the row menu and pick "Forget link" — that wipes the tombstone and the next bulk-upload re-uploads from scratch.',
+    ].join('\n'),
+    confirmLabel: 'Mark as deleted',
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    const r = await markDeletedUpstream(item.episode_code)
+    if (r.already_marked) {
+      success(`${item.episode_code} was already marked deleted upstream — no change.`)
+    } else {
+      success(`🪦 ${item.episode_code} marked as deleted upstream.`)
+    }
+    await loadQueue('youtube')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Mark deleted failed')
+  }
+}
+
+// ── Link existing YouTube video modal ──────────────────────────────────
+// Per-row "I uploaded this manually elsewhere, link it" path. Reuses the
+// orphan-list endpoint the Unlinked Uploads tab already calls, then ranks
+// orphans by how well their YouTube title matches this episode's local
+// title. Picking one calls adoptSingleOrphan with the episode_code, which
+// writes the sidecar so Story Studio knows they're the same video.
+const linkVideoModal = reactive<{
+  open: boolean
+  item: any | null
+  searching: boolean
+  search: string
+  busyVideoId: string
+}>({
+  open: false,
+  item: null,
+  searching: false,
+  search: '',
+  busyVideoId: '',
+})
+
+function openLinkVideoModal(item: any) {
+  linkVideoModal.item = item
+  linkVideoModal.open = true
+  linkVideoModal.search = ''
+  linkVideoModal.busyVideoId = ''
+  // Refresh orphans every open — channel state can change between visits
+  // and a stale list would show false matches.
+  linkVideoModal.searching = true
+  loadOrphans().finally(() => { linkVideoModal.searching = false })
+}
+function closeLinkVideoModal() {
+  linkVideoModal.open = false
+  linkVideoModal.item = null
+}
+
+/**
+ * Crude title-similarity score, 0..1. Tokenises both titles, lowercases,
+ * strips non-alphanumerics, and returns Jaccard overlap on the token sets
+ * minus a small length-difference penalty. Good enough to sort the obvious
+ * matches to the top — perfect ranking would need the full description /
+ * publish-date / duration which we don't have at this layer.
+ */
+function similarityScore(a: string, b: string): number {
+  const tok = (s: string) => new Set(
+    String(s || '').toLowerCase()
+      .replace(/[^a-z0-9\s]+/g, ' ')
+      .split(/\s+/)
+      .filter(t => t.length >= 2),
+  )
+  const sa = tok(a), sb = tok(b)
+  if (sa.size === 0 || sb.size === 0) return 0
+  let inter = 0
+  for (const t of sa) if (sb.has(t)) inter++
+  const union = sa.size + sb.size - inter
+  const jaccard = union > 0 ? inter / union : 0
+  return jaccard
+}
+
+/**
+ * For every Ready row in the visible queue, find the best-scoring orphan
+ * (if score >= 0.5) so the row can show an inline "Looks like this is on
+ * YouTube → Link" pill. Bridges the discoverability gap: today a user can
+ * sit on the Queue tab forever wondering why their externally-uploaded
+ * video shows as "Ready" — this surfaces the match in-place.
+ *
+ * Costs: O(rows * orphans). Page size <= 100, orphans typically <= a few
+ * hundred; well under what a frame-budget runs on. Only computed when the
+ * orphans list is loaded (the Queue tab eagerly loads orphans on entry,
+ * but doesn't block the table on it).
+ */
+const ORPHAN_MATCH_THRESHOLD = 0.5
+const orphanMatchByCode = computed<Record<string, { videoId: string; title: string; score: number }>>(() => {
+  if (!orphans.value || orphans.value.length === 0) return {}
+  const out: Record<string, { videoId: string; title: string; score: number }> = {}
+  for (const item of (queueItems.value || [])) {
+    if (item.type !== 'episode' || item.uploaded || item.deleted_at) continue
+    let best: { videoId: string; title: string; score: number } | null = null
+    for (const v of orphans.value) {
+      const score = similarityScore(item.title || item._ideaTitle || item.episode_code, v.title || '')
+      if (score >= ORPHAN_MATCH_THRESHOLD && (!best || score > best.score)) {
+        best = { videoId: v.videoId, title: v.title || '', score }
+      }
+    }
+    if (best) out[item.episode_code] = best
+  }
+  return out
+})
+
+const linkVideoCandidates = computed<Array<{ video: any; score: number }>>(() => {
+  if (!linkVideoModal.item) return []
+  const targetTitle = linkVideoModal.item.title || linkVideoModal.item._ideaTitle || linkVideoModal.item.episode_code
+  const search = linkVideoModal.search.trim().toLowerCase()
+  const ranked = (orphans.value || []).map((v: any) => ({
+    video: v,
+    score: similarityScore(targetTitle, v.title || ''),
+  }))
+  // If the user typed a search, filter by substring match on title or
+  // videoId before ranking — they probably remember a fragment.
+  const filtered = search
+    ? ranked.filter(({ video }) => (video.title || '').toLowerCase().includes(search) || (video.videoId || '').toLowerCase().includes(search))
+    : ranked
+  filtered.sort((a, b) => b.score - a.score)
+  return filtered.slice(0, 30)  // 30 candidates max — anything past that is noise
+})
+
+async function doLinkOrphan(video: any) {
+  if (!linkVideoModal.item) return
+  const code = linkVideoModal.item.episode_code
+  linkVideoModal.busyVideoId = video.videoId
+  try {
+    // The Queue-tab path links to an EXISTING local episode (the row the
+    // user clicked the kebab on). Use the sidecar-write endpoint, NOT
+    // adoptSingleOrphan — that path creates a new idea + folder tree and
+    // refuses when the episode_code is already in use, which is exactly
+    // our case. Adoption is for the Unlinked Uploads tab where you import
+    // a YouTube video as a brand-new local episode.
+    const r = await linkExistingVideo(code, video)
+    const replaced = r.replaced_prior ? ' (replaced prior link)' : ''
+    success(`🔗 Linked ${code} → "${video.title?.slice(0, 60) || video.videoId}"${replaced}`)
+    closeLinkVideoModal()
+    await loadQueue({ nocache: true, page: queuePage.value })
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Link failed')
+  } finally {
+    linkVideoModal.busyVideoId = ''
   }
 }
 
@@ -6020,6 +6345,108 @@ td.col-actions > a.btn {
   padding: 10px 16px 14px;
   border-top: 1px solid var(--border);
   gap: 8px;
+}
+
+/* Tombstone pill — used on rows where the upstream YouTube video is gone. */
+.tombstone-pill {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(120, 113, 108, 0.18);
+  color: rgb(120, 113, 108);
+  border: 1px solid rgba(120, 113, 108, 0.35);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Inline "Looks already on YouTube → Link" hint on Ready rows. */
+.orphan-match-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(96, 165, 250, 0.12);
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  color: rgb(96, 165, 250);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.orphan-match-pill:hover {
+  background: rgba(96, 165, 250, 0.22);
+  color: rgb(59, 130, 246);
+}
+
+/* Link Video modal — wider than the plan modal so titles aren't truncated. */
+.link-video-modal { width: 580px; }
+.link-video-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+}
+.link-video-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  width: 100%;
+  transition: background 0.1s, border-color 0.1s;
+}
+.link-video-row:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+}
+.link-video-row:disabled { opacity: 0.5; cursor: wait; }
+.link-video-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.link-video-row-title {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.link-video-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.link-video-row-score {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+.link-video-row-score.high-match {
+  background: rgba(34, 197, 94, 0.15);
+  color: rgb(34, 197, 94);
 }
 
 .row-kebab-menu {

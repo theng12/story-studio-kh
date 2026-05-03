@@ -497,6 +497,13 @@ type QueueIndexItem = {
   // re-render / re-upload) from "uploaded, local cleaned up" (older private
   // videos the user no longer wants targeted by bulk actions).
   has_local_final: boolean
+  /**
+   * Tombstone marker mirrored from the sidecar. When set, the upstream
+   * video is gone (takedown / manual deletion / user-marked) and this
+   * row gets its own filter chip ("Deleted upstream") so it stays out
+   * of bulk-upload defaults instead of looking healthy.
+   */
+  deleted_at: string | null
   video_id: string
   scheduled_for: string | null
   schedule_source: 'synced' | 'planned' | 'none'
@@ -545,6 +552,7 @@ async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Pr
         title: idea.title || code,    // cheap title; enriched in stage 2
         uploaded: !!sidecar?.video_id,
         has_local_final: hasFinal,
+        deleted_at: sidecar?.deleted_at || null,
         video_id: sidecar?.video_id || '',
         scheduled_for,
         schedule_source: sidecar?.scheduled_for ? 'synced' : (itemSchedule[code] ? 'planned' : 'none'),
@@ -571,6 +579,7 @@ async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Pr
         // Imports always represent a file the user dropped into the imports
         // folder, so by definition they have a local file backing them.
         has_local_final: true,
+        deleted_at: null,
         video_id: '',
         scheduled_for: itemSchedule[d.id] || null,
         schedule_source: itemSchedule[d.id] ? 'planned' : 'none',
@@ -630,6 +639,9 @@ async function enrichPage(slug: string, platform: store.UploadPlatform, page: Qu
       has_metadata: !!(metaPreview.title && metaPreview.description),
       has_thumbnail: !!metaPreview.thumbnailPath,
       uploaded: item.uploaded,
+      has_local_final: item.has_local_final,
+      deleted_at: item.deleted_at,
+      deleted_reason: sidecar?.deleted_reason || null,
       video_id: item.video_id,
       video_url: item.video_id ? `https://youtu.be/${item.video_id}` : '',
       privacy_status: sidecar?.privacy_status || null,
@@ -655,7 +667,12 @@ async function enrichPage(slug: string, platform: store.UploadPlatform, page: Qu
 type QueueFilterLegacy = 'all' | 'not_uploaded' | 'uploaded' | 'scheduled' | 'failed'
 // Mutually-exclusive state buckets. A row matches at most one. Empty list =
 // don't apply a state filter (i.e. include all rows).
-type QueueStateToken = 'ready' | 'uploaded_local' | 'uploaded_freed' | 'imports'
+//
+// `deleted_upstream` covers rows whose sidecar carries a `deleted_at`
+// tombstone — added so takedowns / manual deletions don't pretend to
+// still be healthy uploads. Off by default in the chip strip; turning it
+// on lets the user audit/sweep without mixing them into routine bulk runs.
+type QueueStateToken = 'ready' | 'uploaded_local' | 'uploaded_freed' | 'deleted_upstream' | 'imports'
 // Overlay tokens — applied as additional AND filters on top of the state
 // union. Currently just `scheduled`; structured this way so we can grow it
 // (e.g. `failed`, `iCloud_evicted`) without re-shaping the wire format.
@@ -682,7 +699,7 @@ function parseFilterParam(raw: string): ParsedFilter {
     if (t === 'uploaded') { states.add('uploaded_local'); states.add('uploaded_freed'); continue }
     if (t === 'failed') continue   // never matched anything at this layer anyway
     // New tokens.
-    if (t === 'ready' || t === 'uploaded_local' || t === 'uploaded_freed' || t === 'imports') {
+    if (t === 'ready' || t === 'uploaded_local' || t === 'uploaded_freed' || t === 'deleted_upstream' || t === 'imports') {
       states.add(t as QueueStateToken)
       continue
     }
@@ -695,11 +712,17 @@ function parseFilterParam(raw: string): ParsedFilter {
 }
 
 function matchesFilter(item: QueueIndexItem, parsed: ParsedFilter): boolean {
-  // State match
+  // State match — `deleted_upstream` shadows the upload buckets so a
+  // tombstoned row only matches when the user explicitly asks for it
+  // (otherwise it would also match `uploaded_local` / `uploaded_freed`
+  // and blend into routine bulk-action defaults, which is exactly the
+  // behaviour the tombstone is fixing).
   if (!parsed.allStates) {
     let stateOk = false
     if (item.type === 'import') {
       stateOk = parsed.states.has('imports')
+    } else if (item.deleted_at) {
+      stateOk = parsed.states.has('deleted_upstream')
     } else if (item.uploaded && item.has_local_final) {
       stateOk = parsed.states.has('uploaded_local')
     } else if (item.uploaded && !item.has_local_final) {
@@ -1521,6 +1544,7 @@ router.post('/projects/:slug/upload/queue/:episode_code/reset', async (req, res)
       delete schedMap[code]
       await plans.writeItemSchedule(slug, schedMap)
     }
+    queueIndexCache.delete(queueCacheKey(slug, platform))
 
     res.json({
       ok: true,
@@ -1530,6 +1554,133 @@ router.post('/projects/:slug/upload/queue/:episode_code/reset', async (req, res)
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to reset upload state'))
+  }
+})
+
+/**
+ * Link an EXISTING local episode to a YouTube video that's already on the
+ * channel. Distinct from /upload/orphans/adopt-single — that path creates
+ * a brand-new idea + folder tree and rejects if the episode_code is taken.
+ * This path assumes the local episode already exists (the dominant case
+ * for "I uploaded this manually while travelling and want to reconnect")
+ * and just writes / overwrites the sidecar so future flows know the link.
+ *
+ * Body: { video: { videoId, title?, publishedAt?, privacyStatus? } }
+ * Errors: 404 if the episode_code isn't in accepted ideas; 400 if no
+ * video.videoId; 409 if the video_id is already linked to a different
+ * episode (forces the user to resolve the conflict by hand).
+ */
+router.post('/projects/:slug/upload/queue/:episode_code/link-existing-video', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const code = req.params.episode_code
+    const platform = readPlatform(req.body?.platform) || 'youtube'
+
+    const ideas = await im.getIdeas(slug, 'accepted')
+    const idea = ideas.find(i => (i.episode_code || '') === code)
+    if (!idea) return res.status(404).json({ detail: `Episode ${code} not found in accepted ideas. Use the Unlinked Uploads tab if you need to adopt a YouTube video into a new episode.` })
+
+    const video = req.body?.video
+    const videoId: string = typeof video?.videoId === 'string' ? video.videoId.trim() : ''
+    if (!videoId) return res.status(400).json({ detail: 'video.videoId required' })
+
+    // Conflict detection: refuse if another episode already claims this
+    // video_id. Avoids two episodes pointing at the same upstream video,
+    // which would bork sync + reconcile in subtle ways.
+    const conflict = await Promise.all(ideas
+      .filter(i => i.episode_code && i.episode_code !== code)
+      .map(async (i) => {
+        const sc = await readSidecar(slug, i.episode_code!, i.title || '', platform)
+        return sc?.video_id === videoId ? i.episode_code : null
+      }))
+    const conflictCode = conflict.find(c => c)
+    if (conflictCode) {
+      return res.status(409).json({ detail: `Video ${videoId} is already linked to episode ${conflictCode}. Forget that link first if you want to move it.` })
+    }
+
+    // Account / channel attribution: use the project's default account.
+    // The video has to be on the connected channel (it came back from
+    // listChannelVideos) so attribution is unambiguous.
+    const accountId = await store.getDefaultAccountId(slug, 'youtube')
+    if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected. Connect one on the Accounts tab first.' })
+    const account = (await store.listAccounts(slug, 'youtube')).find(a => a.id === accountId)
+    if (!account) return res.status(400).json({ detail: 'YouTube account not found' })
+
+    // Preserve any prior sidecar fields so a re-link doesn't clobber
+    // local-only state (e.g. a previously-set scheduled_for that's now
+    // moot but useful audit). For a fresh link this is a no-op.
+    const { writeSidecar, readSidecar: peek } = await import('../services/upload-sidecar.js')
+    const prior = await peek(slug, code, idea.title || '', platform)
+    await writeSidecar(slug, code, idea.title || '', {
+      ...(prior || {} as any),
+      platform: 'youtube' as const,
+      video_id: videoId,
+      account_id: accountId,
+      channel_id: account.remote_id,
+      uploaded_at: video?.publishedAt || prior?.uploaded_at || new Date().toISOString(),
+      last_sync_at: new Date().toISOString(),
+      scheduled_for: prior?.scheduled_for ?? null,
+      privacy_status: (video?.privacyStatus as any) || prior?.privacy_status || 'public',
+      title: video?.title || prior?.title || idea.title || code,
+      description: prior?.description || '',
+      tags: prior?.tags || [],
+      thumbnail_set: prior?.thumbnail_set ?? false,
+      // Linking heals a broken state — clear any tombstone left from
+      // sync-from-youtube. The new video_id is what we trust.
+      deleted_at: null,
+      deleted_reason: undefined,
+    })
+    queueIndexCache.delete(queueCacheKey(slug, platform))
+    res.json({ ok: true, episode_code: code, video_id: videoId, replaced_prior: !!prior?.video_id })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to link existing video'))
+  }
+})
+
+/**
+ * Mark an episode's upstream video as deleted (tombstone). Distinct verb
+ * from reset:
+ *   - reset wipes the sidecar entirely → row goes back to "Ready" and
+ *     bulk-upload will re-upload the file. Right verb when the user
+ *     uploaded to the wrong account by accident.
+ *   - mark-deleted KEEPS the sidecar but stamps `deleted_at` →
+ *     row goes to a separate "Deleted upstream" state, EXCLUDED from
+ *     bulk-upload defaults, but the historical link (video_id, account)
+ *     stays intact for audit. Right verb when the video was taken down
+ *     and the user does NOT want it re-uploaded.
+ */
+router.post('/projects/:slug/upload/queue/:episode_code/mark-deleted', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const code = req.params.episode_code
+    const platform = readPlatform(req.body?.platform) || 'youtube'
+
+    const ideas = await im.getIdeas(slug, 'accepted')
+    const idea = ideas.find(i => (i.episode_code || '') === code)
+    if (!idea) return res.status(404).json({ detail: `Episode ${code} not found` })
+
+    const { readSidecar: peek, writeSidecar } = await import('../services/upload-sidecar.js')
+    const sidecar = await peek(slug, code, idea.title || '', platform)
+    if (!sidecar) {
+      return res.status(400).json({ detail: `Episode ${code} has no upload sidecar — nothing to mark as deleted. Use Reset if the row is already in a confused state.` })
+    }
+    if (sidecar.deleted_at) {
+      // Idempotent — re-marking is a no-op so the user can click without fear.
+      return res.json({ ok: true, already_marked: true, deleted_at: sidecar.deleted_at })
+    }
+    const now = new Date().toISOString()
+    await writeSidecar(slug, code, idea.title || '', {
+      ...sidecar,
+      deleted_at: now,
+      deleted_reason: typeof req.body?.reason === 'string' && req.body.reason ? req.body.reason : 'manual',
+      last_sync_at: now,
+    })
+    queueIndexCache.delete(queueCacheKey(slug, platform))
+    res.json({ ok: true, deleted_at: now })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to mark video as deleted upstream'))
   }
 })
 
@@ -1712,14 +1863,39 @@ router.post('/projects/:slug/upload/queue/sync-from-youtube', async (req, res) =
 
     const drift: Array<{ episode_code: string; video_id: string; before: { privacy_status: string; scheduled_for: string | null }; after: { privacy_status: string; scheduled_for: string | null } }> = []
     const errors: Array<{ episode_code: string; error: string }> = []
+    /**
+     * Episodes whose video_id was missing from videos.list this run. We
+     * mark the sidecar with `deleted_at` so the row stops pretending to
+     * be a healthy upload — bulk actions skip tombstoned rows by default,
+     * and the user gets a "Deleted upstream" filter chip to audit them.
+     * Idempotent: re-syncing a row already tombstoned is a no-op.
+     */
+    const tombstoned: Array<{ episode_code: string; video_id: string }> = []
     let updated = 0
     const { writeSidecar } = await import('../services/upload-sidecar.js')
 
     for (const r of rows) {
       const live = liveById[r.sidecar.video_id]
       if (!live) {
-        // Video missing from YouTube's response — could be deleted or no
-        // longer accessible. Don't touch the sidecar (preserves history).
+        // Video missing from YouTube's response — could be a takedown,
+        // a manual deletion in YouTube Studio, or a privacy-status flip
+        // to a tier our token can't see (rare). Stamp the sidecar so the
+        // row drops out of routine bulk-upload defaults; preserve the
+        // historical fields (video_id, account_id) so audit trails stay
+        // intact. Skip if already tombstoned so we don't churn last_sync_at.
+        if (!r.sidecar.deleted_at) {
+          try {
+            await writeSidecar(slug, r.code, r.idea.title || '', {
+              ...r.sidecar,
+              deleted_at: new Date().toISOString(),
+              deleted_reason: 'sync_404',
+              last_sync_at: new Date().toISOString(),
+            })
+            tombstoned.push({ episode_code: r.code, video_id: r.sidecar.video_id })
+          } catch (e: any) {
+            errors.push({ episode_code: r.code, error: e?.message || 'Tombstone write failed' })
+          }
+        }
         continue
       }
       const before = { privacy_status: r.sidecar.privacy_status || 'private', scheduled_for: r.sidecar.scheduled_for ?? null }
@@ -1744,9 +1920,9 @@ router.post('/projects/:slug/upload/queue/sync-from-youtube', async (req, res) =
 
     // Drop the queue cache so the next page load surfaces the updated
     // sidecars without waiting out the 5-min TTL.
-    if (updated > 0) queueIndexCache.delete(queueCacheKey(slug, 'youtube'))
+    if (updated > 0 || tombstoned.length > 0) queueIndexCache.delete(queueCacheKey(slug, 'youtube'))
 
-    res.json({ checked: rows.length, updated, drift, errors })
+    res.json({ checked: rows.length, updated, drift, tombstoned, errors })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to sync from YouTube'))
   }
