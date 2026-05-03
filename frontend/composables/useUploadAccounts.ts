@@ -259,6 +259,32 @@ export function useUploadAccounts(slug: string) {
     }
   }
 
+  /**
+   * Lightweight read of the FULL filtered/sorted queue, returning just the
+   * ordered list of episode codes — no enrichment, no pagination. Used by
+   * the Plans-tab scope pickers ("All unuploaded", "Next N from top") so
+   * actions can target every matching episode regardless of which page
+   * the user is currently viewing. Hits the same cache as `loadQueue`, so
+   * back-to-back calls don't re-scan disk.
+   */
+  async function fetchQueueEpisodeCodes(opts: {
+    platform?: UploadPlatform
+    filter?: QueueFilter
+    sort?: QueueSort
+    nocache?: boolean
+  } = {}): Promise<{ episode_codes: string[]; total: number; total_unfiltered: number }> {
+    const qs = new URLSearchParams({
+      platform: opts.platform || queueLastParams.platform,
+      filter: opts.filter || queueLastParams.filter,
+      sort: opts.sort || queueLastParams.sort,
+      ids_only: '1',
+    })
+    if (opts.nocache) qs.set('nocache', '1')
+    return get<{ episode_codes: string[]; total: number; total_unfiltered: number }>(
+      `/projects/${slug}/upload/queue?${qs}`,
+    )
+  }
+
   // Mark / unmark an episode as "already uploaded elsewhere". Backend
   // also busts the queue cache so the missing-video list updates next
   // time it's fetched. Returns the new total count of legacy-flagged
@@ -401,10 +427,22 @@ export function useUploadAccounts(slug: string) {
     return post(`/projects/${slug}/upload/plans/${id}/apply`, { episode_codes })
   }
 
-  async function clearItemSchedule(opts: { plan_id?: string; sync_youtube?: boolean } = {}) {
+  async function clearItemSchedule(opts: {
+    plan_id?: string
+    sync_youtube?: boolean
+    /**
+     * Explicit episode codes to clear. When provided, takes precedence over
+     * `plan_id` slot-recompute — the backend clears exactly these codes.
+     * Used by the Plans-tab scope picker so Unapply hits the user's chosen
+     * scope (Selection / All unuploaded / Next N / This page) instead of
+     * approximating from current-queue slot positions.
+     */
+    episode_codes?: string[]
+  } = {}) {
     const params = new URLSearchParams()
     if (opts.plan_id) params.set('plan_id', opts.plan_id)
     if (opts.sync_youtube) params.set('sync_youtube', '1')
+    if (opts.episode_codes?.length) params.set('episode_codes', opts.episode_codes.join(','))
     const qs = params.toString()
     const url = `/projects/${slug}/upload/item-schedule${qs ? `?${qs}` : ''}`
     const r = await fetch(`/api${url}`, { method: 'DELETE' })
@@ -794,6 +832,7 @@ export function useUploadAccounts(slug: string) {
     loadAccounts,
     loadClientStatus,
     loadQueue,
+    fetchQueueEpisodeCodes,
     loadPlans,
     savePlan,
     deletePlan,

@@ -1064,40 +1064,43 @@
             </td>
             <td class="col-actions">
               <div class="row-actions">
+              <!-- Apply verb opens a scope picker (Selection / All unuploaded /
+                   Next 5 / This page). Replaces the old "Apply to Queue" which
+                   only operated on the current page's items. -->
               <button
-                class="btn btn-sm btn-primary"
+                class="btn btn-sm btn-primary plan-action-btn"
                 :disabled="applying || applyAndUploading || uploadMode === 'private'"
                 :title="uploadMode === 'private'
                   ? 'Apply-plan is disabled while Schedule mode is set to \u201CUpload private, schedule in YouTube Studio\u201D. Change mode on the Accounts tab to re-enable.'
-                  : `Distribute the current Upload Queue (${queueItems.length} items) across this plan's next ${queueItems.length} slots and PATCH any already-uploaded video's publishAt.`"
-                @click="doApplyPlan(p)"
+                  : 'Pick which episodes this plan should schedule. Writes per-item publishAt + patches any already-uploaded video.'"
+                @click="openPlanScopePicker($event, p, 'apply')"
               >
-                <LoadingSpinner v-if="applying" size="sm" />
-                {{ applying ? 'Applying…' : (uploadMode === 'private' ? '🔒 Apply (disabled in private mode)' : '📅 Apply to Queue') }}
+                <LoadingSpinner v-if="applying && scopeBusyPlanId === p.id" size="sm" />
+                📅 Apply ▾
               </button>
-              <!-- Bulk path: applies the plan AND fires uploads for every
-                   not-yet-uploaded queue item, each carrying its planned
-                   publishAt. After this single click YouTube handles the
-                   publish moment server-side — Story Studio doesn't need
-                   to be running. Disabled in private mode (publishAt is
-                   never written there, so the bulk path makes no sense). -->
+              <!-- Upload verb is now separate from Apply (was a single
+                   "Apply + Upload all" button). Apply writes the schedule;
+                   Upload fans out actual uploads with a quota cap. Each
+                   opens a scope picker so the action targets the user's
+                   choice (Selection / All unuploaded / Next 5 / This page)
+                   instead of just the visible page. -->
               <button
-                class="btn btn-sm btn-primary"
+                class="btn btn-sm btn-primary plan-action-btn"
                 :disabled="applying || applyAndUploading || uploadMode === 'private'"
                 :title="uploadMode === 'private'
-                  ? 'Apply + Upload is disabled in private mode (no publishAt is written). Switch to Apply-plan mode on the Accounts tab.'
-                  : `Apply this plan AND queue an upload for every not-yet-uploaded episode in the Queue (${queueItems.length} item${queueItems.length === 1 ? '' : 's'}). Each upload carries its planned publishAt, so YouTube auto-publishes at the scheduled time and the app can be off afterward.`"
-                @click="doApplyAndUpload(p)"
+                  ? 'Upload-with-plan is disabled in private mode. Switch to Apply-plan mode on the Accounts tab.'
+                  : 'Fan out actual uploads. Capped by today’s remaining YouTube quota — pick a scope and we’ll only upload as many as the quota allows.'"
+                @click="openPlanScopePicker($event, p, 'upload')"
               >
-                <LoadingSpinner v-if="applyAndUploading" size="sm" />
-                {{ applyAndUploading ? 'Working…' : '🚀 Apply + Upload all' }}
+                <LoadingSpinner v-if="applyAndUploading && scopeBusyPlanId === p.id" size="sm" />
+                ☁️ Upload ▾
               </button>
               <button
-                class="btn btn-sm btn-ghost"
+                class="btn btn-sm btn-ghost plan-action-btn"
                 :disabled="applying || applyAndUploading"
-                title="Remove any per-item schedule entries this plan applied. Useful if you applied the wrong plan and want to undo without deleting it."
-                @click="doUnapplyPlan(p)"
-              >↩ Unapply</button>
+                title="Remove per-item schedule entries this plan would have produced for the chosen scope. Useful if you applied the wrong plan and want to undo without deleting it."
+                @click="openPlanScopePicker($event, p, 'unapply')"
+              >↩ Unapply ▾</button>
               <span class="row-actions-divider" aria-hidden="true" />
               <button class="btn btn-sm btn-ghost" @click="startEditPlan(p)">Edit</button>
               <button class="btn btn-sm btn-danger" @click="doDeletePlan(p)">Delete</button>
@@ -1823,6 +1826,54 @@
          even when all bulk actions are disabled (with a hint) so the
          user understands why the click isn't working without having to
          open a tooltip per row. -->
+    <!-- Plan scope picker — opens from the Apply / Upload / Unapply buttons
+         on each plan row. Anchored to the click-target so it floats next to
+         the button, doesn't take a column. Same picker for all three verbs;
+         the verb determines the scope counts (Upload caps by remaining
+         quota), the action label ("Apply", "Upload N (quota-capped)",
+         "Unapply"), and what runs on click. -->
+    <Teleport to="body">
+      <div
+        v-if="scopePicker.open"
+        class="scope-popover-backdrop"
+        @click="closePlanScopePicker"
+      />
+      <div
+        v-if="scopePicker.open"
+        class="scope-popover"
+        :style="scopePopoverStyle"
+        role="dialog"
+        aria-label="Pick which episodes the action targets"
+        @click.stop
+      >
+        <div class="scope-popover-head">
+          <strong>{{ scopePicker.verb === 'apply' ? '📅 Apply' : scopePicker.verb === 'upload' ? '☁️ Upload' : '↩ Unapply' }}</strong>
+          <span class="text-muted" style="font-size: 11px; margin-left: 4px;">— {{ scopePicker.plan?.name }}</span>
+        </div>
+        <div v-if="scopePicker.loading" class="scope-popover-loading">
+          <LoadingSpinner size="sm" /> Counting episodes…
+        </div>
+        <div v-else class="scope-popover-list">
+          <button
+            v-for="opt in scopeOptions"
+            :key="opt.id"
+            type="button"
+            class="scope-option"
+            :disabled="opt.count === 0"
+            :title="opt.tooltip"
+            @click="runScopedAction(opt)"
+          >
+            <span class="scope-option-label">{{ opt.label }}</span>
+            <span class="scope-option-count" :class="{ zero: opt.count === 0 }">{{ opt.count }}</span>
+          </button>
+        </div>
+        <div v-if="scopePicker.verb === 'upload' && quota" class="scope-popover-foot text-muted" style="font-size: 11px;">
+          Today’s YouTube quota: {{ quota.used }} / {{ quota.block_at }} units
+          (~{{ Math.max(0, Math.floor((quota.block_at - quota.used) / 1600)) }} uploads left).
+        </div>
+      </div>
+    </Teleport>
+
     <Transition name="bulk-bar">
       <div v-if="activeTab === 'queue' && selectedQueueIds.size > 0" class="queue-bulk-bar" role="region" aria-label="Bulk upload actions">
         <span class="queue-bulk-bar-count">{{ selectedQueueIds.size }} selected</span>
@@ -1878,6 +1929,7 @@ const {
   markLegacyUploaded,
   markLegacyUploadedBulk,
   loadQueue,
+  fetchQueueEpisodeCodes,
   plans,
   activePlanMap,
   plansLoading,
@@ -3251,15 +3303,13 @@ async function doActivatePlan(plan: any) {
   }
 }
 
-async function doApplyPlan(plan: any) {
-  // Apply to every queue item in position order.
-  if (!queueItems.value.length) await loadQueue('youtube')
-  const episode_codes = queueItems.value.map((i: any) => i.episode_code)
+async function doApplyPlan(plan: any, episode_codes: string[]) {
   if (!episode_codes.length) {
-    showError('No queue items to schedule. Assemble at least one final video first.')
+    showError('No episodes in the chosen scope. Pick a different scope or assemble more videos first.')
     return
   }
   applying.value = true
+  scopeBusyPlanId.value = plan.id
   try {
     const r = await applyPlan(plan.id, episode_codes)
     const patchedOk = r.patched.filter((p: any) => p.ok).length
@@ -3275,6 +3325,7 @@ async function doApplyPlan(plan: any) {
     showError(e?.data?.detail || 'Failed to apply plan')
   } finally {
     applying.value = false
+    scopeBusyPlanId.value = ''
   }
 }
 
@@ -3307,14 +3358,13 @@ async function doApplyPlan(plan: any) {
  *      is 429 quota exceeded mid-batch; uploads that DID succeed
  *      stay queued, so the user keeps the work they paid for.
  */
-async function doApplyAndUpload(plan: any) {
-  if (!queueItems.value.length) await loadQueue('youtube')
-  const episode_codes = queueItems.value.map((i: any) => i.episode_code)
+async function doApplyAndUpload(plan: any, episode_codes: string[]) {
   if (!episode_codes.length) {
-    showError('No queue items to schedule. Assemble at least one final video first.')
+    showError('No episodes in the chosen scope. Pick a different scope or assemble more videos first.')
     return
   }
   applyAndUploading.value = true
+  scopeBusyPlanId.value = plan.id
   try {
     // Step 1 — apply schedule + PATCH already-uploaded.
     const r = await applyPlan(plan.id, episode_codes)
@@ -3411,6 +3461,7 @@ async function doApplyAndUpload(plan: any) {
     showError(e?.data?.detail || 'Failed to apply plan')
   } finally {
     applyAndUploading.value = false
+    scopeBusyPlanId.value = ''
   }
 }
 
@@ -3575,6 +3626,144 @@ function toggleAllOnPage() {
     for (const i of episodeRowsOnPage.value) selectedQueueIds.delete(i.episode_code)
   } else {
     for (const i of episodeRowsOnPage.value) selectedQueueIds.add(i.episode_code)
+  }
+}
+
+// ── Plan scope picker ──────────────────────────────────────────────────
+// Each plan row's Apply / Upload / Unapply button opens this picker so the
+// verb runs against an explicit scope (Selection / All unuploaded / Next 5
+// / This page) rather than implicitly the visible page only. `allUnuploadedCodes`
+// is fetched lazily via the lightweight ids_only=1 endpoint when the picker
+// opens — avoids paying enrichment cost just to count.
+const NEXT_BATCH_SIZE = 5
+type PlanVerb = 'apply' | 'upload' | 'unapply'
+interface ScopeOption {
+  id: 'selection' | 'all_unuploaded' | 'next_n' | 'this_page'
+  label: string
+  count: number
+  episodeCodes: string[]
+  tooltip: string
+}
+const scopePicker = reactive<{
+  open: boolean
+  plan: any | null
+  verb: PlanVerb
+  loading: boolean
+  allUnuploadedCodes: string[]
+  anchor: { left: number; top: number }
+}>({
+  open: false,
+  plan: null,
+  verb: 'apply',
+  loading: false,
+  allUnuploadedCodes: [],
+  anchor: { left: 0, top: 0 },
+})
+const scopeBusyPlanId = ref('')
+
+const scopePopoverStyle = computed(() => ({
+  left: `${scopePicker.anchor.left}px`,
+  top: `${scopePicker.anchor.top}px`,
+}))
+
+/**
+ * Cap "All unuploaded" / "Next N" counts at the remaining quota for the
+ * Upload verb so the picker doesn't suggest more than YouTube will let us
+ * push today. floor((block_at - used) / 1600) — same formula the chip uses.
+ * Apply / Unapply are unaffected (no quota cost).
+ */
+function uploadCapForCodes(codes: string[]): string[] {
+  if (scopePicker.verb !== 'upload') return codes
+  const q = quota.value
+  if (!q) return codes
+  const remaining = Math.max(0, q.block_at - q.used)
+  const slots = Math.floor(remaining / 1600)
+  return codes.slice(0, slots)
+}
+
+const scopeOptions = computed<ScopeOption[]>(() => {
+  const verb = scopePicker.verb
+  const allCodes = scopePicker.allUnuploadedCodes
+  const selCodes = Array.from(selectedQueueIds).filter(c => allCodes.includes(c) || verb !== 'upload')
+  const pageCodes = episodeRowsOnPage.value.map((i: any) => i.episode_code as string)
+  const nextCodes = allCodes.slice(0, NEXT_BATCH_SIZE)
+
+  const wrap = (id: ScopeOption['id'], label: string, codes: string[], tooltip: string): ScopeOption => {
+    const capped = uploadCapForCodes(codes)
+    const cappedNote = scopePicker.verb === 'upload' && capped.length < codes.length
+      ? ` (${codes.length - capped.length} skipped to respect today’s quota)`
+      : ''
+    return {
+      id,
+      label,
+      count: capped.length,
+      episodeCodes: capped,
+      tooltip: tooltip + cappedNote,
+    }
+  }
+
+  return [
+    wrap('selection', 'Selection',
+      selCodes,
+      `Episodes you've checked in the Queue tab. Survives pagination.`),
+    wrap('all_unuploaded', 'All unuploaded',
+      allCodes,
+      `Every episode that has a final video on disk and isn't uploaded yet, across all pages.`),
+    wrap('next_n', `Next ${NEXT_BATCH_SIZE} from top`,
+      nextCodes,
+      `The first ${NEXT_BATCH_SIZE} unuploaded episodes in current sort order — quick batch.`),
+    wrap('this_page', 'This page',
+      pageCodes,
+      `Only the episodes visible on the current page.`),
+  ]
+})
+
+async function openPlanScopePicker(ev: MouseEvent, plan: any, verb: PlanVerb) {
+  // Anchor the popover next to the click target. Prefer button's right edge;
+  // clamp to keep it on-screen.
+  const target = ev.currentTarget as HTMLElement
+  const rect = target.getBoundingClientRect()
+  const popoverWidth = 260
+  const left = Math.max(8, Math.min(window.innerWidth - popoverWidth - 8, rect.left))
+  const top = rect.bottom + 6
+  scopePicker.anchor = { left, top }
+  scopePicker.plan = plan
+  scopePicker.verb = verb
+  scopePicker.open = true
+  scopePicker.loading = true
+  scopePicker.allUnuploadedCodes = []
+  try {
+    // Fetch full not_uploaded list once per open. Cheap thanks to ids_only.
+    const r = await fetchQueueEpisodeCodes({ filter: 'not_uploaded' })
+    scopePicker.allUnuploadedCodes = r.episode_codes || []
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Could not load queue counts')
+    scopePicker.open = false
+  } finally {
+    scopePicker.loading = false
+  }
+}
+
+function closePlanScopePicker() {
+  scopePicker.open = false
+  scopePicker.plan = null
+}
+
+async function runScopedAction(opt: ScopeOption) {
+  const plan = scopePicker.plan
+  const verb = scopePicker.verb
+  if (!plan || opt.count === 0) return
+  closePlanScopePicker()
+  try {
+    if (verb === 'apply') {
+      await doApplyPlan(plan, opt.episodeCodes)
+    } else if (verb === 'upload') {
+      await doApplyAndUpload(plan, opt.episodeCodes)
+    } else {
+      await doUnapplyPlan(plan, opt.episodeCodes)
+    }
+  } catch {
+    /* the inner functions surface their own toasts */
   }
 }
 
@@ -4146,20 +4335,30 @@ async function doResetUploadState(item: any) {
   }
 }
 
-async function doUnapplyPlan(plan: any) {
+async function doUnapplyPlan(plan: any, episode_codes: string[]) {
+  if (!episode_codes.length) {
+    showError('No episodes in the chosen scope.')
+    return
+  }
+  const previewLine = episode_codes.length <= 6
+    ? episode_codes.join(', ')
+    : `${episode_codes.slice(0, 6).join(', ')}, +${episode_codes.length - 6} more`
   const ok = await ask({
-    title: `Unapply plan "${plan.name}"?`,
-    message: 'Clears the per-item scheduled times this plan would have produced for the current queue. YouTube videos keep their current live publishAt — use per-row actions if you want YT updated too.',
+    title: `Unapply "${plan.name}" from ${episode_codes.length} episode${episode_codes.length === 1 ? '' : 's'}?`,
+    message: `Clears the per-item scheduled times for: ${previewLine}.\n\nYouTube videos keep their current live publishAt — use per-row actions if you want YT updated too.`,
     confirmLabel: 'Unapply',
     danger: true,
   })
   if (!ok) return
+  scopeBusyPlanId.value = plan.id
   try {
-    const r = await clearItemSchedule({ plan_id: plan.id, sync_youtube: false })
+    const r = await clearItemSchedule({ plan_id: plan.id, episode_codes, sync_youtube: false })
     success(`Unapplied "${plan.name}" — ${r.cleared} schedule entry/entries removed.`)
     await loadQueue('youtube')
   } catch (e: any) {
     showError(e?.data?.detail || 'Unapply failed')
+  } finally {
+    scopeBusyPlanId.value = ''
   }
 }
 
@@ -5418,6 +5617,92 @@ td.col-actions > a.btn {
 
 <!-- Unscoped — applies to the row-kebab menu after it teleports to <body>. -->
 <style>
+/* Plan scope picker — anchored next to the click target via inline style.
+   Backdrop catches clicks-outside to close; popover is fixed so it doesn't
+   move with the table scroll. */
+.scope-popover-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  background: transparent;
+}
+.scope-popover {
+  position: fixed;
+  z-index: 250;
+  width: 260px;
+  padding: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.scope-popover-head {
+  font-size: 13px;
+  padding: 0 2px;
+}
+.scope-popover-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.scope-popover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.scope-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  transition: background 0.1s, border-color 0.1s;
+}
+.scope-option:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+}
+.scope-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.scope-option-label {
+  font-weight: 500;
+}
+.scope-option-count {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  min-width: 28px;
+  text-align: center;
+}
+.scope-option-count.zero {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+.scope-popover-foot {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+.plan-action-btn { white-space: nowrap; }
+
 .row-kebab-menu {
   position: fixed;
   z-index: 250;

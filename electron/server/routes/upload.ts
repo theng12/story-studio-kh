@@ -685,6 +685,12 @@ router.get('/projects/:slug/upload/queue', async (req, res) => {
     const filter = (String(req.query.filter || 'all') as QueueFilter)
     const sort = (String(req.query.sort || 'code_asc') as QueueSort)
     const noCache = req.query.nocache === '1' || req.query.nocache === 'true'
+    // Lightweight mode for "select all across all pages" / "all unuploaded" /
+    // "next N" scope pickers in the Plans tab. Skips the expensive per-row
+    // metadata enrichment and pagination — returns just the ordered list of
+    // episode codes for the requested filter+sort. The cache key + builder
+    // are shared with the paginated read, so back-to-back calls don't re-scan.
+    const idsOnly = req.query.ids_only === '1' || req.query.ids_only === 'true'
 
     const ckey = queueCacheKey(slug, platform)
     const now = Date.now()
@@ -704,6 +710,25 @@ router.get('/projects/:slug/upload/queue', async (req, res) => {
 
     const filtered = filterAndSortIndex(index, filter, sort)
     const total = filtered.length
+
+    if (idsOnly) {
+      // Episodes only — imports don't carry an episode_code so they can't be
+      // targets of scope-picker actions (apply / upload / unapply all key off
+      // episode_code in the backend).
+      const episode_codes = filtered
+        .filter(it => it.type === 'episode' && it.episode_code)
+        .map(it => it.episode_code as string)
+      return res.json({
+        ids_only: true,
+        episode_codes,
+        total: episode_codes.length,
+        total_unfiltered: index.length,
+        filter,
+        sort,
+        cached: cacheHit,
+      })
+    }
+
     const totalPages = Math.max(1, Math.ceil(total / pageSize))
     const start = (page - 1) * pageSize
     const pageSlice = filtered.slice(start, start + pageSize)
@@ -1669,6 +1694,16 @@ router.delete('/projects/:slug/upload/item-schedule', async (req, res) => {
     if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const planId = typeof req.query.plan_id === 'string' ? req.query.plan_id : ''
     const syncYoutube = req.query.sync_youtube === '1' || req.query.sync_youtube === 'true'
+    // Explicit episode_codes (comma-separated query param) lets the Plans-tab
+    // scope picker target an exact list — Selection / All unuploaded / Next 5
+    // / This page — instead of the legacy slot-recompute approximation. When
+    // present, this list wins; when absent, fall back to plan-id recompute or
+    // wipe-all behaviour.
+    const codesParam = typeof req.query.episode_codes === 'string' ? req.query.episode_codes : ''
+    const explicitCodes = codesParam
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
 
     const existing = await plans.readItemSchedule(slug)
     const ideas = await im.getIdeas(slug, 'accepted')
@@ -1676,7 +1711,12 @@ router.delete('/projects/:slug/upload/item-schedule', async (req, res) => {
 
     // Figure out which codes to clear.
     let toClear: string[]
-    if (planId) {
+    if (explicitCodes.length) {
+      // Caller listed specific episode codes — clear those entries that
+      // actually have a schedule. Codes that don't currently have one are
+      // a no-op (so re-running unapply is idempotent).
+      toClear = explicitCodes.filter(code => code in existing)
+    } else if (planId) {
       // Plan unapply: recompute the plan's slots for the current queue and
       // drop any matching entries. Approximate since the original slot→
       // episode_code mapping isn't persisted — but if the user hasn't

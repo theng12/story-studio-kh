@@ -590,11 +590,17 @@
            the OS handles cross-machine sync. Per-machine setting
            (lives in app-settings.json which doesn't sync). -->
       <div id="projects-root-section" class="storage-section">
-        <h4>Projects storage location</h4>
+        <h4><span class="storage-section-icon" aria-hidden="true">📁</span>Projects storage location</h4>
         <p class="text-muted hint">
           Where this Mac stores your projects. Move it to an iCloud Drive
           (or Dropbox / Google Drive) folder to work across machines.
           The app restarts after the move to pick up the new location.
+        </p>
+        <p class="text-muted voice-helper-line">
+          💡 Tip: For cross-machine sync, point this at a folder inside
+          <code>~/Library/Mobile Documents/com~apple~CloudDocs/</code>
+          (your iCloud Drive). Final videos can stay off iCloud using the
+          External final-video root below.
         </p>
         <div class="projects-root-row">
           <div class="projects-root-info">
@@ -613,7 +619,7 @@
           <button
             class="btn btn-primary btn-sm"
             :disabled="projectsRootBusy"
-            title="First-machine setup: copies your existing projects to the chosen location"
+            title="First-machine setup: copies your existing projects to the chosen location. Opens the macOS folder picker (only works in the packaged app — not in dev/tsx mode)."
             @click="browseAndMoveProjectsRoot"
           >
             📂 Browse + move projects there & restart
@@ -621,7 +627,7 @@
           <button
             class="btn btn-secondary btn-sm"
             :disabled="projectsRootBusy"
-            title="Second-machine setup: point at a folder that already has projects (e.g. an iCloud-synced folder from another Mac). Doesn't copy anything."
+            title="Second-machine setup: point at a folder that already has projects (e.g. an iCloud-synced folder from another Mac). Doesn't copy anything. Opens the macOS folder picker (only works in the packaged app)."
             @click="browseAndUseExistingProjectsRoot"
           >
             📂 Use existing folder (no copy)
@@ -642,38 +648,59 @@
         <div v-if="projectsRootStatus" :class="['projects-root-status', projectsRootStatusKind]">
           {{ projectsRootStatus }}
         </div>
+        <div v-if="projectsRootPickerHelp" class="manual-path-hint">
+          {{ projectsRootPickerHelp }}
+        </div>
       </div>
 
       <!-- ── External final-video root (per-machine) ─────────────── -->
-      <div id="external-video-section" class="storage-section">
-        <h4>External final-video root <span class="optional-tag">(per-machine, optional)</span></h4>
+      <div id="external-video-section" class="storage-section storage-section--bordered">
+        <h4>
+          <span class="storage-section-icon" aria-hidden="true">🎬</span>
+          External final-video root
+          <span class="optional-tag">(per-machine, optional)</span>
+        </h4>
         <p class="text-muted hint">
-          When set, freshly-rendered final videos land at this path
-          instead of inside the project tree. Use a non-cloud-synced
-          location (e.g. <code>~/Movies/Story Studio</code> or an external
-          drive) to keep the GBs out of iCloud Drive. Project-tree finals
-          still detect normally — both locations are checked. Stored in
-          <code>app-settings.json</code> per-machine, so each device you
-          work from picks its own path (or leaves it unset).
+          Final videos are big (5–10 GB each). If your project lives in
+          iCloud Drive, set an external root on a local disk (e.g.
+          <code>~/Movies/Story Studio</code> or an external drive) so iCloud
+          doesn't sync those files. Project-tree finals still detect
+          normally — both locations are checked at upload time. Stored in
+          <code>app-settings.json</code> per-machine, so each device picks
+          its own path (or leaves it unset).
+        </p>
+        <p class="text-muted voice-helper-line">
+          💡 Type or paste a path directly — handy in dev mode or when the
+          folder picker is blocked. Click "Save manual path" to persist.
         </p>
         <div class="external-root-row">
-          <!-- Read-only path display so users don't have to copy/paste a
-               path. Browse opens the native folder picker; on success
-               we auto-save (the picker IS the user's confirmation, no
-               separate Save click needed). Clear empties + saves an
-               empty value so the project tree is used again. -->
+          <!-- Always-editable path so users can paste from Finder's
+               "Get Info → Where", or use this as a fallback when the
+               native picker isn't available (dev/tsx mode). Browse opens
+               the picker and auto-saves on success. Clear empties + saves
+               an empty value so the project tree is used again. -->
           <input
             v-model="externalRootInput"
             class="input"
             placeholder="(not set — finals stay in the project tree)"
-            readonly
+            spellcheck="false"
           />
           <button
             class="btn btn-primary btn-sm"
             :disabled="externalRootSaving"
+            title="Opens the macOS folder picker. Only works in the packaged app — in dev mode (tsx watch), type the path above and click Save manual path."
             @click="browseAndSetExternalRoot"
           >
             {{ externalRootSaving ? 'Saving…' : '📂 Browse…' }}
+          </button>
+          <button
+            v-if="externalRootInput.trim() !== externalRootSavedValue"
+            class="btn btn-secondary btn-sm"
+            :disabled="externalRootSaving"
+            title="Save the path you typed. Use this when Browse doesn't work (dev mode) or when you've pasted a path manually."
+            @click="saveExternalRoot"
+          >
+            {{ externalRootSaving ? 'Saving…' : '💾 Save manual path' }}
           </button>
           <button
             v-if="externalRootInput"
@@ -694,6 +721,9 @@
         <p v-if="externalRootStatus" :class="['external-root-status', externalRootReachable ? 'ok' : 'warn']">
           {{ externalRootStatus }}
         </p>
+        <div v-if="externalRootPickerHelp" class="manual-path-hint">
+          {{ externalRootPickerHelp }}
+        </div>
         <div v-if="lastMigration" class="storage-result">
           <strong>Migration:</strong>
           {{ lastMigration.moved.length }} file(s) moved
@@ -705,15 +735,21 @@
       </div>
 
       <!-- ── Per-episode storage breakdown ───────────────────────── -->
-      <div id="per-episode-section" class="storage-section mt-3">
+      <div id="per-episode-section" class="storage-section storage-section--bordered">
         <div class="flex items-center" style="justify-content: space-between; gap: 12px;">
           <div>
-            <h4>Per-episode breakdown</h4>
+            <h4><span class="storage-section-icon" aria-hidden="true">📊</span>Per-episode breakdown</h4>
             <p class="text-muted hint">
               Sorted largest first. Click "Free up final" to delete the
               local <code>{code}_final_video.*</code> files for an
               uploaded episode (the sidecar's <code>video_id</code>
               guards against accidental deletion of unpublished work).
+            </p>
+            <p class="text-muted voice-helper-line">
+              💡 The video on YouTube is the source of truth — re-render
+              from images + merged audio, or re-download from YouTube, if
+              you ever need a deleted final back. Audio + image assets are
+              never touched by Free up final.
             </p>
           </div>
           <div class="flex gap-2">
@@ -2058,8 +2094,15 @@ interface CleanupResult {
 const storage = ref<StorageAudit | null>(null)
 const auditLoading = ref(false)
 const externalRootInput = ref('')
+// Mirror of the persisted value — drives the dirty-state for the "Save manual
+// path" button (only shown when the input differs from what's saved).
+const externalRootSavedValue = ref('')
 const externalRootSaving = ref(false)
 const externalRootStatus = ref('')
+// Friendly picker-failure panel (shown beneath the External-root status).
+// Distinct from `externalRootStatus` so the "Picker failed: …" message can
+// be rephrased into actionable guidance without losing the save-status text.
+const externalRootPickerHelp = ref('')
 const externalRootReachable = ref(false)
 const migrateRunning = ref(false)
 const lastMigration = ref<MigrationResult | null>(null)
@@ -2096,6 +2139,7 @@ async function loadExternalRoot() {
       '/app-settings/external-final-video-root',
     )
     externalRootInput.value = r.value || ''
+    externalRootSavedValue.value = r.value || ''
     externalRootReachable.value = r.reachable
     externalRootStatus.value = r.value
       ? (r.reachable ? `✓ reachable: ${r.value}` : `⚠ ${r.reason}`)
@@ -2112,9 +2156,13 @@ async function saveExternalRoot() {
       { value: externalRootInput.value.trim() },
     )
     externalRootReachable.value = r.reachable
+    externalRootSavedValue.value = r.value || ''
     externalRootStatus.value = r.value
       ? (r.reachable ? `✓ saved + reachable: ${r.value}` : `⚠ saved but ${r.reason}`)
       : 'Cleared (using project tree)'
+    // Successful save means whatever advice the picker-help panel was
+    // showing no longer applies — the user moved on.
+    externalRootPickerHelp.value = ''
     // Re-run audit so external-side counts refresh.
     if (storage.value) await loadStorageAudit()
   } catch (e: any) {
@@ -2122,6 +2170,21 @@ async function saveExternalRoot() {
   } finally {
     externalRootSaving.value = false
   }
+}
+
+/**
+ * Translate a /system/pick-folder failure into a one-liner the user can act
+ * on. The 503 case (Electron main process not detected) is the common
+ * dev-mode gotcha — surfaced as instructions to use the manual path input
+ * instead of as a raw error string.
+ */
+function pickerHelpFor(e: any): string {
+  const status = e?.status ?? e?.response?.status
+  const detail: string = e?.data?.detail || e?.message || ''
+  if (status === 503 || /Electron main process not detected|Folder picker not available/i.test(detail)) {
+    return 'The native folder picker only works in the packaged app, not in the dev server. Type or paste a path into the field above and click "Save manual path" instead.'
+  }
+  return `Folder picker failed: ${detail || 'unknown error'}. You can also type or paste a path above and click "Save manual path".`
 }
 
 /**
@@ -2135,6 +2198,7 @@ async function saveExternalRoot() {
  * path so the user starts in a familiar spot when re-picking.
  */
 async function browseAndSetExternalRoot() {
+  externalRootPickerHelp.value = ''
   try {
     const r = await post<{ path: string | null }>('/system/pick-folder', {
       title: 'Choose external final-video folder',
@@ -2145,7 +2209,7 @@ async function browseAndSetExternalRoot() {
     externalRootInput.value = r.path
     await saveExternalRoot()
   } catch (e: any) {
-    externalRootStatus.value = `Picker failed: ${e?.data?.detail || e?.message || 'unknown'}`
+    externalRootPickerHelp.value = pickerHelpFor(e)
   }
 }
 
@@ -2286,6 +2350,11 @@ const projectsRoot = ref<ProjectsRootInfo | null>(null)
 const projectsRootBusy = ref(false)
 const projectsRootStatus = ref('')
 const projectsRootStatusKind = ref<'ok' | 'warn' | 'err'>('ok')
+// Friendly picker-failure panel — same role as `externalRootPickerHelp`
+// for the Projects-root section. Lets us surface the dev-mode picker
+// limitation as actionable guidance ("type a path manually") without
+// burying it inside the same red-status line as a normal error.
+const projectsRootPickerHelp = ref('')
 
 async function loadProjectsRoot() {
   try {
@@ -2298,6 +2367,7 @@ async function loadProjectsRoot() {
 onMounted(loadProjectsRoot)
 
 async function browseAndMoveProjectsRoot() {
+  projectsRootPickerHelp.value = ''
   // Step 0: pick the destination via the native folder picker.
   let pick: { path: string | null }
   try {
@@ -2307,8 +2377,7 @@ async function browseAndMoveProjectsRoot() {
       defaultPath: projectsRoot.value?.effective_path,
     })
   } catch (e: any) {
-    projectsRootStatus.value = `Picker failed: ${e?.data?.detail || e?.message}`
-    projectsRootStatusKind.value = 'err'
+    projectsRootPickerHelp.value = pickerHelpFor(e)
     return
   }
   if (!pick.path) return  // User cancelled.
@@ -2430,6 +2499,7 @@ async function browseAndMoveProjectsRoot() {
  * and would hit the "non-empty target" 409 from the migrator.
  */
 async function browseAndUseExistingProjectsRoot() {
+  projectsRootPickerHelp.value = ''
   let pick: { path: string | null }
   try {
     pick = await post<{ path: string | null }>('/system/pick-folder', {
@@ -2438,8 +2508,7 @@ async function browseAndUseExistingProjectsRoot() {
       defaultPath: projectsRoot.value?.effective_path,
     })
   } catch (e: any) {
-    projectsRootStatus.value = `Picker failed: ${e?.data?.detail || e?.message}`
-    projectsRootStatusKind.value = 'err'
+    projectsRootPickerHelp.value = pickerHelpFor(e)
     return
   }
   if (!pick.path) return  // user cancelled
@@ -4083,8 +4152,38 @@ async function deleteProject() {
 }
 
 /* ── Storage tab ─────────────────────────────────────────────────────── */
-.storage-section h4 { margin: 0 0 6px; font-size: 14px; }
+.storage-section h4 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .storage-section .hint { margin: 4px 0 8px; font-size: 11px; line-height: 1.45; }
+.storage-section-icon { font-size: 16px; line-height: 1; }
+/* Top-bordered subsections inside the Storage card. The first subsection
+   (Projects storage location) skips the modifier so the top of the card
+   stays flush; everything below gets a clear horizontal divider + breathing
+   room so it's obvious where one section ends and the next begins. */
+.storage-section--bordered {
+  border-top: 1px solid var(--border);
+  margin-top: 24px;
+  padding-top: 18px;
+}
+/* Inline help panel beneath a section's status row. Used to translate
+   "Picker failed: …" into actionable guidance ("type the path manually")
+   without burying the message inside the same line as a save error. */
+.manual-path-hint {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
 .optional-tag { color: var(--text-muted); font-size: 11px; font-weight: normal; }
 
 /* ── Cloud sync overview (top-of-Storage indicator card) ─────────── */
