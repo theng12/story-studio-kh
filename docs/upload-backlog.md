@@ -288,7 +288,20 @@ all use pills) so users don't have to learn a new affordance.
 
 ---
 
-### [ ] I · Promote per-item schedule map into the sidecar
+### [x] I · Promote per-item schedule map into the sidecar
+
+**Shipped:** v1.0.39 · commit `<HASH-PENDING>`. Sidecar gains
+`readSidecarRaw` + `setScheduledFor` helpers; planning-only stubs
+(video_id='') carry `scheduled_for` pre-upload and get overwritten
+by the real sidecar at upload time. `upload-plans.ts`
+`readItemSchedule`/`writeItemSchedule` rewired to walk per-episode
+sidecars (legacy map only carries `import:*` keys post-migration).
+New service `upload-schedule-migration.ts` runs at boot, marks each
+project with `upload_item_schedule_migrated_v1` once swept; orphan
+codes referencing deleted ideas are dropped, `import:*` keys
+preserved. `buildQueueIndex` switched to `readSidecarRaw` for
+episode rows so planning stubs surface in the queue with
+`schedule_source: 'planned'`.
 
 **Why:** `config.upload_item_schedule` is a separate config blob. Sidecar
 is the right home — single source of truth per episode. Reduces drift
@@ -495,3 +508,7 @@ been done across versions.
   with optional URL + note (🔗 External pill on queue rows), **L**
   renumber rollback (`.renumber-undo.json` Stage-0 sidecar + Revert
   banner + 30-day auto-cleanup).
+- **v1.0.39** (2026-05-03) — P2 final: **I** per-item schedule map
+  promoted into per-episode sidecars (planning stubs cover not-yet-
+  uploaded rows; boot-time eager-sweep migration; legacy map only
+  retains `import:*` keys post-migration).

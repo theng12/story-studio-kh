@@ -18,6 +18,8 @@
 
 import { randomUUID } from 'crypto'
 import * as pm from './project-manager.js'
+import * as im from './idea-manager.js'
+import { readSidecarRaw, setScheduledFor } from './upload-sidecar.js'
 import type { UploadPlatform } from './upload-store.js'
 
 export interface UploadSchedule {
@@ -282,17 +284,133 @@ function daysBetween(a: Date, b: Date, _tz: string): number {
   return Math.round((b.getTime() - a.getTime()) / 86_400_000)
 }
 
-// ── Per-item scheduled_for map ────────────────────────────────────────────
-// Stored in config keyed by episode_code so Upload jobs can pick it up at
-// enqueue time without re-running the compute.
+// ── Per-item scheduled_for map (item I-eager: sidecar-backed) ─────────────
+//
+// Historical model (≤ v1.0.37): a single `config.upload_item_schedule`
+// record on the project, keyed by episode_code, mapping → ISO 8601 publishAt.
+// Two reads / writes were enough to mutate the whole project's schedule.
+//
+// Item I-eager (v1.0.38+) moved per-episode `scheduled_for` into each
+// episode's YouTube sidecar so there's exactly one source of truth per
+// episode. Imports keep using the config map (they have no sidecar).
+// The boot-time migration in `upload-schedule-migration.ts` walks the
+// legacy map once on app start and pours each entry into the matching
+// sidecar.
+//
+// Backwards-compat invariant: `readItemSchedule` returns the merged view
+// (sidecars first, then any unmigrated import-keyed entries from the
+// legacy map). Existing callers that loop the map don't need to know
+// where the data came from. After all installs have booted past the
+// migration, the legacy map is empty for episodes; only `import:*` keys
+// remain. We can delete the legacy field entirely after a release or two.
 
+export const LEGACY_SCHEDULE_FIELD = 'upload_item_schedule'
+
+/**
+ * Build the merged schedule map for a project. Episode-coded entries
+ * come from each accepted episode's sidecar (`scheduled_for`); any
+ * non-episode keys (today only `import:*`) come from the legacy config
+ * map. Falsy values are filtered so consumers can use `truthy-check`
+ * for "is this scheduled?" without surprises from `null` carry-overs.
+ */
 export async function readItemSchedule(slug: string): Promise<Record<string, string>> {
+  const out: Record<string, string> = {}
+
+  // Sidecar reads — one per accepted episode. Project counts are tiny
+  // (personal-use), and each read is a small JSON file, so the parallel
+  // fan-out keeps this comfortably under a frame budget.
+  const ideas = await im.getIdeas(slug, 'accepted').catch(() => [])
+  await Promise.all(ideas.map(async (idea) => {
+    if (!idea.episode_code) return
+    const sc = await readSidecarRaw(slug, idea.episode_code, idea.title || '', 'youtube')
+    if (sc?.scheduled_for) out[idea.episode_code] = sc.scheduled_for
+  }))
+
+  // Legacy map — merge in non-episode keys. Episode-coded keys may also
+  // linger in the map on the first boot before migration runs (or if
+  // the migration is mid-flight); the sidecar wins on conflict because
+  // it's the post-migration source of truth.
   const config = (await pm.getConfig(slug)) as any
-  return config?.upload_item_schedule && typeof config.upload_item_schedule === 'object'
-    ? config.upload_item_schedule
-    : {}
+  const legacy = (config?.[LEGACY_SCHEDULE_FIELD] && typeof config[LEGACY_SCHEDULE_FIELD] === 'object')
+    ? config[LEGACY_SCHEDULE_FIELD] as Record<string, string>
+    : null
+  if (legacy) {
+    for (const [k, v] of Object.entries(legacy)) {
+      if (!v) continue
+      // Sidecar already wins for episode codes, so only fall through
+      // when the key isn't already covered. Imports + any future non-
+      // episode key types land here unconditionally.
+      if (k in out) continue
+      out[k] = v
+    }
+  }
+
+  return out
 }
 
+/**
+ * Apply a complete schedule map: every entry not in the new map is
+ * cleared. Episode-coded entries write through to each episode's
+ * sidecar; non-episode keys (today `import:*`) ride in the legacy
+ * config map exactly as before.
+ *
+ * Performance: O(N) sidecar reads + targeted writes (only touched
+ * sidecars are actually rewritten — see setScheduledFor's no-op
+ * guards). This is bigger than the old single-config-write but still
+ * negligible for personal-use project sizes.
+ */
 export async function writeItemSchedule(slug: string, map: Record<string, string>): Promise<void> {
-  await pm.updateConfig(slug, { upload_item_schedule: map } as any)
+  // Partition the incoming map so episode-coded entries hit sidecars
+  // and non-episode keys ride the legacy map. We can't tell from a key
+  // alone what's "episode-coded" without consulting accepted ideas, so
+  // walk that list first.
+  const ideas = await im.getIdeas(slug, 'accepted').catch(() => [])
+  const ideaByCode = new Map<string, { title: string }>()
+  for (const i of ideas) {
+    if (i.episode_code) ideaByCode.set(i.episode_code, { title: i.title || '' })
+  }
+
+  const importKeys: Record<string, string> = {}
+  const episodeKeys: Record<string, string> = {}
+  for (const [k, v] of Object.entries(map)) {
+    if (!v) continue
+    if (ideaByCode.has(k)) episodeKeys[k] = v
+    else if (k.startsWith('import:')) importKeys[k] = v
+    // Anything else (orphan codes referring to deleted ideas, typos
+    // from a route that didn't validate) is silently dropped — it
+    // would have nowhere consistent to live and just clutters config.
+  }
+
+  // Drive sidecar writes — set new entries, clear any episode that was
+  // previously scheduled but isn't in the new map. We could read every
+  // sidecar to know which are currently set, but it's cheaper to just
+  // call setScheduledFor on every accepted episode (no-ops are guarded
+  // inside the helper).
+  await Promise.all(Array.from(ideaByCode.entries()).map(async ([code, info]) => {
+    const next = episodeKeys[code] ?? null
+    await setScheduledFor(slug, code, info.title, 'youtube', next)
+  }))
+
+  // Update the legacy map for non-episode keys. Preserve any other
+  // legacy entries (`import:*`, future shapes) unchanged. The map is
+  // also where unmigrated episode entries linger pre-boot — clear
+  // them out here so writes through this path stay self-consistent.
+  const config = (await pm.getConfig(slug)) as any
+  const prior = (config?.[LEGACY_SCHEDULE_FIELD] && typeof config[LEGACY_SCHEDULE_FIELD] === 'object')
+    ? config[LEGACY_SCHEDULE_FIELD] as Record<string, string>
+    : {}
+  const nextLegacy: Record<string, string> = {}
+  for (const [k, v] of Object.entries(prior)) {
+    if (!v) continue
+    // Drop episode-coded entries that the sidecar now owns. Drop any
+    // non-import key shape too — those are orphans from a route that
+    // didn't validate (typo'd code, deleted-since-scheduled idea) and
+    // they have nowhere consistent to live now that the sidecar is
+    // the source of truth for episodes.
+    if (ideaByCode.has(k)) continue
+    if (!k.startsWith('import:')) continue
+    nextLegacy[k] = v
+  }
+  for (const [k, v] of Object.entries(importKeys)) nextLegacy[k] = v
+  await pm.updateConfig(slug, { [LEGACY_SCHEDULE_FIELD]: nextLegacy } as any)
 }

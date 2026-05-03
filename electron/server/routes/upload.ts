@@ -18,7 +18,7 @@ import * as jq from '../services/job-queue.js'
 import * as store from '../services/upload-store.js'
 import { startOAuthFlow, getFlowStatus } from '../lib/youtube-oauth.js'
 import { computeEpisodeStatus, hasFinalVideoFast, getFinalVideoBytes } from '../services/asset-status.js'
-import { readSidecar } from '../services/upload-sidecar.js'
+import { readSidecar, readSidecarRaw } from '../services/upload-sidecar.js'
 import { resolveUploadMetadata, snippetFromMeta } from '../lib/upload-metadata.js'
 import * as plans from '../services/upload-plans.js'
 import * as uq from '../services/upload-queue.js'
@@ -532,7 +532,6 @@ function queueCacheKey(slug: string, platform: string) { return `${slug}:${platf
 // episode rather than the full status walk).
 async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Promise<QueueIndexItem[]> {
   const ideas = await im.getIdeas(slug, 'accepted')
-  const itemSchedule = await plans.readItemSchedule(slug)
   const sequence = await uq.readSequence(slug)
   // Item E: "uploaded elsewhere" — read once up front so per-row checks
   // are cheap (and so we know which non-queueable episodes still need
@@ -541,6 +540,13 @@ async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Pr
   const legacyFlag: Record<string, boolean> = (cfg.youtube_legacy_uploaded || {})
   const legacyMeta: Record<string, { external_url?: string; note?: string }>
     = (cfg.youtube_legacy_uploaded_meta || {})
+  // Item I-eager: per-item scheduled_for now lives in each episode's
+  // sidecar (planning stubs cover the not-yet-uploaded case). The
+  // legacy `upload_item_schedule` map only carries `import:*` keys
+  // post-migration, so we read it once just for the imports branch.
+  const legacySchedule = (cfg.upload_item_schedule && typeof cfg.upload_item_schedule === 'object')
+    ? cfg.upload_item_schedule as Record<string, string>
+    : {}
   const items: QueueIndexItem[] = []
   const CONCURRENCY = 32     // bumped from 8 — most ops are file existence checks
   const queue = ideas.filter(i => i.episode_code)
@@ -552,13 +558,19 @@ async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Pr
       if (!idea?.episode_code) continue
       const code = idea.episode_code
       // Fast video-presence check (single readdir of episode/video/) +
-      // sidecar in parallel. Sidecar tells us if it's uploaded; if so,
-      // the local file might be deleted but the episode still belongs in
-      // the queue (re-upload PATCHes metadata).
-      const [hasFinal, sidecar] = await Promise.all([
+      // sidecar in parallel. We use `readSidecarRaw` so planning-only
+      // stubs (no video_id, just `scheduled_for`) come through too —
+      // that's how the queue surfaces "scheduled but not yet uploaded"
+      // rows after item I-eager moved schedule data into the sidecar.
+      const [hasFinal, rawSidecar] = await Promise.all([
         hasFinalVideoFast(slug, code, idea.title || ''),
-        readSidecar(slug, code, idea.title || '', platform),
+        readSidecarRaw(slug, code, idea.title || '', platform),
       ])
+      // Strip planning stubs out of the "is this uploaded?" view so
+      // downstream consumers (enrichPage, the chip-stack template)
+      // keep using the same semantics as before — uploaded sidecars
+      // carry video_id; planning stubs carry an empty string.
+      const sidecar = rawSidecar?.video_id ? rawSidecar : null
       const isLegacy = !!legacyFlag[code]
       // Legacy-uploaded items get a synthetic queue row even with no local
       // final + no sidecar, so the user can see what they marked + the
@@ -566,7 +578,15 @@ async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Pr
       // marking and the only revert path would be config-file editing.
       const inQueue = hasFinal || !!sidecar?.video_id || isLegacy
       if (!inQueue) continue
-      const scheduled_for = sidecar?.scheduled_for || itemSchedule[code] || null
+      // scheduled_for + schedule_source: pull from rawSidecar so
+      // planning stubs (video_id='') still surface their schedule.
+      // 'synced' = post-upload sidecar with publishAt mirrored from
+      // YouTube; 'planned' = pre-upload stub the user wrote via plans
+      // or per-row edit; 'none' = neither.
+      const scheduled_for = rawSidecar?.scheduled_for || null
+      const schedule_source: 'synced' | 'planned' | 'none' = rawSidecar?.video_id
+        ? (rawSidecar.scheduled_for ? 'synced' : 'none')
+        : (rawSidecar?.scheduled_for ? 'planned' : 'none')
       const meta = legacyMeta[code] || {}
       items.push({
         id: `ep:${code}`,
@@ -578,7 +598,7 @@ async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Pr
         deleted_at: sidecar?.deleted_at || null,
         video_id: sidecar?.video_id || '',
         scheduled_for,
-        schedule_source: sidecar?.scheduled_for ? 'synced' : (itemSchedule[code] ? 'planned' : 'none'),
+        schedule_source,
         position: typeof sequence[`ep:${code}`] === 'number' ? sequence[`ep:${code}`] : null,
         legacy_uploaded: isLegacy,
         legacy_external_url: meta.external_url || '',
@@ -607,8 +627,8 @@ async function buildQueueIndex(slug: string, platform: store.UploadPlatform): Pr
         has_local_final: true,
         deleted_at: null,
         video_id: '',
-        scheduled_for: itemSchedule[d.id] || null,
-        schedule_source: itemSchedule[d.id] ? 'planned' : 'none',
+        scheduled_for: legacySchedule[d.id] || null,
+        schedule_source: legacySchedule[d.id] ? 'planned' : 'none',
         position: d.position,
         legacy_uploaded: false,
         legacy_external_url: '',
@@ -923,11 +943,17 @@ router.post('/projects/:slug/upload/upload', async (req, res) => {
 
     // Schedule resolution: explicit body > per-item plan schedule > null.
     // Preserves the plan-computed time without requiring the UI to send it
-    // every single click.
+    // every single click. Item I-eager moved per-item schedule into the
+    // episode's sidecar (planning stubs cover not-yet-uploaded rows), so
+    // the lookup is a single sidecar read rather than a project-wide map
+    // walk.
     let scheduled_for: string | null = typeof req.body?.scheduled_for === 'string' ? req.body.scheduled_for : null
     if (!scheduled_for) {
-      const itemSchedule = await plans.readItemSchedule(slug)
-      if (itemSchedule[episode_id]) scheduled_for = itemSchedule[episode_id]
+      const idea = (await im.getIdeas(slug, 'accepted')).find(i => i.episode_code === episode_id)
+      if (idea?.episode_code) {
+        const sc = await readSidecarRaw(slug, idea.episode_code, idea.title || '', 'youtube')
+        if (sc?.scheduled_for) scheduled_for = sc.scheduled_for
+      }
     }
     const privacy_status = typeof req.body?.privacy_status === 'string' ? req.body.privacy_status : 'private'
     // preserve_status routes through to the executor's metadata-only branch.

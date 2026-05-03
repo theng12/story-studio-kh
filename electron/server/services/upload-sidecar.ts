@@ -94,14 +94,40 @@ function sidecarPath(episodeDir: string, platform: UploadPlatform): string {
   return path.join(episodeDir, `${platform}_upload.json`)
 }
 
+/**
+ * Returns the parsed sidecar only when the episode is actually uploaded
+ * (i.e. carries a non-empty `video_id`). The video_id gate is what makes
+ * sidecar existence the canonical "is this row uploaded?" check throughout
+ * the codebase — see `inQueue = hasFinal || !!sidecar?.video_id` in
+ * buildQueueIndex.
+ *
+ * Item I-eager added a second sidecar shape: planning-only stubs with
+ * `video_id === ''` that carry a `scheduled_for` so the per-item schedule
+ * map can be retired. Those stubs are filtered out here so callers that
+ * use `readSidecar` to mean "uploaded?" keep working unchanged. To read
+ * planning stubs (or any sidecar regardless of upload state), use
+ * `readSidecarRaw`.
+ */
 export async function readSidecar(slug: string, episode_code: string, fallback_title: string, platform: UploadPlatform): Promise<UploadSidecar | null> {
+  const data = await readSidecarRaw(slug, episode_code, fallback_title, platform)
+  if (!data?.video_id) return null
+  return data
+}
+
+/**
+ * Returns the parsed sidecar regardless of upload state — including
+ * planning stubs whose only meaningful field is `scheduled_for`. Use
+ * this when the question is "what's the planned schedule / privacy /
+ * etc. for this episode?" rather than "is this episode uploaded?".
+ */
+export async function readSidecarRaw(slug: string, episode_code: string, fallback_title: string, platform: UploadPlatform): Promise<UploadSidecar | null> {
   const paths = await resolveEpisodePaths(slug, episode_code, fallback_title || '')
   const p = sidecarPath(paths.episode_dir, platform)
   if (!existsSync(p)) return null
   try {
     const raw = await fsp.readFile(p, 'utf-8')
     const data = JSON.parse(raw)
-    if (!data?.video_id) return null
+    if (!data || typeof data !== 'object') return null
     return data as UploadSidecar
   } catch {
     return null
@@ -121,4 +147,76 @@ export async function deleteSidecar(slug: string, episode_code: string, fallback
   const paths = await resolveEpisodePaths(slug, episode_code, fallback_title || '')
   const p = sidecarPath(paths.episode_dir, platform)
   if (existsSync(p)) await fsp.rm(p, { force: true })
+}
+
+/**
+ * Item I-eager: planning-only sidecar stub used when an episode has a
+ * `scheduled_for` written through plans / per-row edit BEFORE its
+ * upload has run. All upload-related fields are empty so reads through
+ * `readSidecar` (the video_id-gated variant) keep returning null —
+ * which is exactly what every "uploaded?" check needs to see for an
+ * episode that isn't uploaded yet.
+ *
+ * After the actual upload runs, `writeSidecar` overwrites this stub
+ * with the real (`video_id`-bearing) sidecar — the planning state
+ * was just a transient placeholder for `scheduled_for`.
+ */
+function makePlanningStubSidecar(platform: UploadPlatform, scheduled_for: string | null): UploadSidecar {
+  return {
+    platform,
+    video_id: '',
+    account_id: '',
+    channel_id: '',
+    uploaded_at: '',
+    last_sync_at: '',
+    scheduled_for,
+    privacy_status: 'private',
+    title: '',
+    description: '',
+    tags: [],
+    thumbnail_set: false,
+  }
+}
+
+/**
+ * Set / clear the `scheduled_for` field on an episode's sidecar.
+ * Replaces the per-config `upload_item_schedule` map (item I-eager).
+ *
+ * Behaviour matrix:
+ *   - sidecar exists, iso truthy        → update scheduled_for, write back
+ *   - sidecar exists, iso null          → set scheduled_for=null. If the
+ *                                          sidecar is a planning stub
+ *                                          (no video_id) AND has nothing
+ *                                          else load-bearing, delete the
+ *                                          file entirely so the disk
+ *                                          stays clean.
+ *   - sidecar absent, iso truthy        → write a planning stub
+ *   - sidecar absent, iso null          → no-op (already clear)
+ *
+ * Idempotent — repeat calls with the same input produce the same final
+ * state without churning the file.
+ */
+export async function setScheduledFor(
+  slug: string,
+  episode_code: string,
+  fallback_title: string,
+  platform: UploadPlatform,
+  scheduled_for: string | null,
+): Promise<void> {
+  const existing = await readSidecarRaw(slug, episode_code, fallback_title, platform)
+  if (!existing) {
+    if (!scheduled_for) return
+    await writeSidecar(slug, episode_code, fallback_title, makePlanningStubSidecar(platform, scheduled_for))
+    return
+  }
+  // No-op when the field is already in the desired state — saves a write
+  // and keeps the migration's "second run is free" property honest.
+  if (existing.scheduled_for === scheduled_for) return
+  if (!scheduled_for && !existing.video_id) {
+    // Planning stub being cleared — nothing else to keep, drop the file.
+    await deleteSidecar(slug, episode_code, fallback_title, platform)
+    return
+  }
+  const next: UploadSidecar = { ...existing, scheduled_for }
+  await writeSidecar(slug, episode_code, fallback_title, next)
 }

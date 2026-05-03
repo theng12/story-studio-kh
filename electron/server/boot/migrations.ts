@@ -11,6 +11,7 @@ import { migrateAppSecrets } from './migrate-app-secrets.js'
 import { cleanOrphanWorkTempDirs, cleanLegacyInProjectTempDirs } from '../lib/work-tempdir.js'
 import * as pm from '../services/project-manager.js'
 import { cleanupStaleUndoSidecars } from '../services/upload-renumber-undo.js'
+import { migrateScheduleMapsToSidecars } from '../services/upload-schedule-migration.js'
 import { proactiveRecoverySweep } from '../services/boot-recovery.js'
 import { readLastSession } from '../services/last-session.js'
 import {
@@ -122,6 +123,26 @@ export function runBootMigrations(): void {
       )
     }
   })()).catch(e => console.error('[migration] voice-curation lift failed:', e?.message || e)))
+
+  // Item I-eager: promote per-item schedule entries from
+  // `config.upload_item_schedule` into each episode's YouTube sidecar
+  // so there's exactly one source of truth per episode. Per-project
+  // marker (`upload_item_schedule_migrated_v1`) makes subsequent
+  // boots skip the walk; orphaned entries (no matching idea) are
+  // dropped, `import:*` keys are preserved in the legacy map (they
+  // have no sidecar to migrate into).
+  tasks.push(migrateScheduleMapsToSidecars().then((s) => {
+    if (s.migratedProjects > 0 || s.totalOrphans > 0 || s.errors.length > 0) {
+      console.log(
+        `[migration] upload-item-schedule → sidecar: ` +
+        `scanned ${s.scanned} project(s), ` +
+        `${s.alreadyMigrated} already migrated, ` +
+        `${s.migratedProjects} migrated this run ` +
+        `(${s.totalEntriesMigrated} entries, ${s.totalOrphans} orphan(s) dropped)` +
+        (s.errors.length ? ` · ${s.errors.length} error(s): ${s.errors.map(e => `${e.slug}=${e.error}`).join(', ')}` : ''),
+      )
+    }
+  }).catch(e => console.error('[migration] upload-item-schedule failed:', e?.message || e)))
 
   // Item L: auto-clean stale renumber-undo sidecars (>30 days old).
   // Cheap walk — bounded by project count (typically <10 for personal
