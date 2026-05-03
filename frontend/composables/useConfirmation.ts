@@ -86,7 +86,16 @@ export function useConfirmation() {
     type: string,
     params: Record<string, any>,
   ): Promise<boolean> {
-    if (!shouldConfirm(type)) return true
+    // v1.0.47 — diagnostic instrumentation. Same investigation as the
+    // logs in useVideoAssemblyIo: trace each branch so a re-test on
+    // the beta Mac can pinpoint exactly where a click-Generate flow
+    // swallows its dialog. Strip in a follow-up commit once the
+    // root cause is fixed — grep `[confirmGeneration]`.
+    console.log('[confirmGeneration] entry', { type, fps: params?.fps })
+    if (!shouldConfirm(type)) {
+      console.log('[confirmGeneration] skipped via user pref (shouldConfirm=false)')
+      return true
+    }
 
     // Pre-fetch the estimate BEFORE deciding whether to show the dialog —
     // we need the cost number to compare against the threshold. If it's a
@@ -94,8 +103,14 @@ export function useConfirmation() {
     // user isn't trained to dismiss-and-disable.
     let estimate: CostEstimate
     try {
+      console.log('[confirmGeneration] awaiting estimate-cost POST')
       estimate = await post<CostEstimate>(`/projects/${slug}/estimate-cost`, { type, params })
-    } catch {
+      console.log('[confirmGeneration] estimate returned', {
+        cost_unit: estimate.cost_unit,
+        estimated_cost: estimate.estimated_cost,
+      })
+    } catch (err) {
+      console.warn('[confirmGeneration] estimate-cost threw, falling back to unknown', err)
       estimate = {
         estimated_cost: '?',
         cost_unit: '',
@@ -121,10 +136,12 @@ export function useConfirmation() {
       numericCost < threshold &&
       !isForceRegen
     ) {
+      console.log('[confirmGeneration] auto-confirmed (below threshold)', { numericCost, threshold })
       return true
     }
 
     // Show the dialog. Dialog component reads from `state` reactively.
+    console.log('[confirmGeneration] showing dialog')
     state.visible = true
     state.type = type
     state.typeLabel = TYPE_LABELS[type] || type

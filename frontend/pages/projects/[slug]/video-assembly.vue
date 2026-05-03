@@ -3326,7 +3326,21 @@ function goToStep(n: number) {
 // in useVideoAssemblyIo.generateVideo(). Page keeps a thin wrapper so the
 // template's `@click="generateVideo"` binding doesn't change.
 async function generateVideo() {
-  await runGenerateVideo({ post, confirmGeneration, videoGenerating })
+  // v1.0.47 — defensive harness. `runGenerateVideo` has its own
+  // try/catch but only around the final POST; anything thrown earlier
+  // (during payload build, inside confirmGeneration, in the cost-
+  // estimate POST, etc.) used to escape silently — symptom: "click
+  // Generate, nothing happens, no dialog, no toast" (reported when
+  // the YouTube Fast preset's fps=30 combo failed to surface a
+  // dialog). Any throw from anywhere in the click chain now becomes
+  // a visible toast + a console.error so the next user-side incident
+  // is debuggable from devtools instead of opaque.
+  try {
+    await runGenerateVideo({ post, confirmGeneration, videoGenerating })
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Generate failed unexpectedly — see console for details (Cmd+Option+I).')
+    console.error('[video-assembly] generateVideo threw:', e)
+  }
 }
 
 // --------------- Lifecycle ---------------

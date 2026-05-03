@@ -522,6 +522,19 @@ been done across versions.
   on idea remove / dismiss / accept / reset, plus the ↻ Refresh button
   now passes `?nocache=1` so it actually re-scans instead of returning
   the cached snapshot.
+- **v1.0.47** (2026-05-04) — Video-assembly silent-failure harness +
+  diagnostic instrumentation. Beta-test report: clicking Generate Video
+  with the YouTube Fast preset (fps=30) produced no dialog, no toast,
+  no progress — completely silent. Static-analysis trace ruled out
+  every obvious code path; the failure is somewhere only runtime can
+  expose. Two-layer fix: **(A)** defensive try/catch around
+  `generateVideo()` so any future thrown error becomes a visible
+  toast + console.error, removing the "click does nothing" UX
+  forever. **(B)** structured `console.log` instrumentation through
+  `runGenerateVideo` and `confirmGeneration` so the next test prints
+  exactly which step swallows the failure. Logs are temporary —
+  stripped in a follow-up commit once the root cause is identified
+  and fixed.
 - **v1.0.46** (2026-05-04) — Public-video safety + bigger preview
   modal: two new overlay chips (👁 Public / 🔒 Not yet public) on
   the queue toolbar. Apply-plan **server-side** refuses to PATCH
