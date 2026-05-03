@@ -225,14 +225,21 @@ solving asymmetric problems (drift on linked vs. matching unlinked). The
 recent per-row "🔗 Link existing video" makes the Reconcile tab partially
 redundant for the single-video case.
 
-**Acceptance:**
-- Either: rename Reconcile to "Match unlinked" with copy-fix making the
-  asymmetry explicit, OR: fold the single-video adoption flow into the
-  Queue's Link Video modal and demote Reconcile to a bulk-only secondary
-  tab.
+**Acceptance (locked 2026-05-03):**
+- **A1 — Rename only.** Rename the Reconcile tab to **"Match unlinked"**
+  and rewrite its description / copy so the asymmetry vs. Sync is
+  obvious ("Sync = is what we have still accurate? · Match unlinked =
+  are there channel videos we don't know about?"). Don't fold the
+  single-video flow into the Queue modal.
 
-**Discussion:** _Big change to surface area; defer until P0/P1 land so
-we have stable copy to migrate from._
+**Why locked this way:** Folding (A2) would force re-building the
+fuzzy-match scan-and-suggest surface inside the Queue modal — lots of
+code for marginal UX benefit, since the per-row Link Video modal already
+covers the single-video case. A1 gets ~80% of the clarity benefit for
+~5% of the work.
+
+**Files:**
+- [frontend/pages/projects/[slug]/upload.vue](../frontend/pages/projects/[slug]/upload.vue) (tab label + description copy)
 
 ---
 
@@ -242,16 +249,26 @@ we have stable copy to migrate from._
 (full sidecar). Sometimes you want the in-between: "this is on a
 different account, leave it alone but record where".
 
-**Acceptance:**
-- Extend the legacy-uploaded marker to accept an optional `external_url`
-  + `note` field. Surface in the row's hover/title so the user remembers
-  why they marked it.
+**Acceptance (locked 2026-05-03):**
+- **Extend** `mark-legacy-uploaded` with two optional fields — additive,
+  not a rename. Existing call sites keep working.
+  - `external_url?: string`
+  - `note?: string`
+- **Soft URL validation:** `external_url` must start with `http://` or
+  `https://`. Otherwise free-text. Don't try to fully parse the URL.
+- **Surface in the UI:** new row pill (similar to the playlist pill)
+  reading "🔗 External" with the URL as tooltip and the note as
+  secondary tooltip text. Click pill opens the URL. Don't add a new
+  column — the pill rides next to the existing chips.
+
+**Why locked this way:** Extending keeps backward compat clean. A row
+pill matches the existing visual language (privacy, playlist, tombstone
+all use pills) so users don't have to learn a new affordance.
 
 **Files:**
 - [electron/server/routes/upload.ts](../electron/server/routes/upload.ts) (mark-legacy-uploaded route)
-- Sidecar schema or a separate "external link" sidecar variant
-
-**Discussion:** _none yet_
+- Legacy-uploaded sidecar shape (search for `legacy_uploaded` or similar)
+- [frontend/pages/projects/[slug]/upload.vue](../frontend/pages/projects/[slug]/upload.vue) (queue table row chip stack)
 
 ---
 
@@ -261,17 +278,28 @@ different account, leave it alone but record where".
 is the right home — single source of truth per episode. Reduces drift
 risks (#B becomes a non-issue).
 
-**Acceptance:**
-- Migrate on next read (write to sidecar, leave the old map for one
-  release of back-compat, then drop).
-- Plans + per-row schedule edit both write through the sidecar.
+**Acceptance (locked 2026-05-03):**
+- **Boot-time eager sweep (I-eager).** On Electron app start, walk every
+  project's `upload_item_schedule` map and migrate each entry into the
+  matching sidecar. After migration, the map is empty and the project
+  config is rewritten without it. One-shot, idempotent.
+- Plans + per-row schedule edit are rewritten to write through the
+  sidecar going forward.
+- The old `upload_item_schedule` config field stays on disk for one
+  release as a no-op back-compat surface; can be deleted entirely after
+  v1.0.X+1.
+
+**Why locked this way:** Lazy migrate-on-read leaves an indefinite window
+where truth is split between sidecar and map. For a personal-use app
+with small project counts the boot cost (tens of ms) is invisible, so
+the "single moment of truth" property of an eager sweep wins. Bonus: it
+makes #B's drift fix a non-issue going forward — there's no map to
+disagree with reality.
 
 **Files:**
-- [electron/server/services/upload-sidecar.ts](../electron/server/services/upload-sidecar.ts)
-- [electron/server/services/upload-plans.ts](../electron/server/services/upload-plans.ts)
-
-**Discussion:** _Migration is the risky bit; need a one-time boot-time
-sweep that handles existing project configs._
+- [electron/server/services/upload-sidecar.ts](../electron/server/services/upload-sidecar.ts) (sidecar schema gains `scheduled_for` writes from this path)
+- [electron/server/services/upload-plans.ts](../electron/server/services/upload-plans.ts) (`readItemSchedule` / `writeItemSchedule` callers redirect to sidecar)
+- Boot sweep: a new function in [electron/server/boot/](../electron/server/boot/) that runs once after migrations.
 
 ---
 
@@ -280,17 +308,32 @@ sweep that handles existing project configs._
 **Why:** Hard-coded to 22 ("People & Blogs"). Fine for sleep-stories but
 not universal.
 
-**Acceptance:**
-- Add `category_id` to ProjectConfig (default 22).
-- Surface as a Settings → Project field. Validate against YouTube's
-  category list (cached).
+**Acceptance (locked 2026-05-03):**
+- Add `category_id?: number` to `ProjectConfig` (default `22`).
+- Surface as a Settings → Project field showing the user-friendly
+  category name (e.g. "People & Blogs (22)") with a dropdown of all
+  categories from YouTube's API.
+- **Cache TTL: 7 days.** Categories essentially never change. Cache on
+  disk per-account in `<userData>/youtube-category-cache/<accountId>.json`
+  alongside the existing per-account caches.
+- **Soft fallback when API unreachable:** if the YouTube call fails,
+  accept any positive integer the user types and log a warning. Never
+  block save just because the validation lookup was momentarily down.
+- **Per-project, not per-account.** Category is content-driven. One
+  channel might host both "Education" and "Entertainment" depending on
+  the project.
+
+**Why locked this way:** Per-project scopes are how the rest of
+ProjectConfig already works — consistency wins. Soft-fallback validation
+prevents transient YouTube outages from locking the user out of saving.
+7-day cache is essentially "forever" for a stable enum without making
+the cache field invisible to the user.
 
 **Files:**
 - [electron/server/models/types.ts](../electron/server/models/types.ts) (ProjectConfig)
 - [electron/server/lib/upload-metadata.ts](../electron/server/lib/upload-metadata.ts) (categoryId hard-code at ~line 234)
-- [frontend/pages/projects/[slug]/settings.vue](../frontend/pages/projects/[slug]/settings.vue)
-
-**Discussion:** _none yet_
+- [frontend/pages/projects/[slug]/settings.vue](../frontend/pages/projects/[slug]/settings.vue) (new field on Project tab)
+- New service for the categories cache (mirror existing per-account cache patterns)
 
 ---
 
@@ -299,8 +342,25 @@ not universal.
 **Why:** Free-form string today (`'sync_404' | 'manual' | <whatever>`).
 Easy to drift as new detection paths add their own.
 
-**Acceptance:**
-- Move to a typed union; use the type at all write sites.
+**Acceptance (locked 2026-05-03):**
+- Replace the free-form `deleted_reason?: string` on `UploadSidecar`
+  with a typed union:
+  ```ts
+  export type DeletedReason = 'sync_404' | 'manual' | 'takedown' | 'duplicate'
+  ```
+  - `sync_404` — auto-detected by sync-from-youtube (existing)
+  - `manual` — user clicked Mark as deleted upstream (existing)
+  - `takedown` — future hook for when YouTube returns a takedown reason
+    via the API (currently out of scope; reserve the value)
+  - `duplicate` — future hook for cross-project dedup detection (also
+    reserved)
+- Existing `deleted_reason` strings on disk are still accepted on read
+  via a `string` widening at the read boundary — only new writes use
+  the typed values.
+
+**Why locked this way:** Adding the future-proof values now is essentially
+free; reserving them avoids a follow-up refactor when those features
+land. Read-side widening means no migration is needed for old sidecars.
 
 **Files:**
 - [electron/server/services/upload-sidecar.ts](../electron/server/services/upload-sidecar.ts)
@@ -314,17 +374,40 @@ Easy to drift as new detection paths add their own.
 **Why:** The atomic three-stage commit is fine for 99% of cases but the
 failure mode is bad — half-renumbered project with no rollback path.
 
-**Acceptance:**
-- Stage 0: dump the old → new code map as a sidecar (e.g.
-  `.renumber-undo.json` in the project root) before Stage 1.
-- "Revert renumber" button visible on the Unlinked Uploads tab while
-  that sidecar exists. Deletes itself when the user confirms everything
-  looks right.
+**Acceptance (locked 2026-05-03):**
+- **Stage 0:** before Stage 1's fs renames, dump the rollback plan to
+  `.renumber-undo.json` in the project root. Shape:
+  ```jsonc
+  {
+    "schema_version": 1,
+    "performed_at": "2026-05-03T20:30:00.000Z",
+    "rename_plan": [{ "old_code": "TN0001", "new_code": "TN0042" }, ...],
+    "adopted": [{ "video_id": "...", "code": "TN0001" }, ...]
+  }
+  ```
+- **"Revert renumber" button** on the Unlinked Uploads tab, visible
+  while the sidecar exists. Confirmation modal listing what will be
+  undone.
+- **Full undo** — rolls back EVERY stage: orphan adoptions removed (idea
+  + sidecar deleted), ideas.json patch reverted, disk folders renamed
+  back. End state matches pre-renumber exactly.
+- **Auto-cleanup:** the sidecar self-deletes after **30 days** (cron-
+  style check on Electron boot, or on next renumber attempt). Long
+  enough to notice and revert; short enough not to clutter long-lived
+  projects. The user can also manually click "All good, dismiss" to
+  delete the sidecar early.
+
+**Why locked this way:** Half-undo (only fs renames, leave orphans)
+leaves the project in a state the user didn't ask for — full undo is
+the only honest "rollback". 30-day auto-clean is a reasonable middle
+ground between "forever" (clutter) and "next session" (too short to
+catch issues that surface days later).
 
 **Files:**
 - [electron/server/services/upload-orphans.ts](../electron/server/services/upload-orphans.ts) (`adoptBulkRenumber`)
-
-**Discussion:** _none yet_
+- New revert function in the same file or a new `upload-renumber-undo.ts`
+- [frontend/pages/projects/[slug]/upload.vue](../frontend/pages/projects/[slug]/upload.vue) (Unlinked Uploads tab — banner + revert button)
+- Boot-time cleanup hook (auto-delete sidecars > 30d old)
 
 ---
 
