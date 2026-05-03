@@ -865,8 +865,8 @@
           <button
             class="btn btn-sm btn-ghost"
             :disabled="missingLoading"
-            title="Re-scan every episode for a final video file."
-            @click="loadMissingVideoEpisodes"
+            title="Force a full re-scan, bypassing the 5-min server-side cache. Use this when an idea you removed from the Ideas tab is still showing here."
+            @click="loadMissingVideoEpisodes({ force: true })"
           >
             <LoadingSpinner v-if="missingLoading" size="sm" />
             {{ missingLoading ? 'Loading…' : '↻ Refresh' }}

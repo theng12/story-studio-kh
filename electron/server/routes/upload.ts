@@ -486,7 +486,11 @@ router.delete('/projects/:slug/upload/accounts/:id', async (req, res) => {
 // The index cache is busted on: legacy-uploaded flag changes (we already
 // do this), explicit ?nocache=1, and after a successful upload completes
 // (the upload generator should call invalidateQueueCache; future polish).
-const QUEUE_INDEX_TTL_MS = 5 * 60_000
+//
+// The actual cache map + TTL constant live in `services/upload-caches.ts`
+// so non-upload code paths (e.g. idea remove / dismiss in routes/ideas.ts)
+// can invalidate them without circular-importing this router file. See
+// `invalidateProjectUploadCaches` in that module.
 type QueueIndexItem = {
   id: string
   type: 'episode' | 'import'
@@ -522,8 +526,19 @@ type QueueIndexItem = {
   _sidecar: any
   _ideaTitle: string
 }
-const queueIndexCache = new Map<string, { ts: number; items: QueueIndexItem[] }>()
-function queueCacheKey(slug: string, platform: string) { return `${slug}:${platform}` }
+// Re-exported from upload-caches.ts so existing references in this file
+// stay working without a sweeping rename. The `as` cast bridges the
+// type-erased `unknown[]` storage in the cache module.
+import {
+  queueIndexCache as _queueIndexCache,
+  queueCacheKey as _queueCacheKey,
+  QUEUE_INDEX_TTL_MS,
+  missingVideoCache as _missingVideoCache,
+  MISSING_VIDEO_TTL_MS,
+} from '../services/upload-caches.js'
+const queueIndexCache = _queueIndexCache as unknown as Map<string, { ts: number; items: QueueIndexItem[] }>
+const queueCacheKey = _queueCacheKey
+const missingVideoCache = _missingVideoCache
 
 // Stage 1: the cheap index. Reads the per-episode sidecar (one small
 // JSON file each) but skips computeEpisodeStatus + resolveUploadMetadata.
@@ -1486,9 +1501,9 @@ router.get('/projects/:slug/episodes/:code/imported/folder', async (req, res) =>
 // separate section below the main queue so the user can drop external
 // renders for them.
 // Same TTL as the queue index cache — same scan cost, same staleness
-// tolerance. Busted on legacy-uploaded changes (see endpoints below).
-const MISSING_VIDEO_TTL_MS = 5 * 60_000
-const missingVideoCache = new Map<string, { ts: number; episodes: Array<{ episode_code: string; title: string }> }>()
+// tolerance. Cache map + TTL constant live in `services/upload-caches.ts`
+// so non-upload routes (idea remove/dismiss) can invalidate it via
+// `invalidateProjectUploadCaches`.
 
 router.get('/projects/:slug/upload/missing-video', async (req, res) => {
   try {

@@ -512,3 +512,13 @@ been done across versions.
   promoted into per-episode sidecars (planning stubs cover not-yet-
   uploaded rows; boot-time eager-sweep migration; legacy map only
   retains `import:*` keys post-migration).
+- **v1.0.40** (2026-05-04) — UX polish bundle from beta-test feedback:
+  **Compact codes** bulk renumber-down (Ideas tab → "↓ Compact codes" →
+  preview modal listing the rename plan, reuses the v1.0.38
+  `.renumber-undo.json` infrastructure for 30-day Revert support);
+  **stronger Remove safeguard** for accepted ideas (confirm dialog
+  warning that the on-disk folder + assets are NOT auto-deleted, then
+  10 s undo toast — up from 5 s); **Missing Video cache invalidation**
+  on idea remove / dismiss / accept / reset, plus the ↻ Refresh button
+  now passes `?nocache=1` so it actually re-scans instead of returning
+  the cached snapshot.

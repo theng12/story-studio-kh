@@ -530,9 +530,17 @@ export function useUploadAccounts(slug: string) {
 
   // ── Per-episode Imported/ (Phase 5) ──────────────────────────────────
   const missingVideoEpisodes = ref<Array<{ episode_code: string; title: string }>>([])
-  async function loadMissingVideoEpisodes() {
+  /**
+   * Re-fetch the missing-video list. By default the server may return a
+   * cached snapshot up to 5 minutes old — pass `{ force: true }` (e.g.
+   * from the ↻ Refresh button) to bypass the cache and re-scan all
+   * accepted ideas. Idea state changes (remove / dismiss / reset) bust
+   * the cache server-side, so most callers don't need to force.
+   */
+  async function loadMissingVideoEpisodes(opts: { force?: boolean } = {}) {
     try {
-      const r = await get<{ episodes: typeof missingVideoEpisodes.value }>(`/projects/${slug}/upload/missing-video`)
+      const qs = opts.force ? '?nocache=1' : ''
+      const r = await get<{ episodes: typeof missingVideoEpisodes.value }>(`/projects/${slug}/upload/missing-video${qs}`)
       missingVideoEpisodes.value = r.episodes || []
     } catch { /* non-fatal */ }
   }

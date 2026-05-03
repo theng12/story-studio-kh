@@ -15,6 +15,8 @@ import { loadPattern } from '../services/pattern-loader.js'
 import type { GenerateIdeasRequest, StoryIdea } from '../models/types.js'
 import { filterGenerated, type SimilarityCandidate } from '../services/idea-similarity.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { invalidateProjectUploadCaches } from '../services/upload-caches.js'
+import { previewCompact, compactAcceptedEpisodes } from '../services/upload-compact.js'
 
 export const router = Router()
 
@@ -891,6 +893,7 @@ router.post('/projects/:slug/ideas/:ideaId/accept', async (req, res) => {
       }
     }
 
+    invalidateProjectUploadCaches(req.params.slug)
     res.json(result)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Failed to accept idea'))
@@ -936,6 +939,7 @@ router.post('/projects/:slug/ideas/batch-accept', async (req, res) => {
   }
   try {
     const results = await im.acceptMultipleIdeas(req.params.slug, idea_ids)
+    invalidateProjectUploadCaches(req.params.slug)
     res.json(results)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Batch accept failed'))
@@ -948,6 +952,12 @@ router.post('/projects/:slug/ideas/:ideaId/dismiss', async (req, res) => {
   if (!await im.dismissIdea(req.params.slug, req.params.ideaId)) {
     return res.status(404).json({ detail: 'Idea not found' })
   }
+  // Bust the missing-video + queue caches so the next read reflects the
+  // dismissal immediately. Without this, ↻ Refresh on the Missing Video
+  // tab would keep returning the cached pre-dismiss list for up to 5
+  // minutes — which surfaces as "the dismissed episode is still there
+  // and Refresh isn't doing anything" (reported 2026-05-04).
+  invalidateProjectUploadCaches(req.params.slug)
   res.json({ ok: true })
 })
 
@@ -965,6 +975,7 @@ router.get('/projects/:slug/ideas/:ideaId/reset-preview', async (req, res) => {
 router.post('/projects/:slug/ideas/:ideaId/reset', async (req, res) => {
   try {
     const result = await im.resetIdea(req.params.slug, req.params.ideaId)
+    invalidateProjectUploadCaches(req.params.slug)
     res.json({ ok: true, ...result })
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Reset failed'))
@@ -1395,5 +1406,38 @@ router.delete('/projects/:slug/ideas/:ideaId', async (req, res) => {
   if (!await im.removeIdea(req.params.slug, req.params.ideaId)) {
     return res.status(404).json({ detail: 'Idea not found' })
   }
+  invalidateProjectUploadCaches(req.params.slug)
   res.json({ ok: true })
+})
+
+// ── Compact / Fill gaps (item M, v1.0.40) ───────────────────────────────────
+//
+// Bulk renumber-down: shift every accepted episode backward to fill the
+// gaps left by removed leading ideas (TN0008+ → TN0001+). Reuses the
+// v1.0.38 .renumber-undo.json infrastructure so the Revert banner on
+// the Unlinked Uploads tab works unchanged.
+//
+// Two endpoints:
+//   GET  /api/projects/:slug/episodes/compact-preview   — dry run, no writes
+//   POST /api/projects/:slug/episodes/compact           — execute the plan
+
+router.get('/projects/:slug/episodes/compact-preview', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const preview = await previewCompact(req.params.slug)
+    res.json(preview)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Compact preview failed'))
+  }
+})
+
+router.post('/projects/:slug/episodes/compact', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const result = await compactAcceptedEpisodes(req.params.slug)
+    invalidateProjectUploadCaches(req.params.slug)
+    res.json({ ok: true, ...result })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Compact failed'))
+  }
 })

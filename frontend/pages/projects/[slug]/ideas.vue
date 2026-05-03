@@ -5,6 +5,18 @@
         <h1>Ideas Generator</h1>
         <p class="text-muted mt-1">{{ allIdeas.length }} ideas &middot; {{ statusCounts.accepted }} accepted &middot; Next: {{ nextEpisode }}</p>
       </div>
+      <div class="flex gap-2">
+        <button
+          v-if="statusCounts.accepted > 0"
+          class="btn btn-secondary btn-sm"
+          :disabled="compactState.opening"
+          title="Shift accepted episodes backward to fill any gaps in the numbering — e.g. after deleting TN0001-TN0007 from the start, this slides TN0008+ down to TN0001+. Reversible via the Revert banner on the Unlinked Uploads tab for 30 days afterwards."
+          @click="openCompactDialog"
+        >
+          <LoadingSpinner v-if="compactState.opening" size="sm" />
+          {{ compactState.opening ? 'Loading…' : '↓ Compact codes' }}
+        </button>
+      </div>
     </div>
 
     <!-- Channel "what worked" inspiration. Auto-included server-side in
@@ -801,6 +813,74 @@
         <button class="btn btn-secondary btn-sm" @click="selectedIds.clear()">Clear</button>
       </div>
     </Transition>
+
+    <!-- Compact / Fill Gaps modal (v1.0.40). Shows the rename plan
+         before any disk renames or ideas.json patches land. Confirms
+         the operation, surfaces per-rename errors after, and points
+         the user at the Revert banner on the Unlinked Uploads tab if
+         they need to roll back. -->
+    <Teleport to="body">
+      <div v-if="compactState.open" class="compact-modal-backdrop" @click="closeCompactDialog" />
+      <div v-if="compactState.open" class="compact-modal" role="dialog" aria-label="Compact episode codes" @click.stop>
+        <div class="compact-modal-header">
+          <strong>↓ Compact episode codes</strong>
+          <button class="compact-modal-close" type="button" title="Close" @click="closeCompactDialog">✕</button>
+        </div>
+        <div class="compact-modal-body">
+          <template v-if="compactState.preview && compactState.preview.rename_plan.length === 0">
+            <p class="text-muted" style="font-size: 13px; margin: 0;">
+              Nothing to compact — all {{ compactState.preview.total_accepted }} accepted episode{{ compactState.preview.total_accepted === 1 ? '' : 's' }}
+              already sit at codes {{ projectPrefix }}0001 through {{ projectPrefix }}{{ String(compactState.preview.total_accepted).padStart(4, '0') }}.
+            </p>
+          </template>
+          <template v-else-if="compactState.preview">
+            <p class="text-muted" style="font-size: 13px; margin: 0;">
+              <strong>{{ compactState.preview.rename_plan.length }}</strong>
+              episode{{ compactState.preview.rename_plan.length === 1 ? '' : 's' }} will be renamed.
+              <span v-if="compactState.preview.noop_count > 0">
+                {{ compactState.preview.noop_count }} already in place.
+              </span>
+              <br />
+              Each rename touches the episode folder, every <code>{{ '{code}' }}</code>-scoped subfolder, and asset filenames inside.
+              The <code>.renumber-undo.json</code> safety net is written first, so this is fully reversible from the Unlinked Uploads tab for 30 days.
+            </p>
+            <div class="compact-rename-list">
+              <div
+                v-for="(r, idx) in compactState.preview.rename_plan.slice(0, 12)"
+                :key="r.old_code"
+                class="compact-rename-row"
+              >
+                <code>{{ r.old_code }}</code>
+                <span class="text-muted">→</span>
+                <code>{{ r.new_code }}</code>
+                <span class="compact-rename-title text-muted">{{ r.title }}</span>
+              </div>
+              <div v-if="compactState.preview.rename_plan.length > 12" class="text-muted" style="font-size: 12px; padding: 4px 0;">
+                + {{ compactState.preview.rename_plan.length - 12 }} more
+              </div>
+            </div>
+          </template>
+          <p v-if="compactState.error" class="text-danger" style="font-size: 12px; margin: 8px 0 0;">
+            ⚠ {{ compactState.error }}
+          </p>
+        </div>
+        <div class="compact-modal-footer">
+          <button type="button" class="btn btn-ghost btn-sm" @click="closeCompactDialog">Cancel</button>
+          <button
+            v-if="compactState.preview && compactState.preview.rename_plan.length > 0"
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="compactState.running"
+            @click="confirmCompact"
+          >
+            <LoadingSpinner v-if="compactState.running" size="sm" />
+            {{ compactState.running
+              ? 'Compacting…'
+              : `Compact ${compactState.preview.rename_plan.length}` }}
+          </button>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1817,22 +1897,44 @@ async function resetIdea(idea: any) {
   catch (e: any) { showError(e.data?.detail || 'Failed') }
 }
 async function remove(id: string) {
-  // Gmail-style: optimistically hide the row, show an Undo toast, defer the
-  // actual backend delete until the toast expires. If the user clicks Undo
-  // within the 5 s window we put the row back in its original slot and the
-  // destructive call never happens — no restore endpoint needed.
+  // Two-tier safeguard, calibrated to the cost of a misclick:
+  //
+  // - **New / dismissed** ideas: no on-disk work, no episode_code, low
+  //   blast radius if deleted by accident. Gmail-style optimistic
+  //   hide + 10 s undo toast (extended from 5 s on user feedback —
+  //   "felt too quick to recover from a fat-finger").
+  //
+  // - **Accepted** ideas: have an episode_code, a folder, possibly
+  //   rendered assets, possibly an upload sidecar. Misclick here can
+  //   cost real work. We block on a confirm dialog FIRST — even if
+  //   the user clicks through immediately, the explicit step gives
+  //   them a moment to read the warning. Undo is still wired up after
+  //   confirmation, so the recovery path is layered (confirm → undo).
   const idx = allIdeas.value.findIndex(i => i.id === id)
   if (idx < 0) return
   const target = allIdeas.value[idx]
   const wasSelected = selectedIds.value.has(id)
+  const label = target.title ? `"${target.title}"` : 'idea'
 
-  // Optimistic removal
+  if (target.status === 'accepted') {
+    const code = target.episode_code || '?'
+    const ok = await ask({
+      title: `Delete accepted episode ${code}?`,
+      message: `Removes ${label} from ideas.json and recycles ${code} so a future Accept can reuse the number. The on-disk folder + any rendered assets / sidecar / uploaded video link are NOT deleted (we don't touch user files automatically) — they'll just be unowned until you clean them up manually or hit ${code} again. After this, an undo toast gives you 10 seconds to take it back.`,
+      confirmLabel: 'Delete idea',
+      danger: true,
+    })
+    if (!ok) return
+  }
+
+  // Optimistic removal — applies after the confirm gate (if any) has
+  // already passed.
   allIdeas.value = [...allIdeas.value.slice(0, idx), ...allIdeas.value.slice(idx + 1)]
   selectedIds.value.delete(id)
 
-  const label = target.title ? `"${target.title}"` : 'idea'
   successUndoable({
     message: `Deleted ${label}`,
+    duration: 10_000,
     onUndo: () => {
       // Splice back at the original index so the user's view doesn't jump.
       allIdeas.value = [
@@ -1848,6 +1950,84 @@ async function remove(id: string) {
       await del(`/projects/${slug.value}/ideas/${id}`)
     },
   })
+}
+
+// ── Compact / Fill Gaps (v1.0.40) ────────────────────────────────────────
+// Lazy-loads the rename plan when the user clicks "Compact codes" — the
+// preview is a synthetic computation server-side (no disk writes), so
+// it's cheap to fetch on demand rather than maintain it as a watched
+// computed.
+interface CompactRename { old_code: string; new_code: string; title: string }
+interface CompactPreview {
+  rename_plan: CompactRename[]
+  noop_count: number
+  total_accepted: number
+  current_next_episode_number: number
+  target_next_episode_number: number
+}
+const compactState = reactive<{
+  open: boolean
+  opening: boolean
+  running: boolean
+  preview: CompactPreview | null
+  error: string
+}>({
+  open: false,
+  opening: false,
+  running: false,
+  preview: null,
+  error: '',
+})
+
+const projectPrefix = computed(() => episodePrefix.value)
+
+async function openCompactDialog() {
+  if (compactState.opening || compactState.running) return
+  compactState.opening = true
+  compactState.error = ''
+  try {
+    compactState.preview = await get<CompactPreview>(`/projects/${slug.value}/episodes/compact-preview`)
+    compactState.open = true
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to compute compact plan')
+  } finally {
+    compactState.opening = false
+  }
+}
+
+function closeCompactDialog() {
+  if (compactState.running) return
+  compactState.open = false
+  compactState.preview = null
+  compactState.error = ''
+}
+
+async function confirmCompact() {
+  if (compactState.running) return
+  compactState.running = true
+  compactState.error = ''
+  try {
+    const r = await post<{
+      ok: true
+      rename_plan: CompactRename[]
+      renamed: Array<{ old_code: string; new_code: string }>
+      errors: Array<{ stage: string; detail: string }>
+    }>(`/projects/${slug.value}/episodes/compact`, {})
+    const renamedCount = r.renamed.length
+    const errorCount = r.errors.length
+    if (errorCount === 0) {
+      success(`Compacted ${renamedCount} episode${renamedCount === 1 ? '' : 's'}. Reversible from the Unlinked Uploads tab for 30 days.`)
+    } else {
+      success(`${renamedCount} compacted, ${errorCount} error${errorCount === 1 ? '' : 's'} — see logs. Already-revertible from the Unlinked Uploads tab.`)
+    }
+    compactState.open = false
+    compactState.preview = null
+    await loadIdeas()
+  } catch (e: any) {
+    compactState.error = e?.data?.detail || e?.message || 'Compact failed'
+  } finally {
+    compactState.running = false
+  }
 }
 
 onMounted(loadIdeas)
@@ -2347,4 +2527,66 @@ onMounted(loadIdeas)
    glance in the accepted-list view (where most rows look the same otherwise). */
 .idea-row.is-marked-done { border-left: 3px solid var(--success, #3fb950); }
 .idea-row.is-imported .td-code { color: #60a5fa; }
+
+/* Compact / Fill Gaps modal — scoped tightly so we don't pick up generic
+   modal styles from the dashboard layout that might fight our padding /
+   width budget. */
+.compact-modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+}
+.compact-modal {
+  position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  display: flex; flex-direction: column;
+  z-index: 1000;
+}
+.compact-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.compact-modal-close {
+  background: none; border: none; font-size: 16px;
+  color: var(--text-secondary);
+  cursor: pointer; padding: 0 4px;
+}
+.compact-modal-close:hover { color: var(--text-primary); }
+.compact-modal-body {
+  padding: 14px 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+.compact-modal-footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+.compact-rename-list {
+  margin-top: 12px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.compact-rename-row {
+  display: flex; gap: 8px; align-items: center;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.compact-rename-row code { font-size: 12px; }
+.compact-rename-title {
+  flex: 1; min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 </style>
