@@ -114,7 +114,7 @@ count, not user behaviour.
 
 ### [x] B · Schedule-map drift fix in sync-from-youtube
 
-**Shipped:** v1.0.36 (commit pending)
+**Shipped:** v1.0.36 · commit `75a51d1`
 
 **Why:** When YouTube's `publishAt` changes, sync updates the sidecar's
 `scheduled_for` but never the `upload_item_schedule` map. Local "I planned
@@ -136,7 +136,7 @@ this for Tuesday" can quietly disagree with reality.
 
 ### [x] H · Restore "Apply + Upload" as a fourth verb in the scope popover
 
-**Shipped:** v1.0.36 (commit pending). Four verbs now: 📅 Apply
+**Shipped:** v1.0.36 · commit `75a51d1`. Four verbs now: 📅 Apply
 (schedule only), ☁️ Upload only (skip re-apply), 🚀 Apply + Upload
 (combo, the common case), ↩ Unapply.
 
@@ -161,7 +161,7 @@ and upload as many as quota allows") is now two clicks of friction.
 
 ### [x] 9 · Imports as first-class scope-picker citizens (documented)
 
-**Shipped:** v1.0.36 (commit pending). Went with the documented-limitation
+**Shipped:** v1.0.36 · commit `75a51d1`. Went with the documented-limitation
 option — every scope-picker tooltip now ends with "Imports are not
 included — manage them via the per-row Upload button or the selection
 bulk bar." Full first-class support deferred (low ROI for personal use).
@@ -190,7 +190,7 @@ limitation? Imports are a small minority of uploads for most projects._
 
 ### [x] 10 · Page-aware metadata enrichment for off-page selections
 
-**Shipped:** v1.0.36 (commit pending). New "👁 View selected" button on
+**Shipped:** v1.0.36 · commit `75a51d1`. New "👁 View selected" button on
 the bulk bar pulls the entire selection (across pages) into a single
 enriched view via `?episode_codes=` post-filter on /upload/queue.
 Toggles back to paginated browsing via "↺ Show all".
