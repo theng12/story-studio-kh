@@ -1,7 +1,17 @@
 <template>
   <div class="form-group">
-    <label>AI Model</label>
-    <select :value="modelValue" @change="$emit('update:modelValue', ($event.target as HTMLSelectElement).value)" class="select">
+    <label>
+      AI Model
+      <!-- v1.0.48: visible loading state. Empty &lt;select&gt; during fetch
+           used to look identical to a broken/no-models state — same
+           class of bug as EpisodeSelector. -->
+      <span v-if="loading" class="ms-loading-inline">
+        <span class="ms-spinner" aria-hidden="true" />
+        Loading models…
+      </span>
+    </label>
+    <select :value="modelValue" :disabled="loading && allModels.length === 0" @change="$emit('update:modelValue', ($event.target as HTMLSelectElement).value)" class="select">
+      <option v-if="loading && allModels.length === 0" value="" disabled>Loading AI models… please wait</option>
       <optgroup v-for="g in groups" :key="g.provider" :label="g.label">
         <option
           v-for="m in g.items"
@@ -41,6 +51,11 @@ const emit = defineEmits<{
 const { get } = useApi()
 
 const allModels = ref<LlmModelRow[]>([])
+// v1.0.48 — visible loading state for the dropdown. Tracks the
+// in-flight `loadModels` so the label + select can show "Loading…"
+// instead of an empty pulldown that looks indistinguishable from a
+// broken-no-models state.
+const loading = ref(false)
 
 function isDisabled(m: LlmModelRow) {
   return !m.available || !!m.disabled_reason
@@ -64,6 +79,7 @@ const groups = computed(() => {
 })
 
 async function loadModels() {
+  loading.value = true
   try {
     allModels.value = await get(`/models?project=${props.projectSlug}`)
 
@@ -78,7 +94,9 @@ async function loadModels() {
         emit('update:modelValue', firstUsable.id)
       }
     }
-  } catch {}
+  } catch {} finally {
+    loading.value = false
+  }
 }
 
 watch(() => props.projectSlug, loadModels, { immediate: true })
@@ -88,5 +106,30 @@ watch(() => props.projectSlug, loadModels, { immediate: true })
 option:disabled {
   color: var(--text-muted);
   font-style: italic;
+}
+
+/* v1.0.48 — loading-state hint next to the label. Same spinner pattern
+   as EpisodeSelector so the two dropdowns feel consistent during a
+   slow first-fetch (TerraNash + iCloud-synced storage). */
+.ms-loading-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+.ms-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--text-muted);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: ms-spin 0.7s linear infinite;
+}
+@keyframes ms-spin {
+  to { transform: rotate(360deg); }
 }
 </style>

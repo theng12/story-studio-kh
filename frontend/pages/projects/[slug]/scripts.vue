@@ -614,15 +614,30 @@ watch(jobs, (list) => {
   }
 }, { deep: true })
 
-// Re-pull just the active episode's row from /projects/:slug/episodes
-// (the same endpoint EpisodeSelector uses) and replace selectedEpisode so
-// downstream computeds (scriptGenerated, anything else gating on
-// status.*) become correct without waiting for the user to re-pick.
+// v1.0.48 — read from the shared `useEpisodes` cache instead of
+// re-fetching `/projects/:slug/episodes` on every swap. On TerraNash
+// (380+ episodes) the full-list fetch took 30s+, blocking the page
+// from showing fresh data on every dropdown change. The cache is
+// already warm from the EpisodeSelector mount, so a swap is now an
+// O(N) array find — instant. Auto-revalidates on `done` job events
+// inside the composable, so freshness after generations is handled
+// without an explicit refetch here.
+const { episodes: cachedEpisodeList, refresh: refreshEpisodeCache } = useEpisodes(slug)
+
 async function refetchEpisodeStatus() {
   if (!form.episode_id) return
+  // 1. Fast path: the shared cache already has every episode.
+  const cached = cachedEpisodeList.value.find((e: any) => e.episode_code === form.episode_id)
+  if (cached) {
+    selectedEpisode.value = cached
+    return
+  }
+  // 2. Cold cache (deep-link, fresh tab) → trigger a refresh through
+  //    the composable. Returns when the cache fills; downstream reads
+  //    pick up the value reactively.
   try {
-    const list = await get<any[]>(`/projects/${slug.value}/episodes`)
-    const fresh = (list || []).find(e => e.episode_code === form.episode_id)
+    await refreshEpisodeCache()
+    const fresh = cachedEpisodeList.value.find((e: any) => e.episode_code === form.episode_id)
     if (fresh) selectedEpisode.value = fresh
   } catch { /* keep stale episode rather than blanking the UI */ }
 }
@@ -632,6 +647,18 @@ async function refetchEpisodeStatus() {
 // event when the user picks from the dropdown, so without this, deep-links
 // would leave selectedEpisode null and `scriptGenerated` stuck at false.
 watch(() => form.episode_id, (id) => { if (id) refetchEpisodeStatus() }, { immediate: true })
+
+// v1.0.48 — keep `selectedEpisode` in sync when the shared cache
+// auto-revalidates (which happens whenever a generation job finishes
+// via the SSE-driven `useJobs` watcher inside the composable). Without
+// this, a freshly-completed `script-only` job updates the cache but
+// `selectedEpisode.status.script` would stay false until the user
+// re-clicked the dropdown.
+watch(cachedEpisodeList, (list) => {
+  if (!form.episode_id || !list?.length) return
+  const fresh = list.find((e: any) => e.episode_code === form.episode_id)
+  if (fresh) selectedEpisode.value = fresh
+}, { deep: true })
 
 // ── Legacy narration normaliser (Part 3 of mark-done plan) ────────────────
 // Modal-only state; the dialog component handles the route call + result

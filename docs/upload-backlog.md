@@ -522,6 +522,20 @@ been done across versions.
   on idea remove / dismiss / accept / reset, plus the ↻ Refresh button
   now passes `?nocache=1` so it actually re-scans instead of returning
   the cached snapshot.
+- **v1.0.48** (2026-05-04) — Episode-selector + model-selector UX
+  bundle: visible loading state with elapsed-time counter on
+  `EpisodeSelector` (TerraNash's 380-episode cold loads now show
+  "Loading episodes… 12s elapsed" instead of an empty inert
+  dropdown). Same pattern on `ModelSelector` for the
+  `/models?project=` fetch. Per-episode 🔄 in-progress badge in the
+  dropdown that cross-references active jobs from `useJobs`, so users
+  see "TN0042 🔄 generating script…" while a render is running.
+  Confirm-before-swap dialog when the current episode has a queued
+  or running job — protects against "I lost my progress panel"
+  panic. `scripts.vue` swapped its full-list refetch on every
+  episode change for a cached lookup via `useEpisodes` (was 30s+ on
+  TerraNash, now instant) plus a watcher that auto-syncs
+  `selectedEpisode` when the cache revalidates after a job lands.
 - **v1.0.47** (2026-05-04) — Video-assembly silent-failure harness +
   diagnostic instrumentation. Beta-test report: clicking Generate Video
   with the YouTube Fast preset (fps=30) produced no dialog, no toast,
