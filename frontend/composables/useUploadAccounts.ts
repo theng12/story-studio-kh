@@ -482,7 +482,8 @@ export function useUploadAccounts(slug: string) {
     episode_codes?: string[],
   ): Promise<{
     slots: string[]
-    claimed_slots_skipped: number
+    /** ISO of the latest existing scheduled time the walk was advanced past, or null if none. */
+    latest_existing_claim: string | null
     public_skip_codes: string[]
     public_skip_count: number
   }> {
@@ -490,13 +491,13 @@ export function useUploadAccounts(slug: string) {
     if (episode_codes && episode_codes.length) body.episode_codes = episode_codes
     const r = await post<{
       slots: string[]
-      claimed_slots_skipped?: number
+      latest_existing_claim?: string | null
       public_skip_codes?: string[]
       public_skip_count?: number
     }>(`/projects/${slug}/upload/plans/${id}/preview`, body)
     return {
       slots: r.slots || [],
-      claimed_slots_skipped: r.claimed_slots_skipped || 0,
+      latest_existing_claim: r.latest_existing_claim || null,
       public_skip_codes: r.public_skip_codes || [],
       public_skip_count: r.public_skip_count || 0,
     }

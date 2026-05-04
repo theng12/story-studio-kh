@@ -1355,13 +1355,13 @@ router.put('/projects/:slug/upload/plans/:id/active', async (req, res) => {
 // Also surfaces any slots that would land in the past so the UI can warn
 // before the user commits (Apply will hard-reject past slots).
 //
-// v1.0.42 — accepts an optional `episode_codes` body field so the
-// preview can reflect the same skip-claimed-slots logic as Apply. When
-// supplied, we exclude target codes from the claimed set (they're
-// being re-scheduled) and skip every other episode's already-claimed
-// slot, so the preview rows match what Apply would actually write.
-// When omitted (e.g. the standalone "preview the plan" tester), we
-// fall back to the old "raw N slots from start_date" behaviour.
+// Accepts an optional `episode_codes` body field so the preview can
+// reflect the same continue-after-existing logic as Apply. When
+// supplied, we find the latest future scheduled time across every
+// other accepted episode and pass it to computeSlots as
+// `minStartDate` — preview rows then match what Apply would actually
+// write. When omitted (e.g. the standalone "preview the plan" tester),
+// we fall back to the raw N-slots-from-start_date behaviour.
 router.post('/projects/:slug/upload/plans/:id/preview', async (req, res) => {
   try {
     const slug = req.params.slug
@@ -1373,12 +1373,12 @@ router.post('/projects/:slug/upload/plans/:id/preview', async (req, res) => {
       ? req.body.episode_codes.filter((c: any) => typeof c === 'string' && c)
       : []
 
-    let claimedSlots: Set<string> | undefined
+    let latestFutureClaimMs = 0
     let publicSkipCodes: string[] = []
     if (targetCodes.length > 0) {
       const targetSet = new Set(targetCodes)
       const allAccepted = await im.getIdeas(slug, 'accepted')
-      claimedSlots = new Set<string>()
+      const nowMs = Date.now()
       // v1.0.46 — also count which target codes are already public on
       // YouTube. Apply will skip those (Layer 2 guard); the modal
       // shows the count up-front so the user knows N rows won't be
@@ -1393,7 +1393,11 @@ router.post('/projects/:slug/upload/plans/:id/preview', async (req, res) => {
       await Promise.all(allAccepted.map(async (idea) => {
         if (!idea.episode_code || targetSet.has(idea.episode_code)) return
         const sc = await readSidecarRaw(slug, idea.episode_code, idea.title || '', plan.platform)
-        if (sc?.scheduled_for) claimedSlots!.add(sc.scheduled_for)
+        if (!sc?.scheduled_for) return
+        const t = Date.parse(sc.scheduled_for)
+        if (Number.isFinite(t) && t > nowMs && t > latestFutureClaimMs) {
+          latestFutureClaimMs = t
+        }
       }))
       const publicChecks = await Promise.all(Array.from(targetIdeas.entries()).map(async ([code, info]) => {
         const sc = await readSidecarRaw(slug, code, info.title, plan.platform)
@@ -1402,16 +1406,15 @@ router.post('/projects/:slug/upload/plans/:id/preview', async (req, res) => {
       publicSkipCodes = publicChecks.filter((c): c is string => !!c)
     }
 
-    const overshoot = claimedSlots ? count * 2 + 10 : count
-    const allSlots = plans.computeSlots(plan.schedule, overshoot, claimedSlots)
-    const slots = allSlots.slice(0, count)
+    const minStartDate = latestFutureClaimMs ? new Date(latestFutureClaimMs) : undefined
+    const slots = plans.computeSlots(plan.schedule, count, { minStartDate })
     const now = Date.now()
     const past_slots = slots.filter(s => new Date(s).getTime() < now - 60_000)
     res.json({
       slots,
       past_slots,
       has_past_slots: past_slots.length > 0,
-      claimed_slots_skipped: claimedSlots ? claimedSlots.size : 0,
+      latest_existing_claim: latestFutureClaimMs ? new Date(latestFutureClaimMs).toISOString() : null,
       public_skip_codes: publicSkipCodes,
       public_skip_count: publicSkipCodes.length,
     })
@@ -1447,41 +1450,46 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
       : []
     if (!episode_codes.length) return res.status(400).json({ detail: 'episode_codes (ordered) required' })
 
-    // v1.0.42 — collect every other accepted episode's existing
-    // scheduled_for so computeSlots can SKIP already-claimed slots
-    // instead of re-emitting them. Without this, repeat-applies of a
-    // plan would walk back to start_date every time and double-book
-    // the same dates. Episodes IN the apply target are excluded from
-    // the claimed set (their old slots are released; the apply is
-    // re-assigning them).
+    // Find the latest FUTURE scheduled time across all other accepted
+    // episodes so computeSlots can resume the walk past the existing
+    // queue. Episodes IN the apply target are excluded — their old
+    // slots are being released and re-assigned by this apply. Past
+    // (already-published) slots are also ignored: a video that went
+    // live last week shouldn't push new schedules further out.
+    //
+    // Replaces the v1.0.42 `claimedSlots` Set<string> approach, which
+    // silently failed on any sidecar `scheduled_for` whose ISO format
+    // didn't include `.000Z` milliseconds (YouTube-synced values).
     const targetSet = new Set(episode_codes)
     const allAccepted = await im.getIdeas(slug, 'accepted')
-    const claimedSlots = new Set<string>()
+    const nowMs = Date.now()
+    let latestFutureClaimMs = 0
     await Promise.all(allAccepted.map(async (idea) => {
       if (!idea.episode_code || targetSet.has(idea.episode_code)) return
       const sc = await readSidecarRaw(slug, idea.episode_code, idea.title || '', plan.platform)
-      if (sc?.scheduled_for) claimedSlots.add(sc.scheduled_for)
+      if (!sc?.scheduled_for) return
+      const t = Date.parse(sc.scheduled_for)
+      if (Number.isFinite(t) && t > nowMs && t > latestFutureClaimMs) {
+        latestFutureClaimMs = t
+      }
     }))
 
-    // Generous overshoot count so skip-claimed has room to walk forward
-    // without immediately running out. 2x + 10 covers a reasonable
-    // density of claimed slots (every other slot taken still works).
-    const overshoot = episode_codes.length * 2 + 10
-    const allSlots = plans.computeSlots(plan.schedule, overshoot, claimedSlots)
-    const slots = allSlots.slice(0, episode_codes.length)
+    const minStartDate = latestFutureClaimMs ? new Date(latestFutureClaimMs) : undefined
+    const slots = plans.computeSlots(plan.schedule, episode_codes.length, { minStartDate })
 
-    // If skip-claimed exhausted the 2-year horizon before yielding
-    // enough free slots, surface a clear error instead of a silent
-    // partial-apply.
+    // If the plan's end_date or weekday config can't yield enough
+    // slots from the (possibly advanced) walk start, surface a clear
+    // error instead of a silent partial-apply.
     if (slots.length < episode_codes.length) {
       return res.status(400).json({
         detail:
-          `Plan "${plan.name}" ran out of free slots within its 2-year horizon. ` +
-          `${slots.length} free slot(s) remain after skipping ${claimedSlots.size} already-scheduled time(s). ` +
-          `Either extend the plan's end_date, increase the slot density (more weekdays / shorter interval), ` +
+          `Plan "${plan.name}" couldn't generate enough slots within its 2-year horizon. ` +
+          `${slots.length} of ${episode_codes.length} requested slot(s) available` +
+          `${latestFutureClaimMs ? ` after the latest existing scheduled time` : ''}. ` +
+          `Either extend the plan's end_date, increase slot density (more weekdays / shorter interval), ` +
           `or unschedule some existing episodes first.`,
         free_slots_available: slots.length,
-        claimed_slots: claimedSlots.size,
+        latest_existing_claim: latestFutureClaimMs ? new Date(latestFutureClaimMs).toISOString() : null,
       })
     }
 

@@ -5095,21 +5095,26 @@ async function pickScope(opt: ScopeOption) {
   scopePicker.previewPastSlots = 0
   scopePicker.previewPublicSkipCount = 0
   try {
-    // v1.0.42 — pass `opt.episodeCodes` so the preview slots match the
-    // skip-claimed-slots logic Apply uses. Without this, the preview
-    // would show "TN0006 → Mon-1, TN0007 → Mon-2" but Apply would
-    // actually skip Mon-1 (already claimed by TN0001) and use Mon-6 +
-    // Mon-7 — confusing.
+    // Pass `opt.episodeCodes` so the preview slots match the
+    // continue-after-existing logic Apply uses. Without this, the
+    // preview would show "TN0006 → May-4, TN0007 → May-6" while Apply
+    // would actually resume past the latest existing scheduled
+    // episode (e.g. May-18, May-20) — confusing.
     const r = await previewPlan(plan.id, opt.count, opt.episodeCodes)
     const slots = r.slots
     if (!slots || slots.length < opt.count) {
-      // computeSlots can return fewer than `count` if the plan's end_date
-      // truncates the slot stream OR if skip-claimed exhausted the
-      // 2-year horizon before yielding enough free slots. Either way,
-      // surface clearly so the user sees what would actually happen.
-      scopePicker.previewError = r.claimed_slots_skipped > 0
-        ? `Plan only produces ${slots?.length ?? 0} free slot(s) for ${opt.count} episode(s) — ${r.claimed_slots_skipped} time(s) skipped because other episodes already claim them. Extend the plan's end_date, increase slot density, or unschedule existing episodes first.`
-        : `Plan only produces ${slots?.length ?? 0} slot(s) for ${opt.count} episode(s). Edit the plan's end_date or pick a smaller scope.`
+      // computeSlots can return fewer than `count` if the plan's
+      // end_date truncates the slot stream — either from the plan
+      // start_date OR (when continuing past existing schedules) from
+      // the day after the latest existing scheduled time. Surface
+      // both cases clearly so the user sees what would actually
+      // happen.
+      const fromLatest = r.latest_existing_claim
+        ? ` after the latest existing scheduled time (${new Date(r.latest_existing_claim).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })})`
+        : ''
+      scopePicker.previewError =
+        `Plan only produces ${slots?.length ?? 0} slot(s) for ${opt.count} episode(s)${fromLatest}. ` +
+        `Extend the plan's end_date, increase slot density, or unschedule existing episodes first.`
     }
     const now = Date.now()
     const rows: ScopePreviewRow[] = []

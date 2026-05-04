@@ -92,6 +92,97 @@ describe('computeSlots — end_date cap', () => {
   })
 })
 
+describe('computeSlots — minStartDate (continue past existing schedule)', () => {
+  test('minStartDate later than start_date advances walk to next valid weekday', () => {
+    // Plan: M/W/F at 18:00 starting 2026-05-04 (Mon). Existing latest
+    // scheduled video is 2026-05-15T18:00:00.000Z (Fri). New apply
+    // should resume on Mon 2026-05-18 — NOT walk back to May 4.
+    const slots = computeSlots({
+      weekdays: [1, 3, 5],
+      time_local: '18:00',
+      timezone: 'UTC',
+      start_date: '2026-05-04',
+    }, 3, { minStartDate: new Date('2026-05-15T18:00:00.000Z') })
+    assert.equal(slots.length, 3)
+    assert.equal(slots[0], '2026-05-18T18:00:00.000Z')
+    assert.equal(slots[1], '2026-05-20T18:00:00.000Z')
+    assert.equal(slots[2], '2026-05-22T18:00:00.000Z')
+  })
+
+  test('minStartDate at off-pattern time on a plan day still skips that whole day', () => {
+    // Existing video manually scheduled at 19:00 on Fri May 15 (plan
+    // is 18:00). The whole calendar day is reserved — walk resumes
+    // on Mon May 18.
+    const slots = computeSlots({
+      weekdays: [1, 3, 5],
+      time_local: '18:00',
+      timezone: 'UTC',
+      start_date: '2026-05-04',
+    }, 1, { minStartDate: new Date('2026-05-15T19:00:00.000Z') })
+    assert.equal(slots[0], '2026-05-18T18:00:00.000Z')
+  })
+
+  test('minStartDate earlier than start_date is ignored', () => {
+    // Latest claim is in the past relative to plan; plan's start_date
+    // wins. Result identical to a plain compute with no minStartDate.
+    const slots = computeSlots({
+      weekdays: [1, 3, 5],
+      time_local: '18:00',
+      timezone: 'UTC',
+      start_date: '2026-05-04',
+    }, 3, { minStartDate: new Date('2026-04-01T18:00:00.000Z') })
+    assert.equal(slots[0], '2026-05-04T18:00:00.000Z')
+    assert.equal(slots[1], '2026-05-06T18:00:00.000Z')
+    assert.equal(slots[2], '2026-05-08T18:00:00.000Z')
+  })
+
+  test('no minStartDate option behaves identically to legacy call', () => {
+    const slots = computeSlots({
+      weekdays: [1, 3, 5],
+      time_local: '18:00',
+      timezone: 'UTC',
+      start_date: '2026-05-04',
+    }, 3)
+    assert.equal(slots[0], '2026-05-04T18:00:00.000Z')
+    assert.equal(slots[1], '2026-05-06T18:00:00.000Z')
+    assert.equal(slots[2], '2026-05-08T18:00:00.000Z')
+  })
+
+  test('bi-weekly rhythm preserved when resuming after a claim', () => {
+    // Bi-weekly Friday plan starting 2026-05-01. Existing latest
+    // claim is 2026-05-29 (the third bi-weekly slot). Next two slots
+    // must stay on the original 2-week rhythm: June 12, June 26.
+    // The intervalAnchor is pinned to the plan's start_date (not the
+    // bumped walk start), so the cadence doesn't shift.
+    const slots = computeSlots({
+      weekdays: [5],
+      time_local: '20:00',
+      timezone: 'UTC',
+      interval_weeks: 2,
+      start_date: '2026-05-01',
+    }, 2, { minStartDate: new Date('2026-05-29T20:00:00.000Z') })
+    assert.equal(slots.length, 2)
+    assert.equal(slots[0], '2026-06-12T20:00:00.000Z')
+    assert.equal(slots[1], '2026-06-26T20:00:00.000Z')
+  })
+
+  test('end_date cap applies after minStartDate advance', () => {
+    // Walk advanced to May 16+, plan ends May 22 — only Mon May 18,
+    // Wed May 20, Fri May 22 should fit, even though we asked for 5.
+    const slots = computeSlots({
+      weekdays: [1, 3, 5],
+      time_local: '12:00',
+      timezone: 'UTC',
+      start_date: '2026-05-04',
+      end_date: '2026-05-22',
+    }, 5, { minStartDate: new Date('2026-05-15T12:00:00.000Z') })
+    assert.equal(slots.length, 3)
+    assert.equal(slots[0], '2026-05-18T12:00:00.000Z')
+    assert.equal(slots[1], '2026-05-20T12:00:00.000Z')
+    assert.equal(slots[2], '2026-05-22T12:00:00.000Z')
+  })
+})
+
 describe('computeSlots — edge cases', () => {
   test('empty weekdays + no monthly_day = no slots', () => {
     const slots = computeSlots({

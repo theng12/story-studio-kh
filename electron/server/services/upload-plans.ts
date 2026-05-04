@@ -131,18 +131,24 @@ export async function removePlan(slug: string, id: string): Promise<boolean> {
 // `schedule.start_date` (or "today in tz"). Caps at `end_date` when set;
 // returns fewer than N if the stream runs out.
 //
-// `skipClaimed` (v1.0.42) — when supplied, slots whose ISO timestamp
-// matches any string in the set are skipped over instead of emitted.
-// Use this to make repeat-applies of a plan land in the next FREE
-// slot rather than re-claiming an already-scheduled time. Episodes
-// being re-scheduled by the current apply should be subtracted from
-// the set BEFORE passing in (the route layer handles that — see
-// /upload/plans/:id/apply).
+// `options.minStartDate` — when supplied, the walk is advanced to the
+// day AFTER `minStartDate` (in plan tz), but never earlier than the
+// plan's own `start_date`. The route layer uses this to "continue
+// after the latest existing scheduled episode" so repeat-applies of a
+// plan land safely past the existing queue instead of colliding with
+// it. The interval-week anchor is intentionally pinned to the plan's
+// original `start_date` so the bi-weekly/N-weekly rhythm is preserved
+// even when the walk resumes mid-stream.
+//
+// (Replaces the v1.0.42 `skipClaimed: Set<string>` design, which
+// silently failed whenever a sidecar's `scheduled_for` came from
+// YouTube without `.000Z` milliseconds — exact-string set membership
+// never matched the `Date.toISOString()` candidates emitted here.)
 
 export function computeSlots(
   schedule: UploadSchedule,
   count: number,
-  skipClaimed?: ReadonlySet<string>,
+  options?: { minStartDate?: Date },
 ): string[] {
   // Validate the timezone up front so `new Intl.DateTimeFormat({ timeZone })`
   // never throws mid-loop. An invalid tz (typo, legacy "America/Buenos_Aires"
@@ -150,10 +156,21 @@ export function computeSlots(
   // rather than crashing the whole route handler.
   const tz = isValidTimezone(schedule.timezone) ? schedule.timezone : 'UTC'
   const [hh, mm] = parseTime(schedule.time_local)
-  const startDate = schedule.start_date
+  const planStartDate = schedule.start_date
     ? parseDateInTz(schedule.start_date, tz)
     : startOfDayInTz(new Date(), tz)
   const endDate = schedule.end_date ? parseDateInTz(schedule.end_date, tz) : null
+
+  // Walk start: optionally advanced past the latest existing claim.
+  // We move to the start of the day AFTER `minStartDate` in tz so a
+  // claim at any time-of-day on day D reserves the entire calendar
+  // day D, even when the user manually scheduled at an off-pattern
+  // time. Never moves earlier than the plan's own start_date.
+  let startDate = planStartDate
+  if (options?.minStartDate) {
+    const minDayAfter = addDays(startOfDayInTz(options.minStartDate, tz), 1)
+    if (minDayAfter > startDate) startDate = minDayAfter
+  }
 
   const slots: string[] = []
   // Walk one day at a time for up to 2 years out before giving up — covers
@@ -163,10 +180,11 @@ export function computeSlots(
   const weekdaysSet = new Set((schedule.weekdays || []).filter(d => d >= 0 && d <= 6))
   const monthlyMode = weekdaysSet.size === 0 && schedule.monthly_day != null
 
-  // Anchor week for interval_weeks calc: first Sunday on/before startDate.
-  // Rounds `elapsedWeeks` so every Nth week matches regardless of starting
-  // weekday. `intervalAnchorDay` is a day-number delta from the anchor.
-  const intervalAnchor = startOfWeek(startDate, tz)
+  // Anchor week for interval_weeks calc: first Sunday on/before the
+  // PLAN's original start_date — not the (possibly advanced) walk
+  // start. Pinning to the plan preserves the chosen N-weekly rhythm
+  // when an apply resumes after off-rhythm manual schedules.
+  const intervalAnchor = startOfWeek(planStartDate, tz)
 
   let cursor = new Date(startDate)
   let daysWalked = 0
@@ -189,13 +207,7 @@ export function computeSlots(
     }
 
     if (matches) {
-      const candidate = isoAtTz(cursor, hh, mm, tz)
-      // Skip already-claimed slots — see header comment. The walk
-      // continues so the next match keeps the user's chosen rhythm
-      // instead of compressing all skipped occurrences into one.
-      if (!skipClaimed || !skipClaimed.has(candidate)) {
-        slots.push(candidate)
-      }
+      slots.push(isoAtTz(cursor, hh, mm, tz))
     }
 
     cursor = addDays(cursor, 1)
