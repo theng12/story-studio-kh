@@ -1042,6 +1042,21 @@ export interface VideoChapterTitles {
   position: 'top' | 'center' | 'bottom'
   duration: number
   font_size: 'small' | 'medium' | 'large'
+  /** Animation preset (v1.0.56+). Default 'none' keeps the legacy
+   *  static drawtext exactly as before — no animation, just hard
+   *  on/off via `enable=` gate. Other values transform the title's
+   *  alpha or x/y coordinates over the first or last `animation_duration`
+   *  seconds for a smoother enter/exit. Zoom is intentionally NOT
+   *  offered — drawtext fontsize is static; zoom would require an
+   *  extra render pass and isn't worth the complexity for a chapter
+   *  card that's only on screen for a few seconds. */
+  animation?: 'none' | 'fade-in-out' | 'slide-from-left' | 'slide-from-right' | 'slide-up'
+  /** Animation transition seconds. For fade-in-out, applied to BOTH
+   *  enter and exit (so total fade time is 2× this value). For slide
+   *  presets, this is the duration of the slide-in only — exit is
+   *  hard-cut at `duration` end. Default 0.5; clamped at runtime to
+   *  `duration / 2` so a fade can never overlap itself. */
+  animation_duration?: number
 }
 
 export interface VideoBackgroundMusic {

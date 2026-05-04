@@ -1323,15 +1323,62 @@ async function prepareSceneClips(
       duration,
     })
 
-    // Chapter title overlay
+    // Chapter title overlay. v1.0.56+ optionally animates entry via
+    // drawtext's `alpha=` (fade) or `x=` / `y=` (slide) expressions.
+    // The legacy `animation: 'none'` (or missing field) emits exactly
+    // the same filtergraph string the pre-animation pipeline produced
+    // so older projects render byte-identically. See
+    // VideoChapterTitles.animation in types.ts for preset semantics.
     if (canDrawtext && chapterTitles?.enabled && scene.title && scene.show_title) {
       const fontSize = getFontSize(chapterTitles.font_size, h)
       const yPos = getTextPosition(chapterTitles.position, h)
       const fontColor = getStyleColor(chapterTitles.style)
       const titleDur = chapterTitles.duration || 3
-      vfParts.push(
-        `drawtext=text='${escapeDrawtext(scene.title)}':fontsize=${fontSize}:fontcolor=${fontColor}:x=(w-text_w)/2:y=${yPos}:enable='lt(t,${titleDur})':borderw=2:bordercolor=black@0.6`
-      )
+      const anim = chapterTitles.animation || 'none'
+      // Cap the transition at duration/2 — a 1s fade-in plus 1s
+      // fade-out can't fit inside a 1.5s title. Sane minimum 0.05s
+      // avoids div-by-zero in the alpha/x/y expressions below.
+      const animDur = Math.max(0.05, Math.min(
+        chapterTitles.animation_duration ?? 0.5,
+        titleDur / 2,
+      ))
+      const drawCommon = `text='${escapeDrawtext(scene.title)}':fontsize=${fontSize}:fontcolor=${fontColor}:enable='lt(t,${titleDur})':borderw=2:bordercolor=black@0.6`
+      let drawXY = `x=(w-text_w)/2:y=${yPos}`
+      let drawAlpha = ''
+      switch (anim) {
+        case 'fade-in-out': {
+          // alpha 0→1 over animDur, hold, 1→0 over animDur. The
+          // `enable=` gate above kills the drawtext past titleDur so
+          // we don't have to worry about negative alpha clamping.
+          drawAlpha = `:alpha='if(lt(t,${animDur.toFixed(3)}),t/${animDur.toFixed(3)},if(lt(t,${(titleDur - animDur).toFixed(3)}),1,(${titleDur.toFixed(3)}-t)/${animDur.toFixed(3)}))'`
+          break
+        }
+        case 'slide-from-left': {
+          // Start offscreen-left (x = -text_w), lerp to centered.
+          // After animDur, hold at center until enable= hides it.
+          drawXY = `x='if(lt(t,${animDur.toFixed(3)}),-text_w+((w+text_w)/2)*(t/${animDur.toFixed(3)}),(w-text_w)/2)':y=${yPos}`
+          break
+        }
+        case 'slide-from-right': {
+          // Start offscreen-right (x = w), lerp to centered.
+          drawXY = `x='if(lt(t,${animDur.toFixed(3)}),w-((w+text_w)/2)*(t/${animDur.toFixed(3)}),(w-text_w)/2)':y=${yPos}`
+          break
+        }
+        case 'slide-up': {
+          // Start below the frame (y = h), lerp upward to yPos.
+          // yPos may be a literal (e.g. '86') or an expression (e.g.
+          // '(h-text_h)/2') — both substitute fine.
+          drawXY = `x=(w-text_w)/2:y='if(lt(t,${animDur.toFixed(3)}),h-(h-(${yPos}))*(t/${animDur.toFixed(3)}),${yPos})'`
+          break
+        }
+        case 'none':
+        default:
+          // No animation — leave drawXY at static center+yPos and
+          // drawAlpha empty so the emitted string matches the
+          // pre-v1.0.56 output exactly.
+          break
+      }
+      vfParts.push(`drawtext=${drawCommon}:${drawXY}${drawAlpha}`)
     }
 
     vfParts.push('format=yuv420p')

@@ -1345,6 +1345,44 @@
             <label>Duration ({{ chapterTitles.duration }}s)</label>
             <SliderWithNumber v-model="chapterTitles.duration" :min="1" :max="5" :step="1" suffix="s" :disabled="!chapterTitles.enabled" />
           </div>
+          <!-- Animation preset (v1.0.56+). Backend extends the
+               drawtext call with alpha (fade) or x/y (slide) FFmpeg
+               expressions. 'none' keeps the legacy static behaviour. -->
+          <div class="grid-2 mt-1">
+            <div class="form-group">
+              <label>Animation</label>
+              <select v-model="chapterTitles.animation" class="select" :disabled="!chapterTitles.enabled">
+                <option value="none">None (static)</option>
+                <option value="fade-in-out">Fade in + out</option>
+                <option value="slide-from-left">Slide in · from left</option>
+                <option value="slide-from-right">Slide in · from right</option>
+                <option value="slide-up">Slide in · from below</option>
+              </select>
+            </div>
+            <div
+              v-if="chapterTitles.animation && chapterTitles.animation !== 'none'"
+              class="form-group"
+            >
+              <label>
+                Transition ({{ (chapterTitles.animation_duration ?? 0.5).toFixed(2) }}s)
+                <span
+                  class="field-hint"
+                  :title="chapterTitles.animation === 'fade-in-out'
+                    ? 'Applied to BOTH fade-in and fade-out, so total fade time is roughly 2× this value. Capped at duration / 2 by the backend so a long fade never overlaps itself.'
+                    : 'Length of the slide-in only. Exit is a hard cut at the end of duration.'"
+                >Capped at duration ÷ 2.</span>
+              </label>
+              <SliderWithNumber
+                v-model="chapterTitles.animation_duration"
+                :min="0.1"
+                :max="Math.max(0.1, chapterTitles.duration / 2)"
+                :step="0.05"
+                :decimals="2"
+                suffix="s"
+                :disabled="!chapterTitles.enabled"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2615,6 +2653,9 @@ const chapterTitles = reactive({
   position: 'bottom' as string,
   duration: 3,
   font_size: 'medium' as string,
+  // v1.0.56+: animation preset. 'none' keeps existing static behaviour.
+  animation: 'none' as 'none' | 'fade-in-out' | 'slide-from-left' | 'slide-from-right' | 'slide-up',
+  animation_duration: 0.5,
 })
 const outroCard = reactive({
   enabled: false,
