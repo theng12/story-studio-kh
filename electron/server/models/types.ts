@@ -1362,6 +1362,31 @@ export interface VideoBackgroundNoise {
   fade_out: number
 }
 
+// Multi-track ambient layering (v1.0.55+). Each entry is one ambient
+// loop (rain, fire crackle, wind, distant thunder) that gets its own
+// volume, fade, and loop control. Layered together via FFmpeg amix
+// alongside narration + music + the legacy single background_noise.
+//
+// Distinct from `VideoMusicConfig.files`, which is multiple files
+// CONCATENATED (one after another) at one shared volume — useful for
+// long-playlist music. Ambient tracks are PARALLEL streams playing
+// simultaneously — the model that lets "rain + fire" coexist.
+//
+// Per-track ducking under narration and per-track time-range gating
+// are intentionally deferred to v2; the existing music ducking is
+// usually enough for sleep-story scenes.
+export interface AmbientTrack {
+  /** Stable id for ordering / removal. */
+  id: string
+  enabled: boolean
+  source_path: string     // absolute path; portable schemes resolve via resolveAssetPath
+  volume: number          // 0-1
+  fade_in: number         // seconds
+  fade_out: number        // seconds
+  /** When true (default), short clips repeat to fill the timeline. */
+  loop?: boolean
+}
+
 export interface VideoFilmGrain {
   enabled: boolean
   strength: number        // 0-100, default 15
@@ -1547,6 +1572,10 @@ export interface AudioMergeRequest {
   intro?: AudioMergeIntro      // optional audio intro prepended to narration
   music?: VideoMusicConfig     // optional background music
   background_noise?: VideoBackgroundNoise  // optional ambient noise
+  /** Multi-track ambient layering (v1.0.55+). Each entry plays in
+   *  parallel — drop in rain + fire + distant thunder simultaneously.
+   *  Mixed alongside narration/music/background_noise via FFmpeg amix. */
+  ambient_tracks?: AmbientTrack[]
   narration_volume?: number    // 0-1, default 1.0
   write_mode?: 'overwrite' | 'new'  // how to handle an existing merged output; default 'overwrite'
 }

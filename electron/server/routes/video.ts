@@ -161,6 +161,60 @@ router.get('/projects/:slug/video-editor/overlay-files', async (req, res) => {
   }
 })
 
+// Scan local ambient tracks in project directory.
+// Looks under `${PROJECT}/ambient/` for audio files that the new
+// Ambient Tracks UI can layer in parallel (rain + fire + thunder).
+// Mirrors the music-files scanner — durations probed via ffprobe so
+// the UI can show "rain.mp3 · 4m 12s" without an extra round-trip.
+router.get('/projects/:slug/video-editor/ambient-files', async (req, res) => {
+  const { slug } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+  try {
+    const projectDir = pm.getProjectDir(slug)
+    if (!projectDir) return res.status(404).json({ detail: 'Project directory not found' })
+    const ambientDir = path.join(projectDir, 'ambient')
+    if (!existsSync(ambientDir)) {
+      return res.json({ tracks: [], ambient_dir: ambientDir, exists: false })
+    }
+    const audioExtensions = /\.(mp3|wav|m4a|aac|ogg|flac)$/i
+    const tracks: Array<{ filename: string; path: string; duration?: number }> = []
+    try {
+      const files = await fs.readdir(ambientDir)
+      for (const file of files) {
+        if (!audioExtensions.test(file)) continue
+        const fullPath = path.join(ambientDir, file)
+        let duration: number | undefined
+        try { duration = await getAudioDuration(fullPath) } catch { /* tolerate */ }
+        tracks.push({ filename: file, path: fullPath, duration })
+      }
+    } catch (e: any) {
+      return res.status(500).json({ detail: `Could not read ${ambientDir}: ${e?.message || e}` })
+    }
+    tracks.sort((a, b) => a.filename.localeCompare(b.filename, undefined, { numeric: true }))
+    res.json({ tracks, ambient_dir: ambientDir, exists: true })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not scan ambient files'))
+  }
+})
+
+router.post('/projects/:slug/video-editor/ambient/open-folder', async (req, res) => {
+  const { slug } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const projectDir = pm.getProjectDir(slug)
+    if (!projectDir) return res.status(404).json({ detail: 'Project directory not found' })
+    const ambientDir = path.join(projectDir, 'ambient')
+    await fs.mkdir(ambientDir, { recursive: true })
+    const { shell } = await import('electron')
+    const err = await shell.openPath(ambientDir)
+    if (err) return res.status(500).json({ detail: `Could not open folder: ${err}` })
+    res.json({ ok: true, path: ambientDir })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not open ambient folder'))
+  }
+})
+
 // Open the project's overlays/ folder in the OS file manager so the
 // user can drop new clips in. Creates the folder on first call so
 // the click never fails on a fresh project.

@@ -23,7 +23,7 @@ import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import type {
   AudioMergeRequest, Job,
-  VideoMusicConfig, VideoBackgroundNoise,
+  VideoMusicConfig, VideoBackgroundNoise, AmbientTrack,
 } from '../models/types.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
@@ -325,6 +325,13 @@ export async function generateAudioMerge(job: Job): Promise<void> {
   if (req.background_noise?.custom_file) {
     req.background_noise.custom_file = tryResolve(req.background_noise.custom_file, 'background_noise.custom_file') || ''
   }
+  if (Array.isArray(req.ambient_tracks)) {
+    req.ambient_tracks = req.ambient_tracks
+      .map((t, i) => t && t.source_path
+        ? { ...t, source_path: tryResolve(t.source_path, `ambient_tracks[${i}].source_path`) || '' }
+        : t)
+      .filter(t => !!t && !!t.source_path)
+  }
 
   const episodeDir = await findEpisodeDir(outputRoot, code)
   if (!episodeDir) throw new Error(`Episode directory not found for ${code}`)
@@ -494,7 +501,9 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     // video.ts's outputFile.
     let mixSucceeded = false
     try {
-      if (musicEnabled || noiseEnabled) {
+      const ambientEnabled = Array.isArray(req.ambient_tracks)
+        && req.ambient_tracks.some(t => t?.enabled && t?.source_path)
+      if (musicEnabled || noiseEnabled || ambientEnabled) {
         job.output_lines.push('Mixing audio layers...')
         await mixAudioLayers({
           narrationPath: narrationOnlyPath,
@@ -502,13 +511,14 @@ export async function generateAudioMerge(job: Job): Promise<void> {
           narrationVolume: req.narration_volume ?? 1.0,
           music: musicEnabled ? req.music! : undefined,
           noise: noiseEnabled ? req.background_noise! : undefined,
+          ambientTracks: ambientEnabled ? req.ambient_tracks : undefined,
           outputPath,
           tempDir,
           job,
         })
       } else {
-        // No music/noise — just copy narration to output
-        job.output_lines.push('No music or noise configured, copying narration...')
+        // No music/noise/ambient — just copy narration to output
+        job.output_lines.push('No music, noise, or ambient configured, copying narration...')
         await fs.copyFile(narrationOnlyPath, outputPath)
       }
       mixSucceeded = true
@@ -549,6 +559,9 @@ interface MixOptions {
   narrationVolume: number
   music?: VideoMusicConfig
   noise?: VideoBackgroundNoise
+  /** Parallel ambient layers — each plays simultaneously. Distinct
+   *  from `music.files` which concatenates files into one long track. */
+  ambientTracks?: AmbientTrack[]
   outputPath: string
   tempDir: string
   job: Job
@@ -557,7 +570,7 @@ interface MixOptions {
 async function mixAudioLayers(opts: MixOptions): Promise<void> {
   const {
     narrationPath, narrationDuration, narrationVolume,
-    music, noise, outputPath, tempDir, job,
+    music, noise, ambientTracks, outputPath, tempDir, job,
   } = opts
 
   const totalDur = narrationDuration
@@ -678,6 +691,57 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
 
     mixInputLabels.push(`[${noiseLabel}]`)
     inputIdx++
+  }
+
+  // Multi-track ambient layers (v1.0.55+). Each enabled track adds
+  // one parallel input — read, atrim to narration duration, volume,
+  // optional fade — then participates in the final amix alongside
+  // narration / music / noise. Distinct from `music.files`, which
+  // concatenates files into one stream at one volume; ambient tracks
+  // play simultaneously at their own volumes (rain UNDER fire UNDER
+  // narration). Missing files are skipped with a warning, not fatal —
+  // a half-configured row shouldn't kill the whole merge job.
+  const liveAmbient = (ambientTracks || []).filter(t =>
+    t && t.enabled && typeof t.source_path === 'string' && t.source_path.length > 0,
+  )
+  for (let i = 0; i < liveAmbient.length; i++) {
+    const track = liveAmbient[i]!
+    const trackPath = unescapeShellPath(track.source_path)!
+    if (!existsSync(trackPath)) {
+      job.output_lines.push(`  Ambient track skipped — file not found: ${path.basename(trackPath)}`)
+      continue
+    }
+    if (track.loop !== false) inputs.push('-stream_loop', '-1')
+    inputs.push('-i', trackPath)
+
+    const trackVol = track.volume.toFixed(2)
+    const baseLabel = `amb_${i}`
+    filterParts.push(
+      `[${inputIdx}:a]atrim=0:${totalDur.toFixed(2)},asetpts=PTS-STARTPTS,` +
+      `aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,` +
+      `volume=${trackVol}[${baseLabel}]`,
+    )
+
+    let lastLabel = baseLabel
+    if (track.fade_in > 0 || track.fade_out > 0) {
+      const fadeFilters: string[] = []
+      if (track.fade_in > 0) {
+        fadeFilters.push(`afade=t=in:st=0:d=${track.fade_in}`)
+      }
+      if (track.fade_out > 0) {
+        const fadeOutStart = Math.max(0, totalDur - track.fade_out)
+        fadeFilters.push(`afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${track.fade_out}`)
+      }
+      const fadedLabel = `${baseLabel}_f`
+      filterParts.push(`[${baseLabel}]${fadeFilters.join(',')}[${fadedLabel}]`)
+      lastLabel = fadedLabel
+    }
+
+    mixInputLabels.push(`[${lastLabel}]`)
+    inputIdx++
+  }
+  if (liveAmbient.length) {
+    job.output_lines.push(`  Ambient tracks: ${liveAmbient.length} layer(s)`)
   }
 
   // amix all streams together

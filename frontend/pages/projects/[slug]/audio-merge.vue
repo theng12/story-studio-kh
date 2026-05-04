@@ -308,6 +308,141 @@
       </div>
     </div>
 
+    <!-- Multi-track ambient layers (v1.0.55+) -->
+    <div v-if="chapters.length" class="card mt-2">
+      <div class="flex gap-2 items-center">
+        <h3 style="margin: 0;">Ambient Layers</h3>
+        <span class="text-muted text-xs">
+          ({{ ambientTracks.length }} layer{{ ambientTracks.length === 1 ? '' : 's' }})
+        </span>
+      </div>
+      <p class="text-muted text-sm mt-1">
+        Stack any number of ambient loops (rain, fire crackle, distant thunder, wind) — each plays
+        <strong>simultaneously at its own volume</strong> alongside narration, music, and background noise.
+        Different from <em>Music Files</em> above (which concatenates files into one playlist).
+        Drop sources into the project's <code>ambient/</code> folder, then click <strong>+ Add Track</strong>.
+      </p>
+
+      <div v-if="ambientTracks.length" class="mt-2" style="display: flex; flex-direction: column; gap: 8px;">
+        <div
+          v-for="(track, idx) in ambientTracks"
+          :key="track.id"
+          class="card"
+          :style="`padding: 10px; border-left: 3px solid ${track.enabled ? 'var(--accent)' : 'var(--border)'}`"
+        >
+          <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
+            <label class="checkbox-label" @click.stop>
+              <input type="checkbox" v-model="track.enabled" />
+            </label>
+            <strong style="flex: 1; word-break: break-all;">
+              {{ track.source_filename || track.source_path.split('/').pop() || '(no file)' }}
+            </strong>
+            <span class="text-muted text-xs">#{{ idx + 1 }}</span>
+            <button
+              type="button"
+              class="btn btn-sm btn-secondary"
+              :disabled="idx === 0"
+              title="Move up (rendered first in the stack)"
+              @click="moveAmbientTrack(track.id, -1)"
+            >↑</button>
+            <button
+              type="button"
+              class="btn btn-sm btn-secondary"
+              :disabled="idx === ambientTracks.length - 1"
+              title="Move down"
+              @click="moveAmbientTrack(track.id, 1)"
+            >↓</button>
+            <button
+              type="button"
+              class="btn btn-sm btn-danger"
+              title="Remove this layer"
+              @click="removeAmbientTrack(track.id)"
+            >✕</button>
+          </div>
+
+          <div v-if="track.enabled" class="grid-3 mt-1">
+            <div class="form-group">
+              <label>Volume ({{ track.volume }}%)</label>
+              <SliderWithNumber v-model="track.volume" :min="0" :max="100" :step="1" suffix="%" />
+            </div>
+            <div class="form-group">
+              <label>Fade In ({{ track.fade_in }}s)</label>
+              <SliderWithNumber v-model="track.fade_in" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" />
+            </div>
+            <div class="form-group">
+              <label>Fade Out ({{ track.fade_out }}s)</label>
+              <SliderWithNumber v-model="track.fade_out" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex gap-2 mt-2" style="flex-wrap: wrap;">
+        <button
+          type="button"
+          class="btn btn-sm btn-primary"
+          @click="(refreshAmbientLibrary(), showAmbientPicker = true)"
+        >+ Add Track</button>
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          title="Open the project's ambient/ folder so you can drop new audio loops in"
+          @click="openAmbientFolder"
+        >📁 Open ambient folder</button>
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          :disabled="ambientLibraryLoading"
+          @click="refreshAmbientLibrary"
+        >🔄 Refresh</button>
+      </div>
+
+      <div
+        v-if="showAmbientPicker"
+        class="modal-overlay"
+        @click.self="showAmbientPicker = false"
+      >
+        <div class="modal-content" style="max-width: 600px;">
+          <div class="flex gap-2 items-center" style="margin-bottom: 12px;">
+            <h3 style="margin: 0; flex: 1;">Pick an ambient track</h3>
+            <button type="button" class="btn btn-sm btn-secondary" @click="showAmbientPicker = false">✕ Close</button>
+          </div>
+          <div v-if="ambientLibraryLoading" class="text-muted text-sm">Scanning ambient/ folder…</div>
+          <div v-else-if="ambientLibraryError" class="text-danger text-sm">{{ ambientLibraryError }}</div>
+          <div v-else-if="!ambientLibraryExists" class="text-muted text-sm">
+            No <code>ambient/</code> folder yet. Click <strong>📁 Open ambient folder</strong> to create it
+            and drop your audio files in (<code>.mp3</code> / <code>.wav</code> / <code>.m4a</code>).
+          </div>
+          <div v-else-if="!ambientLibrary.length" class="text-muted text-sm">
+            <code>ambient/</code> folder is empty. Drop your atmosphere loops in. Free CC0 sources:
+            Pixabay, Mixkit, Freesound.
+          </div>
+          <div v-else style="display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto;">
+            <button
+              v-for="f in ambientLibrary"
+              :key="f.path"
+              type="button"
+              class="btn btn-secondary"
+              style="text-align: left; padding: 10px; display: flex; gap: 10px; align-items: center;"
+              @click="addAmbientTrack(f)"
+            >
+              <span style="font-size: 18px;">🌧️</span>
+              <span style="flex: 1;">
+                <strong>{{ f.filename }}</strong>
+                <br>
+                <span class="text-muted text-xs">
+                  audio{{ f.duration ? ` · ${f.duration.toFixed(1)}s` : '' }}
+                </span>
+              </span>
+            </button>
+          </div>
+          <p class="text-muted text-xs mt-2" style="margin-bottom: 0;">
+            Source folder: <code>{{ ambientLibraryDir }}</code>
+          </p>
+        </div>
+      </div>
+    </div>
+
     <!-- Generate -->
     <div v-if="chapters.length" class="card mt-2">
       <h3>Generate Merged Audio</h3>
@@ -515,6 +650,89 @@ const intro = reactive({
   gap_after: 2,
 })
 
+// Multi-track ambient layering (v1.0.55+). Parallel streams that play
+// simultaneously — distinct from `music.files`, which concatenates.
+// Drop sources into ${PROJECT}/ambient/ and pick from the picker below.
+type AmbientTrackUI = {
+  id: string
+  enabled: boolean
+  source_path: string
+  source_filename?: string
+  volume: number       // 0-100 in UI (sent as 0-1 in payload)
+  fade_in: number
+  fade_out: number
+  loop?: boolean
+}
+const ambientTracks = reactive<AmbientTrackUI[]>([])
+const ambientLibraryLoading = ref(false)
+const ambientLibraryError = ref('')
+const ambientLibrary = ref<Array<{ filename: string; path: string; duration?: number }>>([])
+const ambientLibraryDir = ref('')
+const ambientLibraryExists = ref(false)
+const showAmbientPicker = ref(false)
+
+async function refreshAmbientLibrary() {
+  ambientLibraryLoading.value = true
+  ambientLibraryError.value = ''
+  try {
+    const r = await $fetch<{
+      tracks: typeof ambientLibrary.value
+      ambient_dir: string
+      exists: boolean
+    }>(`/api/projects/${slug.value}/video-editor/ambient-files`)
+    ambientLibrary.value = r.tracks || []
+    ambientLibraryDir.value = r.ambient_dir || ''
+    ambientLibraryExists.value = !!r.exists
+  } catch (e: any) {
+    ambientLibraryError.value = e?.data?.detail || e?.message || 'Could not scan ambient folder'
+  } finally {
+    ambientLibraryLoading.value = false
+  }
+}
+
+async function openAmbientFolder() {
+  try {
+    await $fetch(`/api/projects/${slug.value}/video-editor/ambient/open-folder`, { method: 'POST' })
+    await refreshAmbientLibrary()
+  } catch (e: any) {
+    ambientLibraryError.value = e?.data?.detail || e?.message || 'Could not open ambient folder'
+  }
+}
+
+function newAmbientId(): string {
+  return `amb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function addAmbientTrack(file: { path: string; filename: string }) {
+  ambientTracks.push({
+    id: newAmbientId(),
+    enabled: true,
+    source_path: file.path,
+    source_filename: file.filename,
+    // Sensible default for ambient layers — quieter than the
+    // narration/music base so it sits underneath. User can crank it.
+    volume: 20,
+    fade_in: 2,
+    fade_out: 3,
+    loop: true,
+  })
+  showAmbientPicker.value = false
+}
+
+function removeAmbientTrack(id: string) {
+  const idx = ambientTracks.findIndex(t => t.id === id)
+  if (idx >= 0) ambientTracks.splice(idx, 1)
+}
+
+function moveAmbientTrack(id: string, dir: -1 | 1) {
+  const idx = ambientTracks.findIndex(t => t.id === id)
+  const next = idx + dir
+  if (idx < 0 || next < 0 || next >= ambientTracks.length) return
+  const tmp = ambientTracks[idx]!
+  ambientTracks[idx] = ambientTracks[next]!
+  ambientTracks[next] = tmp
+}
+
 // ── Presets ───────────────────────────────────────────────────────────────
 // Unified preset wiring (matches every other generator page). A one-time
 // migration in onMounted moves the old flat-shape `audio_merge_presets`
@@ -526,6 +744,7 @@ const mergePresets = usePresets<any>({
     intro: JSON.parse(JSON.stringify(intro)),
     music: JSON.parse(JSON.stringify(music)),
     background_noise: JSON.parse(JSON.stringify(backgroundNoise)),
+    ambient_tracks: ambientTracks.map(t => ({ ...t })),
     gap_duration: gapDuration.value,
     normalize_volume: normalizeVolume.value,
   }),
@@ -534,6 +753,9 @@ const mergePresets = usePresets<any>({
     if (data.intro) Object.assign(intro, data.intro)
     if (data.music) Object.assign(music, data.music, { files: [...(data.music.files || [])] })
     if (data.background_noise) Object.assign(backgroundNoise, data.background_noise)
+    if (Array.isArray(data.ambient_tracks)) {
+      ambientTracks.splice(0, ambientTracks.length, ...data.ambient_tracks.map((t: any) => ({ ...t })))
+    }
     if (typeof data.gap_duration === 'number') gapDuration.value = data.gap_duration
     if (typeof data.normalize_volume === 'boolean') normalizeVolume.value = data.normalize_volume
   },
@@ -777,6 +999,21 @@ async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite')
       fade_in: backgroundNoise.fade_in,
       fade_out: backgroundNoise.fade_out,
     }
+  }
+
+  // Multi-track ambient layers — only send enabled rows with a real
+  // file path. Volume converts from UI's 0-100 scale to backend 0-1.
+  const liveAmbient = ambientTracks.filter(t => t.enabled && t.source_path)
+  if (liveAmbient.length) {
+    payload.ambient_tracks = liveAmbient.map(t => ({
+      id: t.id,
+      enabled: true,
+      source_path: t.source_path,
+      volume: Math.max(0, Math.min(1, t.volume / 100)),
+      fade_in: Math.max(0, t.fade_in),
+      fade_out: Math.max(0, t.fade_out),
+      loop: t.loop !== false,
+    }))
   }
 
   generating.value = true
