@@ -956,6 +956,15 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     image_launch_stagger_ms: typeof (config as any).image_launch_stagger_ms === 'number' ? (config as any).image_launch_stagger_ms : undefined,
     audio_launch_stagger_ms: typeof (config as any).audio_launch_stagger_ms === 'number' ? (config as any).audio_launch_stagger_ms : undefined,
     video_launch_stagger_ms: typeof (config as any).video_launch_stagger_ms === 'number' ? (config as any).video_launch_stagger_ms : undefined,
+    // Per-generator timeout overrides (minutes). Currently only TTS is
+    // user-settable in the Performance tab; pass the whole map through so
+    // future generators can land here without another safe-config patch.
+    // Without this echo, a value saved via PUT /settings/config is
+    // persisted to disk but the next GET strips it, so the UI's v-model
+    // resets to blank — making it look like the save was lost.
+    generation_timeouts: (config as any).generation_timeouts && typeof (config as any).generation_timeouts === 'object'
+      ? (config as any).generation_timeouts
+      : undefined,
     audio_models: (config.audio_models && Object.keys(config.audio_models).length)
       ? config.audio_models
       : { ...DEFAULT_AUDIO_MODELS },

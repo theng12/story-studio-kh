@@ -972,13 +972,14 @@
       <h3 class="mt-3">TTS Generation Timeout</h3>
       <p class="text-muted mt-1 mb-2">
         How long to wait for a single TTS chunk to complete on the provider's
-        side before giving up. GenAIPro chapter-length tasks often exceed 5 min.
-        Leave blank to use the provider default.
+        side before giving up. Leave blank to use the per-provider default
+        (GenAIPro <strong>20 min</strong>, fal.ai <strong>5 min</strong>,
+        ElevenLabs streams without a job timeout).
       </p>
-      <div class="form-group" style="max-width: 360px;">
+      <div class="form-group" style="max-width: 420px;">
         <label>
           Timeout (minutes)
-          <span class="field-hint">GenAIPro default: 20 min · fal.ai default: 5 min</span>
+          <span class="field-hint">Blank = provider default · saved value persists across runs</span>
         </label>
         <input
           v-model.number="ttsTimeoutMinutes"
@@ -987,12 +988,23 @@
           max="120"
           step="1"
           class="input"
-          placeholder="Default"
+          :placeholder="ttsTimeoutPlaceholder"
           aria-label="TTS timeout in minutes"
         />
-        <span class="text-muted" style="font-size: 11px;">
-          Typical range: 15–30 min. Higher values risk blocking a job worker
-          on a genuinely stuck task for longer.
+        <!-- "Currently active" chip — surfaces the effective timeout so
+             the user sees what's actually in force, both before and
+             after a save. Empty state shows the provider-default
+             cascade; numeric state shows the override. -->
+        <div class="meta-pill" :class="ttsTimeoutMinutes ? 'ok' : 'muted'" style="margin-top: 6px; font-size: 12px;">
+          {{ ttsTimeoutActiveLabel }}
+        </div>
+        <span class="text-muted" style="font-size: 11px; display: block; margin-top: 6px;">
+          Recommended: <strong>3–5 min</strong> for paragraph/scene-length
+          chunks (ElevenLabs, fal.ai); <strong>10 min</strong> if you
+          generate chapter-length GenAIPro tasks. <strong>1 min is too
+          aggressive</strong> — many legitimate TTS calls take 30 s–2 min,
+          so 1 min would fail healthy jobs. Higher values just keep a
+          worker blocked longer on a genuinely stuck task before it gives up.
         </span>
       </div>
 
@@ -3796,6 +3808,20 @@ const videoLaunchStaggerMs = ref(0)
 // Empty string means "use provider default" (no override stored). We keep
 // the empty state distinct from 0 so users can clear it without saving 0.
 const ttsTimeoutMinutes = ref<number | ''>('')
+
+// Placeholder + status chip — surface the effective state so the user
+// always knows what's in force. Empty input = provider-default cascade
+// (the most common case for new projects); numeric input = explicit
+// override. Without this, "blank" looked indistinguishable from "I
+// haven't loaded yet" right after a save.
+const ttsTimeoutPlaceholder = computed(() =>
+  'e.g. 5 (leave blank for provider default)',
+)
+const ttsTimeoutActiveLabel = computed(() => {
+  const t = ttsTimeoutMinutes.value
+  if (typeof t === 'number' && t > 0) return `Active: ${t} min override (applies to every TTS provider)`
+  return 'Active: provider default — GenAIPro 20 min · fal.ai 5 min · ElevenLabs streams'
+})
 watch(config, (c) => {
   if (c && (c as any).image_concurrency) {
     imageConcurrency.value = Math.max(1, Math.min(10, Number((c as any).image_concurrency) || 5))
