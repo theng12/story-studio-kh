@@ -340,9 +340,8 @@
           <select v-model="queueSort" class="select select-sm">
             <option value="code_asc">Episode code · oldest first</option>
             <option value="code_desc">Episode code · newest first</option>
-            <option value="status">Status (uploaded → scheduled → ready)</option>
+            <option value="unscheduled_first">Not yet scheduled · then code</option>
             <option value="scheduled_asc">Scheduled · soonest first</option>
-            <option value="scheduled_desc">Scheduled · latest first</option>
           </select>
         </div>
         <div class="qt-group">
@@ -1511,20 +1510,50 @@
                 </span>
               </td>
               <td>
-                <select
+                <!-- Searchable typeahead via datalist (Chromium renders
+                     it as a popup with substring + prefix matching). The
+                     datalist is shared across rows below the table so we
+                     don't render N×M options. Picker shows EVERY accepted
+                     episode, including ones already linked elsewhere — the
+                     ⚠ in the option label warns the user when picking one
+                     would override an existing link. -->
+                <input
                   v-model="row.selected_episode_code"
-                  class="select select-sm"
-                  style="min-width: 140px;"
-                  :title="row._state === 'linked' ? 'This video is already linked. Change this dropdown to re-link to a different episode (you’ll be asked to confirm before saving). To unlink entirely, delete the episode’s sidecar on disk.' : ''"
+                  list="reconcile-episode-list"
+                  type="text"
+                  class="input input-sm"
+                  style="min-width: 200px;"
+                  placeholder="Type code or title…"
+                  :title="row._state === 'linked' ? 'This video is already linked. Type a different episode code to re-link (you’ll be asked to confirm before saving).' : 'Type to search across every accepted episode (including ones already linked).'"
                 >
-                  <!-- Linked rows: empty option is hidden (use sidecar
-                       deletion for unlink). All other rows allow "don't link". -->
-                  <option v-if="row._state !== 'linked'" value="">— don't link —</option>
-                  <option v-for="ep in missingVideoEpisodes.concat(queueItems.filter(i => i.type === 'episode'))"
-                          :key="ep.episode_code" :value="ep.episode_code">
-                    {{ ep.episode_code }} · {{ ep.title?.slice(0, 60) || '' }}
-                  </option>
-                </select>
+                <!-- Inline override hint when the picked episode is
+                     already bound to a different video. Badge below the
+                     input keeps the layout flat without a popover. -->
+                <div
+                  v-if="reconcileEpisodeOverrideHint(row.selected_episode_code, row.videoId)"
+                  class="meta-pill warn"
+                  style="margin-top: 4px; font-size: 11px;"
+                  :title="`Saving will replace ${row.selected_episode_code}'s existing link from ${reconcileEpisodeOverrideHint(row.selected_episode_code, row.videoId)} to this video. The other video becomes orphan.`"
+                >
+                  ⚠ {{ row.selected_episode_code }} currently links to {{ reconcileEpisodeOverrideHint(row.selected_episode_code, row.videoId).slice(0, 8) }}…
+                </div>
+                <!-- Per-row "Sync title from YouTube" opt-in. When checked
+                     AND a code is selected, Save also overwrites the
+                     episode's ideas.json title with the YouTube title so
+                     the two stay in sync going forward. -->
+                <label
+                  v-if="row.title"
+                  class="text-muted"
+                  style="margin-top: 4px; display: inline-flex; gap: 4px; align-items: center; font-size: 11px;"
+                  :title="`On Save, also overwrite ${row.selected_episode_code || 'the episode'}'s title in ideas.json with the YouTube title (“${row.title.slice(0, 60)}${row.title.length > 60 ? '…' : ''}”). Useful when re-linking after a YT-side rename so the two stay aligned.`"
+                >
+                  <input
+                    type="checkbox"
+                    v-model="row.apply_remote_title"
+                    :disabled="!row.selected_episode_code"
+                  >
+                  Sync YT title
+                </label>
                 <!-- Inline "create new episode" escape hatch for Reconcile —
                      saves a trip to the Unlinked Uploads tab when the user
                      realizes this remote video doesn't match any local
@@ -1566,6 +1595,21 @@
             </tr>
           </tbody>
         </table>
+
+        <!-- Single shared datalist powering the per-row episode picker
+             above. Browsers (Chromium-based, including Electron) match
+             input value against `value` AND `label`, so typing a title
+             keyword finds matches too. The ⚠ prefix on linked-elsewhere
+             options is a soft visual cue; the inline override pill in
+             the row is the hard one. -->
+        <datalist id="reconcile-episode-list">
+          <option
+            v-for="ep in reconcilePickerOptions"
+            :key="ep.episode_code"
+            :value="ep.episode_code"
+            :label="`${ep.title ? ep.title.slice(0, 60) : ''}${ep.linked_to ? '  ⚠ linked' : ''}`"
+          />
+        </datalist>
 
         <!-- Pagination — mirrors the Queue tab pattern. Disabled buttons
              when at the boundary; clamped goToReconcilePage handles edge
@@ -3817,6 +3861,61 @@ const reconcileState = ref<null | {
 const reconcileLoading = ref(false)
 const reconcileConfirming = ref(false)
 
+// All accepted ideas — backs the per-row episode picker (datalist) so
+// the user can search by code or title, INCLUDING episodes that are
+// already linked elsewhere. Loaded once per project on tab activation;
+// re-fetched after a confirm so newly-linked codes show up correctly
+// when the list refreshes.
+const acceptedIdeas = ref<Array<{ id: string; episode_code: string; title: string }>>([])
+async function loadAcceptedIdeas() {
+  try {
+    const r = await $fetch<{ ideas: Array<{ id: string; episode_code?: string; title?: string }> }>(
+      `/api/projects/${slug}/ideas?status=accepted`,
+    )
+    acceptedIdeas.value = (r.ideas || [])
+      .filter(i => !!i.episode_code)
+      .map(i => ({ id: i.id, episode_code: i.episode_code as string, title: i.title || '' }))
+  } catch { /* tolerate — picker falls back to its existing partial sources */ }
+}
+
+/**
+ * Picker options for the reconcile per-row episode dropdown. Includes
+ * EVERY accepted episode (so the user can override an existing wrong
+ * link by picking the rightful episode), and tags each option with
+ * the videoId it's currently bound to (when applicable). The datalist
+ * label visualises the linked-elsewhere state with a ⚠ prefix so the
+ * user sees the override at type-time.
+ */
+const reconcilePickerOptions = computed(() => {
+  const linkedMap: Record<string, string> = reconcileState.value?.linked_videos || {}
+  const reverseLink = new Map<string, string>()
+  for (const [vid, code] of Object.entries(linkedMap)) reverseLink.set(code, vid)
+  const list = acceptedIdeas.value.map(ep => ({
+    episode_code: ep.episode_code,
+    title: ep.title,
+    linked_to: reverseLink.get(ep.episode_code) || '',
+  }))
+  // Codes ascending — TN0001 → TN0150. localeCompare with numeric:true
+  // handles TN0009 vs TN0010 correctly.
+  list.sort((a, b) => a.episode_code.localeCompare(b.episode_code, undefined, { numeric: true }))
+  return list
+})
+
+/**
+ * For a candidate episode code in a given video's row: returns the
+ * videoId that the episode is CURRENTLY linked to, but only if that
+ * videoId differs from the row's own (a true override). Used both
+ * for the inline "⚠ override" badge and the pre-save confirm dialog.
+ */
+function reconcileEpisodeOverrideHint(epCode: string, currentVideoId: string): string {
+  if (!epCode) return ''
+  const linkedMap: Record<string, string> = reconcileState.value?.linked_videos || {}
+  for (const [vid, code] of Object.entries(linkedMap)) {
+    if (code === epCode && vid !== currentVideoId) return vid
+  }
+  return ''
+}
+
 // Filter / sort / pagination state for the Reconcile table. Default filter
 // is "unlinked" so the user only sees actionable rows on first load — they
 // can switch to "all" or "linked" to see the rest. Mirrors the Queue tab's
@@ -3852,10 +3951,17 @@ function seedReconcileFromPayload(p: { account_id: string; remote_count: number;
         selected_episode_code: linkedCode || s.suggested_episode_code || '',
         score: s.score,
         reason: s.reason,
+        // Per-row opt-in for "Sync title from YT" — defaults OFF so
+        // we never silently rename an episode the user titled by hand.
+        apply_remote_title: false,
       }
     }),
   }
   reconcilePage.value = 1
+  // Refresh the picker option list whenever fresh reconcile data
+  // lands. Cheap (~one tiny GET); also catches the case where a user
+  // accepted ideas in another tab between visits.
+  void loadAcceptedIdeas()
 }
 
 // Per-row link-state cascade. Linked wins outright (we already confirmed
@@ -4101,6 +4207,7 @@ async function doReconcileConfirm() {
       video_id: r.videoId,
       remote_title: r.title,
       published_at: r.publishedAt,
+      apply_remote_title: !!r.apply_remote_title,
     }))
   if (!links.length) {
     showError('No links selected. Pick an episode in at least one row, or leave the tab.')
@@ -4126,26 +4233,51 @@ async function doReconcileConfirm() {
     return
   }
 
-  // Re-link guard: if the user changed a Linked row's dropdown to a
-  // different episode, surface a confirm modal listing each replacement
-  // before we overwrite the sidecar(s). Re-linking is rare and destructive
-  // — silent overwrite was the user-flagged UX concern.
-  const reLinks = links
-    .map(l => ({
-      ...l,
-      previous_episode_code: s.linked_videos[l.video_id],
-    }))
-    .filter(l => l.previous_episode_code && l.previous_episode_code !== l.episode_code)
+  // Re-link guard. Two distinct overrides are possible per save and
+  // must both be surfaced to the user before any sidecar is touched:
+  //
+  //   • video-side: this video was already linked to episode A; the
+  //     user is relinking it to episode B. Result: A loses its video.
+  //   • episode-side: this episode was already linked to video X;
+  //     the user is now linking the same episode to video Y. Result:
+  //     X becomes orphan.
+  //
+  // A single save can produce either, both, or neither per row.
+  type ReLink = {
+    episode_code: string
+    video_id: string
+    /** Episode that USED to claim this video and will lose it. */
+    video_side_old_episode?: string
+    /** Video this episode WAS linked to and will become orphan. */
+    episode_side_old_video?: string
+  }
+  const reLinks: ReLink[] = []
+  for (const l of links) {
+    const change: ReLink = { episode_code: l.episode_code, video_id: l.video_id }
+    const vsidePrev = s.linked_videos[l.video_id]
+    if (vsidePrev && vsidePrev !== l.episode_code) change.video_side_old_episode = vsidePrev
+    for (const [vid, code] of Object.entries(s.linked_videos)) {
+      if (code === l.episode_code && vid !== l.video_id) {
+        change.episode_side_old_video = vid
+        break
+      }
+    }
+    if (change.video_side_old_episode || change.episode_side_old_video) reLinks.push(change)
+  }
   if (reLinks.length) {
     const list = reLinks
-      .map(l => `• ${l.previous_episode_code} → ${l.episode_code}  (${l.video_id})`)
+      .map(l => {
+        const parts: string[] = [`• ${l.episode_code} ↔ ${l.video_id.slice(0, 11)}…`]
+        if (l.video_side_old_episode) parts.push(`     (replaces ${l.video_side_old_episode}'s link to this video)`)
+        if (l.episode_side_old_video) parts.push(`     (releases ${l.episode_side_old_video.slice(0, 11)}… as orphan)`)
+        return parts.join('\n')
+      })
       .join('\n')
     const ok = await ask({
       title: reLinks.length === 1 ? 'Replace existing link?' : `Replace ${reLinks.length} existing links?`,
       message:
-        `${reLinks.length === 1 ? 'This video is already linked to a different episode' : 'These videos are already linked to different episodes'}. ` +
-        `Saving will overwrite the existing sidecar${reLinks.length === 1 ? '' : 's'}:\n\n${list}\n\n` +
-        `The previous link${reLinks.length === 1 ? '' : 's'} will be lost.`,
+        `Saving will overwrite ${reLinks.length === 1 ? 'an existing link' : `${reLinks.length} existing links`}:\n\n${list}\n\n` +
+        `The previous binding(s) will be lost — affected videos surface as "Unlinked" on the next reconcile.`,
       confirmLabel: 'Replace',
       danger: true,
     })
@@ -4157,8 +4289,31 @@ async function doReconcileConfirm() {
     const r = await reconcileConfirm(s.account_id, links)
     const errCount = r.errors?.length || 0
     const okCount = r.written?.length || 0
-    const msg = [`${okCount} link(s) saved`, errCount ? `${errCount} error(s)` : ''].filter(Boolean).join(' · ')
+    const syncedCount = r.titles_synced?.length || 0
+    const msg = [
+      `${okCount} link(s) saved`,
+      syncedCount ? `${syncedCount} title(s) synced from YT` : '',
+      errCount ? `${errCount} error(s)` : '',
+    ].filter(Boolean).join(' · ')
     success(msg)
+    // Episodes whose ideas.json title was rewritten — refresh the
+    // accepted-ideas cache so the picker labels reflect the new
+    // titles immediately. Cheap; one route call.
+    if (syncedCount) await loadAcceptedIdeas()
+    // Old video-side bindings that were displaced by this save. Their
+    // sidecars now point at a different video, so we proactively drop
+    // their entry from `linked_videos` to avoid the picker still
+    // showing them as "linked elsewhere" until the next preview refresh.
+    for (const link of links) {
+      if (!r.written.includes(link.episode_code)) continue
+      // Episode-side override: clear the OLD video that used to claim
+      // this episode (now orphan).
+      for (const [vid, code] of Object.entries(s.linked_videos)) {
+        if (code === link.episode_code && vid !== link.video_id) {
+          delete s.linked_videos[vid]
+        }
+      }
+    }
     // Refresh queue so newly-linked episodes show as uploaded.
     await loadQueue('youtube')
     // Optimistic local update: every row we just wrote becomes "linked"

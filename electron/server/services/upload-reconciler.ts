@@ -148,11 +148,21 @@ export interface ConfirmLink {
   remote_title?: string
   /** Optional published_at for the sidecar. */
   published_at?: string
+  /**
+   * When true, also overwrite the episode's title in `ideas.json` with
+   * the YouTube remote title. Default false. Only takes effect when
+   * `remote_title` is non-empty. Lets the user opt in per-row (a
+   * checkbox in the Match Unlinked UI) so manually-titled episodes
+   * aren't silently clobbered.
+   */
+  apply_remote_title?: boolean
 }
 
 export interface ConfirmResult {
   written: string[]
   errors: Array<{ episode_code: string; error: string }>
+  /** Episode codes whose `ideas.json` title was rewritten via apply_remote_title. */
+  titles_synced?: string[]
 }
 
 /**
@@ -160,9 +170,15 @@ export interface ConfirmResult {
  * an existing `{episode}/youtube_upload.json` so subsequent Queue renders
  * and Upload actions treat the video as already-uploaded. Existing sidecar
  * fields we don't know (privacy_status etc.) are preserved.
+ *
+ * Override semantics: when an episode is being relinked to a NEW video
+ * but its current sidecar points at a different `video_id`, the write
+ * silently overwrites — the old binding becomes orphan and will surface
+ * as "unlinked" on the next reconcile preview. The frontend confirms the
+ * override before posting; the backend trusts that confirmation.
  */
 export async function confirmReconcile(slug: string, accountId: string, links: ConfirmLink[]): Promise<ConfirmResult> {
-  const result: ConfirmResult = { written: [], errors: [] }
+  const result: ConfirmResult = { written: [], errors: [], titles_synced: [] }
   const account = (await store.listAccounts(slug, 'youtube')).find(a => a.id === accountId)
   if (!account) throw new Error(`YouTube account ${accountId} not found`)
 
@@ -172,6 +188,22 @@ export async function confirmReconcile(slug: string, accountId: string, links: C
       const idea = ideas.find(i => (i.episode_code || '') === link.episode_code)
       if (!idea) { result.errors.push({ episode_code: link.episode_code, error: 'Accepted idea not found' }); continue }
       const existing = await readSidecar(slug, link.episode_code, idea.title || '', 'youtube')
+      // Apply-remote-title: when the user opted in AND we have a remote
+      // title, push the YouTube title back into ideas.json so the
+      // episode label across the rest of the app matches the live video.
+      // Done BEFORE the sidecar write so the write uses the new title
+      // (idea.title is read into the sidecar's title field below for
+      // any future enrichment).
+      const wantTitleSync = !!link.apply_remote_title && typeof link.remote_title === 'string' && link.remote_title.trim() !== ''
+      let effectiveTitle = idea.title || ''
+      if (wantTitleSync && link.remote_title) {
+        const next = link.remote_title.trim()
+        if (next && next !== idea.title) {
+          await im.updateIdea(slug, idea.id, { title: next })
+          effectiveTitle = next
+          result.titles_synced!.push(link.episode_code)
+        }
+      }
       const sidecar: UploadSidecar = {
         platform: 'youtube',
         video_id: link.video_id,
@@ -181,12 +213,12 @@ export async function confirmReconcile(slug: string, accountId: string, links: C
         last_sync_at: new Date().toISOString(),
         scheduled_for: existing?.scheduled_for ?? null,
         privacy_status: existing?.privacy_status || 'public',
-        title: link.remote_title || existing?.title || idea.title || link.episode_code,
+        title: link.remote_title || existing?.title || effectiveTitle || link.episode_code,
         description: existing?.description || '',
         tags: existing?.tags || [],
         thumbnail_set: existing?.thumbnail_set || false,
       }
-      await writeSidecar(slug, link.episode_code, idea.title || '', sidecar)
+      await writeSidecar(slug, link.episode_code, effectiveTitle, sidecar)
       result.written.push(link.episode_code)
     } catch (e: any) {
       result.errors.push({ episode_code: link.episode_code, error: e?.message || 'Write failed' })

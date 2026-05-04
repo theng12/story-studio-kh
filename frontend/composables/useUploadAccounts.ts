@@ -26,7 +26,7 @@ export type QueueOverlayToken = 'scheduled'
 export type QueueFilterToken = QueueStateToken | QueueOverlayToken | 'all'
 /** Comma-separated multi-token string (e.g. `ready,uploaded_local,scheduled`). */
 export type QueueFilter = string
-export type QueueSort = 'code_asc' | 'code_desc' | 'status' | 'scheduled_asc' | 'scheduled_desc'
+export type QueueSort = 'code_asc' | 'code_desc' | 'scheduled_asc' | 'unscheduled_first'
 
 export interface UploadAccount {
   id: string
@@ -603,8 +603,19 @@ export function useUploadAccounts(slug: string) {
     return post<ReconcilePreviewPayload>(`/projects/${slug}/upload/reconcile/preview`, { account_id })
   }
 
-  async function reconcileConfirm(account_id: string, links: Array<{ episode_code: string; video_id: string; remote_title?: string; published_at?: string }>) {
-    return post<{ written: string[]; errors: Array<{ episode_code: string; error: string }> }>(
+  async function reconcileConfirm(account_id: string, links: Array<{
+    episode_code: string
+    video_id: string
+    remote_title?: string
+    published_at?: string
+    /** Per-row opt-in to overwrite the episode's title in ideas.json with the YouTube remote title. */
+    apply_remote_title?: boolean
+  }>) {
+    return post<{
+      written: string[]
+      errors: Array<{ episode_code: string; error: string }>
+      titles_synced?: string[]
+    }>(
       `/projects/${slug}/upload/reconcile/confirm`, { account_id, links },
     )
   }

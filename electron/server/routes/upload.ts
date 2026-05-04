@@ -758,7 +758,7 @@ type QueueStateToken = 'ready' | 'uploaded_local' | 'uploaded_freed' | 'deleted_
 //                          request returns an empty list rather than
 //                          surprising results.
 type QueueOverlayToken = 'scheduled' | 'public' | 'not_public'
-type QueueSort = 'code_asc' | 'code_desc' | 'status' | 'scheduled_asc' | 'scheduled_desc'
+type QueueSort = 'code_asc' | 'code_desc' | 'scheduled_asc' | 'unscheduled_first'
 
 interface ParsedFilter {
   states: Set<QueueStateToken>
@@ -871,12 +871,16 @@ function filterAndSortIndex(
     case 'code_asc':       out.sort(cmpCode); break
     case 'code_desc':      out.sort((a, b) => cmpCode(b, a)); break
     case 'scheduled_asc':  out.sort(cmpScheduled); break
-    case 'scheduled_desc': out.sort((a, b) => cmpScheduled(b, a)); break
-    case 'status':
+    case 'unscheduled_first':
+      // Surfaces "ready to schedule" rows so apply-plan is one click
+      // away. Unscheduled rows come first (sorted by code asc); then
+      // scheduled rows (sorted by scheduled_for asc) so the user can
+      // see the existing queue tail right below.
       out.sort((a, b) => {
-        const rank = (i: QueueIndexItem) => i.uploaded ? 0 : (i.scheduled_for ? 1 : 2)
-        const r = rank(a) - rank(b)
-        return r !== 0 ? r : cmpCode(a, b)
+        const aHas = !!a.scheduled_for
+        const bHas = !!b.scheduled_for
+        if (aHas !== bHas) return aHas ? 1 : -1
+        return aHas ? cmpScheduled(a, b) : cmpCode(a, b)
       })
       break
   }
@@ -1982,7 +1986,15 @@ router.post('/projects/:slug/upload/reconcile/confirm', async (req, res) => {
     const valid = links.filter((l: any) =>
       typeof l?.episode_code === 'string' && l.episode_code
       && typeof l?.video_id === 'string' && l.video_id,
-    )
+    ).map((l: any) => ({
+      episode_code: l.episode_code,
+      video_id: l.video_id,
+      remote_title: typeof l.remote_title === 'string' ? l.remote_title : undefined,
+      published_at: typeof l.published_at === 'string' ? l.published_at : undefined,
+      // Per-row opt-in: when true AND remote_title is present, the
+      // confirm flow overwrites the episode's title in ideas.json.
+      apply_remote_title: !!l.apply_remote_title,
+    }))
     if (!valid.length) return res.status(400).json({ detail: 'links (episode_code + video_id) required' })
     const result = await reconciler.confirmReconcile(slug, account_id, valid)
     res.json(result)
