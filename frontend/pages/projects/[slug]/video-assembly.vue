@@ -1233,6 +1233,22 @@
         </p>
       </div>
 
+      <!-- Per-scene alignment to chapter audio (Workstream B / v1.0.54+) -->
+      <div class="settings-section mt-2">
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="alignVisualsToChapters" />
+          <strong>Align scenes to chapter audio</strong>
+          <span class="text-muted text-xs"> (off for sleep stories)</span>
+        </label>
+        <p class="text-muted text-xs hint-line">
+          When ON, scenes generated for chapter N play during chapter N's narration —
+          durations cycle within each chapter's audio rather than across the whole episode.
+          The backend reads <code>audio_chapters.json</code> from the episode folder
+          (Audio Merge writes it). Re-run Audio Merge first if you don't see the file.
+          Leave OFF for sleep stories where the loose, randomised cycling is intentional.
+        </p>
+      </div>
+
       <!-- Text Overlays (collapsed by default) -->
       <h4 class="mt-3 text-overlays-heading">Text Overlays <span class="text-muted text-xs font-normal">(optional)</span></h4>
 
@@ -2450,6 +2466,15 @@ const letterbox = reactive({
 
 const excludeIntroFromEffects = ref(true)
 
+// Workstream B (v1.0.54+): per-scene audio-to-visual alignment.
+// When ON, scenes generated for chapter N play during chapter N's
+// narration — durations cycle within each chapter's audio rather
+// than across the whole episode. Default OFF (sleep-story-safe).
+// Backend reads `${episode}/audio_chapters.json` (emitted by Audio
+// Merge) when this flag is on; the frontend doesn't need to fetch
+// or send the durations explicitly.
+const alignVisualsToChapters = ref(false)
+
 // --------------- Step 5: Subtitles ---------------
 const subtitles = reactive({
   enabled: false,
@@ -2733,6 +2758,7 @@ const effectsPresets = usePresets({
     chroma_key: { ...chromaKey },
     overlays: { enabled: overlays.enabled, layers: overlays.layers.map(l => ({ ...l })) },
     exclude_intro_from_effects: excludeIntroFromEffects.value,
+    align_visuals_to_chapters: alignVisualsToChapters.value,
     title_card: { ...titleCard },
     chapter_titles: { ...chapterTitles },
     outro_card: { ...outroCard },
@@ -2751,6 +2777,9 @@ const effectsPresets = usePresets({
     }
     if (typeof data.exclude_intro_from_effects === 'boolean') {
       excludeIntroFromEffects.value = data.exclude_intro_from_effects
+    }
+    if (typeof data.align_visuals_to_chapters === 'boolean') {
+      alignVisualsToChapters.value = data.align_visuals_to_chapters
     }
     if (data.title_card) Object.assign(titleCard, data.title_card)
     if (data.chapter_titles) Object.assign(chapterTitles, data.chapter_titles)
@@ -2845,6 +2874,7 @@ function snapshotEffectsData() {
     chroma_key: { ...chromaKey },
     overlays: { enabled: overlays.enabled, layers: overlays.layers.map(l => ({ ...l })) },
     exclude_intro_from_effects: excludeIntroFromEffects.value,
+    align_visuals_to_chapters: alignVisualsToChapters.value,
     title_card: { ...titleCard },
     chapter_titles: { ...chapterTitles },
     outro_card: { ...outroCard },
@@ -2864,6 +2894,9 @@ function applyEffectsData(data: any) {
   }
   if (typeof data.exclude_intro_from_effects === 'boolean') {
     excludeIntroFromEffects.value = data.exclude_intro_from_effects
+  }
+  if (typeof data.align_visuals_to_chapters === 'boolean') {
+    alignVisualsToChapters.value = data.align_visuals_to_chapters
   }
   if (data.title_card) Object.assign(titleCard, data.title_card)
   if (data.chapter_titles) Object.assign(chapterTitles, data.chapter_titles)
@@ -3595,6 +3628,7 @@ const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo } = useVideoAss
   logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, postAudio,
   duration, colorGrading, vignette, filmGrain, letterbox, chromaKey,
   overlays,
+  alignVisualsToChapters,
   titleCard, chapterTitles, outroCard, exportSettings,
   // generateVideo() needs these three plus post+confirmGeneration+videoGenerating
   // passed at call-time so the composable doesn't duplicate those imports.

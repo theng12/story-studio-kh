@@ -1482,6 +1482,19 @@ export interface GenerateVideoRequest {
    *  `chroma_key` field, which is still accepted for one release for
    *  backward compatibility. */
   overlays?: VideoOverlaysConfig
+  /** When true, scene clips are partitioned across chapters and each
+   *  chapter's assigned scenes cycle within its own audio duration —
+   *  i.e. chapter N's narration plays with chapter N's scene images.
+   *  Off by default (sleep-story safe; chapter alignment is the new
+   *  content-type feature, not the old loose-cycling default).
+   *  Requires `chapter_durations` to be populated; falls back to
+   *  legacy uniform cycling if missing. */
+  align_visuals_to_chapters?: boolean
+  /** Per-chapter audio durations in playback order. Frontend reads
+   *  these from `${episode}/audio_chapters.json` (written by the
+   *  Audio Merge step) and forwards on the request so the backend
+   *  doesn't need to re-probe. */
+  chapter_durations?: Array<{ slug: string; duration_s: number }>
   film_grain?: VideoFilmGrain
   letterbox?: VideoLetterbox
   subtitles?: VideoSubtitleConfig

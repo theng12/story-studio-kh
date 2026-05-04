@@ -95,6 +95,11 @@ export interface VideoAssemblyIoState {
    *  the legacy `chromaKey` slot is upgraded into a single layer on
    *  the backend if `overlays` is empty. */
   overlays?: any
+  /** Workstream B (v1.0.54+): per-scene audio-to-visual alignment.
+   *  Boolean ref. When true, payload sets `align_visuals_to_chapters`
+   *  and the backend reads chapter durations from
+   *  `${episode}/audio_chapters.json` (emitted by Audio Merge). */
+  alignVisualsToChapters?: any
   titleCard: any
   chapterTitles: any
   outroCard: any
@@ -339,6 +344,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     if (s.letterbox.enabled)    payload.letterbox     = { ...s.letterbox }
 
     payload.exclude_intro_from_effects = s.excludeIntroFromEffects.value
+    if (s.alignVisualsToChapters?.value) payload.align_visuals_to_chapters = true
 
     if (s.subtitles?.enabled && s.subtitles?.srt_path) {
       payload.subtitles = {

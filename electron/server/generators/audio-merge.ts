@@ -446,6 +446,38 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     job.output_lines.push(`Narration duration: ${narrationDuration.toFixed(1)}s`)
     job.progress = 50
 
+    // Emit per-chapter duration sidecar. Workstream B's "align scenes
+    // to chapter audio" path reads this so video assembly can play
+    // chapter N's scene images during chapter N's narration. Best-
+    // effort — a write failure here must never fail the merge job.
+    // Probe the PRE-normalisation paths so the slugs match what
+    // parseNarrationDocx produced ("Chapter_01" etc.) rather than the
+    // tempdir `_normalized.mp3` filenames.
+    try {
+      type ChapterEntry = { slug: string; duration_s: number; source_file: string }
+      const chapters: ChapterEntry[] = []
+      for (const p of validChapters) {
+        const d = await getAudioDuration(p).catch(() => null)
+        if (d == null) continue
+        const filename = path.basename(p)
+        const baseNoExt = filename.replace(/\.[^.]+$/, '')
+        // Strip the episode-code prefix ("TN0143_") so the slug is the
+        // bare section name. startsWith check keeps slug intact for any
+        // unusual filenames that don't follow the convention.
+        const slug = baseNoExt.startsWith(`${code}_`)
+          ? baseNoExt.slice(code.length + 1)
+          : baseNoExt
+        chapters.push({ slug, duration_s: d, source_file: filename })
+      }
+      const sidecarPath = path.join(episodeDir, 'audio_chapters.json')
+      await fs.writeFile(sidecarPath, JSON.stringify({ sections: chapters }, null, 2))
+      job.output_lines.push(
+        `Wrote chapter-duration sidecar (audio_chapters.json): ${chapters.length} section(s)`,
+      )
+    } catch (e: any) {
+      job.output_lines.push(`Note: chapter-duration sidecar skipped (${e?.message || 'write error'})`)
+    }
+
     // 5. Mix with music and/or noise
     const musicEnabled = req.music?.enabled && req.music.files.length > 0
     const noiseEnabled = req.background_noise?.enabled

@@ -647,6 +647,29 @@ export async function generateVideo(job: Job): Promise<void> {
   const videoDir = await resolveSubfolder(episodeDir, names.video) || path.join(episodeDir, names.video)
   await fs.mkdir(videoDir, { recursive: true })
 
+  // Workstream B — chapter alignment auto-load. When the flag is on
+  // but the request didn't carry `chapter_durations`, try the audio
+  // merge sidecar that lives in the episode directory. Frontend can
+  // either send durations directly or rely on this fallback so the
+  // payload stays small. If the sidecar is missing, the alignment
+  // branch in `buildConcatList` silently falls back to legacy cycling
+  // (logged once below for diagnostics).
+  if (req.align_visuals_to_chapters && (!Array.isArray(req.chapter_durations) || req.chapter_durations.length === 0)) {
+    try {
+      const sidecarPath = path.join(episodeDir, 'audio_chapters.json')
+      const raw = await fs.readFile(sidecarPath, 'utf-8')
+      const parsed = JSON.parse(raw) as { sections?: Array<{ slug: string; duration_s: number }> }
+      if (Array.isArray(parsed.sections) && parsed.sections.length > 0) {
+        req.chapter_durations = parsed.sections
+          .filter(s => s && typeof s.slug === 'string' && Number.isFinite(s.duration_s) && s.duration_s > 0)
+          .map(s => ({ slug: s.slug, duration_s: s.duration_s }))
+        job.output_lines.push(`Chapter alignment: loaded ${req.chapter_durations.length} chapter duration(s) from audio_chapters.json`)
+      }
+    } catch {
+      job.output_lines.push(`Chapter alignment: ON but no audio_chapters.json sidecar — falling back to uniform cycling. Re-run Audio Merge to emit it.`)
+    }
+  }
+
   // Validate scenes
   if (!req.scenes || req.scenes.length === 0) {
     throw new Error('No scenes provided for video generation')
@@ -1034,6 +1057,12 @@ export async function generateVideo(job: Job): Promise<void> {
       } : undefined,
       outroClipPath,
       timelineClipsByAnchor,
+      // Chapter alignment (Workstream B). Frontend sends durations from
+      // `${episode}/audio_chapters.json`; backend partitions scenes
+      // across them when the flag is on. Off → legacy cycling.
+      req.align_visuals_to_chapters && Array.isArray(req.chapter_durations) && req.chapter_durations.length > 0
+        ? { enabled: true, chapterDurations: req.chapter_durations }
+        : undefined,
     )
 
     // 11. Pre-mix all audio into a single WAV file. Length must match the
@@ -1682,6 +1711,15 @@ async function buildConcatList(
    *  order at its named position. Buckets that are empty are no-ops, so
    *  callers that don't use timeline clips can pass `undefined`. */
   timelineClipsByAnchor?: Record<TimelineAnchor, Array<{ path: string; duration: number }>>,
+  /** When provided AND `enabled`, scenes are partitioned across the
+   *  supplied chapter durations (in order) instead of uniform-cycling
+   *  the entire bag. Each chapter's assigned scenes cycle within its
+   *  own audio duration so chapter N's narration plays with chapter N's
+   *  scene images. Falls back to legacy cycling when missing/disabled. */
+  chapterAlignment?: {
+    enabled: boolean
+    chapterDurations: Array<{ slug: string; duration_s: number }>
+  },
 ): Promise<{ listPath: string; sceneEndTime: number }> {
   const listPath = path.join(tempDir, 'concat_list.txt')
   const lines: string[] = []
@@ -1745,19 +1783,67 @@ async function buildConcatList(
     ? targetDuration - accumulatedDuration
     : Math.max(0, narrationDuration - accumulatedDuration)
 
-  const cyclesNeeded = Math.max(1, Math.ceil(sceneFillDuration / durationPerCycle))
-
-  // Build the sequential list of scene clip paths (post shuffle/cycle).
+  // Build the sequential list of scene clip paths.
+  //
+  // Two modes:
+  //  A) Chapter-aligned (Workstream B): partition scenes across chapter
+  //     durations in order. Each chapter's assigned slice cycles within
+  //     its own audio duration so chapter N narration plays with
+  //     chapter N visuals. Shuffle is intentionally ignored here —
+  //     ordering must follow chapter order to preserve the alignment.
+  //  B) Legacy uniform cycling: every scene gets the same duration and
+  //     the whole bag cycles to fill `sceneFillDuration`.
   const scenePlayOrder: string[] = []
-  for (let cycle = 0; cycle < cyclesNeeded; cycle++) {
-    let cycleClips = [...availableClips]
-    if (recycling.shuffle) {
-      for (let i = cycleClips.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [cycleClips[i], cycleClips[j]] = [cycleClips[j], cycleClips[i]]
+  const chapterAlignActive = !!(chapterAlignment?.enabled
+    && chapterAlignment.chapterDurations.length > 0
+    && availableClips.length > 0)
+
+  if (chapterAlignActive) {
+    const chapters = chapterAlignment!.chapterDurations
+    const C = chapters.length
+    const S = availableClips.length
+    // Floor split + spread the remainder across the first chapters so
+    // we never assign 0 scenes to a chapter when S < C.
+    const baseSpc = Math.floor(S / C)
+    const extra = S - baseSpc * C
+    let cursor = 0
+    let chapterPlanLog: string[] = []
+    for (let ci = 0; ci < C; ci++) {
+      const ch = chapters[ci]!
+      const chapterScenes = baseSpc + (ci < extra ? 1 : 0)
+      // Edge: when S < C, some chapters get 0 scenes. Borrow the next
+      // chapter's first scene as a fallback so we never emit a silent
+      // gap. This also covers degenerate cases (S=1, C=10).
+      const slice = chapterScenes > 0
+        ? availableClips.slice(cursor, cursor + chapterScenes)
+        : (cursor < S ? [availableClips[cursor]!] : [availableClips[availableClips.length - 1]!])
+      cursor += chapterScenes
+      // How many total fixed-duration clips are needed to cover this
+      // chapter's audio? Cycle the slice. Last clip overshoots the
+      // chapter by up to `sceneDuration` seconds — acceptable since
+      // chapter boundaries aren't audibly hard cuts (the silence gap
+      // between chapters absorbs the slop).
+      const clipsNeeded = Math.max(1, Math.ceil(ch.duration_s / sceneDuration))
+      for (let k = 0; k < clipsNeeded; k++) {
+        scenePlayOrder.push(slice[k % slice.length]!)
       }
+      chapterPlanLog.push(`${ch.slug}: ${chapterScenes} scene(s) × ${clipsNeeded} cycle(s) = ${ch.duration_s.toFixed(1)}s`)
     }
-    for (const clip of cycleClips) scenePlayOrder.push(clip)
+    job.output_lines.push(
+      `Chapter alignment: ON · ${C} chapter(s), ${S} scene(s) total — ${chapterPlanLog.join(' | ')}`,
+    )
+  } else {
+    const cyclesNeeded = Math.max(1, Math.ceil(sceneFillDuration / durationPerCycle))
+    for (let cycle = 0; cycle < cyclesNeeded; cycle++) {
+      let cycleClips = [...availableClips]
+      if (recycling.shuffle) {
+        for (let i = cycleClips.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [cycleClips[i], cycleClips[j]] = [cycleClips[j], cycleClips[i]]
+        }
+      }
+      for (const clip of cycleClips) scenePlayOrder.push(clip)
+    }
   }
 
   const totalClips = scenePlayOrder.length
@@ -1873,7 +1959,13 @@ async function buildConcatList(
     ? Math.max(0, (totalClips - 1 - xfadeHardCuts)) * transitionOpts.durationSec
     : 0
   const sceneEndTime = accumulatedDuration + (totalClips * sceneDuration) - xfadeSavings
-  job.output_lines.push(`Scene clips: ${cyclesNeeded} cycle(s), ${totalClips} clips (${sceneEndTime.toFixed(0)}s)`)
+  // `cyclesNeeded` only makes sense in legacy uniform-cycling mode. The
+  // chapter-aligned path doesn't have a single global cycle count, so
+  // we report a derived round-trip number for diagnostics either way.
+  const reportedCycles = chapterAlignActive
+    ? `${chapterAlignment!.chapterDurations.length}-chapter aligned`
+    : `${Math.max(1, Math.ceil(sceneFillDuration / durationPerCycle))} cycle(s)`
+  job.output_lines.push(`Scene clips: ${reportedCycles}, ${totalClips} clips (${sceneEndTime.toFixed(0)}s)`)
 
   // Bucket 3 of 4 — after_scenes: between the last scene cycle and the
   // post-audio fade/hold. These clips are beyond `sceneEndTime`, so the
