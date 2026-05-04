@@ -89,6 +89,101 @@ router.get('/projects/:slug/video-editor/music-files', async (req, res) => {
   }
 })
 
+// Scan local overlay assets in project directory.
+// Looks under `${PROJECT}/overlays/` for video/image files that the
+// Overlay Layers UI can attach as a composite layer. Mirrors the
+// music-files scanner above — same caching pattern, no ffprobe
+// fan-out for static images so the response stays cheap.
+router.get('/projects/:slug/video-editor/overlay-files', async (req, res) => {
+  const { slug } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+  try {
+    const projectDir = pm.getProjectDir(slug)
+    if (!projectDir) return res.status(404).json({ detail: 'Project directory not found' })
+
+    type OverlayEntry = {
+      filename: string
+      path: string
+      ext: string
+      kind: 'video' | 'image'
+      /** Heuristic — `.mov` ProRes 4444, `.webm` VP9 with alpha, `.png`,
+       *  `.gif`, and `.apng` typically carry alpha so chroma-key is
+       *  unnecessary. The UI uses this to default the chroma-key
+       *  toggle off for these types. */
+      likely_has_alpha: boolean
+      duration?: number
+    }
+    const videoExtensions = /\.(mp4|mov|webm|mkv|m4v)$/i
+    const imageExtensions = /\.(png|gif|apng|webp|jpg|jpeg)$/i
+    const alphaFriendly = /\.(mov|webm|png|apng|gif|webp)$/i
+
+    const overlaysDir = path.join(projectDir, 'overlays')
+    if (!existsSync(overlaysDir)) {
+      // Soft-fail: returning an empty list lets the UI render a
+      // "drop files into overlays/" hint without an error toast.
+      return res.json({ overlays: [], overlays_dir: overlaysDir, exists: false })
+    }
+
+    const out: OverlayEntry[] = []
+    try {
+      const files = await fs.readdir(overlaysDir)
+      for (const file of files) {
+        const isVideo = videoExtensions.test(file)
+        const isImage = imageExtensions.test(file)
+        if (!isVideo && !isImage) continue
+        const fullPath = path.join(overlaysDir, file)
+        const ext = path.extname(file).toLowerCase()
+        let duration: number | undefined
+        if (isVideo) {
+          // Reuse audio-duration resolver (it probes streams; container
+          // doesn't matter to ffprobe). Static images skip — no duration
+          // to report.
+          try { duration = await getAudioDuration(fullPath) } catch { /* tolerate */ }
+        }
+        out.push({
+          filename: file,
+          path: fullPath,
+          ext,
+          kind: isVideo ? 'video' : 'image',
+          likely_has_alpha: alphaFriendly.test(file),
+          duration,
+        })
+      }
+    } catch (e: any) {
+      return res.status(500).json({ detail: `Could not read ${overlaysDir}: ${e?.message || e}` })
+    }
+
+    out.sort((a, b) => a.filename.localeCompare(b.filename, undefined, { numeric: true }))
+    res.json({ overlays: out, overlays_dir: overlaysDir, exists: true })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not scan overlay files'))
+  }
+})
+
+// Open the project's overlays/ folder in the OS file manager so the
+// user can drop new clips in. Creates the folder on first call so
+// the click never fails on a fresh project.
+router.post('/projects/:slug/video-editor/overlays/open-folder', async (req, res) => {
+  const { slug } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const projectDir = pm.getProjectDir(slug)
+    if (!projectDir) return res.status(404).json({ detail: 'Project directory not found' })
+    const overlaysDir = path.join(projectDir, 'overlays')
+    await fs.mkdir(overlaysDir, { recursive: true })
+    // shell.openPath returns '' on success or an error string. Do it
+    // via the Electron main-process bridge so packaged builds still
+    // get the correct shell.
+    const { shell } = await import('electron')
+    const err = await shell.openPath(overlaysDir)
+    if (err) return res.status(500).json({ detail: `Could not open folder: ${err}` })
+    res.json({ ok: true, path: overlaysDir })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not open overlays folder'))
+  }
+})
+
 // Serve an audio file for preview playback (music, background noise)
 router.get('/projects/:slug/video-editor/preview-audio', async (req, res) => {
   const { slug } = req.params

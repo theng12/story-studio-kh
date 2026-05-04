@@ -91,6 +91,10 @@ export interface VideoAssemblyIoState {
   filmGrain: any
   letterbox: any
   chromaKey: any
+  /** Multi-layer overlay system (v1.0.53+). Authoritative when present;
+   *  the legacy `chromaKey` slot is upgraded into a single layer on
+   *  the backend if `overlays` is empty. */
+  overlays?: any
   titleCard: any
   chapterTitles: any
   outroCard: any
@@ -322,6 +326,15 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     if (s.colorGrading.enabled) payload.color_grading = { ...s.colorGrading }
     if (s.vignette.enabled)     payload.vignette      = { ...s.vignette }
     if (s.chromaKey.enabled && s.chromaKey.source_path) payload.chroma_key = { ...s.chromaKey }
+    // New multi-overlay path. Send only enabled layers with a
+    // populated source_path so the backend doesn't waste an `-i`
+    // slot on half-configured rows.
+    if (s.overlays?.enabled && Array.isArray(s.overlays.layers)) {
+      const liveLayers = s.overlays.layers.filter((l: any) => l && l.enabled && l.source_path)
+      if (liveLayers.length) {
+        payload.overlays = { enabled: true, layers: liveLayers.map((l: any) => ({ ...l })) }
+      }
+    }
     if (s.filmGrain.enabled)    payload.film_grain    = { ...s.filmGrain }
     if (s.letterbox.enabled)    payload.letterbox     = { ...s.letterbox }
 

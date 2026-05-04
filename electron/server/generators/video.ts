@@ -32,7 +32,7 @@ import type {
   VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
   VideoTitleImageConfig, VideoSceneRecycling, VideoMusicConfig,
   VideoDurationConfig, VideoColorGrading, VideoVignetteConfig,
-  VideoChromaKeyConfig, VideoBackgroundNoise, VideoFilmGrain, VideoLetterbox,
+  VideoChromaKeyConfig, VideoOverlaysConfig, VideoOverlay, VideoBackgroundNoise, VideoFilmGrain, VideoLetterbox,
   VideoSceneAnimation, VideoPostAudio,
 } from '../models/types.js'
 
@@ -1077,6 +1077,7 @@ export async function generateVideo(job: Job): Promise<void> {
         colorGrading: req.color_grading,
         vignette: req.vignette,
         chromaKey: req.chroma_key,
+        overlays: req.overlays,
         filmGrain: req.film_grain,
         letterbox: req.letterbox,
         subtitles: req.subtitles,
@@ -2189,6 +2190,8 @@ interface CompositionOpts {
   colorGrading?: VideoColorGrading
   vignette?: VideoVignetteConfig
   chromaKey?: VideoChromaKeyConfig
+  /** Multi-layer overlay system. When present, supersedes `chromaKey`. */
+  overlays?: VideoOverlaysConfig
   filmGrain?: VideoFilmGrain
   letterbox?: VideoLetterbox
   subtitles?: import('../models/types.js').VideoSubtitleConfig
@@ -2219,7 +2222,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   const {
     videoInputPath, premixedAudioPath, logo,
     targetDuration, w, h, quality, format, outputFile,
-    colorGrading, vignette, chromaKey, filmGrain, letterbox, subtitles,
+    colorGrading, vignette, chromaKey, overlays, filmGrain, letterbox, subtitles,
     excludeIntroFromEffects,
     preSceneDuration,
     postAudioStart,
@@ -2275,18 +2278,40 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     }
   }
 
-  // Input: chroma key source (if enabled)
-  let hasChroma = false
-  let chromaInputIdx = -1
-  if (chromaKey?.enabled && chromaKey.source_path) {
-    const avail = checkAssetAvailability(chromaKey.source_path, 'chroma_key.source_path')
-    if (avail.status === 'available') {
-      args.push('-stream_loop', '-1', '-i', chromaKey.source_path)
-      chromaInputIdx = nextInputIdx++
-      hasChroma = true
-    } else {
-      job.output_lines.push(`${avail.message} — chroma key skipped`)
+  // Overlay layers — back-compat: a legacy `chromaKey` synthesises into
+  // a single-layer overlay so the rest of the pipeline only handles
+  // one shape. New projects use `overlays.layers[]` directly.
+  const overlayLayers: VideoOverlay[] = []
+  if (overlays?.enabled && Array.isArray(overlays.layers)) {
+    for (const l of overlays.layers) {
+      if (l.enabled && l.source_path) overlayLayers.push(l)
     }
+  } else if (chromaKey?.enabled && chromaKey.source_path) {
+    overlayLayers.push({
+      id: 'legacy-chromakey',
+      enabled: true,
+      source_path: chromaKey.source_path,
+      chroma_key: {
+        color: chromaKey.color || '#00FF00',
+        similarity: chromaKey.similarity ?? 0.15,
+        blend: chromaKey.blend ?? 0.1,
+      },
+    })
+  }
+  // Open one ffmpeg `-i` per layer in array order. -1 marker means the
+  // file was missing at availability check time and the layer is dropped
+  // from the filter graph below.
+  const overlayInputIdxs: number[] = []
+  for (const layer of overlayLayers) {
+    const avail = checkAssetAvailability(layer.source_path, `overlays[${layer.id}].source_path`)
+    if (avail.status !== 'available') {
+      job.output_lines.push(`${avail.message} — overlay '${layer.id}' skipped`)
+      overlayInputIdxs.push(-1)
+      continue
+    }
+    if (layer.loop !== false) args.push('-stream_loop', '-1')
+    args.push('-i', layer.source_path)
+    overlayInputIdxs.push(nextInputIdx++)
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -2302,20 +2327,71 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   filterParts.push(`${vLabel}setpts=PTS-STARTPTS${v1}`)
   vLabel = v1
 
-  // 2. Chroma key overlay. Gating happens on the final overlay step —
-  //    the scaled/keyed source still enters the graph, but the composite
-  //    is only visible after the gate time.
-  if (hasChroma && chromaKey) {
-    const similarity = chromaKey.similarity ?? 0.15
-    const blend = chromaKey.blend ?? 0.1
-    const color = chromaKey.color || '0x00FF00'
-    const hexColor = color.startsWith('#') ? '0x' + color.slice(1) : color
+  // 2. Overlay layers (multi-layer; v1.0.53+).
+  //    Each layer: scale → optional chroma-key → optional opacity →
+  //    composite onto running base. Layers stack in array order — the
+  //    first layer is drawn nearest the base, the last sits on top.
+  //    The legacy single-slot `chroma_key` field is upgraded into a
+  //    one-element `overlayLayers` array above so this loop is the
+  //    sole composite path.
+  for (let i = 0; i < overlayLayers.length; i++) {
+    const layer = overlayLayers[i]!
+    const inIdx = overlayInputIdxs[i]!
+    if (inIdx < 0) continue   // file missing — skipped at availability check
 
-    const ck1 = vn()
-    const ck2 = vn()
-    filterParts.push(`[${chromaInputIdx}:v]scale=${w}:${h},chromakey=color=${hexColor}:similarity=${similarity}:blend=${blend}${ck1}`)
-    filterParts.push(`${vLabel}${ck1}overlay=0:0${gateEnable}${ck2}`)
-    vLabel = ck2
+    // Build per-layer scaled/keyed source label.
+    const scaleMode = layer.scale || 'cover'
+    let scaleExpr = ''
+    if (scaleMode === 'cover') {
+      // Fill canvas, crop overflow. Preserves aspect ratio.
+      scaleExpr = `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}`
+    } else if (scaleMode === 'contain') {
+      // Fit inside canvas, transparent letterbox. Useful for frame mattes.
+      scaleExpr = `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black@0`
+    }
+    // 'native' = no scale; layer composites at its source dimensions.
+
+    const parts: string[] = []
+    if (scaleExpr) parts.push(scaleExpr)
+    if (layer.chroma_key) {
+      const ck = layer.chroma_key
+      const hex = ck.color.startsWith('#') ? '0x' + ck.color.slice(1) : ck.color
+      parts.push(`chromakey=color=${hex}:similarity=${ck.similarity ?? 0.15}:blend=${ck.blend ?? 0.1}`)
+    }
+    const opacity = layer.opacity ?? 1
+    if (opacity < 1) {
+      // Mix alpha with `aa=`. format=rgba ensures the input has an
+      // alpha channel even when the source is yuv420p (no alpha).
+      parts.push(`format=rgba,colorchannelmixer=aa=${opacity}`)
+    }
+
+    const srcLabel = vn()
+    const srcChain = parts.length
+      ? `[${inIdx}:v]${parts.join(',')}${srcLabel}`
+      : `[${inIdx}:v]null${srcLabel}`
+    filterParts.push(srcChain)
+
+    // Composite onto running base. Compose per-layer time range with
+    // the global effects gate (intro/post-audio). The two are AND-ed.
+    const x = layer.position?.x ?? '0'
+    const y = layer.position?.y ?? '0'
+    const enableExprs: string[] = []
+    if (gateEnable) {
+      // Existing gateEnable is `:enable='between(t,a,b)'` — strip wrapper
+      // so we can AND it with the per-layer expression.
+      const m = /^:enable='([^']+)'$/.exec(gateEnable)
+      if (m) enableExprs.push(m[1]!)
+    }
+    if (layer.time_range) {
+      const tr = layer.time_range
+      if (tr.end_s != null) enableExprs.push(`between(t,${tr.start_s ?? 0},${tr.end_s})`)
+      else if (tr.start_s) enableExprs.push(`gte(t,${tr.start_s})`)
+    }
+    const layerEnable = enableExprs.length ? `:enable='${enableExprs.join('*')}'` : ''
+
+    const dst = vn()
+    filterParts.push(`${vLabel}${srcLabel}overlay=${x}:${y}${layerEnable}${dst}`)
+    vLabel = dst
   }
 
   // 3. Color grading — gateSuffix appended to each sub-filter (eq + colorbalance)

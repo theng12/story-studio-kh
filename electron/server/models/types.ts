@@ -1317,6 +1317,41 @@ export interface VideoChromaKeyConfig {
   blend: number           // 0.0 to 1.0, default 0.1
 }
 
+// Overlay layers — generalisation of the legacy single-slot
+// `chroma_key` field. Each layer composites a video / image / GIF on
+// top of the base render. Layers stack in array order (index 0 first,
+// drawn under later layers). Sources with native alpha (`.mov` ProRes
+// 4444, `.webm` VP9, RGBA `.png`, `.gif`) skip chroma-key entirely;
+// sources without alpha use the per-layer chroma_key block.
+//
+// The legacy `chroma_key` field is still accepted for one release —
+// the request handler synthesises a single-layer overlay from it
+// before the filter-graph step so renders stay byte-identical for
+// existing projects.
+export interface VideoOverlay {
+  /** Stable id for ordering / removal (UUID or short hash). */
+  id: string
+  enabled: boolean
+  /** Resolved via existing `resolveAssetPath` (handles portable + bundled prefixes). */
+  source_path: string
+  /** Optional. Omit / null when the source has native alpha. */
+  chroma_key?: { color: string; similarity: number; blend: number } | null
+  /** 0..1, default 1. Wired via `colorchannelmixer=aa=…` like the logo overlay. */
+  opacity?: number
+  /** How to fit the source into the output canvas. Default 'cover' (fills frame). */
+  scale?: 'cover' | 'contain' | 'native'
+  /** FFmpeg overlay-filter `x:y` coordinates as expressions. Default '0:0'. */
+  position?: { x: string; y: string }
+  /** Optional time-range. Combined with the global effects gate (intro/outro). */
+  time_range?: { start_s: number; end_s: number | null }
+  /** When true (default), short clips repeat to fill the timeline (`-stream_loop -1`). */
+  loop?: boolean
+}
+export interface VideoOverlaysConfig {
+  enabled: boolean
+  layers: VideoOverlay[]
+}
+
 export interface VideoBackgroundNoise {
   enabled: boolean
   mode: 'preset' | 'custom'
@@ -1443,6 +1478,10 @@ export interface GenerateVideoRequest {
   color_grading?: VideoColorGrading
   vignette?: VideoVignetteConfig
   chroma_key?: VideoChromaKeyConfig
+  /** Multi-layer overlay system (v1.0.53+). Replaces the single-slot
+   *  `chroma_key` field, which is still accepted for one release for
+   *  backward compatibility. */
+  overlays?: VideoOverlaysConfig
   film_grain?: VideoFilmGrain
   letterbox?: VideoLetterbox
   subtitles?: VideoSubtitleConfig

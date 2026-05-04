@@ -1036,6 +1036,189 @@
         </div>
       </div>
 
+      <!-- Overlay Layers (multi-source compositing) -->
+      <div class="settings-section mt-2">
+        <div class="flex gap-2 items-center">
+          <label class="checkbox-label" @click.stop>
+            <input type="checkbox" v-model="overlays.enabled" :disabled="!overlays.layers.length" />
+          </label>
+          <h4>Overlay Layers</h4>
+          <span class="text-muted text-xs">
+            ({{ overlays.layers.length }} layer{{ overlays.layers.length === 1 ? '' : 's' }})
+          </span>
+        </div>
+        <p class="text-muted text-sm mt-1">
+          Stack any number of effect clips (cinematic frames, fire, fireflies, rain) on top of your base render.
+          Layers composite in list order — top of list draws first, bottom sits on top.
+          Drop your asset files into the project's <code>overlays/</code> folder, then click <strong>+ Add overlay</strong> below.
+        </p>
+        <p class="text-muted text-xs mt-1">
+          <strong>Source tip:</strong> alpha-channel files (<code>.mov</code> ProRes 4444, <code>.webm</code> VP9, RGBA <code>.png</code>, <code>.gif</code>) composite cleanly without keying.
+          Solid-background files (most green-screen MP4s) need the per-layer chroma key turned on.
+        </p>
+
+        <div v-if="overlays.layers.length" class="mt-2" style="display: flex; flex-direction: column; gap: 8px;">
+          <div
+            v-for="(layer, idx) in overlays.layers"
+            :key="layer.id"
+            class="card"
+            :style="`padding: 10px; border-left: 3px solid ${layer.enabled ? 'var(--accent)' : 'var(--border)'}`"
+          >
+            <!-- Header row: enable, filename, reorder, remove -->
+            <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
+              <label class="checkbox-label" @click.stop>
+                <input type="checkbox" v-model="layer.enabled" />
+              </label>
+              <strong style="flex: 1; word-break: break-all;">
+                {{ layer.source_filename || layer.source_path.split('/').pop() || '(no file)' }}
+              </strong>
+              <span class="text-muted text-xs">#{{ idx + 1 }}</span>
+              <button
+                type="button"
+                class="btn btn-sm btn-secondary"
+                :disabled="idx === 0"
+                title="Move layer down (further from camera)"
+                @click="moveOverlayLayer(layer.id, -1)"
+              >↑</button>
+              <button
+                type="button"
+                class="btn btn-sm btn-secondary"
+                :disabled="idx === overlays.layers.length - 1"
+                title="Move layer up (closer to camera)"
+                @click="moveOverlayLayer(layer.id, 1)"
+              >↓</button>
+              <button
+                type="button"
+                class="btn btn-sm btn-danger"
+                title="Remove this layer"
+                @click="removeOverlayLayer(layer.id)"
+              >✕</button>
+            </div>
+
+            <!-- Per-layer inline controls -->
+            <div v-if="layer.enabled" class="grid-3 mt-1">
+              <div class="form-group">
+                <label>Opacity ({{ ((layer.opacity ?? 1) * 100).toFixed(0) }}%)</label>
+                <SliderWithNumber v-model="layer.opacity" :min="0" :max="1" :step="0.05" :decimals="2" />
+              </div>
+              <div class="form-group">
+                <label>Fit</label>
+                <select v-model="layer.scale" class="select select-sm">
+                  <option value="cover">Fill (crop overflow)</option>
+                  <option value="contain">Fit (transparent letterbox)</option>
+                  <option value="native">Native size (no scale)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    :checked="!!layer.chroma_key"
+                    @change="layer.chroma_key = ($event.target as HTMLInputElement).checked
+                      ? { color: '#00FF00', similarity: 0.15, blend: 0.1 }
+                      : null"
+                  />
+                  Remove green screen
+                </label>
+                <span class="text-muted text-xs">Off for files with native alpha.</span>
+              </div>
+            </div>
+
+            <!-- Chroma-key sub-block, shown only when keyed -->
+            <div v-if="layer.enabled && layer.chroma_key" class="grid-3 mt-1">
+              <div class="form-group">
+                <label>Key Color</label>
+                <div class="flex gap-2 items-center">
+                  <input v-model="layer.chroma_key.color" type="color" class="color-swatch-input" />
+                  <input v-model="layer.chroma_key.color" class="input input-sm input-w-100" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Similarity ({{ layer.chroma_key.similarity.toFixed(2) }})</label>
+                <SliderWithNumber v-model="layer.chroma_key.similarity" :min="0.01" :max="0.5" :step="0.01" :decimals="2" />
+              </div>
+              <div class="form-group">
+                <label>Edge Blend ({{ layer.chroma_key.blend.toFixed(2) }})</label>
+                <SliderWithNumber v-model="layer.chroma_key.blend" :min="0.0" :max="0.5" :step="0.01" :decimals="2" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add-overlay action row -->
+        <div class="flex gap-2 mt-2" style="flex-wrap: wrap;">
+          <button
+            type="button"
+            class="btn btn-sm btn-primary"
+            @click="(refreshOverlayLibrary(), showOverlayPickerForLayer = '__add__')"
+          >+ Add Overlay</button>
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            title="Open the project's overlays/ folder in Finder so you can drop new asset files in"
+            @click="openOverlaysFolder"
+          >📁 Open overlays folder</button>
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            :disabled="overlayPickerLoading"
+            title="Re-scan the overlays/ folder"
+            @click="refreshOverlayLibrary"
+          >🔄 Refresh</button>
+        </div>
+
+        <!-- Picker modal -->
+        <div
+          v-if="showOverlayPickerForLayer === '__add__'"
+          class="modal-overlay"
+          @click.self="showOverlayPickerForLayer = null"
+        >
+          <div class="modal-content" style="max-width: 600px;">
+            <div class="flex gap-2 items-center" style="margin-bottom: 12px;">
+              <h3 style="margin: 0; flex: 1;">Pick an overlay asset</h3>
+              <button type="button" class="btn btn-sm btn-secondary" @click="showOverlayPickerForLayer = null">✕ Close</button>
+            </div>
+            <div v-if="overlayPickerLoading" class="text-muted text-sm">Scanning overlays/ folder…</div>
+            <div v-else-if="overlayPickerError" class="text-danger text-sm">{{ overlayPickerError }}</div>
+            <div v-else-if="!overlayLibraryExists" class="text-muted text-sm">
+              No <code>overlays/</code> folder yet. Click <strong>📁 Open overlays folder</strong> to create it
+              and drop your asset files in.
+            </div>
+            <div v-else-if="!overlayLibrary.length" class="text-muted text-sm">
+              <code>overlays/</code> folder is empty. Drop one of:
+              <ul style="margin: 6px 0 0 18px;">
+                <li><code>.mov</code> / <code>.webm</code> / <code>.png</code> / <code>.gif</code> — alpha-channel sources (no keying needed)</li>
+                <li><code>.mp4</code> — typically green-screen sources (chroma-key on)</li>
+              </ul>
+              Free CC0 sources: Pixabay, Mixkit, Productioncrate.
+            </div>
+            <div v-else style="display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto;">
+              <button
+                v-for="f in overlayLibrary"
+                :key="f.path"
+                type="button"
+                class="btn btn-secondary"
+                style="text-align: left; padding: 10px; display: flex; gap: 10px; align-items: center;"
+                @click="addOverlayLayer(f)"
+              >
+                <span style="font-size: 18px;">{{ f.kind === 'video' ? '🎬' : '🖼️' }}</span>
+                <span style="flex: 1;">
+                  <strong>{{ f.filename }}</strong>
+                  <br>
+                  <span class="text-muted text-xs">
+                    {{ f.kind }}{{ f.duration ? ` · ${f.duration.toFixed(1)}s` : '' }}
+                    · {{ f.likely_has_alpha ? 'alpha — no key needed' : 'opaque — chroma-key recommended' }}
+                  </span>
+                </span>
+              </button>
+            </div>
+            <p class="text-muted text-xs mt-2" style="margin-bottom: 0;">
+              Source folder: <code>{{ overlayLibraryDir }}</code>
+            </p>
+          </div>
+        </div>
+      </div>
+
       <!-- Intro + title exclusion -->
       <div
         v-if="(intro.enabled || titleImage.enabled) && (colorGrading.enabled || vignette.enabled || filmGrain.enabled || (logo.enabled && logo.image_path) || (chromaKey.enabled && chromaKey.source_path) || (subtitles.enabled && subtitles.srt_path))"
@@ -2144,6 +2327,116 @@ const chromaKey = reactive({
   blend: 0.1,
 })
 
+// Multi-layer overlay system (v1.0.53+). Each entry stacks above the
+// previous one in the final composite. Sources with native alpha
+// (.mov/.webm/.png/.gif) leave `chroma_key` null; green-screen sources
+// fill it in. The backend treats this array as authoritative when
+// `enabled` is true; when disabled, the legacy single-slot `chromaKey`
+// above is still honoured for back-compat with old projects.
+type OverlayLayer = {
+  id: string
+  enabled: boolean
+  source_path: string
+  source_filename?: string  // display-only; stripped from the API payload
+  chroma_key?: { color: string; similarity: number; blend: number } | null
+  opacity?: number
+  scale?: 'cover' | 'contain' | 'native'
+  position?: { x: string; y: string }
+  loop?: boolean
+}
+const overlays = reactive<{ enabled: boolean; layers: OverlayLayer[] }>({
+  enabled: false,
+  layers: [],
+})
+
+// Project's overlays/ folder contents — populated on tab open via the
+// /video-editor/overlay-files scanner. The "+ Add overlay" modal lists
+// these so the user picks a filename instead of pasting a path.
+const overlayPickerLoading = ref(false)
+const overlayPickerError = ref('')
+const overlayLibrary = ref<Array<{
+  filename: string
+  path: string
+  ext: string
+  kind: 'video' | 'image'
+  likely_has_alpha: boolean
+  duration?: number
+}>>([])
+const overlayLibraryDir = ref('')
+const overlayLibraryExists = ref(false)
+const showOverlayPickerForLayer = ref<string | null>(null)  // layer.id of the picker target
+
+async function refreshOverlayLibrary() {
+  overlayPickerLoading.value = true
+  overlayPickerError.value = ''
+  try {
+    const r = await $fetch<{
+      overlays: typeof overlayLibrary.value
+      overlays_dir: string
+      exists: boolean
+    }>(`/api/projects/${slug.value}/video-editor/overlay-files`)
+    overlayLibrary.value = r.overlays || []
+    overlayLibraryDir.value = r.overlays_dir || ''
+    overlayLibraryExists.value = !!r.exists
+  } catch (e: any) {
+    overlayPickerError.value = e?.data?.detail || e?.message || 'Could not scan overlays folder'
+  } finally {
+    overlayPickerLoading.value = false
+  }
+}
+
+async function openOverlaysFolder() {
+  try {
+    await $fetch(`/api/projects/${slug.value}/video-editor/overlays/open-folder`, { method: 'POST' })
+    // The folder may have been created on first call — refresh so the
+    // picker reflects the new (empty) state without a manual reload.
+    await refreshOverlayLibrary()
+  } catch (e: any) {
+    overlayPickerError.value = e?.data?.detail || e?.message || 'Could not open overlays folder'
+  }
+}
+
+function newOverlayId(): string {
+  // Short stable id; doesn't need to be globally unique, just unique
+  // within the layer array. crypto.randomUUID() is overkill here.
+  return `ov_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function addOverlayLayer(file: { path: string; filename: string; likely_has_alpha: boolean }) {
+  overlays.layers.push({
+    id: newOverlayId(),
+    enabled: true,
+    source_path: file.path,
+    source_filename: file.filename,
+    // Default the chroma-key block based on the file's likely alpha
+    // status. Alpha-friendly extensions skip keying entirely; others
+    // get a green-screen default the user can tweak.
+    chroma_key: file.likely_has_alpha
+      ? null
+      : { color: '#00FF00', similarity: 0.15, blend: 0.1 },
+    opacity: 1,
+    scale: 'cover',
+    loop: true,
+  })
+  overlays.enabled = true   // first add auto-enables the system
+  showOverlayPickerForLayer.value = null
+}
+
+function removeOverlayLayer(id: string) {
+  const idx = overlays.layers.findIndex(l => l.id === id)
+  if (idx >= 0) overlays.layers.splice(idx, 1)
+  if (!overlays.layers.length) overlays.enabled = false
+}
+
+function moveOverlayLayer(id: string, dir: -1 | 1) {
+  const idx = overlays.layers.findIndex(l => l.id === id)
+  const next = idx + dir
+  if (idx < 0 || next < 0 || next >= overlays.layers.length) return
+  const tmp = overlays.layers[idx]!
+  overlays.layers[idx] = overlays.layers[next]!
+  overlays.layers[next] = tmp
+}
+
 const filmGrain = reactive({
   enabled: false,
   strength: 15,
@@ -2438,6 +2731,7 @@ const effectsPresets = usePresets({
     film_grain: { ...filmGrain },
     letterbox: { ...letterbox },
     chroma_key: { ...chromaKey },
+    overlays: { enabled: overlays.enabled, layers: overlays.layers.map(l => ({ ...l })) },
     exclude_intro_from_effects: excludeIntroFromEffects.value,
     title_card: { ...titleCard },
     chapter_titles: { ...chapterTitles },
@@ -2451,6 +2745,10 @@ const effectsPresets = usePresets({
     if (data.film_grain) Object.assign(filmGrain, data.film_grain)
     if (data.letterbox) Object.assign(letterbox, data.letterbox)
     if (data.chroma_key) Object.assign(chromaKey, data.chroma_key)
+    if (data.overlays && Array.isArray(data.overlays.layers)) {
+      overlays.enabled = !!data.overlays.enabled
+      overlays.layers.splice(0, overlays.layers.length, ...data.overlays.layers.map((l: any) => ({ ...l })))
+    }
     if (typeof data.exclude_intro_from_effects === 'boolean') {
       excludeIntroFromEffects.value = data.exclude_intro_from_effects
     }
@@ -2545,6 +2843,7 @@ function snapshotEffectsData() {
     film_grain: { ...filmGrain },
     letterbox: { ...letterbox },
     chroma_key: { ...chromaKey },
+    overlays: { enabled: overlays.enabled, layers: overlays.layers.map(l => ({ ...l })) },
     exclude_intro_from_effects: excludeIntroFromEffects.value,
     title_card: { ...titleCard },
     chapter_titles: { ...chapterTitles },
@@ -2559,6 +2858,10 @@ function applyEffectsData(data: any) {
   if (data.film_grain) Object.assign(filmGrain, data.film_grain)
   if (data.letterbox) Object.assign(letterbox, data.letterbox)
   if (data.chroma_key) Object.assign(chromaKey, data.chroma_key)
+  if (data.overlays && Array.isArray(data.overlays.layers)) {
+    overlays.enabled = !!data.overlays.enabled
+    overlays.layers.splice(0, overlays.layers.length, ...data.overlays.layers.map((l: any) => ({ ...l })))
+  }
   if (typeof data.exclude_intro_from_effects === 'boolean') {
     excludeIntroFromEffects.value = data.exclude_intro_from_effects
   }
@@ -3291,6 +3594,7 @@ const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo } = useVideoAss
   excludeIntroFromEffects,
   logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, postAudio,
   duration, colorGrading, vignette, filmGrain, letterbox, chromaKey,
+  overlays,
   titleCard, chapterTitles, outroCard, exportSettings,
   // generateVideo() needs these three plus post+confirmGeneration+videoGenerating
   // passed at call-time so the composable doesn't duplicate those imports.
