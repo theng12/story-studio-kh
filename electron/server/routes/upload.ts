@@ -836,9 +836,27 @@ function matchesFilter(item: QueueIndexItem, parsed: ParsedFilter): boolean {
   return true
 }
 
-function filterAndSortIndex(items: QueueIndexItem[], filterRaw: string, sort: QueueSort): QueueIndexItem[] {
+function filterAndSortIndex(
+  items: QueueIndexItem[],
+  filterRaw: string,
+  sort: QueueSort,
+  q?: string,
+): QueueIndexItem[] {
   const parsed = parseFilterParam(filterRaw)
   let out: QueueIndexItem[] = items.filter(i => matchesFilter(i, parsed))
+  // Substring search across the fields a user is most likely to type:
+  // episode_code (e.g. "TN0143"), title (the human label they remember),
+  // and filename (for import rows that don't have an episode_code).
+  // Case-insensitive; trimmed; no-op when blank so existing call sites
+  // that don't pass `q` keep their semantics.
+  const qNorm = (q || '').trim().toLowerCase()
+  if (qNorm) {
+    out = out.filter(i =>
+      (i.episode_code || '').toLowerCase().includes(qNorm) ||
+      (i.title || '').toLowerCase().includes(qNorm) ||
+      (i.filename || '').toLowerCase().includes(qNorm)
+    )
+  }
   out = out.slice()
   const cmpCode = (a: QueueIndexItem, b: QueueIndexItem) =>
     (a.episode_code || a.filename || '').localeCompare(b.episode_code || b.filename || '', undefined, { numeric: true })
@@ -879,6 +897,10 @@ router.get('/projects/:slug/upload/queue', async (req, res) => {
     // alias map — see parseFilterParam.
     const filter = String(req.query.filter || 'all')
     const sort = (String(req.query.sort || 'code_asc') as QueueSort)
+    // Free-text search — matches against episode_code, title, filename.
+    // Empty / whitespace = disabled. See filterAndSortIndex for the
+    // exact match semantics.
+    const q = typeof req.query.q === 'string' ? req.query.q : ''
     // Item 10 — when present, restricts the queue to a specific list of
     // episode_codes regardless of filter/page. Lets the frontend show a
     // "View selected" view that pulls only-the-selected rows into a single
@@ -912,7 +934,7 @@ router.get('/projects/:slug/upload/queue', async (req, res) => {
       queueIndexCache.set(ckey, { ts: now, items: index })
     }
 
-    let filtered = filterAndSortIndex(index, filter, sort)
+    let filtered = filterAndSortIndex(index, filter, sort, q)
     // Item 10 — episode_codes[] post-filter, applied AFTER the chip filter
     // so the user's "show me my selection" view honours both the filter
     // chips (in case they want to combine) AND the explicit list. When

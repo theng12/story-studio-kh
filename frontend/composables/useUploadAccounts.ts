@@ -228,6 +228,7 @@ export function useUploadAccounts(slug: string) {
     // so bulk actions don't accidentally re-touch them.
     filter: 'ready,uploaded_local' as QueueFilter,
     sort: 'code_asc' as QueueSort,
+    q: '',
   }
 
   // Two call shapes for backwards compatibility:
@@ -239,6 +240,8 @@ export function useUploadAccounts(slug: string) {
     pageSize?: number
     filter?: QueueFilter
     sort?: QueueSort
+    /** Free-text search over episode_code, title, filename. Empty = no filter. */
+    q?: string
     nocache?: boolean
     /**
      * Item 10 — restrict the queue to a specific list of episode_codes
@@ -255,6 +258,7 @@ export function useUploadAccounts(slug: string) {
     if (opts.pageSize) queueLastParams.pageSize = opts.pageSize
     if (opts.filter) queueLastParams.filter = opts.filter
     if (opts.sort) queueLastParams.sort = opts.sort
+    if (typeof opts.q === 'string') queueLastParams.q = opts.q
     queueLoading.value = true
     try {
       const qs = new URLSearchParams({
@@ -264,6 +268,7 @@ export function useUploadAccounts(slug: string) {
         filter: queueLastParams.filter,
         sort: queueLastParams.sort,
       })
+      if (queueLastParams.q.trim()) qs.set('q', queueLastParams.q.trim())
       if (opts.nocache) qs.set('nocache', '1')
       if (opts.episodeCodes && opts.episodeCodes.length) qs.set('episode_codes', opts.episodeCodes.join(','))
       const r = await get<{
@@ -295,6 +300,8 @@ export function useUploadAccounts(slug: string) {
     platform?: UploadPlatform
     filter?: QueueFilter
     sort?: QueueSort
+    /** Free-text search; defaults to whatever the queue is currently filtered by. */
+    q?: string
     nocache?: boolean
   } = {}): Promise<{ episode_codes: string[]; total: number; total_unfiltered: number }> {
     const qs = new URLSearchParams({
@@ -303,6 +310,8 @@ export function useUploadAccounts(slug: string) {
       sort: opts.sort || queueLastParams.sort,
       ids_only: '1',
     })
+    const qVal = (typeof opts.q === 'string' ? opts.q : queueLastParams.q).trim()
+    if (qVal) qs.set('q', qVal)
     if (opts.nocache) qs.set('nocache', '1')
     return get<{ episode_codes: string[]; total: number; total_unfiltered: number }>(
       `/projects/${slug}/upload/queue?${qs}`,

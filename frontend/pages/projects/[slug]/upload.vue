@@ -315,13 +315,25 @@
               {{ chip.label }}
             </button>
             <button
-              v-if="queueStateFilters.size !== FILTER_DEFAULT.length || queueOverlayFilters.size > 0 || ![...queueStateFilters].every(s => (FILTER_DEFAULT as string[]).includes(s))"
+              v-if="queueStateFilters.size !== FILTER_DEFAULT.length || queueOverlayFilters.size > 0 || ![...queueStateFilters].every(s => (FILTER_DEFAULT as string[]).includes(s)) || queueSearch.trim() !== ''"
               type="button"
               class="filter-chip-reset"
-              title="Reset filters to default (Ready + Uploaded · local kept)"
+              title="Reset filters + search to default (Ready + Uploaded · local kept, no search)"
               @click="clearQueueFilters"
             >Reset</button>
           </div>
+        </div>
+        <div class="qt-group">
+          <label class="qt-label" for="queue-search">Search</label>
+          <input
+            id="queue-search"
+            v-model="queueSearch"
+            type="search"
+            class="input input-sm"
+            placeholder="Code, title, filename…"
+            title="Filter the queue by episode code, title, or import filename. Searches the full project — debounced 200 ms."
+            style="min-width: 14rem"
+          >
         </div>
         <div class="qt-group">
           <label class="qt-label">Sort</label>
@@ -1428,6 +1440,16 @@
              "Unlinked only" so re-running reconcile after a confirm
              doesn't surface the rows we just saved. -->
         <div class="reconcile-controls">
+          <label class="control-label" title="Filter by YouTube title, video ID, or the episode code currently selected/suggested for the row.">
+            Search
+            <input
+              v-model="reconcileSearch"
+              type="search"
+              class="input input-sm"
+              placeholder="Title, video ID, episode…"
+              style="min-width: 14rem"
+            >
+          </label>
           <label class="control-label" title="Show only the rows you can act on. Switch to All to see everything, or Linked to review what's already confirmed.">
             Filter
             <select v-model="reconcileFilter" class="select select-sm">
@@ -1443,9 +1465,12 @@
             Sort
             <select v-model="reconcileSort" class="select select-sm">
               <option value="confidence_desc">Match confidence</option>
+              <option value="episode_asc">Episode code · oldest first</option>
+              <option value="episode_desc">Episode code · newest first</option>
               <option value="published_desc">Newest published</option>
               <option value="published_asc">Oldest published</option>
               <option value="title_asc">Title A→Z</option>
+              <option value="title_desc">Title Z→A</option>
             </select>
           </label>
           <label class="control-label">
@@ -2789,6 +2814,10 @@ const queueOverlayFilters = reactive(new Set<string>())
 const queueSort   = ref<import('~/composables/useUploadAccounts').QueueSort>('code_asc')
 const queuePage = ref(1)
 const queuePageSize = ref<10 | 20 | 50 | 100>(10)
+// Free-text search across episode_code / title / filename. Server-side
+// (the queue is server-paginated), debounced 200 ms so each keystroke
+// doesn't fire its own backend round-trip.
+const queueSearch = ref('')
 
 /** Canonical filter string sent to the backend (`ready,uploaded_local,scheduled`). */
 const queueFilterString = computed(() => {
@@ -2876,6 +2905,7 @@ function clearQueueFilters() {
   queueStateFilters.clear()
   queueOverlayFilters.clear()
   for (const t of FILTER_DEFAULT) queueStateFilters.add(t)
+  queueSearch.value = ''
 }
 
 function goToQueuePage(n: number) {
@@ -2888,11 +2918,24 @@ function goToQueuePage(n: number) {
 // number probably doesn't make sense in the new filtered list.
 watch([queueFilterString, queueSort], () => {
   queuePage.value = 1
-  loadQueue({ filter: queueFilterString.value, sort: queueSort.value, page: 1, pageSize: queuePageSize.value })
+  loadQueue({ filter: queueFilterString.value, sort: queueSort.value, page: 1, pageSize: queuePageSize.value, q: queueSearch.value })
 })
 watch(queuePageSize, (s) => {
   queuePage.value = 1
   loadQueue({ pageSize: s, page: 1 })
+})
+
+// Debounced server-side search. 200 ms is below the perceived-lag
+// threshold but high enough that mid-word typing doesn't fire a
+// roundtrip per keystroke. Reuses the same loadQueue / cache the
+// other watchers do.
+let queueSearchTimer: ReturnType<typeof setTimeout> | null = null
+watch(queueSearch, (next) => {
+  if (queueSearchTimer) clearTimeout(queueSearchTimer)
+  queueSearchTimer = setTimeout(() => {
+    queuePage.value = 1
+    loadQueue({ q: next, page: 1 })
+  }, 200)
 })
 
 // ── Missing Video tab state ──────────────────────────────────────────
@@ -3779,9 +3822,13 @@ const reconcileConfirming = ref(false)
 // can switch to "all" or "linked" to see the rest. Mirrors the Queue tab's
 // pagination model.
 const reconcileFilter = ref<'all' | 'unlinked' | 'linked' | 'suggested' | 'review' | 'manual'>('unlinked')
-const reconcileSort = ref<'confidence_desc' | 'published_desc' | 'published_asc' | 'title_asc'>('confidence_desc')
+const reconcileSort = ref<'confidence_desc' | 'published_desc' | 'published_asc' | 'title_asc' | 'title_desc' | 'episode_asc' | 'episode_desc'>('confidence_desc')
 const reconcilePage = ref(1)
 const reconcilePageSize = ref<10 | 20 | 50 | 100>(10)
+// Free-text search across YouTube title, video ID, and the episode
+// code currently selected/suggested for the row. Client-side because
+// the entire reconcile dataset is already in memory (seedReconcileFromPayload).
+const reconcileSearch = ref('')
 
 function seedReconcileFromPayload(p: { account_id: string; remote_count: number; local_count: number; already_linked: string[]; linked_videos?: Record<string, string>; suggestions: any[] }) {
   const linked = p.linked_videos || {}
@@ -3849,6 +3896,30 @@ const reconcileFilteredRows = computed(() => {
     case 'all':
     default:          /* no filter */ break
   }
+  // Substring search — matches against YouTube title, videoId, and the
+  // episode code currently bound or suggested for the row. Lets the
+  // user jump straight to "TN0143" or "Painter's Memory" without
+  // clicking through pages.
+  const qNorm = reconcileSearch.value.trim().toLowerCase()
+  if (qNorm) {
+    out = out.filter(r =>
+      (r.title || '').toLowerCase().includes(qNorm) ||
+      (r.videoId || '').toLowerCase().includes(qNorm) ||
+      (r.selected_episode_code || '').toLowerCase().includes(qNorm) ||
+      (r.suggested_episode_code || '').toLowerCase().includes(qNorm)
+    )
+  }
+  // `numeric: true` in localeCompare so TN0009 sorts before TN0010.
+  // Without it the lexicographic comparison would put TN0010 first.
+  const cmpEpisode = (a: typeof out[number], b: typeof out[number]) => {
+    const ac = a.selected_episode_code || a.suggested_episode_code || ''
+    const bc = b.selected_episode_code || b.suggested_episode_code || ''
+    // Empty episode codes sink to the bottom regardless of direction —
+    // they have nothing to sort by and shouldn't push the codeful rows out.
+    if (!ac && bc) return 1
+    if (ac && !bc) return -1
+    return ac.localeCompare(bc, undefined, { numeric: true })
+  }
   switch (reconcileSort.value) {
     case 'published_desc':
       out = [...out].sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''))
@@ -3858,6 +3929,15 @@ const reconcileFilteredRows = computed(() => {
       break
     case 'title_asc':
       out = [...out].sort((a, b) => (a.title || '').localeCompare(b.title || ''))
+      break
+    case 'title_desc':
+      out = [...out].sort((a, b) => (b.title || '').localeCompare(a.title || ''))
+      break
+    case 'episode_asc':
+      out = [...out].sort(cmpEpisode)
+      break
+    case 'episode_desc':
+      out = [...out].sort((a, b) => -cmpEpisode(a, b))
       break
     case 'confidence_desc':
     default:
@@ -3928,7 +4008,7 @@ function reconcileBadgeLabelFor(row: { reason: string; score: number; videoId: s
   return 'No match — pick manually'
 }
 
-watch([reconcileFilter, reconcileSort, reconcilePageSize], () => {
+watch([reconcileFilter, reconcileSort, reconcilePageSize, reconcileSearch], () => {
   reconcilePage.value = 1
 })
 
