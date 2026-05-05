@@ -131,7 +131,8 @@
       { "id": "D", "label": "Energetic listicle host",    "description": "Punchy, paced, conversational. Closer to a long-form podcast host than a documentary narrator." },
       { "id": "E", "label": "Educational calm",           "description": "Patient, clear, slightly schoolteacher — but the cool kind who made the subject feel alive." }
     ],
-    "defaultNarratorStyleId": "A"
+    "defaultNarratorStyleId": "A",
+    "chaptersIndependent": true
   },
 
   "imagePrompts": {

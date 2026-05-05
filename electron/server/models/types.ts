@@ -179,6 +179,16 @@ export interface ScriptFormat {
   lengthMinutesRange: [number, number]
   narratorStyles: NarratorStyle[]
   defaultNarratorStyleId: string
+  /**
+   * v1.0.71+: signals to chunked-narration whether chapters can be
+   * expanded in PARALLEL (true — listicle / explainer where each chapter
+   * is independent) or must be SEQUENTIAL (false / undefined — narrative
+   * formats that need transition glue between chapters). Determines
+   * which expansion strategy `chunked-narration.ts` uses when chapter
+   * count exceeds the single-call threshold. Defaults to false; set to
+   * true on listicle.json + any future explainer-style format.
+   */
+  chaptersIndependent?: boolean
 }
 
 export interface ImagePromptFormat {

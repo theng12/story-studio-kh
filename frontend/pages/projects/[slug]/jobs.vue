@@ -477,7 +477,7 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { del, post } = useApi()
 const { jobs, stats } = useJobs()
-const { success, error: showError } = useToast()
+const { success, error: showError, info } = useToast()
 
 // Account attribution helpers. Populated by the resolver whenever it runs
 // under a jobId (see electron/server/providers/registry.ts). Present only
@@ -957,10 +957,67 @@ async function retryJob(job: RJob) {
   const target = endpointMap[job.type]
   if (!target) { showError(`Cannot retry job type: ${job.type}`); return }
 
+  // v1.0.71: repair-FIRST for asset-producing job types. Before this, a
+  // "Repair & Retry" on a failed audio job just deleted the job and
+  // re-submitted /generate/audio. The audio generator's internal
+  // auto-recovery (manifest.task_id → poll → download) only fires when
+  // chunk filename matches between runs, so race conditions / pre-record
+  // failures fell through to fresh submits and produced DUPLICATE
+  // audio generations on the provider (user's bug report). We now
+  // explicitly call the repair endpoint and AWAIT it before submitting
+  // the retry, so anything in-flight on the provider lands on disk
+  // first; the retry generator's per-chunk skip-when-on-disk guard
+  // then ensures only truly missing chunks get fresh submits.
+  const REPAIR_FIRST: Record<string, { url: string; body: any }> = {
+    audio: {
+      url: `/projects/${slug.value}/episodes/${job.episode_id}/audio-repair`,
+      body: { provider: job.params?.provider || 'genaipro' },
+    },
+    images: {
+      url: `/projects/${slug.value}/generate/images-repair`,
+      body: { episode_id: job.episode_id },
+    },
+    scene_images: {
+      url: `/projects/${slug.value}/generate/images-repair`,
+      body: { episode_id: job.episode_id },
+    },
+    thumb_images: {
+      url: `/projects/${slug.value}/generate/images-repair`,
+      body: { episode_id: job.episode_id },
+    },
+    video: {
+      url: `/projects/${slug.value}/generate/video-repair`,
+      body: { episode_id: job.episode_id },
+    },
+  }
+  const repair = REPAIR_FIRST[job.type]
+
   try {
-    // Remove the failed job first
+    if (repair) {
+      // The audio-repair endpoint is synchronous (returns reconciled
+      // status directly); images-repair / video-repair enqueue a job and
+      // return immediately. Either way we await — for the queued ones
+      // the await just confirms enqueue success; the repair job's own
+      // run is logged in the Jobs tab so the user sees it complete
+      // before the retry executor picks up where they left off.
+      info(`Recovering in-flight ${jobTypeLabel(job.type)} tasks for ${job.episode_id} (no charge)…`)
+      try {
+        await post(repair.url, repair.body)
+      } catch (e: any) {
+        // Repair failure is NON-FATAL for the retry — log and continue.
+        // The worst case is a fresh re-submit (today's behaviour); the
+        // best case (most retries) repair lands and the retry skips
+        // already-on-disk chunks. Logging keeps the breakcrumb in console
+        // for debugging.
+        console.warn('[retry] repair phase failed, proceeding with fresh retry:',
+          e?.data?.detail || e?.message || e)
+      }
+    }
+
+    // Remove the failed job, then re-queue. Generators are per-chunk
+    // idempotent: anything repair just landed on disk will be skipped
+    // automatically by the retry's executor.
     await del(`/projects/${slug.value}/jobs/${job.job_id}`)
-    // Re-queue
     await post(target.url, target.params)
     success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
   } catch (e: any) { showError(e.data?.detail || 'Failed to retry job') }

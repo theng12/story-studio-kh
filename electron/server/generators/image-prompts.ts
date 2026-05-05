@@ -81,6 +81,26 @@ async function readStoryContext(slug: string, episode_id: string, title: string)
   }
 }
 
+/**
+ * Parse the LLM's image-prompts JSON response, tolerating markdown
+ * fences and stray prose. Throws if no JSON object is recognisable.
+ * Used by both the single-call and chunked paths.
+ */
+function parseImagePromptsJson(raw: string): { scenes?: any[]; thumbnails?: any[] } {
+  let text = raw.trim()
+  if (text.startsWith('```')) {
+    text = text.split('\n').filter(l => !l.trim().startsWith('```')).join('\n')
+  }
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start < 0 || end < 0) throw new Error('LLM returned no JSON object')
+  const obj = JSON.parse(text.slice(start, end + 1))
+  return {
+    scenes: Array.isArray(obj.scenes) ? obj.scenes : [],
+    thumbnails: Array.isArray(obj.thumbnails) ? obj.thumbnails : [],
+  }
+}
+
 function buildPrompt(args: {
   episode_id: string
   title: string
@@ -223,31 +243,111 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     }
   } catch { /* brand layer must never break image-prompt generation */ }
 
-  job.output_lines.push(`Calling ${model} (mode=${mode}, scenes=${sceneCount}, thumbs=${thumbs})…`)
+  // v1.0.71+: scene-prompt chunking. Each scene prompt costs ~150 output
+  // tokens; at ≥50 scenes the single-call path approaches the 16k cap.
+  // Above the threshold, we split scene generation into parallel batches
+  // of 10 (scenes are independent — no transition glue needed) and
+  // produce thumbnails in a separate single call. Single-call path stays
+  // unchanged below the threshold so the common case is untouched.
+  const SCENE_CHUNK_THRESHOLD = 50
+  const SCENE_BATCH_SIZE = 10
+  const SCENE_CONCURRENCY = 4
+  const useChunkedScenes = sceneCount > SCENE_CHUNK_THRESHOLD
+
   const controller = new AbortController()
   const cancelWatcher = setInterval(() => {
     if (jq.isCancelled(job.job_id)) controller.abort()
   }, 500)
-  let raw: string
+
+  let scenes: any[] = []
+  let thumbnails: any[] = []
+
   try {
-    raw = await callAi(model, '', prompt, aiCreds(config), false,
-      { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+    if (useChunkedScenes) {
+      job.output_lines.push(
+        `[chunked] ${sceneCount} scenes > ${SCENE_CHUNK_THRESHOLD} threshold — splitting into parallel batches of ${SCENE_BATCH_SIZE} (concurrency ${SCENE_CONCURRENCY}).`,
+      )
+      // Build batch ranges [1..10], [11..20], …, plus thumbnails as a
+      // separate single call. Each scene batch reuses the same buildPrompt
+      // shape but pinned to "scenes numbered K to K+N-1 (do NOT generate
+      // others)".
+      const batches: Array<{ from: number; to: number }> = []
+      for (let from = 1; from <= sceneCount; from += SCENE_BATCH_SIZE) {
+        batches.push({ from, to: Math.min(from + SCENE_BATCH_SIZE - 1, sceneCount) })
+      }
+
+      let cursor = 0
+      let aborted = false
+      let completed = 0
+      const collected: any[] = []
+
+      async function sceneWorker(workerId: number): Promise<void> {
+        while (cursor < batches.length && !aborted) {
+          if (jq.isCancelled(job.job_id)) { aborted = true; return }
+          const idx = cursor++
+          if (idx >= batches.length) return
+          const { from, to } = batches[idx]!
+          // Patch the base prompt: ask only for scenes in this range, no
+          // thumbnails. The rest of the prompt (style tag, character cast,
+          // story context, format) is unchanged.
+          const batchPrompt = prompt.replace(
+            /Generate exactly \d+ scene prompts\./,
+            `Generate exactly ${to - from + 1} scene prompts numbered ${from} through ${to} (do NOT generate scenes outside this range, do NOT generate thumbnails).`,
+          ) + `\n\nIMPORTANT: This response must contain ONLY scenes ${from}..${to}. The "thumbnails" array MUST be empty.`
+          try {
+            const raw = await callAi(model, '', batchPrompt, aiCreds(config), false,
+              { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+            const obj = parseImagePromptsJson(raw)
+            const got = (obj.scenes || []).filter((s: any) =>
+              Number.isFinite(s?.number) && s.number >= from && s.number <= to,
+            )
+            collected.push(...got)
+            completed++
+            job.output_lines.push(
+              `[chunked]   [w${workerId}] scenes ${from}-${to}: got ${got.length}/${to - from + 1} (${completed}/${batches.length} batches done)`,
+            )
+          } catch (e: any) {
+            job.output_lines.push(
+              `[chunked]   [w${workerId}] scenes ${from}-${to} FAILED: ${e?.message || e}`,
+            )
+            if (jq.isCancelled(job.job_id) || controller.signal.aborted) {
+              aborted = true; return
+            }
+          }
+        }
+      }
+
+      await Promise.all(
+        Array.from({ length: Math.min(SCENE_CONCURRENCY, batches.length) }, (_, i) => sceneWorker(i + 1)),
+      )
+
+      if (aborted) throw new Error('Cancelled by user')
+      // Sort by number so the docx output is in deterministic order
+      // regardless of which worker finished a given batch first.
+      scenes = collected.sort((a, b) => Number(a.number) - Number(b.number))
+
+      // Thumbnails: single call (typical thumbs <= 10, fits easily).
+      if (thumbs > 0) {
+        const thumbsOnlyPrompt = prompt
+          .replace(/Generate exactly \d+ scene prompts\./, '')
+          + `\n\nIMPORTANT: This response must contain ONLY thumbnails (the "scenes" array MUST be empty).`
+        const raw = await callAi(model, '', thumbsOnlyPrompt, aiCreds(config), false,
+          { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+        const obj = parseImagePromptsJson(raw)
+        thumbnails = obj.thumbnails || []
+      }
+    } else {
+      job.output_lines.push(`Calling ${model} (mode=${mode}, scenes=${sceneCount}, thumbs=${thumbs})…`)
+      const raw = await callAi(model, '', prompt, aiCreds(config), false,
+        { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+      const parsed = parseImagePromptsJson(raw)
+      scenes = parsed.scenes || []
+      thumbnails = parsed.thumbnails || []
+    }
   } finally {
     clearInterval(cancelWatcher)
   }
 
-  // Parse JSON from response (strip markdown fences if present).
-  let text = raw.trim()
-  if (text.startsWith('```')) {
-    text = text.split('\n').filter(l => !l.trim().startsWith('```')).join('\n')
-  }
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
-  if (start < 0 || end < 0) throw new Error('LLM returned no JSON object')
-  const parsed = JSON.parse(text.slice(start, end + 1))
-
-  const scenes = Array.isArray(parsed.scenes) ? parsed.scenes : []
-  const thumbnails = Array.isArray(parsed.thumbnails) ? parsed.thumbnails : []
   job.output_lines.push(`Parsed ${scenes.length} scene(s), ${thumbnails.length} thumbnail(s).`)
 
   // Resolve episode dir on disk (real folder, not the stale-title one).

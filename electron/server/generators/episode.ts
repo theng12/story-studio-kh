@@ -17,6 +17,11 @@ import { resolveCharacters } from '../services/character-manager.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as im from '../services/idea-manager.js'
+import {
+  CHUNK_THRESHOLD_WORDS,
+  generateNarrativeChunked,
+  generateListicleChunked,
+} from '../lib/chunked-narration.js'
 import { castPromptBlock, castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import type { GenerateScriptRequest, Job, Format, NarratorStyle, Pattern, Character } from '../models/types.js'
 
@@ -440,14 +445,101 @@ async function generateEpisode(job: Job): Promise<void> {
     const introSettings: IntroSettings = (params as any).intro_settings || {}
     const introEnabled = introSettings.enabled === true
     const introStandardsText = (config as any).intro_standards || ''
-    const narrationText = await callAi(req.model, sysPrompt,
-      narrationPrompt(format, episode_id, title, length, style, chapters, totalWords, wordsPerChapter, introEnabled ? introSettings : undefined, customStyleText, introStandardsText, characters),
-      apiKeys, true, { slug: project_slug, jobId: job.job_id, signal: controller.signal })
 
-    const wordCount = narrationText.split(/\s+/).length
-    job.output_lines.push(`Narration: ${wordCount.toLocaleString()} words`)
+    // v1.0.71+: dispatch to chunked mode when the target wordcount would
+    // overflow a single LLM call. Single-call max output is ~16k tokens
+    // (Anthropic streaming) ≈ 12k words; we use 8k as the dispatch
+    // threshold to keep ~4k tokens of headroom for system prompt + framing.
+    // Chunked mode writes per-chapter docx files incrementally, so cancel
+    // / crash / restart preserves partial work and a re-run resumes from
+    // the on-disk sidecar.
+    let narrationText: string
+    const targetWords = chapters * wordsPerChapter
+    const useChunked = targetWords > CHUNK_THRESHOLD_WORDS
+    if (useChunked) {
+      const chunkedParams = {
+        episode_id,
+        title,
+        totalChapters: chapters,
+        wordsPerChapter,
+        format,
+        systemPrompt: sysPrompt,
+        scriptDir: paths.script_dir,
+        model: req.model,
+        apiKeys,
+        characters: characters.length ? characters : undefined,
+        signal: controller.signal,
+        isCancelled: () => jq.isCancelled(job.job_id),
+        patternId: req.pattern_id,
+        patternSubject: req.pattern_subject,
+        force: !!(params as any).force,
+      }
+      const result = format.script.chaptersIndependent
+        ? await generateListicleChunked(job, chunkedParams)
+        : await generateNarrativeChunked(job, chunkedParams)
+      job.output_lines.push(
+        `Narration: ${result.chaptersWritten}/${chapters} chapters on disk ` +
+        `(chunked mode, ${result.totalBatches} batch${result.totalBatches === 1 ? '' : 'es'}` +
+        `${result.fromResume ? ', resumed from sidecar' : ''}).`,
+      )
+      // Per-chapter docx files are already written by the chunked path;
+      // assembleUnifiedNarration below stitches them into the unified
+      // narration_full.docx the rest of the pipeline reads. We DON'T
+      // want to also do the bulk parse + writeChapterFiles below — pass
+      // an empty narrationText so the legacy split-and-write block is a
+      // no-op for this path.
+      narrationText = ''
+    } else {
+      narrationText = await callAi(req.model, sysPrompt,
+        narrationPrompt(format, episode_id, title, length, style, chapters, totalWords, wordsPerChapter, introEnabled ? introSettings : undefined, customStyleText, introStandardsText, characters),
+        apiKeys, true, { slug: project_slug, jobId: job.job_id, signal: controller.signal })
 
-    const storySummary = extractStorySummary(narrationText)
+      const wordCount = narrationText.split(/\s+/).length
+      job.output_lines.push(`Narration: ${wordCount.toLocaleString()} words`)
+    }
+
+    // Per-chapter source files first; the unified narration_docx is
+    // assembled FROM them so downstream readers (audio reconciler,
+    // subtitles, video assembly, story-context readers) keep working.
+    // See electron/server/lib/narration-assembly.ts for the contract.
+    //
+    // v1.0.71: We do assembly BEFORE the image-prompts/YouTube calls now
+    // (was previously after) because the chunked path needs the unified
+    // docx on disk to derive storySummary. The single-call path is also
+    // fine doing it earlier — assembly is a cheap docx-build, and
+    // doing it up-front means image-prompts/YouTube calls work
+    // identically across both paths.
+    const { splitNarrationIntoChapters, writeChapterFiles, assembleUnifiedNarration } =
+      await import('../lib/narration-assembly.js')
+    if (!useChunked) {
+      // Single-call path: parse the bulk LLM output and split into per-
+      // chapter files now. (Chunked path already wrote them incrementally.)
+      const parts = splitNarrationIntoChapters(narrationText)
+      await writeChapterFiles(paths.script_dir, episode_id, title, parts)
+      job.output_lines.push(
+        `Wrote ${parts.chapters.length} chapter file(s)` +
+        (parts.intro ? ` + intro` : ''),
+      )
+    }
+    await assembleUnifiedNarration(paths.script_dir, episode_id, title)
+    job.output_lines.push(`Assembled: ${path.basename(paths.narration_docx)}`)
+
+    // Story summary used by image-prompts + YouTube description prompts.
+    // Single-call path: extract from the LLM response we just got.
+    // Chunked path: read the unified narration we just assembled on disk
+    //   (the LLM response was per-batch, no single text to pull from).
+    let storySummary: string
+    if (useChunked) {
+      try {
+        const { narrationDocxToMarkdown } = await import('../lib/docx-parser.js')
+        const md = await narrationDocxToMarkdown(paths.narration_docx)
+        storySummary = extractStorySummary(md)
+      } catch {
+        storySummary = `Episode: ${episode_id}, Title: ${title}`
+      }
+    } else {
+      storySummary = extractStorySummary(narrationText)
+    }
 
     // Call 2: Image prompts. Check cancellation before every follow-up LLM
     // call — each is a separate paid request, and an auto-run script gen can
@@ -472,21 +564,6 @@ async function generateEpisode(job: Job): Promise<void> {
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
       job.output_lines.push('YouTube description: done')
     }
-
-    // Per-chapter source files first; the unified narration_docx is
-    // assembled FROM them so downstream readers (audio reconciler,
-    // subtitles, video assembly, story-context readers) keep working.
-    // See electron/server/lib/narration-assembly.ts for the contract.
-    const { splitNarrationIntoChapters, writeChapterFiles, assembleUnifiedNarration } =
-      await import('../lib/narration-assembly.js')
-    const parts = splitNarrationIntoChapters(narrationText)
-    await writeChapterFiles(paths.script_dir, episode_id, title, parts)
-    job.output_lines.push(
-      `Wrote ${parts.chapters.length} chapter file(s)` +
-      (parts.intro ? ` + intro` : ''),
-    )
-    await assembleUnifiedNarration(paths.script_dir, episode_id, title)
-    job.output_lines.push(`Assembled: ${path.basename(paths.narration_docx)}`)
 
     if (imageText) {
       // Save scene prompts docx to Scene Prompts folder
