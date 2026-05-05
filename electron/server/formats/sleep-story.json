@@ -34,6 +34,19 @@
       "heritage",
       "reflection"
     ],
+    "genreVocabulary": [
+      "fantasy", "fairy-tale", "folklore", "magical-realism", "slice-of-life",
+      "mythology", "nature", "historical", "mystic", "bedtime-story",
+      "pastoral", "cozy-mystery", "anthology", "ghost-story"
+    ],
+    "keywordVocabulary": [
+      "forest", "ocean", "mountain", "village", "island", "ancient",
+      "twilight", "dawn", "starlight", "moonlit", "lantern", "whisper",
+      "river", "meadow", "garden", "snow", "cabin", "lighthouse",
+      "bridge", "library", "observatory", "temple", "orchard", "loom",
+      "compass", "locket", "clock", "mirror", "wolf", "owl", "stag",
+      "grandmother", "wanderer", "scholar", "sailor"
+    ],
     "guidanceText": "Sleep-friendly. Low stakes, no violence, no cliffhangers, no jump scares.",
     "exampleIdeas": [
       {

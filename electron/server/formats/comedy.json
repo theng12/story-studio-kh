@@ -28,6 +28,17 @@
       "satirical explainer",
       "ill-advised inventions"
     ],
+    "genreVocabulary": [
+      "comedy", "satire", "absurdist", "deadpan", "parody", "farce",
+      "comic biography", "sitcom-history", "stand-up-style", "mockumentary"
+    ],
+    "keywordVocabulary": [
+      "bureaucracy", "small-town", "lawsuit", "petition", "bylaw", "pratfall",
+      "ill-advised invention", "doomed business", "office", "DMV", "committee",
+      "recipe disaster", "wedding", "pet", "coupon", "waiting room",
+      "self-help", "infomercial", "neighbour dispute", "patent", "mascot",
+      "celebrity feud", "memo", "expense report", "mall"
+    ],
     "guidanceText": "The humour should come from the situation and from specific observations, not from cruelty or punching down. Best comedy ideas have an unexpected angle that's funny on its own — the script's job is to mine it.",
     "exampleIdeas": [
       {

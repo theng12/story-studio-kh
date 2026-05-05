@@ -31,6 +31,18 @@
       "deep dive",
       "explainer"
     ],
+    "genreVocabulary": [
+      "educational", "explainer", "science", "history", "engineering",
+      "psychology", "biology", "physics", "math", "chemistry", "linguistics",
+      "philosophy", "technology", "economics", "case-study"
+    ],
+    "keywordVocabulary": [
+      "experiment", "diagram", "equation", "model", "system", "principle",
+      "mechanism", "evidence", "discovery", "researcher", "lab", "field study",
+      "anatomy", "physiology", "particle", "wave", "force", "molecule",
+      "algorithm", "circuit", "atmosphere", "ecosystem", "evolution",
+      "perception", "memory", "language", "cognition", "behavior"
+    ],
     "guidanceText": "Pick topics with a clear question the episode can answer. Avoid surface-level overviews — each idea should promise specific, non-obvious information the listener leaves with.",
     "exampleIdeas": [
       {

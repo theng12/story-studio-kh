@@ -30,6 +30,19 @@
       "human-and-environment",
       "what came before"
     ],
+    "genreVocabulary": [
+      "documentary", "natural-history", "biography", "history", "science",
+      "anthropology", "archaeology", "ethnography", "place-portrait",
+      "era-survey", "phenomenon-study", "investigation", "deep-dive",
+      "long-form essay"
+    ],
+    "keywordVocabulary": [
+      "wilderness", "ecosystem", "migration", "ruins", "archive", "expedition",
+      "fossil", "ice core", "shipwreck", "manuscript", "language", "ritual",
+      "city", "river system", "desert", "rainforest", "tundra", "monastery",
+      "library", "monument", "ancient", "modern", "industrial", "pre-industrial",
+      "endangered", "lost civilisation", "field notes", "interview", "footage"
+    ],
     "guidanceText": "Subject-driven, evidence-anchored, attribution-rich. The episode is about something real — be specific about what's known, what's contested, and what's still mysterious.",
     "exampleIdeas": [
       {

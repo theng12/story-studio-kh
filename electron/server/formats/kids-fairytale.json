@@ -31,6 +31,18 @@
       "animals",
       "small adventures"
     ],
+    "genreVocabulary": [
+      "fairytale", "fable", "bedtime-story", "talking-animals", "magical",
+      "rhyming", "picture-book", "moral-tale", "folklore", "nursery-tale",
+      "whimsical-fantasy", "everyday-magic"
+    ],
+    "keywordVocabulary": [
+      "bunny", "fox", "owl", "bear", "puppy", "kitten", "dragon", "fairy",
+      "elf", "wizard", "princess", "knight", "frog", "butterfly", "garden",
+      "treehouse", "forest", "meadow", "pond", "cottage", "castle", "muffin",
+      "lantern", "blanket", "rainbow", "snowflake", "balloon", "boat",
+      "umbrella", "moon", "star", "lullaby"
+    ],
     "guidanceText": "Age-appropriate. No real peril, no scary monsters that aren't quickly turned funny, no death. Conflicts resolve through kindness, cleverness, or asking for help — never through violence.",
     "exampleIdeas": [
       {

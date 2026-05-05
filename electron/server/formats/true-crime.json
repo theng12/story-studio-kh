@@ -29,6 +29,19 @@
       "chain of evidence",
       "the witness"
     ],
+    "genreVocabulary": [
+      "true-crime", "investigation", "cold-case", "forensics", "courtroom",
+      "noir", "case-file", "police-procedural", "missing-person",
+      "wrongful-conviction", "unsolved", "investigative-journalism"
+    ],
+    "keywordVocabulary": [
+      "detective", "evidence", "witness", "alibi", "suspect", "fingerprint",
+      "DNA", "ballistics", "autopsy", "crime scene", "interrogation",
+      "courtroom", "verdict", "appeal", "wiretap", "informant", "tipline",
+      "cold case", "missing", "victim's family", "patrol", "precinct",
+      "transcript", "surveillance", "letter", "diary", "phone records",
+      "forensic lab"
+    ],
     "guidanceText": "Treat real victims with dignity even in fictional or composite cases — name them as people, not as plot devices. No glamorising perpetrators. No graphic violence beyond what the investigation requires.",
     "exampleIdeas": [
       {

@@ -230,8 +230,10 @@
           <h3>Format</h3>
           <p class="text-muted mt-1 mb-2">
             <strong>Default for new projects is sleep-story.</strong>
-            We ship 7 format presets — pick one above, override fields per-project below,
-            or create your own from a sample script via "+ Create from Sample".
+            We ship 8 format presets — sleep-story, listicle, documentary,
+            educational, comedy, adventure, true-crime, kids-fairytale.
+            Pick one above, override fields per-project below, or create your
+            own from a sample script via "+ Create from Sample".
             Built-in formats live in the app bundle; custom formats live alongside your
             projects and can be exported as <code>.json</code> files for sharing.
           </p>
@@ -277,7 +279,7 @@
             <p class="text-muted mt-1 mb-2">
               Patterns control title shape and body structure within a format
               (e.g. "Fall asleep to {X}", "History of {X} explained").
-              <strong>We ship 6 presets.</strong> Pick one in the Script
+              <strong>We ship 8 presets.</strong> Pick one in the Script
               Generator or the Ideas Generator — or create your own here, either
               by hand or by extracting from a sample script.
             </p>
@@ -3404,6 +3406,12 @@ onMounted(() => {
   applyHash()
   if (activeTab.value === 'ffmpeg') refreshFfmpegStatus()
   loadNotifSettings()
+  // The Ideas Generator's "+ New custom format" CTA lands here with
+  // ?newFormat=1#format and expects the format-from-sample wizard to
+  // auto-open so the user doesn't have to hunt for the button.
+  if (_route.query.newFormat === '1' && activeTab.value === 'format') {
+    nextTick(() => { formatWizardOpen.value = true })
+  }
 })
 watch(() => _route.hash, applyHash)
 

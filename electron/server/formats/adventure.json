@@ -32,6 +32,17 @@
       "forbidden territory",
       "the unknown"
     ],
+    "genreVocabulary": [
+      "adventure", "thriller", "survival", "expedition", "action", "quest",
+      "treasure-hunt", "espionage", "war-story", "outlaw", "frontier",
+      "mythic-quest", "high-seas", "alpine", "post-apocalyptic"
+    ],
+    "keywordVocabulary": [
+      "mountain", "jungle", "desert", "ice", "storm", "ocean", "ruins",
+      "smuggler", "rebel", "compass", "rifle", "rope", "sled", "crashlanding",
+      "ambush", "smoke", "trail", "outpost", "hideout", "betrayer",
+      "scar", "bloodied map", "engine fire", "fugitive", "pursuit"
+    ],
     "guidanceText": "Action-forward. Stakes are real and visible from the first paragraph. No filler — every chapter advances the plot or deepens the threat.",
     "exampleIdeas": [
       {

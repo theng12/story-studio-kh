@@ -28,6 +28,53 @@
     <!-- Generator -->
     <div class="generator-panel mt-3">
       <h3 class="generator-title">Generate New Ideas</h3>
+
+      <!-- Format Indicator Card.
+           Surfaces which format is currently driving every dropdown
+           (genre, mood, theme, keywords, audience) + every prompt the
+           LLM receives. Without this, users on a non-default format
+           wonder why the suggestions feel off — they see sleep-story
+           vibes on a listicle channel and can't tell where to switch.
+           Right side: switch + create-custom CTAs that link straight
+           to Settings → Format. Built-in vs Custom badge so you know
+           whether you can edit the format file directly. -->
+      <div class="format-indicator-card">
+        <div class="format-indicator-main">
+          <div class="format-indicator-row">
+            <span class="format-indicator-label">Format</span>
+            <strong class="format-indicator-name">{{ formatDisplayName }}</strong>
+            <span
+              v-if="activeFormat"
+              class="format-indicator-badge"
+              :class="activeFormat.builtin ? 'badge-builtin' : 'badge-custom'"
+            >{{ activeFormat.builtin ? 'Built-in' : 'Custom' }}</span>
+            <span v-else-if="formatId" class="format-indicator-badge badge-warn" :title="`Format '${formatId}' isn't loaded — using fallback vocab.`">
+              ⚠ Unknown format
+            </span>
+          </div>
+          <p class="format-indicator-desc">
+            <span v-if="activeFormat?.description">{{ activeFormat.description }}</span>
+            <span v-else class="text-muted">No description for this format.</span>
+          </p>
+          <p class="format-indicator-hint text-muted text-sm">
+            All dropdowns + the LLM prompt below pull tone, vocab, and example ideas from this format.
+            Switch to change the whole flavour, or override individual fields per-project from Settings → Format.
+          </p>
+        </div>
+        <div class="format-indicator-actions">
+          <NuxtLink :to="`/projects/${slug}/settings#format`" class="btn btn-secondary btn-sm">
+            ⇄ Switch format
+          </NuxtLink>
+          <NuxtLink
+            :to="`/projects/${slug}/settings?newFormat=1#format`"
+            class="btn btn-ghost btn-sm"
+            title="Open Settings → Format and auto-launch '+ Create from Sample' so you can build a custom format from one of your scripts."
+          >
+            + New custom format
+          </NuxtLink>
+        </div>
+      </div>
+
       <p class="text-muted text-sm generator-blurb">
         Pick the audience and a few flavour fields, hit <strong>Generate Ideas</strong>, and the LLM returns a short list of episode candidates.
         Use <strong>🎲 Randomize</strong> to fill the form from your existing pools, or <strong>📋 Paste from LLM</strong> if you already prompted one elsewhere.
@@ -35,30 +82,56 @@
       <div class="generator-body">
         <div class="grid-2">
           <div class="form-group">
-            <label>Genre</label>
+            <label>
+              Genre
+              <span class="vocab-source-tag" :title="vocabSourceTooltip('genre')">
+                · {{ vocabSourceLabel('genre') }}
+              </span>
+            </label>
             <ComboInput v-model="form.genre" :options="allGenres" placeholder="Pick or add a genre" searchable allow-custom @add-custom="onAddGenre" />
           </div>
           <div class="form-group">
-            <label>Audience</label>
-            <select v-model="form.audience" class="select">
-              <option value="adults">Adults</option>
-              <option value="children">Children (5-10)</option>
-              <option value="teens">Teens</option>
-              <option value="all-ages">All Ages</option>
-            </select>
+            <label>
+              Audience
+              <span v-if="audienceFromFormat" class="vocab-source-tag" :title="`Pulled from ${formatDisplayName} format`">
+                · {{ formatDisplayName }}
+              </span>
+            </label>
+            <ComboInput
+              v-model="form.audience"
+              :options="audienceOptions"
+              placeholder="Pick or type an audience…"
+              searchable
+              allow-custom
+            />
           </div>
           <div class="form-group">
-            <label>Theme (optional)</label>
+            <label>
+              Theme (optional)
+              <span class="vocab-source-tag" :title="vocabSourceTooltip('theme')">
+                · {{ vocabSourceLabel('theme') }}
+              </span>
+            </label>
             <ComboInput v-model="form.theme" :options="allThemes" placeholder="Pick or add a theme" searchable allow-custom @add-custom="onAddTheme" />
           </div>
           <div class="form-group">
-            <label>Mood</label>
+            <label>
+              Mood
+              <span class="vocab-source-tag" :title="vocabSourceTooltip('mood')">
+                · {{ vocabSourceLabel('mood') }}
+              </span>
+            </label>
             <ComboInput v-model="form.mood" :options="allMoods" placeholder="Pick or add a mood" searchable allow-custom @add-custom="onAddMood" />
           </div>
         </div>
         <div class="grid-3">
           <div class="form-group col-span-2">
-            <label>Keywords</label>
+            <label>
+              Keywords
+              <span class="vocab-source-tag" :title="vocabSourceTooltip('keyword')">
+                · {{ vocabSourceLabel('keyword') }}
+              </span>
+            </label>
             <ChipInput v-model="form.keywords" :suggestions="allKeywords" placeholder="Pick from common keywords or type to add…" allow-custom :max="12" @add-custom="onAddKeyword" />
           </div>
           <div class="form-group">
@@ -1017,12 +1090,15 @@ let patternHydrated = false
 type FormatLite = {
   id: string
   name: string
+  description?: string
+  builtin?: boolean
   idea?: {
     audienceDefault?: string
     moodVocabulary?: string[]
     themeVocabulary?: string[]
     genreVocabulary?: string[]
     keywordVocabulary?: string[]
+    guidanceText?: string
   }
 }
 const formatsById = ref<Record<string, FormatLite>>({})
@@ -1047,9 +1123,19 @@ async function loadFormatNames() {
 }
 
 async function loadPatternPreferences() {
+  // The project's chosen format lives on the project META, not on
+  // /settings/config. settings.vue + scripts.vue both read meta.format_id;
+  // ideas.vue used to read /settings/config.format_id which is always
+  // undefined → formatId stayed at the 'sleep-story' default and BrainWise
+  // (listicle) projects saw lantern/observatory/coming-of-age vocab. Fix:
+  // hit project meta for format_id, settings/config for the *_last_*
+  // pattern/subject memory.
+  try {
+    const meta = await get<any>(`/projects/${slug.value}`)
+    if (typeof meta?.format_id === 'string' && meta.format_id) formatId.value = meta.format_id
+  } catch { /* meta unreadable → leave default */ }
   try {
     const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
-    if (typeof cfg?.format_id === 'string' && cfg.format_id) formatId.value = cfg.format_id
     if (typeof cfg?.[LAST_PATTERN_KEY] === 'string') form.pattern_id = cfg[LAST_PATTERN_KEY]
     if (typeof cfg?.[LAST_SUBJECT_KEY] === 'string') form.pattern_subject = cfg[LAST_SUBJECT_KEY]
   } catch { /* config unreadable → leave defaults */ }
@@ -1075,38 +1161,37 @@ watch(() => form.pattern_subject, savePatternPreferences)
 onMounted(loadPatternPreferences)
 onMounted(loadFormatNames)
 
-// ── Preset pools (built-ins + custom from config) ─────────────
-const DEFAULT_GENRES = [
-  'fantasy', 'nature', 'adventure', 'mythology', 'sci-fi', 'historical',
-  'fairy-tale', 'mystery', 'folklore', 'magical-realism', 'slice-of-life',
-  'romance', 'horror', 'noir', 'cyberpunk', 'steampunk', 'post-apocalyptic',
-  'western', 'urban-fantasy', 'thriller', 'coming-of-age', 'mythic',
-  'speculative-fiction', 'anthology', 'ghost-story', 'bedtime-story',
+// ── Generic fallback pools ────────────────────────────────────
+//
+// v1.0.67+ — every built-in format now ships its own
+// genreVocabulary + keywordVocabulary, so these GENERIC_FALLBACK_*
+// pools are only used when:
+//   1. A custom format omits a vocab field (acceptable — author opted out)
+//   2. A future built-in format ships without a vocab field by mistake
+//   3. The user is on a project whose format_id doesn't resolve to any
+//      loaded format (broken state — banner above warns about this)
+//
+// The pools are deliberately format-neutral now: tone-mixed words
+// that work for sleep stories AND listicles AND true-crime, instead
+// of the old sleep-story-leaning "lantern / observatory / weaver"
+// bias that broke BrainWise users in v1.0.65.
+const GENERIC_FALLBACK_GENRES = [
+  'fantasy', 'mystery', 'documentary', 'explainer', 'comedy', 'thriller',
+  'science', 'history', 'adventure', 'slice-of-life', 'anthology',
 ]
-const DEFAULT_MOODS = [
-  'calming', 'adventurous', 'mysterious', 'whimsical', 'cozy',
-  'ethereal', 'melancholic', 'hopeful', 'bittersweet', 'reflective',
-  'suspenseful', 'haunting', 'dreamy', 'nostalgic', 'serene',
-  'tender', 'eerie', 'playful', 'contemplative', 'wistful',
-  'uplifting', 'meditative', 'quiet', 'restful',
+const GENERIC_FALLBACK_MOODS = [
+  'calming', 'mysterious', 'curious', 'reflective', 'engaging',
+  'tense', 'wry', 'hopeful', 'matter-of-fact', 'playful',
+  'haunting', 'uplifting', 'contemplative',
 ]
-const DEFAULT_THEMES = [
-  'overcoming fear', 'finding home', 'letting go', 'self-discovery',
-  'second chances', 'friendship', 'resilience', 'growing up',
-  'healing', 'forgiveness', 'belonging', 'legacy', 'transformation',
-  'courage', 'inner peace', 'community', 'ancestry', 'memory',
-  'balance with nature', 'wonder', 'loss and renewal', 'identity',
-  'purpose', 'quiet rebellion', 'grief', 'acceptance',
+const GENERIC_FALLBACK_THEMES = [
+  'self-discovery', 'survival', 'curiosity', 'origins', 'transformation',
+  'memory', 'identity', 'community', 'wonder', 'consequence',
 ]
-const DEFAULT_KEYWORDS = [
-  'forest', 'ocean', 'mountain', 'desert', 'village', 'island',
-  'ancient', 'twilight', 'dawn', 'starlight', 'moonlit', 'lantern',
-  'whisper', 'river', 'meadow', 'garden', 'thunderstorm', 'snow',
-  'cabin', 'lighthouse', 'bridge', 'marketplace', 'library', 'observatory',
-  'temple', 'orchard', 'ruin', 'vineyard', 'tundra', 'coast',
-  'loom', 'compass', 'locket', 'map', 'clock', 'mirror',
-  'wolf', 'fox', 'owl', 'stag', 'dragon', 'phoenix',
-  'grandmother', 'child', 'wanderer', 'scholar', 'musician', 'sailor',
+const GENERIC_FALLBACK_KEYWORDS = [
+  'forest', 'ocean', 'city', 'desert', 'mountain', 'storm',
+  'ancient', 'modern', 'discovery', 'mystery', 'scientist',
+  'artist', 'witness', 'evidence', 'journey',
 ]
 
 const customGenres = ref<string[]>([])
@@ -1115,11 +1200,10 @@ const customThemes = ref<string[]>([])
 const customKeywords = ref<string[]>([])
 
 /**
- * Resolve a vocab pool: format-supplied vocabulary if the active
- * format declares one (sleep-story, listicle, etc.), otherwise the
- * page's hardcoded sleep-story-leaning DEFAULT_*. Without this,
- * BrainWise users still saw "coming-of-age / quiet rebellion /
- * lantern" suggestions even though listicle.json has its own pool.
+ * Resolve a vocab pool. Returns the format's vocabulary when present,
+ * otherwise the GENERIC_FALLBACK_* pool (format-neutral). Used by both
+ * the dropdown options and the "From [Format]" / "Generic fallback"
+ * label so the user can always see where suggestions come from.
  */
 function vocabFor(field: 'genre' | 'mood' | 'theme' | 'keyword'): readonly string[] {
   const fmt = activeFormat.value?.idea
@@ -1130,11 +1214,35 @@ function vocabFor(field: 'genre' | 'mood' | 'theme' | 'keyword'): readonly strin
     if (field === 'keyword' && fmt.keywordVocabulary?.length) return fmt.keywordVocabulary
   }
   switch (field) {
-    case 'genre':   return DEFAULT_GENRES
-    case 'mood':    return DEFAULT_MOODS
-    case 'theme':   return DEFAULT_THEMES
-    case 'keyword': return DEFAULT_KEYWORDS
+    case 'genre':   return GENERIC_FALLBACK_GENRES
+    case 'mood':    return GENERIC_FALLBACK_MOODS
+    case 'theme':   return GENERIC_FALLBACK_THEMES
+    case 'keyword': return GENERIC_FALLBACK_KEYWORDS
   }
+}
+
+/** True if this field's pool came from the active format (vs the generic fallback). */
+function vocabFromFormat(field: 'genre' | 'mood' | 'theme' | 'keyword'): boolean {
+  const fmt = activeFormat.value?.idea
+  if (!fmt) return false
+  if (field === 'genre')   return !!fmt.genreVocabulary?.length
+  if (field === 'mood')    return !!fmt.moodVocabulary?.length
+  if (field === 'theme')   return !!fmt.themeVocabulary?.length
+  if (field === 'keyword') return !!fmt.keywordVocabulary?.length
+  return false
+}
+
+/** Short label shown next to each field's heading: "Sleep Story" or "Generic". */
+function vocabSourceLabel(field: 'genre' | 'mood' | 'theme' | 'keyword'): string {
+  return vocabFromFormat(field) ? formatDisplayName.value : 'Generic'
+}
+
+/** Tooltip explaining where the pool comes from. */
+function vocabSourceTooltip(field: 'genre' | 'mood' | 'theme' | 'keyword'): string {
+  if (vocabFromFormat(field)) {
+    return `These suggestions are from the ${formatDisplayName.value} format. Switch format to see different options.`
+  }
+  return `The ${formatDisplayName.value} format doesn't ship its own ${field} vocabulary, so we're showing a generic fallback. You can override per-project from Settings → Format.`
 }
 
 const allGenres = computed(() => Array.from(new Set([...vocabFor('genre'), ...customGenres.value])).sort())
@@ -1162,6 +1270,8 @@ const audienceOptions = computed(() => {
   }
   return BASE_AUDIENCE_OPTIONS
 })
+/** True iff the active format declared its own audienceDefault (used by the label tag). */
+const audienceFromFormat = computed(() => !!activeFormat.value?.idea?.audienceDefault)
 
 // Seed the audience field from the format's default the first time
 // the format loads on a fresh project — without this, listicle users
@@ -2121,6 +2231,33 @@ onMounted(loadIdeas)
 .generator-actions { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 10px; }
 .generator-actions-primary { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .generator-actions-secondary { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+/* Format Indicator Card — sits between the title and the form. Visual
+   anchor that tells the user which format flavours every dropdown +
+   prompt below. Sized to be noticeable but not dominant. */
+.format-indicator-card {
+  display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap;
+  background: var(--accent-dim); border: 1px solid var(--accent);
+  border-radius: var(--radius-md); padding: 12px 14px; margin: 6px 0 14px;
+}
+.format-indicator-main { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.format-indicator-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.format-indicator-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 600; }
+.format-indicator-name { font-size: 15px; color: var(--text-primary); }
+.format-indicator-badge { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 6px; border-radius: 8px; font-weight: 600; }
+.format-indicator-badge.badge-builtin { background: var(--bg-tertiary); color: var(--text-muted); border: 1px solid var(--border); }
+.format-indicator-badge.badge-custom  { background: var(--accent); color: var(--bg-primary); border: 1px solid var(--accent); }
+.format-indicator-badge.badge-warn    { background: #5a3a00; color: #ffd58a; border: 1px solid #ffd58a; }
+.format-indicator-desc { margin: 2px 0 0; font-size: 13px; color: var(--text-primary); line-height: 1.45; }
+.format-indicator-hint { margin: 4px 0 0; line-height: 1.45; }
+.format-indicator-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; min-width: 160px; }
+.format-indicator-actions .btn { width: 100%; text-align: center; }
+
+/* Per-field "From [Format]" tags shown next to dropdown labels. */
+.vocab-source-tag {
+  font-size: 10px; font-weight: 500; color: var(--text-muted);
+  text-transform: none; letter-spacing: 0; margin-left: 4px;
+}
 
 /* Toolbar */
 .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
