@@ -4992,24 +4992,17 @@ async function confirmUploadPreview() {
 
 async function doUpdateMetadata(item: any) {
   if (!canUpdateMetadataRow(item)) return
-  const ok = await confirmGeneration(slug.value, 'youtube_metadata_update', {
-    episode_id: item.episode_code,
-    count: 1,
-  })
-  if (!ok) return
-  rowBusy[item.id] = 'metadata'
-  try {
-    await triggerMetadataUpdate({
-      episode_id: item.episode_code,
-      platform: 'youtube',
-    })
-    success(`Metadata update queued for ${item.episode_code} — privacy + schedule will stay as they are on YouTube.`)
-    setTimeout(() => { loadQueue('youtube'); loadQuota() }, 2000)
-  } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to queue metadata update')
-  } finally {
-    rowBusy[item.id] = null
-  }
+  // v1.0.59 — open the upload-preview modal first so the user sees
+  // the title / description / tags / thumbnail that's about to be
+  // PATCHed onto the live YouTube video. The modal auto-detects this
+  // is a metadata-only update via `data.already_uploaded` and flips
+  // its header, body copy, and confirm-button label to match
+  // ("↻ Update metadata preview" → "↻ Confirm metadata update").
+  // confirmUploadPreview() then routes to triggerMetadataUpdate(),
+  // mirroring what the cost-confirm shortcut path used to do — but
+  // with a real diff in front of it. Cost-confirm becomes redundant
+  // because the modal already prints "~50 quota units" inline.
+  await openUploadPreview(item)
 }
 
 async function doUpdatePlaylist(item: any) {
