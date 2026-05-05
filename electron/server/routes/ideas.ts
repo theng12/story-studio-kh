@@ -130,10 +130,47 @@ ${pattern.metadataKeywordAdditions?.length
 `
     : ''
 
-  return `Generate exactly ${req.count} story episode ideas for a narrative audio production.
+  // Format-derived constraints (v1.0.65). These used to be hardcoded
+  // with sleep-story-specific values ("8-12 chapters", "45/60 min"
+  // length, "avoid clocktower keepers / lantern keepers" anti-tropes)
+  // which silently overrode the format's intent — picking the
+  // Listicle format still produced fantasy ideas because the rules
+  // block at the END of the prompt was the LAST thing the LLM read.
+  // Now everything format-variable comes from the format itself.
+  // Range widening — see buildPastePrompt below for rationale. Per-
+  // project format_overrides can push the default outside the format's
+  // declared range (BrainWise: 100 chapters / 120 min vs listicle's
+  // [3,20] / [10,90]). Auto-extend so the LLM doesn't see a
+  // contradictory "between 3 and 20 (default 100)" instruction.
+  const [chMinFmt, chMaxFmt] = format.script.chapterCountRange
+  const [lenMinFmt, lenMaxFmt] = format.script.lengthMinutesRange
+  const chMin = Math.min(chMinFmt, format.script.defaultChapterCount)
+  const chMax = Math.max(chMaxFmt, format.script.defaultChapterCount)
+  const lenMin = Math.min(lenMinFmt, format.script.defaultLengthMinutes)
+  const lenMax = Math.max(lenMaxFmt, format.script.defaultLengthMinutes)
+  const lengthExamples = lenMin === lenMax
+    ? `"${lenMin} min"`
+    : `"${lenMin} min" through "${lenMax} min"`
+  // Example ideas baked into the format render as a "see this bar"
+  // signal — the LLM matches output style to in-prompt examples far
+  // more reliably than to abstract guidance.
+  const exampleBlock = format.idea.exampleIdeas?.length
+    ? `\nEXAMPLES — match this bar (do not copy):\n${format.idea.exampleIdeas
+        .map((ex, i) =>
+          `  ${i + 1}. ${ex.title}\n     ${ex.logline}\n     themes: ${ex.themes.join(', ')} · ${ex.suggested_chapters} chapters · ${ex.suggested_length} · mood: ${ex.mood}`)
+        .join('\n')}\n`
+    : ''
+  // Mood vocabulary from the format provides on-tone adjectives the
+  // LLM can sample from. Replaces the implicit sleep-story-flavoured
+  // adjective expectations that used to live in the hardcoded rules.
+  const moodVocab = format.idea.moodVocabulary?.length
+    ? `Tone-appropriate mood words for this format: ${format.idea.moodVocabulary.slice(0, 12).join(', ')}.`
+    : ''
+
+  return `Generate exactly ${req.count} episode ideas for the channel format described below.
 
 ${formatGuidance}
-${patternBlock}${topPerformersBlock}
+${patternBlock}${topPerformersBlock}${exampleBlock}
 PARAMETERS:
 - Genre: ${req.genre}
 - Theme: ${req.theme || 'open / surprise me'}
@@ -146,19 +183,20 @@ Diversity levers — apply these two across the batch (some ideas should lean in
 ${leverLines}
 
 For EACH idea, provide:
-1. title — evocative, 5–10 words, no generic adjective stacking (avoid "magical/enchanted/mystical/whispering" unless essential)
+1. title — evocative, 5–10 words; pick adjectives that fit the format's tone (see mood vocab below)
 2. logline — 1–2 sentences with a concrete image or specific detail; avoid describing the premise abstractly
 3. themes — 2–4 thematic keywords, fresh combinations preferred
-4. suggested_chapters — typically 8–12
-5. suggested_length — "45 min" or "60 min"
+4. suggested_chapters — within ${chMin}–${chMax} (format default ${format.script.defaultChapterCount})
+5. suggested_length — minutes-string within ${lengthExamples} (format default ${format.script.defaultLengthMinutes} min)
 6. mood — emotional arc in 2–4 words
 
 RULES:
-- Every idea must have a different setting, protagonist archetype, and emotional arc from the others
-- Avoid recycling common tropes (clocktower keepers, lantern keepers, dream forests, ancient libraries) unless you subvert them
+- Every idea must have a different angle / subject / emotional arc from the others in this batch
 - No two titles may share the same noun+preposition structure (e.g. "The X of the Y" twice)
-- Loglines must use specific concrete nouns, not generic ones ("a weaver of tides" > "a mysterious figure")
+- Loglines must use specific concrete nouns, not generic ones — concrete > abstract every time
 - Do not produce anything that overlaps the AVOID list above — treat it as a hard negative constraint
+- Honour the format guidance above — that's the channel's voice. Don't bring in tropes from other genres.
+- ${moodVocab}
 
 Return ONLY a JSON array of objects with the exact keys above. No markdown, no commentary.`
 }
@@ -365,6 +403,33 @@ ${pattern.metadataKeywordAdditions?.length
     : ''}`
     : ''
 
+  // Format-derived shape (v1.0.65). Sleep-story-specific values like
+  // "8-12 chapters" / "45 min" / 'avoid magical/enchanted' used to be
+  // hardcoded here, which made the paste prompt produce sleep-story-
+  // shaped ideas regardless of the project's selected format. Now we
+  // pull from format.script.* so the listicle / educational / true-
+  // crime / etc formats get their own ranges.
+  //
+  // Per-project overrides (brand format_overrides + project format_
+  // overrides) can push `defaultChapterCount` / `defaultLengthMinutes`
+  // outside the format's declared range — e.g. BrainWise running 100
+  // chapters in a 2-hour video against listicle's [3,20] / [10,90]
+  // defaults. When that happens we widen the prompt's stated range to
+  // include the default so the LLM doesn't get a contradictory
+  // "between 3 and 20 (default 100)" instruction.
+  const [chMinFmt, chMaxFmt] = format.script.chapterCountRange
+  const [lenMinFmt, lenMaxFmt] = format.script.lengthMinutesRange
+  const exampleChapters = format.script.defaultChapterCount
+  const exampleLengthMin = format.script.defaultLengthMinutes
+  const chMin = Math.min(chMinFmt, exampleChapters)
+  const chMax = Math.max(chMaxFmt, exampleChapters)
+  const lenMin = Math.min(lenMinFmt, exampleLengthMin)
+  const lenMax = Math.max(lenMaxFmt, exampleLengthMin)
+  const exampleLength = `${exampleLengthMin} min`
+  const lengthOneOf = lenMin === lenMax
+    ? `"${lenMin} min"`
+    : `any minutes-string between "${lenMin} min" and "${lenMax} min"`
+
   return `${format.idea.systemPromptRole}
 Return a JSON array of idea objects ONLY — no prose before or after. If your
 client insists on markdown fences, use \`\`\`json ... \`\`\` — the importer strips them.
@@ -372,21 +437,22 @@ client insists on markdown fences, use \`\`\`json ... \`\`\` — the importer st
 Each idea MUST match this shape, with these exact keys:
 
   {
-    "title":              "string — 5 to 10 words, evocative, no generic 'magical/enchanted/mystical'",
+    "title":              "string — 5 to 10 words, evocative, on-tone for the format above",
     "logline":            "string — 1 to 2 sentences, 20 to 60 words, one concrete image",
     "themes":             ["array of 2 to 4 short thematic keywords"],
-    "suggested_chapters": 10,
-    "suggested_length":   "45 min",
+    "suggested_chapters": ${exampleChapters},
+    "suggested_length":   "${exampleLength}",
     "mood":               "string — 2 to 6 words describing the emotional arc, commas allowed"
   }
 
 Rules:
 - ${format.idea.guidanceText}
-- Each idea should have a distinct setting, protagonist archetype, and emotional arc.
-- suggested_chapters is an integer, usually 8–12.
-- suggested_length is one of: "30 min", "45 min", "60 min", "90 min".
+- Each idea should have a distinct angle / subject / emotional arc within this format's voice.
+- suggested_chapters is an integer between ${chMin} and ${chMax} (format default ${exampleChapters}).
+- suggested_length is ${lengthOneOf} (format default "${exampleLength}").
 - Don't invent extra keys — the importer only reads the six above.
 - If you're unsure about a field, leave the idea out rather than guessing.
+- Honour the format's voice above. Don't bring in tropes from other genres.
 ${patternBlock}
 Produce N ideas. (Replace N with however many you want, e.g. 10.)
 
