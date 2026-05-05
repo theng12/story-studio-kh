@@ -1142,6 +1142,111 @@
                 <SliderWithNumber v-model="layer.chroma_key.blend" :min="0.0" :max="0.5" :step="0.01" :decimals="2" />
               </div>
             </div>
+
+            <!-- Per-overlay timing (v1.0.58+). Defaults to "always
+                 visible" (no time_range — plays the full episode).
+                 Toggle on to expose start/end controls; the timeline
+                 above + numeric inputs below stay in sync via the
+                 same reactive time_range object. -->
+            <div class="mt-1" style="border-top: 1px solid var(--border); padding-top: 8px;">
+              <label class="checkbox-label" @click.stop>
+                <input
+                  type="checkbox"
+                  :checked="!!layer.time_range"
+                  @change="layer.time_range = ($event.target as HTMLInputElement).checked
+                    ? { start_s: 0, end_s: estimatedDurationSec || null }
+                    : null"
+                />
+                <strong>Limit to a time range</strong>
+                <span class="text-muted text-xs">
+                  ({{ layer.time_range
+                    ? `from ${layer.time_range.start_s.toFixed(1)}s to ${(layer.time_range.end_s ?? estimatedDurationSec ?? 0).toFixed(1)}s`
+                    : 'always visible' }})
+                </span>
+              </label>
+              <div v-if="layer.time_range" class="mt-1">
+                <!-- Drag-and-drop timeline. Total width represents the
+                     full episode duration; the colored bar represents
+                     the layer's active range. Three drag zones: left
+                     handle (start), middle (move both), right handle
+                     (end). Falls back to numeric inputs below for
+                     keyboard precision. -->
+                <div
+                  v-if="estimatedDurationSec >= 5"
+                  class="overlay-timeline-track"
+                  style="position: relative; height: 28px; background: var(--surface-alt, #2a2a2a); border-radius: 4px; margin: 6px 0; overflow: hidden; user-select: none; touch-action: none;"
+                >
+                  <!-- Major tick marks every 60s for visual reference -->
+                  <div
+                    v-for="t in overlayTimelineTicks"
+                    :key="`tick-${t}`"
+                    style="position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.08); pointer-events: none;"
+                    :style="`left: ${(t / estimatedDurationSec) * 100}%;`"
+                  />
+                  <!-- Active range bar -->
+                  <div
+                    class="overlay-timeline-bar"
+                    style="position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: 0.6; cursor: grab;"
+                    :style="`
+                      left: ${(layer.time_range.start_s / estimatedDurationSec) * 100}%;
+                      width: ${((((layer.time_range.end_s ?? estimatedDurationSec) - layer.time_range.start_s) / estimatedDurationSec) * 100)}%;
+                    `"
+                    @pointerdown.stop="startOverlayDrag($event, layer.id, 'move')"
+                  >
+                    <!-- Left handle -->
+                    <div
+                      style="position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; background: var(--accent); cursor: ew-resize; border-radius: 2px;"
+                      title="Drag to set start time"
+                      @pointerdown.stop="startOverlayDrag($event, layer.id, 'start')"
+                    />
+                    <!-- Right handle -->
+                    <div
+                      style="position: absolute; right: -4px; top: 0; bottom: 0; width: 8px; background: var(--accent); cursor: ew-resize; border-radius: 2px;"
+                      title="Drag to set end time"
+                      @pointerdown.stop="startOverlayDrag($event, layer.id, 'end')"
+                    />
+                  </div>
+                </div>
+                <div v-else class="text-muted text-xs">
+                  Run Audio Merge first so we can estimate the episode duration —
+                  the drag timeline needs a reference frame to scale against.
+                </div>
+
+                <div class="grid-3 mt-1">
+                  <div class="form-group">
+                    <label>Start (s)</label>
+                    <input
+                      type="number"
+                      class="input input-sm"
+                      :value="layer.time_range.start_s"
+                      :min="0"
+                      :max="layer.time_range.end_s ?? estimatedDurationSec"
+                      step="0.1"
+                      @input="onOverlayTimeInput($event, layer.id, 'start')"
+                    >
+                  </div>
+                  <div class="form-group">
+                    <label>End (s)</label>
+                    <input
+                      type="number"
+                      class="input input-sm"
+                      :value="layer.time_range.end_s ?? estimatedDurationSec"
+                      :min="layer.time_range.start_s + 0.1"
+                      :max="estimatedDurationSec || 99999"
+                      step="0.1"
+                      @input="onOverlayTimeInput($event, layer.id, 'end')"
+                    >
+                  </div>
+                  <div class="form-group" style="align-self: end;">
+                    <span class="text-muted text-xs">
+                      Episode total: {{ estimatedDurationSec
+                        ? `${Math.floor(estimatedDurationSec / 60)}m ${(estimatedDurationSec % 60).toFixed(1)}s`
+                        : '—' }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -2490,6 +2595,11 @@ type OverlayLayer = {
   scale?: 'cover' | 'contain' | 'native'
   position?: { x: string; y: string }
   loop?: boolean
+  // Per-overlay time-range (v1.0.58+). null/missing = always visible
+  // (full-episode duration, the default behaviour). When set, backend
+  // composes the time_range into its overlay filter's enable= gate
+  // so the layer only renders inside [start_s, end_s].
+  time_range?: { start_s: number; end_s: number | null } | null
 }
 const overlays = reactive<{ enabled: boolean; layers: OverlayLayer[] }>({
   enabled: false,
@@ -2583,6 +2693,88 @@ function moveOverlayLayer(id: string, dir: -1 | 1) {
   overlays.layers[idx] = overlays.layers[next]!
   overlays.layers[next] = tmp
 }
+
+// ── Overlay timeline drag-and-drop (v1.0.58+) ────────────────────────
+// Pixel→seconds conversion uses the timeline track's bounding rect at
+// drag-start time. The handlers attach to `document` so dragging
+// outside the track still updates (matches the native slider feel).
+// Time values snap to 0.1s — finer precision is rarely useful and
+// the typed-input fallback covers the rest.
+function startOverlayDrag(event: PointerEvent, layerId: string, mode: 'start' | 'end' | 'move') {
+  const layer = overlays.layers.find(l => l.id === layerId)
+  if (!layer || !layer.time_range) return
+  const totalDur = estimatedDurationSec.value
+  if (!totalDur || totalDur < 5) return
+  // Walk up to find the timeline track element (the `.overlay-timeline-track` wrapper).
+  let trackEl: HTMLElement | null = event.target as HTMLElement
+  while (trackEl && !trackEl.classList?.contains('overlay-timeline-track')) {
+    trackEl = trackEl.parentElement
+  }
+  if (!trackEl) return
+  const rect = trackEl.getBoundingClientRect()
+  const startX = event.clientX
+  const initialStart = layer.time_range.start_s
+  const initialEnd = layer.time_range.end_s ?? totalDur
+  const len = initialEnd - initialStart
+
+  const snap = (v: number) => Math.round(v * 10) / 10
+
+  function onMove(e: PointerEvent) {
+    if (!layer || !layer.time_range) return
+    const dx = e.clientX - startX
+    const ds = (dx / rect.width) * totalDur
+    if (mode === 'start') {
+      const next = Math.max(0, Math.min(initialEnd - 0.1, initialStart + ds))
+      layer.time_range.start_s = snap(next)
+    } else if (mode === 'end') {
+      const next = Math.max(initialStart + 0.1, Math.min(totalDur, initialEnd + ds))
+      layer.time_range.end_s = snap(next)
+    } else {
+      // Move both — slide the bar without changing length, clamped to
+      // [0, totalDur].
+      let nextStart = initialStart + ds
+      nextStart = Math.max(0, Math.min(totalDur - len, nextStart))
+      layer.time_range.start_s = snap(nextStart)
+      layer.time_range.end_s = snap(nextStart + len)
+    }
+  }
+  function onUp() {
+    document.removeEventListener('pointermove', onMove)
+    document.removeEventListener('pointerup', onUp)
+    document.removeEventListener('pointercancel', onUp)
+  }
+  document.addEventListener('pointermove', onMove)
+  document.addEventListener('pointerup', onUp)
+  document.addEventListener('pointercancel', onUp)
+  event.preventDefault()
+}
+
+function onOverlayTimeInput(event: Event, layerId: string, edge: 'start' | 'end') {
+  const layer = overlays.layers.find(l => l.id === layerId)
+  if (!layer || !layer.time_range) return
+  const raw = Number((event.target as HTMLInputElement).value)
+  if (!Number.isFinite(raw)) return
+  const totalDur = estimatedDurationSec.value || raw
+  const snap = (v: number) => Math.round(v * 10) / 10
+  if (edge === 'start') {
+    const endVal = layer.time_range.end_s ?? totalDur
+    layer.time_range.start_s = snap(Math.max(0, Math.min(endVal - 0.1, raw)))
+  } else {
+    layer.time_range.end_s = snap(Math.max(layer.time_range.start_s + 0.1, Math.min(totalDur, raw)))
+  }
+}
+
+// Render timeline ticks every 60s — visual reference points so the
+// user can eyeball "minute 3" without reading a clock. Computed from
+// the live duration so resizing or re-merging audio updates the
+// timeline scale.
+const overlayTimelineTicks = computed(() => {
+  const total = estimatedDurationSec.value
+  if (!total || total < 60) return []
+  const out: number[] = []
+  for (let t = 60; t < total; t += 60) out.push(t)
+  return out
+})
 
 const filmGrain = reactive({
   enabled: false,
