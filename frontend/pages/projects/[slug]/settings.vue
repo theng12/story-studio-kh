@@ -153,25 +153,34 @@
       </div>
 
       <div class="voice-list">
+        <!--
+          v1.0.71: the "unavailable" pill USED to grey out the entire row
+          and disable use of the preset, but the catalog probe is
+          ElevenLabs-only — voices not in your ElevenLabs account may
+          still be perfectly usable via GenAIPro / fal-audio (which use
+          the same voice IDs but don't gate on ElevenLabs subscription
+          tier). The pill is now informational only: it flags voices
+          that won't preview locally (preview hits ElevenLabs), but
+          generation jobs against other providers still work.
+        -->
         <div
           v-for="(voice, i) in editVoices"
           :key="i"
           class="voice-row-edit"
-          :class="{ 'voice-row-unavailable': isVoicePresetUnavailable(voice.voice_id) }"
         >
           <input v-model="voice.name" class="input input-sm voice-name-input" placeholder="Voice name" />
-          <input v-model="voice.voice_id" class="input input-sm voice-id-input" placeholder="ElevenLabs voice ID" />
+          <input v-model="voice.voice_id" class="input input-sm voice-id-input" placeholder="Voice ID (works across providers)" />
           <span
             v-if="isVoicePresetUnavailable(voice.voice_id)"
             class="voice-unavailable-pill"
-            title="This voice isn't in your current ElevenLabs catalog — generation will fail until you re-add it or remove the preset."
+            title="Not in your ElevenLabs catalog — preview button is disabled because preview uses ElevenLabs. Generation jobs against GenAIPro / fal-audio (same voice ID, different provider) still work normally."
           >
-            unavailable
+            not on ElevenLabs
           </span>
           <button
             class="btn-icon"
             :disabled="!voice.voice_id || isVoicePresetUnavailable(voice.voice_id) || previewingVoiceId === voice.voice_id"
-            :title="!voice.voice_id ? 'Enter a voice ID first' : isVoicePresetUnavailable(voice.voice_id) ? 'Voice unavailable in your ElevenLabs account' : (previewingVoiceId === voice.voice_id ? 'Stop preview' : 'Preview voice (1-sentence sample)')"
+            :title="!voice.voice_id ? 'Enter a voice ID first' : isVoicePresetUnavailable(voice.voice_id) ? 'Preview unavailable — voice not in your ElevenLabs catalog. Generation against other TTS providers still works.' : (previewingVoiceId === voice.voice_id ? 'Stop preview' : 'Preview voice (1-sentence sample via ElevenLabs)')"
             @click="togglePreviewVoicePreset(voice.voice_id)"
           >
             {{ previewingVoiceId === voice.voice_id ? '◼' : '▶' }}
@@ -5213,19 +5222,17 @@ async function deleteProject() {
 /* Two-column input split — name compact, voice ID wider since it's longer. */
 .voice-row-edit .voice-name-input { flex: 1; }
 .voice-row-edit .voice-id-input   { flex: 1.5; }
-/* Saved presets that ElevenLabs no longer has — dim the row so the user
- * notices, and the "unavailable" pill renders inline beside the inputs. */
-.voice-row-edit.voice-row-unavailable .voice-name-input,
-.voice-row-edit.voice-row-unavailable .voice-id-input {
-  opacity: 0.55;
-}
+/* v1.0.71: dropped the row-dimming on .voice-row-unavailable. The pill
+ * is informational only now — the voice can still be used by non-
+ * ElevenLabs providers (GenAIPro, fal-audio), so dimming the row
+ * over-stated the constraint. The pill itself still renders in an
+ * amber tone so it catches the eye without obscuring the inputs. */
 .voice-unavailable-pill {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
   background: rgba(245, 158, 11, 0.18);
   color: rgb(180, 83, 9);
-  text-transform: lowercase;
   white-space: nowrap;
 }
 
