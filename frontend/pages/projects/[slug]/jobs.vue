@@ -957,59 +957,77 @@ async function retryJob(job: RJob) {
   const target = endpointMap[job.type]
   if (!target) { showError(`Cannot retry job type: ${job.type}`); return }
 
-  // v1.0.71: repair-FIRST for asset-producing job types. Before this, a
-  // "Repair & Retry" on a failed audio job just deleted the job and
-  // re-submitted /generate/audio. The audio generator's internal
-  // auto-recovery (manifest.task_id → poll → download) only fires when
-  // chunk filename matches between runs, so race conditions / pre-record
-  // failures fell through to fresh submits and produced DUPLICATE
-  // audio generations on the provider (user's bug report). We now
-  // explicitly call the repair endpoint and AWAIT it before submitting
+  // v1.0.71+: repair-FIRST for asset-producing job types. Before this, a
+  // "Repair & Retry" on a failed audio / images / video job just deleted
+  // the job and re-submitted the original generation endpoint. The
+  // generators' internal auto-recovery only fires per-chunk and only
+  // when manifest filenames match between runs, so race conditions and
+  // pre-record failures fell through to fresh submits and produced
+  // DUPLICATE provider tasks (user's bug report). We now explicitly
+  // call the repair endpoint AND wait for it to finish before submitting
   // the retry, so anything in-flight on the provider lands on disk
   // first; the retry generator's per-chunk skip-when-on-disk guard
   // then ensures only truly missing chunks get fresh submits.
-  const REPAIR_FIRST: Record<string, { url: string; body: any }> = {
+  //
+  // Endpoint shapes differ:
+  //   • audio-repair  → SYNCHRONOUS: returns reconciled status in the
+  //                     POST response. Awaiting POST = repair done.
+  //   • images-repair → QUEUED: POST returns job_id immediately, the
+  //                     real work happens in the queue. We must poll
+  //                     /jobs/:job_id until it reaches a terminal
+  //                     state before considering the repair "done".
+  //   • video-repair  → same as images-repair (queued).
+  const REPAIR_FIRST: Record<string, { url: string; body: any; mode: 'sync' | 'queued' }> = {
     audio: {
       url: `/projects/${slug.value}/episodes/${job.episode_id}/audio-repair`,
       body: { provider: job.params?.provider || 'genaipro' },
+      mode: 'sync',
     },
     images: {
       url: `/projects/${slug.value}/generate/images-repair`,
       body: { episode_id: job.episode_id },
+      mode: 'queued',
     },
     scene_images: {
       url: `/projects/${slug.value}/generate/images-repair`,
       body: { episode_id: job.episode_id },
+      mode: 'queued',
     },
     thumb_images: {
       url: `/projects/${slug.value}/generate/images-repair`,
       body: { episode_id: job.episode_id },
+      mode: 'queued',
     },
     video: {
       url: `/projects/${slug.value}/generate/video-repair`,
       body: { episode_id: job.episode_id },
+      mode: 'queued',
     },
   }
   const repair = REPAIR_FIRST[job.type]
 
   try {
     if (repair) {
-      // The audio-repair endpoint is synchronous (returns reconciled
-      // status directly); images-repair / video-repair enqueue a job and
-      // return immediately. Either way we await — for the queued ones
-      // the await just confirms enqueue success; the repair job's own
-      // run is logged in the Jobs tab so the user sees it complete
-      // before the retry executor picks up where they left off.
       info(`Recovering in-flight ${jobTypeLabel(job.type)} tasks for ${job.episode_id} (no charge)…`)
       try {
-        await post(repair.url, repair.body)
+        const resp = await post<{ job_id?: string }>(repair.url, repair.body)
+        if (repair.mode === 'queued' && resp?.job_id) {
+          // Wait for the queued repair job to reach a terminal state
+          // (done/error/cancelled). Without this, the retry submitted
+          // below races against the still-running repair — the retry's
+          // generator scans disk BEFORE repair has finished downloading,
+          // sees no images, and re-submits fresh requests = duplicates
+          // on the provider.
+          await waitForJobTerminal(resp.job_id, /* timeoutMs */ 10 * 60_000)
+        }
       } catch (e: any) {
-        // Repair failure is NON-FATAL for the retry — log and continue.
-        // The worst case is a fresh re-submit (today's behaviour); the
-        // best case (most retries) repair lands and the retry skips
-        // already-on-disk chunks. Logging keeps the breakcrumb in console
-        // for debugging.
-        console.warn('[retry] repair phase failed, proceeding with fresh retry:',
+        // Repair failure (or wait-timeout) is NON-FATAL for the retry —
+        // log and continue. The worst case is a fresh re-submit (today's
+        // behaviour); the best case (most retries) repair lands and the
+        // retry skips already-on-disk chunks. The console breadcrumb
+        // helps with debugging if we ever see a duplicate-task report
+        // again.
+        console.warn('[retry] repair phase failed/timed out, proceeding with fresh retry:',
           e?.data?.detail || e?.message || e)
       }
     }
@@ -1021,6 +1039,38 @@ async function retryJob(job: RJob) {
     await post(target.url, target.params)
     success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
   } catch (e: any) { showError(e.data?.detail || 'Failed to retry job') }
+}
+
+/**
+ * Poll a job until it reaches a terminal state (done / error / cancelled),
+ * or the timeout fires. Used to gate retry-after-repair on the actual
+ * completion of a queued repair job (images-repair / video-repair) since
+ * their POST returns immediately after enqueue, not after the work lands.
+ *
+ * Polls every 2 s — fast enough that a small repair job (5-10 s) doesn't
+ * delay the retry visibly, slow enough that a large repair (a few minutes
+ * downloading 100+ images) doesn't hammer the backend. Throws on timeout
+ * so the caller's catch surfaces it as a non-fatal warning and continues
+ * to the retry.
+ */
+async function waitForJobTerminal(jobId: string, timeoutMs: number): Promise<void> {
+  const POLL_INTERVAL_MS = 2000
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    let job: any
+    try {
+      job = await $fetch(`/api/projects/${slug.value}/jobs/${jobId}`)
+    } catch (e: any) {
+      // 404 = job already cleared (rare — would mean another tab's
+      // "Clear finished" ran during the wait). Treat as terminal.
+      if (e?.response?.status === 404) return
+      throw e
+    }
+    if (!job) return
+    if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') return
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+  }
+  throw new Error(`Repair job ${jobId} did not finish within ${timeoutMs / 1000}s — proceeding with retry anyway.`)
 }
 
 async function clearFinished() {
