@@ -21,6 +21,6 @@
   "closingDevice": "Close by zooming out — the broad arc the listener just travelled, the through-line from origin to now, what the next chapter (which they may live to see) might look like.",
 
   "suggestedLengthMinutes": [25, 75],
-  "preferredFormats": ["educational", "documentary", "comedy", "sleep-story"],
+  "preferredFormats": ["educational", "documentary", "comedy", "sleep-story", "listicle"],
   "metadataKeywordAdditions": ["entire history", "explained", "history of", "deep dive"]
 }

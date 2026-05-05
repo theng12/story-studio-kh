@@ -1,0 +1,25 @@
+{
+  "id": "top-N-X-explained",
+  "name": "{N} {X} explained",
+  "description": "Classic listicle / explainer — a numbered bundle of short, independent topics around a unifying theme. Each chapter is a self-contained question or claim with hook → explanation → micro-payoff. Pairs natively with the Listicle / Explainer format and the BrainWise compilation video layout.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "titleTemplate": "{N} {X} explained",
+  "subjectLabel": "Theme (e.g. paradoxes, sleep mysteries, plane crashes)",
+  "pov": "third",
+
+  "openingDevice": "Open with a punchy framing of the unifying theme — one or two sentences that promise the listener N independent payoffs in the next ~30 minutes. Tease the most counter-intuitive item in the list ('one of these has been baffling physicists for 80 years…') without revealing the answer. End the cold-open with a clean handoff: 'Here are {N} {X}, explained.'",
+
+  "bodyStructure": [
+    "Chapter 1: Strongest hook — the topic that earns the YouTube click. Open with a question or counter-intuitive claim, explain in 2-4 supporting beats, close with a memorable micro-payoff",
+    "Chapters 2-{lastButOne}: Each chapter is one independent topic. Same shape every time: hook → explanation → micro-payoff. Vary tone slightly (some surprising, some evidence-rich, some wry) so the listicle doesn't feel monotone. NO narrative threads carry between chapters — they are standalone",
+    "Chapter {last}: Save a satisfying / punchy topic for last so the video ends strong, not fizzles. Could be the most surprising, the most resonant, or the one that recontextualizes the whole list"
+  ],
+
+  "closingDevice": "Close with a one-paragraph zoom-out: what these {N} items together suggest about the theme. Avoid 'and so we've learned…' textbook closers — let the factual surprise carry it. Optional: tease the next listicle in the series.",
+
+  "suggestedLengthMinutes": [20, 60],
+  "preferredFormats": ["listicle", "educational", "documentary", "comedy"],
+  "metadataKeywordAdditions": ["explained", "top 10", "facts", "mysteries", "things you didn't know"]
+}

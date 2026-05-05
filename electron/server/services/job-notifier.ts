@@ -216,13 +216,17 @@ function readDigestConfig(raw: unknown): DigestConfig {
   // garbage like "9:0pm". Bad values fall back to default.
   const time = typeof r.time_local === 'string' && /^\d{1,2}:\d{2}$/.test(r.time_local)
     ? r.time_local : def.time_local
-  return {
+  const out: DigestConfig = {
     enabled: typeof r.enabled === 'boolean' ? r.enabled : def.enabled,
     time_local: time,
     desktop_enabled: typeof r.desktop_enabled === 'boolean' ? r.desktop_enabled : def.desktop_enabled,
     telegram_enabled: typeof r.telegram_enabled === 'boolean' ? r.telegram_enabled : def.telegram_enabled,
-    last_fired_date: typeof r.last_fired_date === 'string' ? r.last_fired_date : undefined,
   }
+  // Only include last_fired_date when actually persisted — otherwise
+  // deepEqual against DEFAULT_NOTIFIER_SETTINGS (which omits the key)
+  // sees `last_fired_date: undefined` as a diff.
+  if (typeof r.last_fired_date === 'string') out.last_fired_date = r.last_fired_date
+  return out
 }
 
 export async function getNotifierSettings(): Promise<NotifierSettings> {
