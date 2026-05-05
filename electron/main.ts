@@ -477,6 +477,28 @@ electronApp.whenReady().then(async () => {
     // completed batches pop an OS notification. Runs after createWindow so
     // the click handler has a window to focus. See job-notifier.ts.
     installJobNotifier()
+
+    // Daily digest scheduler (v1.0.62+). Ticks every minute; fires
+    // the digest at the user's configured local time once per day.
+    // Wired with a dispatcher that fans out to whichever channels
+    // (desktop / telegram) the user enabled for the digest specifically.
+    try {
+      const { startDigestScheduler } = await import('./server/services/digest-scheduler.js')
+      startDigestScheduler(async (payload, opts) => {
+        if (opts.desktop) popNotification(payload, 'digest')
+        if (opts.telegram) {
+          const settings = await (await import('./server/services/job-notifier.js')).getNotifierSettings()
+          const tg = settings.telegram
+          if (tg?.bot_token && tg.chat_id) {
+            const { sendTelegramMessage, formatTelegramText } = await import('./server/services/telegram-notifier.js')
+            const r = await sendTelegramMessage(tg.bot_token, tg.chat_id, formatTelegramText(payload), { parseMode: 'HTML' })
+            if (!r.ok) logCrash('digest-telegram', new Error(`Telegram digest send failed: ${r.error || `HTTP ${r.status}`}`))
+          }
+        }
+      })
+    } catch (e) {
+      logCrash('digest-scheduler', e)
+    }
   } catch (e) {
     logCrash('startup', e)
     dialog.showErrorBox(

@@ -1470,6 +1470,104 @@
         </div>
       </div>
 
+      <!-- Daily digest (v1.0.62+). Independent of per-event pings —
+           this fires once per morning at the user's local time and
+           summarises scheduling status across every project on the
+           machine. Per-channel routing toggles live here so the user
+           can route the digest to Telegram only (e.g.) while keeping
+           desktop pop-ups for noisier per-event pings. -->
+      <div class="form-group mt-3" style="max-width: 600px; border-top: 1px solid var(--border); padding-top: 12px;">
+        <label class="flex gap-2" style="align-items: center;">
+          <input
+            v-model="notifSettings.digest.enabled"
+            type="checkbox"
+            @change="saveNotifSettings"
+          />
+          <span><strong>Daily digest</strong></span>
+        </label>
+        <p class="text-muted" style="font-size: 12px; margin: 4px 0 0;">
+          Once-per-day summary with what's going live today, how much queue you have, and what's ready to upload.
+          Pulls from your projects' existing scheduling data — no extra setup needed.
+          Manual <strong>Send digest now</strong> below previews / tests without waiting for the schedule.
+        </p>
+
+        <div class="grid-2 mt-1" style="gap: 12px;">
+          <div class="form-group">
+            <label>Fire at (local time, 24h)</label>
+            <input
+              v-model="notifSettings.digest.time_local"
+              type="time"
+              class="input"
+              :disabled="!notifSettings.digest.enabled"
+              @change="saveNotifSettings"
+            >
+            <span class="text-muted text-xs">Default 09:00 — pick whatever lines up with when you start your day.</span>
+          </div>
+          <div class="form-group">
+            <label>Last fired</label>
+            <span class="text-muted text-xs" style="display: block; padding: 6px 0;">
+              {{ notifSettings.digest.last_fired_date || '— never —' }}
+            </span>
+            <span class="text-muted text-xs">
+              The scheduler skips fires for the same date so a quick app restart inside the fire window doesn't double-send.
+            </span>
+          </div>
+        </div>
+
+        <div class="form-group mt-1">
+          <span style="display: block; margin-bottom: 4px; font-size: 12px;">Send digest to</span>
+          <label class="checkbox-label flex gap-2" style="align-items: center; margin-right: 12px;">
+            <input
+              v-model="notifSettings.digest.desktop_enabled"
+              type="checkbox"
+              :disabled="!notifSettings.digest.enabled"
+              @change="saveNotifSettings"
+            />
+            <span>Desktop pop-up</span>
+          </label>
+          <label class="checkbox-label flex gap-2" style="align-items: center;">
+            <input
+              v-model="notifSettings.digest.telegram_enabled"
+              type="checkbox"
+              :disabled="!notifSettings.digest.enabled"
+              @change="saveNotifSettings"
+            />
+            <span>Telegram</span>
+          </label>
+          <span class="text-muted text-xs" style="display: block; margin-top: 4px;">
+            Telegram routing only fires when the Telegram channel above is also configured + enabled.
+          </span>
+        </div>
+
+        <div class="flex gap-2 mt-1" style="flex-wrap: wrap; align-items: center;">
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            :disabled="digestPreviewBusy"
+            title="Show what the digest WOULD say right now without sending it anywhere"
+            @click="loadDigestPreview"
+          >{{ digestPreviewBusy ? 'Building…' : '👀 Preview digest body' }}</button>
+          <button
+            type="button"
+            class="btn btn-sm btn-primary"
+            :disabled="digestSendNowBusy"
+            title="Send the digest right now to whichever channels are enabled above"
+            @click="sendDigestNow"
+          >{{ digestSendNowBusy ? 'Sending…' : '📨 Send digest now' }}</button>
+          <span
+            v-if="digestSendResult"
+            :style="`font-size: 12px; color: ${digestSendResult.ok ? 'var(--success, #4ade80)' : 'var(--error, #f87171)'};`"
+          >
+            {{ digestSendResult.ok ? '✓ Digest sent.' : `✕ ${digestSendResult.reason || 'Send failed'}` }}
+          </span>
+        </div>
+
+        <div v-if="digestPreview" class="mt-2" style="border: 1px solid var(--border); border-radius: 6px; padding: 10px; background: var(--surface-alt, #1a1a1a);">
+          <strong style="font-size: 12px; display: block; margin-bottom: 6px;">{{ digestPreview.title }}</strong>
+          <pre style="font-size: 11px; white-space: pre-wrap; margin: 0; font-family: var(--font-mono, monospace); color: var(--text-muted);">{{ digestPreview.body }}</pre>
+        </div>
+      </div>
+
       <!-- Live status indicator — confirms the last save actually hit disk
            and reminds the user this is an app-wide setting (not per-project),
            matching the wording in the Settings memory. The "Saving…" /
@@ -3313,15 +3411,24 @@ watch(() => _route.hash, applyHash)
 // Backed by `/api/app-settings/notifications`. We debounce the save on
 // slider drags so one gesture doesn't burn a PUT per integer tick.
 interface TelegramConfigUI { enabled: boolean; bot_token: string; chat_id: string }
+interface DigestConfigUI {
+  enabled: boolean
+  time_local: string
+  desktop_enabled: boolean
+  telegram_enabled: boolean
+  last_fired_date?: string
+}
 interface NotifSettings {
   enabled: boolean
   min_duration_ms: number
   telegram: TelegramConfigUI
+  digest: DigestConfigUI
 }
 const notifSettings = ref<NotifSettings>({
   enabled: true,
   min_duration_ms: 300_000,
   telegram: { enabled: false, bot_token: '', chat_id: '' },
+  digest: { enabled: false, time_local: '09:00', desktop_enabled: true, telegram_enabled: true },
 })
 const notifSaveStatus = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const notifSaveError = ref('')
@@ -3336,9 +3443,9 @@ const notifMinDurationMinutes = computed({
 async function loadNotifSettings() {
   try {
     const r = await get<NotifSettings>('/app-settings/notifications')
-    // Backend may omit telegram on legacy installs — keep the UI
-    // pre-populated with empty defaults so v-model bindings don't
-    // break when reading `notifSettings.telegram.bot_token`.
+    // Backend may omit telegram or digest on legacy installs — keep
+    // the UI pre-populated with empty defaults so v-model bindings
+    // don't break when reading nested fields.
     notifSettings.value = {
       enabled: !!r.enabled,
       min_duration_ms: typeof r.min_duration_ms === 'number' ? r.min_duration_ms : 300_000,
@@ -3349,6 +3456,15 @@ async function loadNotifSettings() {
             chat_id: r.telegram.chat_id || '',
           }
         : { enabled: false, bot_token: '', chat_id: '' },
+      digest: r.digest
+        ? {
+            enabled: !!r.digest.enabled,
+            time_local: r.digest.time_local || '09:00',
+            desktop_enabled: r.digest.desktop_enabled !== false,
+            telegram_enabled: r.digest.telegram_enabled !== false,
+            last_fired_date: r.digest.last_fired_date,
+          }
+        : { enabled: false, time_local: '09:00', desktop_enabled: true, telegram_enabled: true },
     }
   } catch { /* leave defaults */ }
 }
@@ -3369,6 +3485,12 @@ async function saveNotifSettings() {
         bot_token: notifSettings.value.telegram.bot_token,
         chat_id: notifSettings.value.telegram.chat_id,
       },
+      digest: {
+        enabled: notifSettings.value.digest.enabled,
+        time_local: notifSettings.value.digest.time_local,
+        desktop_enabled: notifSettings.value.digest.desktop_enabled,
+        telegram_enabled: notifSettings.value.digest.telegram_enabled,
+      },
     })
     // Re-normalise (same shape as loadNotifSettings) — the backend may
     // have trimmed bot_token / chat_id whitespace.
@@ -3382,6 +3504,15 @@ async function saveNotifSettings() {
             chat_id: saved.telegram.chat_id || '',
           }
         : { enabled: false, bot_token: '', chat_id: '' },
+      digest: saved.digest
+        ? {
+            enabled: !!saved.digest.enabled,
+            time_local: saved.digest.time_local || '09:00',
+            desktop_enabled: saved.digest.desktop_enabled !== false,
+            telegram_enabled: saved.digest.telegram_enabled !== false,
+            last_fired_date: saved.digest.last_fired_date,
+          }
+        : { enabled: false, time_local: '09:00', desktop_enabled: true, telegram_enabled: true },
     }
     notifSaveStatus.value = 'saved'
     stampSaved('notifications')
@@ -3415,6 +3546,51 @@ async function testTelegram() {
     }
   } finally {
     telegramTestBusy.value = false
+  }
+}
+
+// Daily digest preview + manual send-now (v1.0.62+). Preview hits a
+// read-only endpoint that builds the digest body without dispatching;
+// Send Now actually fires through whichever channels are routed on.
+const digestPreviewBusy = ref(false)
+const digestPreview = ref<{ title: string; body: string } | null>(null)
+const digestSendNowBusy = ref(false)
+const digestSendResult = ref<{ ok: boolean; reason?: string } | null>(null)
+async function loadDigestPreview() {
+  digestPreviewBusy.value = true
+  try {
+    const r = await get<{ payload: { title: string; body: string } }>(
+      '/app-settings/notifications/digest-preview',
+    )
+    digestPreview.value = r.payload
+  } catch (e: any) {
+    digestPreview.value = {
+      title: 'Preview failed',
+      body: e?.data?.detail || e?.message || 'Could not build digest.',
+    }
+  } finally {
+    digestPreviewBusy.value = false
+  }
+}
+async function sendDigestNow() {
+  digestSendNowBusy.value = true
+  digestSendResult.value = null
+  try {
+    const r = await post<{ ok: boolean; reason?: string; payload?: { title: string; body: string } }>(
+      '/app-settings/notifications/send-digest-now',
+      {},
+    )
+    digestSendResult.value = { ok: !!r.ok, reason: r.reason }
+    // Mirror the dispatched body into the preview pane so the user can
+    // confirm what just got sent without round-tripping through Telegram.
+    if (r.ok && r.payload) digestPreview.value = r.payload
+  } catch (e: any) {
+    digestSendResult.value = {
+      ok: false,
+      reason: e?.data?.detail || e?.message || 'Send failed',
+    }
+  } finally {
+    digestSendNowBusy.value = false
   }
 }
 

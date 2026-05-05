@@ -45,6 +45,38 @@ router.put('/app-settings/notifications', async (req, res) => {
     }
     patch.min_duration_ms = body.min_duration_ms
   }
+  if (body.digest !== undefined) {
+    if (!body.digest || typeof body.digest !== 'object') {
+      return res.status(400).json({ detail: 'digest must be an object' })
+    }
+    const dg = body.digest as Record<string, unknown>
+    const dgPatch: { enabled?: boolean; time_local?: string; desktop_enabled?: boolean; telegram_enabled?: boolean } = {}
+    if (dg.enabled !== undefined) {
+      if (typeof dg.enabled !== 'boolean') {
+        return res.status(400).json({ detail: 'digest.enabled must be a boolean' })
+      }
+      dgPatch.enabled = dg.enabled
+    }
+    if (dg.time_local !== undefined) {
+      if (typeof dg.time_local !== 'string' || !/^\d{1,2}:\d{2}$/.test(dg.time_local)) {
+        return res.status(400).json({ detail: 'digest.time_local must be a HH:MM string' })
+      }
+      dgPatch.time_local = dg.time_local
+    }
+    if (dg.desktop_enabled !== undefined) {
+      if (typeof dg.desktop_enabled !== 'boolean') {
+        return res.status(400).json({ detail: 'digest.desktop_enabled must be a boolean' })
+      }
+      dgPatch.desktop_enabled = dg.desktop_enabled
+    }
+    if (dg.telegram_enabled !== undefined) {
+      if (typeof dg.telegram_enabled !== 'boolean') {
+        return res.status(400).json({ detail: 'digest.telegram_enabled must be a boolean' })
+      }
+      dgPatch.telegram_enabled = dg.telegram_enabled
+    }
+    ;(patch as any).digest = dgPatch
+  }
   if (body.telegram !== undefined) {
     if (!body.telegram || typeof body.telegram !== 'object') {
       return res.status(400).json({ detail: 'telegram must be an object' })
@@ -77,6 +109,42 @@ router.put('/app-settings/notifications', async (req, res) => {
     res.json(saved)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save notification settings'))
+  }
+})
+
+/**
+ * Build the daily digest right now and return what would be sent —
+ * but DON'T actually fire the channels. Lets the Settings page show a
+ * live preview of the digest body so the user sees the format before
+ * committing to a daily fire schedule.
+ */
+router.get('/app-settings/notifications/digest-preview', async (_req, res) => {
+  try {
+    const [{ buildDigest }, { formatDigestMessage }] = await Promise.all([
+      import('../services/digest-builder.js'),
+      import('../services/digest-formatter.js'),
+    ])
+    const data = await buildDigest()
+    const payload = formatDigestMessage(data)
+    res.json({ payload, data })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to build digest preview'))
+  }
+})
+
+/**
+ * Manual fire — actually dispatches the digest via whichever channels
+ * the user has enabled for it. Doesn't update last_fired_date so the
+ * regular schedule still fires later that day. Used by the "Send now"
+ * button in Settings.
+ */
+router.post('/app-settings/notifications/send-digest-now', async (_req, res) => {
+  try {
+    const { sendDigestNow } = await import('../services/digest-scheduler.js')
+    const r = await sendDigestNow()
+    res.json(r)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to send digest'))
   }
 })
 

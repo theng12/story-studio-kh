@@ -32,6 +32,23 @@ export interface TelegramConfig {
   chat_id: string
 }
 
+/** Daily digest config (v1.0.62+). Fires once per day at the user's
+ *  local time, summarising scheduling status across every project on
+ *  the machine. Per-channel toggles are independent of the per-event
+ *  ping channels above — a user might want quiet desktop pop-ups for
+ *  job completions but a single Telegram digest each morning. */
+export interface DigestConfig {
+  enabled: boolean
+  /** 'HH:MM' in 24-hour local time. Default '09:00'. */
+  time_local: string
+  desktop_enabled: boolean
+  telegram_enabled: boolean
+  /** Last YYYY-MM-DD (local) the scheduled fire ran. Used by the
+   *  60-second tick to dedupe so a fire-window crossing minute marks
+   *  doesn't double-fire. Manual "Send now" doesn't update this. */
+  last_fired_date?: string
+}
+
 export interface NotifierSettings {
   /** Desktop (Electron Notification) channel — the original system. */
   enabled: boolean
@@ -40,12 +57,15 @@ export interface NotifierSettings {
   /** Optional Telegram channel. Backward compat: missing/undefined =
    *  Telegram disabled, the original desktop-only behaviour. */
   telegram?: TelegramConfig
+  /** Optional daily digest schedule. Missing = disabled. */
+  digest?: DigestConfig
 }
 
 export const DEFAULT_NOTIFIER_SETTINGS: NotifierSettings = {
   enabled: true,
   min_duration_ms: 300_000,
   telegram: { enabled: false, bot_token: '', chat_id: '' },
+  digest: { enabled: false, time_local: '09:00', desktop_enabled: true, telegram_enabled: true },
 }
 
 /** Aggregate over every job tagged with a given `pipeline_batch_id`. */
@@ -188,10 +208,29 @@ function readTelegramConfig(raw: unknown): TelegramConfig {
   }
 }
 
+function readDigestConfig(raw: unknown): DigestConfig {
+  const def = DEFAULT_NOTIFIER_SETTINGS.digest!
+  if (!raw || typeof raw !== 'object') return { ...def }
+  const r = raw as Record<string, unknown>
+  // Loose validation — `time_local` accepts H:MM or HH:MM, refuses
+  // garbage like "9:0pm". Bad values fall back to default.
+  const time = typeof r.time_local === 'string' && /^\d{1,2}:\d{2}$/.test(r.time_local)
+    ? r.time_local : def.time_local
+  return {
+    enabled: typeof r.enabled === 'boolean' ? r.enabled : def.enabled,
+    time_local: time,
+    desktop_enabled: typeof r.desktop_enabled === 'boolean' ? r.desktop_enabled : def.desktop_enabled,
+    telegram_enabled: typeof r.telegram_enabled === 'boolean' ? r.telegram_enabled : def.telegram_enabled,
+    last_fired_date: typeof r.last_fired_date === 'string' ? r.last_fired_date : undefined,
+  }
+}
+
 export async function getNotifierSettings(): Promise<NotifierSettings> {
   const raw = await getAppSetting('notifications')
   const defaults = DEFAULT_NOTIFIER_SETTINGS
-  if (!raw || typeof raw !== 'object') return { ...defaults, telegram: { ...defaults.telegram! } }
+  if (!raw || typeof raw !== 'object') {
+    return { ...defaults, telegram: { ...defaults.telegram! }, digest: { ...defaults.digest! } }
+  }
   const r = raw as Record<string, unknown>
   const min = typeof r.min_duration_ms === 'number' && r.min_duration_ms >= 0
     ? r.min_duration_ms : defaults.min_duration_ms
@@ -199,6 +238,7 @@ export async function getNotifierSettings(): Promise<NotifierSettings> {
     enabled: typeof r.enabled === 'boolean' ? r.enabled : defaults.enabled,
     min_duration_ms: min,
     telegram: readTelegramConfig(r.telegram),
+    digest: readDigestConfig(r.digest),
   }
 }
 
@@ -221,6 +261,27 @@ export async function setNotifierSettings(patch: Partial<NotifierSettings>): Pro
             : (current.telegram?.chat_id ?? ''),
         }
       : current.telegram,
+    digest: patch.digest
+      ? {
+          enabled: typeof patch.digest.enabled === 'boolean'
+            ? patch.digest.enabled
+            : (current.digest?.enabled ?? false),
+          time_local: typeof patch.digest.time_local === 'string' && /^\d{1,2}:\d{2}$/.test(patch.digest.time_local)
+            ? patch.digest.time_local
+            : (current.digest?.time_local ?? '09:00'),
+          desktop_enabled: typeof patch.digest.desktop_enabled === 'boolean'
+            ? patch.digest.desktop_enabled
+            : (current.digest?.desktop_enabled ?? true),
+          telegram_enabled: typeof patch.digest.telegram_enabled === 'boolean'
+            ? patch.digest.telegram_enabled
+            : (current.digest?.telegram_enabled ?? true),
+          // last_fired_date is set internally by the scheduler; preserve
+          // unless the patch explicitly sets it (e.g. tests).
+          last_fired_date: typeof patch.digest.last_fired_date === 'string'
+            ? patch.digest.last_fired_date
+            : current.digest?.last_fired_date,
+        }
+      : current.digest,
   }
   await setAppSetting('notifications', next)
   return next
