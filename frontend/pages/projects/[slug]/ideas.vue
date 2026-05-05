@@ -1006,12 +1006,43 @@ const LAST_PATTERN_KEY = 'idea_generator_last_pattern'
 const LAST_SUBJECT_KEY = 'idea_generator_last_subject'
 let patternHydrated = false
 
+/**
+ * v1.0.66+ — keep the FULL format objects (not just id+name) so the
+ * Ideas Generator dropdowns + Randomize / Surprise Me can pull
+ * vocabularies from `format.idea.{genre|theme|mood|keyword}Vocabulary`.
+ * Without this, BrainWise (listicle format) would still see sleep-
+ * story-flavoured "coming-of-age / quiet rebellion / lantern" options
+ * baked into the page even though the format has its own vocab.
+ */
+type FormatLite = {
+  id: string
+  name: string
+  idea?: {
+    audienceDefault?: string
+    moodVocabulary?: string[]
+    themeVocabulary?: string[]
+    genreVocabulary?: string[]
+    keywordVocabulary?: string[]
+  }
+}
+const formatsById = ref<Record<string, FormatLite>>({})
+const activeFormat = computed<FormatLite | null>(() =>
+  formatsById.value[formatId.value] || null,
+)
+
 async function loadFormatNames() {
   try {
-    const list = await get<Array<{ id: string; name: string }>>('/formats')
+    const list = await get<Array<FormatLite>>('/formats')
     const map: Record<string, string> = {}
-    for (const f of list || []) if (f && typeof f.id === 'string') map[f.id] = f.name || f.id
+    const fullMap: Record<string, FormatLite> = {}
+    for (const f of list || []) {
+      if (f && typeof f.id === 'string') {
+        map[f.id] = f.name || f.id
+        fullMap[f.id] = f
+      }
+    }
     formatNamesById.value = map
+    formatsById.value = fullMap
   } catch { /* fall back to displaying the id */ }
 }
 
@@ -1083,10 +1114,33 @@ const customMoods = ref<string[]>([])
 const customThemes = ref<string[]>([])
 const customKeywords = ref<string[]>([])
 
-const allGenres = computed(() => Array.from(new Set([...DEFAULT_GENRES, ...customGenres.value])).sort())
-const allMoods = computed(() => Array.from(new Set([...DEFAULT_MOODS, ...customMoods.value])).sort())
-const allThemes = computed(() => Array.from(new Set([...DEFAULT_THEMES, ...customThemes.value])).sort())
-const allKeywords = computed(() => Array.from(new Set([...DEFAULT_KEYWORDS, ...customKeywords.value])).sort())
+/**
+ * Resolve a vocab pool: format-supplied vocabulary if the active
+ * format declares one (sleep-story, listicle, etc.), otherwise the
+ * page's hardcoded sleep-story-leaning DEFAULT_*. Without this,
+ * BrainWise users still saw "coming-of-age / quiet rebellion /
+ * lantern" suggestions even though listicle.json has its own pool.
+ */
+function vocabFor(field: 'genre' | 'mood' | 'theme' | 'keyword'): readonly string[] {
+  const fmt = activeFormat.value?.idea
+  if (fmt) {
+    if (field === 'genre' && fmt.genreVocabulary?.length) return fmt.genreVocabulary
+    if (field === 'mood' && fmt.moodVocabulary?.length) return fmt.moodVocabulary
+    if (field === 'theme' && fmt.themeVocabulary?.length) return fmt.themeVocabulary
+    if (field === 'keyword' && fmt.keywordVocabulary?.length) return fmt.keywordVocabulary
+  }
+  switch (field) {
+    case 'genre':   return DEFAULT_GENRES
+    case 'mood':    return DEFAULT_MOODS
+    case 'theme':   return DEFAULT_THEMES
+    case 'keyword': return DEFAULT_KEYWORDS
+  }
+}
+
+const allGenres = computed(() => Array.from(new Set([...vocabFor('genre'), ...customGenres.value])).sort())
+const allMoods = computed(() => Array.from(new Set([...vocabFor('mood'), ...customMoods.value])).sort())
+const allThemes = computed(() => Array.from(new Set([...vocabFor('theme'), ...customThemes.value])).sort())
+const allKeywords = computed(() => Array.from(new Set([...vocabFor('keyword'), ...customKeywords.value])).sort())
 
 function onAddGenre(v: string) { if (!customGenres.value.includes(v)) { customGenres.value.push(v); persistCustomLists().catch(() => {}) } }
 function onAddMood(v: string) { if (!customMoods.value.includes(v)) { customMoods.value.push(v); persistCustomLists().catch(() => {}) } }
@@ -1097,7 +1151,32 @@ function onAddKeyword(v: string) { if (!customKeywords.value.includes(v)) { cust
 // Randomize fills the creative fields (genre, theme, mood, audience, keywords)
 // from the existing pools — it does NOT touch `count` or `model` since those
 // are user-controlled cost dials. Surprise Me randomizes then auto-generates.
-const AUDIENCE_OPTIONS = ['adults', 'children', 'teens', 'all-ages']
+const BASE_AUDIENCE_OPTIONS = ['adults', 'children', 'teens', 'all-ages']
+// v1.0.66+: format's audienceDefault gets folded into the pool so e.g.
+// listicle's "curious adults" is a valid randomize pick. The user's
+// choice persists; this just expands what randomize CAN pick.
+const audienceOptions = computed(() => {
+  const fmtAud = activeFormat.value?.idea?.audienceDefault
+  if (fmtAud && !BASE_AUDIENCE_OPTIONS.includes(fmtAud)) {
+    return [fmtAud, ...BASE_AUDIENCE_OPTIONS]
+  }
+  return BASE_AUDIENCE_OPTIONS
+})
+
+// Seed the audience field from the format's default the first time
+// the format loads on a fresh project — without this, listicle users
+// see "adults" instead of "curious adults" until they manually pick.
+// Only fires when the user hasn't typed anything custom yet (i.e. the
+// field still holds the page's hardcoded 'adults' default).
+let audienceSeeded = false
+watch(activeFormat, (fmt) => {
+  if (audienceSeeded) return
+  const fmtAud = fmt?.idea?.audienceDefault
+  if (fmtAud && form.audience === 'adults') {
+    form.audience = fmtAud
+    audienceSeeded = true
+  }
+}, { immediate: true })
 
 function pickRandom<T>(arr: readonly T[]): T | undefined {
   if (!arr.length) return undefined
@@ -1118,7 +1197,7 @@ function pickRandomN<T>(arr: readonly T[], n: number): T[] {
 function randomizeForm() {
   const genre = pickRandom(allGenres.value)
   const mood = pickRandom(allMoods.value)
-  const audience = pickRandom(AUDIENCE_OPTIONS)
+  const audience = pickRandom(audienceOptions.value)
   if (genre) form.genre = genre
   if (mood) form.mood = mood
   if (audience) form.audience = audience

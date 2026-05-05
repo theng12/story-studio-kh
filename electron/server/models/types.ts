@@ -134,9 +134,19 @@ export interface IdeaFormat {
   /** Replaces the hardcoded "You are helping generate new story ideas for a sleep-story narration channel." */
   systemPromptRole: string
   audienceDefault: string
-  /** Vocabulary hints — appear in the picker as suggestions. */
+  /** Vocabulary hints — appear in the Ideas Generator picker as
+   *  suggestions and feed Randomize / Surprise Me. */
   moodVocabulary: string[]
   themeVocabulary: string[]
+  /**
+   * Optional per-format genre + keyword pools (v1.0.66+). Older
+   * formats without these fall through to the page's hardcoded
+   * sleep-story-leaning defaults so they keep working unchanged.
+   * Listicle / explainer / new formats populate them so the dropdowns
+   * and randomizer reflect the channel's actual subject matter.
+   */
+  genreVocabulary?: string[]
+  keywordVocabulary?: string[]
   /** Free-form rules block injected into the live LLM idea prompt. */
   guidanceText: string
   /** 1–2 example ideas baked into the PASTE_PROMPT to show the LLM the bar. */
