@@ -389,12 +389,15 @@
                governs what the LLM produces. They're independent —
                sleep-stories with a listicle format work, blank with
                sleep-story works. Default 'sleep-story' preserves the
-               original behaviour for users who skip the picker. -->
+               original behaviour for users who skip the picker.
+               v1.0.69: the auto-selected default format gets a
+               "Default" badge so users know which one they'll ship
+               with if they don't interact with the picker. -->
           <div class="form-group">
             <label id="format-label">
               Channel Format
               <span class="text-muted" style="font-size: 11px; font-weight: normal;">
-                — drives prompt tone, dropdown vocab, and example ideas. Override per-project later from Settings → Format.
+                — drives prompt tone, dropdown vocab, and metadata sizing. Override per-project later from Settings → Format.
               </span>
             </label>
             <div v-if="formatsLoading" class="text-muted" style="font-size: 12px; padding: 8px 0;">
@@ -413,7 +416,14 @@
                 :title="f.description || ''"
               >
                 <span class="template-icon" aria-hidden="true">{{ formatIcon(f.id) }}</span>
-                <strong>{{ f.name }}</strong>
+                <strong>
+                  {{ f.name }}
+                  <span
+                    v-if="f.id === DEFAULT_FORMAT_ID"
+                    class="format-default-pill"
+                    title="Auto-selected when you don't pick a format. Click another card to change."
+                  >Default</span>
+                </strong>
                 <p>{{ shortFormatDescription(f) }}</p>
               </button>
             </div>
@@ -1281,6 +1291,10 @@ function templateIcon(id: string): string {
 // Step-1 picker stays current as the user adds new built-ins to
 // electron/server/formats/ or custom formats via Settings → Format.
 type FormatLite = { id: string; name: string; description?: string; builtin?: boolean }
+// Mirrors electron/server/services/format-loader.ts:DEFAULT_FORMAT_ID.
+// Frontend can't import the backend constant directly (no shared
+// module boundary today), so we duplicate it. Keep both in sync.
+const DEFAULT_FORMAT_ID = 'sleep-story'
 const formats = ref<FormatLite[]>([])
 const formatsLoading = ref(false)
 async function loadFormats() {
@@ -2668,6 +2682,24 @@ onMounted(async () => {
   border-radius: 999px;
   letter-spacing: 0.4px;
   border: 1px solid var(--border);
+}
+/* v1.0.69 — visible "Default" pill on the auto-selected Channel Format
+   card. Without this, users who don't read the picker walk away with
+   sleep-story silently chosen. The pill is small and quiet enough not
+   to compete with the active selection ring. */
+.format-default-pill {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  vertical-align: 1px;
 }
 
 .template-icon { font-size: 24px; line-height: 1; }

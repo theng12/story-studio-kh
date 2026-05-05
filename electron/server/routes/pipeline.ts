@@ -13,8 +13,9 @@ import { randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
-import type { JobType } from '../models/types.js'
+import type { Format, JobType } from '../models/types.js'
 import { computeEpisodeStatus, type EpisodeStatus } from '../services/asset-status.js'
+import { getEffectiveFormat } from '../services/format-loader.js'
 import {
   estimateRunBatchBytes,
   getFreeBytes,
@@ -160,11 +161,12 @@ export function findActivePreset(
  * resulting params and let the job-queue chain hook re-add them at
  * enqueue time — keeps the caller's chain metadata authoritative.
  */
-function resolveStepParams(
+export function resolveStepParams(
   step: BatchStep,
   episodeId: string,
   title: string,
   preset: StoredPreset,
+  format?: Format | null,
 ): Record<string, any> {
   const data = preset.data || preset
   if (step === 'script-only') {
@@ -319,16 +321,25 @@ function resolveStepParams(
     // else (model, counts, max_chars) isn't persisted per-project today, so
     // we supply batch-mode defaults that map to the Metadata page's own
     // UI defaults.
+    //
+    // Format-aware defaults (v1.0.69+): pull description size, title count,
+    // title length, and tag count from the project's effective Format
+    // when available. Sleep-story projects keep their historical 5000 /
+    // 5 / 100 / 15; listicle / educational get tighter values out of the
+    // box (3500 / 5 / 70 / 12 etc.). Falls back to legacy hardcoded
+    // numbers if format resolution fails or the format JSON predates
+    // the new defaults block.
+    const fmtMeta = format?.metadata
     return {
       episode_id: episodeId,
       title: title || '',
       model: 'gpt-4o',
       sections: Array.isArray(data.sections) ? data.sections : [],
-      max_chars: 5000,
-      title_count: 5,
-      title_max_length: 100,
+      max_chars: fmtMeta?.defaultMaxChars ?? 5000,
+      title_count: fmtMeta?.defaultTitleCount ?? 5,
+      title_max_length: fmtMeta?.defaultTitleMaxLength ?? 100,
       title_platform_preset: 'Universal',
-      tag_count: 15,
+      tag_count: fmtMeta?.defaultTagCount ?? 15,
     }
   }
   if (step === 'video') {
@@ -384,6 +395,44 @@ export function flattenVideoAssemblyBundle(
   title: string,
 ): Record<string, unknown> {
   const fb = bundleData?.fallback || {}
+
+  // Legacy-preset passthrough (v1.0.69+). Pre-v1.0.64 video_assembly
+  // presets stored fields flat at the top of `data` — there's no
+  // `fallback` block at all. The bundle-shape branch below would
+  // return only {episode_id, title} for those, silently dropping
+  // every effect the user had configured. Detect that shape (no
+  // `fallback`, but at least one known generator-shape field at
+  // bundleData top level) and pass the flat fields straight through
+  // so the batch render keeps the user's intent. We log a one-line
+  // notice so the operator knows the preset is on borrowed time and
+  // can re-save it via the Video Assembly page to migrate to the
+  // bundle shape.
+  const isLegacyFlat = !bundleData?.fallback && bundleData && typeof bundleData === 'object' && (
+    'logo' in bundleData ||
+    'color_grading' in bundleData ||
+    'chroma_key' in bundleData ||
+    'overlays' in bundleData ||
+    'video_layout' in bundleData ||
+    'background_plate' in bundleData ||
+    'chapter_titles' in bundleData ||
+    'transition' in bundleData ||
+    'scene_animation' in bundleData ||
+    'resolution' in bundleData ||
+    'codec' in bundleData
+  )
+  if (isLegacyFlat) {
+    console.warn(
+      `[pipeline] video_assembly preset has legacy flat shape (no \`fallback\` block). `
+      + `Passing fields through; re-save the preset from the Video Assembly page to migrate to the bundle shape.`,
+    )
+    const { episode_id: _e, title: _t, ...rest } = bundleData
+    return {
+      ...rest,
+      episode_id: episodeId,
+      title: title || '',
+    }
+  }
+
   const intro = fb.intro || {}
   const outro = fb.outro || {}
   const timeline = fb.timeline || {}
@@ -513,22 +562,35 @@ export function flattenVideoAssemblyBundle(
  * when a field is absent — the safety margin in estimateRunBatchBytes
  * absorbs the difference.
  */
+/**
+ * Pull a named slot ('export'|'timeline'|'effects'|…) out of a stored
+ * video_assembly bundle preset. Bundle saves nest fields under
+ * `data.fallback.<slot>`; very early presets (and a handful of test
+ * fixtures) sometimes store the same shape one level shallower at
+ * `data.fallback.<slot>` directly on the preset (no inner data). We
+ * accept either, and return `{}` when both miss so callers can pull
+ * fields with safe optional chaining.
+ */
+function extractPresetSlot(preset: StoredPreset | undefined, slot: string): any {
+  if (!preset) return {}
+  return (preset.data?.fallback?.[slot] ?? preset.fallback?.[slot] ?? {}) as any
+}
+
 function extractEstimateInputs(
   presetByStep: Record<BatchStep, StoredPreset>,
   episodeCount: number,
 ): EpisodeEstimateInputs[] {
   const vaPreset = presetByStep['video_assembly']
   const videoPreset = presetByStep['video']
-  const audioPreset = presetByStep['audio']
 
-  const exportSlot = (vaPreset?.data?.fallback?.export || vaPreset?.fallback?.export || {}) as any
+  const exportSlot = extractPresetSlot(vaPreset, 'export')
   const resolution = typeof exportSlot.resolution === 'string' ? exportSlot.resolution : undefined
   const quality = typeof exportSlot.quality === 'string' ? exportSlot.quality : undefined
 
   // Duration: video_assembly preset doesn't carry it (depends on narration);
   // we default to 1 hour inside estimateBytesForStep. If the user pinned a
   // custom duration in the timeline slot, honour the upper bound.
-  const timelineSlot = (vaPreset?.data?.fallback?.timeline || vaPreset?.fallback?.timeline || {}) as any
+  const timelineSlot = extractPresetSlot(vaPreset, 'timeline')
   let durationSec: number | undefined
   if (timelineSlot?.duration?.mode === 'custom') {
     const max = Number(timelineSlot.duration.max_duration)
@@ -544,8 +606,9 @@ function extractEstimateInputs(
 
   // Audio: no narration char count available pre-generation. Use the default
   // inside estimateBytesForStep (15k chars) — over-estimating audio by a
-  // few MB is harmless next to the GB-scale video numbers.
-  const _audioForm = (audioPreset?.data || audioPreset || {}) as any
+  // few MB is harmless next to the GB-scale video numbers. The audio
+  // preset isn't read here today; the slot lookup is intentionally absent
+  // until per-preset narration char hints get plumbed in.
 
   const perEpisode: EpisodeEstimateInputs = {
     durationSec,
@@ -624,6 +687,12 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
   const ideas = await im.getIdeas(slug, 'accepted')
   const ideaByCode = new Map(ideas.filter(i => i.episode_code).map(i => [i.episode_code!, i]))
 
+  // Resolve the project's effective Format once per batch so resolveStepParams
+  // can populate format-aware defaults (metadata sizes, future format-tuned
+  // params). Cheap (project.json read + JSON merge); null when the project
+  // has no format_id and no built-in default exists.
+  const effectiveFormat = await getEffectiveFormat(slug)
+
   const batch_id = randomUUID()
   const enqueued: Array<{ episode_id: string; job_id: string; type: JobType }> = []
   const skipped: Array<{ episode_id: string; reason: string }> = []
@@ -666,7 +735,7 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
     const chain = effectiveSteps.map(step => ({
       type: step as JobType,
       title: `[batch] ${step} — ${episodeId}`,
-      params: resolveStepParams(step, episodeId, idea.title || '', presetByStep[step]),
+      params: resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat),
     }))
 
     const [first, ...rest] = chain

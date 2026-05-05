@@ -215,6 +215,18 @@ export interface MetadataFormat {
   /** Broad keywords mixed into the tags pool. */
   broadKeywords: string[]
   youtubeDescriptionStructure: YoutubeDescriptionStructure
+  /**
+   * Per-format batch defaults consumed by the Pipeline runner when the
+   * Metadata page hasn't supplied explicit values. Sleep-story numbers
+   * (5000-char descriptions, 5 titles, 100-char title cap, 15 tags) are
+   * the historical defaults; listicle / educational typically want
+   * tighter values. Optional for back-compat — the pipeline falls back
+   * to the legacy hardcoded numbers when these are absent.
+   */
+  defaultMaxChars?: number
+  defaultTitleCount?: number
+  defaultTitleMaxLength?: number
+  defaultTagCount?: number
 }
 
 export interface Format {

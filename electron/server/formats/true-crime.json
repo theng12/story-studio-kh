@@ -128,6 +128,10 @@
       "unsolved case",
       "mystery"
     ],
+    "defaultMaxChars": 5000,
+    "defaultTitleCount": 5,
+    "defaultTitleMaxLength": 100,
+    "defaultTagCount": 15,
     "youtubeDescriptionStructure": {
       "musicLabel": "AMBIENT SCORE",
       "booksSectionLabel": "📚 INVESTIGATIVE READING:",

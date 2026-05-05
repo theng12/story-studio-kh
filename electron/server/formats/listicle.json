@@ -167,6 +167,10 @@
       "documentary",
       "things you didn't know"
     ],
+    "defaultMaxChars": 3500,
+    "defaultTitleCount": 5,
+    "defaultTitleMaxLength": 70,
+    "defaultTagCount": 12,
     "youtubeDescriptionStructure": {
       "musicLabel": "MUSIC",
       "booksSectionLabel": "📚 FURTHER READING:",

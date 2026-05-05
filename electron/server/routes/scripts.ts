@@ -516,7 +516,11 @@ router.post('/projects/:slug/generate/metadata/description', async (req, res) =>
   if (credErr) return res.status(400).json({ detail: credErr })
 
   const storyContext = await readStoryContext(slug, episode_id, title)
-  const prompt = buildDescriptionPrompt(episode_id, title, storyContext, sections || [], max_chars || 5000)
+  // Format passed through so the hashtags section can lean on
+  // format.youtubeDescriptionStructure.defaultHashtags rather than
+  // hardcoding #SleepStory examples.
+  const format = await getEffectiveFormat(slug)
+  const prompt = buildDescriptionPrompt(episode_id, title, storyContext, sections || [], max_chars || 5000, format)
 
   try {
     const raw = await callAi(model, '', prompt, aiCreds(config), false, { slug })
@@ -683,14 +687,16 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
   const storyContext = await readStoryContext(slug, episode_id, title)
 
   try {
-    // Description
-    const descPrompt = buildDescriptionPrompt(episode_id, title, storyContext, sections || [], max_chars || 5000)
+    // Resolved once — used by description hashtags, the LLM title path,
+    // and the tags prompt below. Cheap (project.json read + format-
+    // defaults merge).
+    const format = await getEffectiveFormat(slug)
+
+    // Description (hashtags section uses format.youtubeDescriptionStructure
+    // when no explicit defaults are set on the section config).
+    const descPrompt = buildDescriptionPrompt(episode_id, title, storyContext, sections || [], max_chars || 5000, format)
     const descRaw = await callAi(model, '', descPrompt, aiCreds(config), false, { slug })
     const description = descRaw.trim()
-
-    // Resolved once — used by both the LLM title path AND the tags
-    // prompt below. Cheap (project.json read + format-defaults merge).
-    const format = await getEffectiveFormat(slug)
 
     // Titles — fixed modes return a single title without an LLM call.
     let titles: string[]

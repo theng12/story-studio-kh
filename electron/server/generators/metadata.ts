@@ -22,6 +22,7 @@ import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { formatMetadataTxt } from '../services/folder-migration.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
+import { getEffectiveFormat } from '../services/format-loader.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type { Job } from '../models/types.js'
 
@@ -127,11 +128,24 @@ export async function generateMetadata(job: Job): Promise<void> {
 
   const title = req.title || episode_id
   const sections = Array.isArray(req.sections) ? req.sections : []
-  const max_chars = req.max_chars ?? 5000
-  const title_count = req.title_count ?? 5
-  const title_max_length = req.title_max_length ?? 100
+
+  // Format-aware defaults (v1.0.69). The interactive metadata flow in
+  // routes/scripts.ts:/metadata/all already used format.metadata.purposeNote
+  // / titleStyleHint / tagsContext / broadKeywords for its prompts; the
+  // batch generator lagged behind and emitted sleep-story-flavoured
+  // language ("for a sleep story episode", "calm/dreamlike tone",
+  // "#SleepStory") regardless of the project's actual channel format.
+  // Loading the effective format here lets every channel get prompts
+  // and counts tuned to its own vibe. Falls back gracefully when the
+  // format file is missing (returns null → undefined-coalesce to
+  // legacy hardcoded numbers).
+  const format = await getEffectiveFormat(project_slug)
+  const fmtMeta = format?.metadata
+  const max_chars = req.max_chars ?? fmtMeta?.defaultMaxChars ?? 5000
+  const title_count = req.title_count ?? fmtMeta?.defaultTitleCount ?? 5
+  const title_max_length = req.title_max_length ?? fmtMeta?.defaultTitleMaxLength ?? 100
   const title_platform_preset = req.title_platform_preset || 'Universal'
-  const tag_count = req.tag_count ?? 15
+  const tag_count = req.tag_count ?? fmtMeta?.defaultTagCount ?? 15
 
   job.output_lines.push(`Reading narration for story context…`)
   const storyContext = await readStoryContext(project_slug, episode_id, title)
@@ -147,7 +161,7 @@ export async function generateMetadata(job: Job): Promise<void> {
   try {
     // ── 1. Description ──────────────────────────────────────────────────
     job.output_lines.push(`Generating description (max ${max_chars} chars)…`)
-    const descPrompt = buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars)
+    const descPrompt = buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, format)
     const descRaw = await callAi(model, '', descPrompt, aiCreds(config), false,
       { slug: project_slug, jobId: job.job_id, signal: controller.signal })
     const description = descRaw.trim()
@@ -186,14 +200,20 @@ export async function generateMetadata(job: Job): Promise<void> {
         topBlock = formatTopPerformersBlock(top)
         if (top.length) job.output_lines.push(`Inspired by ${top.length} top performer(s) from this channel.`)
       } catch { /* analytics is best-effort */ }
-      const titlePrompt = `Generate ${title_count} SEO-optimized video title options for a sleep story episode.
+      // Format-aware title prompt (v1.0.69). Pulls purposeNote +
+      // titleStyleHint from the project's effective Format so listicle /
+      // educational / true-crime channels don't get "calm/dreamlike"
+      // sleep-story instructions baked into their batch metadata.
+      const titlePurpose = fmtMeta?.purposeNote || 'for a sleep story episode'
+      const titleTone = fmtMeta?.titleStyleHint || 'Hook-y, curiosity-driven, calm/dreamlike tone'
+      const titlePrompt = `Generate ${title_count} SEO-optimized video title options ${titlePurpose}.
 Episode: ${episode_id} — ${title}
 Story context:
 ${storyContext.slice(0, 1500)}
 ${topBlock}
 Requirements:
 - ${platformNote}
-- Hook-y, curiosity-driven, calm/dreamlike tone.
+- Tone: ${titleTone}.
 - One per line. No numbering, quotes, or commentary.`
       const titleRaw = await callAi(model, '', titlePrompt, aiCreds(config), false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
@@ -206,14 +226,20 @@ Requirements:
 
     // ── 3. Tags ─────────────────────────────────────────────────────────
     job.output_lines.push(`Generating ${tag_count} tag(s)…`)
-    const tagPrompt = `Generate ${tag_count} YouTube tags for this sleep story.
+    // Format-aware tag prompt (v1.0.69). Mirrors routes/scripts.ts
+    // /metadata/all so batch and interactive runs use identical prompts.
+    const tagsContext = fmtMeta?.tagsContext || 'for this sleep story video'
+    const broadKeywordsLine = fmtMeta?.broadKeywords?.length
+      ? `\n- Broad keywords to draw from: ${fmtMeta.broadKeywords.join(', ')}.`
+      : ''
+    const tagPrompt = `Generate ${tag_count} YouTube tags ${tagsContext}.
 Episode: ${episode_id} — ${title}
 Description excerpt:
 ${description.slice(0, 500)}
 
 Requirements:
 - 1-4 words per tag, no "#" prefix.
-- Mix of broad and episode-specific keywords.
+- Mix of broad and episode-specific keywords.${broadKeywordsLine}
 - One per line, no numbering or commentary.`
     const tagRaw = await callAi(model, '', tagPrompt, aiCreds(config), false,
       { slug: project_slug, jobId: job.job_id, signal: controller.signal })

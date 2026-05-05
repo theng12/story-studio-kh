@@ -26,6 +26,8 @@
  * branches are a defence-in-depth fallback for stale POST bodies.
  */
 
+import type { Format } from '../models/types.js'
+
 interface Section {
   id: string
   label: string
@@ -42,12 +44,22 @@ const SUPPORT_KIND_LABEL: Record<string, string> = {
   custom: 'Custom',
 }
 
+/**
+ * Build the LLM description prompt.
+ *
+ * `format` (v1.0.69+, optional) supplies format-aware hashtags and
+ * description structure when the hashtags / music / support sections
+ * don't ship explicit values. Older callers (route shims, tests) can
+ * omit it and the function falls back to the legacy sleep-story
+ * defaults so existing behaviour stays identical.
+ */
 export function buildDescriptionPrompt(
   episode_id: string,
   title: string,
   storyContext: string,
   sections: Section[],
   maxChars: number,
+  format?: Format | null,
 ): string {
   let sectionInstructions = ''
   for (const section of sections || []) {
@@ -171,9 +183,22 @@ export function buildDescriptionPrompt(
       case 'ai-disclosure':
         sectionInstructions += `\n- AI DISCLOSURE: Include "🤖 AI DISCLOSURE:" section with: "${cfg.text || 'This story was written with the assistance of AI tools.'}"`
         break
-      case 'hashtags':
-        sectionInstructions += `\n- HASHTAGS: Include ${cfg.count || 15} relevant hashtags at the end. Include common ones like #SleepStory #BedtimeStory plus episode-specific ones.`
+      case 'hashtags': {
+        // Pull defaultHashtags + totalHashtagCount from the project's
+        // effective Format when the user-configured `cfg` doesn't pin
+        // explicit values. Without this, every batch description for a
+        // listicle / true-crime / educational channel would suggest
+        // #SleepStory #BedtimeStory as the "common ones" — leaking
+        // sleep-story bias into format-aware metadata.
+        const fmtHashtags = format?.metadata?.youtubeDescriptionStructure
+        const count = cfg.count || fmtHashtags?.totalHashtagCount || 15
+        const exampleHashtags = (Array.isArray(cfg.defaultHashtags) && cfg.defaultHashtags.length)
+          ? cfg.defaultHashtags
+          : (fmtHashtags?.defaultHashtags?.length ? fmtHashtags.defaultHashtags : ['#SleepStory', '#BedtimeStory'])
+        const exampleLine = exampleHashtags.slice(0, 3).join(' ')
+        sectionInstructions += `\n- HASHTAGS: Include ${count} relevant hashtags at the end. Include common ones like ${exampleLine} plus episode-specific ones.`
         break
+      }
       default:
         if (section.type === 'custom' && cfg.instructions) {
           sectionInstructions += `\n- ${section.label.toUpperCase()}: ${cfg.instructions}`

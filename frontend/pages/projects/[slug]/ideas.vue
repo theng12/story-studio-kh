@@ -1877,7 +1877,22 @@ async function loadIdeas() {
 async function generate() {
   generating.value = true
   try {
-    await post(`/projects/${slug.value}/generate/ideas`, { ...form, keywords: form.keywords })
+    // Use $fetch.raw so we can read the X-Pattern-Warning response
+    // header (v1.0.69+ — backend sets it when pattern_id was supplied
+    // but the JSON couldn't be loaded). Falls back silently if the
+    // header is absent — the post() helper would also work, but we'd
+    // lose the header and the user would never know their selected
+    // pattern was silently dropped from the prompt.
+    const res = await $fetch.raw(`/api/projects/${slug.value}/generate/ideas`, {
+      method: 'POST',
+      body: { ...form, keywords: form.keywords },
+      headers: { 'Content-Type': 'application/json' },
+    })
+    const warningHeader = res.headers.get('x-pattern-warning')
+    if (warningHeader) {
+      try { showError(decodeURIComponent(warningHeader)) }
+      catch { showError(warningHeader) }
+    }
     await loadIdeas()
     page.value = 1; sortField.value = 'generated_at'; sortDir.value = 'desc'
     success('Ideas generated!')

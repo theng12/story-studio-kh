@@ -135,6 +135,10 @@
       "sleep meditation",
       "sleep aid"
     ],
+    "defaultMaxChars": 5000,
+    "defaultTitleCount": 5,
+    "defaultTitleMaxLength": 100,
+    "defaultTagCount": 15,
     "youtubeDescriptionStructure": {
       "musicLabel": "MUSIC",
       "booksSectionLabel": "📚 BOOKS WE RECOMMEND FOR QUIET NIGHTS:",

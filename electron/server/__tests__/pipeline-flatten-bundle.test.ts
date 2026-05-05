@@ -255,4 +255,73 @@ describe('flattenVideoAssemblyBundle', () => {
     assert.deepEqual(out.scene_recycling, { seconds_per_scene: 10, shuffle: false, excluded_scenes: [] })
     assert.equal(out.resolution, '1280x720')
   })
+
+  // ── Legacy preset passthrough (v1.0.69+, Issue B-5) ──────────────────────
+  //
+  // Pre-v1.0.64 video_assembly presets stored fields flat at the top of
+  // `data` — no `fallback` block. Earlier versions of this function would
+  // have returned only {episode_id, title} for those, silently dropping
+  // every effect. The legacy-shape detection now passes the flat fields
+  // straight through so users with old saved presets keep their effects
+  // when they trigger a batch run.
+  describe('legacy flat preset passthrough', () => {
+    test('flat preset with logo + color_grading is passed through verbatim', () => {
+      const out = flattenVideoAssemblyBundle(
+        {
+          // No `fallback` block — this is the pre-v1.0.64 shape.
+          logo: { enabled: true, image_path: '/tmp/logo.png', opacity: 0.7 },
+          color_grading: { enabled: true, brightness: 1.05 },
+          resolution: '1920x1080',
+        },
+        'EP0001',
+        'Legacy preset run',
+      )
+      assert.equal(out.episode_id, 'EP0001')
+      assert.equal(out.title, 'Legacy preset run')
+      assert.deepEqual(out.logo, { enabled: true, image_path: '/tmp/logo.png', opacity: 0.7 })
+      assert.deepEqual(out.color_grading, { enabled: true, brightness: 1.05 })
+      assert.equal(out.resolution, '1920x1080')
+    })
+
+    test('flat preset with v2 effects (chroma_key + overlays) is passed through', () => {
+      const out = flattenVideoAssemblyBundle(
+        {
+          chroma_key: { enabled: true, source_path: '/tmp/fire.webm', color: '#00ff00' },
+          overlays: { enabled: true, layers: [{ id: 'a', enabled: true, source_path: '/tmp/grain.webm' }] },
+          video_layout: 'compilation',
+        },
+        'EP0001',
+        '',
+      )
+      assert.equal((out.chroma_key as any).source_path, '/tmp/fire.webm')
+      assert.equal((out.overlays as any).enabled, true)
+      assert.equal(out.video_layout, 'compilation')
+    })
+
+    test('empty bundle data still returns just episode_id + title (no false legacy detection)', () => {
+      const out = flattenVideoAssemblyBundle({}, 'EP0042', 'Empty')
+      assert.equal(out.episode_id, 'EP0042')
+      assert.equal(out.title, 'Empty')
+      // Should NOT have triggered legacy passthrough — bundle was empty,
+      // not legacy.
+      assert.equal(Object.keys(out).length, 2)
+    })
+
+    test('bundle with `fallback` ignores legacy passthrough even if top-level looks flat', () => {
+      // Belt-and-braces: a malformed preset with BOTH a fallback block and
+      // top-level keys (shouldn't happen in practice but tests don't
+      // hurt). The presence of `fallback` means this is the new shape;
+      // legacy passthrough must not fire.
+      const out = flattenVideoAssemblyBundle(
+        {
+          fallback: { export: { resolution: '4096x2160' } },
+          logo: { enabled: true, image_path: '/should-not-leak.png' },
+        },
+        'EP0001',
+        '',
+      )
+      assert.equal(out.resolution, '4096x2160')
+      assert.equal(out.logo, undefined, 'top-level logo must not leak when fallback is present')
+    })
+  })
 })

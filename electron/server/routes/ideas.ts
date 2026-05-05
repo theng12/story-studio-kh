@@ -241,13 +241,22 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
   // we load it here so the prompt assembler can inject the title-style
   // block. Failure to load (deleted pattern, malformed file, etc.)
   // degrades gracefully to "no pattern" rather than failing the whole
-  // generation request.
+  // generation request — but we do surface the failure to the caller
+  // via the X-Pattern-Warning response header (v1.0.69+) so the Ideas
+  // page can toast a warning. Previously the failure was console-only,
+  // so users saw their pattern silently dropped from the prompt.
   let pattern: Pattern | null = null
+  let patternWarning: string | null = null
   if (typeof body.pattern_id === 'string' && body.pattern_id) {
     try {
       pattern = await loadPattern(body.pattern_id)
+      if (!pattern) {
+        patternWarning = `Pattern "${body.pattern_id}" not found — ideas were generated without it.`
+      }
     } catch (e: any) {
-      console.warn(`[ideas-gen] failed to load pattern ${body.pattern_id}: ${e?.message || e}`)
+      const msg = e?.message || String(e)
+      console.warn(`[ideas-gen] failed to load pattern ${body.pattern_id}: ${msg}`)
+      patternWarning = `Pattern "${body.pattern_id}" failed to load (${msg}) — ideas were generated without it.`
     }
   }
 
@@ -344,6 +353,13 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     // Track for session stats
     await trackGeneration(slug, 'ideas', ideas.length)
 
+    // Surface a pattern-load failure (when one happened) via response
+    // header so the Ideas page can show a non-blocking toast. Header
+    // shape (vs body) keeps the existing array response unchanged for
+    // clients that don't care.
+    if (patternWarning) {
+      res.setHeader('X-Pattern-Warning', encodeURIComponent(patternWarning))
+    }
     res.json(stored)
   } catch (e: any) {
     // Honour explicit statusCode (provider 4xx, schema 400, …) so the

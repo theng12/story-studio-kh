@@ -130,6 +130,10 @@
       "deep dive",
       "story documentary"
     ],
+    "defaultMaxChars": 5000,
+    "defaultTitleCount": 5,
+    "defaultTitleMaxLength": 100,
+    "defaultTagCount": 15,
     "youtubeDescriptionStructure": {
       "musicLabel": "MUSIC",
       "booksSectionLabel": "📚 FURTHER READING:",

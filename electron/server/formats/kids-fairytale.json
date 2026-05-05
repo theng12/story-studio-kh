@@ -130,6 +130,10 @@
       "kids audiobook",
       "preschool story"
     ],
+    "defaultMaxChars": 4000,
+    "defaultTitleCount": 5,
+    "defaultTitleMaxLength": 80,
+    "defaultTagCount": 15,
     "youtubeDescriptionStructure": {
       "musicLabel": "MUSIC",
       "booksSectionLabel": "📚 BOOKS YOUR LITTLE ONE WILL LOVE:",
