@@ -403,29 +403,56 @@
             <div v-if="formatsLoading" class="text-muted" style="font-size: 12px; padding: 8px 0;">
               Loading formats…
             </div>
-            <div v-else class="template-cards" role="radiogroup" aria-labelledby="format-label">
+            <!-- v1.0.70: 8 format cards no longer fit comfortably on one row,
+                 so the picker becomes a carousel — overflow-x scroll with
+                 chevron buttons that appear when there's more to see in
+                 either direction. Avoids both horizontal scrollbars (ugly)
+                 and shrinking cards into illegibility. -->
+            <div v-else class="format-carousel">
               <button
-                v-for="f in formats"
-                :key="f.id"
                 type="button"
-                role="radio"
-                :aria-checked="form.format_id === f.id"
-                :class="['template-card', { selected: form.format_id === f.id }]"
-                @click="form.format_id = f.id"
-                @keydown.space.prevent="form.format_id = f.id"
-                :title="f.description || ''"
+                class="format-carousel-arrow left"
+                aria-label="Scroll formats left"
+                :disabled="!canScrollFormatsLeft"
+                @click="scrollFormats(-1)"
+              >‹</button>
+              <div
+                ref="formatCardsEl"
+                class="template-cards format-cards"
+                role="radiogroup"
+                aria-labelledby="format-label"
+                @scroll="onFormatScroll"
               >
-                <span class="template-icon" aria-hidden="true">{{ formatIcon(f.id) }}</span>
-                <strong>
-                  {{ f.name }}
-                  <span
-                    v-if="f.id === DEFAULT_FORMAT_ID"
-                    class="format-default-pill"
-                    title="Auto-selected when you don't pick a format. Click another card to change."
-                  >Default</span>
-                </strong>
-                <p>{{ shortFormatDescription(f) }}</p>
-              </button>
+                <button
+                  v-for="f in formats"
+                  :key="f.id"
+                  type="button"
+                  role="radio"
+                  :aria-checked="form.format_id === f.id"
+                  :class="['template-card', 'format-card', { selected: form.format_id === f.id }]"
+                  @click="form.format_id = f.id"
+                  @keydown.space.prevent="form.format_id = f.id"
+                  :title="f.description || ''"
+                >
+                  <span class="template-icon" aria-hidden="true">{{ formatIcon(f.id) }}</span>
+                  <strong>
+                    {{ f.name }}
+                    <span
+                      v-if="f.id === DEFAULT_FORMAT_ID"
+                      class="format-default-pill"
+                      title="Auto-selected when you don't pick a format. Click another card to change."
+                    >Default</span>
+                  </strong>
+                  <p>{{ shortFormatDescription(f) }}</p>
+                </button>
+              </div>
+              <button
+                type="button"
+                class="format-carousel-arrow right"
+                aria-label="Scroll formats right"
+                :disabled="!canScrollFormatsRight"
+                @click="scrollFormats(1)"
+              >›</button>
             </div>
             <div v-if="!formatsLoading && !formats.length" class="text-muted" style="font-size: 12px; padding: 4px 0;">
               No formats available — pick a folder template and continue;
@@ -1297,6 +1324,34 @@ type FormatLite = { id: string; name: string; description?: string; builtin?: bo
 const DEFAULT_FORMAT_ID = 'sleep-story'
 const formats = ref<FormatLite[]>([])
 const formatsLoading = ref(false)
+
+// Carousel scroll state (v1.0.70). Tracks whether the format-cards
+// strip can scroll further in either direction so the chevron buttons
+// can grey themselves out at the edges. Recomputed on every scroll +
+// after the cards render (formats load is async).
+const formatCardsEl = ref<HTMLElement | null>(null)
+const canScrollFormatsLeft = ref(false)
+const canScrollFormatsRight = ref(false)
+function onFormatScroll() {
+  const el = formatCardsEl.value
+  if (!el) return
+  canScrollFormatsLeft.value = el.scrollLeft > 4
+  canScrollFormatsRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 4
+}
+function scrollFormats(direction: 1 | -1) {
+  const el = formatCardsEl.value
+  if (!el) return
+  // Scroll by ~75% of the visible width so the next card sets are
+  // mostly fresh, with a small overlap to keep the user oriented.
+  const delta = Math.round(el.clientWidth * 0.75) * direction
+  el.scrollBy({ left: delta, behavior: 'smooth' })
+}
+// Re-evaluate edge state once formats finish loading (the strip's
+// scrollWidth is 0 until then) and any time the list size changes.
+watch([formats, formatsLoading], () => {
+  // Wait for the DOM to render before measuring
+  setTimeout(onFormatScroll, 0)
+})
 async function loadFormats() {
   formatsLoading.value = true
   try {
@@ -2686,10 +2741,16 @@ onMounted(async () => {
 /* v1.0.69 — visible "Default" pill on the auto-selected Channel Format
    card. Without this, users who don't read the picker walk away with
    sleep-story silently chosen. The pill is small and quiet enough not
-   to compete with the active selection ring. */
+   to compete with the active selection ring.
+   v1.0.70 — pin to the top-right corner of the card so a long format
+   name (e.g. "Sleep Story") doesn't push the pill off-screen inside
+   the carousel's narrow card width. The card itself is positioned
+   relatively so the pill anchors to its bounds. */
 .format-default-pill {
-  display: inline-block;
-  margin-left: 6px;
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  margin: 0;
   padding: 1px 6px;
   font-size: 9px;
   font-weight: 600;
@@ -2699,7 +2760,68 @@ onMounted(async () => {
   color: var(--text-secondary);
   border: 1px solid var(--border);
   border-radius: 999px;
-  vertical-align: 1px;
+  /* Stay above the strong text it sits beside */
+  z-index: 1;
+}
+.format-card { position: relative; }
+
+/* v1.0.70 — Channel Format picker carousel. Eight format cards no
+   longer fit on one row at the wizard's modal width, and squashing
+   them past illegibility (or letting them spill into a horizontal
+   scrollbar) was hiding cards from users who didn't realise they
+   could scroll. The carousel keeps the existing card aesthetics, hides
+   the scrollbar, and exposes scroll state via two chevron buttons that
+   grey out at the edges. */
+.format-carousel {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.format-cards {
+  flex: 1;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scroll-snap-type: x proximity;
+  /* Hide the scrollbar — the chevrons replace it. We still allow
+     trackpad swipes and arrow-key scroll for power users. */
+  scrollbar-width: none;
+  /* Generous bottom-padding so the focus outline on selected cards
+     isn't clipped by the strip. */
+  padding: 2px 2px 6px;
+}
+.format-cards::-webkit-scrollbar { display: none; }
+.format-card {
+  flex: 0 0 auto;
+  min-width: 200px;
+  max-width: 240px;
+  scroll-snap-align: start;
+}
+.format-carousel-arrow {
+  flex: 0 0 auto;
+  width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+  /* Bigger touch target than the visible glyph for easier hit */
+  padding: 0 6px;
+  user-select: none;
+}
+.format-carousel-arrow:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-light);
+}
+.format-carousel-arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 .template-icon { font-size: 24px; line-height: 1; }

@@ -293,6 +293,36 @@
           = <strong class="text-accent">~{{ totalOutput.toLocaleString() }} total (~{{ estimatedTotalDuration }} min)</strong>
         </div>
 
+        <!-- v1.0.70: title vs chapter-count consistency check. Many of
+             our formats encode the count in the title ("10 mysteries
+             explained"). When the user has changed `chapters` to a
+             value that no longer matches the title's leading number,
+             show an inline warning with a one-click sync button so the
+             on-disk script doesn't ship with a misleading title. -->
+        <div v-if="titleCountMismatch" class="title-mismatch-chip">
+          <span>
+            Your title says <strong>{{ titleCountMismatch.titleNumber }}</strong>
+            but you've configured <strong>{{ form.chapters }}</strong> chapters.
+            Generating now would produce a script that doesn't match the title.
+          </span>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            @click="syncTitleToChapters"
+            :title="`Rewrite the title to use ${form.chapters} instead of ${titleCountMismatch.titleNumber}`"
+          >
+            Sync title to {{ form.chapters }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            @click="form.chapters = titleCountMismatch.titleNumber"
+            :title="`Use ${titleCountMismatch.titleNumber} chapters to match the title`"
+          >
+            Use {{ titleCountMismatch.titleNumber }} chapters
+          </button>
+        </div>
+
         <div class="reference-table">
           <div class="ref-header">
             <span>Quick Presets</span>
@@ -374,7 +404,7 @@ definePageMeta({ layout: 'dashboard' })
 useAppTitle('Script Generator')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const { post } = useApi()
+const { post, patch } = useApi()
 const { success, error: showError } = useToast()
 const { scriptGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
@@ -768,6 +798,64 @@ function isActiveRef(ref: { min: number; words: number; chapters: number }) {
   return form.total_words === ref.words && form.chapters === ref.chapters
 }
 
+/**
+ * Detect a leading count number in a title string (v1.0.70).
+ *
+ * Mirrors electron/server/routes/ideas.ts:parseLeadingCount — keep
+ * both in sync. Used to surface the title-vs-chapter mismatch warning
+ * and to power the "Sync title" button below.
+ */
+function parseLeadingCount(title: string): { value: number; start: number; end: number } | null {
+  if (!title) return null
+  const m = title.match(/^(?:(?:the|top)\s+)?(\d+)\b/i)
+  if (!m) return null
+  const value = parseInt(m[1]!, 10)
+  if (!Number.isFinite(value) || value <= 0) return null
+  const start = m.index! + m[0].length - m[1]!.length
+  return { value, start, end: start + m[1]!.length }
+}
+
+const titleCountMismatch = computed<{ titleNumber: number } | null>(() => {
+  const m = parseLeadingCount(form.title)
+  if (!m) return null
+  if (m.value === form.chapters) return null
+  if (form.chapters <= 0) return null
+  return { titleNumber: m.value }
+})
+
+/**
+ * Rewrite the title's leading number to match the current `chapters`
+ * field. v1.0.70 — paired with titleCountMismatch above. Also POSTs
+ * the new title to the idea-update endpoint so the change persists
+ * across page reloads (the local form change alone wouldn't update
+ * the stored idea).
+ */
+async function syncTitleToChapters() {
+  const m = parseLeadingCount(form.title)
+  if (!m) return
+  const newTitle = form.title.slice(0, m.start) + String(form.chapters) + form.title.slice(m.end)
+  form.title = newTitle
+  // Persist back to the idea record so it sticks across reloads. The
+  // selectedEpisode object holds the idea id in its episode_code /
+  // idea_id field — we use the existing idea-update PATCH endpoint.
+  if (selectedEpisode.value?.idea_id || selectedEpisode.value?.episode_code) {
+    try {
+      const ideaId = selectedEpisode.value.idea_id || selectedEpisode.value.episode_code
+      await patch(`/projects/${slug.value}/ideas/${ideaId}`, { title: newTitle })
+      // Also update the in-memory selectedEpisode so the next render sees it.
+      if (selectedEpisode.value) selectedEpisode.value.title = newTitle
+      success(`Title synced to ${form.chapters} chapters`)
+    } catch (e: any) {
+      // Local form is updated already — the script will use the new
+      // title. Only the persisted idea record didn't get the rewrite.
+      console.warn('[scripts] failed to persist synced title:', e?.message || e)
+      success(`Title updated locally (couldn't persist to idea record)`)
+    }
+  } else {
+    success(`Title synced to ${form.chapters} chapters`)
+  }
+}
+
 function onEpisodeSelected(ep: any) {
   // Capture the full episode object so `scriptGenerated` (computed off
   // ep.status.script) reflects API truth for this episode immediately.
@@ -982,6 +1070,30 @@ async function generateAll() {
   border-radius: var(--radius-sm);
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+/* v1.0.70 — title-vs-chapter mismatch warning. Surfaces when the
+   user's idea title encodes a count number ("7 historical cold
+   cases") that no longer matches the chapter field. Subtle yellow
+   so it doesn't compete with the primary-field highlight, but
+   distinct enough to catch the eye before the user clicks
+   Generate. */
+.title-mismatch-chip {
+  margin-top: 10px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: rgba(255, 180, 0, 0.10);
+  border: 1px solid rgba(255, 180, 0, 0.35);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.title-mismatch-chip > span {
+  flex: 1 1 auto;
+  min-width: 240px;
 }
 
 .calc-badge {

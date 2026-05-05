@@ -135,12 +135,40 @@
             <ChipInput v-model="form.keywords" :suggestions="allKeywords" placeholder="Pick from common keywords or type to add…" allow-custom :max="12" @add-custom="onAddKeyword" />
           </div>
           <div class="form-group">
-            <label>Count</label>
+            <label>Count
+              <span class="text-muted" style="font-size: 11px; font-weight: normal;">
+                — number of episode ideas to generate
+              </span>
+            </label>
             <input v-model.number="form.count" class="input" type="number" min="1" max="15" />
           </div>
         </div>
         <div class="grid-2">
           <ModelSelector v-model="form.model" :project-slug="slug" />
+
+          <!-- v1.0.70: pinned chapter / item count per idea. Most useful
+               for listicle / explainer formats where the title encodes
+               the count ("10 mysteries explained"). Leave blank to let
+               the LLM pick per-idea within the format's range. When
+               pinned, the title's leading number AND suggested_chapters
+               will both equal this value, and the Scripts page chapter
+               field auto-fills to match. -->
+          <div class="form-group">
+            <label>
+              Items per listicle / chapters per idea
+              <span class="text-muted" style="font-size: 11px; font-weight: normal;">
+                — pin to force "{{ form.items_per_listicle || 'N' }} {{ formatId === 'listicle' ? 'mysteries / paradoxes / cases' : 'chapters' }}…" in every title. Leave blank for auto.
+              </span>
+            </label>
+            <input
+              v-model.number="form.items_per_listicle"
+              class="input"
+              type="number"
+              min="1"
+              max="100"
+              :placeholder="formatId === 'listicle' ? 'e.g. 10' : 'auto (let LLM pick)'"
+            />
+          </div>
         </div>
 
         <!-- Pattern picker (optional). When set, generated ideas follow
@@ -1058,6 +1086,11 @@ const form = reactive({
   // Both fields persist per-project so the user's pick survives reloads.
   pattern_id: '',
   pattern_subject: '',
+  // v1.0.70: pinned chapter / item count per idea. Empty / 0 / null =
+  // let the LLM pick per-idea. When set, every generated idea's title
+  // and suggested_chapters will equal this value (see backend
+  // rewriteLeadingCount + pinned-chapters prompt rule).
+  items_per_listicle: null as number | null,
 })
 
 // ── Pattern + format wiring for the Ideas page ────────────────────────────
@@ -1883,9 +1916,16 @@ async function generate() {
     // header is absent — the post() helper would also work, but we'd
     // lose the header and the user would never know their selected
     // pattern was silently dropped from the prompt.
+    // Drop items_per_listicle when blank so the backend treats it as
+    // unset (LLM picks within format range). Sending 0 / null would
+    // get coerced to NaN by some validators; cleaner to omit.
+    const body: any = { ...form, keywords: form.keywords }
+    if (!body.items_per_listicle || body.items_per_listicle <= 0) {
+      delete body.items_per_listicle
+    }
     const res = await $fetch.raw(`/api/projects/${slug.value}/generate/ideas`, {
       method: 'POST',
-      body: { ...form, keywords: form.keywords },
+      body,
       headers: { 'Content-Type': 'application/json' },
     })
     const warningHeader = res.headers.get('x-pattern-warning')

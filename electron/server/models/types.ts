@@ -987,6 +987,21 @@ export interface GenerateIdeasRequest {
    * than literally "{X}". Ignored when pattern_id is empty.
    */
   pattern_subject?: string
+  /**
+   * Pin the per-idea chapter / item count (v1.0.70+).
+   *
+   * Most useful for listicle / explainer formats where the title
+   * encodes the count ("10 sleep mysteries explained", "7 plane
+   * crashes that changed aviation"). When set:
+   *   - suggested_chapters on every generated idea will equal this value
+   *   - the title's leading number (when one is natural) MUST equal
+   *     this value
+   *   - downstream Script generation prefills its chapter field from
+   *     the same number so the on-screen output matches the title
+   *
+   * Unset (legacy) = LLM picks per-idea within format range.
+   */
+  items_per_listicle?: number
 }
 
 export interface StoryIdea {

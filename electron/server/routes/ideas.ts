@@ -73,6 +73,47 @@ function pickLevers(count: number): string[] {
   return out
 }
 
+/**
+ * Match the leading count number in a title string.
+ *
+ * Recognises forms like:
+ *   "10 mysteries explained"          → 10
+ *   "7 plane crashes"                 → 7
+ *   "Top 12 paradoxes"                → 12
+ *   "The 5 longest rivers"            → 5
+ *   "Five plane crashes" / "Twelve …" → null (numeric only — words are
+ *                                       intentionally ignored to keep
+ *                                       the rewrite logic literal and
+ *                                       reversible)
+ *
+ * Used to enforce items_per_listicle consistency between the title and
+ * suggested_chapters, and to prefill the Scripts page chapter field.
+ * Exported for the test suite.
+ */
+export function parseLeadingCount(title: string): { value: number; start: number; end: number } | null {
+  if (!title) return null
+  // Skip optional leading articles / qualifiers ("The", "Top") so the
+  // count isn't missed when wrapped. Capture the digit run.
+  const m = title.match(/^(?:(?:the|top)\s+)?(\d+)\b/i)
+  if (!m) return null
+  const value = parseInt(m[1]!, 10)
+  if (!Number.isFinite(value) || value <= 0) return null
+  const start = m.index! + m[0].length - m[1]!.length
+  return { value, start, end: start + m[1]!.length }
+}
+
+/**
+ * Rewrite the leading count number in a title to `target` if one
+ * exists, otherwise return the title unchanged. Used post-LLM as a
+ * safety net when items_per_listicle is pinned — even if the model
+ * ignored the prompt instruction, the output ends up consistent.
+ */
+export function rewriteLeadingCount(title: string, target: number): string {
+  const m = parseLeadingCount(title)
+  if (!m || m.value === target) return title
+  return title.slice(0, m.start) + String(target) + title.slice(m.end)
+}
+
 function buildPrompt(
   req: GenerateIdeasRequest,
   format: Format,
@@ -148,6 +189,19 @@ ${pattern.metadataKeywordAdditions?.length
   const chMax = Math.max(chMaxFmt, format.script.defaultChapterCount)
   const lenMin = Math.min(lenMinFmt, format.script.defaultLengthMinutes)
   const lenMax = Math.max(lenMaxFmt, format.script.defaultLengthMinutes)
+
+  // Pinned chapter count (v1.0.70). When the user pins items_per_listicle
+  // on the Ideas page, EVERY generated idea must have suggested_chapters
+  // == this value AND any number that appears in the title must equal
+  // this value. Replaces the soft "within range, default N" instruction
+  // with a hard equality so a "10 mysteries" pinned count never returns
+  // a "7 paradoxes" idea (or vice versa). Unset = legacy soft range.
+  const pinned = (typeof req.items_per_listicle === 'number' && Number.isFinite(req.items_per_listicle) && req.items_per_listicle > 0)
+    ? Math.round(req.items_per_listicle)
+    : null
+  const chapterRule = pinned !== null
+    ? `MUST equal exactly ${pinned} (pinned for this batch — every idea has the same chapter count)`
+    : `within ${chMin}–${chMax} (format default ${format.script.defaultChapterCount})`
   const lengthExamples = lenMin === lenMax
     ? `"${lenMin} min"`
     : `"${lenMin} min" through "${lenMax} min"`
@@ -186,7 +240,7 @@ For EACH idea, provide:
 1. title — evocative, 5–10 words; pick adjectives that fit the format's tone (see mood vocab below)
 2. logline — 1–2 sentences with a concrete image or specific detail; avoid describing the premise abstractly
 3. themes — 2–4 thematic keywords, fresh combinations preferred
-4. suggested_chapters — within ${chMin}–${chMax} (format default ${format.script.defaultChapterCount})
+4. suggested_chapters — ${chapterRule}
 5. suggested_length — minutes-string within ${lengthExamples} (format default ${format.script.defaultLengthMinutes} min)
 6. mood — emotional arc in 2–4 words
 
@@ -196,6 +250,7 @@ RULES:
 - Loglines must use specific concrete nouns, not generic ones — concrete > abstract every time
 - Do not produce anything that overlaps the AVOID list above — treat it as a hard negative constraint
 - Honour the format guidance above — that's the channel's voice. Don't bring in tropes from other genres.
+- TITLE-NUMBER CONSISTENCY: if your title contains a leading count number (e.g. "10 mysteries", "7 plane crashes", "12 paradoxes"), the suggested_chapters value MUST equal that number. Mismatch is the most common bug we see — pick a count first, then write the title to match.${pinned !== null ? `\n- Pinned for this batch: every title that uses a leading count number MUST use ${pinned}, and suggested_chapters MUST be ${pinned}.` : ''}
 - ${moodVocab}
 
 Return ONLY a JSON array of objects with the exact keys above. No markdown, no commentary.`
@@ -273,15 +328,34 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     kie_api_key: config.kie_api_key,
   }
 
+  // Pin enforcement (v1.0.70): when the user passed items_per_listicle,
+  // every idea's suggested_chapters MUST equal that pin even if the LLM
+  // ignored the instruction. We also rewrite leading title numbers so
+  // "7 sleep mysteries" → "10 sleep mysteries" when the pin is 10. The
+  // prompt asks the LLM to do this; the post-process is the safety net.
+  const pinnedChapters = (typeof body.items_per_listicle === 'number'
+    && Number.isFinite(body.items_per_listicle)
+    && body.items_per_listicle > 0)
+    ? Math.round(body.items_per_listicle)
+    : null
+
   function normalizeIdeas(raw: any[]): StoryIdea[] {
-    return raw.map((item: any) => ({
-      title: item.title || 'Untitled',
-      logline: item.logline || '',
-      themes: item.themes || [],
-      suggested_chapters: item.suggested_chapters || 10,
-      suggested_length: item.suggested_length || '45 min',
-      mood: item.mood || '',
-    }))
+    return raw.map((item: any) => {
+      const rawTitle: string = (item.title || 'Untitled').toString()
+      const rawChapters: number = Number(item.suggested_chapters) || 10
+      const chapters = pinnedChapters !== null ? pinnedChapters : rawChapters
+      const title = pinnedChapters !== null
+        ? rewriteLeadingCount(rawTitle, pinnedChapters)
+        : rawTitle
+      return {
+        title,
+        logline: item.logline || '',
+        themes: item.themes || [],
+        suggested_chapters: chapters,
+        suggested_length: item.suggested_length || '45 min',
+        mood: item.mood || '',
+      }
+    })
   }
 
   try {
@@ -849,6 +923,10 @@ router.get('/projects/:slug/episodes', async (req, res) => {
     } = status
 
     return {
+      // v1.0.70: idea.id surfaced so the Scripts page can PATCH back
+      // (e.g. the "Sync title to N chapters" action). Older clients
+      // ignore unknown fields so this is back-compat-safe.
+      idea_id: idea.id,
       episode_code: code,
       title: idea.title,
       logline: idea.logline,

@@ -16,6 +16,7 @@ import { resolveCharacters } from '../services/character-manager.js'
 
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
+import * as im from '../services/idea-manager.js'
 import { castPromptBlock, castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import type { GenerateScriptRequest, Job, Format, NarratorStyle, Pattern, Character } from '../models/types.js'
 
@@ -544,6 +545,43 @@ export async function generateScriptOnly(job: Job): Promise<void> {
   await fs.unlink(introDocx).catch(() => {})
 
   await generateEpisode({ ...job, params: baseParams })
+
+  // v1.0.70 — auto-rewrite the idea title's leading count number when
+  // it disagrees with the chapter count we actually generated. Catches
+  // the case where the user accepted "7 historical cold cases" and
+  // generated 10 chapters anyway: the on-disk script has 10, so the
+  // idea title should too. Idempotent on titles without a leading
+  // number, and on matches where title-number == chapters already.
+  // We only update the in-memory + JSON record here; the on-disk
+  // folder name keeps its original title (renaming the folder mid-job
+  // would invalidate paths the user will use for assets seconds later).
+  try {
+    const generatedChapters = Number(baseParams.chapters)
+    const title = (baseParams.title as string) || ''
+    if (Number.isFinite(generatedChapters) && generatedChapters > 0 && title) {
+      const m = title.match(/^(?:(?:the|top)\s+)?(\d+)\b/i)
+      if (m) {
+        const titleNumber = parseInt(m[1]!, 10)
+        if (titleNumber !== generatedChapters) {
+          const start = m.index! + m[0].length - m[1]!.length
+          const newTitle = title.slice(0, start) + String(generatedChapters) + title.slice(start + m[1]!.length)
+          // Find the idea by episode_code and update its title.
+          const ideas = await im.getIdeas(job.project_slug, 'accepted')
+          const idea = ideas.find(i => (i.episode_code || '').toUpperCase() === (job.episode_id || '').toUpperCase())
+          if (idea) {
+            await im.updateIdea(job.project_slug, idea.id, { title: newTitle })
+            job.output_lines.push(
+              `[title-sync] Idea title rewritten: "${title}" → "${newTitle}" `
+              + `(chapters generated: ${generatedChapters}). On-disk folder name unchanged.`,
+            )
+          }
+        }
+      }
+    }
+  } catch (e: any) {
+    // Title sync is purely cosmetic; never fail the script job over it.
+    job.output_lines.push(`[title-sync] skipped (${e?.message || e})`)
+  }
 }
 
 // Regenerate ONE chapter, keeping all others on disk untouched.
