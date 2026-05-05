@@ -369,9 +369,23 @@ function installJobNotifier(): void {
 // client terminates the whole Electron app with no log and no dialog —
 // the user sees the window vanish. Capture, log, and surface to the user
 // so crashes are debuggable instead of ghost-disappearances.
+//
+// v1.0.71+: every step here is wrapped in a try/catch that swallows
+// errors. The crash handler itself MUST NOT throw — if it does, the
+// uncaughtException listener re-fires for the new error and we end up
+// in an infinite crash loop spamming the dialog (literal user report:
+// "write EPIPE" repeating 3+ times in 12 seconds because console.error
+// failed to write to stdout, which became a new uncaughtException).
 function logCrash(source: string, err: unknown) {
-  const message = err instanceof Error ? (err.stack || err.message) : String(err)
-  console.error(`[main:${source}]`, message)
+  let message = ''
+  try {
+    message = err instanceof Error ? (err.stack || err.message) : String(err)
+  } catch { /* coercion failed, give up on a useful message */ }
+  // console.error writes to stdout/stderr. If the launching shell has
+  // closed those pipes (Electron child detached, terminal closed, etc.)
+  // the write throws EPIPE — and EPIPE thrown FROM the crash handler
+  // would re-fire `uncaughtException` and loop. Swallow it.
+  try { console.error(`[main:${source}]`, message) } catch { /* pipe closed */ }
   try {
     const logsDir = path.join(electronApp.getPath('userData'), 'logs')
     fs.mkdirSync(logsDir, { recursive: true })
@@ -385,14 +399,32 @@ function logCrash(source: string, err: unknown) {
   } catch { /* best effort — never crash the crash handler */ }
 }
 
+/**
+ * Some errors are routine I/O hiccups, not bugs:
+ *   • EPIPE on stdout/stderr — usually means a downstream pipe (terminal,
+ *     parent shell, log forwarder) closed its read end. Benign.
+ *   • ECONNRESET on a long-lived stream — peer hung up.
+ *   • ECANCELED — explicit AbortController cancel.
+ * Showing a modal dialog for these would train users to dismiss the
+ * dialog without reading it. Log silently and move on.
+ */
+function isBenignIoError(err: any): boolean {
+  if (!err) return false
+  const code = err.code || err?.cause?.code
+  return code === 'EPIPE' || code === 'ECONNRESET' || code === 'ECANCELED'
+}
+
 process.on('uncaughtException', (err) => {
   logCrash('uncaughtException', err)
+  if (isBenignIoError(err)) return  // log only, don't dialog
   if (electronApp.isReady()) {
-    dialog.showErrorBox(
-      'Story Studio encountered an error',
-      'An unexpected error occurred. Check Help → Show Logs for details.\n\n' +
-        String(err?.message || err),
-    )
+    try {
+      dialog.showErrorBox(
+        'Story Studio encountered an error',
+        'An unexpected error occurred. Check Help → Show Logs for details.\n\n' +
+          String((err as any)?.message || err),
+      )
+    } catch { /* dialog itself failed; we already logged */ }
   }
   // Don't exit — one route handler's bug shouldn't kill the user's whole session.
 })
