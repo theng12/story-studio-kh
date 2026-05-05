@@ -4497,10 +4497,50 @@ watch(
   { deep: true },
 )
 
+/**
+ * v1.0.71+: format-aware seeding of timing defaults BEFORE preset
+ * loaders run. Out of the box the form had hardcoded sleep-story
+ * numbers (10 s/scene, crossfade 1.5 s) — fine for sleep-story but
+ * wrong for listicle-style explainer pacing where 6 s/scene + a
+ * snappy 0.5 s fade is much closer to right. Format JSON optionally
+ * declares `script.videoDefaults`; if absent we fall through to the
+ * existing hardcoded values, so formats that haven't opted in see
+ * no change.
+ *
+ * Saved presets still override these — preset.load() runs after, so
+ * users with their own presets keep their own values. The seeding
+ * only matters for fresh projects with no preset applied yet.
+ */
+async function applyVideoFormatDefaultsIfNoPreset() {
+  try {
+    const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    const v = f?.script?.videoDefaults
+    if (!v) return
+    if (typeof v.secondsPerScene === 'number' && v.secondsPerScene > 0) {
+      sceneRecycling.seconds_per_scene = v.secondsPerScene
+    }
+    if (typeof v.transitionType === 'string' && v.transitionType) {
+      transition.type = v.transitionType
+    }
+    if (typeof v.transitionDurationSec === 'number' && v.transitionDurationSec >= 0) {
+      transition.duration = v.transitionDurationSec
+    }
+  } catch {
+    // Format endpoint unavailable / project missing — keep the legacy
+    // hardcoded defaults (10 s/scene, crossfade 1.5 s). Non-fatal.
+  }
+}
+
 onMounted(async () => {
   checkFfmpeg()
   loadTransitionsCatalog()
   loadAnimationsCatalog()
+  // Format-aware seeding runs FIRST so saved presets (loaded right
+  // after) can still override these defaults. Without this, listicle
+  // projects opened the page with sleep-story 10 s/scene + 1.5 s
+  // crossfade values that the user had to dial down by hand every
+  // time.
+  await applyVideoFormatDefaultsIfNoPreset()
   // Slots must finish loading before the bundle runs its auto-apply, since
   // the bundle looks up preset IDs inside each slot's list. Doing them
   // sequentially (cheap parallel fetches) before triggering the bundle

@@ -634,8 +634,40 @@ async function readSidecar(scriptDir: string, episode_id: string): Promise<Chunk
   }
 }
 
+// Per-path serialisation queue for sidecar writes. The atomic-rename in
+// writeJsonAtomic guarantees no torn writes, but it does NOT guarantee
+// write ORDER when two parallel callers have overlapping in-flight
+// renames — the later-started rename can complete first, letting the
+// earlier-started rename's older state overwrite it on disk. The
+// listicle parallel path triggered this regularly: 24 chapters / 8
+// per batch / 4 workers in parallel could end up with only 8 chapters
+// in the on-disk sidecar even though all 24 chapter docx files
+// landed correctly.
+//
+// Fix: serialise all sidecar writes per-path through a Promise chain.
+// One in-flight write at a time per sidecar; subsequent calls await
+// the previous settled state. Cheap (sidecars are tiny JSON), and the
+// queue length stays bounded by the listicle CONCURRENCY (4 in our
+// configuration).
+const sidecarWriteChains = new Map<string, Promise<void>>()
+
 async function writeSidecar(scriptDir: string, sidecar: ChunkedSidecar): Promise<void> {
-  await writeJsonAtomic(sidecarPath(scriptDir, sidecar.episode_id), sidecar)
+  const target = sidecarPath(scriptDir, sidecar.episode_id)
+  const previous = sidecarWriteChains.get(target) || Promise.resolve()
+  // Capture the snapshot AT QUEUE TIME so two interleaved callers can't
+  // both serialise the same older state through the chain.
+  const snapshot = { ...sidecar, chapters_done: [...sidecar.chapters_done] }
+  const next = previous.then(
+    () => writeJsonAtomic(target, snapshot),
+    () => writeJsonAtomic(target, snapshot),  // proceed even if previous rejected
+  )
+  sidecarWriteChains.set(target, next)
+  await next
+  // Only clear the chain if it's still ours — another caller may have
+  // appended after us and we don't want to drop their pending write.
+  if (sidecarWriteChains.get(target) === next) {
+    sidecarWriteChains.delete(target)
+  }
 }
 
 function markDone(sidecar: ChunkedSidecar, chapters: number[]): ChunkedSidecar {

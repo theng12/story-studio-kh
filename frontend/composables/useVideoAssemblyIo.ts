@@ -206,17 +206,6 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     confirmGeneration: (slug: string, type: string, params: Record<string, any>) => Promise<boolean>
     videoGenerating: Ref<boolean>
   }): Promise<boolean> {
-    // v1.0.47 — diagnostic instrumentation for the silent-failure bug
-    // where some preset combos (notably YouTube Fast w/ fps=30) made
-    // the click-Generate flow produce no dialog and no toast. These
-    // logs print one short line per major step so a re-test on the
-    // beta Mac can pinpoint exactly where the chain swallows the
-    // failure. To strip in a follow-up commit once the root cause is
-    // fixed — grep for `[video-assembly]` to find them all.
-    console.log('[video-assembly] generateVideo entry', {
-      episode_id: s.episodeId.value,
-      exportSettings: { ...s.exportSettings },
-    })
     const enabledScenes = s.scenes.value.filter(
       sc => !s.sceneRecycling.excluded_scenes.includes(sc.number),
     )
@@ -400,20 +389,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     if (s.titleCard.enabled) payload.title_card = { ...s.titleCard }
     if (s.outroCard.enabled) payload.outro_card = { ...s.outroCard }
 
-    console.log('[video-assembly] payload built', {
-      fps: payload.fps,
-      resolution: payload.resolution,
-      quality: payload.quality,
-      encoding_effort: payload.encoding_effort,
-      codec: payload.codec,
-      format: payload.format,
-      scenes: payload.scenes?.length,
-      has_merged_audio: !!payload.merged_audio_path,
-      has_narration: !!payload.narration_path,
-    })
-    console.log('[video-assembly] awaiting confirmGeneration')
     const confirmed = await opts.confirmGeneration(s.slug.value, 'video', payload)
-    console.log('[video-assembly] confirm result:', confirmed)
     if (!confirmed) return false
 
     if (s.generating) s.generating.value = true
@@ -425,9 +401,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       // ~100ms. The *render* runs async for many minutes. We return the
       // enqueued job so the caller can watch it and keep the "generating"
       // UI live via the jobs SSE stream (see useJobs).
-      console.log('[video-assembly] POST /generate/video-assembly')
       const job = await opts.post<{ job_id: string }>(`/projects/${s.slug.value}/generate/video-assembly`, payload)
-      console.log('[video-assembly] POST returned job_id:', job?.job_id)
       success('Video assembly queued!')
       if (s.activeJobId) s.activeJobId.value = job?.job_id || null
       return true

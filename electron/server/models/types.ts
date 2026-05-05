@@ -189,6 +189,24 @@ export interface ScriptFormat {
    * true on listicle.json + any future explainer-style format.
    */
   chaptersIndependent?: boolean
+
+  /**
+   * v1.0.71+: per-format defaults for the Video Assembly page form.
+   * Applied at page load BEFORE any saved preset overrides them, so
+   * a fresh listicle project gets snappier scene/transition timing
+   * without the user having to dial it in by hand. Optional —
+   * formats that omit the block fall through to the page's hardcoded
+   * sleep-story-shaped defaults (10 s/scene, crossfade 1.5 s).
+   */
+  videoDefaults?: {
+    /** Default `seconds_per_scene` on the Video Assembly page. */
+    secondsPerScene?: number
+    /** Default transition id (matches the transitions catalog —
+     *  e.g. 'crossfade', 'fade', 'wipeleft'). */
+    transitionType?: string
+    /** Default transition duration in seconds. */
+    transitionDurationSec?: number
+  }
 }
 
 export interface ImagePromptFormat {

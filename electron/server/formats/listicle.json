@@ -132,7 +132,12 @@
       { "id": "E", "label": "Educational calm",           "description": "Patient, clear, slightly schoolteacher — but the cool kind who made the subject feel alive." }
     ],
     "defaultNarratorStyleId": "A",
-    "chaptersIndependent": true
+    "chaptersIndependent": true,
+    "videoDefaults": {
+      "secondsPerScene": 6,
+      "transitionType": "fade",
+      "transitionDurationSec": 0.5
+    }
   },
 
   "imagePrompts": {

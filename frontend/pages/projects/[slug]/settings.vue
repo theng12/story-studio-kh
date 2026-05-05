@@ -931,6 +931,76 @@
           <span v-if="lastSidecarCleanup.skipped.length">{{ lastSidecarCleanup.skipped.length }} skipped.</span>
         </div>
       </div>
+
+      <!-- ── Legacy video_assembly preset migrator (v1.0.71+) ──────── -->
+      <!--
+        Pre-v1.0.64 video_assembly presets stored fields flat at the
+        top of `data`. v1.0.68+ uses the bundle shape with five slot
+        snapshots under `data.fallback.{intro,timeline,effects,subtitles,export}`.
+        The runtime passthrough in pipeline.ts handles legacy shapes
+        for batch runs, but the saved JSON stays in the old shape
+        until explicitly migrated. Most users won't hit this — most
+        new projects start clean. The button is here for projects
+        that pre-date v1.0.64.
+      -->
+      <div id="legacy-preset-section" class="storage-section storage-section--bordered">
+        <div class="flex items-center" style="justify-content: space-between; gap: 12px;">
+          <div>
+            <h4><span class="storage-section-icon" aria-hidden="true">📜</span>Legacy video assembly presets</h4>
+            <p class="text-muted hint">
+              Pre-v1.0.64 video assembly presets were saved with fields flat
+              at the top of <code>data</code>; v1.0.68+ uses a bundle shape
+              with five slot snapshots. The runtime passthrough handles
+              legacy shapes for batch runs, but the saved JSON stays old.
+              This button rewrites them in place.
+            </p>
+            <p class="text-muted voice-helper-line">
+              💡 Safe to run any time. No-op if all your presets are already
+              in the new shape — most new projects never hit this.
+            </p>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn btn-secondary btn-sm" :disabled="legacyPresetScanLoading" @click="scanLegacyPresets">
+              {{ legacyPresetScanLoading ? 'Scanning…' : (legacyPresetScan ? '↻ Rescan' : 'Scan') }}
+            </button>
+            <button
+              class="btn btn-primary btn-sm"
+              :disabled="!legacyPresetScan || legacyPresetMigrateRunning || legacyPresetScan.legacy_presets.length === 0"
+              :title="!legacyPresetScan ? 'Run a scan first' : legacyPresetScan.legacy_presets.length === 0 ? 'All presets already in bundle shape' : `Rewrite ${legacyPresetScan.legacy_presets.length} preset(s) into the new bundle shape`"
+              @click="migrateLegacyPresets"
+            >
+              {{ legacyPresetMigrateRunning
+                ? 'Migrating…'
+                : legacyPresetScan && legacyPresetScan.legacy_presets.length > 0
+                  ? `Migrate ${legacyPresetScan.legacy_presets.length} preset(s)`
+                  : 'Migrate' }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="legacyPresetScan" class="storage-summary mt-2">
+          <span><strong>Total presets:</strong> {{ legacyPresetScan.total_presets }}</span>
+          <span class="dot">·</span>
+          <span><strong>Legacy shape:</strong> {{ legacyPresetScan.legacy_presets.length }}</span>
+        </div>
+
+        <div v-if="legacyPresetScan && legacyPresetScan.legacy_presets.length" class="storage-table mt-2">
+          <div class="storage-row storage-head">
+            <span class="col-code">Preset id</span>
+            <span class="col-title">Name</span>
+          </div>
+          <div v-for="row in legacyPresetScan.legacy_presets" :key="row.id" class="storage-row">
+            <span class="col-code"><strong>{{ row.id }}</strong></span>
+            <span class="col-title">{{ row.name }}</span>
+          </div>
+        </div>
+
+        <div v-if="lastLegacyMigrate" class="storage-result mt-2">
+          <strong>Migration:</strong>
+          {{ lastLegacyMigrate.migrated.length }} preset(s) rewritten.
+          <span v-if="lastLegacyMigrate.skipped.length" class="error-text">{{ lastLegacyMigrate.skipped.length }} skipped.</span>
+        </div>
+      </div>
     </div>
 
     <!-- Confirmations -->
@@ -2647,6 +2717,22 @@ const sidecarScanLoading = ref(false)
 const sidecarCleanupRunning = ref(false)
 const lastSidecarCleanup = ref<SidecarCleanupResult | null>(null)
 
+// v1.0.71: legacy video_assembly preset migrator state. Most projects
+// have zero legacy presets — the section quietly stays empty unless
+// the user has older saves from before v1.0.64.
+interface LegacyPresetScan {
+  total_presets: number
+  legacy_presets: Array<{ id: string; name: string }>
+}
+interface LegacyMigrateResult {
+  migrated: Array<{ id: string; name: string }>
+  skipped: Array<{ id: string; reason: string }>
+}
+const legacyPresetScan = ref<LegacyPresetScan | null>(null)
+const legacyPresetScanLoading = ref(false)
+const legacyPresetMigrateRunning = ref(false)
+const lastLegacyMigrate = ref<LegacyMigrateResult | null>(null)
+
 const sortedStorageRows = computed<StorageEntry[]>(() => {
   if (!storage.value) return []
   return [...storage.value.episodes].sort((a, b) => b.bytes_total - a.bytes_total)
@@ -2874,6 +2960,47 @@ async function cleanupOneSidecar(episode_code: string) {
     alert(e?.data?.detail || e?.message || 'Sidecar cleanup failed')
   } finally {
     sidecarCleanupRunning.value = false
+  }
+}
+
+// v1.0.71: legacy video_assembly preset migrator handlers. scan
+// returns a list of preset ids in the legacy flat shape; migrate
+// rewrites them in place. No-op when nothing to migrate.
+async function scanLegacyPresets() {
+  legacyPresetScanLoading.value = true
+  try {
+    legacyPresetScan.value = await get<LegacyPresetScan>(
+      `/projects/${slug.value}/storage/legacy-video-assembly-presets`,
+    )
+    lastLegacyMigrate.value = null
+  } catch (e: any) {
+    alert(e?.data?.detail || e?.message || 'Legacy preset scan failed')
+  } finally {
+    legacyPresetScanLoading.value = false
+  }
+}
+
+async function migrateLegacyPresets() {
+  if (!legacyPresetScan.value || legacyPresetScan.value.legacy_presets.length === 0) return
+  const ok = confirm(
+    `Migrate ${legacyPresetScan.value.legacy_presets.length} legacy video assembly preset(s)?\n\n` +
+    `Each preset's fields will be repackaged into the v1.0.68 bundle shape ` +
+    `(slot snapshots under data.fallback). The runtime behaviour stays identical — ` +
+    `this is purely a save-format normalisation. Safe to run.`,
+  )
+  if (!ok) return
+  legacyPresetMigrateRunning.value = true
+  try {
+    lastLegacyMigrate.value = await post<LegacyMigrateResult>(
+      `/projects/${slug.value}/storage/migrate-video-assembly-presets`,
+      {},
+    )
+    // Rescan so the table updates (migrated rows drop out).
+    await scanLegacyPresets()
+  } catch (e: any) {
+    alert(e?.data?.detail || e?.message || 'Legacy preset migration failed')
+  } finally {
+    legacyPresetMigrateRunning.value = false
   }
 }
 

@@ -290,6 +290,14 @@ export function resolveStepParams(
     // snapshot saves the 0-100 form, so we apply the same conversion
     // here. Filter out empty / disabled rows so half-configured
     // layers don't waste an FFmpeg input slot.
+    //
+    // v1.0.71+: dropped a defensive `t.volume > 1 ? /100 : t.volume`
+    // heuristic that was ambiguous at exactly 1.0 (couldn't tell
+    // "100% on 0-1 scale" from "1% on 0-100 scale"). ambient_tracks
+    // were always 0-100 in the bundle from v1.0.55 inception — no
+    // legacy 0-1 saves to protect — so we now match the unconditional
+    // divide-by-100 used by intro / music / background_noise above.
+    // Closes the audit's #7 footgun.
     const liveAmbient = Array.isArray(data.ambient_tracks)
       ? (data.ambient_tracks as any[])
         .filter(t => t && t.enabled && t.source_path)
@@ -297,8 +305,8 @@ export function resolveStepParams(
           id: t.id,
           enabled: true,
           source_path: t.source_path,
-          volume: typeof t.volume === 'number'
-            ? Math.max(0, Math.min(1, t.volume > 1 ? t.volume / 100 : t.volume))
+          volume: typeof t.volume === 'number' && Number.isFinite(t.volume)
+            ? Math.max(0, Math.min(1, t.volume / 100))
             : 1,
           fade_in: Math.max(0, Number(t.fade_in) || 0),
           fade_out: Math.max(0, Number(t.fade_out) || 0),
