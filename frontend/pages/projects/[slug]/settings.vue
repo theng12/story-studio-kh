@@ -1316,6 +1316,72 @@
         </span>
       </div>
 
+      <!-- Telegram channel (v1.0.60+). Independent of desktop — turn
+           one off, the other still fires. The bot setup walks the user
+           through @BotFather + finding their chat id; the Test button
+           sends a real message so they can verify reachability before
+           leaving the settings page. -->
+      <div class="form-group mt-3" style="max-width: 520px;">
+        <label class="flex gap-2" style="align-items: center;">
+          <input
+            v-model="notifSettings.telegram.enabled"
+            type="checkbox"
+            @change="saveNotifSettings"
+          />
+          <span><strong>Telegram notifications</strong></span>
+        </label>
+        <span class="field-hint" style="display: block; margin-top: 4px;">
+          Sends the same batch / long-job pings to a Telegram chat — useful when you're away from this machine.
+          Setup:
+          <ol style="margin: 6px 0 6px 18px; padding: 0; font-size: 11px;">
+            <li>In Telegram, message <code>@BotFather</code> → <code>/newbot</code> → follow prompts → copy the bot token below.</li>
+            <li>Open a chat with your new bot (search by its username) and send <code>/start</code>.</li>
+            <li>In your browser, visit <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> — find the numeric <code>chat.id</code> in the response, paste it below.</li>
+            <li>Click <strong>Send test message</strong> to confirm.</li>
+          </ol>
+        </span>
+        <div class="form-group mt-1">
+          <label>Bot token</label>
+          <input
+            v-model="notifSettings.telegram.bot_token"
+            type="text"
+            class="input"
+            placeholder="1234567890:ABCdef…"
+            spellcheck="false"
+            autocomplete="off"
+            @change="saveNotifSettings"
+          >
+        </div>
+        <div class="form-group mt-1">
+          <label>Chat ID</label>
+          <input
+            v-model="notifSettings.telegram.chat_id"
+            type="text"
+            class="input"
+            placeholder="123456789 (your numeric Telegram id)"
+            spellcheck="false"
+            autocomplete="off"
+            @change="saveNotifSettings"
+          >
+        </div>
+        <div class="flex gap-2 mt-1" style="align-items: center; flex-wrap: wrap;">
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            :disabled="telegramTestBusy || !notifSettings.telegram.bot_token || !notifSettings.telegram.chat_id"
+            @click="testTelegram"
+          >{{ telegramTestBusy ? 'Sending…' : '📨 Send test message' }}</button>
+          <span
+            v-if="telegramTestResult"
+            :style="`font-size: 12px; color: ${telegramTestResult.ok ? 'var(--success, #4ade80)' : 'var(--error, #f87171)'};`"
+          >
+            {{ telegramTestResult.ok
+              ? '✓ Test message sent. Check your Telegram.'
+              : `✕ ${telegramTestResult.error || 'Send failed'}` }}
+          </span>
+        </div>
+      </div>
+
       <!-- Live status indicator — confirms the last save actually hit disk
            and reminds the user this is an app-wide setting (not per-project),
            matching the wording in the Settings memory. The "Saving…" /
@@ -3158,8 +3224,17 @@ watch(() => _route.hash, applyHash)
 // ── Notifications tab (app-level, not per-project) ─────────────────────
 // Backed by `/api/app-settings/notifications`. We debounce the save on
 // slider drags so one gesture doesn't burn a PUT per integer tick.
-interface NotifSettings { enabled: boolean; min_duration_ms: number }
-const notifSettings = ref<NotifSettings>({ enabled: true, min_duration_ms: 300_000 })
+interface TelegramConfigUI { enabled: boolean; bot_token: string; chat_id: string }
+interface NotifSettings {
+  enabled: boolean
+  min_duration_ms: number
+  telegram: TelegramConfigUI
+}
+const notifSettings = ref<NotifSettings>({
+  enabled: true,
+  min_duration_ms: 300_000,
+  telegram: { enabled: false, bot_token: '', chat_id: '' },
+})
 const notifSaveStatus = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const notifSaveError = ref('')
 const notifMinDurationMinutes = computed({
@@ -3172,7 +3247,21 @@ const notifMinDurationMinutes = computed({
 })
 async function loadNotifSettings() {
   try {
-    notifSettings.value = await get<NotifSettings>('/app-settings/notifications')
+    const r = await get<NotifSettings>('/app-settings/notifications')
+    // Backend may omit telegram on legacy installs — keep the UI
+    // pre-populated with empty defaults so v-model bindings don't
+    // break when reading `notifSettings.telegram.bot_token`.
+    notifSettings.value = {
+      enabled: !!r.enabled,
+      min_duration_ms: typeof r.min_duration_ms === 'number' ? r.min_duration_ms : 300_000,
+      telegram: r.telegram
+        ? {
+            enabled: !!r.telegram.enabled,
+            bot_token: r.telegram.bot_token || '',
+            chat_id: r.telegram.chat_id || '',
+          }
+        : { enabled: false, bot_token: '', chat_id: '' },
+    }
   } catch { /* leave defaults */ }
 }
 let notifSaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -3184,15 +3273,60 @@ async function saveNotifSettings() {
   if (notifSaveTimer) { clearTimeout(notifSaveTimer); notifSaveTimer = null }
   notifSaveStatus.value = 'saving'
   try {
-    notifSettings.value = await put<NotifSettings>('/app-settings/notifications', {
+    const saved = await put<NotifSettings>('/app-settings/notifications', {
       enabled: notifSettings.value.enabled,
       min_duration_ms: notifSettings.value.min_duration_ms,
+      telegram: {
+        enabled: notifSettings.value.telegram.enabled,
+        bot_token: notifSettings.value.telegram.bot_token,
+        chat_id: notifSettings.value.telegram.chat_id,
+      },
     })
+    // Re-normalise (same shape as loadNotifSettings) — the backend may
+    // have trimmed bot_token / chat_id whitespace.
+    notifSettings.value = {
+      enabled: !!saved.enabled,
+      min_duration_ms: typeof saved.min_duration_ms === 'number' ? saved.min_duration_ms : 300_000,
+      telegram: saved.telegram
+        ? {
+            enabled: !!saved.telegram.enabled,
+            bot_token: saved.telegram.bot_token || '',
+            chat_id: saved.telegram.chat_id || '',
+          }
+        : { enabled: false, bot_token: '', chat_id: '' },
+    }
     notifSaveStatus.value = 'saved'
     stampSaved('notifications')
   } catch (e: any) {
     notifSaveError.value = e?.data?.detail || e?.message || 'Unknown error'
     notifSaveStatus.value = 'error'
+  }
+}
+
+// Telegram test-message round-trip. Sends with the values currently
+// in the form (NOT the saved values) so the user can verify a token
+// before committing it. Result is shown inline next to the button.
+const telegramTestBusy = ref(false)
+const telegramTestResult = ref<{ ok: boolean; error?: string } | null>(null)
+async function testTelegram() {
+  telegramTestBusy.value = true
+  telegramTestResult.value = null
+  try {
+    const r = await post<{ ok: boolean; status: number; error?: string }>(
+      '/app-settings/notifications/telegram-test',
+      {
+        bot_token: notifSettings.value.telegram.bot_token,
+        chat_id: notifSettings.value.telegram.chat_id,
+      },
+    )
+    telegramTestResult.value = { ok: !!r.ok, error: r.error }
+  } catch (e: any) {
+    telegramTestResult.value = {
+      ok: false,
+      error: e?.data?.detail || e?.data?.error || e?.message || 'Send failed',
+    }
+  } finally {
+    telegramTestBusy.value = false
   }
 }
 

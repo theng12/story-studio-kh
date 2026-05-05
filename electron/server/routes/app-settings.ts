@@ -27,7 +27,11 @@ router.get('/app-settings/notifications', async (_req, res) => {
 
 router.put('/app-settings/notifications', async (req, res) => {
   const body = (req.body || {}) as Record<string, unknown>
-  const patch: { enabled?: boolean; min_duration_ms?: number } = {}
+  const patch: {
+    enabled?: boolean
+    min_duration_ms?: number
+    telegram?: { enabled?: boolean; bot_token?: string; chat_id?: string }
+  } = {}
 
   if (body.enabled !== undefined) {
     if (typeof body.enabled !== 'boolean') {
@@ -41,12 +45,65 @@ router.put('/app-settings/notifications', async (req, res) => {
     }
     patch.min_duration_ms = body.min_duration_ms
   }
+  if (body.telegram !== undefined) {
+    if (!body.telegram || typeof body.telegram !== 'object') {
+      return res.status(400).json({ detail: 'telegram must be an object' })
+    }
+    const tg = body.telegram as Record<string, unknown>
+    const tgPatch: { enabled?: boolean; bot_token?: string; chat_id?: string } = {}
+    if (tg.enabled !== undefined) {
+      if (typeof tg.enabled !== 'boolean') {
+        return res.status(400).json({ detail: 'telegram.enabled must be a boolean' })
+      }
+      tgPatch.enabled = tg.enabled
+    }
+    if (tg.bot_token !== undefined) {
+      if (typeof tg.bot_token !== 'string') {
+        return res.status(400).json({ detail: 'telegram.bot_token must be a string' })
+      }
+      tgPatch.bot_token = tg.bot_token
+    }
+    if (tg.chat_id !== undefined) {
+      if (typeof tg.chat_id !== 'string') {
+        return res.status(400).json({ detail: 'telegram.chat_id must be a string' })
+      }
+      tgPatch.chat_id = tg.chat_id
+    }
+    patch.telegram = tgPatch as any
+  }
 
   try {
-    const saved = await setNotifierSettings(patch)
+    const saved = await setNotifierSettings(patch as any)
     res.json(saved)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save notification settings'))
+  }
+})
+
+/**
+ * Send a single test message to the Telegram chat configured here OR
+ * the bot_token+chat_id supplied in the request body. Lets the user
+ * confirm the bot is reachable BEFORE saving the credentials. Returns
+ * the same shape sendTelegramMessage emits so the UI can show the
+ * exact Telegram error description on failure.
+ */
+router.post('/app-settings/notifications/telegram-test', async (req, res) => {
+  const body = (req.body || {}) as Record<string, unknown>
+  let botToken = typeof body.bot_token === 'string' ? body.bot_token.trim() : ''
+  let chatId = typeof body.chat_id === 'string' ? body.chat_id.trim() : ''
+  if (!botToken || !chatId) {
+    const current = await getNotifierSettings()
+    botToken = botToken || current.telegram?.bot_token || ''
+    chatId = chatId || current.telegram?.chat_id || ''
+  }
+  if (!botToken) return res.status(400).json({ ok: false, error: 'Bot token is empty.' })
+  if (!chatId) return res.status(400).json({ ok: false, error: 'Chat id is empty.' })
+  try {
+    const { sendTelegramTestMessage } = await import('../services/telegram-notifier.js')
+    const r = await sendTelegramTestMessage(botToken, chatId)
+    res.json(r)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to send Telegram test message'))
   }
 })
 

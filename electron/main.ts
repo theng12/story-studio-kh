@@ -282,6 +282,32 @@ function popNotification(
   }
 }
 
+/**
+ * Dispatch a single notification to every enabled channel. Desktop
+ * (Electron Notification) is governed by `settings.enabled`; Telegram
+ * by `settings.telegram?.enabled` plus a non-empty bot_token + chat_id.
+ * Both run independently — turn one off, the other still fires.
+ */
+async function dispatchNotification(
+  payload: { title: string; body: string },
+  slug: string,
+  settings: import('./server/services/job-notifier.js').NotifierSettings,
+): Promise<void> {
+  if (settings.enabled) popNotification(payload, slug)
+
+  const tg = settings.telegram
+  if (tg?.enabled && tg.bot_token && tg.chat_id) {
+    try {
+      const { sendTelegramMessage, formatTelegramText } = await import('./server/services/telegram-notifier.js')
+      const text = formatTelegramText(payload)
+      const r = await sendTelegramMessage(tg.bot_token, tg.chat_id, text, { parseMode: 'HTML' })
+      if (!r.ok) logCrash('telegram-notifier', new Error(`Telegram send failed: ${r.error || `HTTP ${r.status}`}`))
+    } catch (e) {
+      logCrash('telegram-notifier', e)
+    }
+  }
+}
+
 function installJobNotifier(): void {
   jobEvents.on('update', (job: Job) => {
     // Only act on terminal transitions. `update` also fires for queued→
@@ -290,7 +316,13 @@ function installJobNotifier(): void {
 
     ;(async () => {
       const settings = await getNotifierSettings().catch(() => null)
-      if (!settings || !settings.enabled) return
+      if (!settings) return
+      // Each channel has its own enabled flag now (v1.0.60+). Bail
+      // only when ALL channels are off — otherwise we'd silence the
+      // Telegram side just because the desktop side was muted.
+      const anyChannelOn = settings.enabled
+        || !!(settings.telegram?.enabled && settings.telegram.bot_token && settings.telegram.chat_id)
+      if (!anyChannelOn) return
 
       const batchId = getBatchId(job)
       if (batchId) {
@@ -299,14 +331,23 @@ function installJobNotifier(): void {
         const stats = aggregateBatch(allJobs, batchId)
         if (!isBatchComplete(stats)) return
         notifiedBatches.add(batchId)
-        popNotification(formatBatchMessage(stats), job.project_slug)
+        await dispatchNotification(formatBatchMessage(stats), job.project_slug, settings)
         return
       }
 
       if (notifiedJobs.has(job.job_id)) return
-      if (shouldNotifyForSingleJob(job, settings)) {
+      // shouldNotifyForSingleJob still gates on `settings.enabled` for
+      // the desktop side, so we re-check at dispatch level: if EITHER
+      // desktop or telegram is on for long-job pings, dispatch.
+      const wantsLongJobPing = (settings.enabled
+        || !!(settings.telegram?.enabled && settings.telegram.bot_token && settings.telegram.chat_id))
+        && !getBatchId(job)
+        && (job.status === 'done' || job.status === 'error' || job.status === 'cancelled')
+        && !!(job.started_at && job.finished_at)
+        && (Date.parse(job.finished_at) - Date.parse(job.started_at)) >= settings.min_duration_ms
+      if (wantsLongJobPing) {
         notifiedJobs.add(job.job_id)
-        popNotification(formatSingleJobMessage(job), job.project_slug)
+        await dispatchNotification(formatSingleJobMessage(job), job.project_slug, settings)
       }
     })().catch((e) => logCrash('job-notifier', e))
   })

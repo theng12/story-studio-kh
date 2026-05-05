@@ -17,15 +17,35 @@
 import { getAppSetting, setAppSetting } from './app-settings.js'
 import type { Job } from '../models/types.js'
 
+/** Telegram bot channel (v1.0.60+). Independent of the desktop channel
+ *  — a user in Cambodia can mute desktop pop-ups but still get Telegram
+ *  pings on their phone, or vice versa. Both share the same payload
+ *  formatter so message content stays in lockstep. */
+export interface TelegramConfig {
+  enabled: boolean
+  /** Bot token from @BotFather (looks like `1234:ABCdef…`). Stored
+   *  in app-settings.json — global per machine, not per project. */
+  bot_token: string
+  /** Numeric chat id of the user (or `@channelname` for a channel).
+   *  User obtains it by sending /start to their bot, then GETting
+   *  https://api.telegram.org/bot{token}/getUpdates. */
+  chat_id: string
+}
+
 export interface NotifierSettings {
+  /** Desktop (Electron Notification) channel — the original system. */
   enabled: boolean
   /** Single-job notifications fire only when elapsed ≥ this threshold. */
   min_duration_ms: number
+  /** Optional Telegram channel. Backward compat: missing/undefined =
+   *  Telegram disabled, the original desktop-only behaviour. */
+  telegram?: TelegramConfig
 }
 
 export const DEFAULT_NOTIFIER_SETTINGS: NotifierSettings = {
   enabled: true,
   min_duration_ms: 300_000,
+  telegram: { enabled: false, bot_token: '', chat_id: '' },
 }
 
 /** Aggregate over every job tagged with a given `pipeline_batch_id`. */
@@ -146,16 +166,28 @@ export function formatSingleJobMessage(job: Job): NotificationPayload {
 
 // ── Persistence (thin wrapper over app-settings.ts) ────────────────────────
 
+function readTelegramConfig(raw: unknown): TelegramConfig {
+  const def = DEFAULT_NOTIFIER_SETTINGS.telegram!
+  if (!raw || typeof raw !== 'object') return { ...def }
+  const r = raw as Record<string, unknown>
+  return {
+    enabled: typeof r.enabled === 'boolean' ? r.enabled : def.enabled,
+    bot_token: typeof r.bot_token === 'string' ? r.bot_token : def.bot_token,
+    chat_id: typeof r.chat_id === 'string' ? r.chat_id : def.chat_id,
+  }
+}
+
 export async function getNotifierSettings(): Promise<NotifierSettings> {
   const raw = await getAppSetting('notifications')
   const defaults = DEFAULT_NOTIFIER_SETTINGS
-  if (!raw || typeof raw !== 'object') return { ...defaults }
+  if (!raw || typeof raw !== 'object') return { ...defaults, telegram: { ...defaults.telegram! } }
   const r = raw as Record<string, unknown>
   const min = typeof r.min_duration_ms === 'number' && r.min_duration_ms >= 0
     ? r.min_duration_ms : defaults.min_duration_ms
   return {
     enabled: typeof r.enabled === 'boolean' ? r.enabled : defaults.enabled,
     min_duration_ms: min,
+    telegram: readTelegramConfig(r.telegram),
   }
 }
 
@@ -165,6 +197,19 @@ export async function setNotifierSettings(patch: Partial<NotifierSettings>): Pro
     enabled: typeof patch.enabled === 'boolean' ? patch.enabled : current.enabled,
     min_duration_ms: typeof patch.min_duration_ms === 'number' && patch.min_duration_ms >= 0
       ? patch.min_duration_ms : current.min_duration_ms,
+    telegram: patch.telegram
+      ? {
+          enabled: typeof patch.telegram.enabled === 'boolean'
+            ? patch.telegram.enabled
+            : (current.telegram?.enabled ?? false),
+          bot_token: typeof patch.telegram.bot_token === 'string'
+            ? patch.telegram.bot_token.trim()
+            : (current.telegram?.bot_token ?? ''),
+          chat_id: typeof patch.telegram.chat_id === 'string'
+            ? patch.telegram.chat_id.trim()
+            : (current.telegram?.chat_id ?? ''),
+        }
+      : current.telegram,
   }
   await setAppSetting('notifications', next)
   return next
