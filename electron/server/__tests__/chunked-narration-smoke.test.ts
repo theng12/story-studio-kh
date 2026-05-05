@@ -44,6 +44,7 @@ const FAKE_MODEL = 'fake-test-model'
 const fakeProvider: TextProvider = {
   meta: {
     id: 'fake-test-provider',
+    name: 'Fake Test Provider',
     apiKeyField: 'anthropic_api_key' as any,
   },
   supportsModel(modelId: string): boolean { return modelId === FAKE_MODEL },

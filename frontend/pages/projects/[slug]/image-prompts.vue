@@ -675,7 +675,56 @@ const promptPresets = usePresets<any>({
   snapshot: () => ({ form: { ...form } }),
   apply: (data) => { if (data?.form) Object.assign(form, data.form) },
 })
-onMounted(() => {
+
+/**
+ * v1.0.71+: format-aware seeding of the form's defaults BEFORE the
+ * preset loader runs. Out-of-the-box the form had hardcoded sleep-
+ * story numbers (5 thumbs, 16:9 aspect, 1 scene per chapter for ~10
+ * total). For listicle channels with `imagePrompts.defaultScenesTotalRange:
+ * [10, 10]` and `defaultThumbnails: 3`, those defaults were wrong.
+ * Pull from the project's effective Format when present; preset.load()
+ * still overrides if the user has saved one.
+ *
+ * Per-format JSON keys consumed:
+ *   imagePrompts.defaultScenesTotalRange  → form.total_scenes (low end)
+ *                                           form.scenes_per_chapter = 0
+ *                                           (signals "use total_scenes")
+ *   imagePrompts.defaultThumbnails        → form.thumb_count
+ *   imagePrompts.recommendedAspect        → form.aspect_ratio
+ */
+async function applyFormatDefaultsIfNoPreset() {
+  try {
+    const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    const ip = f?.imagePrompts
+    if (!ip) return
+    if (Array.isArray(ip.defaultScenesTotalRange) && ip.defaultScenesTotalRange.length === 2) {
+      const [lo] = ip.defaultScenesTotalRange
+      if (typeof lo === 'number' && lo > 0) {
+        // 0 in scenes_per_chapter signals "use total_scenes" (see the
+        // form template gate at scenes_per_chapter === 0). Listicle
+        // formats set defaultScenesTotalRange = [10, 10] — exactly 10
+        // scenes — which maps cleanly onto this control.
+        form.scenes_per_chapter = 0
+        form.total_scenes = lo
+      }
+    }
+    if (typeof ip.defaultThumbnails === 'number' && ip.defaultThumbnails > 0) {
+      form.thumb_count = ip.defaultThumbnails
+    }
+    if (typeof ip.recommendedAspect === 'string' && ip.recommendedAspect) {
+      form.aspect_ratio = ip.recommendedAspect
+    }
+  } catch {
+    // Format endpoint unavailable / project missing — keep the legacy
+    // hardcoded values. Non-fatal.
+  }
+}
+
+onMounted(async () => {
+  // Format-aware seeding runs BEFORE preset load. If the user has an
+  // active preset, its values override these — but the format defaults
+  // are the right starting point for projects with no saved preset yet.
+  await applyFormatDefaultsIfNoPreset()
   void promptPresets.load()
   void loadVisionCaps()
 })

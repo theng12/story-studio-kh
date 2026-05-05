@@ -1300,8 +1300,51 @@ function addPlaylistFromChannel(playlistId: string) {
   }
 }
 
+/**
+ * v1.0.71+: seed titleConfig / descConfig / tagConfig defaults from the
+ * project's effective Format BEFORE preset.load() runs. Out-of-the-box
+ * the page hardcoded sleep-story numbers (5000-char description, 5
+ * titles, 100-char title cap, 15 tags) — for listicle / educational /
+ * kids projects those were wrong but the user had no obvious cue. By
+ * pulling format.metadata.defaultMaxChars / defaultTitleCount /
+ * defaultTitleMaxLength / defaultTagCount when present, every new
+ * project gets sensible starting values without needing to load a
+ * saved preset first.
+ *
+ * If a preset is later applied, its saved values override these
+ * format defaults — no behaviour change for users with their own
+ * presets. Format-blind formats (custom JSONs that predate the
+ * defaults block) fall through to the legacy hardcoded numbers.
+ */
+async function applyFormatDefaultsIfNoPreset() {
+  try {
+    const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    const meta = f?.metadata
+    if (!meta) return
+    if (typeof meta.defaultMaxChars === 'number' && meta.defaultMaxChars > 0) {
+      descConfig.maxChars = meta.defaultMaxChars
+    }
+    if (typeof meta.defaultTitleCount === 'number' && meta.defaultTitleCount > 0) {
+      titleConfig.count = meta.defaultTitleCount
+    }
+    if (typeof meta.defaultTitleMaxLength === 'number' && meta.defaultTitleMaxLength > 0) {
+      titleConfig.maxLength = meta.defaultTitleMaxLength
+    }
+    if (typeof meta.defaultTagCount === 'number' && meta.defaultTagCount > 0) {
+      tagConfig.count = meta.defaultTagCount
+    }
+  } catch {
+    // Format endpoint unavailable / project missing — keep the legacy
+    // hardcoded values (5000 / 5 / 100 / 15). Non-fatal.
+  }
+}
+
 onMounted(async () => {
   await migrateLegacyMetadataTemplates()
+  // Format-aware seeding runs BEFORE preset load. If the user has an
+  // active preset, its values override these — but the format defaults
+  // are the right starting point for projects with no saved preset yet.
+  await applyFormatDefaultsIfNoPreset()
   await metadataPresets.load()
   // Best-effort load — failure is fine, the manual inputs still work.
   loadAvailablePlaylists().catch(() => {})
