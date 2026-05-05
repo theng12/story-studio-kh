@@ -59,12 +59,17 @@ import type { Job, Format, Character } from '../models/types.js'
 
 /**
  * Word target above which `generateEpisode` dispatches to chunked mode.
- * 8000 words ≈ 10.4k output tokens; with a system prompt + framing of
- * ~3-5k tokens, that leaves headroom under the 16k streaming cap. Below
- * the threshold the single-call path is more efficient (one round-trip,
- * tighter narrative cohesion).
+ * 10000 words ≈ 13k output tokens; with a system prompt + framing of
+ * ~2-3k tokens, that leaves ~1k headroom under the 16k streaming cap.
+ * Below the threshold the single-call path is more efficient (one
+ * round-trip, tighter narrative cohesion).
+ *
+ * Tuned to 10k (was 8k) so the common sleep-story shape (12 chapters ×
+ * 700 words = 8400) stays on the proven single-call path. 100-chapter
+ * listicles (50,000 words) and other large runs still trip into chunked
+ * mode.
  */
-export const CHUNK_THRESHOLD_WORDS = 8000
+export const CHUNK_THRESHOLD_WORDS = 10000
 
 /** Sequential batch size for narrative-mode expansion. Larger batches lose
  *  transition coherence; smaller burns more LLM round-trips for the same

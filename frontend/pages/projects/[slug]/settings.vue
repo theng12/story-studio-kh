@@ -840,6 +840,97 @@
         <span v-if="lastBulkCleanup.skipped_count">{{ lastBulkCleanup.skipped_count }} skipped (not uploaded).</span>
         <span v-if="lastBulkCleanup.failed_count" class="error-text">{{ lastBulkCleanup.failed_count }} failed.</span>
       </div>
+
+      <!-- ── Chunked-progress sidecars (v1.0.71+) ──────────────────── -->
+      <!--
+        Per-episode JSON sidecars that lib/chunked-narration.ts writes
+        during long script generations to enable resume on cancel/crash.
+        Once the unified narration is on disk with the expected chapter
+        count, the sidecar has no further purpose — but we don't auto-
+        delete (per user direction). This panel surfaces eligible
+        sidecars and lets the user clean them up manually.
+      -->
+      <div id="chunked-sidecars-section" class="storage-section storage-section--bordered">
+        <div class="flex items-center" style="justify-content: space-between; gap: 12px;">
+          <div>
+            <h4><span class="storage-section-icon" aria-hidden="true">🗑</span>Chunked-progress sidecars</h4>
+            <p class="text-muted hint">
+              Per-episode <code>{code}_chunked-progress.json</code> files
+              written during long script generations. Track which chapters
+              have landed so a cancelled / crashed run can resume from
+              where it left off. Safe to delete once the episode's
+              <code>{code}_Script_Narration.docx</code> is complete.
+            </p>
+            <p class="text-muted voice-helper-line">
+              💡 Only sidecars whose chapters_done covers the total AND whose
+              unified narration exists are listed as eligible. In-progress
+              runs are never touched by this cleanup.
+            </p>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn btn-secondary btn-sm" :disabled="sidecarScanLoading" @click="scanChunkedSidecars">
+              {{ sidecarScanLoading ? 'Scanning…' : (sidecarScan ? '↻ Rescan' : 'Scan') }}
+            </button>
+            <button
+              class="btn btn-primary btn-sm"
+              :disabled="!sidecarScan || sidecarCleanupRunning || sidecarScan.eligible_count === 0"
+              :title="!sidecarScan ? 'Run a scan first' : sidecarScan.eligible_count === 0 ? 'No eligible sidecars to clean up' : `Delete ${sidecarScan.eligible_count} sidecar(s) — frees ${formatBytes(sidecarScan.reclaimable_bytes)}`"
+              @click="cleanupAllChunkedSidecars"
+            >
+              {{ sidecarCleanupRunning
+                ? 'Cleaning…'
+                : sidecarScan && sidecarScan.eligible_count > 0
+                  ? `Clean up ${sidecarScan.eligible_count} eligible (${formatBytes(sidecarScan.reclaimable_bytes)})`
+                  : 'Clean up eligible' }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="sidecarScan" class="storage-summary mt-2">
+          <span><strong>Scanned:</strong> {{ sidecarScan.episodes.length }} episode{{ sidecarScan.episodes.length === 1 ? '' : 's' }}</span>
+          <span class="dot">·</span>
+          <span><strong>Eligible:</strong> {{ sidecarScan.eligible_count }}</span>
+          <span class="dot">·</span>
+          <span><strong>Reclaimable:</strong> {{ formatBytes(sidecarScan.reclaimable_bytes) }}</span>
+        </div>
+
+        <div v-if="sidecarScan && sidecarScan.episodes.some(e => e.sidecar_present)" class="storage-table mt-2">
+          <div class="storage-row storage-head">
+            <span class="col-code">Code</span>
+            <span class="col-title">Status</span>
+            <span class="col-final">Size</span>
+            <span class="col-actions"></span>
+          </div>
+          <div
+            v-for="row in sidecarScan.episodes.filter(e => e.sidecar_present)"
+            :key="row.episode_code"
+            :class="['storage-row', { uploaded: row.eligible }]"
+          >
+            <span class="col-code"><strong>{{ row.episode_code }}</strong></span>
+            <span class="col-title" :title="row.reason || ''">
+              <span v-if="row.eligible" class="upload-badge ok">✓ eligible</span>
+              <span v-else class="text-muted">{{ row.reason || `${row.chapters_done || 0}/${row.total_chapters || 0} chapters` }}</span>
+            </span>
+            <span class="col-final">{{ formatBytes(row.sidecar_size_bytes || 0) }}</span>
+            <span class="col-actions">
+              <button
+                class="btn btn-ghost btn-sm"
+                :disabled="!row.eligible || sidecarCleanupRunning"
+                :title="row.eligible ? `Delete this sidecar (frees ${formatBytes(row.sidecar_size_bytes || 0)})` : 'Not eligible'"
+                @click="cleanupOneSidecar(row.episode_code)"
+              >
+                Clean up
+              </button>
+            </span>
+          </div>
+        </div>
+
+        <div v-if="lastSidecarCleanup" class="storage-result mt-2">
+          <strong>Cleanup:</strong>
+          {{ lastSidecarCleanup.deleted.length }} sidecar(s) deleted, freed {{ formatBytes(lastSidecarCleanup.total_bytes_freed) }}.
+          <span v-if="lastSidecarCleanup.skipped.length">{{ lastSidecarCleanup.skipped.length }} skipped.</span>
+        </div>
+      </div>
     </div>
 
     <!-- Confirmations -->
@@ -2525,6 +2616,37 @@ const bulkRunning = ref(false)
 const lastBulkCleanup = ref<CleanupResult | null>(null)
 const rowCleanupRunning = ref<string | null>(null)
 
+// v1.0.71: chunked-progress sidecar cleanup (manual; never auto-wipes).
+// listChunkedSidecars walks every accepted episode and tags each as
+// `eligible` (unified narration done + chapters_done covers total) or
+// gives a reason it's not safe to clean. The user reviews before
+// triggering deletion.
+interface SidecarEligibilityRow {
+  episode_code: string
+  sidecar_present: boolean
+  sidecar_path: string
+  sidecar_size_bytes?: number
+  total_chapters?: number
+  chapters_done?: number
+  unified_present: boolean
+  eligible: boolean
+  reason?: string
+}
+interface SidecarScanResult {
+  episodes: SidecarEligibilityRow[]
+  eligible_count: number
+  reclaimable_bytes: number
+}
+interface SidecarCleanupResult {
+  deleted: Array<{ episode_code: string; path: string; bytes_freed: number }>
+  skipped: Array<{ episode_code: string; reason: string }>
+  total_bytes_freed: number
+}
+const sidecarScan = ref<SidecarScanResult | null>(null)
+const sidecarScanLoading = ref(false)
+const sidecarCleanupRunning = ref(false)
+const lastSidecarCleanup = ref<SidecarCleanupResult | null>(null)
+
 const sortedStorageRows = computed<StorageEntry[]>(() => {
   if (!storage.value) return []
   return [...storage.value.episodes].sort((a, b) => b.bytes_total - a.bytes_total)
@@ -2694,6 +2816,64 @@ async function cleanupRow(row: StorageEntry) {
     alert(e?.data?.detail || e?.message || 'Cleanup failed')
   } finally {
     rowCleanupRunning.value = null
+  }
+}
+
+// v1.0.71: chunked-sidecar scan + cleanup handlers. Mirrors the storage
+// audit + bulk-cleanup pattern above but with strict per-episode
+// eligibility (unified narration done + chapters_done covers total).
+async function scanChunkedSidecars() {
+  sidecarScanLoading.value = true
+  try {
+    sidecarScan.value = await get<SidecarScanResult>(
+      `/projects/${slug.value}/storage/chunked-sidecars`,
+    )
+    lastSidecarCleanup.value = null
+  } catch (e: any) {
+    alert(e?.data?.detail || e?.message || 'Sidecar scan failed')
+  } finally {
+    sidecarScanLoading.value = false
+  }
+}
+
+async function cleanupAllChunkedSidecars() {
+  if (!sidecarScan.value || sidecarScan.value.eligible_count === 0) return
+  const ok = confirm(
+    `Delete ${sidecarScan.value.eligible_count} chunked-progress sidecar(s) ` +
+    `(${formatBytes(sidecarScan.value.reclaimable_bytes)})?\n\n` +
+    `These are only eligible because their unified narration is complete. ` +
+    `Cleanup affects ONLY sidecar JSONs — chapter docx files, audio, and ` +
+    `everything else stays put.`,
+  )
+  if (!ok) return
+  sidecarCleanupRunning.value = true
+  try {
+    lastSidecarCleanup.value = await post<SidecarCleanupResult>(
+      `/projects/${slug.value}/storage/cleanup-chunked-sidecars`,
+      { all_eligible: true },
+    )
+    // Re-scan so the table updates (cleaned rows drop out, in-progress
+    // ones stay).
+    await scanChunkedSidecars()
+  } catch (e: any) {
+    alert(e?.data?.detail || e?.message || 'Sidecar cleanup failed')
+  } finally {
+    sidecarCleanupRunning.value = false
+  }
+}
+
+async function cleanupOneSidecar(episode_code: string) {
+  sidecarCleanupRunning.value = true
+  try {
+    lastSidecarCleanup.value = await post<SidecarCleanupResult>(
+      `/projects/${slug.value}/storage/cleanup-chunked-sidecars`,
+      { episode_codes: [episode_code] },
+    )
+    await scanChunkedSidecars()
+  } catch (e: any) {
+    alert(e?.data?.detail || e?.message || 'Sidecar cleanup failed')
+  } finally {
+    sidecarCleanupRunning.value = false
   }
 }
 

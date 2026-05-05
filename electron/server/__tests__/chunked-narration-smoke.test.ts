@@ -1,0 +1,275 @@
+/**
+ * End-to-end smoke test for chunked narration (v1.0.71+).
+ *
+ * Registers a fake text provider that returns canned responses for
+ * outline + expansion calls, then runs `generateNarrativeChunked` /
+ * `generateListicleChunked` against a temp working dir. Verifies:
+ *   - outline JSON parsed into the sidecar
+ *   - per-batch expansion calls are issued in the right shape
+ *   - per-chapter docx files land on disk after each batch
+ *   - sidecar.chapters_done updates incrementally
+ *   - resume skips chapters already on disk + uses cached outline
+ *   - cancel mid-run stops further calls; sidecar reflects partial work
+ *
+ * No real LLM cost. Locks the load-bearing seams of the chunked
+ * pipeline so the bulk path doesn't drift in silence.
+ */
+
+import { test, describe, before, after, beforeEach } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'fs/promises'
+import { existsSync } from 'fs'
+import path from 'path'
+import os from 'os'
+import { generateNarrativeChunked, generateListicleChunked, sidecarPath } from '../lib/chunked-narration.js'
+import { registry } from '../providers/registry.js'
+import type { Job, Format } from '../models/types.js'
+import type { TextProvider, TextGenerationRequest } from '../providers/types.js'
+
+// ── Fake text provider ────────────────────────────────────────────────────
+//
+// Records every call and returns whatever the test queued under the
+// matching `kind`. Outline calls are detected by "Plan the chapter
+// structure" / "Plan a listicle"; expansion calls by "Write N chapter(s)".
+
+interface FakeCall { kind: 'outline' | 'expansion'; userMessage: string }
+
+let fakeCalls: FakeCall[] = []
+let fakeOutlineResponse: string = '[]'
+let fakeExpansionFor: (firstChapterN: number, batchSize: number) => string = () => ''
+let fakeAbortAfterNCalls: number = Infinity
+
+const FAKE_MODEL = 'fake-test-model'
+
+const fakeProvider: TextProvider = {
+  meta: {
+    id: 'fake-test-provider',
+    apiKeyField: 'anthropic_api_key' as any,
+  },
+  supportsModel(modelId: string): boolean { return modelId === FAKE_MODEL },
+  async callText(req: TextGenerationRequest): Promise<string> {
+    if (req.signal?.aborted) throw new Error('Cancelled by user')
+    if (fakeCalls.length >= fakeAbortAfterNCalls) throw new Error('Cancelled by user')
+    const isOutline = /Plan the chapter structure|Plan a listicle/.test(req.userMessage)
+    if (isOutline) {
+      fakeCalls.push({ kind: 'outline', userMessage: req.userMessage })
+      return fakeOutlineResponse
+    }
+    fakeCalls.push({ kind: 'expansion', userMessage: req.userMessage })
+    // Parse the SLOTS block — narrative + listicle prompts both render
+    // their batch slots as "  Chapter N: Title" lines (no ##) under a
+    // "SLOTS TO WRITE NOW:" / "SLOTS TO WRITE:" heading. The OUTPUT
+    // template at the bottom of the prompt only shows the first 2
+    // anchors literally, so counting `## Chapter N:` anchors would
+    // under-report batch size.
+    const slotMatches = [...req.userMessage.matchAll(/^\s*Chapter (\d+):/gm)]
+    // De-dupe by chapter number so synopsis lines / repeat references
+    // don't inflate the count.
+    const seen = new Set<number>()
+    const ordered: number[] = []
+    for (const m of slotMatches) {
+      const n = parseInt(m[1]!, 10)
+      if (!seen.has(n)) { seen.add(n); ordered.push(n) }
+    }
+    if (!ordered.length) return ''
+    const firstN = ordered[0]!
+    const batchSize = ordered.length
+    return fakeExpansionFor(firstN, batchSize)
+  },
+}
+
+before(() => { registry.registerText(fakeProvider) })
+after(() => { /* registry has no de-register; tests share the singleton */ })
+beforeEach(() => {
+  fakeCalls = []
+  fakeAbortAfterNCalls = Infinity
+})
+
+// ── Test fixtures ─────────────────────────────────────────────────────────
+
+function makeJob(scriptDir: string): Job {
+  return {
+    job_id: 'test-job',
+    project_slug: 'test-slug',
+    type: 'script-only' as any,
+    status: 'running',
+    output_lines: [],
+    params: {} as any,
+    created_at: new Date().toISOString(),
+  } as any
+}
+
+function makeFormat(id: string, chaptersIndependent = false): Format {
+  return {
+    id, name: id, description: '', builtin: false, schemaVersion: 1,
+    idea: { systemPromptRole: '', audienceDefault: '', moodVocabulary: [], themeVocabulary: [], guidanceText: '' },
+    script: {
+      systemPromptRole: 'role',
+      additionalRules: [],
+      pacingArc: ['Chapter 1: open', 'Chapters 2..{lastButOne}: develop', 'Chapter {last}: close'],
+      closingHint: 'end clean',
+      defaultChapterCount: 10, chapterCountRange: [3, 100],
+      defaultLengthMinutes: 30, lengthMinutesRange: [10, 90],
+      narratorStyles: [], defaultNarratorStyleId: '',
+      chaptersIndependent,
+    },
+    imagePrompts: { purposeNote: '', visualStyleHint: '', defaultScenesTotalRange: [10, 10], defaultThumbnails: 3, defaultStyleTag: '', characterReferenceMode: 'inline', recommendedAspect: '16:9' },
+    metadata: { purposeNote: '', titleStyleHint: '', titleHookRules: [], tagsContext: '', tagsHookRules: [], broadKeywords: [], youtubeDescriptionStructure: { musicLabel: 'MUSIC', booksSectionLabel: '', supportSection: '', aiDisclosure: '', defaultHashtags: [], totalHashtagCount: 12 } },
+  }
+}
+
+function buildOutlineJson(n: number, mode: 'narrative' | 'listicle'): string {
+  const entries = Array.from({ length: n }, (_, i) => {
+    if (mode === 'listicle') {
+      return { n: i + 1, title: `Topic ${i + 1}`, hook_line: `Hook for ${i + 1}` }
+    }
+    return { n: i + 1, title: `Chapter ${i + 1}`, synopsis: `Synopsis ${i + 1}`, key_beats: ['a', 'b'] }
+  })
+  return JSON.stringify(entries)
+}
+
+function buildExpansionFor(firstN: number, batchSize: number): string {
+  const blocks: string[] = []
+  for (let i = 0; i < batchSize; i++) {
+    const n = firstN + i
+    blocks.push(`## Chapter ${String(n).padStart(2, '0')}: Chapter ${n}\n\nThe quick brown fox jumps over the lazy dog. Lorem ipsum.\n`)
+  }
+  return blocks.join('\n')
+}
+
+let tmpRoot: string
+
+before(async () => { tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sskh-chunked-smoke-')) })
+after(async () => { await fs.rm(tmpRoot, { recursive: true, force: true }) })
+
+async function freshDir(): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(tmpRoot, 'ep-'))
+  return dir
+}
+
+// ── Smoke tests ────────────────────────────────────────────────────────────
+
+describe('generateNarrativeChunked — end-to-end with fake provider', () => {
+  test('outline + 4 batches × 3 chapters lands all 12 chapters on disk', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(12, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    const job = makeJob(scriptDir)
+    const result = await generateNarrativeChunked(job, {
+      episode_id: 'EP0001',
+      title: 'Test Episode',
+      totalChapters: 12,
+      wordsPerChapter: 500,
+      format: makeFormat('sleep-story'),
+      systemPrompt: 'system',
+      scriptDir,
+      model: FAKE_MODEL,
+      apiKeys: { anthropic_api_key: 'fake' },
+    })
+
+    // 12 chapters / batch size 3 = 4 expansion calls + 1 outline call.
+    assert.equal(fakeCalls.filter(c => c.kind === 'outline').length, 1)
+    assert.equal(fakeCalls.filter(c => c.kind === 'expansion').length, 4)
+    assert.equal(result.chaptersWritten, 12)
+    assert.equal(result.totalBatches, 4)
+    // Every chapter docx is on disk.
+    for (let n = 1; n <= 12; n++) {
+      assert.equal(existsSync(path.join(scriptDir, `EP0001_Chapter_${String(n).padStart(2, '0')}.docx`)), true,
+        `chapter ${n} docx should exist`)
+    }
+    // Sidecar reflects the final state.
+    const sidecar = JSON.parse(await fs.readFile(sidecarPath(scriptDir, 'EP0001'), 'utf-8'))
+    assert.equal(sidecar.mode, 'narrative')
+    assert.equal(sidecar.chapters_done.length, 12)
+    assert.equal(sidecar.outline.length, 12)
+  })
+
+  test('resume skips chapters already on disk + reuses cached outline', async () => {
+    const scriptDir = await freshDir()
+    // First run: generate 6 chapters fresh.
+    fakeOutlineResponse = buildOutlineJson(6, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    const job1 = makeJob(scriptDir)
+    await generateNarrativeChunked(job1, {
+      episode_id: 'EP0042', title: 'Resume Test', totalChapters: 6, wordsPerChapter: 500,
+      format: makeFormat('sleep-story'), systemPrompt: 'sys', scriptDir,
+      model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+    })
+    const callsRun1 = fakeCalls.length
+    assert.ok(callsRun1 > 0, 'first run made calls')
+
+    // Reset call log; second run must NOT call the LLM (everything's done).
+    fakeCalls = []
+    const job2 = makeJob(scriptDir)
+    const result = await generateNarrativeChunked(job2, {
+      episode_id: 'EP0042', title: 'Resume Test', totalChapters: 6, wordsPerChapter: 500,
+      format: makeFormat('sleep-story'), systemPrompt: 'sys', scriptDir,
+      model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+    })
+    assert.equal(fakeCalls.length, 0, 'fully-completed run does no LLM calls on resume')
+    assert.equal(result.fromResume, true)
+    assert.equal(result.chaptersWritten, 6)
+  })
+
+  test('partial cancel + resume: aborted after batch 2 picks up at batch 3', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(9, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    // Outline call (1) + 2 expansion calls = 3 total before "cancel".
+    fakeAbortAfterNCalls = 3
+
+    const job1 = makeJob(scriptDir)
+    await assert.rejects(
+      generateNarrativeChunked(job1, {
+        episode_id: 'EP0099', title: 'Cancel Test', totalChapters: 9, wordsPerChapter: 500,
+        format: makeFormat('sleep-story'), systemPrompt: 'sys', scriptDir,
+        model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+      }),
+      /Cancelled by user/,
+    )
+    // Sidecar should record the 6 chapters from the 2 successful batches.
+    const sidecar = JSON.parse(await fs.readFile(sidecarPath(scriptDir, 'EP0099'), 'utf-8'))
+    assert.equal(sidecar.chapters_done.length, 6)
+
+    // Resume: removes the abort, lets all remaining calls run.
+    fakeAbortAfterNCalls = Infinity
+    fakeCalls = []
+    const job2 = makeJob(scriptDir)
+    const result = await generateNarrativeChunked(job2, {
+      episode_id: 'EP0099', title: 'Cancel Test', totalChapters: 9, wordsPerChapter: 500,
+      format: makeFormat('sleep-story'), systemPrompt: 'sys', scriptDir,
+      model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+    })
+    // 9 - 6 = 3 chapters left, batch size 3 = 1 expansion call. NO outline
+    // call (cached in the sidecar from run 1).
+    assert.equal(fakeCalls.filter(c => c.kind === 'outline').length, 0)
+    assert.equal(fakeCalls.filter(c => c.kind === 'expansion').length, 1)
+    assert.equal(result.chaptersWritten, 9)
+    assert.equal(result.fromResume, true)
+  })
+})
+
+describe('generateListicleChunked — end-to-end with fake provider', () => {
+  test('parallel batches produce all chapters in deterministic on-disk order', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(24, 'listicle')
+    fakeExpansionFor = buildExpansionFor
+    const job = makeJob(scriptDir)
+    const result = await generateListicleChunked(job, {
+      episode_id: 'EP1001', title: 'Listicle Test',
+      totalChapters: 24, wordsPerChapter: 400,
+      format: makeFormat('listicle', /* chaptersIndependent */ true),
+      systemPrompt: 'sys', scriptDir,
+      model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+    })
+    // 24 / 8 = 3 expansion batches.
+    assert.equal(fakeCalls.filter(c => c.kind === 'outline').length, 1)
+    assert.equal(fakeCalls.filter(c => c.kind === 'expansion').length, 3)
+    assert.equal(result.chaptersWritten, 24)
+    // Every chapter docx exists. Order is irrelevant for correctness
+    // (assembly sorts by `n`); we assert presence not call sequence.
+    for (let n = 1; n <= 24; n++) {
+      assert.equal(existsSync(path.join(scriptDir, `EP1001_Chapter_${String(n).padStart(2, '0')}.docx`)), true)
+    }
+  })
+})

@@ -675,6 +675,54 @@ router.post('/projects/:slug/storage/bulk-cleanup-final', async (req, res) => {
   }
 })
 
+// ── Chunked-progress sidecar cleanup (v1.0.71+) ────────────────────────────
+//
+// `chunked-narration.ts` writes a `{episode}_chunked-progress.json` next to
+// each episode's per-chapter docx files. The sidecar is the source of
+// truth for resume / cancel / crash recovery during a chunked run, but
+// once `narration_full.docx` is assembled with the right chapter count it
+// has no purpose — keeping it around indefinitely just clutters the
+// script folder. We don't auto-wipe (per user feedback): instead we
+// expose this endpoint so the user can clean up manually after they
+// confirm the run produced the expected output.
+//
+// GET returns a list of episodes whose sidecar is eligible for cleanup
+// (chapters_done covers total_chapters AND narration_full.docx exists).
+// POST runs the deletion against the supplied list of episode codes
+// (or all eligible ones when `all_eligible: true`). Both are scoped per-
+// project — bulk + per-episode follows the same shape as the final-video
+// cleanup endpoints above.
+
+router.get('/projects/:slug/storage/chunked-sidecars', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const { listChunkedSidecars } = await import('../services/chunked-sidecar-cleanup.js')
+    const result = await listChunkedSidecars(req.params.slug)
+    res.json(result)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to list chunked sidecars'))
+  }
+})
+
+router.post('/projects/:slug/storage/cleanup-chunked-sidecars', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const allEligible = req.body?.all_eligible === true
+    const codes = Array.isArray(req.body?.episode_codes) ? req.body.episode_codes : undefined
+    if (!allEligible && (!codes || !codes.length)) {
+      return res.status(400).json({ detail: 'Pass episode_codes (array) or all_eligible=true' })
+    }
+    const { cleanupChunkedSidecars } = await import('../services/chunked-sidecar-cleanup.js')
+    const result = await cleanupChunkedSidecars(req.params.slug, {
+      episode_codes: codes,
+      all_eligible: allEligible,
+    })
+    res.json(result)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Sidecar cleanup failed'))
+  }
+})
+
 // External final-video root — get/set the per-machine app setting.
 // Lives at /api/app-settings/external-final-video-root rather than
 // nested under a project because it's machine-global, not project-

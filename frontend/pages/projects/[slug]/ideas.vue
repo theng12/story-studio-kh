@@ -994,6 +994,11 @@ const { get, post, del, patch } = useApi()
 const { success, error: showError, successUndoable } = useToast()
 const { ask } = useConfirm()
 const { project } = useProject()
+// v1.0.71: pattern lookup for the X-Pattern-Warning toast — resolves
+// pattern_id slugs to friendly names ("history-of-X" → "History of X").
+// Same composable PatternPicker uses internally; we just need find()
+// to map the slug emitted in the warning header to a human name.
+const { find: findPattern } = usePatterns()
 
 const PER_PAGE = 10
 const generating = ref(false)
@@ -1110,6 +1115,12 @@ const formatNamesById = ref<Record<string, string>>({})
 const formatDisplayName = computed(() => formatNamesById.value[formatId.value] || formatId.value)
 const LAST_PATTERN_KEY = 'idea_generator_last_pattern'
 const LAST_SUBJECT_KEY = 'idea_generator_last_subject'
+// v1.0.71: also persist the last-used theme + items_per_listicle so a
+// user who runs "10 mysteries" once doesn't have to retype it every
+// generation. Sticks per-project (lives in settings/config alongside
+// the pattern keys), so each project keeps its own most-recent picks.
+const LAST_THEME_KEY = 'idea_generator_last_theme'
+const LAST_ITEMS_KEY = 'idea_generator_last_items_per_listicle'
 let patternHydrated = false
 
 /**
@@ -1171,6 +1182,10 @@ async function loadPatternPreferences() {
     const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
     if (typeof cfg?.[LAST_PATTERN_KEY] === 'string') form.pattern_id = cfg[LAST_PATTERN_KEY]
     if (typeof cfg?.[LAST_SUBJECT_KEY] === 'string') form.pattern_subject = cfg[LAST_SUBJECT_KEY]
+    if (typeof cfg?.[LAST_THEME_KEY] === 'string') form.theme = cfg[LAST_THEME_KEY]
+    if (typeof cfg?.[LAST_ITEMS_KEY] === 'number' && cfg[LAST_ITEMS_KEY] > 0) {
+      form.items_per_listicle = cfg[LAST_ITEMS_KEY]
+    }
   } catch { /* config unreadable → leave defaults */ }
   patternHydrated = true
 }
@@ -1185,12 +1200,16 @@ async function savePatternPreferences() {
     await put(`/projects/${slug.value}/settings/config`, {
       [LAST_PATTERN_KEY]: form.pattern_id,
       [LAST_SUBJECT_KEY]: form.pattern_subject,
+      [LAST_THEME_KEY]: form.theme,
+      [LAST_ITEMS_KEY]: form.items_per_listicle,
     })
   } catch { /* non-fatal — selection still works in-session */ }
 }
 
 watch(() => form.pattern_id, savePatternPreferences)
 watch(() => form.pattern_subject, savePatternPreferences)
+watch(() => form.theme, savePatternPreferences)
+watch(() => form.items_per_listicle, savePatternPreferences)
 onMounted(loadPatternPreferences)
 onMounted(loadFormatNames)
 
@@ -1930,8 +1949,20 @@ async function generate() {
     })
     const warningHeader = res.headers.get('x-pattern-warning')
     if (warningHeader) {
-      try { showError(decodeURIComponent(warningHeader)) }
-      catch { showError(warningHeader) }
+      // Resolve the pattern slug in the warning message to its friendly
+      // name (v1.0.71+) so users see "Pattern 'History of X' …" instead
+      // of "Pattern 'history-of-X' …". The picker already has the list;
+      // we look up by id and fall back to the slug when the pattern was
+      // truly deleted (find() returns undefined).
+      let msg = warningHeader
+      try { msg = decodeURIComponent(warningHeader) } catch { /* keep raw */ }
+      if (form.pattern_id) {
+        const friendly = findPattern(form.pattern_id)?.name
+        if (friendly && msg.includes(`"${form.pattern_id}"`)) {
+          msg = msg.replace(`"${form.pattern_id}"`, `"${friendly}"`)
+        }
+      }
+      showError(msg)
     }
     await loadIdeas()
     page.value = 1; sortField.value = 'generated_at'; sortDir.value = 'desc'

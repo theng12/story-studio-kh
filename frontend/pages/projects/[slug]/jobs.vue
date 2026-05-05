@@ -525,9 +525,39 @@ async function repairAllInterrupted() {
   if (snapshot.length === 0) return
   repairingAllInterrupted.value = true
   try {
-    for (const job of snapshot) {
-      await retryJob(job)
+    // v1.0.71+: parallel fan-out with a small concurrency cap.
+    //
+    // The previous serial loop (`for … await retryJob`) was usable
+    // for 2-3 interrupted jobs but fell off a cliff once retryJob
+    // started awaiting queued repair jobs (images-repair / video-repair)
+    // to reach terminal state — 20 interrupted jobs × 2 min repair
+    // each = 40 min serially. Each repair runs on the backend job
+    // queue, so firing many in parallel doesn't overload anything
+    // local; the queue's own concurrency rules govern how many
+    // actually run at once on the provider.
+    //
+    // Cap at 3 concurrent retries client-side so a single bulk-repair
+    // doesn't enqueue 50 fresh generation submits in the same instant
+    // (the queue would handle it but the toast spam would be ugly).
+    const CONCURRENCY = 3
+    let cursor = 0
+    async function worker() {
+      while (cursor < snapshot.length) {
+        const idx = cursor++
+        if (idx >= snapshot.length) return
+        try {
+          await retryJob(snapshot[idx]!)
+        } catch (e: any) {
+          // retryJob already surfaces toasts on individual failures;
+          // catch here so one bad apple doesn't abort the rest of the
+          // bulk run.
+          console.warn('[bulk-repair] retry failed:', e?.message || e)
+        }
+      }
     }
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, snapshot.length) }, () => worker()),
+    )
   } finally {
     repairingAllInterrupted.value = false
   }

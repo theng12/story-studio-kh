@@ -406,6 +406,11 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { post, patch } = useApi()
 const { success, error: showError } = useToast()
+// v1.0.71: chunked-mode cost preview before submission. Mirrors the
+// CHUNK_THRESHOLD_WORDS constant in electron/server/lib/chunked-narration.ts —
+// keep in sync. Below this, the single-call path is used (no preview).
+const CHUNK_THRESHOLD_WORDS = 10000
+const { ask } = useConfirm()
 const { scriptGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
 const submitting = ref(false)
@@ -799,6 +804,61 @@ function isActiveRef(ref: { min: number; words: number; chapters: number }) {
 }
 
 /**
+ * Rough cost estimate for chunked-mode script generation (v1.0.71+).
+ *
+ * Used for the pre-submission confirmation dialog. Numbers are
+ * deliberately ROUGH — Anthropic / OpenAI pricing changes, model
+ * choice (Sonnet vs Opus vs gpt-4o) shifts the bill, and per-call
+ * input/output token counts vary with format and characters. We
+ * present a min-max range based on Sonnet rates ($3/Mtok in,
+ * $15/Mtok out) since that's the most common script-gen model;
+ * users running Opus / Haiku scale linearly from there.
+ *
+ * Method:
+ *   - 1 outline call: ~80 tokens output per chapter (full outline) or
+ *     ~40 (compact). Ignored as a small fixed cost (<$0.10).
+ *   - N expansion calls: each writes ~3 chapters × words_per_chapter
+ *     × 1.3 tokens/word, plus ~3-6k input tokens (system + outline +
+ *     transition window).
+ *   - Listicle: parallel batches of 8 instead of sequential 3, fewer
+ *     calls, but still output-token-dominated.
+ */
+function estimateChunkedCost(targetWords: number, chapters: number): {
+  batches: number; expansionCalls: number; costRange: string
+} {
+  // Per-batch output tokens (rough). Narrative: 3 chapters per batch.
+  // Listicle: 8 chapters per batch. We don't know the format here so
+  // we report a band that covers both.
+  const totalOutputTokens = Math.ceil(targetWords * 1.3)
+  const expansionCallsNarrative = Math.ceil(chapters / 3)
+  const expansionCallsListicle = Math.ceil(chapters / 8)
+  // Average input tokens per call: ~5k (system prompt + outline +
+  // transition window). For listicles, no transition window so closer
+  // to ~3k.
+  const totalInputTokens =
+    expansionCallsNarrative * 5000 + 1500 // outline call adds ~1500 input
+  const totalInputTokensListicle =
+    expansionCallsListicle * 3000 + 1500
+  // Sonnet pricing per Mtok.
+  const PRICE_INPUT_PER_MTOK = 3
+  const PRICE_OUTPUT_PER_MTOK = 15
+  const costNarrative =
+    (totalInputTokens / 1_000_000) * PRICE_INPUT_PER_MTOK +
+    (totalOutputTokens / 1_000_000) * PRICE_OUTPUT_PER_MTOK
+  const costListicle =
+    (totalInputTokensListicle / 1_000_000) * PRICE_INPUT_PER_MTOK +
+    (totalOutputTokens / 1_000_000) * PRICE_OUTPUT_PER_MTOK
+  const lo = Math.min(costNarrative, costListicle)
+  const hi = Math.max(costNarrative, costListicle)
+  const fmt = (n: number): string => n < 0.1 ? `<$0.10` : `~$${n.toFixed(2)}`
+  return {
+    batches: 1 + expansionCallsNarrative, // approximate count for the message
+    expansionCalls: expansionCallsNarrative,
+    costRange: lo.toFixed(2) === hi.toFixed(2) ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`,
+  }
+}
+
+/**
  * Detect a leading count number in a title string (v1.0.70).
  *
  * Mirrors electron/server/routes/ideas.ts:parseLeadingCount — keep
@@ -876,6 +936,32 @@ async function submitScript(): Promise<boolean> {
     ...form,
     custom_style_text: customStyleText.value,
   }
+
+  // v1.0.71: chunked-mode pre-flight. When the target wordcount exceeds
+  // ~10k words, the backend dispatches to outline + per-batch expansion
+  // (see lib/chunked-narration.ts). That's MULTIPLE LLM calls and a
+  // proportional cost increase — surface a rough estimate before the
+  // user kicks off a long expensive run by mistake. Sleep-story-style
+  // 12-chapter / 700-word episodes stay under the threshold and skip
+  // this dialog entirely.
+  const targetWords = (form.chapters || 0) * (form.words_per_chapter || 0)
+  if (targetWords > CHUNK_THRESHOLD_WORDS) {
+    const estimate = estimateChunkedCost(targetWords, form.chapters || 0)
+    const ok = await ask({
+      title: 'Long script — chunked mode',
+      message:
+        `${form.chapters} chapters × ${form.words_per_chapter.toLocaleString()} words ` +
+        `(~${targetWords.toLocaleString()} words total) exceeds the single-call threshold.\n\n` +
+        `The script will be generated in ${estimate.batches} batches: ` +
+        `1 outline call + ${estimate.expansionCalls} expansion call${estimate.expansionCalls === 1 ? '' : 's'}.\n\n` +
+        `Estimated cost: ${estimate.costRange} (Sonnet pricing).\n\n` +
+        `Each chapter is written to disk as soon as it's generated, so cancel / crash / restart preserves partial work.`,
+      confirmLabel: 'Generate',
+      cancelLabel: 'Cancel',
+    })
+    if (!ok) return false
+  }
+
   if (!await confirmGeneration(slug.value, 'script', params)) return false
 
   submitting.value = true
