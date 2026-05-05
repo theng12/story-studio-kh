@@ -104,3 +104,75 @@ export async function sendTelegramTestMessage(
   const text = `<b>Story Studio KH</b>\nNotifications connected. ${new Date().toLocaleString()}`
   return sendTelegramMessage(botToken, chatId, text, { parseMode: 'HTML' })
 }
+
+export interface TelegramDetectResult {
+  ok: boolean
+  /** Most recent chat that messaged the bot, when at least one message exists. */
+  chat_id?: string
+  /** Display name we can show in the UI ("@theng12" or "First Last"). */
+  chat_label?: string
+  /** Total updates Telegram returned — useful when the user has multiple
+   *  chats and we only auto-fill the latest. */
+  total_updates?: number
+  error?: string
+}
+
+/**
+ * Read pending bot updates and return the most recent chat that
+ * messaged the bot. Skips the user's "open the URL and read JSON"
+ * step from the manual setup walkthrough.
+ *
+ * Caveat: Telegram's `getUpdates` returns at most 100 updates and
+ * each lives ~24 h in their queue. If the user opened the bot weeks
+ * ago and never messaged it again, this will come back empty — UI
+ * tells them to send /start and click again.
+ *
+ * Note: getUpdates conflicts with webhooks. We don't set webhooks,
+ * so this is safe in our deployment.
+ */
+export async function detectTelegramChatId(
+  botToken: string,
+  opts: { signal?: AbortSignal } = {},
+): Promise<TelegramDetectResult> {
+  const token = (botToken || '').trim()
+  if (!token) return { ok: false, error: 'Bot token is empty' }
+  try {
+    const r = await fetch(
+      `https://api.telegram.org/bot${encodeURIComponent(token)}/getUpdates`,
+      { method: 'GET', signal: opts.signal },
+    )
+    type Update = {
+      message?: { chat?: { id?: number; username?: string; first_name?: string; last_name?: string; type?: string } }
+      edited_message?: { chat?: { id?: number; username?: string; first_name?: string; last_name?: string; type?: string } }
+    }
+    type GetUpdatesResp = { ok?: boolean; description?: string; result?: Update[] }
+    let json: GetUpdatesResp = {}
+    try { json = await r.json() as GetUpdatesResp } catch { /* non-JSON */ }
+    if (!r.ok || !json.ok) {
+      return { ok: false, error: json.description || `HTTP ${r.status}` }
+    }
+    const updates = Array.isArray(json.result) ? json.result : []
+    // Pick the LATEST chat (last entry — Telegram returns oldest-first).
+    let chat: { id?: number; username?: string; first_name?: string; last_name?: string } | null = null
+    for (let i = updates.length - 1; i >= 0; i--) {
+      const u = updates[i]!
+      const c = u.message?.chat || u.edited_message?.chat
+      if (c?.id != null) { chat = c; break }
+    }
+    if (!chat || chat.id == null) {
+      return {
+        ok: true,
+        total_updates: updates.length,
+        error: updates.length === 0
+          ? 'No messages found yet. Open Telegram, find your bot by username, and send /start — then click Detect again.'
+          : 'Updates returned but no chat id resolved.',
+      }
+    }
+    const label = chat.username
+      ? `@${chat.username}`
+      : [chat.first_name, chat.last_name].filter(Boolean).join(' ') || `chat ${chat.id}`
+    return { ok: true, chat_id: String(chat.id), chat_label: label, total_updates: updates.length }
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) }
+  }
+}

@@ -139,18 +139,29 @@ export interface NotificationPayload {
   body: string
 }
 
-export function formatBatchMessage(stats: BatchStats): NotificationPayload {
-  const title = stats.fail > 0 || stats.cancelled > 0
+/**
+ * Project label appended to notification titles when supplied (v1.0.61+).
+ * Lets the user see which channel/project the ping is from at a glance —
+ * critical when running multiple projects (TerraNash, Dozing Knight, …)
+ * because today's titles like "Pipeline finished" don't say which one.
+ * Falls back gracefully when the dispatch layer can't resolve a name.
+ */
+function suffixProject(title: string, projectLabel?: string): string {
+  return projectLabel ? `${title} — ${projectLabel}` : title
+}
+
+export function formatBatchMessage(stats: BatchStats, projectLabel?: string): NotificationPayload {
+  const baseTitle = stats.fail > 0 || stats.cancelled > 0
     ? 'Pipeline finished with issues'
     : 'Pipeline finished'
   const parts: string[] = [`${stats.success}/${stats.total} episodes succeeded.`]
   if (stats.fail > 0) parts.push(`${stats.fail} failed.`)
   if (stats.cancelled > 0) parts.push(`${stats.cancelled} cancelled.`)
   parts.push(`Elapsed ${formatDuration(stats.elapsed_ms)}.`)
-  return { title, body: parts.join(' ') }
+  return { title: suffixProject(baseTitle, projectLabel), body: parts.join(' ') }
 }
 
-export function formatSingleJobMessage(job: Job): NotificationPayload {
+export function formatSingleJobMessage(job: Job, projectLabel?: string): NotificationPayload {
   const elapsed = job.started_at && job.finished_at
     ? Date.parse(job.finished_at) - Date.parse(job.started_at)
     : 0
@@ -159,7 +170,7 @@ export function formatSingleJobMessage(job: Job): NotificationPayload {
            :                          'Cancelled'
   const prefix = job.episode_id ? `${job.episode_id} — ` : ''
   return {
-    title: `${tag}: ${job.type}`,
+    title: suffixProject(`${tag}: ${job.type}`, projectLabel),
     body: `${prefix}${formatDuration(elapsed)}`,
   }
 }

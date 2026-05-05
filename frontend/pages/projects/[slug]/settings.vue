@@ -1317,11 +1317,12 @@
       </div>
 
       <!-- Telegram channel (v1.0.60+). Independent of desktop — turn
-           one off, the other still fires. The bot setup walks the user
-           through @BotFather + finding their chat id; the Test button
-           sends a real message so they can verify reachability before
-           leaving the settings page. -->
-      <div class="form-group mt-3" style="max-width: 520px;">
+           one off, the other still fires. The setup walkthrough is
+           rendered as actionable numbered steps with buttons that
+           open Telegram in a browser, paste in token + chat-id, and
+           verify reachability — so the user never has to leave the
+           settings page or read raw JSON. -->
+      <div class="form-group mt-3" style="max-width: 600px;">
         <label class="flex gap-2" style="align-items: center;">
           <input
             v-model="notifSettings.telegram.enabled"
@@ -1330,18 +1331,49 @@
           />
           <span><strong>Telegram notifications</strong></span>
         </label>
-        <span class="field-hint" style="display: block; margin-top: 4px;">
+        <p class="text-muted" style="font-size: 12px; margin: 4px 0 0;">
           Sends the same batch / long-job pings to a Telegram chat — useful when you're away from this machine.
-          Setup:
-          <ol style="margin: 6px 0 6px 18px; padding: 0; font-size: 11px;">
-            <li>In Telegram, message <code>@BotFather</code> → <code>/newbot</code> → follow prompts → copy the bot token below.</li>
-            <li>Open a chat with your new bot (search by its username) and send <code>/start</code>.</li>
-            <li>In your browser, visit <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> — find the numeric <code>chat.id</code> in the response, paste it below.</li>
-            <li>Click <strong>Send test message</strong> to confirm.</li>
-          </ol>
-        </span>
-        <div class="form-group mt-1">
-          <label>Bot token</label>
+        </p>
+
+        <!-- Step 1: open BotFather -->
+        <div class="settings-step mt-2" style="border: 1px solid var(--border); border-radius: 6px; padding: 10px;">
+          <div class="flex gap-2 items-center">
+            <span class="step-number" style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:var(--accent); color:#fff; font-size:11px; font-weight:600;">1</span>
+            <strong style="font-size: 13px;">Create your bot</strong>
+          </div>
+          <p class="text-muted" style="font-size: 12px; margin: 6px 0 8px;">
+            Click the button to open <code>@BotFather</code> in Telegram (or your browser).
+            Send <code>/newbot</code>, follow the prompts (pick a name + username ending in <code>bot</code>),
+            then copy the token BotFather gives you and paste below.
+          </p>
+          <div class="flex gap-2" style="align-items: center; flex-wrap: wrap;">
+            <button
+              type="button"
+              class="btn btn-sm btn-secondary"
+              @click="openExternal('https://t.me/BotFather')"
+            >🤖 Open @BotFather</button>
+            <span class="text-muted" style="font-size: 11px;">
+              or copy this link:
+              <a
+                href="https://t.me/BotFather"
+                target="_blank"
+                rel="noopener"
+                @click.prevent="openExternal('https://t.me/BotFather')"
+                style="text-decoration: underline;"
+              >https://t.me/BotFather</a>
+            </span>
+          </div>
+        </div>
+
+        <!-- Step 2: paste token -->
+        <div class="settings-step mt-2" style="border: 1px solid var(--border); border-radius: 6px; padding: 10px;">
+          <div class="flex gap-2 items-center">
+            <span class="step-number" style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:var(--accent); color:#fff; font-size:11px; font-weight:600;">2</span>
+            <strong style="font-size: 13px;">Paste the bot token</strong>
+          </div>
+          <p class="text-muted" style="font-size: 12px; margin: 6px 0 8px;">
+            BotFather replies with a token like <code>1234567890:ABCdefGHIjkl…</code>.
+          </p>
           <input
             v-model="notifSettings.telegram.bot_token"
             type="text"
@@ -1352,33 +1384,89 @@
             @change="saveNotifSettings"
           >
         </div>
-        <div class="form-group mt-1">
-          <label>Chat ID</label>
-          <input
-            v-model="notifSettings.telegram.chat_id"
-            type="text"
-            class="input"
-            placeholder="123456789 (your numeric Telegram id)"
-            spellcheck="false"
-            autocomplete="off"
-            @change="saveNotifSettings"
-          >
+
+        <!-- Step 3: send /start to your bot -->
+        <div class="settings-step mt-2" style="border: 1px solid var(--border); border-radius: 6px; padding: 10px;">
+          <div class="flex gap-2 items-center">
+            <span class="step-number" style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:var(--accent); color:#fff; font-size:11px; font-weight:600;">3</span>
+            <strong style="font-size: 13px;">Send <code>/start</code> to your bot</strong>
+          </div>
+          <p class="text-muted" style="font-size: 12px; margin: 6px 0 8px;">
+            Open Telegram, search your bot by the username you picked in step 1, and send any message
+            (e.g. <code>/start</code> or just "hi"). This tells Telegram your bot is allowed to message you.
+          </p>
+          <p class="text-muted" style="font-size: 11px; margin: 0 0 8px;">
+            Skip clicking the button below until you've done that — the next step pulls your chat id from the message you just sent.
+          </p>
         </div>
-        <div class="flex gap-2 mt-1" style="align-items: center; flex-wrap: wrap;">
-          <button
-            type="button"
-            class="btn btn-sm btn-secondary"
-            :disabled="telegramTestBusy || !notifSettings.telegram.bot_token || !notifSettings.telegram.chat_id"
-            @click="testTelegram"
-          >{{ telegramTestBusy ? 'Sending…' : '📨 Send test message' }}</button>
-          <span
-            v-if="telegramTestResult"
-            :style="`font-size: 12px; color: ${telegramTestResult.ok ? 'var(--success, #4ade80)' : 'var(--error, #f87171)'};`"
-          >
-            {{ telegramTestResult.ok
-              ? '✓ Test message sent. Check your Telegram.'
-              : `✕ ${telegramTestResult.error || 'Send failed'}` }}
-          </span>
+
+        <!-- Step 4: detect chat id -->
+        <div class="settings-step mt-2" style="border: 1px solid var(--border); border-radius: 6px; padding: 10px;">
+          <div class="flex gap-2 items-center">
+            <span class="step-number" style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:var(--accent); color:#fff; font-size:11px; font-weight:600;">4</span>
+            <strong style="font-size: 13px;">Detect your chat ID</strong>
+          </div>
+          <p class="text-muted" style="font-size: 12px; margin: 6px 0 8px;">
+            Click the button below. The app reads your bot's recent messages and auto-fills your chat id.
+            If it comes back empty, double-check that step 3 worked — Telegram only knows about chats that
+            have actually messaged the bot.
+          </p>
+          <div class="flex gap-2 mt-1" style="align-items: center; flex-wrap: wrap;">
+            <button
+              type="button"
+              class="btn btn-sm btn-primary"
+              :disabled="telegramDetectBusy || !notifSettings.telegram.bot_token"
+              @click="detectTelegramChatId"
+            >{{ telegramDetectBusy ? 'Detecting…' : '🔍 Detect chat ID' }}</button>
+            <span
+              v-if="telegramDetectResult"
+              :style="`font-size: 12px; color: ${telegramDetectResult.ok && telegramDetectResult.chat_id ? 'var(--success, #4ade80)' : 'var(--error, #f87171)'};`"
+            >
+              {{ telegramDetectResult.ok && telegramDetectResult.chat_id
+                ? `✓ Found chat${telegramDetectResult.chat_label ? ' for ' + telegramDetectResult.chat_label : ''} — ID auto-filled below.`
+                : `✕ ${telegramDetectResult.error || 'No chat found'}` }}
+            </span>
+          </div>
+          <div class="form-group mt-2">
+            <label>Chat ID</label>
+            <input
+              v-model="notifSettings.telegram.chat_id"
+              type="text"
+              class="input"
+              placeholder="(auto-filled by the Detect button — or paste manually)"
+              spellcheck="false"
+              autocomplete="off"
+              @change="saveNotifSettings"
+            >
+          </div>
+        </div>
+
+        <!-- Step 5: verify -->
+        <div class="settings-step mt-2" style="border: 1px solid var(--border); border-radius: 6px; padding: 10px;">
+          <div class="flex gap-2 items-center">
+            <span class="step-number" style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:var(--accent); color:#fff; font-size:11px; font-weight:600;">5</span>
+            <strong style="font-size: 13px;">Send a test message</strong>
+          </div>
+          <p class="text-muted" style="font-size: 12px; margin: 6px 0 8px;">
+            Confirms the bot can reach you. If you see the message in Telegram, you're done — every job
+            completion ping from now on lands there too.
+          </p>
+          <div class="flex gap-2" style="align-items: center; flex-wrap: wrap;">
+            <button
+              type="button"
+              class="btn btn-sm btn-primary"
+              :disabled="telegramTestBusy || !notifSettings.telegram.bot_token || !notifSettings.telegram.chat_id"
+              @click="testTelegram"
+            >{{ telegramTestBusy ? 'Sending…' : '📨 Send test message' }}</button>
+            <span
+              v-if="telegramTestResult"
+              :style="`font-size: 12px; color: ${telegramTestResult.ok ? 'var(--success, #4ade80)' : 'var(--error, #f87171)'};`"
+            >
+              {{ telegramTestResult.ok
+                ? '✓ Test message sent. Check your Telegram.'
+                : `✕ ${telegramTestResult.error || 'Send failed'}` }}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -3327,6 +3415,54 @@ async function testTelegram() {
     }
   } finally {
     telegramTestBusy.value = false
+  }
+}
+
+// Auto-detect chat id by reading the bot's recent messages — saves
+// the user from having to open `https://api.telegram.org/bot<TOKEN>/getUpdates`
+// and parse JSON by hand. Empty result usually means the user hasn't
+// sent /start to their bot yet; the inline message tells them so.
+const telegramDetectBusy = ref(false)
+const telegramDetectResult = ref<{
+  ok: boolean
+  chat_id?: string
+  chat_label?: string
+  error?: string
+} | null>(null)
+async function detectTelegramChatId() {
+  telegramDetectBusy.value = true
+  telegramDetectResult.value = null
+  try {
+    const r = await post<{
+      ok: boolean
+      chat_id?: string
+      chat_label?: string
+      total_updates?: number
+      error?: string
+    }>(
+      '/app-settings/notifications/telegram-detect-chat-id',
+      { bot_token: notifSettings.value.telegram.bot_token },
+    )
+    telegramDetectResult.value = {
+      ok: !!r.ok,
+      chat_id: r.chat_id,
+      chat_label: r.chat_label,
+      error: r.error,
+    }
+    // Auto-fill the chat_id field on success so the user doesn't
+    // copy/paste numbers between fields. Save immediately too —
+    // no point making them click into the input + tab out to commit.
+    if (r.ok && r.chat_id) {
+      notifSettings.value.telegram.chat_id = r.chat_id
+      saveNotifSettings()
+    }
+  } catch (e: any) {
+    telegramDetectResult.value = {
+      ok: false,
+      error: e?.data?.detail || e?.data?.error || e?.message || 'Detection failed',
+    }
+  } finally {
+    telegramDetectBusy.value = false
   }
 }
 

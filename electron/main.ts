@@ -324,6 +324,17 @@ function installJobNotifier(): void {
         || !!(settings.telegram?.enabled && settings.telegram.bot_token && settings.telegram.chat_id)
       if (!anyChannelOn) return
 
+      // Resolve a friendly project label so notifications carry "—
+      // TerraNash Sleep Stories" instead of just "Pipeline finished".
+      // Falls back to slug when the project meta lookup fails (e.g.
+      // project deleted between job submission and completion ping).
+      let projectLabel: string | undefined
+      try {
+        const { getProject } = await import('./server/services/project-manager.js')
+        const meta = await getProject(job.project_slug)
+        projectLabel = meta?.name || job.project_slug
+      } catch { projectLabel = job.project_slug }
+
       const batchId = getBatchId(job)
       if (batchId) {
         if (notifiedBatches.has(batchId)) return
@@ -331,7 +342,7 @@ function installJobNotifier(): void {
         const stats = aggregateBatch(allJobs, batchId)
         if (!isBatchComplete(stats)) return
         notifiedBatches.add(batchId)
-        await dispatchNotification(formatBatchMessage(stats), job.project_slug, settings)
+        await dispatchNotification(formatBatchMessage(stats, projectLabel), job.project_slug, settings)
         return
       }
 
@@ -347,7 +358,7 @@ function installJobNotifier(): void {
         && (Date.parse(job.finished_at) - Date.parse(job.started_at)) >= settings.min_duration_ms
       if (wantsLongJobPing) {
         notifiedJobs.add(job.job_id)
-        await dispatchNotification(formatSingleJobMessage(job), job.project_slug, settings)
+        await dispatchNotification(formatSingleJobMessage(job, projectLabel), job.project_slug, settings)
       }
     })().catch((e) => logCrash('job-notifier', e))
   })

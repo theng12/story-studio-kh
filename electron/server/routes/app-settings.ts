@@ -81,6 +81,30 @@ router.put('/app-settings/notifications', async (req, res) => {
 })
 
 /**
+ * Detect the user's chat id from the most recent message they sent
+ * to their bot. Skips the manual "open getUpdates URL and read JSON"
+ * step. Frontend pastes the bot token, clicks Detect, we hit
+ * Telegram's getUpdates and return the latest chat that messaged
+ * the bot. Empty result → friendly "send /start and try again" hint.
+ */
+router.post('/app-settings/notifications/telegram-detect-chat-id', async (req, res) => {
+  const body = (req.body || {}) as Record<string, unknown>
+  let botToken = typeof body.bot_token === 'string' ? body.bot_token.trim() : ''
+  if (!botToken) {
+    const current = await getNotifierSettings()
+    botToken = current.telegram?.bot_token || ''
+  }
+  if (!botToken) return res.status(400).json({ ok: false, error: 'Bot token is empty.' })
+  try {
+    const { detectTelegramChatId } = await import('../services/telegram-notifier.js')
+    const r = await detectTelegramChatId(botToken)
+    res.json(r)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to detect Telegram chat id'))
+  }
+})
+
+/**
  * Send a single test message to the Telegram chat configured here OR
  * the bot_token+chat_id supplied in the request body. Lets the user
  * confirm the bot is reachable BEFORE saving the credentials. Returns
