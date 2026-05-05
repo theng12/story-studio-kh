@@ -3600,6 +3600,22 @@ function snapshotEffectsData() {
     overlays: { enabled: overlays.enabled, layers: overlays.layers.map(l => ({ ...l })) },
     exclude_intro_from_effects: excludeIntroFromEffects.value,
     align_visuals_to_chapters: alignVisualsToChapters.value,
+    // v1.0.68+: compilation_layout was being saved to the slot preset
+    // but NOT to the bundle's fallback snapshot. Result: pipeline
+    // batch runs that resolved a bundle preset would lose the
+    // BrainWise compilation layout entirely (reverting to standard
+    // sleep-story rendering with the foreground icons stretched as
+    // full-screen scenes). Now mirrored here so batch parity holds.
+    compilation_layout: {
+      layout: compilationLayout.layout,
+      background_plate: { ...compilationLayout.backgroundPlate },
+      foreground_defaults: {
+        ...compilationLayout.foregroundDefaults,
+        chroma_key: compilationLayout.foregroundDefaults.chroma_key
+          ? { ...compilationLayout.foregroundDefaults.chroma_key }
+          : null,
+      },
+    },
     title_card: { ...titleCard },
     chapter_titles: { ...chapterTitles },
     outro_card: { ...outroCard },
@@ -3622,6 +3638,20 @@ function applyEffectsData(data: any) {
   }
   if (typeof data.align_visuals_to_chapters === 'boolean') {
     alignVisualsToChapters.value = data.align_visuals_to_chapters
+  }
+  // Restore compilation_layout when the bundle carried one (v1.0.68+).
+  if (data.compilation_layout) {
+    const cl = data.compilation_layout
+    if (cl.layout === 'standard' || cl.layout === 'compilation') {
+      compilationLayout.layout = cl.layout
+    }
+    if (cl.background_plate) Object.assign(compilationLayout.backgroundPlate, cl.background_plate)
+    if (cl.foreground_defaults) {
+      Object.assign(compilationLayout.foregroundDefaults, cl.foreground_defaults)
+      compilationLayout.foregroundDefaults.chroma_key = cl.foreground_defaults.chroma_key
+        ? { ...cl.foreground_defaults.chroma_key }
+        : null
+    }
   }
   if (data.title_card) Object.assign(titleCard, data.title_card)
   if (data.chapter_titles) Object.assign(chapterTitles, data.chapter_titles)

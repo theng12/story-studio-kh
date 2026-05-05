@@ -554,6 +554,13 @@ export interface CreateProjectRequest {
   // (Removed: portable. Legacy multi-machine flag — accepted on the
   // wire for back-compat with old clients but ignored by createProject.)
   portable?: boolean
+  /**
+   * v1.0.68+: optional starter format for the new project. Picked
+   * via the Channel Format card grid in the Create Project wizard.
+   * Persisted to the project meta as `format_id`; if unset, falls
+   * through to the legacy default ('sleep-story').
+   */
+  format_id?: string
 }
 
 export interface UpdateProjectRequest {

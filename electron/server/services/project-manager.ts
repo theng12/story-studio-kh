@@ -650,6 +650,12 @@ export async function createProject(req: CreateProjectRequest): Promise<ProjectM
     subfolder_names: { ...DEFAULT_SUBFOLDER_NAMES },
     output_root: resolvedOutputRoot,
     created_at: new Date().toISOString(),
+    // v1.0.68+: persist the user's choice from the Channel Format
+    // picker (Step 1 of the create wizard). Bare projects without a
+    // pick fall through to whatever sleep-story-leaning defaults
+    // existed before — getEffectiveFormat resolves missing format_id
+    // by reading the bundled sleep-story.json profile.
+    ...(req.format_id ? { format_id: req.format_id } : {}),
   }
 
   // Merge with any template defaults

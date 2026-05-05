@@ -363,7 +363,7 @@
             </div>
           </div>
           <div class="form-group">
-            <label id="template-label">Template</label>
+            <label id="template-label">Folder Template</label>
             <div class="template-cards" role="radiogroup" aria-labelledby="template-label">
               <button
                 v-for="t in templates"
@@ -381,6 +381,49 @@
               </button>
             </div>
           </div>
+
+          <!-- Channel Format picker (v1.0.68+).
+               Picks WHICH content style the new project's prompts +
+               vocab + image / metadata defaults are tuned for. Folder
+               Template above governs the on-disk layout; Format below
+               governs what the LLM produces. They're independent —
+               sleep-stories with a listicle format work, blank with
+               sleep-story works. Default 'sleep-story' preserves the
+               original behaviour for users who skip the picker. -->
+          <div class="form-group">
+            <label id="format-label">
+              Channel Format
+              <span class="text-muted" style="font-size: 11px; font-weight: normal;">
+                — drives prompt tone, dropdown vocab, and example ideas. Override per-project later from Settings → Format.
+              </span>
+            </label>
+            <div v-if="formatsLoading" class="text-muted" style="font-size: 12px; padding: 8px 0;">
+              Loading formats…
+            </div>
+            <div v-else class="template-cards" role="radiogroup" aria-labelledby="format-label">
+              <button
+                v-for="f in formats"
+                :key="f.id"
+                type="button"
+                role="radio"
+                :aria-checked="form.format_id === f.id"
+                :class="['template-card', { selected: form.format_id === f.id }]"
+                @click="form.format_id = f.id"
+                @keydown.space.prevent="form.format_id = f.id"
+                :title="f.description || ''"
+              >
+                <span class="template-icon" aria-hidden="true">{{ formatIcon(f.id) }}</span>
+                <strong>{{ f.name }}</strong>
+                <p>{{ shortFormatDescription(f) }}</p>
+              </button>
+            </div>
+            <div v-if="!formatsLoading && !formats.length" class="text-muted" style="font-size: 12px; padding: 4px 0;">
+              No formats available — pick a folder template and continue;
+              the format will default to <code>sleep-story</code> and you
+              can change it from Settings → Format after creation.
+            </div>
+          </div>
+
           <div class="flex gap-2">
             <button class="btn btn-secondary" @click="closeCreate">Cancel</button>
             <button class="btn btn-primary" :disabled="!form.name" @click="step = 2">
@@ -899,8 +942,15 @@
               <span>{{ form.name }}</span>
             </div>
             <div class="review-item">
-              <span class="text-muted">Template</span>
+              <span class="text-muted">Folder Template</span>
               <span>{{ form.template }}</span>
+            </div>
+            <div class="review-item">
+              <span class="text-muted">Channel Format</span>
+              <span>
+                {{ formatIcon(form.format_id) }}
+                {{ formats.find(f => f.id === form.format_id)?.name || form.format_id }}
+              </span>
             </div>
             <div class="review-item">
               <span class="text-muted">Prefix</span>
@@ -1225,6 +1275,53 @@ function templateIcon(id: string): string {
   }
   return map[id] || '📦'
 }
+
+// ── Channel Format picker (v1.0.68+) ──────────────────────────────────
+// Loads built-in + user-custom formats from /api/formats so the
+// Step-1 picker stays current as the user adds new built-ins to
+// electron/server/formats/ or custom formats via Settings → Format.
+type FormatLite = { id: string; name: string; description?: string; builtin?: boolean }
+const formats = ref<FormatLite[]>([])
+const formatsLoading = ref(false)
+async function loadFormats() {
+  formatsLoading.value = true
+  try {
+    formats.value = await get<FormatLite[]>('/formats') || []
+  } catch {
+    formats.value = []
+  } finally {
+    formatsLoading.value = false
+  }
+}
+function formatIcon(id: string): string {
+  // Stable emoji map for built-ins so the wizard reads at a glance.
+  // Custom formats fall through to a generic ☆ — Settings → Format
+  // doesn't ask the user for an emoji and we don't want to bake a
+  // mapping that requires a code change every time someone ships
+  // a new built-in.
+  const map: Record<string, string> = {
+    'sleep-story':    '🌙',
+    'listicle':       '📊',
+    'documentary':    '🎬',
+    'educational':    '📖',
+    'comedy':         '😄',
+    'adventure':      '🗺️',
+    'true-crime':     '🔍',
+    'kids-fairytale': '🧚',
+  }
+  return map[id] || '☆'
+}
+function shortFormatDescription(f: FormatLite): string {
+  // Format JSONs ship verbose multi-sentence descriptions tuned for
+  // Settings → Format where there's room to read. Trim to a single
+  // sentence for the picker card so all 8 cards fit on screen
+  // without scroll.
+  const desc = (f.description || '').trim()
+  if (!desc) return ''
+  const firstSentence = desc.split(/(?<=[.!?])\s/, 1)[0] ?? desc
+  return firstSentence.length > 110 ? firstSentence.slice(0, 107) + '…' : firstSentence
+}
+
 const showCreate = ref(false)
 const step = ref(1)
 const creating = ref(false)
@@ -1237,6 +1334,7 @@ const form = reactive<{
   season_prefix: string
   season_size: number
   output_root: string
+  format_id: string
 }>({
   name: '',
   template: 'blank',
@@ -1244,6 +1342,9 @@ const form = reactive<{
   season_prefix: 'Season',
   season_size: 20,
   output_root: '',
+  // Default matches the project-manager fallback so users who don't
+  // touch the Channel Format picker get the legacy behaviour.
+  format_id: 'sleep-story',
 })
 
 function closeCreate() {
@@ -1462,6 +1563,10 @@ async function ensureProjectCreated(): Promise<any> {
     season_prefix: form.season_prefix,
     season_size: form.season_size,
     output_root: form.output_root,
+    // v1.0.68+: send the wizard's Channel Format choice. Backend
+    // accepts the field optional; sending the literal string the
+    // server's format-loader knows about keeps the round trip clean.
+    format_id: form.format_id || undefined,
   })
   // API keys are stored at app level (per-Mac, not per-project). Write
   // each non-empty value individually so a blank row in the wizard
@@ -1901,6 +2006,11 @@ async function loadData() {
       }),
       linkedProjects.refresh(),  // already swallows its own errors internally
       softDeleted.refresh(),      // same — populates the 🗑️ Hidden chip
+      // v1.0.68+: load formats so the Create Project wizard's
+      // Channel Format picker is ready as soon as the user opens
+      // it. Failures here aren't fatal — the picker shows an
+      // empty-state message and the project defaults to sleep-story.
+      loadFormats(),
     ])
     projects.value = Array.isArray(p) ? p : []
     templates.value = Array.isArray(t) ? t : []

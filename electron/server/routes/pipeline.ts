@@ -283,11 +283,33 @@ function resolveStepParams(
         : {}),
     } : undefined
 
+    // Multi-track ambient (v1.0.55). The page UI stores volume on a
+    // 0-100 scale and divides by 100 before POSTing — the bundle
+    // snapshot saves the 0-100 form, so we apply the same conversion
+    // here. Filter out empty / disabled rows so half-configured
+    // layers don't waste an FFmpeg input slot.
+    const liveAmbient = Array.isArray(data.ambient_tracks)
+      ? (data.ambient_tracks as any[])
+        .filter(t => t && t.enabled && t.source_path)
+        .map(t => ({
+          id: t.id,
+          enabled: true,
+          source_path: t.source_path,
+          volume: typeof t.volume === 'number'
+            ? Math.max(0, Math.min(1, t.volume > 1 ? t.volume / 100 : t.volume))
+            : 1,
+          fade_in: Math.max(0, Number(t.fade_in) || 0),
+          fade_out: Math.max(0, Number(t.fade_out) || 0),
+          loop: t.loop !== false,
+        }))
+      : []
+
     return {
       episode_id: episodeId,
       intro: normIntro,
       music: normMusic,
       background_noise: normNoise,
+      ...(liveAmbient.length ? { ambient_tracks: liveAmbient } : {}),
       gap_duration: data.gap_duration,
       normalize_volume: data.normalize_volume,
     }
@@ -322,25 +344,161 @@ function resolveStepParams(
   if (step === 'video_assembly') {
     // Video-assembly presets are "bundles" referencing 5 slot presets
     // (intro/timeline/effects/subtitles/export) plus a fallback snapshot
-    // containing the full config for each slot in case the slot presets
-    // were deleted. The generator reads its params directly, so we pass
-    // the fallback — the most portable, self-contained subset — as the
-    // top-level config. If the user has sub-presets active, applying
-    // the bundle via the video-assembly page updates them in-place;
-    // here we use the fallback because the server doesn't replicate the
-    // full client-side bundle-resolution path.
-    const fallback = data.fallback || {}
-    return {
-      episode_id: episodeId,
-      title: title || '',
-      intro:     fallback.intro     || {},
-      timeline:  fallback.timeline  || {},
-      effects:   fallback.effects   || {},
-      subtitles: fallback.subtitles || {},
-      export:    fallback.export    || {},
-    }
+    // containing the full config for each slot. The generator
+    // (generators/video.ts) reads its request FLAT at the top level
+    // (req.chroma_key, req.video_layout, req.background_plate, …), but
+    // the bundle stores fields grouped under those 5 slot keys.
+    //
+    // Earlier code passed the slots through unchanged — so the generator
+    // saw nested `params.effects.chroma_key` etc. at top level, which it
+    // simply ignored. Result: every batch render dropped logos, color
+    // grading, chroma-key, overlays, ambient music, animated chapter
+    // titles, compilation-layout backgrounds, and per-scene chapter
+    // alignment. Single-episode renders worked because the page POSTs
+    // the flat shape directly.
+    //
+    // This branch now flattens each slot back to top level, mirroring
+    // useVideoAssemblyIo.ts:buildPayload(). Fields are spread only when
+    // they're meaningfully populated so the v2-feature paths stay
+    // disabled for legacy presets that never set them.
+    return flattenVideoAssemblyBundle(data, episodeId, title)
   }
   return { episode_id: episodeId }
+}
+
+/**
+ * Flatten a video_assembly bundle's `fallback` slot snapshots up to the
+ * top-level request shape that GenerateVideoRequest expects. Mirrors
+ * frontend/composables/useVideoAssemblyIo.ts:buildPayload() — keeping
+ * these in sync is essential for batch parity with single-episode
+ * runs. Exported for test coverage.
+ *
+ * Why this exists: the bundle's serialised shape groups fields under
+ * 5 slot keys (intro/timeline/effects/subtitles/export); the generator
+ * reads them flat. Earlier batches passed the slots through verbatim
+ * and the generator silently ignored the unknown nested keys.
+ */
+export function flattenVideoAssemblyBundle(
+  bundleData: any,
+  episodeId: string,
+  title: string,
+): Record<string, unknown> {
+  const fb = bundleData?.fallback || {}
+  const intro = fb.intro || {}
+  const outro = fb.outro || {}
+  const timeline = fb.timeline || {}
+  const effects = fb.effects || {}
+  const subtitles = fb.subtitles || {}
+  const exportS = fb.export || {}
+
+  const out: Record<string, unknown> = {
+    episode_id: episodeId,
+    title: title || '',
+  }
+
+  // ── Export settings (flat fields: resolution, quality, fps, codec, …)
+  for (const k of ['resolution', 'quality', 'fps', 'encoding_effort', 'codec', 'format']) {
+    if (exportS[k] !== undefined) out[k] = exportS[k]
+  }
+
+  // ── Timeline slot
+  if (timeline.scene_recycling)  out.scene_recycling  = timeline.scene_recycling
+  if (timeline.duration)         out.duration         = timeline.duration
+  if (timeline.post_audio)       out.post_audio       = timeline.post_audio
+  if (timeline.transition?.type !== undefined) {
+    out.transition = timeline.transition.type
+    out.transition_duration = timeline.transition.type === 'none' ? 0 : (timeline.transition.duration ?? 0)
+    if (Array.isArray(timeline.transition.pool)) out.transition_pool = timeline.transition.pool
+    if (timeline.transition.randomize_mode) out.transition_randomize = timeline.transition.randomize_mode
+  }
+  if (timeline.scene_animation) {
+    out.scene_animation = timeline.scene_animation
+    if (Array.isArray(timeline.scene_animation.pool)) out.animation_pool = timeline.scene_animation.pool
+    if (timeline.scene_animation.randomize_mode) out.animation_randomize = timeline.scene_animation.randomize_mode
+  }
+  if (timeline.title_image?.enabled && timeline.title_image.image_path) {
+    out.title_image = timeline.title_image
+  }
+
+  // ── Intro / outro slots
+  if (intro.enabled && intro.video_path) {
+    out.intro = { enabled: true, video_path: intro.video_path }
+  }
+  if (outro.enabled && outro.video_path) {
+    out.outro = { enabled: true, video_path: outro.video_path }
+  }
+
+  // ── Effects slot — every field flattened to top level
+  if (effects.logo?.enabled && effects.logo.image_path) {
+    // Logo opacity/scale on the page are 0-100; the single-episode
+    // payload divides by 100. We mirror that conversion here so
+    // batch-mode logos render with the same intensity.
+    const lg = effects.logo
+    out.logo = {
+      ...lg,
+      opacity: typeof lg.opacity === 'number' && lg.opacity > 1 ? lg.opacity / 100 : lg.opacity,
+      scale:   typeof lg.scale   === 'number' && lg.scale   > 1 ? lg.scale   / 100 : lg.scale,
+    }
+  }
+  if (effects.color_grading?.enabled) out.color_grading = effects.color_grading
+  if (effects.vignette?.enabled)      out.vignette      = effects.vignette
+  if (effects.film_grain?.enabled)    out.film_grain    = effects.film_grain
+  if (effects.letterbox?.enabled)     out.letterbox     = effects.letterbox
+  if (effects.chroma_key?.enabled && effects.chroma_key.source_path) {
+    out.chroma_key = effects.chroma_key
+  }
+  if (effects.overlays?.enabled && Array.isArray(effects.overlays.layers)) {
+    const liveLayers = effects.overlays.layers.filter(
+      (l: any) => l && l.enabled && l.source_path,
+    )
+    if (liveLayers.length) out.overlays = { enabled: true, layers: liveLayers }
+  }
+  if (effects.chapter_titles)         out.chapter_titles = effects.chapter_titles
+  if (typeof effects.exclude_intro_from_effects === 'boolean') {
+    out.exclude_intro_from_effects = effects.exclude_intro_from_effects
+  }
+  if (effects.align_visuals_to_chapters === true) {
+    out.align_visuals_to_chapters = true
+  }
+  if (effects.title_card?.enabled) out.title_card = effects.title_card
+  if (effects.outro_card?.enabled) out.outro_card = effects.outro_card
+
+  // ── Compilation layout (v1.0.63). Saved to the effects slot under
+  // `compilation_layout`. We flatten its sub-fields to the top-level
+  // names the generator reads.
+  const cl = effects.compilation_layout
+  if (cl?.layout === 'compilation') {
+    out.video_layout = 'compilation'
+    if (cl.background_plate?.source_path) {
+      const bp = cl.background_plate
+      out.background_plate = {
+        enabled: true,
+        source_path: bp.source_path,
+        loop: bp.loop !== false,
+        opacity: typeof bp.opacity === 'number' ? bp.opacity : 1,
+      }
+    }
+    if (cl.foreground_defaults) {
+      out.foreground_defaults = {
+        scale_pct: cl.foreground_defaults.scale_pct ?? 0.5,
+        position: cl.foreground_defaults.position ?? 'center',
+        chroma_key: cl.foreground_defaults.chroma_key ?? null,
+      }
+    }
+  }
+
+  // ── Subtitles slot. The bundle deliberately omits `srt_path`
+  // (episode-specific); the generator regenerates it per episode
+  // from the merged audio when subtitles.enabled is true.
+  if (subtitles.enabled) {
+    out.subtitles = {
+      enabled: true,
+      source: subtitles.source,
+      style: subtitles.style,
+    }
+  }
+
+  return out
 }
 
 /**
