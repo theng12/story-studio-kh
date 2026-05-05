@@ -100,6 +100,11 @@ export interface VideoAssemblyIoState {
    *  and the backend reads chapter durations from
    *  `${episode}/audio_chapters.json` (emitted by Audio Merge). */
   alignVisualsToChapters?: any
+  /** Per-scene clip swap (v1.0.57+). Map of scene_number → chapter_slug.
+   *  Stamped onto each VideoScene in the payload below; backend uses
+   *  explicit slugs to partition instead of even-split. Empty/missing
+   *  → backend falls back to positional even-split. */
+  sceneAssignmentSaved?: Ref<Record<number, string>>
   titleCard: any
   chapterTitles: any
   outroCard: any
@@ -223,6 +228,12 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     const minSec = s.duration.min_hours * 3600 + s.duration.min_minutes * 60
     const maxSec = s.duration.max_hours * 3600 + s.duration.max_minutes * 60
 
+    // v1.0.57+: stamp per-scene chapter_slug from the saved
+    // assignments map so backend honours explicit overrides without
+    // re-reading the sidecar. Falls back to undefined when no
+    // assignment exists for the scene_number — backend then defaults
+    // to positional even-split for that scene.
+    const assignmentMap = s.sceneAssignmentSaved?.value || {}
     const payload: Record<string, any> = {
       episode_id: s.episodeId.value,
       scenes: enabledScenes.map(sc => ({
@@ -230,6 +241,8 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
         duration: s.sceneRecycling.seconds_per_scene,
         title: sc.title || `Scene ${sc.number}`,
         show_title: s.chapterTitles.enabled,
+        scene_number: sc.number,
+        chapter_slug: assignmentMap[sc.number] || undefined,
       })),
       narration_path: narrationPath,
       merged_audio_path: mergedPath,

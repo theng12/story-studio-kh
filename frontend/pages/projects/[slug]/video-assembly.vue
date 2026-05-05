@@ -1247,6 +1247,99 @@
           (Audio Merge writes it). Re-run Audio Merge first if you don't see the file.
           Leave OFF for sleep stories where the loose, randomised cycling is intentional.
         </p>
+        <!-- Per-scene clip swap UI (v1.0.57+). Only meaningful when
+             alignment is ON; render the button conditionally so the
+             section stays compact for sleep-story projects. -->
+        <div v-if="alignVisualsToChapters" class="flex gap-2 mt-1" style="flex-wrap: wrap;">
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            :disabled="!episodeId"
+            title="Open the per-scene assignments editor — manually move scenes between chapter buckets"
+            @click="openSceneAssignmentsEditor"
+          >🎯 Customize scene assignments</button>
+          <span v-if="sceneAssignmentsCount > 0" class="text-muted text-xs" style="align-self: center;">
+            {{ sceneAssignmentsCount }} scene{{ sceneAssignmentsCount === 1 ? '' : 's' }} have explicit assignments
+          </span>
+          <span v-else class="text-muted text-xs" style="align-self: center;">
+            Using default even-split across chapters
+          </span>
+        </div>
+      </div>
+
+      <!-- Scene Assignments modal (v1.0.57+) — opens via the button
+           above. Lists every scene with a chapter dropdown so the
+           user can manually reassign which scene plays during which
+           chapter. Saving writes scene_chapter_assignments.json. -->
+      <div
+        v-if="showSceneAssignmentsModal"
+        class="modal-overlay"
+        @click.self="showSceneAssignmentsModal = false"
+      >
+        <div class="modal-content" style="max-width: 640px;">
+          <div class="flex gap-2 items-center" style="margin-bottom: 12px;">
+            <h3 style="margin: 0; flex: 1;">Per-scene chapter assignments</h3>
+            <button type="button" class="btn btn-sm btn-secondary" @click="showSceneAssignmentsModal = false">✕ Close</button>
+          </div>
+          <div v-if="assignmentsLoading" class="text-muted text-sm">Loading assignments…</div>
+          <div v-else-if="assignmentsError" class="text-danger text-sm">{{ assignmentsError }}</div>
+          <div v-else-if="!sceneAssignmentChapters.length" class="text-muted text-sm">
+            No <code>audio_chapters.json</code> sidecar found — re-run <strong>Audio Merge</strong>
+            for this episode first so the backend knows the chapter list.
+          </div>
+          <div v-else>
+            <p class="text-muted text-xs">
+              {{ sceneAssignmentChapters.length }} chapter(s) loaded from <code>audio_chapters.json</code>.
+              Pick a chapter for each scene; leave a row blank to fall back to positional even-split for
+              that scene. Click <strong>Save</strong> to write
+              <code>scene_chapter_assignments.json</code> to the episode folder.
+            </p>
+            <div class="flex gap-2 mt-1" style="flex-wrap: wrap;">
+              <button type="button" class="btn btn-sm btn-secondary" @click="autoFillEvenSplit"
+                title="Pre-fill every scene with the chapter it would land in under default even-split. Useful as a starting point.">
+                Auto-fill (even split)
+              </button>
+              <button type="button" class="btn btn-sm btn-secondary" @click="clearAllAssignments"
+                title="Clear every scene's assignment so the backend reverts to even-split">
+                Clear all
+              </button>
+            </div>
+            <div class="mt-2" style="max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;">
+              <div
+                v-for="(scene, idx) in scenes"
+                :key="`scn-${scene.number ?? idx}`"
+                class="flex gap-2 items-center"
+                style="padding: 6px; border: 1px solid var(--border); border-radius: 4px;"
+              >
+                <span class="text-muted" style="font-family: monospace; min-width: 70px;">
+                  Scene {{ String(scene.number ?? idx + 1).padStart(2, '0') }}
+                </span>
+                <span style="flex: 1; word-break: break-all; font-size: 12px;">
+                  {{ scene.title || scene.filename || '' }}
+                </span>
+                <select
+                  v-model="sceneAssignmentDraft[scene.number ?? idx + 1]"
+                  class="select select-sm"
+                  style="min-width: 180px;"
+                >
+                  <option value="">— even-split default —</option>
+                  <option v-for="ch in sceneAssignmentChapters" :key="ch.slug" :value="ch.slug">
+                    {{ ch.slug }}{{ ch.duration_s ? ` (${ch.duration_s.toFixed(1)}s)` : '' }}
+                  </option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="flex gap-2 mt-2" style="justify-content: flex-end;">
+            <button type="button" class="btn btn-sm btn-secondary" @click="showSceneAssignmentsModal = false">Cancel</button>
+            <button
+              type="button"
+              class="btn btn-sm btn-primary"
+              :disabled="assignmentsSaving || !sceneAssignmentChapters.length"
+              @click="saveSceneAssignments"
+            >{{ assignmentsSaving ? 'Saving…' : 'Save' }}</button>
+          </div>
+        </div>
       </div>
 
       <!-- Text Overlays (collapsed by default) -->
@@ -2513,6 +2606,148 @@ const excludeIntroFromEffects = ref(true)
 // or send the durations explicitly.
 const alignVisualsToChapters = ref(false)
 
+// ── Per-scene clip swap (v1.0.57+) ───────────────────────────────────
+// Modal-based editor for `scene_chapter_assignments.json`. The editor
+// loads two sidecars on open:
+//   - audio_chapters.json   → list of chapter slugs (the dropdown options)
+//   - scene_chapter_assignments.json → existing per-scene assignments
+// Save writes assignments back to disk; render-time backend reads it
+// and stamps each scene's `chapter_slug` so buildConcatList partitions
+// by explicit slug instead of positional even-split.
+const showSceneAssignmentsModal = ref(false)
+const assignmentsLoading = ref(false)
+const assignmentsSaving = ref(false)
+const assignmentsError = ref('')
+type ChapterEntry = { slug: string; duration_s: number; source_file?: string }
+const sceneAssignmentChapters = ref<ChapterEntry[]>([])
+// Map scene_number → chapter_slug. Empty string = no override (default
+// to backend's positional even-split for that scene).
+const sceneAssignmentDraft = reactive<Record<number, string>>({})
+// Persisted committed-to-disk version, kept in parallel so the
+// "Customize scene assignments" button can show a count before the
+// modal is opened.
+const sceneAssignmentSaved = ref<Record<number, string>>({})
+
+const sceneAssignmentsCount = computed(
+  () => Object.values(sceneAssignmentSaved.value).filter(v => !!v).length,
+)
+
+async function loadSceneAssignments() {
+  if (!episodeId.value) return
+  assignmentsError.value = ''
+  try {
+    const [chaptersR, assignmentsR] = await Promise.all([
+      $fetch<{ sections: ChapterEntry[]; exists: boolean }>(
+        `/api/projects/${slug.value}/video-editor/audio-chapters?episode_id=${encodeURIComponent(episodeId.value)}`,
+      ),
+      $fetch<{ assignments: Array<{ scene_number: number; chapter_slug: string }>; exists: boolean }>(
+        `/api/projects/${slug.value}/video-editor/scene-chapter-assignments?episode_id=${encodeURIComponent(episodeId.value)}`,
+      ),
+    ])
+    sceneAssignmentChapters.value = chaptersR.sections || []
+    const fromDisk: Record<number, string> = {}
+    for (const a of assignmentsR.assignments || []) {
+      if (typeof a.scene_number === 'number' && a.chapter_slug) {
+        fromDisk[a.scene_number] = a.chapter_slug
+      }
+    }
+    sceneAssignmentSaved.value = fromDisk
+    // Fresh draft mirrors the saved state. If the modal is reopened
+    // without saving, the user starts from the persisted state, not
+    // wherever they last edited.
+    Object.keys(sceneAssignmentDraft).forEach(k => { delete sceneAssignmentDraft[Number(k)] })
+    for (const [k, v] of Object.entries(fromDisk)) sceneAssignmentDraft[Number(k)] = v
+  } catch (e: any) {
+    assignmentsError.value = e?.data?.detail || e?.message || 'Could not load assignments'
+  }
+}
+
+async function openSceneAssignmentsEditor() {
+  showSceneAssignmentsModal.value = true
+  assignmentsLoading.value = true
+  try {
+    await loadSceneAssignments()
+  } finally {
+    assignmentsLoading.value = false
+  }
+}
+
+function autoFillEvenSplit() {
+  // Replicate the backend's positional even-split locally so the user
+  // sees what the default would assign for each scene. Then they can
+  // tweak the rows that need to move.
+  const chapters = sceneAssignmentChapters.value
+  if (!chapters.length || !scenes.value.length) return
+  const S = scenes.value.length
+  const C = chapters.length
+  const baseSpc = Math.floor(S / C)
+  const extra = S - baseSpc * C
+  let cursor = 0
+  for (let ci = 0; ci < C; ci++) {
+    const chapterScenes = baseSpc + (ci < extra ? 1 : 0)
+    for (let i = 0; i < chapterScenes; i++) {
+      const scene = scenes.value[cursor + i]
+      if (!scene) continue
+      const sn = scene.number ?? (cursor + i + 1)
+      sceneAssignmentDraft[sn] = chapters[ci]!.slug
+    }
+    cursor += chapterScenes
+  }
+}
+
+function clearAllAssignments() {
+  Object.keys(sceneAssignmentDraft).forEach(k => { delete sceneAssignmentDraft[Number(k)] })
+}
+
+async function saveSceneAssignments() {
+  if (!episodeId.value) return
+  assignmentsSaving.value = true
+  try {
+    const assignments = Object.entries(sceneAssignmentDraft)
+      .filter(([_, slug]) => !!slug)
+      .map(([sn, slug]) => ({ scene_number: Number(sn), chapter_slug: slug }))
+    const r = await $fetch<{
+      ok: boolean
+      written: number
+      unknown_slugs?: string[]
+    }>(`/api/projects/${slug.value}/video-editor/scene-chapter-assignments`, {
+      method: 'PUT',
+      body: { episode_id: episodeId.value, assignments },
+    })
+    if (r.unknown_slugs?.length) {
+      assignmentsError.value = `Saved, but these chapter slugs aren't in audio_chapters.json: ${r.unknown_slugs.join(', ')}. Re-run Audio Merge if you renamed chapters.`
+    } else {
+      assignmentsError.value = ''
+    }
+    // Refresh saved snapshot so the button-line count updates.
+    const fromDisk: Record<number, string> = {}
+    for (const a of assignments) fromDisk[a.scene_number] = a.chapter_slug
+    sceneAssignmentSaved.value = fromDisk
+    success(`Saved ${r.written} scene assignment(s)`)
+    if (!r.unknown_slugs?.length) showSceneAssignmentsModal.value = false
+  } catch (e: any) {
+    assignmentsError.value = e?.data?.detail || e?.message || 'Save failed'
+  } finally {
+    assignmentsSaving.value = false
+  }
+}
+
+// Refresh saved-count whenever the episode changes so the "N scenes
+// have explicit assignments" hint stays accurate without opening the
+// modal.
+watch(episodeId, async (id) => {
+  if (id && alignVisualsToChapters.value) {
+    try { await loadSceneAssignments() } catch { /* tolerate */ }
+  } else {
+    sceneAssignmentSaved.value = {}
+  }
+})
+watch(alignVisualsToChapters, async (on) => {
+  if (on && episodeId.value) {
+    try { await loadSceneAssignments() } catch { /* tolerate */ }
+  }
+})
+
 // --------------- Step 5: Subtitles ---------------
 const subtitles = reactive({
   enabled: false,
@@ -3670,6 +3905,7 @@ const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo } = useVideoAss
   duration, colorGrading, vignette, filmGrain, letterbox, chromaKey,
   overlays,
   alignVisualsToChapters,
+  sceneAssignmentSaved,
   titleCard, chapterTitles, outroCard, exportSettings,
   // generateVideo() needs these three plus post+confirmGeneration+videoGenerating
   // passed at call-time so the composable doesn't duplicate those imports.

@@ -198,6 +198,143 @@ router.get('/projects/:slug/video-editor/ambient-files', async (req, res) => {
   }
 })
 
+// Locate the on-disk episode directory by code. Walks up to 4 levels
+// deep under the project's output root and returns the first directory
+// whose name starts with the episode code (e.g. "TN0143 - Title…").
+// Used by the chapter-alignment + per-scene-swap routes below.
+async function findEpisodeDirForRoute(slug: string, episodeCode: string): Promise<string | null> {
+  const outputRoot = await pm.getProjectOutputRoot(slug)
+  if (!outputRoot) return null
+  async function searchRecursive(dir: string, depth: number): Promise<string | null> {
+    if (depth > 4) return null
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        if (entry.name.toUpperCase().startsWith(episodeCode.toUpperCase())) {
+          return path.join(dir, entry.name)
+        }
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        const found = await searchRecursive(path.join(dir, entry.name), depth + 1)
+        if (found) return found
+      }
+    } catch { /* skip */ }
+    return null
+  }
+  return searchRecursive(outputRoot, 0)
+}
+
+// GET the audio_chapters.json sidecar (Workstream B). Returns the
+// parsed list of chapters in playback order so the per-scene-swap UI
+// can render a column per chapter. Empty list when sidecar is absent
+// (typical: user hasn't run Audio Merge yet).
+router.get('/projects/:slug/video-editor/audio-chapters', async (req, res) => {
+  const { slug } = req.params
+  const episodeId = String(req.query.episode_id || '').trim()
+  if (!episodeId) return res.status(400).json({ detail: 'episode_id query parameter required' })
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const episodeDir = await findEpisodeDirForRoute(slug, episodeId)
+    if (!episodeDir) return res.json({ sections: [], episode_dir: null, exists: false })
+    const sidecarPath = path.join(episodeDir, 'audio_chapters.json')
+    if (!existsSync(sidecarPath)) {
+      return res.json({ sections: [], episode_dir: episodeDir, exists: false })
+    }
+    const raw = await fs.readFile(sidecarPath, 'utf-8')
+    const parsed = JSON.parse(raw) as {
+      sections?: Array<{ slug: string; duration_s: number; source_file?: string }>
+    }
+    res.json({
+      sections: Array.isArray(parsed.sections) ? parsed.sections : [],
+      episode_dir: episodeDir,
+      exists: true,
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not read audio_chapters.json'))
+  }
+})
+
+// GET / PUT the scene_chapter_assignments.json sidecar — per-scene
+// chapter overrides for the per-scene clip-swap UI (v1.0.57+). The
+// PUT validates that every chapter_slug exists in audio_chapters.json
+// to catch typos at save time rather than render time.
+router.get('/projects/:slug/video-editor/scene-chapter-assignments', async (req, res) => {
+  const { slug } = req.params
+  const episodeId = String(req.query.episode_id || '').trim()
+  if (!episodeId) return res.status(400).json({ detail: 'episode_id query parameter required' })
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const episodeDir = await findEpisodeDirForRoute(slug, episodeId)
+    if (!episodeDir) return res.json({ assignments: [], episode_dir: null, exists: false })
+    const sidecarPath = path.join(episodeDir, 'scene_chapter_assignments.json')
+    if (!existsSync(sidecarPath)) {
+      return res.json({ assignments: [], episode_dir: episodeDir, exists: false })
+    }
+    const raw = await fs.readFile(sidecarPath, 'utf-8')
+    const parsed = JSON.parse(raw) as {
+      assignments?: Array<{ scene_number: number; chapter_slug: string }>
+    }
+    res.json({
+      assignments: Array.isArray(parsed.assignments) ? parsed.assignments : [],
+      episode_dir: episodeDir,
+      exists: true,
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not read scene_chapter_assignments.json'))
+  }
+})
+
+router.put('/projects/:slug/video-editor/scene-chapter-assignments', async (req, res) => {
+  const { slug } = req.params
+  const episodeId = String(req.body?.episode_id || '').trim()
+  if (!episodeId) return res.status(400).json({ detail: 'episode_id required in body' })
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const episodeDir = await findEpisodeDirForRoute(slug, episodeId)
+    if (!episodeDir) return res.status(404).json({ detail: `Episode directory not found for ${episodeId}` })
+
+    // Validate slug references against audio_chapters.json so a typo
+    // can't survive into render time.
+    const audioChaptersPath = path.join(episodeDir, 'audio_chapters.json')
+    const knownSlugs = new Set<string>()
+    if (existsSync(audioChaptersPath)) {
+      try {
+        const raw = await fs.readFile(audioChaptersPath, 'utf-8')
+        const parsed = JSON.parse(raw) as { sections?: Array<{ slug: string }> }
+        for (const s of parsed.sections || []) {
+          if (typeof s?.slug === 'string') knownSlugs.add(s.slug)
+        }
+      } catch { /* tolerate */ }
+    }
+
+    const incoming = Array.isArray(req.body?.assignments) ? req.body.assignments : []
+    const cleaned: Array<{ scene_number: number; chapter_slug: string }> = []
+    const unknownSlugs = new Set<string>()
+    for (const a of incoming) {
+      if (typeof a?.scene_number !== 'number' || !Number.isFinite(a.scene_number)) continue
+      if (typeof a?.chapter_slug !== 'string' || !a.chapter_slug) continue
+      cleaned.push({
+        scene_number: Math.round(a.scene_number),
+        chapter_slug: a.chapter_slug,
+      })
+      if (knownSlugs.size > 0 && !knownSlugs.has(a.chapter_slug)) unknownSlugs.add(a.chapter_slug)
+    }
+
+    const sidecarPath = path.join(episodeDir, 'scene_chapter_assignments.json')
+    await fs.writeFile(sidecarPath, JSON.stringify({ assignments: cleaned }, null, 2))
+    res.json({
+      ok: true,
+      written: cleaned.length,
+      sidecar_path: sidecarPath,
+      unknown_slugs: Array.from(unknownSlugs),
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not write scene_chapter_assignments.json'))
+  }
+})
+
 router.post('/projects/:slug/video-editor/ambient/open-folder', async (req, res) => {
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })

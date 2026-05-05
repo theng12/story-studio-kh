@@ -1026,6 +1026,17 @@ export interface VideoScene {
   duration: number
   title?: string
   show_title: boolean
+  /** Per-scene chapter assignment for chapter-aligned video assembly
+   *  (Workstream B + per-scene swap, v1.0.57+). When set on every
+   *  scene, the backend groups scenes by `chapter_slug` instead of
+   *  positional even-splitting them across chapters. Frontend reads
+   *  this from `${episode}/scene_chapter_assignments.json` and stamps
+   *  it on each scene before sending the assembly payload.
+   *  Optional — old projects without it fall back to even-split. */
+  chapter_slug?: string
+  /** Echoed-through scene number (1-based) so the backend can quote
+   *  it in alignment plan logs without re-deriving from index. */
+  scene_number?: number
 }
 
 export interface VideoTitleCard {

@@ -670,6 +670,53 @@ export async function generateVideo(job: Job): Promise<void> {
     }
   }
 
+  // Per-scene swap (v1.0.57+) — auto-load explicit assignments when
+  // alignment is on AND any scene lacks a chapter_slug. Frontend
+  // typically stamps the slug onto each VideoScene before sending,
+  // but old cached payloads or scripted re-runs may not. Reading the
+  // sidecar here makes the override behaviour reliable regardless of
+  // what the caller knew at submit time. If no sidecar exists, scenes
+  // stay un-stamped and the alignment branch positional-splits (the
+  // Workstream B v1.0.54 behaviour).
+  if (req.align_visuals_to_chapters && Array.isArray(req.scenes) && req.scenes.length > 0) {
+    const anyMissing = req.scenes.some(s => typeof s.chapter_slug !== 'string' || !s.chapter_slug)
+    if (anyMissing) {
+      try {
+        const sidecarPath = path.join(episodeDir, 'scene_chapter_assignments.json')
+        const raw = await fs.readFile(sidecarPath, 'utf-8')
+        const parsed = JSON.parse(raw) as {
+          assignments?: Array<{ scene_number: number; chapter_slug: string }>
+        }
+        if (Array.isArray(parsed.assignments) && parsed.assignments.length > 0) {
+          const bySceneNumber = new Map<number, string>()
+          for (const a of parsed.assignments) {
+            if (typeof a?.scene_number === 'number' && typeof a?.chapter_slug === 'string' && a.chapter_slug) {
+              bySceneNumber.set(a.scene_number, a.chapter_slug)
+            }
+          }
+          let applied = 0
+          for (let i = 0; i < req.scenes.length; i++) {
+            const sc = req.scenes[i]!
+            // Treat scene_number as 1-based when missing — falls back
+            // to positional index. Lines up with how the rest of the
+            // app numbers Scene01, Scene02, …
+            const sn = typeof sc.scene_number === 'number' ? sc.scene_number : (i + 1)
+            const slug = bySceneNumber.get(sn)
+            if (slug && !sc.chapter_slug) {
+              sc.chapter_slug = slug
+              applied++
+            }
+          }
+          if (applied > 0) {
+            job.output_lines.push(`Per-scene chapter assignments: applied ${applied} override(s) from scene_chapter_assignments.json`)
+          }
+        }
+      } catch {
+        // Sidecar absent — fine. Positional even-split kicks in.
+      }
+    }
+  }
+
   // Validate scenes
   if (!req.scenes || req.scenes.length === 0) {
     throw new Error('No scenes provided for video generation')
@@ -1063,6 +1110,11 @@ export async function generateVideo(job: Job): Promise<void> {
       req.align_visuals_to_chapters && Array.isArray(req.chapter_durations) && req.chapter_durations.length > 0
         ? { enabled: true, chapterDurations: req.chapter_durations }
         : undefined,
+      // Per-scene chapter overrides (v1.0.57+). Pulled directly off
+      // each VideoScene so a half-edited assignments file (some scenes
+      // unassigned) still produces a valid render — the alignment
+      // branch falls back to positional placement for unmapped clips.
+      req.scenes.map(s => s.chapter_slug),
     )
 
     // 11. Pre-mix all audio into a single WAV file. Length must match the
@@ -1767,6 +1819,13 @@ async function buildConcatList(
     enabled: boolean
     chapterDurations: Array<{ slug: string; duration_s: number }>
   },
+  /** Optional per-clip chapter slug — same length & order as
+   *  `sceneClips`. When ANY entry is non-empty, the alignment branch
+   *  groups by explicit slug (per-scene swap, v1.0.57+) instead of
+   *  positional even-split. Entries that are empty/undefined fall
+   *  back to positional placement so a half-edited assignment file
+   *  still produces a valid render. */
+  sceneChapterSlugs?: Array<string | undefined>,
 ): Promise<{ listPath: string; sceneEndTime: number }> {
   const listPath = path.join(tempDir, 'concat_list.txt')
   const lines: string[] = []
@@ -1814,6 +1873,11 @@ async function buildConcatList(
   // Filter out excluded scenes — excluded_scenes contains 1-based scene numbers
   const excludedSet = new Set(recycling.excluded_scenes || [])
   const availableClips = sceneClips.filter((_, idx) => !excludedSet.has(idx + 1))
+  // Parallel slug array, kept in sync with the same exclusion filter so
+  // index `i` of availableClips matches `availableSlugs[i]` even after
+  // some scenes are dropped.
+  const availableSlugs: Array<string | undefined> = (sceneChapterSlugs || [])
+    .filter((_, idx) => !excludedSet.has(idx + 1))
 
   if (availableClips.length === 0) {
     throw new Error('No scene clips available after applying exclusions')
@@ -1849,35 +1913,82 @@ async function buildConcatList(
     const chapters = chapterAlignment!.chapterDurations
     const C = chapters.length
     const S = availableClips.length
-    // Floor split + spread the remainder across the first chapters so
-    // we never assign 0 scenes to a chapter when S < C.
-    const baseSpc = Math.floor(S / C)
-    const extra = S - baseSpc * C
-    let cursor = 0
-    let chapterPlanLog: string[] = []
-    for (let ci = 0; ci < C; ci++) {
-      const ch = chapters[ci]!
-      const chapterScenes = baseSpc + (ci < extra ? 1 : 0)
-      // Edge: when S < C, some chapters get 0 scenes. Borrow the next
-      // chapter's first scene as a fallback so we never emit a silent
-      // gap. This also covers degenerate cases (S=1, C=10).
-      const slice = chapterScenes > 0
-        ? availableClips.slice(cursor, cursor + chapterScenes)
-        : (cursor < S ? [availableClips[cursor]!] : [availableClips[availableClips.length - 1]!])
-      cursor += chapterScenes
-      // How many total fixed-duration clips are needed to cover this
-      // chapter's audio? Cycle the slice. Last clip overshoots the
-      // chapter by up to `sceneDuration` seconds — acceptable since
-      // chapter boundaries aren't audibly hard cuts (the silence gap
-      // between chapters absorbs the slop).
-      const clipsNeeded = Math.max(1, Math.ceil(ch.duration_s / sceneDuration))
-      for (let k = 0; k < clipsNeeded; k++) {
-        scenePlayOrder.push(slice[k % slice.length]!)
+
+    // Two ways to partition. Explicit-slug mode beats positional when
+    // ANY scene carries a chapter_slug — assumes the user opened the
+    // per-scene swap UI and edited assignments. Positional even-split
+    // is the legacy Workstream B behaviour and the safe fallback when
+    // no slugs are set.
+    const hasExplicitSlugs = availableSlugs.some(s => typeof s === 'string' && s.length > 0)
+    type ChapterBucket = { ch: typeof chapters[number]; clips: string[] }
+    const buckets: ChapterBucket[] = chapters.map(ch => ({ ch, clips: [] }))
+    const bucketIdxBySlug = new Map<string, number>()
+    chapters.forEach((ch, i) => bucketIdxBySlug.set(ch.slug, i))
+
+    if (hasExplicitSlugs) {
+      // Explicit assignments. For each clip, look up its slug; if it
+      // resolves to a known chapter, drop into that bucket. Clips
+      // without a slug (or with an unknown one) fall back to positional
+      // assignment in their natural index — they get bucketed by the
+      // same baseSpc / extra split we use in even-split mode below.
+      const baseSpc = Math.floor(S / C)
+      const extra = S - baseSpc * C
+      const positionalBucket = (clipIdx: number): number => {
+        // Reverse the cumulative-sum table so we can map clip index
+        // directly to bucket without iterating chapters per clip.
+        let acc = 0
+        for (let ci = 0; ci < C; ci++) {
+          const sz = baseSpc + (ci < extra ? 1 : 0)
+          if (clipIdx < acc + sz) return ci
+          acc += sz
+        }
+        return C - 1
       }
-      chapterPlanLog.push(`${ch.slug}: ${chapterScenes} scene(s) × ${clipsNeeded} cycle(s) = ${ch.duration_s.toFixed(1)}s`)
+      for (let i = 0; i < availableClips.length; i++) {
+        const slug = availableSlugs[i]
+        let bIdx = -1
+        if (slug && bucketIdxBySlug.has(slug)) bIdx = bucketIdxBySlug.get(slug)!
+        if (bIdx < 0) bIdx = positionalBucket(i)
+        buckets[bIdx]!.clips.push(availableClips[i]!)
+      }
+      job.output_lines.push(
+        `Chapter alignment: ON · explicit per-scene assignments (any unmapped scene falls to positional default)`,
+      )
+    } else {
+      // Positional even-split (legacy Workstream B behaviour).
+      const baseSpc = Math.floor(S / C)
+      const extra = S - baseSpc * C
+      let cursor = 0
+      for (let ci = 0; ci < C; ci++) {
+        const chapterScenes = baseSpc + (ci < extra ? 1 : 0)
+        const sliceClips = availableClips.slice(cursor, cursor + chapterScenes)
+        buckets[ci]!.clips.push(...sliceClips)
+        cursor += chapterScenes
+      }
+    }
+
+    // Cycle each bucket within its chapter's audio duration. Empty
+    // buckets borrow the previous bucket's last clip so the chapter
+    // doesn't render as a silent gap (covers S < C and odd skews).
+    let lastNonEmpty: string | null = null
+    const chapterPlanLog: string[] = []
+    for (let ci = 0; ci < C; ci++) {
+      const b = buckets[ci]!
+      if (b.clips.length === 0) {
+        const fallback = lastNonEmpty
+          ?? buckets.find(o => o.clips.length > 0)?.clips[0]
+          ?? availableClips[0]!
+        b.clips.push(fallback)
+      }
+      lastNonEmpty = b.clips[b.clips.length - 1]!
+      const clipsNeeded = Math.max(1, Math.ceil(b.ch.duration_s / sceneDuration))
+      for (let k = 0; k < clipsNeeded; k++) {
+        scenePlayOrder.push(b.clips[k % b.clips.length]!)
+      }
+      chapterPlanLog.push(`${b.ch.slug}: ${b.clips.length} scene(s) × ${clipsNeeded} cycle(s) = ${b.ch.duration_s.toFixed(1)}s`)
     }
     job.output_lines.push(
-      `Chapter alignment: ON · ${C} chapter(s), ${S} scene(s) total — ${chapterPlanLog.join(' | ')}`,
+      `Chapter alignment: ${C} chapter(s), ${S} scene(s) total — ${chapterPlanLog.join(' | ')}`,
     )
   } else {
     const cyclesNeeded = Math.max(1, Math.ceil(sceneFillDuration / durationPerCycle))
