@@ -1,0 +1,133 @@
+{
+  "id": "listicle",
+  "name": "Listicle / Explainer",
+  "description": "Multi-topic explainer videos in the '100 X explained' / 'N mysteries' / 'N plane crashes' style — BrainWise-channel format. Each chapter is an independent topic with hook → explanation → micro-payoff; no narrative continuity between chapters. Pairs with compilation video layout (looping background + per-chapter foreground icons). Generated visuals are minimalist circular badges on a white-key background, sized + positioned via the project's foreground defaults.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "idea": {
+    "systemPromptRole": "You are helping generate new episode ideas for a multi-topic explainer / listicle YouTube channel. Each episode is a single video bundling several short, independent topics around a unifying theme.",
+    "audienceDefault": "curious adults",
+    "moodVocabulary": [
+      "curious",
+      "punchy",
+      "accessible",
+      "intriguing",
+      "playful",
+      "informative",
+      "matter-of-fact",
+      "surprising",
+      "evidence-based",
+      "wry"
+    ],
+    "themeVocabulary": [
+      "paradoxes",
+      "mysteries",
+      "unsolved cases",
+      "scientific oddities",
+      "historical events",
+      "everyday phenomena",
+      "psychology",
+      "biology",
+      "physics",
+      "engineering failures",
+      "linguistic curiosities",
+      "conspiracy debunks"
+    ],
+    "guidanceText": "Episode ideas should be a UNIFYING theme covering 5-15 short independent topics (e.g. '10 paradoxes explained' or '7 plane crashes that changed aviation'). Don't pitch a single-topic deep-dive — that's a different channel. Each topic must be self-contained, fact-checkable, and 2-5 minutes long when narrated.",
+    "exampleIdeas": [
+      {
+        "title": "10 Sleep Mysteries Explained",
+        "logline": "From why we yawn to why we never seem to fall in dreams without waking — ten everyday sleep oddities, each settled in 3 minutes.",
+        "themes": ["sleep", "psychology", "biology"],
+        "suggested_chapters": 10,
+        "suggested_length": "30 min",
+        "mood": "curious, accessible, evidence-based"
+      },
+      {
+        "title": "7 Plane Crashes That Changed Aviation Forever",
+        "logline": "Each disaster rewrote a rule still saving lives today. Seven case studies — what went wrong, what was learned, what we owe to the lost.",
+        "themes": ["historical events", "engineering failures"],
+        "suggested_chapters": 7,
+        "suggested_length": "35 min",
+        "mood": "matter-of-fact, evidence-based"
+      }
+    ]
+  },
+
+  "script": {
+    "systemPromptRole": "You are a clear, curious explainer-channel writer. You don't tell stories — you bundle short, independent topics around a unifying theme, each with a hook, an explanation, and a memorable micro-payoff. Think of QI, Veritasium, RealLifeLore in tone: confident, evidence-based, occasionally wry, never preachy.",
+    "additionalRules": [
+      "Each chapter is an INDEPENDENT topic. Do NOT carry narrative threads or characters between chapters — they are standalone.",
+      "Open each chapter with a HOOK question or counter-intuitive claim in the first 1-2 sentences (e.g. 'Why don't humans hibernate?' or 'A single sneeze travels at 30 mph.').",
+      "Body of each chapter explains the answer with ~2-4 supporting beats. Cite mechanism, evidence, history, or a notable example — don't just assert.",
+      "End each chapter with a 1-2 sentence MICRO-PAYOFF: a memorable summary line, an open question, or a wry observation. Avoid 'and so we see…' textbook closers.",
+      "Chapter headings use 'Chapter NN: [Topic as Question or Bold Claim]'. Numbers Arabic, never Roman.",
+      "No filler transitions between chapters ('And now, our next topic is…'). The hard cut between chapters is intentional — let the topic shift speak for itself.",
+      "Conversational but precise. No marketing speak, no hype adjectives, no 'mind-blowing'."
+    ],
+    "pacingArc": [
+      "Chapter 1: Strongest hook — the topic that grabs in the YouTube preview and earns the click",
+      "Chapters 2-{lastButOne}: Mix of surprising / counter-intuitive / evidence-rich topics, varying tone slightly so the listicle doesn't feel monotone",
+      "Chapter {last}: Save a satisfying / punchy topic for last so the video ends strong, not fizzles"
+    ],
+    "closingHint": "Each chapter must stand alone — a viewer dropping in mid-video should still get a complete topic.",
+    "defaultChapterCount": 10,
+    "chapterCountRange": [3, 20],
+    "defaultLengthMinutes": 30,
+    "lengthMinutesRange": [10, 90],
+    "narratorStyles": [
+      { "id": "A", "label": "Curious explainer",          "description": "Like a smart friend explaining over coffee. Confident but never condescending. Veritasium-adjacent." },
+      { "id": "B", "label": "QI-style wry",               "description": "Slightly arch, finds humour in the absurd. Lets factual surprise carry the laugh; never punches the joke." },
+      { "id": "C", "label": "Documentary deadpan",        "description": "Matter-of-fact, evidence-forward, quiet authority. RealLifeLore in narration mode." },
+      { "id": "D", "label": "Energetic listicle host",    "description": "Punchy, paced, conversational. Closer to a long-form podcast host than a documentary narrator." },
+      { "id": "E", "label": "Educational calm",           "description": "Patient, clear, slightly schoolteacher — but the cool kind who made the subject feel alive." }
+    ],
+    "defaultNarratorStyleId": "A"
+  },
+
+  "imagePrompts": {
+    "purposeNote": "for a multi-topic explainer episode (one minimalist circular badge per topic, designed to composite over a starfield / atmospheric background via chroma-key)",
+    "visualStyleHint": "minimalist circular badge, flat colors, isolated subject, white background for chroma-key",
+    "defaultScenesTotalRange": [10, 10],
+    "defaultThumbnails": 3,
+    "defaultStyleTag": "Minimalist circular badge illustration with the subject framed inside a white circular border. Flat colors, bold simple line work, isolated subject (no background imagery — pure white background fills everything outside the circle for chroma-key removal). Single-concept icon style, like a sticker or pictogram. Avoid text inside the badge unless the topic explicitly calls for one short word. Aspect 16:9 with the badge centered.",
+    "characterReferenceMode": "inline",
+    "recommendedAspect": "16:9"
+  },
+
+  "metadata": {
+    "purposeNote": "for a listicle / explainer episode bundling N independent topics",
+    "titleStyleHint": "punchy listicle / explainer title — number-led, hook-first, optimised for YouTube CTR without being clickbait",
+    "titleHookRules": [
+      "Lead with a number when natural ('10 Sleep Mysteries Explained', '7 Plane Crashes…').",
+      "Use 'explained' / 'you didn't know about' / 'that changed [X]' / 'we still can't answer' as hook patterns.",
+      "Include the unifying theme keyword early so search picks it up.",
+      "Keep under 70 chars where possible — long titles truncate in mobile previews."
+    ],
+    "tagsContext": "for this listicle / explainer video",
+    "tagsHookRules": [
+      "Mix of broad theme keywords (mysteries, paradoxes, plane crashes, etc.) and per-topic keywords pulled from each chapter.",
+      "Each tag 1-4 words, no '#' prefix.",
+      "Include 'explained' and 'top N' style tags — those drive listicle discovery."
+    ],
+    "broadKeywords": [
+      "explained",
+      "top 10",
+      "mysteries",
+      "facts",
+      "documentary",
+      "things you didn't know"
+    ],
+    "youtubeDescriptionStructure": {
+      "musicLabel": "MUSIC",
+      "booksSectionLabel": "📚 FURTHER READING:",
+      "supportSection": "💡 SUPPORT:\nSubscribe to keep the topics coming. New episode every week.",
+      "aiDisclosure": "🤖 AI DISCLOSURE:\nResearch consolidation and narration assisted by AI tools, reviewed for accuracy.",
+      "defaultHashtags": ["#explained", "#facts"],
+      "totalHashtagCount": 12
+    }
+  },
+
+  "productionStandardsAddendum": "LISTICLE / EXPLAINER FORMAT — CRITICAL RULES\n\n1. Each chapter is an independent topic. Do NOT carry recurring characters, settings, or plot threads between chapters.\n2. Every chapter opens with a HOOK (question or counter-intuitive claim) and ends with a MICRO-PAYOFF (memorable line / open question / wry beat).\n3. Evidence-based. When making a factual claim, mention the mechanism, source, or notable example. Avoid bare assertions.\n4. Conversational but precise. No marketing speak. No 'mind-blowing'. No 'this will change your life'.\n5. The chapter title doubles as the on-screen text overlay during that chapter, so write it as a question or bold claim suitable for a YouTube graphic — not as a noun phrase like 'Hibernation Patterns'."
+}
