@@ -779,6 +779,173 @@
         <!-- RIGHT: Scrollable effect controls -->
         <div class="effects-controls-scroll">
 
+      <!-- ─── Video Layout (v1.0.63+ / Path C) ─────────────────────────
+           Picks between the standard scene-clip pipeline (sleep stories)
+           and the inverted compilation layout (BrainWise / listicle:
+           looping background plate as base, per-chapter foreground icons
+           composited on top with chapter-aligned timing). The card is at
+           the very top of Step 4 because the choice changes how every
+           OTHER setting on this page applies. -->
+      <div class="settings-section mt-1" style="border: 2px solid var(--accent); border-radius: 8px; padding: 12px;">
+        <div class="flex gap-2 items-center">
+          <h4 style="margin: 0;">📐 Video Layout</h4>
+          <span
+            v-if="compilationLayout.layout === 'compilation'"
+            class="badge"
+            style="background: var(--accent); color: white; font-size: 11px; padding: 2px 8px; border-radius: 4px;"
+          >COMPILATION</span>
+        </div>
+        <p class="text-muted text-sm mt-1">
+          <strong>Standard</strong> renders scene images full-frame as the base video — the sleep-story default.
+          <strong>Compilation</strong> uses a looping background (e.g. starfield) as the base and composites each chapter's icon as a foreground overlay — the BrainWise / listicle / explainer layout.
+        </p>
+        <div class="flex gap-2 mt-1">
+          <label class="checkbox-label" style="display: inline-flex; gap: 6px; align-items: center;">
+            <input type="radio" v-model="compilationLayout.layout" value="standard">
+            Standard (scene-clip base)
+          </label>
+          <label class="checkbox-label" style="display: inline-flex; gap: 6px; align-items: center;">
+            <input type="radio" v-model="compilationLayout.layout" value="compilation">
+            Compilation (looping bg + foreground overlays)
+          </label>
+        </div>
+
+        <div v-if="compilationLayout.layout === 'compilation'" class="mt-2" style="border-top: 1px solid var(--border); padding-top: 12px;">
+          <p class="text-muted text-xs">
+            <strong>Requires Audio Merge to have run</strong> on this episode — the per-chapter durations from
+            <code>audio_chapters.json</code> are what time-bound each foreground icon to its chapter narration.
+          </p>
+
+          <!-- Background plate picker -->
+          <div class="form-group mt-2">
+            <label>Background plate</label>
+            <span class="field-hint" style="display: block; margin-bottom: 4px;">
+              Looping video (e.g. starfield) or a static image. Drop sources into the project's
+              <code>backgrounds/</code> folder, then pick from the list.
+            </span>
+            <div class="flex gap-2" style="flex-wrap: wrap; align-items: center;">
+              <span v-if="compilationLayout.backgroundPlate.source_path" style="font-size: 12px; flex: 1; word-break: break-all;">
+                <strong>{{ compilationLayout.backgroundPlate.source_path.split('/').pop() }}</strong>
+              </span>
+              <span v-else class="text-muted" style="font-size: 12px; flex: 1;">
+                (none picked)
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm btn-secondary"
+                @click="(refreshBackgroundLibrary(), showBackgroundPicker = true)"
+              >+ Pick</button>
+              <button
+                type="button"
+                class="btn btn-sm btn-secondary"
+                title="Open the project's backgrounds/ folder so you can drop a video in"
+                @click="openBackgroundsFolder"
+              >📁 Open folder</button>
+            </div>
+          </div>
+
+          <!-- Foreground sizing + position -->
+          <div class="grid-3 mt-2">
+            <div class="form-group">
+              <label>Foreground scale ({{ Math.round(compilationLayout.foregroundDefaults.scale_pct * 100) }}% of width)</label>
+              <SliderWithNumber v-model="compilationLayout.foregroundDefaults.scale_pct" :min="0.1" :max="0.8" :step="0.05" :decimals="2" />
+            </div>
+            <div class="form-group">
+              <label>Position</label>
+              <select v-model="compilationLayout.foregroundDefaults.position" class="select">
+                <option value="center">Centered</option>
+                <option value="top-third">Top third</option>
+                <option value="bottom-third">Bottom third</option>
+                <option value="lower-right">Lower right</option>
+                <option value="lower-left">Lower left</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input
+                  type="checkbox"
+                  :checked="!!compilationLayout.foregroundDefaults.chroma_key"
+                  @change="compilationLayout.foregroundDefaults.chroma_key = ($event.target as HTMLInputElement).checked
+                    ? { color: '#FFFFFF', similarity: 0.15, blend: 0.10 }
+                    : null"
+                >
+                Chroma-key foreground bg
+              </label>
+              <span class="field-hint">On if your icon images have a solid background (white default). Off if they have native alpha.</span>
+            </div>
+          </div>
+
+          <!-- Chroma-key sub-controls -->
+          <div v-if="compilationLayout.foregroundDefaults.chroma_key" class="grid-3 mt-1">
+            <div class="form-group">
+              <label>Key color</label>
+              <div class="flex gap-2 items-center">
+                <input v-model="compilationLayout.foregroundDefaults.chroma_key.color" type="color" class="color-swatch-input" />
+                <input v-model="compilationLayout.foregroundDefaults.chroma_key.color" class="input input-sm input-w-100" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Similarity ({{ compilationLayout.foregroundDefaults.chroma_key.similarity.toFixed(2) }})</label>
+              <SliderWithNumber v-model="compilationLayout.foregroundDefaults.chroma_key.similarity" :min="0.01" :max="0.5" :step="0.01" :decimals="2" />
+            </div>
+            <div class="form-group">
+              <label>Edge blend ({{ compilationLayout.foregroundDefaults.chroma_key.blend.toFixed(2) }})</label>
+              <SliderWithNumber v-model="compilationLayout.foregroundDefaults.chroma_key.blend" :min="0.0" :max="0.5" :step="0.01" :decimals="2" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Background picker modal -->
+        <div
+          v-if="showBackgroundPicker"
+          class="modal-overlay"
+          @click.self="showBackgroundPicker = false"
+        >
+          <div class="modal-content" style="max-width: 600px;">
+            <div class="flex gap-2 items-center" style="margin-bottom: 12px;">
+              <h3 style="margin: 0; flex: 1;">Pick a background plate</h3>
+              <button type="button" class="btn btn-sm btn-secondary" @click="showBackgroundPicker = false">✕ Close</button>
+            </div>
+            <div v-if="bgLibraryLoading" class="text-muted text-sm">Scanning backgrounds/ folder…</div>
+            <div v-else-if="bgLibraryError" class="text-danger text-sm">{{ bgLibraryError }}</div>
+            <div v-else-if="!bgLibraryExists" class="text-muted text-sm">
+              No <code>backgrounds/</code> folder yet. Click <strong>📁 Open folder</strong> to create it
+              and drop your background video / image in.
+            </div>
+            <div v-else-if="!bgLibrary.length" class="text-muted text-sm">
+              <code>backgrounds/</code> folder is empty. Drop one of:
+              <ul style="margin: 6px 0 0 18px;">
+                <li><code>.mp4</code> / <code>.mov</code> / <code>.webm</code> — looping video (e.g. starfield, particles)</li>
+                <li><code>.png</code> / <code>.jpg</code> — static image</li>
+              </ul>
+              CC0 sources: Pixabay, Mixkit, Pexels.
+            </div>
+            <div v-else style="display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto;">
+              <button
+                v-for="f in bgLibrary"
+                :key="f.path"
+                type="button"
+                class="btn btn-secondary"
+                style="text-align: left; padding: 10px; display: flex; gap: 10px; align-items: center;"
+                @click="pickBackgroundPlate(f)"
+              >
+                <span style="font-size: 18px;">{{ f.kind === 'video' ? '🌌' : '🖼️' }}</span>
+                <span style="flex: 1;">
+                  <strong>{{ f.filename }}</strong>
+                  <br>
+                  <span class="text-muted text-xs">
+                    {{ f.kind }}{{ f.duration ? ` · ${f.duration.toFixed(1)}s loop` : '' }}
+                  </span>
+                </span>
+              </button>
+            </div>
+            <p class="text-muted text-xs mt-2" style="margin-bottom: 0;">
+              Source folder: <code>{{ bgLibraryDir }}</code>
+            </p>
+          </div>
+        </div>
+      </div>
+
       <!-- Logo Overlay (moved from old Step 2) -->
       <div class="settings-section mt-2">
         <div class="flex gap-2 items-center">
@@ -2606,6 +2773,73 @@ const overlays = reactive<{ enabled: boolean; layers: OverlayLayer[] }>({
   layers: [],
 })
 
+// ── Compilation video layout (Path C / v1.0.63+) ─────────────────────
+// Inverts the visual model: looping background plate becomes the base
+// video, scene images render as chapter-aligned foreground overlays.
+// Required when the channel produces listicle / explainer videos
+// (BrainWise-style "100 paradoxes explained") where each chapter is
+// an independent topic and visual continuity comes from the bg.
+type CompilationFgPosition = 'center' | 'top-third' | 'bottom-third' | 'lower-right' | 'lower-left'
+const compilationLayout = reactive<{
+  layout: 'standard' | 'compilation'
+  backgroundPlate: { source_path: string; loop: boolean; opacity: number }
+  foregroundDefaults: {
+    scale_pct: number
+    position: CompilationFgPosition
+    chroma_key: { color: string; similarity: number; blend: number } | null
+  }
+}>({
+  layout: 'standard',
+  backgroundPlate: { source_path: '', loop: true, opacity: 1 },
+  foregroundDefaults: {
+    scale_pct: 0.5,
+    position: 'center',
+    chroma_key: { color: '#FFFFFF', similarity: 0.15, blend: 0.10 },
+  },
+})
+
+// Backgrounds folder library — fetched on first open of the picker
+// modal. Same caching pattern as overlays + ambient libraries.
+const bgLibraryLoading = ref(false)
+const bgLibraryError = ref('')
+const bgLibrary = ref<Array<{ filename: string; path: string; ext: string; kind: 'video' | 'image'; duration?: number }>>([])
+const bgLibraryDir = ref('')
+const bgLibraryExists = ref(false)
+const showBackgroundPicker = ref(false)
+
+async function refreshBackgroundLibrary() {
+  bgLibraryLoading.value = true
+  bgLibraryError.value = ''
+  try {
+    const r = await $fetch<{
+      backgrounds: typeof bgLibrary.value
+      backgrounds_dir: string
+      exists: boolean
+    }>(`/api/projects/${slug.value}/video-editor/background-files`)
+    bgLibrary.value = r.backgrounds || []
+    bgLibraryDir.value = r.backgrounds_dir || ''
+    bgLibraryExists.value = !!r.exists
+  } catch (e: any) {
+    bgLibraryError.value = e?.data?.detail || e?.message || 'Could not scan backgrounds folder'
+  } finally {
+    bgLibraryLoading.value = false
+  }
+}
+
+async function openBackgroundsFolder() {
+  try {
+    await $fetch(`/api/projects/${slug.value}/video-editor/backgrounds/open-folder`, { method: 'POST' })
+    await refreshBackgroundLibrary()
+  } catch (e: any) {
+    bgLibraryError.value = e?.data?.detail || e?.message || 'Could not open backgrounds folder'
+  }
+}
+
+function pickBackgroundPlate(file: { path: string; filename: string }) {
+  compilationLayout.backgroundPlate.source_path = file.path
+  showBackgroundPicker.value = false
+}
+
 // Project's overlays/ folder contents — populated on tab open via the
 // /video-editor/overlay-files scanner. The "+ Add overlay" modal lists
 // these so the user picks a filename instead of pasting a path.
@@ -3227,6 +3461,16 @@ const effectsPresets = usePresets({
     overlays: { enabled: overlays.enabled, layers: overlays.layers.map(l => ({ ...l })) },
     exclude_intro_from_effects: excludeIntroFromEffects.value,
     align_visuals_to_chapters: alignVisualsToChapters.value,
+    compilation_layout: {
+      layout: compilationLayout.layout,
+      background_plate: { ...compilationLayout.backgroundPlate },
+      foreground_defaults: {
+        ...compilationLayout.foregroundDefaults,
+        chroma_key: compilationLayout.foregroundDefaults.chroma_key
+          ? { ...compilationLayout.foregroundDefaults.chroma_key }
+          : null,
+      },
+    },
     title_card: { ...titleCard },
     chapter_titles: { ...chapterTitles },
     outro_card: { ...outroCard },
@@ -3248,6 +3492,19 @@ const effectsPresets = usePresets({
     }
     if (typeof data.align_visuals_to_chapters === 'boolean') {
       alignVisualsToChapters.value = data.align_visuals_to_chapters
+    }
+    if (data.compilation_layout) {
+      const cl = data.compilation_layout
+      if (cl.layout === 'standard' || cl.layout === 'compilation') {
+        compilationLayout.layout = cl.layout
+      }
+      if (cl.background_plate) Object.assign(compilationLayout.backgroundPlate, cl.background_plate)
+      if (cl.foreground_defaults) {
+        Object.assign(compilationLayout.foregroundDefaults, cl.foreground_defaults)
+        compilationLayout.foregroundDefaults.chroma_key = cl.foreground_defaults.chroma_key
+          ? { ...cl.foreground_defaults.chroma_key }
+          : null
+      }
     }
     if (data.title_card) Object.assign(titleCard, data.title_card)
     if (data.chapter_titles) Object.assign(chapterTitles, data.chapter_titles)
@@ -4098,6 +4355,14 @@ const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo } = useVideoAss
   overlays,
   alignVisualsToChapters,
   sceneAssignmentSaved,
+  compilationLayout: {
+    layout: computed({
+      get: () => compilationLayout.layout,
+      set: (v: 'standard' | 'compilation') => { compilationLayout.layout = v },
+    }),
+    backgroundPlate: compilationLayout.backgroundPlate,
+    foregroundDefaults: compilationLayout.foregroundDefaults,
+  },
   titleCard, chapterTitles, outroCard, exportSettings,
   // generateVideo() needs these three plus post+confirmGeneration+videoGenerating
   // passed at call-time so the composable doesn't duplicate those imports.

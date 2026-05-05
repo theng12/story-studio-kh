@@ -37,6 +37,11 @@
   },
   "dmg": {
     "title": "Story Studio KH ${version}",
-    "artifactName": "${productName} ${version}-${arch}.${ext}"
+    "artifactName": "${productName} ${version}-${arch}.${ext}",
+    "contents": [
+      { "x": 130, "y": 220 },
+      { "x": 410, "y": 220, "type": "link", "path": "/Applications" },
+      { "x": 270, "y": 380, "type": "file", "path": "build/READ ME FIRST.txt" }
+    ]
   }
 }

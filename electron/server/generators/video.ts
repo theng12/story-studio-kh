@@ -33,6 +33,7 @@ import type {
   VideoTitleImageConfig, VideoSceneRecycling, VideoMusicConfig,
   VideoDurationConfig, VideoColorGrading, VideoVignetteConfig,
   VideoChromaKeyConfig, VideoOverlaysConfig, VideoOverlay, VideoBackgroundNoise, VideoFilmGrain, VideoLetterbox,
+  BackgroundPlate, ForegroundDefaults, ForegroundPosition,
   VideoSceneAnimation, VideoPostAudio,
 } from '../models/types.js'
 
@@ -843,6 +844,167 @@ export async function generateVideo(job: Job): Promise<void> {
       narrationFilePath = req.narration_path
     }
 
+    // ── Compilation video layout (Path C / v1.0.63+) ─────────────────────
+    // When the request opts into compilation mode, the standard scene-
+    // clip pipeline below is bypassed entirely. Instead we render a
+    // looping background plate as the base video and convert the per-
+    // scene image list into chapter-aligned foreground overlays. The
+    // final composition + rename + cleanup steps are duplicated inline
+    // here so the standard flow stays byte-identical for sleep-story
+    // projects (regression-safe).
+    if (req.video_layout === 'compilation') {
+      // Validation up front so we fail fast with a clear message.
+      if (!req.background_plate?.source_path) {
+        throw new Error(
+          'Compilation video_layout requires a background_plate.source_path. ' +
+          'Pick a looping background video (e.g. starfield) in Video Assembly settings.',
+        )
+      }
+      if (!existsSync(req.background_plate.source_path)) {
+        throw new Error(`Background plate file not found: ${req.background_plate.source_path}`)
+      }
+      if (!Array.isArray(req.chapter_durations) || req.chapter_durations.length === 0) {
+        throw new Error(
+          'Compilation mode requires chapter_durations from audio_chapters.json — ' +
+          'run Audio Merge first to generate the per-chapter duration sidecar.',
+        )
+      }
+      const totalRenderDuration = narrationDuration!
+      job.output_lines.push(
+        `Compilation mode ON · ${req.scenes.length} scene(s), ${req.chapter_durations.length} chapter(s), ${totalRenderDuration.toFixed(1)}s total`,
+      )
+
+      // 1. Build the looped background as the intermediate video.
+      const intermediateVideoPath = await prepareCompilationBackground(
+        req.background_plate, resW, resH, quality, tempDir, totalRenderDuration, job,
+      )
+
+      // 2. Auto-generate one foreground overlay per chapter, merge with
+      //    any user-provided decorative overlays (fireflies, frames…).
+      const fgDefaults: ForegroundDefaults = req.foreground_defaults || {
+        scale_pct: 0.5,
+        position: 'center',
+        chroma_key: { color: '#FFFFFF', similarity: 0.15, blend: 0.10 },
+      }
+      const audioGap = req.audio_gap ?? 0
+      const autoOverlays = buildCompilationOverlays(
+        req.scenes, req.chapter_durations, fgDefaults, audioGap, job,
+      )
+      const userOverlays = (req.overlays?.layers || [])
+      req.overlays = {
+        enabled: true,
+        layers: [...autoOverlays, ...userOverlays],
+      }
+
+      // 3. Premix audio (same helper the standard pipeline uses).
+      let musicFilePath: string | undefined
+      if (req.music?.enabled && req.music.files.length > 0) {
+        musicFilePath = await prepareMusicTrack(req.music, tempDir, job)
+      }
+      const premixedAudioPath = await premixAudio({
+        narrationPath: narrationFilePath,
+        narrationDuration: narrationDuration!,
+        narrationVolume: req.narration_volume ?? 1.0,
+        musicFilePath, musicConfig: req.music,
+        backgroundNoise: req.background_noise,
+        targetDuration: totalRenderDuration, tempDir, job,
+      })
+
+      // 4. Final composition + rename, mirroring the standard flow's
+      //    structure so the Promote-to-final + cache-invalidate paths
+      //    stay identical.
+      const compTimestamp = Date.now()
+      const compOutputFile = path.join(tempDir, `${code}_video_${compTimestamp}.${format}`)
+      let compEncodeOk = false
+      try {
+        await runFinalComposition({
+          videoInputPath: intermediateVideoPath, premixedAudioPath,
+          logo: req.logo,
+          targetDuration: totalRenderDuration, w: resW, h: resH, quality, format,
+          outputFile: compOutputFile,
+          colorGrading: req.color_grading,
+          vignette: req.vignette,
+          chromaKey: req.chroma_key,
+          overlays: req.overlays,
+          filmGrain: req.film_grain,
+          letterbox: req.letterbox,
+          subtitles: req.subtitles,
+          // Compilation has no intro/title/outro segments in v1, so the
+          // intro-exclusion gate is a no-op. Effects play through the
+          // entire bg-plate duration.
+          excludeIntroFromEffects: false,
+          preSceneDuration: 0,
+          postAudioStart: undefined,
+          encodingEffort: req.encoding_effort,
+          codec: req.codec,
+          job,
+        })
+        compEncodeOk = true
+      } finally {
+        if (!compEncodeOk) {
+          try {
+            await fs.rm(compOutputFile, { force: true })
+            job.output_lines.push(`Removed partial output: ${path.basename(compOutputFile)}`)
+          } catch { /* best-effort */ }
+        }
+      }
+
+      // Promote to final name — same external-root vs project-tree
+      // logic the standard flow uses below.
+      const compFinalName = `${code}_final_video.${format}`
+      const compProjectTreeFinalPath = path.join(videoDir, compFinalName)
+      let compFinalPath = compProjectTreeFinalPath
+      try {
+        const { ensureExternalFinalVideoDir } = await import('../services/external-video-store.js')
+        const externalDir = await ensureExternalFinalVideoDir(project_slug, code, titleHint || '')
+        if (externalDir) {
+          compFinalPath = path.join(externalDir, compFinalName)
+          job.output_lines.push(`External final-video root configured → ${compFinalPath}`)
+        }
+      } catch (e: any) {
+        job.output_lines.push(`External path resolve failed (${e?.message || e}); using project tree`)
+      }
+      let compResolvedPath = compOutputFile
+      try {
+        await fs.rename(compOutputFile, compFinalPath)
+        compResolvedPath = compFinalPath
+        job.output_lines.push(`Renamed to: ${compFinalName}`)
+      } catch (e: any) {
+        if (e?.code === 'EXDEV' && compFinalPath !== compProjectTreeFinalPath) {
+          try {
+            await fs.copyFile(compOutputFile, compFinalPath)
+            await fs.rm(compOutputFile, { force: true })
+            compResolvedPath = compFinalPath
+            job.output_lines.push(`Copied to external (cross-device): ${compFinalName}`)
+          } catch (copyErr: any) {
+            job.output_lines.push(`Warning: external copy failed (${copyErr.message || copyErr}); falling back to project tree`)
+            try {
+              await fs.rename(compOutputFile, compProjectTreeFinalPath)
+              compResolvedPath = compProjectTreeFinalPath
+              job.output_lines.push(`Renamed to: ${compFinalName} (project tree fallback)`)
+            } catch (fallbackErr: any) {
+              job.output_lines.push(`Warning: final rename skipped (${fallbackErr.message || 'unknown'})`)
+            }
+          }
+        } else {
+          job.output_lines.push(`Warning: final rename skipped (${e.message || 'unknown error'})`)
+        }
+      }
+
+      job.progress = 100
+      job.output_lines.push(`Video saved: ${path.basename(compResolvedPath)}`)
+      job.output_lines.push(`Full path: ${compResolvedPath}`)
+      job.output_dir = path.dirname(compResolvedPath)
+
+      try {
+        const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+        episodeStatusCache.invalidate(project_slug, code)
+      } catch { /* best-effort */ }
+
+      succeeded = true
+      return  // skip the standard scene-clip pipeline below
+    }
+
     // 5. Resolve scene animation — defaults to 'none' when the request
     // omits it. The breathe/parallax knobs are only consulted by the
     // animation pipeline when type !== 'none', so the values below are
@@ -1288,6 +1450,159 @@ export async function generateVideo(job: Job): Promise<void> {
       }
     }
   }
+}
+
+// ── Compilation-mode helpers (Path C — v1.0.63+) ─────────────────────────
+
+/**
+ * Render a looped background-plate clip that fills the full target
+ * duration. Used as the base video in compilation mode (BrainWise-style
+ * listicle / explainer channels) where the visual continuity comes
+ * from a starfield / atmospheric loop and per-chapter foreground icons
+ * are composited on top via the auto-generated overlay layers.
+ *
+ * Static images vs videos: ffmpeg uses different loop flags. Detect by
+ * extension and apply the right one — `-loop 1` for stills,
+ * `-stream_loop -1` for videos. Result is always re-encoded to libx264
+ * at the canvas resolution + project fps so downstream filter graphs
+ * have predictable input dimensions/timestamps.
+ */
+async function prepareCompilationBackground(
+  plate: BackgroundPlate,
+  w: number,
+  h: number,
+  quality: { crf: number; preset: string; fps: number },
+  tempDir: string,
+  totalDuration: number,
+  job: Job,
+): Promise<string> {
+  const outputPath = path.join(tempDir, 'compilation_background.mp4')
+  const isImage = /\.(png|jpe?g|gif|bmp|webp|tiff?)$/i.test(plate.source_path)
+  job.output_lines.push(
+    `Compilation: ${isImage ? 'looping still' : 'looping video'} background ` +
+    `(${path.basename(plate.source_path)}) → ${totalDuration.toFixed(1)}s @ ${w}×${h} ${quality.fps}fps`,
+  )
+
+  const args: string[] = ['-y']
+  if (isImage) {
+    // Stills: -loop 1 + -t target. Frame rate is provided by the
+    // output -r flag; ffmpeg synthesises a stream of frames from the
+    // single image.
+    args.push('-loop', '1', '-i', plate.source_path)
+  } else {
+    // Videos: -stream_loop -1 wraps the input infinitely; -t below
+    // caps the output. We accept the small perf cost of reading the
+    // file repeatedly because users typically supply a 10-30s loop
+    // and a 1h+ episode would otherwise need a very long source.
+    args.push('-stream_loop', '-1', '-i', plate.source_path)
+  }
+
+  args.push(
+    '-t', totalDuration.toString(),
+    // scale=force_aspect_ratio=decrease,pad=… letterboxes/pillarboxes
+    // sources that don't match canvas aspect — keeps the bg crisp
+    // without distorting it. fps + format normalise the stream so the
+    // downstream concat / filter passes don't trip on mismatched
+    // pixel formats.
+    '-vf', `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black,fps=${quality.fps},format=yuv420p`,
+    '-c:v', 'libx264',
+    // Pre-render speed — the FINAL encode at runFinalComposition uses
+    // the user's chosen preset/crf. This is just an intermediate.
+    '-preset', 'ultrafast',
+    '-crf', '23',
+    '-pix_fmt', 'yuv420p',
+    // Match standard pipeline's color tagging (see prepareSceneClips
+    // commentary) so the concat into the final filter graph doesn't
+    // produce mixed bt709/unspecified streams.
+    '-color_primaries', 'bt709',
+    '-color_trc', 'bt709',
+    '-colorspace', 'bt709',
+    '-an',
+    outputPath,
+  )
+
+  await runFfmpeg(args)
+
+  try {
+    const info = await assertValidMedia(outputPath, {
+      label: 'compilation_background.mp4',
+      requireVideo: true,
+      minDurationSec: 1,
+    })
+    job.output_lines.push(`Compilation background ready · ${summarizeMedia(info)}`)
+  } catch (e: any) {
+    job.output_lines.push(`Compilation background validation failed: ${e.message}`)
+    throw e
+  }
+  return outputPath
+}
+
+/**
+ * Generate one foreground overlay per chapter from the scene image
+ * list + chapter audio durations. Each overlay is gated to its
+ * chapter's time range (`[start_s, start_s + duration_s + gap]`) so
+ * chapter N narration plays with chapter N foreground. Carries the
+ * project's foreground_defaults (scale_pct + position_anchor +
+ * chroma_key) onto every overlay so the layout stays consistent
+ * across chapters without per-scene tuning.
+ *
+ * Mismatched counts (more scenes than chapters or vice versa) are
+ * warned but tolerated — extras are dropped, missing chapters render
+ * with no foreground.
+ */
+function buildCompilationOverlays(
+  scenes: Array<{ image_path: string }>,
+  chapterDurations: Array<{ slug: string; duration_s: number }>,
+  fgDefaults: ForegroundDefaults,
+  audioGap: number,
+  job: Job,
+): VideoOverlay[] {
+  const sceneCount = Math.min(scenes.length, chapterDurations.length)
+  if (sceneCount === 0) {
+    job.output_lines.push(
+      `Compilation: no scenes/chapters to align (scenes=${scenes.length}, chapters=${chapterDurations.length}). ` +
+      `Background plate will play with no foreground overlays.`,
+    )
+    return []
+  }
+  if (scenes.length !== chapterDurations.length) {
+    job.output_lines.push(
+      `Compilation: ${scenes.length} scene(s) vs ${chapterDurations.length} chapter(s) — ` +
+      `using positional pairing for the first ${sceneCount}, dropping any extras.`,
+    )
+  }
+
+  const overlays: VideoOverlay[] = []
+  let cumulativeOffset = 0
+  for (let i = 0; i < sceneCount; i++) {
+    const scene = scenes[i]!
+    const chapter = chapterDurations[i]!
+    const isLast = i === sceneCount - 1
+    const startS = cumulativeOffset
+    // Extend each foreground through the silent gap that follows it
+    // so there's never a "no foreground" beat between chapters. Last
+    // chapter has no trailing gap.
+    const endS = cumulativeOffset + chapter.duration_s + (isLast ? 0 : audioGap)
+    overlays.push({
+      id: `compilation-scene-${i + 1}`,
+      enabled: true,
+      source_path: scene.image_path,
+      chroma_key: fgDefaults.chroma_key
+        ? { color: fgDefaults.chroma_key.color, similarity: fgDefaults.chroma_key.similarity, blend: fgDefaults.chroma_key.blend }
+        : null,
+      opacity: 1,
+      scale_pct: fgDefaults.scale_pct,
+      position_anchor: fgDefaults.position,
+      time_range: { start_s: startS, end_s: endS },
+      loop: false,
+    })
+    cumulativeOffset = endS
+  }
+  job.output_lines.push(
+    `Compilation: ${overlays.length} foreground overlay(s) generated · ` +
+    `total ${cumulativeOffset.toFixed(1)}s coverage`,
+  )
+  return overlays
 }
 
 // ── Prepare Scene Clips ───────────────────────────────────────────────────
@@ -2590,16 +2905,29 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     if (inIdx < 0) continue   // file missing — skipped at availability check
 
     // Build per-layer scaled/keyed source label.
-    const scaleMode = layer.scale || 'cover'
     let scaleExpr = ''
-    if (scaleMode === 'cover') {
-      // Fill canvas, crop overflow. Preserves aspect ratio.
-      scaleExpr = `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}`
-    } else if (scaleMode === 'contain') {
-      // Fit inside canvas, transparent letterbox. Useful for frame mattes.
-      scaleExpr = `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black@0`
+    let scaledW = -1   // -1 = unknown (only known when scale_pct is used)
+    if (typeof layer.scale_pct === 'number' && layer.scale_pct > 0) {
+      // Percentage-of-canvas-width scale (v1.0.63+, compilation foregrounds).
+      // Height auto via `-1` to preserve aspect ratio. Even pixel rounding so
+      // yuv420p subsampling doesn't reject the chain.
+      const targetW = Math.max(2, Math.round(w * Math.min(0.95, layer.scale_pct)))
+      const evenW = targetW - (targetW % 2)
+      scaleExpr = `scale=${evenW}:-2`
+      scaledW = evenW
+    } else {
+      const scaleMode = layer.scale || 'cover'
+      if (scaleMode === 'cover') {
+        // Fill canvas, crop overflow. Preserves aspect ratio.
+        scaleExpr = `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}`
+        scaledW = w
+      } else if (scaleMode === 'contain') {
+        // Fit inside canvas, transparent letterbox. Useful for frame mattes.
+        scaleExpr = `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black@0`
+        scaledW = w
+      }
+      // 'native' = no scale; layer composites at its source dimensions.
     }
-    // 'native' = no scale; layer composites at its source dimensions.
 
     const parts: string[] = []
     if (scaleExpr) parts.push(scaleExpr)
@@ -2623,8 +2951,34 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
 
     // Composite onto running base. Compose per-layer time range with
     // the global effects gate (intro/post-audio). The two are AND-ed.
-    const x = layer.position?.x ?? '0'
-    const y = layer.position?.y ?? '0'
+    //
+    // position_anchor (v1.0.63+) computes x/y from a named region —
+    // `(W-w)/2` etc — using FFmpeg overlay-filter shorthands that the
+    // engine resolves at draw time against the actual source size.
+    // Falls back to `position.x` / `position.y` literals when no
+    // anchor is set.
+    let x = layer.position?.x ?? '0'
+    let y = layer.position?.y ?? '0'
+    if (layer.position_anchor) {
+      const margin = Math.round(h * 0.04)   // ~4% inset for edge-anchored placements
+      switch (layer.position_anchor) {
+        case 'center':
+          x = '(W-w)/2'; y = '(H-h)/2'
+          break
+        case 'top-third':
+          x = '(W-w)/2'; y = `(H/3-h/2)`
+          break
+        case 'bottom-third':
+          x = '(W-w)/2'; y = `(2*H/3-h/2)`
+          break
+        case 'lower-right':
+          x = `W-w-${margin}`; y = `H-h-${margin}`
+          break
+        case 'lower-left':
+          x = `${margin}`; y = `H-h-${margin}`
+          break
+      }
+    }
     const enableExprs: string[] = []
     if (gateEnable) {
       // Existing gateEnable is `:enable='between(t,a,b)'` — strip wrapper

@@ -105,6 +105,12 @@ export interface VideoAssemblyIoState {
    *  explicit slugs to partition instead of even-split. Empty/missing
    *  → backend falls back to positional even-split. */
   sceneAssignmentSaved?: Ref<Record<number, string>>
+  /** Compilation video layout (v1.0.63+ / Path C). Reactive bag holding
+   *  layout mode + background plate path + foreground defaults. When
+   *  `videoLayout.value === 'compilation'`, the payload includes the
+   *  compilation-mode fields and the backend takes the inverted
+   *  base-bg / overlay-foreground render path. */
+  compilationLayout?: any
   titleCard: any
   chapterTitles: any
   outroCard: any
@@ -358,6 +364,29 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
 
     payload.exclude_intro_from_effects = s.excludeIntroFromEffects.value
     if (s.alignVisualsToChapters?.value) payload.align_visuals_to_chapters = true
+
+    // Compilation mode payload (v1.0.63+). Only emits the new fields
+    // when the user explicitly opted into compilation layout — the
+    // standard sleep-story path stays byte-identical.
+    const cl = s.compilationLayout
+    if (cl?.layout?.value === 'compilation') {
+      payload.video_layout = 'compilation'
+      if (cl.backgroundPlate?.source_path) {
+        payload.background_plate = {
+          enabled: true,
+          source_path: cl.backgroundPlate.source_path,
+          loop: cl.backgroundPlate.loop !== false,
+          opacity: cl.backgroundPlate.opacity ?? 1,
+        }
+      }
+      payload.foreground_defaults = {
+        scale_pct: cl.foregroundDefaults?.scale_pct ?? 0.5,
+        position: cl.foregroundDefaults?.position ?? 'center',
+        chroma_key: cl.foregroundDefaults?.chroma_key
+          ? { ...cl.foregroundDefaults.chroma_key }
+          : null,
+      }
+    }
 
     if (s.subtitles?.enabled && s.subtitles?.srt_path) {
       payload.subtitles = {

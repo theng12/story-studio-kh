@@ -1366,8 +1366,18 @@ export interface VideoOverlay {
   opacity?: number
   /** How to fit the source into the output canvas. Default 'cover' (fills frame). */
   scale?: 'cover' | 'contain' | 'native'
+  /** Percentage-of-canvas-width scaling (v1.0.63+). When set, takes
+   *  precedence over `scale`. Height is computed to preserve aspect
+   *  ratio (`-1` in the FFmpeg scale filter). Used by compilation-mode
+   *  scene foregrounds; not surfaced in the manual overlay UI. */
+  scale_pct?: number
   /** FFmpeg overlay-filter `x:y` coordinates as expressions. Default '0:0'. */
   position?: { x: string; y: string }
+  /** Named position anchor (v1.0.63+). When set, overrides `position`
+   *  with auto-computed centred/anchored coordinates that account for
+   *  the (potentially scaled) source dimensions. Used by compilation-
+   *  mode foregrounds. */
+  position_anchor?: ForegroundPosition
   /** Optional time-range. Combined with the global effects gate (intro/outro). */
   time_range?: { start_s: number; end_s: number | null }
   /** When true (default), short clips repeat to fill the timeline (`-stream_loop -1`). */
@@ -1386,6 +1396,50 @@ export interface VideoBackgroundNoise {
   volume: number          // 0-1, default 0.15
   fade_in: number
   fade_out: number
+}
+
+/**
+ * Compilation video layout (v1.0.63+ / Path C, BrainWise channel mode).
+ *
+ * Two layouts now coexist in the pipeline:
+ *
+ *  - 'standard' — base video built from scene clips concatenated together.
+ *    Each scene fills the full canvas, optionally with Ken Burns / fade /
+ *    chapter-title drawtext on top. The original sleep-story model.
+ *
+ *  - 'compilation' — base video is a looping background plate (typically
+ *    a starfield .mp4). Scene images render as time-bound overlays
+ *    centred (or anchored) inside the frame, sized to a percentage of
+ *    canvas width. Each chapter gets one scene image; its overlay is
+ *    enabled only during that chapter's narration time-range. Suitable
+ *    for listicle / explainer / "100 X explained" channels where each
+ *    topic is independent and the visual continuity comes from the bg.
+ *
+ * Sleep stories stay 'standard' — the byte-identical regression check
+ * for that path is part of Chunk A's verification.
+ */
+export type VideoLayout = 'standard' | 'compilation'
+
+export interface BackgroundPlate {
+  enabled: boolean
+  /** Absolute path to a video or image. Videos loop via -stream_loop -1
+   *  to fill the total duration. Images are still-rendered. */
+  source_path: string
+  loop: boolean
+  opacity: number       // 0-1, default 1
+}
+
+export type ForegroundPosition = 'center' | 'top-third' | 'bottom-third' | 'lower-right' | 'lower-left'
+
+export interface ForegroundDefaults {
+  /** Foreground width as a fraction of the canvas width. Height is
+   *  scaled to preserve aspect ratio. 0.1–0.8; default 0.5 (half frame). */
+  scale_pct: number
+  position: ForegroundPosition
+  /** Optional chroma-key for foregrounds with a solid background.
+   *  Default: white-key at 0.15 similarity / 0.10 blend. Set to null
+   *  if the foreground sources have a real alpha channel. */
+  chroma_key?: { color: string; similarity: number; blend: number } | null
 }
 
 // Multi-track ambient layering (v1.0.55+). Each entry is one ambient
@@ -1533,6 +1587,16 @@ export interface GenerateVideoRequest {
    *  `chroma_key` field, which is still accepted for one release for
    *  backward compatibility. */
   overlays?: VideoOverlaysConfig
+  /** Compilation-mode video layout (v1.0.63+). When 'compilation', the
+   *  base video is a looping background plate and scene images render
+   *  as chapter-aligned foreground overlays. Default 'standard'
+   *  (legacy scene-clip pipeline, byte-identical). */
+  video_layout?: VideoLayout
+  /** Looping background plate for compilation mode. Required when
+   *  video_layout === 'compilation'. */
+  background_plate?: BackgroundPlate
+  /** Foreground sizing + positioning defaults for compilation mode. */
+  foreground_defaults?: ForegroundDefaults
   /** When true, scene clips are partitioned across chapters and each
    *  chapter's assigned scenes cycle within its own audio duration —
    *  i.e. chapter N's narration plays with chapter N's scene images.
