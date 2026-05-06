@@ -250,6 +250,48 @@
         </div>
       </div>
 
+      <!-- Format context — read-only "what kind of script is this" hint.
+           Replaces the deleted Quick Presets row (which pinned hardcoded
+           sleep-story numbers across all formats). Pulls name + summary +
+           recommended ranges from the project's effective format JSON,
+           so each channel sees its own context (sleep-story shows the
+           dreamy 6-14 chapter envelope, listicle shows 3-20, etc.). The
+           range chips light up amber when the user's current input falls
+           outside the recommended envelope — purely informational, not a
+           block. Hidden when format metadata hasn't loaded yet. -->
+      <div v-if="formatContext" class="format-context-card">
+        <div class="format-context-header">
+          <span class="format-context-icon" aria-hidden="true">ⓘ</span>
+          <span class="format-context-name">{{ formatContext.name }}</span>
+          <span v-if="formatContext.summary" class="format-context-summary">— {{ formatContext.summary }}</span>
+        </div>
+        <div class="format-context-recs">
+          <span v-if="formatContext.chapterCountRange" :class="['rec-chip', { 'rec-chip-warn': chaptersOutOfRange }]"
+            :title="chaptersOutOfRange || 'Your chapter count is within the format’s typical envelope.'">
+            <span class="rec-chip-label">Chapters</span>
+            <strong>{{ formatContext.chapterCountRange[0] }}–{{ formatContext.chapterCountRange[1] }}</strong>
+            <span class="rec-chip-current">you: {{ form.chapters }}</span>
+          </span>
+          <span v-if="formatContext.lengthMinutesRange" :class="['rec-chip', { 'rec-chip-warn': lengthOutOfRange }]"
+            :title="lengthOutOfRange || 'Your duration is within the format’s typical envelope.'">
+            <span class="rec-chip-label">Duration</span>
+            <strong>{{ formatContext.lengthMinutesRange[0] }}–{{ formatContext.lengthMinutesRange[1] }} min</strong>
+            <span class="rec-chip-current">you: {{ form.length }} min</span>
+          </span>
+          <span v-if="recommendedWordsPerChapter" class="rec-chip"
+            :title="`Computed from this format's default ${formatContext.defaultLengthMinutes}-minute / ${formatContext.defaultChapterCount}-chapter shape at ~${wordsPerMinute} w/min.`">
+            <span class="rec-chip-label">Typical wpc</span>
+            <strong>~{{ recommendedWordsPerChapter.toLocaleString() }}</strong>
+            <span class="rec-chip-current">you: {{ form.words_per_chapter.toLocaleString() }}</span>
+          </span>
+        </div>
+        <div v-if="chaptersOutOfRange || lengthOutOfRange" class="format-context-warn">
+          <span v-if="chaptersOutOfRange">⚠ {{ chaptersOutOfRange }}.</span>
+          <span v-if="lengthOutOfRange">⚠ {{ lengthOutOfRange }}.</span>
+          <span class="text-muted">Generation will still proceed — this is just a hint.</span>
+        </div>
+      </div>
+
       <!-- Word count section — edit any field; others recalc from your primary input -->
       <div class="word-count-section">
         <p class="text-muted text-sm mb-1">
@@ -484,6 +526,68 @@ watch(project, (p) => {
   if (p) projectFormatId.value = (p as any).format_id || 'sleep-story'
 }, { immediate: true })
 
+/**
+ * Format context exposed to the UI as a small read-only "what kind of
+ * script is this" hint card. Populated by applyScriptFormatDefaultsIfNoPreset
+ * after /effective-format resolves. The panel below the word-count inputs
+ * reads these values to:
+ *   - name + summary line: tell the user what flavour of script this is
+ *   - recommended ranges:  show the format's own chapter / length / wpc
+ *                          envelope so they can sanity-check overrides
+ *   - delta indicator:     a subtle chip when the user's current numbers
+ *                          fall outside the recommended range (still lets
+ *                          them generate — it's a hint, not a block)
+ */
+interface FormatContext {
+  id: string
+  name: string
+  summary: string                    // first sentence of description
+  defaultChapterCount: number | null
+  defaultLengthMinutes: number | null
+  chapterCountRange: [number, number] | null
+  lengthMinutesRange: [number, number] | null
+}
+const formatContext = ref<FormatContext | null>(null)
+
+// First sentence (or first 160 chars, whichever is shorter) — formats ship
+// long marketing-flavoured descriptions; we want a one-line summary.
+function summariseDescription(desc: string): string {
+  if (!desc) return ''
+  const trimmed = desc.trim()
+  const sentenceEnd = trimmed.search(/[.!?](\s|$)/)
+  const firstSentence = sentenceEnd > 0 ? trimmed.slice(0, sentenceEnd + 1) : trimmed
+  return firstSentence.length > 200 ? firstSentence.slice(0, 197) + '…' : firstSentence
+}
+
+// Recommended words/chapter at the format's own default length + chapter
+// count. Shown alongside the user's current wpc so they can see at a
+// glance whether they've drifted from "what this format normally does."
+const recommendedWordsPerChapter = computed(() => {
+  const fc = formatContext.value
+  if (!fc?.defaultChapterCount || !fc?.defaultLengthMinutes) return null
+  if (fc.defaultChapterCount <= 0) return null
+  return Math.round((fc.defaultLengthMinutes * wordsPerMinute) / fc.defaultChapterCount)
+})
+
+// Out-of-range checks. Each returns either null (in range / no data) or
+// a short human-readable note explaining the deviation.
+const chaptersOutOfRange = computed<string | null>(() => {
+  const range = formatContext.value?.chapterCountRange
+  if (!range || form.chapters <= 0) return null
+  const [lo, hi] = range
+  if (form.chapters < lo) return `${form.chapters} is below this format's typical range (${lo}–${hi})`
+  if (form.chapters > hi) return `${form.chapters} is above this format's typical range (${lo}–${hi})`
+  return null
+})
+const lengthOutOfRange = computed<string | null>(() => {
+  const range = formatContext.value?.lengthMinutesRange
+  if (!range || form.length <= 0) return null
+  const [lo, hi] = range
+  if (form.length < lo) return `${form.length} min is below this format's typical range (${lo}–${hi})`
+  if (form.length > hi) return `${form.length} min is above this format's typical range (${lo}–${hi})`
+  return null
+})
+
 // Sync style description when style changes (must be after form definition)
 watch(() => form.style, (s) => {
   const desc = STYLE_DESCRIPTIONS[s]
@@ -602,6 +706,29 @@ async function applyScriptFormatDefaultsIfNoPreset() {
     // flash 'custom' when the format default happens to match a standard
     // value (15/20/30/45/60/90).
     durationSelect.value = STANDARD_DURATIONS.has(form.length) ? String(form.length) : 'custom'
+
+    // Cache the format metadata for the read-only context panel below the
+    // word-count inputs. Pulled from the same /effective-format payload —
+    // no second round-trip. Range tuples are coerced; we fall back to null
+    // when a field is malformed so the UI hides the corresponding chip
+    // instead of rendering "0–0".
+    const ccRange = Array.isArray(sf.chapterCountRange) && sf.chapterCountRange.length === 2
+      && typeof sf.chapterCountRange[0] === 'number' && typeof sf.chapterCountRange[1] === 'number'
+      ? [sf.chapterCountRange[0], sf.chapterCountRange[1]] as [number, number]
+      : null
+    const lmRange = Array.isArray(sf.lengthMinutesRange) && sf.lengthMinutesRange.length === 2
+      && typeof sf.lengthMinutesRange[0] === 'number' && typeof sf.lengthMinutesRange[1] === 'number'
+      ? [sf.lengthMinutesRange[0], sf.lengthMinutesRange[1]] as [number, number]
+      : null
+    formatContext.value = {
+      id: typeof f.id === 'string' ? f.id : 'unknown',
+      name: typeof f.name === 'string' ? f.name : 'Format',
+      summary: summariseDescription(typeof f.description === 'string' ? f.description : ''),
+      defaultChapterCount: typeof sf.defaultChapterCount === 'number' ? sf.defaultChapterCount : null,
+      defaultLengthMinutes: typeof sf.defaultLengthMinutes === 'number' ? sf.defaultLengthMinutes : null,
+      chapterCountRange: ccRange,
+      lengthMinutesRange: lmRange,
+    }
   } catch {
     // Format endpoint unavailable / project missing — keep the form's
     // hardcoded defaults. Non-fatal.
@@ -1206,6 +1333,95 @@ async function generateAll() {
   border-radius: var(--radius-md);
   padding: 16px;
   margin-top: 8px;
+}
+
+/* Format context — read-only "what kind of script is this" hint card.
+   Sits above the word-count inputs so the user sees the format's typical
+   envelope (chapter range, duration range, recommended wpc) before they
+   override anything. Range chips light up amber via .rec-chip-warn when
+   the user's current value is outside the recommended range. */
+.format-context-card {
+  margin-top: 8px;
+  padding: 14px 16px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--accent);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.format-context-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.format-context-icon {
+  color: var(--accent);
+  font-size: 14px;
+  line-height: 1;
+}
+.format-context-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.format-context-summary {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.format-context-recs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rec-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: help;
+  transition: border-color 0.15s, background 0.15s;
+}
+.rec-chip strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.rec-chip-label {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-size: 10.5px;
+  letter-spacing: 0.4px;
+}
+.rec-chip-current {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.rec-chip-warn {
+  border-color: rgba(255, 180, 0, 0.55);
+  background: rgba(255, 180, 0, 0.10);
+}
+.rec-chip-warn .rec-chip-current {
+  color: rgb(200, 140, 0);
+  font-weight: 500;
+}
+.format-context-warn {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.format-context-warn .text-muted {
+  font-style: italic;
 }
 
 .word-summary {
