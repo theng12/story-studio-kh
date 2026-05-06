@@ -172,22 +172,47 @@ async function regenerate(num: number) {
   }
 }
 
-// When the chapter-only job lands, refresh the list (mtime + word count
-// change). Only watch for jobs of the right type for this episode.
-watch(jobs, (list: readonly any[]) => {
-  for (const job of list) {
-    if (job.type !== 'chapter-only') continue
+// When a chapter-only OR expand_chapters job lands for this episode,
+// refresh the list (mtime + word count change). Mounted alongside
+// OutlineReviewPanel so cancel + chapter completion both write here.
+//
+// IMPORTANT: deep-watching the whole jobs array used to fire on every
+// output_lines push from a running job — combined with the outline panel's
+// own deep watch, that locked the UI thread during chunked expansion.
+// We now watch a derived status signal so the callback fires once per
+// terminal transition, not once per progress update.
+const relevantJobsSignal = computed(() =>
+  jobs.value
+    .filter(j =>
+      j.episode_id === props.episodeId &&
+      (j.type === 'chapter-only' || j.type === 'expand_chapters'),
+    )
+    .map(j => `${j.job_id}:${j.status}`)
+    .sort()
+    .join('|'),
+)
+watch(relevantJobsSignal, () => {
+  // Cheap path: just walk the current jobs and act on terminal states.
+  // The signal-based watch only fires when something transitions, so
+  // this is at most a handful of iterations per real event.
+  for (const job of jobs.value) {
     if (job.episode_id !== props.episodeId) continue
-    if (job.status === 'done' && regenInFlight.value !== null) {
-      regenInFlight.value = null
+    const isRelevant = job.type === 'chapter-only' || job.type === 'expand_chapters'
+    if (!isRelevant) continue
+    if (job.status === 'done') {
+      // chapter-only fires the in-flight tracker reset; expand_chapters
+      // refresh applies regardless of whether a per-chapter regen was
+      // running.
+      if (job.type === 'chapter-only' && regenInFlight.value !== null) {
+        regenInFlight.value = null
+      }
       void refresh()
-    }
-    if (job.status === 'error' && regenInFlight.value !== null) {
+    } else if (job.status === 'error' && job.type === 'chapter-only' && regenInFlight.value !== null) {
       regenInFlight.value = null
       showError('Chapter regenerate failed — see Jobs tab.')
     }
   }
-}, { deep: true })
+})
 
 watch(() => [props.episodeId, props.title, props.refreshKey], () => {
   // Clear per-row word overrides on episode switch — the previous

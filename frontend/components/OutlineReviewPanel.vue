@@ -436,15 +436,39 @@ watch(() => [props.episodeId, props.title, props.refreshKey], () => { void loadO
 // Auto-refresh when an outline_only or expand_chapters job for THIS
 // episode reaches a terminal state — the sidecar may have changed
 // (new outline, new chapters_done).
-watch(jobs, (list: readonly any[]) => {
-  for (const job of list) {
-    if (job.episode_id !== props.episodeId) continue
-    if (job.type !== 'outline_only' && job.type !== 'expand_chapters') continue
-    if (job.status === 'done') {
-      void loadOutline()
-    }
+//
+// IMPORTANT: deep-watching the whole `jobs` array makes the watcher fire
+// on every output_lines push from a running expansion job — easily
+// hundreds of times per second across a multi-batch listicle expansion.
+// Combined with this panel rendering 50+ editable rows, it locked the
+// UI thread (user couldn't navigate to the Jobs tab during expand).
+//
+// Fix: derive a tiny string signal of "relevant job statuses" and watch
+// THAT instead. The signal only changes when a relevant job transitions
+// states (queued → running → done/error/cancelled), so the watcher fires
+// once per transition, not once per output line.
+const relevantJobsSignal = computed(() =>
+  jobs.value
+    .filter(j =>
+      j.episode_id === props.episodeId &&
+      (j.type === 'outline_only' || j.type === 'expand_chapters'),
+    )
+    .map(j => `${j.job_id}:${j.status}`)
+    .sort()
+    .join('|'),
+)
+watch(relevantJobsSignal, (next, prev) => {
+  if (next === prev) return
+  // Reload only when something just transitioned to 'done' (or back from
+  // an in-flight state). The signal changes on any transition, but
+  // queued → running doesn't need a sidecar refresh — only the terminal
+  // ones do.
+  const prevHasDone = (prev || '').includes(':done')
+  const nextHasDone = next.includes(':done')
+  if (nextHasDone && !prevHasDone) {
+    void loadOutline()
   }
-}, { deep: true })
+})
 
 onUnmounted(() => {
   if (autosaveTimer) clearTimeout(autosaveTimer)

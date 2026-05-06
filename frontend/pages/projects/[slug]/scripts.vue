@@ -13,37 +13,18 @@
       loading-label="Queuing…"
       :generate-loading="submitting"
       :generate-disabled="!canSubmit"
-      :generate-status="generateAllStatusText || (scriptGenerating ? `Building outline for ${form.episode_id}…` : '')"
+      :generate-status="scriptGenerating ? `Building outline for ${form.episode_id}…` : ''"
       @generate="submitOutline"
       @episode-selected="onEpisodeSelected"
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
       @preset-deleted="success('Preset deleted')"
-    >
-      <!-- Three-stage chained run for power users: outline → expand → intro.
-           Auto-approves the outline so there's no human gate; equivalent
-           to the legacy one-shot path with the introduction tacked on.
-           If any stage fails, the chain stops. -->
-      <template #actions>
-        <button
-          class="btn btn-primary"
-          :disabled="!canSubmit || submitting || generateAllStep !== 'idle' && generateAllStep !== 'done' && generateAllStep !== 'failed'"
-          :title="!form.episode_id ? 'Pick an episode first' : 'Outline → Expand all → Introduction. Skips review.'"
-          @click="generateAll"
-        >
-          <LoadingSpinner v-if="generateAllStep === 'outline' || generateAllStep === 'expand' || generateAllStep === 'intro'" size="sm" />
-          {{ generateAllStep === 'outline' ? 'Step 1/3: Outline…'
-             : generateAllStep === 'expand' ? 'Step 2/3: Chapters…'
-             : generateAllStep === 'intro' ? 'Step 3/3: Introduction…'
-             : '⚡ Generate All (Outline + Chapters + Intro)' }}
-        </button>
-      </template>
-    </TopActionBar>
+    />
 
     <p class="text-muted mt-1 mb-2">
       Generate narration scripts in two phases: <strong>Generate Outline</strong> first, review and edit topics in the
-      panel below, then <strong>Expand</strong> the chapters you want. Use
-      <strong>⚡ Generate All</strong> to skip review and run outline → chapters → introduction back-to-back.
+      panel below, then <strong>Expand</strong> the chapters you want. The <strong>Generate Introduction</strong>
+      button below unlocks once the script chapters are on disk — the introduction needs the chapters as context.
     </p>
 
     <div class="card mt-3">
@@ -1212,32 +1193,6 @@ async function submitOutline(opts: { auto_approve?: boolean } = {}): Promise<boo
   }
 }
 
-async function submitExpandAll(): Promise<boolean> {
-  // Headless expansion path used by generateAll(). Auto-approves whatever
-  // outline is on disk and expands every pending chapter. Direct user
-  // expansion goes through OutlineReviewPanel's "Expand all" button.
-  submitting.value = true
-  scriptGenerating.value = true
-  try {
-    const job = await post<{ job_id: string }>(
-      `/projects/${slug.value}/generate/expand-chapters`,
-      { episode_id: form.episode_id, title: form.title, auto_approve: true },
-    )
-    const ok = await waitForJob(job.job_id)
-    if (ok) {
-      outlineRefreshKey.value++
-      previewRefreshKey.value++
-    }
-    return ok
-  } catch (e: any) {
-    console.error('[scripts] queue expand-chapters failed:', e)
-    showError(e?.data?.detail || 'Failed to queue chapter expansion')
-    scriptGenerating.value = false
-    return false
-  } finally {
-    submitting.value = false
-  }
-}
 
 // Promise-bridge over the SSE job stream: resolves true on 'done', false
 // on 'error', and rejects (after a hard timeout) if the job vanishes from
@@ -1314,52 +1269,14 @@ async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true 
   }
 }
 
-// ── Generate All (Outline → Expand → Introduction) ───────────────────────
-// Three-stage pipeline with hard failure gating. The outline phase auto-
-// approves so the OutlineReviewPanel never blocks the chain — equivalent
-// to the legacy one-shot semantics. Any stage failing aborts the rest.
-const generateAllStep = ref<'idle' | 'outline' | 'expand' | 'intro' | 'done' | 'failed'>('idle')
-const generateAllStatusText = computed(() =>
-  generateAllStep.value === 'outline' ? `Generate All — Step 1/3: Outline for ${form.episode_id}`
-  : generateAllStep.value === 'expand' ? `Generate All — Step 2/3: Chapters for ${form.episode_id}`
-  : generateAllStep.value === 'intro' ? `Generate All — Step 3/3: Introduction for ${form.episode_id}`
-  : generateAllStep.value === 'done' ? '✓ Generate All complete'
-  : generateAllStep.value === 'failed' ? '✗ Generate All stopped on failure'
-  : ''
-)
-
-async function generateAll() {
-  if (!form.episode_id) return
-  generateAllStep.value = 'outline'
-  try {
-    const outlineOk = await submitOutline({ auto_approve: true })
-    if (!outlineOk) {
-      generateAllStep.value = 'failed'
-      showError('Outline build failed — expansion + introduction skipped.')
-      return
-    }
-    generateAllStep.value = 'expand'
-    const expandOk = await submitExpandAll()
-    if (!expandOk) {
-      generateAllStep.value = 'failed'
-      showError('Chapter expansion failed — introduction skipped.')
-      return
-    }
-    generateAllStep.value = 'intro'
-    const introOk = await submitIntroduction({ confirm: false })
-    generateAllStep.value = introOk ? 'done' : 'failed'
-    if (introOk) success('Generate All complete: outline + chapters + introduction.')
-    else showError('Outline + chapters succeeded, but introduction failed. You can retry the introduction step alone.')
-  } finally {
-    // Auto-clear progress chip after a short pause so it doesn't linger
-    // through unrelated UI activity.
-    setTimeout(() => {
-      if (!['outline', 'expand', 'intro'].includes(generateAllStep.value)) {
-        generateAllStep.value = 'idle'
-      }
-    }, 5000)
-  }
-}
+// "Generate All" was removed in v1.0.72 with the outline-first refactor.
+// The introduction needs the script chapters on disk for context — bundling
+// it into a single button hid that dependency. The flow is now explicit:
+//   1. Generate Outline (top of page)
+//   2. Review + approve in OutlineReviewPanel below
+//   3. Expand chapters (panel button)
+//   4. Generate Introduction (form button further down — unlocks once
+//      scriptGenerated flips true)
 </script>
 
 <style scoped>
