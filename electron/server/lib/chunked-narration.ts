@@ -619,11 +619,39 @@ function listicleBatchPrompt(p: ChunkedNarrationParams, batch: OutlineEntry[]): 
     return `  Chapter ${e.n}: ${e.title}${hook}${facts}`
   }).join('\n\n')
 
+  // Word-budget allocation. The previous prompt said "~N words" with a
+  // bracketed [~N words] sentinel + structural rules ("hook 1-2 sentences,
+  // 2-4 beats, payoff 1-2 sentences"). LLMs read those as soft hints and
+  // consistently undershot — a 500-word target shipped as 200-250 words
+  // because hook + 2-4 short beats + payoff naturally lands around there.
+  // The fix: state a HARD minimum, allocate the budget across sections,
+  // and scale the body-beat count to the target so the structural rules
+  // can actually accommodate the requested length.
+  const target = Math.max(120, p.wordsPerChapter | 0)
+  const minFloor = Math.floor(target * 0.9)             // 90% floor
+  const maxCeiling = Math.ceil(target * 1.15)            // 15% headroom
+  const hookWords = Math.max(40, Math.round(target * 0.12))   // ~12% hook
+  const payoffWords = Math.max(40, Math.round(target * 0.12)) // ~12% close
+  const bodyWords = target - hookWords - payoffWords          // ~76% body
+  // Beat count scales with body: ~100 words per beat is the LLM's natural
+  // rhythm. Clamp 3..6 so we don't ask for 1 monolith or 10 fragments.
+  const beatCount = Math.max(3, Math.min(6, Math.round(bodyWords / 100)))
+  const wordsPerBeat = Math.round(bodyWords / beatCount)
+
   return `Write ${batch.length} listicle chapter(s) of an in-progress episode. Each chapter is INDEPENDENT — no transitions, no references to other chapters.
 
 Episode title: ${p.title}
 Format: ${p.format.name}
-Per-chapter target: ${p.wordsPerChapter} words
+
+PER-CHAPTER LENGTH (binding, not a hint):
+- Target: ${target} words.
+- Minimum: ${minFloor} words. Drafts shorter than this are unusable — DO NOT ship a stub.
+- Maximum: ${maxCeiling} words.
+
+WORD BUDGET (how to spend the ${target} words inside one chapter):
+- Hook (open):  ~${hookWords} words — one provocative claim, counter-intuitive question, or sharp image.
+- Body (${beatCount} supporting beats): ~${bodyWords} words total, ~${wordsPerBeat} words each — cite mechanism, evidence, history, or concrete specifics. Each beat earns its own paragraph.
+- Micro-payoff (close): ~${payoffWords} words — memorable line, open question, or wry beat.
 
 SLOTS TO WRITE:
 
@@ -633,21 +661,20 @@ Output the chapters in this exact format (and ONLY these chapters, in numeric or
 
 ## Chapter ${batch[0]!.n.toString().padStart(2, '0')}: ${batch[0]!.title}
 
-[~${p.wordsPerChapter} words]
+<full body of ${minFloor}-${maxCeiling} words, structured as hook → ${beatCount} beats → payoff>
 
 ## Chapter ${batch[1]?.n.toString().padStart(2, '0') ?? ''}: ${batch[1]?.title ?? ''}
 
-[~${p.wordsPerChapter} words]
+<full body of ${minFloor}-${maxCeiling} words, structured as hook → ${beatCount} beats → payoff>
 
 (continue for all ${batch.length} chapters)
 
 Rules:
 - Write ALL ${batch.length} chapters in this single response.
-- Each chapter starts with a HOOK (question or counter-intuitive claim) in the first 1-2 sentences.
-- Body explains with 2-4 supporting beats — cite mechanism, evidence, history, or specifics.
-- End each chapter with a 1-2 sentence MICRO-PAYOFF (memorable line, open question, or wry beat).
 - Use the chapter numbers and titles EXACTLY as shown.
-- ~${p.wordsPerChapter} words of body per chapter. No meta-commentary.
+- Each chapter MUST be at least ${minFloor} words. If the topic feels thin, add one more beat — never compress under the floor.
+- No meta-commentary, no preamble, no "in this chapter…" recap, no word counts.
+- Do not output bracketed placeholders or section headers like "Hook:" / "Beat 1:" — write flowing prose.
 
 Output ONLY the chapter blocks above.`
 }

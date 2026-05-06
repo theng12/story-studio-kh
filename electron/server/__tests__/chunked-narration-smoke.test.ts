@@ -317,4 +317,40 @@ describe('generateListicleChunked — end-to-end with fake provider', () => {
       assert.equal(existsSync(path.join(scriptDir, `EP1001_Chapter_${String(n).padStart(2, '0')}.docx`)), true)
     }
   })
+
+  test('listicle batch prompt encodes a binding word floor, not a soft target', async () => {
+    // Regression: pre-fix, the prompt said "Per-chapter target: ${N} words"
+    // with a "[~${N} words]" sentinel and structural rules (1-2 sentence hook,
+    // 2-4 beats, 1-2 sentence payoff). LLMs treated those as soft hints and
+    // shipped 200-250 word chapters when asked for 500. The fix encodes a
+    // hard minimum, an explicit per-section budget, and a beat count that
+    // scales with the target so the structure can actually accommodate the
+    // requested length. This test locks the new shape in so a "cleanup"
+    // refactor can't silently revert to the soft-target prompt.
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(8, 'listicle')
+    fakeExpansionFor = buildExpansionFor
+    const job = makeJob(scriptDir)
+    await generateListicleChunked(job, {
+      episode_id: 'EP1500', title: 'Word Budget Test',
+      totalChapters: 8, wordsPerChapter: 500,
+      format: makeFormat('listicle', /* chaptersIndependent */ true),
+      systemPrompt: 'sys', scriptDir,
+      model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+    })
+    const expansionCall = fakeCalls.find(c => c.kind === 'expansion')
+    assert.ok(expansionCall, 'expected at least one expansion call')
+    const userMsg = expansionCall.userMessage
+    // Hard floor: 90% of 500 = 450
+    assert.match(userMsg, /Minimum:\s*450 words/, 'must encode hard 450-word floor')
+    // Budget breakdown should appear, with hook + body + payoff allocations
+    assert.match(userMsg, /Hook \(open\)/, 'must allocate words to the hook')
+    assert.match(userMsg, /Body \(\d+ supporting beats\)/, 'must allocate words across N body beats')
+    assert.match(userMsg, /Micro-payoff \(close\)/, 'must allocate words to the close')
+    // The bracketed [~N words] sentinel that confused the model must be gone
+    assert.doesNotMatch(userMsg, /\[~\d+ words\]/,
+      'the bracketed [~N words] sentinel must not appear — it confused the LLM into shipping stub chapters')
+    // Floor must be reiterated in the rules block
+    assert.match(userMsg, /at least 450 words/i, 'rules block must restate the 450-word floor')
+  })
 })
