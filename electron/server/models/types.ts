@@ -207,6 +207,40 @@ export interface ScriptFormat {
     /** Default transition duration in seconds. */
     transitionDurationSec?: number
   }
+
+  /**
+   * v1.0.71+: per-format defaults for the Introduction generator.
+   * The legacy hardcoded shape was 350-word, sleep-story-flavoured
+   * (Welcome → Story teaser → Community question → Subscribe →
+   * Relaxation/breathing → Transition). Listicle / explainer
+   * channels want a short host-personality intro instead — typically
+   * ~50 words, no breathing exercise, just greeting + channel +
+   * subscribe + transition.
+   *
+   * Applied:
+   *   - On scripts page load BEFORE preset.load() runs (so a saved
+   *     preset still wins).
+   *   - In generators/episode.ts:generateIntroductionOnly when the
+   *     request omits word_target / beats (defensive — most callers
+   *     pass them, but pipeline batch defaults pick them up here).
+   *
+   * `exampleText` is baked into the LLM prompt as a style anchor
+   * when present — LLMs match output style to in-prompt examples
+   * far more reliably than to abstract beat lists, especially for
+   * short host-personality intros. {host_name} and {channel_name}
+   * placeholders are substituted at request time.
+   */
+  introDefaults?: {
+    /** Target word count for the introduction. Sleep-story default
+     *  ~350; listicle ~50. */
+    wordTarget?: number
+    /** Ordered list of beats the intro should hit. Each beat becomes
+     *  a numbered bullet in the prompt. */
+    beats?: string[]
+    /** Optional one-paragraph example the LLM matches style to.
+     *  Supports {host_name} and {channel_name} placeholders. */
+    exampleText?: string
+  }
 }
 
 export interface ImagePromptFormat {

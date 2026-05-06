@@ -816,19 +816,30 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
     customStyleText = req.custom_style_text
   }
 
+  // v1.0.71+: format-aware intro defaults. Sleep-story formats keep the
+  // 350-word multi-beat shape (welcome / story teaser / community / CTA /
+  // breathing / transition); listicle / explainer formats opt into a
+  // short host-personality intro via Format.script.introDefaults
+  // (typically ~50 words, no breathing exercise). Per-request fields
+  // still win when present — this only fills in what the caller didn't
+  // provide.
+  const fmtIntro = format.script.introDefaults
+  const fallbackBeats = fmtIntro?.beats?.length ? fmtIntro.beats : [
+    'Welcome & host intro',
+    'Story teaser',
+    'Community question',
+    'Subscribe CTA',
+    'Relaxation / breathing exercise',
+    'Transition into story',
+  ]
+  const fallbackWordTarget = (typeof fmtIntro?.wordTarget === 'number' && fmtIntro.wordTarget > 0)
+    ? fmtIntro.wordTarget : 350
   const introSettings: IntroSettings = {
     enabled: true,
     host_name: req.host_name || '',
-    word_target: req.word_target || 350,
+    word_target: req.word_target || fallbackWordTarget,
     custom_opening: req.custom_opening || '',
-    beats: req.beats || [
-      'Welcome & host intro',
-      'Story teaser',
-      'Community question',
-      'Subscribe CTA',
-      'Relaxation / breathing exercise',
-      'Transition into story',
-    ],
+    beats: req.beats || fallbackBeats,
   }
 
   const paths = await resolveEpisodePaths(project_slug, episode_id, title)
@@ -843,6 +854,22 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
 
   job.output_lines.push(`Generating introduction...`)
 
+  // v1.0.71+: format-supplied example text. Listicle / explainer
+  // formats ship a short host-personality template that's far more
+  // useful than abstract beats for matching the channel's voice. We
+  // substitute {host_name} and {channel_name} from the request +
+  // brand so the example stays generic in the format JSON. Empty
+  // when the format doesn't ship one (sleep-story, etc.).
+  let formatExampleBlock = ''
+  if (fmtIntro?.exampleText?.trim()) {
+    const channelName = brand?.channel?.name?.trim() || project?.name?.trim() || ''
+    const hostName = (introSettings.host_name || '').trim() || '[your name]'
+    const filled = fmtIntro.exampleText
+      .replace(/\{host_name\}/g, hostName)
+      .replace(/\{channel_name\}/g, channelName || '[channel name]')
+    formatExampleBlock = `\nExample style — match this voice + length (don't copy verbatim, but stay this short and personal):\n"""\n${filled}\n"""\n`
+  }
+
   // Generate introduction-only prompt
   const introPrompt = `Generate ONLY the introduction section for a story episode. Do NOT include the story chapters.
 
@@ -856,7 +883,7 @@ Write ONLY the introduction following these beats:
 ${(introSettings.beats || []).map((b, i) => `${i + 1}. ${b}`).join('\n')}
 
 ${introSettings.custom_opening ? `Use this opening line: "${introSettings.custom_opening}"` : ''}
-
+${formatExampleBlock}
 ${introStandardsText ? `\nFollow this intro format reference:\n${introStandardsText}\n` : ''}
 
 Target word count: ~${introSettings.word_target} words

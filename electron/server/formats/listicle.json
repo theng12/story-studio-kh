@@ -137,6 +137,16 @@
       "secondsPerScene": 6,
       "transitionType": "fade",
       "transitionDurationSec": 0.5
+    },
+    "introDefaults": {
+      "wordTarget": 50,
+      "beats": [
+        "Greeting + host name",
+        "Channel + topics covered",
+        "Subscribe + like + comment ask",
+        "Transition into the topics"
+      ],
+      "exampleText": "Hello there… I'm {host_name}.\nHere on {channel_name}, we explore mysteries, paradoxes, history, and the everyday phenomena.\nIf you enjoy getting your brain picked, you're welcome to subscribe… and leave a like or a comment if you'd like.\nNow… let's begin."
     }
   },
 

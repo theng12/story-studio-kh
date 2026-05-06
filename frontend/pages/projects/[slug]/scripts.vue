@@ -539,7 +539,45 @@ const scriptPresets = usePresets<any>({
     if (typeof data.customStyleText === 'string') customStyleText.value = data.customStyleText
   },
 })
-onMounted(() => scriptPresets.load())
+
+/**
+ * v1.0.71+: format-aware seeding of intro defaults BEFORE preset.load().
+ * Sleep-story projects keep the 350-word, multi-beat shape (welcome /
+ * teaser / community / CTA / breathing / transition). Listicle /
+ * explainer projects get a short host-personality intro by default
+ * (~50 words, no breathing exercise). Saved presets still override
+ * because preset.load() runs after this — only fresh projects with
+ * no intro preset see the new defaults.
+ */
+async function applyIntroFormatDefaultsIfNoPreset() {
+  try {
+    const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    const ip = f?.script?.introDefaults
+    if (!ip) return
+    if (typeof ip.wordTarget === 'number' && ip.wordTarget > 0) {
+      intro.word_target = ip.wordTarget
+    }
+    if (Array.isArray(ip.beats) && ip.beats.length) {
+      // Replace the default beat list with the format's. Each format-supplied
+      // beat becomes an editable IntroBeat row (custom: false so it can be
+      // disabled but not deleted, mirroring the legacy hardcoded beats'
+      // semantics).
+      introBeats.value = (ip.beats as string[]).map((label, i) => ({
+        id: `fmt-${i}`,
+        label,
+        enabled: true,
+      }))
+    }
+  } catch {
+    // Format endpoint unavailable / project missing — keep the legacy
+    // hardcoded defaults. Non-fatal.
+  }
+}
+
+onMounted(async () => {
+  await applyIntroFormatDefaultsIfNoPreset()
+  await scriptPresets.load()
+})
 
 interface IntroBeat {
   id: string
