@@ -22,6 +22,7 @@ import {
   shouldChunkByBudget,
   generateNarrativeChunked,
   generateListicleChunked,
+  getOutlineEntryForChapter,
 } from '../lib/chunked-narration.js'
 import { castPromptBlock, castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import type { GenerateScriptRequest, Job, Format, NarratorStyle, Pattern, Character } from '../models/types.js'
@@ -751,6 +752,42 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   const style = req.style || format.script.defaultNarratorStyleId
   const styleDesc = narratorStyleFor(format, style).description
 
+  // v1.0.72+: Outline-aware regeneration. The chunked path persists a
+  // sidecar with the original outline (title, hook_line, key_facts for
+  // listicle / synopsis, key_beats for narrative). Without this lookup,
+  // chapter-only used to ask the LLM to "regenerate Chapter 5" with no
+  // memory of what topic Chapter 5 originally was — for listicle, that
+  // meant regen drifted to a brand-new topic every time. With it, the
+  // model gets the original outline entry threaded into the prompt so
+  // the regen stays on-topic.
+  //
+  // Returns null for single-call non-chunked projects (no sidecar exists)
+  // → falls through to the legacy prompt unchanged.
+  const outlineLookup = await getOutlineEntryForChapter(paths.script_dir, episode_id, chapterNumber)
+  let outlineBlock = ''
+  let independenceLine = ''
+  if (outlineLookup) {
+    const { entry, mode } = outlineLookup
+    if (mode === 'listicle') {
+      // Listicle chapters are independent — no transition contamination.
+      // The hook + key_facts are the LLM's seed material for staying on
+      // the same topic across regens.
+      const facts = entry.key_facts?.length
+        ? `\nKey facts: ${entry.key_facts.map(f => `"${f}"`).join('; ')}`
+        : ''
+      const hook = entry.hook_line ? `\nHook: ${entry.hook_line}` : ''
+      outlineBlock = `\nOriginal topic: "${entry.title}"${hook}${facts}\n`
+      independenceLine = '\nThis is an INDEPENDENT chapter — do NOT reference other chapters or build transitions to / from them.\n'
+    } else {
+      // Narrative outline — synopsis + key_beats anchor tone + plot.
+      const beats = entry.key_beats?.length
+        ? `\nKey beats: ${entry.key_beats.map(b => `"${b}"`).join('; ')}`
+        : ''
+      const synopsis = entry.synopsis ? `\nSynopsis: ${entry.synopsis}` : ''
+      outlineBlock = `\nOutline title: "${entry.title}"${synopsis}${beats}\n`
+    }
+  }
+
   // Per-chapter pacing hint sourced from the format's pacing arc. Picks the
   // most relevant arc bullet for this chapter's position so regenerated
   // chapters match the format's structural cadence (sleep stories drift, action
@@ -769,10 +806,12 @@ Episode: "${title}" (code ${episode_id})
 Narrator style: Style ${style} — ${styleDesc}
 Total chapters in this episode: ${totalChapters}
 Target word count for this chapter: ~${wordsPerChapter} words
+${outlineBlock}${independenceLine}
+${priorSummaries.length && !independenceLine ? `Story so far (prior chapters, summarised):\n${priorSummaries.join('\n')}\n` : ''}
 
-${priorSummaries.length ? `Story so far (prior chapters, summarised):\n${priorSummaries.join('\n')}\n` : ''}
-
-Write ONLY Chapter ${chapterNumber}. Keep tone, pacing, and narrative continuity consistent with the prior chapters. Match the chapter pacing position: ${pickPacingHint(chapterNumber)}
+Write ONLY Chapter ${chapterNumber}. ${outlineLookup?.mode === 'listicle'
+  ? 'Stay on the topic above; do not invent a different subject.'
+  : `Keep tone, pacing, and narrative continuity consistent with the prior chapters. Match the chapter pacing position: ${pickPacingHint(chapterNumber)}`}
 
 Output format (markdown):
 ## Chapter ${chapterNumber}: [Descriptive Title]

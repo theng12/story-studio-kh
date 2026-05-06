@@ -718,6 +718,39 @@ async function readSidecar(scriptDir: string, episode_id: string): Promise<Chunk
   }
 }
 
+/**
+ * Public helper for the chapter-only regenerator: look up the chunked-
+ * progress sidecar's outline entry for a given chapter number. Returns
+ * null when the sidecar doesn't exist (single-call non-chunked project)
+ * or when the chapter number isn't in the outline (off-by-one, mismatched
+ * total_chapters, etc.). Also returns the mode so the caller can
+ * branch its prompt between narrative and listicle.
+ *
+ * Why exposed: per-chapter regeneration was previously format-blind —
+ * it asked the LLM to "regenerate Chapter 5" without telling the model
+ * what topic Chapter 5 was originally about. For listicle in particular
+ * this meant the regenerated chapter drifted to a brand-new topic. With
+ * this lookup, the chapter-only generator can thread the original outline
+ * (title, hook, key_facts for listicle / synopsis, key_beats for narrative)
+ * back into the prompt so the regen stays on the same topic.
+ */
+export interface OutlineLookupResult {
+  entry: OutlineEntry
+  mode: ChunkedMode
+  totalChapters: number
+}
+export async function getOutlineEntryForChapter(
+  scriptDir: string,
+  episode_id: string,
+  chapterNumber: number,
+): Promise<OutlineLookupResult | null> {
+  const sidecar = await readSidecar(scriptDir, episode_id)
+  if (!sidecar) return null
+  const entry = sidecar.outline.find(e => e.n === chapterNumber)
+  if (!entry) return null
+  return { entry, mode: sidecar.mode, totalChapters: sidecar.total_chapters }
+}
+
 // Per-path serialisation queue for sidecar writes. The atomic-rename in
 // writeJsonAtomic guarantees no torn writes, but it does NOT guarantee
 // write ORDER when two parallel callers have overlapping in-flight
