@@ -323,18 +323,6 @@
           </button>
         </div>
 
-        <div class="reference-table">
-          <div class="ref-header">
-            <span>Quick Presets</span>
-          </div>
-          <div class="ref-items">
-            <div v-for="ref in durationRefs" :key="ref.min" :class="['ref-item', { active: isActiveRef(ref) }]" @click="applyPreset(ref)">
-              <span class="ref-duration">{{ ref.min }} min</span>
-              <span class="ref-words">{{ ref.words.toLocaleString() }} w</span>
-              <span class="ref-chapters">{{ ref.chapters }} ch</span>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div class="flex items-center gap-2 mt-2 flex-wrap">
@@ -574,8 +562,55 @@ async function applyIntroFormatDefaultsIfNoPreset() {
   }
 }
 
+/**
+ * v1.0.72+: format-aware seeding of chapter count + length + word-count
+ * derivations. Replaces the deleted "Quick Presets" reference-table that
+ * pinned hardcoded sleep-story numbers (45min/10ch/5500w). Each format
+ * now drives its own defaults via script.defaultChapterCount +
+ * script.defaultLengthMinutes; words_per_chapter is derived at the
+ * project's wpm rate.
+ *
+ * URL query params (?length=, ?chapters=) still win — they come from
+ * "Generate this episode" deep-links elsewhere in the app and represent
+ * an explicit caller intent. Saved presets win over both because
+ * preset.load() runs AFTER this function.
+ */
+async function applyScriptFormatDefaultsIfNoPreset() {
+  // Skip if URL pinned both — caller intent dominates the format default.
+  const urlLength = route.query.length
+  const urlChapters = route.query.chapters
+  const lengthFromUrl = urlLength !== undefined && urlLength !== null && urlLength !== ''
+  const chaptersFromUrl = urlChapters !== undefined && urlChapters !== null && urlChapters !== ''
+  try {
+    const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    const sf = f?.script
+    if (!sf) return
+    if (!chaptersFromUrl && typeof sf.defaultChapterCount === 'number' && sf.defaultChapterCount > 0) {
+      form.chapters = sf.defaultChapterCount
+    }
+    if (!lengthFromUrl && typeof sf.defaultLengthMinutes === 'number' && sf.defaultLengthMinutes > 0) {
+      form.length = sf.defaultLengthMinutes
+    }
+    // Derive total + per-chapter from the (possibly-updated) length and
+    // chapter count. Always recompute these — they're cached values whose
+    // canonical inputs just changed.
+    if (form.chapters > 0 && form.length > 0) {
+      form.total_words = Math.round(form.length * wordsPerMinute)
+      form.words_per_chapter = Math.round(form.total_words / form.chapters)
+    }
+    // Snap the duration dropdown back to a known option so the UI doesn't
+    // flash 'custom' when the format default happens to match a standard
+    // value (15/20/30/45/60/90).
+    durationSelect.value = STANDARD_DURATIONS.has(form.length) ? String(form.length) : 'custom'
+  } catch {
+    // Format endpoint unavailable / project missing — keep the form's
+    // hardcoded defaults. Non-fatal.
+  }
+}
+
 onMounted(async () => {
   await applyIntroFormatDefaultsIfNoPreset()
+  await applyScriptFormatDefaultsIfNoPreset()
   await scriptPresets.load()
 })
 
@@ -774,27 +809,26 @@ const estimatedTotalDuration = computed(() =>
 )
 const canSubmit = computed(() => form.episode_id && form.title)
 
-const durationRefs = [
-  { min: 15, words: 1800, chapters: 5 },
-  { min: 20, words: 2400, chapters: 6 },
-  { min: 30, words: 3600, chapters: 8 },
-  { min: 45, words: 5500, chapters: 10 },
-  { min: 60, words: 7500, chapters: 12 },
-  { min: 90, words: 11000, chapters: 15 },
-]
+// Standard duration values shown in the Duration dropdown. Used only to
+// decide whether the current form.length matches a dropdown option (vs
+// 'custom'). The old `durationRefs` table also pinned a hardcoded chapter
+// count + word count per duration — those were sleep-story-flavoured
+// (45min → 10 chapters → 5500 words) and have been removed in favour of
+// format-driven defaults seeded once in applyScriptFormatDefaultsIfNoPreset.
+// Per-episode overrides flow through the editable inputs below.
+const STANDARD_DURATIONS = new Set([15, 20, 30, 45, 60, 90])
 
-// Sync: Duration dropdown → total words → words/chapter
+// Sync: Duration dropdown → total words (format-aware chapter count stays).
+// Words/chapter recomputes from the new total ÷ existing chapters so a
+// user changing duration doesn't accidentally reset the chapter count
+// they (or the format default / preset) chose.
 function onDurationChange() {
   if (durationSelect.value !== 'custom') {
     form.length = Number(durationSelect.value)
-    const ref = durationRefs.find(r => r.min === form.length)
-    if (ref) {
-      form.total_words = ref.words
-      form.chapters = ref.chapters
-    } else {
-      form.total_words = Math.round(form.length * wordsPerMinute)
+    form.total_words = Math.round(form.length * wordsPerMinute)
+    if (form.chapters > 0) {
+      form.words_per_chapter = Math.round(form.total_words / form.chapters)
     }
-    form.words_per_chapter = Math.round(form.total_words / form.chapters)
   }
 }
 
@@ -815,7 +849,7 @@ function onWordsPerChapterChange() {
   primaryField.value = 'words_per_chapter'
   form.total_words = form.chapters * form.words_per_chapter
   form.length = Math.round(form.total_words / wordsPerMinute)
-  durationSelect.value = durationRefs.find(r => r.min === form.length) ? String(form.length) : 'custom'
+  durationSelect.value = STANDARD_DURATIONS.has(form.length) ? String(form.length) : 'custom'
 }
 
 // Sync: Total words changed → recalc words/chapter + duration
@@ -825,20 +859,7 @@ function onTotalWordsChange() {
     form.words_per_chapter = Math.round(form.total_words / form.chapters)
   }
   form.length = Math.round(form.total_words / wordsPerMinute)
-  durationSelect.value = durationRefs.find(r => r.min === form.length) ? String(form.length) : 'custom'
-}
-
-// Apply a quick preset
-function applyPreset(ref: { min: number; words: number; chapters: number }) {
-  form.length = ref.min
-  form.total_words = ref.words
-  form.chapters = ref.chapters
-  form.words_per_chapter = Math.round(ref.words / ref.chapters)
-  durationSelect.value = String(ref.min)
-}
-
-function isActiveRef(ref: { min: number; words: number; chapters: number }) {
-  return form.total_words === ref.words && form.chapters === ref.chapters
+  durationSelect.value = STANDARD_DURATIONS.has(form.length) ? String(form.length) : 'custom'
 }
 
 /**
@@ -1244,22 +1265,6 @@ async function generateAll() {
   letter-spacing: 0.3px;
 }
 
-.reference-table {
-  margin-top: 12px;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-}
-
-.ref-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
 .grid-4 {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1275,19 +1280,6 @@ async function generateAll() {
   font-weight: 600;
   color: var(--accent);
 }
-
-.ref-items { display: flex; gap: 6px; flex-wrap: wrap; }
-.ref-item {
-  display: flex; flex-direction: column; align-items: center;
-  padding: 8px 14px; border-radius: var(--radius-sm);
-  background: var(--bg-primary); border: 1px solid var(--border);
-  font-size: 12px; gap: 2px; transition: all 0.15s; cursor: pointer;
-}
-.ref-item:hover { border-color: var(--border-light); }
-.ref-item.active { border-color: var(--accent); background: var(--accent-dim); }
-.ref-duration { font-weight: 600; color: var(--text-primary); }
-.ref-words { color: var(--accent); }
-.ref-chapters { color: var(--text-muted); }
 
 /* Introduction section */
 .intro-section {
