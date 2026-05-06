@@ -55,6 +55,184 @@ router.post('/projects/:slug/generate/script-only', validateBody(GenerateScriptO
   res.status(201).json(job)
 })
 
+// ── Outline-first chunked flow (v1.0.72+) ────────────────────────────────
+//
+// Step 1: POST /generate/outline-only — builds the outline, persists a
+// sidecar with outline_approved_at: null. Frontend renders OutlineReviewPanel.
+//
+// Step 2: GET / PUT  /episodes/:id/outline — read & edit the outline.
+// PUT with `approved: true` flips outline_approved_at, unlocking expansion.
+//
+// Step 3: POST /generate/expand-chapters — runs the multi-batch expansion
+// via expandChapters(). Optional `chapters: number[]` filter expands a
+// subset; absent = expand all pending. Refuses unless outline is approved.
+//
+// The legacy script-only path stays available; Phase 3 will retire it.
+router.post('/projects/:slug/generate/outline-only', validateBody(GenerateScriptOnlySchema), async (req, res) => {
+  const { slug } = req.params
+  const project = await pm.getProject(slug)
+  if (!project) return res.status(404).json({ detail: 'Project not found' })
+
+  const config = await pm.getConfig(slug)
+  if (!config?.anthropic_api_key && !config?.openai_api_key) {
+    return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
+  }
+
+  if (jq.isDuplicate(slug, req.body.episode_id, 'outline_only')) {
+    return res.status(409).json({ detail: `Outline build already queued/running for ${req.body.episode_id}` })
+  }
+
+  const job = jq.enqueue({
+    project_slug: slug,
+    type: 'outline_only',
+    episode_id: req.body.episode_id,
+    title: req.body.title,
+    params: req.body,
+  })
+  res.status(201).json(job)
+})
+
+router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
+  const { slug } = req.params
+  const project = await pm.getProject(slug)
+  if (!project) return res.status(404).json({ detail: 'Project not found' })
+
+  const config = await pm.getConfig(slug)
+  if (!config?.anthropic_api_key && !config?.openai_api_key) {
+    return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
+  }
+
+  const { episode_id, title } = req.body || {}
+  if (typeof episode_id !== 'string' || !episode_id) {
+    return res.status(400).json({ detail: 'episode_id is required' })
+  }
+
+  // Pre-flight: confirm a sidecar exists AND is approved (or auto_approve).
+  // Without this check the executor would also throw, but surfacing the
+  // condition early gives the frontend a clean 400 to react on (vs a
+  // job-error toast after the fact).
+  const { resolveEpisodePaths } = await import('../services/utils.js')
+  const { getOutlineEntryForChapter } = await import('../lib/chunked-narration.js')
+  const paths = await resolveEpisodePaths(slug, episode_id, title || '')
+  // We don't have a direct "read sidecar" public — but a chapter-1 lookup
+  // proves the sidecar exists + is at least minimally well-formed. The
+  // approval-state check is enforced inside expandChapters() itself; the
+  // route-level check here just guards against the "no outline at all"
+  // case so the user gets a clearer error message.
+  const probe = await getOutlineEntryForChapter(paths.script_dir, episode_id, 1)
+  if (!probe && !req.body.auto_approve) {
+    return res.status(400).json({
+      detail: 'No outline found. Click Generate Outline first, then approve before expanding.',
+    })
+  }
+
+  if (jq.isDuplicate(slug, episode_id, 'expand_chapters')) {
+    return res.status(409).json({ detail: `Chapter expansion already queued/running for ${episode_id}` })
+  }
+
+  const job = jq.enqueue({
+    project_slug: slug,
+    type: 'expand_chapters',
+    episode_id,
+    title: title || '',
+    params: req.body,
+  })
+  res.status(201).json(job)
+})
+
+router.get('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
+  const { slug, episodeId } = req.params
+  try {
+    const project = await pm.getProject(slug)
+    if (!project) return res.status(404).json({ detail: 'Project not found' })
+    const titleParam = (req.query.title as string) || ''
+    const paths = await resolveEpisodePaths(slug, episodeId, titleParam)
+    const { sidecarPath } = await import('../lib/chunked-narration.js')
+    const sidecarFile = sidecarPath(paths.script_dir, episodeId)
+    if (!existsSync(sidecarFile)) {
+      return res.status(404).json({ detail: 'No outline sidecar for this episode (run outline-only first).' })
+    }
+    const raw = await fs.readFile(sidecarFile, 'utf-8')
+    const sidecar = JSON.parse(raw)
+    // Auto-upgrade v1 → v2 in the response shape so the frontend never sees
+    // the legacy schema. Mirrors readSidecar's in-memory migration.
+    const approvedAt = sidecar.outline_approved_at ?? sidecar.outline_completed_at ?? null
+    res.json({
+      mode: sidecar.mode,
+      total_chapters: sidecar.total_chapters,
+      outline: sidecar.outline,
+      outline_completed_at: sidecar.outline_completed_at,
+      outline_approved_at: approvedAt,
+      outline_edited_at: sidecar.outline_edited_at ?? null,
+      chapters_done: sidecar.chapters_done || [],
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not load outline'))
+  }
+})
+
+router.put('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
+  const { slug, episodeId } = req.params
+  try {
+    const project = await pm.getProject(slug)
+    if (!project) return res.status(404).json({ detail: 'Project not found' })
+    const titleParam = (req.query.title as string) || ''
+    const paths = await resolveEpisodePaths(slug, episodeId, titleParam)
+    const { sidecarPath } = await import('../lib/chunked-narration.js')
+    const sidecarFile = sidecarPath(paths.script_dir, episodeId)
+    if (!existsSync(sidecarFile)) {
+      return res.status(404).json({ detail: 'No outline to edit (run outline-only first).' })
+    }
+
+    const incoming = req.body?.outline
+    const wantApproved = req.body?.approved === true
+    if (!Array.isArray(incoming)) {
+      return res.status(400).json({ detail: 'Body must include `outline: OutlineEntry[]`.' })
+    }
+
+    // Read existing sidecar so we preserve fields the client doesn't send
+    // (chapters_done, params_hash, mode, total_chapters).
+    const raw = await fs.readFile(sidecarFile, 'utf-8')
+    const existing = JSON.parse(raw)
+    const totalChapters = existing.total_chapters
+
+    // Validate: every entry has a numeric n in 1..total_chapters, no dupes,
+    // title is a non-empty string. Other fields are optional and pass-through.
+    const seen = new Set<number>()
+    for (const e of incoming) {
+      const n = Number((e as any)?.n)
+      if (!Number.isFinite(n) || n < 1 || n > totalChapters) {
+        return res.status(400).json({ detail: `Outline entry has invalid n: ${(e as any)?.n}` })
+      }
+      if (seen.has(n)) {
+        return res.status(400).json({ detail: `Duplicate chapter number in outline: ${n}` })
+      }
+      seen.add(n)
+      if (typeof (e as any)?.title !== 'string' || !(e as any).title.trim()) {
+        return res.status(400).json({ detail: `Outline entry ${n} is missing title.` })
+      }
+    }
+
+    const nowIso = new Date().toISOString()
+    const updated = {
+      ...existing,
+      schema_version: 2,
+      outline: incoming,
+      outline_edited_at: nowIso,
+      outline_approved_at: wantApproved ? nowIso : (existing.outline_approved_at ?? null),
+      last_updated: nowIso,
+    }
+    await writeJsonAtomic(sidecarFile, updated)
+    res.json({
+      ok: true,
+      outline_edited_at: updated.outline_edited_at,
+      outline_approved_at: updated.outline_approved_at,
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not save outline'))
+  }
+})
+
 // Regenerate ONE chapter (per-chapter refactor). Requires existing
 // chapter source files OR a legacy unified narration we can migrate
 // from on first use. Other chapters on disk are preserved; the unified

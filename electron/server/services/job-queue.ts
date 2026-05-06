@@ -195,6 +195,11 @@ const queues: Record<JobType, QueueState> = {
   'script-only': { pending: [], running: false, executor: null },
   'introduction-only': { pending: [], running: false, executor: null },
   'chapter-only': { pending: [], running: false, executor: null },
+  // v1.0.72+ outline-first chunked flow. outline_only is a small LLM call
+  // (one batch); expand_chapters is the heavier multi-batch expansion.
+  // They share queue plumbing with the other script jobs.
+  outline_only: { pending: [], running: false, executor: null },
+  expand_chapters: { pending: [], running: false, executor: null },
   image_prompts: { pending: [], running: false, executor: null },
   images: { pending: [], running: false, executor: null },
   scene_images: { pending: [], running: false, executor: null },

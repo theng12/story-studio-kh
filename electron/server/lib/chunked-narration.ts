@@ -165,17 +165,35 @@ export interface OutlineEntry {
   hook_line?: string
   /** Optional listicle-only fact bullets (used to seed expansion). */
   key_facts?: string[]
+  /** Per-chapter word-count override (v2+). Falls back to params.wordsPerChapter
+   *  when absent. The dynamic word-budget math in listicle/narrative batch
+   *  prompts (12% hook / 76% body / 12% close) uses this when present so a
+   *  single chapter can be longer or shorter than its peers. Set via the
+   *  outline-review UI; persisted on the sidecar. */
+  words_per_chapter?: number
 }
 
 export type ChunkedMode = 'narrative' | 'listicle'
 
 export interface ChunkedSidecar {
-  schema_version: 1
+  /** Schema version. v1: pre-outline-review (auto-approved by definition).
+   *  v2: adds outline_approved_at + outline_edited_at + per-entry
+   *  words_per_chapter. v1 sidecars are auto-upgraded on read. */
+  schema_version: 2
   episode_id: string
   mode: ChunkedMode
   total_chapters: number
   outline: OutlineEntry[]
   outline_completed_at: string
+  /** v2+: ISO timestamp of when the user (or auto_approve caller) approved
+   *  the outline for expansion. null = generated but not yet approved;
+   *  expand_chapters refuses to run until this is set. v1 sidecars upgrade
+   *  with this set to outline_completed_at (treat existing as approved). */
+  outline_approved_at: string | null
+  /** v2+: ISO timestamp of the last user edit via PUT /outline. null when
+   *  the outline is still the LLM's original. UI shows an "edited" badge
+   *  when this is set. */
+  outline_edited_at: string | null
   chapters_done: number[]
   /** sha256(first 16 chars) of the input params — invalidates resume when
    *  user changes chapter count / format / pattern between attempts. */
@@ -242,57 +260,131 @@ export async function generateListicleChunked(
 
 // ── Core orchestration ────────────────────────────────────────────────────
 
-async function runChunked(
-  job: Job, params: ChunkedNarrationParams, mode: ChunkedMode,
-): Promise<ChunkedNarrationResult> {
+/**
+ * Outline-only phase (Phase 2 of the outline-first refactor). Builds the
+ * outline via a single LLM call + persists it to the chunked-progress
+ * sidecar with `outline_approved_at: null` by default. The user reviews
+ * via the new OutlineReviewPanel and explicitly approves before expansion;
+ * `auto_approve: true` skips the gate and is reserved for the legacy
+ * one-shot wrappers (generateNarrativeChunked / generateListicleChunked)
+ * and pipeline-batch headless runs.
+ *
+ * Resume-safe: if a sidecar already exists with matching params_hash + mode,
+ * the cached outline is reused without re-billing the LLM. Same semantic
+ * the original runChunked had.
+ */
+export interface BuildOutlineResult {
+  outline: OutlineEntry[]
+  fromCache: boolean
+  approved: boolean
+}
+export async function buildOutlineOnly(
+  job: Job,
+  params: ChunkedNarrationParams,
+  mode: ChunkedMode,
+  opts: { auto_approve?: boolean } = {},
+): Promise<BuildOutlineResult> {
   await fs.mkdir(params.scriptDir, { recursive: true })
   const paramsHash = computeParamsHash(params)
 
-  // Resume check. If a sidecar exists and the params still match, we
-  // pick up where we left off; otherwise (force OR mismatched hash) we
-  // wipe progress and start fresh.
-  let sidecar: ChunkedSidecar | null = null
+  // Resume check — same logic the original runChunked used.
   if (!params.force) {
     const existing = await readSidecar(params.scriptDir, params.episode_id)
     if (existing && existing.params_hash === paramsHash && existing.mode === mode) {
-      sidecar = existing
       job.output_lines.push(
-        `[chunked] Resuming: ${sidecar.chapters_done.length}/${sidecar.total_chapters} chapters already on disk, outline cached.`,
+        `[chunked] Outline cached on disk (${existing.outline.length} slots, ` +
+        `${existing.outline_approved_at ? 'approved' : 'awaiting approval'}).`,
       )
+      // Auto-approve flips an existing draft to approved without re-running
+      // the outline call. Lets pipeline batch chain outline_only → expand
+      // headlessly even when a previous interactive run left it in draft.
+      if (opts.auto_approve && !existing.outline_approved_at) {
+        const approved = { ...existing, outline_approved_at: new Date().toISOString(), last_updated: new Date().toISOString() }
+        await writeSidecar(params.scriptDir, approved)
+        return { outline: approved.outline, fromCache: true, approved: true }
+      }
+      return { outline: existing.outline, fromCache: true, approved: !!existing.outline_approved_at }
     }
   }
 
-  let outline: OutlineEntry[]
-  let outlineCompletedThisRun = false
-  if (sidecar) {
-    outline = sidecar.outline
-  } else {
-    job.output_lines.push(
-      `[chunked] Target: ${params.totalChapters} chapters × ~${params.wordsPerChapter} words = ${(params.totalChapters * params.wordsPerChapter).toLocaleString()} words. Building outline…`,
+  // Build fresh outline.
+  job.output_lines.push(
+    `[chunked] Target: ${params.totalChapters} chapters × ~${params.wordsPerChapter} words = ${(params.totalChapters * params.wordsPerChapter).toLocaleString()} words. Building outline…`,
+  )
+  const outline = await buildOutline(job, params, mode)
+  const nowIso = new Date().toISOString()
+  const sidecar: ChunkedSidecar = {
+    schema_version: 2,
+    episode_id: params.episode_id,
+    mode,
+    total_chapters: params.totalChapters,
+    outline,
+    outline_completed_at: nowIso,
+    // Default = unapproved (user must review). One-shot wrappers pass
+    // auto_approve to bypass.
+    outline_approved_at: opts.auto_approve ? nowIso : null,
+    outline_edited_at: null,
+    chapters_done: [],
+    params_hash: paramsHash,
+    last_updated: nowIso,
+  }
+  await writeSidecar(params.scriptDir, sidecar)
+  job.output_lines.push(
+    `[chunked] Outline ready: ${outline.length} chapter slots` +
+    `${opts.auto_approve ? ' (auto-approved)' : ' — awaiting user review'}.`,
+  )
+  return { outline, fromCache: false, approved: !!opts.auto_approve }
+}
+
+/**
+ * Expansion phase (Phase 2 of the outline-first refactor). Reads the
+ * sidecar, runs mode-specific expansion (narrative sequential / listicle
+ * parallel), persists per-chapter docx files + updates chapters_done.
+ *
+ * Refuses to expand when the outline isn't approved unless the caller
+ * passes `auto_approve: true` — a sharp signal that some upstream is
+ * trying to bypass the human review gate.
+ *
+ * `chaptersToExpand` filters pending to a subset, enabling "expand only
+ * chapters 5+7" UX without touching the others. Per-entry word overrides
+ * (OutlineEntry.words_per_chapter) flow through params via the sidecar
+ * read; the batch prompts read them when rendering each slot's target.
+ */
+export interface ExpandChaptersOptions {
+  /** When set, only these chapter numbers are expanded. Others stay pending.
+   *  Filtered against the sidecar's pending set; ones already on disk are
+   *  skipped silently. Empty / undefined = expand everything pending. */
+  chaptersToExpand?: number[]
+  /** Bypass the outline_approved_at gate. Used by legacy one-shot wrappers
+   *  and pipeline-batch headless runs. */
+  auto_approve?: boolean
+}
+export async function expandChapters(
+  job: Job,
+  params: ChunkedNarrationParams,
+  opts: ExpandChaptersOptions = {},
+): Promise<ChunkedNarrationResult> {
+  await fs.mkdir(params.scriptDir, { recursive: true })
+  let sidecar = await readSidecar(params.scriptDir, params.episode_id)
+  if (!sidecar) {
+    throw new Error(
+      'No outline found for this episode. Run outline-only first (Generate Outline) before expanding chapters.',
     )
-    outline = await buildOutline(job, params, mode)
-    outlineCompletedThisRun = true
-    sidecar = {
-      schema_version: 1,
-      episode_id: params.episode_id,
-      mode,
-      total_chapters: params.totalChapters,
-      outline,
-      outline_completed_at: new Date().toISOString(),
-      chapters_done: [],
-      params_hash: paramsHash,
-      last_updated: new Date().toISOString(),
-    }
-    await writeSidecar(params.scriptDir, sidecar)
-    job.output_lines.push(`[chunked] Outline ready: ${outline.length} chapter slots.`)
+  }
+  const mode = sidecar.mode
+
+  // Approval gate — the load-bearing check that replaces the implicit
+  // "outline + expand in one job" semantics.
+  if (!sidecar.outline_approved_at && !opts.auto_approve) {
+    throw new Error(
+      'Outline is not approved yet. Review and approve the outline before expanding chapters ' +
+      '(or pass auto_approve: true for headless callers).',
+    )
   }
 
-  // Cross-check the sidecar's chapters_done against actual files on disk.
-  // Files can disappear (manual cleanup, drive sync) between runs; the
-  // sidecar is the intent, the disk is the truth. We trust the disk —
-  // and we require the file to be non-zero. A 0-byte docx left by a
-  // crash mid-write would otherwise be revived as "done" and ship an
-  // empty chapter to the assembler.
+  // Disk verification: same zero-byte-resume guard as the original
+  // runChunked. Don't trust chapters_done blindly — verify each file
+  // exists and is non-zero.
   const verifiedDone = new Set<number>()
   for (const n of sidecar.chapters_done) {
     if (chapterFileLooksValid(chapterFilePath(params.scriptDir, params.episode_id, n))) {
@@ -304,35 +396,63 @@ async function runChunked(
     await writeSidecar(params.scriptDir, sidecar)
   }
 
-  // Pending = every outline slot whose docx isn't on disk.
-  const pending = outline.filter(e => !verifiedDone.has(e.n))
+  // Pending = outline slots whose docx isn't on disk, optionally
+  // intersected with the caller's selection.
+  let pending = sidecar.outline.filter(e => !verifiedDone.has(e.n))
+  if (opts.chaptersToExpand?.length) {
+    const want = new Set(opts.chaptersToExpand)
+    pending = pending.filter(e => want.has(e.n))
+  }
   if (pending.length === 0) {
-    job.output_lines.push(`[chunked] All ${params.totalChapters} chapters already on disk. Nothing to do.`)
+    const reason = opts.chaptersToExpand?.length
+      ? `Selected chapters (${opts.chaptersToExpand.join(', ')}) are already on disk.`
+      : `All ${sidecar.total_chapters} chapters already on disk.`
+    job.output_lines.push(`[chunked] ${reason} Nothing to do.`)
     return {
       chaptersWritten: verifiedDone.size,
       totalBatches: 0,
-      fromResume: !outlineCompletedThisRun,
-      outlineCompletedThisRun,
+      fromResume: true,
+      outlineCompletedThisRun: false,
     }
   }
 
   // Dispatch to mode-specific expansion.
   if (mode === 'listicle') {
-    await expandListicleParallel(job, params, outline, pending, sidecar)
+    await expandListicleParallel(job, params, sidecar.outline, pending, sidecar)
   } else {
-    await expandNarrativeSequential(job, params, outline, pending, sidecar)
+    await expandNarrativeSequential(job, params, sidecar.outline, pending, sidecar)
   }
 
-  // Final sidecar sweep — chapter files written by the expansion loop;
-  // sidecar.chapters_done already updated incrementally below.
+  // Final sidecar sweep.
   const finalSidecar = await readSidecar(params.scriptDir, params.episode_id)
   const written = finalSidecar?.chapters_done.length ?? verifiedDone.size
 
   return {
     chaptersWritten: written,
     totalBatches: estimateBatchCount(pending.length, mode),
-    fromResume: !outlineCompletedThisRun,
-    outlineCompletedThisRun,
+    fromResume: false,
+    outlineCompletedThisRun: false,
+  }
+}
+
+/**
+ * Legacy one-shot orchestrator. Composes buildOutlineOnly (auto_approve)
+ * → expandChapters (auto_approve). Exists for back-compat with the
+ * existing `generateNarrativeChunked` / `generateListicleChunked`
+ * exported functions, which compose into `generateEpisode`'s chunked
+ * branch. Phase 3 will replace those callers with the explicit two-step
+ * flow; until then, this preserves today's behaviour exactly.
+ */
+async function runChunked(
+  job: Job, params: ChunkedNarrationParams, mode: ChunkedMode,
+): Promise<ChunkedNarrationResult> {
+  const outlineResult = await buildOutlineOnly(job, params, mode, { auto_approve: true })
+  const expandResult = await expandChapters(job, params, { auto_approve: true })
+  // Compose the result shape the legacy callers expect.
+  return {
+    ...expandResult,
+    outlineCompletedThisRun: !outlineResult.fromCache,
+    fromResume: outlineResult.fromCache,
   }
 }
 
@@ -502,21 +622,38 @@ function narrativeBatchPrompt(
         return `  ${e.n}. ${e.title}${synopsis}`
       }).join('\n')}`
 
-  const slots = batch.map(e => {
+  // Per-slot effective targets — entries may override the global via
+  // words_per_chapter (v2 schema). When uniform, render today's prompt
+  // shape (back-compat). When mixed, append "(target N words)" inline on
+  // each slot so the LLM knows chapter 3 wants 800 while chapter 4 wants 400.
+  const targets = batch.map(e => effectiveWordTarget(e, p))
+  const uniform = targets.every(t => t === targets[0])
+
+  const slots = batch.map((e, i) => {
     const beats = e.key_beats?.length ? `\n   Key beats: ${e.key_beats.map(b => `"${b}"`).join('; ')}` : ''
     const synopsis = e.synopsis ? `\n   Synopsis: ${e.synopsis}` : ''
-    return `  Chapter ${e.n}: ${e.title}${synopsis}${beats}`
+    const lengthHint = uniform ? '' : `\n   Length: ~${targets[i]} words.`
+    return `  Chapter ${e.n}: ${e.title}${synopsis}${beats}${lengthHint}`
   }).join('\n\n')
 
   const transitionBlock = transitionWindow
     ? `\nPREVIOUS CHAPTER TAIL (your tone + scene must flow on from this — DO NOT recap, just continue):\n${transitionWindow}\n`
     : ''
 
+  // Top-line target. For uniform batches: explicit number. For mixed:
+  // describe the default + point at per-slot Length: lines.
+  const targetLine = uniform
+    ? `Per-chapter target: ${targets[0]} words`
+    : `Per-chapter target: see Length: line on each slot below (default ${p.wordsPerChapter} words)`
+
+  // Output template lengths follow the same pattern.
+  const tmplLen = (i: number) => uniform ? `~${targets[0]} words` : `~${targets[i] ?? p.wordsPerChapter} words`
+
   return `Write ${batch.length} chapter(s) of an in-progress episode. You're expanding ONLY the slots listed below — the full arc is shown for context.
 
 Episode title: ${p.title}
 Format: ${p.format.name}
-Per-chapter target: ${p.wordsPerChapter} words
+${targetLine}
 
 ${outlineBlock}
 ${transitionBlock}
@@ -528,18 +665,20 @@ Output the chapters in this exact format (and ONLY these chapters, in numeric or
 
 ## Chapter ${batch[0]!.n.toString().padStart(2, '0')}: ${batch[0]!.title}
 
-[~${p.wordsPerChapter} words of body text]
+[${tmplLen(0)} of body text]
 
 ## Chapter ${batch[1]?.n.toString().padStart(2, '0') ?? batch[0]!.n.toString().padStart(2, '0')}: ${batch[1]?.title ?? '...'}
 
-[~${p.wordsPerChapter} words of body text]
+[${tmplLen(1)} of body text]
 
-${batch.length > 2 ? `## Chapter ${batch[2]!.n.toString().padStart(2, '0')}: ${batch[2]!.title}\n\n[~${p.wordsPerChapter} words of body text]` : ''}
+${batch.length > 2 ? `## Chapter ${batch[2]!.n.toString().padStart(2, '0')}: ${batch[2]!.title}\n\n[${tmplLen(2)} of body text]` : ''}
 
 Rules:
 - Write ALL ${batch.length} chapters in this single response. Do not stop early.
 - Use the chapter numbers and titles EXACTLY as shown.
-- Each chapter is ~${p.wordsPerChapter} words of body. No meta-commentary, no preamble.
+- ${uniform
+  ? `Each chapter is ~${targets[0]} words of body. No meta-commentary, no preamble.`
+  : `Each chapter hits its OWN word target (see slot Length: lines). No meta-commentary, no preamble.`}
 - Maintain the format's tone consistently with the rest of the episode.
 
 Output ONLY the chapter blocks above.`
@@ -612,38 +751,79 @@ async function expandListicleParallel(
   }
 }
 
-function listicleBatchPrompt(p: ChunkedNarrationParams, batch: OutlineEntry[]): string {
-  const slots = batch.map(e => {
-    const facts = e.key_facts?.length ? `\n   Key facts: ${e.key_facts.map(f => `"${f}"`).join('; ')}` : ''
-    const hook = e.hook_line ? `\n   Hook: ${e.hook_line}` : ''
-    return `  Chapter ${e.n}: ${e.title}${hook}${facts}`
-  }).join('\n\n')
+/**
+ * Resolve the effective word target for a single outline entry: per-entry
+ * override (v2 schema) wins over the global params target. Falls back to
+ * 120 to keep the math safe for absurdly small inputs.
+ */
+function effectiveWordTarget(entry: OutlineEntry, p: ChunkedNarrationParams): number {
+  const override = typeof entry.words_per_chapter === 'number' && entry.words_per_chapter > 0
+    ? entry.words_per_chapter | 0
+    : null
+  return Math.max(120, override ?? (p.wordsPerChapter | 0))
+}
 
-  // Word-budget allocation. The previous prompt said "~N words" with a
-  // bracketed [~N words] sentinel + structural rules ("hook 1-2 sentences,
-  // 2-4 beats, payoff 1-2 sentences"). LLMs read those as soft hints and
-  // consistently undershot — a 500-word target shipped as 200-250 words
-  // because hook + 2-4 short beats + payoff naturally lands around there.
-  // The fix: state a HARD minimum, allocate the budget across sections,
-  // and scale the body-beat count to the target so the structural rules
-  // can actually accommodate the requested length.
-  const target = Math.max(120, p.wordsPerChapter | 0)
-  const minFloor = Math.floor(target * 0.9)             // 90% floor
-  const maxCeiling = Math.ceil(target * 1.15)            // 15% headroom
-  const hookWords = Math.max(40, Math.round(target * 0.12))   // ~12% hook
-  const payoffWords = Math.max(40, Math.round(target * 0.12)) // ~12% close
-  const bodyWords = target - hookWords - payoffWords          // ~76% body
-  // Beat count scales with body: ~100 words per beat is the LLM's natural
-  // rhythm. Clamp 3..6 so we don't ask for 1 monolith or 10 fragments.
+/**
+ * Compute the word-budget allocation for a target. Pulled out so listicle
+ * + narrative prompts share one source of truth, and the per-entry override
+ * path can call it once per slot. The percentages (12% hook / 76% body /
+ * 12% close) and beat-count clamp (3..6) come from the v1.0.71 listicle
+ * undershoot fix — see the Brainwise commit for the empirical reasoning.
+ */
+interface WordBudget {
+  target: number
+  minFloor: number
+  maxCeiling: number
+  hookWords: number
+  payoffWords: number
+  bodyWords: number
+  beatCount: number
+  wordsPerBeat: number
+}
+function computeWordBudget(target: number): WordBudget {
+  const t = Math.max(120, target | 0)
+  const minFloor = Math.floor(t * 0.9)
+  const maxCeiling = Math.ceil(t * 1.15)
+  const hookWords = Math.max(40, Math.round(t * 0.12))
+  const payoffWords = Math.max(40, Math.round(t * 0.12))
+  const bodyWords = t - hookWords - payoffWords
   const beatCount = Math.max(3, Math.min(6, Math.round(bodyWords / 100)))
   const wordsPerBeat = Math.round(bodyWords / beatCount)
+  return { target: t, minFloor, maxCeiling, hookWords, payoffWords, bodyWords, beatCount, wordsPerBeat }
+}
 
-  return `Write ${batch.length} listicle chapter(s) of an in-progress episode. Each chapter is INDEPENDENT — no transitions, no references to other chapters.
+function listicleBatchPrompt(p: ChunkedNarrationParams, batch: OutlineEntry[]): string {
+  // Per-slot effective target — entries may override the global via their
+  // words_per_chapter field (v2 schema). When ALL entries in this batch
+  // share the same target, render the prompt with one global budget block
+  // (the back-compat shape — what every listicle outline produced before
+  // the override feature shipped). When entries differ, render an
+  // explicit per-slot budget block so the LLM knows chapter 3 wants 800
+  // words while chapter 4 wants 400.
+  const targets = batch.map(e => effectiveWordTarget(e, p))
+  const uniform = targets.every(t => t === targets[0])
+  const globalBudget = computeWordBudget(uniform ? targets[0] : (p.wordsPerChapter | 0))
 
-Episode title: ${p.title}
-Format: ${p.format.name}
+  const slots = batch.map((e, i) => {
+    const facts = e.key_facts?.length ? `\n   Key facts: ${e.key_facts.map(f => `"${f}"`).join('; ')}` : ''
+    const hook = e.hook_line ? `\n   Hook: ${e.hook_line}` : ''
+    // Per-slot budget appears inline only when the batch has mixed targets.
+    // Keeps the uniform case visually identical to the pre-override prompt.
+    let perSlotBudget = ''
+    if (!uniform) {
+      const b = computeWordBudget(targets[i])
+      perSlotBudget = `\n   Length: ${b.target} words (min ${b.minFloor}, max ${b.maxCeiling}). ` +
+        `Body in ${b.beatCount} beats × ~${b.wordsPerBeat} words.`
+    }
+    return `  Chapter ${e.n}: ${e.title}${hook}${facts}${perSlotBudget}`
+  }).join('\n\n')
 
-PER-CHAPTER LENGTH (binding, not a hint):
+  // Length / budget block. When uniform, one block covers all slots. When
+  // mixed, this block describes the DEFAULT and the per-slot lines
+  // override on a case-by-case basis.
+  const { target, minFloor, maxCeiling, hookWords, payoffWords, bodyWords, beatCount, wordsPerBeat } = globalBudget
+  const lengthHeader = uniform
+    ? `PER-CHAPTER LENGTH (binding, not a hint):
 - Target: ${target} words.
 - Minimum: ${minFloor} words. Drafts shorter than this are unusable — DO NOT ship a stub.
 - Maximum: ${maxCeiling} words.
@@ -651,7 +831,22 @@ PER-CHAPTER LENGTH (binding, not a hint):
 WORD BUDGET (how to spend the ${target} words inside one chapter):
 - Hook (open):  ~${hookWords} words — one provocative claim, counter-intuitive question, or sharp image.
 - Body (${beatCount} supporting beats): ~${bodyWords} words total, ~${wordsPerBeat} words each — cite mechanism, evidence, history, or concrete specifics. Each beat earns its own paragraph.
-- Micro-payoff (close): ~${payoffWords} words — memorable line, open question, or wry beat.
+- Micro-payoff (close): ~${payoffWords} words — memorable line, open question, or wry beat.`
+    : `PER-CHAPTER LENGTH (binding, not a hint):
+- Each chapter has its OWN word target — see the Length: line on each slot below. Treat that target as the binding minimum + maximum (90%–115% range).
+- Default for slots without an explicit Length: ${target} words.
+
+WORD BUDGET (how to spend each slot's target inside one chapter):
+- Hook (open):  ~12% of the slot's target — one provocative claim, counter-intuitive question, or sharp image.
+- Body (3–6 supporting beats, scaled to length): ~76% of the slot's target — cite mechanism, evidence, history, or concrete specifics. Each beat earns its own paragraph.
+- Micro-payoff (close): ~12% of the slot's target — memorable line, open question, or wry beat.`
+
+  return `Write ${batch.length} listicle chapter(s) of an in-progress episode. Each chapter is INDEPENDENT — no transitions, no references to other chapters.
+
+Episode title: ${p.title}
+Format: ${p.format.name}
+
+${lengthHeader}
 
 SLOTS TO WRITE:
 
@@ -661,18 +856,20 @@ Output the chapters in this exact format (and ONLY these chapters, in numeric or
 
 ## Chapter ${batch[0]!.n.toString().padStart(2, '0')}: ${batch[0]!.title}
 
-<full body of ${minFloor}-${maxCeiling} words, structured as hook → ${beatCount} beats → payoff>
+<full body ${uniform ? `of ${minFloor}-${maxCeiling} words` : `at the slot's target`}, structured as hook → ${uniform ? `${beatCount} beats` : `3-6 beats (scale to length)`} → payoff>
 
 ## Chapter ${batch[1]?.n.toString().padStart(2, '0') ?? ''}: ${batch[1]?.title ?? ''}
 
-<full body of ${minFloor}-${maxCeiling} words, structured as hook → ${beatCount} beats → payoff>
+<full body ${uniform ? `of ${minFloor}-${maxCeiling} words` : `at the slot's target`}, structured as hook → ${uniform ? `${beatCount} beats` : `3-6 beats (scale to length)`} → payoff>
 
 (continue for all ${batch.length} chapters)
 
 Rules:
 - Write ALL ${batch.length} chapters in this single response.
 - Use the chapter numbers and titles EXACTLY as shown.
-- Each chapter MUST be at least ${minFloor} words. If the topic feels thin, add one more beat — never compress under the floor.
+- ${uniform
+  ? `Each chapter MUST be at least ${minFloor} words. If the topic feels thin, add one more beat — never compress under the floor.`
+  : `Each chapter MUST hit at least 90% of its slot's word target. If the topic feels thin, add one more beat — never compress below the floor.`}
 - No meta-commentary, no preamble, no "in this chapter…" recap, no word counts.
 - Do not output bracketed placeholders or section headers like "Hook:" / "Beat 1:" — write flowing prose.
 
@@ -711,8 +908,25 @@ async function readSidecar(scriptDir: string, episode_id: string): Promise<Chunk
   try {
     const raw = await fs.readFile(sidecarPath(scriptDir, episode_id), 'utf-8')
     const parsed = JSON.parse(raw)
-    if (parsed?.schema_version !== 1) return null
-    return parsed as ChunkedSidecar
+    // v1 → v2 auto-upgrade. v1 sidecars predate the outline-review feature,
+    // so the implicit semantic was "outline is approved the moment it's
+    // built". We preserve that by setting outline_approved_at to the
+    // outline_completed_at timestamp on read; the next write_sidecar call
+    // persists v2 to disk. No data loss; existing partially-expanded
+    // projects continue resuming exactly as before.
+    if (parsed?.schema_version === 1) {
+      return {
+        ...parsed,
+        schema_version: 2,
+        outline_approved_at: parsed.outline_completed_at || null,
+        outline_edited_at: null,
+      } as ChunkedSidecar
+    }
+    if (parsed?.schema_version === 2) {
+      return parsed as ChunkedSidecar
+    }
+    // Unknown schema version — fail safe, treat as no sidecar.
+    return null
   } catch {
     return null
   }

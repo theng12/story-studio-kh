@@ -23,6 +23,10 @@ import {
   generateNarrativeChunked,
   generateListicleChunked,
   getOutlineEntryForChapter,
+  buildOutlineOnly,
+  expandChapters,
+  type ChunkedNarrationParams,
+  type ChunkedMode,
 } from '../lib/chunked-narration.js'
 import { castPromptBlock, castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import type { GenerateScriptRequest, Job, Format, NarratorStyle, Pattern, Character } from '../models/types.js'
@@ -1007,5 +1011,174 @@ Output ONLY the introduction text. No meta-commentary. No story chapters.`
     }, null, 2))
   } finally {
     clearInterval(cancelWatcher)
+  }
+}
+
+// ── Outline-only / expand-chapters executors ────────────────────────────
+//
+// Phase 2 of the outline-first refactor. The chunked-narration module
+// already has buildOutlineOnly() and expandChapters() — these are thin
+// job executors that wire up the same setup generateEpisode does (config
+// load, format resolution, brand persona, character cast, paths, abort
+// signal) and then delegate to the chunked-narration helpers.
+//
+// generateScriptOnly stays as the legacy one-shot path (Phase 3 will
+// replace it). The executors below are NEW alongside it; both can ship
+// in the same release with the back-compat one-shot still available.
+
+/**
+ * Shared setup for outline-only + expand-chapters executors. Builds the
+ * ChunkedNarrationParams from the job's request, plus the cancel-watcher
+ * the LLM stream needs. Returns the params + a teardown fn the executor
+ * MUST call in a finally block to stop the watcher.
+ */
+async function setupChunkedJobContext(
+  job: Job,
+): Promise<{
+  params: ChunkedNarrationParams
+  mode: ChunkedMode
+  teardown: () => void
+}> {
+  const { project_slug, episode_id, params: jobParams } = job
+  const req = jobParams as GenerateScriptRequest
+
+  const config = await pm.getConfig(project_slug)
+  if (!config) throw new Error('Project config not found')
+  const project = await pm.getProject(project_slug)
+  if (!project) throw new Error('Project not found')
+
+  const standards = await pm.getStandards(project_slug) || ''
+  let format = await getEffectiveFormat(project_slug)
+  const title = req.title
+  const length = req.length || format.script.defaultLengthMinutes
+  const chapters = req.chapters || format.script.defaultChapterCount
+  const totalWords = req.total_words || (length === 45 ? 5500 : 7500)
+  const wordsPerChapter = req.words_per_chapter || Math.floor(totalWords / chapters)
+
+  // Pattern fusion (same path generateEpisode uses).
+  if (req.pattern_id) {
+    const pattern = await loadPattern(req.pattern_id)
+    if (pattern) {
+      const subject = req.pattern_subject || ''
+      format = fuseFormatWithPattern(format, pattern, subject, chapters)
+      job.output_lines.push(`Applied pattern: ${pattern.name}` + (subject ? ` (subject: "${subject}")` : ''))
+    } else {
+      job.output_lines.push(`Pattern '${req.pattern_id}' not found — generating without pattern`)
+    }
+  }
+
+  const characters = req.character_ids?.length
+    ? await resolveCharacters(project_slug, req.character_ids)
+    : []
+  if (characters.length) {
+    job.output_lines.push(`Cast: ${characters.map(c => c.name).join(', ')}`)
+  }
+
+  const paths = await resolveEpisodePaths(project_slug, episode_id, title)
+  await fs.mkdir(paths.script_dir, { recursive: true })
+
+  const apiKeys = {
+    anthropic_api_key: config.anthropic_api_key,
+    openai_api_key: config.openai_api_key,
+    kie_api_key: config.kie_api_key,
+  }
+  const brand = await getEffectiveBrand(project_slug)
+  const sysPrompt = systemPrompt(format, standards, brand)
+
+  const controller = new AbortController()
+  const cancelWatcher = setInterval(() => {
+    if (jq.isCancelled(job.job_id)) controller.abort()
+  }, 500)
+
+  const params: ChunkedNarrationParams = {
+    episode_id,
+    title,
+    totalChapters: chapters,
+    wordsPerChapter,
+    format,
+    systemPrompt: sysPrompt,
+    scriptDir: paths.script_dir,
+    model: req.model,
+    apiKeys,
+    characters: characters.length ? characters : undefined,
+    signal: controller.signal,
+    isCancelled: () => jq.isCancelled(job.job_id),
+    patternId: req.pattern_id,
+    patternSubject: req.pattern_subject,
+    force: !!(jobParams as any).force,
+  }
+  const mode: ChunkedMode = format.script.chaptersIndependent ? 'listicle' : 'narrative'
+
+  return {
+    params,
+    mode,
+    teardown: () => clearInterval(cancelWatcher),
+  }
+}
+
+/**
+ * Build outline only — the first half of the chunked flow. Persists a
+ * sidecar with `outline_approved_at: null` (unless the request body has
+ * `auto_approve: true`, used by pipeline-batch headless callers). The
+ * frontend's OutlineReviewPanel then reads/edits the outline and PUT
+ * /outline approves it before expand-chapters can run.
+ */
+export async function generateOutlineOnly(job: Job): Promise<void> {
+  const { params, mode, teardown } = await setupChunkedJobContext(job)
+  const autoApprove = !!(job.params as any).auto_approve
+  try {
+    job.output_lines.push(`Building outline (${mode})…`)
+    const result = await buildOutlineOnly(job, params, mode, { auto_approve: autoApprove })
+    job.output_lines.push(
+      `Outline ${result.fromCache ? 'loaded from cache' : 'built'}: ` +
+      `${result.outline.length} chapter slots ` +
+      `${result.approved ? '(auto-approved)' : '— review & approve to expand'}.`,
+    )
+  } finally {
+    teardown()
+  }
+}
+
+/**
+ * Expand chapters from an approved outline. Refuses unless the sidecar's
+ * outline_approved_at is set OR `auto_approve: true` is on the request.
+ * Optional `chapters: number[]` filter expands only those slots; absent =
+ * expand all pending. Per-entry words_per_chapter overrides flow through
+ * the sidecar (set via PUT /outline) into the batch prompts.
+ */
+export async function generateExpandChapters(job: Job): Promise<void> {
+  const { params, teardown } = await setupChunkedJobContext(job)
+  const req = job.params as any
+  const autoApprove = !!req.auto_approve
+  const chaptersFilter: number[] | undefined = Array.isArray(req.chapters)
+    ? (req.chapters as unknown[])
+        .map(n => Number(n))
+        .filter(n => Number.isFinite(n) && n > 0)
+    : undefined
+
+  try {
+    if (chaptersFilter?.length) {
+      job.output_lines.push(`Expanding selected chapters: ${chaptersFilter.join(', ')}…`)
+    } else {
+      job.output_lines.push(`Expanding all pending chapters…`)
+    }
+    const result = await expandChapters(job, params, {
+      chaptersToExpand: chaptersFilter,
+      auto_approve: autoApprove,
+    })
+    job.output_lines.push(
+      `Expansion complete: ${result.chaptersWritten} chapter file(s) on disk ` +
+      `(${result.totalBatches} batch${result.totalBatches === 1 ? '' : 'es'}).`,
+    )
+
+    // Re-assemble the unified narration so downstream readers (audio
+    // reconciler, subtitles, video assembly) see fresh chapters. Mirrors
+    // generateChapterOnly's post-write step.
+    const { assembleUnifiedNarration } = await import('../lib/narration-assembly.js')
+    const paths = await resolveEpisodePaths(job.project_slug, job.episode_id, params.title)
+    await assembleUnifiedNarration(paths.script_dir, job.episode_id, params.title)
+    job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
+  } finally {
+    teardown()
   }
 }

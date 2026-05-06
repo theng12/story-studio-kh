@@ -8,7 +8,10 @@
  */
 
 import { registerExecutor } from '../services/job-queue.js'
-import { generateScriptOnly, generateIntroductionOnly, generateChapterOnly } from '../generators/episode.js'
+import {
+  generateScriptOnly, generateIntroductionOnly, generateChapterOnly,
+  generateOutlineOnly, generateExpandChapters,
+} from '../generators/episode.js'
 import { generateImages } from '../generators/images.js'
 import { reconcileImages } from '../services/image-reconciler.js'
 import { reconcileVideos } from '../services/video-reconciler.js'
@@ -28,6 +31,14 @@ export function registerAllExecutors(): void {
   registerExecutor('script-only', generateScriptOnly)
   registerExecutor('introduction-only', generateIntroductionOnly)
   registerExecutor('chapter-only', generateChapterOnly)
+  // v1.0.72+: outline-first chunked flow. outline_only builds the outline
+  // and persists the sidecar with outline_approved_at: null (or set when
+  // auto_approve: true is on the params). expand_chapters reads the
+  // approved sidecar and expands all-or-selected chapters with per-entry
+  // word-count overrides. The legacy script-only path stays for now —
+  // Phase 3 of the refactor will route it through these instead.
+  registerExecutor('outline_only', generateOutlineOnly)
+  registerExecutor('expand_chapters', generateExpandChapters)
   registerExecutor('image_prompts', generateImagePrompts)
   registerExecutor('images', generateImages)
   registerExecutor('scene_images', generateImages)

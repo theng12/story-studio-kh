@@ -33,7 +33,7 @@ after(async () => {
 describe('getOutlineEntryForChapter — listicle sidecar', () => {
   test('returns the matching entry with hook + key_facts for the requested chapter', async () => {
     const sidecar: ChunkedSidecar = {
-      schema_version: 1,
+      schema_version: 2,
       episode_id: 'EP0001',
       mode: 'listicle',
       total_chapters: 3,
@@ -43,6 +43,8 @@ describe('getOutlineEntryForChapter — listicle sidecar', () => {
         { n: 3, title: 'How a turtle finds the same beach 30 years later', hook_line: 'Magnetic field memory imprinted at birth.', key_facts: ['geomagnetic imprinting', 'natal homing'] },
       ],
       outline_completed_at: '2026-05-07T01:00:00.000Z',
+      outline_approved_at: '2026-05-07T01:05:00.000Z',
+      outline_edited_at: null,
       chapters_done: [],
       params_hash: 'abc123def4567890',
       last_updated: '2026-05-07T01:00:00.000Z',
@@ -68,7 +70,7 @@ describe('getOutlineEntryForChapter — listicle sidecar', () => {
 describe('getOutlineEntryForChapter — narrative sidecar', () => {
   test('returns synopsis + key_beats for narrative-mode regen', async () => {
     const sidecar: ChunkedSidecar = {
-      schema_version: 1,
+      schema_version: 2,
       episode_id: 'EP0042',
       mode: 'narrative',
       total_chapters: 3,
@@ -78,6 +80,8 @@ describe('getOutlineEntryForChapter — narrative sidecar', () => {
         { n: 3, title: 'The Third Hour', synopsis: 'Quiet, drifting toward sleep.', key_beats: ['wind down', 'release', 'fade'] },
       ],
       outline_completed_at: '2026-05-07T01:00:00.000Z',
+      outline_approved_at: '2026-05-07T01:05:00.000Z',
+      outline_edited_at: null,
       chapters_done: [1],
       params_hash: 'feedface0badcafe',
       last_updated: '2026-05-07T01:00:00.000Z',
