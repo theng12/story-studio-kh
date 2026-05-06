@@ -136,7 +136,17 @@
     "videoDefaults": {
       "secondsPerScene": 6,
       "transitionType": "fade",
-      "transitionDurationSec": 0.5
+      "transitionDurationSec": 0.5,
+      "aspectRatio": "landscape"
+    },
+    "audioDefaults": {
+      "speed": 1.0,
+      "stability": 0.6,
+      "similarity": 0.8
+    },
+    "audioMergeDefaults": {
+      "normalizeVolume": true,
+      "gapDurationSec": 2
     },
     "introDefaults": {
       "wordTarget": 50,

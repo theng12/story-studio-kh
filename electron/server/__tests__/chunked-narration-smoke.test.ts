@@ -212,6 +212,50 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     assert.equal(result.chaptersWritten, 6)
   })
 
+  test('resume re-generates a chapter whose docx is zero-byte (crash mid-write guard)', async () => {
+    // Regression: A crash / ENOSPC / kill -9 mid-write can leave a 0-byte
+    // chapter docx on disk while the sidecar still claims the chapter is
+    // done. Pre-fix, resume's `existsSync` would revive the empty file as
+    // "done" and the assembler would silently ship an empty chapter.
+    // Post-fix, the resume verification rejects the 0-byte file, drops it
+    // from chapters_done, and re-issues the expansion call.
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(6, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    const job1 = makeJob(scriptDir)
+    await generateNarrativeChunked(job1, {
+      episode_id: 'EP0500', title: 'Zero Byte Test', totalChapters: 6, wordsPerChapter: 500,
+      format: makeFormat('sleep-story'), systemPrompt: 'sys', scriptDir,
+      model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+    })
+    // Truncate chapter 4's docx — simulates the file system flushing the
+    // metadata but not the content before the crash. File exists but is
+    // 0 bytes.
+    const ch4Path = path.join(scriptDir, 'EP0500_Chapter_04.docx')
+    assert.equal(existsSync(ch4Path), true, 'chapter 4 should exist after first run')
+    await fs.writeFile(ch4Path, '')
+    const truncatedSize = (await fs.stat(ch4Path)).size
+    assert.equal(truncatedSize, 0)
+
+    fakeCalls = []
+    const job2 = makeJob(scriptDir)
+    const result = await generateNarrativeChunked(job2, {
+      episode_id: 'EP0500', title: 'Zero Byte Test', totalChapters: 6, wordsPerChapter: 500,
+      format: makeFormat('sleep-story'), systemPrompt: 'sys', scriptDir,
+      model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
+    })
+    // Post-fix: resume notices chapter 4 is 0 bytes, drops it, re-runs
+    // exactly that batch (chapters 4-6 in batch size 3).
+    assert.equal(fakeCalls.filter(c => c.kind === 'outline').length, 0,
+      'outline is cached in the sidecar — no fresh outline call on resume')
+    assert.ok(fakeCalls.filter(c => c.kind === 'expansion').length >= 1,
+      'at least one expansion call must re-run for the missing chapter')
+    // Chapter 4 is non-zero again after the re-run.
+    const finalSize = (await fs.stat(ch4Path)).size
+    assert.ok(finalSize > 0, `chapter 4 should be re-written; size now ${finalSize}`)
+    assert.equal(result.chaptersWritten, 6)
+  })
+
   test('partial cancel + resume: aborted after batch 2 picks up at batch 3', async () => {
     const scriptDir = await freshDir()
     fakeOutlineResponse = buildOutlineJson(9, 'narrative')

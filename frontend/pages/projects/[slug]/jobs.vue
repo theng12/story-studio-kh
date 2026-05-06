@@ -984,6 +984,31 @@ async function retryJob(job: RJob) {
       params: { language: job.params?.language, model: job.params?.model },
     },
   }
+  // Batch-only types — `metadata` and `image_prompts` are enqueued exclusively
+  // via pipeline.ts (no dedicated `/generate/<type>` queue route exists), so
+  // a retry has to go back through the same path. We reuse run-batch with
+  // force=true so the pipeline's isStepAlreadyDone gate doesn't filter the
+  // step out (the user clicked retry because they want it to run again),
+  // and run-batch's preset resolution picks up any preset edits the user
+  // made between the failure and the retry.
+  const BATCH_ONLY_TYPES = new Set<string>(['metadata', 'image_prompts'])
+  if (BATCH_ONLY_TYPES.has(job.type)) {
+    try {
+      const resp = await post<{ jobs: Array<{ job_id: string }>; skipped?: Array<{ reason: string }> }>(
+        `/projects/${slug.value}/pipeline/run-batch`,
+        { episode_ids: [job.episode_id], steps: [job.type], force: true },
+      )
+      if (!resp?.jobs?.length) {
+        const reason = resp?.skipped?.[0]?.reason || 'Pipeline did not enqueue the job'
+        showError(reason)
+        return
+      }
+      await del(`/projects/${slug.value}/jobs/${job.job_id}`)
+      success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
+    } catch (e: any) { showError(e?.data?.detail || 'Failed to retry job') }
+    return
+  }
+
   const target = endpointMap[job.type]
   if (!target) { showError(`Cannot retry job type: ${job.type}`); return }
 

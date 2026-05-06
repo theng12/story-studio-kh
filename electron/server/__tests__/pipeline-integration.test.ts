@@ -42,6 +42,8 @@ const LISTICLE_FORMAT: Format = {
     defaultNarratorStyleId: '',
     chaptersIndependent: true,
     videoDefaults: { secondsPerScene: 6, transitionType: 'fade', transitionDurationSec: 0.5 },
+    audioDefaults: { speed: 1.0, stability: 0.6, similarity: 0.8 },
+    audioMergeDefaults: { normalizeVolume: true, gapDurationSec: 2 },
   },
   imagePrompts: { purposeNote: '', visualStyleHint: '', defaultScenesTotalRange: [10, 10], defaultThumbnails: 3, defaultStyleTag: '', characterReferenceMode: 'inline', recommendedAspect: '16:9' },
   metadata: {
@@ -102,6 +104,40 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     assert.equal(params.mode, 'all')
   })
 
+  test('image_prompts step seeds defaults from imagePrompts when preset lacks them', () => {
+    // Stale preset (saved before the user touched the form): empty form.
+    // Pre-fix: backend hardcoded 10 scenes / 5 thumbs / 16:9 / storybook
+    // — sleep-story values. Post-fix: listicle's format defaults flow
+    // through unchanged (10 scenes from defaultScenesTotalRange[0]=10,
+    // 3 thumbs from defaultThumbnails, 16:9 aspect, format-tuned style).
+    const preset = fakePreset({ form: {} })
+    const params = resolveStepParams('image_prompts', 'EP0042', 'Title', preset, LISTICLE_FORMAT)
+    assert.equal(params.total_scenes, 10,
+      'should seed listicle defaultScenesTotalRange[0]')
+    assert.equal(params.scenes_per_chapter, 0,
+      'scenes_per_chapter=0 signals "use total_scenes"')
+    assert.equal(params.thumb_count, 3,
+      'should seed listicle defaultThumbnails')
+    assert.equal(params.aspect_ratio, '16:9',
+      'should seed recommendedAspect')
+  })
+
+  test('image_prompts step does not overwrite preset values with format defaults', () => {
+    // Active preset with explicit values must survive — format only fills
+    // gaps, never clobbers.
+    const preset = fakePreset({
+      form: {
+        scenes_per_chapter: 4, thumb_count: 8, aspect_ratio: '9:16',
+        style_tag: 'My personal style',
+      },
+    })
+    const params = resolveStepParams('image_prompts', 'EP0042', 'Title', preset, LISTICLE_FORMAT)
+    assert.equal(params.scenes_per_chapter, 4)
+    assert.equal(params.thumb_count, 8)
+    assert.equal(params.aspect_ratio, '9:16')
+    assert.equal(params.style_tag, 'My personal style')
+  })
+
   test('metadata step pulls listicle defaults (3500/5/70/12) from format', () => {
     const preset = fakePreset({ sections: [] })
     const params = resolveStepParams('metadata', 'EP0042', 'Title', preset, LISTICLE_FORMAT)
@@ -132,6 +168,24 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     assert.equal(tracks.length, 2)
     assert.equal(tracks[0].volume, 0.5)
     assert.equal(tracks[1].volume, 1.0)
+  })
+
+  test('audio_merge step pulls listicle gap/normalize defaults from format when preset omits them', () => {
+    // Stale preset (saved before the user touched gap/normalize): both
+    // fields absent. Pre-fix the pipeline forwarded undefined and the
+    // generator route hardcoded 5s/no-normalize (sleep-story flavour).
+    // Post-fix, listicle gets its tuned 2s/normalize from the format.
+    const preset = fakePreset({})
+    const params = resolveStepParams('audio_merge', 'EP0042', 'Title', preset, LISTICLE_FORMAT)
+    assert.equal(params.gap_duration, 2, 'listicle audioMergeDefaults.gapDurationSec wins')
+    assert.equal(params.normalize_volume, true, 'listicle audioMergeDefaults.normalizeVolume wins')
+  })
+
+  test('audio_merge step honours preset values over format defaults', () => {
+    const preset = fakePreset({ gap_duration: 7, normalize_volume: false })
+    const params = resolveStepParams('audio_merge', 'EP0042', 'Title', preset, LISTICLE_FORMAT)
+    assert.equal(params.gap_duration, 7, 'explicit preset value beats format default')
+    assert.equal(params.normalize_volume, false, 'explicit preset value beats format default')
   })
 
   test('video_assembly bundle preset flattens to generator-shape request', () => {

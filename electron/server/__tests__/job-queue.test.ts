@@ -174,6 +174,75 @@ describe('Persistence — interrupted jobs on restart', () => {
   })
 })
 
+describe('Concurrent enqueues across different job types', () => {
+  test('parallel images + audio jobs all persist to jobs.json without lost entries', async () => {
+    // Audit gap: images and audio run in different queue worker pools
+    // (3 workers per type). Both write to the SAME jobs.json via
+    // persistJob() — without the per-path withLock wrapping the
+    // read-modify-write block, simultaneous completions could clobber
+    // each other's persisted state. This test fires N concurrent jobs
+    // across two types and asserts every one landed in jobs.json with
+    // status=done.
+    const proj = await pm.createProject({ name: 'JQ Concurrent' })
+    jq.registerExecutor('images', async (j) => {
+      // Tiny but non-trivial work so multiple jobs interleave on the
+      // event loop and the persist write is genuinely racy.
+      await new Promise((r) => setTimeout(r, 5))
+      j.output_lines.push('done')
+    })
+    jq.registerExecutor('audio', async (j) => {
+      await new Promise((r) => setTimeout(r, 5))
+      j.output_lines.push('done')
+    })
+
+    const N = 12  // 6 images + 6 audio, exceeds the 3-worker pool per type
+    const enqueued: string[] = []
+    for (let i = 0; i < N / 2; i++) {
+      const a = jq.enqueue({
+        project_slug: proj.slug, type: 'images',
+        episode_id: `EP${String(100 + i).padStart(3, '0')}`,
+        title: `img-${i}`, params: {},
+      })
+      const b = jq.enqueue({
+        project_slug: proj.slug, type: 'audio',
+        episode_id: `EP${String(200 + i).padStart(3, '0')}`,
+        title: `aud-${i}`, params: {},
+      })
+      enqueued.push(a.job_id, b.job_id)
+    }
+
+    // Each queue type is single-threaded (one worker per QueueState), so
+    // 6 jobs × 5ms = ~30ms work per type. The dominating cost is the
+    // jobs.json persist on every state transition (enqueue / start /
+    // finish = 3 writes per job) — those serialize through withLock +
+    // atomic rename, and on a slow disk each can take 30-50ms. 3s is a
+    // safe upper bound for 12 jobs × 3 transitions in the worst case.
+    const deadline = Date.now() + 3000
+    while (Date.now() < deadline) {
+      const inMem = await jq.getJobs(proj.slug)
+      const ours = inMem.filter(j => enqueued.includes(j.job_id))
+      if (ours.length === N && ours.every(j => j.status === 'done')) break
+      await new Promise((r) => setTimeout(r, 50))
+    }
+
+    // Read jobs.json directly to verify the persistence path didn't drop
+    // entries — getJobs() reads from in-memory state, which doesn't catch
+    // a missing-on-disk regression.
+    const jobsFile = path.join(tempDir, 'projects', proj.slug, 'jobs.json')
+    const raw = JSON.parse(await fs.readFile(jobsFile, 'utf-8'))
+    const persistedIds = new Set(raw.jobs.map((j: any) => j.job_id))
+    for (const id of enqueued) {
+      assert.ok(persistedIds.has(id), `job ${id} missing from jobs.json — race lost it`)
+    }
+    // All settled cleanly.
+    const inMemory = await jq.getJobs(proj.slug)
+    const ours = inMemory.filter(j => enqueued.includes(j.job_id))
+    assert.equal(ours.length, N, `expected ${N} jobs, got ${ours.length}`)
+    assert.ok(ours.every(j => j.status === 'done'),
+      `every job should be done; statuses: ${ours.map(j => j.status).join(',')}`)
+  })
+})
+
 describe('recordAccountUsed()', () => {
   test('records one provider/account on a queued job and fires an update event', async () => {
     const proj = await pm.createProject({ name: 'JQ Account Use 1' })

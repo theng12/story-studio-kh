@@ -12,6 +12,7 @@ import { scanEpisodeAudioAssets } from '../generators/audio-merge.js'
 import { checkFfmpeg } from '../lib/ffmpeg-utils.js'
 import { getAudioMergeStatus } from '../services/asset-status.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { getEffectiveFormat } from '../services/format-loader.js'
 
 export const router = Router()
 
@@ -60,9 +61,21 @@ router.post('/projects/:slug/generate/audio-merge', async (req, res) => {
     return res.status(400).json({ detail: 'At least one chapter file path is required' })
   }
 
-  // Apply defaults
-  req.body.gap_duration = gap_duration ?? 5
-  req.body.normalize_volume = normalize_volume ?? false
+  // Apply defaults — precedence: request body → format → legacy hardcoded.
+  // Format-aware (v1.0.72): each channel format's audioMergeDefaults block
+  // provides the "right" values for that style (sleep-story = no normalize,
+  // 5s gaps; listicle = no gap, normalize on; etc.) so a stale preset or
+  // programmatic enqueue that omits these fields gets format-tuned values
+  // instead of the legacy sleep-story-flavoured 5s/no-normalize fallback.
+  // Format load failures fall through to the legacy defaults — never break
+  // the merge job over a missing format.
+  let fmtMerge: { gapDurationSec?: number; normalizeVolume?: boolean } | undefined
+  try {
+    const fmt = await getEffectiveFormat(slug)
+    fmtMerge = fmt?.script.audioMergeDefaults
+  } catch { /* format layer must never break the queue submit */ }
+  req.body.gap_duration = gap_duration ?? fmtMerge?.gapDurationSec ?? 5
+  req.body.normalize_volume = normalize_volume ?? fmtMerge?.normalizeVolume ?? false
 
   if (isDuplicate(slug, episode_id, 'audio_merge')) {
     return res.status(409).json({ detail: `Audio merge already queued/running for ${episode_id}` })

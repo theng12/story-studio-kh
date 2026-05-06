@@ -82,6 +82,52 @@ describe('writeJsonAtomic — rename failure cleanup', () => {
     assert.deepEqual(tmps, [], 'no .tmp sibling should remain after a failed rename')
   })
 
+  test('writeFile ENOSPC mid-write: rejects + no target file lands + later write succeeds', async () => {
+    // Audit gap: only the rename-ENOSPC path was covered. If the initial
+    // tmp-file write itself fails (disk full at the moment of write), we
+    // need to confirm: (a) the error propagates verbatim — caller can decide
+    // what to do, and (b) no target file lands at the canonical path, so
+    // the next read still sees the old (or no) value rather than a
+    // partial/empty file.
+    const target = path.join(tempDir, 'crash', 'c.json')
+    // Pre-existing payload so we can prove the canonical file isn't touched.
+    await store.writeJsonAtomic(target, { value: 'pre-existing' })
+
+    const origWriteFile = fs.writeFile.bind(fs)
+    const enospc: any = new Error('ENOSPC: no space left on device')
+    enospc.code = 'ENOSPC'
+    ;(fs as any).writeFile = async (...args: any[]) => {
+      // Sabotage only writes to .tmp siblings of our target — leaves the
+      // rest of the test infra alone (mkdtemp / colliding files in this
+      // file's other tests still need real writeFile).
+      const dest = String(args[0])
+      if (dest.startsWith(target + '.') && dest.endsWith('.tmp')) throw enospc
+      return origWriteFile(...args as Parameters<typeof origWriteFile>)
+    }
+
+    try {
+      await assert.rejects(
+        () => store.writeJsonAtomic(target, { value: 'doomed' }),
+        (err: any) => {
+          assert.equal(err.code, 'ENOSPC', 'original ENOSPC propagates verbatim')
+          return true
+        },
+      )
+    } finally {
+      ;(fs as any).writeFile = origWriteFile
+    }
+
+    // Canonical target still holds the pre-existing payload — atomic-write's
+    // load-bearing promise: a failed write doesn't truncate the live file.
+    const txt = await fs.readFile(target, 'utf-8')
+    assert.equal(JSON.parse(txt).value, 'pre-existing')
+
+    // Recovery write succeeds normally.
+    await store.writeJsonAtomic(target, { value: 'recovered' })
+    const txt2 = await fs.readFile(target, 'utf-8')
+    assert.equal(JSON.parse(txt2).value, 'recovered')
+  })
+
   test('subsequent successful write produces the new payload (no stale revival)', async () => {
     const target = path.join(tempDir, 'crash', 'b.json')
 

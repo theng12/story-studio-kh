@@ -224,6 +224,40 @@ export function resolveStepParams(
     if (Number.isFinite(spc) && spc > 0) {
       delete (rest as any).total_scenes
     }
+    // Format-aware fallback (v1.0.72): a stale preset saved before the
+    // format-defaults rollout — or one snapshotted from the page before
+    // the user opened it — may be missing total_scenes / thumb_count.
+    // Without this fallback, the backend hardcodes 10 scenes / 5 thumbs
+    // (sleep-story values) regardless of channel format. The frontend
+    // page seeds these from the format on first boot, so this layer
+    // mostly helps batch runs from older presets and programmatic
+    // enqueues.
+    const fmtIp = format?.imagePrompts
+    if (fmtIp) {
+      // Derive scene count: only set total_scenes if the preset doesn't
+      // already pin a way to compute it (scenes_per_chapter or
+      // total_scenes already non-zero).
+      const hasScenesSignal = (Number.isFinite(spc) && spc > 0) ||
+        (Number((rest as any).total_scenes) > 0)
+      if (!hasScenesSignal && Array.isArray(fmtIp.defaultScenesTotalRange) &&
+          fmtIp.defaultScenesTotalRange.length === 2 &&
+          typeof fmtIp.defaultScenesTotalRange[0] === 'number') {
+        ;(rest as any).total_scenes = fmtIp.defaultScenesTotalRange[0]
+        ;(rest as any).scenes_per_chapter = 0  // signals "use total_scenes"
+      }
+      if (!Number((rest as any).thumb_count) && typeof fmtIp.defaultThumbnails === 'number' &&
+          fmtIp.defaultThumbnails > 0) {
+        ;(rest as any).thumb_count = fmtIp.defaultThumbnails
+      }
+      if (!(rest as any).aspect_ratio && typeof fmtIp.recommendedAspect === 'string' &&
+          fmtIp.recommendedAspect) {
+        ;(rest as any).aspect_ratio = fmtIp.recommendedAspect
+      }
+      if (!(rest as any).style_tag && typeof fmtIp.defaultStyleTag === 'string' &&
+          fmtIp.defaultStyleTag.trim()) {
+        ;(rest as any).style_tag = fmtIp.defaultStyleTag
+      }
+    }
     return {
       ...rest,
       episode_id: episodeId,
@@ -314,14 +348,21 @@ export function resolveStepParams(
         }))
       : []
 
+    // Format-aware merge defaults (v1.0.72): if the preset's snapshot
+    // predates the format-defaults rollout — or the user saved it before
+    // touching those fields — fall back to the channel format's
+    // audioMergeDefaults block (sleep-story 5s/no-normalize, listicle
+    // tighter values, etc.) instead of letting the route below clamp to
+    // the historical hardcoded 5s/no-normalize sleep-story defaults.
+    const fmtMerge = format?.script.audioMergeDefaults
     return {
       episode_id: episodeId,
       intro: normIntro,
       music: normMusic,
       background_noise: normNoise,
       ...(liveAmbient.length ? { ambient_tracks: liveAmbient } : {}),
-      gap_duration: data.gap_duration,
-      normalize_volume: data.normalize_volume,
+      gap_duration: data.gap_duration ?? fmtMerge?.gapDurationSec,
+      normalize_volume: data.normalize_volume ?? fmtMerge?.normalizeVolume,
     }
   }
   if (step === 'metadata') {

@@ -36,6 +36,7 @@ import {
 } from '../services/video-reconciler.js'
 import { pollForImageUrls } from './kie-client.js'
 import { pollExistingTask as pollExistingGenaiproTask } from './genaipro-client.js'
+import { pollExistingFalAudio } from './fal-client.js'
 import { sleepCancellable } from './http-retry.js'
 import type { ImageModelConfig } from '../models/types.js'
 
@@ -83,8 +84,12 @@ export async function tryRecoverImageFromManifest(
 
 /**
  * Try to recover an audio chunk URL from a stored manifest entry.
- * Currently only GenAIPro is wired (ElevenLabs streams direct, no task_id;
- * fal audio doesn't currently record a manifest entry — see audio.ts).
+ * Wired providers:
+ *   - GenAIPro → polls the stored task_id
+ *   - fal      → re-polls the stored (poll_path, result_url) pair from
+ *                fal's queue API. Auto-fills missing url fields by deriving
+ *                them from request_id when an old (pre-5/6) entry only has
+ *                task_id. ElevenLabs streams direct → no recovery possible.
  * On `pending`, polls until completion.
  */
 export async function tryRecoverAudioFromManifest(
@@ -94,15 +99,25 @@ export async function tryRecoverAudioFromManifest(
   timeoutMs?: number,
 ): Promise<{ url: string; taskId: string; provider: string } | null> {
   if (!entry || !entry.task_id) return null
-  if (entry.provider !== 'genaipro') return null
   if (!apiKey) return null
-  try {
-    const url = await pollExistingGenaiproTask(apiKey, entry.task_id, { isCancelled, timeoutMs })
+  if (entry.provider === 'genaipro') {
+    try {
+      const url = await pollExistingGenaiproTask(apiKey, entry.task_id, { isCancelled, timeoutMs })
+      if (!url) return null
+      return { url, taskId: entry.task_id, provider: entry.provider }
+    } catch {
+      return null
+    }
+  }
+  if (entry.provider === 'fal') {
+    if (!entry.poll_path || !entry.result_url) return null
+    const url = await pollExistingFalAudio(entry.poll_path, entry.result_url, apiKey, {
+      isCancelled, timeoutMs,
+    })
     if (!url) return null
     return { url, taskId: entry.task_id, provider: entry.provider }
-  } catch {
-    return null
   }
+  return null
 }
 
 // ── Video (kie / fal / genaipro-veo — all three providers) ───────────────

@@ -65,6 +65,87 @@ describe('format-loader', () => {
     assert.equal(fmt, null)
   })
 
+  // Locks shape parity across all 8 built-in formats so adding fields to
+  // sleep-story (the most-tested format) doesn't silently leave the
+  // other formats with stale schemas. Without this, a new required
+  // field would only blow up at runtime when a user picks the format
+  // for a real project.
+  const ALL_BUILTIN_FORMATS = [
+    'sleep-story', 'listicle', 'educational', 'kids-fairytale',
+    'comedy', 'adventure', 'documentary', 'true-crime',
+  ]
+  for (const id of ALL_BUILTIN_FORMATS) {
+    test(`built-in '${id}' loads with all required fields`, async () => {
+      const fmt = await loader.loadFormat(id)
+      assert.ok(fmt, `${id} must exist`)
+      assert.equal(fmt!.id, id)
+      assert.equal(fmt!.builtin, true)
+      assert.equal(fmt!.schemaVersion, 1)
+      // Identity / role
+      assert.ok(fmt!.script.systemPromptRole.length > 0,
+        `${id}: script.systemPromptRole non-empty`)
+      assert.ok(fmt!.idea.systemPromptRole.length > 0,
+        `${id}: idea.systemPromptRole non-empty`)
+      // Pacing / structure — every format needs these to drive episode.ts
+      assert.ok(Array.isArray(fmt!.script.pacingArc))
+      assert.ok(typeof fmt!.script.defaultChapterCount === 'number' && fmt!.script.defaultChapterCount > 0)
+      assert.ok(Array.isArray(fmt!.script.chapterCountRange) && fmt!.script.chapterCountRange.length === 2)
+      assert.ok(typeof fmt!.script.defaultLengthMinutes === 'number' && fmt!.script.defaultLengthMinutes > 0)
+      // Narrator catalog — used by scripts.vue's narrator-style picker.
+      assert.ok(Array.isArray(fmt!.script.narratorStyles))
+      assert.ok(fmt!.script.narratorStyles.length > 0,
+        `${id}: needs at least one narrator style for the picker`)
+      assert.ok(fmt!.script.defaultNarratorStyleId, `${id}: defaultNarratorStyleId is set`)
+      // Image prompts — every format must seed image-prompts.vue's defaults
+      // (defaultThumbnails, defaultScenesTotalRange, recommendedAspect)
+      assert.ok(Array.isArray(fmt!.imagePrompts.defaultScenesTotalRange) &&
+        fmt!.imagePrompts.defaultScenesTotalRange.length === 2,
+        `${id}: imagePrompts.defaultScenesTotalRange [lo, hi]`)
+      assert.ok(typeof fmt!.imagePrompts.defaultThumbnails === 'number' &&
+        fmt!.imagePrompts.defaultThumbnails > 0,
+        `${id}: imagePrompts.defaultThumbnails > 0`)
+      assert.ok(typeof fmt!.imagePrompts.recommendedAspect === 'string' &&
+        fmt!.imagePrompts.recommendedAspect.length > 0,
+        `${id}: imagePrompts.recommendedAspect set`)
+      // Metadata defaults — pipeline.ts relies on these for batch metadata.
+      assert.ok(fmt!.metadata.purposeNote.length > 0)
+      assert.ok(Array.isArray(fmt!.metadata.broadKeywords))
+      assert.ok(fmt!.metadata.youtubeDescriptionStructure,
+        `${id}: youtubeDescriptionStructure required for description rendering`)
+    })
+  }
+
+  // audioDefaults / audioMergeDefaults are OPTIONAL channel-tuning blocks
+  // (formats that omit them fall through to TTS-client / route defaults
+  // via the audio.ts and audio-merge.ts fallback chains). When present,
+  // they MUST be valid — these tests pin the shape so an incomplete edit
+  // (e.g. missing speed, similarity > 1) doesn't ship a runtime failure.
+  test('audioDefaults: shape is valid on every format that ships them', async () => {
+    for (const id of ALL_BUILTIN_FORMATS) {
+      const fmt = await loader.loadFormat(id)
+      const ad = fmt!.script.audioDefaults
+      if (!ad) continue
+      assert.ok(typeof ad.speed === 'number' && ad.speed > 0 && ad.speed <= 2,
+        `${id}: audioDefaults.speed in (0, 2]`)
+      assert.ok(typeof ad.stability === 'number' && ad.stability >= 0 && ad.stability <= 1,
+        `${id}: audioDefaults.stability in [0, 1]`)
+      assert.ok(typeof ad.similarity === 'number' && ad.similarity >= 0 && ad.similarity <= 1,
+        `${id}: audioDefaults.similarity in [0, 1]`)
+    }
+  })
+
+  test('audioMergeDefaults: shape is valid on every format that ships them', async () => {
+    for (const id of ALL_BUILTIN_FORMATS) {
+      const fmt = await loader.loadFormat(id)
+      const md = fmt!.script.audioMergeDefaults
+      if (!md) continue
+      assert.ok(typeof md.gapDurationSec === 'number' && md.gapDurationSec >= 0,
+        `${id}: audioMergeDefaults.gapDurationSec >= 0`)
+      assert.ok(typeof md.normalizeVolume === 'boolean',
+        `${id}: audioMergeDefaults.normalizeVolume is boolean`)
+    }
+  })
+
   test('listFormats() includes the built-in sleep-story', async () => {
     const list = await loader.listFormats()
     const ids = list.map(f => f.id)

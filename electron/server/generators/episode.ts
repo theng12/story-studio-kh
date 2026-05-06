@@ -19,6 +19,7 @@ import * as jq from '../services/job-queue.js'
 import * as im from '../services/idea-manager.js'
 import {
   CHUNK_THRESHOLD_WORDS,
+  shouldChunkByBudget,
   generateNarrativeChunked,
   generateListicleChunked,
 } from '../lib/chunked-narration.js'
@@ -448,14 +449,27 @@ async function generateEpisode(job: Job): Promise<void> {
 
     // v1.0.71+: dispatch to chunked mode when the target wordcount would
     // overflow a single LLM call. Single-call max output is ~16k tokens
-    // (Anthropic streaming) ≈ 12k words; we use 8k as the dispatch
-    // threshold to keep ~4k tokens of headroom for system prompt + framing.
+    // (Anthropic streaming) ≈ 12k words. Two signals can trigger chunking:
+    //   1. word-count heuristic (CHUNK_THRESHOLD_WORDS) — fast pre-check
+    //   2. dynamic budget check — projects with a heavy character cast,
+    //      long production standards, or large brand persona can crowd
+    //      the cap even at lower word counts. Assemble the user prompt
+    //      once and feed its real size into `shouldChunkByBudget`.
     // Chunked mode writes per-chapter docx files incrementally, so cancel
     // / crash / restart preserves partial work and a re-run resumes from
     // the on-disk sidecar.
     let narrationText: string
     const targetWords = chapters * wordsPerChapter
+    const assembledNarrationPrompt = narrationPrompt(
+      format, episode_id, title, length, style, chapters, totalWords, wordsPerChapter,
+      introEnabled ? introSettings : undefined, customStyleText, introStandardsText, characters,
+    )
     const useChunked = targetWords > CHUNK_THRESHOLD_WORDS
+      || shouldChunkByBudget({
+        systemPromptChars: sysPrompt.length,
+        userPromptChars: assembledNarrationPrompt.length,
+        targetWords,
+      })
     if (useChunked) {
       const chunkedParams = {
         episode_id,
@@ -491,7 +505,7 @@ async function generateEpisode(job: Job): Promise<void> {
       narrationText = ''
     } else {
       narrationText = await callAi(req.model, sysPrompt,
-        narrationPrompt(format, episode_id, title, length, style, chapters, totalWords, wordsPerChapter, introEnabled ? introSettings : undefined, customStyleText, introStandardsText, characters),
+        assembledNarrationPrompt,
         apiKeys, true, { slug: project_slug, jobId: job.job_id, signal: controller.signal })
 
       const wordCount = narrationText.split(/\s+/).length

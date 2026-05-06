@@ -264,7 +264,41 @@ const audioPresets = usePresets<any>({
   snapshot: () => ({ form: { ...form } }),
   apply: (data) => { if (data?.form) Object.assign(form, data.form) },
 })
-onMounted(() => audioPresets.load())
+
+/**
+ * Format-aware seeding of TTS knobs BEFORE preset loaders run. Defaults
+ * shipped with the page (0.93× / 1.0 / 1.0) are sleep-story-flavoured —
+ * fine for the original use case, wrong for listicle / explainer channels
+ * where a 1.0× pace and looser stability/similarity reads more naturally.
+ * Format JSON declares `script.audioDefaults`; absent → fall through to the
+ * existing hardcoded values, so formats that haven't opted in see no change.
+ *
+ * Saved presets still override these — preset.load() runs after, so users
+ * with their own presets keep their own values. The seeding only matters
+ * for fresh projects with no preset applied yet.
+ */
+async function applyAudioFormatDefaultsIfNoPreset() {
+  try {
+    const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    const a = f?.script?.audioDefaults
+    if (!a) return
+    if (typeof a.speed === 'number' && a.speed > 0) form.speed = a.speed
+    if (typeof a.stability === 'number' && a.stability >= 0 && a.stability <= 1) {
+      form.stability = a.stability
+    }
+    if (typeof a.similarity === 'number' && a.similarity >= 0 && a.similarity <= 1) {
+      form.similarity = a.similarity
+    }
+  } catch {
+    // Format endpoint unavailable / project missing — keep the legacy
+    // hardcoded sleep-story values. Non-fatal.
+  }
+}
+
+onMounted(async () => {
+  await applyAudioFormatDefaultsIfNoPreset()
+  await audioPresets.load()
+})
 
 // Effective section list = what the AudioChapterSelector says to actually
 // queue (selection minus already-generated when duplicate override is off).

@@ -67,6 +67,119 @@ describe('pollForResult isCancelled probe', () => {
   })
 })
 
+describe('pollForResult — timeout / failure propagation', () => {
+  test('throws "timed out" when deadline expires while server keeps returning IN_PROGRESS', async () => {
+    // Fake provider that never completes. Without the deadline check
+    // the poll loop would run forever; this test pins the timeout
+    // message shape so a future refactor can't silently break it.
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ status: 'IN_PROGRESS' }))
+    })
+    await new Promise<void>((r) => server.listen(0, r))
+    const port = (server.address() as AddressInfo).port
+
+    try {
+      const start = Date.now()
+      // 800ms deadline + 100ms interval — at most ~8 ticks before timeout.
+      await assert.rejects(
+        () => pollForResult<string>({
+          label: 'fal.ai status',
+          url: `http://127.0.0.1:${port}/`,
+          headers: {},
+          deadline: Date.now() + 800,
+          intervalMs: 100,
+          onData: () => ({ continue: true }),
+        }),
+        (err: Error) => {
+          assert.match(err.message, /timed out/, `expected timeout message; got: ${err.message}`)
+          assert.match(err.message, /fal\.ai status/, 'label is included so users see which provider')
+          return true
+        },
+      )
+      const elapsed = Date.now() - start
+      // Deadline + one interval slack — the loop checks Date.now() at the
+      // top, so a tick can overshoot by intervalMs.
+      assert.ok(elapsed < 2000, `should timeout near the deadline; took ${elapsed}ms`)
+    } finally {
+      server.close()
+    }
+  })
+
+  test('escalates with provider status after MAX_CONSECUTIVE_FAILURES of 5xx', async () => {
+    // Server consistently 503s. The poll loop counts consecutive failures
+    // and after 8 raises a meaningful error including status code + body
+    // tail, instead of silently looping until deadline.
+    const server = http.createServer((_req, res) => {
+      res.writeHead(503, { 'Content-Type': 'text/plain' })
+      res.end('Upstream gateway is dead, try later')
+    })
+    await new Promise<void>((r) => server.listen(0, r))
+    const port = (server.address() as AddressInfo).port
+
+    try {
+      await assert.rejects(
+        () => pollForResult<string>({
+          label: 'kie.ai video',
+          url: `http://127.0.0.1:${port}/`,
+          headers: {},
+          // Generous deadline — we want failure escalation to fire BEFORE
+          // the deadline kicks in, proving the consecutive-error path
+          // works independently.
+          deadline: Date.now() + 60_000,
+          intervalMs: 1,  // tight cadence so all 8 failures fire fast
+          onData: () => ({ continue: true }),
+        }),
+        (err: Error) => {
+          // Body tail is included so users can see the upstream's actual
+          // explanation rather than a generic "failed".
+          assert.match(err.message, /503/, 'status code in message')
+          assert.match(err.message, /kie\.ai video/, 'label in message')
+          assert.match(err.message, /gateway is dead/, 'response body tail surfaces')
+          return true
+        },
+      )
+    } finally {
+      server.close()
+    }
+  })
+
+  test('redactKey scrubs the API key from a 503 body before it reaches the thrown error', async () => {
+    // Audit hook: any provider that echoes the Authorization header in
+    // a 4xx/5xx body (some quota-rejection endpoints do) would leak
+    // secrets through the queue → SSE → renderer log chain. The
+    // redactKey hook on pollForResult scrubs them before throwing.
+    const SECRET = 'sk_live_VERY_SECRET_KEY_42'
+    const server = http.createServer((_req, res) => {
+      res.writeHead(503, { 'Content-Type': 'text/plain' })
+      res.end(`Authorization=${SECRET} not allowed`)
+    })
+    await new Promise<void>((r) => server.listen(0, r))
+    const port = (server.address() as AddressInfo).port
+
+    try {
+      await assert.rejects(
+        () => pollForResult<string>({
+          label: 'fal.ai',
+          url: `http://127.0.0.1:${port}/`,
+          headers: {},
+          deadline: Date.now() + 60_000,
+          intervalMs: 1,
+          onData: () => ({ continue: true }),
+          redactKey: SECRET,
+        }),
+        (err: Error) => {
+          assert.ok(!err.message.includes(SECRET),
+            `secret leaked into error message: ${err.message}`)
+          return true
+        },
+      )
+    } finally {
+      server.close()
+    }
+  })
+})
+
 describe('end-to-end: cancel aborts in-flight TTS poll', () => {
   test('cancelJob settles a stuck-in-poll TTS job as cancelled within ~1s', async (t) => {
     // Fake fal queue: submit returns { status_url }, status forever reports IN_PROGRESS.

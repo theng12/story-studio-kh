@@ -41,7 +41,7 @@
  */
 
 import fs from 'fs/promises'
-import { existsSync } from 'fs'
+import { existsSync, statSync } from 'fs'
 import path from 'path'
 import { createHash } from 'crypto'
 import { callAi } from './ai-client.js'
@@ -59,17 +59,55 @@ import type { Job, Format, Character } from '../models/types.js'
 
 /**
  * Word target above which `generateEpisode` dispatches to chunked mode.
- * 10000 words ≈ 13k output tokens; with a system prompt + framing of
- * ~2-3k tokens, that leaves ~1k headroom under the 16k streaming cap.
- * Below the threshold the single-call path is more efficient (one
- * round-trip, tighter narrative cohesion).
+ * Acts as a fast pre-check; the call site ALSO runs `shouldChunkByBudget`
+ * with the actual assembled prompt sizes for projects that sit close to
+ * the limit (heavy character cast, long production standards, big brand
+ * persona). Either signal triggers chunking.
  *
- * Tuned to 10k (was 8k) so the common sleep-story shape (12 chapters ×
- * 700 words = 8400) stays on the proven single-call path. 100-chapter
- * listicles (50,000 words) and other large runs still trip into chunked
- * mode.
+ * 9000 words ≈ 11.7k output tokens; with a typical 2k-token system+user
+ * prompt that leaves ~2.3k margin under the 16k streaming cap. Tuned
+ * down from 10k after an audit found the prior 6% margin was too thin
+ * for projects with a 5+ character cast or large standards block.
+ * Common sleep-story shape (12 chapters × 700 words = 8400) still stays
+ * on the proven single-call path.
  */
-export const CHUNK_THRESHOLD_WORDS = 10000
+export const CHUNK_THRESHOLD_WORDS = 9000
+
+/** Output token cap for streaming Anthropic. Sets the budget the dynamic
+ *  check works against. If we ever switch to a model with a different cap,
+ *  pass the actual cap to `shouldChunkByBudget` instead. */
+const STREAMING_OUTPUT_TOKEN_CAP = 16_000
+
+/** Headroom buffer: tokenizer-vs-word drift, JSON nesting in the prompt,
+ *  and provider-side stop-token handling all eat real tokens. 1500 keeps
+ *  us comfortably away from truncation even when the input estimate is
+ *  20% off. */
+const SAFETY_MARGIN_TOKENS = 1500
+
+/**
+ * Dynamic chunking decision. Returns true when the assembled prompt +
+ * projected output would crowd the streaming output cap. Use ALONGSIDE
+ * the word-count threshold above — either signal triggers chunked mode.
+ *
+ * Estimation:
+ *   - Input tokens ≈ chars / 4 (English; safe for prose, slightly
+ *     pessimistic for JSON-dense prompts which is what we want here)
+ *   - Output tokens ≈ words × 1.3 (English narration, measured)
+ *
+ * If `(input + output + safety) > cap`, the single-call path can
+ * truncate or shrink per-chapter wordcount. Chunked mode is safer.
+ */
+export function shouldChunkByBudget(opts: {
+  systemPromptChars: number
+  userPromptChars: number
+  targetWords: number
+  outputTokenCap?: number
+}): boolean {
+  const cap = opts.outputTokenCap ?? STREAMING_OUTPUT_TOKEN_CAP
+  const inputTokens = Math.ceil((opts.systemPromptChars + opts.userPromptChars) / 4)
+  const outputTokens = Math.ceil(opts.targetWords * 1.3)
+  return (inputTokens + outputTokens + SAFETY_MARGIN_TOKENS) > cap
+}
 
 /** Sequential batch size for narrative-mode expansion. Larger batches lose
  *  transition coherence; smaller burns more LLM round-trips for the same
@@ -96,6 +134,22 @@ const COMPACT_OUTLINE_THRESHOLD = 500
  *  (titles only) instead of the full outline so the INPUT window stays
  *  manageable. Below this, expansion calls see the whole outline. */
 const TOC_MODE_THRESHOLD = 300
+
+/**
+ * Resume-integrity guard: a chapter docx counts as "done" only when the
+ * file exists AND is non-zero. A crash (or ENOSPC, or kill -9) mid-write
+ * can leave a 0-byte placeholder behind; without this check, the sidecar
+ * would revive the placeholder as a completed chapter and the assembler
+ * would silently ship an empty chapter into the unified narration.
+ */
+function chapterFileLooksValid(filePath: string): boolean {
+  try {
+    const st = statSync(filePath)
+    return st.isFile() && st.size > 0
+  } catch {
+    return false
+  }
+}
 
 // ── Sidecar shape ──────────────────────────────────────────────────────────
 
@@ -235,10 +289,13 @@ async function runChunked(
 
   // Cross-check the sidecar's chapters_done against actual files on disk.
   // Files can disappear (manual cleanup, drive sync) between runs; the
-  // sidecar is the intent, the disk is the truth. We trust the disk.
+  // sidecar is the intent, the disk is the truth. We trust the disk —
+  // and we require the file to be non-zero. A 0-byte docx left by a
+  // crash mid-write would otherwise be revived as "done" and ship an
+  // empty chapter to the assembler.
   const verifiedDone = new Set<number>()
   for (const n of sidecar.chapters_done) {
-    if (existsSync(chapterFilePath(params.scriptDir, params.episode_id, n))) {
+    if (chapterFileLooksValid(chapterFilePath(params.scriptDir, params.episode_id, n))) {
       verifiedDone.add(n)
     }
   }

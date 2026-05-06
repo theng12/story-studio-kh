@@ -101,7 +101,19 @@
       { "id": "I", "label": "Meditative and mindful",      "description": "Present-tense awareness, grounding the listener in each sensory moment. Breath-paced prose." },
       { "id": "J", "label": "Fairy tale narrator",         "description": "Storybook formality with a wink. \"Once upon a time\" energy, clear moral arcs, satisfying endings." }
     ],
-    "defaultNarratorStyleId": "A"
+    "defaultNarratorStyleId": "A",
+    "videoDefaults": {
+      "aspectRatio": "landscape"
+    },
+    "audioDefaults": {
+      "speed": 0.93,
+      "stability": 1.0,
+      "similarity": 1.0
+    },
+    "audioMergeDefaults": {
+      "normalizeVolume": false,
+      "gapDurationSec": 5
+    }
   },
 
   "imagePrompts": {

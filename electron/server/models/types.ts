@@ -206,6 +206,44 @@ export interface ScriptFormat {
     transitionType?: string
     /** Default transition duration in seconds. */
     transitionDurationSec?: number
+    /**
+     * Default video-generator aspect ratio (passed to Veo / Sora / fal-video).
+     * 'landscape' covers 16:9 channels (sleep-story, listicle); 'portrait'
+     * is for vertical / Shorts-format channels; 'square' for 1:1 social
+     * formats. Optional — formats that omit it fall back to 'landscape'.
+     */
+    aspectRatio?: 'landscape' | 'portrait' | 'square'
+  }
+
+  /**
+   * Per-format defaults for the Audio (TTS) generator page. Sleep-story
+   * narration is calmer (0.93× speed); listicle / explainer channels want
+   * faster pacing (~1.0×). Optional — formats that omit the block fall back
+   * to the page's hardcoded sleep-story-shaped defaults.
+   *
+   * Saved presets still override these — preset.load() runs after seeding.
+   */
+  audioDefaults?: {
+    /** Default playback speed multiplier (typical range 0.85–1.2). */
+    speed?: number
+    /** ElevenLabs / fal stability slider (0–1). */
+    stability?: number
+    /** ElevenLabs / fal similarity-boost slider (0–1). */
+    similarity?: number
+  }
+
+  /**
+   * Per-format defaults for the Audio Merge page. Sleep-story rarely
+   * needs loudness normalization (the calm-narration pipeline already
+   * targets a consistent peak); listicle / educational channels with
+   * mixed-tone delivery often want EBU R128 normalization to keep
+   * per-chapter peaks even.
+   */
+  audioMergeDefaults?: {
+    /** Default state of the "Normalize loudness" toggle. */
+    normalizeVolume?: boolean
+    /** Default silence gap between chapters, seconds. */
+    gapDurationSec?: number
   }
 
   /**

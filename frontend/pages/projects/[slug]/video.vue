@@ -293,8 +293,30 @@ const videoPresets = usePresets<any>({
     if (data?.promptsForm) Object.assign(promptsForm, data.promptsForm)
   },
 })
-onMounted(() => {
-  void videoPresets.load()
+/**
+ * Format-aware seeding of aspect_ratio BEFORE preset loaders run. The
+ * page default 'landscape' is sleep-story / listicle shape (16:9 channels);
+ * vertical Shorts-format channels would want 'portrait'. Format JSON
+ * declares `script.videoDefaults.aspectRatio` ('landscape' | 'portrait' |
+ * 'square'); 'square' has no UI option here and is ignored at the page
+ * level (Veo / Sora can't render square anyway today).
+ *
+ * Saved presets still override these — preset.load() runs after seeding.
+ */
+async function applyVideoFormatDefaultsIfNoPreset() {
+  try {
+    const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    const v = f?.script?.videoDefaults
+    const ar = v?.aspectRatio
+    if (ar === 'landscape' || ar === 'portrait') form.aspect_ratio = ar
+  } catch {
+    // Format endpoint unavailable — keep 'landscape'. Non-fatal.
+  }
+}
+
+onMounted(async () => {
+  await applyVideoFormatDefaultsIfNoPreset()
+  await videoPresets.load()
   void loadBuiltInPrompts()
 })
 

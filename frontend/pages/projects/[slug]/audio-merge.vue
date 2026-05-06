@@ -734,9 +734,12 @@ function moveAmbientTrack(id: string, dir: -1 | 1) {
 }
 
 // ── Presets ───────────────────────────────────────────────────────────────
-// Unified preset wiring (matches every other generator page). A one-time
-// migration in onMounted moves the old flat-shape `audio_merge_presets`
-// entries into the `{id, name, data}` shape usePresets expects.
+// Unified preset wiring (matches every other generator page). The apply()
+// branches below are defensive against partial-shape presets (e.g. a preset
+// saved before ambient_tracks existed won't have that key) — usePresets
+// itself stores everything in the `{id, name, data}` shape that the
+// composable owns end-to-end. No legacy flat-shape format ever shipped to
+// users for this preset type, so no one-time migration is needed.
 const mergePresets = usePresets<any>({
   slug: slug.value,
   configKey: 'audio_merge',
@@ -1034,9 +1037,35 @@ async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite')
   }
 }
 
+/**
+ * Format-aware seeding of merge knobs BEFORE preset loaders run. The page
+ * defaults `normalizeVolume=false` + `gapDuration=5` are sleep-story
+ * shaped (calm narration is already loudness-consistent; long pauses
+ * between chapters fit the genre). Listicle / explainer channels mix
+ * delivery tones across chapters so EBU R128 normalisation matters,
+ * and shorter inter-chapter gaps suit the snappier pacing.
+ *
+ * Saved presets still override these — preset.load() runs after seeding.
+ */
+async function applyMergeFormatDefaultsIfNoPreset() {
+  try {
+    const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    const m = f?.script?.audioMergeDefaults
+    if (!m) return
+    if (typeof m.normalizeVolume === 'boolean') normalizeVolume.value = m.normalizeVolume
+    if (typeof m.gapDurationSec === 'number' && m.gapDurationSec >= 0) {
+      gapDuration.value = m.gapDurationSec
+    }
+  } catch {
+    // Format endpoint unavailable / project missing — keep the legacy
+    // hardcoded values (normalizeVolume=false, gapDuration=5). Non-fatal.
+  }
+}
+
 // ── Lifecycle ──
 onMounted(async () => {
   checkFfmpeg()
+  await applyMergeFormatDefaultsIfNoPreset()
   await mergePresets.load()
 })
 

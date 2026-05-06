@@ -23,6 +23,7 @@ import { assertBalanceAvailable } from '../services/utils.js'
 import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
 import { recordTask, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { tryRecoverAudioFromManifest } from '../lib/manifest-recovery.js'
+import { getEffectiveFormat } from '../services/format-loader.js'
 import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
@@ -155,6 +156,25 @@ export async function generateAudio(job: Job): Promise<void> {
       job.output_lines.push(`Voice fallback from brand: ${fallbackVoice}`)
     }
   }
+
+  // Format fallback for TTS settings (speed/stability/similarity). Each
+  // channel format ships sensible audioDefaults — listicle wants snappier
+  // pacing, sleep-story wants slow + breathy, etc. The frontend already
+  // seeds these into the form, so most calls already carry them. This
+  // layer covers callers that bypass the page (legacy presets dropped
+  // a field, programmatic enqueues, retried jobs whose params predate
+  // the format-aware roll-out) so the format-tuned defaults still land
+  // instead of falling through to the TTS client's generic hardcoded
+  // values. Precedence: req body → brand → format → client default.
+  try {
+    const fmt = await getEffectiveFormat(project_slug)
+    const fmtAudio = fmt?.script.audioDefaults
+    if (fmtAudio) {
+      if (typeof fmtAudio.speed === 'number' && req.speed === undefined) req.speed = fmtAudio.speed
+      if (typeof fmtAudio.stability === 'number' && req.stability === undefined) req.stability = fmtAudio.stability
+      if (typeof fmtAudio.similarity === 'number' && req.similarity === undefined) req.similarity = fmtAudio.similarity
+    }
+  } catch { /* format layer must never break audio generation */ }
 
   // Phase-wide download metrics (TTS streaming + fal/genaipro download).
   // Fires per chunk while audio bytes flow back; speed is a 5-second
@@ -530,13 +550,13 @@ export async function generateAudio(job: Job): Promise<void> {
         const timeoutMinutes = (config as any)?.generation_timeouts?.tts_minutes
         const timeoutMs = typeof timeoutMinutes === 'number' && timeoutMinutes > 0
           ? timeoutMinutes * 60_000 : undefined
-        // Auto-recovery (GenAIPro only): before issuing a fresh submit,
-        // see if the task-manifest sidecar has a stored task_id from a
-        // previous run. If the provider still has the result, polling it
-        // is free; only the fresh submit below would charge a second time.
-        // ElevenLabs streams direct, no task_id to recover. fal-audio
-        // doesn't currently record manifest entries — it falls through.
-        if (providerId === 'genaipro' && !req.force) {
+        // Auto-recovery: before issuing a fresh submit, see if the task
+        // sidecar has a stored task_id from a previous run. If the provider
+        // still has the result, polling it is free; only the fresh submit
+        // below would charge a second time. Covers GenAIPro (task_id) and
+        // fal (statusUrl + responseUrl pair). ElevenLabs streams direct —
+        // no task_id, no recovery possible.
+        if ((providerId === 'genaipro' || providerId === 'fal') && !req.force) {
           const recovered = await tryRecoverAudioFromManifest(
             audioManifest.tasks[chunkFilename] || null,
             apiKey, isCancelled, timeoutMs,
@@ -559,9 +579,11 @@ export async function generateAudio(job: Job): Promise<void> {
           timeoutMs,
           isCancelled,
         }
-        // For GenAIPro we persist the task_id the moment the submit returns,
-        // so a later timeout or crash still leaves a reference the reconciler
-        // can look up deterministically.
+        // Both GenAIPro and fal persist their task reference the moment the
+        // submit returns, so a later timeout or crash still leaves a reference
+        // the reconciler can look up deterministically. fal stores the status
+        // URL (poll_path) and response URL (result_url) instead of an opaque
+        // task_id — its queue API hands back URL pairs rather than ids.
         const audioUrl = providerId === 'genaipro'
           ? await generateTtsGenaipro(task.chunkText, apiKey, {
               ...commonOpts,
@@ -574,7 +596,20 @@ export async function generateAudio(job: Job): Promise<void> {
                 })
               },
             })
-          : await generateTtsFal(task.chunkText, apiKey, commonOpts)
+          : await generateTtsFal(task.chunkText, apiKey, {
+              ...commonOpts,
+              onTaskSubmitted: async (ref) => {
+                if (!ref.statusUrl || !ref.responseUrl) return
+                await recordTask(audioDir, chunkFilename, {
+                  provider: 'fal',
+                  task_id: ref.requestId || ref.statusUrl,
+                  submitted_at: new Date().toISOString(),
+                  input_hash: hashInput(task.chunkText),
+                  poll_path: ref.statusUrl,
+                  result_url: ref.responseUrl,
+                })
+              },
+            })
         await downloadAudio(audioUrl, task.outputPath, makeChunkCb())
       }
       job.output_lines.push(`  Saved: ${path.basename(task.outputPath)}`)

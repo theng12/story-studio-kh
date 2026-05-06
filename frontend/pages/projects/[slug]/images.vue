@@ -419,7 +419,35 @@ const imgPresets = usePresets<any>({
   snapshot: () => ({ form: { ...form } }),
   apply: (data) => { if (data?.form) Object.assign(form, data.form) },
 })
-onMounted(() => imgPresets.load())
+
+/**
+ * Format-aware seeding of aspect_ratio BEFORE preset loaders run. The
+ * page default is hardcoded '16:9' (sleep-story); the format schema
+ * already exposes `imagePrompts.recommendedAspect` for image-prompts.vue,
+ * so we read the same field here. Listicle / explainer channels currently
+ * also recommend 16:9 (chroma-key compositing assumes landscape) but
+ * vertical / Shorts-format custom formats can declare 9:16 and the page
+ * will pick it up.
+ *
+ * Saved presets still override these — preset.load() runs after seeding.
+ */
+async function applyImageFormatDefaultsIfNoPreset() {
+  try {
+    const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    const ip = f?.imagePrompts
+    if (!ip) return
+    if (typeof ip.recommendedAspect === 'string' && ip.recommendedAspect) {
+      form.aspect_ratio = ip.recommendedAspect
+    }
+  } catch {
+    // Format endpoint unavailable — keep the legacy '16:9' default.
+  }
+}
+
+onMounted(async () => {
+  await applyImageFormatDefaultsIfNoPreset()
+  await imgPresets.load()
+})
 
 const modeTabs: Array<{ id: Mode; label: string; icon: string; hint: string }> = [
   { id: 'all',    label: 'Both',        icon: '🖼️', hint: 'Scenes + Thumbnails' },

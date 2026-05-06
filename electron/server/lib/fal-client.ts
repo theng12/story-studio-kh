@@ -42,6 +42,14 @@ export async function generateTts(
     timeoutMs?: number
     /** Probe for user cancel — polls stop immediately and the promise rejects. */
     isCancelled?: () => boolean
+    /**
+     * Fires once the queue has accepted the submit and handed back a
+     * (statusUrl, responseUrl) pair, BEFORE polling begins. Lets the caller
+     * persist a recovery breadcrumb so a crash mid-poll doesn't strand the
+     * user with a paid-but-orphaned fal request. Errors from the callback
+     * are swallowed — sidecar bookkeeping must never block generation.
+     */
+    onTaskSubmitted?: (ref: { requestId: string; statusUrl: string; responseUrl: string }) => void | Promise<void>
   } = {},
 ): Promise<string> {
   const requestedId = opts.model || 'turbo-v2.5'
@@ -97,13 +105,43 @@ export async function generateTts(
     throw new Error(`No status_url or response_url in queue response: ${redactSecrets(JSON.stringify(submitResult), apiKey).slice(0, 300)}`)
   }
 
+  if (opts.onTaskSubmitted) {
+    // Fire-and-forget breadcrumb. We persist BEFORE polling so a crash or
+    // long-poll abort still leaves a recoverable reference. Swallow errors
+    // — a sidecar write failure must never propagate into the generation.
+    try {
+      await opts.onTaskSubmitted({
+        requestId: submitResult.request_id || extractRequestId(statusUrl) || '',
+        statusUrl: statusUrl || '',
+        responseUrl: responseUrl || '',
+      })
+    } catch { /* best-effort — keep generating */ }
+  }
+
   // Poll with escalation: a run of 429s or 5xxs now fails the job loudly
   // instead of silently timing out after MAX_WAIT. Retry-After is honoured.
-  const finalResult = await pollForResult<any>({
+  const finalResult = await pollFalAudioStatus(statusUrl, responseUrl, apiKey, {
+    timeoutMs: opts.timeoutMs ?? MAX_WAIT,
+    isCancelled: opts.isCancelled,
+  })
+  return extractAudioUrl(finalResult)
+}
+
+// Extracted so recovery (manifest-recovery.ts → tryRecoverAudioFromManifest)
+// can re-poll an in-flight fal request without re-submitting. Same logic as
+// the original inline poll: COMPLETED → fetch responseUrl → result; FAILED
+// → throw; otherwise keep waiting.
+async function pollFalAudioStatus(
+  statusUrl: string,
+  responseUrl: string,
+  apiKey: string,
+  opts: { timeoutMs: number; isCancelled?: () => boolean },
+): Promise<any> {
+  return pollForResult<any>({
     label: 'fal.ai TTS status',
     url: statusUrl,
     headers: { Authorization: `Key ${apiKey}` },
-    deadline: Date.now() + (opts.timeoutMs ?? MAX_WAIT),
+    deadline: Date.now() + opts.timeoutMs,
     intervalMs: POLL_INTERVAL,
     redactKey: apiKey,
     isCancelled: opts.isCancelled,
@@ -124,7 +162,35 @@ export async function generateTts(
       return { continue: true }
     },
   })
-  return extractAudioUrl(finalResult)
+}
+
+/**
+ * Re-poll an existing fal TTS request from a stored (statusUrl, responseUrl)
+ * pair. Returns the audio URL on COMPLETED, or null on FAILED / expired /
+ * timeout — caller falls through to a fresh submit. Used by retry-then-repair.
+ */
+export async function pollExistingFalAudio(
+  statusUrl: string,
+  responseUrl: string,
+  apiKey: string,
+  opts: { isCancelled?: () => boolean; timeoutMs?: number } = {},
+): Promise<string | null> {
+  if (!statusUrl || !responseUrl || !apiKey) return null
+  try {
+    const finalResult = await pollFalAudioStatus(statusUrl, responseUrl, apiKey, {
+      timeoutMs: opts.timeoutMs ?? MAX_WAIT,
+      isCancelled: opts.isCancelled,
+    })
+    return extractAudioUrl(finalResult)
+  } catch {
+    return null
+  }
+}
+
+function extractRequestId(statusUrl: string): string {
+  // Status URL shape: https://queue.fal.run/{model}/requests/{request_id}/status
+  const m = statusUrl.match(/\/requests\/([^\/]+)/)
+  return m ? m[1] : ''
 }
 
 function extractAudioUrl(result: any): string {

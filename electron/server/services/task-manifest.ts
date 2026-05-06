@@ -72,6 +72,28 @@ export async function readManifest(assetDir: string): Promise<Manifest> {
 }
 
 /**
+ * Per-assetDir write chain. Parallel workers (audio chunks, image variants,
+ * video clips) all call recordTask concurrently for *different* filenames
+ * in the *same* manifest. The body is a read-modify-write across two
+ * awaits, so without serialization two interleaved calls can race:
+ *
+ *   A: read m  (tasks: {})
+ *   B: read m  (tasks: {})  ← still empty, A hasn't written yet
+ *   A: m.tasks.a = entryA; write
+ *   B: m.tasks.b = entryB; write  ← clobbers A's write, entryA is lost
+ *
+ * Lost entries silently break retry-then-repair: the reconciler can't find
+ * the in-flight task and the user double-pays on the next retry.
+ *
+ * Fix: chain writes per assetDir. Different folders don't block each
+ * other, but writes to the same manifest serialize. The chain settles
+ * regardless of outcome (.catch swallows so one failure doesn't poison
+ * the chain). Map entry is reset to a resolved promise on settle to
+ * avoid an unbounded promise chain in long-running sessions.
+ */
+const writeChains = new Map<string, Promise<void>>()
+
+/**
  * Record a task-id for a given output filename. Never throws — if the
  * manifest can't be written, we log and continue so generation flows
  * aren't disrupted by a sidecar hiccup.
@@ -81,14 +103,25 @@ export async function recordTask(
   filename: string,
   entry: TaskManifestEntry,
 ): Promise<void> {
-  try {
-    await fs.mkdir(assetDir, { recursive: true })
-    const m = await readManifest(assetDir)
-    m.tasks[filename] = entry
-    await writeJsonAtomic(manifestPath(assetDir), m)
-  } catch (e: any) {
-    console.warn(`[task-manifest] could not record ${filename}:`, e.message)
-  }
+  const key = path.resolve(assetDir)
+  const previous = writeChains.get(key) ?? Promise.resolve()
+  const next = previous.then(async () => {
+    try {
+      await fs.mkdir(assetDir, { recursive: true })
+      const m = await readManifest(assetDir)
+      m.tasks[filename] = entry
+      await writeJsonAtomic(manifestPath(assetDir), m)
+    } catch (e: any) {
+      console.warn(`[task-manifest] could not record ${filename}:`, e.message)
+    }
+  })
+  writeChains.set(key, next)
+  // Drop the chain reference once this write settles AND it's still the
+  // tail. Keeps the Map bounded; later recordTask calls start a fresh chain.
+  next.finally(() => {
+    if (writeChains.get(key) === next) writeChains.delete(key)
+  })
+  return next
 }
 
 export function getTaskEntry(manifest: Manifest, filename: string): TaskManifestEntry | null {

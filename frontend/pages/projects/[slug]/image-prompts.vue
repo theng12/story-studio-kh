@@ -691,6 +691,14 @@ const promptPresets = usePresets<any>({
  *                                           (signals "use total_scenes")
  *   imagePrompts.defaultThumbnails        → form.thumb_count
  *   imagePrompts.recommendedAspect        → form.aspect_ratio
+ *   imagePrompts.defaultStyleTag          → form.style_tag (with style_preset = 'custom'
+ *                                           so the format's tuned visual language —
+ *                                           "minimalist circular badge" for listicle,
+ *                                           "editorial infographic" for educational —
+ *                                           lands in the textarea instead of the
+ *                                           hardcoded 'storybook' fallback. The user
+ *                                           can still pick a STYLE_PRESETS option to
+ *                                           override.)
  */
 async function applyFormatDefaultsIfNoPreset() {
   try {
@@ -713,6 +721,14 @@ async function applyFormatDefaultsIfNoPreset() {
     }
     if (typeof ip.recommendedAspect === 'string' && ip.recommendedAspect) {
       form.aspect_ratio = ip.recommendedAspect
+    }
+    if (typeof ip.defaultStyleTag === 'string' && ip.defaultStyleTag.trim()) {
+      // Switching to 'custom' opens the style editor (see onStyleChange);
+      // we set style_tag manually here instead of going through that
+      // handler so the page boots up with the editor already showing the
+      // format's text.
+      form.style_preset = 'custom'
+      form.style_tag = ip.defaultStyleTag
     }
   } catch {
     // Format endpoint unavailable / project missing — keep the legacy
