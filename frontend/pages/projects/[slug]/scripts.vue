@@ -9,38 +9,41 @@
       :presets="scriptPresets"
       v-model:episode-id="form.episode_id"
       filter-field="script"
-      generate-label="Generate Script (Chapters)"
+      generate-label="Generate Outline"
       loading-label="Queuing…"
       :generate-loading="submitting"
       :generate-disabled="!canSubmit"
-      :generate-status="generateAllStatusText || (scriptGenerating ? `Generating script for ${form.episode_id}…` : '')"
-      @generate="submitScript"
+      :generate-status="generateAllStatusText || (scriptGenerating ? `Building outline for ${form.episode_id}…` : '')"
+      @generate="submitOutline"
       @episode-selected="onEpisodeSelected"
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
       @preset-deleted="success('Preset deleted')"
     >
-      <!-- Two-stage chained run; gated so intro is skipped if script fails.
-           Lives next to the Script-only CTA so users can pick "just script"
-           vs "everything" without leaving the action bar. -->
+      <!-- Three-stage chained run for power users: outline → expand → intro.
+           Auto-approves the outline so there's no human gate; equivalent
+           to the legacy one-shot path with the introduction tacked on.
+           If any stage fails, the chain stops. -->
       <template #actions>
         <button
           class="btn btn-primary"
-          :disabled="!canSubmit || submitting || generateAllStep === 'script' || generateAllStep === 'intro'"
-          :title="!form.episode_id ? 'Pick an episode first' : 'Generate Script, then Introduction. Intro is skipped if Script fails.'"
+          :disabled="!canSubmit || submitting || generateAllStep !== 'idle' && generateAllStep !== 'done' && generateAllStep !== 'failed'"
+          :title="!form.episode_id ? 'Pick an episode first' : 'Outline → Expand all → Introduction. Skips review.'"
           @click="generateAll"
         >
-          <LoadingSpinner v-if="generateAllStep === 'script' || generateAllStep === 'intro'" size="sm" />
-          {{ generateAllStep === 'script' ? 'Step 1/2: Script…'
-             : generateAllStep === 'intro' ? 'Step 2/2: Introduction…'
-             : '⚡ Generate All (Script + Intro)' }}
+          <LoadingSpinner v-if="generateAllStep === 'outline' || generateAllStep === 'expand' || generateAllStep === 'intro'" size="sm" />
+          {{ generateAllStep === 'outline' ? 'Step 1/3: Outline…'
+             : generateAllStep === 'expand' ? 'Step 2/3: Chapters…'
+             : generateAllStep === 'intro' ? 'Step 3/3: Introduction…'
+             : '⚡ Generate All (Outline + Chapters + Intro)' }}
         </button>
       </template>
     </TopActionBar>
 
     <p class="text-muted mt-1 mb-2">
-      Generate narration scripts for your episodes. Script (chapters) and introduction are generated separately — use
-      <strong>⚡ Generate All</strong> to run them back-to-back; if the script fails, the intro is automatically skipped.
+      Generate narration scripts in two phases: <strong>Generate Outline</strong> first, review and edit topics in the
+      panel below, then <strong>Expand</strong> the chapters you want. Use
+      <strong>⚡ Generate All</strong> to skip review and run outline → chapters → introduction back-to-back.
     </p>
 
     <div class="card mt-3">
@@ -378,6 +381,21 @@
       </div>
     </div>
 
+    <!-- Outline review (Phase 3 of the outline-first refactor). Hidden
+         until the user runs Generate Outline (or any prior outline_only
+         left a sidecar on disk). Per-row editable title / hook / facts
+         / synopsis / beats / words override + per-row Expand + bulk
+         Expand all / Expand selected. Approval state gates expansion. -->
+    <OutlineReviewPanel
+      v-if="form.episode_id"
+      :project-slug="slug"
+      :episode-id="form.episode_id"
+      :title="form.title"
+      :default-words="form.words_per_chapter || 500"
+      :refresh-key="outlineRefreshKey"
+      @expansion-queued="onExpansionQueued"
+    />
+
     <!-- Per-chapter source files panel (per-chapter refactor). One row per
          chapter with its own Regenerate button. The unified narration
          downstream consumers read is auto-assembled after every regen. -->
@@ -445,6 +463,21 @@ const { scriptGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
 const submitting = ref(false)
 const previewRefreshKey = ref(0)
+// Bumped whenever the outline panel needs to reload — e.g. after an
+// outline_only or expand_chapters job completes (the panel's own job
+// watcher also reloads on terminal status, this is a manual nudge for
+// non-job triggers like episode switch).
+const outlineRefreshKey = ref(0)
+
+function onExpansionQueued(_payload: { jobId: string; chapters: number[] | null }) {
+  // ChapterListPanel listens to its own job stream and refreshes when
+  // the chapter-only / expand_chapters job lands. We just bump the
+  // outline panel's refresh key so chapters_done lights up the "on disk"
+  // pill the moment the job is queued (the actual chapters appear after
+  // it completes; OutlineReviewPanel's job watcher handles that).
+  outlineRefreshKey.value++
+  previewRefreshKey.value++
+}
 // Tracks the full episode object selected via EpisodeSelector — needed so
 // `scriptGenerated` can read from `episode.status.script` (the API-provided
 // source of truth) instead of a local mutable ref.
@@ -1114,35 +1147,42 @@ function onEpisodeSelected(ep: any) {
   onDurationChange()
 }
 
-async function submitScript(): Promise<boolean> {
-  // Generate script only (chapters, no introduction). Returns true if the
-  // job reached 'done' on the queue, false otherwise — generateAll() relies
-  // on the boolean to decide whether to proceed to the introduction stage.
-  const params = {
+async function submitOutline(opts: { auto_approve?: boolean } = {}): Promise<boolean> {
+  // Generate the OUTLINE only — Phase 3 of the outline-first refactor.
+  // Replaces the legacy submitScript (which POSTed /generate/script-only,
+  // running outline + expansion in one opaque job). Now we POST
+  // /generate/outline-only first; the user reviews/edits in
+  // OutlineReviewPanel then triggers expansion from there.
+  //
+  // generateAll() passes auto_approve: true so the chained run skips the
+  // human review gate (the OutlineReviewPanel still renders, just shows
+  // an already-approved outline).
+  //
+  // Returns true if the outline_only job reached 'done', false otherwise.
+  const params: Record<string, any> = {
     ...form,
     custom_style_text: customStyleText.value,
   }
+  if (opts.auto_approve) params.auto_approve = true
 
   // v1.0.71: chunked-mode pre-flight. When the target wordcount exceeds
-  // ~10k words, the backend dispatches to outline + per-batch expansion
-  // (see lib/chunked-narration.ts). That's MULTIPLE LLM calls and a
-  // proportional cost increase — surface a rough estimate before the
-  // user kicks off a long expensive run by mistake. Sleep-story-style
-  // 12-chapter / 700-word episodes stay under the threshold and skip
-  // this dialog entirely.
+  // ~10k words, expansion will issue MULTIPLE LLM calls (one per batch).
+  // Surface a rough estimate now so the user understands the eventual
+  // cost — the outline build itself is a single cheap call, but the
+  // user sees the full picture upfront. Skipped below threshold.
   const targetWords = (form.chapters || 0) * (form.words_per_chapter || 0)
   if (targetWords > CHUNK_THRESHOLD_WORDS) {
     const estimate = estimateChunkedCost(targetWords, form.chapters || 0)
     const ok = await ask({
-      title: 'Long script — chunked mode',
+      title: 'Long script — chunked outline + expansion',
       message:
         `${form.chapters} chapters × ${form.words_per_chapter.toLocaleString()} words ` +
-        `(~${targetWords.toLocaleString()} words total) exceeds the single-call threshold.\n\n` +
-        `The script will be generated in ${estimate.batches} batches: ` +
-        `1 outline call + ${estimate.expansionCalls} expansion call${estimate.expansionCalls === 1 ? '' : 's'}.\n\n` +
-        `Estimated cost: ${estimate.costRange} (Sonnet pricing).\n\n` +
+        `(~${targetWords.toLocaleString()} words total).\n\n` +
+        `Step 1 (this click): build outline — 1 cheap LLM call.\n` +
+        `Step 2 (after you review): expand into ${estimate.expansionCalls} batch${estimate.expansionCalls === 1 ? '' : 'es'}.\n\n` +
+        `Estimated total cost: ${estimate.costRange} (Sonnet pricing).\n\n` +
         `Each chapter is written to disk as soon as it's generated, so cancel / crash / restart preserves partial work.`,
-      confirmLabel: 'Generate',
+      confirmLabel: 'Generate outline',
       cancelLabel: 'Cancel',
     })
     if (!ok) return false
@@ -1153,24 +1193,45 @@ async function submitScript(): Promise<boolean> {
   submitting.value = true
   scriptGenerating.value = true
   try {
-    const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/script-only`, params)
-    success('Script generation queued!')
-    // scriptGenerated will flip via the job-done watcher above
-    // (refetchEpisodeStatus → episode.status.script → computed). No manual
-    // flag flip here — that would diverge from the API source of truth.
+    const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/outline-only`, params)
+    success(opts.auto_approve ? 'Outline build queued (auto-approved)' : 'Outline build queued — review when it finishes!')
     const ok = await waitForJob(job.job_id)
+    if (ok) outlineRefreshKey.value++
     return ok
   } catch (e: any) {
-    // Distinguish "couldn't even queue it" (backend down / validation /
-    // missing preset) from "queued but the job itself failed" — those go
-    // through the SSE path and surface via the Jobs tab. Console log
-    // keeps the raw error reachable when only the toast is shown.
-    console.error('[scripts] queue script generation failed:', e)
+    console.error('[scripts] queue outline generation failed:', e)
     const detail = e.data?.detail
     const fallback = e?.status === 0 || e?.message?.includes('fetch')
       ? 'Backend unreachable — restart the app or check the Jobs panel.'
-      : 'Failed to queue script generation. Check the form fields above.'
+      : 'Failed to queue outline generation. Check the form fields above.'
     showError(detail || fallback)
+    scriptGenerating.value = false
+    return false
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function submitExpandAll(): Promise<boolean> {
+  // Headless expansion path used by generateAll(). Auto-approves whatever
+  // outline is on disk and expands every pending chapter. Direct user
+  // expansion goes through OutlineReviewPanel's "Expand all" button.
+  submitting.value = true
+  scriptGenerating.value = true
+  try {
+    const job = await post<{ job_id: string }>(
+      `/projects/${slug.value}/generate/expand-chapters`,
+      { episode_id: form.episode_id, title: form.title, auto_approve: true },
+    )
+    const ok = await waitForJob(job.job_id)
+    if (ok) {
+      outlineRefreshKey.value++
+      previewRefreshKey.value++
+    }
+    return ok
+  } catch (e: any) {
+    console.error('[scripts] queue expand-chapters failed:', e)
+    showError(e?.data?.detail || 'Failed to queue chapter expansion')
     scriptGenerating.value = false
     return false
   } finally {
@@ -1253,15 +1314,15 @@ async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true 
   }
 }
 
-// ── Generate All (Script → Introduction) ───────────────────────────────
-// Two-stage pipeline with hard failure gating: if the script-only job ends
-// in 'error' (or never reaches 'done' inside the timeout), we DO NOT queue
-// the intro job. This is the only chained Generate All in the app — every
-// other "Generate All" button hits a single atomic endpoint.
-const generateAllStep = ref<'idle' | 'script' | 'intro' | 'done' | 'failed'>('idle')
+// ── Generate All (Outline → Expand → Introduction) ───────────────────────
+// Three-stage pipeline with hard failure gating. The outline phase auto-
+// approves so the OutlineReviewPanel never blocks the chain — equivalent
+// to the legacy one-shot semantics. Any stage failing aborts the rest.
+const generateAllStep = ref<'idle' | 'outline' | 'expand' | 'intro' | 'done' | 'failed'>('idle')
 const generateAllStatusText = computed(() =>
-  generateAllStep.value === 'script' ? `Generate All — Step 1/2: Script for ${form.episode_id}`
-  : generateAllStep.value === 'intro' ? `Generate All — Step 2/2: Introduction for ${form.episode_id}`
+  generateAllStep.value === 'outline' ? `Generate All — Step 1/3: Outline for ${form.episode_id}`
+  : generateAllStep.value === 'expand' ? `Generate All — Step 2/3: Chapters for ${form.episode_id}`
+  : generateAllStep.value === 'intro' ? `Generate All — Step 3/3: Introduction for ${form.episode_id}`
   : generateAllStep.value === 'done' ? '✓ Generate All complete'
   : generateAllStep.value === 'failed' ? '✗ Generate All stopped on failure'
   : ''
@@ -1269,23 +1330,34 @@ const generateAllStatusText = computed(() =>
 
 async function generateAll() {
   if (!form.episode_id) return
-  generateAllStep.value = 'script'
+  generateAllStep.value = 'outline'
   try {
-    const scriptOk = await submitScript()
-    if (!scriptOk) {
+    const outlineOk = await submitOutline({ auto_approve: true })
+    if (!outlineOk) {
       generateAllStep.value = 'failed'
-      showError('Script generation failed — introduction step skipped.')
+      showError('Outline build failed — expansion + introduction skipped.')
+      return
+    }
+    generateAllStep.value = 'expand'
+    const expandOk = await submitExpandAll()
+    if (!expandOk) {
+      generateAllStep.value = 'failed'
+      showError('Chapter expansion failed — introduction skipped.')
       return
     }
     generateAllStep.value = 'intro'
     const introOk = await submitIntroduction({ confirm: false })
     generateAllStep.value = introOk ? 'done' : 'failed'
-    if (introOk) success('Generate All complete: script + introduction.')
-    else showError('Script succeeded, but introduction failed. You can retry the introduction step alone.')
+    if (introOk) success('Generate All complete: outline + chapters + introduction.')
+    else showError('Outline + chapters succeeded, but introduction failed. You can retry the introduction step alone.')
   } finally {
     // Auto-clear progress chip after a short pause so it doesn't linger
     // through unrelated UI activity.
-    setTimeout(() => { if (generateAllStep.value !== 'script' && generateAllStep.value !== 'intro') generateAllStep.value = 'idle' }, 5000)
+    setTimeout(() => {
+      if (!['outline', 'expand', 'intro'].includes(generateAllStep.value)) {
+        generateAllStep.value = 'idle'
+      }
+    }, 5000)
   }
 }
 </script>

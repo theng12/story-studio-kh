@@ -58,6 +58,15 @@
               ⚠ audio stale
             </span>
           </div>
+          <input
+            class="input chp-words-input"
+            type="number"
+            min="100"
+            step="50"
+            v-model.number="wordOverrides[ch.number]"
+            :placeholder="`${form?.words_per_chapter || 500}`"
+            title="Per-chapter word target for this regen. Leave blank to use the form default. Listicle outline overrides flow through automatically."
+          />
           <button
             class="btn btn-sm btn-secondary chp-regen"
             :disabled="!scriptReady || regenInFlight === ch.number || regenInFlight !== null"
@@ -101,6 +110,11 @@ const { success, error: showError } = useToast()
 const chapters = ref<ChapterRow[]>([])
 const loading = ref(false)
 const regenInFlight = ref<number | null>(null)
+// Per-chapter words_per_chapter overrides — populated from the form's
+// global default and overridden by the user inline. Sent on the regen
+// request so a single chapter can be re-rolled at a different length.
+// Cleared on episode switch.
+const wordOverrides = ref<Record<number, number | undefined>>({})
 const noScriptTooltip = 'Generate the script first to unlock per-chapter regenerate.'
 const staleTooltip = 'This chapter\'s source was changed after the audio was generated. Visit the Audio page and regenerate this section to refresh.'
 
@@ -129,6 +143,12 @@ async function regenerate(num: number) {
     showError(noScriptTooltip)
     return
   }
+  // Per-row words override falls back to the form default. Inline blank
+  // = use form default. Inline number = override that single chapter.
+  const inlineOverride = wordOverrides.value[num]
+  const wordTarget = (typeof inlineOverride === 'number' && Number.isFinite(inlineOverride) && inlineOverride > 0)
+    ? Math.round(inlineOverride)
+    : props.form?.words_per_chapter
   regenInFlight.value = num
   try {
     await post(`/projects/${props.projectSlug}/generate/chapter-only`, {
@@ -140,9 +160,12 @@ async function regenerate(num: number) {
       length: props.form?.length,
       chapters: props.form?.chapters,
       total_words: props.form?.total_words,
-      words_per_chapter: props.form?.words_per_chapter,
+      words_per_chapter: wordTarget,
     })
-    success(`Chapter ${num} regenerate queued`)
+    success(inlineOverride
+      ? `Chapter ${num} regenerate queued at ${wordTarget} words`
+      : `Chapter ${num} regenerate queued`,
+    )
   } catch (e: any) {
     showError(e?.data?.detail || `Failed to queue chapter ${num} regen`)
     regenInFlight.value = null
@@ -166,7 +189,19 @@ watch(jobs, (list: readonly any[]) => {
   }
 }, { deep: true })
 
-watch(() => [props.episodeId, props.title, props.refreshKey], refresh, { immediate: true })
+watch(() => [props.episodeId, props.title, props.refreshKey], () => {
+  // Clear per-row word overrides on episode switch — the previous
+  // episode's overrides don't apply to the new one. Refresh-key bumps
+  // (job-completion ticks) keep them since the user is still on the
+  // same episode and may want to retry with the same custom length.
+  if (props.episodeId !== lastEpisodeId.value) {
+    wordOverrides.value = {}
+    lastEpisodeId.value = props.episodeId
+  }
+  refresh()
+}, { immediate: true })
+
+const lastEpisodeId = ref<string | undefined>(undefined)
 
 function relativeTime(iso: string): string {
   const d = new Date(iso)
@@ -220,11 +255,17 @@ function relativeTime(iso: string): string {
 
 .chp-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto auto auto;
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
   font-size: 13px;
+}
+.chp-words-input {
+  width: 90px;
+  text-align: right;
+  font-size: 12px;
+  padding: 4px 8px;
 }
 .chp-meta {
   min-width: 0;
