@@ -846,22 +846,48 @@ onMounted(loadCustomStyles)
 // the active episode finishes. The job stream from useJobs() is reactive,
 // so we just watch for transitions to 'done'. Tracking seen job_ids
 // prevents re-triggering on every render.
+//
+// IMPORTANT: this used to be `watch(jobs, ..., { deep: true })`, which
+// fired on every output_lines push from a running expand_chapters job —
+// hundreds of times per second across a multi-batch listicle. Combined
+// with OutlineReviewPanel + ChapterListPanel deep-watching the same array,
+// the UI thread couldn't service navigation events (sidebar tabs froze).
+// Same fix pattern as those panels: derive a tiny signal of "relevant
+// statuses" and watch THAT — fires once per real transition, not per
+// progress update.
+//
+// Also added: outline_only and expand_chapters are now in the watched
+// types so the script preview refreshes after the new flow completes
+// (was previously stuck because the watcher only knew script-only +
+// introduction-only).
 const { jobs } = useJobs()
 const seenDoneJobs = new Set<string>()
-watch(jobs, (list) => {
-  for (const job of list) {
+const watchedScriptTypes = new Set<string>([
+  'script-only', 'introduction-only', 'outline_only', 'expand_chapters', 'chapter-only',
+])
+const scriptJobsSignal = computed(() =>
+  jobs.value
+    .filter(j => watchedScriptTypes.has(j.type) && j.episode_id === form.episode_id)
+    .map(j => `${j.job_id}:${j.status}`)
+    .sort()
+    .join('|'),
+)
+watch(scriptJobsSignal, () => {
+  // Walk the current jobs once and act on terminal transitions we
+  // haven't already responded to. The signal only changes when a
+  // job transitions, so this is bounded.
+  for (const job of jobs.value) {
     if (job.status !== 'done' || seenDoneJobs.has(job.job_id)) continue
-    if (job.type !== 'script-only' && job.type !== 'introduction-only') continue
+    if (!watchedScriptTypes.has(job.type)) continue
+    if (job.episode_id !== form.episode_id) continue
     seenDoneJobs.add(job.job_id)
-    if (job.episode_id === form.episode_id) {
-      previewRefreshKey.value++
-      // Refresh `selectedEpisode.status.*` from the API — that's what
-      // `scriptGenerated` reads from, so without this the button stays
-      // disabled even after the script-only job finishes on disk.
-      refetchEpisodeStatus()
-    }
+    previewRefreshKey.value++
+    // Refresh `selectedEpisode.status.*` from the API — that's what
+    // `scriptGenerated` reads from, so without this the intro button
+    // stays disabled even after expand_chapters / script-only lands.
+    refetchEpisodeStatus()
   }
-}, { deep: true })
+})
 
 // v1.0.48 — read from the shared `useEpisodes` cache instead of
 // re-fetching `/projects/:slug/episodes` on every swap. On TerraNash

@@ -235,24 +235,39 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
 
   // Auto-invalidate on relevant job completions. Tracking seen job IDs
   // prevents re-firing on every render when the jobs list mutates.
+  //
+  // v1.0.72: switched from `watch(jobs, ..., { deep: true })` to a derived
+  // status-signal computed. The deep watch fired on every output_lines
+  // push from a running job — for chunked listicle expansion that's
+  // hundreds of fires per second, which (combined with similar deep
+  // watches in other composables and panels) starved the UI thread of
+  // navigation events. The signal only changes on real status transitions,
+  // so this watcher fires once per terminal completion, not per progress
+  // update.
   const seenDoneJobs = new Set<string>()
-  watch(jobs, (list: readonly any[]) => {
-    const watchAll = opts.invalidateOnJobTypes === true || opts.invalidateOnJobTypes === undefined
-    const types = watchAll ? null : new Set(opts.invalidateOnJobTypes as string[])
-    for (const job of list) {
+  const watchAll = opts.invalidateOnJobTypes === true || opts.invalidateOnJobTypes === undefined
+  const allowedTypes = watchAll ? null : new Set(opts.invalidateOnJobTypes as string[])
+  const jobsSignal = computed(() =>
+    jobs.value
+      .filter(j =>
+        j.project_slug === slugRef.value &&
+        (allowedTypes === null || allowedTypes.has(j.type)),
+      )
+      .map(j => `${j.job_id}:${j.status}`)
+      .sort()
+      .join('|'),
+  )
+  watch(jobsSignal, () => {
+    for (const job of jobs.value) {
       if (job.status !== 'done' || seenDoneJobs.has(job.job_id)) continue
-      if (types && !types.has(job.type)) continue
+      if (allowedTypes !== null && !allowedTypes.has(job.type)) continue
+      if (job.project_slug !== slugRef.value) continue
       seenDoneJobs.add(job.job_id)
-      // Only invalidate if the job is for our current slug.
-      if (job.project_slug === slugRef.value) {
-        invalidate()
-        // Quietly revalidate in the background so the UI updates without
-        // the user having to navigate.
-        void load()
-        return  // one invalidation per batch is enough
-      }
+      invalidate()
+      void load()
+      return  // one invalidation per signal tick is enough
     }
-  }, { deep: true })
+  })
 
   const slot = currentSlot()
   return {

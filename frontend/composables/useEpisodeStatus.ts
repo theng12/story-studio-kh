@@ -89,19 +89,31 @@ export function useEpisodeStatus(
 
   // Auto-refresh when relevant jobs complete. Tracking seenDoneJobs
   // prevents re-triggering on every render of the jobs list.
+  //
+  // v1.0.72: switched from `watch(jobs, ..., { deep: true })` to a status
+  // signal — same UI-thread starvation fix as useEpisodes. The deep watch
+  // fired on every output_lines push from running jobs, blocking sidebar
+  // navigation during chunked expansion.
   if (opts.refetchOnJobTypes && opts.refetchOnJobTypes.length) {
     const watchTypes = new Set(opts.refetchOnJobTypes)
     const seenDoneJobs = new Set<string>()
-    watch(jobs, (list: readonly any[]) => {
-      for (const job of list) {
+    const statusSignal = computed(() =>
+      jobs.value
+        .filter(j => watchTypes.has(j.type) && j.episode_id === episodeIdRef.value)
+        .map(j => `${j.job_id}:${j.status}`)
+        .sort()
+        .join('|'),
+    )
+    watch(statusSignal, () => {
+      for (const job of jobs.value) {
         if (job.status !== 'done' || seenDoneJobs.has(job.job_id)) continue
         if (!watchTypes.has(job.type)) continue
+        if (job.episode_id !== episodeIdRef.value) continue
         seenDoneJobs.add(job.job_id)
-        if (job.episode_id === episodeIdRef.value) {
-          void refetch(true)
-        }
+        void refetch(true)
+        return
       }
-    }, { deep: true })
+    })
   }
 
   return { selectedEpisode, scriptReady, refetch }
