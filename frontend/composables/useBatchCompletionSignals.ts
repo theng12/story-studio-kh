@@ -104,9 +104,25 @@ export function useBatchCompletionSignals(getJobs: () => readonly Job[]) {
     applyBadge()
   }
 
-  watch(() => getJobs(), (jobsList) => {
+  // v1.0.72: was `watch(..., { deep: true })`, which fired on every
+  // output_lines push from any running batch job. Since this composable
+  // is mounted globally (via the layout) it dragged the UI thread
+  // alongside useGenerating during chunked expansion. Now derives a
+  // signal of relevant batch-job statuses and watches THAT — fires once
+  // per terminal transition, not per progress tick.
+  const batchJobsSignal = computed(() => {
+    const list = getJobs()
+    const lines: string[] = []
+    for (const j of list) {
+      const bid = j.params?.pipeline_batch_id
+      if (typeof bid !== 'string' || !bid) continue
+      lines.push(`${bid}:${j.job_id}:${j.status}`)
+    }
+    return lines.sort().join('|')
+  })
+  watch(batchJobsSignal, () => {
     const byBatch = new Map<string, Job[]>()
-    for (const j of jobsList) {
+    for (const j of getJobs()) {
       const bid = j.params?.pipeline_batch_id
       if (typeof bid !== 'string' || !bid) continue
       const arr = byBatch.get(bid) || []
@@ -131,7 +147,7 @@ export function useBatchCompletionSignals(getJobs: () => readonly Job[]) {
       }
       batchStates.set(bid, state)
     }
-  }, { deep: true })
+  })
 
   // Re-apply / clear the title badge across navigations. useHead in each
   // page sets a fresh document.title on mount, so we need to re-prepend

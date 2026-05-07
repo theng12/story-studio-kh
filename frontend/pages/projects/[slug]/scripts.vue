@@ -930,11 +930,17 @@ watch(() => form.episode_id, (id) => { if (id) refetchEpisodeStatus() }, { immed
 // this, a freshly-completed `script-only` job updates the cache but
 // `selectedEpisode.status.script` would stay false until the user
 // re-clicked the dropdown.
+// Shallow — useEpisodes replaces the array reference on cache invalidation
+// (its load() reassigns the SWR slot's data ref), so the cheap reference-
+// equality watch picks up real refreshes without firing on individual
+// episode status mutations. The previous deep:true here was firing
+// alongside the global watchers during expand_chapters and contributing
+// to the same UI-thread starvation. v1.0.72.
 watch(cachedEpisodeList, (list) => {
   if (!form.episode_id || !list?.length) return
   const fresh = list.find((e: any) => e.episode_code === form.episode_id)
   if (fresh) selectedEpisode.value = fresh
-}, { deep: true })
+})
 
 // ── Legacy narration normaliser (Part 3 of mark-done plan) ────────────────
 // Modal-only state; the dialog component handles the route call + result
@@ -1242,12 +1248,19 @@ async function submitOutline(opts: { auto_approve?: boolean } = {}): Promise<boo
 // introduction stage on script success without polling.
 function waitForJob(jobId: string, timeoutMs = 10 * 60 * 1000): Promise<boolean> {
   return new Promise((resolve) => {
-    const stop = watch(jobs, (list: readonly any[]) => {
-      const j = list.find((x: any) => x.job_id === jobId)
-      if (!j) return
-      if (j.status === 'done') { stop(); resolve(true) }
-      else if (j.status === 'error') { stop(); resolve(false) }
-    }, { deep: true, immediate: true })
+    // Watch a derived status signal for THIS specific job so output_lines
+    // pushes (which don't change status) don't fire the callback. Same
+    // signal-based pattern the other jobs watchers use; immediate: true
+    // on the watch handles the case where the job is already terminal
+    // by the time the caller awaits.
+    const targetStatus = computed(() => {
+      const j = jobs.value.find((x: any) => x.job_id === jobId)
+      return j?.status || ''
+    })
+    const stop = watch(targetStatus, (s) => {
+      if (s === 'done') { stop(); resolve(true) }
+      else if (s === 'error' || s === 'cancelled') { stop(); resolve(false) }
+    }, { immediate: true })
     setTimeout(() => { stop(); resolve(false) }, timeoutMs)
   })
 }

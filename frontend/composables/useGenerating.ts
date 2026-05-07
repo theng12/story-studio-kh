@@ -24,17 +24,43 @@ export function useGenerating() {
   const thumbPromptGenerating = useState('thumbPromptGenerating', () => false)
   const metaGenerating = useState('metaGenerating', () => false)
 
-  // Auto-sync job-based states with the actual job queue
+  // Auto-sync job-based states with the actual job queue.
+  //
+  // v1.0.72: was `watch(jobs, ..., { deep: true })`, which fired on every
+  // output_lines push from a running job — hundreds of fires per second
+  // during chunked listicle expansion. This composable is mounted on
+  // every page (the sidebar reads scriptGenerating et al for the nav
+  // pulse indicators), so its lag was the dominant cause of "I clicked
+  // Expand all and now can't navigate." Switched to a signal-based
+  // watcher that only fires on real status transitions, like the other
+  // jobs watchers in the app.
   if (import.meta.client) {
     const { jobs } = useJobs()
 
-    watch(jobs, (jobList) => {
+    // The signal: a sorted, joined string of `${type}:${status}` for
+    // every job whose type is one of the kinds we track. Active jobs
+    // (queued/running) flip to done/error/cancelled cause the signal
+    // to mutate; output_lines pushes don't.
+    const TRACKED = new Set([
+      'script-only', 'introduction-only', 'chapter-only', 'outline_only', 'expand_chapters',
+      'images', 'scene_images', 'thumb_images', 'images_repair',
+      'audio', 'audio_merge',
+      'video', 'video_repair',
+    ])
+    const activeSignal = computed(() =>
+      jobs.value
+        .filter(j => TRACKED.has(j.type))
+        .map(j => `${j.type}:${j.status}`)
+        .sort()
+        .join('|'),
+    )
+    watch(activeSignal, () => {
       const hasActive = (...types: string[]) =>
-        jobList.some(j => types.includes(j.type) && (j.status === 'running' || j.status === 'queued'))
+        jobs.value.some(j => types.includes(j.type) && (j.status === 'running' || j.status === 'queued'))
 
       // Turn OFF when no active jobs of that type remain
       // (Pages turn ON on submit — we only auto-reset here)
-      if (scriptGenerating.value && !hasActive('script')) {
+      if (scriptGenerating.value && !hasActive('script', 'script-only', 'outline_only', 'expand_chapters', 'chapter-only')) {
         scriptGenerating.value = false
       }
       if (imageGenerating.value && !hasActive('images', 'scene_images')) {
@@ -52,7 +78,7 @@ export function useGenerating() {
       if (videoGenerating.value && !hasActive('video')) {
         videoGenerating.value = false
       }
-    }, { deep: true })
+    })
   }
 
   return {
