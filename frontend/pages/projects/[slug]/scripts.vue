@@ -1127,10 +1127,25 @@ async function syncTitleToChapters() {
   if (selectedEpisode.value?.idea_id || selectedEpisode.value?.episode_code) {
     try {
       const ideaId = selectedEpisode.value.idea_id || selectedEpisode.value.episode_code
-      await patch(`/projects/${slug.value}/ideas/${ideaId}`, { title: newTitle })
+      // PATCH returns the updated idea + folder_sync block describing what
+      // happened on disk: { renamed: boolean, warnings: string[] }. The
+      // backend renames the episode folder to match the new title so
+      // the next generator call doesn't strand assets in two folders.
+      const resp = await patch<any>(`/projects/${slug.value}/ideas/${ideaId}`, { title: newTitle })
       // Also update the in-memory selectedEpisode so the next render sees it.
       if (selectedEpisode.value) selectedEpisode.value.title = newTitle
-      success(`Title synced to ${form.chapters} chapters`)
+
+      const fs = resp?.folder_sync as { renamed?: boolean; warnings?: string[] } | null | undefined
+      if (fs?.warnings && fs.warnings.length > 0) {
+        // Surface non-fatal hiccups (destination collision, EXDEV, etc.)
+        // so the user knows the rename didn't fully land. Title still
+        // synced in ideas.json — disk is just stale.
+        showError(`Title synced, but folder rename had issues: ${fs.warnings.join('; ')}`)
+      } else if (fs?.renamed) {
+        success(`Title synced to ${form.chapters} chapters · folder renamed`)
+      } else {
+        success(`Title synced to ${form.chapters} chapters`)
+      }
     } catch (e: any) {
       // Local form is updated already — the script will use the new
       // title. Only the persisted idea record didn't get the rewrite.

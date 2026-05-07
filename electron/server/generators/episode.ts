@@ -607,9 +607,12 @@ export async function generateScriptOnly(job: Job): Promise<void> {
   // generated 10 chapters anyway: the on-disk script has 10, so the
   // idea title should too. Idempotent on titles without a leading
   // number, and on matches where title-number == chapters already.
-  // We only update the in-memory + JSON record here; the on-disk
-  // folder name keeps its original title (renaming the folder mid-job
-  // would invalidate paths the user will use for assets seconds later).
+  //
+  // The folder rename (post-rewrite) is the LAST thing the script job
+  // does. By the time the user clicks "Generate Audio" the folder is
+  // at its new name and `resolveEpisodePaths(NEW_TITLE)` finds it.
+  // The job queue is serialized so no concurrent reader is mid-stat
+  // on the old path.
   try {
     const generatedChapters = Number(baseParams.chapters)
     const title = (baseParams.title as string) || ''
@@ -624,11 +627,22 @@ export async function generateScriptOnly(job: Job): Promise<void> {
           const ideas = await im.getIdeas(job.project_slug, 'accepted')
           const idea = ideas.find(i => (i.episode_code || '').toUpperCase() === (job.episode_id || '').toUpperCase())
           if (idea) {
+            // Persist title FIRST so a rename failure doesn't leave the
+            // record stale: ideas.json is the source of truth, the disk
+            // folder catches up if it can.
             await im.updateIdea(job.project_slug, idea.id, { title: newTitle })
+            const { renameEpisodeFolderForTitleChange } = await import('../services/episode-folder-title-sync.js')
+            const result = await renameEpisodeFolderForTitleChange(
+              job.project_slug, job.episode_id, title, newTitle,
+            )
+            const renameNote = result.renamed
+              ? `Folder renamed → ${path.basename(result.new_dir!)}.`
+              : 'Folder unchanged on disk (will use the new name on first generator run).'
             job.output_lines.push(
               `[title-sync] Idea title rewritten: "${title}" → "${newTitle}" `
-              + `(chapters generated: ${generatedChapters}). On-disk folder name unchanged.`,
+              + `(chapters generated: ${generatedChapters}). ${renameNote}`,
             )
+            for (const w of result.warnings) job.output_lines.push(`[title-sync] ${w}`)
           }
         }
       }

@@ -74,18 +74,21 @@
               ▶ Expand
             </button>
             <!-- Preview button only shows once the chapter is on disk —
-                 there's nothing to preview before expansion. Mirrors the
-                 ChapterListPanel preview pattern: click to open a drawer
-                 below this row showing the chapter prose, click again to
-                 close. Multiple rows can be open simultaneously. -->
+                 there's nothing to preview before expansion. Click to
+                 open the drawer below this row showing the chapter prose,
+                 click again to close. Multiple rows can be open at once.
+                 Custom op-preview-toggle styling (instead of generic btn)
+                 so it visually pops as a distinct affordance from the
+                 outline-editing buttons next to it. -->
             <button
               v-if="isChapterDone(entry.n)"
               type="button"
-              :class="['btn', 'btn-sm', expandedPreviews.has(entry.n) ? 'btn-primary' : 'btn-secondary']"
+              :class="['op-preview-toggle', { 'is-open': expandedPreviews.has(entry.n) }]"
               :title="expandedPreviews.has(entry.n) ? 'Hide chapter preview' : 'Preview the expanded chapter content'"
               @click="togglePreview(entry.n)"
             >
-              {{ expandedPreviews.has(entry.n) ? '▾ Hide' : '▸ Preview' }}
+              <span class="op-preview-icon">{{ expandedPreviews.has(entry.n) ? '▾' : '▸' }}</span>
+              <span>{{ expandedPreviews.has(entry.n) ? 'Hide preview' : 'Preview text' }}</span>
             </button>
             <button
               class="btn btn-sm btn-ghost"
@@ -727,6 +730,40 @@ defineExpose({ loaded, reload: loadOutline })
 .op-facts-input,
 .op-beats-input {
   font-size: 12.5px;
+}
+
+/* Preview toggle button — distinct from the generic .btn cluster
+   around it (Expand, ▲, ▼, on-disk pill) so it reads as a viewer
+   affordance, not another action. Uses the accent color in its
+   default state to stand out in the row. */
+.op-preview-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(99, 179, 237, 0.45);
+  background: rgba(99, 179, 237, 0.10);
+  color: rgb(99, 179, 237);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.op-preview-toggle:hover {
+  background: rgba(99, 179, 237, 0.20);
+  border-color: rgba(99, 179, 237, 0.7);
+}
+.op-preview-toggle.is-open {
+  background: rgba(99, 179, 237, 0.30);
+  border-color: rgb(99, 179, 237);
+  color: var(--text-primary);
+}
+.op-preview-icon {
+  font-size: 11px;
+  line-height: 1;
 }
 
 /* Inline preview drawer — lazy-loaded chapter content rendered as

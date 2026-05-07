@@ -209,9 +209,13 @@ export async function addIdeas(
 }
 
 /**
- * Patch mutable fields on an existing idea. Does NOT rename a folder even if
- * the idea is already accepted — the folder name is baked at accept time, and
- * renaming it would invalidate all downstream generator references.
+ * Patch mutable fields on an existing idea. JSON-only: writes the new
+ * values to ideas.json and returns the updated record. Does NOT touch
+ * the on-disk episode folder — callers that need the folder name to
+ * follow the title (route handler PATCH /ideas/:id, post-script title
+ * sync in episode.ts) call `renameEpisodeFolderForTitleChange` from
+ * `episode-folder-title-sync.ts` AFTER this returns. JSON is updated
+ * first so a folder-rename failure leaves the source of truth correct.
  */
 export async function updateIdea(
   slug: string,

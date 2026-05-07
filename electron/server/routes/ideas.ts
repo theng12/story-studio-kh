@@ -748,9 +748,34 @@ router.post('/projects/:slug/episodes/import', async (req, res) => {
 router.patch('/projects/:slug/ideas/:ideaId', async (req, res) => {
   const { slug, ideaId } = req.params
   try {
+    // Capture the OLD title before mutating so we can sync the folder
+    // afterwards. Only the accepted-idea (episode_code present) case
+    // needs disk work — unaccepted ideas have no folder yet.
+    const before = (await im.getIdeas(slug)).find(i => i.id === ideaId) || null
+    const oldTitle = before?.title || ''
+    const episodeCode = before?.episode_code || null
+
     const updated = await im.updateIdea(slug, ideaId, req.body || {})
     if (!updated) return res.status(404).json({ detail: 'Idea not found' })
-    res.json(updated)
+
+    // Title-driven folder sync. Runs ONLY when:
+    //   - the idea is accepted (has an episode_code)
+    //   - the title actually changed
+    // Failures collected in `warnings` and reported alongside the
+    // updated record so the UI can surface them, but the PATCH itself
+    // succeeds because the JSON record is the source of truth.
+    let folder_sync: { renamed: boolean; warnings: string[] } | null = null
+    if (episodeCode && oldTitle !== updated.title) {
+      try {
+        const { renameEpisodeFolderForTitleChange } = await import('../services/episode-folder-title-sync.js')
+        const result = await renameEpisodeFolderForTitleChange(slug, episodeCode, oldTitle, updated.title)
+        folder_sync = { renamed: result.renamed, warnings: result.warnings }
+      } catch (e: any) {
+        folder_sync = { renamed: false, warnings: [`Folder sync errored: ${e?.message || String(e)}`] }
+      }
+    }
+
+    res.json({ ...updated, folder_sync })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to update idea'))
   }
