@@ -615,21 +615,9 @@ async function generateStylePreview(): Promise<void> {
   }
 }
 
-// Clear the rendered thumbnail (but NOT the error / loading state) when
-// the user edits style_tag past the description that produced it. Avoids
-// the misleading "this preview matches your current style" implication
-// when the text in the textarea no longer matches the rendered image.
-watch(() => form.style_tag, (next) => {
-  const cur = (next || '').trim()
-  if (stylePreview.value.style_tag_at_render &&
-      cur !== stylePreview.value.style_tag_at_render) {
-    stylePreview.value.url = null
-    stylePreview.value.cached = null
-    stylePreview.value.hash = null
-    stylePreview.value.model_id = null
-    stylePreview.value.style_tag_at_render = null
-  }
-})
+// (The `watch(() => form.style_tag, ...)` that clears the rendered preview
+// when the user edits past it lives AFTER the form declaration below — it
+// can't run here without TDZ-hitting `form`.)
 
 // ── Reference-image style extraction (pain-point #7) ─────────────────────
 interface VisionModelCap { id: string; provider: 'anthropic' | 'openai' | 'unknown'; has_key: boolean }
@@ -736,6 +724,27 @@ const form = reactive({
   // legacy behaviour. usePresets snapshots the form, so saving an Image
   // Prompts preset captures the cast automatically.
   character_ids: [] as string[],
+})
+
+// Style preview thumbnail invalidator. Lives here (not next to the
+// stylePreview ref above) because watch(() => form.style_tag, ...)
+// captures `form` reactively at setup time and would TDZ-throw if
+// declared before `const form = reactive(...)`. Same trap as the
+// ChapterListPanel TDZ fix earlier today.
+//
+// Behaviour: when the user edits style_tag past the description that
+// produced the rendered thumbnail, drop the thumbnail so a stale render
+// can't sit under fresh text. Loading + error state stay untouched.
+watch(() => form.style_tag, (next) => {
+  const cur = (next || '').trim()
+  if (stylePreview.value.style_tag_at_render &&
+      cur !== stylePreview.value.style_tag_at_render) {
+    stylePreview.value.url = null
+    stylePreview.value.cached = null
+    stylePreview.value.hash = null
+    stylePreview.value.model_id = null
+    stylePreview.value.style_tag_at_render = null
+  }
 })
 
 function pickRandomPresetId(presets: StylePreset[]): string {
