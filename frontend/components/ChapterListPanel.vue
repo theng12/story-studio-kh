@@ -28,8 +28,9 @@
       </div>
     </div>
     <p class="text-muted" style="font-size: 12px; margin: 0 0 8px 0;">
-      Regenerate any chapter individually. The unified narration
-      downstream tools read is auto-rebuilt after each regen.
+      Click ▸ to preview a chapter's expanded text inline. Regenerate any
+      chapter individually — the unified narration downstream tools read
+      is auto-rebuilt after each regen.
     </p>
 
     <div v-if="!episodeId" class="chp-empty">Select an episode to see its chapters.</div>
@@ -44,9 +45,16 @@
         v-for="ch in chapters"
         :key="ch.number"
         class="chp-item"
-        :class="{ 'has-stale-audio': ch.audio_stale }"
+        :class="{ 'has-stale-audio': ch.audio_stale, 'is-expanded': expandedChapters.has(ch.number) }"
       >
         <div class="chp-row">
+          <button
+            class="btn-icon chp-expand"
+            :title="expandedChapters.has(ch.number) ? 'Hide preview' : 'Preview chapter content'"
+            @click="togglePreview(ch.number)"
+          >
+            {{ expandedChapters.has(ch.number) ? '▾' : '▸' }}
+          </button>
           <div class="chp-meta">
             <strong class="chp-num">Chapter {{ String(ch.number).padStart(2, '0') }}</strong>
             <span class="chp-title">{{ ch.title }}</span>
@@ -76,6 +84,25 @@
             <LoadingSpinner v-if="regenInFlight === ch.number" size="sm" />
             {{ regenInFlight === ch.number ? 'Regenerating…' : '↻ Regenerate' }}
           </button>
+        </div>
+
+        <!-- Inline preview drawer. Rendered only when expanded so we
+             don't pay the docx-parse cost for chapters the user hasn't
+             opened. Cached per-chapter (see previewCache) so re-opening
+             a chapter is instant; cache cleared whenever refreshKey
+             ticks (regen completion, episode switch). -->
+        <div v-if="expandedChapters.has(ch.number)" class="chp-preview">
+          <div v-if="previewLoading.has(ch.number)" class="chp-preview-status">
+            Loading chapter content…
+          </div>
+          <div v-else-if="previewErrors.get(ch.number)" class="chp-preview-error">
+            {{ previewErrors.get(ch.number) }}
+            <button class="btn btn-sm btn-ghost" @click="loadPreview(ch.number, /* force */ true)">
+              ↻ Retry
+            </button>
+          </div>
+          <pre v-else-if="previewCache.get(ch.number)" class="chp-preview-content">{{ previewCache.get(ch.number) }}</pre>
+          <div v-else class="chp-preview-status">No content available.</div>
         </div>
       </li>
     </ul>
@@ -115,6 +142,20 @@ const regenInFlight = ref<number | null>(null)
 // request so a single chapter can be re-rolled at a different length.
 // Cleared on episode switch.
 const wordOverrides = ref<Record<number, number | undefined>>({})
+
+// Per-row inline preview state. expandedChapters is the set of chapter
+// numbers whose drawer is currently open; previewCache stores the
+// fetched content per chapter (so closing + re-opening doesn't refetch).
+// previewLoading + previewErrors track the in-flight fetch.
+//
+// Cache invalidation: cleared on episode switch AND on every refreshKey
+// bump (which scripts.vue ticks after expand_chapters or chapter-only
+// completes). Prevents showing stale content after a regen lands.
+const expandedChapters = ref<Set<number>>(new Set())
+const previewCache = ref<Map<number, string>>(new Map())
+const previewLoading = ref<Set<number>>(new Set())
+const previewErrors = ref<Map<number, string>>(new Map())
+
 const noScriptTooltip = 'Generate the script first to unlock per-chapter regenerate.'
 const staleTooltip = 'This chapter\'s source was changed after the audio was generated. Visit the Audio page and regenerate this section to refresh.'
 
@@ -135,6 +176,58 @@ async function refresh() {
     showError(e?.data?.detail || 'Could not load chapters')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadPreview(num: number, force = false): Promise<void> {
+  if (!props.episodeId) return
+  // Cache hit: show instantly. Force-refresh skips this for retry.
+  if (!force && previewCache.value.has(num)) return
+  previewLoading.value.add(num)
+  previewErrors.value.delete(num)
+  try {
+    const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
+    const data = await get<{ content: string }>(
+      `/projects/${props.projectSlug}/episodes/${props.episodeId}/chapters/${num}/content${titleParam}`,
+    )
+    previewCache.value.set(num, data.content || '(empty chapter)')
+    // Trigger Vue reactivity for the Map (set() doesn't auto-trigger
+    // on reactive Maps in some cases; bump the ref to force it).
+    previewCache.value = new Map(previewCache.value)
+  } catch (e: any) {
+    const msg = e?.data?.detail || `Could not load chapter ${num}`
+    previewErrors.value.set(num, msg)
+    previewErrors.value = new Map(previewErrors.value)
+  } finally {
+    previewLoading.value.delete(num)
+    previewLoading.value = new Set(previewLoading.value)
+  }
+}
+
+function togglePreview(num: number) {
+  if (expandedChapters.value.has(num)) {
+    expandedChapters.value.delete(num)
+  } else {
+    expandedChapters.value.add(num)
+    void loadPreview(num)
+  }
+  // Vue 3 tracks Set mutations via the reactivity proxy, but reassigning
+  // forces a downstream re-render in cases where deep tracking misses.
+  expandedChapters.value = new Set(expandedChapters.value)
+}
+
+function clearPreviewCache() {
+  // Called on episode switch + on refreshKey bump (regen completion).
+  // Keeps the expanded set so the user's chosen "open" rows stay open
+  // through a regen — the next render fetches fresh content for each.
+  previewCache.value = new Map()
+  previewErrors.value = new Map()
+  previewLoading.value = new Set()
+  // Re-fetch any currently-open chapters so the user sees fresh content
+  // immediately after a regen lands (otherwise the drawer would show
+  // empty until they collapsed + re-expanded).
+  for (const n of expandedChapters.value) {
+    void loadPreview(n, /* force */ true)
   }
 }
 
@@ -202,10 +295,13 @@ watch(relevantJobsSignal, () => {
     if (job.status === 'done') {
       // chapter-only fires the in-flight tracker reset; expand_chapters
       // refresh applies regardless of whether a per-chapter regen was
-      // running.
+      // running. Either way the on-disk content just changed → clear
+      // the per-row preview cache so any open drawers refetch fresh
+      // content automatically.
       if (job.type === 'chapter-only' && regenInFlight.value !== null) {
         regenInFlight.value = null
       }
+      clearPreviewCache()
       void refresh()
     } else if (job.status === 'error' && job.type === 'chapter-only' && regenInFlight.value !== null) {
       regenInFlight.value = null
@@ -215,14 +311,17 @@ watch(relevantJobsSignal, () => {
 })
 
 watch(() => [props.episodeId, props.title, props.refreshKey], () => {
-  // Clear per-row word overrides on episode switch — the previous
-  // episode's overrides don't apply to the new one. Refresh-key bumps
-  // (job-completion ticks) keep them since the user is still on the
-  // same episode and may want to retry with the same custom length.
+  // Clear per-row word overrides AND collapse + clear preview cache on
+  // episode switch — the previous episode's state doesn't apply to the
+  // new one. Refresh-key bumps (job-completion ticks) keep wordOverrides
+  // since the user is still on the same episode, but DO clear the
+  // preview cache (chapter content just changed on disk).
   if (props.episodeId !== lastEpisodeId.value) {
     wordOverrides.value = {}
+    expandedChapters.value = new Set()
     lastEpisodeId.value = props.episodeId
   }
+  clearPreviewCache()
   refresh()
 }, { immediate: true })
 
@@ -280,17 +379,80 @@ function relativeTime(iso: string): string {
 
 .chp-row {
   display: grid;
-  grid-template-columns: 1fr auto auto auto;
+  grid-template-columns: auto 1fr auto auto auto;
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
   font-size: 13px;
+}
+.chp-expand {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.chp-expand:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+.chp-item.is-expanded .chp-expand {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
 }
 .chp-words-input {
   width: 90px;
   text-align: right;
   font-size: 12px;
   padding: 4px 8px;
+}
+
+/* Inline preview drawer — lazy-loaded chapter content rendered as
+   read-only prose. Visually offset from the row so it reads as a
+   "child" of that chapter, not a separate row. */
+.chp-preview {
+  padding: 0 14px 14px 50px;  /* indent matches the row's expand-button column */
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+}
+.chp-preview-status,
+.chp-preview-error {
+  padding: 12px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.chp-preview-error {
+  color: rgb(220, 100, 100);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.chp-preview-content {
+  margin: 12px 0 0 0;
+  padding: 12px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 400px;
+  overflow-y: auto;
 }
 .chp-meta {
   min-width: 0;

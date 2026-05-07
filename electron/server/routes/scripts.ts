@@ -459,6 +459,70 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
   }
 })
 
+// Per-chapter content read — drives the inline preview rows in
+// ChapterListPanel. Returns the chapter's heading title + plain-text body
+// + word_count + modified_at, lazy-loaded one chapter at a time so opening
+// the panel doesn't pay for parsing N docx files up front.
+//
+// Read-only by design (per the user's choice in plan review). If we ever
+// want inline editing, add a sibling PUT that round-trips the body back
+// through buildNarrationDocx + assembleUnifiedNarration.
+router.get('/projects/:slug/episodes/:episodeId/chapters/:chapterNumber/content', async (req, res) => {
+  const { slug, episodeId, chapterNumber } = req.params
+  const titleQuery = (req.query.title as string) || ''
+  const n = Number(chapterNumber)
+  if (!Number.isFinite(n) || n < 1) {
+    return res.status(400).json({ detail: `Invalid chapter number: ${chapterNumber}` })
+  }
+  try {
+    const paths = await resolveEpisodePaths(slug, episodeId, titleQuery)
+    const { chapterFilePath } = await import('../lib/narration-assembly.js')
+    const filePath = chapterFilePath(paths.script_dir, episodeId, n)
+    if (!existsSync(filePath)) {
+      return res.status(404).json({
+        detail: `Chapter ${n} is not on disk yet. Expand it from the outline panel first.`,
+      })
+    }
+
+    const stat = await fs.stat(filePath)
+    const modifiedAt = stat.mtime.toISOString()
+
+    // Title comes from the docx heading. Parse separately from the body
+    // so the regex for "Chapter NN: Title" doesn't have to walk the
+    // whole document.
+    let title = `Chapter ${String(n).padStart(2, '0')}`
+    try {
+      const mammoth = await import('mammoth')
+      const html = (await mammoth.default.convertToHtml({ path: filePath })).value
+      const headingMatch = html.match(/<h2[^>]*>([^<]+)<\/h2>/i)
+      if (headingMatch) {
+        const m = headingMatch[1].match(/^\s*Chapter\s+\d+\s*[:\-–—]\s*(.+)$/i)
+        if (m) title = m[1].trim()
+        else title = headingMatch[1].trim()
+      }
+    } catch { /* fall back to default title */ }
+
+    // Body. parseNarrationDocx returns sections; for a per-chapter file
+    // there's a single section whose text IS the chapter body. The
+    // section label ("Chapter NN") gets stripped — the user wants the
+    // narrative prose, not the header line.
+    const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+    const sections = await parseNarrationDocx(filePath)
+    const body = (sections[0]?.text || '').trim()
+    const wordCount = body.split(/\s+/).filter(Boolean).length
+
+    res.json({
+      number: n,
+      title,
+      content: body,
+      word_count: wordCount,
+      modified_at: modifiedAt,
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, `Could not load chapter ${n}`))
+  }
+})
+
 // ── Generate image prompts with style/ratio controls (returns prompts for review) ──
 //
 // Synchronous LLM call in the request handler. Per M5 (system audit):
