@@ -32,7 +32,6 @@ import { router as brandsRouter } from './brands.js'
 import { router as assetMigrateRouter } from './asset-migrate.js'
 import { router as linkedProjectsRouter } from './linked-projects.js'
 import { router as softDeletedProjectsRouter } from './soft-deleted-projects.js'
-import { router as stylePreviewRouter } from './style-preview.js'
 
 export function mountRoutes(app: Express): void {
   app.use('/api', projectsRouter)
@@ -61,5 +60,4 @@ export function mountRoutes(app: Express): void {
   app.use('/api', assetMigrateRouter)
   app.use('/api', linkedProjectsRouter)
   app.use('/api', softDeletedProjectsRouter)
-  app.use('/api', stylePreviewRouter)
 }

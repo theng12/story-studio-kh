@@ -11,6 +11,7 @@
  * additive batch path.
  */
 
+import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -67,6 +68,39 @@ function aiCreds(config: any) {
     openai_api_key: config.openai_api_key,
     kie_api_key: config.kie_api_key,
   }
+}
+
+/**
+ * Resolve the actual chapter count for an episode. Source-of-truth order:
+ *   1. Sidecar's `total_chapters` (set when outline_only / script-only built).
+ *   2. On-disk `_Chapter_NN.docx` count (handles legacy episodes whose
+ *      sidecar predates the field, or episodes manually rebuilt with
+ *      different counts that didn't go through the chunked flow).
+ *   3. Fallback constant 10 — only when neither exists, which means the
+ *      episode is purely idea-stage with no script content yet, and the
+ *      generator likely shouldn't be running anyway. The earlier hardcoded
+ *      `× 10` was the culprit for "I picked 1 prompt per scene with 20
+ *      chapters but only got 10 prompts" — generator silently capped at
+ *      10 regardless of how many chapters were actually on disk.
+ */
+async function resolveChapterCount(
+  slug: string, episode_id: string, title: string,
+): Promise<number> {
+  try {
+    const paths = await resolveEpisodePaths(slug, episode_id, title || '')
+    const { readSidecar } = await import('../lib/chunked-narration.js')
+    const sidecar = await readSidecar(paths.script_dir, episode_id)
+    if (sidecar && typeof sidecar.total_chapters === 'number' && sidecar.total_chapters > 0) {
+      return sidecar.total_chapters
+    }
+    // No sidecar — count chapter docx files on disk as a fallback.
+    let entries: string[] = []
+    try { entries = await fs.readdir(paths.script_dir) } catch { /* missing dir */ }
+    const re = new RegExp(`^${episode_id}_Chapter_(\\d+)\\.docx$`)
+    const count = entries.filter(n => re.test(n)).length
+    if (count > 0) return count
+  } catch { /* fall through */ }
+  return 10
 }
 
 // Read up to 3000 chars of narration for grounding the LLM.
@@ -135,6 +169,19 @@ function buildPrompt(args: {
   const requirements: string[] = []
   if (sceneCount > 0) requirements.push(`Generate exactly ${sceneCount} scene prompts.`)
   if (thumbs > 0) requirements.push(`Generate exactly ${thumbs} thumbnail prompts.`)
+  // Per-prompt length floor + structural guidance. Without this the LLM
+  // happily ships 1-sentence prompts ("a forest at dusk") that under-
+  // specify the image — user complaint that "the prompts are short."
+  // The image generator quality scales with descriptor density, so
+  // pinning a 60+ word floor and naming the slots the model should fill
+  // (subject, setting, lighting, composition, mood, character detail)
+  // produces consistently usable prompts without hand-tuning.
+  requirements.push(
+    `Each prompt must be DETAILED — 60–120 words, 3–5 sentences. ` +
+    `Cover: subject + action, setting + props, lighting + time of day, ` +
+    `mood + atmosphere, framing/composition, and any visible characters ` +
+    `with concrete physical descriptions. Short one-line prompts are unusable.`,
+  )
   requirements.push(`Every prompt must end with this style tag: "${style_tag}"`)
   requirements.push(`Every prompt must specify composition for ${ratioInstruction}.`)
   requirements.push(`Every prompt must include inline character descriptions.`)
@@ -181,13 +228,25 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   // escape hatch used only when scenes_per_chapter === 0). Falling through
   // to total_scenes first used to let a stale preset value shadow a
   // freshly-saved scenes_per_chapter=1.
+  //
+  // Chapter count source of truth: read from the chunked-progress sidecar
+  // (set when outline_only / script-only built). This was previously
+  // hardcoded `× 10` — user with a 20-chapter outline at 1 scene/chapter
+  // got only 10 prompts because the backend ignored the real count and
+  // assumed every episode was 10 chapters. Fall back to 10 only when the
+  // sidecar is missing (idea-stage episode without a built outline).
+  const actualChapterCount = await resolveChapterCount(project_slug, episode_id, title)
   const spc = Number(req.scenes_per_chapter)
   const sceneCount = mode === 'thumbnails'
     ? 0
     : (Number.isFinite(spc) && spc > 0
-      ? spc * 10
-      : (req.total_scenes || (req.scenes_per_chapter || 1) * 10))
+      ? spc * actualChapterCount
+      : (req.total_scenes || (req.scenes_per_chapter || 1) * actualChapterCount))
   const thumbs = mode === 'scenes' ? 0 : (req.thumb_count || 5)
+  job.output_lines.push(
+    `Target: ${sceneCount} scene prompt(s) for ${actualChapterCount} chapter(s)` +
+    (thumbs > 0 ? ` + ${thumbs} thumbnail(s)` : ''),
+  )
 
   job.output_lines.push(`Reading narration for story context…`)
   const storyContext = await readStoryContext(project_slug, episode_id, title)

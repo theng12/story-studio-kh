@@ -80,56 +80,22 @@
         </div>
       </div>
 
-      <!-- Style preview row. The pill (always visible when style_tag has
-           content) shows EXACTLY what gets sent as style — eliminates the
-           "is my custom style actually being used?" anxiety. The Preview
-           button generates ONE sample image keyed by hash of the style
-           description; same description across episodes / projects re-uses
-           the cached PNG and costs nothing. First-time-seen style ≈ $0.005
-           on the configured image model. -->
+      <!-- Style pill — always visible when style_tag has content. Shows
+           EXACTLY what gets sent to the LLM as the style descriptor.
+           Eliminates the "is my custom style actually being used?"
+           anxiety, $0 cost, no API calls.
+           (The image-rendering Preview button that briefly lived here
+           was moved off this page — it surfaced a kie.ai 422 because
+           the Image Prompts flow doesn't naturally know which image
+           model the user wants to test, and the right home for "render
+           a sample of this style" is the Image Generator page where
+           that context already exists. Pill stays here as the free
+           visibility affordance.) -->
       <div v-if="form.style_tag && form.style_tag.trim()" class="style-preview-row">
         <div class="style-preview-pill" :title="form.style_tag">
           <span class="style-preview-pill-icon" aria-hidden="true">🎨</span>
           <span class="style-preview-pill-label">Style:</span>
           <span class="style-preview-pill-text">{{ form.style_tag.trim() }}</span>
-        </div>
-        <button
-          type="button"
-          class="btn btn-sm btn-secondary style-preview-btn"
-          :disabled="stylePreview.loading"
-          :title="stylePreview.cached === false
-            ? 'Generated a fresh sample (~$0.005). Cached now — re-clicking on this exact style is free.'
-            : stylePreview.cached === true
-              ? 'Cached preview — free. Edit the style above to invalidate.'
-              : 'Generate a single sample image of this style. ~$0.005 first time, free thereafter for the exact same description.'"
-          @click="generateStylePreview"
-        >
-          <LoadingSpinner v-if="stylePreview.loading" size="sm" />
-          <span v-else aria-hidden="true">🖼️</span>
-          {{ stylePreview.loading ? 'Rendering…' : 'Preview style' }}
-        </button>
-        <span v-if="stylePreview.error" class="style-preview-error" :title="stylePreview.error">
-          ⚠ {{ stylePreview.error }}
-        </span>
-      </div>
-
-      <!-- Sample render thumbnail. Only visible after a successful preview
-           call (cache hit OR fresh generation). Click expands to a larger
-           inline view via the existing image lightbox. -->
-      <div v-if="stylePreview.url" class="style-preview-thumb-wrap">
-        <img
-          :src="stylePreview.url"
-          alt="Style preview sample"
-          class="style-preview-thumb"
-          :title="`Preview generated ${stylePreview.cached ? '(cache hit, free)' : '(fresh, charged once)'} on ${stylePreview.model_id || 'default model'}`"
-        />
-        <div class="style-preview-thumb-meta">
-          <span :class="['style-preview-pill-tag', stylePreview.cached ? 'is-cache' : 'is-fresh']">
-            {{ stylePreview.cached ? '✓ cached' : '✨ fresh' }}
-          </span>
-          <span class="text-muted text-xs">
-            {{ stylePreview.model_id || '' }}
-          </span>
         </div>
       </div>
 
@@ -552,73 +518,6 @@ const customStyles = computed<StylePresetMeta[]>(
     : [],
 )
 
-// ── Style preview (pill + sample render, cached app-wide by hash) ───────
-//
-// Reads `form.style_tag` and POSTs to /style-preview to get a single
-// sample image of the style. Backend caches the PNG by sha256 of the
-// (normalised) description — same description across episodes / projects
-// reuses the cached file for free. We don't auto-fire on every keystroke
-// (would burn money on iteration); only the explicit Preview button
-// triggers generation. The pill itself is text-only, free, always visible.
-interface StylePreviewState {
-  loading: boolean
-  url: string | null
-  cached: boolean | null
-  model_id: string | null
-  hash: string | null
-  /** Style description that produced the currently-shown thumbnail. Used
-   *  to clear the thumbnail when the user edits style_tag past it. */
-  style_tag_at_render: string | null
-  error: string | null
-}
-const stylePreview = ref<StylePreviewState>({
-  loading: false,
-  url: null,
-  cached: null,
-  model_id: null,
-  hash: null,
-  style_tag_at_render: null,
-  error: null,
-})
-
-async function generateStylePreview(): Promise<void> {
-  const styleTag = (form.style_tag || '').trim()
-  if (!styleTag || stylePreview.value.loading) return
-  stylePreview.value.loading = true
-  stylePreview.value.error = null
-  try {
-    const data = await post<{
-      hash: string
-      url: string
-      cached: boolean
-      style_tag: string
-      model_id: string
-      created_at: string
-      size_bytes: number
-    }>(`/projects/${slug.value}/style-preview`, {
-      style_tag: styleTag,
-      // Use the user's selected aspect ratio so the preview matches the
-      // shape they'll see in actual scenes. The backend defaults to 1:1
-      // when omitted; passing the form value keeps preview parity with
-      // the eventual production render.
-      aspect_ratio: form.aspect_ratio || '1:1',
-    })
-    stylePreview.value.url = data.url
-    stylePreview.value.cached = !!data.cached
-    stylePreview.value.model_id = data.model_id
-    stylePreview.value.hash = data.hash
-    stylePreview.value.style_tag_at_render = styleTag
-  } catch (e: any) {
-    stylePreview.value.error = e?.data?.detail || e?.message || 'Preview failed'
-  } finally {
-    stylePreview.value.loading = false
-  }
-}
-
-// (The `watch(() => form.style_tag, ...)` that clears the rendered preview
-// when the user edits past it lives AFTER the form declaration below — it
-// can't run here without TDZ-hitting `form`.)
-
 // ── Reference-image style extraction (pain-point #7) ─────────────────────
 interface VisionModelCap { id: string; provider: 'anthropic' | 'openai' | 'unknown'; has_key: boolean }
 const extracting = ref(false)
@@ -724,27 +623,6 @@ const form = reactive({
   // legacy behaviour. usePresets snapshots the form, so saving an Image
   // Prompts preset captures the cast automatically.
   character_ids: [] as string[],
-})
-
-// Style preview thumbnail invalidator. Lives here (not next to the
-// stylePreview ref above) because watch(() => form.style_tag, ...)
-// captures `form` reactively at setup time and would TDZ-throw if
-// declared before `const form = reactive(...)`. Same trap as the
-// ChapterListPanel TDZ fix earlier today.
-//
-// Behaviour: when the user edits style_tag past the description that
-// produced the rendered thumbnail, drop the thumbnail so a stale render
-// can't sit under fresh text. Loading + error state stay untouched.
-watch(() => form.style_tag, (next) => {
-  const cur = (next || '').trim()
-  if (stylePreview.value.style_tag_at_render &&
-      cur !== stylePreview.value.style_tag_at_render) {
-    stylePreview.value.url = null
-    stylePreview.value.cached = null
-    stylePreview.value.hash = null
-    stylePreview.value.model_id = null
-    stylePreview.value.style_tag_at_render = null
-  }
 })
 
 function pickRandomPresetId(presets: StylePreset[]): string {
@@ -1449,7 +1327,10 @@ async function saveToFile() {
 .btn-icon:hover { color: var(--error); background: rgba(248, 113, 113, 0.1); }
 .checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text-muted); }
 
-/* Style preview row — pill (text only, always free) + Preview button. */
+/* Style pill — free, always-visible read-out of form.style_tag.
+   Tells the user exactly what gets sent to the LLM as the style
+   descriptor, so "is my style actually being used?" is answered just
+   by glancing at it. */
 .style-preview-row {
   display: flex;
   flex-wrap: wrap;
@@ -1478,50 +1359,6 @@ async function saveToFile() {
   white-space: nowrap;
   flex: 1 1 auto;
   min-width: 0;
-}
-.style-preview-btn { white-space: nowrap; }
-.style-preview-error {
-  font-size: 11px;
-  color: rgb(220, 38, 38);
-  cursor: help;
-}
-.style-preview-thumb-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: flex-start;
-  margin: 4px 0 12px;
-}
-.style-preview-thumb {
-  width: 160px;
-  height: 160px;
-  object-fit: cover;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-}
-.style-preview-thumb-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.style-preview-pill-tag {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-  font-family: var(--font-mono, monospace);
-}
-.style-preview-pill-tag.is-cache {
-  background: rgba(16, 185, 129, 0.10);
-  color: rgb(16, 185, 129);
-  border: 1px solid rgba(16, 185, 129, 0.28);
-}
-.style-preview-pill-tag.is-fresh {
-  background: rgba(245, 158, 11, 0.10);
-  color: rgb(180, 120, 8);
-  border: 1px solid rgba(245, 158, 11, 0.28);
 }
 
 .style-extract { padding: 10px 12px; background: var(--bg-tertiary); border-radius: var(--radius-sm); border: 1px dashed var(--border); }
