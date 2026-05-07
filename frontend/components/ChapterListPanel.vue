@@ -49,11 +49,14 @@
       >
         <div class="chp-row">
           <button
-            class="btn-icon chp-expand"
+            type="button"
+            class="chp-expand"
             :title="expandedChapters.has(ch.number) ? 'Hide preview' : 'Preview chapter content'"
+            :aria-label="expandedChapters.has(ch.number) ? 'Hide preview' : 'Show preview'"
             @click="togglePreview(ch.number)"
           >
-            {{ expandedChapters.has(ch.number) ? '▾' : '▸' }}
+            <span class="chp-expand-icon">{{ expandedChapters.has(ch.number) ? '▾' : '▸' }}</span>
+            <span class="chp-expand-label">{{ expandedChapters.has(ch.number) ? 'Hide' : 'Preview' }}</span>
           </button>
           <div class="chp-meta">
             <strong class="chp-num">Chapter {{ String(ch.number).padStart(2, '0') }}</strong>
@@ -386,23 +389,32 @@ function relativeTime(iso: string): string {
   font-size: 13px;
 }
 .chp-expand {
-  background: transparent;
+  background: var(--bg-tertiary);
   border: 1px solid var(--border);
   color: var(--text-secondary);
-  padding: 0;
-  width: 24px;
-  height: 24px;
+  padding: 4px 10px;
+  height: 28px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 12px;
+  font-weight: 500;
   line-height: 1;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 6px;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.chp-expand-icon {
+  font-size: 10px;
+  line-height: 1;
+}
+.chp-expand-label {
+  font-size: 11px;
+  letter-spacing: 0.2px;
 }
 .chp-expand:hover {
-  background: var(--bg-tertiary);
+  background: var(--bg-secondary);
   border-color: var(--border-light);
   color: var(--text-primary);
 }
@@ -422,7 +434,7 @@ function relativeTime(iso: string): string {
    read-only prose. Visually offset from the row so it reads as a
    "child" of that chapter, not a separate row. */
 .chp-preview {
-  padding: 0 14px 14px 50px;  /* indent matches the row's expand-button column */
+  padding: 0 14px 14px 14px;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
 }
