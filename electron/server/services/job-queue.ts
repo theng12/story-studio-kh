@@ -432,10 +432,23 @@ export function isQueuePaused(): boolean {
   return queuePaused
 }
 
-export function isDuplicate(projectSlug: string, episodeId: string, jobType: string): boolean {
+/**
+ * Is there already a queued/running job of this kind for the same project +
+ * episode? Optional `paramsMatch` predicate narrows the dedupe to a subset of
+ * jobs whose params satisfy the predicate — used by `chapter-only` to dedupe
+ * per (episode, chapter) instead of per (episode, type), so the user can
+ * queue multiple chapter regens in a row without each one rejecting the next.
+ */
+export function isDuplicate(
+  projectSlug: string,
+  episodeId: string,
+  jobType: string,
+  paramsMatch?: (params: any) => boolean,
+): boolean {
   for (const job of jobs.values()) {
     if (job.project_slug === projectSlug && job.episode_id === episodeId
         && job.type === jobType && (job.status === 'queued' || job.status === 'running')) {
+      if (paramsMatch && !paramsMatch(job.params || {})) continue
       return true
     }
   }
@@ -531,12 +544,18 @@ export function enqueue(opts: {
   episode_id: string
   title?: string
   params?: Record<string, any>
+  /** Narrow the duplicate check to jobs whose params satisfy this predicate.
+   *  When omitted, dedupe is per (project, episode, type) — the historical
+   *  behaviour. chapter-only passes a predicate that compares
+   *  `params.chapter_number` so two regens for different chapters can both
+   *  enqueue (run back-to-back) without rejecting each other. */
+  dedupeParams?: (params: any) => boolean
 }): Job {
   // Atomic dedupe: the check and the insert happen in the same synchronous
   // tick. Callers MUST NOT gate on isDuplicate() separately — two routes
   // racing the check could both pass and both enqueue. This is the single
   // serialisation point for queue insertion.
-  if (isDuplicate(opts.project_slug, opts.episode_id, opts.type)) {
+  if (isDuplicate(opts.project_slug, opts.episode_id, opts.type, opts.dedupeParams)) {
     throw new DuplicateJobError(opts.type, opts.episode_id)
   }
 

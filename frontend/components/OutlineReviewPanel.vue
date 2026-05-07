@@ -111,12 +111,12 @@
             <button
               v-else
               class="btn btn-sm btn-secondary"
-              :disabled="regenInFlight !== null"
+              :disabled="isRegenerating(entry.n)"
               :title="`Regenerate chapter ${entry.n} — keeps the same outline title, applies any per-row word override`"
               @click="regenerateOne(entry.n)"
             >
-              <LoadingSpinner v-if="regenInFlight === entry.n" size="sm" />
-              {{ regenInFlight === entry.n ? 'Regenerating…' : '↻ Regenerate' }}
+              <LoadingSpinner v-if="isRegenerating(entry.n)" size="sm" />
+              {{ isRegenerating(entry.n) ? 'Queueing…' : '↻ Regenerate' }}
             </button>
             <!-- Preview button only shows once the chapter is on disk —
                  there's nothing to preview before expansion. Click to
@@ -689,11 +689,19 @@ function expandAll() { void postExpand(null) }
 //
 // Auto-saves any pending outline edits first so the regen prompt sees
 // the user's latest title / hook / facts, not the stale sidecar.
-const regenInFlight = ref<number | null>(null)
+// Per-chapter in-flight set so the user can queue multiple regens in a row.
+// Each entry holds the chapter number whose POST is currently being awaited
+// (cleared in finally regardless of success/error). Backend dedupes per
+// (episode, chapter), so two clicks on the SAME chapter still 409 — but
+// different chapters all enqueue and run back-to-back behind the queue.
+const regenInFlight = ref<Set<number>>(new Set())
+function isRegenerating(n: number): boolean {
+  return regenInFlight.value.has(n)
+}
 async function regenerateOne(n: number): Promise<void> {
-  if (regenInFlight.value !== null) return
+  if (regenInFlight.value.has(n)) return
   if (isDirty.value) await saveEdits(/* silent */ true)
-  regenInFlight.value = n
+  regenInFlight.value = new Set([...regenInFlight.value, n])
 
   // Per-row word override on the outline entry wins over the form
   // default. Same precedence as ChapterListPanel + the batch prompt.
@@ -721,10 +729,12 @@ async function regenerateOne(n: number): Promise<void> {
   } catch (e: any) {
     showError(e?.data?.detail || `Failed to queue chapter ${n} regen`)
   } finally {
-    // The chapter-only job watcher already clears previewCache on done;
-    // we don't need to await terminal state here. Drop the in-flight
-    // flag so the user can immediately queue another row's regen.
-    regenInFlight.value = null
+    // Clear THIS chapter's in-flight flag so its button re-enables. Other
+    // chapters in flight stay flagged. Reassign the Set so Vue tracks the
+    // mutation (Set methods alone don't trigger reactivity).
+    const next = new Set(regenInFlight.value)
+    next.delete(n)
+    regenInFlight.value = next
   }
 }
 

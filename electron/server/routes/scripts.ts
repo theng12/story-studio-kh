@@ -253,15 +253,17 @@ router.post('/projects/:slug/generate/chapter-only', validateBody(GenerateChapte
     return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
   }
 
-  // Dedupe per (episode, chapter) — two clicks on the regenerate button
-  // shouldn't enqueue the same chapter twice. The base isDuplicate check
-  // is per (episode, type) which would block ALL chapter regens for the
-  // episode; we approximate per-chapter dedupe by inspecting params on
-  // the active queue. For MVP we keep the broader dedupe (one chapter
-  // regen per episode at a time) — simpler and matches the user's
-  // expected one-click flow.
-  if (jq.isDuplicate(slug, req.body.episode_id, 'chapter-only')) {
-    return res.status(409).json({ detail: `A chapter regen is already queued for ${req.body.episode_id}` })
+  // Dedupe per (episode, chapter) — two clicks on the SAME chapter's
+  // regenerate button shouldn't enqueue twice, but the user can queue
+  // multiple DIFFERENT chapters in a row (they run back-to-back). The
+  // narrowed predicate compares params.chapter_number so two clicks on
+  // ch.5 dedupe while ch.5 + ch.7 both enqueue.
+  const requestedChapter = Number(req.body.chapter_number)
+  const sameChapter = (params: any) => Number(params?.chapter_number) === requestedChapter
+  if (jq.isDuplicate(slug, req.body.episode_id, 'chapter-only', sameChapter)) {
+    return res.status(409).json({
+      detail: `Chapter ${requestedChapter} regen is already queued for ${req.body.episode_id}`,
+    })
   }
 
   const job = jq.enqueue({
@@ -270,6 +272,7 @@ router.post('/projects/:slug/generate/chapter-only', validateBody(GenerateChapte
     episode_id: req.body.episode_id,
     title: req.body.title,
     params: req.body,
+    dedupeParams: sameChapter,
   })
   res.status(201).json(job)
 })

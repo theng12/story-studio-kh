@@ -81,12 +81,12 @@
           />
           <button
             class="btn btn-sm btn-secondary chp-regen"
-            :disabled="!scriptReady || regenInFlight === ch.number || regenInFlight !== null"
+            :disabled="!scriptReady || isRegenerating(ch.number)"
             :title="!scriptReady ? noScriptTooltip : 'Regenerate this chapter only'"
             @click="regenerate(ch.number)"
           >
-            <LoadingSpinner v-if="regenInFlight === ch.number" size="sm" />
-            {{ regenInFlight === ch.number ? 'Regenerating…' : '↻ Regenerate' }}
+            <LoadingSpinner v-if="isRegenerating(ch.number)" size="sm" />
+            {{ isRegenerating(ch.number) ? 'Regenerating…' : '↻ Regenerate' }}
           </button>
         </div>
 
@@ -143,7 +143,16 @@ const { success, error: showError } = useToast()
 
 const chapters = ref<ChapterRow[]>([])
 const loading = ref(false)
-const regenInFlight = ref<number | null>(null)
+// Per-chapter in-flight set. Tracks chapter numbers whose chapter-only job
+// is queued or running. Disables that chapter's button only — siblings stay
+// clickable, so the user can queue multiple regens which run back-to-back
+// (chapter-only queue is serial server-side, but the UI no longer makes
+// the user wait on a previous job to enqueue the next). Cleared per-chapter
+// when the watcher sees the matching chapter-only job reach a terminal state.
+const regenInFlight = ref<Set<number>>(new Set())
+function isRegenerating(n: number): boolean {
+  return regenInFlight.value.has(n)
+}
 // Per-chapter words_per_chapter overrides — populated from the form's
 // global default and overridden by the user inline. Sent on the regen
 // request so a single chapter can be re-rolled at a different length.
@@ -249,7 +258,7 @@ async function regenerate(num: number) {
   const wordTarget = (typeof inlineOverride === 'number' && Number.isFinite(inlineOverride) && inlineOverride > 0)
     ? Math.round(inlineOverride)
     : props.form?.words_per_chapter
-  regenInFlight.value = num
+  regenInFlight.value = new Set([...regenInFlight.value, num])
   try {
     await post(`/projects/${props.projectSlug}/generate/chapter-only`, {
       episode_id: props.episodeId,
@@ -268,7 +277,11 @@ async function regenerate(num: number) {
     )
   } catch (e: any) {
     showError(e?.data?.detail || `Failed to queue chapter ${num} regen`)
-    regenInFlight.value = null
+    // Clear THIS chapter's in-flight on error. Success path leaves it set;
+    // the relevantJobsSignal watcher clears it when the job lands terminal.
+    const next = new Set(regenInFlight.value)
+    next.delete(num)
+    regenInFlight.value = next
   }
 }
 
@@ -299,19 +312,27 @@ watch(relevantJobsSignal, () => {
     if (job.episode_id !== props.episodeId) continue
     const isRelevant = job.type === 'chapter-only' || job.type === 'expand_chapters'
     if (!isRelevant) continue
+    // chapter-only carries the chapter number in params — use it to clear
+    // ONLY that chapter's in-flight flag. Siblings still queued/running
+    // stay flagged. expand_chapters has no chapter number; we only refresh
+    // for it.
+    const jobChapter = job.type === 'chapter-only'
+      ? Number(job.params?.chapter_number)
+      : NaN
     if (job.status === 'done') {
-      // chapter-only fires the in-flight tracker reset; expand_chapters
-      // refresh applies regardless of whether a per-chapter regen was
-      // running. Either way the on-disk content just changed → clear
-      // the per-row preview cache so any open drawers refetch fresh
-      // content automatically.
-      if (job.type === 'chapter-only' && regenInFlight.value !== null) {
-        regenInFlight.value = null
+      if (job.type === 'chapter-only' && Number.isFinite(jobChapter)
+          && regenInFlight.value.has(jobChapter)) {
+        const next = new Set(regenInFlight.value)
+        next.delete(jobChapter)
+        regenInFlight.value = next
       }
       clearPreviewCache()
       void refresh()
-    } else if (job.status === 'error' && job.type === 'chapter-only' && regenInFlight.value !== null) {
-      regenInFlight.value = null
+    } else if (job.status === 'error' && job.type === 'chapter-only'
+               && Number.isFinite(jobChapter) && regenInFlight.value.has(jobChapter)) {
+      const next = new Set(regenInFlight.value)
+      next.delete(jobChapter)
+      regenInFlight.value = next
       showError('Chapter regenerate failed — see Jobs tab.')
     }
   }
