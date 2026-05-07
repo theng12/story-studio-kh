@@ -368,7 +368,7 @@
          / synopsis / beats / words override + per-row Expand + bulk
          Expand all / Expand selected. Approval state gates expansion. -->
     <OutlineReviewPanel
-      v-if="form.episode_id"
+      v-if="panelsReady && form.episode_id"
       :project-slug="slug"
       :episode-id="form.episode_id"
       :title="form.title"
@@ -382,7 +382,7 @@
          chapter with its own Regenerate button. The unified narration
          downstream consumers read is auto-assembled after every regen. -->
     <ChapterListPanel
-      v-if="form.episode_id"
+      v-if="panelsReady && form.episode_id"
       :project-slug="slug"
       :episode-id="form.episode_id"
       :title="form.title"
@@ -393,14 +393,14 @@
 
     <!-- Preview panels: refresh after each generation completes via previewRefreshKey -->
     <ScriptPreview
-      v-if="form.episode_id"
+      v-if="panelsReady && form.episode_id"
       :project-slug="slug"
       :episode-id="form.episode_id"
       :title="form.title"
       :refresh-key="previewRefreshKey"
     />
     <IntroductionPreview
-      v-if="form.episode_id"
+      v-if="panelsReady && form.episode_id"
       :project-slug="slug"
       :episode-id="form.episode_id"
       :title="form.title"
@@ -434,6 +434,16 @@ definePageMeta({ layout: 'dashboard' })
 useAppTitle('Script Generator')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
+
+// Delay mounting heavy v-if'd panels (OutlineReviewPanel + ChapterListPanel +
+// preview cards) by one tick after the page itself mounts. Without this gate,
+// the panels' mount races with NuxtPage's RouterView slot resolution during
+// navigation finalisation — Vue's componentUpdateFn ends up calling
+// hostParentNode(prevTree.el) where prevTree.el is null, throwing
+// "Cannot read properties of null (reading 'parentNode')" and freezing the
+// renderer until Cmd+R. The page's stable shell renders first; panels join
+// on the next tick when navigation has fully settled.
+const panelsReady = ref(false)
 const { post, patch } = useApi()
 const { success, error: showError } = useToast()
 // v1.0.71: chunked-mode cost preview before submission. Mirrors the
@@ -751,6 +761,11 @@ async function applyScriptFormatDefaultsIfNoPreset() {
 }
 
 onMounted(async () => {
+  // Defer heavy panel mount to next tick so the v-if'd panels don't race
+  // with NuxtPage's RouterView slot resolution mid-navigation. See
+  // panelsReady declaration above.
+  await nextTick()
+  panelsReady.value = true
   await applyIntroFormatDefaultsIfNoPreset()
   await applyScriptFormatDefaultsIfNoPreset()
   await scriptPresets.load()

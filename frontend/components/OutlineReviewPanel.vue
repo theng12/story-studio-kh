@@ -19,7 +19,8 @@
   Expansion never runs without approval (the backend gate also enforces it).
 -->
 <template>
-  <div v-if="loaded && outline.length" class="outline-panel">
+  <div class="outline-panel-host">
+    <div v-if="loaded && outline.length" class="outline-panel">
     <div class="op-header">
       <div class="op-title-row">
         <h3>🗂️ Outline review</h3>
@@ -252,9 +253,7 @@
       </div>
     </div>
   </div>
-
-  <!-- No outline yet (sidecar absent) — render nothing. scripts.vue shows
-       the "Generate Outline" button instead. -->
+  </div><!-- /.outline-panel-host -->
 </template>
 
 <script setup lang="ts">
@@ -868,6 +867,10 @@ defineExpose({ loaded, reload: loadOutline })
   color: var(--text-secondary);
   line-height: 1.5;
 }
+/* Stable host: contains the v-if'd outline panel so the component's root
+   vnode always has a real DOM el. No visual presence when empty. */
+.outline-panel-host { display: contents; }
+
 .op-locked-params {
   margin: 6px 0 0 0;
   font-size: 11px;
