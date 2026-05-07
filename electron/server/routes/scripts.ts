@@ -111,19 +111,51 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
   // Without this check the executor would also throw, but surfacing the
   // condition early gives the frontend a clean 400 to react on (vs a
   // job-error toast after the fact).
+  //
+  // Probe via readSidecar (full sidecar) instead of a chapter-1 lookup —
+  // a hand-edited outline could legitimately drop n=1 (e.g. user reorders
+  // and then approves), and the prior chapter-1-only probe would 400 even
+  // though the outline is well-formed. readSidecar also gives us
+  // total_chapters for the chapters[] range check below.
   const { resolveEpisodePaths } = await import('../services/utils.js')
-  const { getOutlineEntryForChapter } = await import('../lib/chunked-narration.js')
+  const { readSidecar } = await import('../lib/chunked-narration.js')
   const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-  // We don't have a direct "read sidecar" public — but a chapter-1 lookup
-  // proves the sidecar exists + is at least minimally well-formed. The
-  // approval-state check is enforced inside expandChapters() itself; the
-  // route-level check here just guards against the "no outline at all"
-  // case so the user gets a clearer error message.
-  const probe = await getOutlineEntryForChapter(paths.script_dir, episode_id, 1)
-  if (!probe && !req.body.auto_approve) {
+  const sidecar = await readSidecar(paths.script_dir, episode_id)
+  if (!sidecar && !req.body.auto_approve) {
     return res.status(400).json({
       detail: 'No outline found. Click Generate Outline first, then approve before expanding.',
     })
+  }
+
+  // Validate the optional `chapters` filter when present. Accept an array
+  // of integers in 1..total_chapters, deduped. Reject non-arrays, NaN,
+  // out-of-range, and non-integer entries — the executor would silently
+  // skip these which is confusing UX (user gets a 201 + no work done).
+  // Empty array is allowed (means "expand all pending"); we normalise it
+  // to `undefined` so the executor takes the no-filter path.
+  if (req.body.chapters !== undefined) {
+    if (!Array.isArray(req.body.chapters)) {
+      return res.status(400).json({ detail: '`chapters` must be an array of chapter numbers.' })
+    }
+    if (sidecar) {
+      const total = sidecar.total_chapters
+      const seen = new Set<number>()
+      const cleaned: number[] = []
+      for (const raw of req.body.chapters) {
+        const n = Number(raw)
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > total) {
+          return res.status(400).json({
+            detail: `Invalid chapter number in \`chapters\`: ${raw} (must be an integer 1..${total}).`,
+          })
+        }
+        if (seen.has(n)) continue
+        seen.add(n); cleaned.push(n)
+      }
+      // Replace the request body so the executor sees the cleaned set.
+      // Empty after de-dup → drop the field entirely (= expand all pending).
+      if (cleaned.length === 0) delete req.body.chapters
+      else req.body.chapters = cleaned
+    }
   }
 
   if (jq.isDuplicate(slug, episode_id, 'expand_chapters')) {
@@ -196,8 +228,21 @@ router.put('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
     const existing = JSON.parse(raw)
     const totalChapters = existing.total_chapters
 
+    // Length must match total_chapters: the rest of the chunked machinery
+    // (expandChapters' pending-set computation, the OutlineReviewPanel's row
+    // ↔ chapter-on-disk pairing, chapters_done invariants) all assume
+    // outline.length === total_chapters. A truncated edit would silently
+    // strand later chapters.
+    if (incoming.length !== totalChapters) {
+      return res.status(400).json({
+        detail: `Outline must have exactly ${totalChapters} entries (got ${incoming.length}).`,
+      })
+    }
+
     // Validate: every entry has a numeric n in 1..total_chapters, no dupes,
     // title is a non-empty string. Other fields are optional and pass-through.
+    // Combined with the length check above, unique + in-range n means every
+    // chapter number 1..total_chapters is covered exactly once.
     const seen = new Set<number>()
     for (const e of incoming) {
       const n = Number((e as any)?.n)
