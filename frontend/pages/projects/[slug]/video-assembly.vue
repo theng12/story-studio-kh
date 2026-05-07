@@ -4470,32 +4470,48 @@ function handleWizardShortcut(e: KeyboardEvent) {
 // only when the job reaches a terminal state — unlike the old behaviour
 // that flipped it off the instant the POST returned (hiding the panel
 // within milliseconds of clicking Generate).
+//
+// v1.0.72-followup: was `watch(getter, ..., { deep: true })`, which
+// fired on every output_lines push from the running job — same UI-thread
+// starvation pattern the panel + composable fixes targeted. The watcher
+// is on a Job object getter, and { deep: true } made every nested
+// mutation (most of all `output_lines.push`) trigger the handler. Now
+// we derive a tiny "fingerprint" signal of `output_lines.length:status:progress`
+// that mutates whenever those load-bearing fields change, and watch
+// THAT — keeping the same UI behaviour (incremental output panel,
+// terminal flip, autoscroll) without the deep-watch cost.
 const jobOutputEl = ref<HTMLElement | null>(null)
-watch(
-  () => {
-    const id = activeJobId.value
-    if (!id) return null
-    return allJobs.value.find(j => j.job_id === id) || null
-  },
-  async (job) => {
-    if (!job) return
-    jobOutput.value = [...(job.output_lines || [])]
-    activeJobProgress.value = typeof job.progress === 'number' ? job.progress : 0
-    const terminal = job.status === 'done' || job.status === 'error' || job.status === 'cancelled'
-    if (terminal) {
-      generating.value = false
-      videoGenerating.value = false
-      // Leave activeJobId set so the final output panel stays visible
-      // after completion — user can read what happened. Clearing it on
-      // a new render start (next click of Generate) will reset the panel.
-    }
-    // Pin the scroll to the newest line so the user always sees current
-    // progress without having to scroll manually.
-    await nextTick()
-    if (jobOutputEl.value) jobOutputEl.value.scrollTop = jobOutputEl.value.scrollHeight
-  },
-  { deep: true },
-)
+const activeJobFingerprint = computed(() => {
+  const id = activeJobId.value
+  if (!id) return ''
+  const j = allJobs.value.find(x => x.job_id === id)
+  if (!j) return ''
+  // output_lines.length captures progress ticks (every push grows the
+  // array by one); status captures terminal flip; progress captures
+  // the numeric percentage when present. Three primitives — comparing
+  // them is a single string equality.
+  return `${j.output_lines?.length ?? 0}:${j.status}:${j.progress ?? -1}`
+})
+watch(activeJobFingerprint, async () => {
+  const id = activeJobId.value
+  if (!id) return
+  const job = allJobs.value.find(x => x.job_id === id)
+  if (!job) return
+  jobOutput.value = [...(job.output_lines || [])]
+  activeJobProgress.value = typeof job.progress === 'number' ? job.progress : 0
+  const terminal = job.status === 'done' || job.status === 'error' || job.status === 'cancelled'
+  if (terminal) {
+    generating.value = false
+    videoGenerating.value = false
+    // Leave activeJobId set so the final output panel stays visible
+    // after completion — user can read what happened. Clearing it on
+    // a new render start (next click of Generate) will reset the panel.
+  }
+  // Pin the scroll to the newest line so the user always sees current
+  // progress without having to scroll manually.
+  await nextTick()
+  if (jobOutputEl.value) jobOutputEl.value.scrollTop = jobOutputEl.value.scrollHeight
+})
 
 /**
  * v1.0.71+: format-aware seeding of timing defaults BEFORE preset

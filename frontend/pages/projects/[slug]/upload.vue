@@ -3455,10 +3455,23 @@ function uploadJobFor(episode_code: string): {
 // transitions to a terminal state. This is what closes the "clicked
 // Upload but queue still says Not uploaded" loop — the sidecar file the
 // job writes is only visible via re-fetching the queue endpoint.
+//
+// v1.0.72-followup: was `watch(allJobs, ..., { deep: true })`, which
+// fired on every output_lines push from any job in the queue — same
+// UI-thread starvation as the earlier panel + composable fixes. Now
+// derives a status-only signal of youtube_upload jobs and watches
+// THAT, so the callback only fires on real terminal transitions.
 const terminalSeen = new Set<string>()
-watch(allJobs, (list) => {
+const youtubeUploadStatusSignal = computed(() =>
+  (allJobs.value || [])
+    .filter((j: any) => j.type === 'youtube_upload' && j.project_slug === slug.value)
+    .map((j: any) => `${j.job_id}:${j.status}`)
+    .sort()
+    .join('|'),
+)
+watch(youtubeUploadStatusSignal, () => {
   let needsRefresh = false
-  for (const j of (list || []) as any[]) {
+  for (const j of (allJobs.value || []) as any[]) {
     if (j.type !== 'youtube_upload') continue
     if (j.project_slug !== slug.value) continue
     if (!['done', 'error', 'cancelled'].includes(j.status)) continue
@@ -3470,7 +3483,7 @@ watch(allJobs, (list) => {
     loadQueue('youtube')
     loadQuota()
   }
-}, { deep: true })
+})
 watch(activeTab, (tab) => {
   if (tab === 'queue') {
     if (!queueItems.value.length) loadQueue('youtube')
