@@ -147,29 +147,36 @@ router.get('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
     if (!project) return res.status(404).json({ detail: 'Project not found' })
     const titleParam = (req.query.title as string) || ''
     const paths = await resolveEpisodePaths(slug, episodeId, titleParam)
-    const { sidecarPath } = await import('../lib/chunked-narration.js')
+    const { sidecarPath, readSidecar } = await import('../lib/chunked-narration.js')
     const sidecarFile = sidecarPath(paths.script_dir, episodeId)
     if (!existsSync(sidecarFile)) {
       return res.status(404).json({ detail: 'No outline sidecar for this episode (run outline-only first).' })
     }
-    const raw = await fs.readFile(sidecarFile, 'utf-8')
-    const sidecar = JSON.parse(raw)
-    // Auto-upgrade v1/v2 → v3 in the response shape so the frontend never
-    // sees the legacy schema. Mirrors readSidecar's in-memory migration.
-    const approvedAt = sidecar.outline_approved_at ?? sidecar.outline_completed_at ?? null
+    // readSidecar handles v1/v2 → v3 migration in-memory and is the single
+    // source of truth for sidecar field semantics. Reading it directly here
+    // (instead of re-implementing the migration with `??` fallbacks) avoids
+    // the bug where `outline_approved_at: null` (an EXPLICIT draft state on
+    // v3 sidecars) was being clobbered by `?? sidecar.outline_completed_at`,
+    // which made the frontend think a draft outline was approved — hiding
+    // the "✓ Mark approved" button while expand-chapters still rejected
+    // with "Outline not approved yet", a dead-end state for the user.
+    const sidecar = await readSidecar(paths.script_dir, episodeId)
+    if (!sidecar) {
+      return res.status(404).json({ detail: 'No outline sidecar for this episode (run outline-only first).' })
+    }
     res.json({
       mode: sidecar.mode,
       total_chapters: sidecar.total_chapters,
       outline: sidecar.outline,
       outline_completed_at: sidecar.outline_completed_at,
-      outline_approved_at: approvedAt,
-      outline_edited_at: sidecar.outline_edited_at ?? null,
+      outline_approved_at: sidecar.outline_approved_at,
+      outline_edited_at: sidecar.outline_edited_at,
       chapters_done: sidecar.chapters_done || [],
       // v3+: snapshot of the form fields used to build the outline. Frontend
       // shows this in OutlineReviewPanel as "Locked at outline build" so
       // the user understands which model + words + pattern + cast the
       // upcoming expand will run against. null on v1/v2 sidecars.
-      generation_params: sidecar.generation_params ?? null,
+      generation_params: sidecar.generation_params,
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not load outline'))
