@@ -183,7 +183,7 @@
       <div class="grid-3 mt-2">
         <div class="form-group">
           <label>Duration</label>
-          <select v-model="durationSelect" class="select" @change="onDurationChange">
+          <select v-model="durationSelect" class="select" @change="onDurationChange()">
             <option value="15">15 minutes</option>
             <option value="20">20 minutes</option>
             <option value="30">30 minutes</option>
@@ -1011,7 +1011,12 @@ const STANDARD_DURATIONS = new Set([15, 20, 30, 45, 60, 90])
 // Words/chapter recomputes from the new total ÷ existing chapters so a
 // user changing duration doesn't accidentally reset the chapter count
 // they (or the format default / preset) chose.
-function onDurationChange() {
+//
+// `fromUser=true` (the default for the dropdown's @change handler) marks
+// the sizing as touched so subsequent episode picks won't overwrite. The
+// internal callers (onEpisodeSelected) pass `false` so the auto-applied
+// suggestion doesn't lock out the next swap.
+function onDurationChange(fromUser: boolean = true) {
   if (durationSelect.value !== 'custom') {
     form.length = Number(durationSelect.value)
     form.total_words = Math.round(form.length * wordsPerMinute)
@@ -1019,15 +1024,26 @@ function onDurationChange() {
       form.words_per_chapter = Math.round(form.total_words / form.chapters)
     }
   }
+  if (fromUser) userTouchedSizing.value = true
 }
 
 // Track which word-count field was last edited, so we can visually highlight
 // it as "primary" and make the sync rules obvious.
 const primaryField = ref<'chapters' | 'words_per_chapter' | 'total_words'>('total_words')
 
+// Sticky-input guard: once the user has manually edited any sizing input
+// (chapters / words/chapter / total words / duration), we stop auto-
+// overwriting those fields when they pick a different episode. Without this,
+// the dropdown selection bulldozed typed values back to 10 chapters and the
+// length × 122 wpm "random number" — exact issue user reported. First
+// selection (when nothing is touched) still applies episode suggestions so
+// brand-new episodes get sensible defaults.
+const userTouchedSizing = ref(false)
+
 // Sync: Chapters changed → recalc words/chapter (total stays)
 function onChaptersChange() {
   primaryField.value = 'chapters'
+  userTouchedSizing.value = true
   if (form.chapters > 0) {
     form.words_per_chapter = Math.round(form.total_words / form.chapters)
   }
@@ -1036,6 +1052,7 @@ function onChaptersChange() {
 // Sync: Words/chapter changed → recalc total words
 function onWordsPerChapterChange() {
   primaryField.value = 'words_per_chapter'
+  userTouchedSizing.value = true
   form.total_words = form.chapters * form.words_per_chapter
   form.length = Math.round(form.total_words / wordsPerMinute)
   durationSelect.value = STANDARD_DURATIONS.has(form.length) ? String(form.length) : 'custom'
@@ -1044,6 +1061,7 @@ function onWordsPerChapterChange() {
 // Sync: Total words changed → recalc words/chapter + duration
 function onTotalWordsChange() {
   primaryField.value = 'total_words'
+  userTouchedSizing.value = true
   if (form.chapters > 0) {
     form.words_per_chapter = Math.round(form.total_words / form.chapters)
   }
@@ -1183,12 +1201,22 @@ function onEpisodeSelected(ep: any) {
   // Capture the full episode object so `scriptGenerated` (computed off
   // ep.status.script) reflects API truth for this episode immediately.
   selectedEpisode.value = ep
+  // Title always tracks the picked episode — it's tied 1:1 to ep identity
+  // and the user wouldn't expect their last episode's title to follow them
+  // to a new pick.
   form.title = ep.title
-  form.chapters = ep.suggested_chapters || 10
-  const dur = ep.suggested_length === '60 min' ? 60 : 45
-  form.length = dur
-  durationSelect.value = String(dur)
-  onDurationChange()
+  // Sizing fields (chapters / length / total_words / words_per_chapter)
+  // ONLY auto-apply on a fresh form. Once the user has typed in any of
+  // those inputs (tracked by userTouchedSizing), episode swaps leave the
+  // typed values alone — so picking a different episode doesn't bulldoze
+  // "20 chapters × 700 words" back to "10 × 5490". User-reported issue.
+  if (!userTouchedSizing.value) {
+    form.chapters = ep.suggested_chapters || 10
+    const dur = ep.suggested_length === '60 min' ? 60 : 45
+    form.length = dur
+    durationSelect.value = String(dur)
+    onDurationChange(/* fromUser */ false)
+  }
 }
 
 async function submitOutline(opts: { auto_approve?: boolean } = {}): Promise<boolean> {
