@@ -33,6 +33,9 @@
         Each row is an editable topic. The {{ mode === 'listicle' ? 'hook + key facts' : 'synopsis + key beats' }} seed
         the LLM during expansion. Set a per-chapter word target to override the global default for one slot
         (minimum {{ MIN_WORDS_PER_CHAPTER }} — values below the floor snap up on blur).
+        The ▲▼ buttons swap topics in place and keep chapter numbers stable; existing chapter docx files
+        on disk only update when you click <strong>Regenerate</strong> — rows whose docx no longer matches
+        the outline show an ✏ outdated pill.
       </p>
     </div>
 
@@ -118,17 +121,27 @@
             </button>
             <button
               class="btn btn-sm btn-ghost"
-              :title="`Move chapter ${entry.n} up`"
+              :title="`Swap topics with the row above. Chapter numbers stay in place — the docx on disk only updates after you Regenerate.`"
               :disabled="idx === 0"
               @click="reorder(idx, -1)"
             >▲</button>
             <button
               class="btn btn-sm btn-ghost"
-              :title="`Move chapter ${entry.n} down`"
+              :title="`Swap topics with the row below. Chapter numbers stay in place — the docx on disk only updates after you Regenerate.`"
               :disabled="idx === outline.length - 1"
               @click="reorder(idx, 1)"
             >▼</button>
             <span v-if="isChapterDone(entry.n)" class="op-pill op-pill-done" title="Chapter file is on disk">on disk</span>
+            <!-- Drift indicator: outline title diverged from the docx heading.
+                 Fires after reorder (which swaps content but keeps n stable,
+                 so the n=N row now shows a different title than the docx at
+                 _Chapter_NN.docx) and after a plain title edit. The docx is
+                 unchanged — Regenerate refreshes it. -->
+            <span
+              v-if="isChapterDone(entry.n) && isOutlineDriftedFromDisk(entry.n)"
+              class="op-pill op-pill-stale"
+              title="Outline title differs from what's on disk. Regenerate this chapter to refresh the docx."
+            >✏ outdated</span>
           </div>
         </div>
         <div v-if="mode === 'listicle'" class="op-row-body">
@@ -317,7 +330,14 @@ const previewErrors = ref<Map<number, string>>(new Map())
 // once any chapter is on disk. Lets the user see actual word + character
 // counts per row so they can compare what the LLM produced against the
 // target (the words_per_chapter input). Keyed by chapter number.
-interface ChapterStats { word_count: number; character_count: number }
+//
+// `disk_title` is the title parsed from the on-disk docx heading. Compared
+// against the outline entry's title to detect drift after the user reorders
+// rows (which swaps content but holds `n` stable, leaving the docx out of
+// sync) or simply edits a title without regenerating. The drift surfaces
+// as an "outdated" pill so the user knows the docx no longer matches the
+// outline they see — clicking Regenerate refreshes it.
+interface ChapterStats { word_count: number; character_count: number; disk_title: string }
 const chapterStats = ref<Map<number, ChapterStats>>(new Map())
 
 const canExpand = computed(() => !!approvedAt.value)
@@ -387,7 +407,7 @@ async function loadChapterStats(): Promise<void> {
   if (!props.episodeId) return
   try {
     const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
-    const data = await get<{ chapters: Array<{ number: number; word_count: number; character_count: number }> }>(
+    const data = await get<{ chapters: Array<{ number: number; title: string; word_count: number; character_count: number }> }>(
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/chapter-list${titleParam}`,
     )
     const next = new Map<number, ChapterStats>()
@@ -395,12 +415,32 @@ async function loadChapterStats(): Promise<void> {
       next.set(ch.number, {
         word_count: ch.word_count || 0,
         character_count: ch.character_count || 0,
+        disk_title: ch.title || '',
       })
     }
     chapterStats.value = next
   } catch {
     // Stat pills are advisory — silently skip on error.
   }
+}
+
+// Drift detection: an outline entry whose title doesn't match the docx
+// heading on disk is "outdated" — the user has reordered rows or edited
+// a title since the chapter was last generated. The docx is intact (no
+// data loss), but the visible outline no longer describes what the file
+// contains. Regenerate refreshes the docx to match.
+//
+// Title comparison is whitespace+case insensitive so trivial editor
+// noise ("My Title " vs "my title") doesn't trip the warning.
+function normalizeTitleForCompare(s: string): string {
+  return (s || '').trim().toLowerCase().replace(/\s+/g, ' ')
+}
+function isOutlineDriftedFromDisk(n: number): boolean {
+  const stats = chapterStats.value.get(n)
+  if (!stats) return false
+  const entry = outline.value.find(e => e.n === n)
+  if (!entry) return false
+  return normalizeTitleForCompare(stats.disk_title) !== normalizeTitleForCompare(entry.title)
 }
 
 // Helper for the row-level "actual vs target" delta. Returns a label
@@ -890,6 +930,14 @@ defineExpose({ loaded, reload: loadOutline })
   background: rgba(16, 185, 129, 0.10);
   color: rgb(16, 185, 129);
   border-color: rgba(16, 185, 129, 0.35);
+}
+/* Drift pill — outline title diverged from the on-disk docx heading.
+   Yellow/amber so it reads as "needs attention" without alarming the
+   user. Same palette as ChapterListPanel's audio-stale pill. */
+.op-pill-stale {
+  background: rgba(234, 179, 8, 0.14);
+  color: rgb(202, 138, 4);
+  border-color: rgba(234, 179, 8, 0.3);
 }
 
 .op-row-body {
