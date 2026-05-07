@@ -67,11 +67,25 @@
               :title="!approvedAt
                 ? 'Approve the outline first'
                 : isChapterDone(entry.n)
-                  ? 'Already on disk — use the Chapters panel to regenerate'
+                  ? 'Already on disk — use Preview below to inspect, or regen from the Chapters panel'
                   : `Expand only chapter ${entry.n}`"
               @click="expandOne(entry.n)"
             >
               ▶ Expand
+            </button>
+            <!-- Preview button only shows once the chapter is on disk —
+                 there's nothing to preview before expansion. Mirrors the
+                 ChapterListPanel preview pattern: click to open a drawer
+                 below this row showing the chapter prose, click again to
+                 close. Multiple rows can be open simultaneously. -->
+            <button
+              v-if="isChapterDone(entry.n)"
+              type="button"
+              :class="['btn', 'btn-sm', expandedPreviews.has(entry.n) ? 'btn-primary' : 'btn-secondary']"
+              :title="expandedPreviews.has(entry.n) ? 'Hide chapter preview' : 'Preview the expanded chapter content'"
+              @click="togglePreview(entry.n)"
+            >
+              {{ expandedPreviews.has(entry.n) ? '▾ Hide' : '▸ Preview' }}
             </button>
             <button
               class="btn btn-sm btn-ghost"
@@ -120,6 +134,24 @@
             @input="onBeatsInput($event, idx)"
             @blur="markDirtyAndAutosave"
           />
+        </div>
+
+        <!-- Inline preview drawer for the expanded chapter content. Lazy-
+             loaded once the user clicks Preview, cached per chapter so
+             closing + re-opening is instant. Cache cleared on episode
+             switch + on every expand_chapters / chapter-only completion. -->
+        <div v-if="expandedPreviews.has(entry.n)" class="op-preview">
+          <div v-if="previewLoading.has(entry.n)" class="op-preview-status">
+            Loading chapter content…
+          </div>
+          <div v-else-if="previewErrors.get(entry.n)" class="op-preview-error">
+            {{ previewErrors.get(entry.n) }}
+            <button class="btn btn-sm btn-ghost" @click="loadPreview(entry.n, /* force */ true)">
+              ↻ Retry
+            </button>
+          </div>
+          <pre v-else-if="previewCache.get(entry.n)" class="op-preview-content">{{ previewCache.get(entry.n) }}</pre>
+          <div v-else class="op-preview-status">No content available.</div>
         </div>
       </li>
     </ul>
@@ -226,6 +258,17 @@ const isDirty = ref(false)
 const justSaved = ref(false)
 const selectedNs = ref<number[]>([])
 
+// Per-row inline preview state (Phase 4). Mirrors the ChapterListPanel
+// preview pattern: lazy-load the chapter content from the existing
+// /chapters/:n/content endpoint, cache per chapter so close+reopen is
+// instant, clear cache on episode switch AND on every expand_chapters /
+// chapter-only completion (the on-disk content just changed). Multiple
+// rows can be open at once.
+const expandedPreviews = ref<Set<number>>(new Set())
+const previewCache = ref<Map<number, string>>(new Map())
+const previewLoading = ref<Set<number>>(new Set())
+const previewErrors = ref<Map<number, string>>(new Map())
+
 const canExpand = computed(() => !!approvedAt.value)
 const pendingCount = computed(() =>
   outline.value.filter(e => !chaptersDone.value.includes(e.n)).length,
@@ -233,6 +276,55 @@ const pendingCount = computed(() =>
 
 function isChapterDone(n: number): boolean {
   return chaptersDone.value.includes(n)
+}
+
+// ── Inline preview (per-row drawer) ───────────────────────────────────────
+
+async function loadPreview(n: number, force = false): Promise<void> {
+  if (!props.episodeId) return
+  if (!force && previewCache.value.has(n)) return
+  previewLoading.value.add(n)
+  previewLoading.value = new Set(previewLoading.value)
+  previewErrors.value.delete(n)
+  previewErrors.value = new Map(previewErrors.value)
+  try {
+    const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
+    const data = await get<{ content: string }>(
+      `/projects/${props.projectSlug}/episodes/${props.episodeId}/chapters/${n}/content${titleParam}`,
+    )
+    previewCache.value.set(n, data.content || '(empty chapter)')
+    previewCache.value = new Map(previewCache.value)
+  } catch (e: any) {
+    const msg = e?.data?.detail || `Could not load chapter ${n}`
+    previewErrors.value.set(n, msg)
+    previewErrors.value = new Map(previewErrors.value)
+  } finally {
+    previewLoading.value.delete(n)
+    previewLoading.value = new Set(previewLoading.value)
+  }
+}
+
+function togglePreview(n: number) {
+  if (expandedPreviews.value.has(n)) {
+    expandedPreviews.value.delete(n)
+  } else {
+    expandedPreviews.value.add(n)
+    void loadPreview(n)
+  }
+  expandedPreviews.value = new Set(expandedPreviews.value)
+}
+
+function clearPreviewCache() {
+  // Called on episode switch + on every expand_chapters / chapter-only
+  // completion. Wipes the cache + re-fetches any open drawers so they
+  // show fresh content immediately (otherwise the drawer would show
+  // stale content until the user collapsed + re-expanded).
+  previewCache.value = new Map()
+  previewErrors.value = new Map()
+  previewLoading.value = new Set()
+  for (const n of expandedPreviews.value) {
+    void loadPreview(n, /* force */ true)
+  }
 }
 
 function relativeTime(iso: string | null): string {
@@ -431,7 +523,19 @@ function expandAll() { void postExpand(null) }
 
 onMounted(() => { void loadOutline() })
 
-watch(() => [props.episodeId, props.title, props.refreshKey], () => { void loadOutline() })
+watch(() => [props.episodeId, props.title, props.refreshKey], (next, prev) => {
+  // Episode switch: close any open preview drawers and wipe the cache
+  // — the previous episode's content doesn't belong here. refreshKey
+  // bumps don't switch episode, so we keep open drawers but clear
+  // their cache (the chapter content may have changed on disk).
+  const prevEpisodeId = Array.isArray(prev) ? prev[0] : undefined
+  const nextEpisodeId = Array.isArray(next) ? next[0] : undefined
+  if (prevEpisodeId !== nextEpisodeId) {
+    expandedPreviews.value = new Set()
+  }
+  clearPreviewCache()
+  void loadOutline()
+})
 
 // Auto-refresh when an outline_only or expand_chapters job for THIS
 // episode reaches a terminal state — the sidecar may have changed
@@ -467,6 +571,29 @@ watch(relevantJobsSignal, (next, prev) => {
   const nextHasDone = next.includes(':done')
   if (nextHasDone && !prevHasDone) {
     void loadOutline()
+    // expand_chapters just landed → on-disk chapter content is fresh.
+    // Wipe + re-fetch any open preview drawers so the user sees the
+    // new text immediately, no manual re-toggle needed.
+    clearPreviewCache()
+  }
+})
+
+// Also watch chapter-only completions — per-chapter regen replaces a
+// single chapter's docx, so any open preview for that chapter needs to
+// re-fetch. Same signal-based pattern, scoped to chapter-only.
+const chapterOnlySignal = computed(() =>
+  jobs.value
+    .filter(j => j.episode_id === props.episodeId && j.type === 'chapter-only')
+    .map(j => `${j.job_id}:${j.status}`)
+    .sort()
+    .join('|'),
+)
+watch(chapterOnlySignal, (next, prev) => {
+  if (next === prev) return
+  const prevHasDone = (prev || '').includes(':done')
+  const nextHasDone = next.includes(':done')
+  if (nextHasDone && !prevHasDone) {
+    clearPreviewCache()
   }
 })
 
@@ -600,6 +727,44 @@ defineExpose({ loaded, reload: loadOutline })
 .op-facts-input,
 .op-beats-input {
   font-size: 12.5px;
+}
+
+/* Inline preview drawer — lazy-loaded chapter content rendered as
+   read-only prose. Visually offset from the row so it reads as a
+   "child" of that chapter, not a separate row. Mirrors ChapterListPanel's
+   .chp-preview block. */
+.op-preview {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.op-preview-status,
+.op-preview-error {
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.op-preview-error {
+  color: rgb(220, 100, 100);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.op-preview-content {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 .op-footer {
