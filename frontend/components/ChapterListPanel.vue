@@ -73,11 +73,12 @@
           <input
             class="input chp-words-input"
             type="number"
-            min="100"
+            :min="MIN_WORDS_PER_CHAPTER"
             step="50"
             v-model.number="wordOverrides[ch.number]"
             :placeholder="`${form?.words_per_chapter || 500}`"
-            title="Per-chapter word target for this regen. Leave blank to use the form default. Listicle outline overrides flow through automatically."
+            :title="`Per-chapter word target for this regen (min ${MIN_WORDS_PER_CHAPTER} — backend floors lower values to ${MIN_WORDS_PER_CHAPTER}). Leave blank to use the form default.`"
+            @blur="onWordsBlur(ch.number)"
           />
           <button
             class="btn btn-sm btn-secondary chp-regen"
@@ -165,6 +166,20 @@ const previewErrors = ref<Map<number, string>>(new Map())
 
 const noScriptTooltip = 'Generate the script first to unlock per-chapter regenerate.'
 const staleTooltip = 'This chapter\'s source was changed after the audio was generated. Visit the Audio page and regenerate this section to refresh.'
+
+// Per-chapter word floor enforced by the backend (chunked-narration.ts:
+// effectiveWordTarget + computeWordBudget both clamp to 120). Below the
+// floor, the typed override silently became 120 server-side, producing
+// a confusing mismatch between input and actual generated wordcount.
+// Snap to floor on blur so the input reflects what generation receives.
+const MIN_WORDS_PER_CHAPTER = 120
+
+function onWordsBlur(num: number) {
+  const current = wordOverrides.value[num]
+  if (typeof current === 'number' && current > 0 && current < MIN_WORDS_PER_CHAPTER) {
+    wordOverrides.value[num] = MIN_WORDS_PER_CHAPTER
+  }
+}
 
 async function refresh() {
   if (!props.episodeId) {

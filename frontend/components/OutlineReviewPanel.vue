@@ -31,7 +31,8 @@
       </div>
       <p class="op-help">
         Each row is an editable topic. The {{ mode === 'listicle' ? 'hook + key facts' : 'synopsis + key beats' }} seed
-        the LLM during expansion. Set a per-chapter word target to override the global default for one slot.
+        the LLM during expansion. Set a per-chapter word target to override the global default for one slot
+        (minimum {{ MIN_WORDS_PER_CHAPTER }} — values below the floor snap up on blur).
       </p>
     </div>
 
@@ -53,13 +54,13 @@
             <input
               class="input op-words-input"
               type="number"
-              min="100"
+              :min="MIN_WORDS_PER_CHAPTER"
               step="50"
               :value="outline[idx].words_per_chapter ?? ''"
               :placeholder="`${defaultWords}`"
-              title="Per-chapter word target. Leave blank to use the global default."
+              :title="`Per-chapter word target (min ${MIN_WORDS_PER_CHAPTER} — backend floors lower values to ${MIN_WORDS_PER_CHAPTER}). Leave blank to use the global default.`"
               @input="onWordsInput($event, idx)"
-              @blur="markDirtyAndAutosave"
+              @blur="onWordsBlur(idx)"
             />
             <!-- Actual generation stats once the chapter is on disk —
                  word count + character count, fetched via /chapter-list.
@@ -472,16 +473,38 @@ function markDirtyAndAutosave() {
   autosaveTimer = setTimeout(() => { void saveEdits(/* silent */ true) }, 600)
 }
 
+// Per-chapter word floor enforced by the backend (see
+// electron/server/lib/chunked-narration.ts:effectiveWordTarget +
+// computeWordBudget — both clamp to 120). Users typing below this got
+// their value silently bumped server-side, producing a confusing mismatch
+// between the typed override and the actual generated wordcount. We snap
+// to the floor on blur so the visible input matches what the LLM will
+// actually receive.
+const MIN_WORDS_PER_CHAPTER = 120
+
 function onWordsInput(ev: Event, idx: number) {
   const v = (ev.target as HTMLInputElement).value
   const num = Number(v)
   if (!v || !Number.isFinite(num) || num <= 0) {
     outline.value[idx].words_per_chapter = undefined
   } else {
+    // Don't floor mid-typing — the user could be on their way to "1500"
+    // (passing through "1", "15", "150"). Floor only on blur.
     outline.value[idx].words_per_chapter = Math.round(num)
   }
   isDirty.value = true
   justSaved.value = false
+}
+
+function onWordsBlur(idx: number) {
+  // Snap sub-floor values UP to the backend minimum so the input reflects
+  // what generation will actually receive. Untouched blanks (= use default)
+  // pass through unchanged.
+  const current = outline.value[idx].words_per_chapter
+  if (typeof current === 'number' && current > 0 && current < MIN_WORDS_PER_CHAPTER) {
+    outline.value[idx].words_per_chapter = MIN_WORDS_PER_CHAPTER
+  }
+  markDirtyAndAutosave()
 }
 
 function onFactsInput(ev: Event, idx: number) {
