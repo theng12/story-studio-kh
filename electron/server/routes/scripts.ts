@@ -389,6 +389,7 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
       title: string
       present: boolean
       word_count: number
+      character_count: number
       modified_at: string | null
       audio_stale: boolean
     }> = []
@@ -396,6 +397,7 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
       const filePath = chapterFilePath(paths.script_dir, episodeId, num)
       let title = `Chapter ${String(num).padStart(2, '0')}`
       let wordCount = 0
+      let characterCount = 0
       let modifiedAt: string | null = null
       try {
         const stat = await fs.stat(filePath)
@@ -408,7 +410,12 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
           // `parseNarrationDocx` strips the title to label-only, so we
           // re-derive from the first heading line via mammoth raw extract.
           // Cheap: we already have the section.text for word count.
-          wordCount = (sec.text || '').split(/\s+/).filter(Boolean).length
+          const body = sec.text || ''
+          wordCount = body.split(/\s+/).filter(Boolean).length
+          // Character count over the body (whitespace included). Useful
+          // for content-volume comparisons against TTS billing meters,
+          // which charge per-character not per-word.
+          characterCount = body.length
           // Try to recover the original chapter title from the docx HTML.
           try {
             const mammoth = await import('mammoth')
@@ -448,6 +455,7 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
         title,
         present: !!modifiedAt,
         word_count: wordCount,
+        character_count: characterCount,
         modified_at: modifiedAt,
         audio_stale: audioStale,
       })
@@ -510,12 +518,17 @@ router.get('/projects/:slug/episodes/:episodeId/chapters/:chapterNumber/content'
     const sections = await parseNarrationDocx(filePath)
     const body = (sections[0]?.text || '').trim()
     const wordCount = body.split(/\s+/).filter(Boolean).length
+    // Character count drives per-chapter TTS billing previews — TTS
+    // providers charge per-character, not per-word, so this is the
+    // closer-to-truth volume signal for cost estimation.
+    const characterCount = body.length
 
     res.json({
       number: n,
       title,
       content: body,
       word_count: wordCount,
+      character_count: characterCount,
       modified_at: modifiedAt,
     })
   } catch (e: any) {

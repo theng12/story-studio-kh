@@ -64,6 +64,7 @@
           </div>
           <div class="chp-stats">
             <span v-if="ch.word_count" class="chp-pill">{{ ch.word_count.toLocaleString() }} words</span>
+            <span v-if="ch.character_count" class="chp-pill" title="Character count — TTS providers charge per-character, so this is the closer-to-truth volume signal for cost estimation.">{{ ch.character_count.toLocaleString() }} chars</span>
             <span v-if="ch.modified_at" class="chp-pill">{{ relativeTime(ch.modified_at) }}</span>
             <span v-if="ch.audio_stale" class="chp-pill pill-stale" :title="staleTooltip">
               ⚠ audio stale
@@ -118,6 +119,9 @@ interface ChapterRow {
   title: string
   present: boolean
   word_count: number
+  /** v1.0.72+: character count from the chapter-list endpoint. Useful
+   *  for TTS billing previews (providers charge per-character). */
+  character_count?: number
   modified_at: string | null
   audio_stale: boolean
 }

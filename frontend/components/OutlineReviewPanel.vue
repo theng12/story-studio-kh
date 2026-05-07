@@ -49,17 +49,27 @@
             :title="isChapterDone(entry.n) ? 'This chapter is already on disk — edits affect future regens via Chapter list' : 'Edit topic title'"
             @blur="markDirtyAndAutosave"
           />
-          <input
-            class="input op-words-input"
-            type="number"
-            min="100"
-            step="50"
-            :value="outline[idx].words_per_chapter ?? ''"
-            :placeholder="`${defaultWords}`"
-            title="Per-chapter word target. Leave blank to use the global default."
-            @input="onWordsInput($event, idx)"
-            @blur="markDirtyAndAutosave"
-          />
+          <div class="op-words-cell">
+            <input
+              class="input op-words-input"
+              type="number"
+              min="100"
+              step="50"
+              :value="outline[idx].words_per_chapter ?? ''"
+              :placeholder="`${defaultWords}`"
+              title="Per-chapter word target. Leave blank to use the global default."
+              @input="onWordsInput($event, idx)"
+              @blur="markDirtyAndAutosave"
+            />
+            <!-- Actual generation stats once the chapter is on disk —
+                 word count + character count, fetched via /chapter-list.
+                 Lets the user compare the LLM's output against the target
+                 input above. Empty string when not yet on disk. -->
+            <span v-if="rowCountSummary(entry.n)" class="op-words-actual"
+              :title="`Actual generated content for chapter ${entry.n}. Compare to your target above.`">
+              {{ rowCountSummary(entry.n) }}
+            </span>
+          </div>
           <div class="op-row-actions">
             <!-- Single button that morphs: Expand when chapter is pending
                  (calls /generate/expand-chapters with chaptersToExpand=[n]),
@@ -168,7 +178,18 @@
               ↻ Retry
             </button>
           </div>
-          <pre v-else-if="previewCache.get(entry.n)" class="op-preview-content">{{ previewCache.get(entry.n) }}</pre>
+          <template v-else-if="previewCache.get(entry.n)">
+            <!-- Stats header above the prose: actual word + character
+                 counts from the chapter-list fetch. Lets the user verify
+                 the LLM hit the target without scrolling away. -->
+            <div v-if="rowCountSummary(entry.n)" class="op-preview-stats">
+              {{ rowCountSummary(entry.n) }}
+              <span class="op-preview-stats-target">
+                · target ~{{ (outline[idx].words_per_chapter ?? defaultWords).toLocaleString() }} words
+              </span>
+            </div>
+            <pre class="op-preview-content">{{ previewCache.get(entry.n) }}</pre>
+          </template>
           <div v-else class="op-preview-status">No content available.</div>
         </div>
       </li>
@@ -291,6 +312,13 @@ const previewCache = ref<Map<number, string>>(new Map())
 const previewLoading = ref<Set<number>>(new Set())
 const previewErrors = ref<Map<number, string>>(new Map())
 
+// Per-chapter generation stats — populated by the chapter-list endpoint
+// once any chapter is on disk. Lets the user see actual word + character
+// counts per row so they can compare what the LLM produced against the
+// target (the words_per_chapter input). Keyed by chapter number.
+interface ChapterStats { word_count: number; character_count: number }
+const chapterStats = ref<Map<number, ChapterStats>>(new Map())
+
 const canExpand = computed(() => !!approvedAt.value)
 const pendingCount = computed(() =>
   outline.value.filter(e => !chaptersDone.value.includes(e.n)).length,
@@ -349,6 +377,40 @@ function clearPreviewCache() {
   }
 }
 
+// Fetch /chapter-list to populate per-row stats (word_count +
+// character_count). Cheap (one HTTP call) and the response is small —
+// metadata only, no content. Called on outline load + after any
+// chapter-changing job completes. Failures are non-fatal: the stat
+// pills just don't render until the next refresh.
+async function loadChapterStats(): Promise<void> {
+  if (!props.episodeId) return
+  try {
+    const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
+    const data = await get<{ chapters: Array<{ number: number; word_count: number; character_count: number }> }>(
+      `/projects/${props.projectSlug}/episodes/${props.episodeId}/chapter-list${titleParam}`,
+    )
+    const next = new Map<number, ChapterStats>()
+    for (const ch of data.chapters || []) {
+      next.set(ch.number, {
+        word_count: ch.word_count || 0,
+        character_count: ch.character_count || 0,
+      })
+    }
+    chapterStats.value = next
+  } catch {
+    // Stat pills are advisory — silently skip on error.
+  }
+}
+
+// Helper for the row-level "actual vs target" delta. Returns a label
+// the row renders next to its words_per_chapter input. Empty string
+// when the chapter isn't on disk yet (no actual count to compare).
+function rowCountSummary(n: number): string {
+  const stats = chapterStats.value.get(n)
+  if (!stats) return ''
+  return `${stats.word_count.toLocaleString()} words · ${stats.character_count.toLocaleString()} chars`
+}
+
 function relativeTime(iso: string | null): string {
   if (!iso) return ''
   try {
@@ -382,6 +444,10 @@ async function loadOutline() {
     isDirty.value = false
     justSaved.value = false
     selectedNs.value = []
+    // Whenever any chapter is on disk, fetch the per-chapter stats so
+    // the row-level "actual count" pill can render. Don't block the
+    // outline render on it — the call runs in parallel.
+    if (chaptersDone.value.length > 0) void loadChapterStats()
   } catch (e: any) {
     // 404 = no sidecar yet (user hasn't run outline-only). Hide the panel
     // — scripts.vue shows the Generate Outline button instead.
@@ -647,6 +713,7 @@ watch(relevantJobsSignal, (next, prev) => {
     // Wipe + re-fetch any open preview drawers so the user sees the
     // new text immediately, no manual re-toggle needed.
     clearPreviewCache()
+    void loadChapterStats()
   }
 })
 
@@ -666,6 +733,7 @@ watch(chapterOnlySignal, (next, prev) => {
   const nextHasDone = next.includes(':done')
   if (nextHasDone && !prevHasDone) {
     clearPreviewCache()
+    void loadChapterStats()
   }
 })
 
@@ -765,9 +833,22 @@ defineExpose({ loaded, reload: loadOutline })
   text-align: center;
 }
 .op-title-input { font-weight: 500; }
+.op-words-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+}
 .op-words-input {
   width: 96px;
   text-align: right;
+}
+.op-words-actual {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .op-row-actions {
   display: inline-flex;
@@ -856,6 +937,19 @@ defineExpose({ loaded, reload: loadOutline })
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.op-preview-stats {
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.op-preview-stats-target {
+  color: var(--text-muted);
+  margin-left: 4px;
 }
 .op-preview-content {
   margin: 0;
