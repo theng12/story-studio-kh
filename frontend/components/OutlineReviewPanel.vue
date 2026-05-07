@@ -61,17 +61,32 @@
             @blur="markDirtyAndAutosave"
           />
           <div class="op-row-actions">
+            <!-- Single button that morphs: Expand when chapter is pending
+                 (calls /generate/expand-chapters with chaptersToExpand=[n]),
+                 Regenerate when chapter is on disk (calls /generate/chapter-
+                 only which honours the outline title + hook + facts via
+                 the Phase 1 sidecar lookup AND any per-row word override).
+                 Same row, same button, different verb depending on state. -->
             <button
+              v-if="!isChapterDone(entry.n)"
               class="btn btn-sm btn-secondary"
-              :disabled="!canExpand || isChapterDone(entry.n) || expanding"
+              :disabled="!canExpand || expanding"
               :title="!approvedAt
                 ? 'Approve the outline first'
-                : isChapterDone(entry.n)
-                  ? 'Already on disk — use Preview below to inspect, or regen from the Chapters panel'
-                  : `Expand only chapter ${entry.n}`"
+                : `Expand only chapter ${entry.n}`"
               @click="expandOne(entry.n)"
             >
               ▶ Expand
+            </button>
+            <button
+              v-else
+              class="btn btn-sm btn-secondary"
+              :disabled="regenInFlight !== null"
+              :title="`Regenerate chapter ${entry.n} — keeps the same outline title, applies any per-row word override`"
+              @click="regenerateOne(entry.n)"
+            >
+              <LoadingSpinner v-if="regenInFlight === entry.n" size="sm" />
+              {{ regenInFlight === entry.n ? 'Regenerating…' : '↻ Regenerate' }}
             </button>
             <!-- Preview button only shows once the chapter is on disk —
                  there's nothing to preview before expansion. Click to
@@ -232,6 +247,10 @@ const props = defineProps<{
   /** Form values from scripts.vue — used for the words_per_chapter
    *  default placeholder. Reactive in parent; we just read on mount. */
   defaultWords: number
+  /** The full script form. Used for per-chapter Regenerate calls,
+   *  which need model + style + length context that scripts.vue owns.
+   *  Same prop shape ChapterListPanel takes for the same reason. */
+  form?: any
   /** Bumped by scripts.vue when an outline_only or expand_chapters job
    *  reaches a terminal state — triggers a fresh load to pick up new
    *  outline / chapters_done. */
@@ -521,6 +540,56 @@ async function postExpand(chapters: number[] | null): Promise<void> {
 function expandOne(n: number) { void postExpand([n]) }
 function expandSelected() { void postExpand([...selectedNs.value].sort((a, b) => a - b)) }
 function expandAll() { void postExpand(null) }
+
+// Per-chapter regenerate (Phase 4 follow-up). Once a chapter is on
+// disk, the row's primary action should be "regenerate this chapter"
+// not "expand this chapter" — they're functionally the same operation
+// but the user model is different. We POST to /generate/chapter-only
+// (the existing endpoint that already threads outline title + hook +
+// key_facts into the prompt via the Phase 1 sidecar lookup, AND honours
+// per-chapter words override). Reuses the form prop the same way
+// ChapterListPanel does.
+//
+// Auto-saves any pending outline edits first so the regen prompt sees
+// the user's latest title / hook / facts, not the stale sidecar.
+const regenInFlight = ref<number | null>(null)
+async function regenerateOne(n: number): Promise<void> {
+  if (regenInFlight.value !== null) return
+  if (isDirty.value) await saveEdits(/* silent */ true)
+  regenInFlight.value = n
+
+  // Per-row word override on the outline entry wins over the form
+  // default. Same precedence as ChapterListPanel + the batch prompt.
+  const entry = outline.value.find(e => e.n === n)
+  const entryOverride = entry?.words_per_chapter
+  const wordTarget = (typeof entryOverride === 'number' && Number.isFinite(entryOverride) && entryOverride > 0)
+    ? Math.round(entryOverride)
+    : props.form?.words_per_chapter
+
+  try {
+    await post(`/projects/${props.projectSlug}/generate/chapter-only`, {
+      episode_id: props.episodeId,
+      title: props.title || '',
+      chapter_number: n,
+      model: props.form?.model,
+      style: props.form?.style,
+      length: props.form?.length,
+      chapters: props.form?.chapters,
+      total_words: props.form?.total_words,
+      words_per_chapter: wordTarget,
+    })
+    success(entryOverride
+      ? `Chapter ${n} regenerate queued at ${wordTarget} words`
+      : `Chapter ${n} regenerate queued`)
+  } catch (e: any) {
+    showError(e?.data?.detail || `Failed to queue chapter ${n} regen`)
+  } finally {
+    // The chapter-only job watcher already clears previewCache on done;
+    // we don't need to await terminal state here. Drop the in-flight
+    // flag so the user can immediately queue another row's regen.
+    regenInFlight.value = null
+  }
+}
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────
 

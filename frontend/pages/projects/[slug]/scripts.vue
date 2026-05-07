@@ -373,6 +373,7 @@
       :episode-id="form.episode_id"
       :title="form.title"
       :default-words="form.words_per_chapter || 500"
+      :form="form"
       :refresh-key="outlineRefreshKey"
       @expansion-queued="onExpansionQueued"
     />
