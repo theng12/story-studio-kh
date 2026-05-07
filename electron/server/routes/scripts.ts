@@ -447,31 +447,22 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
       try {
         const stat = await fs.stat(filePath)
         modifiedAt = stat.mtime.toISOString()
+        // Single mammoth parse per chapter — parseNarrationDocx now exposes
+        // the descriptive title (the part AFTER "Chapter NN:") on the section
+        // it returns. Previously we paid a second mammoth.convertToHtml call
+        // per chapter just to recover the heading; for a 50-chapter listicle
+        // that doubled the parse cost on every /chapter-list refresh, and
+        // the route is hit on every job-completion tick during active work.
         const sections = await parseNarrationDocx(filePath)
         const sec = sections[0]
         if (sec) {
-          // Section label is "Chapter NN"; pull the FULL title (including
-          // the descriptive part) from the docx if the parser preserved it.
-          // `parseNarrationDocx` strips the title to label-only, so we
-          // re-derive from the first heading line via mammoth raw extract.
-          // Cheap: we already have the section.text for word count.
           const body = sec.text || ''
           wordCount = body.split(/\s+/).filter(Boolean).length
           // Character count over the body (whitespace included). Useful
           // for content-volume comparisons against TTS billing meters,
           // which charge per-character not per-word.
           characterCount = body.length
-          // Try to recover the original chapter title from the docx HTML.
-          try {
-            const mammoth = await import('mammoth')
-            const html = (await mammoth.default.convertToHtml({ path: filePath })).value
-            const headingMatch = html.match(/<h2[^>]*>([^<]+)<\/h2>/i)
-            if (headingMatch) {
-              const m = headingMatch[1].match(/^\s*Chapter\s+\d+\s*[:\-–—]\s*(.+)$/i)
-              if (m) title = m[1].trim()
-              else title = headingMatch[1].trim()
-            }
-          } catch { /* fall back to default */ }
+          if (sec.title) title = sec.title
         }
       } catch { /* unreadable file → present:false below */ }
 
@@ -540,29 +531,17 @@ router.get('/projects/:slug/episodes/:episodeId/chapters/:chapterNumber/content'
     const stat = await fs.stat(filePath)
     const modifiedAt = stat.mtime.toISOString()
 
-    // Title comes from the docx heading. Parse separately from the body
-    // so the regex for "Chapter NN: Title" doesn't have to walk the
-    // whole document.
-    let title = `Chapter ${String(n).padStart(2, '0')}`
-    try {
-      const mammoth = await import('mammoth')
-      const html = (await mammoth.default.convertToHtml({ path: filePath })).value
-      const headingMatch = html.match(/<h2[^>]*>([^<]+)<\/h2>/i)
-      if (headingMatch) {
-        const m = headingMatch[1].match(/^\s*Chapter\s+\d+\s*[:\-–—]\s*(.+)$/i)
-        if (m) title = m[1].trim()
-        else title = headingMatch[1].trim()
-      }
-    } catch { /* fall back to default title */ }
-
-    // Body. parseNarrationDocx returns sections; for a per-chapter file
-    // there's a single section whose text IS the chapter body. The
-    // section label ("Chapter NN") gets stripped — the user wants the
+    // Single mammoth parse: parseNarrationDocx exposes the descriptive
+    // title on the section now, so we don't need a second convertToHtml
+    // round-trip just to recover the heading. The section label
+    // ("Chapter NN") gets stripped for the body — the user wants the
     // narrative prose, not the header line.
     const { parseNarrationDocx } = await import('../lib/docx-parser.js')
     const sections = await parseNarrationDocx(filePath)
     const body = (sections[0]?.text || '').trim()
     const wordCount = body.split(/\s+/).filter(Boolean).length
+    let title = `Chapter ${String(n).padStart(2, '0')}`
+    if (sections[0]?.title) title = sections[0].title
     // Character count drives per-chapter TTS billing previews — TTS
     // providers charge per-character, not per-word, so this is the
     // closer-to-truth volume signal for cost estimation.

@@ -177,6 +177,12 @@ describe('writeChapterFiles + assembleUnifiedNarration round-trip', () => {
     assert.deepEqual(slugs, ['Chapter_01', 'Chapter_02'])
     assert.match(sections[0]!.text, /chapter one/)
     assert.match(sections[1]!.text, /chapter two/)
+    // Descriptive title round-trips on the section now (the part AFTER the
+    // "Chapter NN:" prefix). The /chapter-list and /chapters/:n/content
+    // routes read this so they don't need a second mammoth.convertToHtml
+    // pass per chapter.
+    assert.equal(sections[0]!.title, 'The Mist-Kissed Shore')
+    assert.equal(sections[1]!.title, 'The Selkie Weaver')
   })
 
   test('intro + chapters: Introduction is the FIRST parsed section', async () => {
