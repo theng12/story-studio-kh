@@ -154,8 +154,8 @@ router.get('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
     }
     const raw = await fs.readFile(sidecarFile, 'utf-8')
     const sidecar = JSON.parse(raw)
-    // Auto-upgrade v1 → v2 in the response shape so the frontend never sees
-    // the legacy schema. Mirrors readSidecar's in-memory migration.
+    // Auto-upgrade v1/v2 → v3 in the response shape so the frontend never
+    // sees the legacy schema. Mirrors readSidecar's in-memory migration.
     const approvedAt = sidecar.outline_approved_at ?? sidecar.outline_completed_at ?? null
     res.json({
       mode: sidecar.mode,
@@ -165,6 +165,11 @@ router.get('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
       outline_approved_at: approvedAt,
       outline_edited_at: sidecar.outline_edited_at ?? null,
       chapters_done: sidecar.chapters_done || [],
+      // v3+: snapshot of the form fields used to build the outline. Frontend
+      // shows this in OutlineReviewPanel as "Locked at outline build" so
+      // the user understands which model + words + pattern + cast the
+      // upcoming expand will run against. null on v1/v2 sidecars.
+      generation_params: sidecar.generation_params ?? null,
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not load outline'))

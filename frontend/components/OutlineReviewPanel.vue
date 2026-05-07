@@ -33,6 +33,25 @@
         Each row is an editable topic. The {{ mode === 'listicle' ? 'hook + key facts' : 'synopsis + key beats' }} seed
         the LLM during expansion. Set a per-chapter word target to override the global default for one slot.
       </p>
+      <!-- v3 sidecar exposes the form-field snapshot from outline-build
+           time. Surface it so the user understands which model + word
+           target + pattern + cast the upcoming Expand will run against —
+           changing the form above no longer affects expansion of THIS
+           outline (sidecar is authoritative). Hidden for v1/v2 sidecars
+           where the snapshot is null (legacy outlines fall back to the
+           current form fields). -->
+      <p v-if="generationParams" class="op-locked-params" :title="lockedParamsTooltip">
+        🔒 Locked at outline build:
+        <span class="op-locked-pill">{{ generationParams.model }}</span>
+        <span class="op-locked-pill">~{{ generationParams.words_per_chapter.toLocaleString() }} words/chapter</span>
+        <span v-if="generationParams.pattern_id" class="op-locked-pill">
+          pattern: {{ generationParams.pattern_id
+            }}{{ generationParams.pattern_subject ? ` · "${generationParams.pattern_subject}"` : '' }}
+        </span>
+        <span v-if="generationParams.character_ids?.length" class="op-locked-pill">
+          cast: {{ generationParams.character_ids.length }}
+        </span>
+      </p>
     </div>
 
     <ul class="op-list" role="list">
@@ -251,6 +270,17 @@ interface OutlineEntry {
   words_per_chapter?: number
 }
 
+interface GenerationParams {
+  model: string
+  length?: number
+  total_words?: number
+  words_per_chapter: number
+  pattern_id?: string
+  pattern_subject?: string
+  character_ids?: string[]
+  custom_style_text?: string
+}
+
 interface OutlineResponse {
   mode: 'narrative' | 'listicle'
   total_chapters: number
@@ -259,6 +289,10 @@ interface OutlineResponse {
   outline_approved_at: string | null
   outline_edited_at: string | null
   chapters_done: number[]
+  /** v3+: snapshot of the form fields used to build the outline. null on
+   *  v1/v2 sidecars (predates the snapshot). UI shows the locked model +
+   *  word target so the user sees what expand-chapters will run against. */
+  generation_params: GenerationParams | null
 }
 
 const props = defineProps<{
@@ -294,6 +328,7 @@ const totalChapters = ref(0)
 const chaptersDone = ref<number[]>([])
 const approvedAt = ref<string | null>(null)
 const editedAt = ref<string | null>(null)
+const generationParams = ref<GenerationParams | null>(null)
 const loaded = ref(false)
 const saving = ref(false)
 const expanding = ref(false)
@@ -323,6 +358,26 @@ const canExpand = computed(() => !!approvedAt.value)
 const pendingCount = computed(() =>
   outline.value.filter(e => !chaptersDone.value.includes(e.n)).length,
 )
+
+// Long-form tooltip for the locked-params row. Spells out the WHY so the
+// user understands they can't change model/words for an existing outline
+// without regenerating it. Matches the explain-as-you-go pattern the rest
+// of the app uses.
+const lockedParamsTooltip = computed(() => {
+  if (!generationParams.value) return ''
+  const gp = generationParams.value
+  const parts = [
+    `Model: ${gp.model}`,
+    `Per-chapter target: ${gp.words_per_chapter.toLocaleString()} words`,
+  ]
+  if (gp.length) parts.push(`Length: ${gp.length} min`)
+  if (gp.total_words) parts.push(`Total words: ${gp.total_words.toLocaleString()}`)
+  if (gp.pattern_id) parts.push(`Pattern: ${gp.pattern_id}${gp.pattern_subject ? ` ("${gp.pattern_subject}")` : ''}`)
+  if (gp.character_ids?.length) parts.push(`Cast: ${gp.character_ids.length} character(s)`)
+  return parts.join(' · ') +
+    '\n\nExpand-chapters reads these from the outline sidecar, not the form above. ' +
+    'To change model/words/pattern/cast, regenerate the outline.'
+})
 
 function isChapterDone(n: number): boolean {
   return chaptersDone.value.includes(n)
@@ -440,6 +495,7 @@ async function loadOutline() {
     chaptersDone.value = data.chapters_done || []
     approvedAt.value = data.outline_approved_at
     editedAt.value = data.outline_edited_at
+    generationParams.value = data.generation_params
     loaded.value = true
     isDirty.value = false
     justSaved.value = false
@@ -580,11 +636,27 @@ async function postExpand(chapters: number[] | null): Promise<void> {
   }
   expanding.value = true
   try {
+    // Mirror the body shape /generate/outline-only sends, so the backend's
+    // setupChunkedJobContext sees a fully-populated GenerateScriptRequest
+    // (model in particular — without it callAi crashes on
+    // `undefined.startsWith` inside provider dispatch). Filter array goes
+    // under chapters_to_expand to avoid colliding with the chapter-count
+    // semantic of `chapters` in setupChunkedJobContext.
     const body: any = {
       episode_id: props.episodeId,
       title: props.title || '',
+      model: props.form?.model,
+      style: props.form?.style,
+      length: props.form?.length,
+      chapters: props.form?.chapters,
+      total_words: props.form?.total_words,
+      words_per_chapter: props.form?.words_per_chapter,
+      pattern_id: props.form?.pattern_id,
+      pattern_subject: props.form?.pattern_subject,
+      character_ids: props.form?.character_ids,
+      custom_style_text: props.form?.custom_style_text,
     }
-    if (chapters) body.chapters = chapters
+    if (chapters) body.chapters_to_expand = chapters
     const resp = await post<{ job_id: string }>(
       `/projects/${props.projectSlug}/generate/expand-chapters`,
       body,
@@ -795,6 +867,26 @@ defineExpose({ loaded, reload: loadOutline })
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.5;
+}
+.op-locked-params {
+  margin: 6px 0 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  cursor: help;
+}
+.op-locked-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-secondary);
 }
 
 .op-list {

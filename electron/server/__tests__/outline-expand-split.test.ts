@@ -151,7 +151,7 @@ describe('buildOutlineOnly — approval state', () => {
     // Sidecar on disk reflects the draft state.
     const raw = await fs.readFile(sidecarPath(scriptDir, 'EP0700'), 'utf-8')
     const sidecar = JSON.parse(raw) as ChunkedSidecar
-    assert.equal(sidecar.schema_version, 2)
+    assert.equal(sidecar.schema_version, 3)
     assert.equal(sidecar.outline_approved_at, null,
       'sidecar must persist outline_approved_at: null when no auto_approve')
     assert.equal(sidecar.outline_edited_at, null)
@@ -269,6 +269,52 @@ describe('expandChapters — approval gate + selective expansion', () => {
       'chaptersWritten counts what is on disk, not just this run')
     assert.equal(fakeCalls.length, 0,
       'all chapters already on disk → no fresh LLM call')
+  })
+})
+
+describe('v3 generation_params snapshot (persist + read-back)', () => {
+  test('buildOutlineOnly persists params.generationParams to the sidecar', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(3, 'listicle')
+    const job = makeJob(scriptDir)
+
+    const generationParams = {
+      model: FAKE_MODEL,
+      length: 30,
+      total_words: 7500,
+      words_per_chapter: 400,
+      pattern_id: 'pat-listicle',
+      pattern_subject: 'Curious chemistry',
+      character_ids: ['char-narrator'],
+      custom_style_text: 'wry, observational',
+    }
+
+    await buildOutlineOnly(
+      job,
+      makeParams(scriptDir, { totalChapters: 3, generationParams }),
+      'listicle',
+      { auto_approve: true },
+    )
+
+    const raw = await fs.readFile(sidecarPath(scriptDir, 'EP0700'), 'utf-8')
+    const sidecar = JSON.parse(raw) as ChunkedSidecar
+    assert.deepEqual(sidecar.generation_params, generationParams,
+      'every field passed via params.generationParams must round-trip through the sidecar — that is the whole point of v3')
+  })
+
+  test('omitted generationParams writes generation_params: null (back-compat shape)', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(3, 'listicle')
+    const job = makeJob(scriptDir)
+
+    await buildOutlineOnly(
+      job, makeParams(scriptDir, { totalChapters: 3 }), 'listicle', { auto_approve: true },
+    )
+
+    const raw = await fs.readFile(sidecarPath(scriptDir, 'EP0700'), 'utf-8')
+    const sidecar = JSON.parse(raw) as ChunkedSidecar
+    assert.equal(sidecar.generation_params, null,
+      'absent generationParams must serialise as null so v2-fallback paths in the executor remain identifiable')
   })
 })
 

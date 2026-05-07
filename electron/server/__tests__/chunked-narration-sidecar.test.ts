@@ -43,9 +43,9 @@ describe('chunked-narration sidecar path', () => {
 })
 
 describe('chunked-narration sidecar JSON shape', () => {
-  test('round-trips a populated v2 sidecar through atomic-write', async () => {
+  test('round-trips a populated v3 sidecar through atomic-write', async () => {
     const sidecar: ChunkedSidecar = {
-      schema_version: 2,
+      schema_version: 3,
       episode_id: 'EP0042',
       mode: 'narrative',
       total_chapters: 30,
@@ -56,6 +56,15 @@ describe('chunked-narration sidecar JSON shape', () => {
       outline_completed_at: '2026-05-06T01:00:00.000Z',
       outline_approved_at: '2026-05-06T01:05:00.000Z',
       outline_edited_at: null,
+      generation_params: {
+        model: 'claude-sonnet-4-6',
+        length: 30,
+        total_words: 7500,
+        words_per_chapter: 250,
+        pattern_id: 'pat-true-crime',
+        pattern_subject: 'Lighthouse keepers',
+        character_ids: ['char-narrator'],
+      },
       chapters_done: [1, 2, 3, 4, 5],
       params_hash: 'abc123def456abcd',
       last_updated: '2026-05-06T01:23:45.000Z',
@@ -65,7 +74,11 @@ describe('chunked-narration sidecar JSON shape', () => {
 
     const raw = await fs.readFile(target, 'utf-8')
     const parsed = JSON.parse(raw) as ChunkedSidecar
-    assert.equal(parsed.schema_version, 2)
+    assert.equal(parsed.schema_version, 3)
+    assert.equal(parsed.generation_params?.model, 'claude-sonnet-4-6',
+      'persisted generation_params.model must round-trip — that field is the load-bearing fix for the EP0002 expand crash')
+    assert.equal(parsed.generation_params?.words_per_chapter, 250)
+    assert.deepEqual(parsed.generation_params?.character_ids, ['char-narrator'])
     assert.equal(parsed.mode, 'narrative')
     assert.equal(parsed.total_chapters, 30)
     assert.deepEqual(parsed.chapters_done, [1, 2, 3, 4, 5])
@@ -80,7 +93,7 @@ describe('chunked-narration sidecar JSON shape', () => {
 
   test('listicle sidecar uses hook_line + key_facts shape on outline entries', async () => {
     const sidecar: ChunkedSidecar = {
-      schema_version: 2,
+      schema_version: 3,
       episode_id: 'EP0099',
       mode: 'listicle',
       total_chapters: 100,
@@ -90,6 +103,7 @@ describe('chunked-narration sidecar JSON shape', () => {
       outline_completed_at: '2026-05-06T01:00:00.000Z',
       outline_approved_at: null,  // unapproved listicle outline (draft mode)
       outline_edited_at: null,
+      generation_params: null,
       chapters_done: [],
       params_hash: 'feedface0badcafe',
       last_updated: '2026-05-06T01:00:00.000Z',
@@ -107,14 +121,14 @@ describe('chunked-narration sidecar JSON shape', () => {
 })
 
 describe('chunked-narration sidecar contract', () => {
-  test('schema_version=2 is the current schema; v1 sidecars auto-upgrade on read', () => {
-    // The current ChunkedSidecar type pins schema_version to 2. v1 sidecars
-    // (pre-outline-review) are auto-upgraded by readSidecar, with
-    // outline_approved_at populated from outline_completed_at (existing
-    // behaviour ≡ "already approved"). The migration path is exercised
-    // end-to-end in the migration test below.
+  test('schema_version=3 is the current schema; v1 + v2 sidecars auto-upgrade on read', () => {
+    // The current ChunkedSidecar type pins schema_version to 3. v1 sidecars
+    // (pre-outline-review) and v2 sidecars (no generation_params yet) are
+    // auto-upgraded by readSidecar in-memory. v3 adds the generation_params
+    // snapshot so expand-chapters can re-derive its inputs from disk
+    // instead of depending on the request body.
     const minimal: ChunkedSidecar = {
-      schema_version: 2,
+      schema_version: 3,
       episode_id: 'EP0001',
       mode: 'narrative',
       total_chapters: 30,
@@ -122,26 +136,28 @@ describe('chunked-narration sidecar contract', () => {
       outline_completed_at: '',
       outline_approved_at: null,
       outline_edited_at: null,
+      generation_params: null,
       chapters_done: [],
       params_hash: '',
       last_updated: '',
     }
-    assert.equal(minimal.schema_version, 2)
+    assert.equal(minimal.schema_version, 3)
   })
 })
 
-// ── Schema v1 → v2 migration ──────────────────────────────────────────────
+// ── Schema migrations ─────────────────────────────────────────────────────
 //
-// Pre-existing projects on disk have schema_version: 1 sidecars without the
-// outline_approved_at / outline_edited_at fields. readSidecar must auto-
-// upgrade them in memory so the rest of the pipeline sees a consistent v2
-// shape, treating the existing outline as already-approved (matches the
-// pre-outline-review behaviour where outline + expand happened in one job).
+// Pre-existing projects on disk may be at v1 (no outline_approved_at /
+// outline_edited_at) or v2 (no generation_params). readSidecar auto-upgrades
+// both in memory so the rest of the pipeline always sees v3 — the next
+// writeSidecar call persists the upgrade. No data loss; in-flight outlines
+// keep working through the schema bump (with generation_params: null
+// triggering the request-body fallback in the expand executor).
 
-describe('chunked-narration sidecar — v1 → v2 migration', () => {
-  test('v1 sidecar on disk reads as v2 with outline_approved_at populated', async () => {
+describe('chunked-narration sidecar — v1 → v3 migration', () => {
+  test('v1 sidecar on disk reads as v3 with outline_approved_at populated + generation_params null', async () => {
     // Write a raw v1 sidecar (the shape that exists on every machine that
-    // ran a chunked listicle before this refactor).
+    // ran a chunked listicle before the outline-review refactor).
     const v1Raw = {
       schema_version: 1,
       episode_id: 'EP0500',
@@ -159,17 +175,58 @@ describe('chunked-narration sidecar — v1 → v2 migration', () => {
     const target = sidecarPath(tmpDir, 'EP0500')
     await fs.writeFile(target, JSON.stringify(v1Raw), 'utf-8')
 
-    // readSidecar is module-private; we exercise it through the public
-    // getOutlineEntryForChapter helper which calls it under the hood.
     // The lookup must succeed (v1 sidecar didn't break the read) and the
     // returned entry must have the right title — proving v1 data flowed
     // through the migration intact.
-    const { getOutlineEntryForChapter } = await import('../lib/chunked-narration.js')
+    const { getOutlineEntryForChapter, readSidecar } = await import('../lib/chunked-narration.js')
     const lookup = await getOutlineEntryForChapter(tmpDir, 'EP0500', 2)
     assert.ok(lookup, 'v1 sidecar must read successfully after migration')
     assert.equal(lookup!.entry.title, 'Second topic')
     assert.equal(lookup!.entry.hook_line, 'Hook 2')
     assert.equal(lookup!.mode, 'listicle')
     assert.equal(lookup!.totalChapters, 5)
+    // Direct readSidecar verification: schema bumped to 3, generation_params null.
+    const upgraded = await readSidecar(tmpDir, 'EP0500')
+    assert.ok(upgraded)
+    assert.equal(upgraded!.schema_version, 3, 'v1 must upgrade through to v3')
+    assert.equal(upgraded!.generation_params, null,
+      'v1 has no generation_params — upgrade leaves it null and the executor falls back to req fields')
+  })
+})
+
+describe('chunked-narration sidecar — v2 → v3 migration', () => {
+  test('v2 sidecar on disk reads as v3 with generation_params: null', async () => {
+    // v2 sidecars (post outline-review feature, pre generation_params) are
+    // the most common shape on disk for users who upgraded mid-Phase 3.
+    const v2Raw = {
+      schema_version: 2,
+      episode_id: 'EP0501',
+      mode: 'listicle',
+      total_chapters: 3,
+      outline: [
+        { n: 1, title: 'Topic one', hook_line: 'h1' },
+        { n: 2, title: 'Topic two', hook_line: 'h2' },
+        { n: 3, title: 'Topic three', hook_line: 'h3' },
+      ],
+      outline_completed_at: '2026-05-04T10:00:00.000Z',
+      outline_approved_at: '2026-05-04T10:05:00.000Z',
+      outline_edited_at: null,
+      chapters_done: [],
+      params_hash: 'v2hash00000000bb',
+      last_updated: '2026-05-04T10:05:00.000Z',
+    }
+    const target = sidecarPath(tmpDir, 'EP0501')
+    await fs.writeFile(target, JSON.stringify(v2Raw), 'utf-8')
+
+    const { readSidecar } = await import('../lib/chunked-narration.js')
+    const upgraded = await readSidecar(tmpDir, 'EP0501')
+    assert.ok(upgraded, 'v2 sidecar must read successfully after migration')
+    assert.equal(upgraded!.schema_version, 3, 'v2 must upgrade to v3')
+    assert.equal(upgraded!.generation_params, null,
+      'v2 has no generation_params — upgrade leaves it null and the executor falls back to req fields')
+    // All v2 fields preserved through the upgrade.
+    assert.equal(upgraded!.outline_approved_at, '2026-05-04T10:05:00.000Z')
+    assert.equal(upgraded!.outline.length, 3)
+    assert.equal(upgraded!.params_hash, 'v2hash00000000bb')
   })
 })

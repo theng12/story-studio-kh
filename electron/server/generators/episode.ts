@@ -23,8 +23,10 @@ import {
   getOutlineEntryForChapter,
   buildOutlineOnly,
   expandChapters,
+  readSidecar,
   type ChunkedNarrationParams,
   type ChunkedMode,
+  type GenerationParams,
 } from '../lib/chunked-narration.js'
 import { castPromptBlock, castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import type { GenerateScriptRequest, Job, Format, NarratorStyle, Pattern, Character } from '../models/types.js'
@@ -1005,13 +1007,31 @@ Output ONLY the introduction text. No meta-commentary. No story chapters.`
  * the LLM stream needs. Returns the params + a teardown fn the executor
  * MUST call in a finally block to stop the watcher.
  */
+/**
+ * Shared setup for outline-only + expand-chapters executors.
+ *
+ * source: 'request' (default)
+ *   Builds params from the request body (today's GenerateScriptRequest).
+ *   Used by outline-only — the user's form choices ARE the source of truth
+ *   the first time around.
+ *
+ * source: 'sidecar'
+ *   Prefers the sidecar's persisted generation_params over the request
+ *   body. Used by expand-chapters so expansion always runs against the
+ *   model / words / pattern / characters the outline was built with —
+ *   even if the user edited the form between outline build and expand.
+ *   Falls back to request fields when the sidecar is on v2 (no
+ *   generation_params yet) or when a specific field wasn't persisted.
+ */
 async function setupChunkedJobContext(
   job: Job,
+  opts: { source?: 'request' | 'sidecar' } = {},
 ): Promise<{
   params: ChunkedNarrationParams
   mode: ChunkedMode
   teardown: () => void
 }> {
+  const source = opts.source ?? 'request'
   const { project_slug, episode_id, params: jobParams } = job
   const req = jobParams as GenerateScriptRequest
 
@@ -1023,25 +1043,55 @@ async function setupChunkedJobContext(
   const standards = await pm.getStandards(project_slug) || ''
   let format = await getEffectiveFormat(project_slug)
   const title = req.title
-  const length = req.length || format.script.defaultLengthMinutes
-  const chapters = req.chapters || format.script.defaultChapterCount
-  const totalWords = req.total_words || (length === 45 ? 5500 : 7500)
-  const wordsPerChapter = req.words_per_chapter || Math.floor(totalWords / chapters)
 
-  // Pattern fusion (same path generateEpisode uses).
-  if (req.pattern_id) {
-    const pattern = await loadPattern(req.pattern_id)
-    if (pattern) {
-      const subject = req.pattern_subject || ''
-      format = fuseFormatWithPattern(format, pattern, subject, chapters)
-      job.output_lines.push(`Applied pattern: ${pattern.name}` + (subject ? ` (subject: "${subject}")` : ''))
-    } else {
-      job.output_lines.push(`Pattern '${req.pattern_id}' not found — generating without pattern`)
+  // For expand-chapters, prefer the sidecar's persisted snapshot over the
+  // request body. The sidecar was written at outline-build time and is the
+  // authoritative record of what the outline was built against. Fields
+  // missing from generation_params (or absent because the sidecar is v2)
+  // fall through to the request body — keeps in-flight outlines working
+  // through the schema bump.
+  let snapshot: GenerationParams | null = null
+  let snapshotTotalChapters: number | undefined
+  if (source === 'sidecar') {
+    const paths = await resolveEpisodePaths(project_slug, episode_id, title)
+    const sidecar = await readSidecar(paths.script_dir, episode_id)
+    if (sidecar) {
+      snapshot = sidecar.generation_params
+      snapshotTotalChapters = sidecar.total_chapters
     }
   }
 
-  const characters = req.character_ids?.length
-    ? await resolveCharacters(project_slug, req.character_ids)
+  const model = snapshot?.model || req.model
+  // Without a model the downstream callAi → provider dispatch crashes inside
+  // `modelId.startsWith(...)` and every batch fails with the cryptic
+  // "Cannot read properties of undefined (reading 'startsWith')". Surface a
+  // clear, actionable error here instead.
+  if (typeof model !== 'string' || !model.trim()) {
+    throw new Error('No model selected — pick a model in the script form before expanding.')
+  }
+  const length = snapshot?.length ?? req.length ?? format.script.defaultLengthMinutes
+  const chapters = snapshotTotalChapters ?? req.chapters ?? format.script.defaultChapterCount
+  const totalWords = snapshot?.total_words ?? req.total_words ?? (length === 45 ? 5500 : 7500)
+  const wordsPerChapter = snapshot?.words_per_chapter ?? req.words_per_chapter ?? Math.floor(totalWords / chapters)
+  const patternId = snapshot?.pattern_id ?? req.pattern_id
+  const patternSubject = snapshot?.pattern_subject ?? req.pattern_subject
+  const characterIds = snapshot?.character_ids ?? req.character_ids
+  const customStyleText = snapshot?.custom_style_text ?? (req as any).custom_style_text
+
+  // Pattern fusion (same path generateEpisode uses).
+  if (patternId) {
+    const pattern = await loadPattern(patternId)
+    if (pattern) {
+      const subject = patternSubject || ''
+      format = fuseFormatWithPattern(format, pattern, subject, chapters)
+      job.output_lines.push(`Applied pattern: ${pattern.name}` + (subject ? ` (subject: "${subject}")` : ''))
+    } else {
+      job.output_lines.push(`Pattern '${patternId}' not found — generating without pattern`)
+    }
+  }
+
+  const characters = characterIds?.length
+    ? await resolveCharacters(project_slug, characterIds)
     : []
   if (characters.length) {
     job.output_lines.push(`Cast: ${characters.map(c => c.name).join(', ')}`)
@@ -1063,6 +1113,21 @@ async function setupChunkedJobContext(
     if (jq.isCancelled(job.job_id)) controller.abort()
   }, 500)
 
+  // Snapshot the resolved fields onto params so buildOutlineOnly can write
+  // them into the v3 sidecar. On expand runs this is informational only
+  // (the sidecar already has it), but populating consistently keeps the
+  // contract simple.
+  const generationParams: GenerationParams = {
+    model,
+    length,
+    total_words: totalWords,
+    words_per_chapter: wordsPerChapter,
+    pattern_id: patternId,
+    pattern_subject: patternSubject,
+    character_ids: characterIds,
+    custom_style_text: customStyleText,
+  }
+
   const params: ChunkedNarrationParams = {
     episode_id,
     title,
@@ -1071,14 +1136,15 @@ async function setupChunkedJobContext(
     format,
     systemPrompt: sysPrompt,
     scriptDir: paths.script_dir,
-    model: req.model,
+    model,
     apiKeys,
     characters: characters.length ? characters : undefined,
     signal: controller.signal,
     isCancelled: () => jq.isCancelled(job.job_id),
-    patternId: req.pattern_id,
-    patternSubject: req.pattern_subject,
+    patternId,
+    patternSubject,
     force: !!(jobParams as any).force,
+    generationParams,
   }
   const mode: ChunkedMode = format.script.chaptersIndependent ? 'listicle' : 'narrative'
 
@@ -1120,11 +1186,14 @@ export async function generateOutlineOnly(job: Job): Promise<void> {
  * the sidecar (set via PUT /outline) into the batch prompts.
  */
 export async function generateExpandChapters(job: Job): Promise<void> {
-  const { params, teardown } = await setupChunkedJobContext(job)
+  const { params, teardown } = await setupChunkedJobContext(job, { source: 'sidecar' })
   const req = job.params as any
   const autoApprove = !!req.auto_approve
-  const chaptersFilter: number[] | undefined = Array.isArray(req.chapters)
-    ? (req.chapters as unknown[])
+  // Filter array of chapter numbers to expand. Lives under its own key so it
+  // doesn't collide with `req.chapters` (the chapter-count number read by
+  // setupChunkedJobContext). Frontend sends it as `chapters_to_expand`.
+  const chaptersFilter: number[] | undefined = Array.isArray(req.chapters_to_expand)
+    ? (req.chapters_to_expand as unknown[])
         .map(n => Number(n))
         .filter(n => Number.isFinite(n) && n > 0)
     : undefined

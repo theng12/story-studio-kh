@@ -175,11 +175,37 @@ export interface OutlineEntry {
 
 export type ChunkedMode = 'narrative' | 'listicle'
 
+/**
+ * v3+ persisted snapshot of the script-form fields the chunked pipeline reads
+ * from `GenerateScriptRequest`. Captured at outline-build time so expansion
+ * (which can run minutes-to-days later, possibly across app restarts and form
+ * edits) uses the SAME inputs the outline was built against. Without this,
+ * expand-chapters depends on the frontend resending the form on every retry
+ * — a fragile contract that previously crashed `callAi` when a request body
+ * dropped `model` (the EP0002 startsWith bug).
+ *
+ * Stored on `ChunkedSidecar.generation_params`. v2 sidecars upgrade with
+ * `null`; the executor falls back to the request body when null (existing
+ * behaviour) so in-flight outlines aren't broken by the schema bump.
+ */
+export interface GenerationParams {
+  model: string
+  length?: number
+  total_words?: number
+  words_per_chapter: number
+  pattern_id?: string
+  pattern_subject?: string
+  character_ids?: string[]
+  custom_style_text?: string
+}
+
 export interface ChunkedSidecar {
-  /** Schema version. v1: pre-outline-review (auto-approved by definition).
-   *  v2: adds outline_approved_at + outline_edited_at + per-entry
-   *  words_per_chapter. v1 sidecars are auto-upgraded on read. */
-  schema_version: 2
+  /** Schema version.
+   *  v1: pre-outline-review (auto-approved by definition).
+   *  v2: adds outline_approved_at + outline_edited_at + per-entry words_per_chapter.
+   *  v3: adds generation_params (model + form snapshot at outline-build time).
+   *  v1 + v2 sidecars are auto-upgraded on read. */
+  schema_version: 3
   episode_id: string
   mode: ChunkedMode
   total_chapters: number
@@ -194,6 +220,12 @@ export interface ChunkedSidecar {
    *  the outline is still the LLM's original. UI shows an "edited" badge
    *  when this is set. */
   outline_edited_at: string | null
+  /** v3+: snapshot of script-form fields used to build this outline. The
+   *  expand-chapters executor reads these instead of the request body so
+   *  expansion always runs against the same model / words / pattern /
+   *  characters the outline was built with. null on v2 sidecars upgraded
+   *  in memory — executor falls back to the request body in that case. */
+  generation_params: GenerationParams | null
   chapters_done: number[]
   /** sha256(first 16 chars) of the input params — invalidates resume when
    *  user changes chapter count / format / pattern between attempts. */
@@ -228,6 +260,13 @@ export interface ChunkedNarrationParams {
   patternSubject?: string
   /** Force regenerate from scratch (ignores existing sidecar / chapter files). */
   force?: boolean
+  /** v3+: snapshot of the script-form fields that produced this run. When
+   *  set on an outline-only call, gets written to the sidecar so a later
+   *  expand-chapters run can re-derive the same params without depending
+   *  on the request body. The executor populates this from the request
+   *  body for outline-only runs and from the sidecar for expand-chapters
+   *  runs (see setupChunkedJobContext in generators/episode.ts). */
+  generationParams?: GenerationParams
 }
 
 export interface ChunkedNarrationResult {
@@ -314,7 +353,7 @@ export async function buildOutlineOnly(
   const outline = await buildOutline(job, params, mode)
   const nowIso = new Date().toISOString()
   const sidecar: ChunkedSidecar = {
-    schema_version: 2,
+    schema_version: 3,
     episode_id: params.episode_id,
     mode,
     total_chapters: params.totalChapters,
@@ -324,6 +363,10 @@ export async function buildOutlineOnly(
     // auto_approve to bypass.
     outline_approved_at: opts.auto_approve ? nowIso : null,
     outline_edited_at: null,
+    // Snapshot the form fields a future expand-chapters run will need.
+    // null when the caller didn't supply them (legacy / test paths) — the
+    // expand-chapters executor falls back to the request body in that case.
+    generation_params: params.generationParams ?? null,
     chapters_done: [],
     params_hash: paramsHash,
     last_updated: nowIso,
@@ -904,25 +947,34 @@ export function sidecarPath(scriptDir: string, episode_id: string): string {
   return path.join(scriptDir, `${episode_id}_chunked-progress.json`)
 }
 
-async function readSidecar(scriptDir: string, episode_id: string): Promise<ChunkedSidecar | null> {
+export async function readSidecar(scriptDir: string, episode_id: string): Promise<ChunkedSidecar | null> {
   try {
     const raw = await fs.readFile(sidecarPath(scriptDir, episode_id), 'utf-8')
     const parsed = JSON.parse(raw)
-    // v1 → v2 auto-upgrade. v1 sidecars predate the outline-review feature,
-    // so the implicit semantic was "outline is approved the moment it's
-    // built". We preserve that by setting outline_approved_at to the
-    // outline_completed_at timestamp on read; the next write_sidecar call
-    // persists v2 to disk. No data loss; existing partially-expanded
-    // projects continue resuming exactly as before.
+    // v1 → v3 / v2 → v3 auto-upgrade. v1 sidecars predate the outline-
+    // review feature (implicit "approved on build"); v2 added review +
+    // per-entry word overrides; v3 adds generation_params (model + form
+    // snapshot at outline-build time). All upgrades are in-memory only —
+    // the next writeSidecar call persists v3 to disk. Old generation_params
+    // is null on upgrade, which the expand-chapters executor handles by
+    // falling back to the request body so no in-flight outline breaks.
     if (parsed?.schema_version === 1) {
       return {
         ...parsed,
-        schema_version: 2,
+        schema_version: 3,
         outline_approved_at: parsed.outline_completed_at || null,
         outline_edited_at: null,
+        generation_params: null,
       } as ChunkedSidecar
     }
     if (parsed?.schema_version === 2) {
+      return {
+        ...parsed,
+        schema_version: 3,
+        generation_params: null,
+      } as ChunkedSidecar
+    }
+    if (parsed?.schema_version === 3) {
       return parsed as ChunkedSidecar
     }
     // Unknown schema version — fail safe, treat as no sidecar.

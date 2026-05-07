@@ -41,6 +41,14 @@ export async function callAi(
   stream = false,
   ctx: CallAiContext = {},
 ): Promise<string> {
+  // Catch the "model field dropped from upstream request" class of bug
+  // (would otherwise crash inside provider.supportsModel as
+  // `undefined.startsWith(...)` — opaque error every caller had to trace by
+  // hand). Cheap defensive guard at the only choke point.
+  if (typeof model !== 'string' || !model) {
+    throw new Error('callAi: model is required')
+  }
+
   // Find which provider handles this model
   const provider = registry.findTextProviderForModel(model)
   if (!provider) {
