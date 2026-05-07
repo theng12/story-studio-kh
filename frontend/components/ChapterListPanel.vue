@@ -317,6 +317,14 @@ watch(relevantJobsSignal, () => {
   }
 })
 
+// Declared BEFORE the immediate watcher below — `watch(..., { immediate: true })`
+// fires the handler synchronously during setup, so `lastEpisodeId` must be
+// initialised first. Hitting the TDZ here threw "Cannot access 'lastEpisodeId'
+// before initialization" mid-setup, which left ChapterListPanel half-mounted
+// and propagated up the tree as the "Cannot read properties of null (reading
+// 'parentNode')" freeze on the next navigation/render of scripts.vue.
+const lastEpisodeId = ref<string | undefined>(undefined)
+
 watch(() => [props.episodeId, props.title, props.refreshKey], () => {
   // Clear per-row word overrides AND collapse + clear preview cache on
   // episode switch — the previous episode's state doesn't apply to the
@@ -331,8 +339,6 @@ watch(() => [props.episodeId, props.title, props.refreshKey], () => {
   clearPreviewCache()
   refresh()
 }, { immediate: true })
-
-const lastEpisodeId = ref<string | undefined>(undefined)
 
 function relativeTime(iso: string): string {
   const d = new Date(iso)
