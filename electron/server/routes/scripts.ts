@@ -179,23 +179,23 @@ router.get('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
     if (!project) return res.status(404).json({ detail: 'Project not found' })
     const titleParam = (req.query.title as string) || ''
     const paths = await resolveEpisodePaths(slug, episodeId, titleParam)
-    const { sidecarPath } = await import('../lib/chunked-narration.js')
-    const sidecarFile = sidecarPath(paths.script_dir, episodeId)
-    if (!existsSync(sidecarFile)) {
+    // readSidecar handles the v1 → v2 auto-upgrade in one place — this
+    // route used to re-implement the migration inline (an `outline_approved_at
+    // ?? outline_completed_at` fallback) which would silently drift if
+    // the schema ever evolves to v3. Now both readers go through the
+    // same helper.
+    const { readSidecar } = await import('../lib/chunked-narration.js')
+    const sidecar = await readSidecar(paths.script_dir, episodeId)
+    if (!sidecar) {
       return res.status(404).json({ detail: 'No outline sidecar for this episode (run outline-only first).' })
     }
-    const raw = await fs.readFile(sidecarFile, 'utf-8')
-    const sidecar = JSON.parse(raw)
-    // Auto-upgrade v1 → v2 in the response shape so the frontend never sees
-    // the legacy schema. Mirrors readSidecar's in-memory migration.
-    const approvedAt = sidecar.outline_approved_at ?? sidecar.outline_completed_at ?? null
     res.json({
       mode: sidecar.mode,
       total_chapters: sidecar.total_chapters,
       outline: sidecar.outline,
       outline_completed_at: sidecar.outline_completed_at,
-      outline_approved_at: approvedAt,
-      outline_edited_at: sidecar.outline_edited_at ?? null,
+      outline_approved_at: sidecar.outline_approved_at,
+      outline_edited_at: sidecar.outline_edited_at,
       chapters_done: sidecar.chapters_done || [],
     })
   } catch (e: any) {
@@ -259,12 +259,21 @@ router.put('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
     }
 
     const nowIso = new Date().toISOString()
+    // Approval-timestamp semantics: `approved: true` means "ensure this is
+    // approved", not "stamp approved-at = now". A silent autosave fired
+    // mid-edit on an already-approved outline used to bump the timestamp
+    // forward on every keystroke (the UI then showed "Approved 0m ago"
+    // forever). Preserve the original first-approval timestamp; only
+    // populate when transitioning from unapproved → approved.
+    const approvedAt = wantApproved
+      ? (existing.outline_approved_at ?? nowIso)
+      : (existing.outline_approved_at ?? null)
     const updated = {
       ...existing,
       schema_version: 2,
       outline: incoming,
       outline_edited_at: nowIso,
-      outline_approved_at: wantApproved ? nowIso : (existing.outline_approved_at ?? null),
+      outline_approved_at: approvedAt,
       last_updated: nowIso,
     }
     await writeJsonAtomic(sidecarFile, updated)

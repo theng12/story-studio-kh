@@ -310,7 +310,14 @@ const approvedAt = ref<string | null>(null)
 const editedAt = ref<string | null>(null)
 const loaded = ref(false)
 const saving = ref(false)
-const expanding = ref(false)
+// `postingExpand` is true only while the POST /generate/expand-chapters
+// request is in flight. Once the response lands the SSE-driven
+// `activeExpandJob` computed (below) takes over so the button stays
+// disabled until the expansion job actually completes — without that
+// chain, a user clicking Expand twice in 100ms would clear the local
+// flag on POST resolution and hit the backend's per-(episode, type)
+// 409 dedupe with a generic toast.
+const postingExpand = ref(false)
 const isDirty = ref(false)
 const justSaved = ref(false)
 const selectedNs = ref<number[]>([])
@@ -344,6 +351,28 @@ const canExpand = computed(() => !!approvedAt.value)
 const pendingCount = computed(() =>
   outline.value.filter(e => !chaptersDone.value.includes(e.n)).length,
 )
+
+// SSE-driven view of the queue: any chapter-only or expand_chapters job
+// for THIS episode that's still queued/running. Combined with the local
+// posting refs, this is what the buttons actually disable on — so once
+// the user clicks, the button stays disabled through POST + queue + run
+// + completion, not just POST.
+const activeExpandJob = computed(() =>
+  jobs.value.some(j =>
+    j.episode_id === props.episodeId
+    && j.type === 'expand_chapters'
+    && (j.status === 'queued' || j.status === 'running')),
+)
+const activeChapterOnlyChapter = computed<number | null>(() => {
+  const j = jobs.value.find(j =>
+    j.episode_id === props.episodeId
+    && j.type === 'chapter-only'
+    && (j.status === 'queued' || j.status === 'running'))
+  if (!j) return null
+  const n = Number((j.params as any)?.chapter_number)
+  return Number.isFinite(n) ? n : -1
+})
+const expanding = computed(() => postingExpand.value || activeExpandJob.value)
 
 function isChapterDone(n: number): boolean {
   return chaptersDone.value.includes(n)
@@ -484,7 +513,16 @@ async function loadOutline() {
     loaded.value = true
     isDirty.value = false
     justSaved.value = false
-    selectedNs.value = []
+    // Prune (don't wipe) selectedNs: keep selections of chapters that are
+    // still pending in the refreshed outline. Wiping on every refresh
+    // would delete the user's in-flight selection whenever an unrelated
+    // job-completion fires the relevant-jobs watcher. Episode switches
+    // still wipe via the watcher at the bottom of the file (which also
+    // resets expandedPreviews) before this loadOutline runs.
+    const validPending = new Set(
+      outline.value.filter(e => !chaptersDone.value.includes(e.n)).map(e => e.n),
+    )
+    selectedNs.value = selectedNs.value.filter(n => validPending.has(n))
     // Whenever any chapter is on disk, fetch the per-chapter stats so
     // the row-level "actual count" pill can render. Don't block the
     // outline render on it — the call runs in parallel.
@@ -641,7 +679,7 @@ async function postExpand(chapters: number[] | null): Promise<void> {
     // visible edits, not stale sidecar state.
     await saveEdits(/* silent */ true)
   }
-  expanding.value = true
+  postingExpand.value = true
   try {
     const body: any = {
       episode_id: props.episodeId,
@@ -662,7 +700,10 @@ async function postExpand(chapters: number[] | null): Promise<void> {
   } catch (e: any) {
     showError(e?.data?.detail || 'Could not queue expansion')
   } finally {
-    expanding.value = false
+    // Only the POST flag clears here — the SSE-driven `activeExpandJob`
+    // keeps `expanding` truthy until the queued job hits a terminal
+    // state, so the button stays disabled across the whole expansion.
+    postingExpand.value = false
   }
 }
 
@@ -681,11 +722,20 @@ function expandAll() { void postExpand(null) }
 //
 // Auto-saves any pending outline edits first so the regen prompt sees
 // the user's latest title / hook / facts, not the stale sidecar.
-const regenInFlight = ref<number | null>(null)
+//
+// `postingRegen` is the local POST-in-flight chapter; the SSE-derived
+// `activeChapterOnlyChapter` covers queued/running. Combined `regenInFlight`
+// keeps the row's spinner + button-disable state aligned with the actual
+// queue lifecycle so a fast second click on a different row doesn't sail
+// past the frontend gate and trip the backend's per-(episode, type) 409.
+const postingRegen = ref<number | null>(null)
+const regenInFlight = computed<number | null>(() =>
+  postingRegen.value ?? activeChapterOnlyChapter.value,
+)
 async function regenerateOne(n: number): Promise<void> {
   if (regenInFlight.value !== null) return
   if (isDirty.value) await saveEdits(/* silent */ true)
-  regenInFlight.value = n
+  postingRegen.value = n
 
   // Per-row word override on the outline entry wins over the form
   // default. Same precedence as ChapterListPanel + the batch prompt.
@@ -713,10 +763,10 @@ async function regenerateOne(n: number): Promise<void> {
   } catch (e: any) {
     showError(e?.data?.detail || `Failed to queue chapter ${n} regen`)
   } finally {
-    // The chapter-only job watcher already clears previewCache on done;
-    // we don't need to await terminal state here. Drop the in-flight
-    // flag so the user can immediately queue another row's regen.
-    regenInFlight.value = null
+    // POST is done. The SSE-derived computed takes over from here and
+    // keeps `regenInFlight` set until the chapter-only job hits done /
+    // error / cancelled.
+    postingRegen.value = null
   }
 }
 
@@ -725,14 +775,16 @@ async function regenerateOne(n: number): Promise<void> {
 onMounted(() => { void loadOutline() })
 
 watch(() => [props.episodeId, props.title, props.refreshKey], (next, prev) => {
-  // Episode switch: close any open preview drawers and wipe the cache
-  // — the previous episode's content doesn't belong here. refreshKey
-  // bumps don't switch episode, so we keep open drawers but clear
-  // their cache (the chapter content may have changed on disk).
+  // Episode switch: close any open preview drawers, wipe the cache, and
+  // drop any chapter selections from the previous episode (whose chapter
+  // numbers may not even exist in the new outline). refreshKey bumps
+  // don't switch episode, so we keep open drawers + selections but
+  // clear preview cache (the chapter content may have changed on disk).
   const prevEpisodeId = Array.isArray(prev) ? prev[0] : undefined
   const nextEpisodeId = Array.isArray(next) ? next[0] : undefined
   if (prevEpisodeId !== nextEpisodeId) {
     expandedPreviews.value = new Set()
+    selectedNs.value = []
   }
   clearPreviewCache()
   void loadOutline()

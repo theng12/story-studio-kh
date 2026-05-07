@@ -198,6 +198,39 @@ describe('PUT /outline — length validation', () => {
     assert.match(res.body.detail, /missing title/)
   })
 
+  test('preserves outline_approved_at across silent autosave with approved=true (1b)', async () => {
+    // First approval — outline_approved_at gets stamped to nowIso.
+    await createSidecar()
+    const full = Array.from({ length: TOTAL_CHAPTERS }, (_, i) => ({ n: i + 1, title: `t${i + 1}` }))
+    const first = await request(app)
+      .put(`/api/projects/${slug}/episodes/${EPISODE_ID}/outline?title=${encodeURIComponent(TITLE)}`)
+      .send({ outline: full, approved: true })
+    assert.equal(first.status, 200)
+    const firstApprovedAt = first.body.outline_approved_at
+    assert.ok(firstApprovedAt, 'first approval must populate outline_approved_at')
+
+    // Wait long enough that nowIso would change if the route bumped it.
+    await new Promise(r => setTimeout(r, 25))
+
+    // Subsequent silent autosave (a frontend keystroke + 600ms debounce
+    // re-fires saveEdits with `approved: !!approvedAt.value` === true).
+    // The route must NOT re-stamp outline_approved_at — otherwise the UI
+    // shows "Approved 0m ago" perpetually as the user keeps editing.
+    const edited = Array.from({ length: TOTAL_CHAPTERS }, (_, i) => ({ n: i + 1, title: `t${i + 1}-edited` }))
+    const second = await request(app)
+      .put(`/api/projects/${slug}/episodes/${EPISODE_ID}/outline?title=${encodeURIComponent(TITLE)}`)
+      .send({ outline: edited, approved: true })
+    assert.equal(second.status, 200)
+    assert.equal(second.body.outline_approved_at, firstApprovedAt,
+      'second PUT with approved=true must preserve the original approval timestamp')
+
+    // outline_edited_at MUST advance — that's the "last-edited" signal,
+    // not the approval timestamp.
+    assert.ok(second.body.outline_edited_at)
+    assert.notEqual(second.body.outline_edited_at, firstApprovedAt,
+      'outline_edited_at advances on each edit even when approved-at is preserved')
+  })
+
   test('preserves chapters_done + params_hash + total_chapters across edit (2d)', async () => {
     // Seed a sidecar with chapters_done populated so we can verify it survives.
     await fs.mkdir(scriptDir, { recursive: true })

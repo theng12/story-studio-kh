@@ -144,7 +144,26 @@ const { success, error: showError } = useToast()
 
 const chapters = ref<ChapterRow[]>([])
 const loading = ref(false)
-const regenInFlight = ref<number | null>(null)
+// `postingRegen` is the local POST-in-flight chapter; the SSE-derived
+// `activeChapterOnlyChapter` (below) covers queued/running. Combined
+// `regenInFlight` keeps the row's spinner + button-disable state aligned
+// with the actual queue lifecycle. Prior code cleared the in-flight ref
+// the moment the POST resolved, which let the user fire a second click
+// at a different row before the first job finished — the backend's
+// per-(episode, type) dedupe then 409'd with a generic toast.
+const postingRegen = ref<number | null>(null)
+const activeChapterOnlyChapter = computed<number | null>(() => {
+  const j = jobs.value.find(j =>
+    j.episode_id === props.episodeId
+    && j.type === 'chapter-only'
+    && (j.status === 'queued' || j.status === 'running'))
+  if (!j) return null
+  const n = Number((j.params as any)?.chapter_number)
+  return Number.isFinite(n) ? n : -1
+})
+const regenInFlight = computed<number | null>(() =>
+  postingRegen.value ?? activeChapterOnlyChapter.value,
+)
 // Per-chapter words_per_chapter overrides — populated from the form's
 // global default and overridden by the user inline. Sent on the regen
 // request so a single chapter can be re-rolled at a different length.
@@ -264,7 +283,7 @@ async function regenerate(num: number) {
   const wordTarget = (typeof inlineOverride === 'number' && Number.isFinite(inlineOverride) && inlineOverride > 0)
     ? Math.round(inlineOverride)
     : props.form?.words_per_chapter
-  regenInFlight.value = num
+  postingRegen.value = num
   try {
     await post(`/projects/${props.projectSlug}/generate/chapter-only`, {
       episode_id: props.episodeId,
@@ -283,7 +302,10 @@ async function regenerate(num: number) {
     )
   } catch (e: any) {
     showError(e?.data?.detail || `Failed to queue chapter ${num} regen`)
-    regenInFlight.value = null
+  } finally {
+    // POST done — SSE-derived `activeChapterOnlyChapter` keeps
+    // `regenInFlight` set across queue + run + completion.
+    postingRegen.value = null
   }
 }
 
@@ -315,18 +337,14 @@ watch(relevantJobsSignal, () => {
     const isRelevant = job.type === 'chapter-only' || job.type === 'expand_chapters'
     if (!isRelevant) continue
     if (job.status === 'done') {
-      // chapter-only fires the in-flight tracker reset; expand_chapters
-      // refresh applies regardless of whether a per-chapter regen was
-      // running. Either way the on-disk content just changed → clear
-      // the per-row preview cache so any open drawers refetch fresh
-      // content automatically.
-      if (job.type === 'chapter-only' && regenInFlight.value !== null) {
-        regenInFlight.value = null
-      }
+      // The on-disk content just changed → clear the per-row preview
+      // cache so any open drawers refetch fresh content automatically.
+      // `regenInFlight` no longer needs explicit reset here: it's a
+      // computed off jobs.value, so it falls back to null automatically
+      // once the chapter-only job leaves queued/running.
       clearPreviewCache()
       void refresh()
-    } else if (job.status === 'error' && job.type === 'chapter-only' && regenInFlight.value !== null) {
-      regenInFlight.value = null
+    } else if (job.status === 'error' && job.type === 'chapter-only') {
       showError('Chapter regenerate failed — see Jobs tab.')
     }
   }
