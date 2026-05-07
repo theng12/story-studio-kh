@@ -638,16 +638,52 @@ const { selectedEpisode, scriptReady } = useEpisodeStatus(
 )
 const noScriptTooltip = 'Generate the script first to unlock this generator.'
 
+// Authoritative chapter count for this episode comes from the chunked-progress
+// sidecar (set when outline_only / script-only built). The episode record's
+// `suggested_chapters` is only the IDEA-stage hint and goes stale the moment
+// the user regenerates an outline at a different count — e.g. the user-
+// reported case where EP0001 was generated as 7 from the idea, then expanded
+// to 20 chapters; image-prompts kept showing "~7 prompts" because it still
+// read the stale idea hint. The watcher below loads sidecar.total_chapters
+// per episode pick; the computed prefers it and only falls back to the idea
+// hint when no sidecar exists yet (pure idea-stage episode).
+const actualChapterCount = ref<number | null>(null)
+watch(
+  () => [selectedEpisode.value?.episode_code, selectedEpisode.value?.title] as [string?, string?],
+  async ([code, title]) => {
+    actualChapterCount.value = null
+    if (!code || !slug.value) return
+    try {
+      const titleParam = title ? `?title=${encodeURIComponent(title)}` : ''
+      const data = await get<{ total_chapters?: number }>(
+        `/projects/${slug.value}/episodes/${code}/outline${titleParam}`,
+      )
+      if (typeof data?.total_chapters === 'number' && data.total_chapters > 0) {
+        actualChapterCount.value = data.total_chapters
+      }
+    } catch {
+      // No sidecar yet (idea-stage episode, never had a script generated)
+      // — falls back to suggested_chapters in the computed below.
+    }
+  },
+  { immediate: true },
+)
+
 // Both sides coerced + NaN-guarded. Previously either a non-numeric
 // `suggested_chapters` from the ideas record OR an older preset that
 // restored `scenes_per_chapter` as undefined could land NaN here and
 // surface in the UI as "~NaN scenes / ~NaN prompts will be generated".
 const estimatedScenes = computed(() => {
-  const chapters = Number(selectedEpisode.value?.suggested_chapters)
+  // Real chapter count from the sidecar wins over the idea hint; idea
+  // hint is the fallback when no script exists yet.
+  const real = Number(actualChapterCount.value)
+  const suggested = Number(selectedEpisode.value?.suggested_chapters)
+  const chapters = Number.isFinite(real) && real > 0
+    ? real
+    : (Number.isFinite(suggested) && suggested > 0 ? suggested : 10)
   const perChapter = Number(form.scenes_per_chapter)
-  const safeChapters = Number.isFinite(chapters) && chapters > 0 ? chapters : 10
   const safePer = Number.isFinite(perChapter) && perChapter > 0 ? perChapter : 0
-  const total = safeChapters * safePer
+  const total = chapters * safePer
   return Number.isFinite(total) && total > 0 ? total : 0
 })
 
