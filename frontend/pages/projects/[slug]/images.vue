@@ -233,6 +233,29 @@
       </div>
 
       <div v-else class="flex items-center gap-2 flex-wrap">
+        <!-- Tier 1: outline ↔ prompts. Surfaces when the user changed the
+             title's listicle [N] (e.g. 7 → 20) and rebuilt the outline
+             but didn't re-run Image Prompts. Without this pill, Repair
+             would silently regenerate against the OLD prompt count,
+             leaving the user with images for 7 of 20 expected chapters
+             and burning credits to find out. -->
+        <span
+          v-if="promptsStaleVsOutline.stale"
+          class="integrity-pill warn"
+          :title="`The outline has ${promptsStaleVsOutline.chapterCount} chapters but only ${promptsStaleVsOutline.promptCount} scene prompts exist on disk. Regenerate Image Prompts at the new chapter count first — otherwise images will only cover ${promptsStaleVsOutline.promptCount} of the ${promptsStaleVsOutline.chapterCount} chapters.`"
+        >
+          ⚠ Prompts stale: {{ promptsStaleVsOutline.promptCount }} / {{ promptsStaleVsOutline.chapterCount }} chapters
+        </span>
+        <NuxtLink
+          v-if="promptsStaleVsOutline.stale"
+          :to="`/projects/${slug}/image-prompts`"
+          class="btn btn-sm btn-secondary"
+          title="Regenerate Image Prompts at the current chapter count before generating images."
+        >
+          Regenerate prompts →
+        </NuxtLink>
+
+        <!-- Tier 2: prompts ↔ on-disk images. Existing behaviour. -->
         <span v-if="imageStatus.scenes" class="integrity-pill" :class="imageStatus.scenes.missing.length ? 'warn' : 'ok'">
           <template v-if="imageStatus.scenes.missing.length === 0">✓ {{ imageStatus.scenes.total }} scenes present</template>
           <template v-else>⚠ {{ imageStatus.scenes.missing.length }} of {{ imageStatus.scenes.total }} scenes missing</template>
@@ -245,7 +268,10 @@
         <button
           v-if="imageStatus.hasMissing"
           class="btn btn-sm btn-secondary"
-          :disabled="submitting || generating"
+          :disabled="submitting || generating || promptsStaleVsOutline.stale"
+          :title="promptsStaleVsOutline.stale
+            ? 'Prompts are stale vs the outline — regenerate prompts first so the repair targets the right chapter count.'
+            : 'Re-submits the form for missing scenes/thumbnails. Existing files with content are skipped automatically.'"
           @click="repairMissing"
         >
           Repair missing ({{ imageStatus.totalMissing }})
@@ -530,7 +556,11 @@ onMounted(async () => {
 // is keyed by `${kind}-${number}` so scenes and thumbnails with the
 // same number don't collide.
 interface PromptRow { number: number; title?: string; prompt: string }
-const previewOpen = ref(false)
+// Preview card opens by default. Lazy-load is still single-fetch on first
+// expand (cheap docx parse), and starting open makes the prompts visible
+// before the user clicks Generate — main use case for the card. Click
+// the chevron to collapse if it gets in the way.
+const previewOpen = ref(true)
 const promptList = reactive<{
   loading: boolean
   error: string | null
@@ -590,6 +620,11 @@ function onPreviewToggle(): void {
 
 // Re-load prompts when the user switches episodes while the card is
 // open. Closed → no fetch (next open will lazy-load).
+// `immediate: true` so the initial episode (set from query params on
+// page mount, or pre-filled by EpisodeSelector) triggers the load
+// even though the card defaults to open — without immediate, the
+// open-by-default would render with an empty list until the user
+// re-selected the episode.
 watch(() => form.episode_id, () => {
   // Wipe per-prompt preview state too; the previous episode's renders
   // don't apply here.
@@ -598,7 +633,7 @@ watch(() => form.episode_id, () => {
   promptList.thumbnails = []
   promptList.error = null
   if (previewOpen.value && form.episode_id) void loadPrompts()
-})
+}, { immediate: true })
 
 async function renderPromptPreview(kind: 'scene' | 'thumbnail', row: PromptRow): Promise<void> {
   const key = previewKey(kind, row.number)
@@ -706,6 +741,46 @@ function getConfirmationType(): 'scene_images' | 'thumb_images' | 'images' {
 }
 
 // ── Image integrity pill ────────────────────────────────────────────────
+// Authoritative chapter count from the chunked-progress sidecar. Loaded
+// when the episode changes. Used by the integrity card to detect "stale
+// prompts" — i.e. the prompt docx has fewer entries than the outline
+// has chapters, which means the user regenerated the outline at a
+// different count (e.g. title's [N] flipped from 7 to 20) but didn't
+// re-run Image Prompts. Without this signal the integrity card would
+// happily say "✓ 7 scenes present" even though the user expects 20.
+const outlineChapterCount = ref<number | null>(null)
+async function loadOutlineChapterCount() {
+  outlineChapterCount.value = null
+  if (!form.episode_id || !slug.value) return
+  try {
+    const data = await get<{ total_chapters?: number }>(
+      `/projects/${slug.value}/episodes/${form.episode_id}/outline`,
+    )
+    if (typeof data?.total_chapters === 'number' && data.total_chapters > 0) {
+      outlineChapterCount.value = data.total_chapters
+    }
+  } catch {
+    // No sidecar yet — leave null so the integrity card just shows the
+    // existing prompt-vs-image comparison without the new tier.
+  }
+}
+
+// "Prompts are stale relative to outline" detector. True when:
+//   - We have an outline chapter count (sidecar present), AND
+//   - The scene-prompts docx has fewer entries than the outline's
+//     total_chapters.
+// When true, the integrity card surfaces a warning pill + a direct
+// link back to Image Prompts so the user regenerates prompts before
+// burning provider calls on a wrong-count batch. Triggered by, for
+// example, the user changing the title's listicle [N] from 7 → 20
+// and rebuilding the outline at 20 without rerunning prompts.
+const promptsStaleVsOutline = computed<{ stale: boolean; promptCount: number; chapterCount: number }>(() => {
+  const chapterCount = outlineChapterCount.value
+  const promptCount = imageStatus.scenes?.total ?? 0
+  if (!chapterCount || promptCount <= 0) return { stale: false, promptCount: 0, chapterCount: 0 }
+  return { stale: promptCount < chapterCount, promptCount, chapterCount }
+})
+
 // Fetches asset-status when episode changes. Repair just re-submits the
 // same form — `fileExistsWithContent` in the generator means existing
 // files are skipped, so only missing ones get regenerated.
@@ -951,9 +1026,11 @@ watch(() => form.episode_id, (v) => {
   if (v) {
     refreshImageStatus()
     void loadEditScan()
+    void loadOutlineChapterCount()
   } else {
     editScenes.value = []
     editThumbs.value = []
+    outlineChapterCount.value = null
   }
 }, { immediate: true })
 
