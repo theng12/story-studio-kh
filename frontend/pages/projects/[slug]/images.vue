@@ -555,6 +555,22 @@ const form = reactive({
   } as ReferenceSources,
 })
 
+// Hydrate the selected episode so child components + computeds can read
+// the human-readable title (resolveEpisodePaths needs it on the prompt-
+// list fetch and the Img2ImgReferencesCard threads it through to its
+// reference uploads). The Phase-4 image-to-image commit added
+// selectedEpisode references at lines 708 / 823 but forgot to actually
+// wire the composable that brings it into scope — flipping into img2img
+// mode threw "selectedEpisode is not defined" on the first render of
+// the references card.
+const episodeIdRef = computed(() => form.episode_id)
+const { selectedEpisode } = useEpisodeStatus(episodeIdRef, slug, {
+  // Refetch when an upstream script job lands so the page picks up the
+  // freshly-saved title without the user having to re-pick the episode
+  // from the dropdown (mirrors video.vue's pattern).
+  refetchOnJobTypes: ['script-only', 'expand_chapters'],
+})
+
 // Per-credit USD rate at kie.ai (1 credit = $0.005, verified across the
 // 2026-04-28 pricing-page audit). Plumbed here so the dropdown labels
 // + tier picker share one source of truth — change in one place if the
