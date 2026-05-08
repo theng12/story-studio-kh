@@ -595,15 +595,33 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
   if (provider === 'openai' && !config.openai_api_key) return res.status(400).json({ detail: 'No OpenAI key' })
   if (provider === 'kie' && !config.kie_api_key) return res.status(400).json({ detail: 'No kie.ai key' })
 
-  // Read narration for story context
+  // Read narration for story context AND derive the actual on-disk chapter
+  // count. Single mammoth parse via parseNarrationDocx so we don't pay two
+  // round-trips for what's effectively the same read.
+  //
+  // Why we need the chapter count: scenes_per_chapter * chapters drives the
+  // total scene count below. The previous code hard-coded 10 as the chapter
+  // multiplier, which produced the wrong target whenever the episode had
+  // any other chapter count — a 5-chapter Brainwise episode with
+  // scenes_per_chapter=2 was asking the LLM for 20 scenes against a story
+  // with only 5 chapters of context, and the model would sensibly return
+  // ~10 (what the source actually supports).
   const standards = await pm.getStandards(slug) || ''
   let storyContext = ''
+  let detectedChapterCount = 0
   try {
     const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-    const narrationPath = paths.narration_docx
-    const mammoth = await import('mammoth')
-    const result = await mammoth.default.extractRawText({ path: narrationPath })
-    storyContext = result.value.slice(0, 3000)
+    const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+    const sections = await parseNarrationDocx(paths.narration_docx)
+    detectedChapterCount = sections.filter(s => s.slug.startsWith('Chapter_')).length
+    // Concatenate chapter bodies for context, capped at 3000 chars to keep
+    // the prompt budget predictable. Excludes the Introduction section
+    // since the prompts are scene-level and shouldn't lean on intro tone.
+    const fullText = sections
+      .filter(s => s.slug !== 'Introduction')
+      .map(s => s.text)
+      .join('\n\n')
+    storyContext = fullText.slice(0, 3000)
   } catch {
     storyContext = `Episode: ${episode_id}, Title: ${title || 'Unknown'}`
   }
@@ -622,14 +640,22 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
   let sceneCount = 0
   let thumbs = 0
 
+  // Multiplier for scenes_per_chapter when total_scenes isn't supplied.
+  // Use the actual on-disk chapter count when we could detect it — falling
+  // back to 10 only when the narration couldn't be parsed (rare). Asking
+  // the LLM for `scenes_per_chapter × actual_chapters` keeps the request
+  // honest with the story's real length, so the toast count and the docx
+  // count line up afterwards.
+  const chaptersForSceneMath = detectedChapterCount > 0 ? detectedChapterCount : 10
+
   if (mode === 'thumbnails') {
     sceneCount = 0
     thumbs = thumb_count || 5
   } else if (mode === 'scenes') {
-    sceneCount = total_scenes || (scenes_per_chapter || 3) * 10
+    sceneCount = total_scenes || (scenes_per_chapter || 3) * chaptersForSceneMath
     thumbs = 0
   } else {
-    sceneCount = total_scenes || (scenes_per_chapter || 3) * 10
+    sceneCount = total_scenes || (scenes_per_chapter || 3) * chaptersForSceneMath
     thumbs = thumb_count || 5
   }
 
@@ -651,7 +677,17 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
 
   // Build requirements based on mode
   const requirements: string[] = []
-  if (sceneCount > 0) requirements.push(`Generate exactly ${sceneCount} scene prompts.`)
+  if (sceneCount > 0) {
+    // Spell out the per-chapter breakdown when we derived sceneCount from
+    // scenes_per_chapter × chapters. Helps the LLM allocate evenly across
+    // the actual chapter count instead of compressing into the chapters it
+    // happened to dwell on in the story-context snippet.
+    const showBreakdown = !total_scenes && scenes_per_chapter && detectedChapterCount > 0
+    const breakdown = showBreakdown
+      ? ` (${scenes_per_chapter} per chapter across ${detectedChapterCount} chapter${detectedChapterCount === 1 ? '' : 's'})`
+      : ''
+    requirements.push(`Generate exactly ${sceneCount} scene prompts${breakdown}.`)
+  }
   if (thumbs > 0) requirements.push(`Generate exactly ${thumbs} thumbnail prompts.`)
   requirements.push(`Every prompt must end with this style tag: "${style_tag}"`)
   requirements.push(`Every prompt must specify composition for ${ratioInstruction}.`)
@@ -694,6 +730,26 @@ No markdown, no commentary, just valid JSON.`
     const start = text.indexOf('{')
     const end = text.lastIndexOf('}')
     const parsed = JSON.parse(text.slice(start, end + 1))
+
+    // Surface short-returns server-side so a "the toast says 10 but I asked
+    // for 20" puzzle has a breadcrumb in the logs. The LLM occasionally
+    // ignores the "exactly N" instruction when the story context can't
+    // sustain that many distinct prompts; we don't error out (the user
+    // can always regenerate or bump scenes_per_chapter), just record it.
+    const returnedScenes = Array.isArray(parsed.scenes) ? parsed.scenes.length : 0
+    const returnedThumbs = Array.isArray(parsed.thumbnails) ? parsed.thumbnails.length : 0
+    if (sceneCount > 0 && returnedScenes < sceneCount) {
+      console.warn(
+        `[image-prompts] LLM returned ${returnedScenes} scene prompts; requested ${sceneCount}. ` +
+        `Episode: ${slug}/${episode_id}. Detected chapters: ${detectedChapterCount || 'unknown'}.`,
+      )
+    }
+    if (thumbs > 0 && returnedThumbs < thumbs) {
+      console.warn(
+        `[image-prompts] LLM returned ${returnedThumbs} thumbnail prompts; requested ${thumbs}. ` +
+        `Episode: ${slug}/${episode_id}.`,
+      )
+    }
 
     await trackGeneration(slug, 'prompts')
 
