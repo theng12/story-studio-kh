@@ -136,6 +136,78 @@
 
     </div>
 
+    <!-- ── Preview what will be generated ─────────────────────────────────
+         Read-only list of every scene + thumbnail prompt for this episode,
+         each with an inline "🖼️ Preview" button that renders a single
+         sample image of that exact prompt with the user's currently-
+         selected model + aspect + tier. Per-prompt cache keyed by
+         sha256(prompt+model+aspect+tier), so re-clicking the same combo
+         is free; switching any input invalidates and bills a fresh
+         render (~$0.005 on kie.ai).
+
+         Hidden until prompts exist on disk and the user expands the
+         card — keeps the page calm by default; the user opts in.
+    -->
+    <div v-if="form.episode_id" class="card mt-2" aria-labelledby="image-preview-heading">
+      <button
+        type="button"
+        class="preview-card-toggle"
+        :aria-expanded="previewOpen ? 'true' : 'false'"
+        @click="onPreviewToggle"
+      >
+        <span class="preview-card-icon" aria-hidden="true">{{ previewOpen ? '▾' : '▸' }}</span>
+        <h3 id="image-preview-heading" class="preview-card-title">
+          Preview what will be generated
+        </h3>
+        <span v-if="promptList.scenes.length || promptList.thumbnails.length" class="text-muted text-xs">
+          {{ promptList.scenes.length }} scene · {{ promptList.thumbnails.length }} thumbnail prompt(s) on disk
+        </span>
+      </button>
+      <p v-if="previewOpen" class="text-muted text-sm preview-card-blurb">
+        Inspect the prompts that will be sent to the image provider, and
+        render a single sample of any one to gut-check the visual style
+        before kicking off the full batch.
+        <strong>Cached app-wide</strong> by prompt + model + aspect + tier — same
+        combo across episodes / projects re-uses the cached render and
+        costs nothing.
+      </p>
+
+      <div v-if="previewOpen && promptList.loading" class="text-muted text-md">
+        <LoadingSpinner size="sm" /> Loading prompts…
+      </div>
+      <div v-else-if="previewOpen && promptList.error" class="text-muted text-md">
+        {{ promptList.error }}
+      </div>
+      <template v-else-if="previewOpen">
+        <ul v-if="promptList.scenes.length" class="preview-list" role="list">
+          <li class="preview-list-section">Scenes</li>
+          <li v-for="row in promptList.scenes" :key="`s-${row.number}`" class="preview-row">
+            <PreviewPromptRow
+              :row="row"
+              :prefix="'Scene'"
+              :state="previewState[previewKey('scene', row.number)] || null"
+              @preview="renderPromptPreview('scene', row)"
+            />
+          </li>
+        </ul>
+        <ul v-if="promptList.thumbnails.length" class="preview-list" role="list">
+          <li class="preview-list-section">Thumbnails</li>
+          <li v-for="row in promptList.thumbnails" :key="`t-${row.number}`" class="preview-row">
+            <PreviewPromptRow
+              :row="row"
+              :prefix="'Thumbnail'"
+              :state="previewState[previewKey('thumbnail', row.number)] || null"
+              @preview="renderPromptPreview('thumbnail', row)"
+            />
+          </li>
+        </ul>
+        <div v-if="!promptList.scenes.length && !promptList.thumbnails.length" class="text-muted text-md">
+          No prompts found yet. Generate them on the
+          <NuxtLink :to="`/projects/${slug}/image-prompts`">Image Prompts</NuxtLink> page first.
+        </div>
+      </template>
+    </div>
+
     <!-- Image integrity pill + Repair. Generators skip existing non-empty -->
     <!-- files natively, so Repair = re-submit the same form with force=false. -->
     <div v-if="form.episode_id" class="card mt-2" aria-labelledby="image-integrity-heading">
@@ -448,6 +520,127 @@ onMounted(async () => {
   await applyImageFormatDefaultsIfNoPreset()
   await imgPresets.load()
 })
+
+// ── Preview-what-will-be-generated card ─────────────────────────────────
+//
+// Lazy-loaded list of scene + thumbnail prompts (read-only) plus a
+// per-prompt preview state for the inline 🖼️ Preview buttons. The card
+// stays collapsed by default; opening it (or switching episodes while
+// open) triggers a single GET /image-prompts. Per-prompt preview state
+// is keyed by `${kind}-${number}` so scenes and thumbnails with the
+// same number don't collide.
+interface PromptRow { number: number; title?: string; prompt: string }
+const previewOpen = ref(false)
+const promptList = reactive<{
+  loading: boolean
+  error: string | null
+  scenes: PromptRow[]
+  thumbnails: PromptRow[]
+}>({ loading: false, error: null, scenes: [], thumbnails: [] })
+
+interface PreviewState {
+  loading: boolean
+  url: string | null
+  cached: boolean | null
+  hash: string | null
+  model_id: string | null
+  aspect_ratio: string | null
+  tier: string | null
+  error: string | null
+}
+const previewState = reactive<Record<string, PreviewState>>({})
+function previewKey(kind: 'scene' | 'thumbnail', number: number): string {
+  return `${kind}-${number}`
+}
+
+async function loadPrompts(): Promise<void> {
+  if (!form.episode_id || !slug.value) return
+  promptList.loading = true
+  promptList.error = null
+  promptList.scenes = []
+  promptList.thumbnails = []
+  try {
+    const data = await get<{ scenes: PromptRow[]; thumbnails: PromptRow[] }>(
+      `/projects/${slug.value}/episodes/${form.episode_id}/image-prompts`,
+    )
+    promptList.scenes = Array.isArray(data?.scenes) ? data.scenes : []
+    promptList.thumbnails = Array.isArray(data?.thumbnails) ? data.thumbnails : []
+  } catch (e: any) {
+    if (e?.status === 404) {
+      promptList.error = e?.data?.detail
+        || 'No prompts found yet. Generate them on the Image Prompts page first.'
+    } else {
+      promptList.error = e?.data?.detail || e?.message || 'Failed to load prompts'
+    }
+  } finally {
+    promptList.loading = false
+  }
+}
+
+function onPreviewToggle(): void {
+  previewOpen.value = !previewOpen.value
+  // Lazy-load on first open. The list itself is cheap (single docx
+  // parse) but we still avoid the round-trip until the user shows
+  // intent by expanding the card.
+  if (previewOpen.value && promptList.scenes.length === 0
+      && promptList.thumbnails.length === 0 && !promptList.loading) {
+    void loadPrompts()
+  }
+}
+
+// Re-load prompts when the user switches episodes while the card is
+// open. Closed → no fetch (next open will lazy-load).
+watch(() => form.episode_id, () => {
+  // Wipe per-prompt preview state too; the previous episode's renders
+  // don't apply here.
+  for (const k of Object.keys(previewState)) delete previewState[k]
+  promptList.scenes = []
+  promptList.thumbnails = []
+  promptList.error = null
+  if (previewOpen.value && form.episode_id) void loadPrompts()
+})
+
+async function renderPromptPreview(kind: 'scene' | 'thumbnail', row: PromptRow): Promise<void> {
+  const key = previewKey(kind, row.number)
+  if (previewState[key]?.loading) return
+  if (!previewState[key]) {
+    previewState[key] = {
+      loading: true, url: null, cached: null, hash: null,
+      model_id: null, aspect_ratio: null, tier: null, error: null,
+    }
+  } else {
+    previewState[key]!.loading = true
+    previewState[key]!.error = null
+  }
+  try {
+    const data = await post<{
+      hash: string; url: string; cached: boolean
+      model_id: string; aspect_ratio: string; tier: string
+      created_at: string; size_bytes: number
+    }>(`/projects/${slug.value}/preview-image`, {
+      prompt: row.prompt,
+      model: form.model,
+      aspect_ratio: form.aspect_ratio,
+      tier: form.tier || undefined,
+    })
+    previewState[key] = {
+      loading: false,
+      url: data.url,
+      cached: !!data.cached,
+      hash: data.hash,
+      model_id: data.model_id,
+      aspect_ratio: data.aspect_ratio,
+      tier: data.tier || null,
+      error: null,
+    }
+  } catch (e: any) {
+    previewState[key] = {
+      ...(previewState[key] as PreviewState),
+      loading: false,
+      error: e?.data?.detail || e?.message || 'Preview failed',
+    }
+  }
+}
 
 const modeTabs: Array<{ id: Mode; label: string; icon: string; hint: string }> = [
   { id: 'all',    label: 'Both',        icon: '🖼️', hint: 'Scenes + Thumbnails' },
@@ -809,6 +1002,45 @@ async function submit() {
 <style scoped>
 /* "Image integrity" card title and blurb beneath it. */
 .integrity-title { margin-bottom: 6px; }
+
+/* Preview-what-will-be-generated card header. Click target spans the
+   whole row (icon + title + on-disk count summary) so it's easy to
+   collapse / expand. */
+.preview-card-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+  text-align: left;
+}
+.preview-card-toggle:hover .preview-card-title { color: var(--accent); }
+.preview-card-icon { color: var(--text-muted); width: 14px; text-align: center; }
+.preview-card-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1 1 auto;
+}
+.preview-card-blurb { margin: 6px 0 12px; }
+.preview-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.preview-list-section {
+  margin-top: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.preview-list-section:first-child { margin-top: 0; }
+.preview-row { padding: 0; }
 .integrity-blurb { margin-bottom: 10px; }
 
 /* Edit-existing-images grid — section heading + tile grid. Tiles match
