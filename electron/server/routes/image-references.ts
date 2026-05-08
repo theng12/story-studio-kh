@@ -25,19 +25,48 @@ import { existsSync } from 'fs'
 import { Router } from 'express'
 import * as pm from '../services/project-manager.js'
 import { resolveEpisodePaths } from '../services/utils.js'
+import { resolveEpisodeDir } from '../lib/folder-resolver.js'
 
 export const router = Router()
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024 // 10 MB — img2img refs can be larger than char portraits.
 const MASTER_FILENAME = 'master.png'
 
-/** Build the per-episode references directory path + ensure it exists. */
-async function refsDir(slug: string, episodeId: string, title: string): Promise<string> {
+/**
+ * Resolve the per-episode references directory.
+ *
+ * Two subtleties matter here:
+ *
+ *   1. We resolve the episode folder by code-prefix lookup
+ *      (`resolveEpisodeDir`), not by computing it from the request's
+ *      `title`. If the user renamed the idea title and title-sync
+ *      didn't reach the disk, `resolveEpisodePaths` would point at a
+ *      brand-new "EP0001 - <new title>" path that doesn't exist on
+ *      disk — and `mkdir(recursive)` would happily create it as a
+ *      sibling of the real folder, scattering refs across two
+ *      locations. Looking up by the `${code} - ` prefix sidesteps
+ *      that whole class of stale-title duplicates.
+ *
+ *   2. `create` defaults to false. The GET listing + GET file routes
+ *      simply READ refs that may or may not exist; they should never
+ *      have the side effect of leaving an empty `img2img-references/`
+ *      folder behind just because the user opened the Image → Image
+ *      tab to look. Only the POST upload paths flip create=true since
+ *      they're about to write a file there.
+ */
+async function refsDir(
+  slug: string,
+  episodeId: string,
+  title: string,
+  opts: { create?: boolean } = {},
+): Promise<string> {
   const paths = await resolveEpisodePaths(slug, episodeId, title || '')
-  // Episode dir comes from resolveEpisodePaths; references live alongside
-  // other episode artifacts (script_dir, audio_dir, etc.).
-  const dir = path.join(paths.episode_dir, 'img2img-references')
-  await fs.mkdir(dir, { recursive: true })
+  let episodeDir = paths.episode_dir.replace(/\/$/, '')
+  const seasonDir = path.dirname(episodeDir)
+  const actualDir = await resolveEpisodeDir(seasonDir, episodeId)
+  if (actualDir) episodeDir = actualDir
+  const dir = path.join(episodeDir, 'img2img-references')
+  if (opts.create) await fs.mkdir(dir, { recursive: true })
   return dir
 }
 
@@ -58,7 +87,7 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/master', asy
     if (!project) return res.status(404).json({ detail: 'Project not found' })
     const buf = decodeUploadBuffer(req.body)
     if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
-    const dir = await refsDir(slug, episodeId, titleParam)
+    const dir = await refsDir(slug, episodeId, titleParam, { create: true })
     const target = path.join(dir, MASTER_FILENAME)
     await fs.writeFile(target, buf.data)
     res.json({
@@ -84,7 +113,7 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/scene/:n', a
     if (!project) return res.status(404).json({ detail: 'Project not found' })
     const buf = decodeUploadBuffer(req.body)
     if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
-    const dir = await refsDir(slug, episodeId, titleParam)
+    const dir = await refsDir(slug, episodeId, titleParam, { create: true })
     const filename = sceneFilename(n)
     await fs.writeFile(path.join(dir, filename), buf.data)
     res.json({
