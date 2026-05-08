@@ -268,7 +268,7 @@ export async function generateImages(job: Job): Promise<void> {
    * reference image attached to matching characters. Empty array when no
    * names appear — provider call goes through text-only.
    */
-  function resolveSceneReferenceImages(promptText: string): string[] {
+  function resolveCharacterReferenceImages(promptText: string): string[] {
     const matched = findReferencedCharacters(promptText, castWithRefs)
     if (!matched.length) return []
     const out: string[] = []
@@ -284,6 +284,74 @@ export async function generateImages(job: Job): Promise<void> {
       }
     }
     return out
+  }
+
+  // ── Image-to-image multi-source reference resolution ───────────────────
+  //
+  // When req.image_mode === 'img2img', the user has opted in to driving
+  // image generation with reference images instead of text-only prompts.
+  // Reference paths come from up to four configurable sources, all of
+  // which stack additively (they're independent toggles in the UI):
+  //
+  //   1. Master ref:  one image at <episode_dir>/img2img-references/master.png
+  //                   sent as a reference for every scene.
+  //   2. Per-scene:   <episode_dir>/img2img-references/scene-NN.png — one
+  //                   image per scene, overrides nothing else (stacks).
+  //   3. Characters:  the same Phase 8 auto-detection that text2img uses
+  //                   (always on in img2img mode by default; can be toggled
+  //                   off via reference_sources.characters: false).
+  //   4. Chain mode:  scene N's previously-rendered output (bgDir/{stem}_v1.png)
+  //                   becomes a reference for scene N+1. Forces serial
+  //                   execution since scene N+1 depends on scene N's render.
+  //
+  // The combined list is passed to imageProvider.generateImage's
+  // referenceImagePaths; the provider silently ignores it for models that
+  // don't declare supports_reference_images, so misconfigured (text-only)
+  // models running in img2img mode just produce text2img output (the UI
+  // already filters the model dropdown to img2img-capable models, but
+  // we're defensive here in case the request comes from elsewhere).
+  const imageMode = (req as any).image_mode === 'img2img' ? 'img2img' : 'text2img'
+  const refSourcesRaw = (req as any).reference_sources || {}
+  const refSources = {
+    master: imageMode === 'img2img' && !!refSourcesRaw.master,
+    per_scene: imageMode === 'img2img' && !!refSourcesRaw.per_scene,
+    // Characters defaults to ON in img2img mode (matches the default the UI
+    // toggles when the user enters img2img mode). text2img path is
+    // unchanged — character refs are auto-attached as today.
+    characters: imageMode === 'img2img' ? refSourcesRaw.characters !== false : true,
+    chain: imageMode === 'img2img' && !!refSourcesRaw.chain,
+  }
+
+  function img2imgRefsDir(): string {
+    return path.join(resolvedEpDir, 'img2img-references')
+  }
+  function masterRefPath(): string {
+    return path.join(img2imgRefsDir(), 'master.png')
+  }
+  function perSceneRefPath(n: number): string {
+    return path.join(img2imgRefsDir(), `scene-${String(n).padStart(2, '0')}.png`)
+  }
+  function previousSceneRenderPath(n: number): string | null {
+    if (n <= 1) return null
+    const stem = `${episode_id.toUpperCase()}_Scene${(n - 1).toString().padStart(2, '0')}`
+    return path.join(bgDir, `${stem}_v1.png`)
+  }
+
+  /** Resolve every reference image path for a scene given the configured
+   *  sources. Stacks additively; missing files are silently skipped. */
+  function resolveSceneReferenceImages(scene: { number: number; prompt: string }): string[] {
+    const out: string[] = []
+    if (refSources.master && existsSync(masterRefPath())) out.push(masterRefPath())
+    if (refSources.per_scene && existsSync(perSceneRefPath(scene.number))) {
+      out.push(perSceneRefPath(scene.number))
+    }
+    if (refSources.characters) out.push(...resolveCharacterReferenceImages(scene.prompt))
+    if (refSources.chain) {
+      const prev = previousSceneRenderPath(scene.number)
+      if (prev && existsSync(prev)) out.push(prev)
+    }
+    // De-dup in case the same character image gets attached multiple ways.
+    return Array.from(new Set(out))
   }
 
   /**
@@ -396,7 +464,10 @@ export async function generateImages(job: Job): Promise<void> {
       }
     }
     try {
-      const referenceImagePaths = resolveSceneReferenceImages(scene.prompt)
+      // Multi-source reference resolution. text2img mode → only character
+      // refs (Phase 8 default); img2img mode → master + per-scene + chars
+      // + chain depending on the user's reference_sources toggles.
+      const referenceImagePaths = resolveSceneReferenceImages(scene)
       const styleKeywords = resolveSceneStyleKeywords(scene.prompt)
       const finalPrompt = applyStyleKeywords(scene.prompt, styleKeywords)
       const result = await imageProvider!.generateImage({
@@ -473,7 +544,14 @@ export async function generateImages(job: Job): Promise<void> {
       // confuse the name detector. Style keywords get appended to the
       // already-enhanced prompt so they ride alongside the title overlay
       // instructions, not before them.
-      const referenceImagePaths = resolveSceneReferenceImages(thumb.prompt)
+      // For thumbnails, multi-source img2img refs use the same resolver
+      // — master + chars stack additively. Per-scene refs use the thumb
+      // number bucket, chain mode reads thumb N-1's render. Most users
+      // will only set master + chars for thumbnails since chain
+      // continuity matters less for a 1-shot title card.
+      const referenceImagePaths = resolveSceneReferenceImages({
+        number: thumb.number, prompt: thumb.prompt,
+      })
       const styleKeywords = resolveSceneStyleKeywords(thumb.prompt)
       const finalPrompt = applyStyleKeywords(enhanced, styleKeywords)
       const result = await imageProvider!.generateImage({
@@ -537,12 +615,29 @@ export async function generateImages(job: Job): Promise<void> {
     if (req.scene_number) filteredScenes = filteredScenes.filter(s => s.number === req.scene_number)
     totalToProcess = filteredScenes.length
     processed = 0
-    job.output_lines.push(
-      `Generating ${filteredScenes.length} scene image(s) with concurrency=${concurrency}` +
-      (launchStaggerMs > 0 ? `, launch stagger ${launchStaggerMs}ms` : '') +
-      '...',
-    )
-    await runPool(filteredScenes, runScene)
+    // Chain mode forces serial execution because scene N+1 reads scene
+    // N's rendered output as one of its references. Pool would fire
+    // them in parallel and the chain reference would be missing on
+    // every scene whose prior scene hadn't finished yet. Sort by
+    // chapter number to make the chain dependency well-defined.
+    const useChain = imageMode === 'img2img' && refSources.chain
+    if (useChain) {
+      filteredScenes = [...filteredScenes].sort((a, b) => a.number - b.number)
+      job.output_lines.push(
+        `Generating ${filteredScenes.length} scene image(s) SERIALLY (chain mode — each scene's render seeds the next)…`,
+      )
+      for (const scene of filteredScenes) {
+        if (jq.isCancelled(job.job_id)) break
+        await runScene(scene)
+      }
+    } else {
+      job.output_lines.push(
+        `Generating ${filteredScenes.length} scene image(s) with concurrency=${concurrency}` +
+        (launchStaggerMs > 0 ? `, launch stagger ${launchStaggerMs}ms` : '') +
+        '...',
+      )
+      await runPool(filteredScenes, runScene)
+    }
   }
 
   // Thumbnail images

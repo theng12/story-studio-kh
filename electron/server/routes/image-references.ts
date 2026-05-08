@@ -1,0 +1,211 @@
+/**
+ * Image-to-image reference uploads for /projects/:slug/images.
+ *
+ *   POST   /api/projects/:slug/episodes/:id/img2img-references/master
+ *   POST   /api/projects/:slug/episodes/:id/img2img-references/scene/:n
+ *     body: { filename, data_base64 }
+ *     Saves the decoded PNG to <episode_dir>/img2img-references/.
+ *     Mirrors the base64-in-JSON pattern characters.ts uses (no
+ *     multipart parser dependency).
+ *
+ *   DELETE /api/projects/:slug/episodes/:id/img2img-references/master
+ *   DELETE /api/projects/:slug/episodes/:id/img2img-references/scene/:n
+ *
+ *   GET    /api/projects/:slug/episodes/:id/img2img-references
+ *     Returns: { master?: { url, size_bytes }, scenes: [{ number, url, size_bytes }] }
+ *     Lets the UI re-render drop-zones with previews after navigation.
+ *
+ *   GET    /api/projects/:slug/episodes/:id/img2img-references/file/:filename
+ *     Streams the raw PNG so the renderer can drop the URL into <img>.
+ */
+
+import path from 'path'
+import fs from 'fs/promises'
+import { existsSync } from 'fs'
+import { Router } from 'express'
+import * as pm from '../services/project-manager.js'
+import { resolveEpisodePaths } from '../services/utils.js'
+
+export const router = Router()
+
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024 // 10 MB — img2img refs can be larger than char portraits.
+const MASTER_FILENAME = 'master.png'
+
+/** Build the per-episode references directory path + ensure it exists. */
+async function refsDir(slug: string, episodeId: string, title: string): Promise<string> {
+  const paths = await resolveEpisodePaths(slug, episodeId, title || '')
+  // Episode dir comes from resolveEpisodePaths; references live alongside
+  // other episode artifacts (script_dir, audio_dir, etc.).
+  const dir = path.join(paths.episode_dir, 'img2img-references')
+  await fs.mkdir(dir, { recursive: true })
+  return dir
+}
+
+function sceneFilename(n: number): string {
+  return `scene-${String(n).padStart(2, '0')}.png`
+}
+
+function fileUrl(slug: string, episodeId: string, filename: string): string {
+  return `/api/projects/${slug}/episodes/${episodeId}/img2img-references/file/${encodeURIComponent(filename)}`
+}
+
+// ── POST master ──────────────────────────────────────────────────────────
+router.post('/projects/:slug/episodes/:episodeId/img2img-references/master', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const titleParam = (req.body?.title as string | undefined) || (req.query.title as string) || ''
+  try {
+    const project = await pm.getProject(slug)
+    if (!project) return res.status(404).json({ detail: 'Project not found' })
+    const buf = decodeUploadBuffer(req.body)
+    if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
+    const dir = await refsDir(slug, episodeId, titleParam)
+    const target = path.join(dir, MASTER_FILENAME)
+    await fs.writeFile(target, buf.data)
+    res.json({
+      ok: true,
+      url: fileUrl(slug, episodeId, MASTER_FILENAME),
+      size_bytes: buf.data.length,
+    })
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to save master reference' })
+  }
+})
+
+// ── POST per-scene ───────────────────────────────────────────────────────
+router.post('/projects/:slug/episodes/:episodeId/img2img-references/scene/:n', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const n = Number(req.params.n)
+  if (!Number.isFinite(n) || n < 1 || n > 999) {
+    return res.status(400).json({ detail: 'invalid scene number' })
+  }
+  const titleParam = (req.body?.title as string | undefined) || (req.query.title as string) || ''
+  try {
+    const project = await pm.getProject(slug)
+    if (!project) return res.status(404).json({ detail: 'Project not found' })
+    const buf = decodeUploadBuffer(req.body)
+    if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
+    const dir = await refsDir(slug, episodeId, titleParam)
+    const filename = sceneFilename(n)
+    await fs.writeFile(path.join(dir, filename), buf.data)
+    res.json({
+      ok: true,
+      number: n,
+      url: fileUrl(slug, episodeId, filename),
+      size_bytes: buf.data.length,
+    })
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to save scene reference' })
+  }
+})
+
+// ── DELETE master ────────────────────────────────────────────────────────
+router.delete('/projects/:slug/episodes/:episodeId/img2img-references/master', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const titleParam = (req.query.title as string) || ''
+  try {
+    const dir = await refsDir(slug, episodeId, titleParam)
+    const target = path.join(dir, MASTER_FILENAME)
+    if (existsSync(target)) await fs.rm(target)
+    res.json({ ok: true })
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to delete master reference' })
+  }
+})
+
+// ── DELETE per-scene ─────────────────────────────────────────────────────
+router.delete('/projects/:slug/episodes/:episodeId/img2img-references/scene/:n', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const n = Number(req.params.n)
+  if (!Number.isFinite(n) || n < 1 || n > 999) {
+    return res.status(400).json({ detail: 'invalid scene number' })
+  }
+  const titleParam = (req.query.title as string) || ''
+  try {
+    const dir = await refsDir(slug, episodeId, titleParam)
+    const target = path.join(dir, sceneFilename(n))
+    if (existsSync(target)) await fs.rm(target)
+    res.json({ ok: true })
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to delete scene reference' })
+  }
+})
+
+// ── GET listing ──────────────────────────────────────────────────────────
+router.get('/projects/:slug/episodes/:episodeId/img2img-references', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const titleParam = (req.query.title as string) || ''
+  try {
+    const dir = await refsDir(slug, episodeId, titleParam)
+    let entries: string[] = []
+    try { entries = await fs.readdir(dir) } catch { entries = [] }
+    const out: {
+      master?: { url: string; size_bytes: number }
+      scenes: { number: number; url: string; size_bytes: number }[]
+    } = { scenes: [] }
+    for (const name of entries) {
+      const abs = path.join(dir, name)
+      let size = 0
+      try { size = (await fs.stat(abs)).size } catch { /* skip */ }
+      if (name === MASTER_FILENAME) {
+        out.master = { url: fileUrl(slug, episodeId, name), size_bytes: size }
+      } else {
+        const m = name.match(/^scene-(\d+)\.png$/)
+        if (m) {
+          out.scenes.push({
+            number: parseInt(m[1]!, 10),
+            url: fileUrl(slug, episodeId, name),
+            size_bytes: size,
+          })
+        }
+      }
+    }
+    out.scenes.sort((a, b) => a.number - b.number)
+    res.json(out)
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to list references' })
+  }
+})
+
+// ── GET single file (raw PNG) ────────────────────────────────────────────
+router.get('/projects/:slug/episodes/:episodeId/img2img-references/file/:filename', async (req, res) => {
+  const { slug, episodeId, filename } = req.params
+  // Restrict to known filename shapes to block path traversal.
+  if (filename !== MASTER_FILENAME && !/^scene-\d+\.png$/.test(filename)) {
+    return res.status(400).json({ detail: 'Invalid reference filename' })
+  }
+  const titleParam = (req.query.title as string) || ''
+  try {
+    const dir = await refsDir(slug, episodeId, titleParam)
+    const abs = path.join(dir, filename)
+    if (!existsSync(abs)) return res.status(404).json({ detail: 'Reference not found' })
+    res.setHeader('Cache-Control', 'private, max-age=60')
+    res.setHeader('Content-Type', 'image/png')
+    res.sendFile(path.resolve(abs))
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to load reference' })
+  }
+})
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+function decodeUploadBuffer(body: any):
+  | { ok: true; data: Buffer }
+  | { ok: false; status: number; detail: string }
+{
+  if (!body || typeof body !== 'object') {
+    return { ok: false, status: 400, detail: 'JSON body required' }
+  }
+  const data_base64 = typeof body.data_base64 === 'string' ? body.data_base64 : ''
+  if (!data_base64) return { ok: false, status: 400, detail: 'data_base64 is required' }
+  let buf: Buffer
+  try { buf = Buffer.from(data_base64, 'base64') }
+  catch { return { ok: false, status: 400, detail: 'invalid base64 payload' } }
+  if (buf.length === 0) return { ok: false, status: 400, detail: 'decoded image is empty' }
+  if (buf.length > MAX_IMAGE_BYTES) {
+    return {
+      ok: false, status: 413,
+      detail: `Image too large (${buf.length} bytes, max ${MAX_IMAGE_BYTES})`,
+    }
+  }
+  return { ok: true, data: buf }
+}

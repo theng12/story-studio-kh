@@ -26,8 +26,28 @@
 
     <p class="text-muted mt-1 mb-2">Generate scene and thumbnail artwork from your prompts via kie.ai.</p>
 
-    <!-- Mode tabs — replaces three separate pages -->
-    <div class="mode-tabs mt-3" role="tablist" aria-label="Image generation mode">
+    <!-- Image mode tabs (Text → Image vs Image → Image). Mirrors the
+         video page's Text→Video / Image→Video pattern. Default is
+         text2img — the existing flow, unchanged. img2img surfaces an
+         additional reference-sources card and filters the model
+         dropdown to img2img-capable models. -->
+    <div class="mode-tabs mt-3" role="tablist" aria-label="Image generation pipeline">
+      <button
+        v-for="tab in imageModeTabs" :key="tab.id"
+        :class="['mode-tab', { active: form.image_mode === tab.id }]"
+        role="tab"
+        :aria-selected="form.image_mode === tab.id"
+        @click="selectImageMode(tab.id)"
+      >
+        <span class="mode-tab-icon" aria-hidden="true">{{ tab.icon }}</span>
+        <span class="mode-tab-label">{{ tab.label }}</span>
+        <span class="mode-tab-hint">{{ tab.hint }}</span>
+      </button>
+    </div>
+
+    <!-- Sub-mode tabs (scenes / thumbnails / both) — independent of
+         image_mode; both apply within whichever pipeline is selected. -->
+    <div class="mode-tabs mt-2" role="tablist" aria-label="Image generation mode">
       <button
         v-for="tab in modeTabs" :key="tab.id"
         :class="['mode-tab', { active: form.mode === tab.id }]"
@@ -54,6 +74,16 @@
           </select>
           <span v-if="form.mode === 'thumbs'" class="text-muted text-xs">
             Tip: Use a higher-quality model for eye-catching thumbnails
+          </span>
+          <!-- Img2img mode: warn the user when their current model can't
+               actually consume references — kie.ai silently ignores the
+               field on text-only models, which would look like img2img
+               mode "doing nothing." -->
+          <span v-if="form.image_mode === 'img2img' && !currentModelSupportsRefs"
+                class="text-danger text-xs"
+                title="In Image → Image mode this model will silently ignore reference images and behave as text-to-image. Pick a model with reference support (Flux Kontext, Nano Banana, Qwen Image 2, GPT Image 2)."
+          >
+            ⚠ This model doesn't support reference images — pick one of the img2img-capable models above.
           </span>
         </div>
 
@@ -135,6 +165,20 @@
       </div>
 
     </div>
+
+    <!-- ── Image-to-image reference sources ───────────────────────────────
+         Only mounts in img2img mode. Surfaces the four configurable
+         reference sources (master / per-scene / characters / chain)
+         + the upload UI for the file-backed sources. Toggles bind to
+         form.reference_sources which is sent to the backend on submit. -->
+    <Img2ImgReferencesCard
+      v-if="form.image_mode === 'img2img' && form.episode_id"
+      :project-slug="slug"
+      :episode-id="form.episode_id"
+      :title="ep2imgTitle"
+      :value="form.reference_sources"
+      @update:value="form.reference_sources = $event"
+    />
 
     <!-- ── Style Preview card ──────────────────────────────────────────────
          Free-form "what does THIS style look like?" sample render, using
@@ -438,7 +482,34 @@ const { config } = useProject()
 
 // All image models currently go via kie.ai. Grouping future-proofs the
 // dropdown for when a second provider is added.
-const imageModelGroups = computed(() => groupModels(config.value?.image_models, () => 'kie'))
+//
+// In img2img mode we filter to models that declare
+// supports_reference_images: true in their config — others would
+// silently ignore the references and produce text2img output, which
+// is misleading. Inventory of supporting models from
+// electron/server/models/defaults.ts: flux-kontext-pro, flux-kontext-max,
+// qwen-image-2, nano-banana, gpt-image-2, nano-banana-2, nano-banana-pro.
+const imageModelGroups = computed(() => {
+  const all = groupModels(config.value?.image_models, () => 'kie')
+  if (form.image_mode !== 'img2img') return all
+  return all.map(g => ({
+    ...g,
+    items: g.items.filter((m: any) => {
+      const cfg = (config.value?.image_models || {} as any)[m.id]
+      const params = cfg?.provider_params || cfg
+      return params?.supports_reference_images === true
+    }),
+  })).filter(g => g.items.length > 0)
+})
+
+// Surface a hint when the user's currently-selected model isn't in the
+// img2img-eligible list, so they aren't surprised by silent text2img
+// fallback. Read from the same supports_reference_images flag.
+const currentModelSupportsRefs = computed(() => {
+  const cfg = (config.value?.image_models || {} as any)[form.model]
+  const params = cfg?.provider_params || cfg
+  return params?.supports_reference_images === true
+})
 const { success, error: showError } = useToast()
 const { imageGenerating, thumbImageGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
@@ -447,6 +518,9 @@ const submitting = ref(false)
 const specificNum = ref<number | null>(null)
 
 type Mode = 'all' | 'scenes' | 'thumbs'
+
+type ImageMode = 'text2img' | 'img2img'
+interface ReferenceSources { master: boolean; per_scene: boolean; characters: boolean; chain: boolean }
 
 const form = reactive({
   episode_id: '',
@@ -463,6 +537,22 @@ const form = reactive({
   // ideogram-v3 turbo/balanced/quality, etc.). Flat-priced models ignore
   // this. Reset on model switch via the watcher below.
   tier: '' as string,
+  // Image-to-image pipeline (Phase 4). Default text2img preserves
+  // every prior behaviour exactly. img2img surfaces the references
+  // card and forwards reference_sources to the backend so the
+  // generator can resolve master / per-scene / character / chain
+  // refs and pass them through to provider.generateImage's
+  // referenceImagePaths.
+  image_mode: 'text2img' as ImageMode,
+  reference_sources: {
+    // master + per_scene off by default — they require the user to
+    // upload images. characters defaults ON (matches Phase 8 default).
+    // chain off by default — it forces serial execution.
+    master: false,
+    per_scene: false,
+    characters: true,
+    chain: false,
+  } as ReferenceSources,
 })
 
 // Per-credit USD rate at kie.ai (1 credit = $0.005, verified across the
@@ -710,6 +800,27 @@ const modeTabs: Array<{ id: Mode; label: string; icon: string; hint: string }> =
   { id: 'scenes', label: 'Scenes',      icon: '🎬', hint: 'Story artwork only' },
   { id: 'thumbs', label: 'Thumbnails',  icon: '📸', hint: 'YouTube thumbnails only' },
 ]
+
+// Image pipeline mode tabs (Text → Image vs Image → Image).
+// text2img is the existing flow, default. img2img surfaces the
+// references card + filters the model dropdown to ref-supporting
+// models. Both produce the same scene + thumbnail PNGs at the
+// same paths, so downstream stages (audio / video assembly) don't
+// care which pipeline was used.
+const imageModeTabs: Array<{ id: ImageMode; label: string; icon: string; hint: string }> = [
+  { id: 'text2img', label: 'Text → Image', icon: '✏️',
+    hint: 'Prompt-only generation (default).' },
+  { id: 'img2img',  label: 'Image → Image', icon: '🔁',
+    hint: 'Reference images guide each scene — continuity + character consistency.' },
+]
+function selectImageMode(m: ImageMode) {
+  form.image_mode = m
+}
+
+// Friendly title fed to the references card so the backend can resolve
+// the right episode folder. Falls back to '' when no episode picked
+// (the card is only mounted when episode_id is set anyway).
+const ep2imgTitle = computed(() => selectedEpisode.value?.title || '')
 
 const aspectRatios = computed(() => {
   if (form.mode === 'thumbs') {
@@ -1078,6 +1189,16 @@ async function submit() {
   // ignore the field server-side, but sending it would clutter the request
   // log + the cost-confirmation receipt with a meaningless ' · ' suffix.
   if (form.tier) params.tier = form.tier
+
+  // Image-to-image plumbing. Default text2img mode sends nothing extra —
+  // the backend's resolveSceneReferenceImages then operates as it has
+  // for the existing flow. img2img mode forwards the explicit pipeline
+  // marker + the four-toggle reference_sources object so the generator
+  // can resolve master / per-scene / characters / chain refs.
+  if (form.image_mode === 'img2img') {
+    params.image_mode = 'img2img'
+    params.reference_sources = { ...form.reference_sources }
+  }
 
   // Send the right optional # field per mode
   if (specificNum.value) {
