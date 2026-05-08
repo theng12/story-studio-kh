@@ -111,7 +111,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
   // production — keeps the preview faithful to the eventual renders.
   const prompt = `${styleTag}. ${BASELINE_SCENE}`
 
-  let urls: string[] = []
+  let urls: string[]
   try {
     const result = await imageProvider.generateImage({
       prompt, apiKey, aspectRatio, modelId: modelName, providerParams,
