@@ -62,6 +62,13 @@ Thumbs.db
 .claude/scheduled_tasks.lock
 .claude/launch.json
 
+# Soft-deleted Claude Code worktrees parked in _trash/. Each is a full
+# source-tree checkout (50+ MB), so we keep them on disk for inspection
+# but never commit — repo bloat would be enormous. Snippets in
+# _trash/snippets/ describe what each one was for and the table in
+# _trash/README.md tracks the move.
+_trash/.claude/worktrees/
+
 # Environment
 .env
 .env.local
