@@ -136,6 +136,20 @@
 
     </div>
 
+    <!-- ── Style Preview card ──────────────────────────────────────────────
+         Free-form "what does THIS style look like?" sample render, using
+         the model + aspect + tier picked above. Episode-independent —
+         visible without picking an episode. Cached app-wide by
+         sha256(style + model + aspect + tier); re-clicking the same combo
+         is free, switching any input bills a fresh render once. -->
+    <StylePreviewCard
+      :project-slug="slug"
+      :model="form.model"
+      :aspect-ratio="form.aspect_ratio"
+      :tier="form.tier"
+      :model-label="modelLabelForStylePreview"
+    />
+
     <!-- ── Preview what will be generated ─────────────────────────────────
          Read-only list of every scene + thumbnail prompt for this episode,
          each with an inline "🖼️ Preview" button that renders a single
@@ -485,6 +499,13 @@ const modelTiers = computed<{ id: string; label: string; credits: number }[]>(()
   const m = config.value?.image_models?.[form.model] as any
   return Array.isArray(m?.tiers) ? m.tiers : []
 })
+
+// Friendly model label for the StylePreviewCard's blurb. Falls back to
+// the model id when the config doesn't have a label.
+const modelLabelForStylePreview = computed(() => {
+  const m = config.value?.image_models?.[form.model] as any
+  return (m?.label as string) || form.model || ''
+})
 const modelTierLabel = computed(() => {
   // Naming the picker by axis: "Resolution" if tier ids look like 1k/2k/4k,
   // "Quality" for turbo/balanced/quality, generic "Tier" otherwise. Keeps
@@ -590,8 +611,15 @@ async function loadPrompts(): Promise<void> {
   promptList.scenes = []
   promptList.thumbnails = []
   try {
+    // Title param is required for resolveEpisodePaths to find the right
+    // folder — without it the backend builds a path with an empty {title}
+    // slot ("Season 001/EP0001 - /…") that doesn't match the actual
+    // on-disk folder name. Cause of the empty-card bug.
+    const titleParam = selectedEpisode.value?.title
+      ? `?title=${encodeURIComponent(selectedEpisode.value.title)}`
+      : ''
     const data = await get<{ scenes: PromptRow[]; thumbnails: PromptRow[] }>(
-      `/projects/${slug.value}/episodes/${form.episode_id}/image-prompts`,
+      `/projects/${slug.value}/episodes/${form.episode_id}/image-prompts${titleParam}`,
     )
     promptList.scenes = Array.isArray(data?.scenes) ? data.scenes : []
     promptList.thumbnails = Array.isArray(data?.thumbnails) ? data.thumbnails : []
@@ -1101,6 +1129,10 @@ async function submit() {
   font-size: 14px;
   font-weight: 600;
   flex: 1 1 auto;
+  /* Explicit color so the title is readable in dark theme — without it
+     the h3 inherited near-black on near-black and only became visible
+     on hover (the existing :hover rule sets var(--accent)). */
+  color: var(--text-primary);
 }
 .preview-card-blurb { margin: 6px 0 12px; }
 .preview-list {
