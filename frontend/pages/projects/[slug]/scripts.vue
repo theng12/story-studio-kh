@@ -446,10 +446,15 @@ const slug = computed(() => route.params.slug as string)
 const panelsReady = ref(false)
 const { post, patch } = useApi()
 const { success, error: showError } = useToast()
-// v1.0.71: chunked-mode cost preview before submission. Mirrors the
-// CHUNK_THRESHOLD_WORDS constant in electron/server/lib/chunked-narration.ts —
-// keep in sync. Below this, the single-call path is used (no preview).
-const CHUNK_THRESHOLD_WORDS = 10000
+// v1.0.72+: with chunked-always, every script flows through outline +
+// expansion regardless of size. This threshold no longer gates which
+// pipeline runs — it only gates the cost-preview confirmation dialog,
+// so users with sub-threshold drafts (e.g. 5 chapters × 200 words ≈
+// trivial) aren't interrupted by a price estimate that adds no value.
+// Mirrors CHUNK_THRESHOLD_WORDS in electron/server/lib/chunked-narration.ts
+// (currently 9000) so "long enough to warrant a cost preview" matches
+// "long enough that the backend would have triggered chunking pre-1.0.72".
+const CHUNK_THRESHOLD_WORDS = 9000
 const { ask } = useConfirm()
 const { scriptGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()

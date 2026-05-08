@@ -111,19 +111,51 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
   // Without this check the executor would also throw, but surfacing the
   // condition early gives the frontend a clean 400 to react on (vs a
   // job-error toast after the fact).
+  //
+  // Probe via readSidecar (full sidecar) instead of a chapter-1 lookup —
+  // a hand-edited outline could legitimately drop n=1 (e.g. user reorders
+  // and then approves), and the prior chapter-1-only probe would 400 even
+  // though the outline is well-formed. readSidecar also gives us
+  // total_chapters for the chapters[] range check below.
   const { resolveEpisodePaths } = await import('../services/utils.js')
-  const { getOutlineEntryForChapter } = await import('../lib/chunked-narration.js')
+  const { readSidecar } = await import('../lib/chunked-narration.js')
   const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-  // We don't have a direct "read sidecar" public — but a chapter-1 lookup
-  // proves the sidecar exists + is at least minimally well-formed. The
-  // approval-state check is enforced inside expandChapters() itself; the
-  // route-level check here just guards against the "no outline at all"
-  // case so the user gets a clearer error message.
-  const probe = await getOutlineEntryForChapter(paths.script_dir, episode_id, 1)
-  if (!probe && !req.body.auto_approve) {
+  const sidecar = await readSidecar(paths.script_dir, episode_id)
+  if (!sidecar && !req.body.auto_approve) {
     return res.status(400).json({
       detail: 'No outline found. Click Generate Outline first, then approve before expanding.',
     })
+  }
+
+  // Validate the optional `chapters` filter when present. Accept an array
+  // of integers in 1..total_chapters, deduped. Reject non-arrays, NaN,
+  // out-of-range, and non-integer entries — the executor would silently
+  // skip these which is confusing UX (user gets a 201 + no work done).
+  // Empty array is allowed (means "expand all pending"); we normalise it
+  // to `undefined` so the executor takes the no-filter path.
+  if (req.body.chapters !== undefined) {
+    if (!Array.isArray(req.body.chapters)) {
+      return res.status(400).json({ detail: '`chapters` must be an array of chapter numbers.' })
+    }
+    if (sidecar) {
+      const total = sidecar.total_chapters
+      const seen = new Set<number>()
+      const cleaned: number[] = []
+      for (const raw of req.body.chapters) {
+        const n = Number(raw)
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > total) {
+          return res.status(400).json({
+            detail: `Invalid chapter number in \`chapters\`: ${raw} (must be an integer 1..${total}).`,
+          })
+        }
+        if (seen.has(n)) continue
+        seen.add(n); cleaned.push(n)
+      }
+      // Replace the request body so the executor sees the cleaned set.
+      // Empty after de-dup → drop the field entirely (= expand all pending).
+      if (cleaned.length === 0) delete req.body.chapters
+      else req.body.chapters = cleaned
+    }
   }
 
   if (jq.isDuplicate(slug, episode_id, 'expand_chapters')) {
@@ -208,8 +240,21 @@ router.put('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
     const existing = JSON.parse(raw)
     const totalChapters = existing.total_chapters
 
+    // Length must match total_chapters: the rest of the chunked machinery
+    // (expandChapters' pending-set computation, the OutlineReviewPanel's row
+    // ↔ chapter-on-disk pairing, chapters_done invariants) all assume
+    // outline.length === total_chapters. A truncated edit would silently
+    // strand later chapters.
+    if (incoming.length !== totalChapters) {
+      return res.status(400).json({
+        detail: `Outline must have exactly ${totalChapters} entries (got ${incoming.length}).`,
+      })
+    }
+
     // Validate: every entry has a numeric n in 1..total_chapters, no dupes,
     // title is a non-empty string. Other fields are optional and pass-through.
+    // Combined with the length check above, unique + in-range n means every
+    // chapter number 1..total_chapters is covered exactly once.
     const seen = new Set<number>()
     for (const e of incoming) {
       const n = Number((e as any)?.n)
@@ -226,12 +271,21 @@ router.put('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
     }
 
     const nowIso = new Date().toISOString()
+    // Approval-timestamp semantics: `approved: true` means "ensure this is
+    // approved", not "stamp approved-at = now". A silent autosave fired
+    // mid-edit on an already-approved outline used to bump the timestamp
+    // forward on every keystroke (the UI then showed "Approved 0m ago"
+    // forever). Preserve the original first-approval timestamp; only
+    // populate when transitioning from unapproved → approved.
+    const approvedAt = wantApproved
+      ? (existing.outline_approved_at ?? nowIso)
+      : (existing.outline_approved_at ?? null)
     const updated = {
       ...existing,
       schema_version: 2,
       outline: incoming,
       outline_edited_at: nowIso,
-      outline_approved_at: wantApproved ? nowIso : (existing.outline_approved_at ?? null),
+      outline_approved_at: approvedAt,
       last_updated: nowIso,
     }
     await writeJsonAtomic(sidecarFile, updated)
@@ -417,31 +471,22 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
       try {
         const stat = await fs.stat(filePath)
         modifiedAt = stat.mtime.toISOString()
+        // Single mammoth parse per chapter — parseNarrationDocx now exposes
+        // the descriptive title (the part AFTER "Chapter NN:") on the section
+        // it returns. Previously we paid a second mammoth.convertToHtml call
+        // per chapter just to recover the heading; for a 50-chapter listicle
+        // that doubled the parse cost on every /chapter-list refresh, and
+        // the route is hit on every job-completion tick during active work.
         const sections = await parseNarrationDocx(filePath)
         const sec = sections[0]
         if (sec) {
-          // Section label is "Chapter NN"; pull the FULL title (including
-          // the descriptive part) from the docx if the parser preserved it.
-          // `parseNarrationDocx` strips the title to label-only, so we
-          // re-derive from the first heading line via mammoth raw extract.
-          // Cheap: we already have the section.text for word count.
           const body = sec.text || ''
           wordCount = body.split(/\s+/).filter(Boolean).length
           // Character count over the body (whitespace included). Useful
           // for content-volume comparisons against TTS billing meters,
           // which charge per-character not per-word.
           characterCount = body.length
-          // Try to recover the original chapter title from the docx HTML.
-          try {
-            const mammoth = await import('mammoth')
-            const html = (await mammoth.default.convertToHtml({ path: filePath })).value
-            const headingMatch = html.match(/<h2[^>]*>([^<]+)<\/h2>/i)
-            if (headingMatch) {
-              const m = headingMatch[1].match(/^\s*Chapter\s+\d+\s*[:\-–—]\s*(.+)$/i)
-              if (m) title = m[1].trim()
-              else title = headingMatch[1].trim()
-            }
-          } catch { /* fall back to default */ }
+          if (sec.title) title = sec.title
         }
       } catch { /* unreadable file → present:false below */ }
 
@@ -510,29 +555,17 @@ router.get('/projects/:slug/episodes/:episodeId/chapters/:chapterNumber/content'
     const stat = await fs.stat(filePath)
     const modifiedAt = stat.mtime.toISOString()
 
-    // Title comes from the docx heading. Parse separately from the body
-    // so the regex for "Chapter NN: Title" doesn't have to walk the
-    // whole document.
-    let title = `Chapter ${String(n).padStart(2, '0')}`
-    try {
-      const mammoth = await import('mammoth')
-      const html = (await mammoth.default.convertToHtml({ path: filePath })).value
-      const headingMatch = html.match(/<h2[^>]*>([^<]+)<\/h2>/i)
-      if (headingMatch) {
-        const m = headingMatch[1].match(/^\s*Chapter\s+\d+\s*[:\-–—]\s*(.+)$/i)
-        if (m) title = m[1].trim()
-        else title = headingMatch[1].trim()
-      }
-    } catch { /* fall back to default title */ }
-
-    // Body. parseNarrationDocx returns sections; for a per-chapter file
-    // there's a single section whose text IS the chapter body. The
-    // section label ("Chapter NN") gets stripped — the user wants the
+    // Single mammoth parse: parseNarrationDocx exposes the descriptive
+    // title on the section now, so we don't need a second convertToHtml
+    // round-trip just to recover the heading. The section label
+    // ("Chapter NN") gets stripped for the body — the user wants the
     // narrative prose, not the header line.
     const { parseNarrationDocx } = await import('../lib/docx-parser.js')
     const sections = await parseNarrationDocx(filePath)
     const body = (sections[0]?.text || '').trim()
     const wordCount = body.split(/\s+/).filter(Boolean).length
+    let title = `Chapter ${String(n).padStart(2, '0')}`
+    if (sections[0]?.title) title = sections[0].title
     // Character count drives per-chapter TTS billing previews — TTS
     // providers charge per-character, not per-word, so this is the
     // closer-to-truth volume signal for cost estimation.
@@ -577,15 +610,24 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
   if (provider === 'openai' && !config.openai_api_key) return res.status(400).json({ detail: 'No OpenAI key' })
   if (provider === 'kie' && !config.kie_api_key) return res.status(400).json({ detail: 'No kie.ai key' })
 
-  // Read narration for story context
+  // Read narration for story context. parseNarrationDocx gives us
+  // structured sections (one per chapter, plus Introduction) so we can
+  // skip the intro from the LLM context — scene prompts shouldn't be
+  // flavored by host-talk preamble. The actual chapter count for sceneCount
+  // math is resolved separately below via the explicit form value /
+  // sidecar / on-disk file count chain (more reliable than counting the
+  // narration docx, which can lag or be stale).
   const standards = await pm.getStandards(slug) || ''
   let storyContext = ''
   try {
     const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-    const narrationPath = paths.narration_docx
-    const mammoth = await import('mammoth')
-    const result = await mammoth.default.extractRawText({ path: narrationPath })
-    storyContext = result.value.slice(0, 3000)
+    const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+    const sections = await parseNarrationDocx(paths.narration_docx)
+    const fullText = sections
+      .filter(s => s.slug !== 'Introduction')
+      .map(s => s.text)
+      .join('\n\n')
+    storyContext = fullText.slice(0, 3000)
   } catch {
     storyContext = `Episode: ${episode_id}, Title: ${title || 'Unknown'}`
   }
@@ -666,7 +708,17 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
   // 60–120 word floor the LLM happily ships one-line prompts that
   // under-specify the image — user-reported as "the prompts are short."
   const requirements: string[] = []
-  if (sceneCount > 0) requirements.push(`Generate exactly ${sceneCount} scene prompts.`)
+  if (sceneCount > 0) {
+    // Spell out the per-chapter breakdown when we derived sceneCount from
+    // scenes_per_chapter × chapters. Helps the LLM allocate evenly across
+    // the actual chapter count instead of compressing into the chapters it
+    // happened to dwell on in the story-context snippet.
+    const showBreakdown = !total_scenes && scenes_per_chapter && chapterCount > 0
+    const breakdown = showBreakdown
+      ? ` (${scenes_per_chapter} per chapter across ${chapterCount} chapter${chapterCount === 1 ? '' : 's'})`
+      : ''
+    requirements.push(`Generate exactly ${sceneCount} scene prompts${breakdown}.`)
+  }
   if (thumbs > 0) requirements.push(`Generate exactly ${thumbs} thumbnail prompts.`)
   requirements.push(
     `Each prompt must be DETAILED — 60–120 words, 3–5 sentences. ` +
@@ -716,6 +768,26 @@ No markdown, no commentary, just valid JSON.`
     const end = text.lastIndexOf('}')
     const parsed = JSON.parse(text.slice(start, end + 1))
 
+    // Surface short-returns server-side so a "the toast says 10 but I asked
+    // for 20" puzzle has a breadcrumb in the logs. The LLM occasionally
+    // ignores the "exactly N" instruction when the story context can't
+    // sustain that many distinct prompts; we don't error out (the user
+    // can always regenerate or bump scenes_per_chapter), just record it.
+    const returnedScenes = Array.isArray(parsed.scenes) ? parsed.scenes.length : 0
+    const returnedThumbs = Array.isArray(parsed.thumbnails) ? parsed.thumbnails.length : 0
+    if (sceneCount > 0 && returnedScenes < sceneCount) {
+      console.warn(
+        `[image-prompts] LLM returned ${returnedScenes} scene prompts; requested ${sceneCount}. ` +
+        `Episode: ${slug}/${episode_id}. Resolved chapter count: ${chapterCount}.`,
+      )
+    }
+    if (thumbs > 0 && returnedThumbs < thumbs) {
+      console.warn(
+        `[image-prompts] LLM returned ${returnedThumbs} thumbnail prompts; requested ${thumbs}. ` +
+        `Episode: ${slug}/${episode_id}.`,
+      )
+    }
+
     await trackGeneration(slug, 'prompts')
 
     res.json({
@@ -744,24 +816,86 @@ router.post('/projects/:slug/generate/image-prompts/save', async (req, res) => {
 
     const pathMod = await import('path')
     const names = await resolveSubfolderNames(slug, episode_id)
-    let episodeDir = paths.episode_dir.replace(/\/$/, '')
+    const computedEpisodeDir = paths.episode_dir.replace(/\/$/, '')
+    let episodeDir = computedEpisodeDir
 
-    // Resolve the actual episode dir on disk
+    // Resolve the actual episode dir on disk. resolveEpisodeDir matches by
+    // `${code} - ` prefix, so a folder created with an older title (or
+    // before a title rename that didn't reach the disk) is still found.
+    // Returns null only when the season dir doesn't exist OR no folder
+    // matches the prefix — both warrant a log line because saving image
+    // prompts before any script-generated folder exists is unusual (the
+    // user must have a script on disk to be reviewing prompts).
     const seasonDir = pathMod.dirname(episodeDir)
     const actualDir = await resolveEpisodeDir(seasonDir, episode_id)
-    if (actualDir) episodeDir = actualDir
+    if (actualDir) {
+      episodeDir = actualDir
+      if (actualDir !== computedEpisodeDir) {
+        console.log(
+          `[image-prompts/save] episode ${slug}/${episode_id}: ` +
+          `request title yielded "${pathMod.basename(computedEpisodeDir)}" but on-disk folder ` +
+          `is "${pathMod.basename(actualDir)}". Using on-disk folder. ` +
+          `(Title-sync may not have renamed; harmless if intentional.)`,
+        )
+      }
+    } else {
+      console.warn(
+        `[image-prompts/save] episode ${slug}/${episode_id}: ` +
+        `no existing episode folder under ${seasonDir} matches "${episode_id} - " prefix. ` +
+        `Will create "${pathMod.basename(computedEpisodeDir)}". This usually means the script ` +
+        `was never generated for this episode — check whether you're saving prompts to the ` +
+        `right episode.`,
+      )
+    }
 
-    // Save scene prompts to Scene Prompts folder
+    // Save scene prompts to Scene Prompts folder. resolveSubfolder uses
+    // strict equality on the folder name, so if the existing folder is
+    // "Scene Prompts" but config now resolves to "Scene_Prompts" (or
+    // vice-versa) you'll end up with a sibling new subfolder + the old
+    // one will look stranded — log when we create rather than match.
     if ((prompts.scenes || []).length > 0) {
+      const expectedSceneDir = pathMod.join(episodeDir, names.scene_prompts)
+      const sceneSubfolderExisted = existsSync(expectedSceneDir)
       const sceneDir = await resolveSubfolder(episodeDir, names.scene_prompts)
+      if (!sceneSubfolderExisted) {
+        // Look for sibling subfolders that might be the user's prior copy
+        // so the log gives a clear pointer to where the old prompts live.
+        let nearby: string[] = []
+        try {
+          const entries = await fs.readdir(episodeDir, { withFileTypes: true })
+          nearby = entries
+            .filter(e => e.isDirectory() && /scene/i.test(e.name) && e.name !== names.scene_prompts)
+            .map(e => e.name)
+        } catch { /* episode dir might be brand new */ }
+        console.warn(
+          `[image-prompts/save] created NEW scene-prompts folder "${names.scene_prompts}" in ${episodeDir}. ` +
+          (nearby.length ? `Possible orphan(s) with similar name: ${nearby.join(', ')}.` : 'No similar siblings.'),
+        )
+      }
       let sceneText = `# Scene Prompts\n\n`
       for (const s of prompts.scenes) sceneText += `## Scene ${s.number}: ${s.title}\n\n${s.prompt}\n\n`
       await buildImagePromptsDocx(sceneText, episode_id, title, pathMod.join(sceneDir, `${episode_id}_Scene_Prompts.docx`))
     }
 
-    // Save thumbnail prompts to Thumbnail Prompts folder
+    // Save thumbnail prompts to Thumbnail Prompts folder. Same caveat as
+    // scenes — log when the subfolder is freshly created.
     if ((prompts.thumbnails || []).length > 0) {
+      const expectedThumbDir = pathMod.join(episodeDir, names.thumb_prompts)
+      const thumbSubfolderExisted = existsSync(expectedThumbDir)
       const thumbDir = await resolveSubfolder(episodeDir, names.thumb_prompts)
+      if (!thumbSubfolderExisted) {
+        let nearby: string[] = []
+        try {
+          const entries = await fs.readdir(episodeDir, { withFileTypes: true })
+          nearby = entries
+            .filter(e => e.isDirectory() && /thumb/i.test(e.name) && e.name !== names.thumb_prompts)
+            .map(e => e.name)
+        } catch { /* episode dir might be brand new */ }
+        console.warn(
+          `[image-prompts/save] created NEW thumbnail-prompts folder "${names.thumb_prompts}" in ${episodeDir}. ` +
+          (nearby.length ? `Possible orphan(s) with similar name: ${nearby.join(', ')}.` : 'No similar siblings.'),
+        )
+      }
       let thumbText = `# Thumbnail Prompts\n\n`
       for (const t of prompts.thumbnails) thumbText += `## Thumbnail ${t.number}: ${t.title}\n\n${t.prompt}\n\n`
       await buildImagePromptsDocx(thumbText, episode_id, title, pathMod.join(thumbDir, `${episode_id}_Thumbnail_Prompts.docx`))

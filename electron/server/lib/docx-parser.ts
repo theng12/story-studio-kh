@@ -154,6 +154,13 @@ export interface NarrationSection {
   label: string
   slug: string
   text: string
+  /** Descriptive title parsed from the docx heading. For chapter sections
+   *  ("## Chapter 03: The Whispering Forest") this is the part AFTER the
+   *  "Chapter NN:" prefix ("The Whispering Forest"). Empty for sections
+   *  whose heading is just the label ("Introduction", "Section 01"). The
+   *  /chapter-list and /chapters/:n/content routes use this to surface
+   *  per-chapter titles without a second mammoth round-trip. */
+  title?: string
 }
 
 export async function parseNarrationDocx(docxPath: string): Promise<NarrationSection[]> {
@@ -163,13 +170,14 @@ export async function parseNarrationDocx(docxPath: string): Promise<NarrationSec
   const sections: NarrationSection[] = []
   let currentLabel: string | null = null
   let currentSlug: string | null = null
+  let currentTitle: string | undefined
   let currentLines: string[] = []
   const storyLines: string[] = []
 
   function flush() {
     if (currentLabel && currentLines.length) {
       const text = currentLines.join('\n\n').trim()
-      if (text) sections.push({ label: currentLabel, slug: currentSlug!, text })
+      if (text) sections.push({ label: currentLabel, slug: currentSlug!, text, title: currentTitle })
     }
   }
 
@@ -180,13 +188,13 @@ export async function parseNarrationDocx(docxPath: string): Promise<NarrationSec
 
     // Introduction marker
     if ((line.level === 1 || lower === 'introduction') && !sections.length && !currentLabel) {
-      flush(); currentLines = []; currentLabel = 'Introduction'; currentSlug = 'Introduction'
+      flush(); currentLines = []; currentLabel = 'Introduction'; currentSlug = 'Introduction'; currentTitle = undefined
       continue
     }
 
     // Narration marker (skip)
     if ((line.level === 1 || line.bold) && lower.includes('narration')) {
-      flush(); currentLines = []; currentLabel = null; currentSlug = null
+      flush(); currentLines = []; currentLabel = null; currentSlug = null; currentTitle = undefined
       continue
     }
 
@@ -195,8 +203,10 @@ export async function parseNarrationDocx(docxPath: string): Promise<NarrationSec
     if (line.level === 2 && chapterMatch) {
       flush(); currentLines = []
       const num = parseInt(chapterMatch[1])
+      const titlePart = (chapterMatch[2] || '').trim()
       currentLabel = `Chapter ${num.toString().padStart(2, '0')}`
       currentSlug = `Chapter_${num.toString().padStart(2, '0')}`
+      currentTitle = titlePart || undefined
       continue
     }
 
@@ -206,6 +216,7 @@ export async function parseNarrationDocx(docxPath: string): Promise<NarrationSec
       const sectionNum = sections.filter(s => s.slug.startsWith('Section_')).length + 1
       currentLabel = `Section ${sectionNum.toString().padStart(2, '0')}`
       currentSlug = `Section_${sectionNum.toString().padStart(2, '0')}`
+      currentTitle = undefined
       continue
     }
 

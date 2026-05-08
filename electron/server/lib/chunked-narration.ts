@@ -947,6 +947,12 @@ export function sidecarPath(scriptDir: string, episode_id: string): string {
   return path.join(scriptDir, `${episode_id}_chunked-progress.json`)
 }
 
+/**
+ * Read + auto-upgrade a sidecar from disk. Exported so routes can validate
+ * sidecar contents (mode, total_chapters, approval state) without
+ * reaching for a chapter-specific lookup as a proxy. Returns null when
+ * the file is missing, unreadable, or carries an unknown schema_version.
+ */
 export async function readSidecar(scriptDir: string, episode_id: string): Promise<ChunkedSidecar | null> {
   try {
     const raw = await fs.readFile(sidecarPath(scriptDir, episode_id), 'utf-8')

@@ -32,7 +32,11 @@
       </div>
       <p class="op-help">
         Each row is an editable topic. The {{ mode === 'listicle' ? 'hook + key facts' : 'synopsis + key beats' }} seed
-        the LLM during expansion. Set a per-chapter word target to override the global default for one slot.
+        the LLM during expansion. Set a per-chapter word target to override the global default for one slot
+        (minimum {{ MIN_WORDS_PER_CHAPTER }} — values below the floor snap up on blur).
+        The ▲▼ buttons swap topics in place and keep chapter numbers stable; existing chapter docx files
+        on disk only update when you click <strong>Regenerate</strong> — rows whose docx no longer matches
+        the outline show an ✏ outdated pill.
       </p>
       <!-- v3 sidecar exposes the form-field snapshot from outline-build
            time. Surface it so the user understands which model + word
@@ -73,13 +77,13 @@
             <input
               class="input op-words-input"
               type="number"
-              min="100"
+              :min="MIN_WORDS_PER_CHAPTER"
               step="50"
               :value="outline[idx].words_per_chapter ?? ''"
               :placeholder="`${defaultWords}`"
-              title="Per-chapter word target. Leave blank to use the global default."
+              :title="`Per-chapter word target (min ${MIN_WORDS_PER_CHAPTER} — backend floors lower values to ${MIN_WORDS_PER_CHAPTER}). Leave blank to use the global default.`"
               @input="onWordsInput($event, idx)"
-              @blur="markDirtyAndAutosave"
+              @blur="onWordsBlur(idx)"
             />
             <!-- Actual generation stats once the chapter is on disk —
                  word count + character count, fetched via /chapter-list.
@@ -137,17 +141,27 @@
             </button>
             <button
               class="btn btn-sm btn-ghost"
-              :title="`Move chapter ${entry.n} up`"
+              :title="`Swap topics with the row above. Chapter numbers stay in place — the docx on disk only updates after you Regenerate.`"
               :disabled="idx === 0"
               @click="reorder(idx, -1)"
             >▲</button>
             <button
               class="btn btn-sm btn-ghost"
-              :title="`Move chapter ${entry.n} down`"
+              :title="`Swap topics with the row below. Chapter numbers stay in place — the docx on disk only updates after you Regenerate.`"
               :disabled="idx === outline.length - 1"
               @click="reorder(idx, 1)"
             >▼</button>
             <span v-if="isChapterDone(entry.n)" class="op-pill op-pill-done" title="Chapter file is on disk">on disk</span>
+            <!-- Drift indicator: outline title diverged from the docx heading.
+                 Fires after reorder (which swaps content but keeps n stable,
+                 so the n=N row now shows a different title than the docx at
+                 _Chapter_NN.docx) and after a plain title edit. The docx is
+                 unchanged — Regenerate refreshes it. -->
+            <span
+              v-if="isChapterDone(entry.n) && isOutlineDriftedFromDisk(entry.n)"
+              class="op-pill op-pill-stale"
+              title="Outline title differs from what's on disk. Regenerate this chapter to refresh the docx."
+            >✏ outdated</span>
           </div>
         </div>
         <div v-if="mode === 'listicle'" class="op-row-body">
@@ -330,7 +344,14 @@ const editedAt = ref<string | null>(null)
 const generationParams = ref<GenerationParams | null>(null)
 const loaded = ref(false)
 const saving = ref(false)
-const expanding = ref(false)
+// `postingExpand` is true only while the POST /generate/expand-chapters
+// request is in flight. Once the response lands the SSE-driven
+// `activeExpandJob` computed (below) takes over so the button stays
+// disabled until the expansion job actually completes — without that
+// chain, a user clicking Expand twice in 100ms would clear the local
+// flag on POST resolution and hit the backend's per-(episode, type)
+// 409 dedupe with a generic toast.
+const postingExpand = ref(false)
 const isDirty = ref(false)
 const justSaved = ref(false)
 const selectedNs = ref<number[]>([])
@@ -350,7 +371,14 @@ const previewErrors = ref<Map<number, string>>(new Map())
 // once any chapter is on disk. Lets the user see actual word + character
 // counts per row so they can compare what the LLM produced against the
 // target (the words_per_chapter input). Keyed by chapter number.
-interface ChapterStats { word_count: number; character_count: number }
+//
+// `disk_title` is the title parsed from the on-disk docx heading. Compared
+// against the outline entry's title to detect drift after the user reorders
+// rows (which swaps content but holds `n` stable, leaving the docx out of
+// sync) or simply edits a title without regenerating. The drift surfaces
+// as an "outdated" pill so the user knows the docx no longer matches the
+// outline they see — clicking Regenerate refreshes it.
+interface ChapterStats { word_count: number; character_count: number; disk_title: string }
 const chapterStats = ref<Map<number, ChapterStats>>(new Map())
 
 const canExpand = computed(() => !!approvedAt.value)
@@ -377,6 +405,28 @@ const lockedParamsTooltip = computed(() => {
     '\n\nExpand-chapters reads these from the outline sidecar, not the form above. ' +
     'To change model/words/pattern/cast, regenerate the outline.'
 })
+
+// SSE-driven view of the queue: any chapter-only or expand_chapters job
+// for THIS episode that's still queued/running. Combined with the local
+// posting refs, this is what the buttons actually disable on — so once
+// the user clicks, the button stays disabled through POST + queue + run
+// + completion, not just POST.
+const activeExpandJob = computed(() =>
+  jobs.value.some(j =>
+    j.episode_id === props.episodeId
+    && j.type === 'expand_chapters'
+    && (j.status === 'queued' || j.status === 'running')),
+)
+const activeChapterOnlyChapter = computed<number | null>(() => {
+  const j = jobs.value.find(j =>
+    j.episode_id === props.episodeId
+    && j.type === 'chapter-only'
+    && (j.status === 'queued' || j.status === 'running'))
+  if (!j) return null
+  const n = Number((j.params as any)?.chapter_number)
+  return Number.isFinite(n) ? n : -1
+})
+const expanding = computed(() => postingExpand.value || activeExpandJob.value)
 
 function isChapterDone(n: number): boolean {
   return chaptersDone.value.includes(n)
@@ -440,7 +490,7 @@ async function loadChapterStats(): Promise<void> {
   if (!props.episodeId) return
   try {
     const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
-    const data = await get<{ chapters: Array<{ number: number; word_count: number; character_count: number }> }>(
+    const data = await get<{ chapters: Array<{ number: number; title: string; word_count: number; character_count: number }> }>(
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/chapter-list${titleParam}`,
     )
     const next = new Map<number, ChapterStats>()
@@ -448,12 +498,32 @@ async function loadChapterStats(): Promise<void> {
       next.set(ch.number, {
         word_count: ch.word_count || 0,
         character_count: ch.character_count || 0,
+        disk_title: ch.title || '',
       })
     }
     chapterStats.value = next
   } catch {
     // Stat pills are advisory — silently skip on error.
   }
+}
+
+// Drift detection: an outline entry whose title doesn't match the docx
+// heading on disk is "outdated" — the user has reordered rows or edited
+// a title since the chapter was last generated. The docx is intact (no
+// data loss), but the visible outline no longer describes what the file
+// contains. Regenerate refreshes the docx to match.
+//
+// Title comparison is whitespace+case insensitive so trivial editor
+// noise ("My Title " vs "my title") doesn't trip the warning.
+function normalizeTitleForCompare(s: string): string {
+  return (s || '').trim().toLowerCase().replace(/\s+/g, ' ')
+}
+function isOutlineDriftedFromDisk(n: number): boolean {
+  const stats = chapterStats.value.get(n)
+  if (!stats) return false
+  const entry = outline.value.find(e => e.n === n)
+  if (!entry) return false
+  return normalizeTitleForCompare(stats.disk_title) !== normalizeTitleForCompare(entry.title)
 }
 
 // Helper for the row-level "actual vs target" delta. Returns a label
@@ -498,7 +568,16 @@ async function loadOutline() {
     loaded.value = true
     isDirty.value = false
     justSaved.value = false
-    selectedNs.value = []
+    // Prune (don't wipe) selectedNs: keep selections of chapters that are
+    // still pending in the refreshed outline. Wiping on every refresh
+    // would delete the user's in-flight selection whenever an unrelated
+    // job-completion fires the relevant-jobs watcher. Episode switches
+    // still wipe via the watcher at the bottom of the file (which also
+    // resets expandedPreviews) before this loadOutline runs.
+    const validPending = new Set(
+      outline.value.filter(e => !chaptersDone.value.includes(e.n)).map(e => e.n),
+    )
+    selectedNs.value = selectedNs.value.filter(n => validPending.has(n))
     // Whenever any chapter is on disk, fetch the per-chapter stats so
     // the row-level "actual count" pill can render. Don't block the
     // outline render on it — the call runs in parallel.
@@ -527,16 +606,38 @@ function markDirtyAndAutosave() {
   autosaveTimer = setTimeout(() => { void saveEdits(/* silent */ true) }, 600)
 }
 
+// Per-chapter word floor enforced by the backend (see
+// electron/server/lib/chunked-narration.ts:effectiveWordTarget +
+// computeWordBudget — both clamp to 120). Users typing below this got
+// their value silently bumped server-side, producing a confusing mismatch
+// between the typed override and the actual generated wordcount. We snap
+// to the floor on blur so the visible input matches what the LLM will
+// actually receive.
+const MIN_WORDS_PER_CHAPTER = 120
+
 function onWordsInput(ev: Event, idx: number) {
   const v = (ev.target as HTMLInputElement).value
   const num = Number(v)
   if (!v || !Number.isFinite(num) || num <= 0) {
     outline.value[idx].words_per_chapter = undefined
   } else {
+    // Don't floor mid-typing — the user could be on their way to "1500"
+    // (passing through "1", "15", "150"). Floor only on blur.
     outline.value[idx].words_per_chapter = Math.round(num)
   }
   isDirty.value = true
   justSaved.value = false
+}
+
+function onWordsBlur(idx: number) {
+  // Snap sub-floor values UP to the backend minimum so the input reflects
+  // what generation will actually receive. Untouched blanks (= use default)
+  // pass through unchanged.
+  const current = outline.value[idx].words_per_chapter
+  if (typeof current === 'number' && current > 0 && current < MIN_WORDS_PER_CHAPTER) {
+    outline.value[idx].words_per_chapter = MIN_WORDS_PER_CHAPTER
+  }
+  markDirtyAndAutosave()
 }
 
 function onFactsInput(ev: Event, idx: number) {
@@ -633,7 +734,7 @@ async function postExpand(chapters: number[] | null): Promise<void> {
     // visible edits, not stale sidecar state.
     await saveEdits(/* silent */ true)
   }
-  expanding.value = true
+  postingExpand.value = true
   try {
     // Mirror the body shape /generate/outline-only sends, so the backend's
     // setupChunkedJobContext sees a fully-populated GenerateScriptRequest
@@ -670,7 +771,10 @@ async function postExpand(chapters: number[] | null): Promise<void> {
   } catch (e: any) {
     showError(e?.data?.detail || 'Could not queue expansion')
   } finally {
-    expanding.value = false
+    // Only the POST flag clears here — the SSE-driven `activeExpandJob`
+    // keeps `expanding` truthy until the queued job hits a terminal
+    // state, so the button stays disabled across the whole expansion.
+    postingExpand.value = false
   }
 }
 
@@ -743,14 +847,16 @@ async function regenerateOne(n: number): Promise<void> {
 onMounted(() => { void loadOutline() })
 
 watch(() => [props.episodeId, props.title, props.refreshKey], (next, prev) => {
-  // Episode switch: close any open preview drawers and wipe the cache
-  // — the previous episode's content doesn't belong here. refreshKey
-  // bumps don't switch episode, so we keep open drawers but clear
-  // their cache (the chapter content may have changed on disk).
+  // Episode switch: close any open preview drawers, wipe the cache, and
+  // drop any chapter selections from the previous episode (whose chapter
+  // numbers may not even exist in the new outline). refreshKey bumps
+  // don't switch episode, so we keep open drawers + selections but
+  // clear preview cache (the chapter content may have changed on disk).
   const prevEpisodeId = Array.isArray(prev) ? prev[0] : undefined
   const nextEpisodeId = Array.isArray(next) ? next[0] : undefined
   if (prevEpisodeId !== nextEpisodeId) {
     expandedPreviews.value = new Set()
+    selectedNs.value = []
   }
   clearPreviewCache()
   void loadOutline()
@@ -972,6 +1078,14 @@ defineExpose({ loaded, reload: loadOutline })
   background: rgba(16, 185, 129, 0.10);
   color: rgb(16, 185, 129);
   border-color: rgba(16, 185, 129, 0.35);
+}
+/* Drift pill — outline title diverged from the on-disk docx heading.
+   Yellow/amber so it reads as "needs attention" without alarming the
+   user. Same palette as ChapterListPanel's audio-stale pill. */
+.op-pill-stale {
+  background: rgba(234, 179, 8, 0.14);
+  color: rgb(202, 138, 4);
+  border-color: rgba(234, 179, 8, 0.3);
 }
 
 .op-row-body {
