@@ -779,24 +779,86 @@ router.post('/projects/:slug/generate/image-prompts/save', async (req, res) => {
 
     const pathMod = await import('path')
     const names = await resolveSubfolderNames(slug, episode_id)
-    let episodeDir = paths.episode_dir.replace(/\/$/, '')
+    const computedEpisodeDir = paths.episode_dir.replace(/\/$/, '')
+    let episodeDir = computedEpisodeDir
 
-    // Resolve the actual episode dir on disk
+    // Resolve the actual episode dir on disk. resolveEpisodeDir matches by
+    // `${code} - ` prefix, so a folder created with an older title (or
+    // before a title rename that didn't reach the disk) is still found.
+    // Returns null only when the season dir doesn't exist OR no folder
+    // matches the prefix — both warrant a log line because saving image
+    // prompts before any script-generated folder exists is unusual (the
+    // user must have a script on disk to be reviewing prompts).
     const seasonDir = pathMod.dirname(episodeDir)
     const actualDir = await resolveEpisodeDir(seasonDir, episode_id)
-    if (actualDir) episodeDir = actualDir
+    if (actualDir) {
+      episodeDir = actualDir
+      if (actualDir !== computedEpisodeDir) {
+        console.log(
+          `[image-prompts/save] episode ${slug}/${episode_id}: ` +
+          `request title yielded "${pathMod.basename(computedEpisodeDir)}" but on-disk folder ` +
+          `is "${pathMod.basename(actualDir)}". Using on-disk folder. ` +
+          `(Title-sync may not have renamed; harmless if intentional.)`,
+        )
+      }
+    } else {
+      console.warn(
+        `[image-prompts/save] episode ${slug}/${episode_id}: ` +
+        `no existing episode folder under ${seasonDir} matches "${episode_id} - " prefix. ` +
+        `Will create "${pathMod.basename(computedEpisodeDir)}". This usually means the script ` +
+        `was never generated for this episode — check whether you're saving prompts to the ` +
+        `right episode.`,
+      )
+    }
 
-    // Save scene prompts to Scene Prompts folder
+    // Save scene prompts to Scene Prompts folder. resolveSubfolder uses
+    // strict equality on the folder name, so if the existing folder is
+    // "Scene Prompts" but config now resolves to "Scene_Prompts" (or
+    // vice-versa) you'll end up with a sibling new subfolder + the old
+    // one will look stranded — log when we create rather than match.
     if ((prompts.scenes || []).length > 0) {
+      const expectedSceneDir = pathMod.join(episodeDir, names.scene_prompts)
+      const sceneSubfolderExisted = existsSync(expectedSceneDir)
       const sceneDir = await resolveSubfolder(episodeDir, names.scene_prompts)
+      if (!sceneSubfolderExisted) {
+        // Look for sibling subfolders that might be the user's prior copy
+        // so the log gives a clear pointer to where the old prompts live.
+        let nearby: string[] = []
+        try {
+          const entries = await fs.readdir(episodeDir, { withFileTypes: true })
+          nearby = entries
+            .filter(e => e.isDirectory() && /scene/i.test(e.name) && e.name !== names.scene_prompts)
+            .map(e => e.name)
+        } catch { /* episode dir might be brand new */ }
+        console.warn(
+          `[image-prompts/save] created NEW scene-prompts folder "${names.scene_prompts}" in ${episodeDir}. ` +
+          (nearby.length ? `Possible orphan(s) with similar name: ${nearby.join(', ')}.` : 'No similar siblings.'),
+        )
+      }
       let sceneText = `# Scene Prompts\n\n`
       for (const s of prompts.scenes) sceneText += `## Scene ${s.number}: ${s.title}\n\n${s.prompt}\n\n`
       await buildImagePromptsDocx(sceneText, episode_id, title, pathMod.join(sceneDir, `${episode_id}_Scene_Prompts.docx`))
     }
 
-    // Save thumbnail prompts to Thumbnail Prompts folder
+    // Save thumbnail prompts to Thumbnail Prompts folder. Same caveat as
+    // scenes — log when the subfolder is freshly created.
     if ((prompts.thumbnails || []).length > 0) {
+      const expectedThumbDir = pathMod.join(episodeDir, names.thumb_prompts)
+      const thumbSubfolderExisted = existsSync(expectedThumbDir)
       const thumbDir = await resolveSubfolder(episodeDir, names.thumb_prompts)
+      if (!thumbSubfolderExisted) {
+        let nearby: string[] = []
+        try {
+          const entries = await fs.readdir(episodeDir, { withFileTypes: true })
+          nearby = entries
+            .filter(e => e.isDirectory() && /thumb/i.test(e.name) && e.name !== names.thumb_prompts)
+            .map(e => e.name)
+        } catch { /* episode dir might be brand new */ }
+        console.warn(
+          `[image-prompts/save] created NEW thumbnail-prompts folder "${names.thumb_prompts}" in ${episodeDir}. ` +
+          (nearby.length ? `Possible orphan(s) with similar name: ${nearby.join(', ')}.` : 'No similar siblings.'),
+        )
+      }
       let thumbText = `# Thumbnail Prompts\n\n`
       for (const t of prompts.thumbnails) thumbText += `## Thumbnail ${t.number}: ${t.title}\n\n${t.prompt}\n\n`
       await buildImagePromptsDocx(thumbText, episode_id, title, pathMod.join(thumbDir, `${episode_id}_Thumbnail_Prompts.docx`))
