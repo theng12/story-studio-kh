@@ -34,6 +34,7 @@ import { router as linkedProjectsRouter } from './linked-projects.js'
 import { router as softDeletedProjectsRouter } from './soft-deleted-projects.js'
 import { router as imagePreviewRouter } from './image-preview.js'
 import { router as stylePreviewRouter } from './style-preview.js'
+import { router as imagePromptsEditRouter } from './image-prompts-edit.js'
 
 export function mountRoutes(app: Express): void {
   app.use('/api', projectsRouter)
@@ -64,4 +65,5 @@ export function mountRoutes(app: Express): void {
   app.use('/api', softDeletedProjectsRouter)
   app.use('/api', imagePreviewRouter)
   app.use('/api', stylePreviewRouter)
+  app.use('/api', imagePromptsEditRouter)
 }

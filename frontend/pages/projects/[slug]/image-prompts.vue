@@ -425,6 +425,21 @@
       </div>
     </div>
 
+    <!-- ── Per-prompt Regenerate ──────────────────────────────────────────
+         Reads whatever prompts are already on disk for the selected
+         episode and lets the user fire a single-prompt regen for any
+         row they don't like. Same docx is re-saved with that one
+         entry replaced. v1 is regen-only (no in-place edit) per
+         the AskUserQuestion answer; edit can be added later. -->
+    <PromptReviewPanel
+      v-if="form.episode_id"
+      :project-slug="slug"
+      :episode-id="form.episode_id"
+      :title="selectedEpisode?.title || ''"
+      :model="form.model"
+      :refresh-key="reviewRefreshKey"
+    />
+
     <!-- Tabs: Current / History -->
     <div v-if="generatedPrompts || history.length > 0" class="mt-3">
       <div class="tabs">
@@ -532,6 +547,10 @@ const { get, post, put } = useApi()
 const { success, error: showError } = useToast()
 
 const generating = ref(false)
+// Bumped after the bulk Generate completes so the per-prompt
+// PromptReviewPanel re-fetches the freshly-saved docx and the user
+// sees their just-generated prompts in the regen panel.
+const reviewRefreshKey = ref(0)
 const showStyleEditor = ref(false)
 const generatedPrompts = ref<any>(null)
 const activeTab = ref('current')
@@ -1239,6 +1258,9 @@ async function runGenerate(mode: PromptMode) {
     })
 
     activeTab.value = 'current'
+    // Bump the review-panel refresh key so the per-prompt panel
+    // re-fetches the freshly-saved docx.
+    reviewRefreshKey.value++
     const sceneCt = result.scenes?.length || 0
     const thumbCt = result.thumbnails?.length || 0
     const msg = mode === 'scenes' ? `Generated ${sceneCt} scene prompts`
