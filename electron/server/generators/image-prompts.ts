@@ -37,6 +37,15 @@ interface ImagePromptsParams {
   aspect_ratio?: string
   scenes_per_chapter?: number
   total_scenes?: number
+  /**
+   * Explicit chapter count from the form. When set, the generator
+   * multiplies scenes_per_chapter by this value (NOT by an auto-
+   * resolved sidecar count) so the LLM is told to produce exactly
+   * the number the user saw in the form. Falls back to sidecar
+   * resolution when absent. Lets the user override the auto-detected
+   * chapter count without having to drop into Custom-total mode.
+   */
+  chapter_count?: number
   thumb_count?: number
   thumb_text_style?: string
   thumb_text_style_custom?: string
@@ -229,22 +238,34 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   // to total_scenes first used to let a stale preset value shadow a
   // freshly-saved scenes_per_chapter=1.
   //
-  // Chapter count source of truth: read from the chunked-progress sidecar
-  // (set when outline_only / script-only built). This was previously
-  // hardcoded `× 10` — user with a 20-chapter outline at 1 scene/chapter
-  // got only 10 prompts because the backend ignored the real count and
-  // assumed every episode was 10 chapters. Fall back to 10 only when the
-  // sidecar is missing (idea-stage episode without a built outline).
-  const actualChapterCount = await resolveChapterCount(project_slug, episode_id, title)
+  // Chapter count source of truth, in order of preference:
+  //   1. Explicit `chapter_count` from the request (form's editable
+  //      Chapter count input — what the user saw + can override).
+  //   2. Sidecar's total_chapters (what's actually on disk).
+  //   3. 10 fallback (last resort, for idea-stage episodes with no
+  //      script yet).
+  // The earlier hardcoded `× 10` — and the not-yet-fixed default form
+  // value of 10 — produced exactly the user-reported case: 20-chapter
+  // outline, "1 per chapter" → only 10 prompts because nothing in the
+  // pipeline knew about the real count. The form now makes the count
+  // explicit and editable; sending it through here makes the user's
+  // typed value authoritative.
+  const explicitCount = Number(req.chapter_count)
+  const chapterCount = Number.isFinite(explicitCount) && explicitCount > 0
+    ? Math.round(explicitCount)
+    : await resolveChapterCount(project_slug, episode_id, title)
   const spc = Number(req.scenes_per_chapter)
   const sceneCount = mode === 'thumbnails'
     ? 0
     : (Number.isFinite(spc) && spc > 0
-      ? spc * actualChapterCount
-      : (req.total_scenes || (req.scenes_per_chapter || 1) * actualChapterCount))
+      ? spc * chapterCount
+      : (req.total_scenes || (req.scenes_per_chapter || 1) * chapterCount))
   const thumbs = mode === 'scenes' ? 0 : (req.thumb_count || 5)
+  const countSource = Number.isFinite(explicitCount) && explicitCount > 0
+    ? '(from form)'
+    : '(from outline)'
   job.output_lines.push(
-    `Target: ${sceneCount} scene prompt(s) for ${actualChapterCount} chapter(s)` +
+    `Target: ${sceneCount} scene prompt(s) for ${chapterCount} chapter(s) ${countSource}` +
     (thumbs > 0 ? ` + ${thumbs} thumbnail(s)` : ''),
   )
 

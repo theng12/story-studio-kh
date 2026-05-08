@@ -565,7 +565,7 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
 
   const {
     episode_id, model, style_tag, aspect_ratio, title,
-    scenes_per_chapter, total_scenes, thumb_count,
+    scenes_per_chapter, total_scenes, chapter_count, thumb_count,
     thumb_text_style, thumb_text_style_custom,
     thumb_text_position,
     thumb_font_style, thumb_font_style_custom,
@@ -604,14 +604,43 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
   let sceneCount = 0
   let thumbs = 0
 
+  // Resolve chapter count: explicit form value wins, otherwise read the
+  // chunked-progress sidecar's total_chapters, otherwise count chapter
+  // docx files on disk, otherwise fall back to 10. The user-reported
+  // bug — "20-chapter outline at 1 per chapter produced only 10 prompts"
+  // — was the previous hardcoded `* 10` ignoring everything below this
+  // line. Frontend now sends chapter_count explicitly so the form math
+  // = the LLM's instruction.
+  const explicitCount = Number(chapter_count)
+  let chapterCount = Number.isFinite(explicitCount) && explicitCount > 0
+    ? Math.round(explicitCount)
+    : 0
+  if (chapterCount === 0) {
+    try {
+      const paths = await resolveEpisodePaths(slug, episode_id, title || '')
+      const { readSidecar } = await import('../lib/chunked-narration.js')
+      const sidecar = await readSidecar(paths.script_dir, episode_id)
+      if (sidecar && typeof sidecar.total_chapters === 'number' && sidecar.total_chapters > 0) {
+        chapterCount = sidecar.total_chapters
+      } else {
+        // Fall back to counting chapter docx files on disk.
+        const entries = await fs.readdir(paths.script_dir).catch(() => [] as string[])
+        const re = new RegExp(`^${episode_id}_Chapter_(\\d+)\\.docx$`)
+        const onDisk = entries.filter(n => re.test(n)).length
+        if (onDisk > 0) chapterCount = onDisk
+      }
+    } catch { /* fall through to 10 */ }
+    if (chapterCount === 0) chapterCount = 10
+  }
+
   if (mode === 'thumbnails') {
     sceneCount = 0
     thumbs = thumb_count || 5
   } else if (mode === 'scenes') {
-    sceneCount = total_scenes || (scenes_per_chapter || 3) * 10
+    sceneCount = total_scenes || (scenes_per_chapter || 1) * chapterCount
     thumbs = 0
   } else {
-    sceneCount = total_scenes || (scenes_per_chapter || 3) * 10
+    sceneCount = total_scenes || (scenes_per_chapter || 1) * chapterCount
     thumbs = thumb_count || 5
   }
 
@@ -631,10 +660,20 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
   }
   const ratioInstruction = ratioDescriptions[aspect_ratio] || 'wide landscape format'
 
-  // Build requirements based on mode
+  // Build requirements based on mode. Length floor + structural slot
+  // guidance mirror generators/image-prompts.ts so the chunked + sync
+  // paths produce comparably detailed prompts. Without the explicit
+  // 60–120 word floor the LLM happily ships one-line prompts that
+  // under-specify the image — user-reported as "the prompts are short."
   const requirements: string[] = []
   if (sceneCount > 0) requirements.push(`Generate exactly ${sceneCount} scene prompts.`)
   if (thumbs > 0) requirements.push(`Generate exactly ${thumbs} thumbnail prompts.`)
+  requirements.push(
+    `Each prompt must be DETAILED — 60–120 words, 3–5 sentences. ` +
+    `Cover: subject + action, setting + props, lighting + time of day, ` +
+    `mood + atmosphere, framing/composition, and any visible characters ` +
+    `with concrete physical descriptions. Short one-line prompts are unusable.`,
+  )
   requirements.push(`Every prompt must end with this style tag: "${style_tag}"`)
   requirements.push(`Every prompt must specify composition for ${ratioInstruction}.`)
   requirements.push(`Every prompt must include inline character descriptions.`)

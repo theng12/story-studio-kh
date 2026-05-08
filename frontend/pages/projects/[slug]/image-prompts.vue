@@ -254,9 +254,9 @@
       <div class="split-section mt-2">
         <div class="split-header">
           <h3 class="split-title">🎬 Scene Prompts</h3>
-          <span class="text-muted text-xs">~{{ estimatedScenes }} prompts will be generated</span>
+          <span class="text-muted text-xs">{{ effectiveSceneCount }} prompts will be generated</span>
         </div>
-        <div class="grid-2">
+        <div class="grid-3">
           <div class="form-group">
             <label>Scenes per Chapter</label>
             <select v-model.number="form.scenes_per_chapter" class="select">
@@ -266,19 +266,56 @@
               <option :value="4">4 per chapter</option>
               <option :value="0">Custom total...</option>
             </select>
-            <span class="text-muted text-xs scene-count-hint">
-              Start with 1 to keep costs low — you can always generate more scenes for specific chapters later.
-            </span>
           </div>
+          <!-- Per-chapter mode: explicit, editable chapter count.
+               Pre-filled from the sidecar's total_chapters when an
+               episode is picked; the user can override if they want
+               more or fewer prompts than the actual chapter count.
+               Sent to the backend explicitly so the LLM sees what the
+               user sees here — no silent re-resolution. -->
+          <div class="form-group" v-if="form.scenes_per_chapter > 0">
+            <label>
+              Chapter count
+              <span v-if="actualChapterCount && form.chapter_count_override === null"
+                    class="text-muted text-xs">
+                · auto from outline
+              </span>
+              <span v-else-if="actualChapterCount && form.chapter_count_override !== null"
+                    class="text-muted text-xs"
+                    :title="`Outline has ${actualChapterCount} chapters; you've overridden to ${form.chapter_count_override}.`">
+                · overridden
+              </span>
+            </label>
+            <input
+              :value="form.chapter_count_override ?? actualChapterCount ?? 0"
+              @input="onChapterCountInput($event)"
+              class="input"
+              type="number"
+              min="1"
+              max="200"
+            />
+          </div>
+          <!-- Custom-total mode: direct numeric input, no chapter math. -->
           <div class="form-group" v-if="form.scenes_per_chapter === 0">
             <label>Total Scene Prompts</label>
-            <input v-model.number="form.total_scenes" class="input" type="number" min="1" max="60" />
+            <input v-model.number="form.total_scenes" class="input" type="number" min="1" max="200" />
           </div>
-          <div class="form-group" v-else>
-            <label>Estimated Total</label>
-            <div class="estimate-value">~{{ estimatedScenes }} scenes</div>
+          <!-- Math display: makes the multiplication explicit so the
+               user sees exactly how the total is being computed. -->
+          <div class="form-group" v-if="form.scenes_per_chapter > 0">
+            <label>Total</label>
+            <div class="estimate-value">
+              {{ effectiveSceneCount }} prompts
+              <div class="text-muted text-xs">
+                {{ effectiveChapterCount }} chapters × {{ form.scenes_per_chapter }} per chapter
+              </div>
+            </div>
           </div>
         </div>
+        <span class="text-muted text-xs scene-count-hint">
+          Start with 1 per chapter to keep costs low — you can always generate
+          more scenes for specific chapters later.
+        </span>
         <button
           class="btn btn-sm btn-primary mt-2"
           :disabled="!form.episode_id || generating || !scriptReady"
@@ -610,6 +647,14 @@ const form = reactive({
   aspect_ratio: '16:9',
   scenes_per_chapter: 1,
   total_scenes: 10,
+  // null = "use whatever the sidecar reports (actualChapterCount)".
+  // Set to a number when the user explicitly types in the Chapter
+  // count input — that user choice wins over the auto-detected value
+  // and is sent to the backend so the generator receives EXACTLY the
+  // count the user sees on the form. Wipes back to null on episode
+  // switch (the override doesn't survive moving to a different episode
+  // — sidecar pull for the new episode replaces it).
+  chapter_count_override: null as number | null,
   thumb_count: 5,
   thumb_text_style: 'gold',
   thumb_text_style_custom: '',
@@ -671,6 +716,10 @@ watch(
   () => [selectedEpisode.value?.episode_code, selectedEpisode.value?.title] as [string?, string?],
   async ([code, title]) => {
     actualChapterCount.value = null
+    // Episode switch wipes any per-episode override. The new episode's
+    // sidecar will repopulate actualChapterCount; if the user wants to
+    // override there too they can type in the input again.
+    form.chapter_count_override = null
     if (!code || !slug.value) return
     try {
       const titleParam = title ? `?title=${encodeURIComponent(title)}` : ''
@@ -688,23 +737,61 @@ watch(
   { immediate: true },
 )
 
-// Both sides coerced + NaN-guarded. Previously either a non-numeric
-// `suggested_chapters` from the ideas record OR an older preset that
-// restored `scenes_per_chapter` as undefined could land NaN here and
-// surface in the UI as "~NaN scenes / ~NaN prompts will be generated".
-const estimatedScenes = computed(() => {
-  // Real chapter count from the sidecar wins over the idea hint; idea
-  // hint is the fallback when no script exists yet.
+// Authoritative chapter count for the form's math display + backend
+// request. Resolution order:
+//   1. User-typed override in the Chapter count input (form.chapter_count_override).
+//   2. actualChapterCount loaded from the chunked-progress sidecar.
+//   3. Episode record's suggested_chapters (idea-stage hint).
+//   4. 10 fallback (last resort, only when nothing else exists).
+// User wins over auto-detection wins over idea hint wins over default.
+// All coerced + NaN-guarded so a cleared input doesn't render "NaN".
+const effectiveChapterCount = computed(() => {
+  const override = Number(form.chapter_count_override)
+  if (Number.isFinite(override) && override > 0) return Math.round(override)
   const real = Number(actualChapterCount.value)
+  if (Number.isFinite(real) && real > 0) return real
   const suggested = Number(selectedEpisode.value?.suggested_chapters)
-  const chapters = Number.isFinite(real) && real > 0
-    ? real
-    : (Number.isFinite(suggested) && suggested > 0 ? suggested : 10)
+  if (Number.isFinite(suggested) && suggested > 0) return suggested
+  return 10
+})
+
+// Total scene prompt count the user will see "be generated." When in
+// per-chapter mode (the default), it's chapters × per_chapter. When in
+// custom-total mode, it's the explicit total_scenes field. This is what
+// gets surfaced in the header pill ("N prompts will be generated") so
+// the user can confirm before clicking Generate.
+const effectiveSceneCount = computed(() => {
   const perChapter = Number(form.scenes_per_chapter)
-  const safePer = Number.isFinite(perChapter) && perChapter > 0 ? perChapter : 0
-  const total = chapters * safePer
+  if (Number.isFinite(perChapter) && perChapter > 0) {
+    const total = effectiveChapterCount.value * perChapter
+    return Number.isFinite(total) && total > 0 ? total : 0
+  }
+  // scenes_per_chapter === 0 → custom total mode.
+  const total = Number(form.total_scenes)
   return Number.isFinite(total) && total > 0 ? total : 0
 })
+
+// Back-compat alias for any older template / code that referenced
+// `estimatedScenes`. New code should use effectiveSceneCount directly.
+const estimatedScenes = effectiveSceneCount
+
+// Handler for the explicit Chapter count input. Empty input → null
+// (revert to auto-detect); typed number → override that wins. Anything
+// non-finite or <1 collapses to null so a cleared field doesn't wedge
+// the form at 0 chapters.
+function onChapterCountInput(ev: Event): void {
+  const raw = (ev.target as HTMLInputElement).value
+  if (raw === '' || raw === null || raw === undefined) {
+    form.chapter_count_override = null
+    return
+  }
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < 1) {
+    form.chapter_count_override = null
+    return
+  }
+  form.chapter_count_override = Math.round(n)
+}
 
 // Same defensive coercion for the thumbnail variations display — clearing
 // the number input would otherwise render "NaN thumbnail variations".
@@ -1097,6 +1184,15 @@ async function runGenerate(mode: PromptMode) {
       aspect_ratio: form.aspect_ratio,
       scenes_per_chapter: form.scenes_per_chapter === 0 ? undefined : form.scenes_per_chapter,
       total_scenes: form.scenes_per_chapter === 0 ? form.total_scenes : undefined,
+      // Explicit chapter count from the form. Sent only in per-chapter
+      // mode (custom total mode uses total_scenes directly without any
+      // multiplication). Backend prefers this when set; falls back to
+      // sidecar resolution otherwise. This is what gives the user
+      // authoritative control: what they see in the form math is what
+      // the LLM is told to produce.
+      chapter_count: form.scenes_per_chapter === 0
+        ? undefined
+        : effectiveChapterCount.value,
       thumb_count: form.thumb_count,
       thumb_text_style: form.thumb_text_style,
       thumb_text_style_custom: form.thumb_text_style_custom,
