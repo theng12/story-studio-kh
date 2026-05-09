@@ -765,6 +765,12 @@
               Format: <strong>{{ formatDisplayName }}</strong>
             </span>
             <NuxtLink :to="`/projects/${slug}/settings#format`" class="paste-prompt-source-link" title="Open Settings → Format to change the active format. The prompt will refresh when you come back.">Switch</NuxtLink>
+            <button
+              type="button"
+              class="paste-prompt-source-link"
+              title="Override this format's idea-generation rules, guidance text, and other fields for this project only — without leaving the page."
+              @click="openFormatOverrideEditor"
+            >Customize prompt</button>
             <span v-if="form.pattern_id" class="paste-prompt-source-chip" title="A Pattern preset is folded into the prompt — title template + opening device. Change or clear it via the Pattern picker above.">
               Pattern: <strong>{{ form.pattern_id }}</strong>
               <button
@@ -775,7 +781,21 @@
                 @click="form.pattern_id = ''; form.pattern_subject = ''"
               >✕</button>
             </span>
-            <span v-else class="paste-prompt-source-hint">No Pattern selected — pick one above to fold a title template into the prompt.</span>
+            <button
+              v-if="activePattern && !activePattern.builtin"
+              type="button"
+              class="paste-prompt-source-link"
+              title="Edit this custom pattern — title template, opening/closing devices, body structure."
+              @click="openEditPatternForActive"
+            >Edit pattern</button>
+            <button
+              v-else-if="activePattern && activePattern.builtin"
+              type="button"
+              class="paste-prompt-source-link"
+              title="Built-in patterns are read-only. This makes a custom copy you can edit freely (e.g. to make a 'mythologies' variant)."
+              @click="copyActivePatternAsNew"
+            >Copy as new</button>
+            <span v-if="!form.pattern_id" class="paste-prompt-source-hint">No Pattern selected — pick one above to fold a title template into the prompt.</span>
           </div>
           <pre class="paste-prompt-box">{{ pastePrompt || 'Loading…' }}</pre>
         </div>
@@ -851,6 +871,50 @@
         </div>
       </div>
     </div>
+
+    <!-- Format override drawer — stacked above the Paste modal so the user
+         can tweak the format's idea-generation rules, audience default,
+         narrator style, etc. without leaving. Same FormatOverrideEditor
+         component the Settings page uses; saves to project.format_overrides
+         then refetches the displayed paste-prompt. -->
+    <div v-if="formatOverrideOpen" class="format-override-drawer-overlay" @click.self="closeFormatOverrideEditor">
+      <div class="format-override-drawer">
+        <header class="fod-header">
+          <div>
+            <h3>Customize prompt — {{ formatDisplayName }}</h3>
+            <p class="text-muted text-sm mt-1" style="margin: 0;">
+              Per-project overrides. Empty fields fall back to the built-in format's defaults.
+              Changes also apply to script + image-prompt + metadata generation.
+            </p>
+          </div>
+          <button class="btn-icon" title="Close" @click="closeFormatOverrideEditor">✕</button>
+        </header>
+        <div class="fod-body">
+          <FormatOverrideEditor
+            v-model="formatOverridesDraft"
+            :base-format="selectedBaseFormat"
+          />
+        </div>
+        <footer class="fod-footer">
+          <span v-if="formatOverridesError" class="text-danger text-sm">{{ formatOverridesError }}</span>
+          <button class="btn btn-secondary" :disabled="formatOverridesSaving" @click="closeFormatOverrideEditor">Cancel</button>
+          <button class="btn btn-primary" :disabled="formatOverridesSaving" @click="saveFormatOverrides">
+            {{ formatOverridesSaving ? 'Saving…' : 'Save overrides' }}
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Pattern editor modal — re-mounted here so the user can edit the
+         active custom pattern (or copy a built-in as a new custom)
+         without leaving the Paste Ideas modal. Same component the
+         Settings page uses; saves via usePatterns CRUD. -->
+    <PatternEditorModal
+      :open="patternEditorOpen"
+      :pattern="patternEditorTarget"
+      @close="patternEditorOpen = false"
+      @saved="onPatternSavedFromIdeas"
+    />
 
     <!-- Add/Edit idea modal -->
     <div v-if="editorOpen" class="modal-overlay" @click.self="editorOpen = false">
@@ -998,7 +1062,20 @@ const { project } = useProject()
 // pattern_id slugs to friendly names ("history-of-X" → "History of X").
 // Same composable PatternPicker uses internally; we just need find()
 // to map the slug emitted in the warning header to a human name.
-const { find: findPattern } = usePatterns()
+// `refresh` + `patterns` ref are also needed for the in-modal pattern
+// editor — after saving a custom pattern we refresh the list so the
+// chip's `builtin` flag (and the picker) sees the new pattern.
+import type { Pattern } from '~/composables/usePatterns'
+const {
+  find: findPattern,
+  patterns: allPatterns,
+  refresh: refreshPatterns,
+} = usePatterns()
+// Full Format objects (with script/idea/imagePrompts/metadata blocks) —
+// the lite `formatsById` map above only carries the idea block, but
+// FormatOverrideEditor needs the full base-format. useFormats() also
+// gives us the list-cache that the editor's built-in picker queries.
+const { find: findFullFormat, refresh: refreshFormats } = useFormats()
 
 const PER_PAGE = 10
 const generating = ref(false)
@@ -1713,6 +1790,130 @@ async function onAssetsMapped(_summary: any) {
   // The importer invalidated its own cache server-side; refresh ideas
   // so the row reflects whatever new state the canonical files imply.
   await loadIdeas()
+}
+
+// ── In-modal preset editors ──────────────────────────────────────────────
+// The Paste Ideas modal used to be read-only: users had to leave for
+// Settings → Format to override the format's prompt fields, and there
+// was no way to edit/copy the active Pattern from here at all. These
+// helpers wire FormatOverrideEditor + PatternEditorModal directly into
+// the chip strip above the prompt so customisation never requires a
+// round-trip. After save, refetchPastePrompt() refreshes the visible
+// prompt so the user sees their changes immediately.
+
+// Pattern object resolved from the active form.pattern_id (or null when
+// no pattern is selected). Drives the chip's Edit-vs-Copy-as-new branch
+// and prefills the editor target.
+const activePattern = computed<Pattern | null>(() => {
+  if (!form.pattern_id) return null
+  return findPattern(form.pattern_id) || null
+})
+
+const patternEditorOpen = ref(false)
+const patternEditorTarget = ref<Pattern | null>(null)
+
+function openEditPatternForActive() {
+  const p = activePattern.value
+  if (!p || p.builtin) return
+  patternEditorTarget.value = p
+  patternEditorOpen.value = true
+}
+
+/** Built-ins are read-only — the user gets a custom copy with a derived
+ *  unique id (e.g. "day-in-the-life-X-copy") that they can rename and
+ *  edit freely. Same flow Settings → Patterns uses. */
+function copyActivePatternAsNew() {
+  const p = activePattern.value
+  if (!p) return
+  const base = `${p.id}-copy`
+  let copyId = base
+  if (allPatterns.value.some(x => x.id === copyId)) {
+    for (let i = 2; i < 100; i++) {
+      const candidate = `${base}-${i}`
+      if (!allPatterns.value.some(x => x.id === candidate)) { copyId = candidate; break }
+    }
+  }
+  patternEditorTarget.value = {
+    ...p,
+    id: copyId,
+    name: p.name.endsWith('(copy)') ? p.name : `${p.name} (copy)`,
+    builtin: false,
+    schemaVersion: 1,
+  } as Pattern
+  patternEditorOpen.value = true
+}
+
+async function onPatternSavedFromIdeas(savedId: string) {
+  patternEditorOpen.value = false
+  // Pull the fresh pattern list so activePattern recomputes (in case the
+  // user just created a custom shadowing a built-in, the chip should
+  // flip from "Copy as new" to "Edit").
+  await refreshPatterns().catch(() => {})
+  // If the user just created a NEW pattern (copy-as-new path), point the
+  // active selection at it so they can immediately use it without going
+  // back to the picker. For pure edits the id is unchanged so this is a
+  // no-op.
+  if (savedId && savedId !== form.pattern_id) {
+    form.pattern_id = savedId
+  }
+  // Refetch the displayed prompt with the latest pattern content.
+  if (pasteOpen.value) await refetchPastePrompt()
+}
+
+// Format override drawer state — separate from the Settings page's
+// version because we want a self-contained save/cancel flow that
+// doesn't disturb the user's place in the Paste modal.
+const formatOverrideOpen = ref(false)
+const formatOverridesDraft = ref<Record<string, any> | null>(null)
+const formatOverridesSaving = ref(false)
+const formatOverridesError = ref('')
+
+const selectedBaseFormat = computed(() => findFullFormat(formatId.value) || null)
+
+async function openFormatOverrideEditor() {
+  formatOverridesError.value = ''
+  // Hydrate the draft with the project's current overrides so the user
+  // sees their existing customisations as the starting point. Falls
+  // through to null (no overrides) on any read error.
+  try {
+    const meta = await get<any>(`/projects/${slug.value}`)
+    formatOverridesDraft.value = meta?.format_overrides ? JSON.parse(JSON.stringify(meta.format_overrides)) : null
+  } catch {
+    formatOverridesDraft.value = null
+  }
+  // Make sure the full Format library is loaded so selectedBaseFormat
+  // resolves on first open of a fresh session.
+  if (!selectedBaseFormat.value) await refreshFormats().catch(() => {})
+  formatOverrideOpen.value = true
+}
+
+function closeFormatOverrideEditor() {
+  if (formatOverridesSaving.value) return
+  formatOverrideOpen.value = false
+  formatOverridesDraft.value = null
+  formatOverridesError.value = ''
+}
+
+async function saveFormatOverrides() {
+  formatOverridesSaving.value = true
+  formatOverridesError.value = ''
+  try {
+    const { put } = useApi()
+    await put(`/projects/${slug.value}`, {
+      format_id: formatId.value,
+      format_overrides: formatOverridesDraft.value || undefined,
+    })
+    success('Format overrides saved')
+    formatOverrideOpen.value = false
+    formatOverridesDraft.value = null
+    // Refresh the displayed paste-prompt so the user sees their edits.
+    if (pasteOpen.value) await refetchPastePrompt()
+  } catch (e: any) {
+    formatOverridesError.value = e?.data?.detail || e?.message || 'Failed to save overrides'
+    showError(formatOverridesError.value)
+  } finally {
+    formatOverridesSaving.value = false
+  }
 }
 
 // ── Paste Ideas from LLM ────────────────────────────────────────────────
@@ -2660,6 +2861,14 @@ onMounted(loadIdeas)
   color: var(--accent);
   text-decoration: none;
   font-weight: 500;
+  /* Reset button defaults so <button class="paste-prompt-source-link"> looks
+     like the existing NuxtLink — the chip strip mixes both element types. */
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
 }
 .paste-prompt-source-link:hover { color: var(--accent-hover); text-decoration: underline; }
 .paste-prompt-source-clear {
@@ -2681,6 +2890,54 @@ onMounted(loadIdeas)
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
   margin-top: 6px;
+}
+
+/* Format override drawer — slides in over the Paste Ideas modal so the
+   user can override the active format's prompt fields without leaving
+   the page. z-index sits ABOVE .modal-overlay (which most modals in
+   this app peg around 100-200) so the drawer floats correctly. */
+.format-override-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 300;
+}
+.format-override-drawer {
+  width: min(640px, 100%);
+  height: 100vh;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.2);
+}
+.fod-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.fod-header h3 { margin: 0; font-size: 15px; }
+.fod-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+.fod-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+.fod-footer .text-danger {
+  margin-right: auto;
+  text-align: left;
 }
 .paste-preview-table {
   max-height: 260px;

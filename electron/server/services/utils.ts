@@ -422,7 +422,7 @@ export async function testApiKey(provider: string, apiKey: string): Promise<Test
     }
   }
   if (provider === 'genaipro') {
-    const r = await probeJson('https://genaipro.vn/api/v1/labs/credits', { Authorization: `Bearer ${apiKey}` })
+    const r = await probeJson('https://genaipro.io/api/v1/labs/credits', { Authorization: `Bearer ${apiKey}` })
     if (r.kind === 'network') return { valid: false, reachable: false, message: r.error }
     if (r.status !== 200) return { valid: false, reachable: true, message: `HTTP ${r.status}` }
     const credits = Array.isArray(r.body) ? r.body.reduce((s: number, c: any) => s + (c.amount || 0), 0) : null

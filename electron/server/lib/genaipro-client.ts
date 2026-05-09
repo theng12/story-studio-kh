@@ -1,7 +1,7 @@
 /**
  * GenAIPro Labs TTS client.
- * API docs: https://docs.genaipro.vn/
- * Base: https://genaipro.vn/api
+ * API docs: https://docs.genaipro.io/
+ * Base: https://genaipro.io/api
  * Auth: Bearer token in Authorization header.
  *
  * Flow: POST /v1/labs/task → { task_id } → poll GET /v1/labs/task/{task_id} until status=completed → { result: audioUrl }.
@@ -10,7 +10,7 @@
 import { redactSecrets } from './redact-secrets.js'
 import { sleepCancellable } from './http-retry.js'
 
-const BASE = 'https://genaipro.vn/api'
+const BASE = 'https://genaipro.io/api'
 const POLL_INTERVAL = 3000
 // Bumped from 5 min → 20 min: GenAIPro chapter-length TTS tasks routinely
 // exceed 5 min on their side, and timing out client-side orphans the task

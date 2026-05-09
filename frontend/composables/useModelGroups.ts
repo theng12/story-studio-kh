@@ -19,8 +19,6 @@ export const PROVIDER_DISPLAY: Record<string, string> = {
   genaipro: 'GenAIPro (ElevenLabs)',
   // Image — currently all via kie.ai
   kie: 'kie.ai',
-  // Video
-  'genaipro-veo': 'GenAIPro (Veo)',
   // LLM
   anthropic: 'Anthropic',
   openai: 'OpenAI',
@@ -36,8 +34,6 @@ const DEFAULT_ORDER = [
   'elevenlabs', 'fal', 'genaipro',
   // Image
   'kie',
-  // Video
-  'genaipro-veo',
   // LLM
   'anthropic', 'openai',
 ]

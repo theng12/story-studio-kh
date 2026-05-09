@@ -842,7 +842,7 @@ export interface AudioModelConfig {
 export interface VideoModelConfig {
   label: string
   credits_per_video: number
-  provider: string  // 'genaipro-veo' etc.
+  provider: string  // 'kie-video' | 'fal-video'
   /** Modes this model supports: 'text', 'frames' (image-to-video), 'ingredients' */
   modes: Array<'text' | 'frames' | 'ingredients'>
   /** Max duration in seconds, if known */
@@ -1778,7 +1778,7 @@ export interface GenerateVideoPromptsRequest {
 
 export interface GenerateVideoRequest {
   episode_id: string
-  model: string            // video model ID (e.g. 'veo-v2')
+  model: string            // video model ID (e.g. 'kie-veo3-fast')
   mode: VideoGenerationMode
   aspect_ratio: 'landscape' | 'portrait'
   number_of_videos_per_prompt: number  // 1-4
@@ -1816,7 +1816,7 @@ export interface AudioMergeRequest {
 
 // ── AI Models ───────────────────────────────────────────────────────────────
 
-export type AiProvider = 'anthropic' | 'openai' | 'kie' | 'genaipro'
+export type AiProvider = 'anthropic' | 'openai' | 'kie'
 
 export const SUPPORTED_MODELS: Record<string, AiProvider> = {
   // Anthropic
@@ -1837,11 +1837,6 @@ export const SUPPORTED_MODELS: Record<string, AiProvider> = {
   // kie.ai (OpenAI-compatible)
   'deepseek-v3-kie': 'kie',
   'deepseek-r1-kie': 'kie',
-  // genaipro (OpenAI-compatible gateway — LLMs + ElevenLabs TTS)
-  'genaipro-gpt-4o': 'genaipro',
-  'genaipro-gpt-4.1': 'genaipro',
-  'genaipro-claude-sonnet-4': 'genaipro',
-  'genaipro-claude-opus-4': 'genaipro',
 }
 
 /** Display labels for the frontend model selectors */
@@ -1861,10 +1856,6 @@ export const MODEL_LABELS: Record<string, string> = {
   'o4-mini':           'o4 Mini [OpenAI reasoning]',
   'deepseek-v3-kie':   'DeepSeek V3 [kie.ai]',
   'deepseek-r1-kie':   'DeepSeek R1 [kie.ai]',
-  'genaipro-gpt-4o':            'GPT-4o [genaipro]',
-  'genaipro-gpt-4.1':           'GPT-4.1 [genaipro]',
-  'genaipro-claude-sonnet-4':   'Claude Sonnet 4 [genaipro]',
-  'genaipro-claude-opus-4':     'Claude Opus 4 [genaipro]',
 }
 
 // Models that the OpenAI-key check would otherwise mark "available" but

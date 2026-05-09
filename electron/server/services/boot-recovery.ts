@@ -61,9 +61,9 @@ import {
 import { getTaskById } from '../lib/genaipro-client.js'
 import { downloadAudio } from '../lib/fal-client.js'
 import {
-  fetchGenaiproVeo, fetchKieVideo, fetchFalVideo,
+  fetchKieVideo, fetchFalVideo,
 } from './video-reconciler.js'
-import { downloadVideo } from '../lib/genaipro-veo-client.js'
+import { downloadVideo } from '../lib/download-video.js'
 import type { ImageModelConfig } from '../models/types.js'
 
 export interface RecoverySweepSummary {
@@ -267,15 +267,10 @@ async function recoverOne(
     return { status: 'pending' }
   }
 
-  // ── Video (kie / fal / genaipro-veo) ──────────────────────────────────
+  // ── Video (kie / fal) ─────────────────────────────────────────────────
   if (kind === 'video') {
     let lookup
     switch (entry.provider) {
-      case 'genaipro-veo':
-      case 'genaipro':
-        if (!apiKeys.genaipro) return { status: 'skipped' }
-        lookup = await fetchGenaiproVeo(entry.task_id, apiKeys.genaipro)
-        break
       case 'kie-video':
       case 'kie':
         if (!apiKeys.kie) return { status: 'skipped' }

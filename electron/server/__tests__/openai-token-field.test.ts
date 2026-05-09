@@ -43,7 +43,6 @@ describe('isCompletionTokensModel', () => {
 
   test('non-OpenAI models → false (only OpenAI cares about this split)', () => {
     assert.equal(isCompletionTokensModel('claude-sonnet-4'), false)
-    assert.equal(isCompletionTokensModel('genaipro-gpt-5'), false, 'genaipro provider, not OpenAI direct')
   })
 
   test('"o" prefix without trailing digit (unrelated names) → false', () => {

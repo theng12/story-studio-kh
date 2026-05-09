@@ -28,7 +28,7 @@ import { writeJsonAtomic } from '../lib/atomic-store.js'
 const FILENAME = '.task-manifest.json'
 
 export interface TaskManifestEntry {
-  provider: string        // 'genaipro' | 'fal' | 'kie' | 'genaipro-veo' | 'elevenlabs'
+  provider: string        // 'genaipro' | 'fal' | 'kie' | 'kie-video' | 'fal-video' | 'elevenlabs'
   task_id: string
   submitted_at: string    // ISO 8601
   input_hash?: string     // sha256 of the input text/prompt, for collision detection

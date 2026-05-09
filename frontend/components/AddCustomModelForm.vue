@@ -212,7 +212,6 @@ const PROVIDERS_BY_TYPE: Record<ModelType, Array<{ id: string; label: string }>>
   video: [
     { id: 'fal-video', label: 'fal.ai Video' },
     { id: 'kie-video', label: 'kie.ai Video' },
-    { id: 'genaipro-veo', label: 'GenAIPro (Veo)' },
   ],
   text: [
     { id: 'openai', label: 'OpenAI' },
@@ -294,7 +293,6 @@ const imageEndpointHint = computed(() => {
 const videoSlugHint = computed(() => {
   if (form.provider === 'fal-video') return 'fal-ai/veo3.1'
   if (form.provider === 'kie-video') return 'sora-2-text-to-video'
-  if (form.provider === 'genaipro-veo') return 'veo-fast'
   return ''
 })
 
@@ -336,7 +334,7 @@ function buildParams(): Record<string, any> {
       }
       if (form.video.max_duration !== undefined) params.max_duration = form.video.max_duration
       const providerParams: Record<string, any> = {}
-      if (form.provider === 'fal-video' || form.provider === 'genaipro-veo') {
+      if (form.provider === 'fal-video') {
         providerParams.slug = form.video.provider_slug.trim()
       } else if (form.provider === 'kie-video') {
         providerParams.api_model = form.video.provider_slug.trim()

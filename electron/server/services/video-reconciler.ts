@@ -3,13 +3,8 @@
  * provider's stored task results, WITHOUT re-submitting (= zero credit cost).
  *
  * Mirrors `image-reconciler.ts`. Differs in that it dispatches per
- * provider because the three video backends use three different
- * recovery endpoints:
+ * provider because the two video backends use different recovery endpoints:
  *
- *   - genaipro-veo  → GET /v2/veo/tasks/{taskId}  (returns file_urls when
- *                     completed). Same endpoint the in-process generator
- *                     polls; safe to re-call after the fact while the
- *                     provider keeps the record.
  *   - kie-video     → GET /api/v1/{pollPath}?taskId={id}  where pollPath
  *                     varies per model family (`/veo/record-info`,
  *                     `/runway/record-info`, `/jobs/recordInfo`). The
@@ -28,7 +23,7 @@
 import { stat } from 'fs/promises'
 import path from 'path'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
-import { downloadVideo } from '../lib/genaipro-veo-client.js'
+import { downloadVideo } from '../lib/download-video.js'
 import { readManifest, type TaskManifestEntry } from './task-manifest.js'
 import { findFileCaseInsensitive } from './fs-case-insensitive.js'
 import * as pm from '../services/project-manager.js'
@@ -78,24 +73,6 @@ export interface FetchResult {
   urls: string[]
   status: 'success' | 'pending' | 'failed' | 'expired' | 'unknown'
   message?: string
-}
-
-export async function fetchGenaiproVeo(taskId: string, apiKey: string): Promise<FetchResult> {
-  const resp = await fetch(`https://api.genaipro.vn/v2/veo/tasks/${encodeURIComponent(taskId)}`, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-    signal: AbortSignal.timeout(30000),
-  })
-  if (resp.status === 404) return { urls: [], status: 'expired', message: 'Task record not found' }
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
-    return { urls: [], status: 'unknown', message: `HTTP ${resp.status}: ${text.slice(0, 200)}` }
-  }
-  const task = await resp.json() as { status?: string; file_urls?: string[]; error?: string }
-  if (task.status === 'completed' && task.file_urls?.length) {
-    return { urls: task.file_urls, status: 'success' }
-  }
-  if (task.status === 'failed') return { urls: [], status: 'failed', message: task.error || 'Provider reported failure' }
-  return { urls: [], status: 'pending', message: `Status: ${task.status || 'unknown'}` }
 }
 
 export async function fetchKieVideo(taskId: string, pollPath: string, apiKey: string): Promise<FetchResult> {
@@ -175,13 +152,6 @@ async function recoverOne(
 
   let lookup: FetchResult
   switch (entry.provider) {
-    case 'genaipro-veo':
-    case 'genaipro': {
-      const apiKey = config.genaipro_api_key || ''
-      if (!apiKey) return { filename: expected.filename, status: 'error', reason: 'No GenAIPro API key configured', task_id: entry.task_id, provider: entry.provider }
-      lookup = await fetchGenaiproVeo(entry.task_id, apiKey)
-      break
-    }
     case 'kie-video':
     case 'kie': {
       const apiKey = config.kie_api_key || ''

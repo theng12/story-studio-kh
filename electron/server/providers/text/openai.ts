@@ -40,7 +40,6 @@ const openaiProvider: TextProvider = {
   },
 
   supportsModel(modelId: string): boolean {
-    if (modelId.startsWith('genaipro-')) return false
     return MODELS.includes(modelId)
       || modelId.startsWith('gpt-')
       || /^o[1-9]/.test(modelId)

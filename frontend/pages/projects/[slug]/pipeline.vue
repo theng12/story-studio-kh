@@ -20,7 +20,7 @@
       in sequence (<span title="Each step waits for the previous to finish on the same episode before starting.">
         script → intro → metadata → image prompts → images → video clips → audio → audio merge → video assembly
       </span>); different episodes' steps run concurrently when the queue has capacity.
-      Uses each generator's last-used preset for step settings.
+      Pick the preset each step runs with using the dropdowns below — selections stick across sessions.
       <strong title="Pending = anything the 'Select all pending' button picks up. Includes every core step plus video assembly (added 2026 — previously excluded).">Video Assembly is now included in pending</strong>
       so one click can finish an episode end-to-end.
     </p>
@@ -30,7 +30,7 @@
       <div class="flex items-center justify-between">
         <h3>Steps to Run</h3>
         <span class="text-muted text-sm">
-          Each checked step uses the <strong>last-used preset</strong> on its generator page.
+          Pick a preset per step — your choice is pinned per-project until you change it.
         </span>
       </div>
 
@@ -53,14 +53,28 @@
               <span class="step-icon" aria-hidden="true">{{ step.icon }}</span>
               <strong>{{ step.label }}</strong>
             </div>
-            <div class="step-preset">
-              <template v-if="presetNameFor(step.id)">
-                Preset: <span class="preset-name">{{ presetNameFor(step.id) }}</span>
-              </template>
-              <template v-else>
-                <span class="preset-missing">⚠ No preset —</span>
-                <NuxtLink :to="`/projects/${slug}${step.link}`" class="preset-link">set one →</NuxtLink>
-              </template>
+            <div class="step-preset" @click.stop>
+              <label class="step-preset-label">Preset</label>
+              <select
+                class="step-preset-select"
+                :value="activePresetIdFor(step.id)"
+                :disabled="presetSaving[step.id]"
+                :title="presetSelectTooltip(step.id)"
+                @change="onPresetChange(step.id, ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="">— pick one —</option>
+                <option
+                  v-for="p in presetsForStep(step.id)"
+                  :key="p.id"
+                  :value="p.id"
+                >{{ p.name }}</option>
+              </select>
+              <NuxtLink
+                :to="`/projects/${slug}${step.link}`"
+                class="preset-link"
+                title="Open the per-stage page to edit, save-as, rename or delete this step's presets."
+              >Manage →</NuxtLink>
+              <span v-if="!activePresetIdFor(step.id)" class="preset-missing">⚠ no preset selected</span>
             </div>
             <div v-if="stepDisabled(step.id)" class="step-warning">{{ stepDisabledReason(step.id) }}</div>
             <div v-else-if="step.warning" class="step-warning">⚠ {{ step.warning }}</div>
@@ -461,7 +475,7 @@ const slug = computed(() => route.params.slug as string)
 const { get, post, patch: patchApi } = useApi()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
-const { config } = useProject()
+const { config, refreshConfig } = useProject()
 
 // ── Step metadata ──────────────────────────────────────────────────────
 // ID matches the BatchStep enum on the backend (routes/pipeline.ts).
@@ -567,38 +581,104 @@ const TYPE_FOR_STEP: Partial<Record<StepId, string>> = {
 }
 
 function presetNameFor(stepId: StepMeta['id']): string {
+  const id = activePresetIdFor(stepId)
+  if (!id) return ''
+  const meta = stepsMeta.find(s => s.id === stepId)!
+  const list: any[] = (config.value as any)?.[meta.presetList] || []
+  return list.find(x => x.id === id)?.name || ''
+}
+
+/** Resolve the preset id the backend will use for this step. Mirrors the
+ *  three-tier fallback in /electron/server/routes/pipeline.ts so the
+ *  inline picker shows whichever preset will actually run, not just
+ *  whichever pointer is set. Returns '' when nothing resolves. */
+function activePresetIdFor(stepId: StepMeta['id']): string {
   const meta = stepsMeta.find(s => s.id === stepId)!
   const cfg = config.value as any
   const list: any[] = cfg?.[meta.presetList] || []
 
-  // 1. Typed active pointer (canonical).
+  // 1. Typed active pointer (canonical, set by per-stage pages and by
+  //    onPresetChange below).
   const primary: string = cfg?.[meta.presetActive] || ''
-  if (primary) {
-    const p = list.find(x => x.id === primary)
-    if (p) return p.name || ''
-  }
+  if (primary && list.some(x => x.id === primary)) return primary
 
-  // 2. Legacy untyped active pointer.
+  // 2. Legacy untyped active pointer (script-only / introduction-only
+  //    fall back to `script_last_preset` for pre-typing saves).
   const legacyKey = LEGACY_ACTIVE_KEY[stepId]
   if (legacyKey) {
     const legacy: string = cfg?.[legacyKey] || ''
-    if (legacy) {
-      const p = list.find(x => x.id === legacy)
-      if (p) return p.name || ''
-    }
+    if (legacy && list.some(x => x.id === legacy)) return legacy
   }
 
   // 3. Type-based auto-resolve (last-resort). Save-order in usePresets is
-  //    chronological (`allPresets.value.push(fresh)`), so the last entry
-  //    of a matching type is the newest.
+  //    chronological, so the LAST matching entry is the newest. This is
+  //    the "silent shift" behaviour the picker lets users override — they
+  //    can pick explicitly to pin a stable choice.
   const wantedType = TYPE_FOR_STEP[stepId]
   if (wantedType) {
     for (let i = list.length - 1; i >= 0; i--) {
-      if (list[i]?.type === wantedType) return list[i].name || ''
+      if (list[i]?.type === wantedType) return list[i].id
     }
   }
 
   return ''
+}
+
+/** Filter the step's preset pool to options that make sense for this step.
+ *  Steps with a typed pool (script-only, introduction-only) hide presets
+ *  belonging to the OTHER type — script_presets holds both 'script' and
+ *  'introduction' typed presets, so an unfiltered dropdown would mix them.
+ *  Untyped legacy presets are kept in both lists since they predate the
+ *  typing convention and the legacy fallback above can resolve them. */
+function presetsForStep(stepId: StepMeta['id']): Array<{ id: string; name: string; type?: string }> {
+  const meta = stepsMeta.find(s => s.id === stepId)!
+  const list: any[] = (config.value as any)?.[meta.presetList] || []
+  const wantedType = TYPE_FOR_STEP[stepId]
+  if (!wantedType) return list
+  return list.filter(p => !p?.type || p.type === wantedType)
+}
+
+/** Tooltip shown on the inline select. Calls out the silent-shift gotcha
+ *  when the user is currently relying on the type-based fallback so they
+ *  know to pin an explicit choice. */
+function presetSelectTooltip(stepId: StepMeta['id']): string {
+  const meta = stepsMeta.find(s => s.id === stepId)!
+  const cfg = config.value as any
+  const primary: string = cfg?.[meta.presetActive] || ''
+  const legacy: string = LEGACY_ACTIVE_KEY[stepId] ? cfg?.[LEGACY_ACTIVE_KEY[stepId]!] || '' : ''
+  if (primary || legacy) return 'Pick which saved preset this step runs with. Selection is sticky across sessions.'
+  if (activePresetIdFor(stepId)) {
+    return 'No preset is pinned — Pipeline is auto-using the most recently saved preset of this type. Pick one explicitly to lock it.'
+  }
+  return 'No preset selected. Pick one to enable this step in the Pipeline run.'
+}
+
+// Per-step saving flag so the dropdown can show a brief disabled state
+// while the PUT round-trips. Avoids a double-fire if the user mashes the
+// dropdown twice fast.
+const presetSaving = reactive<Record<StepId, boolean>>({
+  'script-only': false, 'introduction-only': false, metadata: false,
+  image_prompts: false, images: false, video: false,
+  audio: false, audio_merge: false, video_assembly: false,
+})
+
+async function onPresetChange(stepId: StepMeta['id'], presetId: string) {
+  const meta = stepsMeta.find(s => s.id === stepId)!
+  presetSaving[stepId] = true
+  try {
+    const { put } = useApi()
+    // Same partial-update pattern usePresets.persist() uses. Only the
+    // typed active-pointer key is touched — the preset list itself is
+    // owned by the per-stage page's usePresets() instance.
+    await put(`/projects/${slug.value}/settings/config`, {
+      [meta.presetActive]: presetId,
+    })
+    await refreshConfig(slug.value)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || `Failed to set ${meta.label} preset`)
+  } finally {
+    presetSaving[stepId] = false
+  }
 }
 
 // ── Episode multi-select ───────────────────────────────────────────────
@@ -1265,10 +1345,36 @@ async function submit() {
 .step-body { flex: 1; }
 .step-head { display: flex; align-items: center; gap: 8px; }
 .step-icon { font-size: 16px; }
-.step-preset { margin-top: 4px; font-size: 11px; color: var(--text-muted); }
+.step-preset {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.step-preset-label {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.step-preset-select {
+  flex: 1;
+  min-width: 120px;
+  max-width: 220px;
+  font-size: 11px;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.step-preset-select:disabled { opacity: 0.6; cursor: progress; }
 .preset-name { color: var(--accent); font-weight: 500; }
-.preset-missing { color: rgb(180, 83, 9); }
-.preset-link { color: var(--accent); text-decoration: underline; }
+.preset-missing { color: rgb(180, 83, 9); font-size: 10px; }
+.preset-link { color: var(--accent); text-decoration: underline; font-size: 10px; }
 
 /* ── Episode list ─────────────────────────────────────────────────────── */
 .episode-list {

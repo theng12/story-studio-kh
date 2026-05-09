@@ -267,7 +267,7 @@ const manualPromptsText = ref('')
 const generatedPrompts = ref<Array<{ number: number; title: string; prompt: string }>>([])
 
 const form = reactive({
-  model: 'veo-v2',
+  model: 'kie-veo3-fast',
   mode: 'text' as 'text' | 'frames',
   aspect_ratio: 'landscape' as 'landscape' | 'portrait',
   number_of_videos_per_prompt: 1,

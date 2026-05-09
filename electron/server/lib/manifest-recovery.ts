@@ -32,7 +32,7 @@
 
 import type { TaskManifestEntry } from '../services/task-manifest.js'
 import {
-  fetchGenaiproVeo, fetchKieVideo, fetchFalVideo, type FetchResult,
+  fetchKieVideo, fetchFalVideo, type FetchResult,
 } from '../services/video-reconciler.js'
 import { pollForImageUrls } from './kie-client.js'
 import { pollExistingTask as pollExistingGenaiproTask } from './genaipro-client.js'
@@ -120,7 +120,7 @@ export async function tryRecoverAudioFromManifest(
   return null
 }
 
-// ── Video (kie / fal / genaipro-veo — all three providers) ───────────────
+// ── Video (kie / fal) ────────────────────────────────────────────────────
 
 /**
  * Try to recover a per-scene video clip from a stored manifest entry.
@@ -132,7 +132,7 @@ export async function tryRecoverAudioFromManifest(
  */
 export async function tryRecoverVideoFromManifest(
   entry: TaskManifestEntry | null,
-  config: { genaipro_api_key?: string; kie_api_key?: string; fal_api_key?: string },
+  config: { kie_api_key?: string; fal_api_key?: string },
   isCancelled?: () => boolean,
   pollDeadlineMs: number = DEFAULT_POLL_DEADLINE_MS,
 ): Promise<RecoveryResult | null> {
@@ -142,12 +142,6 @@ export async function tryRecoverVideoFromManifest(
   // as video-reconciler.ts:recoverOne.
   const fetcher = (): Promise<FetchResult> | null => {
     switch (entry.provider) {
-      case 'genaipro-veo':
-      case 'genaipro': {
-        const k = config.genaipro_api_key || ''
-        if (!k) return null
-        return fetchGenaiproVeo(entry.task_id, k)
-      }
       case 'kie-video':
       case 'kie': {
         const k = config.kie_api_key || ''

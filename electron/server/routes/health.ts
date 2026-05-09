@@ -427,7 +427,7 @@ router.get('/connectivity/precheck', async (_req, res) => {
     { host: 'api.kie.ai',        probeUrl: 'https://api.kie.ai/api/v1/chat/credit', label: 'kie.ai' },
     { host: 'queue.fal.run',     probeUrl: 'https://queue.fal.run/',              label: 'fal.ai' },
     { host: 'api.elevenlabs.io', probeUrl: 'https://api.elevenlabs.io/v1/voices', label: 'ElevenLabs' },
-    { host: 'genaipro.vn',       probeUrl: 'https://genaipro.vn/api/v1/labs/task', label: 'GenAIPro' },
+    { host: 'genaipro.io',       probeUrl: 'https://genaipro.io/api/v1/labs/task', label: 'GenAIPro' },
   ] as const
   const started = Date.now()
   const results = await Promise.allSettled(PROVIDERS.map(async (p) => {

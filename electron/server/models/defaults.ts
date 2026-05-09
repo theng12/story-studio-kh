@@ -132,15 +132,6 @@ export const DEFAULT_VOICE_PRESETS: VoicePreset[] = [
 // Per-model extra fields live in provider_params on the stored config (not the typed interface)
 // so we cast via `as any` on each object. Keeps VideoModelConfig lean.
 export const DEFAULT_VIDEO_MODELS: Record<string, VideoModelConfig> = {
-  // ── GenAIPro (Veo) — multipart file upload for i2v, no base64 needed ─────
-  'veo-v2': {
-    label: 'Google Veo 2 [GenAIPro]',
-    credits_per_video: 1,
-    provider: 'genaipro-veo',
-    modes: ['text', 'frames', 'ingredients'],
-    max_duration: 8,
-  },
-
   // ── fal.ai video models (base64 data-URI i2v) ────────────────────────────
   'fal-veo-3.1': {
     label: 'Veo 3.1 [fal.ai] — premium',

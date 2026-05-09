@@ -51,7 +51,7 @@ export function registerAllExecutors(): void {
     await reconcileImages(job.project_slug, episodeId, job)
   })
   // Same shape as images_repair — delegates the per-provider dispatch
-  // (genaipro-veo / kie-video / fal-video) to the reconciler itself.
+  // (kie-video / fal-video) to the reconciler itself.
   registerExecutor('video_repair', async (job) => {
     const episodeId = (job.params as any)?.episode_id || job.episode_id
     await reconcileVideos(job.project_slug, episodeId, job)

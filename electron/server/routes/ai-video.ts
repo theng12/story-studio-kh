@@ -146,14 +146,13 @@ router.post('/projects/:slug/generate/video', async (req, res) => {
   if (!episodeId) return res.status(400).json({ detail: 'episode_id is required' })
 
   // Look up the selected model → required API key
-  const modelId: string = req.body.model || 'veo-v2'
+  const modelId: string = req.body.model || 'kie-veo3-fast'
   const videoModels: Record<string, any> = (config as any).video_models || {}
   const modelConfig = videoModels[modelId]
   if (!modelConfig) return res.status(400).json({ detail: `Unknown video model: ${modelId}` })
 
-  const apiKeyField = modelConfig.provider === 'genaipro-veo' ? 'genaipro_api_key'
-    : modelConfig.provider === 'kie' ? 'kie_api_key'
-    : modelConfig.provider === 'fal' ? 'fal_api_key'
+  const apiKeyField = modelConfig.provider === 'kie' || modelConfig.provider === 'kie-video' ? 'kie_api_key'
+    : modelConfig.provider === 'fal' || modelConfig.provider === 'fal-video' ? 'fal_api_key'
     : null
   if (!apiKeyField || !(config as any)[apiKeyField]) {
     return res.status(400).json({ detail: `No API key configured for ${modelConfig.provider}. Add one in Settings → API Keys.` })
