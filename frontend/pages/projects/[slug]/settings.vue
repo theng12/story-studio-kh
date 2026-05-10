@@ -1883,7 +1883,7 @@
             class="input"
             style="flex: 1; min-width: 240px;"
           >
-            <option :value="undefined">— Default (22 · People & Blogs) —</option>
+            <option :value="undefined">— Default (24 · Entertainment) —</option>
             <option v-for="c in ytCategoryList" :key="c.id" :value="Number(c.id)">
               {{ c.id }} · {{ c.title }}
             </option>
@@ -1895,7 +1895,7 @@
             min="1"
             class="input"
             style="flex: 1; min-width: 240px;"
-            :placeholder="'22 (default — People & Blogs)'"
+            :placeholder="'24 (default — Entertainment)'"
           />
           <button
             type="button"
@@ -4161,10 +4161,18 @@ const projectForm = reactive<{
    * Item J — YouTube videoCategories.list ID. Stored in ProjectConfig
    * (not project meta), so saveProject() splits this off and PUTs it to
    * /settings/config separately. Undefined = use the upload-metadata
-   * default (22 · People & Blogs).
+   * default (24 · Entertainment, switched from 22 in v1.0.77).
    */
   category_id: number | undefined
-}>({ name: '', episode_prefix: '', season_prefix: 'Season', season_size: 20, youtube_channel_url: '', category_id: undefined })
+  /**
+   * v1.0.77 — Project-level toggle for the YouTube "altered or synthetic
+   * content" disclosure flag. Threaded into uploadVideo's status block as
+   * `containsSyntheticMedia`. Undefined = inherit the app-level default
+   * (which itself defaults to true since Story Studio's primary use is
+   * AI-generated content).
+   */
+  mark_as_ai_generated: boolean | undefined
+}>({ name: '', episode_prefix: '', season_prefix: 'Season', season_size: 20, youtube_channel_url: '', category_id: undefined, mark_as_ai_generated: undefined })
 
 // ── Brand picker ───────────────────────────────────────────────────────────
 // Brand sits above Format in the resolution chain (channel-level identity).
@@ -4540,6 +4548,8 @@ watch(config, (c) => {
     const cAny = c as any
     projectForm.category_id = typeof cAny?.category_id === 'number' && cAny.category_id > 0
       ? cAny.category_id : undefined
+    projectForm.mark_as_ai_generated = typeof cAny?.mark_as_ai_generated === 'boolean'
+      ? cAny.mark_as_ai_generated : undefined
     editImageModels.value = JSON.parse(JSON.stringify(c.image_models || {}))
     editAudioModels.value = JSON.parse(JSON.stringify(c.audio_models || {}))
     editVideoModels.value = JSON.parse(JSON.stringify((c as any).video_models || {}))
@@ -4874,7 +4884,7 @@ async function saveProject() {
     // season-aware path resolution silently broken. The Rebalance
     // button next to the field is the only path that commits a new
     // season_size (via /episodes/reseason, which moves folders too).
-    const { category_id, season_size: _droppedSize, ...projectMeta } = projectForm as any
+    const { category_id, mark_as_ai_generated, season_size: _droppedSize, ...projectMeta } = projectForm as any
     if (seasonSizeChanged.value) {
       // Reset the input to the server value so the Rebalance button's
       // "differs from server" gate doesn't keep firing after save.
@@ -4882,7 +4892,13 @@ async function saveProject() {
       info('Episodes per Group not saved — use the ↻ Rebalance button next to the field to apply size changes.')
     }
     await put(`/projects/${slug.value}`, projectMeta)
-    await put(`/projects/${slug.value}/settings/config`, { category_id: typeof category_id === 'number' && category_id > 0 ? category_id : undefined })
+    // Two ProjectConfig fields wired through the same /settings/config PUT —
+    // category_id (Item J, v1.0.20) + mark_as_ai_generated (v1.0.77, YouTube
+    // synthetic-content disclosure). undefined means "inherit app default".
+    await put(`/projects/${slug.value}/settings/config`, {
+      category_id: typeof category_id === 'number' && category_id > 0 ? category_id : undefined,
+      mark_as_ai_generated: typeof mark_as_ai_generated === 'boolean' ? mark_as_ai_generated : undefined,
+    })
     await loadProject(slug.value)
     if (typeof refreshConfig === 'function') await refreshConfig()
     stampSaved('project')

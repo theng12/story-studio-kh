@@ -912,11 +912,19 @@ export interface ProjectConfig {
   chatterbox_reference_id?: string
   /**
    * YouTube videoCategories.list ID applied to every fresh upload
-   * + metadata-only PATCH for this project. Default 22 ("People &
-   * Blogs") for back-compat. Set per-project on Settings → Project.
-   * See [docs/upload-backlog.md] item J.
+   * + metadata-only PATCH for this project. Default 24 ("Entertainment")
+   * as of v1.0.77 (was 22 "People & Blogs"). Set per-project on
+   * Settings → Project. See [docs/upload-backlog.md] item J.
    */
   category_id?: number
+  /**
+   * v1.0.77 — Per-project override for YouTube's "altered or synthetic
+   * content" disclosure. When true, fresh uploads include
+   * `status.containsSyntheticMedia: true` in the videos.insert body.
+   * Undefined = inherit the app-level default (which itself defaults to
+   * true since Story Studio's primary use is AI-generated content).
+   */
+  mark_as_ai_generated?: boolean
   image_models: Record<string, ImageModelConfig>
   image_pricing_last_updated: string
   voice_presets: VoicePreset[]

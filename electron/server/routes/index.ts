@@ -69,4 +69,5 @@ export function mountRoutes(app: Express): void {
   app.use('/api', stylePreviewRouter)
   app.use('/api', imagePromptsEditRouter)
   app.use('/api', imageReferencesRouter)
+  app.use('/api', changelogRouter)
 }

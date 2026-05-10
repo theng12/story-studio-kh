@@ -23,7 +23,8 @@
     { "from": "electron/server/formats",    "to": "formats" },
     { "from": "electron/server/patterns",   "to": "patterns" },
     { "from": "bundled/ffmpeg",             "to": "ffmpeg" },
-    { "from": "bundled/LICENSE-FFMPEG.txt", "to": "LICENSE-FFMPEG.txt" }
+    { "from": "bundled/LICENSE-FFMPEG.txt", "to": "LICENSE-FFMPEG.txt" },
+    { "from": "CHANGELOG.md",               "to": "CHANGELOG.md" }
   ],
   "mac": {
     "target": { "target": "dmg", "arch": ["arm64"] },
