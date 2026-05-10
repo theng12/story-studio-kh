@@ -19,15 +19,23 @@ import { mountRoutes } from './routes/index.js'
 import { registerAllExecutors } from './boot/executors.js'
 import { runBootMigrations, isBootComplete } from './boot/migrations.js'
 import { logLine } from './services/logger.js'
-import { requireLocalHost, csrfTokenHandler } from './lib/security.js'
+import { requireAllowedHost } from './lib/security.js'
+import { isServerMode, getServerModeConfig } from './lib/server-mode.js'
+import { buildRequireSession } from './lib/auth-session.js'
+import { router as authRouter } from './routes/auth.js'
 
 const app = express()
+const SERVER_MODE = isServerMode()
 
 // ── Middleware ─────────────────────────────────────────────────────────────
 // Host-header check runs first: a DNS-rebound request from attacker.com still
 // arrives with `Host: attacker.com`, so rejecting here shuts that class of
 // attack before CORS has a chance to echo a permissive Access-Control header.
-app.use(requireLocalHost)
+//
+// In server mode, the host check is bypassed — the server is intentionally
+// reachable from non-local hosts (the user's iMac browser via Tailscale), and
+// session-cookie auth carries the security weight instead. See lib/server-mode.ts.
+app.use(requireAllowedHost(SERVER_MODE))
 
 // In production (packaged Electron), frontend is served from the same Express
 // server so CORS isn't needed. In dev, allow the Nuxt dev server origin.
@@ -59,17 +67,15 @@ app.use((req, res, next) => {
   next()
 })
 
-// ── Routes + boot tasks ────────────────────────────────────────────────────
-mountRoutes(app)
-
-// Global health (duplicated inside healthRouter for completeness — leave it
-// here so a broken health router never masks the liveness probe).
+// ── Public routes (mounted BEFORE the auth gate) ───────────────────────────
+//
+// Liveness + server-info + login/logout/me must be reachable without a
+// session cookie. The SPA's boot-ready gate hits /api/health, the login
+// page hits /api/server-info + /api/auth/login, and /api/auth/me is the
+// "am I logged in?" probe used by the frontend on every page mount.
 //
 // `boot_complete` flips true once every async boot migration has settled
-// (or after the 20 s safety-net timeout). The frontend uses it to delay
-// the parallel page-load fan-out, avoiding transient "Project not found"
-// / "COULDN'T VERIFY" flashes that came from API requests landing while
-// migrateAppSecrets / migrateDescriptionToMetadata were mid-rewrite.
+// (or after the 20 s safety-net timeout).
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
@@ -78,10 +84,33 @@ app.get('/api/health', (_req, res) => {
   })
 })
 
-// CSRF token distribution — Origin-gated inside the handler so only the
-// bundled renderer can read the value. Writes to sensitive endpoints echo
-// it back in X-Story-Studio-Token.
-app.get('/api/csrf-token', csrfTokenHandler)
+app.get('/api/server-info', (_req, res) => {
+  res.json({
+    server_mode: SERVER_MODE,
+    app_name: 'Story Studio KH',
+    version: '0.1.0',
+  })
+})
+
+app.use('/api', authRouter)
+
+// ── Auth gate (server mode only) ───────────────────────────────────────────
+//
+// Gates every /api/* route registered below this line. Has a loopback
+// bypass so the local Electron window on the Mac mini still works without
+// a login dialog. In default (Electron desktop) mode this middleware is
+// not mounted at all — the host-header guard above already restricts
+// access to localhost.
+if (SERVER_MODE) {
+  // Re-read the config on each request so credential changes (set/rotate
+  // via the Settings UI) take effect immediately without an app restart.
+  // Cheap — sync read of a small JSON file from OS page cache.
+  const requireSession = buildRequireSession(() => getServerModeConfig()?.auth)
+  app.use('/api', requireSession)
+}
+
+// ── Gated routes ────────────────────────────────────────────────────────────
+mountRoutes(app)
 
 runBootMigrations()
 registerAllExecutors()

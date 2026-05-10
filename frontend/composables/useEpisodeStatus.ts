@@ -63,22 +63,34 @@ export function useEpisodeStatus(
    * would be noise fatigue. The user-initiated paths (mount, episode
    * change) toast on failure because the operator was waiting for that
    * gating flag and silence would let them act on stale data.
+   *
+   * The `?invalidate=CODE` parameter drops just THIS episode's cache entry
+   * server-side before recomputing — surgically forces a re-stat of the
+   * selected episode's watched folders. Without this, an iCloud-delivered
+   * script docx whose folder mtime didn't bump would leave status.script
+   * stale at false until the user manually shift-clicked the global ↻
+   * button (full project rescan, expensive). Per-episode invalidate is
+   * cheap (one extra getConfig + a few fs.stat calls) and catches the
+   * iCloud / cross-machine sync case automatically.
    */
   async function refetch(quiet = false) {
     if (!episodeIdRef.value) {
       selectedEpisode.value = null
       return
     }
+    const code = episodeIdRef.value
     try {
-      const list = await get<any[]>(`/projects/${slugRef.value}/episodes`)
-      const fresh = (list || []).find(e => e.episode_code === episodeIdRef.value)
+      const list = await get<any[]>(
+        `/projects/${slugRef.value}/episodes?invalidate=${encodeURIComponent(code)}`,
+      )
+      const fresh = (list || []).find(e => e.episode_code === code)
       // Keep the previous episode rather than blanking on transient errors —
       // the user shouldn't see the gating flash open mid-edit.
       if (fresh) selectedEpisode.value = fresh
     } catch (e: any) {
       if (!quiet) {
         const raw = e?.data?.detail || e?.message || 'Failed to load episode status'
-        showError(`Couldn't refresh episode "${episodeIdRef.value}": ${humanizeError(raw)}`)
+        showError(`Couldn't refresh episode "${code}": ${humanizeError(raw)}`)
       }
     }
   }

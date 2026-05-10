@@ -25,7 +25,7 @@ export const DEFAULT_IMAGE_MODELS: Record<string, ImageModelConfig> = {
   // to surface a "compatible models" hint per character.
 
   // ── Flat-priced models (single credit cost, no tiers) ─────────────────
-  'z-image':         { label: 'Z-Image',                    credits_per_image: 0.8, endpoint: '/jobs/createTask',         poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'tongyi/z-image-text-to-image', provider: 'kie' },
+  'z-image':         { label: 'Z-Image',                    credits_per_image: 0.8, endpoint: '/jobs/createTask',         poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'z-image',                      provider: 'kie' },
   'grok-imagine':    { label: 'Grok Imagine',               credits_per_image: 1,   endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'grok-imagine/text-to-image',   provider: 'kie' },
   'qwen-image':      { label: 'Qwen Image',                 credits_per_image: 2,   endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'qwen/text-to-image',           provider: 'kie' },
   'flux-kontext-pro':{ label: 'Flux Kontext Pro',           credits_per_image: 2,   endpoint: '/flux/kontext/generate',     poll: '/flux/kontext/record-info',  type: 'flux',      api_model: 'flux-kontext-pro',             provider: 'kie', supports_reference_images: true },

@@ -13,6 +13,8 @@ import { killAllTrackedChildren, jobEvents, getJobs } from './server/services/jo
 import { reapFfmpegOrphans } from './server/services/orphan-reaper.js'
 import { PROJECTS_ROOT } from './server/services/project-manager.js'
 import { getRunningFlagPath, patchLastSession } from './server/services/last-session.js'
+import { isServerMode, getServerModeConfig } from './server/lib/server-mode.js'
+import { bootstrapServerModeFromEnv } from './server/services/app-settings.js'
 import {
   aggregateBatch, isBatchComplete, shouldNotifyForSingleJob,
   formatBatchMessage, formatSingleJobMessage, getBatchId,
@@ -48,13 +50,26 @@ let server: http.Server | null = null
 
 function startServer(): Promise<number> {
   return new Promise((resolve, reject) => {
-    // Use port 0 for random available port in production, 8000 in dev
-    const port = isDev ? 8000 : 0
+    // Server mode (headless on the LAN/tailnet): bind a fixed port on a
+    // network-accessible interface so the URL is stable for bookmarking.
+    // Default mode (Electron desktop): random port on loopback as before —
+    // each launch picks a free port to avoid collisions when the user has
+    // multiple installs (dev + packaged) running simultaneously.
+    const cfg = getServerModeConfig()
+    let port: number
+    let bind: string
+    if (cfg) {
+      port = cfg.port
+      bind = cfg.bind
+    } else {
+      port = isDev ? 8000 : 0
+      bind = '127.0.0.1'
+    }
     server = http.createServer(expressApp)
-    server.listen(port, '127.0.0.1', () => {
+    server.listen(port, bind, () => {
       const address = server!.address()
       const actualPort = typeof address === 'object' ? address!.port : port
-      console.log(`Backend running on http://127.0.0.1:${actualPort}`)
+      console.log(`Backend running on http://${bind}:${actualPort}${cfg ? ' [server mode]' : ''}`)
       resolve(actualPort)
     })
     server.on('error', reject)
@@ -134,15 +149,43 @@ async function createWindow(port: number) {
       next()
     })
 
+    // ── index.html injection ────────────────────────────────────────────
+    // The SPA needs to know synchronously whether it's running in server
+    // mode (so app.vue's BrowserBlock guard doesn't fire when a non-Electron
+    // browser is the intended client). Cheapest signal is a <meta> tag
+    // injected at serve time — readable in <script setup> before any API
+    // call returns. Cached in memory: index.html doesn't change per-request,
+    // and we already bake-in the build via nuxt generate.
+    const indexPath = path.join(frontendPath, 'index.html')
+    let cachedIndexHtml: string | null = null
+    try {
+      const raw = fs.readFileSync(indexPath, 'utf-8')
+      const serverMode = isServerMode()
+      cachedIndexHtml = serverMode
+        ? raw.replace('<head>', '<head>\n  <meta name="story-studio-server-mode" content="1">')
+        : raw
+    } catch (e) {
+      console.warn(`[production] could not preload index.html: ${(e as Error).message}`)
+    }
+
+    function sendIndex(_req: any, res: any, fallback: () => void) {
+      if (cachedIndexHtml === null) return fallback()
+      res.type('html').send(cachedIndexHtml)
+    }
+
+    // Intercept root + index.html BEFORE the static handler so our injected
+    // HTML wins over what express.static would serve.
+    expressApp.get(['/', '/index.html'], (req, res) => {
+      sendIndex(req, res, () => res.status(404).end())
+    })
+
     expressApp.use(express.default.static(frontendPath, { dotfiles: 'allow' }))
 
     // SPA fallback — Express 5 / path-to-regexp v8 removed bare '*' wildcards
     expressApp.use((req, res, next) => {
       if (req.method !== 'GET') return next()
       if (req.path.startsWith('/api/')) return next()
-      res.sendFile(path.join(frontendPath, 'index.html'), { dotfiles: 'allow' }, (err) => {
-        if (err) next()
-      })
+      sendIndex(req, res, next)
     })
 
     // Global error handler
@@ -482,6 +525,22 @@ electronApp.whenReady().then(async () => {
         await patchLastSession({ unclean_shutdown: true, unclean_shutdown_dismissed: false })
       } catch (e) {
         logCrash('last-session-mark-unclean', e)
+      }
+    }
+    // Server-mode bootstrap from env vars: if STORY_STUDIO_INITIAL_USERNAME +
+    // STORY_STUDIO_INITIAL_PASSWORD are set and no credentials exist yet,
+    // persist them. One-shot; on subsequent boots the existing credentials
+    // win and the env vars are silently ignored. Lets a launchd-managed
+    // first install land pre-configured without ever needing the GUI.
+    if (isServerMode()) {
+      try {
+        const r = await bootstrapServerModeFromEnv()
+        if (r.bootstrapped) console.log('[server-mode] bootstrapped credentials from STORY_STUDIO_INITIAL_* env vars')
+        else if (r.reason && r.reason !== 'env vars not set' && r.reason !== 'credentials already present') {
+          console.warn(`[server-mode] bootstrap skipped: ${r.reason}`)
+        }
+      } catch (e) {
+        logCrash('server-mode-bootstrap', e)
       }
     }
     const port = await startServer()

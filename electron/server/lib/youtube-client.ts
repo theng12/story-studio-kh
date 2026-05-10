@@ -59,7 +59,15 @@ export interface VideoSnippet {
   title: string
   description?: string
   tags?: string[]
-  categoryId?: string          // default '22' = People & Blogs
+  /**
+   * YouTube videoCategoryId. Defaults to '24' (Entertainment) at upload
+   * time when the project config doesn't specify one — Entertainment is
+   * the right bucket for narrative / story-driven AI content (Story Studio's
+   * primary use case). Older builds defaulted to '22' (People & Blogs);
+   * existing projects can be migrated via the Settings → YouTube backfill
+   * action.
+   */
+  categoryId?: string
   defaultLanguage?: string
   defaultAudioLanguage?: string
 }
@@ -71,6 +79,20 @@ export interface VideoStatus {
   /** ISO 8601 when to flip to public. Only used when privacyStatus is 'private'. */
   publishAt?: string
   selfDeclaredMadeForKids?: boolean
+  /**
+   * YouTube's "altered or synthetic content" disclosure (introduced 2024-10).
+   * When true, the video is flagged as containing realistic AI-generated,
+   * altered, or synthetic content — surfaces a disclosure label under the
+   * video on YouTube's UI. Required for compliance when uploading
+   * AI-generated narration / images / video.
+   *
+   * Per YouTube Data API v3 docs, the field is `status.containsSyntheticMedia`.
+   * Omit (undefined) to leave the existing flag untouched on `videos.update`;
+   * pass `false` to explicitly clear it. Story Studio defaults to `true` for
+   * new uploads when the project's `mark_as_ai_generated` flag is set
+   * (which is the default for new projects).
+   */
+  containsSyntheticMedia?: boolean
 }
 
 export interface UploadVideoArgs {
@@ -253,7 +275,7 @@ export async function uploadVideo(args: UploadVideoArgs): Promise<UploadedVideo>
         title: args.snippet.title,
         description: args.snippet.description || '',
         tags: Array.isArray(args.snippet.tags) ? args.snippet.tags : [],
-        categoryId: args.snippet.categoryId || '22',
+        categoryId: args.snippet.categoryId || '24',
         ...(args.snippet.defaultLanguage ? { defaultLanguage: args.snippet.defaultLanguage } : {}),
         ...(args.snippet.defaultAudioLanguage ? { defaultAudioLanguage: args.snippet.defaultAudioLanguage } : {}),
       },
@@ -261,6 +283,9 @@ export async function uploadVideo(args: UploadVideoArgs): Promise<UploadedVideo>
         privacyStatus: effectivePrivacy,
         ...(args.status.publishAt ? { publishAt: args.status.publishAt } : {}),
         selfDeclaredMadeForKids: !!args.status.selfDeclaredMadeForKids,
+        ...(args.status.containsSyntheticMedia !== undefined
+          ? { containsSyntheticMedia: !!args.status.containsSyntheticMedia }
+          : {}),
       },
     }
     const initResp = await fetchWithAuthRetry(args.slug, args.accountId, (accessToken) =>
@@ -611,7 +636,7 @@ export async function updateVideoMetadata(opts: {
       title: opts.snippet.title,
       description: opts.snippet.description || '',
       tags: Array.isArray(opts.snippet.tags) ? opts.snippet.tags : [],
-      categoryId: opts.snippet.categoryId || '22',
+      categoryId: opts.snippet.categoryId || '24',
     },
   }
   // Same publishAt/privacy invariant as uploadVideo — enforce here too
@@ -625,6 +650,9 @@ export async function updateVideoMetadata(opts: {
       ...(opts.status.publishAt ? { publishAt: opts.status.publishAt } : {}),
       ...(opts.status.selfDeclaredMadeForKids !== undefined
         ? { selfDeclaredMadeForKids: opts.status.selfDeclaredMadeForKids }
+        : {}),
+      ...(opts.status.containsSyntheticMedia !== undefined
+        ? { containsSyntheticMedia: opts.status.containsSyntheticMedia }
         : {}),
     }
   }
@@ -867,6 +895,69 @@ export async function listVideoStatuses(slug: string, accountId: string, videoId
         ? st.publishAt
         : null
       out[vid] = { privacyStatus, publishAt }
+    }
+  }
+  return out
+}
+
+/**
+ * Bulk-fetch the snippet + status fields needed for the YouTube metadata
+ * backfill flow (Settings → YouTube → "Apply current settings to all
+ * uploaded videos"). Returns categoryId, current synthetic-media flag,
+ * and current privacy/publishAt — enough to PATCH without clobbering
+ * existing state.
+ *
+ * Cost: 1 quota unit (`videos_list`) per batch of 50 video IDs.
+ *
+ * Videos that don't come back (deleted on YouTube, no longer accessible)
+ * are absent from the returned map; callers should treat that as "skip".
+ */
+export interface VideoBackfillView {
+  privacyStatus: 'private' | 'unlisted' | 'public'
+  publishAt: string | null
+  categoryId: string
+  /** undefined when YouTube hasn't echoed the field (legacy uploads predate the disclosure). */
+  containsSyntheticMedia?: boolean
+}
+export async function listVideoSnippetStatus(
+  slug: string, accountId: string, videoIds: string[],
+): Promise<Record<string, VideoBackfillView>> {
+  const out: Record<string, VideoBackfillView> = {}
+  const unique = Array.from(new Set(videoIds.filter(Boolean)))
+  if (!unique.length) return out
+  for (let i = 0; i < unique.length; i += 50) {
+    const batch = unique.slice(i, i + 50)
+    await checkQuota(slug, 'videos_list')
+    const url = `${VIDEOS_UPDATE_URL}?part=snippet,status&id=${batch.map(encodeURIComponent).join(',')}`
+    const resp = await fetchWithAuthRetry(slug, accountId, (accessToken) =>
+      fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }),
+    )
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '')
+      const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
+      throw new Error(quotaMsg || `videos.list failed (${resp.status}): ${text.slice(0, 300)}`)
+    }
+    await recordQuotaOrLog(slug, 'videos_list')
+    const data = await resp.json() as any
+    for (const item of (data.items || [])) {
+      const vid = item.id as string | undefined
+      if (!vid) continue
+      const sn = item.snippet || {}
+      const st = item.status || {}
+      const privacyStatus: 'private' | 'unlisted' | 'public' = (st.privacyStatus === 'public' || st.privacyStatus === 'unlisted')
+        ? st.privacyStatus
+        : 'private'
+      const publishAt = (privacyStatus === 'private' && typeof st.publishAt === 'string' && st.publishAt)
+        ? st.publishAt
+        : null
+      out[vid] = {
+        privacyStatus,
+        publishAt,
+        categoryId: typeof sn.categoryId === 'string' ? sn.categoryId : '24',
+        containsSyntheticMedia: typeof st.containsSyntheticMedia === 'boolean'
+          ? st.containsSyntheticMedia
+          : undefined,
+      }
     }
   }
   return out

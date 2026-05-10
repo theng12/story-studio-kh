@@ -28,6 +28,7 @@ import {
 } from '../services/named-roots.js'
 import { resolveAssetPath, toPortablePath, isPortablePath } from '../services/path-resolver.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { isServerMode } from '../lib/server-mode.js'
 
 const require = createRequire(import.meta.url)
 
@@ -194,7 +195,178 @@ router.post('/system/pick-files', async (req, res) => {
   }
 })
 
+// ── Server-side file browser (used in server mode) ─────────────────────────
+//
+// In default (Electron) mode, picker buttons spawn the native macOS dialog
+// via /system/pick-folder etc. above. In server mode, the user is on a remote
+// browser — there's no native dialog to spawn — so the SPA opens an in-app
+// modal that lists folders/files using these endpoints. The composable
+// `usePathPicker` (frontend/composables/usePathPicker.ts) routes to the
+// right backend automatically.
+
+interface BrowseEntry {
+  name: string
+  type: 'dir' | 'file'
+  size?: number
+  mtime?: string
+  hidden: boolean
+}
+
+router.post('/system/browse-dir', async (req, res) => {
+  const inputPath = typeof req.body?.path === 'string' ? req.body.path.trim() : ''
+  const showHidden = req.body?.show_hidden === true
+  if (!inputPath) return res.status(400).json({ detail: 'path required' })
+
+  // Expand `~` for convenience — users typing paths into the modal expect
+  // it to work like a shell. Stay strict about absolute-only otherwise.
+  let expanded = inputPath
+  if (expanded.startsWith('~')) {
+    const home = process.env.HOME || process.env.USERPROFILE || ''
+    if (home) expanded = path.join(home, expanded.slice(1))
+  }
+  if (!path.isAbsolute(expanded)) {
+    return res.status(400).json({ detail: 'path must be absolute' })
+  }
+
+  try {
+    const stat = await fs.stat(expanded)
+    if (!stat.isDirectory()) return res.status(400).json({ detail: 'path is not a directory' })
+
+    const dirents = await fs.readdir(expanded, { withFileTypes: true })
+    const entries: BrowseEntry[] = []
+    for (const d of dirents) {
+      const hidden = d.name.startsWith('.')
+      if (hidden && !showHidden) continue
+      // Special-case the noise files macOS sprinkles everywhere.
+      if (d.name === '.DS_Store' || d.name === 'Thumbs.db') continue
+      const e: BrowseEntry = {
+        name: d.name,
+        type: d.isDirectory() ? 'dir' : 'file',
+        hidden,
+      }
+      // Best-effort stat for size/mtime — never fail the listing if a single
+      // entry's metadata can't be read (permissions, race with deletion).
+      try {
+        const s = await fs.stat(path.join(expanded, d.name))
+        if (!d.isDirectory()) e.size = s.size
+        e.mtime = s.mtime.toISOString()
+      } catch { /* best effort */ }
+      entries.push(e)
+    }
+    // Dirs first, then files; alphabetical within each group.
+    entries.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+
+    const parent = path.dirname(expanded)
+    res.json({
+      path: expanded,
+      parent: parent === expanded ? null : parent,
+      entries,
+    })
+  } catch (e: any) {
+    if (e?.code === 'ENOENT') return res.status(404).json({ detail: `Path does not exist: ${expanded}` })
+    if (e?.code === 'EACCES') return res.status(403).json({ detail: `Permission denied: ${expanded}` })
+    res.status(500).json(humanizeBackendError(e, 'Failed to read directory'))
+  }
+})
+
+router.post('/system/validate-path', async (req, res) => {
+  const inputPath = typeof req.body?.path === 'string' ? req.body.path.trim() : ''
+  const mustBeDir = req.body?.must_be_dir === true
+  const mustExist = req.body?.must_exist !== false  // default true
+  const mustHaveExt = Array.isArray(req.body?.must_have_extension)
+    ? (req.body.must_have_extension as unknown[]).filter(x => typeof x === 'string') as string[]
+    : []
+  if (!inputPath) return res.json({ valid: false, reason: 'path is empty' })
+
+  let expanded = inputPath
+  if (expanded.startsWith('~')) {
+    const home = process.env.HOME || process.env.USERPROFILE || ''
+    if (home) expanded = path.join(home, expanded.slice(1))
+  }
+  if (!path.isAbsolute(expanded)) {
+    return res.json({ valid: false, reason: 'path must be absolute', normalized: expanded })
+  }
+  const normalized = path.normalize(expanded)
+
+  if (mustExist || mustBeDir) {
+    try {
+      const stat = await fs.stat(normalized)
+      if (mustBeDir && !stat.isDirectory()) {
+        return res.json({ valid: false, reason: 'path is not a directory', normalized })
+      }
+    } catch {
+      return res.json({ valid: false, reason: 'path does not exist', normalized })
+    }
+  }
+
+  if (mustHaveExt.length) {
+    const lower = normalized.toLowerCase()
+    const ok = mustHaveExt.some(ext => {
+      const e = ext.startsWith('.') ? ext : `.${ext}`
+      return lower.endsWith(e.toLowerCase())
+    })
+    if (!ok) {
+      return res.json({
+        valid: false,
+        reason: `extension must be one of: ${mustHaveExt.join(', ')}`,
+        normalized,
+      })
+    }
+  }
+
+  res.json({ valid: true, normalized })
+})
+
+router.get('/system/quick-locations', async (_req, res) => {
+  // Sidebar shortcuts shown in the FileBrowserModal — common starting points
+  // a user is likely to want when picking a folder. Each entry is checked for
+  // existence so we don't surface broken paths (e.g. the "Mobile Documents"
+  // iCloud dir doesn't exist on a fresh install with iCloud disabled).
+  const home = process.env.HOME || process.env.USERPROFILE || ''
+  const candidates: Array<{ label: string; path: string }> = []
+  if (home) {
+    candidates.push({ label: 'Home', path: home })
+    candidates.push({ label: 'Desktop', path: path.join(home, 'Desktop') })
+    candidates.push({ label: 'Documents', path: path.join(home, 'Documents') })
+    candidates.push({ label: 'Downloads', path: path.join(home, 'Downloads') })
+    if (process.platform === 'darwin') {
+      candidates.push({
+        label: 'iCloud Drive',
+        path: path.join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs'),
+      })
+    }
+  }
+  // Always include the app's projects root — that's where most picker flows
+  // want to start (e.g. choosing a subfolder of an existing project).
+  try {
+    candidates.push({ label: 'Projects', path: pm.PROJECTS_ROOT })
+  } catch { /* PROJECTS_ROOT might be lazy-resolved; skip if unavailable */ }
+
+  const present: Array<{ label: string; path: string }> = []
+  for (const c of candidates) {
+    try {
+      const stat = await fs.stat(c.path)
+      if (stat.isDirectory()) present.push(c)
+    } catch { /* doesn't exist on this machine — skip */ }
+  }
+  res.json({ locations: present })
+})
+
 router.post('/system/reveal-folder', async (req, res) => {
+  // In server mode, "Reveal in Finder" would open Finder on the Mac mini —
+  // useless to the user sitting at the iMac browser. Reject for remote users
+  // (anyone whose req.user isn't the loopback marker), but still allow when
+  // the request comes from the local Electron window on the mini itself.
+  if (isServerMode() && (req as any).user?.username !== '__local__') {
+    return res.status(503).json({
+      detail: 'Reveal in Finder is not available over the web — open the app on the Mac mini directly to reveal folders.',
+      reason: 'server_mode_remote',
+    })
+  }
+
   const electron = loadElectron()
   if (!electron) return res.status(503).json({ detail: 'Shell not available — Electron main process not detected.' })
 

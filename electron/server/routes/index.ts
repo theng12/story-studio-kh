@@ -36,6 +36,7 @@ import { router as imagePreviewRouter } from './image-preview.js'
 import { router as stylePreviewRouter } from './style-preview.js'
 import { router as imagePromptsEditRouter } from './image-prompts-edit.js'
 import { router as imageReferencesRouter } from './image-references.js'
+import { router as changelogRouter } from './changelog.js'
 
 export function mountRoutes(app: Express): void {
   app.use('/api', projectsRouter)

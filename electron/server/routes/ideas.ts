@@ -894,6 +894,15 @@ router.get('/projects/:slug/episodes', async (req, res) => {
   if (req.query.rescan === '1') {
     await episodeStatusCache.wipeProject(slug)
   }
+  // `?invalidate=CODE` is the surgical version of refresh — drops just
+  // ONE episode's cache entry so the page that's actively reading that
+  // episode's status gets a fresh recompute, without paying the recompute
+  // cost for every other episode in the project. Used by useEpisodeStatus
+  // on every page mount so generator pages always reflect current disk
+  // state for the selected episode (catches iCloud-flaky mtime cases).
+  if (typeof req.query.invalidate === 'string' && req.query.invalidate.trim()) {
+    episodeStatusCache.invalidate(slug, req.query.invalidate.trim())
+  }
 
   // Source-doc checks (script / prompts / metadata) stay as cheap file-ext
   // scans — they're "is the input artifact present?" questions where a file

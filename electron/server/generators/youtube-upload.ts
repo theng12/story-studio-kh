@@ -89,13 +89,28 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   // Item J — resolve the project's YouTube videoCategories.list ID once
   // for this run; threaded into both snippetFromMeta call sites below
   // (fresh upload + metadata-only PATCH). Falls back to undefined on any
-  // error → snippetFromMeta defaults to '22' ("People & Blogs"), the
-  // historical hard-code.
+  // error → snippetFromMeta defaults to '24' (Entertainment), the right
+  // bucket for narrative AI/story content.
   const projectConfig = await pm.getConfig(slug).catch(() => null) as any
   const categoryId: number | undefined = (typeof projectConfig?.category_id === 'number'
     && Number.isFinite(projectConfig.category_id)
     && projectConfig.category_id > 0)
     ? projectConfig.category_id : undefined
+
+  // v1.0.77 — YouTube's "altered or synthetic content" disclosure flag.
+  // Project-level toggle wins over app-level default; missing on both →
+  // app default (true) since Story Studio's primary use case is AI-generated
+  // narration / images / video. Threaded into the fresh-upload status block
+  // below; metadata-only PATCH leaves the existing flag alone (use the
+  // backfill action under Settings → YouTube to update existing videos).
+  let markAsAiGenerated: boolean
+  if (typeof projectConfig?.mark_as_ai_generated === 'boolean') {
+    markAsAiGenerated = projectConfig.mark_as_ai_generated
+  } else {
+    const { getAppSetting } = await import('../services/app-settings.js')
+    const appLevel = await getAppSetting('default_mark_as_ai_generated').catch(() => undefined)
+    markAsAiGenerated = typeof appLevel === 'boolean' ? appLevel : true
+  }
 
   // Branch: fresh upload vs metadata-only update.
   //
@@ -267,6 +282,11 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     }
 
     job.output_lines.push(resumeFromSessionUrl ? 'Resuming resumable upload…' : 'Starting resumable upload…')
+    job.output_lines.push(
+      markAsAiGenerated
+        ? 'Disclosing video as AI-generated / altered or synthetic content (status.containsSyntheticMedia=true).'
+        : 'NOT disclosing video as altered/synthetic — toggle in Settings → YouTube if your content is AI-generated.',
+    )
     // Wire cancellation through to fetch: the queue exposes `isCancelled`,
     // and the onProgress callback is a convenient place to poll it mid-
     // stream. When the user clicks Cancel on a long upload, we abort the
@@ -290,7 +310,11 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       accountId,
       filePath: videoPath,
       snippet: snippetFromMeta(meta, job.output_lines, categoryId),
-      status: { privacyStatus: privacy, publishAt },
+      status: {
+        privacyStatus: privacy,
+        publishAt,
+        containsSyntheticMedia: markAsAiGenerated,
+      },
       signal: abort.signal,
       episodeCode: episodeId,
       logLines: job.output_lines,

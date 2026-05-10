@@ -281,8 +281,27 @@ class EpisodeStatusCache {
         watchedMtimes,
         schemaVersion: SCHEMA_VERSION,
       }
-      this.set(k, entry)
-      this.scheduleFlush(slug)
+      // Cache-poisoning guard: if we couldn't resolve watched folders
+      // (resolveEpisodePaths threw — typically a transient project.json
+      // read failure), `folders` is empty AND watchedMtimes is empty.
+      // mtimesUnchanged then returns true on every subsequent read with
+      // the same empty result, which means the bad status sticks FOREVER
+      // (until the user hard-rescans). Refusing to cache when resolution
+      // failed forces a recompute next read — recompute is cheap (~10 fs
+      // ops), and on the retry we usually get real folders + correct
+      // status.
+      //
+      // Note: gating on `folders.length`, NOT `watchedMtimes` size — a
+      // newly-accepted episode whose subfolders don't exist on disk yet
+      // resolves to a non-empty folder list (resolveEpisodePaths just
+      // computes paths from the template; doesn't require them to exist)
+      // but produces an empty mtimes snapshot. Caching THAT is correct
+      // — when the folders eventually appear, the new keys in mtimes will
+      // not match the empty snapshot and the cache will correctly stale.
+      if (folders.length > 0) {
+        this.set(k, entry)
+        this.scheduleFlush(slug)
+      }
       return status
     })()
 
@@ -368,13 +387,27 @@ class EpisodeStatusCache {
       const raw = await readJsonOr<DiskCacheFile | null>(filePath, null)
       if (raw && raw.schemaVersion === SCHEMA_VERSION && raw.slug === slug && Array.isArray(raw.entries)) {
         let loaded = 0
+        let droppedEmpty = 0
         for (const e of raw.entries) {
-          if (e?.schemaVersion === SCHEMA_VERSION && e.slug === slug) {
-            this.set(cacheKey(slug, e.episode_code), e)
-            loaded++
+          if (!e || e.schemaVersion !== SCHEMA_VERSION || e.slug !== slug) continue
+          // Drop pre-v1.0.76 entries that were stored with empty
+          // watchedMtimes (transient resolveEpisodePaths failure at
+          // compute time poisoned the cache forever — see computeAndStore
+          // for the runtime guard). Forces a fresh recompute on next read
+          // for any episode whose previous compute couldn't resolve its
+          // watched folders. Cheap one-time cleanup at hydrate.
+          const mtimes = e.watchedMtimes || {}
+          if (Object.keys(mtimes).length === 0) {
+            droppedEmpty++
+            continue
           }
+          this.set(cacheKey(slug, e.episode_code), e)
+          loaded++
         }
         if (loaded > 0) this.stats.diskHydrates++
+        if (droppedEmpty > 0) {
+          console.log(`[episode-status-cache] hydrate: dropped ${droppedEmpty} poisoned entry(s) for ${slug}`)
+        }
       }
       // Best-effort cleanup of the legacy in-project cache file. Older
       // builds wrote to <projectDir>/.cache/episode-status.json which

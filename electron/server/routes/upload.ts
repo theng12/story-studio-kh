@@ -27,7 +27,8 @@ import * as quota from '../services/upload-quota.js'
 import * as playlistsSvc from '../services/upload-playlists.js'
 import * as orphans from '../services/upload-orphans.js'
 import * as renumberUndo from '../services/upload-renumber-undo.js'
-import { updateVideoMetadata, createPlaylist, listVideoStatuses } from '../lib/youtube-client.js'
+import { updateVideoMetadata, createPlaylist, listVideoStatuses, listVideoSnippetStatus } from '../lib/youtube-client.js'
+import { getYoutubeDefaults } from '../services/app-settings.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import type { JobType } from '../models/types.js'
 
@@ -1313,6 +1314,170 @@ router.get('/projects/:slug/upload/youtube-categories', async (req, res) => {
     }
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to load YouTube categories'))
+  }
+})
+
+/**
+ * v1.0.77 — Backfill the AI/synthetic-content disclosure flag and the
+ * default category onto every previously uploaded YouTube video for this
+ * project.
+ *
+ * Flow:
+ *   1. Resolve the project's effective settings (per-project overrides
+ *      win over app-level defaults).
+ *   2. Walk accepted ideas, read each youtube_upload.json sidecar, collect
+ *      live (non-tombstoned) video IDs.
+ *   3. videos.list batch-fetch current snippet+status for each id (1 quota
+ *      unit per 50 videos) — needed so the PATCH preserves privacy and
+ *      publishAt rather than clobbering them.
+ *   4. videos.update PATCH each video where the current state differs
+ *      from the desired settings. Skip videos that already match.
+ *
+ * Body: `{ dry_run?: boolean }` — when true, returns the would-update plan
+ *       without firing any PATCH calls. Useful for surfacing a confirm
+ *       dialog before the user authorises the action.
+ *
+ * Returns a summary: scanned, eligible, updated, skipped, failed, plus
+ * per-video details.
+ */
+router.post('/projects/:slug/upload/youtube-backfill', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+    const dryRun = req.body?.dry_run === true
+
+    // 1. Resolve effective settings (project override → app default).
+    const cfg = (await pm.getConfig(slug)) as any
+    const appDefaults = await getYoutubeDefaults()
+    const effectiveAi: boolean = typeof cfg?.mark_as_ai_generated === 'boolean'
+      ? cfg.mark_as_ai_generated
+      : appDefaults.default_mark_as_ai_generated
+    const effectiveCategoryId: string = (typeof cfg?.category_id === 'number'
+      && Number.isFinite(cfg.category_id) && cfg.category_id > 0)
+      ? String(cfg.category_id)
+      : String(appDefaults.default_yt_category_id)
+
+    // 2. Enumerate sidecars.
+    const ideas = await im.getIdeas(slug, 'accepted')
+    const eligible: Array<{ episode_code: string; title: string; sidecar: any }> = []
+    for (const idea of ideas) {
+      if (!idea.episode_code) continue
+      const sc = await readSidecar(slug, idea.episode_code, idea.title || '', 'youtube').catch(() => null)
+      if (!sc || !sc.video_id) continue
+      if (sc.deleted_at) continue
+      eligible.push({ episode_code: idea.episode_code, title: idea.title || '', sidecar: sc })
+    }
+
+    if (!eligible.length) {
+      return res.json({
+        scanned: ideas.length,
+        eligible: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        details: [],
+        message: 'No previously-uploaded YouTube videos found in this project.',
+      })
+    }
+
+    // We need an account to read + patch. Use the default; backfill across
+    // multiple accounts isn't supported — if a project's videos span
+    // multiple accounts the user runs the backfill once per account.
+    const accountId = await store.getDefaultAccountId(slug, 'youtube')
+    if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected.' })
+
+    // 3. Batch-fetch current state.
+    const videoIds = eligible.map(e => e.sidecar.video_id)
+    const live = await listVideoSnippetStatus(slug, accountId, videoIds)
+
+    // 4. Decide per-video what to do.
+    interface RowDetail {
+      episode_code: string
+      video_id: string
+      action: 'updated' | 'skipped' | 'failed' | 'missing'
+      changed?: { containsSyntheticMedia?: boolean; categoryId?: string }
+      reason?: string
+      error?: string
+    }
+    const details: RowDetail[] = []
+    let updated = 0, skipped = 0, failed = 0
+
+    for (const row of eligible) {
+      const vid = row.sidecar.video_id
+      const current = live[vid]
+      if (!current) {
+        details.push({ episode_code: row.episode_code, video_id: vid, action: 'missing', reason: 'Video no longer accessible (deleted or privacy hides it from this account).' })
+        continue
+      }
+
+      const needAi = current.containsSyntheticMedia !== effectiveAi
+      const needCat = current.categoryId !== effectiveCategoryId
+      if (!needAi && !needCat) {
+        skipped++
+        details.push({ episode_code: row.episode_code, video_id: vid, action: 'skipped', reason: 'Already matches current settings.' })
+        continue
+      }
+
+      const changed: { containsSyntheticMedia?: boolean; categoryId?: string } = {}
+      if (needAi) changed.containsSyntheticMedia = effectiveAi
+      if (needCat) changed.categoryId = effectiveCategoryId
+
+      if (dryRun) {
+        details.push({ episode_code: row.episode_code, video_id: vid, action: 'updated', changed, reason: 'Dry run — not applied.' })
+        continue
+      }
+
+      try {
+        // Build the PATCH. We always send snippet (so categoryId can change),
+        // and status (because containsSyntheticMedia lives there). To avoid
+        // clobbering current privacy / publishAt, we propagate the live
+        // values we just read back into the request.
+        await updateVideoMetadata({
+          slug,
+          accountId,
+          videoId: vid,
+          snippet: {
+            title: row.sidecar.title || '',
+            description: row.sidecar.description || '',
+            tags: Array.isArray(row.sidecar.tags) ? row.sidecar.tags : [],
+            categoryId: effectiveCategoryId,
+          },
+          status: {
+            privacyStatus: current.privacyStatus,
+            ...(current.publishAt ? { publishAt: current.publishAt } : {}),
+            containsSyntheticMedia: effectiveAi,
+          },
+        })
+        updated++
+        details.push({ episode_code: row.episode_code, video_id: vid, action: 'updated', changed })
+      } catch (e: any) {
+        failed++
+        details.push({
+          episode_code: row.episode_code,
+          video_id: vid,
+          action: 'failed',
+          error: e?.message || String(e),
+        })
+      }
+    }
+
+    res.json({
+      scanned: ideas.length,
+      eligible: eligible.length,
+      updated,
+      skipped,
+      failed,
+      missing: details.filter(d => d.action === 'missing').length,
+      dry_run: dryRun,
+      effective_settings: {
+        contains_synthetic_media: effectiveAi,
+        category_id: effectiveCategoryId,
+      },
+      details,
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'YouTube backfill failed'))
   }
 })
 

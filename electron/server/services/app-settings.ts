@@ -144,3 +144,255 @@ export async function voiceCurationGlobalIsUnset(): Promise<boolean> {
   return settings[VOICE_PRESETS_KEY] === undefined
     && settings[VOICE_FAVOURITES_KEY] === undefined
 }
+
+// ── Server mode (headless web UI) ──────────────────────────────────────────
+//
+// Schema:
+//   server_mode: {
+//     enabled: boolean
+//     port: number
+//     bind: string
+//     auth?: {
+//       username: string
+//       password_hash: string       // scrypt salt:hash hex
+//       session_secret: string      // 32-byte hex; used to sign session cookies
+//       session_ttl_hours: number
+//     }
+//   }
+//
+// Reads return a "safe" view (password_hash redacted, surfaced as
+// has_credentials: boolean). Setters use withLock to avoid lost updates
+// when two settings panels are saved nearly simultaneously.
+
+import crypto from 'crypto'
+import { hashPassword } from '../lib/auth-session.js'
+import { isServerMode } from '../lib/server-mode.js'
+
+export const SERVER_MODE_KEY = 'server_mode'
+
+export interface ServerModeSafeView {
+  /** Persisted JSON value — what the user toggled, controls next launch. */
+  enabled: boolean
+  /**
+   * Resolved state — what `isServerMode()` returns RIGHT NOW. May differ
+   * from `enabled` when launchd is forcing it via env var (resolved=true
+   * even though JSON enabled=false would mean false). Use this for the
+   * "currently in server mode" badge in the UI.
+   */
+  is_currently_active: boolean
+  port: number
+  bind: string
+  has_credentials: boolean
+  username: string | null
+  session_ttl_hours: number
+}
+
+export interface ServerModeNetworkingPatch {
+  enabled?: boolean
+  port?: number
+  bind?: string
+}
+
+const SERVER_MODE_DEFAULTS = {
+  enabled: false,
+  port: 8765,
+  bind: '0.0.0.0',
+  session_ttl_hours: 168,
+}
+
+/**
+ * Read the server-mode settings as a safe view (no password hash).
+ * Defaults are filled in for every field so the Settings UI never has to
+ * deal with `undefined`. `has_credentials` lets the UI know whether the
+ * "Set password" button or the "Change password" button should be shown.
+ */
+export async function getServerModeSettingsSafe(): Promise<ServerModeSafeView> {
+  const settings = await readSettings()
+  const sm = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
+  const auth = (sm.auth || {}) as Record<string, any>
+  return {
+    enabled: sm.enabled === true,
+    is_currently_active: isServerMode(),
+    port: typeof sm.port === 'number' && sm.port > 0 ? sm.port : SERVER_MODE_DEFAULTS.port,
+    bind: typeof sm.bind === 'string' && sm.bind ? sm.bind : SERVER_MODE_DEFAULTS.bind,
+    has_credentials: !!auth.password_hash && !!auth.session_secret,
+    username: typeof auth.username === 'string' && auth.username ? auth.username : null,
+    session_ttl_hours: typeof auth.session_ttl_hours === 'number' && auth.session_ttl_hours > 0
+      ? auth.session_ttl_hours
+      : SERVER_MODE_DEFAULTS.session_ttl_hours,
+  }
+}
+
+/**
+ * Patch the networking part of server-mode settings (enabled / port / bind).
+ * Doesn't touch the auth block — credentials are managed separately so a
+ * mistyped port can't accidentally clobber the password.
+ */
+export async function setServerModeNetworking(patch: ServerModeNetworkingPatch): Promise<ServerModeSafeView> {
+  await withLock(APP_SETTINGS_PATH, async () => {
+    const settings = await readSettings()
+    const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
+    if (patch.enabled !== undefined) cur.enabled = !!patch.enabled
+    if (patch.port !== undefined) {
+      if (typeof patch.port !== 'number' || patch.port < 1 || patch.port > 65535) {
+        throw new Error('port must be an integer between 1 and 65535')
+      }
+      cur.port = Math.floor(patch.port)
+    }
+    if (patch.bind !== undefined) {
+      if (typeof patch.bind !== 'string' || !patch.bind.trim()) {
+        throw new Error('bind must be a non-empty string')
+      }
+      cur.bind = patch.bind.trim()
+    }
+    settings[SERVER_MODE_KEY] = cur
+    await writeSettings(settings)
+  })
+  return getServerModeSettingsSafe()
+}
+
+/**
+ * Set or replace the server-mode credentials. Always generates a fresh
+ * session_secret on every credential change — implicit "rotate sessions
+ * on password change" so a stolen cookie can't outlive the password it
+ * was minted under.
+ */
+export async function setServerModeCredentials(opts: {
+  username: string
+  password: string
+  session_ttl_hours?: number
+}): Promise<ServerModeSafeView> {
+  if (!opts.username || typeof opts.username !== 'string' || !opts.username.trim()) {
+    throw new Error('username is required')
+  }
+  if (!opts.password || typeof opts.password !== 'string' || opts.password.length < 8) {
+    throw new Error('password must be at least 8 characters')
+  }
+  const ttl = typeof opts.session_ttl_hours === 'number' && opts.session_ttl_hours > 0
+    ? Math.floor(opts.session_ttl_hours)
+    : SERVER_MODE_DEFAULTS.session_ttl_hours
+  const password_hash = hashPassword(opts.password)
+  const session_secret = crypto.randomBytes(32).toString('hex')
+  await withLock(APP_SETTINGS_PATH, async () => {
+    const settings = await readSettings()
+    const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
+    cur.auth = {
+      username: opts.username.trim(),
+      password_hash,
+      session_secret,
+      session_ttl_hours: ttl,
+    }
+    settings[SERVER_MODE_KEY] = cur
+    await writeSettings(settings)
+  })
+  return getServerModeSettingsSafe()
+}
+
+/**
+ * Rotate the session_secret without changing the password. Invalidates
+ * every existing signed cookie immediately. Used by the "Sign out
+ * everywhere" button in the Settings UI.
+ */
+export async function rotateServerModeSessionSecret(): Promise<ServerModeSafeView> {
+  await withLock(APP_SETTINGS_PATH, async () => {
+    const settings = await readSettings()
+    const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
+    if (!cur.auth || !cur.auth.password_hash) {
+      throw new Error('No credentials configured — nothing to rotate')
+    }
+    cur.auth.session_secret = crypto.randomBytes(32).toString('hex')
+    settings[SERVER_MODE_KEY] = cur
+    await writeSettings(settings)
+  })
+  return getServerModeSettingsSafe()
+}
+
+// ── YouTube upload defaults (app-level) ────────────────────────────────────
+//
+// Two app-level defaults that new uploads inherit when the per-project value
+// is not explicitly set:
+//   - default_mark_as_ai_generated: bool. Default true (Story Studio's primary
+//     use is AI narration / images / video; YouTube requires the disclosure).
+//   - default_yt_category_id: number. Default 24 (Entertainment) — best fit
+//     for narrative AI / story content.
+//
+// Per-project values in `config.json` override these. The Settings UI exposes
+// both and the backfill action under Settings → YouTube applies the resolved
+// values to every previously uploaded video.
+
+export const DEFAULT_MARK_AS_AI_GENERATED_KEY = 'default_mark_as_ai_generated'
+export const DEFAULT_YT_CATEGORY_KEY = 'default_yt_category_id'
+
+export interface YoutubeDefaultsView {
+  default_mark_as_ai_generated: boolean
+  default_yt_category_id: number
+}
+
+export async function getYoutubeDefaults(): Promise<YoutubeDefaultsView> {
+  const settings = await readSettings()
+  const ai = settings[DEFAULT_MARK_AS_AI_GENERATED_KEY]
+  const cat = settings[DEFAULT_YT_CATEGORY_KEY]
+  return {
+    default_mark_as_ai_generated: typeof ai === 'boolean' ? ai : true,
+    default_yt_category_id: typeof cat === 'number' && cat > 0 ? cat : 24,
+  }
+}
+
+export async function setYoutubeDefaults(patch: Partial<YoutubeDefaultsView>): Promise<YoutubeDefaultsView> {
+  await withLock(APP_SETTINGS_PATH, async () => {
+    const settings = await readSettings()
+    if (typeof patch.default_mark_as_ai_generated === 'boolean') {
+      settings[DEFAULT_MARK_AS_AI_GENERATED_KEY] = patch.default_mark_as_ai_generated
+    }
+    if (typeof patch.default_yt_category_id === 'number'
+      && Number.isFinite(patch.default_yt_category_id)
+      && patch.default_yt_category_id > 0) {
+      settings[DEFAULT_YT_CATEGORY_KEY] = Math.floor(patch.default_yt_category_id)
+    }
+    await writeSettings(settings)
+  })
+  return getYoutubeDefaults()
+}
+
+// ── "What's New" version tracking (per-machine) ────────────────────────────
+//
+// Stores the last app version the user dismissed the "What's New" modal for.
+// Boot detection compares this to package.json's version; on mismatch, the
+// modal pops automatically (showing the changelog since last_seen_version).
+// Per-machine — different installs (iMac + Mac mini) each track their own
+// dismiss state.
+
+export const LAST_SEEN_VERSION_KEY = 'last_seen_version'
+
+export async function getLastSeenVersion(): Promise<string | null> {
+  const v = await getAppSetting(LAST_SEEN_VERSION_KEY)
+  return typeof v === 'string' && v ? v : null
+}
+
+export async function setLastSeenVersion(version: string): Promise<void> {
+  if (!version || typeof version !== 'string') return
+  await setAppSetting(LAST_SEEN_VERSION_KEY, version)
+}
+
+/**
+ * Bootstrap helper: if server mode is enabled but no credentials exist,
+ * AND `STORY_STUDIO_INITIAL_USERNAME` + `STORY_STUDIO_INITIAL_PASSWORD`
+ * env vars are present, persist them. Called once at app boot from
+ * electron/main.ts so a fresh launchd-managed install can land
+ * pre-configured. After the first successful boot, the env vars are
+ * logged-and-ignored — they're a one-shot escape hatch, not a config
+ * surface.
+ */
+export async function bootstrapServerModeFromEnv(): Promise<{ bootstrapped: boolean; reason?: string }> {
+  const u = process.env.STORY_STUDIO_INITIAL_USERNAME
+  const p = process.env.STORY_STUDIO_INITIAL_PASSWORD
+  if (!u || !p) return { bootstrapped: false, reason: 'env vars not set' }
+  const safe = await getServerModeSettingsSafe()
+  if (safe.has_credentials) return { bootstrapped: false, reason: 'credentials already present' }
+  try {
+    await setServerModeCredentials({ username: u, password: p })
+    return { bootstrapped: true }
+  } catch (e: any) {
+    return { bootstrapped: false, reason: e?.message || String(e) }
+  }
+}

@@ -1,28 +1,28 @@
 /**
- * Local-origin hardening for the embedded Express server.
+ * Host-header hardening for the embedded Express server.
  *
- * The app runs an HTTP server on 127.0.0.1:<random-port> next to a rich
- * renderer. Without these guards, any web page the user visits can port-scan
- * localhost, find that port, and fire cross-site fetches with credentials —
- * scraping API keys, rewriting `ffmpeg_path` to a planted binary, or
- * tampering with project data. DNS rebinding reaches the same endpoints even
- * if CORS is tightened.
+ * The default (Electron desktop) posture: the app runs an HTTP server on
+ * 127.0.0.1:<random-port> next to a rich renderer. Without a Host check, any
+ * web page the user visits could port-scan localhost, find that port, and
+ * fire cross-site fetches with credentials — scraping API keys, rewriting
+ * `ffmpeg_path` to a planted binary, or tampering with project data. DNS
+ * rebinding reaches the same endpoints even if CORS is tightened. The
+ * `requireAllowedHost` middleware below is what shuts that class of attack:
+ * a request arriving with `Host: attacker.com` is rejected before any route
+ * handler runs.
  *
- * Two complementary controls live here:
- *   1. `requireLocalHost` — reject any request whose Host header isn't a
- *      local hostname. Kills DNS rebinding, where the Host still reads
- *      `attacker.com` even though the connection lands on 127.0.0.1.
- *   2. `requireCsrfToken` + `csrfTokenHandler` — a random per-process token
- *      is delivered to the renderer through an Origin-gated GET. Write
- *      endpoints require the token echoed back in `X-Story-Studio-Token`.
- *      Cross-site attackers can't read the token (browsers block the fetch
- *      based on Origin) and can't guess it (256-bit entropy).
+ * Server mode (headless on the network) bypasses the host check — the server
+ * is intentionally reachable from the user's iMac via Tailscale, the Host
+ * header carries the tailnet hostname, and session-cookie auth carries the
+ * security weight instead. The bypass is opt-in via `STORY_STUDIO_SERVER_MODE`
+ * or `app-settings.json → server_mode.enabled`.
+ *
+ * (Historical note: this file used to also export `requireCsrfToken` /
+ * `csrfTokenHandler` for an Origin-gated CSRF token, but that mechanism was
+ * never wired into any write route or fetched by any frontend caller. Dead
+ * code removed in v1.0.72+ — if real CSRF is needed later, do it properly
+ * with server-mode-aware Origin allowlisting from the start.)
  */
-
-import crypto from 'crypto'
-
-export const CSRF_TOKEN = crypto.randomBytes(32).toString('hex')
-export const CSRF_HEADER = 'x-story-studio-token'
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1'])
 
@@ -35,44 +35,16 @@ function hostnameOf(host: string | undefined): string | null {
   return idx === -1 ? host : host.slice(0, idx)
 }
 
-function originHostname(origin: string | undefined): string | null {
-  if (!origin) return null
-  try { return new URL(origin).hostname } catch { return null }
-}
-
-export function requireLocalHost(req: any, res: any, next: any): void {
-  const host = hostnameOf(req.headers.host as string | undefined)
-  if (host && LOCAL_HOSTS.has(host)) return next()
-  res.status(403).json({ detail: 'Host not allowed' })
-}
-
-export function requireCsrfToken(req: any, res: any, next: any): void {
-  const provided = req.headers[CSRF_HEADER]
-  if (typeof provided === 'string' && provided.length === CSRF_TOKEN.length) {
-    // Constant-time compare to avoid leaking prefix via timing.
-    const a = Buffer.from(provided)
-    const b = Buffer.from(CSRF_TOKEN)
-    if (a.length === b.length && crypto.timingSafeEqual(a, b)) return next()
-  }
-  res.status(403).json({ detail: 'Missing or invalid CSRF token' })
-}
-
 /**
- * Return the CSRF token — but only to same-origin (local) callers.
- *
- * Browsers set the Origin header on cross-origin fetches and the attacker
- * page can't forge it, so a mismatched hostname is a reliable signal that
- * the caller is hostile. Same-origin GETs from the renderer may omit Origin
- * entirely; that path is allowed.
+ * Build the host-guard middleware. Pass `serverMode = true` to bypass the
+ * check entirely (the caller is running on a network-exposed bind and using
+ * session auth for access control).
  */
-export function csrfTokenHandler(req: any, res: any): void {
-  const origin = req.headers.origin as string | undefined
-  if (origin) {
-    const host = originHostname(origin)
-    if (!host || !LOCAL_HOSTS.has(host)) {
-      res.status(403).json({ detail: 'Origin not allowed' })
-      return
-    }
+export function requireAllowedHost(serverMode: boolean) {
+  return function (req: any, res: any, next: any): void {
+    if (serverMode) return next()
+    const host = hostnameOf(req.headers.host as string | undefined)
+    if (host && LOCAL_HOSTS.has(host)) return next()
+    res.status(403).json({ detail: 'Host not allowed' })
   }
-  res.json({ token: CSRF_TOKEN })
 }

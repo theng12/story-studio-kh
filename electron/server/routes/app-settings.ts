@@ -12,6 +12,12 @@ import { getNotifierSettings, setNotifierSettings, DEFAULT_NOTIFIER_SETTINGS } f
 import {
   listProviderKeys, setApiKey, clearApiKey, SECRET_PROVIDERS,
 } from '../services/app-secrets-store.js'
+import {
+  getServerModeSettingsSafe, setServerModeNetworking, setServerModeCredentials,
+  rotateServerModeSessionSecret,
+  getYoutubeDefaults, setYoutubeDefaults,
+  getLastSeenVersion, setLastSeenVersion,
+} from '../services/app-settings.js'
 import { testApiKey } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
@@ -247,6 +253,139 @@ router.delete('/app-settings/api-keys/:providerId', async (req, res) => {
     res.json({ ok: true })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to clear API key'))
+  }
+})
+
+// ── Server mode (headless web UI) ──────────────────────────────────────────
+//
+// All four routes are gated by requireSession in server mode (loopback bypass
+// allows local Electron on the Mac mini to manage settings). In default mode,
+// requireSession isn't mounted so these are reachable from the desktop app
+// directly. The user's flow is: launch the app locally on the Mac mini once,
+// configure credentials + enable server mode here, quit, relaunch under
+// launchd.
+
+router.get('/app-settings/server-mode', async (_req, res) => {
+  try {
+    res.json(await getServerModeSettingsSafe())
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to load server-mode settings'))
+  }
+})
+
+router.put('/app-settings/server-mode', async (req, res) => {
+  const body = (req.body || {}) as Record<string, unknown>
+  const patch: { enabled?: boolean; port?: number; bind?: string } = {}
+  if (body.enabled !== undefined) {
+    if (typeof body.enabled !== 'boolean') {
+      return res.status(400).json({ detail: 'enabled must be a boolean' })
+    }
+    patch.enabled = body.enabled
+  }
+  if (body.port !== undefined) {
+    if (typeof body.port !== 'number' || !Number.isInteger(body.port) || body.port < 1 || body.port > 65535) {
+      return res.status(400).json({ detail: 'port must be an integer between 1 and 65535' })
+    }
+    patch.port = body.port
+  }
+  if (body.bind !== undefined) {
+    if (typeof body.bind !== 'string' || !body.bind.trim()) {
+      return res.status(400).json({ detail: 'bind must be a non-empty string' })
+    }
+    patch.bind = body.bind.trim()
+  }
+  try {
+    res.json(await setServerModeNetworking(patch))
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save server-mode settings'))
+  }
+})
+
+router.put('/app-settings/server-mode/credentials', async (req, res) => {
+  const username = typeof req.body?.username === 'string' ? req.body.username.trim() : ''
+  const password = typeof req.body?.password === 'string' ? req.body.password : ''
+  const session_ttl_hours = typeof req.body?.session_ttl_hours === 'number'
+    ? req.body.session_ttl_hours : undefined
+  if (!username) return res.status(400).json({ detail: 'username is required' })
+  if (!password || password.length < 8) {
+    return res.status(400).json({ detail: 'password must be at least 8 characters' })
+  }
+  try {
+    res.json(await setServerModeCredentials({ username, password, session_ttl_hours }))
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save credentials'))
+  }
+})
+
+router.post('/app-settings/server-mode/rotate-sessions', async (_req, res) => {
+  try {
+    res.json(await rotateServerModeSessionSecret())
+  } catch (e: any) {
+    res.status(400).json(humanizeBackendError(e, 'Failed to rotate sessions'))
+  }
+})
+
+// ── YouTube upload defaults (app-level) ─────────────────────────────────────
+//
+// New uploads inherit these when the per-project values aren't explicitly
+// set. The Settings → YouTube section in the UI exposes the project-level
+// values; falling back to these app defaults keeps a single source of
+// truth across all of the user's channels.
+
+router.get('/app-settings/youtube-defaults', async (_req, res) => {
+  try {
+    res.json(await getYoutubeDefaults())
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to load YouTube defaults'))
+  }
+})
+
+router.put('/app-settings/youtube-defaults', async (req, res) => {
+  const body = (req.body || {}) as Record<string, unknown>
+  const patch: { default_mark_as_ai_generated?: boolean; default_yt_category_id?: number } = {}
+  if (body.default_mark_as_ai_generated !== undefined) {
+    if (typeof body.default_mark_as_ai_generated !== 'boolean') {
+      return res.status(400).json({ detail: 'default_mark_as_ai_generated must be a boolean' })
+    }
+    patch.default_mark_as_ai_generated = body.default_mark_as_ai_generated
+  }
+  if (body.default_yt_category_id !== undefined) {
+    const n = typeof body.default_yt_category_id === 'number'
+      ? body.default_yt_category_id : Number(body.default_yt_category_id)
+    if (!Number.isInteger(n) || n < 1) {
+      return res.status(400).json({ detail: 'default_yt_category_id must be a positive integer' })
+    }
+    patch.default_yt_category_id = n
+  }
+  try {
+    res.json(await setYoutubeDefaults(patch))
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save YouTube defaults'))
+  }
+})
+
+// ── What's New / version tracking ───────────────────────────────────────────
+//
+// last_seen_version stores the version the user last dismissed the What's
+// New modal for. The frontend uses this to decide whether to auto-show
+// the modal on launch (when current version > last seen). Per-machine.
+
+router.get('/app-settings/last-seen-version', async (_req, res) => {
+  try {
+    res.json({ last_seen_version: await getLastSeenVersion() })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to read last-seen version'))
+  }
+})
+
+router.put('/app-settings/last-seen-version', async (req, res) => {
+  const v = typeof req.body?.version === 'string' ? req.body.version.trim() : ''
+  if (!v) return res.status(400).json({ detail: 'version is required' })
+  try {
+    await setLastSeenVersion(v)
+    res.json({ last_seen_version: v })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save last-seen version'))
   }
 })
 

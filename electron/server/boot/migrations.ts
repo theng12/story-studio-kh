@@ -125,6 +125,65 @@ export function runBootMigrations(): void {
     }
   })()).catch(e => console.error('[migration] voice-curation lift failed:', e?.message || e)))
 
+  // v1.0.75 fix (gated by marker in v1.0.76+): the z-image image model was
+  // registered with an `api_model` of `tongyi/z-image-text-to-image`, which
+  // kie.ai's job API rejects. Correct identifier per kie.ai docs is the
+  // literal string `z-image`. The default catalog only seeds NEW projects,
+  // so existing projects have the bad value baked into their saved
+  // `image_models.z-image.api_model`. This walk-and-fix migrates them.
+  //
+  // Marker key: `z_image_api_model_v1` in <userData>/migrations.json. Without
+  // the marker, the walk re-ran on every boot — bounded by project count
+  // but still N x getConfig() reads from iCloud, ~5–10 s on big projects.
+  // Now: one boot, one fix, then zero overhead forever.
+  tasks.push(((async () => {
+    const fs = await import('fs/promises')
+    const pathMod = await import('path')
+    const MIGRATION_KEY = 'z_image_api_model_v1'
+    const migrationsPath = pathMod.join(pm.getUserDataDir(), 'migrations.json')
+
+    // Read marker file. If migration already ran, short-circuit immediately.
+    let alreadyDone = false
+    try {
+      const raw = await fs.readFile(migrationsPath, 'utf-8')
+      const data = JSON.parse(raw)
+      if (data?.[MIGRATION_KEY]) alreadyDone = true
+    } catch { /* file missing or unparsable — treat as not done */ }
+    if (alreadyDone) return
+
+    const BAD = 'tongyi/z-image-text-to-image'
+    const GOOD = 'z-image'
+    const projects = await pm.listProjects().catch(() => [])
+    let fixed = 0
+    for (const p of projects) {
+      const cfg = await pm.getConfig(p.slug).catch(() => null) as any
+      if (!cfg) continue
+      const im = cfg.image_models
+      const entry = im && typeof im === 'object' ? im['z-image'] : null
+      if (!entry || entry.api_model !== BAD) continue
+      const next = { ...im, 'z-image': { ...entry, api_model: GOOD } }
+      await pm.updateConfig(p.slug, { image_models: next } as any).catch(() => {})
+      fixed++
+    }
+    if (fixed > 0) {
+      console.log(`[migration] z-image api_model: rewrote ${fixed} project config(s) from "${BAD}" to "${GOOD}"`)
+    }
+
+    // Mark done so subsequent boots skip the walk entirely. Best-effort —
+    // a write failure here just means the migration runs again next boot
+    // (still idempotent and safe).
+    try {
+      await fs.mkdir(pathMod.dirname(migrationsPath), { recursive: true })
+      let prev: Record<string, unknown> = {}
+      try {
+        const raw = await fs.readFile(migrationsPath, 'utf-8')
+        prev = JSON.parse(raw) || {}
+      } catch { /* ignore */ }
+      prev[MIGRATION_KEY] = { ranAt: new Date().toISOString(), fixed }
+      await fs.writeFile(migrationsPath, JSON.stringify(prev, null, 2))
+    } catch { /* marker write failure is non-fatal */ }
+  })()).catch(e => console.error('[migration] z-image api_model fix failed:', e?.message || e)))
+
   // Item I-eager: promote per-item schedule entries from
   // `config.upload_item_schedule` into each episode's YouTube sidecar
   // so there's exactly one source of truth per episode. Per-project

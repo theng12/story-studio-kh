@@ -73,6 +73,80 @@ function waitForBootReady(): Promise<void> {
   return _bootReadyPromise
 }
 
+/**
+ * Server-mode 401 handler: when the session has expired (or was never
+ * established), redirect to /login. Skip when already on /login (login
+ * itself uses raw $fetch and handles its own 401), skip in default
+ * (Electron) mode where 401 doesn't exist as a normal flow, and skip
+ * when the call is /auth/me (the SPA's "am I logged in?" probe expects
+ * 401 to mean "no").
+ */
+function handleAuthExpired(path: string): void {
+  if (typeof window === 'undefined') return
+  if (path.startsWith('/auth/')) return
+  if (window.location.pathname === '/login') return
+  // Synchronous redirect — every in-flight fetch will land in `catch`
+  // before the navigation completes; that's fine, the page is unloading.
+  window.location.assign('/login')
+}
+
+/**
+ * Server-mode shim for native pickers — `/system/pick-folder`,
+ * `/system/pick-file`, `/system/pick-files` would normally pop a macOS
+ * dialog on the Mac mini's desktop, useless to the remote browser user.
+ * Intercept those calls and route them to the in-app FileBrowserModal
+ * instead, returning the same response shape so existing callers (21+
+ * sites) work without modification.
+ *
+ * Returns a "match" indicator so the caller can decide whether to skip
+ * the network round-trip.
+ */
+async function maybeServerModeNativePickerShim(
+  path: string,
+  body: any,
+): Promise<{ matched: false } | { matched: true; result: any }> {
+  if (typeof window === 'undefined') return { matched: false }
+  // Lazy import to avoid circular deps + keep useApi tree-shakable for
+  // anything not on the picker code path.
+  const { isServerMode } = await import('./useServerMode')
+  if (!isServerMode()) return { matched: false }
+  const opts = body || {}
+  if (path === '/system/pick-folder') {
+    const { pickFolder } = await import('./usePathPicker')
+    const picked = await pickFolder({
+      title: opts.title,
+      button_label: opts.buttonLabel,
+      initial_path: opts.defaultPath,
+    })
+    return { matched: true, result: { path: picked } }
+  }
+  if (path === '/system/pick-file') {
+    const { pickFile } = await import('./usePathPicker')
+    const exts = Array.isArray(opts.filters)
+      ? opts.filters.flatMap((f: any) => Array.isArray(f.extensions) ? f.extensions : [])
+      : undefined
+    const picked = await pickFile({
+      title: opts.title,
+      button_label: opts.buttonLabel,
+      extensions: exts && exts.length ? exts : undefined,
+    })
+    return { matched: true, result: { path: picked } }
+  }
+  if (path === '/system/pick-files') {
+    const { pickFiles } = await import('./usePathPicker')
+    const exts = Array.isArray(opts.filters)
+      ? opts.filters.flatMap((f: any) => Array.isArray(f.extensions) ? f.extensions : [])
+      : undefined
+    const picked = await pickFiles({
+      title: opts.title,
+      button_label: opts.buttonLabel,
+      extensions: exts && exts.length ? exts : undefined,
+    })
+    return { matched: true, result: { paths: picked } }
+  }
+  return { matched: false }
+}
+
 export function useApi() {
   const baseURL = '/api'
 
@@ -83,17 +157,34 @@ export function useApi() {
     if (!path.startsWith('/health')) {
       await waitForBootReady()
     }
+    // Server-mode shim: native-dialog endpoints get rerouted to the
+    // in-app file browser modal. Only fires for the three pick-* paths
+    // and only when isServerMode() is true; default mode falls through.
+    if (options.method === 'POST' && path.startsWith('/system/pick-')) {
+      const shim = await maybeServerModeNativePickerShim(path, options.body)
+      if (shim.matched) return shim.result as T
+    }
     const userHeaders: Record<string, string> = options.headers || {}
     const hasContentType = Object.keys(userHeaders).some(k => k.toLowerCase() === 'content-type')
-    return await $fetch<T>(`${baseURL}${path}`, {
-      ...options,
-      headers: {
-        // Only apply the JSON default when the caller hasn't set an explicit
-        // Content-Type — this is what lets the standards save use text/plain.
-        ...(hasContentType ? {} : { 'Content-Type': 'application/json' }),
-        ...userHeaders,
-      },
-    })
+    try {
+      return await $fetch<T>(`${baseURL}${path}`, {
+        ...options,
+        headers: {
+          // Only apply the JSON default when the caller hasn't set an explicit
+          // Content-Type — this is what lets the standards save use text/plain.
+          ...(hasContentType ? {} : { 'Content-Type': 'application/json' }),
+          ...userHeaders,
+        },
+      })
+    } catch (err: any) {
+      // Redirect to /login on 401 in server mode. The error still bubbles
+      // so per-component error handling sees it; the navigation just
+      // happens out-of-band.
+      if (err?.response?.status === 401 || err?.status === 401) {
+        handleAuthExpired(path)
+      }
+      throw err
+    }
   }
 
   return {

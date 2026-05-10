@@ -93,6 +93,15 @@
       </div>
     </div>
 
+    <!-- Server Mode panel — collapsed below API keys to keep this modal scrollable
+         without requiring a tab refactor. Mounted lazily when the modal opens
+         so the GET /app-settings/server-mode fetch only fires when the user
+         actually expands or scrolls into it. -->
+    <details v-if="modal.isOpen.value" class="ssm-section">
+      <summary>Server Mode (advanced — headless web UI)</summary>
+      <ServerModeSettingsPanel />
+    </details>
+
     <footer class="modal-footer">
       <button type="button" class="btn btn-secondary" @click="modal.close()">Close</button>
     </footer>
@@ -348,4 +357,20 @@ async function onTest(providerId: string) {
   padding-top: 16px;
   border-top: 1px solid var(--border);
 }
+
+.ssm-section {
+  margin-top: 20px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+}
+.ssm-section summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  user-select: none;
+}
+.ssm-section[open] summary { margin-bottom: 8px; }
 </style>
