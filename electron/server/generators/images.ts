@@ -170,11 +170,24 @@ export async function generateImages(job: Job): Promise<void> {
   const imageProvider = registry.getImageProvider(providerId)
   if (!imageProvider) throw new Error(`No image provider registered for: ${providerId}`)
 
+  // Build the per-call provider params shape from the model config.
+  // The fallback used to carry only endpoint/poll/type/api_model — which
+  // meant `supports_reference_images`, `api_model_i2i`, `refs_field`, and
+  // `aspect_field` silently dropped to undefined before reaching the
+  // kie-client + the reference-support log line below. GPT Image 2 + the
+  // Nano Banana family then reported "does NOT support references" for
+  // months despite the type/defaults declaring them ref-capable. Carry
+  // every provider-relevant field through verbatim so the wiring stays
+  // honest end-to-end.
   const providerParams = (modelConfig as any).provider_params || {
     endpoint: modelConfig.endpoint,
     poll: modelConfig.poll,
     type: modelConfig.type,
     api_model: modelConfig.api_model,
+    api_model_i2i: (modelConfig as any).api_model_i2i,
+    refs_field: (modelConfig as any).refs_field,
+    aspect_field: (modelConfig as any).aspect_field,
+    supports_reference_images: modelConfig.supports_reference_images === true,
   }
   const apiKey = await resolveApiKeyForProvider(project_slug, imageProvider.meta, {
     model: modelName,

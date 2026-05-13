@@ -27,7 +27,12 @@ const kieImageProvider: ImageProvider = {
       throw new Error('No kie.ai API key configured. Add one in Settings → API Keys.')
     }
 
-    // Map provider_params to the legacy ImageModelConfig shape expected by kie-client
+    // Map provider_params to the legacy ImageModelConfig shape expected by
+    // kie-client. New in v1.0.88: also forward api_model_i2i + refs_field +
+    // aspect_field so models that split text-to-image and image-to-image
+    // into different slugs (GPT Image 2, original Nano Banana) auto-swap
+    // correctly when reference images are attached. Without these, every
+    // call hit the t2i slug regardless of whether refs were present.
     const modelConfig = {
       label: '',
       credits_per_image: 0,
@@ -35,7 +40,11 @@ const kieImageProvider: ImageProvider = {
       poll: providerParams.poll as string,
       type: providerParams.type as string,
       api_model: providerParams.api_model as string,
-    }
+      api_model_i2i: providerParams.api_model_i2i as string | undefined,
+      refs_field: providerParams.refs_field as string | undefined,
+      aspect_field: providerParams.aspect_field as string | undefined,
+      supports_reference_images: providerParams.supports_reference_images === true,
+    } as any
 
     // Phase 8: only forward reference images when the model declares
     // support via providerParams.supports_reference_images. Models that
