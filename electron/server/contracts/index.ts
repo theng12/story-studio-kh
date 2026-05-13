@@ -49,6 +49,12 @@ export const CreateProjectSchema = z.object({
   // chars — built-in ids are short and user-custom format ids
   // sanitise the same way through format-loader.
   format_id: z.string().max(60).optional(),
+  // v1.0.79+: optional subject-domain niche (plants, animals, fungi,
+  // insects, or user-custom). Orthogonal to format — niche layers
+  // vocabulary, visual style, and YouTube tag hints onto whatever
+  // format the project picks. Unset = no niche, format defaults
+  // apply unchanged. Same length cap as niche route's id validator.
+  niche_id: z.string().max(80).optional(),
 }).strict()
 export type CreateProjectBody = z.infer<typeof CreateProjectSchema>
 
@@ -160,6 +166,52 @@ export const SetProjectBrandSchema = z.object({
   brand_id: z.string().max(80).nullable(),
 }).strict()
 export type SetProjectBrandBody = z.infer<typeof SetProjectBrandSchema>
+
+// ── Niche primitive (subject-domain layer, orthogonal to Format) ───────────
+
+const NicheReferenceImageSchema = z.object({
+  id: z.string().min(1).max(120),
+  label: z.string().min(1).max(160),
+  path: z.string().min(1).max(2000),
+  role: z.enum(['master', 'character', 'scene']),
+  description: z.string().max(500).optional(),
+}).strict()
+
+const NicheVocabularySchema = z.object({
+  mood: z.array(z.string().min(1).max(80)).max(50).optional(),
+  theme: z.array(z.string().min(1).max(80)).max(50).optional(),
+  genre: z.array(z.string().min(1).max(80)).max(50).optional(),
+  keyword: z.array(z.string().min(1).max(80)).max(100).optional(),
+}).strict()
+
+/** Body for POST /niches and PUT /niches/:id (full-document replace). */
+export const NicheSchema = z.object({
+  id: z.string()
+    .min(1, 'id is required')
+    .max(80)
+    .regex(/^[a-z0-9][a-z0-9_-]*$/, 'id must be a slug: lowercase letters, digits, dashes, underscores'),
+  name: z.string().min(1, 'name is required').max(120),
+  description: z.string().min(1).max(1500),
+  builtin: z.boolean().optional(),  // user-custom JSONs may omit; loader defaults false
+  schemaVersion: z.literal(1),
+  tagline: z.string().max(200).optional(),
+  exampleTopics: z.array(z.string().min(1).max(200)).max(200),
+  vocabulary: NicheVocabularySchema.optional(),
+  visualStyleSheet: z.string().max(3000).optional(),
+  defaultStyleKeywords: z.array(z.string().min(1).max(120)).max(40).optional(),
+  negativePromptAddendum: z.string().max(1500).optional(),
+  referenceImages: z.array(NicheReferenceImageSchema).max(50).optional(),
+  youtubeTagsHint: z.array(z.string().min(1).max(60)).max(40).optional(),
+  audienceHint: z.string().max(400).optional(),
+  scriptContext: z.string().max(2000).optional(),
+}).strict()
+export type NicheBody = z.infer<typeof NicheSchema>
+
+/** Body for PUT /projects/:slug/niche. `null` clears the association. */
+export const SetProjectNicheSchema = z.object({
+  niche_id: z.string().max(80).nullable(),
+}).strict()
+export type SetProjectNicheBody = z.infer<typeof SetProjectNicheSchema>
 
 /**
  * Shape of `GET /projects/:slug` — the project metadata the backend returns.

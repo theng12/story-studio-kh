@@ -1,0 +1,108 @@
+{
+  "id": "fungi",
+  "name": "Fungi",
+  "description": "Mushroom-forming fungi, molds, yeasts, lichens (technically fungus + alga, but ecologically grouped here), and the weirder fungus-adjacent organisms. A separate niche from plants because fungal biology, lifecycle, and visual conventions are distinct — fungi are closer to animals genetically than to plants, and the visual style leans more surreal / alien.",
+  "tagline": "Not a plant. Sometimes barely alive.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "exampleTopics": [
+    "Hydnellum Peckii (Bleeding Tooth Fungus)",
+    "Cordyceps",
+    "Slime Mold",
+    "Death Cap",
+    "Stinkhorn",
+    "Honey Fungus (largest organism)",
+    "Reindeer Lichen",
+    "Pilobolus (Hat Thrower)",
+    "Truffle",
+    "Bioluminescent Mushroom",
+    "Bird's Nest Fungus",
+    "Lion's Mane",
+    "Devil's Cigar",
+    "Witches' Butter",
+    "Hairy Ink Cap",
+    "Slime Mold Physarum (single-cell intelligence)",
+    "Mycorrhizal Network",
+    "Brewer's Yeast",
+    "Black Mold (Stachybotrys)",
+    "Candida"
+  ],
+
+  "vocabulary": {
+    "mood": [
+      "alien",
+      "surreal",
+      "unsettling",
+      "decomposer-grim",
+      "slow-violence",
+      "barely-organism",
+      "eerie"
+    ],
+    "theme": [
+      "decomposition",
+      "parasitic infection",
+      "mind control (cordyceps)",
+      "symbiosis",
+      "spore dispersal",
+      "extreme dormancy",
+      "underground networks",
+      "self-clone colonies"
+    ],
+    "genre": [
+      "mycology",
+      "microbiology",
+      "ecology",
+      "evolutionary biology",
+      "natural history"
+    ],
+    "keyword": [
+      "mycelium",
+      "hyphae",
+      "fruiting body",
+      "spore",
+      "basidium",
+      "ascus",
+      "decomposer",
+      "saprotroph",
+      "mycorrhiza",
+      "lichen",
+      "fungal infection",
+      "mushroom cap",
+      "gills",
+      "veil",
+      "stipe",
+      "parasitic fungus",
+      "yeast",
+      "mold",
+      "fermentation"
+    ]
+  },
+
+  "visualStyleSheet": "Subjects are fungi rendered with surreal-but-accurate morphology — correct cap shape, stipe structure, gill arrangement (or pore surface), and species-typical color. Expressive face (eyes only, no mouth — fungi don't have one) on the fruiting body or cap. Skip Disney-cute defaults; lean into the inherently eerie, decomposer-grim register. Thick uneven black ink outline, flat color fills with subtle gradient for moisture / decay. Background is dark soil, rotting wood, leaf litter, or a pale gradient that lets the subject's color do the talking.",
+
+  "defaultStyleKeywords": [
+    "mycological illustration",
+    "anatomically accurate fungus",
+    "eerie surreal mushroom character"
+  ],
+
+  "negativePromptAddendum": "no Disney-cute mushroom mascots, no human characters, no plant subjects competing with the fungus, no inaccurate cap-and-stipe ratios for the species",
+
+  "referenceImages": [],
+
+  "youtubeTagsHint": [
+    "fungi",
+    "mushrooms",
+    "mycology",
+    "weird fungi",
+    "decomposer",
+    "nature explainer",
+    "biology",
+    "weird biology"
+  ],
+
+  "audienceHint": "viewers who like the unsettling side of biology — decomposition, parasitic infection, alien-looking organisms",
+
+  "scriptContext": "This is a video about a specific fungus. Fungi are NOT plants — they're closer to animals genetically. Narration should respect this: no 'plant-like' framing. Reference real mycology — fruiting body morphology, spore-dispersal mechanism, mycelial network behavior, symbiotic / parasitic relationships."
+}

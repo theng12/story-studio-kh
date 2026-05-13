@@ -305,7 +305,7 @@
             <th scope="col" class="sortable" @click="toggleSort('status')">Status {{ sortIcon('status') }}</th>
             <th scope="col" class="sortable" @click="toggleSort('mood')">Mood {{ sortIcon('mood') }}</th>
             <th scope="col" class="sortable" @click="toggleSort('suggested_length')">Length {{ sortIcon('suggested_length') }}</th>
-            <th scope="col" class="sortable" @click="toggleSort('suggested_chapters')">Ch {{ sortIcon('suggested_chapters') }}</th>
+            <th scope="col" class="sortable" @click="toggleSort('suggested_chapters')" :title="`Suggested ${sectionLabel.plural} count`">{{ sectionLabel.Singular.slice(0, 3) }} {{ sortIcon('suggested_chapters') }}</th>
             <th scope="col" class="sortable" @click="toggleSort('generated_at')">Date {{ sortIcon('generated_at') }}</th>
             <th scope="col">Actions</th>
           </tr>
@@ -830,7 +830,7 @@
               <span class="ppr-title">Title</span>
               <span class="ppr-logline">Logline</span>
               <span class="ppr-themes">Themes</span>
-              <span class="ppr-chapters">Chapters</span>
+              <span class="ppr-chapters">{{ sectionLabel.Plural }}</span>
               <span class="ppr-length">Length</span>
               <span class="ppr-mood">Mood</span>
               <span class="ppr-remove"></span>
@@ -943,7 +943,7 @@
         </div>
         <div class="grid-2 mt-1">
           <div class="form-group">
-            <label>Chapters</label>
+            <label>{{ sectionLabel.Plural }}</label>
             <input v-model.number="editorForm.suggested_chapters" class="input" type="number" min="1" max="30" />
           </div>
           <div class="form-group">
@@ -1184,6 +1184,11 @@ const form = reactive({
 // `idea_generator_last_pattern` / `idea_generator_last_subject` —
 // matches the *_last_* convention used by other generator pages.
 const formatId = ref<string>('sleep-story')
+// v1.0.83+: reactive section-label vocabulary for the active format
+// ("Chapter" for sleep-story, "Reason" for bound-explainer, "Topic" for
+// listicle). Used in form labels, table column headers, and inline copy
+// so the Ideas page matches whatever the script will be structured as.
+const sectionLabel = useSectionLabel(formatId)
 // Map of format-id → display name, populated from /api/formats. Used to
 // show "Format: Sleep Story" above the paste-prompt instead of "sleep-story",
 // and to surface a "Switch" link to Settings → Format. Best-effort: if the

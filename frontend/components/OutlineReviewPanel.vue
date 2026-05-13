@@ -329,6 +329,17 @@ const emit = defineEmits<{
   /** Fired after a successful expand-chapters POST so scripts.vue can
    *  refresh ChapterListPanel + show a toast. */
   (e: 'expansion-queued', payload: { jobId: string; chapters: number[] | null }): void
+  /** Fired every time the outline sidecar loads so scripts.vue can mirror
+   *  the on-disk `total_chapters` + persisted `generation_params` onto its
+   *  form inputs. Without this, the form fields silently revert to format
+   *  defaults on remount, forcing the user to re-type the chapter count +
+   *  words/chapter they already committed at outline-build time. */
+  (e: 'outline-loaded', payload: {
+    totalChapters: number
+    wordsPerChapter: number | null
+    totalWords: number | null
+    lengthMinutes: number | null
+  }): void
 }>()
 
 const { get, post, put } = useApi()
@@ -568,6 +579,16 @@ async function loadOutline() {
     loaded.value = true
     isDirty.value = false
     justSaved.value = false
+    // Mirror the sidecar's authoritative sizing back up to the parent form.
+    // The user already committed to N chapters × W words at outline-build
+    // time — surface that on the inputs so they don't appear to revert to
+    // format defaults after a reload/remount.
+    emit('outline-loaded', {
+      totalChapters: data.total_chapters,
+      wordsPerChapter: data.generation_params?.words_per_chapter ?? null,
+      totalWords: data.generation_params?.total_words ?? null,
+      lengthMinutes: data.generation_params?.length ?? null,
+    })
     // Prune (don't wipe) selectedNs: keep selections of chapters that are
     // still pending in the refreshed outline. Wiping on every refresh
     // would delete the user's in-flight selection whenever an unrelated

@@ -251,8 +251,8 @@
         </div>
         <div class="format-context-recs">
           <span v-if="formatContext.chapterCountRange" :class="['rec-chip', { 'rec-chip-warn': chaptersOutOfRange }]"
-            :title="chaptersOutOfRange || 'Your chapter count is within the format’s typical envelope.'">
-            <span class="rec-chip-label">Chapters</span>
+            :title="chaptersOutOfRange || `Your ${sectionLabel.singular} count is within the format’s typical envelope.`">
+            <span class="rec-chip-label">{{ sectionLabel.Plural }}</span>
             <strong>{{ formatContext.chapterCountRange[0] }}–{{ formatContext.chapterCountRange[1] }}</strong>
             <span class="rec-chip-current">you: {{ form.chapters }}</span>
           </span>
@@ -263,8 +263,8 @@
             <span class="rec-chip-current">you: {{ form.length }} min</span>
           </span>
           <span v-if="recommendedWordsPerChapter" class="rec-chip"
-            :title="`Computed from this format's default ${formatContext.defaultLengthMinutes}-minute / ${formatContext.defaultChapterCount}-chapter shape at ~${wordsPerMinute} w/min.`">
-            <span class="rec-chip-label">Typical wpc</span>
+            :title="`Computed from this format's default ${formatContext.defaultLengthMinutes}-minute / ${formatContext.defaultChapterCount}-${sectionLabel.singular} shape at ~${wordsPerMinute} w/min.`">
+            <span class="rec-chip-label">Typical w/{{ sectionLabel.singular }}</span>
             <strong>~{{ recommendedWordsPerChapter.toLocaleString() }}</strong>
             <span class="rec-chip-current">you: {{ form.words_per_chapter.toLocaleString() }}</span>
           </span>
@@ -284,14 +284,14 @@
         <div class="grid-4">
           <div class="form-group" :class="{ 'is-primary': primaryField === 'chapters' }">
             <label>
-              Chapters
+              {{ sectionLabel.Plural }}
               <span v-if="primaryField === 'chapters'" class="primary-badge">primary</span>
             </label>
             <input v-model.number="form.chapters" class="input" type="number" min="1" max="30" @input="onChaptersChange" />
           </div>
           <div class="form-group" :class="{ 'is-primary': primaryField === 'words_per_chapter' }">
             <label>
-              Words/Chapter
+              Words/{{ sectionLabel.Singular }}
               <span v-if="primaryField === 'words_per_chapter'" class="primary-badge">primary</span>
             </label>
             <input v-model.number="form.words_per_chapter" class="input" type="number" min="100" @input="onWordsPerChapterChange" />
@@ -312,8 +312,8 @@
           </div>
         </div>
         <div class="word-summary">
-          <strong>{{ form.chapters }}</strong> chapters
-          × <strong>{{ form.words_per_chapter.toLocaleString() }}</strong> words/chapter
+          <strong>{{ form.chapters }}</strong> {{ sectionLabel.plural }}
+          × <strong>{{ form.words_per_chapter.toLocaleString() }}</strong> words/{{ sectionLabel.singular }}
           = <strong>{{ form.total_words.toLocaleString() }}</strong> story body
           <template v-if="intro.enabled"> + <strong>~{{ intro.word_target }}</strong> intro</template>
           = <strong class="text-accent">~{{ totalOutput.toLocaleString() }} total (~{{ estimatedTotalDuration }} min)</strong>
@@ -376,6 +376,7 @@
       :form="form"
       :refresh-key="outlineRefreshKey"
       @expansion-queued="onExpansionQueued"
+      @outline-loaded="onOutlineLoaded"
     />
 
     <!-- Per-chapter source files panel (per-chapter refactor). One row per
@@ -475,6 +476,37 @@ function onExpansionQueued(_payload: { jobId: string; chapters: number[] | null 
   outlineRefreshKey.value++
   previewRefreshKey.value++
 }
+
+/**
+ * Sync the form sizing inputs to whatever the outline sidecar persisted at
+ * build time. Previously the form would silently revert to format defaults
+ * after a reload — forcing the user to re-type chapter count + words/chapter
+ * before they could click Expand. Sidecar is the authoritative record (the
+ * backend also prefers it for expand-chapters), so mirroring it here keeps
+ * the visible inputs honest. Also marks `userTouchedSizing` so subsequent
+ * episode-dropdown picks don't bulldoze the synced values.
+ */
+function onOutlineLoaded(payload: {
+  totalChapters: number
+  wordsPerChapter: number | null
+  totalWords: number | null
+  lengthMinutes: number | null
+}) {
+  if (payload.totalChapters > 0) form.chapters = payload.totalChapters
+  if (payload.wordsPerChapter && payload.wordsPerChapter > 0) {
+    form.words_per_chapter = payload.wordsPerChapter
+  }
+  if (payload.totalWords && payload.totalWords > 0) {
+    form.total_words = payload.totalWords
+  } else if (form.chapters > 0 && form.words_per_chapter > 0) {
+    form.total_words = form.chapters * form.words_per_chapter
+  }
+  if (payload.lengthMinutes && payload.lengthMinutes > 0) {
+    form.length = payload.lengthMinutes
+    durationSelect.value = STANDARD_DURATIONS.has(form.length) ? String(form.length) : 'custom'
+  }
+  userTouchedSizing.value = true
+}
 // Tracks the full episode object selected via EpisodeSelector — needed so
 // `scriptGenerated` can read from `episode.status.script` (the API-provided
 // source of truth) instead of a local mutable ref.
@@ -555,6 +587,12 @@ const { project } = useProject()
 watch(project, (p) => {
   if (p) projectFormatId.value = (p as any).format_id || 'sleep-story'
 }, { immediate: true })
+
+// v1.0.82+: format-aware section labels for the UI ("Chapter" for sleep-story,
+// "Reason" for bound-explainer, "Topic" for listicle). The composable reads
+// the section vocabulary from the loaded format list and updates reactively
+// when projectFormatId changes (e.g. project switch in the sidebar).
+const sectionLabel = useSectionLabel(projectFormatId)
 
 /**
  * Format context exposed to the UI as a small read-only "what kind of
@@ -651,13 +689,21 @@ const scriptPresets = usePresets<any>({
   slug: slug.value,
   configKey: 'script',
   presetType: 'script',
+  // Snapshot captures EVERY user-tunable field on this page so reloading the
+  // preset restores the visible form 1:1 — including the Introduction
+  // enabled toggle + beat list. Earlier the snapshot omitted `intro`, so
+  // unchecking Introduction + saving the preset never persisted that bit and
+  // reloads landed back on `intro.enabled = true` from the hardcoded default.
   snapshot: () => ({
     form: { ...form },
     customStyleText: customStyleText.value,
+    intro: { ...intro },
+    introBeats: introBeats.value.map(b => ({ ...b })),
   }),
   apply: (data) => {
     if (data.form) Object.assign(form, data.form)
     if (data.intro) Object.assign(intro, data.intro)
+    if (Array.isArray(data.introBeats)) introBeats.value = data.introBeats.map((b: any) => ({ ...b }))
     if (typeof data.customStyleText === 'string') customStyleText.value = data.customStyleText
   },
 })

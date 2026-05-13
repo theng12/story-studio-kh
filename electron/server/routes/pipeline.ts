@@ -45,12 +45,21 @@ type BatchStep =
   | 'introduction-only'
   | 'image_prompts'
   | 'images'
+  | 'scene_images'
+  | 'thumb_images'
   | 'audio'
   | 'audio_merge'
   | 'metadata'
   | 'video'
   | 'video_assembly'
-const VALID_STEPS: BatchStep[] = ['script-only', 'introduction-only', 'image_prompts', 'images', 'audio', 'audio_merge', 'metadata', 'video', 'video_assembly']
+// v1.0.87+: scene_images + thumb_images are split equivalents of the
+// unified `images` step. The pipeline UI defaults to these two so the
+// user can tick scenes-only or thumbs-only as discrete pipeline steps.
+// Legacy `images` stays valid for any saved pipeline preset that still
+// references it. All three use the same `image_generator_presets`
+// preset list and end up calling `generateImages` via the registered
+// executor; only the `mode` param in resolveStepParams differs.
+const VALID_STEPS: BatchStep[] = ['script-only', 'introduction-only', 'image_prompts', 'images', 'scene_images', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'video', 'video_assembly']
 
 // Per-step preset-storage keys. Matches the configKey used by each
 // generator page's usePresets() call. If the user hasn't applied a
@@ -78,6 +87,13 @@ const PRESET_KEYS: Record<BatchStep, { list: string; activeKeys: string[] }> = {
   'introduction-only': { list: 'script_presets',           activeKeys: ['script_last_preset_introduction', 'script_last_preset'] },
   image_prompts:       { list: 'image_prompts_presets',    activeKeys: ['image_prompts_last_preset'] },
   images:              { list: 'image_generator_presets',  activeKeys: ['image_generator_last_preset'] },
+  // v1.0.88+: scene_images + thumb_images each point at their own preset
+  // list, matching the split image-generator UI (Thumbnail Generator and
+  // Scene Generator tabs save independently). The legacy `image_generator
+  // _presets` key still works for the unified `images` step above so a
+  // saved pipeline that targets that step keeps running unchanged.
+  scene_images:        { list: 'scene_generator_presets',  activeKeys: ['scene_generator_last_preset'] },
+  thumb_images:        { list: 'thumbnail_generator_presets', activeKeys: ['thumbnail_generator_last_preset'] },
   audio:               { list: 'audio_generator_presets',  activeKeys: ['audio_generator_last_preset'] },
   audio_merge:         { list: 'audio_merge_presets',      activeKeys: ['audio_merge_last_preset'] },
   metadata:            { list: 'metadata_presets',         activeKeys: ['metadata_last_preset'] },
@@ -114,6 +130,8 @@ export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep): boole
     case 'introduction-only': return status.introduction
     case 'image_prompts':     return status.scene_prompts && status.thumb_prompts
     case 'images':            return status.images && status.thumbnails
+    case 'scene_images':      return status.images
+    case 'thumb_images':      return status.thumbnails
     case 'audio':             return status.audio
     case 'audio_merge':       return status.merged_audio
     case 'metadata':          return status.metadata
@@ -265,12 +283,21 @@ export function resolveStepParams(
       mode: 'all',
     }
   }
-  if (step === 'images') {
+  if (step === 'images' || step === 'scene_images' || step === 'thumb_images') {
     const form = data.form || {}
+    // v1.0.87+: pipeline-step variant determines mode. Legacy `images` step
+    // keeps its preset-stored `form.mode` (or 'all' fallback); the new
+    // split steps force the corresponding mode regardless of what the
+    // preset carries, so a single saved image_generator preset can drive
+    // either a scenes-only or thumbs-only pipeline run.
+    const forcedMode =
+      step === 'scene_images' ? 'scenes' :
+      step === 'thumb_images' ? 'thumbs' :
+      (form.mode || 'all')
     return {
       ...form,
       episode_id: episodeId,
-      mode: form.mode || 'all',
+      mode: forcedMode,
     }
   }
   if (step === 'audio') {

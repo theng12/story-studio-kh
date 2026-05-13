@@ -461,6 +461,17 @@
             </div>
           </div>
 
+          <!-- Niche picker (orthogonal subject-domain layer).
+               Optional — empty selection means "format defaults only".
+               Pairs with any format: bound-explainer × plants for the
+               Bound-style explainer flow; sleep-story × gemstones for
+               TerraNash episodes; listicle × animals for nature listicles.
+               Sits underneath the format grid so the visual hierarchy
+               reads "what shape (format) of what subject (niche)". -->
+          <div class="form-group" style="margin-top: 16px;">
+            <NichePicker v-model="form.niche_id" />
+          </div>
+
           <div class="flex gap-2">
             <button class="btn btn-secondary" @click="closeCreate">Cancel</button>
             <button class="btn btn-primary" :disabled="!form.name" @click="step = 2">
@@ -1404,6 +1415,9 @@ const form = reactive<{
   season_size: number
   output_root: string
   format_id: string
+  /** Niche is OPTIONAL — empty string means "no niche, format defaults only".
+   *  The project-creation API treats undefined and empty as "unset". */
+  niche_id: string
 }>({
   name: '',
   template: 'blank',
@@ -1414,6 +1428,7 @@ const form = reactive<{
   // Default matches the project-manager fallback so users who don't
   // touch the Channel Format picker get the legacy behaviour.
   format_id: 'sleep-story',
+  niche_id: '',
 })
 
 function closeCreate() {
@@ -1636,6 +1651,10 @@ async function ensureProjectCreated(): Promise<any> {
     // accepts the field optional; sending the literal string the
     // server's format-loader knows about keeps the round trip clean.
     format_id: form.format_id || undefined,
+    // Niche is optional (subject-domain layer). Empty string means
+    // "no niche, format defaults only" — strip it on the wire so the
+    // backend's optional-field handling kicks in.
+    niche_id: form.niche_id || undefined,
   })
   // API keys are stored at app level (per-Mac, not per-project). Write
   // each non-empty value individually so a blank row in the wizard

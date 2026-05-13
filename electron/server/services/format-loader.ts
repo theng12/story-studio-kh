@@ -289,7 +289,104 @@ export async function getEffectiveFormatFor(project: ProjectMeta): Promise<Forma
       console.warn(`[format-loader] failed applying brand '${project.brand_id}' overrides: ${e.message}`)
     }
   }
-  return mergeFormatOverrides(base, project.format_overrides)
+  base = mergeFormatOverrides(base, project.format_overrides)
+  // Niche layer (subject-domain context). Applied LAST so niche-merged
+  // fields win over format defaults but lose to explicit project format_-
+  // overrides. Niche layering only touches generator-relevant fields
+  // (idea vocab, image-prompt style, metadata tags, script context) —
+  // narrator pools, pacing arcs, and chapter counts stay format-owned.
+  if (project.niche_id) {
+    try {
+      const nicheLoader = await import('./niche-loader.js')
+      const niche = await nicheLoader.getEffectiveNicheFor(project)
+      if (niche) {
+        base = applyNicheToFormat(base, niche)
+      }
+    } catch (e: any) {
+      console.warn(`[format-loader] failed applying niche '${project.niche_id}' for project '${project.slug}': ${e.message}`)
+    }
+  }
+  return base
+}
+
+// ── Niche-onto-format layering ─────────────────────────────────────────────
+//
+// Mutates none of the input Format/Niche objects — returns a new Format with
+// niche vocabulary, style sheet, and metadata hints merged in. Designed so
+// every existing call site of getEffectiveFormat() automatically benefits
+// from niche context without per-generator integration.
+
+import type { Niche } from '../models/types.js'
+
+function uniqueAppend(a: string[] | undefined, b: string[] | undefined): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const arr of [a, b]) {
+    if (!arr) continue
+    for (const v of arr) {
+      if (!v) continue
+      const k = v.toLowerCase()
+      if (seen.has(k)) continue
+      seen.add(k)
+      out.push(v)
+    }
+  }
+  return out
+}
+
+export function applyNicheToFormat(format: Format, niche: Niche): Format {
+  // Build new sub-objects rather than mutating the input — Format objects
+  // can be cached by loadFormat() across requests; mutating would leak
+  // niche state into later format-only consumers.
+  const idea = {
+    ...format.idea,
+    moodVocabulary: uniqueAppend(format.idea.moodVocabulary, niche.vocabulary?.mood),
+    themeVocabulary: uniqueAppend(format.idea.themeVocabulary, niche.vocabulary?.theme),
+    genreVocabulary: uniqueAppend(format.idea.genreVocabulary, niche.vocabulary?.genre),
+    keywordVocabulary: uniqueAppend(format.idea.keywordVocabulary, niche.vocabulary?.keyword),
+    audienceDefault: niche.audienceHint
+      ? `${format.idea.audienceDefault} — ${niche.audienceHint}`
+      : format.idea.audienceDefault,
+  }
+
+  // Script layer — only the system-prompt-role gets niche-augmented. The
+  // pacing arc, narrator styles, rules, and chapter counts stay format-
+  // pure so niche doesn't accidentally change format-defining behaviors.
+  const script = niche.scriptContext
+    ? {
+        ...format.script,
+        systemPromptRole: `${format.script.systemPromptRole}\n\nSubject-domain context: ${niche.scriptContext}`,
+      }
+    : format.script
+
+  // Image-prompt layer — append visualStyleSheet to defaultStyleTag (the
+  // string the LLM sees baked into every prompt). visualStyleHint is the
+  // human-facing one-liner shown in the UI; we leave it alone so the
+  // picker preview stays readable.
+  const stylePieces: string[] = []
+  if (format.imagePrompts.defaultStyleTag) stylePieces.push(format.imagePrompts.defaultStyleTag)
+  if (niche.visualStyleSheet) stylePieces.push(`Niche style: ${niche.visualStyleSheet}`)
+  if (niche.defaultStyleKeywords?.length) {
+    stylePieces.push(`Niche keywords: ${niche.defaultStyleKeywords.join(', ')}`)
+  }
+  const imagePrompts = {
+    ...format.imagePrompts,
+    defaultStyleTag: stylePieces.join('\n\n'),
+  }
+
+  // Metadata layer — niche tags merged into broadKeywords pool.
+  const metadata = {
+    ...format.metadata,
+    broadKeywords: uniqueAppend(format.metadata.broadKeywords, niche.youtubeTagsHint),
+  }
+
+  return {
+    ...format,
+    idea,
+    script,
+    imagePrompts,
+    metadata,
+  }
 }
 
 /** Loads a format that MUST exist; throws clearly if not (used for the default). */

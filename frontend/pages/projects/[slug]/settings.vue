@@ -276,6 +276,41 @@
         @saved="(id) => { formatId = id; formatOverrides = null; saveFormatSettings() }"
       />
 
+      <!-- ── Niche sub-section ────────────────────────────────────────── -->
+      <!-- Niche is the subject-domain layer ORTHOGONAL to Format. Format
+           = "what shape of video" (sleep-story, listicle, bound-explainer);
+           Niche = "what subject domain" (plants, animals, fungi, insects).
+           Niche is optional — projects without one keep working with
+           format defaults. -->
+      <div class="niche-section mt-4">
+        <div class="format-tab-header">
+          <div>
+            <h3>Niche</h3>
+            <p class="text-muted mt-1 mb-2">
+              Subject-domain layer — orthogonal to Format. Pick the topic
+              area this project covers (plants, animals, fungi, insects, or
+              your own custom niche). The niche layers vocab, visual style,
+              and YouTube tag hints onto every generator without changing
+              the format itself.
+              <strong>Niche is optional</strong> — leave empty for format-default behavior.
+            </p>
+          </div>
+          <NuxtLink to="/niches" class="btn btn-secondary btn-sm">
+            Browse niches
+          </NuxtLink>
+        </div>
+
+        <NichePicker v-model="nicheId" @change="onNicheChanged" />
+
+        <div class="mt-3 button-row">
+          <button class="btn btn-primary" :disabled="nicheSaving || !nicheDirty" @click="saveNicheSettings">
+            {{ nicheSaving ? 'Saving…' : 'Save niche settings' }}
+          </button>
+          <SaveIndicator v-bind="savedHintProps('niche')" />
+          <span v-if="nicheSaveError" class="text-error">{{ nicheSaveError }}</span>
+        </div>
+      </div>
+
       <!-- ── Patterns sub-section ─────────────────────────────────────── -->
       <!-- Lives inside the Format tab because patterns compose with formats —
            the user picks a format on the project + a pattern per-episode (or
@@ -1916,6 +1951,77 @@
         </span>
       </div>
 
+      <!-- v1.0.77 — AI / synthetic content disclosure toggle + backfill action -->
+      <div class="form-group">
+        <label>
+          AI / Altered or Synthetic Content disclosure
+          <span class="text-muted" style="font-weight:normal">(YouTube `status.containsSyntheticMedia`)</span>
+        </label>
+        <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
+          <select
+            v-model="aiDisclosureSelection"
+            class="input"
+            style="flex: 1; min-width: 240px;"
+          >
+            <option value="default">Use app default ({{ ytAppDefaults?.default_mark_as_ai_generated === false ? 'OFF' : 'ON' }})</option>
+            <option value="on">ON — mark uploads as AI-generated</option>
+            <option value="off">OFF — do not disclose</option>
+          </select>
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            :disabled="ytBackfillBusy"
+            @click="onYoutubeBackfillPreview"
+            title="Show what would change without applying"
+          >
+            {{ ytBackfillBusy === 'preview' ? '↻ Checking…' : '↻ Preview backfill' }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm btn-primary"
+            :disabled="ytBackfillBusy"
+            @click="onYoutubeBackfillApply"
+            title="Apply current AI disclosure + category to every uploaded video on this project"
+          >
+            {{ ytBackfillBusy === 'apply' ? 'Applying…' : 'Apply to all uploaded videos' }}
+          </button>
+        </div>
+        <span class="text-muted" style="font-size: 11px;">
+          Required by YouTube when your video contains realistic AI-generated narration, images, or footage.
+          Fresh uploads pick this up automatically. The backfill action above PATCHes existing uploads
+          (preserves privacy + schedule). Live YouTube quota: 1 unit per 50 videos read + 50 units per video updated.
+        </span>
+        <div v-if="ytBackfillResult" class="card mt-2" style="font-size: 12px;">
+          <div class="flex gap-3" style="flex-wrap: wrap;">
+            <span><strong>Scanned:</strong> {{ ytBackfillResult.scanned }}</span>
+            <span><strong>Eligible:</strong> {{ ytBackfillResult.eligible }}</span>
+            <span class="text-success"><strong>Updated:</strong> {{ ytBackfillResult.updated }}</span>
+            <span><strong>Skipped (already ok):</strong> {{ ytBackfillResult.skipped }}</span>
+            <span v-if="ytBackfillResult.failed" class="text-danger"><strong>Failed:</strong> {{ ytBackfillResult.failed }}</span>
+            <span v-if="ytBackfillResult.missing" class="text-muted"><strong>Missing on YouTube:</strong> {{ ytBackfillResult.missing }}</span>
+            <span v-if="ytBackfillResult.dry_run" class="text-warning"><strong>(dry run — nothing applied)</strong></span>
+          </div>
+          <div v-if="ytBackfillResult.message" class="text-muted mt-1">{{ ytBackfillResult.message }}</div>
+          <details v-if="ytBackfillResult.details?.length" class="mt-1">
+            <summary style="cursor: pointer;">Per-video details ({{ ytBackfillResult.details.length }})</summary>
+            <ul style="margin: 6px 0 0; padding-left: 18px;">
+              <li v-for="d in ytBackfillResult.details" :key="d.video_id">
+                <code>{{ d.episode_code }}</code> ·
+                <span :class="{ 'text-success': d.action === 'updated', 'text-muted': d.action === 'skipped', 'text-danger': d.action === 'failed', 'text-warning': d.action === 'missing' }">
+                  {{ d.action }}
+                </span>
+                <template v-if="d.changed">
+                  · {{ Object.entries(d.changed).map(([k, v]) => `${k}=${v}`).join(', ') }}
+                </template>
+                <template v-if="d.error || d.reason">
+                  · <span class="text-muted">{{ d.error || d.reason }}</span>
+                </template>
+              </li>
+            </ul>
+          </details>
+        </div>
+      </div>
+
       <div class="form-group">
         <label>Brand <span class="text-muted" style="font-weight:normal">(channel-level identity — narrator persona, default voice, brand style keywords)</span></label>
         <div class="brand-picker">
@@ -2628,6 +2734,51 @@ async function saveFormatSettings() {
     showError(formatSaveError.value)
   } finally {
     formatSaving.value = false
+  }
+}
+
+// ── Niche tab state (subject-domain layer) ─────────────────────────────────
+//
+// Niche is orthogonal to Format — empty string means "no niche, use format
+// defaults only". Saved via the dedicated /projects/:slug/niche endpoint
+// (mirrors the brand association setter) so the existing /projects/:slug
+// PATCH path doesn't need to learn about a new field shape.
+
+const { setProjectNiche } = useNiches()
+const nicheId = ref<string>('')
+const nicheSaving = ref(false)
+const nicheSaveError = ref('')
+const nicheIdBaseline = ref<string>('')
+const nicheDirty = computed(() => nicheId.value !== nicheIdBaseline.value)
+
+function syncNicheFromProject() {
+  const m = project.value as any
+  if (!m) return
+  nicheId.value = m.niche_id || ''
+  nicheIdBaseline.value = nicheId.value
+}
+
+watch(project, syncNicheFromProject, { immediate: true })
+
+function onNicheChanged(_n: any) {
+  // No-op for now — niche has no overrides UI in v1. Future Phase will
+  // mirror format's override editor for vocab and style-sheet tweaks.
+}
+
+async function saveNicheSettings() {
+  nicheSaving.value = true
+  nicheSaveError.value = ''
+  try {
+    await setProjectNiche(slug.value, nicheId.value || null)
+    nicheIdBaseline.value = nicheId.value
+    stampSaved('niche')
+    success(nicheId.value ? 'Niche set' : 'Niche cleared')
+    await loadProject(slug.value)
+  } catch (e: any) {
+    nicheSaveError.value = e?.data?.detail || e?.message || 'Failed to save niche settings'
+    showError(nicheSaveError.value)
+  } finally {
+    nicheSaving.value = false
   }
 }
 
@@ -3456,6 +3607,9 @@ watch(activeTab, (t) => {
   if (t === 'project' && !ytCategoryList.value.length) {
     void loadYoutubeCategoryList()
   }
+  if (t === 'project' && !ytAppDefaults.value) {
+    void loadYoutubeAppDefaults()
+  }
 })
 
 // ── Item J — YouTube videoCategories.list state ────────────────────────
@@ -3487,6 +3641,88 @@ async function loadYoutubeCategoryList() {
   } finally {
     ytCategoryLoading.value = false
   }
+}
+
+// ── v1.0.77 — AI / Synthetic content disclosure + backfill ──────────────────
+//
+// `aiDisclosureSelection` is a UI-only tri-state that maps to the per-project
+// `mark_as_ai_generated` boolean (or undefined for "use app default"). The
+// app-level fallback is fetched on tab-open so the dropdown can show the
+// resolved default to the user.
+interface YtAppDefaults {
+  default_mark_as_ai_generated: boolean
+  default_yt_category_id: number
+}
+const ytAppDefaults = ref<YtAppDefaults | null>(null)
+const aiDisclosureSelection = computed<'on' | 'off' | 'default'>({
+  get() {
+    const v = projectForm.mark_as_ai_generated
+    if (v === true) return 'on'
+    if (v === false) return 'off'
+    return 'default'
+  },
+  set(value) {
+    if (value === 'on') projectForm.mark_as_ai_generated = true
+    else if (value === 'off') projectForm.mark_as_ai_generated = false
+    else projectForm.mark_as_ai_generated = undefined
+  },
+})
+
+interface YtBackfillRow {
+  episode_code: string
+  video_id: string
+  action: 'updated' | 'skipped' | 'failed' | 'missing'
+  changed?: Record<string, unknown>
+  reason?: string
+  error?: string
+}
+interface YtBackfillResp {
+  scanned: number
+  eligible: number
+  updated: number
+  skipped: number
+  failed: number
+  missing?: number
+  dry_run?: boolean
+  message?: string
+  details?: YtBackfillRow[]
+}
+const ytBackfillBusy = ref<'' | 'preview' | 'apply'>('')
+const ytBackfillResult = ref<YtBackfillResp | null>(null)
+
+async function loadYoutubeAppDefaults() {
+  try {
+    ytAppDefaults.value = await get<YtAppDefaults>('/app-settings/youtube-defaults')
+  } catch { /* non-fatal — dropdown just shows "ON" as the assumed default */ }
+}
+
+async function runYoutubeBackfill(dryRun: boolean) {
+  ytBackfillBusy.value = dryRun ? 'preview' : 'apply'
+  try {
+    // If the user changed the AI toggle in the UI but hasn't hit Save yet,
+    // the backfill would use the LAST-SAVED value — confusing. Force a
+    // save first so the in-flight selection is what gets backfilled.
+    await saveProject()
+    const r = await post<YtBackfillResp>(
+      `/projects/${slug.value}/upload/youtube-backfill`,
+      { dry_run: dryRun },
+    )
+    ytBackfillResult.value = r
+    if (!dryRun) {
+      if (r.updated > 0) success(`Updated ${r.updated} YouTube video${r.updated === 1 ? '' : 's'}.`)
+      else info('No videos needed updating.')
+    }
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Backfill failed')
+  } finally {
+    ytBackfillBusy.value = ''
+  }
+}
+
+function onYoutubeBackfillPreview() { void runYoutubeBackfill(true) }
+async function onYoutubeBackfillApply() {
+  if (!confirm('Apply the current AI disclosure + category to every uploaded video on this project?\n\nThis hits the YouTube API once per video (50 quota units each). Privacy + schedule are preserved.')) return
+  await runYoutubeBackfill(false)
 }
 
 const tabs = [

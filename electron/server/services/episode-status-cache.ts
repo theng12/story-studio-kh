@@ -281,24 +281,35 @@ class EpisodeStatusCache {
         watchedMtimes,
         schemaVersion: SCHEMA_VERSION,
       }
-      // Cache-poisoning guard: if we couldn't resolve watched folders
-      // (resolveEpisodePaths threw — typically a transient project.json
-      // read failure), `folders` is empty AND watchedMtimes is empty.
-      // mtimesUnchanged then returns true on every subsequent read with
-      // the same empty result, which means the bad status sticks FOREVER
-      // (until the user hard-rescans). Refusing to cache when resolution
-      // failed forces a recompute next read — recompute is cheap (~10 fs
-      // ops), and on the retry we usually get real folders + correct
-      // status.
+      // Cache-poisoning guards. Two independent reasons NOT to cache a
+      // computed entry:
       //
-      // Note: gating on `folders.length`, NOT `watchedMtimes` size — a
+      //   1. (v1.0.76) `folders.length === 0` — resolveEpisodePaths threw,
+      //      so we don't even know which folders to watch. Caching here
+      //      would freeze the empty-mtimes snapshot, and mtimesUnchanged
+      //      would return true forever → bad status sticks until the
+      //      user hard-rescans. Recompute is cheap (~10 fs ops) and the
+      //      retry usually picks up the real paths.
+      //
+      //   2. (v1.0.78) `status._unreliable === true` — readdir errored
+      //      on at least one of the watched folders during the compute,
+      //      typically iCloud transience (subfolder evicted, EBUSY
+      //      mid-sync, ENOENT during a just-delivered move). The boolean
+      //      status fields derived from those reads are unreliable and
+      //      we MUST not freeze them. Same recovery shape as #1 — drop
+      //      this entry, recompute on the next read, by which point
+      //      iCloud has usually settled.
+      //
+      // Note: #1 gates on `folders.length`, NOT `watchedMtimes` size — a
       // newly-accepted episode whose subfolders don't exist on disk yet
       // resolves to a non-empty folder list (resolveEpisodePaths just
       // computes paths from the template; doesn't require them to exist)
       // but produces an empty mtimes snapshot. Caching THAT is correct
-      // — when the folders eventually appear, the new keys in mtimes will
-      // not match the empty snapshot and the cache will correctly stale.
-      if (folders.length > 0) {
+      // — when the folders eventually appear, the new keys in mtimes
+      // will not match the empty snapshot and the cache will correctly
+      // stale.
+      const unreliable = (status as any)._unreliable === true
+      if (folders.length > 0 && !unreliable) {
         this.set(k, entry)
         this.scheduleFlush(slug)
       }

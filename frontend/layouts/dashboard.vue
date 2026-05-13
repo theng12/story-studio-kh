@@ -40,11 +40,37 @@
         <NuxtLink :to="`/projects/${slug}/metadata`" class="nav-item" active-class="active">
           Metadata Generator <span v-if="metaGenerating" class="nav-pulse" />
         </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/image-prompts`" class="nav-item" active-class="active">
-          Image Prompts <span v-if="promptGenerating || thumbPromptGenerating" class="nav-pulse" />
+        <!-- v1.0.88+: Image Prompts split into two sidebar entries that
+             both open /image-prompts but pre-select the corresponding tab
+             via ?tab=. Active highlighting is computed manually because
+             NuxtLink's active-class matches paths, not query strings —
+             two entries point at the same path with different query
+             values, so we need to disambiguate. Default tab when no
+             query is set is 'thumbnails' (matches the page's own default
+             from v1.0.87). -->
+        <NuxtLink
+          :to="`/projects/${slug}/image-prompts?tab=thumbnails`"
+          :class="['nav-item', { active: isImagePromptsActive('thumbnails') }]"
+        >
+          Thumbnail Prompts <span v-if="thumbPromptGenerating" class="nav-pulse" />
         </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/images`" class="nav-item" active-class="active">
-          Image Generator <span v-if="imageGenerating || thumbImageGenerating" class="nav-pulse" />
+        <NuxtLink
+          :to="`/projects/${slug}/image-prompts?tab=scenes`"
+          :class="['nav-item', { active: isImagePromptsActive('scenes') }]"
+        >
+          Scene Prompts <span v-if="promptGenerating" class="nav-pulse" />
+        </NuxtLink>
+        <NuxtLink
+          :to="`/projects/${slug}/images?tab=thumbnails`"
+          :class="['nav-item', { active: isImagesActive('thumbnails') }]"
+        >
+          Thumbnail Generator <span v-if="thumbImageGenerating" class="nav-pulse" />
+        </NuxtLink>
+        <NuxtLink
+          :to="`/projects/${slug}/images?tab=scenes`"
+          :class="['nav-item', { active: isImagesActive('scenes') }]"
+        >
+          Scene Generator <span v-if="imageGenerating" class="nav-pulse" />
         </NuxtLink>
         <NuxtLink :to="`/projects/${slug}/video`" class="nav-item" active-class="active">
           Video Generator <span v-if="videoGenerating" class="nav-pulse" />
@@ -105,6 +131,9 @@
         <NuxtLink to="/character-library" class="nav-item" active-class="active" title="App-level character library shared across all projects on this machine. Save characters here to reuse across channels.">
           <span class="nav-icon">&#127991;</span> Character Library
         </NuxtLink>
+        <NuxtLink to="/niches" class="nav-item" active-class="active" title="Subject-domain library — plants, animals, fungi, insects, and your own custom niches. Layered onto any project format.">
+          <span class="nav-icon">&#127807;</span> Niches
+        </NuxtLink>
         <NuxtLink to="/" class="nav-item">
           <span class="nav-icon">&#8592;</span> All Projects
         </NuxtLink>
@@ -159,17 +188,27 @@
         </div>
         <!-- App version + build date — beta testers can quote this when
              reporting an issue. Click to copy. Read at frontend build time
-             from the root package.json (see runtimeConfig in nuxt.config.ts). -->
-        <button
-          type="button"
-          class="version-badge"
-          :title="`Story Studio KH v${appVersion} · built ${buildDate} — click to copy`"
-          @click="copyVersion"
-        >
-          v{{ appVersion }}
-          <span class="version-build">· {{ buildDate }}</span>
-          <span v-if="versionCopied" class="version-copied" aria-live="polite">copied</span>
-        </button>
+             from the root package.json (see runtimeConfig in nuxt.config.ts).
+             v1.0.77 — paired with a "What's new?" affordance that opens the
+             changelog modal so users can review release notes on demand. -->
+        <div class="version-row">
+          <button
+            type="button"
+            class="version-badge"
+            :title="`Story Studio KH v${appVersion} · built ${buildDate} — click to copy`"
+            @click="copyVersion"
+          >
+            v{{ appVersion }}
+            <span class="version-build">· {{ buildDate }}</span>
+            <span v-if="versionCopied" class="version-copied" aria-live="polite">copied</span>
+          </button>
+          <button
+            type="button"
+            class="whats-new-link"
+            title="What's new in this release?"
+            @click="openWhatsNew"
+          >What's new?</button>
+        </div>
       </div>
     </aside>
 
@@ -255,6 +294,23 @@
 <script setup lang="ts">
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
+
+// v1.0.88+: helpers for the four split image-prompts/images sidebar
+// entries. Each pair points at the same URL path with a different
+// ?tab= query value, so NuxtLink's path-based active-class can't
+// disambiguate them. These helpers check both: the current route's
+// path must match AND the tab query (defaulting to 'thumbnails' to
+// match the pages' own defaults) must match the requested tab.
+function isImagePromptsActive(tab: 'thumbnails' | 'scenes'): boolean {
+  if (!route.path.endsWith('/image-prompts')) return false
+  const q = String(route.query.tab || 'thumbnails')
+  return q === tab
+}
+function isImagesActive(tab: 'thumbnails' | 'scenes'): boolean {
+  if (!route.path.endsWith('/images')) return false
+  const q = String(route.query.tab || 'thumbnails')
+  return q === tab
+}
 
 const { project, loadProject } = useProject()
 const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling } = useJobs()
@@ -384,6 +440,11 @@ async function copyVersion() {
     // Clipboard API unavailable (rare in Electron renderer); fail-quiet.
   }
 }
+
+// v1.0.77 — open the WhatsNewModal on demand from the sidebar link.
+import { useWhatsNewModal } from '~/composables/useWhatsNewModal'
+const _whatsNew = useWhatsNewModal()
+function openWhatsNew() { _whatsNew.open() }
 </script>
 
 <style scoped>
@@ -538,6 +599,27 @@ async function copyVersion() {
   color: var(--accent);
   font-weight: 500;
 }
+
+/* v1.0.77 — paired version badge + What's-new link. */
+.version-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px dashed var(--border);
+}
+.version-row .version-badge { border-top: none; flex: 1; }
+.whats-new-link {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 4px 0 0;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.whats-new-link:hover { color: var(--accent-hover); text-decoration: underline; }
 
 .credits-refresh-row {
   display: flex; align-items: center; gap: 6px;

@@ -53,8 +53,27 @@ router.post('/projects/:slug/generate/images', validateBody(GenerateImagesSchema
     title = 'Images (all)'
   }
 
-  if (jq.isDuplicate(slug, req.body.episode_id, jobType)) {
-    return res.status(409).json({ detail: `${title} generation already queued/running for ${req.body.episode_id}` })
+  // Dedupe per (episode, jobType, scene_number, thumb_number).
+  // The previous coarse "(episode, jobType)" check rejected a second
+  // per-row click for the same episode even when it targeted a different
+  // scene — which made the v1.0.87 per-row Generate panel feel broken
+  // (click scene 3 → queues; click scene 5 → 409). The narrowed predicate
+  // lets the user queue multiple different scenes back-to-back while
+  // still 409'ing a literal duplicate (two clicks on scene 3 in flight).
+  // Bulk runs (no scene/thumb number) dedupe against other bulk runs and
+  // run independently of per-row clicks — the executor's per-prompt skip
+  // logic prevents any actual collision on disk.
+  const requestedScene = req.body.scene_number
+  const requestedThumb = req.body.thumb_number
+  const sameTarget = (params: any) =>
+    params?.scene_number === requestedScene && params?.thumb_number === requestedThumb
+  if (jq.isDuplicate(slug, req.body.episode_id, jobType, sameTarget)) {
+    const detail = requestedScene
+      ? `Scene ${requestedScene} render already queued/running for ${req.body.episode_id}`
+      : requestedThumb
+        ? `Thumbnail ${requestedThumb} render already queued/running for ${req.body.episode_id}`
+        : `${title} generation already queued/running for ${req.body.episode_id}`
+    return res.status(409).json({ detail })
   }
 
   const job = jq.enqueue({
@@ -63,6 +82,7 @@ router.post('/projects/:slug/generate/images', validateBody(GenerateImagesSchema
     episode_id: req.body.episode_id,
     title,
     params: req.body,
+    dedupeParams: sameTarget,
   })
   res.status(201).json(job)
 })

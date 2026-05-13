@@ -487,7 +487,7 @@ const { config, refreshConfig } = useProject()
 // gated on the script step in this UI — see `stepDisabled` below.
 type StepId =
   | 'script-only' | 'introduction-only'
-  | 'image_prompts' | 'images' | 'audio' | 'audio_merge'
+  | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'audio' | 'audio_merge'
   | 'metadata' | 'video' | 'video_assembly'
 interface StepMeta {
   id: StepId
@@ -511,7 +511,14 @@ const stepsMeta: StepMeta[] = [
   { id: 'introduction-only', label: 'Introduction',      icon: '🎙', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_introduction' },
   { id: 'metadata',          label: 'Metadata',          icon: '📄', link: '/metadata',       presetList: 'metadata_presets',        presetActive: 'metadata_last_preset' },
   { id: 'image_prompts',     label: 'Image Prompts',     icon: '🎨', link: '/image-prompts',  presetList: 'image_prompts_presets',   presetActive: 'image_prompts_last_preset' },
-  { id: 'images',            label: 'Images (all)',      icon: '📸', link: '/images',         presetList: 'image_generator_presets', presetActive: 'image_generator_last_preset' },
+  // v1.0.87+: pipeline splits Images into Thumbnail Images + Scene Images
+  // mirroring the page-level tab split. The legacy unified `images` step
+  // stays declared (and `stepsMeta` still includes it) for back-compat
+  // with saved pipeline state from prior versions, but it's off by
+  // default in fresh checkouts (see stepChecked.images = false below).
+  { id: 'thumb_images',      label: 'Thumbnail Images',  icon: '📸', link: '/images',         presetList: 'image_generator_presets', presetActive: 'image_generator_last_preset' },
+  { id: 'scene_images',      label: 'Scene Images',      icon: '🎞', link: '/images',         presetList: 'image_generator_presets', presetActive: 'image_generator_last_preset' },
+  { id: 'images',            label: 'Images (all, legacy)', icon: '📸', link: '/images',      presetList: 'image_generator_presets', presetActive: 'image_generator_last_preset' },
   { id: 'video',             label: 'Video Clips',       icon: '🎬', link: '/video',          presetList: 'video_generator_presets', presetActive: 'video_generator_last_preset', costly: true, warning: '$0.50–$2 per clip — off by default' },
   { id: 'audio',             label: 'Audio (TTS)',       icon: '🎙', link: '/audio',          presetList: 'audio_generator_presets', presetActive: 'audio_generator_last_preset' },
   { id: 'audio_merge',       label: 'Audio Merge',       icon: '🎛', link: '/audio-merge',    presetList: 'audio_merge_presets',     presetActive: 'audio_merge_last_preset' },
@@ -520,7 +527,14 @@ const stepsMeta: StepMeta[] = [
 const stepChecked = reactive<Record<StepId, boolean>>({
   'script-only': true,
   'introduction-only': true,
-  image_prompts: true, images: true, audio: true, audio_merge: true, metadata: true,
+  // v1.0.87+: default to the split steps (Thumbnail + Scene) and leave the
+  // legacy unified Images step OFF. Both new steps ship checked-on so an
+  // out-of-the-box "Run all pending" still produces a full image set.
+  image_prompts: true,
+  thumb_images: true,
+  scene_images: true,
+  images: false,            // legacy unified step — opt-in for users who want it
+  audio: true, audio_merge: true, metadata: true,
   video: false,             // opt-in because it's expensive
   // video_assembly defaults ON so "Run all pending" finishes episodes end
   // -to-end in one click. The chain mechanism guarantees it waits for its
@@ -658,7 +672,10 @@ function presetSelectTooltip(stepId: StepMeta['id']): string {
 // dropdown twice fast.
 const presetSaving = reactive<Record<StepId, boolean>>({
   'script-only': false, 'introduction-only': false, metadata: false,
-  image_prompts: false, images: false, video: false,
+  image_prompts: false, images: false,
+  // v1.0.87+: split image steps.
+  scene_images: false, thumb_images: false,
+  video: false,
   audio: false, audio_merge: false, video_assembly: false,
 })
 
@@ -787,9 +804,15 @@ const searchQuery = ref('')
 // finishing an episode end-to-end requires the assembled final video,
 // and including it here lets "Run all pending" batch the full flow in
 // one click (assembly waits for its inputs via the chain mechanism).
+// v1.0.87+: split-image steps replace the unified `images` step in the
+// missing-core counter. A fresh episode needs both thumbnails and scenes
+// to be considered "complete enough to assemble"; tracking them
+// separately lets a partially-rendered episode (e.g. scenes done,
+// thumbs pending) show up in the missing-scene-only filter without
+// false-positive blocking everything else.
 const CORE_STEP_IDS: StepId[] = [
   'script-only', 'introduction-only', 'image_prompts',
-  'images', 'audio', 'audio_merge', 'metadata', 'video_assembly',
+  'thumb_images', 'scene_images', 'audio', 'audio_merge', 'metadata', 'video_assembly',
 ]
 
 function missingCoreSteps(ep: Episode): number {
@@ -870,7 +893,8 @@ const pendingEpisodesCount = computed(() => episodes.value.filter(ep => missingC
 const missingCountByStep = computed<Record<StepId, number>>(() => {
   const ids: StepId[] = [
     'script-only', 'introduction-only', 'image_prompts',
-    'images', 'audio', 'audio_merge', 'metadata',
+    'thumb_images', 'scene_images', 'images',
+    'audio', 'audio_merge', 'metadata',
     'video', 'video_assembly',
   ]
   const counts = {} as Record<StepId, number>
@@ -932,6 +956,8 @@ function isStepDoneForEpisode(stepId: StepId, status: Record<string, boolean> | 
     case 'introduction-only':  return !!s.introduction
     case 'image_prompts':      return !!s.scene_prompts && !!s.thumb_prompts
     case 'images':             return !!s.images && !!s.thumbnails
+    case 'scene_images':       return !!s.images
+    case 'thumb_images':       return !!s.thumbnails
     case 'audio':              return !!s.audio
     case 'audio_merge':        return !!s.merged_audio
     case 'metadata':           return !!s.metadata
@@ -1045,6 +1071,8 @@ function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
     case 'introduction-only': return 'introduction' in ov
     case 'image_prompts':     return 'scene_prompts' in ov || 'thumb_prompts' in ov
     case 'images':            return 'images' in ov || 'thumbnails' in ov
+    case 'scene_images':      return 'images' in ov
+    case 'thumb_images':      return 'thumbnails' in ov
     case 'audio':             return 'audio' in ov
     case 'audio_merge':       return 'merged_audio' in ov
     case 'metadata':          return 'metadata' in ov

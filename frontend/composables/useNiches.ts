@@ -1,0 +1,140 @@
+/**
+ * Niche library composable — fetches the available Niche profiles from the
+ * backend (built-in + user-custom merged) and the per-project "effective
+ * niche" (base + project overrides applied).
+ *
+ * Mirrors useFormats but for the subject-domain layer. The list is small
+ * (4 built-in + however many user-custom) and rarely changes during a
+ * session, so we cache it module-level.
+ */
+
+import { ref, computed, onMounted, type Ref } from 'vue'
+import { useApi } from './useApi.js'
+
+export interface NicheReferenceImage {
+  id: string
+  label: string
+  path: string
+  role: 'master' | 'character' | 'scene'
+  description?: string
+}
+
+export interface NicheVocabulary {
+  mood?: string[]
+  theme?: string[]
+  genre?: string[]
+  keyword?: string[]
+}
+
+export interface Niche {
+  id: string
+  name: string
+  description: string
+  builtin: boolean
+  schemaVersion: 1
+  tagline?: string
+  exampleTopics: string[]
+  vocabulary?: NicheVocabulary
+  visualStyleSheet?: string
+  defaultStyleKeywords?: string[]
+  negativePromptAddendum?: string
+  referenceImages?: NicheReferenceImage[]
+  youtubeTagsHint?: string[]
+  audienceHint?: string
+  scriptContext?: string
+  /** Server-attached count of projects referencing this niche. Present on
+   *  list responses, absent on single-niche reads. */
+  project_count?: number
+}
+
+// ── Module-level shared cache ───────────────────────────────────────────────
+
+const niches = ref<Niche[]>([])
+const isLoading = ref(false)
+const isReady = ref(false)
+const error = ref<unknown>(null)
+let inflight: Promise<void> | null = null
+
+async function fetchOnce(): Promise<void> {
+  if (inflight) return inflight
+  isLoading.value = true
+  inflight = (async () => {
+    try {
+      const { get } = useApi()
+      const resp = await get<{ niches: Niche[] }>('/niches')
+      niches.value = resp.niches || []
+      isReady.value = true
+      error.value = null
+    } catch (e) {
+      error.value = e
+    } finally {
+      isLoading.value = false
+      inflight = null
+    }
+  })()
+  return inflight
+}
+
+export function useNiches() {
+  const { get, post, put, del } = useApi()
+
+  onMounted(() => { void fetchOnce() })
+
+  /** Force-refetch (e.g. after creating / deleting a custom niche). */
+  async function refresh(): Promise<void> {
+    inflight = null
+    await fetchOnce()
+  }
+
+  /** Synchronous lookup from the cached list. */
+  function find(id: string): Niche | undefined {
+    return niches.value.find(n => n.id === id)
+  }
+
+  /** Fetch the effective niche for one project. Returns `null` field if the
+   *  project has no niche assigned — distinguished from a 404 (project missing). */
+  async function fetchEffective(slug: string): Promise<Niche | null> {
+    const resp = await get<{ niche: Niche | null }>(`/projects/${slug}/effective-niche`)
+    return resp.niche
+  }
+
+  /** Set or clear a project's niche association. */
+  async function setProjectNiche(slug: string, niche_id: string | null): Promise<void> {
+    await put(`/projects/${slug}/niche`, { niche_id })
+  }
+
+  /** Create a brand-new user-custom niche. */
+  async function createNiche(body: Niche): Promise<Niche> {
+    const created = await post<Niche>('/niches', body)
+    await refresh()
+    return created
+  }
+
+  /** Full-document replace. Also accepts overriding a built-in by passing
+   *  the built-in's id — server writes a shadow file to the user dir. */
+  async function updateNiche(body: Niche): Promise<Niche> {
+    const updated = await put<Niche>(`/niches/${body.id}`, body)
+    await refresh()
+    return updated
+  }
+
+  /** Delete a user-custom niche. Server refuses if it's built-in or in use. */
+  async function deleteNiche(id: string): Promise<void> {
+    await del(`/niches/${id}`)
+    await refresh()
+  }
+
+  return {
+    niches: computed(() => niches.value),
+    isLoading: computed(() => isLoading.value),
+    isReady: computed(() => isReady.value),
+    error: computed(() => error.value),
+    refresh,
+    find,
+    fetchEffective,
+    setProjectNiche,
+    createNiche,
+    updateNiche,
+    deleteNiche,
+  }
+}

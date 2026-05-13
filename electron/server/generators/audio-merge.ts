@@ -460,9 +460,9 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     // Probe the PRE-normalisation paths so the slugs match what
     // parseNarrationDocx produced ("Chapter_01" etc.) rather than the
     // tempdir `_normalized.mp3` filenames.
+    type ChapterEntry = { slug: string; duration_s: number; source_file: string }
+    const chaptersForSidecar: ChapterEntry[] = []
     try {
-      type ChapterEntry = { slug: string; duration_s: number; source_file: string }
-      const chapters: ChapterEntry[] = []
       for (const p of validChapters) {
         const d = await getAudioDuration(p).catch(() => null)
         if (d == null) continue
@@ -474,15 +474,52 @@ export async function generateAudioMerge(job: Job): Promise<void> {
         const slug = baseNoExt.startsWith(`${code}_`)
           ? baseNoExt.slice(code.length + 1)
           : baseNoExt
-        chapters.push({ slug, duration_s: d, source_file: filename })
+        chaptersForSidecar.push({ slug, duration_s: d, source_file: filename })
       }
       const sidecarPath = path.join(episodeDir, 'audio_chapters.json')
-      await fs.writeFile(sidecarPath, JSON.stringify({ sections: chapters }, null, 2))
+      await fs.writeFile(sidecarPath, JSON.stringify({ sections: chaptersForSidecar }, null, 2))
       job.output_lines.push(
-        `Wrote chapter-duration sidecar (audio_chapters.json): ${chapters.length} section(s)`,
+        `Wrote chapter-duration sidecar (audio_chapters.json): ${chaptersForSidecar.length} section(s)`,
       )
     } catch (e: any) {
       job.output_lines.push(`Note: chapter-duration sidecar skipped (${e?.message || 'write error'})`)
+    }
+
+    // v1.0.81+: per-sentence timing sidecar (audio_sentences.json).
+    // Drives sentence-aligned video assembly for formats that opt in
+    // (e.g. bound-explainer). Char-length-weighted apportionment from
+    // the chapter durations we just measured — no provider-specific
+    // dependency, so this works for ElevenLabs / fal / GenAIPro alike.
+    // Best-effort: if narration parse fails or no chapters matched,
+    // we skip silently. The video-assembly path falls back to chapter-
+    // level pacing when this sidecar is absent.
+    if (chaptersForSidecar.length > 0) {
+      try {
+        const { findNarrationFile } = await import('./audio.js')
+        const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+        const { buildSentenceSidecar } = await import('../lib/sentence-timing.js')
+        const narrationPath = await findNarrationFile(project_slug, episode_id)
+        const sections = await parseNarrationDocx(narrationPath)
+        const { sections: timedSections, unmatched_section_slugs } = buildSentenceSidecar(
+          chaptersForSidecar.map(c => ({ slug: c.slug, duration_s: c.duration_s })),
+          sections.map(s => ({ slug: s.slug, text: s.text })),
+        )
+        if (timedSections.length > 0) {
+          const sentencesPath = path.join(episodeDir, 'audio_sentences.json')
+          await fs.writeFile(
+            sentencesPath,
+            JSON.stringify({ schemaVersion: 1, sections: timedSections }, null, 2),
+          )
+          const totalSentences = timedSections.reduce((s, sec) => s + sec.sentences.length, 0)
+          job.output_lines.push(
+            `Wrote sentence-timing sidecar (audio_sentences.json): ` +
+            `${timedSections.length} section(s), ${totalSentences} sentence(s)` +
+            (unmatched_section_slugs.length ? `, ${unmatched_section_slugs.length} unmatched` : ''),
+          )
+        }
+      } catch (e: any) {
+        job.output_lines.push(`Note: sentence-timing sidecar skipped (${e?.message || 'write error'})`)
+      }
     }
 
     // 5. Mix with music and/or noise

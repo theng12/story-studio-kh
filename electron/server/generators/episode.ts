@@ -147,6 +147,15 @@ function narrationPrompt(
   const introWords = hasIntro ? (intro.word_target || 350) : 0
   const hostName = intro.host_name || 'your narrator'
 
+  // Section label — what the format calls its primary content unit.
+  // Sleep-story → "Chapter", bound-explainer → "Reason", listicle →
+  // "Topic". Defaults to Chapter/Chapters so every format without the
+  // field set in JSON keeps its existing prompt copy unchanged.
+  const sectionSingular = format.script.sectionLabel?.singular || 'Chapter'
+  const sectionPlural = format.script.sectionLabel?.plural || 'Chapters'
+  const sectionLower = sectionSingular.toLowerCase()
+  const sectionLowerPlural = sectionPlural.toLowerCase()
+
   // Build intro section for prompt
   let introSection = ''
   if (hasIntro) {
@@ -190,15 +199,15 @@ CRITICAL WORD COUNT REQUIREMENTS:
 ${hasIntro ? `
 The script has TWO parts with SEPARATE word count targets:
 PART 1 — INTRODUCTION: ~${introWords} words (SEPARATE from story body)
-PART 2 — STORY BODY: MINIMUM ${totalWords} words across ${chapters} chapters (floor: ${wordFloor})
+PART 2 — STORY BODY: MINIMUM ${totalWords} words across ${chapters} ${sectionLowerPlural} (floor: ${wordFloor})
 
 TOTAL OUTPUT: at least ${totalWords + introWords} words.
 The story body word count of ${totalWords} does NOT include the introduction.` : `
-STORY BODY: MINIMUM ${totalWords} words across ${chapters} chapters (floor: ${wordFloor})
+STORY BODY: MINIMUM ${totalWords} words across ${chapters} ${sectionLowerPlural} (floor: ${wordFloor})
 No introduction needed — start directly with the story.`}
 
-Each chapter MUST be approximately ${wordsPerChapter} words.
-You MUST write EXACTLY ${chapters} chapters. Not fewer. Not more.
+Each ${sectionLower} MUST be approximately ${wordsPerChapter} words.
+You MUST write EXACTLY ${chapters} ${sectionLowerPlural}. Not fewer. Not more.
 Do NOT truncate or cut the story short for any reason.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -207,17 +216,17 @@ STRUCTURE (output as plain text with markdown-style headings):
 ${hasIntro ? introSection : ''}
 # ${title} — Narration (${totalWords}+ words)
 
-Write EXACTLY ${chapters} chapters. Each chapter MUST be ~${wordsPerChapter} words.
-Each chapter heading format: ## Chapter N: [Descriptive Title]
+Write EXACTLY ${chapters} ${sectionLowerPlural}. Each ${sectionLower} MUST be ~${wordsPerChapter} words.
+Each ${sectionLower} heading format: ## ${sectionSingular} N: [Descriptive Title]
 
-CHAPTER PACING:
+${sectionSingular.toUpperCase()} PACING:
 ${fillPacingArcPlaceholders(format.script.pacingArc, chapters).map(l => `- ${l}`).join('\n')}
 
 ${format.script.closingHint}
 
 FINAL CHECK BEFORE RESPONDING:
 - Introduction: ~${introWords} words? ✓
-- Story body: ${totalWords}+ words (${chapters} chapters × ${wordsPerChapter} words each)? ✓
+- Story body: ${totalWords}+ words (${chapters} ${sectionLowerPlural} × ${wordsPerChapter} words each)? ✓
 - Total: ${totalWords + introWords}+ words? ✓
 If not, keep writing until you hit the targets.
 
@@ -779,25 +788,32 @@ export async function generateChapterOnly(job: Job): Promise<void> {
     return arc[idx]
   }
 
-  const chapterPrompt = `Regenerate ONLY Chapter ${chapterNumber} of an existing narration script.
+  // Section vocabulary from the format ("Chapter" by default; explainer
+  // formats use "Reason" / "Topic"). Lower-cased variants for inline copy.
+  const sectionSingularRegen = format.script.sectionLabel?.singular || 'Chapter'
+  const sectionPluralRegen = format.script.sectionLabel?.plural || 'Chapters'
+  const sectionLowerRegen = sectionSingularRegen.toLowerCase()
+  const sectionLowerPluralRegen = sectionPluralRegen.toLowerCase()
+
+  const chapterPrompt = `Regenerate ONLY ${sectionSingularRegen} ${chapterNumber} of an existing narration script.
 
 Episode: "${title}" (code ${episode_id})
 Narrator style: Style ${style} — ${styleDesc}
-Total chapters in this episode: ${totalChapters}
-Target word count for this chapter: ~${wordsPerChapter} words
+Total ${sectionLowerPluralRegen} in this episode: ${totalChapters}
+Target word count for this ${sectionLowerRegen}: ~${wordsPerChapter} words
 ${outlineBlock}${independenceLine}
-${priorSummaries.length && !independenceLine ? `Story so far (prior chapters, summarised):\n${priorSummaries.join('\n')}\n` : ''}
+${priorSummaries.length && !independenceLine ? `Story so far (prior ${sectionLowerPluralRegen}, summarised):\n${priorSummaries.join('\n')}\n` : ''}
 
-Write ONLY Chapter ${chapterNumber}. ${outlineLookup?.mode === 'listicle'
+Write ONLY ${sectionSingularRegen} ${chapterNumber}. ${outlineLookup?.mode === 'listicle'
   ? 'Stay on the topic above; do not invent a different subject.'
-  : `Keep tone, pacing, and narrative continuity consistent with the prior chapters. Match the chapter pacing position: ${pickPacingHint(chapterNumber)}`}
+  : `Keep tone, pacing, and narrative continuity consistent with the prior ${sectionLowerPluralRegen}. Match the ${sectionLowerRegen} pacing position: ${pickPacingHint(chapterNumber)}`}
 
 Output format (markdown):
-## Chapter ${chapterNumber}: [Descriptive Title]
+## ${sectionSingularRegen} ${chapterNumber}: [Descriptive Title]
 
 [Body — approximately ${wordsPerChapter} words.]
 
-Output ONLY the chapter heading + body. No commentary, no other chapters.`
+Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${sectionLowerPluralRegen}.`
 
   job.output_lines.push(`Regenerating Chapter ${chapterNumber}…`)
   const controller = new AbortController()

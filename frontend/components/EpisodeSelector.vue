@@ -124,17 +124,25 @@ onBeforeUnmount(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
 const JOB_TYPE_LABELS: Record<string, string> = {
   'script-only':         'script',
   'introduction-only':   'intro',
+  'outline_only':        'outline',
+  'expand_chapters':     'chapter expansion',
+  'chapter-only':        'chapter regeneration',
   'metadata':            'metadata',
   'scene_prompts':       'scene prompts',
   'thumb_prompts':       'thumb prompts',
   'images':              'images',
+  'scene_images':        'scene images',
+  'thumb_images':        'thumbnail images',
   'images_repair':       'image repair',
   'audio':               'audio',
   'audio_merge':         'audio merge',
   'subtitles_transcribe':'subtitles',
   'video':               'video clips',
+  'video_repair':        'video repair',
   'video_assembly':      'video assembly',
   'youtube_upload':      'YouTube upload',
+  'tiktok_upload':       'TikTok upload',
+  'facebook_upload':     'Facebook upload',
 }
 
 // Per-context suffix so the user can tell at a glance what each episode is ready for.

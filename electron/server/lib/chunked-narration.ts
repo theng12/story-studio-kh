@@ -551,41 +551,53 @@ async function buildOutline(
   return out
 }
 
+function sectionTerms(p: ChunkedNarrationParams): { Singular: string; Plural: string; singular: string; plural: string } {
+  const Singular = p.format.script.sectionLabel?.singular || 'Chapter'
+  const Plural = p.format.script.sectionLabel?.plural || 'Chapters'
+  return { Singular, Plural, singular: Singular.toLowerCase(), plural: Plural.toLowerCase() }
+}
+
 function narrativeOutlinePrompt(p: ChunkedNarrationParams, compact: boolean): string {
+  const t = sectionTerms(p)
   const fieldHint = compact
     ? `Each entry: { "n": <int>, "title": "...", "hook_line": "1-line hook" }`
     : `Each entry: { "n": <int>, "title": "...", "synopsis": "~30 words", "key_beats": ["beat 1", "beat 2", "beat 3"] }`
-  return `Plan the chapter structure for an episode I'm about to write. Output ONLY a JSON array of ${p.totalChapters} chapter entries — no preamble, no markdown, no code fences.
+  return `Plan the ${t.singular.toLowerCase()} structure for an episode I'm about to write. Output ONLY a JSON array of ${p.totalChapters} ${t.singular.toLowerCase()} entries — no preamble, no markdown, no code fences.
 
 Episode title: ${p.title}
 Format: ${p.format.name}
-Target chapters: ${p.totalChapters}
-Per-chapter target: ~${p.wordsPerChapter} words
+Target ${t.plural}: ${p.totalChapters}
+Per-${t.singular.toLowerCase()} target: ~${p.wordsPerChapter} words
 
-PACING ARC TO COVER (apply across the ${p.totalChapters} chapters):
+PACING ARC TO COVER (apply across the ${p.totalChapters} ${t.plural}):
 ${p.format.script.pacingArc.map((l, i) => `  ${i + 1}. ${l}`).join('\n')}
 
 ${fieldHint}
 
-Cover the full ${p.totalChapters}-chapter arc. Distinct titles, clear progression, no repeated subjects, no filler chapters. The sequence as a whole should read as a coherent episode arc — chapter 1 hook, middle development, chapter ${p.totalChapters} resolution.
+Cover the full ${p.totalChapters}-${t.singular.toLowerCase()} arc. Distinct titles, clear progression, no repeated subjects, no filler ${t.plural}. The sequence as a whole should read as a coherent episode arc — ${t.singular} 1 hook, middle development, ${t.singular} ${p.totalChapters} resolution.
 
 Output: [ {"n":1, ...}, {"n":2, ...}, ..., {"n":${p.totalChapters}, ...} ]`
 }
 
 function listicleOutlinePrompt(p: ChunkedNarrationParams, compact: boolean): string {
+  const t = sectionTerms(p)
+  // For independent-chapters formats the "topic" wording was format-
+  // hardcoded; we now route through the format's term ("Topic" for
+  // listicle, "Reason" for bound-explainer, etc.) so the LLM produces
+  // matching headings naturally.
   const fieldHint = compact
     ? `Each entry: { "n": <int>, "topic_title": "...", "hook_line": "1-line hook" }`
     : `Each entry: { "n": <int>, "title": "...", "hook_line": "1-line hook", "key_facts": ["fact 1", "fact 2", "fact 3"] }`
-  return `Plan a listicle / explainer episode. Output ONLY a JSON array of ${p.totalChapters} topic entries — no preamble, no markdown, no code fences.
+  return `Plan a listicle / explainer episode. Output ONLY a JSON array of ${p.totalChapters} ${t.singular.toLowerCase()} entries — no preamble, no markdown, no code fences.
 
 Episode title: ${p.title}
 Format: ${p.format.name}
-Target topics: ${p.totalChapters}
-Per-topic target: ~${p.wordsPerChapter} words
+Target ${t.plural}: ${p.totalChapters}
+Per-${t.singular.toLowerCase()} target: ~${p.wordsPerChapter} words
 
 ${fieldHint}
 
-Each topic must be SELF-CONTAINED (a viewer dropping in mid-video must understand it without prior context). Topics should be DISTINCT — different subjects, no overlap. Cover the breadth of the title's promise.
+Each ${t.singular.toLowerCase()} must be SELF-CONTAINED (a viewer dropping in mid-video must understand it without prior context). ${t.Plural} should be DISTINCT — different subjects, no overlap. Cover the breadth of the title's promise.
 
 Output: [ {"n":1, ...}, {"n":2, ...}, ..., {"n":${p.totalChapters}, ...} ]`
 }
@@ -671,28 +683,29 @@ function narrativeBatchPrompt(
   // each slot so the LLM knows chapter 3 wants 800 while chapter 4 wants 400.
   const targets = batch.map(e => effectiveWordTarget(e, p))
   const uniform = targets.every(t => t === targets[0])
+  const t = sectionTerms(p)
 
   const slots = batch.map((e, i) => {
     const beats = e.key_beats?.length ? `\n   Key beats: ${e.key_beats.map(b => `"${b}"`).join('; ')}` : ''
     const synopsis = e.synopsis ? `\n   Synopsis: ${e.synopsis}` : ''
     const lengthHint = uniform ? '' : `\n   Length: ~${targets[i]} words.`
-    return `  Chapter ${e.n}: ${e.title}${synopsis}${beats}${lengthHint}`
+    return `  ${t.Singular} ${e.n}: ${e.title}${synopsis}${beats}${lengthHint}`
   }).join('\n\n')
 
   const transitionBlock = transitionWindow
-    ? `\nPREVIOUS CHAPTER TAIL (your tone + scene must flow on from this — DO NOT recap, just continue):\n${transitionWindow}\n`
+    ? `\nPREVIOUS ${t.Singular.toUpperCase()} TAIL (your tone + scene must flow on from this — DO NOT recap, just continue):\n${transitionWindow}\n`
     : ''
 
   // Top-line target. For uniform batches: explicit number. For mixed:
   // describe the default + point at per-slot Length: lines.
   const targetLine = uniform
-    ? `Per-chapter target: ${targets[0]} words`
-    : `Per-chapter target: see Length: line on each slot below (default ${p.wordsPerChapter} words)`
+    ? `Per-${t.singular} target: ${targets[0]} words`
+    : `Per-${t.singular} target: see Length: line on each slot below (default ${p.wordsPerChapter} words)`
 
   // Output template lengths follow the same pattern.
   const tmplLen = (i: number) => uniform ? `~${targets[0]} words` : `~${targets[i] ?? p.wordsPerChapter} words`
 
-  return `Write ${batch.length} chapter(s) of an in-progress episode. You're expanding ONLY the slots listed below — the full arc is shown for context.
+  return `Write ${batch.length} ${t.singular}(s) of an in-progress episode. You're expanding ONLY the slots listed below — the full arc is shown for context.
 
 Episode title: ${p.title}
 Format: ${p.format.name}
@@ -704,27 +717,27 @@ SLOTS TO WRITE NOW:
 
 ${slots}
 
-Output the chapters in this exact format (and ONLY these chapters, in numeric order):
+Output the ${t.plural} in this exact format (and ONLY these ${t.plural}, in numeric order):
 
-## Chapter ${batch[0]!.n.toString().padStart(2, '0')}: ${batch[0]!.title}
+## ${t.Singular} ${batch[0]!.n.toString().padStart(2, '0')}: ${batch[0]!.title}
 
 [${tmplLen(0)} of body text]
 
-## Chapter ${batch[1]?.n.toString().padStart(2, '0') ?? batch[0]!.n.toString().padStart(2, '0')}: ${batch[1]?.title ?? '...'}
+## ${t.Singular} ${batch[1]?.n.toString().padStart(2, '0') ?? batch[0]!.n.toString().padStart(2, '0')}: ${batch[1]?.title ?? '...'}
 
 [${tmplLen(1)} of body text]
 
-${batch.length > 2 ? `## Chapter ${batch[2]!.n.toString().padStart(2, '0')}: ${batch[2]!.title}\n\n[${tmplLen(2)} of body text]` : ''}
+${batch.length > 2 ? `## ${t.Singular} ${batch[2]!.n.toString().padStart(2, '0')}: ${batch[2]!.title}\n\n[${tmplLen(2)} of body text]` : ''}
 
 Rules:
-- Write ALL ${batch.length} chapters in this single response. Do not stop early.
-- Use the chapter numbers and titles EXACTLY as shown.
+- Write ALL ${batch.length} ${t.plural} in this single response. Do not stop early.
+- Use the ${t.singular} numbers and titles EXACTLY as shown.
 - ${uniform
-  ? `Each chapter is ~${targets[0]} words of body. No meta-commentary, no preamble.`
-  : `Each chapter hits its OWN word target (see slot Length: lines). No meta-commentary, no preamble.`}
+  ? `Each ${t.singular} is ~${targets[0]} words of body. No meta-commentary, no preamble.`
+  : `Each ${t.singular} hits its OWN word target (see slot Length: lines). No meta-commentary, no preamble.`}
 - Maintain the format's tone consistently with the rest of the episode.
 
-Output ONLY the chapter blocks above.`
+Output ONLY the ${t.singular} blocks above.`
 }
 
 // ── Listicle expansion (parallel batches) ──────────────────────────────────
@@ -846,6 +859,7 @@ function listicleBatchPrompt(p: ChunkedNarrationParams, batch: OutlineEntry[]): 
   const targets = batch.map(e => effectiveWordTarget(e, p))
   const uniform = targets.every(t => t === targets[0])
   const globalBudget = computeWordBudget(uniform ? targets[0] : (p.wordsPerChapter | 0))
+  const t = sectionTerms(p)
 
   const slots = batch.map((e, i) => {
     const facts = e.key_facts?.length ? `\n   Key facts: ${e.key_facts.map(f => `"${f}"`).join('; ')}` : ''
@@ -858,33 +872,34 @@ function listicleBatchPrompt(p: ChunkedNarrationParams, batch: OutlineEntry[]): 
       perSlotBudget = `\n   Length: ${b.target} words (min ${b.minFloor}, max ${b.maxCeiling}). ` +
         `Body in ${b.beatCount} beats × ~${b.wordsPerBeat} words.`
     }
-    return `  Chapter ${e.n}: ${e.title}${hook}${facts}${perSlotBudget}`
+    return `  ${t.Singular} ${e.n}: ${e.title}${hook}${facts}${perSlotBudget}`
   }).join('\n\n')
 
   // Length / budget block. When uniform, one block covers all slots. When
   // mixed, this block describes the DEFAULT and the per-slot lines
   // override on a case-by-case basis.
   const { target, minFloor, maxCeiling, hookWords, payoffWords, bodyWords, beatCount, wordsPerBeat } = globalBudget
+  const upperSingular = t.Singular.toUpperCase()
   const lengthHeader = uniform
-    ? `PER-CHAPTER LENGTH (binding, not a hint):
+    ? `PER-${upperSingular} LENGTH (binding, not a hint):
 - Target: ${target} words.
 - Minimum: ${minFloor} words. Drafts shorter than this are unusable — DO NOT ship a stub.
 - Maximum: ${maxCeiling} words.
 
-WORD BUDGET (how to spend the ${target} words inside one chapter):
+WORD BUDGET (how to spend the ${target} words inside one ${t.singular}):
 - Hook (open):  ~${hookWords} words — one provocative claim, counter-intuitive question, or sharp image.
 - Body (${beatCount} supporting beats): ~${bodyWords} words total, ~${wordsPerBeat} words each — cite mechanism, evidence, history, or concrete specifics. Each beat earns its own paragraph.
 - Micro-payoff (close): ~${payoffWords} words — memorable line, open question, or wry beat.`
-    : `PER-CHAPTER LENGTH (binding, not a hint):
-- Each chapter has its OWN word target — see the Length: line on each slot below. Treat that target as the binding minimum + maximum (90%–115% range).
+    : `PER-${upperSingular} LENGTH (binding, not a hint):
+- Each ${t.singular} has its OWN word target — see the Length: line on each slot below. Treat that target as the binding minimum + maximum (90%–115% range).
 - Default for slots without an explicit Length: ${target} words.
 
-WORD BUDGET (how to spend each slot's target inside one chapter):
+WORD BUDGET (how to spend each slot's target inside one ${t.singular}):
 - Hook (open):  ~12% of the slot's target — one provocative claim, counter-intuitive question, or sharp image.
 - Body (3–6 supporting beats, scaled to length): ~76% of the slot's target — cite mechanism, evidence, history, or concrete specifics. Each beat earns its own paragraph.
 - Micro-payoff (close): ~12% of the slot's target — memorable line, open question, or wry beat.`
 
-  return `Write ${batch.length} listicle chapter(s) of an in-progress episode. Each chapter is INDEPENDENT — no transitions, no references to other chapters.
+  return `Write ${batch.length} ${t.singular}(s) of an in-progress listicle / explainer episode. Each ${t.singular} is INDEPENDENT — no transitions, no references to other ${t.plural}.
 
 Episode title: ${p.title}
 Format: ${p.format.name}
@@ -895,20 +910,20 @@ SLOTS TO WRITE:
 
 ${slots}
 
-Output the chapters in this exact format (and ONLY these chapters, in numeric order):
+Output the ${t.plural} in this exact format (and ONLY these ${t.plural}, in numeric order):
 
-## Chapter ${batch[0]!.n.toString().padStart(2, '0')}: ${batch[0]!.title}
-
-<full body ${uniform ? `of ${minFloor}-${maxCeiling} words` : `at the slot's target`}, structured as hook → ${uniform ? `${beatCount} beats` : `3-6 beats (scale to length)`} → payoff>
-
-## Chapter ${batch[1]?.n.toString().padStart(2, '0') ?? ''}: ${batch[1]?.title ?? ''}
+## ${t.Singular} ${batch[0]!.n.toString().padStart(2, '0')}: ${batch[0]!.title}
 
 <full body ${uniform ? `of ${minFloor}-${maxCeiling} words` : `at the slot's target`}, structured as hook → ${uniform ? `${beatCount} beats` : `3-6 beats (scale to length)`} → payoff>
 
-(continue for all ${batch.length} chapters)
+## ${t.Singular} ${batch[1]?.n.toString().padStart(2, '0') ?? ''}: ${batch[1]?.title ?? ''}
+
+<full body ${uniform ? `of ${minFloor}-${maxCeiling} words` : `at the slot's target`}, structured as hook → ${uniform ? `${beatCount} beats` : `3-6 beats (scale to length)`} → payoff>
+
+(continue for all ${batch.length} ${t.plural})
 
 Rules:
-- Write ALL ${batch.length} chapters in this single response.
+- Write ALL ${batch.length} ${t.plural} in this single response.
 - Use the chapter numbers and titles EXACTLY as shown.
 - ${uniform
   ? `Each chapter MUST be at least ${minFloor} words. If the topic feels thin, add one more beat — never compress under the floor.`

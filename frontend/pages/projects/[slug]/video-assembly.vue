@@ -1509,12 +1509,12 @@
       <div class="settings-section mt-2">
         <label class="checkbox-label">
           <input type="checkbox" v-model="alignVisualsToChapters" />
-          <strong>Align scenes to chapter audio</strong>
+          <strong>Align scenes to {{ sectionLabel.singular }} audio</strong>
           <span class="text-muted text-xs"> (off for sleep stories)</span>
         </label>
         <p class="text-muted text-xs hint-line">
-          When ON, scenes generated for chapter N play during chapter N's narration —
-          durations cycle within each chapter's audio rather than across the whole episode.
+          When ON, scenes generated for {{ sectionLabel.singular }} N play during {{ sectionLabel.singular }} N's narration —
+          durations cycle within each {{ sectionLabel.singular }}'s audio rather than across the whole episode.
           The backend reads <code>audio_chapters.json</code> from the episode folder
           (Audio Merge writes it). Re-run Audio Merge first if you don't see the file.
           Leave OFF for sleep stories where the loose, randomised cycling is intentional.
@@ -1527,14 +1527,14 @@
             type="button"
             class="btn btn-sm btn-secondary"
             :disabled="!episodeId"
-            title="Open the per-scene assignments editor — manually move scenes between chapter buckets"
+            :title="`Open the per-scene assignments editor — manually move scenes between ${sectionLabel.singular} buckets`"
             @click="openSceneAssignmentsEditor"
           >🎯 Customize scene assignments</button>
           <span v-if="sceneAssignmentsCount > 0" class="text-muted text-xs" style="align-self: center;">
             {{ sceneAssignmentsCount }} scene{{ sceneAssignmentsCount === 1 ? '' : 's' }} have explicit assignments
           </span>
           <span v-else class="text-muted text-xs" style="align-self: center;">
-            Using default even-split across chapters
+            Using default even-split across {{ sectionLabel.plural }}
           </span>
         </div>
       </div>
@@ -1550,25 +1550,25 @@
       >
         <div class="modal-content" style="max-width: 640px;">
           <div class="flex gap-2 items-center" style="margin-bottom: 12px;">
-            <h3 style="margin: 0; flex: 1;">Per-scene chapter assignments</h3>
+            <h3 style="margin: 0; flex: 1;">Per-scene {{ sectionLabel.singular }} assignments</h3>
             <button type="button" class="btn btn-sm btn-secondary" @click="showSceneAssignmentsModal = false">✕ Close</button>
           </div>
           <div v-if="assignmentsLoading" class="text-muted text-sm">Loading assignments…</div>
           <div v-else-if="assignmentsError" class="text-danger text-sm">{{ assignmentsError }}</div>
           <div v-else-if="!sceneAssignmentChapters.length" class="text-muted text-sm">
             No <code>audio_chapters.json</code> sidecar found — re-run <strong>Audio Merge</strong>
-            for this episode first so the backend knows the chapter list.
+            for this episode first so the backend knows the {{ sectionLabel.singular }} list.
           </div>
           <div v-else>
             <p class="text-muted text-xs">
-              {{ sceneAssignmentChapters.length }} chapter(s) loaded from <code>audio_chapters.json</code>.
-              Pick a chapter for each scene; leave a row blank to fall back to positional even-split for
+              {{ sceneAssignmentChapters.length }} {{ sectionLabel.singular }}(s) loaded from <code>audio_chapters.json</code>.
+              Pick a {{ sectionLabel.singular }} for each scene; leave a row blank to fall back to positional even-split for
               that scene. Click <strong>Save</strong> to write
               <code>scene_chapter_assignments.json</code> to the episode folder.
             </p>
             <div class="flex gap-2 mt-1" style="flex-wrap: wrap;">
               <button type="button" class="btn btn-sm btn-secondary" @click="autoFillEvenSplit"
-                title="Pre-fill every scene with the chapter it would land in under default even-split. Useful as a starting point.">
+                :title="`Pre-fill every scene with the ${sectionLabel.singular} it would land in under default even-split. Useful as a starting point.`">
                 Auto-fill (even split)
               </button>
               <button type="button" class="btn btn-sm btn-secondary" @click="clearAllAssignments"
@@ -2330,6 +2330,18 @@ const { get, post, put } = useApi()
 const { success, error: showError } = useToast()
 const { videoGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
+
+// v1.0.83+: format-aware section vocabulary. Sections that show
+// "Chapter X" / "X chapter(s)" / "Per-scene chapter assignments" all
+// rebind through this composable so a bound-explainer project sees
+// "Per-scene reason assignments", a listicle project sees "Per-scene
+// topic assignments", etc. Reactive on project meta change.
+const { project: vaProject } = useProject()
+const vaFormatId = ref<string>('sleep-story')
+watch(vaProject, (p) => {
+  if (p) vaFormatId.value = (p as any).format_id || 'sleep-story'
+}, { immediate: true })
+const sectionLabel = useSectionLabel(vaFormatId)
 // Shared job-queue state. The dashboard layout already starts the SSE
 // stream; we reuse the same module-singleton refs here so the wizard's
 // in-flight panel is driven by the same source of truth as the Jobs page.

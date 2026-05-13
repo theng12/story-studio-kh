@@ -26,14 +26,63 @@
     </div>
     <template v-else>
       <ul v-if="scenes.length" class="prp-list" role="list">
-        <li class="prp-section">Scenes</li>
-        <li v-for="row in scenes" :key="`s-${row.number}`" class="prp-row">
+        <li class="prp-section">
+          Scenes
+          <span v-if="scenes.length > SCENES_PAGE_SIZE" class="prp-section-meta">
+            · showing {{ scenesRangeStart }}–{{ scenesRangeEnd }} of {{ scenes.length }}
+          </span>
+        </li>
+        <li v-for="row in paginatedScenes" :key="`s-${row.number}`" class="prp-row">
           <PromptRow
             :row="row" :prefix="'Scene'"
             :busy="busy.has(`scene-${row.number}`)"
             :error="errors[`scene-${row.number}`] || null"
+            :cap="scenePromptCap ?? null"
+            :model-label="sceneModelLabel"
             @regenerate="regenerateOne('scene', row)"
           />
+        </li>
+        <!-- Pagination controls. Only render when the scenes list exceeds
+             one page; tiny lists (typical sleep-story = 24, listicle = 10)
+             stay paginate-free so the UX is unchanged for them. v1.0.87+
+             for bound-explainer episodes that legitimately want 150-250
+             scenes per video — scrolling through that as one wall is
+             unusable. -->
+        <li v-if="totalScenesPages > 1" class="prp-pagination" role="navigation" aria-label="Scenes pagination">
+          <button
+            type="button"
+            class="prp-page-btn"
+            :disabled="scenesPage <= 1"
+            @click="scenesPage = 1"
+            title="First page"
+          >«</button>
+          <button
+            type="button"
+            class="prp-page-btn"
+            :disabled="scenesPage <= 1"
+            @click="scenesPage -= 1"
+            title="Previous page"
+          >‹</button>
+          <span class="prp-page-label">
+            Page <strong>{{ scenesPage }}</strong> / {{ totalScenesPages }}
+          </span>
+          <button
+            type="button"
+            class="prp-page-btn"
+            :disabled="scenesPage >= totalScenesPages"
+            @click="scenesPage += 1"
+            title="Next page"
+          >›</button>
+          <button
+            type="button"
+            class="prp-page-btn"
+            :disabled="scenesPage >= totalScenesPages"
+            @click="scenesPage = totalScenesPages"
+            title="Last page"
+          >»</button>
+          <select v-model.number="scenesPage" class="prp-page-select" :title="`Jump to page (${totalScenesPages} pages)`">
+            <option v-for="n in totalScenesPages" :key="n" :value="n">Page {{ n }}</option>
+          </select>
         </li>
       </ul>
       <ul v-if="thumbnails.length" class="prp-list" role="list">
@@ -43,6 +92,8 @@
             :row="row" :prefix="'Thumbnail'"
             :busy="busy.has(`thumbnail-${row.number}`)"
             :error="errors[`thumbnail-${row.number}`] || null"
+            :cap="thumbnailPromptCap ?? null"
+            :model-label="thumbnailModelLabel"
             @regenerate="regenerateOne('thumbnail', row)"
           />
         </li>
@@ -73,6 +124,16 @@ const props = defineProps<{
   /** Bumped by the parent (e.g. when the bulk image-prompts job
    *  completes) to force a re-read of the docx. */
   refreshKey?: number
+  /** Soft prompt-character cap for the image model these prompts will
+   *  feed (separate per kind in case the user has the Scene and Thumbnail
+   *  tabs configured for different models — Bound-style explainers do).
+   *  Each row renders a coloured char-counter against the relevant cap so
+   *  the user spots prompts that would be rejected before paying credits. */
+  scenePromptCap?: number | null
+  thumbnailPromptCap?: number | null
+  /** Friendly model labels for the row tooltips ("Seedream", etc.). */
+  sceneModelLabel?: string
+  thumbnailModelLabel?: string
 }>()
 
 const { get, post } = useApi()
@@ -84,6 +145,42 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const busy = ref<Set<string>>(new Set())
 const errors = ref<Record<string, string>>({})
+
+// v1.0.87+: scenes pagination. Bound-explainer at sentence-aligned
+// pacing routinely lands 150-250 scenes per episode, which renders as
+// an unscrollable wall in the legacy "list every row" layout. Page
+// size 25 fits one screen and matches the chunked-batch boundary
+// (batches of 10 + thumbnail row = 25 visible) so the user can spot
+// which batch a row came from.
+const SCENES_PAGE_SIZE = 25
+const scenesPage = ref(1)
+const totalScenesPages = computed(() =>
+  Math.max(1, Math.ceil(scenes.value.length / SCENES_PAGE_SIZE)),
+)
+const paginatedScenes = computed(() => {
+  const start = (scenesPage.value - 1) * SCENES_PAGE_SIZE
+  return scenes.value.slice(start, start + SCENES_PAGE_SIZE)
+})
+const scenesRangeStart = computed(() =>
+  scenes.value.length === 0 ? 0 : (scenesPage.value - 1) * SCENES_PAGE_SIZE + 1,
+)
+const scenesRangeEnd = computed(() =>
+  Math.min(scenes.value.length, scenesPage.value * SCENES_PAGE_SIZE),
+)
+
+// Reset to page 1 whenever the scenes list changes (fresh episode load,
+// post-regenerate refresh, or a full bulk generation completing). Without
+// this, a user paged to page 8 of an old episode would land on page 8
+// of the new episode's smaller list and see blank rows.
+watch(() => scenes.value.length, () => {
+  scenesPage.value = 1
+})
+// Defensive clamp: if anything else moves scenesPage out of range, snap
+// it back into bounds rather than rendering an empty page.
+watch(totalScenesPages, (tp) => {
+  if (scenesPage.value > tp) scenesPage.value = tp
+  if (scenesPage.value < 1) scenesPage.value = 1
+})
 
 // Card visibility: only when we have an episode_id selected. Empty list
 // renders the "click Generate" hint; full lists render the rows.
@@ -179,5 +276,54 @@ watch(() => [props.episodeId, props.title, props.refreshKey], () => {
   color: var(--text-muted);
 }
 .prp-section:first-of-type { margin-top: 0; }
+.prp-section-meta {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
 .prp-row { padding: 0; }
+
+/* Pagination controls — render only when scenes.length > SCENES_PAGE_SIZE.
+ * Sticks to the bottom of the scenes list (same <ul>) so visual grouping
+ * stays clear. Compact button row + a select for fast jumps in long
+ * episodes (250 scenes = 10 pages; tap-pagination would be tedious). */
+.prp-pagination {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 0 0;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.prp-page-btn {
+  padding: 4px 10px;
+  font-size: 13px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: inherit;
+  min-width: 28px;
+}
+.prp-page-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.prp-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.prp-page-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 0 6px;
+}
+.prp-page-label strong { color: var(--text-primary); }
+.prp-page-select {
+  margin-left: auto;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
 </style>

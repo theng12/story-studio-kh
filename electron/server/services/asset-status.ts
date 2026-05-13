@@ -34,6 +34,47 @@ async function safeReaddir(dir: string): Promise<string[]> {
 }
 
 /**
+ * v1.0.78 — readdir variant that distinguishes "folder is empty" from
+ * "couldn't read folder". The status-detection compute uses the rich
+ * variant for the four primary watched folders (script / scene_prompts /
+ * thumb_prompts / metadata) so the cache can refuse to persist a
+ * `script: false` result that came from an iCloud-truncated readdir.
+ *
+ * `errored` distinguishes TRANSIENT failures (EBUSY, EPERM, EACCES,
+ * EIO — typically iCloud transience) from PERMANENT "not there yet"
+ * states (ENOENT, ENOTDIR — folder hasn't been created because the user
+ * hasn't run the generator yet, or iCloud hasn't synced the episode at
+ * all). The `not there yet` state is correctly a `false` we should
+ * cache — when the folder eventually appears, snapshotMtimes will see a
+ * new key in the next snapshot and the cache will correctly stale.
+ *
+ * The cheap `safeReaddir` above is fine for places where the caller
+ * doesn't need to distinguish — most asset-presence checks treat both as
+ * "no files", which is semantically correct outside the cache-poisoning
+ * path. See episode-status-cache.computeAndStore for how `errored` flows
+ * up through the `_unreliable` flag on EpisodeStatus.
+ */
+interface SafeReaddirResult { files: string[]; errored: boolean }
+async function safeReaddirRich(dir: string): Promise<SafeReaddirResult> {
+  try {
+    return { files: await fs.readdir(dir), errored: false }
+  } catch (e: any) {
+    const code = e?.code
+    // ENOENT / ENOTDIR are legitimate "this folder doesn't exist (yet)"
+    // states — happens for any episode whose user hasn't run the
+    // corresponding generator. Caching `false` for these is correct;
+    // when the folder appears, the snapshot delta will trigger STALE.
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      return { files: [], errored: false }
+    }
+    // Anything else (EBUSY / EPERM / EACCES / EIO / EMFILE / iCloud
+    // transient) is unreliable — the folder may exist with files, we
+    // just couldn't enumerate them. Don't let the cache freeze that.
+    return { files: [], errored: true }
+  }
+}
+
+/**
  * Users (and cloud-sync tools) sometimes prefix folders with ✅, ✔️, or other
  * decorative marks to signal completion. Strip them before matching the
  * episode code so detection doesn't silently flip to false.
@@ -626,6 +667,16 @@ export interface EpisodeStatus {
    * before pressing Upload.
    */
   final_video_bytes?: number
+  /**
+   * v1.0.78 — internal cache-control flag (NOT a UI-facing status field).
+   * Set to `true` when one or more of the watched-folder readdirs errored
+   * during this compute (typically iCloud transience: subfolder evicted,
+   * EBUSY mid-sync, etc.). The episode-status cache reads this flag and
+   * refuses to persist the entry, forcing a fresh recompute on the next
+   * read. Underscore-prefixed so consumers know it's not a real status
+   * boolean to render in the UI.
+   */
+  _unreliable?: boolean
 }
 
 function emptyStatus(): EpisodeStatus {
@@ -797,12 +848,23 @@ export async function computeEpisodeStatus(
     const title = idea?.title || ''
     const paths = await resolveEpisodePaths(slug, code, title)
 
-    const [scriptFiles, scenePromptFiles, thumbPromptFiles, metadataFiles] = await Promise.all([
-      safeReaddir(paths.script_dir),
-      safeReaddir(paths.scene_prompts_dir),
-      safeReaddir(paths.thumb_prompts_dir),
-      safeReaddir(paths.metadata_dir),
+    // v1.0.78: use the rich `safeReaddirRich` variant so we can tell apart
+    // "folder is genuinely empty" from "couldn't read folder" (iCloud
+    // transience: subfolder evicted, EBUSY mid-sync, ENOENT during a
+    // just-delivered move). The four primary watched folders directly
+    // determine the boolean status fields below; an errored read on any
+    // of them poisons the result and we surface that via `_unreliable`
+    // so the cache can refuse to persist it.
+    const [scriptR, scenePromptR, thumbPromptR, metadataR] = await Promise.all([
+      safeReaddirRich(paths.script_dir),
+      safeReaddirRich(paths.scene_prompts_dir),
+      safeReaddirRich(paths.thumb_prompts_dir),
+      safeReaddirRich(paths.metadata_dir),
     ])
+    const scriptFiles = scriptR.files
+    const scenePromptFiles = scenePromptR.files
+    const thumbPromptFiles = thumbPromptR.files
+    const metadataFiles = metadataR.files
 
     const scriptState = deriveScriptFolderState(scriptFiles)
     status.script = scriptState.script
@@ -810,6 +872,16 @@ export async function computeEpisodeStatus(
     status.scene_prompts = scenePromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.json'))
     status.thumb_prompts = thumbPromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.json'))
     status.metadata = metadataFiles.some(f => f.endsWith('.txt') || f.endsWith('.json') || f.endsWith('.md'))
+
+    // If ANY of the four primary readdirs errored, mark the entire status
+    // unreliable. The cache will skip persistence and the next read will
+    // recompute — by which point iCloud has usually settled. False
+    // positives are cheap (~10 fs ops to recompute). False negatives
+    // (cached `script: false` for an episode whose script lives on disk)
+    // are the actual user-visible bug we're closing.
+    if (scriptR.errored || scenePromptR.errored || thumbPromptR.errored || metadataR.errored) {
+      status._unreliable = true
+    }
 
     authoritativeHit = status.script || status.introduction || status.scene_prompts
       || status.thumb_prompts || status.metadata

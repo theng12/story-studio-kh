@@ -1013,14 +1013,25 @@ async function generateTags() {
 
 async function generateAll() {
   if (!episodeId.value) return
+  // Capture the episode the user kicked off — if they switch mid-job we want
+  // to apply the on-disk result to the ORIGINAL episode, not whatever they
+  // navigated to. The EpisodeSelector confirm dialog already prompts the
+  // user before the swap (it sees the queued/running 'metadata' job), but
+  // they're still allowed to switch on confirm.
+  const startedEpisodeId = episodeId.value
+  const startedTitle = selectedEpisode.value?.title || ''
   genAll.value = true
   metaGenerating.value = true
   try {
-    const data = await post<{ titles: string[]; description: string; tags: string[] }>(
-      `/projects/${slug.value}/generate/metadata/all`,
+    // Queue via the job queue (parallel to /generate/script-only,
+    // /generate/audio, etc.) so navigating away no longer cancels the
+    // perceived work — the executor keeps running, writes the metadata
+    // sidecar on completion, and useJobs() streams status updates.
+    const job = await post<{ job_id: string }>(
+      `/projects/${slug.value}/generate/metadata`,
       {
-        episode_id: episodeId.value,
-        title: selectedEpisode.value?.title || '',
+        episode_id: startedEpisodeId,
+        title: startedTitle,
         model: model.value,
         sections: sections.value.filter(s => s.enabled),
         max_chars: descConfig.maxChars,
@@ -1033,20 +1044,44 @@ async function generateAll() {
         tag_count: tagConfig.count,
       }
     )
-    titleOptions.value = data.titles
-    // New content = new editing session, so the next autosave creates a new
-    // version on disk instead of overwriting whichever one we last touched.
-    sessionVersion.value = null
-    preview.title = data.titles[0] || ''
-    preview.description = data.description
-    preview.tags = data.tags
-    success('All metadata generated — autosaving as new version…')
+    success(`Queued — job ${job.job_id}. You can switch episodes; we'll keep generating in the background.`)
+    const completed = await waitForJob(job.job_id)
+    if (completed.status === 'cancelled') {
+      showError('Metadata generation cancelled')
+      return
+    }
+    if (completed.status === 'error') {
+      throw new Error(completed.error || `Metadata generation failed (model=${model.value}). Check the Jobs panel for details.`)
+    }
+    // Job done — re-load the latest version from disk. If the user is still
+    // looking at the same episode they kicked off, refresh the preview;
+    // otherwise just leave their current view alone (the new version is on
+    // disk and they'll see it when they navigate back).
+    if (episodeId.value === startedEpisodeId) {
+      sessionVersion.value = null
+      await suppressAutoSaveDuring(() => loadExistingMetadata())
+      success('All metadata generated — latest version applied.')
+    } else {
+      success(`Metadata for ${startedEpisodeId} generated — switch back to view.`)
+    }
   } catch (e: any) {
     console.error('[metadata] generate all failed:', e)
-    showError(e.data?.detail || `Failed to generate metadata (model=${model.value}). One of titles/description/tags broke — try generating each section individually to find which.`)
+    showError(e.data?.detail || e?.message || `Failed to generate metadata (model=${model.value}). Check the Jobs panel for details.`)
   } finally {
     genAll.value = false
     metaGenerating.value = false
+  }
+}
+
+// Poll a single job until it reaches a terminal state. Same pattern the
+// ImageGeneratorPanel uses — useJobs() also streams updates globally, but a
+// direct poll is the simplest way to await one specific job.
+const JOB_POLL_INTERVAL_MS = 1500
+async function waitForJob(jobId: string): Promise<any> {
+  while (true) {
+    const job: any = await get(`/projects/${slug.value}/jobs/${jobId}`)
+    if (job?.status === 'done' || job?.status === 'error' || job?.status === 'cancelled') return job
+    await new Promise(r => setTimeout(r, JOB_POLL_INTERVAL_MS))
   }
 }
 

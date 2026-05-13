@@ -23,6 +23,27 @@
       @preset-deleted="success('Preset deleted')"
     />
 
+    <!-- v1.0.78 — inline "Rescan from disk" affordance.
+         Surfaces only when an episode is selected but scriptReady is false,
+         which happens after iCloud delivers the script docx without the
+         parent folder's mtime bumping (cache stays stale). One click fires
+         a full project rescan and re-fetches the episode's status. -->
+    <div v-if="form.episode_id && !scriptReady" class="rescan-hint mt-1">
+      <span class="text-muted text-xs">
+        No script detected for <strong>{{ form.episode_id }}</strong> —
+        if it's actually on disk (e.g. just delivered by iCloud), force a re-check:
+      </span>
+      <button
+        type="button"
+        class="btn btn-link btn-xs"
+        :disabled="rescanning"
+        title="Wipe this project's status cache and re-stat every episode folder. Fixes the iCloud case where a synced docx didn't bump the parent folder's mtime."
+        @click="onRescan"
+      >
+        {{ rescanning ? '↻ Rescanning…' : '↻ Rescan from disk' }}
+      </button>
+    </div>
+
     <p class="text-muted mt-1 mb-2">Generate TTS narration audio via fal.ai (ElevenLabs) or GenAIPro.</p>
 
     <div class="card mt-3">
@@ -225,7 +246,7 @@ const { project, config } = useProject()
 const audioModelGroups = computed(() =>
   groupModels<any>(config.value?.audio_models, (id, m) => resolveAudioProvider(id, m)),
 )
-const { success, error: showError } = useToast()
+const { success, info: showInfo, error: showError } = useToast()
 const { audioGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
 const submitting = ref(false)
@@ -250,11 +271,37 @@ const form = reactive({
 // Audio generation parses the narration .docx to know what sections to
 // chunk. No script → nothing to generate. Source-of-truth gating via
 // episode.status.script (refetched whenever a script-only job finishes).
-const { scriptReady } = useEpisodeStatus(
+// v1.0.78 — pull `refetch` too so the inline "Rescan from disk" handler
+// can re-pull the episode's status after wiping the project cache.
+const { scriptReady, refetch: refetchEpisodeStatus } = useEpisodeStatus(
   computed(() => form.episode_id),
   slug,
   { refetchOnJobTypes: ['script-only'] },
 )
+
+// v1.0.78 — inline rescan-from-disk affordance. Hits the existing
+// /episodes?rescan=1 server-side path which calls
+// episodeStatusCache.wipeProject(slug) — drops in-memory + on-disk cache,
+// then re-stats every episode. After the rescan, re-fetch THIS episode's
+// status so the disabled Generate button enables without a page refresh.
+const rescanning = ref(false)
+async function onRescan() {
+  if (rescanning.value || !form.episode_id) return
+  rescanning.value = true
+  try {
+    await get(`/projects/${slug.value}/episodes?rescan=1`)
+    await refetchEpisodeStatus()
+    if (scriptReady.value) {
+      success(`Script detected for ${form.episode_id} — you can generate audio now.`)
+    } else {
+      showInfo(`Still no script for ${form.episode_id}. Generate it in the Scripts page first.`)
+    }
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Rescan failed')
+  } finally {
+    rescanning.value = false
+  }
+}
 const noScriptTooltip = 'Generate the script first to unlock this generator.'
 
 // ── Presets ─────────────────────────────────────────────────────────────
@@ -496,6 +543,32 @@ async function submit() {
 <style scoped>
 /* Helper line that hangs directly under an input. */
 .hint-line { margin-top: 4px; }
+
+/* v1.0.78 — inline "Rescan from disk" hint under the TopActionBar.
+   Compact, low-contrast so it doesn't compete with the disabled button
+   above; the button-link inside is the actual call to action. */
+.rescan-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  font-size: 12px;
+}
+.rescan-hint .btn-link {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  text-decoration: none;
+}
+.rescan-hint .btn-link:hover { color: var(--accent-hover); text-decoration: underline; }
+.rescan-hint .btn-link:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* Integrity card title and blurb (mirrors images/video). */
 .integrity-title { margin-bottom: 6px; }

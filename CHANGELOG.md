@@ -4,6 +4,152 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.87 — 2026-05-13
+
+**Image Generator — per-prompt control + true thumbnail/scene split**
+- Each tab is now a fully independent panel (📸 Thumbnails first / 🎞 Scenes second) instead of two views of the same form.
+- New per-row controls inside each panel:
+  - Inline preview thumbnail of the rendered image (or ⊘ placeholder if not yet generated)
+  - **Generate** button (when no image exists) → **Regenerate** button (when one does), per row
+  - Color-coded status badge: *Not yet* / *Generating…* / *Rendered* / *Error*
+  - Click the row to expand and read the full prompt text
+- Bulk action stays at the top of each tab: "Generate All N Thumbnails" / "Generate All N Scenes" — same backend job as before, just scoped to the active tab.
+- Long episodes paginate at 25 per page (matches the Image Prompts list pagination from v1.0.86). 250-scene Bound episodes render as 10 pages with « ‹ Page N/M › » jump controls.
+- Every per-row generation goes through the job queue with the existing `scene_number` / `thumb_number` filter — appears in the Jobs panel with the standard "Scene 03/24: kie.ai 4 cr · saved 2 variants" log lines, retryable on error.
+
+**Pipeline — split Images step**
+- Pipeline page now exposes three checkboxes instead of one: 📸 Thumbnail Images, 🎞 Scene Images, and 📸 Images (all, legacy). The split steps default on; the legacy unified step defaults off so a fresh pipeline run renders thumbs + scenes via the two specific job types.
+- Backend `routes/pipeline.ts` accepts `thumb_images` and `scene_images` as valid steps; both reuse the `image_generator_presets` list (one preset drives either step or both). The unified `images` step stays accepted on the wire so any saved pipeline preset that uses it still runs end-to-end.
+- Per-step missing-count badge (`Missing thumbnails (4)`, `Missing scenes (8)`) tracks each side independently — a partially-rendered episode no longer falsely reads as "everything missing."
+
+**Image Prompts — multiplication-form layout**
+- The Scenes-per-chapter dropdown (1 / 2 / 3 / 4 / Custom total) is gone. Replaced with three always-visible fields: **Reason count** (auto from outline), **Scenes per Reason** (free integer 1–100), and **Total** (read-only math display).
+- Type any number into "Scenes per Reason" — the total updates live. 32 per reason × 8 reasons = 256 prompts; no more "Custom total" mode juggling.
+- Format-aware seeding redivides the format's `defaultScenesTotalRange` low end by the chapter count to land at a sensible starting value (bound-explainer's [60, 180] range with 8 reasons → 8 scenes per reason).
+
+**Image Prompts — job-queue path**
+- `POST /generate/image-prompts` no longer runs the LLM call synchronously. It enqueues an `image_prompts` job and returns the queued Job stub. The frontend polls `GET /jobs/:id` and refreshes the PromptReviewPanel on completion.
+- Result: generation now appears in the Jobs panel with per-batch progress (`[chunked] [w1] scenes 1-10: got 10/10 (1/25 batches done)…`), surfaces real error states, and is cancellable mid-flight from the standard Jobs panel.
+- Side effect: the v1.0.86 chunked-batch fix (renumber-not-filter) now actually fires when the user clicks Generate from the page — previously only the pipeline runner reached the chunked path.
+
+**Internal**
+- Backend pipeline (`scene_images` / `thumb_images` step types) and frontend pipeline UI fully type-aligned. No-op no-preset run-batch calls validate cleanly against the new step IDs.
+- All session work since v1.0.86 verified live (typecheck clean across all touched files; the 5 remaining strict-mode `form.style_tag possibly undefined` warnings in image-prompts.vue are pre-existing, on lines untouched this release).
+
+---
+
+## v1.0.86 — 2026-05-13
+
+**Image Prompts — chunked batches no longer drop most scenes**
+- Fixed: requesting 250 scene prompts (or any count above 50, the chunked threshold) silently returned only a handful. Symptom: "I typed 250, got 5 in the docx." Root cause was the chunked path filtering scenes by their LLM-assigned `number` field — if the model numbered every batch 1–10 instead of "11 through 20" as instructed (which LLMs do constantly regardless of how clearly you ask), the post-filter dropped everything except the first batch's overlap. Now the orchestrator takes the first N scenes the LLM returned in any numbering and *renumbers* them to the batch's expected range. Every batch contributes its full quota.
+- Job log gets clearer too — `[chunked] [w2] scenes 11-20: got 10/10 (truncated from 13)` tells you when a model over-produced for a batch.
+
+**Image Prompts — Total Scene Prompts cap raised 200 → 500**
+- Fixed: the **Total Scene Prompts** input had a hidden HTML5 `max="200"` that silently clipped typed values like 250 down to 200 when the input blurred. The chunked path handles 500+ scenes fine — the cap was a leftover from before chunking shipped. Bound-explainer at sentence-aligned pacing legitimately wants 150–250 scenes per video; sleep-story epics can exceed 300.
+
+---
+
+## v1.0.85 — 2026-05-12
+
+**Hotfix — Script expansion rejected with "'chapters' must be an array"**
+- Fixed: clicking **Expand all** / **Expand selected** on the Script Generator's outline review panel surfaced the toast `'chapters' must be an array of chapter numbers.` and refused to queue the job. Affected every format equally (bound-explainer / listicle / sleep-story / …) — the bug just hadn't been hit until the bound-explainer flow exercised the outline-review path in v1.0.83+.
+- Root cause: the `/generate/expand-chapters` route validated `req.body.chapters` as if it were the filter array, but the OutlineReviewPanel sends that field as the chapter-COUNT (an integer from the script form, e.g. `8`) and puts the filter list under `chapters_to_expand` — which is also where the executor reads it. The route comment at the call site even called out this collision: *"Filter array goes under chapters_to_expand to avoid colliding with the chapter-count semantic of `chapters`…"*. Route was just checking the wrong field.
+- Route now validates `req.body.chapters_to_expand` (the actual filter array) and ignores `chapters` (the count). Range check, integer check, de-dup, and empty-array normalization all still happen against the right field.
+
+---
+
+## v1.0.84 — 2026-05-12
+
+**Hotfix — Browse button + page sluggishness fixed**
+- Fixed: the FilePicker Browse button (Intro Video, Outro Video, music files, anywhere FilePicker is mounted) felt sluggish for several seconds before the native dialog opened. Pages with frequent credit-balance polling (every project page via the dashboard layout) compounded the problem — clicks queued behind in-flight external API calls.
+- Root cause: the server-side credit-balance cache was 5 seconds, exactly equal to the frontend's poll interval. The cache expired moments before every poll, so every poll missed cache and re-fetched all four external balance APIs (Kie / fal / ElevenLabs / GenAIPro) in parallel. Each provider has its own 5-second timeout, so a single slow provider could push `/projects/:slug/health` to 2–5 seconds. The browser's HTTP/1.1 connection limit then held FilePicker's POST behind those pending GETs, which is the lag you saw before the dialog appeared.
+- Bumped the credit cache TTL to 30 seconds. Measured impact: cold call still ~3.6s, but warm calls now ~15–50ms (200× faster) and the cache stays warm across the 5-second poll cycle, so ~83% of polls bypass the external fetch entirely. Browse button responds instantly.
+- Credit display can be up to 30s stale now, but job completions still call `invalidateCreditCache(provider)` so post-generation numbers stay fresh.
+
+---
+
+## v1.0.83 — 2026-05-12
+
+**Format-aware labels propagated to Ideas, Image Prompts, and Video Assembly**
+- The reactive `useSectionLabel(formatId)` composable shipped in v1.0.82 (Script Generator) now drives labels on three more pages, so a bound-explainer project sees "Reasons" everywhere it would have said "Chapters", and a listicle project sees "Topics":
+  - **Ideas Generator** — table column header (Ch → Rea/Top), paste-preview row header, idea-editor form field, all rebind to the active format's term.
+  - **Image Prompts** — "Scenes per Chapter" → "Scenes per Reason"/"Scenes per Topic". Per-option labels ("1 per chapter") and the chapter-count form field follow.
+  - **Video Assembly** — the "Align scenes to chapter audio" toggle, the hint line beneath it, the "Per-scene chapter assignments" modal title and body copy, and the auto-fill / clear-all button tooltips all switch on the format.
+- Internal vocabulary (slugs, `audio_chapters.json`, `chapter_slug` references, file naming) stays "chapter" everywhere — these are presentation-only changes. Same stability guarantee as v1.0.82.
+
+---
+
+## v1.0.82 — 2026-05-12
+
+**Format-aware section vocabulary (Chapters / Reasons / Topics)**
+- New `script.sectionLabel: { singular, plural }` field on the Format primitive. Tells the LLM, the script docx parsers, and the UI what to call the format's primary content unit. Sleep-story / kids-fairytale / documentary / adventure stay as **Chapter / Chapters** (the field is optional and defaults to "Chapter"). Explainer formats opt in: **bound-explainer = Reason / Reasons**, **listicle = Topic / Topics**.
+- Script generator's LLM prompts now use the format's term. Bound-explainer scripts come back with `## Reason 01: Can't Move Without Bursting` headings instead of `## Chapter 01: …`; listicle scripts use `## Topic 01: …`. Pacing-arc copy, regen prompts, and the chunked-narration outline + batch prompts all switched over.
+- Bound-explainer + listicle JSONs hand-edited so the additionalRules / closingHint copy speaks the right vocabulary too ("Open each reason with a hook sentence", "Each topic must be self-contained", etc.) — the LLM gets a coherent instruction set instead of a Frankenstein of "chapter" + "reason" mentions.
+- Script docx parsers (`splitNarrationIntoChapters`, `parseNarrationDocx`) broadened to accept `Chapter|Reason|Topic|Section|Part|Lesson|Bit|Beat` as the section keyword. Internal slugs still normalize to `Chapter_NN` so audio MP3 filenames, `audio_chapters.json`, video assembly pairing, and existing sentence-aligned sidecars work unchanged across all formats.
+- New frontend composable `useSectionLabel(formatId)` returns `{ Singular, Plural, singular, plural }` for the active format. Reactively updates when the project's format changes. Wired into the Script Generator page so the form labels read **"Reasons"**, **"Words/Reason"**, **"6 reasons × 200 words/reason"** for bound-explainer projects (and **"Topics"** for listicle, **"Chapters"** for everything else).
+
+**How to verify**
+1. Open a bound-explainer project → Script Generator page. The form field reads **"Reasons"** (not "Chapters"); the recommended-range chip shows **"Reasons 3–10"**; the summary line reads **"6 reasons × 200 words/reason"**.
+2. Generate a script → the saved narration docx has `## Reason 01: …` headings.
+3. The downstream audio / sentence-timing / video assembly pipeline is unchanged — slugs still resolve to `Chapter_NN` internally so all existing sidecars and sentence-alignment paths work without modification.
+
+**Internal vocabulary stays stable**
+The on-disk filenames (`{code}_Chapter_NN.docx`, `{code}_Chapter_NN.mp3`), the `audio_chapters.json` slug keys, and the chapter_slug references in scene metadata all still say "chapter". This is presentation-layer-only: a sleep-story-era project switching to bound-explainer keeps its existing audio assets working without renames. Only the user-visible labels and LLM-emitted heading text adapt to the format's term.
+
+---
+
+## v1.0.81 — 2026-05-12
+
+**Sentence-aligned video pacing (Bound-style explainers)**
+- New format flag `imagePrompts.alignment: "chapter" | "sentence"` on the Format primitive. Default `"chapter"` keeps every existing format (sleep-story, listicle, TerraNash) on the legacy pacing. **bound-explainer** opts in to `"sentence"` so its scene cuts land on spoken sentence breaks instead of drifting across uniform 10s blocks.
+- New audio sidecar `audio_sentences.json` written next to `audio_chapters.json` by Audio Assembly. Contains per-section sentence-level start/end times derived from a char-length-weighted apportionment of each chapter's measured audio duration. Provider-agnostic — works with ElevenLabs direct, fal.ai, and GenAIPro alike (no `with-timestamps` API dependency).
+- Video Assembly's standard scene-clip pipeline now consumes the sidecar when the project's format opts in. Each scene's on-screen duration becomes the sum of its assigned sentences' durations; chapters with N scenes and M sentences pair scenes to sentence-windows `[i*M/N, (i+1)*M/N)`. Scenes with explicit `chapter_slug` flow into their declared chapter; scenes without slug get positional even-split (mirrors legacy `buildConcatList` behavior).
+- Job log gains diagnostic lines when sentence alignment is active: scene count mapped, total sentence count, target scene-track duration. Missing or invalid sidecars fall back to uniform per-scene duration with a clear "re-run Audio Merge to emit it" hint.
+
+**How to use**
+1. Create a project with format=**Bound-style Explainer** + niche=Plants/Animals/Fungi/Insects.
+2. Generate ideas → script → image prompts → images → audio → **Audio Assembly** (this is the step that writes both sidecars). 
+3. Run Video Assembly. The job log will show "Sentence alignment: ON — N scene(s) mapped to M sentence(s)" when active.
+4. The resulting MP4 cuts every ~3-7 seconds aligned to sentence breaks, matching the Bound channel's pacing register.
+
+**Limitations**
+- Char-length apportionment is a heuristic, not true word-level alignment. Empirically within ±300ms per sentence vs. ElevenLabs ground truth, which is below the visual-pacing tolerance, but not suitable for subtitle rendering. A future revision can swap in true ElevenLabs `with-timestamps` data with no caller-side changes.
+- Compilation-mode (per-chapter foreground overlay path) still uses chapter-level pacing. Sentence alignment only affects the standard sequential scene-clip path.
+
+---
+
+## v1.0.80 — 2026-05-12
+
+**Hotfix — project creation accepts niche_id**
+- Fixed: Creating a new project with a niche picked failed with `Invalid request body: (root) — Unrecognized key(s) in object: 'niche_id'`. The v1.0.79 `CreateProjectSchema` was `.strict()` and didn't list `niche_id`, so the field was rejected at the API boundary even though every downstream layer (route handler, project-manager, types) knew about it. Schema now allows `niche_id` (optional, ≤80 chars). Niche selection at project-creation time works as intended.
+
+---
+
+## v1.0.79 — 2026-05-12
+
+**Bound-style explainer format**
+- New built-in format **"Bound-style Explainer"** — short 10–15 min "Why It Sucks To Be Born As X" videos in the Bound / In The Black Media YouTube style. Each chapter is one self-contained reason in a numbered countdown; image prompts target the channel's signature look (thick black ink outline, flat fills, hand-drawn curved arrow, handwritten caption). Pick it in the Format dropdown when creating a project.
+- 5 narrator styles included (Bound-style deadpan, sardonic explainer, curious naturalist, dark-comedy host, documentary deadpan). Defaults to 6 chapters, ~12 min length, 4-second per-scene pacing.
+
+**Niche primitive — subject-domain layer**
+- New orthogonal axis to Format. Format decides *what shape* the video takes (sleep-story, listicle, bound-explainer); **Niche** decides *what subject domain* it covers (plants, animals, fungi, insects, or your own). Generators automatically layer niche vocabulary, visual style sheet, and YouTube tag hints on top of the format's defaults.
+- 4 built-in niches shipped: **Plants**, **Animals**, **Fungi**, **Insects & Arthropods** — each with 20 example topics, vocabulary pools, a long-form visual style sheet, default style keywords, negative-prompt addendum, and YouTube tag hints. Layer any of these onto any format (e.g. bound-explainer × plants for plant explainers; sleep-story × gemstones for TerraNash; listicle × animals for nature listicles).
+- New **Niches** page (sidebar → 🌿 Niches) browses every built-in + user-custom niche and creates new ones. Custom niches live in `${PROJECTS_ROOT}/.niches/{id}.json`, shadow built-ins by id, and travel with the user's projects folder.
+- New **Niche** picker in project creation wizard + Settings → Format tab. Optional — leave empty for format-default behavior.
+- Full CRUD API: `GET/POST/PUT/DELETE /api/niches`, `PUT /api/projects/:slug/niche`, `GET /api/projects/:slug/effective-niche`.
+- Niche layering integrates at one call site (`getEffectiveFormatFor`) so every existing generator picks up niche context without per-generator wiring: idea-generator vocabulary merges, script system-prompt context line, image-prompt style-sheet append, metadata broad-keyword merge.
+
+---
+
+## v1.0.78 — 2026-05-10
+
+**Audio Generator script detection — iCloud resilience**
+- Fixed: "Generate Audio" button stayed greyed with "Generate the script first" message even when the script docx was sitting on disk. Root cause was iCloud transience — when iCloud hadn't yet materialized the script subfolder locally, the directory read returned empty, the cache stored `script: false`, and that false stuck forever (the parent folder's mtime didn't bump when iCloud later delivered the file).
+- The status-detection compute now distinguishes "folder is genuinely empty" from "folder couldn't be read" and refuses to cache results derived from a failed read. Stale states recover automatically on the next page navigation instead of getting frozen until you click Shift+↻.
+- New inline **"↻ Rescan from disk"** link appears under the disabled "Generate Audio" button when no script is detected for the selected episode. One click forces a full project rescan — useful after an iCloud sync arrives but the watcher hasn't picked it up. Toasts a confirmation when the script becomes detectable.
+
+---
+
 ## v1.0.77 — 2026-05-09
 
 **YouTube — AI content disclosure + Entertainment default**

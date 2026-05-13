@@ -378,13 +378,33 @@ export async function generateImagePrompts(job: Job): Promise<void> {
             const raw = await callAi(model, '', batchPrompt, aiCreds(config), false,
               { slug: project_slug, jobId: job.job_id, signal: controller.signal })
             const obj = parseImagePromptsJson(raw)
-            const got = (obj.scenes || []).filter((s: any) =>
-              Number.isFinite(s?.number) && s.number >= from && s.number <= to,
+            // v1.0.86+: don't filter by `s.number` matching the requested
+            // from..to range. LLMs frequently number every batch's output
+            // as 1..N regardless of how clearly the prompt asks for "scenes
+            // 11 through 20" — which made the old filter drop everything
+            // but the first batch (the only one whose 1..N numbering
+            // happened to overlap the expected range). Symptom user hit
+            // 2026-05-12: requested 250 scenes via the chunked path,
+            // received only ~3 on disk.
+            //
+            // New approach: take the first (to-from+1) scenes the LLM
+            // returned (any numbering, any title/prompt structure that
+            // parses), and RENUMBER them to the batch's expected range.
+            // Drop entries that don't carry a usable `prompt` string —
+            // those are unusable downstream regardless of numbering.
+            const rawScenes = (obj.scenes || []).filter((s: any) =>
+              s && typeof s.prompt === 'string' && s.prompt.trim().length > 0,
             )
+            const expected = to - from + 1
+            const got = rawScenes.slice(0, expected).map((s: any, i: number) => ({
+              ...s,
+              number: from + i,
+            }))
             collected.push(...got)
             completed++
+            const tail = rawScenes.length > expected ? ` (truncated from ${rawScenes.length})` : ''
             job.output_lines.push(
-              `[chunked]   [w${workerId}] scenes ${from}-${to}: got ${got.length}/${to - from + 1} (${completed}/${batches.length} batches done)`,
+              `[chunked]   [w${workerId}] scenes ${from}-${to}: got ${got.length}/${expected}${tail} (${completed}/${batches.length} batches done)`,
             )
           } catch (e: any) {
             job.output_lines.push(

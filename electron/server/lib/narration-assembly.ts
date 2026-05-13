@@ -88,13 +88,20 @@ export function splitNarrationIntoChapters(narrationText: string): NarrationPart
       continue
     }
 
-    // Level-2 chapter heading
-    const chapterMatch = trimmed.match(/^##\s+Chapter\s+(\d+)\s*[:\-–—]\s*(.+)$/i)
+    // Level-2 section heading. Accepts any of the known format-aware
+    // section terms (Chapter for sleep-story / narrative, Reason for
+    // bound-explainer, Topic for listicle, Section/Part/Lesson/Bit for
+    // future / user-custom formats). The actual term doesn't matter
+    // structurally — we capture (term, number, title) and downstream
+    // slug derivation reuses the term verbatim, so audio MP3 filenames
+    // and the audio_chapters.json slugs naturally reflect what the
+    // format calls itself ("Reason_01.mp3", not "Chapter_01.mp3").
+    const chapterMatch = trimmed.match(/^##\s+(Chapter|Reason|Topic|Section|Part|Lesson|Bit|Beat)\s+(\d+)\s*[:\-–—]\s*(.+)$/i)
     if (chapterMatch) {
       flushChapter()
       currentChapter = {
-        number: parseInt(chapterMatch[1], 10),
-        title: chapterMatch[2].trim(),
+        number: parseInt(chapterMatch[2]!, 10),
+        title: chapterMatch[3]!.trim(),
         lines: [],
       }
       mode = 'chapter'

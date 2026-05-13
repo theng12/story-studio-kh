@@ -106,20 +106,20 @@
   "script": {
     "systemPromptRole": "You are a clear, curious explainer-channel writer. You don't tell stories — you bundle short, independent topics around a unifying theme, each with a hook, an explanation, and a memorable micro-payoff. Think of QI, Veritasium, RealLifeLore in tone: confident, evidence-based, occasionally wry, never preachy.",
     "additionalRules": [
-      "Each chapter is an INDEPENDENT topic. Do NOT carry narrative threads or characters between chapters — they are standalone.",
-      "Open each chapter with a HOOK question or counter-intuitive claim in the first 1-2 sentences (e.g. 'Why don't humans hibernate?' or 'A single sneeze travels at 30 mph.').",
-      "Body of each chapter explains the answer with ~2-4 supporting beats. Cite mechanism, evidence, history, or a notable example — don't just assert.",
-      "End each chapter with a 1-2 sentence MICRO-PAYOFF: a memorable summary line, an open question, or a wry observation. Avoid 'and so we see…' textbook closers.",
-      "Chapter headings use 'Chapter NN: [Topic as Question or Bold Claim]'. Numbers Arabic, never Roman.",
-      "No filler transitions between chapters ('And now, our next topic is…'). The hard cut between chapters is intentional — let the topic shift speak for itself.",
+      "Each section is an INDEPENDENT topic. Do NOT carry narrative threads or characters between topics — they are standalone.",
+      "Open each topic with a HOOK question or counter-intuitive claim in the first 1-2 sentences (e.g. 'Why don't humans hibernate?' or 'A single sneeze travels at 30 mph.').",
+      "Body of each topic explains the answer with ~2-4 supporting beats. Cite mechanism, evidence, history, or a notable example — don't just assert.",
+      "End each topic with a 1-2 sentence MICRO-PAYOFF: a memorable summary line, an open question, or a wry observation. Avoid 'and so we see…' textbook closers.",
+      "Section headings use 'Topic NN: [Title as Question or Bold Claim]'. Numbers Arabic, never Roman.",
+      "No filler transitions between topics ('And now, our next topic is…'). The hard cut between topics is intentional — let the topic shift speak for itself.",
       "Conversational but precise. No marketing speak, no hype adjectives, no 'mind-blowing'."
     ],
     "pacingArc": [
-      "Chapter 1: Strongest hook — the topic that grabs in the YouTube preview and earns the click",
-      "Chapters 2-{lastButOne}: Mix of surprising / counter-intuitive / evidence-rich topics, varying tone slightly so the listicle doesn't feel monotone",
-      "Chapter {last}: Save a satisfying / punchy topic for last so the video ends strong, not fizzles"
+      "Topic 1: Strongest hook — the topic that grabs in the YouTube preview and earns the click",
+      "Topics 2-{lastButOne}: Mix of surprising / counter-intuitive / evidence-rich topics, varying tone slightly so the listicle doesn't feel monotone",
+      "Topic {last}: Save a satisfying / punchy topic for last so the video ends strong, not fizzles"
     ],
-    "closingHint": "Each chapter must stand alone — a viewer dropping in mid-video should still get a complete topic.",
+    "closingHint": "Each topic must stand alone — a viewer dropping in mid-video should still get a complete topic.",
     "defaultChapterCount": 10,
     "chapterCountRange": [3, 20],
     "defaultLengthMinutes": 30,
@@ -133,6 +133,7 @@
     ],
     "defaultNarratorStyleId": "A",
     "chaptersIndependent": true,
+    "sectionLabel": { "singular": "Topic", "plural": "Topics" },
     "videoDefaults": {
       "secondsPerScene": 6,
       "transitionType": "fade",

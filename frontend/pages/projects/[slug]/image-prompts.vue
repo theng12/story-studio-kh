@@ -34,21 +34,21 @@
            of the LLM inventing or drifting between regenerations). -->
       <div v-if="form.episode_id" class="form-group field-wide">
         <CharacterPicker
-          v-model="form.character_ids"
+          v-model="activeForm.character_ids"
           :project-slug="slug"
           :episode-code="form.episode_id"
         />
       </div>
 
       <div class="form-group field-medium">
-        <ModelSelector v-model="form.model" :project-slug="slug" />
+        <ModelSelector v-model="activeForm.model" :project-slug="slug" />
       </div>
 
       <!-- Style preset -->
       <div class="grid-2">
         <div class="form-group">
           <label>Art Style</label>
-          <select v-model="form.style_preset" class="select" @change="onStyleChange">
+          <select v-model="activeForm.style_preset" class="select" @change="onStyleChange">
             <optgroup label="Built-in Presets">
               <option value="storybook">Storybook Illustration</option>
               <option value="3d-render">3D Render</option>
@@ -69,7 +69,7 @@
         </div>
         <div class="form-group">
           <label>Aspect Ratio</label>
-          <select v-model="form.aspect_ratio" class="select">
+          <select v-model="activeForm.aspect_ratio" class="select">
             <option value="16:9">16:9 — Landscape (YouTube)</option>
             <option value="1:1">1:1 — Square (Instagram)</option>
             <option value="9:16">9:16 — Portrait (Stories/TikTok)</option>
@@ -91,17 +91,17 @@
            a sample of this style" is the Image Generator page where
            that context already exists. Pill stays here as the free
            visibility affordance.) -->
-      <div v-if="form.style_tag && form.style_tag.trim()" class="style-preview-row">
-        <div class="style-preview-pill" :title="form.style_tag">
+      <div v-if="activeForm.style_tag && activeForm.style_tag.trim()" class="style-preview-row">
+        <div class="style-preview-pill" :title="activeForm.style_tag">
           <span class="style-preview-pill-icon" aria-hidden="true">🎨</span>
           <span class="style-preview-pill-label">Style:</span>
-          <span class="style-preview-pill-text">{{ form.style_tag.trim() }}</span>
+          <span class="style-preview-pill-text">{{ activeForm.style_tag.trim() }}</span>
         </div>
       </div>
 
-      <div class="form-group" v-if="form.style_preset === 'custom' || showStyleEditor">
+      <div class="form-group" v-if="activeForm.style_preset === 'custom' || showStyleEditor">
         <label>Style Tag</label>
-        <textarea v-model="form.style_tag" class="textarea style-tag-textarea"
+        <textarea v-model="activeForm.style_tag" class="textarea style-tag-textarea"
           placeholder="Describe the visual style…" />
 
         <!-- Reference-image style extraction (pain-point #7). Upload an -->
@@ -186,8 +186,8 @@
                 <button
                   type="button"
                   class="btn btn-ghost btn-sm"
-                  :disabled="!form.style_tag.trim() || savingStylePreset"
-                  :title="!form.style_tag.trim() ? 'Generate or write a style description first' : 'Save the current description as a named custom style preset, reusable across episodes'"
+                  :disabled="!activeForm.style_tag.trim() || savingStylePreset"
+                  :title="!activeForm.style_tag.trim() ? 'Generate or write a style description first' : 'Save the current description as a named custom style preset, reusable across episodes'"
                   @click="openSaveStylePreset"
                 >
                   💾 Save as preset…
@@ -250,44 +250,62 @@
         </div>
       </div>
 
+      <!-- ── Form tabs: Thumbnail | Scene ─────────────────────────────────
+           Two separate panels for the two distinct prompt types. Thumbnail
+           is FIRST because in YouTube production the thumbnail is what you
+           sweat first (it's the CTR lever); scenes follow once the cover
+           image direction is locked. v1.0.87+. -->
+      <div class="form-tabs mt-2">
+        <button
+          type="button"
+          :class="['form-tab', { active: formTab === 'thumbnails' }]"
+          @click="formTab = 'thumbnails'"
+        >
+          🖼️ Thumbnail Prompts
+          <span class="text-muted text-xs ml-1">({{ safeThumbCount }})</span>
+        </button>
+        <button
+          type="button"
+          :class="['form-tab', { active: formTab === 'scenes' }]"
+          @click="formTab = 'scenes'"
+        >
+          🎬 Scene Prompts
+          <span class="text-muted text-xs ml-1">({{ effectiveSceneCount }})</span>
+        </button>
+      </div>
+
       <!-- ── Scene Prompts section ─────────────────────────────────────── -->
-      <div class="split-section mt-2">
+      <div class="split-section mt-2" v-show="formTab === 'scenes'">
         <div class="split-header">
           <h3 class="split-title">🎬 Scene Prompts</h3>
           <span class="text-muted text-xs">{{ effectiveSceneCount }} prompts will be generated</span>
         </div>
+        <!-- v1.0.87+: three always-visible fields, multiplication-only.
+             Old layout had a dropdown locking the user into 1/2/3/4 or
+             "Custom total" mode where they typed an absolute number. That
+             felt arbitrary — bound-explainer wants 250 scenes from 8
+             reasons (31/reason), and the dropdown's 1-4 cap forced
+             everyone into Custom mode where the chapter relationship
+             evaporated. The new flow is just: chapter count × scenes
+             per chapter = total. User edits any of the first two, total
+             follows. The third field stays read-only as the math display. -->
         <div class="grid-3">
+          <!-- Field 1: chapter count (auto from outline, editable override). -->
           <div class="form-group">
-            <label>Scenes per Chapter</label>
-            <select v-model.number="form.scenes_per_chapter" class="select">
-              <option :value="1">1 per chapter (default)</option>
-              <option :value="2">2 per chapter</option>
-              <option :value="3">3 per chapter</option>
-              <option :value="4">4 per chapter</option>
-              <option :value="0">Custom total...</option>
-            </select>
-          </div>
-          <!-- Per-chapter mode: explicit, editable chapter count.
-               Pre-filled from the sidecar's total_chapters when an
-               episode is picked; the user can override if they want
-               more or fewer prompts than the actual chapter count.
-               Sent to the backend explicitly so the LLM sees what the
-               user sees here — no silent re-resolution. -->
-          <div class="form-group" v-if="form.scenes_per_chapter > 0">
             <label>
-              Chapter count
-              <span v-if="actualChapterCount && form.chapter_count_override === null"
+              {{ sectionLabel.Singular }} count
+              <span v-if="actualChapterCount && form.scene.chapter_count_override === null"
                     class="text-muted text-xs">
                 · auto from outline
               </span>
-              <span v-else-if="actualChapterCount && form.chapter_count_override !== null"
+              <span v-else-if="actualChapterCount && form.scene.chapter_count_override !== null"
                     class="text-muted text-xs"
-                    :title="`Outline has ${actualChapterCount} chapters; you've overridden to ${form.chapter_count_override}.`">
+                    :title="`Outline has ${actualChapterCount} ${sectionLabel.plural}; you've overridden to ${form.scene.chapter_count_override}.`">
                 · overridden
               </span>
             </label>
             <input
-              :value="form.chapter_count_override ?? actualChapterCount ?? 0"
+              :value="form.scene.chapter_count_override ?? actualChapterCount ?? 0"
               @input="onChapterCountInput($event)"
               class="input"
               type="number"
@@ -295,19 +313,29 @@
               max="200"
             />
           </div>
-          <!-- Custom-total mode: direct numeric input, no chapter math. -->
-          <div class="form-group" v-if="form.scenes_per_chapter === 0">
-            <label>Total Scene Prompts</label>
-            <input v-model.number="form.total_scenes" class="input" type="number" min="1" max="200" />
+          <!-- Field 2: scenes per chapter (free numeric input, was a 1-4
+               dropdown). Bumping to e.g. 8 multiplies cleanly against the
+               chapter count without forcing the user into a separate
+               Custom-total mode. Cap 100 is a sanity guard — 100 scenes
+               per chapter × even 10 chapters = 1000 prompts, well past
+               any reasonable single-episode budget. -->
+          <div class="form-group">
+            <label>Scenes per {{ sectionLabel.Singular }}</label>
+            <input
+              v-model.number="form.scene.scenes_per_chapter"
+              class="input"
+              type="number"
+              min="1"
+              max="100"
+            />
           </div>
-          <!-- Math display: makes the multiplication explicit so the
-               user sees exactly how the total is being computed. -->
-          <div class="form-group" v-if="form.scenes_per_chapter > 0">
+          <!-- Field 3: total = field1 × field2, read-only display. -->
+          <div class="form-group">
             <label>Total</label>
             <div class="estimate-value">
               {{ effectiveSceneCount }} prompts
               <div class="text-muted text-xs">
-                {{ effectiveChapterCount }} chapters × {{ form.scenes_per_chapter }} per chapter
+                {{ effectiveChapterCount }} {{ sectionLabel.plural }} × {{ form.scene.scenes_per_chapter || 0 }} per {{ sectionLabel.singular }}
               </div>
             </div>
           </div>
@@ -328,7 +356,7 @@
       </div>
 
       <!-- ── Thumbnail Prompts section ─────────────────────────────────── -->
-      <div class="split-section mt-2">
+      <div class="split-section mt-2" v-show="formTab === 'thumbnails'">
         <div class="split-header">
           <h3 class="split-title">🖼️ Thumbnail Prompts</h3>
           <span class="text-muted text-xs">{{ safeThumbCount }} thumbnail variations</span>
@@ -336,21 +364,21 @@
         <div class="grid-2">
           <div class="form-group">
             <label>Thumbnail Count</label>
-            <input v-model.number="form.thumb_count" class="input" type="number" min="1" max="10" />
+            <input v-model.number="form.thumbnail.thumb_count" class="input" type="number" min="1" max="10" />
           </div>
           <div class="form-group">
             <label>Text Style</label>
-            <select v-model="form.thumb_text_style" class="select">
+            <select v-model="form.thumbnail.thumb_text_style" class="select">
               <option v-for="p in TEXT_STYLE_PRESETS" :key="p.id" :value="p.id">{{ p.label }}</option>
             </select>
             <input
-              v-if="form.thumb_text_style === 'custom'"
-              v-model="form.thumb_text_style_custom"
+              v-if="form.thumbnail.thumb_text_style === 'custom'"
+              v-model="form.thumbnail.thumb_text_style_custom"
               class="input mt-1"
               placeholder="e.g. holographic rainbow foil, pastel sparkles with subtle glow…"
               maxlength="240"
             />
-            <p v-if="form.thumb_text_style === 'custom'" class="text-muted text-xs hint-line">
+            <p v-if="form.thumbnail.thumb_text_style === 'custom'" class="text-muted text-xs hint-line">
               Free-form description (up to 240 chars). Dropped verbatim into the LLM prompt — be specific.
             </p>
           </div>
@@ -358,7 +386,7 @@
         <div class="grid-2">
           <div class="form-group">
             <label>Text Position</label>
-            <select v-model="form.thumb_text_position" class="select">
+            <select v-model="form.thumbnail.thumb_text_position" class="select">
               <option value="center">Center</option>
               <option value="top">Top</option>
               <option value="bottom">Bottom</option>
@@ -366,12 +394,12 @@
           </div>
           <div class="form-group">
             <label>Font Style</label>
-            <select v-model="form.thumb_font_style" class="select">
+            <select v-model="form.thumbnail.thumb_font_style" class="select">
               <option v-for="p in FONT_STYLE_PRESETS" :key="p.id" :value="p.id">{{ p.label }}</option>
             </select>
             <input
-              v-if="form.thumb_font_style === 'custom'"
-              v-model="form.thumb_font_style_custom"
+              v-if="form.thumbnail.thumb_font_style === 'custom'"
+              v-model="form.thumbnail.thumb_font_style_custom"
               class="input mt-1"
               placeholder="e.g. bold slab serif with rounded corners, art-deco inspired…"
               maxlength="240"
@@ -415,7 +443,7 @@
 
       <div class="flex items-center gap-2 mt-2">
         <label class="checkbox-label">
-          <input type="checkbox" v-model="form.force" />
+          <input type="checkbox" v-model="activeForm.force" />
           Force regenerate (overwrite existing)
         </label>
       </div>
@@ -430,15 +458,82 @@
          episode and lets the user fire a single-prompt regen for any
          row they don't like. Same docx is re-saved with that one
          entry replaced. v1 is regen-only (no in-place edit) per
-         the AskUserQuestion answer; edit can be added later. -->
+         the AskUserQuestion answer; edit can be added later.
+
+         Per-prompt char counter (advisory): each row renders a coloured
+         badge against the documented prompt-character cap of whichever
+         image model the user has configured below. Pass a different
+         model id from the dropdown to recolour the badges for that cap. -->
+    <div v-if="form.episode_id" class="cap-preview-row">
+      <label class="cap-preview-label">Char-count colours against image model:</label>
+      <select v-model="capPreviewModel" class="cap-preview-select" title="Pick the image model these prompts will eventually feed. Each row's char counter colours red/yellow/green against that model's documented cap.">
+        <option value="">(none — show raw counts)</option>
+        <option v-for="m in capPreviewOptions" :key="m.id" :value="m.id">
+          {{ m.label }}<template v-if="m.cap"> · cap ~{{ m.cap.toLocaleString() }}</template>
+        </option>
+      </select>
+      <button type="button" class="cap-link" @click="showCapsTable = true">View all caps →</button>
+    </div>
     <PromptReviewPanel
       v-if="form.episode_id"
       :project-slug="slug"
       :episode-id="form.episode_id"
       :title="selectedEpisode?.title || ''"
-      :model="form.model"
+      :model="activeForm.model"
       :refresh-key="reviewRefreshKey"
+      :scene-prompt-cap="capPreviewInfo.cap"
+      :thumbnail-prompt-cap="capPreviewInfo.cap"
+      :scene-model-label="capPreviewInfo.label"
+      :thumbnail-model-label="capPreviewInfo.label"
     />
+
+    <!-- Provider prompt-cap reference table. Same modal shape as the
+         Image Generator page so users see a consistent surface. -->
+    <div v-if="showCapsTable" class="modal-overlay" @click.self="showCapsTable = false">
+      <div class="caps-modal">
+        <div class="caps-modal-head">
+          <h3>Image model prompt-character caps</h3>
+          <button type="button" class="caps-modal-close" @click="showCapsTable = false" title="Close">×</button>
+        </div>
+        <p class="text-muted text-sm caps-modal-intro">
+          Approximate per-prompt character limits documented by each provider. Prompts longer than the
+          cap are typically rejected outright or silently truncated — wasting credits either way.
+          Keep generated image prompts under the cap of whichever model you plan to render with.
+        </p>
+        <div class="caps-table-wrap">
+          <table class="caps-table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th class="caps-th-right">Prompt cap</th>
+                <th class="caps-th-right">Credits / image</th>
+                <th>Refs?</th>
+                <th>Provider</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in allModelCaps" :key="row.id"
+                  :class="{ 'caps-row-active': row.id === capPreviewModel }">
+                <td>{{ row.label }}</td>
+                <td class="caps-td-right">
+                  <template v-if="row.cap">~{{ row.cap.toLocaleString() }}</template>
+                  <span v-else class="text-muted">—</span>
+                </td>
+                <td class="caps-td-right">
+                  <template v-if="row.credits != null">{{ row.credits }}</template>
+                  <span v-else class="text-muted">—</span>
+                </td>
+                <td>
+                  <span v-if="row.supportsRefs" title="Supports reference / img2img images">✓</span>
+                  <span v-else class="text-muted">—</span>
+                </td>
+                <td class="text-muted">{{ row.provider }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
 
     <!-- Tabs: Current / History -->
     <div v-if="generatedPrompts || history.length > 0" class="mt-3">
@@ -555,6 +650,71 @@ const showStyleEditor = ref(false)
 const generatedPrompts = ref<any>(null)
 const activeTab = ref('current')
 
+// Image-model picker for the per-prompt char-counter colour-coding. This
+// page generates prompts via an LLM but doesn't render images itself —
+// the user picks the image model on the Image Generator page later. The
+// dropdown here is purely a preview: select the model you plan to use
+// downstream and each row's char counter colours against THAT model's cap.
+const capPreviewModel = ref<string>('')
+const showCapsTable = ref(false)
+const allModelCaps = computed(() => {
+  const models = (config.value as any)?.image_models || {}
+  return Object.entries(models).map(([id, raw]) => {
+    const m = raw as any
+    return {
+      id,
+      label: (m?.label as string) || id,
+      provider: (m?.provider as string) || 'kie',
+      cap: typeof m?.prompt_char_cap === 'number' ? m.prompt_char_cap : null,
+      credits: typeof m?.credits_per_image === 'number' ? m.credits_per_image : null,
+      supportsRefs: !!m?.supports_reference_images,
+    }
+  }).sort((a, b) => {
+    if (a.cap == null && b.cap == null) return a.label.localeCompare(b.label)
+    if (a.cap == null) return 1
+    if (b.cap == null) return -1
+    return a.cap - b.cap
+  })
+})
+const capPreviewOptions = computed(() => allModelCaps.value)
+const capPreviewInfo = computed(() => {
+  const id = capPreviewModel.value
+  if (!id) return { cap: null as number | null, label: '' }
+  const found = allModelCaps.value.find(m => m.id === id)
+  return { cap: found?.cap ?? null, label: found?.label || '' }
+})
+
+// v1.0.87+: form section tab selector. The two prompt-type form panels
+// (Thumbnail Prompts, Scene Prompts) used to render stacked — at full
+// width they pushed the Generate buttons way off-screen and made the
+// "which one am I tuning?" question ambiguous. Now they're tabs, with
+// Thumbnail first because in YouTube production the cover image direction
+// gets locked before the scene list (cover is the CTR lever; scenes
+// follow from the cover's visual register).
+//
+// v1.0.88+: tab state syncs with the route's ?tab= query param so the
+// sidebar's split "Thumbnail Prompts" / "Scene Prompts" entries land on
+// the right tab AND browser back/forward navigation Just Works. Default
+// is 'thumbnails' when the query is missing or invalid.
+const formTab = ref<'thumbnails' | 'scenes'>(
+  route.query.tab === 'scenes' ? 'scenes' : 'thumbnails',
+)
+// React to query changes (sidebar clicks while on the page, back/forward).
+watch(() => route.query.tab, (v) => {
+  const next = v === 'scenes' ? 'scenes' : 'thumbnails'
+  if (next !== formTab.value) formTab.value = next
+})
+// Push the query when the user clicks the inline tabs, so the URL
+// reflects the visible state and the sidebar's active-state highlight
+// follows. Uses replace so the back button doesn't accumulate every
+// tab toggle.
+const _router = useRouter()
+watch(formTab, (v) => {
+  const cur = String(route.query.tab || 'thumbnails')
+  if (cur === v) return
+  _router.replace({ query: { ...route.query, tab: v } })
+})
+
 // User-saved style presets (Gap A from audit pain-point #7).
 // Sourced reactively from the project config so a save flows back into
 // the dropdown without a manual refresh. Tolerates `style_presets` being
@@ -567,7 +727,16 @@ interface StylePresetMeta {
   source_reference?: string
   created_at: string
 }
-const { config, refreshConfig } = useProject()
+const { project, config, refreshConfig } = useProject()
+
+// v1.0.83+: format-aware section label ("Chapter"/"Reason"/"Topic").
+// Watches the project meta so swapping format in Settings live-updates
+// the labels here without a full reload.
+const projectFormatId = ref<string>('sleep-story')
+watch(project, (p) => {
+  if (p) projectFormatId.value = (p as any).format_id || 'sleep-story'
+}, { immediate: true })
+const sectionLabel = useSectionLabel(projectFormatId)
 const customStyles = computed<StylePresetMeta[]>(
   () => Array.isArray((config.value as any)?.style_presets)
     ? (config.value as any).style_presets
@@ -658,36 +827,80 @@ const FONT_STYLE_PRESETS: StylePreset[] = [
   { id: 'custom',       label: 'Custom (describe it…)' },
 ]
 
+// v1.0.88+: form split into two completely independent per-kind sub-objects
+// (form.thumbnail + form.scene). Each carries its own model, style,
+// aspect ratio, character cast, and force flag — plus its own kind-
+// specific fields (thumb_count + text/font styling for thumbnails;
+// scenes_per_chapter + chapter_count_override for scenes). The `episode_id`
+// stays at the top level because picking an episode applies to both
+// kinds within the page.
+//
+// `activeForm` below is a computed proxy that returns the sub-object
+// matching the active tab — template bindings on shared-field controls
+// (model, style picker, aspect ratio) bind to this so editing the
+// visible control updates the active kind's state only. Tab-specific
+// controls (already gated by v-show) bind directly to
+// `form.thumbnail.*` or `form.scene.*` so they don't accidentally read
+// the wrong sub-form when the user is on the other tab.
+type SharedFormFields = {
+  model: string
+  style_preset: string
+  style_tag: string
+  aspect_ratio: string
+  character_ids: string[]
+  force: boolean
+}
+type ThumbnailForm = SharedFormFields & {
+  thumb_count: number
+  thumb_text_style: string
+  thumb_text_style_custom: string
+  thumb_text_position: string
+  thumb_font_style: string
+  thumb_font_style_custom: string
+}
+type SceneForm = SharedFormFields & {
+  scenes_per_chapter: number
+  total_scenes: number
+  // null = "use whatever the sidecar reports (actualChapterCount)".
+  // See the per-kind seeding code further down for details.
+  chapter_count_override: number | null
+}
 const form = reactive({
   episode_id: '',
-  model: 'gpt-4o',
-  style_preset: 'storybook',
-  style_tag: STYLE_PRESETS['storybook'],
-  aspect_ratio: '16:9',
-  scenes_per_chapter: 1,
-  total_scenes: 10,
-  // null = "use whatever the sidecar reports (actualChapterCount)".
-  // Set to a number when the user explicitly types in the Chapter
-  // count input — that user choice wins over the auto-detected value
-  // and is sent to the backend so the generator receives EXACTLY the
-  // count the user sees on the form. Wipes back to null on episode
-  // switch (the override doesn't survive moving to a different episode
-  // — sidecar pull for the new episode replaces it).
-  chapter_count_override: null as number | null,
-  thumb_count: 5,
-  thumb_text_style: 'gold',
-  thumb_text_style_custom: '',
-  thumb_text_position: 'center',
-  thumb_font_style: 'serif',
-  thumb_font_style_custom: '',
-  force: false,
-  // Cast injected into the LLM prompt so every scene/thumbnail prompt
-  // actually includes character descriptions (the requirement was always
-  // there but had no character data behind it). Empty array = today's
-  // legacy behaviour. usePresets snapshots the form, so saving an Image
-  // Prompts preset captures the cast automatically.
-  character_ids: [] as string[],
+  thumbnail: {
+    model: 'gpt-4o',
+    style_preset: 'storybook',
+    style_tag: STYLE_PRESETS['storybook'],
+    aspect_ratio: '16:9',
+    character_ids: [] as string[],
+    force: false,
+    thumb_count: 5,
+    thumb_text_style: 'gold',
+    thumb_text_style_custom: '',
+    thumb_text_position: 'center',
+    thumb_font_style: 'serif',
+    thumb_font_style_custom: '',
+  } as ThumbnailForm,
+  scene: {
+    model: 'gpt-4o',
+    style_preset: 'storybook',
+    style_tag: STYLE_PRESETS['storybook'],
+    aspect_ratio: '16:9',
+    character_ids: [] as string[],
+    force: false,
+    scenes_per_chapter: 1,
+    total_scenes: 10,
+    chapter_count_override: null as number | null,
+  } as SceneForm,
 })
+
+// The active sub-form. Template bindings on shared-field controls use
+// this so a v-model write goes to the right kind. Computed unwraps in
+// templates automatically so `activeForm.style_tag` Just Works there;
+// in script we still need `.value`.
+const activeForm = computed<ThumbnailForm | SceneForm>(() =>
+  formTab.value === 'thumbnails' ? form.thumbnail : form.scene,
+)
 
 function pickRandomPresetId(presets: StylePreset[]): string {
   // Skip the 'custom' sentinel — randomizing into custom would leave the
@@ -699,9 +912,9 @@ function pickRandomPresetId(presets: StylePreset[]): string {
 }
 
 function randomizeThumbStyles() {
-  form.thumb_text_style = pickRandomPresetId(TEXT_STYLE_PRESETS)
-  form.thumb_font_style = pickRandomPresetId(FONT_STYLE_PRESETS)
-  success(`Rolled: ${form.thumb_text_style} + ${form.thumb_font_style}`)
+  form.thumbnail.thumb_text_style = pickRandomPresetId(TEXT_STYLE_PRESETS)
+  form.thumbnail.thumb_font_style = pickRandomPresetId(FONT_STYLE_PRESETS)
+  success(`Rolled: ${form.thumbnail.thumb_text_style} + ${form.thumbnail.thumb_font_style}`)
 }
 
 async function surpriseMeThumb() {
@@ -738,7 +951,7 @@ watch(
     // Episode switch wipes any per-episode override. The new episode's
     // sidecar will repopulate actualChapterCount; if the user wants to
     // override there too they can type in the input again.
-    form.chapter_count_override = null
+    form.scene.chapter_count_override = null
     if (!code || !slug.value) return
     try {
       const titleParam = title ? `?title=${encodeURIComponent(title)}` : ''
@@ -758,14 +971,14 @@ watch(
 
 // Authoritative chapter count for the form's math display + backend
 // request. Resolution order:
-//   1. User-typed override in the Chapter count input (form.chapter_count_override).
+//   1. User-typed override in the Chapter count input (form.scene.chapter_count_override).
 //   2. actualChapterCount loaded from the chunked-progress sidecar.
 //   3. Episode record's suggested_chapters (idea-stage hint).
 //   4. 10 fallback (last resort, only when nothing else exists).
 // User wins over auto-detection wins over idea hint wins over default.
 // All coerced + NaN-guarded so a cleared input doesn't render "NaN".
 const effectiveChapterCount = computed(() => {
-  const override = Number(form.chapter_count_override)
+  const override = Number(form.scene.chapter_count_override)
   if (Number.isFinite(override) && override > 0) return Math.round(override)
   const real = Number(actualChapterCount.value)
   if (Number.isFinite(real) && real > 0) return real
@@ -774,19 +987,17 @@ const effectiveChapterCount = computed(() => {
   return 10
 })
 
-// Total scene prompt count the user will see "be generated." When in
-// per-chapter mode (the default), it's chapters × per_chapter. When in
-// custom-total mode, it's the explicit total_scenes field. This is what
-// gets surfaced in the header pill ("N prompts will be generated") so
-// the user can confirm before clicking Generate.
+// Total scene prompt count the user will see "be generated."
+// v1.0.87+: multiplication-only — chapter count × scenes-per-chapter.
+// The previous "scenes_per_chapter === 0 → use total_scenes" custom-total
+// path is gone; the form now always presents three multiplicand-style
+// fields (chapter count, scenes per chapter, total readout). If the user
+// wants 250 scenes from 8 chapters they type 32 in scenes-per-chapter
+// and the readout shows 256; the chapter relationship stays visible.
 const effectiveSceneCount = computed(() => {
-  const perChapter = Number(form.scenes_per_chapter)
-  if (Number.isFinite(perChapter) && perChapter > 0) {
-    const total = effectiveChapterCount.value * perChapter
-    return Number.isFinite(total) && total > 0 ? total : 0
-  }
-  // scenes_per_chapter === 0 → custom total mode.
-  const total = Number(form.total_scenes)
+  const perChapter = Number(form.scene.scenes_per_chapter)
+  if (!Number.isFinite(perChapter) || perChapter < 1) return 0
+  const total = effectiveChapterCount.value * Math.round(perChapter)
   return Number.isFinite(total) && total > 0 ? total : 0
 })
 
@@ -801,41 +1012,77 @@ const estimatedScenes = effectiveSceneCount
 function onChapterCountInput(ev: Event): void {
   const raw = (ev.target as HTMLInputElement).value
   if (raw === '' || raw === null || raw === undefined) {
-    form.chapter_count_override = null
+    form.scene.chapter_count_override = null
     return
   }
   const n = Number(raw)
   if (!Number.isFinite(n) || n < 1) {
-    form.chapter_count_override = null
+    form.scene.chapter_count_override = null
     return
   }
-  form.chapter_count_override = Math.round(n)
+  form.scene.chapter_count_override = Math.round(n)
 }
 
 // Same defensive coercion for the thumbnail variations display — clearing
 // the number input would otherwise render "NaN thumbnail variations".
 const safeThumbCount = computed(() => {
-  const n = Number(form.thumb_count)
+  const n = Number(form.thumbnail.thumb_count)
   return Number.isFinite(n) && n > 0 ? n : 0
 })
 
 // Clamp numeric form fields so clearing the input (→ NaN via v-model.number)
 // doesn't wedge the form in a submit-blocking state. Default to a sensible
 // minimum, user can still raise after typing again.
-watch(() => form.thumb_count, (v) => {
-  if (!Number.isFinite(v) || v < 1) form.thumb_count = 1
+watch(() => form.thumbnail.thumb_count, (v) => {
+  if (!Number.isFinite(v) || v < 1) form.thumbnail.thumb_count = 1
 })
-watch(() => form.total_scenes, (v) => {
-  if (!Number.isFinite(v) || v < 1) form.total_scenes = 1
+// v1.0.87+: form.scene.scenes_per_chapter is now a free integer input (not a
+// 1/2/3/4/Custom dropdown). Clamp to >= 1 so a cleared field doesn't
+// produce `0 prompts will be generated` confusion. Previously 0 was a
+// sentinel for Custom-total mode — that mode is gone, so 0 is just
+// invalid.
+watch(() => form.scene.scenes_per_chapter, (v) => {
+  if (!Number.isFinite(v) || v < 1) form.scene.scenes_per_chapter = 1
+})
+// Defensive: form.scene.total_scenes is no longer surfaced in the UI but the
+// reactive prop still exists in `form` for back-compat with saved
+// presets that carry it. Keep the floor watcher so a stale 0 from an
+// old preset doesn't render NaN anywhere.
+watch(() => form.scene.total_scenes, (v) => {
+  if (!Number.isFinite(v) || v < 1) form.scene.total_scenes = 1
 })
 
 // ── Presets ─────────────────────────────────────────────────────────────
-const promptPresets = usePresets<any>({
+//
+// v1.0.88+: presets are SPLIT per kind. Each tab maintains its own
+// preset list (thumbnail_prompts_presets vs scene_prompts_presets) so a
+// "10-thumbnail / handwritten" preset can't accidentally overwrite the
+// scene config when you save it from the Thumbnails tab, and vice
+// versa. The TopActionBar binds to whichever preset object matches
+// the active tab via the `activePresets` computed below — preset
+// pickers in the toolbar swap their list + active id when you flip
+// the tab.
+//
+// Legacy `image_prompts_presets` is intentionally NOT migrated.
+// Existing presets stay on disk under that key but no longer surface
+// in the new UI (re-save from the new tabs to materialize them).
+const thumbnailPresets = usePresets<any>({
   slug: slug.value,
-  configKey: 'image_prompts',
-  snapshot: () => ({ form: { ...form } }),
-  apply: (data) => { if (data?.form) Object.assign(form, data.form) },
+  configKey: 'thumbnail_prompts',
+  snapshot: () => ({ form: { ...form.thumbnail } }),
+  apply: (data) => { if (data?.form) Object.assign(form.thumbnail, data.form) },
 })
+const scenePresets = usePresets<any>({
+  slug: slug.value,
+  configKey: 'scene_prompts',
+  snapshot: () => ({ form: { ...form.scene } }),
+  apply: (data) => { if (data?.form) Object.assign(form.scene, data.form) },
+})
+// Bound to TopActionBar. Switching tabs swaps the entire preset
+// surface (list, active id, save / overwrite / delete handlers).
+const promptPresets = computed(() =>
+  formTab.value === 'thumbnails' ? thumbnailPresets : scenePresets,
+)
 
 /**
  * v1.0.71+: format-aware seeding of the form's defaults BEFORE the
@@ -846,13 +1093,19 @@ const promptPresets = usePresets<any>({
  * Pull from the project's effective Format when present; preset.load()
  * still overrides if the user has saved one.
  *
+ * v1.0.87+ note on the scene-count seeding: the form is now
+ * multiplication-only (chapters × scenes-per-chapter). The format's
+ * `defaultScenesTotalRange[0]` (the low end) is divided by the resolved
+ * chapter count to set `scenes_per_chapter`. Example: bound-explainer
+ * has range [60, 180] and an 8-chapter outline → 60/8 = 7.5 → ceil to
+ * 8 scenes per chapter → 64 total prompts as the starting point.
+ *
  * Per-format JSON keys consumed:
- *   imagePrompts.defaultScenesTotalRange  → form.total_scenes (low end)
- *                                           form.scenes_per_chapter = 0
- *                                           (signals "use total_scenes")
- *   imagePrompts.defaultThumbnails        → form.thumb_count
- *   imagePrompts.recommendedAspect        → form.aspect_ratio
- *   imagePrompts.defaultStyleTag          → form.style_tag (with style_preset = 'custom'
+ *   imagePrompts.defaultScenesTotalRange  → form.scene.scenes_per_chapter
+ *                                           (= ceil(lo / chapter_count))
+ *   imagePrompts.defaultThumbnails        → form.thumbnail.thumb_count
+ *   imagePrompts.recommendedAspect        → activeForm.value.aspect_ratio
+ *   imagePrompts.defaultStyleTag          → activeForm.value.style_tag (with style_preset = 'custom'
  *                                           so the format's tuned visual language —
  *                                           "minimalist circular badge" for listicle,
  *                                           "editorial infographic" for educational —
@@ -869,27 +1122,34 @@ async function applyFormatDefaultsIfNoPreset() {
     if (Array.isArray(ip.defaultScenesTotalRange) && ip.defaultScenesTotalRange.length === 2) {
       const [lo] = ip.defaultScenesTotalRange
       if (typeof lo === 'number' && lo > 0) {
-        // 0 in scenes_per_chapter signals "use total_scenes" (see the
-        // form template gate at scenes_per_chapter === 0). Listicle
-        // formats set defaultScenesTotalRange = [10, 10] — exactly 10
-        // scenes — which maps cleanly onto this control.
-        form.scenes_per_chapter = 0
-        form.total_scenes = lo
+        // Map the format's preferred total to scenes-per-chapter using
+        // the live chapter count (auto-detected from the outline sidecar
+        // by the watcher above). Floor at 1 so single-chapter idea-stage
+        // episodes still get a sensible default.
+        const chapters = effectiveChapterCount.value || 1
+        form.scene.scenes_per_chapter = Math.max(1, Math.ceil(lo / chapters))
       }
     }
     if (typeof ip.defaultThumbnails === 'number' && ip.defaultThumbnails > 0) {
-      form.thumb_count = ip.defaultThumbnails
+      form.thumbnail.thumb_count = ip.defaultThumbnails
     }
+    // v1.0.88+: seed BOTH sub-forms from the format defaults, not just
+    // whichever tab happens to be active when this fires. Each kind
+    // starts from the same shared default; the user can then diverge
+    // them per tab after switching.
     if (typeof ip.recommendedAspect === 'string' && ip.recommendedAspect) {
-      form.aspect_ratio = ip.recommendedAspect
+      form.thumbnail.aspect_ratio = ip.recommendedAspect
+      form.scene.aspect_ratio = ip.recommendedAspect
     }
     if (typeof ip.defaultStyleTag === 'string' && ip.defaultStyleTag.trim()) {
       // Switching to 'custom' opens the style editor (see onStyleChange);
       // we set style_tag manually here instead of going through that
       // handler so the page boots up with the editor already showing the
       // format's text.
-      form.style_preset = 'custom'
-      form.style_tag = ip.defaultStyleTag
+      form.thumbnail.style_preset = 'custom'
+      form.thumbnail.style_tag = ip.defaultStyleTag
+      form.scene.style_preset = 'custom'
+      form.scene.style_tag = ip.defaultStyleTag
     }
   } catch {
     // Format endpoint unavailable / project missing — keep the legacy
@@ -899,10 +1159,14 @@ async function applyFormatDefaultsIfNoPreset() {
 
 onMounted(async () => {
   // Format-aware seeding runs BEFORE preset load. If the user has an
-  // active preset, its values override these — but the format defaults
-  // are the right starting point for projects with no saved preset yet.
+  // active preset for the active tab, its values override these — but
+  // the format defaults are the right starting point for projects with
+  // no saved preset yet. v1.0.88+: load BOTH per-kind preset lists so
+  // either tab can immediately use saved presets without a tab-switch
+  // first.
   await applyFormatDefaultsIfNoPreset()
-  void promptPresets.load()
+  void thumbnailPresets.load()
+  void scenePresets.load()
   void loadVisionCaps()
 })
 
@@ -967,7 +1231,7 @@ async function loadVisionCaps() {
     // Default: current image-prompts model if it's vision-capable AND has a
     // key, else the first vision-capable model that has a key, else the
     // server-suggested default.
-    const current = form.model
+    const current = activeForm.value.model
     if (VISION_CAPABLE.has(current) && visionModels.value.find(m => m.id === current && m.has_key)) {
       visionModel.value = current
     } else {
@@ -1023,9 +1287,9 @@ async function extractStyle() {
       },
     )
     // Switch to custom style so the textarea is visible + editable.
-    form.style_preset = 'custom'
+    activeForm.value.style_preset = 'custom'
     showStyleEditor.value = true
-    form.style_tag = data.style_text
+    activeForm.value.style_tag = data.style_text
     lastAnalyzedAt.value = new Date().toISOString()
     lastAnalysisModel.value = data.model_used
     success(`Style extracted via ${data.model_used}`)
@@ -1043,7 +1307,7 @@ function clearReference() {
 }
 
 // ── Save-as-preset flow ─────────────────────────────────────────────────
-// Captures whatever's in form.style_tag right now (could be a vision-
+// Captures whatever's in activeForm.value.style_tag right now (could be a vision-
 // extracted description, a hand-written one, or a fork of an existing
 // custom preset) and persists it under a name in config.style_presets.
 const showSavePresetForm = ref(false)
@@ -1052,7 +1316,7 @@ const savingStylePreset = ref(false)
 const savePresetInputEl = ref<HTMLInputElement | null>(null)
 
 function openSaveStylePreset() {
-  if (!form.style_tag.trim()) return
+  if (!activeForm.value.style_tag.trim()) return
   showSavePresetForm.value = true
   newPresetName.value = ''
   // Focus the input on next tick so keyboard users can type immediately
@@ -1086,14 +1350,14 @@ function makeStylePresetId(name: string, existing: StylePresetMeta[]): string {
 
 async function saveStylePreset() {
   const name = newPresetName.value.trim()
-  if (!name || !form.style_tag.trim() || savingStylePreset.value) return
+  if (!name || !activeForm.value.style_tag.trim() || savingStylePreset.value) return
   savingStylePreset.value = true
   try {
     const existing = customStyles.value
     const newPreset: StylePresetMeta = {
       id: makeStylePresetId(name, existing),
       name,
-      description: form.style_tag.trim(),
+      description: activeForm.value.style_tag.trim(),
       source_model: lastAnalysisModel.value || undefined,
       source_reference: referenceImagePath.value || undefined,
       created_at: new Date().toISOString(),
@@ -1110,7 +1374,7 @@ async function saveStylePreset() {
     // Switch the dropdown to the new entry so the user immediately sees
     // their save reflected. Selecting it also re-fills the textarea (a no-op
     // here since it already matches), keeping behaviour predictable.
-    form.style_preset = newPreset.id
+    activeForm.value.style_preset = newPreset.id
     showSavePresetForm.value = false
     newPresetName.value = ''
     success(`Saved "${newPreset.name}" — pick it from the Art Style dropdown next time.`)
@@ -1147,13 +1411,13 @@ watch(referenceImagePath, (v) => {
 onMounted(() => loadPersistedReferencePath())
 
 function onStyleChange() {
-  if (form.style_preset in STYLE_PRESETS) {
-    form.style_tag = STYLE_PRESETS[form.style_preset]
+  if (activeForm.value.style_preset in STYLE_PRESETS) {
+    activeForm.value.style_tag = STYLE_PRESETS[activeForm.value.style_preset] || ''
     showStyleEditor.value = false
     return
   }
-  if (form.style_preset === 'custom') {
-    form.style_tag = ''
+  if (activeForm.value.style_preset === 'custom') {
+    activeForm.value.style_tag = ''
     showStyleEditor.value = true
     return
   }
@@ -1161,9 +1425,9 @@ function onStyleChange() {
   // Treat selection as "load this description and put me in editable mode"
   // so the user can fork the preset (tweak + save under a new name) without
   // mutating the original.
-  const saved = customStyles.value.find(cs => cs.id === form.style_preset)
+  const saved = customStyles.value.find(cs => cs.id === activeForm.value.style_preset)
   if (saved) {
-    form.style_tag = saved.description
+    activeForm.value.style_tag = saved.description
     showStyleEditor.value = true
   }
 }
@@ -1191,78 +1455,119 @@ function loadFromHistory(entry: HistoryEntry) {
 // file, and vice-versa.
 type PromptMode = 'all' | 'scenes' | 'thumbnails'
 
+// v1.0.87+: image-prompts generation now runs as an enqueued background
+// job (Jobs tab visibility, per-step output_lines, retryable on error)
+// instead of a synchronous LLM call. Flow:
+//   1. POST /generate/image-prompts → returns the queued Job ({ job_id, … }).
+//   2. Poll GET /jobs/:jobId until status ∈ {done, error, cancelled}.
+//   3. On done: GET /episodes/:id/image-prompts to read the just-written
+//      docx, populate the inline-edit pane, bump the per-prompt review-
+//      panel refresh key.
+//   4. On error: surface the stored job error.
+//
+// Why poll instead of subscribing to the Jobs SSE stream: the SSE
+// composable is already wired by the dashboard layout for the Jobs panel
+// + per-page generating indicators; subscribing again from this page
+// would double-count badges. A small poll-by-id loop is simpler and
+// has the same UX latency (1.5s tick is fast enough for a 1-3 min job).
+
+const JOB_POLL_INTERVAL_MS = 1500
+
+async function waitForJob(slug: string, jobId: string): Promise<any> {
+  while (true) {
+    const job: any = await get(`/projects/${slug}/jobs/${jobId}`)
+    if (job?.status === 'done' || job?.status === 'error' || job?.status === 'cancelled') {
+      return job
+    }
+    await new Promise(r => setTimeout(r, JOB_POLL_INTERVAL_MS))
+  }
+}
+
 async function runGenerate(mode: PromptMode) {
   if (!form.episode_id) return
   generating.value = true
   isGenerating.value = true
   try {
-    const result = await post(`/projects/${slug.value}/generate/image-prompts`, {
+    const job: any = await post(`/projects/${slug.value}/generate/image-prompts`, {
       episode_id: form.episode_id,
-      model: form.model,
-      style_tag: form.style_tag,
-      aspect_ratio: form.aspect_ratio,
-      scenes_per_chapter: form.scenes_per_chapter === 0 ? undefined : form.scenes_per_chapter,
-      total_scenes: form.scenes_per_chapter === 0 ? form.total_scenes : undefined,
-      // Explicit chapter count from the form. Sent only in per-chapter
-      // mode (custom total mode uses total_scenes directly without any
-      // multiplication). Backend prefers this when set; falls back to
-      // sidecar resolution otherwise. This is what gives the user
-      // authoritative control: what they see in the form math is what
-      // the LLM is told to produce.
-      chapter_count: form.scenes_per_chapter === 0
-        ? undefined
-        : effectiveChapterCount.value,
-      thumb_count: form.thumb_count,
-      thumb_text_style: form.thumb_text_style,
-      thumb_text_style_custom: form.thumb_text_style_custom,
-      thumb_text_position: form.thumb_text_position,
-      thumb_font_style: form.thumb_font_style,
-      thumb_font_style_custom: form.thumb_font_style_custom,
+      model: activeForm.value.model,
+      style_tag: activeForm.value.style_tag,
+      aspect_ratio: activeForm.value.aspect_ratio,
+      // v1.0.87+: always multiplication. No more Custom-total mode —
+      // the backend's executor multiplies scenes_per_chapter × chapter_
+      // count to get the final scene count and proceeds straight into
+      // chunked generation. total_scenes is no longer sent; the
+      // executor still reads it as a fallback for legacy presets but
+      // the form no longer surfaces it.
+      scenes_per_chapter: form.scene.scenes_per_chapter,
+      chapter_count: effectiveChapterCount.value,
+      thumb_count: form.thumbnail.thumb_count,
+      thumb_text_style: form.thumbnail.thumb_text_style,
+      thumb_text_style_custom: form.thumbnail.thumb_text_style_custom,
+      thumb_text_position: form.thumbnail.thumb_text_position,
+      thumb_font_style: form.thumbnail.thumb_font_style,
+      thumb_font_style_custom: form.thumbnail.thumb_font_style_custom,
       title: selectedEpisode.value?.title || '',
       mode,
       // Cast for this generation. Backend resolves these via
       // character-manager and folds the descriptions into the LLM prompt
       // so every scene/thumbnail prompt actually includes them.
-      character_ids: form.character_ids,
+      character_ids: activeForm.value.character_ids,
     })
-    // When generating one half only, merge into the currently-reviewed
-    // result so the UI keeps showing the other half that was already there.
+
+    // Job is now in the queue + visible in the Jobs panel. Surface that
+    // immediately so the user knows the click registered, then poll for
+    // completion. We don't block paint while the job runs — the existing
+    // `generating` flag keeps the button disabled + spinner showing.
+    success(`Queued ${mode === 'scenes' ? 'scene prompts' : mode === 'thumbnails' ? 'thumbnail prompts' : 'image prompts'} — job ${job.job_id}`)
+
+    const completed = await waitForJob(slug.value, job.job_id)
+    if (completed.status === 'error') {
+      throw new Error(completed.error || 'Job failed (see Jobs panel for details)')
+    }
+    if (completed.status === 'cancelled') {
+      showError('Generation cancelled')
+      return
+    }
+
+    // Job done — executor wrote the docx to disk. Pull it back so the
+    // inline-edit pane reflects the new prompts.
+    const titleParam = selectedEpisode.value?.title
+      ? `?title=${encodeURIComponent(selectedEpisode.value.title)}`
+      : ''
+    const onDisk: any = await get(
+      `/projects/${slug.value}/episodes/${form.episode_id}/image-prompts${titleParam}`,
+    )
+
+    // Merge into the inline review pane. Scene-only / thumb-only runs
+    // preserve the OTHER half from whatever was already there on disk
+    // (the executor only writes the half it generated).
     if (mode === 'all' || !generatedPrompts.value) {
-      generatedPrompts.value = result
+      generatedPrompts.value = { scenes: onDisk?.scenes || [], thumbnails: onDisk?.thumbnails || [] }
     } else {
       generatedPrompts.value = {
         ...generatedPrompts.value,
-        scenes: mode === 'scenes' ? (result.scenes || []) : generatedPrompts.value.scenes,
-        thumbnails: mode === 'thumbnails' ? (result.thumbnails || []) : generatedPrompts.value.thumbnails,
+        scenes: mode === 'scenes' ? (onDisk?.scenes || []) : generatedPrompts.value.scenes,
+        thumbnails: mode === 'thumbnails' ? (onDisk?.thumbnails || []) : generatedPrompts.value.thumbnails,
       }
     }
 
     history.value.unshift({
       episode_id: form.episode_id,
-      style_preset: form.style_preset,
-      aspect_ratio: form.aspect_ratio,
+      style_preset: activeForm.value.style_preset,
+      aspect_ratio: activeForm.value.aspect_ratio,
       mode,
       prompts: JSON.parse(JSON.stringify(generatedPrompts.value)),
       generated_at: new Date().toISOString(),
     })
 
-    // Auto-save only the part we just generated so a Scene-only run doesn't
-    // resave stale thumbnails (and vice versa).
-    const toSave: any = {}
-    if (mode === 'all' || mode === 'scenes') toSave.scenes = result.scenes || []
-    if (mode === 'all' || mode === 'thumbnails') toSave.thumbnails = result.thumbnails || []
-    await post(`/projects/${slug.value}/generate/image-prompts/save`, {
-      episode_id: form.episode_id,
-      title: selectedEpisode.value?.title || '',
-      prompts: toSave,
-    })
-
     activeTab.value = 'current'
     // Bump the review-panel refresh key so the per-prompt panel
-    // re-fetches the freshly-saved docx.
+    // re-fetches the freshly-written docx.
     reviewRefreshKey.value++
-    const sceneCt = result.scenes?.length || 0
-    const thumbCt = result.thumbnails?.length || 0
+
+    const sceneCt = onDisk?.scenes?.length || 0
+    const thumbCt = onDisk?.thumbnails?.length || 0
     const msg = mode === 'scenes' ? `Generated ${sceneCt} scene prompts`
       : mode === 'thumbnails' ? `Generated ${thumbCt} thumbnail prompts`
       : `Generated ${sceneCt} scene + ${thumbCt} thumbnail prompts`
@@ -1275,7 +1580,7 @@ async function runGenerate(mode: PromptMode) {
       : mode === 'thumbnails' ? 'thumbnail prompts'
       : 'image prompts (scenes + thumbnails)'
     console.error(`[image-prompts] ${poolLabel} generation failed:`, e)
-    showError(e.data?.detail || `Failed to generate ${poolLabel}`)
+    showError(e.data?.detail || e.message || `Failed to generate ${poolLabel}`)
   } finally {
     generating.value = false
     isGenerating.value = false
@@ -1417,6 +1722,30 @@ async function saveToFile() {
 .tab:hover { color: var(--text-primary); }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
+/* Form section tabs (Thumbnail | Scene). Same visual register as the
+ * Current/History tabs above so the page reads as one tabbed surface. */
+.form-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.form-tab {
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.form-tab:hover { color: var(--text-primary); }
+.form-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
 /* History table */
 .history-table {
   width: 100%;
@@ -1487,4 +1816,74 @@ async function saveToFile() {
 .style-extract-filename { font-size: 12px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .style-extract-clear { align-self: flex-start; margin-top: 4px; padding: 2px 8px; font-size: 11px; color: var(--text-muted); }
 .style-extract-clear:hover { color: var(--error); }
+
+/* Char-counter colour preview picker — mirrors the small inline controls
+   the images.vue page uses for its cap pill. */
+.cap-preview-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 12px 0 4px;
+  font-size: 12px;
+}
+.cap-preview-label { color: var(--text-muted); }
+.cap-preview-select {
+  font-size: 12px;
+  padding: 3px 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.cap-link {
+  font-size: 11px;
+  background: none; border: none;
+  color: var(--accent, #6c8fff);
+  cursor: pointer; padding: 0;
+  text-decoration: underline;
+}
+.cap-link:hover { color: var(--text-primary); }
+
+/* Provider caps reference modal. Same shape as the Image Generator
+   page's modal. */
+.caps-modal {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--border);
+  padding: 18px 22px;
+  max-width: 720px;
+  width: 90vw;
+  max-height: 85vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+}
+.caps-modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.caps-modal-head h3 { margin: 0; font-size: 16px; color: var(--text-primary); }
+.caps-modal-close {
+  background: none; border: none; font-size: 22px;
+  color: var(--text-muted); cursor: pointer; padding: 0 6px; line-height: 1;
+}
+.caps-modal-close:hover { color: var(--text-primary); }
+.caps-modal-intro { margin: 4px 0 12px; line-height: 1.5; }
+.caps-table-wrap { overflow: auto; flex: 1 1 auto; }
+.caps-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.caps-table th, .caps-table td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.caps-table th {
+  position: sticky; top: 0;
+  background: var(--bg-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.caps-th-right, .caps-td-right { text-align: right !important; font-variant-numeric: tabular-nums; }
+.caps-row-active { background: rgba(108, 143, 255, 0.08); }
+.caps-row-active td:first-child::before { content: '▸ '; color: var(--accent, #6c8fff); }
 </style>

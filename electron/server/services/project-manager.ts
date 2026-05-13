@@ -656,6 +656,12 @@ export async function createProject(req: CreateProjectRequest): Promise<ProjectM
     // existed before — getEffectiveFormat resolves missing format_id
     // by reading the bundled sleep-story.json profile.
     ...(req.format_id ? { format_id: req.format_id } : {}),
+    // Niche is optional (subject-domain layer, orthogonal to format).
+    // Unset = no niche, generators behave exactly like format defaults.
+    // We trust the wizard to pass a valid id; the niche-loader logs and
+    // falls back to null on missing files so a stale id doesn't break
+    // the project.
+    ...(req.niche_id ? { niche_id: req.niche_id } : {}),
   }
 
   // Merge with any template defaults

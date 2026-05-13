@@ -50,6 +50,13 @@ export interface Format {
     lengthMinutesRange: [number, number]
     narratorStyles: NarratorStyle[]
     defaultNarratorStyleId: string
+    /** v1.0.82+: user-facing label for the format's primary content unit.
+     *  Sleep-story → Chapter, bound-explainer → Reason, listicle → Topic.
+     *  Missing on older formats — UI consumers default to "Chapter". */
+    sectionLabel?: {
+      singular: string
+      plural: string
+    }
   }
   imagePrompts: {
     purposeNote: string
@@ -59,6 +66,7 @@ export interface Format {
     defaultStyleTag: string
     characterReferenceMode: 'inline' | 'reference-image' | 'both'
     recommendedAspect: '16:9' | '9:16' | '1:1'
+    alignment?: 'chapter' | 'sentence'
   }
   metadata: {
     purposeNote: string

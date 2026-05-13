@@ -1,0 +1,108 @@
+{
+  "id": "plants",
+  "name": "Plants",
+  "description": "Botanical subjects — flowering plants, trees, carnivorous plants, parasites, weird-evolution edge cases. Excludes fungi (separate niche) and algae. Best paired with explainer-style formats (bound-explainer, listicle) but works for any subject domain where the cast is rooted, photosynthetic, or evolved from green ancestors.",
+  "tagline": "Rooted in place. Surprisingly brutal.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "exampleTopics": [
+    "Venus Flytrap",
+    "Corpse Flower",
+    "Strangler Fig",
+    "Manchineel Tree",
+    "Resurrection Plant",
+    "Welwitschia",
+    "Mimosa Pudica",
+    "Dragon's Blood Tree",
+    "Hydnora Africana",
+    "Rafflesia Arnoldii",
+    "Sundew",
+    "Pitcher Plant",
+    "Saguaro Cactus",
+    "Baobab",
+    "Sequoia",
+    "Ghost Plant",
+    "Resurrection Fern",
+    "Skunk Cabbage",
+    "Bladderwort",
+    "Lithops (Living Stones)"
+  ],
+
+  "vocabulary": {
+    "mood": [
+      "rooted",
+      "patient",
+      "brutal",
+      "alien",
+      "ancient",
+      "slow-violence",
+      "evolutionary curiosity"
+    ],
+    "theme": [
+      "carnivory",
+      "parasitism",
+      "weird pollination",
+      "extreme dormancy",
+      "self-mutilation reproduction",
+      "evolutionary dead ends",
+      "extreme habitats"
+    ],
+    "genre": [
+      "botany",
+      "plant biology",
+      "ecology",
+      "evolutionary biology",
+      "natural history"
+    ],
+    "keyword": [
+      "photosynthesis",
+      "stem",
+      "leaf",
+      "root",
+      "stomata",
+      "xylem",
+      "phloem",
+      "pollination",
+      "tropism",
+      "transpiration",
+      "germination",
+      "seed dispersal",
+      "carnivorous plant",
+      "parasitic plant",
+      "epiphyte",
+      "succulent",
+      "tuber",
+      "rhizome",
+      "fruiting body",
+      "vegetative reproduction"
+    ]
+  },
+
+  "visualStyleSheet": "All subjects are plants rendered as anthropomorphic-but-anatomically-accurate characters. Maintain real botanical structure (correct leaf venation, flower symmetry, stem architecture) while adding a single expressive face (eyes + small mouth) on the most prominent feature (flower, bulb, trap, fruit). Soft watercolor wash beneath thick uneven black ink outline. No human limbs unless the species literally has tendrils / vines that read as limbs. Background is minimal — pale solid color, gradient, or sparse environmental cue (soil cross-section, rainforest floor, swamp surface).",
+
+  "defaultStyleKeywords": [
+    "botanical illustration",
+    "anthropomorphic plant character",
+    "anatomically accurate plant"
+  ],
+
+  "negativePromptAddendum": "no human characters in main frame, no animals competing for focus with the plant subject, no realistic photography (we are illustration-only), no Western cartoon mascot eyes (one face per scene, sized restrained)",
+
+  "referenceImages": [],
+
+  "youtubeTagsHint": [
+    "plants",
+    "botany",
+    "weird plants",
+    "carnivorous plants",
+    "plant facts",
+    "nature explainer",
+    "evolution",
+    "ecology"
+  ],
+
+  "audienceHint": "viewers who like nature trivia, biology, and slightly dark/unsettling natural-history facts",
+
+  "scriptContext": "This is a video about a specific plant species. Plants have no nervous system, no agency in the conventional sense, and limited mobility — narration should treat hardships as evolutionary or ecological constraints rather than dramatized choices. Cite real botany (mechanism of pollination, photosynthesis pathway, root architecture) over anthropomorphic interpretation."
+}

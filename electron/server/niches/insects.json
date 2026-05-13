@@ -1,0 +1,108 @@
+{
+  "id": "insects",
+  "name": "Insects & Arthropods",
+  "description": "Insects, arachnids, myriapods, and small crustaceans (terrestrial isopods). Separate from the Animals niche because invertebrate biology, lifecycle, and visual conventions differ — six legs (or eight, or many), exoskeleton, metamorphosis, hive / colony behaviors, and a culturally distinct viewer reaction (revulsion, fascination, casual cruelty) that the narration can lean into.",
+  "tagline": "Six legs, no remorse, brutal lifecycle.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "exampleTopics": [
+    "Bullet Ant",
+    "Cow Killer (Velvet Ant)",
+    "Whip Scorpion",
+    "Praying Mantis",
+    "Tarantula Hawk",
+    "Asian Giant Hornet",
+    "Antlion",
+    "Bombardier Beetle",
+    "Tsetse Fly",
+    "Tongue-Eating Louse",
+    "Bot Fly",
+    "Jewel Wasp",
+    "Termite Queen",
+    "Dung Beetle",
+    "Black Widow",
+    "Brazilian Wandering Spider",
+    "Mantis Shrimp",
+    "Pistol Shrimp",
+    "Camel Spider",
+    "Mayfly (24-hour adult lifespan)"
+  ],
+
+  "vocabulary": {
+    "mood": [
+      "scuttling",
+      "brutal",
+      "punchy",
+      "dark-comedy",
+      "viscerally specific",
+      "matter-of-fact-horror"
+    ],
+    "theme": [
+      "extreme pain",
+      "parasitism",
+      "mind control",
+      "weird reproduction",
+      "metamorphosis",
+      "colony / hive dynamics",
+      "venom",
+      "predator pressure"
+    ],
+    "genre": [
+      "entomology",
+      "arachnology",
+      "invertebrate biology",
+      "evolutionary biology",
+      "natural history"
+    ],
+    "keyword": [
+      "exoskeleton",
+      "chitin",
+      "metamorphosis",
+      "larva",
+      "pupa",
+      "imago",
+      "ovipositor",
+      "stinger",
+      "venom",
+      "neurotoxin",
+      "compound eye",
+      "antenna",
+      "molting",
+      "swarm",
+      "colony",
+      "queen",
+      "worker",
+      "drone",
+      "parasitoid",
+      "host"
+    ]
+  },
+
+  "visualStyleSheet": "Subjects are insects / arachnids / arthropods rendered with anatomical accuracy — correct number of legs (six for insects, eight for arachnids), correct body segments (head / thorax / abdomen for insects; cephalothorax / abdomen for arachnids), accurate antennae, mouthparts, wings (when present). One expressive face (compound eyes drawn with character, mandibles or mouthparts in correct position). Thick uneven black ink outline, flat color fills with sharp species-accurate patterning (stripes, spots, iridescence cues). Background is leaf surface, soil, rotting wood, a wasp gallery — small environmental cue, not a full scene.",
+
+  "defaultStyleKeywords": [
+    "entomological illustration",
+    "anatomically accurate insect",
+    "correct leg count and body segmentation"
+  ],
+
+  "negativePromptAddendum": "no incorrect leg counts (six for insects, eight for arachnids — never both for one subject), no human or vertebrate characters in main frame, no Disney-cute bug mascots, no fantasy-color palettes unless the species genuinely has them",
+
+  "referenceImages": [],
+
+  "youtubeTagsHint": [
+    "insects",
+    "arachnids",
+    "bugs",
+    "entomology",
+    "weird insects",
+    "spiders",
+    "nature explainer",
+    "biology"
+  ],
+
+  "audienceHint": "viewers who like the dark-comedy side of biology — extreme pain rankings, parasitoid wasps, mind-controlling fungi, brutal metamorphosis facts",
+
+  "scriptContext": "This is a video about a specific insect, arachnid, or arthropod. Lean into the cultural register that surrounds these subjects — viewers are simultaneously revolted, fascinated, and amused. Narration can be visceral about pain and behavior, but must cite real entomology (Schmidt Pain Index, life-cycle stages, neurotoxin chemistry, hive dynamics)."
+}

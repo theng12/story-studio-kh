@@ -284,7 +284,36 @@ export async function pollForImageUrls(
       }
 
       if (['failed', 'error', 'fail'].includes(status)) {
-        throw new Error(`Image generation failed: ${taskData.failReason || taskData.error || 'Unknown'}`)
+        // v1.0.88+: surface real diagnostic info instead of "Unknown".
+        // kie.ai's task response uses different fields per model — Flux
+        // uses `failReason`, GPT-Image uses `error`, Seedream often
+        // returns `errorMessage` / `msg` / nested `response.error`. Walk
+        // the common fields first; if all empty, dump a redacted JSON
+        // snippet so the next "Unknown" failure still tells the user
+        // what kie.ai actually returned (model not enabled, quota out,
+        // safety filter, etc.).
+        const candidates = [
+          taskData.failReason,
+          taskData.error,
+          taskData.errorMessage,
+          taskData.msg,
+          taskData.message,
+          taskData.errMsg,
+          taskData.response?.error,
+          taskData.response?.failReason,
+          taskData.response?.errorMessage,
+          (typeof taskData.resultJson === 'string'
+            ? (() => { try { return JSON.parse(taskData.resultJson)?.error } catch { return null } })()
+            : null),
+        ]
+        const reason = candidates.find(v => typeof v === 'string' && v.trim())
+        if (reason) {
+          throw new Error(`Image generation failed: ${reason}`)
+        }
+        // No structured field carried a reason — dump a snippet of the
+        // raw task body (secrets redacted) so the user can copy + report.
+        const snippet = redactSecrets(JSON.stringify(taskData), apiKey).slice(0, 400)
+        throw new Error(`Image generation failed (kie.ai reported a failed task with no error message). Raw response: ${snippet}`)
       }
 
       await sleepCancellable(POLL_INTERVAL, isCancelled)

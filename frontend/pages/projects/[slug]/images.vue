@@ -34,9 +34,9 @@
     <div class="mode-tabs mt-3" role="tablist" aria-label="Image generation pipeline">
       <button
         v-for="tab in imageModeTabs" :key="tab.id"
-        :class="['mode-tab', { active: form.image_mode === tab.id }]"
+        :class="['mode-tab', { active: activeForm.image_mode === tab.id }]"
         role="tab"
-        :aria-selected="form.image_mode === tab.id"
+        :aria-selected="activeForm.image_mode === tab.id"
         @click="selectImageMode(tab.id)"
       >
         <span class="mode-tab-icon" aria-hidden="true">{{ tab.icon }}</span>
@@ -65,7 +65,7 @@
       <div class="grid-2">
         <div class="form-group">
           <label>Image Model <span class="required" aria-hidden="true">*</span></label>
-          <select v-model="form.model" class="select">
+          <select v-model="activeForm.model" class="select">
             <optgroup v-for="g in imageModelGroups" :key="g.provider" :label="g.label">
               <option v-for="m in g.items" :key="m.id" :value="m.id">
                 {{ formatModelOption(m) }}
@@ -75,11 +75,30 @@
           <span v-if="form.mode === 'thumbs'" class="text-muted text-xs">
             Tip: Use a higher-quality model for eye-catching thumbnails
           </span>
+          <!-- Prompt-character cap indicator. Surfaces the documented limit
+               for the active model so users know how long their image
+               prompts can be before the provider rejects/silently truncates.
+               Cap values come from electron/server/models/defaults.ts and
+               are approximate — clickable "View all caps" link below opens
+               the full reference table. -->
+          <span class="cap-row">
+            <template v-if="activeModelCap">
+              <span class="cap-pill" :title="`Approximate provider limit for ${activeModelLabel}. Prompts over this may be rejected or silently truncated.`">
+                Prompt cap: <strong>~{{ activeModelCap.toLocaleString() }} chars</strong>
+              </span>
+            </template>
+            <template v-else>
+              <span class="cap-pill cap-pill-unknown" title="No documented cap recorded for this model.">
+                Prompt cap: <strong>unknown</strong>
+              </span>
+            </template>
+            <button type="button" class="cap-link" @click="showCapsTable = true">View all caps →</button>
+          </span>
           <!-- Img2img mode: warn the user when their current model can't
                actually consume references — kie.ai silently ignores the
                field on text-only models, which would look like img2img
                mode "doing nothing." -->
-          <span v-if="form.image_mode === 'img2img' && !currentModelSupportsRefs"
+          <span v-if="activeForm.image_mode === 'img2img' && !currentModelSupportsRefs"
                 class="text-danger text-xs"
                 title="In Image → Image mode this model will silently ignore reference images and behave as text-to-image. Pick a model with reference support (Flux Kontext, Nano Banana, Qwen Image 2, GPT Image 2)."
           >
@@ -100,9 +119,9 @@
               v-for="t in modelTiers"
               :key="t.id"
               class="tier-option"
-              :class="{ active: form.tier === t.id }"
+              :class="{ active: activeForm.tier === t.id }"
             >
-              <input type="radio" :value="t.id" v-model="form.tier" />
+              <input type="radio" :value="t.id" v-model="activeForm.tier" />
               <span class="tier-option-label">{{ t.label }}</span>
               <span class="tier-option-cost">{{ t.credits }} cr · ~{{ formatUsd(t.credits) }}</span>
             </label>
@@ -113,7 +132,7 @@
       <div class="grid-3">
         <div class="form-group">
           <label>Aspect Ratio</label>
-          <select v-model="form.aspect_ratio" class="select">
+          <select v-model="activeForm.aspect_ratio" class="select">
             <option v-for="ar in aspectRatios" :key="ar.value" :value="ar.value">
               {{ ar.value }} — {{ ar.label }}
             </option>
@@ -141,21 +160,21 @@
         <label>Generation Mode</label>
         <div class="generation-mode-row">
           <label class="generation-mode-option">
-            <input type="radio" value="skip" v-model="form.generation_mode" />
+            <input type="radio" value="skip" v-model="activeForm.generation_mode" />
             <div>
               <strong>Skip existing</strong>
               <span class="text-muted">Don't regenerate scenes/thumbs that already exist.</span>
             </div>
           </label>
           <label class="generation-mode-option">
-            <input type="radio" value="regenerate" v-model="form.generation_mode" />
+            <input type="radio" value="regenerate" v-model="activeForm.generation_mode" />
             <div>
               <strong>Regenerate</strong>
               <span class="text-muted">Overwrite existing variants in place.</span>
             </div>
           </label>
           <label class="generation-mode-option">
-            <input type="radio" value="new_version" v-model="form.generation_mode" />
+            <input type="radio" value="new_version" v-model="activeForm.generation_mode" />
             <div>
               <strong>New version</strong>
               <span class="text-muted">Currently behaves like Skip — _v2 image variants are planned.</span>
@@ -170,14 +189,14 @@
          Only mounts in img2img mode. Surfaces the four configurable
          reference sources (master / per-scene / characters / chain)
          + the upload UI for the file-backed sources. Toggles bind to
-         form.reference_sources which is sent to the backend on submit. -->
+         activeForm.reference_sources which is sent to the backend on submit. -->
     <Img2ImgReferencesCard
-      v-if="form.image_mode === 'img2img' && form.episode_id"
+      v-if="activeForm.image_mode === 'img2img' && form.episode_id"
       :project-slug="slug"
       :episode-id="form.episode_id"
       :title="ep2imgTitle"
-      :value="form.reference_sources"
-      @update:value="form.reference_sources = $event"
+      :value="activeForm.reference_sources"
+      @update:value="activeForm.reference_sources = $event"
     />
 
     <!-- ── Style Preview card ──────────────────────────────────────────────
@@ -188,10 +207,56 @@
          is free, switching any input bills a fresh render once. -->
     <StylePreviewCard
       :project-slug="slug"
-      :model="form.model"
-      :aspect-ratio="form.aspect_ratio"
-      :tier="form.tier"
+      :model="activeForm.model"
+      :aspect-ratio="activeForm.aspect_ratio"
+      :tier="activeForm.tier"
       :model-label="modelLabelForStylePreview"
+    />
+
+    <!-- ── Per-tab generator panel (v1.0.87+) ─────────────────────────────
+         Each panel lists the episode's prompts for ONE kind (scene or
+         thumbnail), shows the rendered image inline per row, and exposes
+         per-row Generate / Regenerate buttons plus a top "Generate All N"
+         bulk button. Replaces the old all-or-nothing top Generate flow as
+         the PRIMARY interaction surface. Form fields above (model, aspect
+         ratio, generation_mode, reference sources) flow into both panels.
+         v-show toggles based on the existing mode tabs so the panel
+         matches whichever tab is active. -->
+    <ImageGeneratorPanel
+      v-show="form.mode === 'thumbs' && form.episode_id"
+      kind="thumbnail"
+      :project-slug="slug"
+      :episode-id="form.episode_id"
+      :title="selectedEpisode?.title || ''"
+      :model="form.thumbnail.model"
+      :aspect-ratio="form.thumbnail.aspect_ratio"
+      :generation-mode="form.thumbnail.generation_mode"
+      :image-mode="form.thumbnail.image_mode"
+      :tier="form.thumbnail.tier"
+      :reference-sources="form.thumbnail.reference_sources"
+      :refresh-key="igPanelRefreshKey"
+      :prompt-char-cap="thumbnailModelInfo.cap"
+      :model-label="thumbnailModelInfo.label"
+      @open-preview="openLightboxAt"
+      @refresh="onPanelRefresh"
+    />
+    <ImageGeneratorPanel
+      v-show="form.mode === 'scenes' && form.episode_id"
+      kind="scene"
+      :project-slug="slug"
+      :episode-id="form.episode_id"
+      :title="selectedEpisode?.title || ''"
+      :model="form.scene.model"
+      :aspect-ratio="form.scene.aspect_ratio"
+      :generation-mode="form.scene.generation_mode"
+      :image-mode="form.scene.image_mode"
+      :tier="form.scene.tier"
+      :reference-sources="form.scene.reference_sources"
+      :refresh-key="igPanelRefreshKey"
+      :prompt-char-cap="sceneModelInfo.cap"
+      :model-label="sceneModelInfo.label"
+      @open-preview="openLightboxAt"
+      @refresh="onPanelRefresh"
     />
 
     <!-- ── Preview what will be generated ─────────────────────────────────
@@ -468,6 +533,60 @@
       @accepted="onImageEditAccepted"
     />
 
+    <!-- Provider prompt-cap reference table. Mounts on demand from the
+         "View all caps →" link beside the model selector. Sorted strict-
+         first so the user can immediately spot the tight providers
+         (Seedream variants at ~500 chars) vs. the generous ones
+         (Nano Banana at ~5000). All numbers approximate — recorded from
+         each provider's published docs at last audit, see
+         electron/server/models/defaults.ts:prompt_char_cap. -->
+    <div v-if="showCapsTable" class="modal-overlay" @click.self="showCapsTable = false">
+      <div class="caps-modal">
+        <div class="caps-modal-head">
+          <h3>Image model prompt-character caps</h3>
+          <button type="button" class="caps-modal-close" @click="showCapsTable = false" title="Close">×</button>
+        </div>
+        <p class="text-muted text-sm caps-modal-intro">
+          Approximate per-prompt character limits documented by each provider. A prompt longer than
+          the cap is typically rejected outright or silently truncated — wasting credits either way.
+          Keep image prompts under the cap of whichever model you choose. Numbers refresh as
+          providers update their docs.
+        </p>
+        <div class="caps-table-wrap">
+          <table class="caps-table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th class="caps-th-right">Prompt cap</th>
+                <th class="caps-th-right">Credits / image</th>
+                <th>Refs?</th>
+                <th>Provider</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in allModelCaps" :key="row.id"
+                  :class="{ 'caps-row-active': row.id === activeForm.model }">
+                <td>{{ row.label }}</td>
+                <td class="caps-td-right">
+                  <template v-if="row.cap">~{{ row.cap.toLocaleString() }}</template>
+                  <span v-else class="text-muted">—</span>
+                </td>
+                <td class="caps-td-right">
+                  <template v-if="row.credits != null">{{ row.credits }}</template>
+                  <span v-else class="text-muted">—</span>
+                </td>
+                <td>
+                  <span v-if="row.supportsRefs" title="Supports reference / img2img images">✓</span>
+                  <span v-else class="text-muted">—</span>
+                </td>
+                <td class="text-muted">{{ row.provider }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -491,7 +610,7 @@ const { config } = useProject()
 // qwen-image-2, nano-banana, gpt-image-2, nano-banana-2, nano-banana-pro.
 const imageModelGroups = computed(() => {
   const all = groupModels(config.value?.image_models, () => 'kie')
-  if (form.image_mode !== 'img2img') return all
+  if (activeForm.value.image_mode !== 'img2img') return all
   return all.map(g => ({
     ...g,
     items: g.items.filter((m: any) => {
@@ -506,7 +625,7 @@ const imageModelGroups = computed(() => {
 // img2img-eligible list, so they aren't surprised by silent text2img
 // fallback. Read from the same supports_reference_images flag.
 const currentModelSupportsRefs = computed(() => {
-  const cfg = (config.value?.image_models || {} as any)[form.model]
+  const cfg = (config.value?.image_models || {} as any)[activeForm.value.model]
   const params = cfg?.provider_params || cfg
   return params?.supports_reference_images === true
 })
@@ -522,28 +641,47 @@ type Mode = 'all' | 'scenes' | 'thumbs'
 type ImageMode = 'text2img' | 'img2img'
 interface ReferenceSources { master: boolean; per_scene: boolean; characters: boolean; chain: boolean }
 
-const form = reactive({
-  episode_id: '',
+// v1.0.88+: form is split into two completely independent per-kind
+// sub-objects (form.thumbnail + form.scene). Each carries its own model,
+// aspect_ratio, tier, image_mode, generation_mode, and reference_sources.
+// `mode` and `episode_id` stay at the top level — they're the tab
+// selector and the episode pick, both inherently page-level.
+//
+// `activeForm` below is a computed proxy returning the sub-object that
+// matches the active tab; template bindings on shared-field controls
+// (Model picker, Aspect Ratio dropdown, Generation Mode radios, img2img
+// references card) all flow through this so editing the visible control
+// updates only the active kind's state. Switching tabs swaps the entire
+// surface — Thumbnail tab's Flux Kontext model and 1:1 aspect ratio
+// won't leak into the Scene tab's seedream + 16:9 setup.
+type ImagesSubForm = {
+  model: string
+  aspect_ratio: string
+  generation_mode: 'skip' | 'regenerate' | 'new_version'
+  tier: string
+  image_mode: ImageMode
+  reference_sources: ReferenceSources
+}
+const defaultSubForm = (): ImagesSubForm => ({
   model: 'grok-imagine',
-  mode: 'all' as Mode,
   aspect_ratio: '16:9',
   // Unified Generation Mode (M6) — replaces the standalone `force` checkbox.
   // Translated to `force` at submit time; the backend's image generator
   // (generators/images.ts) only knows about that boolean today, so this
   // is purely a UI consolidation. Default 'skip' matches the prior
   // default behaviour (force=false).
-  generation_mode: 'skip' as 'skip' | 'regenerate' | 'new_version',
+  generation_mode: 'skip',
   // Tier id for variable-priced kie.ai models (nano-banana-2 1k/2k/4k,
   // ideogram-v3 turbo/balanced/quality, etc.). Flat-priced models ignore
   // this. Reset on model switch via the watcher below.
-  tier: '' as string,
+  tier: '',
   // Image-to-image pipeline (Phase 4). Default text2img preserves
   // every prior behaviour exactly. img2img surfaces the references
   // card and forwards reference_sources to the backend so the
   // generator can resolve master / per-scene / character / chain
   // refs and pass them through to provider.generateImage's
   // referenceImagePaths.
-  image_mode: 'text2img' as ImageMode,
+  image_mode: 'text2img',
   reference_sources: {
     // master + per_scene off by default — they require the user to
     // upload images. characters defaults ON (matches Phase 8 default).
@@ -552,8 +690,26 @@ const form = reactive({
     per_scene: false,
     characters: true,
     chain: false,
-  } as ReferenceSources,
+  },
 })
+const form = reactive({
+  episode_id: '',
+  // v1.0.87+: default to 'thumbs' so the page lands on the Thumbnails tab.
+  // v1.0.88+: initial value picks up the route's ?tab= query so the
+  // sidebar's split "Thumbnail Generator" / "Scene Generator" entries
+  // land on the right tab. Query value 'scenes' → mode 'scenes'; any
+  // other value (including missing) → 'thumbs'.
+  mode: (route.query.tab === 'scenes' ? 'scenes' : 'thumbs') as Mode,
+  thumbnail: defaultSubForm(),
+  scene: defaultSubForm(),
+})
+
+// Active sub-form. Switches between thumbnail/scene based on mode.
+// Template auto-unwraps computed refs — `activeForm.model` Just Works
+// there; script uses `activeForm.value.model`.
+const activeForm = computed<ImagesSubForm>(() =>
+  form.mode === 'thumbs' ? form.thumbnail : form.scene,
+)
 
 // Hydrate the selected episode so child components + computeds can read
 // the human-readable title (resolveEpisodePaths needs it on the prompt-
@@ -602,15 +758,56 @@ function formatModelOption(m: { data: any }): string {
 // Tier helpers — exposed to the template via computeds so the picker
 // renders only when the active model has tiers.
 const modelTiers = computed<{ id: string; label: string; credits: number }[]>(() => {
-  const m = config.value?.image_models?.[form.model] as any
+  const m = config.value?.image_models?.[activeForm.value.model] as any
   return Array.isArray(m?.tiers) ? m.tiers : []
 })
 
 // Friendly model label for the StylePreviewCard's blurb. Falls back to
 // the model id when the config doesn't have a label.
 const modelLabelForStylePreview = computed(() => {
-  const m = config.value?.image_models?.[form.model] as any
-  return (m?.label as string) || form.model || ''
+  const m = config.value?.image_models?.[activeForm.value.model] as any
+  return (m?.label as string) || activeForm.value.model || ''
+})
+
+// Per-tab prompt-character cap + friendly label. Threaded into each
+// ImageGeneratorPanel so the per-row char badge can colour-code against
+// the provider's documented limit (advisory — see types.ts:prompt_char_cap).
+// Each tab can be configured with a different model, so we resolve caps
+// from form.thumbnail.model and form.scene.model independently.
+function modelInfoFor(modelId: string) {
+  const m = config.value?.image_models?.[modelId] as any
+  return {
+    cap: (m && typeof m.prompt_char_cap === 'number') ? (m.prompt_char_cap as number) : null,
+    label: (m?.label as string) || modelId || '',
+  }
+}
+const thumbnailModelInfo = computed(() => modelInfoFor(form.thumbnail.model))
+const sceneModelInfo = computed(() => modelInfoFor(form.scene.model))
+const activeModelCap = computed(() => (form.mode === 'thumbs' ? thumbnailModelInfo : sceneModelInfo).value.cap)
+const activeModelLabel = computed(() => (form.mode === 'thumbs' ? thumbnailModelInfo : sceneModelInfo).value.label)
+
+// All-models caps table — sorted by cap ascending so the strictest
+// providers (e.g. Seedream at ~500) surface first. Built once per
+// config change; the modal mounts on demand via showCapsTable.
+const showCapsTable = ref(false)
+const allModelCaps = computed(() => {
+  const models = config.value?.image_models || {}
+  return Object.entries(models).map(([id, raw]) => {
+    const m = raw as any
+    return {
+      id,
+      label: (m?.label as string) || id,
+      provider: (m?.provider as string) || 'kie',
+      cap: typeof m?.prompt_char_cap === 'number' ? m.prompt_char_cap : null,
+      credits: typeof m?.credits_per_image === 'number' ? m.credits_per_image : null,
+      supportsRefs: !!m?.supports_reference_images,
+    }
+  }).sort((a, b) => {
+    if (a.cap == null && b.cap == null) return a.label.localeCompare(b.label)
+    if (a.cap == null) return 1
+    if (b.cap == null) return -1
+    return a.cap - b.cap
+  })
 })
 const modelTierLabel = computed(() => {
   // Naming the picker by axis: "Resolution" if tier ids look like 1k/2k/4k,
@@ -625,25 +822,45 @@ const modelTierLabel = computed(() => {
 // When the active model changes, snap the tier selection back to the new
 // model's default_tier (or first tier, or empty). Without this, switching
 // from gpt-image-2 (default '1k') to ideogram-v3 (default 'balanced')
-// would leave form.tier='1k', which isn't a valid ideogram tier.
-watch(() => form.model, () => {
-  const m = config.value?.image_models?.[form.model] as any
+// would leave activeForm.value.tier='1k', which isn't a valid ideogram tier.
+watch(() => activeForm.value.model, () => {
+  const m = config.value?.image_models?.[activeForm.value.model] as any
   const tiers = Array.isArray(m?.tiers) ? m.tiers : []
   if (!tiers.length) {
-    form.tier = ''
+    activeForm.value.tier = ''
     return
   }
   const def = tiers.find((t: any) => t.id === m.default_tier) ?? tiers[0]
-  form.tier = def?.id || ''
+  activeForm.value.tier = def?.id || ''
 }, { immediate: true })
 
 // ── Presets ─────────────────────────────────────────────────────────────
-const imgPresets = usePresets<any>({
+// v1.0.88+: presets are SPLIT per kind (thumbnail_generator vs
+// scene_generator). Each tab maintains its own preset list so a
+// "seedream + 16:9 + skip" thumbnail preset can't accidentally
+// overwrite a "Flux Kontext + img2img + chain on" scene preset, and
+// vice versa. The TopActionBar binds to whichever preset object
+// matches the active tab via the `imgPresets` computed below.
+//
+// Legacy `image_generator_presets` is intentionally NOT migrated.
+// Existing presets stay on disk under that key but no longer surface
+// in the new split UI (re-save from the new tabs to materialize them).
+const thumbnailGeneratorPresets = usePresets<any>({
   slug: slug.value,
-  configKey: 'image_generator',
-  snapshot: () => ({ form: { ...form } }),
-  apply: (data) => { if (data?.form) Object.assign(form, data.form) },
+  configKey: 'thumbnail_generator',
+  snapshot: () => ({ form: { ...form.thumbnail } }),
+  apply: (data) => { if (data?.form) Object.assign(form.thumbnail, data.form) },
 })
+const sceneGeneratorPresets = usePresets<any>({
+  slug: slug.value,
+  configKey: 'scene_generator',
+  snapshot: () => ({ form: { ...form.scene } }),
+  apply: (data) => { if (data?.form) Object.assign(form.scene, data.form) },
+})
+// Bound to TopActionBar — swaps active preset surface on tab change.
+const imgPresets = computed(() =>
+  form.mode === 'thumbs' ? thumbnailGeneratorPresets : sceneGeneratorPresets,
+)
 
 /**
  * Format-aware seeding of aspect_ratio BEFORE preset loaders run. The
@@ -661,8 +878,11 @@ async function applyImageFormatDefaultsIfNoPreset() {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)
     const ip = f?.imagePrompts
     if (!ip) return
+    // v1.0.88+: seed BOTH sub-forms (each kind starts from the same
+    // format-recommended aspect; the user can then diverge per tab).
     if (typeof ip.recommendedAspect === 'string' && ip.recommendedAspect) {
-      form.aspect_ratio = ip.recommendedAspect
+      form.thumbnail.aspect_ratio = ip.recommendedAspect
+      form.scene.aspect_ratio = ip.recommendedAspect
     }
   } catch {
     // Format endpoint unavailable — keep the legacy '16:9' default.
@@ -671,7 +891,12 @@ async function applyImageFormatDefaultsIfNoPreset() {
 
 onMounted(async () => {
   await applyImageFormatDefaultsIfNoPreset()
-  await imgPresets.load()
+  // v1.0.88+: load both per-kind preset lists so either tab can
+  // immediately pick a saved preset without requiring a tab-switch first.
+  await Promise.all([
+    thumbnailGeneratorPresets.load(),
+    sceneGeneratorPresets.load(),
+  ])
 })
 
 // ── Preview-what-will-be-generated card ─────────────────────────────────
@@ -788,9 +1013,9 @@ async function renderPromptPreview(kind: 'scene' | 'thumbnail', row: PromptRow):
       created_at: string; size_bytes: number
     }>(`/projects/${slug.value}/preview-image`, {
       prompt: row.prompt,
-      model: form.model,
-      aspect_ratio: form.aspect_ratio,
-      tier: form.tier || undefined,
+      model: activeForm.value.model,
+      aspect_ratio: activeForm.value.aspect_ratio,
+      tier: activeForm.value.tier || undefined,
     })
     previewState[key] = {
       loading: false,
@@ -811,10 +1036,19 @@ async function renderPromptPreview(kind: 'scene' | 'thumbnail', row: PromptRow):
   }
 }
 
+// v1.0.87+: dropped the 'Both' tab and reordered (Thumbnails first).
+// The "generate everything in one go" mode encouraged users to fire
+// 250 scene jobs + 3 thumbnail jobs as a single batch, which made
+// retries painful when only the thumbnails came back wrong. Splitting
+// forces the user to tune each surface separately — same pattern as
+// the Image Prompts page where Thumbnail and Scene are now distinct
+// tabs. Thumbnails first because they're the CTR lever (you lock the
+// cover image direction before committing to N scene renders).
+// Backend still accepts 'all' for API parity / older clients; only the
+// frontend tab UI is restricted.
 const modeTabs: Array<{ id: Mode; label: string; icon: string; hint: string }> = [
-  { id: 'all',    label: 'Both',        icon: '🖼️', hint: 'Scenes + Thumbnails' },
-  { id: 'scenes', label: 'Scenes',      icon: '🎬', hint: 'Story artwork only' },
   { id: 'thumbs', label: 'Thumbnails',  icon: '📸', hint: 'YouTube thumbnails only' },
+  { id: 'scenes', label: 'Scenes',      icon: '🎬', hint: 'Story artwork only' },
 ]
 
 // Image pipeline mode tabs (Text → Image vs Image → Image).
@@ -830,7 +1064,7 @@ const imageModeTabs: Array<{ id: ImageMode; label: string; icon: string; hint: s
     hint: 'Reference images guide each scene — continuity + character consistency.' },
 ]
 function selectImageMode(m: ImageMode) {
-  form.image_mode = m
+  activeForm.value.image_mode = m
 }
 
 // Friendly title fed to the references card so the backend can resolve
@@ -884,10 +1118,33 @@ function selectMode(m: Mode) {
   form.mode = m
   specificNum.value = null
   // Reset aspect ratio to the default for this mode
-  if (m === 'thumbs' && !['16:9', '1:1', '4:3'].includes(form.aspect_ratio)) {
-    form.aspect_ratio = '16:9'
+  if (m === 'thumbs' && !['16:9', '1:1', '4:3'].includes(activeForm.value.aspect_ratio)) {
+    activeForm.value.aspect_ratio = '16:9'
   }
 }
+
+// v1.0.88+: keep form.mode in sync with the route's ?tab= query so the
+// sidebar's split "Thumbnail Generator" / "Scene Generator" entries
+// drive the active tab, and browser back/forward navigation moves
+// between them. Mapping: query 'thumbnails'/'scenes' ↔ form.mode
+// 'thumbs'/'scenes'. The legacy 'all' mode is no longer reachable
+// from the sidebar but a saved preset with mode='all' still loads as
+// the legacy unified flow (no query → defaults to thumbs tab visually
+// but the saved preset's mode wins the actual submit value).
+const _router = useRouter()
+watch(() => route.query.tab, (v) => {
+  const next = v === 'scenes' ? 'scenes' : 'thumbs'
+  if (next !== form.mode && (form.mode === 'thumbs' || form.mode === 'scenes')) {
+    selectMode(next)
+  }
+})
+watch(() => form.mode, (m) => {
+  if (m !== 'thumbs' && m !== 'scenes') return
+  const desired = m === 'scenes' ? 'scenes' : 'thumbnails'
+  const cur = String(route.query.tab || 'thumbnails')
+  if (cur === desired) return
+  _router.replace({ query: { ...route.query, tab: desired } })
+})
 
 function getConfirmationType(): 'scene_images' | 'thumb_images' | 'images' {
   if (form.mode === 'scenes') return 'scene_images'
@@ -1015,6 +1272,22 @@ const editScenes = ref<ScannedImage[]>([])
 const editThumbs = ref<ScannedImage[]>([])
 const editScanLoading = ref(false)
 const editScanError = ref('')
+
+// v1.0.87+: cache-bust key for the new ImageGeneratorPanel components.
+// Bumped after a per-row or bulk render completes inside either panel
+// so the parent Edit gallery + image-integrity card can pick up the
+// new files on the next refresh. Mirrors the pattern used by the
+// Image Prompts page (reviewRefreshKey for PromptReviewPanel).
+const igPanelRefreshKey = ref(0)
+
+function onPanelRefresh() {
+  igPanelRefreshKey.value++
+  // Re-run the Edit gallery's scan so its grid + the integrity card stay
+  // in sync with whatever the panels just wrote. The integrity card has
+  // its own refresh on the existing watcher; this just nudges the scan.
+  void loadEditScan()
+  refreshImageStatus()
+}
 
 async function loadEditScan() {
   if (!form.episode_id) return
@@ -1193,27 +1466,27 @@ async function submit() {
   // Translate Generation Mode (M6) → backend `force`. The image generator
   // doesn't have _v2 file naming yet, so 'new_version' currently maps to
   // 'skip' until that lands; the radio option is documented to that effect.
-  const force = form.generation_mode === 'regenerate'
+  const force = activeForm.value.generation_mode === 'regenerate'
   const params: any = {
     episode_id: form.episode_id,
-    model: form.model,
+    model: activeForm.value.model,
     mode: form.mode,
-    aspect_ratio: form.aspect_ratio,
+    aspect_ratio: activeForm.value.aspect_ratio,
     force,
   }
   // Forward tier only when the active model has tiers. Flat-priced models
   // ignore the field server-side, but sending it would clutter the request
   // log + the cost-confirmation receipt with a meaningless ' · ' suffix.
-  if (form.tier) params.tier = form.tier
+  if (activeForm.value.tier) params.tier = activeForm.value.tier
 
   // Image-to-image plumbing. Default text2img mode sends nothing extra —
   // the backend's resolveSceneReferenceImages then operates as it has
   // for the existing flow. img2img mode forwards the explicit pipeline
   // marker + the four-toggle reference_sources object so the generator
   // can resolve master / per-scene / characters / chain refs.
-  if (form.image_mode === 'img2img') {
+  if (activeForm.value.image_mode === 'img2img') {
     params.image_mode = 'img2img'
-    params.reference_sources = { ...form.reference_sources }
+    params.reference_sources = { ...activeForm.value.reference_sources }
   }
 
   // Send the right optional # field per mode
@@ -1520,4 +1793,80 @@ async function submit() {
 .help-note strong { color: var(--text-primary); }
 .help-note a { color: var(--accent); }
 .help-icon { font-size: 16px; }
+
+/* Prompt-cap pill + caps reference modal. */
+.cap-row {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 4px;
+}
+.cap-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(108, 143, 255, 0.12);
+  color: var(--accent, #6c8fff);
+  border: 1px solid rgba(108, 143, 255, 0.3);
+  cursor: help;
+}
+.cap-pill-unknown {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+.cap-pill strong { font-weight: 600; }
+.cap-link {
+  font-size: 11px;
+  background: none; border: none;
+  color: var(--accent, #6c8fff);
+  cursor: pointer; padding: 0;
+  text-decoration: underline;
+}
+.cap-link:hover { color: var(--text-primary); }
+
+.caps-modal {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--border);
+  padding: 18px 22px;
+  max-width: 720px;
+  width: 90vw;
+  max-height: 85vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+}
+.caps-modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.caps-modal-head h3 { margin: 0; font-size: 16px; color: var(--text-primary); }
+.caps-modal-close {
+  background: none; border: none; font-size: 22px;
+  color: var(--text-muted); cursor: pointer; padding: 0 6px; line-height: 1;
+}
+.caps-modal-close:hover { color: var(--text-primary); }
+.caps-modal-intro { margin: 4px 0 12px; line-height: 1.5; }
+.caps-table-wrap { overflow: auto; flex: 1 1 auto; }
+.caps-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.caps-table th, .caps-table td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.caps-table th {
+  position: sticky; top: 0;
+  background: var(--bg-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.caps-th-right, .caps-td-right { text-align: right !important; font-variant-numeric: tabular-nums; }
+.caps-row-active {
+  background: rgba(108, 143, 255, 0.08);
+}
+.caps-row-active td:first-child::before { content: '▸ '; color: var(--accent, #6c8fff); }
 </style>

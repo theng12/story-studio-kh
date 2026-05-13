@@ -101,6 +101,25 @@ export interface ProjectMeta {
    * brand, generators fall back to today's literal defaults.
    */
   brand_id?: string
+
+  /**
+   * Niche primitive — subject-domain layer orthogonal to Format. Format
+   * answers "what shape of video" (bound-explainer, sleep-story, listicle);
+   * Niche answers "what subject domain" (plants, animals, fungi, insects).
+   *
+   * `niche_id` selects a base Niche profile from the built-in library
+   * (electron/server/niches/*.json) or the user-custom library
+   * (${PROJECTS_ROOT}/.niches/*.json). Optional — projects without a niche
+   * keep working exactly as before; niche-aware generators detect the
+   * absence and skip the niche-injection passes.
+   *
+   * `niche_overrides` is a deep-partial of the resolved Niche applied on
+   * top of the base, mirroring `format_overrides`. Useful when a project
+   * wants to tweak a niche's vocab pool or style sheet without forking
+   * the whole JSON.
+   */
+  niche_id?: string
+  niche_overrides?: DeepPartial<Niche>
 }
 
 // ── Format primitive (Phase 1 of format/character/pattern system) ──────────
@@ -189,6 +208,30 @@ export interface ScriptFormat {
    * true on listicle.json + any future explainer-style format.
    */
   chaptersIndependent?: boolean
+
+  /**
+   * v1.0.82+: user-facing label for the format's primary content unit.
+   * Defaults to {singular: "Chapter", plural: "Chapters"} when absent
+   * so every existing format keeps its current vocabulary. Explainer
+   * formats override with their natural term — bound-explainer uses
+   * "Reason"/"Reasons", listicle uses "Topic"/"Topics" — so the UI
+   * surfaces and the LLM-emitted section headings ("## Reason 01: …")
+   * match the format's content type rather than always saying
+   * "Chapter".
+   *
+   * Internal identifiers stay "chapter" everywhere (chapter_slug,
+   * chapter_durations, audio_chapters.json, etc.) — the label is
+   * presentation-only. Slugs are derived from the actual heading text,
+   * so a "Reason 01" heading produces a "Reason_01" slug naturally
+   * and the downstream audio/video pipelines pair on identity, not on
+   * the literal word "Chapter".
+   */
+  sectionLabel?: {
+    /** Capitalized singular for in-text display ("Chapter", "Reason"). */
+    singular: string
+    /** Capitalized plural for counts and lists ("Chapters", "Reasons"). */
+    plural: string
+  }
 
   /**
    * v1.0.71+: per-format defaults for the Video Assembly page form.
@@ -294,6 +337,27 @@ export interface ImagePromptFormat {
   /** Future Phase 7 hook: how to inject character references. */
   characterReferenceMode: 'inline' | 'reference-image' | 'both'
   recommendedAspect: '16:9' | '9:16' | '1:1'
+  /**
+   * v1.0.81+: scene-to-narration alignment granularity for the
+   * Compilation video-assembly path.
+   *
+   *   "chapter" (default) — current behavior. Scenes pair positionally
+   *     to chapters; per-scene duration is uniform (`seconds_per_scene`)
+   *     and chapter duration determines how many scenes are cycled.
+   *
+   *   "sentence" — Bound-style explainer pacing. Scenes within a chapter
+   *     are distributed across the chapter's sentences (computed from
+   *     audio_sentences.json), and each scene's on-screen duration is
+   *     the sum of its assigned sentences' durations. Produces 3-6s
+   *     cuts aligned to spoken sentence breaks instead of uniform 10s
+   *     cuts that drift across the narration.
+   *
+   * Older format JSONs without this field default to "chapter" so
+   * sleep-story / listicle / TerraNash behavior is unchanged. Only
+   * formats that explicitly opt in (bound-explainer.json sets
+   * "sentence") get the new path.
+   */
+  alignment?: 'chapter' | 'sentence'
 }
 
 export interface YoutubeDescriptionStructure {
@@ -347,6 +411,107 @@ export interface Format {
    * guidelines without polluting the project's free-form standards file.
    */
   productionStandardsAddendum?: string
+}
+
+// ── Niche primitive (subject-domain layer, orthogonal to Format) ───────────
+//
+// A Niche bundles the subject-matter context that should flow into every
+// project covering that subject. Format answers "what shape of video";
+// Niche answers "what subject domain". The two compose freely:
+//
+//   bound-explainer × plants     → "Why It Sucks To Be Born As a Venus Flytrap"
+//   bound-explainer × animals    → "Why It Sucks To Be Born As a Komodo Dragon"
+//   listicle        × plants     → "10 Weirdest Plants on Earth"
+//   sleep-story     × gemstones  → "The Sleeping Caves" (TerraNash episode)
+//
+// Layered with Format + Brand:
+//   base format → brand.format_overrides → project.format_overrides
+//   base niche  → project.niche_overrides
+// Niche injection happens at well-defined call sites in each generator
+// (ideas vocab, script context, image-prompt style sheet, metadata tags) —
+// it does NOT participate in the format-merge chain. Keeping the axes
+// separate prevents the n×m JSON explosion you'd get if every
+// format-niche combination needed its own file.
+//
+// Built-in niches: electron/server/niches/{id}.json (shipped via
+// electron-builder extraResources). User-custom niches:
+// ${PROJECTS_ROOT}/.niches/{id}.json (exportable single JSON files).
+
+export interface NicheReferenceImage {
+  /** Stable id within the niche (e.g. "venus-flytrap-master"). */
+  id: string
+  /** Human label shown in the references picker. */
+  label: string
+  /** Absolute path on disk OR http(s) URL. The image generator copies the
+   *  file into the project's references folder on first use. */
+  path: string
+  /** How this reference should be applied. `master` = global style
+   *  anchor; `character` = a recurring character/subject; `scene` = a
+   *  template for a specific scene composition. */
+  role: 'master' | 'character' | 'scene'
+  /** Optional short description shown in tooltips. */
+  description?: string
+}
+
+export interface NicheVocabulary {
+  mood?: string[]
+  theme?: string[]
+  genre?: string[]
+  keyword?: string[]
+}
+
+export interface Niche {
+  id: string
+  name: string
+  description: string
+  builtin: boolean
+  schemaVersion: 1
+
+  /** Short tagline shown on the niche card / picker. */
+  tagline?: string
+
+  /** Example topics that feed the Ideas generator's "give me ideas in this
+   *  niche" pass. Each entry is the canonical "subject" string (e.g.
+   *  "Venus Flytrap", "Corpse Flower"). */
+  exampleTopics: string[]
+
+  /** Vocabulary pools merged INTO the format's vocab pools at ideas-
+   *  generation time. Niche keywords append to format keywords; the
+   *  randomizer draws from the union. */
+  vocabulary?: NicheVocabulary
+
+  /** Long-form style sheet appended after the format's `visualStyleHint`
+   *  in image-prompt assembly. Use this to lock the rendering convention
+   *  for every scene in this niche (e.g. "all plants drawn with soft
+   *  watercolor wash over thick line art"). */
+  visualStyleSheet?: string
+
+  /** Short keyword tags auto-added to every scene prompt and every
+   *  newly-created character in projects that carry this niche. Mirrors
+   *  the per-character `references.style_keywords` pattern but at niche
+   *  scope. */
+  defaultStyleKeywords?: string[]
+
+  /** Negative-prompt addendum merged into the project's negative prompt
+   *  (e.g. "no human characters, no animals in main frame" for the
+   *  plants niche). */
+  negativePromptAddendum?: string
+
+  /** Pre-built reference image pack. Made available to the image
+   *  generator as auto-attachable references — the user can opt in per
+   *  scene rather than having them force-attached. */
+  referenceImages?: NicheReferenceImage[]
+
+  /** YouTube tag hints merged into the metadata generator's tag pool. */
+  youtubeTagsHint?: string[]
+
+  /** One-line audience descriptor merged into format's audience text. */
+  audienceHint?: string
+
+  /** Sentence-form context line injected into the script generator's
+   *  system prompt: "This is a video about {niche.name}. {scriptContext}".
+   *  Optional — when absent, generators just use the niche name + description. */
+  scriptContext?: string
 }
 
 // ── Brand primitive (channel-level identity layer) ─────────────────────────
@@ -673,6 +838,14 @@ export interface CreateProjectRequest {
    * through to the legacy default ('sleep-story').
    */
   format_id?: string
+  /**
+   * Optional starter niche (subject-domain) for the new project. Picked
+   * via the Niche picker in the Create Project wizard. Persisted to the
+   * project meta as `niche_id`. Unset = no niche, format defaults apply
+   * unchanged. Validated server-side: unknown ids are silently dropped
+   * rather than rejecting the create, matching how format_id behaves.
+   */
+  niche_id?: string
 }
 
 export interface UpdateProjectRequest {
@@ -796,6 +969,17 @@ export interface ImageModelConfig {
    * `'kie'` (see `toUnified` in models/unified.ts).
    */
   provider?: string
+  /**
+   * Soft per-prompt character cap based on the provider's documented limit
+   * (approximate — providers don't always publish exact numbers, and some
+   * silently truncate vs. error). Used by the UI to warn users when a
+   * generated image prompt would be rejected or silently clipped by the
+   * provider so they can shorten before paying credits. Absent = treat as
+   * "no documented cap" (rendering shows "—"). NEVER enforced server-side
+   * — kept advisory so the provider's behaviour stays the single source
+   * of truth and we don't ship false-positive blocks when a cap shifts.
+   */
+  prompt_char_cap?: number
   /**
    * Set on user-added entries via the Settings → Models tab. Survives the
    * legacy-dict round-trip so the UI can show a "Custom" badge and allow

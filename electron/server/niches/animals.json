@@ -1,0 +1,110 @@
+{
+  "id": "animals",
+  "name": "Animals",
+  "description": "Vertebrate and invertebrate animal subjects — mammals, birds, reptiles, amphibians, fish, cephalopods, crustaceans. Covers anything in Kingdom Animalia except Insects (separate niche, since insect content has its own visual + narrative conventions). The default niche for Bound-style 'Why It Sucks To Be Born As X' explainers since the reference channel is animal-heavy.",
+  "tagline": "Born hunted, hungry, or weirdly built.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "exampleTopics": [
+    "Komodo Dragon",
+    "Japanese Sawshark",
+    "Golden Takin",
+    "Liger",
+    "Raccoon",
+    "Vampire Finch",
+    "Balloon Frog",
+    "King Penguin",
+    "Blue Whale",
+    "Camel",
+    "Pelican",
+    "Naked Mole Rat",
+    "Star-Nosed Mole",
+    "Pangolin",
+    "Aye-Aye",
+    "Sloth",
+    "Pistol Shrimp",
+    "Mantis Shrimp",
+    "Tarsier",
+    "Honey Badger"
+  ],
+
+  "vocabulary": {
+    "mood": [
+      "scrappy",
+      "brutal",
+      "wry",
+      "underdog",
+      "miserable-and-thriving",
+      "darkly funny"
+    ],
+    "theme": [
+      "predator pressure",
+      "parasitism",
+      "extreme cold / heat",
+      "weird reproduction",
+      "anatomical handicaps",
+      "evolutionary trade-offs",
+      "human-caused threats",
+      "ridiculous defense mechanisms"
+    ],
+    "genre": [
+      "zoology",
+      "wildlife biology",
+      "ethology",
+      "comparative anatomy",
+      "natural history",
+      "nature documentary"
+    ],
+    "keyword": [
+      "predator",
+      "prey",
+      "habitat",
+      "breeding",
+      "mating",
+      "migration",
+      "metabolism",
+      "thermoregulation",
+      "camouflage",
+      "venom",
+      "claws",
+      "fangs",
+      "horns",
+      "antlers",
+      "feathers",
+      "scales",
+      "fur",
+      "skeleton",
+      "endangered species",
+      "invasive species",
+      "trophic level"
+    ]
+  },
+
+  "visualStyleSheet": "All subjects are animals rendered as expressive cartoons with accurate species anatomy — correct skeletal proportions, accurate pelage / feathers / scales, species-typical posture. One expressive face per subject (real eye placement, real mouth structure — do NOT default to human-cartoon mascot eyes for non-vertebrate subjects). Thick uneven black ink outline, flat solid color fills with minimal cel-shading. Background is a simple solid color, gradient, or single-element environmental cue (savanna grass, ice floe, branch, ocean blue).",
+
+  "defaultStyleKeywords": [
+    "anatomically accurate animal",
+    "expressive cartoon animal",
+    "species-typical posture"
+  ],
+
+  "negativePromptAddendum": "no human characters in the same frame as the subject, no fantasy-creature stylings (no glowing eyes, no impossible color palettes unless the species really has them), no anthropomorphic clothing or accessories",
+
+  "referenceImages": [],
+
+  "youtubeTagsHint": [
+    "animals",
+    "animal facts",
+    "wildlife",
+    "zoology",
+    "weird animals",
+    "nature explainer",
+    "evolution",
+    "ecology"
+  ],
+
+  "audienceHint": "viewers who like nature trivia, wildlife documentaries, and the dark-humor side of animal biology",
+
+  "scriptContext": "This is a video about a specific animal species. Narration can use light anthropomorphism for humor ('it spends every breeding season regretting its choices') but must always ground claims in real biology — cite specific anatomy, behavior, lifecycle stages, or known field-study findings."
+}

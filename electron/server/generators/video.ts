@@ -1013,7 +1013,49 @@ export async function generateVideo(job: Job): Promise<void> {
       type: 'none', zoom_start: 100, zoom_end: 108, parallax_direction: 'right', parallax_speed: 2, breathe_amplitude: 2, breathe_base_zoom: 103,
     }
 
-    // 6. Prepare scene clips
+    // 6. Prepare scene clips.
+    // v1.0.81+: when the project's format opts into sentence alignment
+    // AND audio_sentences.json exists, compute per-scene durations from
+    // sentence-level timing instead of using the uniform recycling
+    // default. This is what gives Bound-style explainer pacing — each
+    // scene stays on screen exactly as long as its assigned sentences.
+    // The block is fully optional and best-effort: any failure falls
+    // back to uniform per-scene durations and logs why.
+    let sentenceDurations: number[] | undefined
+    try {
+      const { getEffectiveFormat } = await import('../services/format-loader.js')
+      const fmt = await getEffectiveFormat(project_slug)
+      if (fmt.imagePrompts.alignment === 'sentence') {
+        const sentencesPath = path.join(episodeDir, 'audio_sentences.json')
+        const raw = await fs.readFile(sentencesPath, 'utf-8').catch(() => null)
+        if (raw) {
+          const { parseSentenceSidecar, assignScenesToSentences } = await import('../lib/sentence-timing.js')
+          const parsed = parseSentenceSidecar(JSON.parse(raw))
+          if (parsed && parsed.sections.length > 0) {
+            const fallback = req.scene_recycling?.seconds_per_scene || 4
+            const result = assignScenesToSentences(
+              req.scenes.map(s => ({ chapter_slug: s.chapter_slug })),
+              parsed,
+              fallback,
+            )
+            sentenceDurations = result.perSceneDurations
+            const totalSec = sentenceDurations.reduce((a, b) => a + b, 0)
+            job.output_lines.push(
+              `Sentence alignment: ON — ${result.assignments.length} scene(s) mapped to ` +
+              `${parsed.sections.reduce((s, sec) => s + sec.sentences.length, 0)} sentence(s); ` +
+              `target scene-track duration ${totalSec.toFixed(1)}s`,
+            )
+          } else {
+            job.output_lines.push(`Sentence alignment: format opts in but audio_sentences.json is empty/invalid — falling back to uniform per-scene duration.`)
+          }
+        } else {
+          job.output_lines.push(`Sentence alignment: format opts in but audio_sentences.json missing — re-run Audio Merge to emit it. Falling back to uniform per-scene duration.`)
+        }
+      }
+    } catch (e: any) {
+      job.output_lines.push(`Note: sentence-alignment check skipped (${e?.message || 'lookup error'})`)
+    }
+
     const sceneClips = await prepareSceneClips(
       req.scenes, sceneAnimation, req.chapter_titles, resW, resH, quality, tempDir, canDrawtext, req.scene_recycling, job,
       {
@@ -1021,6 +1063,7 @@ export async function generateVideo(job: Job): Promise<void> {
         randomizeMode: ((req as any).animation_randomize || 'off') as 'off' | 'single' | 'per-scene',
         seed: (req as any).animation_seed,
       },
+      sentenceDurations,
     )
 
     // 6. Prepare title image clip (if provided)
@@ -1661,9 +1704,15 @@ async function prepareSceneClips(
     randomizeMode: 'off' | 'single' | 'per-scene'
     seed?: number
   },
+  /** v1.0.81+: sentence-aligned per-scene durations. Index-aligned with
+   *  `scenes`. When provided, scene i renders for perSceneDurations[i]
+   *  seconds instead of the uniform recycling.seconds_per_scene. Falls
+   *  back to the uniform default when an entry is 0/undefined. Clamped
+   *  to a sane floor (0.5s) to avoid sub-frame clips. */
+  perSceneDurations?: number[],
 ): Promise<string[]> {
   const clipPaths: string[] = []
-  const duration = recycling.seconds_per_scene || 10
+  const defaultDuration = recycling.seconds_per_scene || 10
 
   // Pre-pick an animation type for each scene. 'off' = use the primary type;
   // 'single' = one random type for all scenes; 'per-scene' = different each time.
@@ -1679,8 +1728,17 @@ async function prepareSceneClips(
     const scene = scenes[i]
     const clipPath = path.join(tempDir, `scene_${String(i).padStart(4, '0')}.mp4`)
 
+    // Pick per-scene duration: sentence-aligned override (when supplied
+    // by the caller) wins over the uniform recycling default. Floor at
+    // 0.5s so tiny sentence assignments don't produce sub-frame clips.
+    const sceneOverride = perSceneDurations?.[i]
+    const duration = (typeof sceneOverride === 'number' && Number.isFinite(sceneOverride) && sceneOverride > 0)
+      ? Math.max(0.5, sceneOverride)
+      : defaultDuration
+
     const pickedType = picks[i]
-    job.output_lines.push(`Preparing scene clips: ${i + 1}/${scenes.length}${pickedType !== sceneAnimation.type ? ` [anim=${pickedType}]` : ''}`)
+    const durLog = perSceneDurations && Math.abs(duration - defaultDuration) > 0.05 ? ` [dur=${duration.toFixed(2)}s]` : ''
+    job.output_lines.push(`Preparing scene clips: ${i + 1}/${scenes.length}${pickedType !== sceneAnimation.type ? ` [anim=${pickedType}]` : ''}${durLog}`)
 
     const vfParts = buildAnimationFilter({
       type: pickedType,

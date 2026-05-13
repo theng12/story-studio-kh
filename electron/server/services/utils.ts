@@ -192,7 +192,24 @@ export async function resolveSubfolderNames(slug: string, code: string): Promise
 //      whenever a job reaches a terminal state (done/error/cancelled), so
 //      the next poll after a generation run hits the provider live.
 
-const CREDIT_CACHE_TTL_MS = 5_000
+// v1.0.84+: bumped from 5_000ms to 30_000ms. The frontend polls
+// `/projects/:slug/health` every 5s (useCredits.ts default), and the
+// previous 5s TTL was the worst possible value — the cache expired
+// just before every poll, so every poll missed cache and re-fetched
+// all 4 external balance APIs (Kie / fal / ElevenLabs / GenAIPro)
+// in parallel. Each provider has a 5s timeout, so a single slow
+// provider could blow the budget on every poll. Server logs from
+// 2026-05-12 showed `/projects/:slug/health` consistently taking
+// 2-5s and the request queue piling up behind it, which made the
+// FilePicker Browse button feel laggy (the browser was holding
+// connections open to in-flight health polls).
+//
+// 30s is comfortably longer than the 5s poll interval so the cache
+// hits ~83% of the time. The trade-off is that the credit indicator
+// can be 30s stale — fine for a "do I still have money to generate"
+// indicator. Job completion calls `invalidateCreditCache(provider)`
+// explicitly, so the user sees fresh numbers right after generation.
+const CREDIT_CACHE_TTL_MS = 30_000
 
 const creditCache = new Map<string, { value: any; ts: number }>()
 

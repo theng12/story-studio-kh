@@ -117,7 +117,9 @@ describe('snippetFromMeta — integration', () => {
     assert.equal(out.title, 'A Sleep Story About the Ocean')
     assert.equal(out.description, 'Drift off to the sound of gentle waves.')
     assert.deepEqual(out.tags, ['sleep', 'ocean', 'relax'])
-    assert.equal(out.categoryId, '22')
+    // v1.0.77 — default category switched from '22' (People & Blogs) to
+    // '24' (Entertainment) for narrative AI / story content.
+    assert.equal(out.categoryId, '24')
     assert.deepEqual(logs, [])
   })
 
@@ -165,7 +167,8 @@ describe('snippetFromMeta — integration', () => {
 
   test('preserves VideoSnippet shape with categoryId default', () => {
     const out = snippetFromMeta({ title: 't', description: 'd', tags: ['a'], thumbnailPath: '' })
-    assert.equal(out.categoryId, '22')
+    // v1.0.77 default = '24' (Entertainment).
+    assert.equal(out.categoryId, '24')
     assert.equal(typeof out.title, 'string')
     assert.equal(typeof out.description, 'string')
     assert.ok(Array.isArray(out.tags))

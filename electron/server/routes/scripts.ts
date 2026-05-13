@@ -127,25 +127,34 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
     })
   }
 
-  // Validate the optional `chapters` filter when present. Accept an array
-  // of integers in 1..total_chapters, deduped. Reject non-arrays, NaN,
-  // out-of-range, and non-integer entries — the executor would silently
-  // skip these which is confusing UX (user gets a 201 + no work done).
-  // Empty array is allowed (means "expand all pending"); we normalise it
-  // to `undefined` so the executor takes the no-filter path.
-  if (req.body.chapters !== undefined) {
-    if (!Array.isArray(req.body.chapters)) {
-      return res.status(400).json({ detail: '`chapters` must be an array of chapter numbers.' })
+  // Validate the optional filter list (`chapters_to_expand`) when present.
+  // The OutlineReviewPanel sends an integer array of chapter numbers to
+  // partially expand; the executor at episode.ts:1211 reads exactly that
+  // field. Earlier versions of this route validated `chapters` (the
+  // chapter-COUNT field from the script-form payload, an integer) as if
+  // it were the filter array, which always 400'd when the frontend was
+  // working as designed — fixed in v1.0.85 by matching the executor's
+  // contract.
+  //
+  // Accept an array of integers in 1..total_chapters, deduped. Reject
+  // non-arrays, NaN, out-of-range, and non-integer entries — the
+  // executor would silently skip these which is confusing UX (user
+  // gets a 201 + no work done). Empty array is allowed (means "expand
+  // all pending"); we normalise it to `undefined` so the executor
+  // takes the no-filter path.
+  if (req.body.chapters_to_expand !== undefined) {
+    if (!Array.isArray(req.body.chapters_to_expand)) {
+      return res.status(400).json({ detail: '`chapters_to_expand` must be an array of chapter numbers.' })
     }
     if (sidecar) {
       const total = sidecar.total_chapters
       const seen = new Set<number>()
       const cleaned: number[] = []
-      for (const raw of req.body.chapters) {
+      for (const raw of req.body.chapters_to_expand) {
         const n = Number(raw)
         if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > total) {
           return res.status(400).json({
-            detail: `Invalid chapter number in \`chapters\`: ${raw} (must be an integer 1..${total}).`,
+            detail: `Invalid chapter number in \`chapters_to_expand\`: ${raw} (must be an integer 1..${total}).`,
           })
         }
         if (seen.has(n)) continue
@@ -153,8 +162,8 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
       }
       // Replace the request body so the executor sees the cleaned set.
       // Empty after de-dup → drop the field entirely (= expand all pending).
-      if (cleaned.length === 0) delete req.body.chapters
-      else req.body.chapters = cleaned
+      if (cleaned.length === 0) delete req.body.chapters_to_expand
+      else req.body.chapters_to_expand = cleaned
     }
   }
 
@@ -584,226 +593,78 @@ router.get('/projects/:slug/episodes/:episodeId/chapters/:chapterNumber/content'
   }
 })
 
-// ── Generate image prompts with style/ratio controls (returns prompts for review) ──
+// ── Generate image prompts with style/ratio controls ──────────────────────
 //
-// Synchronous LLM call in the request handler. Per M5 (system audit):
-// when this needs to be moved into the queue (so it appears in /jobs and
-// becomes retryable), refactor through `enqueueOrRun(..., { sync: true })`
-// from services/job-queue.ts — the seam is already there.
-
+// v1.0.87+: this route used to run the LLM call synchronously in the
+// request handler and return the parsed prompts. That meant:
+//   - The job never appeared in the Jobs panel, so users couldn't see
+//     progress, partial output, or errors mid-flight (a 250-scene job
+//     can take 1–3 minutes; the old route just hung the request).
+//   - The chunked-batch path lived only in the executor, so the route's
+//     single LLM call hit output-token caps at 50+ scenes and silently
+//     produced 5 instead of 250.
+//
+// Now the route enqueues an `image_prompts` job and returns `{ job }`.
+// The executor in `generators/image-prompts.ts` is the single source of
+// truth: it handles chunking, writes the docx to disk, and reports
+// progress + errors via the standard Jobs SSE stream. The frontend
+// watches the returned job_id via useJobs and refreshes the
+// PromptReviewPanel when the job lands in `done`.
+//
+// The legacy sync return shape (`{ scenes, thumbnails, style_tag,
+// aspect_ratio }`) is gone. Callers that depended on it (the inline
+// "Current" tab in image-prompts.vue) now read prompts from disk via
+// `GET /projects/:slug/episodes/:episodeId/image-prompts` once the job
+// completes — same endpoint PromptReviewPanel already uses.
 router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
   const { slug } = req.params
   const config = await pm.getConfig(slug)
   if (!config) return res.status(404).json({ detail: 'Config not found' })
 
-  const {
-    episode_id, model, style_tag, aspect_ratio, title,
-    scenes_per_chapter, total_scenes, chapter_count, thumb_count,
-    thumb_text_style, thumb_text_style_custom,
-    thumb_text_position,
-    thumb_font_style, thumb_font_style_custom,
-    character_ids,
-  } = req.body
-
-  const provider = SUPPORTED_MODELS[model]
-  if (provider === 'anthropic' && !config.anthropic_api_key) return res.status(400).json({ detail: 'No Anthropic key' })
-  if (provider === 'openai' && !config.openai_api_key) return res.status(400).json({ detail: 'No OpenAI key' })
-  if (provider === 'kie' && !config.kie_api_key) return res.status(400).json({ detail: 'No kie.ai key' })
-
-  // Read narration for story context. parseNarrationDocx gives us
-  // structured sections (one per chapter, plus Introduction) so we can
-  // skip the intro from the LLM context — scene prompts shouldn't be
-  // flavored by host-talk preamble. The actual chapter count for sceneCount
-  // math is resolved separately below via the explicit form value /
-  // sidecar / on-disk file count chain (more reliable than counting the
-  // narration docx, which can lag or be stale).
-  const standards = await pm.getStandards(slug) || ''
-  let storyContext = ''
-  try {
-    const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-    const { parseNarrationDocx } = await import('../lib/docx-parser.js')
-    const sections = await parseNarrationDocx(paths.narration_docx)
-    const fullText = sections
-      .filter(s => s.slug !== 'Introduction')
-      .map(s => s.text)
-      .join('\n\n')
-    storyContext = fullText.slice(0, 3000)
-  } catch {
-    storyContext = `Episode: ${episode_id}, Title: ${title || 'Unknown'}`
+  const { episode_id, model, title } = req.body
+  if (typeof episode_id !== 'string' || !episode_id) {
+    return res.status(400).json({ detail: 'episode_id is required' })
   }
 
-  // Resolve cast → character-reference block. Empty array (or missing
-  // field on legacy requests) → empty string injected → today's behaviour
-  // unchanged. When non-empty, the LLM is told each character's name +
-  // description verbatim, so the requirement at REQUIREMENTS line 6
-  // ("inline character descriptions") actually has data backing it.
-  const characters = Array.isArray(character_ids) && character_ids.length
-    ? await cm.resolveCharacters(slug, character_ids)
-    : []
-  const castBlock = castImagePromptBlock(characters)
-
-  const mode = req.body.mode || 'all' // 'all', 'scenes', 'thumbnails'
-  let sceneCount = 0
-  let thumbs = 0
-
-  // Resolve chapter count: explicit form value wins, otherwise read the
-  // chunked-progress sidecar's total_chapters, otherwise count chapter
-  // docx files on disk, otherwise fall back to 10. The user-reported
-  // bug — "20-chapter outline at 1 per chapter produced only 10 prompts"
-  // — was the previous hardcoded `* 10` ignoring everything below this
-  // line. Frontend now sends chapter_count explicitly so the form math
-  // = the LLM's instruction.
-  const explicitCount = Number(chapter_count)
-  let chapterCount = Number.isFinite(explicitCount) && explicitCount > 0
-    ? Math.round(explicitCount)
-    : 0
-  if (chapterCount === 0) {
-    try {
-      const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-      const { readSidecar } = await import('../lib/chunked-narration.js')
-      const sidecar = await readSidecar(paths.script_dir, episode_id)
-      if (sidecar && typeof sidecar.total_chapters === 'number' && sidecar.total_chapters > 0) {
-        chapterCount = sidecar.total_chapters
-      } else {
-        // Fall back to counting chapter docx files on disk.
-        const entries = await fs.readdir(paths.script_dir).catch(() => [] as string[])
-        const re = new RegExp(`^${episode_id}_Chapter_(\\d+)\\.docx$`)
-        const onDisk = entries.filter(n => re.test(n)).length
-        if (onDisk > 0) chapterCount = onDisk
-      }
-    } catch { /* fall through to 10 */ }
-    if (chapterCount === 0) chapterCount = 10
-  }
-
-  if (mode === 'thumbnails') {
-    sceneCount = 0
-    thumbs = thumb_count || 5
-  } else if (mode === 'scenes') {
-    sceneCount = total_scenes || (scenes_per_chapter || 1) * chapterCount
-    thumbs = 0
-  } else {
-    sceneCount = total_scenes || (scenes_per_chapter || 1) * chapterCount
-    thumbs = thumb_count || 5
-  }
-
-  // Build thumbnail text instruction via the shared resolver so frontend
-  // + sync route + batch generator all see the same expanded catalog.
-  const fontPhrase = resolveFontStyle(thumb_font_style, thumb_font_style_custom)
-  const textPhrase = resolveTextStyle(thumb_text_style, thumb_text_style_custom)
-  const thumbTextInstruction = `The episode title "${title}" displayed in ${fontPhrase}, ${textPhrase}, positioned at the ${thumb_text_position || 'center'} of the frame, large and legible.`
-
-  const ratioDescriptions: Record<string, string> = {
-    '16:9': 'wide 16:9 landscape format with cinematic framing',
-    '1:1': 'square 1:1 format with centered composition',
-    '9:16': 'tall 9:16 portrait format with vertical composition',
-    '4:3': 'classic 4:3 format',
-    '3:4': 'portrait 3:4 format',
-    '21:9': 'ultrawide 21:9 cinematic format',
-  }
-  const ratioInstruction = ratioDescriptions[aspect_ratio] || 'wide landscape format'
-
-  // Build requirements based on mode. Length floor + structural slot
-  // guidance mirror generators/image-prompts.ts so the chunked + sync
-  // paths produce comparably detailed prompts. Without the explicit
-  // 60–120 word floor the LLM happily ships one-line prompts that
-  // under-specify the image — user-reported as "the prompts are short."
-  const requirements: string[] = []
-  if (sceneCount > 0) {
-    // Spell out the per-chapter breakdown when we derived sceneCount from
-    // scenes_per_chapter × chapters. Helps the LLM allocate evenly across
-    // the actual chapter count instead of compressing into the chapters it
-    // happened to dwell on in the story-context snippet.
-    const showBreakdown = !total_scenes && scenes_per_chapter && chapterCount > 0
-    const breakdown = showBreakdown
-      ? ` (${scenes_per_chapter} per chapter across ${chapterCount} chapter${chapterCount === 1 ? '' : 's'})`
-      : ''
-    requirements.push(`Generate exactly ${sceneCount} scene prompts${breakdown}.`)
-  }
-  if (thumbs > 0) requirements.push(`Generate exactly ${thumbs} thumbnail prompts.`)
-  requirements.push(
-    `Each prompt must be DETAILED — 60–120 words, 3–5 sentences. ` +
-    `Cover: subject + action, setting + props, lighting + time of day, ` +
-    `mood + atmosphere, framing/composition, and any visible characters ` +
-    `with concrete physical descriptions. Short one-line prompts are unusable.`,
-  )
-  requirements.push(`Every prompt must end with this style tag: "${style_tag}"`)
-  requirements.push(`Every prompt must specify composition for ${ratioInstruction}.`)
-  requirements.push(`Every prompt must include inline character descriptions.`)
-
-  const prompt = `Generate image prompts for a story episode.
-
-Episode: ${episode_id} — ${title}
-
-Story context:
-${storyContext}
-${castBlock}
-REQUIREMENTS:
-${requirements.map((r, i) => `${i + 1}. ${r}`).join('\n')}
-${sceneCount === 0 ? '\nDo NOT generate any scene prompts. Only generate thumbnail prompts.' : ''}
-${thumbs === 0 ? '\nDo NOT generate any thumbnail prompts. Only generate scene prompts.' : ''}
-
-FORMAT — return ONLY a JSON object:
-{
-  "scenes": [{"number": 1, "title": "Brief Title", "prompt": "Full prompt text..."}],
-  "thumbnails": [{"number": 1, "title": "Brief Title", "prompt": "Full prompt text..."}]
-}
-
-THUMBNAIL RULE: Every thumbnail must include: '${thumbTextInstruction}'
-
-No markdown, no commentary, just valid JSON.`
-
-  try {
-    const raw = await callAi(model, '', prompt, {
-      anthropic_api_key: config.anthropic_api_key,
-      openai_api_key: config.openai_api_key,
-      kie_api_key: config.kie_api_key,
-    }, false, { slug })
-
-    // Parse JSON from response
-    let text = raw.trim()
-    if (text.startsWith('```')) {
-      text = text.split('\n').filter(l => !l.trim().startsWith('```')).join('\n')
+  // Pre-flight API-key check — same set the inline route used. Surfacing
+  // this as a 400 from the route (rather than letting the executor fail
+  // mid-job) keeps the bad-key UX immediate instead of "queued then
+  // dies 10s later." `model` may be undefined on legacy presets; the
+  // executor falls back to a default in that case, so we only check
+  // when it's present.
+  if (model) {
+    const provider = SUPPORTED_MODELS[model]
+    if (provider === 'anthropic' && !config.anthropic_api_key) {
+      return res.status(400).json({ detail: 'No Anthropic key configured. Add one in Settings.' })
     }
-    const start = text.indexOf('{')
-    const end = text.lastIndexOf('}')
-    const parsed = JSON.parse(text.slice(start, end + 1))
-
-    // Surface short-returns server-side so a "the toast says 10 but I asked
-    // for 20" puzzle has a breadcrumb in the logs. The LLM occasionally
-    // ignores the "exactly N" instruction when the story context can't
-    // sustain that many distinct prompts; we don't error out (the user
-    // can always regenerate or bump scenes_per_chapter), just record it.
-    const returnedScenes = Array.isArray(parsed.scenes) ? parsed.scenes.length : 0
-    const returnedThumbs = Array.isArray(parsed.thumbnails) ? parsed.thumbnails.length : 0
-    if (sceneCount > 0 && returnedScenes < sceneCount) {
-      console.warn(
-        `[image-prompts] LLM returned ${returnedScenes} scene prompts; requested ${sceneCount}. ` +
-        `Episode: ${slug}/${episode_id}. Resolved chapter count: ${chapterCount}.`,
-      )
+    if (provider === 'openai' && !config.openai_api_key) {
+      return res.status(400).json({ detail: 'No OpenAI key configured. Add one in Settings.' })
     }
-    if (thumbs > 0 && returnedThumbs < thumbs) {
-      console.warn(
-        `[image-prompts] LLM returned ${returnedThumbs} thumbnail prompts; requested ${thumbs}. ` +
-        `Episode: ${slug}/${episode_id}.`,
-      )
+    if (provider === 'kie' && !config.kie_api_key) {
+      return res.status(400).json({ detail: 'No kie.ai key configured. Add one in Settings.' })
     }
+  }
 
-    await trackGeneration(slug, 'prompts')
-
-    res.json({
-      scenes: parsed.scenes || [],
-      thumbnails: parsed.thumbnails || [],
-      style_tag,
-      aspect_ratio,
+  if (jq.isDuplicate(slug, episode_id, 'image_prompts')) {
+    return res.status(409).json({
+      detail: `Image-prompts generation already queued/running for ${episode_id}`,
     })
-  } catch (e: any) {
-    // Honour explicit statusCode (400 validation, 402 quota, …) and
-    // surface the raw error via humanizeBackendError so users see
-    // actionable detail (provider quota, missing key, etc.) rather
-    // than a flat "Generation failed: <terse>".
-    const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
-    res.status(status).json(humanizeBackendError(e, 'Generation failed'))
   }
+
+  const job = jq.enqueue({
+    project_slug: slug,
+    type: 'image_prompts',
+    episode_id,
+    title: title || '',
+    // The executor reads params straight off this object — see
+    // ImagePromptsParams in generators/image-prompts.ts. Pass the body
+    // through verbatim so any field the form sends (style_tag, aspect_
+    // ratio, scenes_per_chapter, total_scenes, chapter_count, thumb_*,
+    // mode, character_ids) flows untouched.
+    params: req.body,
+  })
+
+  res.status(201).json(job)
 })
 
 // ── Save reviewed prompts to .docx ──
@@ -1198,6 +1059,51 @@ Requirements:
     const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
     res.status(status).json(humanizeBackendError(e, 'Generation failed'))
   }
+})
+
+// ── 4b) Queued "Generate All" — same work as /metadata/all but goes through
+//        the job queue so users can navigate away mid-run and come back to
+//        find it done. Mirrors the script/audio/video page pattern:
+//          POST  → 201 { job_id, ... }
+//          poll  → /jobs/:id until status === 'done'
+//          GET   /episodes/:id/metadata → load latest version from disk
+//
+// The synchronous /metadata/all stays for back-compat (the pipeline batch
+// runner uses it via the executor directly; per-section regenerate buttons
+// also still hit their narrower endpoints). New page wiring should prefer
+// this queue endpoint so the EpisodeSelector confirm-on-switch dialog
+// fires uniformly.
+
+router.post('/projects/:slug/generate/metadata', async (req, res) => {
+  const { slug } = req.params
+  const config = await pm.getConfig(slug)
+  if (!config) return res.status(404).json({ detail: 'Config not found' })
+
+  const { episode_id, title, model } = req.body
+  if (!episode_id || typeof episode_id !== 'string') {
+    return res.status(400).json({ detail: 'episode_id is required' })
+  }
+  if (!title || typeof title !== 'string') {
+    return res.status(400).json({ detail: 'title is required' })
+  }
+  if (!model || typeof model !== 'string') {
+    return res.status(400).json({ detail: 'model is required' })
+  }
+  const credErr = checkProvider(model, config)
+  if (credErr) return res.status(400).json({ detail: credErr })
+
+  if (jq.isDuplicate(slug, episode_id, 'metadata')) {
+    return res.status(409).json({ detail: `Metadata generation already queued/running for ${episode_id}` })
+  }
+
+  const job = jq.enqueue({
+    project_slug: slug,
+    type: 'metadata',
+    episode_id,
+    title: `Metadata — ${episode_id}`,
+    params: req.body,
+  })
+  res.status(201).json(job)
 })
 
 // ── 5) Save / Load metadata ───────────────────────────────────────────────

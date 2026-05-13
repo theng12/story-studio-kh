@@ -198,11 +198,19 @@ export async function parseNarrationDocx(docxPath: string): Promise<NarrationSec
       continue
     }
 
-    // Chapter N: Title
-    const chapterMatch = text.match(/^Chapter\s+(\d+)\s*[:\-–—]\s*(.*)$/i)
+    // Section heading: Chapter N | Reason N | Topic N | Section N | Part N | Lesson N | Bit N | Beat N
+    // Accepts any format's section term so explainer formats (bound-
+    // explainer="Reason", listicle="Topic") parse correctly, but
+    // NORMALIZES the slug + label back to "Chapter_NN". Internal identity
+    // (MP3 filenames, audio_chapters.json slugs, video assembly pairing)
+    // stays format-agnostic so a project switching format mid-flight or
+    // sharing fixtures across formats keeps working. The format's
+    // vocabulary surfaces in the UI via the format's sectionLabel field,
+    // not in on-disk identifiers.
+    const chapterMatch = text.match(/^(?:Chapter|Reason|Topic|Section|Part|Lesson|Bit|Beat)\s+(\d+)\s*[:\-–—]\s*(.*)$/i)
     if (line.level === 2 && chapterMatch) {
       flush(); currentLines = []
-      const num = parseInt(chapterMatch[1])
+      const num = parseInt(chapterMatch[1]!)
       const titlePart = (chapterMatch[2] || '').trim()
       currentLabel = `Chapter ${num.toString().padStart(2, '0')}`
       currentSlug = `Chapter_${num.toString().padStart(2, '0')}`
