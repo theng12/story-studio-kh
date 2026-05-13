@@ -70,7 +70,17 @@
 
           <div class="form-group">
             <label>Description <span class="req">*</span></label>
-            <span class="hint">Physical + personality. Flows verbatim into script + image prompts. Specific concrete details work best ("plate armour with a silver braid down her back" beats "a knight").</span>
+            <span class="hint">
+              Physical + personality. Flows verbatim into script + image prompts. Specific concrete details work best
+              ("plate armour with a silver braid down her back" beats "a knight").
+              <template v-if="editing && (draft.references?.images?.length || 0) > 0">
+                Or click <strong>✨ Describe from image</strong> on any reference below to bootstrap.
+              </template>
+              <template v-else-if="!editing">
+                Save the character first to upload reference portraits — then a one-click "Describe from image" button
+                will auto-fill this field from your uploaded picture.
+              </template>
+            </span>
             <textarea v-model="draft.description" class="input" rows="4" />
           </div>
 
@@ -85,8 +95,39 @@
 
           <div v-if="draft.scope === 'episode'" class="form-group">
             <label>Episode codes <span class="req">*</span></label>
-            <span class="hint">Comma-separated episode codes (e.g. <code>EP001, EP002</code>). The character appears in the picker only for these episodes.</span>
-            <input v-model="episodeCodesText" class="input" placeholder="EP001, EP002" />
+            <span class="hint">
+              Pick the episodes this character appears in. The picker on Image Prompts / Scripts
+              only surfaces this character when one of these codes matches the active episode.
+              Click an episode to add it. Episode codes are matched exactly — typing <code>EP001</code>
+              when your project uses <code>EP0001</code> means the character will silently never show up.
+            </span>
+            <!-- Real episodes pulled from the project — beats the old comma-
+                 separated text input where users could fat-finger the code
+                 format and end up with a character that never appears in
+                 any picker. Each project's actual codes come from
+                 useEpisodes(); user clicks to toggle. Manual entry still
+                 supported below for episodes that haven't been accepted yet. -->
+            <div v-if="projectEpisodes.length" class="episode-chip-row">
+              <button
+                v-for="ep in projectEpisodes"
+                :key="ep.episode_code"
+                type="button"
+                :class="['episode-chip', { active: selectedEpisodeCodes.has(ep.episode_code) }]"
+                :title="`${ep.episode_code} — ${ep.title || '(no title)'}`"
+                @click="toggleEpisodeCode(ep.episode_code)"
+              >
+                {{ ep.episode_code }}
+                <span v-if="ep.title" class="episode-chip-title">{{ shortTitle(ep.title) }}</span>
+              </button>
+            </div>
+            <input
+              v-model="episodeCodesText"
+              class="input mt-1"
+              :placeholder="episodeCodesPlaceholder"
+            />
+            <span v-if="unknownEpisodeCodes.length" class="hint" style="color: rgb(220, 38, 38);">
+              ⚠ Unknown episode code(s): <code>{{ unknownEpisodeCodes.join(', ') }}</code> — these don't match any episode in this project. Did you mean <code>{{ projectEpisodes[0]?.episode_code || 'EP0001' }}</code>?
+            </span>
           </div>
 
           <fieldset class="speech-block">
@@ -160,8 +201,59 @@
               </div>
             </div>
 
+            <!-- Vision-model picker (sits above the per-image Describe buttons
+                 since the same choice applies to every click). Options the
+                 user doesn't have a key for are kept visible but disabled so
+                 they know which providers they could enable. -->
+            <div v-if="draft.references?.images?.length" class="ref-vision-model">
+              <label>Vision model for ✨ Describe:</label>
+              <select v-model="visionModel" class="select" :disabled="visionModelsLoading">
+                <option v-if="visionModelsLoading" value="">Loading models…</option>
+                <option v-else value="">Auto (pick whichever I have a key for)</option>
+                <option
+                  v-for="m in visionModelOptions"
+                  :key="m.id"
+                  :value="m.id"
+                  :disabled="!m.has_key"
+                >
+                  {{ m.label }}{{ m.has_key ? '' : ' — no key configured' }}
+                </option>
+              </select>
+              <button
+                v-if="visionModelOptions.some(m => !m.has_key)"
+                type="button"
+                class="cap-link"
+                @click="openAppSettings"
+                title="Add API keys in Settings → API Keys to enable more vision models."
+              >
+                Add keys →
+              </button>
+            </div>
+
             <div v-if="draft.references?.images?.length" class="ref-images mt-2">
-              <span v-for="img in draft.references.images" :key="img" class="ref-chip">{{ img }}</span>
+              <div v-for="img in draft.references.images" :key="img" class="ref-card">
+                <img
+                  :src="referenceImageUrl(img)"
+                  :alt="img"
+                  class="ref-thumb"
+                />
+                <div class="ref-card-body">
+                  <span class="ref-card-name" :title="img">{{ img }}</span>
+                  <div class="ref-card-actions">
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-secondary"
+                      :disabled="describingFrom === img"
+                      :title="describeButtonTitle"
+                      @click="describeFromImage(img)"
+                    >
+                      <LoadingSpinner v-if="describingFrom === img" size="sm" />
+                      <span v-else aria-hidden="true">✨</span>
+                      {{ describingFrom === img ? 'Describing…' : 'Describe from image' }}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -188,6 +280,18 @@ useAppTitle('Characters')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const cm = useCharacters(slug)
+const { get: apiGet, post } = useApi()
+
+// Real episodes for this project — feeds the click-to-pick chip row in
+// the editor so users can't typo the episode code format (EP001 vs
+// EP0001 vs S01E03). useEpisodes is shared-cache so it's near-instant on
+// every editor open.
+const { episodes: projectEpisodes } = useEpisodes(slug)
+
+function shortTitle(t: string, max = 24): string {
+  if (!t) return ''
+  return t.length > max ? t.slice(0, max - 1) + '…' : t
+}
 const { ask } = useConfirm()
 const { success, error: showError } = useToast()
 
@@ -218,6 +322,40 @@ const draft = ref<Partial<Character>>({
 const episodeCodesText = ref('')
 const speechTonation = ref('')
 const speechVoiceId = ref('')
+
+/** Parse the comma-separated codes input into a normalised array. */
+function parseEpisodeCodes(raw: string): string[] {
+  return raw.split(',').map(s => s.trim()).filter(Boolean)
+}
+const selectedEpisodeCodes = computed(() => new Set(parseEpisodeCodes(episodeCodesText.value)))
+
+/** Warn the user when a typed code doesn't match any project episode —
+ *  flushes out the EP001 vs EP0001 footgun before they save and silently
+ *  break the picker on Image Prompts / Scripts. */
+const unknownEpisodeCodes = computed(() => {
+  const known = new Set(projectEpisodes.value.map(e => e.episode_code))
+  return parseEpisodeCodes(episodeCodesText.value).filter(code => !known.has(code))
+})
+
+/** Suggest the user's actual episode-code format in the placeholder so
+ *  freshly-created characters can't be silently scoped to a non-existent
+ *  episode (the original cause of "I can't see my character in the
+ *  picker" reports). */
+const episodeCodesPlaceholder = computed(() => {
+  const first = projectEpisodes.value[0]?.episode_code
+  const second = projectEpisodes.value[1]?.episode_code
+  if (first && second) return `${first}, ${second}`
+  if (first) return first
+  return 'EP0001, EP0002'
+})
+
+function toggleEpisodeCode(code: string) {
+  const current = parseEpisodeCodes(episodeCodesText.value)
+  const idx = current.indexOf(code)
+  if (idx >= 0) current.splice(idx, 1)
+  else current.push(code)
+  episodeCodesText.value = current.join(', ')
+}
 
 // Style keywords are persisted in `references.style_keywords`. We store
 // them in a separate ref while editing so the ChipInput's reactivity
@@ -383,6 +521,140 @@ async function confirmDelete(c: Character) {
 const fileInput = ref<HTMLInputElement | null>(null)
 const uploadingImg = ref(false)
 const isDragging = ref(false)
+
+// Per-image "Describe from image" state — tracks WHICH reference filename
+// is currently being analysed so the spinner shows on the right card.
+const describingFrom = ref<string | null>(null)
+
+// ── Vision-model picker (powers ✨ Describe from image) ─────────────────
+// Loads from GET /vision/caps so disabled options reflect whichever keys
+// the user has configured. Persisted in localStorage so the user's pick
+// survives across editor open/close cycles.
+interface VisionModelOption { id: string; provider: string; has_key: boolean; label: string }
+const VISION_MODEL_LABELS: Record<string, string> = {
+  'claude-sonnet-4-6':         'Claude Sonnet 4.6 (Anthropic) — best quality',
+  'claude-opus-4-7':           'Claude Opus 4.7 (Anthropic)',
+  'claude-3-5-sonnet-latest':  'Claude 3.5 Sonnet (Anthropic)',
+  'claude-3-5-sonnet-20241022':'Claude 3.5 Sonnet 2024-10-22 (Anthropic)',
+  'claude-3-opus-20240229':    'Claude 3 Opus (Anthropic)',
+  'gpt-4o':                    'GPT-4o (OpenAI) — fast & cheap',
+  'gpt-4o-mini':               'GPT-4o mini (OpenAI) — cheapest',
+  'gpt-4-turbo':               'GPT-4 Turbo (OpenAI)',
+  'gpt-5':                     'GPT-5 (OpenAI)',
+}
+const VISION_MODEL_STORAGE_KEY = 'storyStudio:visionModel'
+const visionModel = ref<string>(typeof localStorage !== 'undefined' ? (localStorage.getItem(VISION_MODEL_STORAGE_KEY) || '') : '')
+const visionModelsLoading = ref(false)
+const visionModelOptionsRaw = ref<VisionModelOption[]>([])
+
+const visionModelOptions = computed(() =>
+  visionModelOptionsRaw.value
+    .map(m => ({ ...m, label: VISION_MODEL_LABELS[m.id] || m.id }))
+    .sort((a, b) => {
+      // Available models first, then by label
+      if (a.has_key !== b.has_key) return a.has_key ? -1 : 1
+      return a.label.localeCompare(b.label)
+    }),
+)
+
+const describeButtonTitle = computed(() => {
+  const id = visionModel.value
+  if (!id) return 'Run a vision-LLM pass on this image to generate a rigid appearance description. Auto-picks whichever provider you have a key for. Replaces the current Description field. Cost: ~$0.005–0.02 per click.'
+  const m = visionModelOptions.value.find(o => o.id === id)
+  const label = m ? m.label : id
+  return `Run vision analysis on this image using ${label}. Replaces the current Description field.`
+})
+
+async function loadVisionCaps() {
+  if (visionModelOptionsRaw.value.length) return
+  visionModelsLoading.value = true
+  try {
+    const caps = await apiGet<{ models: VisionModelOption[]; default: string }>(
+      `/projects/${slug.value}/vision/caps`,
+    )
+    visionModelOptionsRaw.value = caps?.models || []
+    // If the user's persisted choice is no longer key-backed, fall back to auto.
+    const stillUsable = visionModelOptionsRaw.value.find(m => m.id === visionModel.value && m.has_key)
+    if (visionModel.value && !stillUsable) visionModel.value = ''
+  } catch {
+    visionModelOptionsRaw.value = []
+  } finally {
+    visionModelsLoading.value = false
+  }
+}
+
+// Refresh caps whenever the editor opens — picks up newly-added API keys
+// from Settings without a hard page reload.
+watch(editorOpen, (open) => { if (open) void loadVisionCaps() })
+
+// Persist the user's pick across editor opens (and across browser
+// reloads). Empty string = "auto-pick" which the backend interprets
+// correctly even when the localStorage entry is missing.
+watch(visionModel, (v) => {
+  if (typeof localStorage === 'undefined') return
+  if (v) localStorage.setItem(VISION_MODEL_STORAGE_KEY, v)
+  else localStorage.removeItem(VISION_MODEL_STORAGE_KEY)
+})
+
+// API keys live in the global App Settings modal (not a `/settings`
+// route — that's the per-project page and doesn't host the Anthropic /
+// OpenAI keys). Reuse the singleton modal the dashboard's top-bar
+// "App Settings" button uses so the user lands on the same surface
+// they're already familiar with.
+const appSettingsModal = useAppSettingsModal()
+function openAppSettings() {
+  appSettingsModal.open()
+}
+
+/**
+ * Public URL for an uploaded reference image. Backed by the new
+ * GET /characters/:id/reference-image/:filename route — defensive by
+ * design (only files registered on the character resolve, never raw
+ * filesystem paths from the URL).
+ */
+function referenceImageUrl(filename: string): string {
+  if (!editing.value) return ''
+  return `/api/projects/${slug.value}/characters/${editing.value.id}/reference-image/${encodeURIComponent(filename)}`
+}
+
+/**
+ * One-click bootstrap: run a vision-LLM pass on the uploaded reference and
+ * drop the resulting rigid appearance description into the editor's
+ * Description field. The biggest continuity lever for image generation —
+ * the same prompt-words feed every scene render, so the model produces
+ * recognisably the same character across the episode.
+ *
+ * Confirms before overwriting any non-empty description so the user
+ * doesn't lose hand-typed notes by accident.
+ */
+async function describeFromImage(filename: string) {
+  if (!editing.value || describingFrom.value) return
+  const hasExisting = !!(draft.value.description?.trim())
+  if (hasExisting) {
+    const ok = await ask({
+      title: 'Replace existing description?',
+      body: 'The Description field already has text. Running vision analysis will overwrite it. Continue?',
+      confirmLabel: 'Replace',
+    })
+    if (!ok) return
+  }
+  describingFrom.value = filename
+  try {
+    const r = await post<{ description: string; model_used: string }>(
+      `/projects/${slug.value}/characters/${editing.value.id}/describe-from-image`,
+      // Empty visionModel = "auto" → backend picks Claude if Anthropic key
+      // exists, otherwise GPT-4o. An explicit pick wins as long as the
+      // user has the matching provider key configured.
+      { filename, ...(visionModel.value ? { model: visionModel.value } : {}) },
+    )
+    draft.value.description = r.description
+    success(`Described from ${filename} (${r.model_used})`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Description generation failed')
+  } finally {
+    describingFrom.value = null
+  }
+}
 // Surfaced as "Uploading X of Y…" when multiple files are batched. Total
 // counts every file accepted from the current drop/paste/browse; remaining
 // decrements as each upload completes.
@@ -632,8 +904,96 @@ function onPaste(e: ClipboardEvent) {
   padding: 0 6px;
 }
 
-.ref-images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ref-images { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
 .ref-chip { font-size: 10px; background: var(--bg-tertiary); padding: 3px 6px; border-radius: 3px; }
+.ref-card {
+  display: flex; gap: 10px; align-items: stretch;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  padding: 8px;
+  width: 100%;
+  max-width: 420px;
+}
+.ref-thumb {
+  width: 96px; height: 96px;
+  object-fit: cover;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg-primary);
+}
+.ref-card-body {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1;
+}
+.ref-card-name {
+  font-size: 11px; color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ref-card-actions { margin-top: auto; }
+
+/* Vision-model picker — sits above the per-image Describe buttons. */
+.ref-vision-model {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.ref-vision-model label {
+  font-size: 11px; color: var(--text-muted);
+}
+.ref-vision-model select {
+  font-size: 12px;
+  padding: 3px 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  cursor: pointer;
+  flex: 1 1 280px;
+  min-width: 200px;
+}
+.cap-link {
+  font-size: 11px;
+  background: none; border: none;
+  color: var(--accent, #6c8fff);
+  cursor: pointer; padding: 0;
+  text-decoration: underline;
+}
+.cap-link:hover { color: var(--text-primary); }
+
+/* Episode-code chip picker — replaces the freeform text input footgun.
+   Clicking a chip toggles inclusion; selected chips highlight in accent. */
+.episode-chip-row {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 6px;
+}
+.episode-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.episode-chip:hover { border-color: var(--accent, #6c8fff); }
+.episode-chip.active {
+  background: rgba(108, 143, 255, 0.18);
+  border-color: var(--accent, #6c8fff);
+  color: var(--accent, #6c8fff);
+  font-weight: 600;
+}
+.episode-chip.active::before { content: '✓ '; }
+.episode-chip-title {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.episode-chip.active .episode-chip-title { color: var(--accent, #6c8fff); }
 
 /* Reference-image drop zone — drag, paste, or click. Replaces the bare
  * <input type="file"> we used to ship; gives consistent affordance with

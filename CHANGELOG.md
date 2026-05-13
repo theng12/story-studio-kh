@@ -4,6 +4,58 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.88 — 2026-05-14
+
+**Bound-style episode workflow — character continuity + style anchoring**
+- New **✨ Describe from image** button on the Character editor. Upload a reference portrait, click describe, and a vision-LLM (Claude Sonnet or GPT-4o, whichever provider key you have configured) drafts a rigid appearance description for you — locked-in wording you can drop into every scene's LLM prompt so the model produces a recognisably-same critter across the whole episode. The biggest single lever for image continuity.
+  - Each uploaded reference now renders as a thumbnail card (96×96) inside the editor instead of a filename chip, so the "which image am I describing?" question answers itself.
+  - **Vision model picker** dropdown above the Describe button — choose between Claude Sonnet 4.6 (highest fidelity), GPT-4o (cheapest), GPT-4o mini (~$0.002 per call), and others. Models without a configured API key are visible-but-disabled with a "no key configured" hint. Your pick persists in localStorage across editor open/close + reloads.
+  - Settings shortcut — when some providers have missing keys, an **Add keys →** link in the picker row opens the App Settings modal in-place (no full-page navigation).
+
+**Character library — episode-code validation**
+- Replaced the freeform "Episode codes" text input with a click-to-pick chip row that lists your project's actual episode codes (with titles for context). Eliminates the silent EP001 vs EP0001 footgun that previously hid characters from the Image Prompts / Scripts cast picker.
+- Manual typing still supported (for episodes drafted but not yet accepted); a red inline warning fires when a typed code doesn't match any project episode ("Did you mean EP0001?").
+- Smart placeholder shows your project's first two episode codes, not the generic EP001/EP002.
+
+**Style Preview card — click-to-zoom, save-to-episode, persist-across-reloads**
+- The rendered style sample is now a button — click it to zoom into a full-screen modal (~80vh, scaled to fit, model/aspect/tier metadata shown). Close with backdrop click, ✕ button, or Escape.
+- New **💾 Save to episode** button on the preview card — copies the cached preview PNG into the active episode's scene-images or thumbnails folder with a self-describing filename like `EP0001_StylePreview_Scene_gpt-image-2_16-9_1k_v1.png`. Auto-bumps the version suffix on repeat saves so iterations don't overwrite each other. Disabled until an episode is picked.
+- Style description textarea now **persists across page reloads + app restarts** via localStorage. Per-(project, kind) keys so the Scene tab and Thumbnail tab keep separate descriptions (each tab can target a different image model with a different natural style).
+
+**Image model catalog — kie.ai slug fixes + i2i routing**
+- Fixed Nano Banana 2 slug (`nano-banana-2`, not `google/nano-banana-2`) and refs field name (`image_input`, not `image_urls`). Same model that was 422'ing on every preview attempt now works end-to-end.
+- Added image-to-image variant routing: GPT Image 2 (`gpt-image-2-image-to-image`, refs field `input_urls`) and original Nano Banana (`google/nano-banana-edit`, refs field `image_urls`) now auto-swap their model slug + payload shape when references are attached. Text-only generation still hits the cheaper t2i variant.
+- New advisory **prompt-char cap** badges everywhere image prompts live:
+  - Inline pill beside the model selector ("Prompt cap: ~5,000 chars" for Nano Banana 2 vs "~500" for Seedream)
+  - Per-row char counter on every prompt — colour-coded green / yellow / red against the active model's cap so you spot oversized prompts before paying credits
+  - **View all caps →** modal reference table (sorted strict-first) on both the Image Prompts and Image Generator pages
+- Project config migration — kie.ai provider infrastructure fields (model slug, refs/aspect field names, endpoint, type) now always come from defaults, not from the per-project saved config. When kie.ai changes a slug (as they did with NB2), every existing project picks up the fix on next load. User-customisable fields (label, credits, tiers, prompt_char_cap) still preserve their customisations.
+- Custom user-added image models (Settings → Add custom model) carry no cap by default — their counter renders neutral grey ("no documented cap") rather than misleading colours.
+
+**Metadata generator — switched to job queue**
+- Clicking "Generate Metadata" now enqueues a `metadata` job instead of blocking on a synchronous LLM call. You can switch episodes mid-job (with the same confirm dialog the other generators use), let the job finish in the background, and come back later to find the metadata sidecar already written.
+- If you switched away when the job finishes, the original episode's metadata is on disk — toast reads "Metadata for EP0001 generated — switch back to view." No more silent data corruption when you navigate mid-call.
+
+**Episode-switch confirm — uniform across every generator**
+- Filled in missing labels in the `JOB_TYPE_LABELS` map so the confirm dialog reads cleanly for every job type instead of falling back to raw type strings: outline_only → "outline", expand_chapters → "chapter expansion", scene_images / thumb_images → "scene images" / "thumbnail images", video_repair → "video repair", tiktok_upload / facebook_upload → "TikTok upload" / "Facebook upload".
+
+**Script generator — preset persists intro state + form syncs to outline sidecar**
+- Saving a script preset with the Introduction toggle unchecked now actually persists that bit — previously the snapshot dropped intro state silently and every reload restored `intro.enabled = true` from the default. Same fix carries the intro beats list.
+- After an outline is generated, the chapter count + words-per-chapter + total-words + length inputs on the script form now mirror what's persisted in the outline sidecar. Previously the form would silently revert to format defaults on remount, forcing you to re-type the values you'd just committed before clicking Expand.
+
+**Image Generator panel — scene preview thumbnails detect correctly**
+- Fixed the row-level rendered-image binding for the Scene tab. Was reading a `scene_number` field that doesn't exist on the backend scan response; the thumbnail tab incidentally worked because it parsed the filename. Both tabs now use the canonical `number` field with a filename-regex fallback.
+
+**Vision routes — auto-pick provider, not hardcoded Claude**
+- `/analyze-style` and `/analyze-character` no longer default to `claude-sonnet-4-6` and hard-error if you only have an OpenAI key. They now honour an explicit `model` if you passed one AND have its key, else prefer Claude Sonnet if Anthropic key is set, else fall back to GPT-4o, else return a clear "configure a key" message. OpenAI-only users can use every vision feature out of the box.
+
+**Smaller fixes**
+- **Bug**: `useCharacters` composable accepted `string | (() => string)` but the Characters page passed a Vue `ComputedRef` (an object, not a function). The runtime `typeof === 'function'` check fell through and the ComputedRef got template-stringified into the URL as `[object Object]`, surfacing as "Project '[object Object]' not found" on every Create / Edit / Delete. The composable now also accepts `Ref<string> | ComputedRef<string>` via `isRef()`.
+- **Bug**: `res.sendFile` was silently 404'ing on the style-preview cache route because the project path contains a space (`Story Studio KH`). Replaced with `fs.createReadStream` + explicit Content-Type/Length headers. The cached preview JPEGs now serve correctly from URLs containing spaces in any segment.
+- **Bug**: NB2's `prompt_char_cap` now flows through the project-config merge so the cap pill displays correctly on existing projects.
+
+---
+
 ## v1.0.87 — 2026-05-13
 
 **Image Generator — per-prompt control + true thumbnail/scene split**

@@ -57,6 +57,21 @@ export async function submitGeneration(
     ? await encodeReferenceImages(opts.referenceImagePaths)
     : []
 
+  // Some kie.ai models swap their model slug between text-to-image and
+  // image-to-image (GPT Image 2, original Nano Banana). When refs are
+  // attached, prefer the i2i variant slug if the model config provides one.
+  const activeModel = (refs.length && modelConfig.api_model_i2i)
+    ? modelConfig.api_model_i2i
+    : modelConfig.api_model
+
+  // Per-model field names — kie.ai's catalog is inconsistent here. Each
+  // model declares its own refs field (`image_urls`, `image_input`,
+  // `input_urls`, `inputImages`) and aspect-ratio field (`aspect_ratio`
+  // vs `image_size`). Defaults match the historical behaviour for models
+  // that didn't bother to override.
+  const refsField = modelConfig.refs_field || 'image_urls'
+  const aspectField = modelConfig.aspect_field || 'aspect_ratio'
+
   let payload: any
 
   switch (modelConfig.type) {
@@ -64,7 +79,7 @@ export async function submitGeneration(
       // Flux Kontext field convention per kie.ai docs: `inputImage` (single)
       // or `inputImages` (array). We send the array form when we have refs;
       // models that don't honour it will still process the prompt-only path.
-      payload = { prompt, aspectRatio, model: modelConfig.api_model }
+      payload = { prompt, aspectRatio, model: activeModel }
       if (refs.length) payload.inputImages = refs
       break
     case '4o':
@@ -74,15 +89,16 @@ export async function submitGeneration(
       if (refs.length) payload.inputImages = refs
       break
     case 'gpt-image': {
-      const ar = ['1:1', '2:3', '3:2'].includes(aspectRatio) ? aspectRatio : '1:1'
-      payload = { model: modelConfig.api_model, input: { prompt, aspect_ratio: ar, quality: 'medium' } }
-      if (refs.length) payload.input.input_images = refs
+      // GPT Image 2 has its own aspect-ratio constraints — the t2i endpoint
+      // accepts the full standard list, the i2i endpoint same. Keep the
+      // value verbatim; kie.ai validates server-side.
+      payload = { model: activeModel, input: { prompt, aspect_ratio: aspectRatio, quality: 'medium' } }
+      if (refs.length) payload.input[refsField] = refs
       break
     }
-    default: // 'jobs' — standard endpoint (e.g. nano-banana, imagen4)
-      payload = { model: modelConfig.api_model, input: { prompt, aspect_ratio: aspectRatio } }
-      // nano-banana accepts `image_urls` for reference-image conditioning.
-      if (refs.length) payload.input.image_urls = refs
+    default: // 'jobs' — standard endpoint (Nano Banana, NB2, Imagen 4, Seedream, …)
+      payload = { model: activeModel, input: { prompt, [aspectField]: aspectRatio } }
+      if (refs.length) payload.input[refsField] = refs
   }
 
   const resp = await fetch(`${KIE_BASE_URL}${modelConfig.endpoint}`, {

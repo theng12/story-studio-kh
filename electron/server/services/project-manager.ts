@@ -813,6 +813,21 @@ export async function deleteProject(slug: string): Promise<DeleteProjectResult> 
  * shape was on disk, which is why the 2026-04-28 Kie.ai tier additions
  * didn't surface for existing projects until this merge changed.
  */
+/**
+ * Provider infrastructure fields — slug, endpoint, poll URL, payload type,
+ * and the kie.ai-specific i2i slug override + ref/aspect field names —
+ * MUST come from defaults, not from the project's saved config. When a
+ * provider changes their model slug (kie.ai shipped `nano-banana-2` after
+ * we'd already saved `google/nano-banana-2` per-project, breaking every
+ * existing project), the user-customizable shell (label / credits /
+ * tiers / prompt_char_cap) preserves their customisations but the wiring
+ * gets re-pointed automatically.
+ */
+const PROVIDER_INFRA_FIELDS = new Set([
+  'api_model', 'api_model_i2i', 'endpoint', 'poll', 'type',
+  'refs_field', 'aspect_field', 'provider', 'supports_reference_images',
+])
+
 function mergeCatalog<T extends Record<string, any>>(
   defaults: Record<string, T>,
   saved: Record<string, T> | null | undefined,
@@ -821,9 +836,19 @@ function mergeCatalog<T extends Record<string, any>>(
   // Start with defaults so new ids appear unconditionally.
   for (const [id, def] of Object.entries(defaults)) {
     const projectEntry = saved?.[id]
-    out[id] = projectEntry
-      ? ({ ...def, ...projectEntry } as T)
-      : def
+    if (!projectEntry) {
+      out[id] = def
+      continue
+    }
+    // saved entries win for user-customisable fields BUT infrastructure
+    // fields (slug, endpoint, ref field names) always come from defaults
+    // so provider-side slug changes auto-propagate.
+    const merged: any = { ...def, ...projectEntry }
+    for (const k of PROVIDER_INFRA_FIELDS) {
+      if (def && k in def) merged[k] = (def as any)[k]
+      else if (projectEntry && !(k in def)) delete merged[k]
+    }
+    out[id] = merged as T
   }
   // Carry user-added custom entries that aren't in defaults.
   if (saved) {

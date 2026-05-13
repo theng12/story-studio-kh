@@ -199,3 +199,29 @@ export async function pathForStylePreviewHash(hash: string): Promise<string | nu
   if (!existsSync(abs)) return null
   return abs
 }
+
+/**
+ * Read the index entry for a hash without resolving the file path.
+ * Used by /style-preview-save so the saved filename can encode the
+ * (model, aspect, tier) the preview was rendered against without
+ * making the caller re-derive any of it. Returns null when the hash
+ * has no entry OR the entry's file is missing on disk.
+ */
+export async function getCachedStylePreviewByHash(hash: string): Promise<CachedStylePreview | null> {
+  const idx = await readIndex()
+  const entry = idx.entries[hash]
+  if (!entry) return null
+  const abs = path.join(resolveStylePreviewDir(), entry.filename)
+  if (!existsSync(abs)) return null
+  return {
+    hash,
+    style_tag: entry.style_tag,
+    model_id: entry.model_id,
+    aspect_ratio: entry.aspect_ratio,
+    tier: entry.tier || '',
+    created_at: entry.created_at,
+    filename: entry.filename,
+    abs_path: abs,
+    size_bytes: entry.size_bytes,
+  }
+}

@@ -73,3 +73,7 @@ _trash/.claude/worktrees/
 .env
 .env.local
 .env.*.local
+
+# Per-machine style-preview cache (regenerated on demand, NOT a project artifact)
+.style-previews/
+electron/.style-previews/

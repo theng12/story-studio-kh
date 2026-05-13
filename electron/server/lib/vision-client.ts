@@ -56,12 +56,36 @@ Return 2–4 sentences describing ONLY the following aspects — do NOT describe
 
 Output as a single flowing paragraph suitable for appending "in this style" to image generation prompts. No bullet points. No preamble like "This image has…" or "The style is…" — just the description itself.`
 
+// Companion prompt to STYLE_PROMPT: focuses on WHAT the subject looks like
+// rather than HOW it's drawn. Used by /analyze-character so the user can
+// upload a reference image and bootstrap a rigid appearance description
+// the LLM will then reuse verbatim across every scene prompt for that
+// character — the single biggest continuity lever for image generation.
+const CHARACTER_PROMPT = `Analyze the main subject of this image and produce a rigid character description for re-use in image-generation prompts.
+
+Describe ONLY the subject's appearance — NOT the lighting, medium, brushwork, palette, or scene context (those belong in a separate style tag). Cover, in order:
+- Species / type (human, animal, creature, etc.)
+- Distinct anatomy (proportions, body shape, notable features — wing shape, antenna length, ear shape, build, etc.)
+- Colour markings (exact colours of body parts, patterns, eye colour, etc.)
+- Clothing or accessories (if any)
+- Pose / framing tendency (typical angle, e.g. "always shown in side profile" — only if clear from the image)
+
+Output as 2–4 sentences as one flowing paragraph. Start directly with the subject — no preamble. End with "Same proportions and markings every scene." so the downstream LLM treats it as a hard constraint.
+
+If you cannot clearly identify a single subject (empty scene, ambiguous composition), respond with the literal string: NO_CLEAR_SUBJECT`
+
 export interface AnalyzeStyleInput {
   imagePath: string
   model: string
   apiKey: string
   /** Optional extra hint: "illustration" biases the prompt toward illustration-specific vocabulary. */
   focus?: string | null
+  /** What to extract:
+   *   'style'     → palette / medium / lighting (default, original behaviour)
+   *   'character' → subject appearance / anatomy / colour markings, for the
+   *                 character primitive's description field.
+   */
+  mode?: 'style' | 'character'
 }
 
 export interface AnalyzeStyleResult {
@@ -89,7 +113,8 @@ async function downscaleToBuffer(imagePath: string, maxSide = 1024): Promise<{ b
 async function callAnthropic(input: AnalyzeStyleInput, imageBuffer: Buffer, mime: string): Promise<string> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk')
   const client = new Anthropic({ apiKey: input.apiKey })
-  const userPrompt = input.focus ? `${STYLE_PROMPT}\n\nFocus hint: ${input.focus}` : STYLE_PROMPT
+  const basePrompt = input.mode === 'character' ? CHARACTER_PROMPT : STYLE_PROMPT
+  const userPrompt = input.focus ? `${basePrompt}\n\nFocus hint: ${input.focus}` : basePrompt
   const resp = await client.messages.create({
     model: input.model,
     max_tokens: 400,
@@ -111,7 +136,8 @@ async function callOpenAi(input: AnalyzeStyleInput, imageBuffer: Buffer, mime: s
   const { isCompletionTokensModel } = await import('../providers/text/openai.js')
   const client = new OpenAI({ apiKey: input.apiKey })
   const dataUrl = `data:${mime};base64,${imageBuffer.toString('base64')}`
-  const userPrompt = input.focus ? `${STYLE_PROMPT}\n\nFocus hint: ${input.focus}` : STYLE_PROMPT
+  const basePrompt = input.mode === 'character' ? CHARACTER_PROMPT : STYLE_PROMPT
+  const userPrompt = input.focus ? `${basePrompt}\n\nFocus hint: ${input.focus}` : basePrompt
   // gpt-5 + reasoning models reject `max_tokens` and require the newer
   // `max_completion_tokens` field. Pick the right one per model family.
   const tokenField = isCompletionTokensModel(input.model)

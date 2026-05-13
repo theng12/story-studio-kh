@@ -211,6 +211,9 @@
       :aspect-ratio="activeForm.aspect_ratio"
       :tier="activeForm.tier"
       :model-label="modelLabelForStylePreview"
+      :episode-id="form.episode_id || ''"
+      :episode-title="selectedEpisode?.title || ''"
+      :kind="form.mode === 'thumbs' ? 'thumbnail' : 'scene'"
     />
 
     <!-- ── Per-tab generator panel (v1.0.87+) ─────────────────────────────

@@ -42,6 +42,15 @@ function characterDir(slug: string, characterId: string): string {
   return path.join(projectCharactersDir(slug), characterId)
 }
 
+/**
+ * Public helper — resolves the absolute disk path of a reference image
+ * filename for a given character. Used by the /describe-from-image vision
+ * route so it doesn't have to redo path arithmetic.
+ */
+export function referenceImagePath(slug: string, characterId: string, filename: string): string {
+  return path.join(characterDir(slug, characterId), filename)
+}
+
 function characterJsonPath(slug: string, characterId: string): string {
   return path.join(characterDir(slug, characterId), 'character.json')
 }

@@ -42,7 +42,7 @@ export const DEFAULT_IMAGE_MODELS: Record<string, ImageModelConfig> = {
   'seedream-5-lite': { label: 'Seedream 5 Lite',            credits_per_image: 5.5, prompt_char_cap: 500,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'bytedance/seedream-5-lite-text-to-image', provider: 'kie' },
   'qwen-image-2':    { label: 'Qwen Image 2',               credits_per_image: 5.6, prompt_char_cap: 800,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'qwen2/image-edit',             provider: 'kie', supports_reference_images: true },
   'seedream-4-5':    { label: 'Seedream 4.5',               credits_per_image: 6.5, prompt_char_cap: 500,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'bytedance/seedream-4-5-text-to-image', provider: 'kie' },
-  'nano-banana':     { label: 'Nano Banana',                credits_per_image: 12,  prompt_char_cap: 5000, endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'google/nano-banana',           provider: 'kie', supports_reference_images: true },
+  'nano-banana':     { label: 'Nano Banana',                credits_per_image: 12,  prompt_char_cap: 5000, endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'google/nano-banana',           api_model_i2i: 'google/nano-banana-edit', refs_field: 'image_urls', aspect_field: 'image_size', provider: 'kie', supports_reference_images: true },
   'wan-2-7-image-pro':{ label: 'WAN 2.7 Image Pro',         credits_per_image: 12,  prompt_char_cap: 800,  endpoint: '/jobs/createTask',           poll: '/jobs/recordInfo',           type: 'jobs',      api_model: 'wan/2-7-image-pro',            provider: 'kie' },
 
   // ── Tiered models — resolution and speed-based pricing ────────────────
@@ -68,7 +68,15 @@ export const DEFAULT_IMAGE_MODELS: Record<string, ImageModelConfig> = {
       { id: '4k', label: '4K', credits: 16 },
     ],
     endpoint: '/jobs/createTask', poll: '/jobs/recordInfo', type: 'gpt-image',
-    api_model: 'gpt-image-2-text-to-image', provider: 'kie',
+    // kie.ai splits GPT Image 2 into two slugs: text-to-image (default) and
+    // image-to-image (when references are attached). The i2i variant takes
+    // `input_urls` (note plural underscore form, NOT `input_images`), while
+    // t2i takes neither. Verified against docs.kie.ai/market/gpt/
+    // gpt-image-2-{text,image}-to-image, 2026-05-14.
+    api_model: 'gpt-image-2-text-to-image',
+    api_model_i2i: 'gpt-image-2-image-to-image',
+    refs_field: 'input_urls',
+    provider: 'kie',
     supports_reference_images: true,
   },
   'nano-banana-2': {
@@ -81,7 +89,12 @@ export const DEFAULT_IMAGE_MODELS: Record<string, ImageModelConfig> = {
       { id: '4k', label: '4K', credits: 18 },
     ],
     endpoint: '/jobs/createTask', poll: '/jobs/recordInfo', type: 'jobs',
-    api_model: 'google/nano-banana-2', provider: 'kie',
+    // kie.ai accepts a single slug for NB2 — same endpoint handles both
+    // text-to-image and image-to-image based on whether `image_input` is
+    // present. The `google/` prefix the original NB1 uses is NOT part of
+    // NB2's slug (verified against docs.kie.ai/market/google/nanobanana2,
+    // 2026-05-14).
+    api_model: 'nano-banana-2', refs_field: 'image_input', provider: 'kie',
     supports_reference_images: true,
   },
   'nano-banana-pro': {
@@ -93,7 +106,7 @@ export const DEFAULT_IMAGE_MODELS: Record<string, ImageModelConfig> = {
       { id: '4k',    label: '4K',      credits: 24 },
     ],
     endpoint: '/jobs/createTask', poll: '/jobs/recordInfo', type: 'jobs',
-    api_model: 'nano-banana-pro', provider: 'kie',
+    api_model: 'nano-banana-pro', refs_field: 'image_input', provider: 'kie',
     supports_reference_images: true,
   },
   'ideogram-v3': {

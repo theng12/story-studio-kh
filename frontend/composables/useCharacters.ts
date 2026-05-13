@@ -8,7 +8,7 @@
  * UI handles freshness for its own ref.
  */
 
-import { ref, computed } from 'vue'
+import { ref, computed, isRef, type Ref, type ComputedRef } from 'vue'
 import { useApi } from './useApi.js'
 
 export interface CharacterSpeech {
@@ -36,11 +36,28 @@ export interface Character {
   created_at: string
 }
 
-export function useCharacters(slug: string | (() => string)) {
+/**
+ * Accept any of the common shapes a caller might pass:
+ *   - plain string ("mineepod")
+ *   - getter function (() => route.params.slug)
+ *   - Vue Ref / ComputedRef (computed(() => route.params.slug))
+ *
+ * Previously this typed `string | (() => string)` and the runtime test was
+ * `typeof slug === 'function'`. A `computed()` is an **object** with a
+ * `.value` getter — neither string nor function — so it fell through and
+ * the URL builder template-stringified it into `[object Object]`,
+ * surfacing as "Project '[object Object]' not found" on every CRUD call.
+ */
+export type SlugSource = string | (() => string) | Ref<string> | ComputedRef<string>
+
+export function useCharacters(slug: SlugSource) {
   const { get, post, put, del } = useApi()
 
   function getSlug(): string {
-    return typeof slug === 'function' ? slug() : slug
+    if (typeof slug === 'string') return slug
+    if (typeof slug === 'function') return slug()
+    if (isRef(slug)) return slug.value
+    return String(slug)
   }
 
   /** Full project list (no episode filter). Used by the Characters page. */

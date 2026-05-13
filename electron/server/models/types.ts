@@ -981,6 +981,28 @@ export interface ImageModelConfig {
    */
   prompt_char_cap?: number
   /**
+   * Some kie.ai models split text-to-image and image-to-image into TWO
+   * distinct slugs (e.g. `gpt-image-2-text-to-image` vs
+   * `gpt-image-2-image-to-image`, `google/nano-banana` vs
+   * `google/nano-banana-edit`). When set, kie-client uses this slug
+   * instead of `api_model` whenever reference images are attached to the
+   * request. Absent = same slug handles both modes (NB2, Flux Kontext).
+   */
+  api_model_i2i?: string
+  /**
+   * Per-model name of the request-body field that carries reference image
+   * URLs. kie.ai's catalog is inconsistent — `image_urls` (most), `image_input`
+   * (Nano Banana 2 family), `input_urls` (GPT Image 2 i2i), `inputImages`
+   * (Flux Kontext). Defaults to `image_urls` when absent.
+   */
+  refs_field?: string
+  /**
+   * Per-model name of the request-body field that carries the aspect-ratio
+   * string. Most kie.ai models use `aspect_ratio` (default); the original
+   * Nano Banana family uses `image_size`. Absent = `aspect_ratio`.
+   */
+  aspect_field?: string
+  /**
    * Set on user-added entries via the Settings → Models tab. Survives the
    * legacy-dict round-trip so the UI can show a "Custom" badge and allow
    * deletion of only user entries, not built-in ones.
