@@ -32,6 +32,35 @@
       <strong>{{ modelLabel }}</strong> · <strong>{{ aspectRatio }}</strong>{{ tier ? ` · ${tier}` : '' }}.
       Quick visual gut-check before kicking off a full batch.
     </p>
+
+    <!-- Saved presets — project-level pool, shared with the Image Prompts
+         page's "Custom" style dropdown. Selecting a preset fills the
+         textarea + shows its saved preview PNG (if one was attached).
+         The same pool also surfaces on /image-prompts under Custom,
+         so a style saved here is reusable across surfaces. v1.0.89+. -->
+    <div v-if="presets.length" class="spc-presets-row">
+      <label class="spc-presets-label">Saved styles for this project:</label>
+      <select
+        :value="selectedPresetId"
+        class="select spc-presets-select"
+        @change="onPresetSelect(($event.target as HTMLSelectElement).value)"
+      >
+        <option value="">— pick a saved style —</option>
+        <option v-for="p in presets" :key="p.id" :value="p.id">
+          {{ p.name }}{{ p.preview_filename ? ' 🖼️' : '' }}{{ p.preview_model ? ` (${p.preview_model})` : '' }}
+        </option>
+      </select>
+      <button
+        v-if="selectedPresetId"
+        type="button"
+        class="btn btn-ghost btn-sm spc-presets-delete"
+        :title="`Delete preset '${selectedPreset?.name}' from this project. Past renders that used it stay untouched.`"
+        @click="deleteSelectedPreset"
+      >
+        ✕ Delete
+      </button>
+    </div>
+
     <textarea
       v-model="styleText"
       class="textarea spc-textarea"
@@ -94,7 +123,63 @@
           <span v-else aria-hidden="true">{{ saveState.saved ? '✓' : '💾' }}</span>
           {{ saveState.saving ? 'Saving…' : saveState.saved ? 'Saved' : 'Save to episode' }}
         </button>
+        <!-- Save the current preview + style description as a NAMED preset
+             in the project. Becomes available from the dropdown above on
+             every subsequent visit + on the Image Prompts page's Custom
+             style picker. v1.0.89+. -->
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm spc-save-btn"
+          :disabled="presetSaveState.saving"
+          :title="'Save the current style description + preview as a named preset for this project. Reusable from the dropdown above next time you open the page.'"
+          @click="openSavePresetModal"
+        >
+          <LoadingSpinner v-if="presetSaveState.saving" size="sm" />
+          <span v-else aria-hidden="true">⭐</span>
+          {{ presetSaveState.saving ? 'Saving preset…' : 'Save as preset' }}
+        </button>
         <span v-if="saveState.error" class="spc-error" :title="saveState.error">⚠ {{ saveState.error }}</span>
+        <span v-if="presetSaveState.error" class="spc-error" :title="presetSaveState.error">⚠ {{ presetSaveState.error }}</span>
+      </div>
+    </div>
+
+    <!-- Save-as-preset modal — small ad-hoc form for the name input.
+         Backend auto-bumps the slug if it collides with an existing
+         preset, so we don't need to pre-check uniqueness here. -->
+    <div
+      v-if="presetSaveState.modalOpen"
+      class="spc-zoom-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Save style as preset"
+      @click.self="closeSavePresetModal"
+    >
+      <div class="spc-preset-modal">
+        <h4>Save as project style preset</h4>
+        <p class="text-muted text-sm">
+          The style description + rendered preview will be saved in this
+          project. Reusable across episodes from the dropdown above and
+          from the Image Prompts page's Custom style picker.
+        </p>
+        <input
+          v-model="presetSaveState.draftName"
+          class="input"
+          placeholder="e.g. Bound cartoon, Soft watercolor, Cinematic noir"
+          autofocus
+          @keydown.enter="confirmSavePreset"
+          @keydown.escape="closeSavePresetModal"
+        />
+        <div class="spc-preset-modal-actions">
+          <button type="button" class="btn btn-ghost btn-sm" @click="closeSavePresetModal">Cancel</button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="!presetSaveState.draftName.trim() || presetSaveState.saving"
+            @click="confirmSavePreset"
+          >
+            {{ presetSaveState.saving ? 'Saving…' : 'Save preset' }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -124,7 +209,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 
 interface PreviewState {
   loading: boolean
@@ -170,8 +255,9 @@ const props = defineProps<{
   kind?: 'scene' | 'thumbnail'
 }>()
 
-const { post } = useApi()
+const { get: apiGet, post, del } = useApi()
 const { success, error: showError } = useToast()
+const { ask } = useConfirm()
 
 const styleText = ref('')
 const zoomOpen = ref(false)
@@ -187,6 +273,158 @@ const state = ref<PreviewState>({
   error: null,
 })
 const saveState = ref<SaveState>({ saving: false, saved: null, error: null })
+
+// ── Project-level named presets (v1.0.89+) ─────────────────────────────
+//
+// Shared pool with the Image Prompts page's "Custom" style dropdown.
+// Stored on ProjectConfig.style_presets — iCloud-synced via the project
+// folder. Preview PNG (when attached) lives at
+// <project>/style-previews/<slug>.png; we serve it through a dedicated
+// route so the frontend doesn't have to know the disk layout.
+interface StylePresetEntry {
+  id: string
+  name: string
+  description: string
+  preview_filename?: string
+  preview_model?: string
+  preview_aspect_ratio?: string
+  preview_tier?: string
+  preview_saved_at?: string
+}
+const presets = ref<StylePresetEntry[]>([])
+const selectedPresetId = ref<string>('')
+const selectedPreset = computed(() => presets.value.find(p => p.id === selectedPresetId.value) || null)
+
+const presetSaveState = ref({
+  modalOpen: false,
+  draftName: '',
+  saving: false,
+  error: null as string | null,
+})
+
+async function loadPresets(): Promise<void> {
+  try {
+    const cfg = await apiGet<{ style_presets?: StylePresetEntry[] }>(
+      `/projects/${props.projectSlug}/settings/config`,
+    )
+    presets.value = Array.isArray(cfg?.style_presets) ? cfg.style_presets! : []
+  } catch {
+    presets.value = []
+  }
+}
+
+onMounted(() => { void loadPresets() })
+watch(() => props.projectSlug, () => {
+  selectedPresetId.value = ''
+  void loadPresets()
+})
+
+function previewUrlForPreset(p: StylePresetEntry): string {
+  return `/api/projects/${props.projectSlug}/style-presets/${encodeURIComponent(p.id)}/preview?t=${encodeURIComponent(p.preview_saved_at || '')}`
+}
+
+/**
+ * Apply a saved preset — fill the textarea, then show the saved PNG
+ * inline if one was attached. We DON'T call /style-preview to re-render;
+ * the saved preview IS the cached output. If model/aspect/tier on the
+ * page now differ from when the preview was saved, the user can click
+ * Re-preview to render against current settings.
+ */
+function onPresetSelect(id: string): void {
+  selectedPresetId.value = id
+  const p = presets.value.find(x => x.id === id)
+  if (!p) return
+  styleText.value = p.description
+  if (p.preview_filename) {
+    state.value = {
+      loading: false,
+      url: previewUrlForPreset(p),
+      cached: true,
+      hash: null,
+      model_id: p.preview_model || null,
+      aspect_ratio: p.preview_aspect_ratio || null,
+      tier: p.preview_tier || null,
+      signature_at_render: null, // separate origin — saved preset, not a fresh app-cache hit
+      error: null,
+    }
+    // Reset the per-episode save state — the badge tracked the previous
+    // render's save, irrelevant for this just-loaded preset.
+    saveState.value = { saving: false, saved: null, error: null }
+  } else {
+    // Preset has description only (no preview). Clear the thumbnail so
+    // the user understands "preview not yet rendered" and clicks the
+    // Preview button.
+    state.value = {
+      loading: false, url: null, cached: null, hash: null,
+      model_id: null, aspect_ratio: null, tier: null,
+      signature_at_render: null, error: null,
+    }
+  }
+}
+
+function openSavePresetModal(): void {
+  presetSaveState.value = {
+    modalOpen: true,
+    draftName: '',
+    saving: false,
+    error: null,
+  }
+}
+function closeSavePresetModal(): void {
+  presetSaveState.value.modalOpen = false
+}
+
+async function confirmSavePreset(): Promise<void> {
+  const name = presetSaveState.value.draftName.trim()
+  if (!name || presetSaveState.value.saving) return
+  presetSaveState.value.saving = true
+  presetSaveState.value.error = null
+  try {
+    const saved = await post<StylePresetEntry>(
+      `/projects/${props.projectSlug}/style-presets`,
+      {
+        name,
+        description: styleText.value.trim(),
+        // Pass the hash so the backend can copy the cached PNG into the
+        // project folder. Backend tolerates missing hash → text-only
+        // preset, falls back to no preview file.
+        ...(state.value.hash ? { hash: state.value.hash } : {}),
+        ...(state.value.model_id ? { preview_model: state.value.model_id } : {}),
+        ...(state.value.aspect_ratio ? { preview_aspect_ratio: state.value.aspect_ratio } : {}),
+        ...(state.value.tier ? { preview_tier: state.value.tier } : {}),
+      },
+    )
+    presets.value = [...presets.value, saved]
+    selectedPresetId.value = saved.id
+    presetSaveState.value.modalOpen = false
+    success(`Saved style preset "${saved.name}"`)
+  } catch (e: any) {
+    presetSaveState.value.error = e?.data?.detail || e?.message || 'Save failed'
+    showError(presetSaveState.value.error || 'Save failed')
+  } finally {
+    presetSaveState.value.saving = false
+  }
+}
+
+async function deleteSelectedPreset(): Promise<void> {
+  const p = selectedPreset.value
+  if (!p) return
+  const ok = await ask({
+    title: `Delete style preset "${p.name}"?`,
+    body: 'Removes the preset from this project. Any episodes that already used this style stay rendered — the style text was baked into each prompt at render time, so there\'s no live link to break.',
+    confirmLabel: 'Delete',
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    await del(`/projects/${props.projectSlug}/style-presets/${encodeURIComponent(p.id)}`)
+    presets.value = presets.value.filter(x => x.id !== p.id)
+    selectedPresetId.value = ''
+    success(`Deleted style preset "${p.name}"`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Delete failed')
+  }
+}
 
 // ── localStorage persistence ───────────────────────────────────────────
 //
@@ -464,6 +702,43 @@ async function saveToEpisode(): Promise<void> {
   padding: 0;
 }
 .spc-zoom-close:hover { background: rgba(255, 255, 255, 0.22); }
+
+/* Project preset picker — sits above the style textarea. */
+.spc-presets-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 4px 0 8px;
+  font-size: 12px;
+}
+.spc-presets-label { color: var(--text-muted); }
+.spc-presets-select {
+  font-size: 12px;
+  padding: 3px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  cursor: pointer;
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+.spc-presets-delete { font-size: 11px; color: var(--error, #e25c5c); }
+.spc-presets-delete:hover { background: rgba(226, 92, 92, 0.08); }
+
+/* Save-as-preset modal */
+.spc-preset-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  padding: 18px 22px;
+  width: min(500px, 92vw);
+  display: flex; flex-direction: column; gap: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+.spc-preset-modal h4 { margin: 0; font-size: 14px; color: var(--text-primary); }
+.spc-preset-modal-actions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  margin-top: 6px;
+}
 .spc-thumb-meta {
   display: flex;
   align-items: center;

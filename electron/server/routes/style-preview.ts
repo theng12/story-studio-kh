@@ -176,6 +176,175 @@ router.get('/style-preview-cache/:hash', async (req, res) => {
 })
 
 /**
+ * Project-level named style presets (v1.0.89+).
+ *
+ * A preset is a named entry in ProjectConfig.style_presets carrying the
+ * style description text + an optional rendered preview PNG copied into
+ * `<project>/style-previews/<slug>.png`. Both halves move with the
+ * project via iCloud — text in config.json, PNG alongside.
+ *
+ *   POST   /api/projects/:slug/style-presets       — create/update
+ *   DELETE /api/projects/:slug/style-presets/:id   — remove + delete PNG
+ *   GET    /api/projects/:slug/style-presets/:id/preview — serve the PNG
+ *
+ * List goes through the regular /settings/config endpoint — presets
+ * live on the config object alongside other project-scoped settings.
+ *
+ * Caveats:
+ *   - The app-wide hash cache (electron/.style-previews/<hash>.png) is
+ *     UNCHANGED by these routes. It stays as a perf optimisation for
+ *     re-renders of the same (style, model, aspect, tier) tuple.
+ *   - Presets share their pool with the Image Prompts page's "Custom"
+ *     style dropdown — a preset saved here surfaces there too (and
+ *     vice versa). One project-level pool, two surfaces.
+ *   - Name collisions auto-bump the slug (`bound-cartoon-2`, `-3`, …).
+ *     Display name stays whatever the user typed.
+ */
+const StylePresetSaveSchema = z.object({
+  name: z.string().min(1).max(120),
+  description: z.string().min(1).max(8000),
+  /** Optional — hash of an app-wide cache entry to seed the preview from. */
+  hash: z.string().regex(/^[0-9a-f]{16}$/).optional(),
+  preview_model: z.string().optional(),
+  preview_aspect_ratio: z.string().optional(),
+  preview_tier: z.string().optional(),
+})
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'preset'
+}
+
+router.post('/projects/:slug/style-presets', validateBody(StylePresetSaveSchema), async (req, res) => {
+  const { slug } = req.params
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const config = await pm.getConfig(slug)
+    if (!config) return res.status(404).json({ detail: 'Project config not found' })
+
+    const { name, description, hash, preview_model, preview_aspect_ratio, preview_tier } =
+      req.body as { name: string; description: string; hash?: string; preview_model?: string; preview_aspect_ratio?: string; preview_tier?: string }
+
+    const existing = Array.isArray((config as any).style_presets) ? (config as any).style_presets : []
+    const baseSlug = slugify(name)
+    let id = baseSlug
+    let n = 2
+    while (existing.some((p: any) => p.id === id)) {
+      id = `${baseSlug}-${n}`
+      n += 1
+    }
+
+    // Copy the cached PNG into the project's style-previews folder if a
+    // hash was provided AND the cached file still exists. We never block
+    // preset creation on a missing cache entry — users can save text-only
+    // presets too (matches the existing Image Prompts flow).
+    const fsMod = await import('fs')
+    const fsp = await import('fs/promises')
+    const pathMod = await import('path')
+    let preview_filename: string | undefined
+    let preview_saved_at: string | undefined
+    if (hash) {
+      const cachedAbs = await pathForStylePreviewHash(hash)
+      if (cachedAbs && fsMod.existsSync(cachedAbs)) {
+        const projDir = pm.getProjectDir(slug)
+        if (projDir) {
+          const previewsDir = pathMod.join(projDir, 'style-previews')
+          if (!fsMod.existsSync(previewsDir)) await fsp.mkdir(previewsDir, { recursive: true })
+          preview_filename = `${id}.png`
+          await fsp.copyFile(cachedAbs, pathMod.join(previewsDir, preview_filename))
+          preview_saved_at = new Date().toISOString()
+        }
+      }
+    }
+
+    const now = new Date().toISOString()
+    const preset: any = {
+      id, name, description, created_at: now,
+    }
+    if (preview_filename) {
+      preset.preview_filename = preview_filename
+      preset.preview_model = preview_model
+      preset.preview_aspect_ratio = preview_aspect_ratio
+      preset.preview_tier = preview_tier
+      preset.preview_saved_at = preview_saved_at
+    }
+
+    const nextPresets = [...existing, preset]
+    await pm.updateConfig(slug, { style_presets: nextPresets } as any)
+    res.json(preset)
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to save style preset' })
+  }
+})
+
+router.delete('/projects/:slug/style-presets/:id', async (req, res) => {
+  const { slug, id } = req.params
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const config = await pm.getConfig(slug)
+    if (!config) return res.status(404).json({ detail: 'Project config not found' })
+
+    const existing = Array.isArray((config as any).style_presets) ? (config as any).style_presets : []
+    const target = existing.find((p: any) => p.id === id)
+    if (!target) return res.status(404).json({ detail: `Preset '${id}' not found` })
+
+    // Remove the project-local preview PNG (if any). Best-effort — a
+    // missing file shouldn't block the config update; the user's intent
+    // is "drop this preset from the list."
+    if (target.preview_filename) {
+      try {
+        const projDir = pm.getProjectDir(slug)
+        if (projDir) {
+          const fsp = await import('fs/promises')
+          const pathMod = await import('path')
+          await fsp.unlink(pathMod.join(projDir, 'style-previews', target.preview_filename)).catch(() => {})
+        }
+      } catch { /* tolerate */ }
+    }
+
+    await pm.updateConfig(slug, { style_presets: existing.filter((p: any) => p.id !== id) } as any)
+    res.json({ ok: true, id })
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to delete style preset' })
+  }
+})
+
+router.get('/projects/:slug/style-presets/:id/preview', async (req, res) => {
+  const { slug, id } = req.params
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const config = await pm.getConfig(slug)
+    if (!config) return res.status(404).json({ detail: 'Project config not found' })
+
+    const existing = Array.isArray((config as any).style_presets) ? (config as any).style_presets : []
+    const target = existing.find((p: any) => p.id === id)
+    if (!target?.preview_filename) return res.status(404).json({ detail: 'No preview saved for this preset' })
+
+    const projDir = pm.getProjectDir(slug)
+    if (!projDir) return res.status(404).json({ detail: 'Project directory not found' })
+
+    const fsMod = await import('fs')
+    const fsp = await import('fs/promises')
+    const pathMod = await import('path')
+    const abs = pathMod.join(projDir, 'style-previews', target.preview_filename)
+    if (!fsMod.existsSync(abs)) return res.status(404).json({ detail: 'Preview file missing on disk' })
+
+    const stat = await fsp.stat(abs)
+    res.setHeader('Cache-Control', 'public, max-age=300') // short cache — file can change if user saves over
+    res.setHeader('Content-Type', 'image/png')
+    res.setHeader('Content-Length', String(stat.size))
+    const stream = fsMod.createReadStream(abs)
+    stream.on('error', () => { if (!res.headersSent) res.status(500).json({ detail: 'Read failed' }) })
+    stream.pipe(res)
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to serve preset preview' })
+  }
+})
+
+/**
  * Save a cached style preview into a specific episode's scene-images
  * folder. The global cache stays untouched — this is a COPY into the
  * episode dir so the user has a permanent reference alongside their

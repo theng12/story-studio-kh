@@ -1085,6 +1085,25 @@ export interface StylePreset {
   source_reference?: string
   /** ISO timestamp of creation. */
   created_at: string
+  /**
+   * Optional rendered preview PNG for this preset. v1.0.89+. Filename
+   * (e.g. "bound-cartoon.png") inside the project's `style-previews/`
+   * directory — kept relative so the file moves with the project across
+   * machines via iCloud. When set, the Image Generator's preset dropdown
+   * shows the actual sample inline without a re-render. Absent on
+   * presets that were imported from text-only sources (e.g. /analyze-style).
+   */
+  preview_filename?: string
+  /** Image model the preview PNG was rendered against. Surfaced as a hint
+   *  so users know the saved sample may not match a render under different
+   *  model/aspect/tier settings. */
+  preview_model?: string
+  preview_aspect_ratio?: string
+  preview_tier?: string
+  /** Saved-against timestamp (separate from `created_at` because a preset
+   *  can be saved description-only first, then have a preview attached
+   *  later). */
+  preview_saved_at?: string
 }
 
 export interface ConfirmationPreferences {
