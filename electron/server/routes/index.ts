@@ -75,4 +75,5 @@ export function mountRoutes(app: Express): void {
   app.use('/api', imageReferencesRouter)
   app.use('/api', changelogRouter)
   app.use('/api', brollPoolsRouter)
+  app.use('/api', brollProjectRouter)
 }

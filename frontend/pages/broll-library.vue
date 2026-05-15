@@ -83,6 +83,14 @@
               ⚡ Normalize all{{ unnormalizedCount ? ` (${unnormalizedCount})` : '' }}
             </button>
             <button
+              class="btn btn-sm btn-secondary"
+              :disabled="!selectedPool.online || autotagging || !untaggedCount"
+              :title="!selectedPool.online ? 'Pool offline' : !untaggedCount ? 'Every clip already has at least one tag' : `Queue vision-LLM auto-tag jobs for the ${untaggedCount} clip(s) with no tags yet. ~$0.002/clip on GPT-4o-mini.`"
+              @click="runAutotagUntagged"
+            >
+              ✨ Auto-tag untagged{{ untaggedCount ? ` (${untaggedCount})` : '' }}
+            </button>
+            <button
               class="btn btn-ghost btn-sm"
               :title="'Toggle auto-normalize on new clips for this pool. When on, the next scan auto-queues normalize jobs for clips it newly indexed. Turn off if you want manual control or your SSD is slow.'"
               @click="toggleAutoNormalize"
@@ -149,6 +157,14 @@
                   @click="normalizeOne(clip.filename)"
                 >
                   ⚡ Normalize
+                </button>
+                <button
+                  class="btn btn-ghost btn-sm"
+                  :disabled="!selectedPool.online"
+                  :title="'Vision-LLM tag suggestion from this clip thumbnail. Unioned with existing tags. ~$0.002 per call.'"
+                  @click="autotagOne(clip.filename)"
+                >
+                  ✨ Auto-tag
                 </button>
               </div>
             </div>
@@ -247,6 +263,10 @@ const normalizingAll = ref(false)
 const unnormalizedCount = computed(() =>
   clips.value.filter(c => !c.normalized && !c.missing).length,
 )
+const untaggedCount = computed(() =>
+  clips.value.filter(c => !c.missing && !(c.tags && c.tags.length)).length,
+)
+const autotagging = ref(false)
 
 // ── Pool selection ─────────────────────────────────────────────────────
 
@@ -318,6 +338,29 @@ async function normalizeOne(filename: string): Promise<void> {
     success(`Queued normalize for ${filename}`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to queue normalize')
+  }
+}
+
+async function autotagOne(filename: string): Promise<void> {
+  if (!selectedPoolId.value) return
+  try {
+    await broll.autotagClip(selectedPoolId.value, filename)
+    success(`Queued auto-tag for ${filename}`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to queue auto-tag')
+  }
+}
+
+async function runAutotagUntagged(): Promise<void> {
+  if (!selectedPoolId.value || autotagging.value) return
+  autotagging.value = true
+  try {
+    const r = await broll.autotagUntagged(selectedPoolId.value)
+    success(`Queued ${r.queued} auto-tag job(s) (${r.total_targets} candidate clips).`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to queue bulk auto-tag')
+  } finally {
+    autotagging.value = false
   }
 }
 

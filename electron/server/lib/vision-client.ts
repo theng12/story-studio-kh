@@ -56,6 +56,29 @@ Return 2–4 sentences describing ONLY the following aspects — do NOT describe
 
 Output as a single flowing paragraph suitable for appending "in this style" to image generation prompts. No bullet points. No preamble like "This image has…" or "The style is…" — just the description itself.`
 
+// B-Roll auto-tag prompt: returns a short flat list of lowercase tags
+// suitable for filtering / theming a stock-footage library. Tags should
+// describe SUBJECT MATTER + SETTING + MOOD — what a human curator would
+// hand-tag the clip with. Strict JSON output so the parser doesn't have
+// to handle prose. v1.0.89+.
+const TAGS_PROMPT = `Look at this single frame from a video B-Roll clip. Output 3-7 short tags that describe what the frame shows, suitable for filtering a stock-footage library.
+
+Tags should describe a mix of:
+- SUBJECT: what is in the frame (people, nature element, object, building, etc.)
+- SETTING: where the frame appears to be (indoors, outdoors, city, forest, ocean, sunrise, etc.)
+- MOOD: what the frame feels like (peaceful, dramatic, contemplative, hopeful, etc.)
+
+Rules:
+- Each tag is 1-2 words, lowercase, no punctuation.
+- No duplicates.
+- No generic filler like "video" / "footage" / "clip" / "scene".
+- 3-7 tags total. Pick the most descriptive ones, not exhaustive ones.
+
+Output STRICT JSON only — a single array of strings. No preamble, no fenced block, no commentary.
+
+Example output:
+["sunrise","ocean","calm","golden hour","horizon"]`
+
 // Companion prompt to STYLE_PROMPT: focuses on WHAT the subject looks like
 // rather than HOW it's drawn. Used by /analyze-character so the user can
 // upload a reference image and bootstrap a rigid appearance description
@@ -84,8 +107,10 @@ export interface AnalyzeStyleInput {
    *   'style'     → palette / medium / lighting (default, original behaviour)
    *   'character' → subject appearance / anatomy / colour markings, for the
    *                 character primitive's description field.
+   *   'tags'      → short flat list of subject/setting/mood tags for B-Roll
+   *                 library filtering. Result is a JSON array (caller parses).
    */
-  mode?: 'style' | 'character'
+  mode?: 'style' | 'character' | 'tags'
 }
 
 export interface AnalyzeStyleResult {
@@ -113,7 +138,10 @@ async function downscaleToBuffer(imagePath: string, maxSide = 1024): Promise<{ b
 async function callAnthropic(input: AnalyzeStyleInput, imageBuffer: Buffer, mime: string): Promise<string> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk')
   const client = new Anthropic({ apiKey: input.apiKey })
-  const basePrompt = input.mode === 'character' ? CHARACTER_PROMPT : STYLE_PROMPT
+  const basePrompt =
+    input.mode === 'character' ? CHARACTER_PROMPT :
+    input.mode === 'tags'      ? TAGS_PROMPT      :
+    STYLE_PROMPT
   const userPrompt = input.focus ? `${basePrompt}\n\nFocus hint: ${input.focus}` : basePrompt
   const resp = await client.messages.create({
     model: input.model,
@@ -136,7 +164,10 @@ async function callOpenAi(input: AnalyzeStyleInput, imageBuffer: Buffer, mime: s
   const { isCompletionTokensModel } = await import('../providers/text/openai.js')
   const client = new OpenAI({ apiKey: input.apiKey })
   const dataUrl = `data:${mime};base64,${imageBuffer.toString('base64')}`
-  const basePrompt = input.mode === 'character' ? CHARACTER_PROMPT : STYLE_PROMPT
+  const basePrompt =
+    input.mode === 'character' ? CHARACTER_PROMPT :
+    input.mode === 'tags'      ? TAGS_PROMPT      :
+    STYLE_PROMPT
   const userPrompt = input.focus ? `${basePrompt}\n\nFocus hint: ${input.focus}` : basePrompt
   // gpt-5 + reasoning models reject `max_tokens` and require the newer
   // `max_completion_tokens` field. Pick the right one per model family.

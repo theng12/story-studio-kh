@@ -187,6 +187,66 @@ router.post('/broll-pools/:id/clips/:filename/normalize', async (req, res) => {
   }
 })
 
+// ── Auto-tag (vision-LLM) ─────────────────────────────────────────────
+
+router.post('/broll-pools/:id/clips/:filename/autotag', async (req, res) => {
+  try {
+    const pool = await bp.getPool(req.params.id)
+    if (!pool) return res.status(404).json({ detail: 'Pool not found' })
+    const job = jq.enqueue({
+      project_slug: '_app_',
+      type: 'broll_autotag' as JobType,
+      episode_id: pool.id,
+      title: `Auto-tag B-Roll · ${req.params.filename}`,
+      params: {
+        pool_id: pool.id,
+        filename: req.params.filename,
+        model: typeof req.body?.model === 'string' ? req.body.model : undefined,
+        replace_tags: !!req.body?.replace_tags,
+      },
+      dedupeParams: (p: any) => p?.filename === req.params.filename,
+    })
+    res.status(201).json(job)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to queue auto-tag'))
+  }
+})
+
+// Bulk auto-tag: queue jobs for every clip whose `tags` array is empty
+// (or every clip if force=true). Skips clips that already have at least
+// one tag so re-running the bulk button doesn't burn vision credits on
+// already-curated clips. Caller can force with body.force=true.
+router.post('/broll-pools/:id/autotag-untagged', async (req, res) => {
+  try {
+    const pool = await bp.getPool(req.params.id)
+    if (!pool) return res.status(404).json({ detail: 'Pool not found' })
+    const force = !!req.body?.force
+    const clips = await bp.listClips(pool.id, { includeMissing: false })
+    const targets = clips.filter(c => force ? true : !(c.tags && c.tags.length))
+    let queued = 0
+    for (const c of targets) {
+      if (jq.isDuplicate('_app_', pool.id, 'broll_autotag' as JobType, (p: any) => p?.filename === c.filename)) continue
+      jq.enqueue({
+        project_slug: '_app_',
+        type: 'broll_autotag' as JobType,
+        episode_id: pool.id,
+        title: `Auto-tag B-Roll · ${c.filename}`,
+        params: {
+          pool_id: pool.id,
+          filename: c.filename,
+          model: typeof req.body?.model === 'string' ? req.body.model : undefined,
+          replace_tags: !!req.body?.replace_tags,
+        },
+        dedupeParams: (p: any) => p?.filename === c.filename,
+      })
+      queued += 1
+    }
+    res.status(201).json({ queued, total_targets: targets.length })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to queue bulk auto-tag'))
+  }
+})
+
 router.post('/broll-pools/:id/normalize-all', async (req, res) => {
   try {
     const pool = await bp.getPool(req.params.id)

@@ -25,6 +25,9 @@
       SEO title, description, and tags — all saved as a single metadata file per episode.
       Use <strong>Generate Metadata</strong> above to run all three sections at once, or the
       <strong>Generate just this</strong> button inside each section to regenerate selectively.
+      <NuxtLink :to="`/projects/${slug}/metadata-template`" class="meta-template-link">
+        Edit channel template →
+      </NuxtLink>
     </p>
 
     <!-- Channel "what worked" inspiration. Auto-included server-side in

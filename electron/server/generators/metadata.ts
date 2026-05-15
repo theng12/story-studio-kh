@@ -159,13 +159,46 @@ export async function generateMetadata(job: Job): Promise<void> {
   }, 500)
 
   try {
+    // ── 0. Channel-locked template fast-path (v1.0.89+) ────────────────
+    // When the project has a metadata_template, ONE small LLM call fills
+    // every `{placeholder}` referenced by the template. Title / desc /
+    // tags then come from template substitution — not from three
+    // separate generate-from-scratch calls. Brand consistency without
+    // re-rolling per episode.
+    const tpl = (config as any).metadata_template
+    const templateActive = !!(tpl && (tpl.title || tpl.description || (Array.isArray(tpl.tags) && tpl.tags.length)))
+    let templateOutput: { title: string; description: string; tags: string[] } | null = null
+    if (templateActive) {
+      const { extractPlaceholders, deterministicValues, llmFillablePlaceholders, buildExtractionPrompt, parseExtractionResponse, renderTemplate } = await import('../lib/metadata-template.js')
+      const placeholders = extractPlaceholders(tpl)
+      const llmKeys = llmFillablePlaceholders(placeholders)
+      job.output_lines.push(`Channel template detected — filling ${placeholders.length} placeholder(s) (${llmKeys.length} via LLM)…`)
+      let llmValues: Record<string, string> = {}
+      if (llmKeys.length) {
+        const extractPrompt = buildExtractionPrompt({ episodeCode: episode_id, title, storyContext, placeholders: llmKeys })
+        const raw = await callAi(model, '', extractPrompt, aiCreds(config), false,
+          { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+        llmValues = parseExtractionResponse(raw, llmKeys)
+      }
+      const values = { ...deterministicValues(episode_id), ...llmValues }
+      templateOutput = renderTemplate(tpl, values)
+      job.output_lines.push(`  → title: "${templateOutput.title.slice(0, 80)}"`)
+      job.output_lines.push(`  → ${templateOutput.tags.length} tag(s); description ${templateOutput.description.length} chars`)
+    }
+
     // ── 1. Description ──────────────────────────────────────────────────
-    job.output_lines.push(`Generating description (max ${max_chars} chars)…`)
-    const descPrompt = buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, format)
-    const descRaw = await callAi(model, '', descPrompt, aiCreds(config), false,
-      { slug: project_slug, jobId: job.job_id, signal: controller.signal })
-    const description = descRaw.trim()
-    job.output_lines.push(`  → ${description.length} chars`)
+    let description: string
+    if (templateOutput && templateOutput.description) {
+      description = templateOutput.description
+      job.output_lines.push(`Description from template (${description.length} chars).`)
+    } else {
+      job.output_lines.push(`Generating description (max ${max_chars} chars)…`)
+      const descPrompt = buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, format)
+      const descRaw = await callAi(model, '', descPrompt, aiCreds(config), false,
+        { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+      description = descRaw.trim()
+      job.output_lines.push(`  → ${description.length} chars`)
+    }
 
     // ── 2. Titles ───────────────────────────────────────────────────────
     // Fixed-title modes skip the LLM call and emit a single title.
@@ -174,7 +207,10 @@ export async function generateMetadata(job: Job): Promise<void> {
     const manual_title = typeof req.manual_title === 'string' ? req.manual_title.trim() : ''
 
     let titles: string[]
-    if (title_mode === 'use_idea_title' || title_mode === 'manual') {
+    if (templateOutput && templateOutput.title) {
+      titles = [templateOutput.title]
+      job.output_lines.push(`Title from template: "${titles[0]}"`)
+    } else if (title_mode === 'use_idea_title' || title_mode === 'manual') {
       const base = title_mode === 'manual' ? manual_title : (title || '').trim()
       if (!base) {
         throw Object.assign(
@@ -225,14 +261,19 @@ Requirements:
     }
 
     // ── 3. Tags ─────────────────────────────────────────────────────────
-    job.output_lines.push(`Generating ${tag_count} tag(s)…`)
-    // Format-aware tag prompt (v1.0.69). Mirrors routes/scripts.ts
-    // /metadata/all so batch and interactive runs use identical prompts.
-    const tagsContext = fmtMeta?.tagsContext || 'for this sleep story video'
-    const broadKeywordsLine = fmtMeta?.broadKeywords?.length
-      ? `\n- Broad keywords to draw from: ${fmtMeta.broadKeywords.join(', ')}.`
-      : ''
-    const tagPrompt = `Generate ${tag_count} YouTube tags ${tagsContext}.
+    let tags: string[]
+    if (templateOutput && templateOutput.tags.length) {
+      tags = templateOutput.tags.slice(0, tag_count)
+      job.output_lines.push(`Tags from template: ${tags.length} tag(s).`)
+    } else {
+      job.output_lines.push(`Generating ${tag_count} tag(s)…`)
+      // Format-aware tag prompt (v1.0.69). Mirrors routes/scripts.ts
+      // /metadata/all so batch and interactive runs use identical prompts.
+      const tagsContext = fmtMeta?.tagsContext || 'for this sleep story video'
+      const broadKeywordsLine = fmtMeta?.broadKeywords?.length
+        ? `\n- Broad keywords to draw from: ${fmtMeta.broadKeywords.join(', ')}.`
+        : ''
+      const tagPrompt = `Generate ${tag_count} YouTube tags ${tagsContext}.
 Episode: ${episode_id} — ${title}
 Description excerpt:
 ${description.slice(0, 500)}
@@ -241,13 +282,14 @@ Requirements:
 - 1-4 words per tag, no "#" prefix.
 - Mix of broad and episode-specific keywords.${broadKeywordsLine}
 - One per line, no numbering or commentary.`
-    const tagRaw = await callAi(model, '', tagPrompt, aiCreds(config), false,
-      { slug: project_slug, jobId: job.job_id, signal: controller.signal })
-    const tags = tagRaw.split('\n')
-      .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim())
-      .filter(Boolean)
-      .slice(0, tag_count)
-    job.output_lines.push(`  → ${tags.length} tag(s)`)
+      const tagRaw = await callAi(model, '', tagPrompt, aiCreds(config), false,
+        { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+      tags = tagRaw.split('\n')
+        .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim())
+        .filter(Boolean)
+        .slice(0, tag_count)
+      job.output_lines.push(`  → ${tags.length} tag(s)`)
+    }
 
     // ── 4. Save (v1 always in batch; overwrites if a v1 exists) ─────────
     const dir = await resolveMetadataDir(project_slug, episode_id, title)
