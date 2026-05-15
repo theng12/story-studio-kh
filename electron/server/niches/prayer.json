@@ -58,5 +58,31 @@
 
   "audienceHint": "Christians seeking short guided prayers — typically on mobile, in transit, before bed, or during a moment of overwhelm.",
 
-  "scriptContext": "Write as a single quiet voice praying with the listener (not for them). Address God directly in the second person but speak the prayer aloud so the listener can echo it silently. Avoid corporate-prayer 'we' unless the prayer is specifically for families / marriages. End with a clear settle line so the listener knows the prayer is complete."
+  "scriptContext": "Write as a single quiet voice praying with the listener (not for them). Address God directly in the second person but speak the prayer aloud so the listener can echo it silently. Avoid corporate-prayer 'we' unless the prayer is specifically for families / marriages. End with a clear settle line so the listener knows the prayer is complete.",
+
+  "titleShapeRules": [
+    "Titles MUST be DIRECT prayer subjects. The subject (X) is always a spiritual need, life situation, emotional state, or a person the prayer is FOR — never a scene, time-of-day decoration, or nature image.",
+    "Use ONE of these established shapes verbatim (vary X across the batch — never reuse the same X):",
+    "  - 'Prayer for X'              (e.g. 'Prayer for Strength in Difficult Times', 'Prayer for Forgiveness and Mercy')",
+    "  - 'A Prayer for X'            (e.g. 'A Prayer for Anxious Hearts', 'A Prayer for New Beginnings')",
+    "  - 'Morning Prayer for X'      (e.g. 'Morning Prayer for Strength', 'Morning Prayer for a Difficult Day')",
+    "  - 'Evening Prayer for X'      (e.g. 'Evening Prayer for Rest', 'Evening Prayer for Peace of Mind')",
+    "  - 'Prayer Before X'           (e.g. 'Prayer Before Bed', 'Prayer Before a Difficult Conversation')",
+    "  - 'Prayer of X'               (e.g. 'Prayer of Gratitude for God's Blessings', 'Prayer of Surrender')",
+    "  - 'A Mother's / Father's Prayer for X' (only when explicitly about parental intercession)",
+    "FORBIDDEN — never use these in titles, not even as flourish:",
+    "  - Nature/scenery modifiers: 'at Sunset's Edge', 'in the Garden', 'Over Candlelight', 'in Moonlit Waters', 'at the Sea's Edge', 'Before the Mountain's Summit', 'Under the Stars', 'by the River'",
+    "  - Time-of-day decorations beyond the established Morning/Evening prefix: 'at Dawn', 'at Twilight', 'at Dusk'",
+    "  - Atmospheric/aesthetic adjectives in the title: 'A Reflective…', 'A Quiet…', 'A Gentle…' — the calm is the niche's BAKED-IN voice; titles stay PLAIN",
+    "  - Allegorical objects: 'Pebble's Journey', 'Whispered…', 'Glimmers…', 'Reflections…', 'Echoes…'",
+    "  - Possessive nature phrases: 'A Bird's…', 'A Cartographer's…', 'The Piano Tuner's…'",
+    "REQUIRED: X must be concrete and pastoral, not poetic. Examples of GOOD X values to vary across the batch:",
+    "  - Spiritual needs: peace, strength, healing, forgiveness, guidance, wisdom, patience, courage, hope, faith, joy, rest, renewal",
+    "  - Life situations: a difficult conversation, work, marriage, parenting, grief, illness, anxiety, financial worry, exam day, a job interview, moving house",
+    "  - Specific people: anxious hearts, the lonely, the sick and caregivers, those who are weary, children, families under stress, a friend in need",
+    "  - Time markers: a tired soul, a heavy day, the start of the week, a sleepless night",
+    "Repetition of the STRUCTURE across the batch is correct and expected — that's the channel signature. Vary only X, never the shape."
+  ],
+
+  "titleLengthRange": [3, 9]
 }

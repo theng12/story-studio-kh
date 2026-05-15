@@ -430,6 +430,16 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
       ? `${niche.audienceHint} (within the format's broader audience: ${format.idea.audienceDefault})`
       : format.idea.audienceDefault,
     exampleIdeas: nicheExampleIdeas || format.idea.exampleIdeas,
+    // v1.0.94+ — Niche-supplied title shape rules + length range. When
+    // the niche provides them they REPLACE the generic title instruction
+    // block in the Ideas prompt (see buildPrompt in routes/ideas.ts).
+    // Prayer / Devotional niches use this to lock title shape away from
+    // the generic "evocative 5-10 word" rule that was producing
+    // nature-metaphor-padded titles like "A Prayer at Sunset's Edge".
+    titleShapeRules: niche.titleShapeRules?.length
+      ? niche.titleShapeRules
+      : format.idea.titleShapeRules,
+    titleLengthRange: niche.titleLengthRange || format.idea.titleLengthRange,
   }
 
   // Script layer — only the system-prompt-role gets niche-augmented. The

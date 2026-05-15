@@ -221,6 +221,30 @@ ${pattern.metadataKeywordAdditions?.length
     ? `Tone-appropriate mood words for this format: ${format.idea.moodVocabulary.slice(0, 12).join(', ')}.`
     : ''
 
+  // v1.0.94+ — Niche-aware title instruction. When the niche supplied
+  // hard rules for title shape (prayer: "Prayer for X" exclusively;
+  // devotional: "{N} Lessons from X:Y" etc.), they REPLACE the generic
+  // "evocative 5-10 words" line that was producing nature-metaphor-
+  // padded titles. Otherwise the generic rule still applies.
+  const titleRules = format.idea.titleShapeRules
+  const titleLen = format.idea.titleLengthRange
+  const titleLengthBlurb = titleLen
+    ? `${titleLen[0]}–${titleLen[1]} words`
+    : '5–10 words'
+  const titleInstruction = titleRules?.length
+    ? `1. title — Follow the NICHE TITLE RULES below VERBATIM. Length: ${titleLengthBlurb}.
+   TITLE RULES (niche-specific, MUST follow — these override every other style hint above):
+${titleRules.map(r => `     · ${r}`).join('\n')}`
+    : `1. title — evocative, ${titleLengthBlurb}; pick adjectives that fit the format's tone (see mood vocab below)`
+
+  // When niche supplies titleShapeRules, the "no two titles share noun+
+  // preposition structure" rule is WRONG — prayer titles SHOULD all share
+  // "Prayer for X" structure (that's the channel signature). Swap it for
+  // a "vary only the X" rule instead.
+  const sharedStructureRule = titleRules?.length
+    ? '- Structure REPETITION is correct here: the niche title rules above tell you the shape. Vary only the SUBJECT (X) across the batch, never the structure.'
+    : '- No two titles may share the same noun+preposition structure (e.g. "The X of the Y" twice)'
+
   return `Generate exactly ${req.count} episode ideas for the channel format described below.
 
 ${formatGuidance}
@@ -237,7 +261,7 @@ Diversity levers — apply these two across the batch (some ideas should lean in
 ${leverLines}
 
 For EACH idea, provide:
-1. title — evocative, 5–10 words; pick adjectives that fit the format's tone (see mood vocab below)
+${titleInstruction}
 2. logline — 1–2 sentences with a concrete image or specific detail; avoid describing the premise abstractly
 3. themes — 2–4 thematic keywords, fresh combinations preferred
 4. suggested_chapters — ${chapterRule}
@@ -246,7 +270,7 @@ For EACH idea, provide:
 
 RULES:
 - Every idea must have a different angle / subject / emotional arc from the others in this batch
-- No two titles may share the same noun+preposition structure (e.g. "The X of the Y" twice)
+${sharedStructureRule}
 - Loglines must use specific concrete nouns, not generic ones — concrete > abstract every time
 - Do not produce anything that overlaps the AVOID list above — treat it as a hard negative constraint
 - Honour the format guidance above — that's the channel's voice. Don't bring in tropes from other genres.
@@ -430,7 +454,9 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     // ideas about mountains?" regressions are debuggable from a glance at
     // server output. Captures the four signals that determine title voice.
     const effectiveNicheId = nicheIdOverride !== undefined ? (nicheIdOverride || '(forced none)') : (project.niche_id || '(none)')
-    console.log(`[ideas-gen] effective: format=${project.format_id || '(fallback:sleep-story)'} niche=${effectiveNicheId} examples=${format.idea.exampleIdeas?.length || 0} prefix=${JSON.stringify(titlePrefix || '')} suffix=${JSON.stringify(titleSuffix || '')}`)
+    const titleRulesActive = format.idea.titleShapeRules?.length || 0
+    const titleLengthHint = format.idea.titleLengthRange ? `${format.idea.titleLengthRange[0]}-${format.idea.titleLengthRange[1]}w` : 'generic'
+    console.log(`[ideas-gen] effective: format=${project.format_id || '(fallback:sleep-story)'} niche=${effectiveNicheId} examples=${format.idea.exampleIdeas?.length || 0} titleRules=${titleRulesActive} titleLen=${titleLengthHint} prefix=${JSON.stringify(titlePrefix || '')} suffix=${JSON.stringify(titleSuffix || '')}`)
     const firstRaw = await callAi(body.model, '', firstPrompt, apiKeys, false, { slug })
     const firstBatch = normalizeIdeas(parseIdeas(firstRaw))
 

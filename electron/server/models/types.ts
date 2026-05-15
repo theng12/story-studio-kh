@@ -177,6 +177,17 @@ export interface IdeaFormat {
     suggested_length: string
     mood: string
   }>
+  /** v1.0.94+ — Niche-supplied hard rules for title shape. When set
+   *  (typically merged in from a niche's titleShapeRules), the Ideas
+   *  Generator's prompt REPLACES the generic title instruction with
+   *  these rules. See Niche.titleShapeRules for the authoring guide.
+   *  Formats themselves shouldn't generally set this — it's an escape
+   *  hatch for niches with established title conventions (prayer:
+   *  "Prayer for X" exclusively; devotional: "{N} Lessons from X:Y"). */
+  titleShapeRules?: string[]
+  /** Optional override for the generic "5-10 words" title-length hint.
+   *  Same origin: typically merged in from a niche. */
+  titleLengthRange?: [number, number]
 }
 
 export interface ScriptFormat {
@@ -526,6 +537,29 @@ export interface Niche {
    *  system prompt: "This is a video about {niche.name}. {scriptContext}".
    *  Optional — when absent, generators just use the niche name + description. */
   scriptContext?: string
+
+  /** v1.0.94+ — Hard rules for the SHAPE of generated idea titles.
+   *  When set, these REPLACE the generic title instruction in the Ideas
+   *  Generator's LLM prompt. Use this for niches where the channel's
+   *  title format is established and inflexible (prayer channels: every
+   *  title is "Prayer for X", "Morning Prayer for X", etc.; devotional
+   *  channels: every title is "A Verse for X" or "Today's Word: X").
+   *
+   *  Without this field the LLM uses the generic "evocative, 5-10 words"
+   *  rule which works for story/listicle formats but produces
+   *  nature-metaphor-padded prayer titles ("A Prayer at Sunset's Edge")
+   *  that don't match real prayer channel conventions.
+   *
+   *  The strings are dropped into the prompt verbatim under a
+   *  "TITLE RULES (niche-specific, MUST follow)" header. Write them as
+   *  imperative instructions to the LLM. Examples → see prayer.json /
+   *  devotional.json. */
+  titleShapeRules?: string[]
+
+  /** Optional word-count range for titles. Overrides the generic
+   *  "5-10 words" hint in the Ideas Generator prompt. Useful for niches
+   *  with established short-title conventions (prayer: 3-8 words). */
+  titleLengthRange?: [number, number]
 }
 
 // ── Brand primitive (channel-level identity layer) ─────────────────────────

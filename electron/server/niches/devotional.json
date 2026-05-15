@@ -48,5 +48,26 @@
 
   "audienceHint": "Christians who want a 3-7 minute scripture-grounded reflection alongside their morning coffee or before bed.",
 
-  "scriptContext": "Anchor every devotional in ONE specific passage. Open with the verse spoken aloud, unpack it in 2-3 short reflections, end with a single takeaway the listener can carry through the day. Avoid theological tangents; stay practical and pastoral."
+  "scriptContext": "Anchor every devotional in ONE specific passage. Open with the verse spoken aloud, unpack it in 2-3 short reflections, end with a single takeaway the listener can carry through the day. Avoid theological tangents; stay practical and pastoral.",
+
+  "titleShapeRules": [
+    "Titles MUST anchor on a SPECIFIC scripture passage OR a SPECIFIC pastoral topic. Direct and teaching-oriented — never poetic.",
+    "Use ONE of these established shapes (vary the passage / topic across the batch):",
+    "  - 'A Thought on {Book Chapter:Verse}'         (e.g. 'A Thought on Psalm 23', 'A Thought on John 14:27')",
+    "  - 'Today's Verse: {Book Chapter:Verse}'        (e.g. 'Today's Verse: Philippians 4:6-7')",
+    "  - 'Why {Book Chapter:Verse} Still Matters'     (e.g. 'Why Joshua 1:9 Still Matters')",
+    "  - '{N} Lessons from {Book Chapter:Verse}'      (e.g. 'Three Lessons from Proverbs 3:5-6')",
+    "  - 'What {Book / Figure} Teaches Us About X'    (e.g. 'What the Beatitudes Teach Us About Quiet Strength', 'What Job Knew About Suffering')",
+    "  - 'Lessons from {Parable / Figure}'            (e.g. 'Lessons from the Prodigal Son')",
+    "  - 'A Devotion on X'                            (e.g. 'A Devotion on Anxiety', 'A Devotion for Tired Mothers')",
+    "  - 'Trusting When X'                            (e.g. 'Trusting When You Can't See the Path')",
+    "FORBIDDEN in titles:",
+    "  - Nature/scenery modifiers ('at Sunset's Edge', 'in the Garden', 'Moonlit Waters')",
+    "  - Atmospheric adjectives ('A Quiet Devotion', 'A Gentle Thought', 'A Reflective…') — keep it instructional, not poetic",
+    "  - Allegorical decoration ('Echoes of…', 'Whispers of…', 'Glimmers of…')",
+    "  - Vague abstractions ('Inner Peace', 'Sacred Moments') without a SPECIFIC passage / topic anchor",
+    "REQUIRED: every title points at a concrete scripture reference OR a concrete pastoral teaching subject. The audience comes here to LEARN something from a passage, not to enjoy poetry."
+  ],
+
+  "titleLengthRange": [4, 10]
 }

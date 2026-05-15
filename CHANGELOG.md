@@ -4,6 +4,44 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.94 — 2026-05-16
+
+**Niches can now lock the SHAPE of generated titles (real prayer titles, not "Prayer at Sunset's Edge")**
+
+v1.0.93 wired the prayer niche's example topics into the LLM prompt + made the niche lead the prompt voice. Titles improved but still came out poetic ("Daily Prayer | Prayer for Healing at Sunset's Edge", "A Quiet Prayer in the Garden", "Reflections of Hope in Moonlit Waters"). Investigation showed the actual culprit was buried in the prompt's generic title instructions:
+
+- Line 240 of `buildPrompt()`: `"title — evocative, 5–10 words; pick adjectives that fit the format's tone"` — the LLM read "evocative" as "use poetic imagery", "5–10 words" forced padding (a 3-word "Prayer for Strength" got bulked out to "A Prayer at Sunset's Edge"), and "pick adjectives from mood vocab" decorated every title with "Reflective", "Quiet", "Gentle".
+- Line 249's rule: `"No two titles may share the same noun+preposition structure"` — for a prayer channel this rule is EXACTLY WRONG. Real prayer channels repeat "Prayer for X" intentionally as the channel signature (your reference: AF001-AF020 all share that structure). The rule was actively pushing the LLM to diverge into nature metaphors to "vary".
+
+Fix: niches gain two new fields:
+
+- **`titleShapeRules: string[]`** — When set, REPLACES the generic title instruction block in the Ideas Generator's LLM prompt. Each string is dropped into the prompt as an imperative rule under a "TITLE RULES (niche-specific, MUST follow)" header. The prompt's "no two titles share structure" rule is also swapped for "vary only the SUBJECT, never the structure" when these rules are active.
+- **`titleLengthRange: [min, max]`** — Optional word-count range override (prayer is 3-9 words; devotional is 4-10).
+
+**Prayer niche** ships with 21 strict rules locking titles to the established shapes:
+- `Prayer for X` · `A Prayer for X` · `Morning Prayer for X` · `Evening Prayer for X` · `Prayer Before X` · `Prayer of X`
+- `X` is required to be a spiritual need, life situation, emotional state, or specific person
+- Explicit FORBIDDEN list: no nature/scenery modifiers, no atmospheric adjectives in titles, no allegorical objects ("Pebble's Journey", "Whispers of…"), no possessive nature phrases ("A Bird's…", "The Piano Tuner's…")
+
+**Devotional niche** ships with 16 rules locking titles to scripture-anchored teaching shapes:
+- `A Thought on {Book Chapter:Verse}` · `Today's Verse: {Ref}` · `Why {Ref} Still Matters` · `{N} Lessons from {Ref}` · `What {Book/Figure} Teaches Us About X` · `A Devotion on X`
+- Every title must point at a concrete scripture reference OR concrete pastoral teaching subject — no vague abstractions, no poetic decoration
+
+Other niches (motivation, preaching, psychology, philosophy, mindfulness, history-narration) can opt in by adding `titleShapeRules` to their JSON. Without the field they continue to use the generic prompt — back-compat preserved.
+
+**Backend debug-log line** now also reports whether niche title rules are active so future regressions are catchable from server output:
+
+```
+[ideas-gen] effective: format=broll-narration niche=prayer examples=19 titleRules=21 titleLen=3-9w prefix="Daily Prayer | " suffix=""
+```
+
+**Audit pass**
+- `tsc -p electron --noEmit`: 0 errors.
+- Prayer niche parses: 21 title rules, length range 3-9.
+- Devotional niche parses: 16 title rules, length range 4-10.
+
+---
+
 ## v1.0.93 — 2026-05-16
 
 **Ideas Generator: stop reverting to sleep-story on every navigation**
