@@ -54,7 +54,12 @@
         >
           Thumbnail Prompts <span v-if="thumbPromptGenerating" class="nav-pulse" />
         </NuxtLink>
+        <!-- Scene Prompts hidden for B-Roll-driven formats (prayer /
+             devotional / narration-over-stock). Those formats render
+             video from the B-Roll pool instead of per-scene AI stills,
+             so this generator is irrelevant. -->
         <NuxtLink
+          v-if="!isBroll"
           :to="`/projects/${slug}/image-prompts?tab=scenes`"
           :class="['nav-item', { active: isImagePromptsActive('scenes') }]"
         >
@@ -67,10 +72,24 @@
           Thumbnail Generator <span v-if="thumbImageGenerating" class="nav-pulse" />
         </NuxtLink>
         <NuxtLink
+          v-if="!isBroll"
           :to="`/projects/${slug}/images?tab=scenes`"
           :class="['nav-item', { active: isImagesActive('scenes') }]"
         >
           Scene Generator <span v-if="imageGenerating" class="nav-pulse" />
+        </NuxtLink>
+        <!-- B-Roll Picker — only shown when this project's format declares
+             visualSource: 'broll'. Points at the per-project B-Roll
+             selection surface (which is Video Assembly itself for broll
+             formats — the form below switches to the picker UI). -->
+        <NuxtLink
+          v-if="isBroll"
+          :to="`/projects/${slug}/broll`"
+          class="nav-item"
+          active-class="active"
+          title="Pick B-Roll clips for this episode from your subscribed pool. Random / tagged / themed / manual order modes available."
+        >
+          🎬 B-Roll Picker
         </NuxtLink>
         <NuxtLink :to="`/projects/${slug}/video`" class="nav-item" active-class="active">
           Video Generator <span v-if="videoGenerating" class="nav-pulse" />
@@ -317,6 +336,24 @@ function isImagesActive(tab: 'thumbnails' | 'scenes'): boolean {
 
 const { project, loadProject } = useProject()
 const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling } = useJobs()
+
+// v1.0.89+: format-aware sidebar. B-Roll-driven formats (prayer /
+// devotional / narration over stock footage) hide scene/thumbnail-prompt
+// + scene/thumbnail-generator pages and surface a B-Roll Picker entry
+// instead. Fetched lazily — the layout doesn't block on this; if it
+// hasn't resolved yet we show the default set, which is correct for
+// every existing format.
+const { get: apiGet } = useApi()
+const visualSource = ref<'scene-images' | 'broll'>('scene-images')
+async function loadVisualSource(): Promise<void> {
+  if (!slug.value) return
+  try {
+    const f = await apiGet<{ visualSource?: 'scene-images' | 'broll' }>(`/projects/${slug.value}/effective-format`)
+    visualSource.value = f?.visualSource === 'broll' ? 'broll' : 'scene-images'
+  } catch { /* leave as default */ }
+}
+const isBroll = computed(() => visualSource.value === 'broll')
+watch(slug, () => { void loadVisualSource() }, { immediate: true })
 
 // Cross-tab batch-completion signals (toast + title badge). The Electron
 // main process owns the native-OS notification path via job-notifier.ts;

@@ -411,6 +411,20 @@ export interface Format {
    * guidelines without polluting the project's free-form standards file.
    */
   productionStandardsAddendum?: string
+
+  /**
+   * v1.0.89+: Visual source for the video assembly step.
+   *   - 'scene-images' (default, omitted): per-scene AI-generated stills,
+   *     the original Story Studio path. Used by sleep-story, bound-
+   *     explainer, listicle, true-crime, etc.
+   *   - 'broll': pulls clips from an app-level B-Roll pool. Used by
+   *     prayer / devotional / narration-over-stock formats where every
+   *     frame is human-shot footage instead of generated art.
+   * Drives sidebar visibility (Scene Prompts / Scene Generator hidden
+   * when 'broll'), pipeline step set, and which generator the Video
+   * Assembly button triggers.
+   */
+  visualSource?: 'scene-images' | 'broll'
 }
 
 // ── Niche primitive (subject-domain layer, orthogonal to Format) ───────────
@@ -1178,6 +1192,35 @@ export interface ProjectConfig {
    */
   models?: UnifiedModel[]
   confirmation_preferences?: ConfirmationPreferences
+
+  /**
+   * v1.0.89+: App-level B-Roll pool this project draws stock footage
+   * from when format.visualSource === 'broll'. Empty / undefined means
+   * "no pool subscribed yet" — the Video Assembly B-Roll picker shows
+   * a "Pick a pool" prompt linking to /broll-library.
+   */
+  broll_pool_id?: string
+  /** Per-channel usage log for B-Roll repeat avoidance. */
+  broll_usage_log?: BrollUsageEntry[]
+  /** How many recent uploads to consult when avoiding repeats (default 10). */
+  broll_lookback?: number
+  /** Channel-locked metadata template (LLM fills placeholders only). */
+  metadata_template?: MetadataTemplate
+}
+
+/** Per-clip usage record for B-Roll repeat-avoidance (project-scoped). */
+export interface BrollUsageEntry {
+  clip_sha: string
+  clip_filename: string
+  episode_code: string
+  used_at: string
+}
+
+/** Channel-locked metadata template. */
+export interface MetadataTemplate {
+  title?: string
+  description?: string
+  tags?: string[]
 }
 
 export interface SafeProjectConfig {
@@ -1205,6 +1248,9 @@ export interface SafeProjectConfig {
   /** Unified model catalog (same content as `ProjectConfig.models`). */
   models?: UnifiedModel[]
   confirmation_preferences?: ConfirmationPreferences
+  broll_pool_id?: string
+  broll_lookback?: number
+  metadata_template?: MetadataTemplate
 }
 
 export interface UpdateApiKeysRequest {
@@ -1231,7 +1277,7 @@ export interface UpdateConfigRequest {
 
 // ── Jobs ────────────────────────────────────────────────────────────────────
 
-export type JobType = 'script-only' | 'introduction-only' | 'chapter-only' | 'outline_only' | 'expand_chapters' | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'images_repair' | 'audio' | 'audio_merge' | 'metadata' | 'video' | 'video_repair' | 'video_assembly' | 'subtitles_transcribe' | 'youtube_upload' | 'youtube_playlist_update' | 'broll_normalize'
+export type JobType = 'script-only' | 'introduction-only' | 'chapter-only' | 'outline_only' | 'expand_chapters' | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'images_repair' | 'audio' | 'audio_merge' | 'metadata' | 'video' | 'video_repair' | 'video_assembly' | 'subtitles_transcribe' | 'youtube_upload' | 'youtube_playlist_update' | 'broll_normalize' | 'broll_assemble' | 'broll_autotag'
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
 /**

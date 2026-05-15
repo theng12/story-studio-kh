@@ -229,6 +229,11 @@ const queues: Record<JobType, QueueState> = {
   // filtergraph at render time. Auto-queued on import when the pool's
   // auto_normalize flag is on (default).
   broll_normalize: { pending: [], running: false, executor: null },
+  // B-Roll assembly — concat selected clips + mix narration → final MP4.
+  broll_assemble: { pending: [], running: false, executor: null },
+  // Vision-LLM auto-tag — frames a clip's midpoint, asks GPT-4o-mini
+  // for short tags, writes to the pool sidecar. Cheap (~$0.002/clip).
+  broll_autotag: { pending: [], running: false, executor: null },
 }
 
 // ── Persistence ─────────────────────────────────────────────────────────────

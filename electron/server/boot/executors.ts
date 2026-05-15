@@ -25,6 +25,7 @@ import { generateSubtitlesTranscribe } from '../generators/subtitles.js'
 import { generateYoutubeUpload } from '../generators/youtube-upload.js'
 import { generateYoutubePlaylistUpdate } from '../generators/youtube-playlist-update.js'
 import { normalizeBroll } from '../generators/broll-normalize.js'
+import { generateBrollAssemble } from '../generators/broll-assemble.js'
 
 export function registerAllExecutors(): void {
   // Legacy `'script'` executor (the coupled generateEpisode) was removed
@@ -69,4 +70,8 @@ export function registerAllExecutors(): void {
   // pool's target fps (24 or 30) so Video Assembly can concat-demux for
   // speed instead of running a per-frame filtergraph at render time.
   registerExecutor('broll_normalize', normalizeBroll)
+  registerExecutor('broll_assemble', generateBrollAssemble)
+  // broll_autotag registered in Phase 5 patch below — kept lazy because
+  // it pulls in the vision-client + a frame-extract helper not needed by
+  // most installs.
 }
