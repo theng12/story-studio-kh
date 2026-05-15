@@ -343,7 +343,12 @@ const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling 
 // instead. Fetched lazily — the layout doesn't block on this; if it
 // hasn't resolved yet we show the default set, which is correct for
 // every existing format.
-const { get: apiGet } = useApi()
+// Reuses the `apiGet` declared further down in this script-setup block
+// (line ~423: const { get: apiGet, patch: apiPatch, del: apiDel } = useApi()).
+// Vue script-setup hoists const declarations, so referencing it before
+// its textual position is safe at runtime. A duplicate `const { get: apiGet } = useApi()`
+// here passed tsx-watch but failed Vite's prod build with "Identifier
+// already declared" — removed in v1.0.89.
 const visualSource = ref<'scene-images' | 'broll'>('scene-images')
 async function loadVisualSource(): Promise<void> {
   if (!slug.value) return
