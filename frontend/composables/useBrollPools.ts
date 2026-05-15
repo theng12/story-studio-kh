@@ -131,6 +131,34 @@ export function useBrollPools() {
     return `/api/broll-pools/${encodeURIComponent(poolId)}/clips/${encodeURIComponent(filename)}/thumbnail`
   }
 
+  // v1.0.92+ rename helpers. Single rename returns the updated BrollClip
+  // (its `filename` carries the new name). Bulk rename returns per-row
+  // status so the caller can render a "23 renamed, 2 skipped, 1 error"
+  // summary without re-fetching the whole pool.
+  async function renameClip(id: string, oldFilename: string, newFilename: string): Promise<BrollClip> {
+    return await post<BrollClip>(
+      `/broll-pools/${encodeURIComponent(id)}/clips/${encodeURIComponent(oldFilename)}/rename`,
+      { new_filename: newFilename },
+    )
+  }
+  interface BulkRenameRow {
+    old_filename: string
+    new_filename: string
+    status: 'renamed' | 'skipped' | 'error'
+    detail?: string
+  }
+  async function renameClipsBulk(
+    id: string,
+    template: string,
+    filenames: string[],
+    opts?: { start_index?: number },
+  ): Promise<{ rows: BulkRenameRow[] }> {
+    return await post<{ rows: BulkRenameRow[] }>(
+      `/broll-pools/${encodeURIComponent(id)}/clips/rename-bulk`,
+      { template, filenames, start_index: opts?.start_index ?? 1 },
+    )
+  }
+
   return {
     pools: computed(() => pools.value),
     loading: computed(() => loading.value),
@@ -146,5 +174,7 @@ export function useBrollPools() {
     autotagClip,
     autotagUntagged,
     thumbnailUrl,
+    renameClip,
+    renameClipsBulk,
   }
 }

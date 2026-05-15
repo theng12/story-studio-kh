@@ -182,6 +182,32 @@
             :format-id="formatId"
           />
         </div>
+
+        <!-- v1.0.92+ Niche override (optional). The Ideas Generator runs
+             through `getEffectiveFormat({ nicheIdOverride })`, so changing
+             this dropdown swaps niche vocab + audience hint for THIS batch
+             only — the project's saved niche under Settings → Niche is
+             not touched. Defaults to the project's saved niche so the
+             picker reflects the current effective state out of the box. -->
+        <div class="ideas-niche-block">
+          <NichePicker v-model="form.niche_id" />
+          <div v-if="form.niche_id !== projectNicheId" class="niche-override-banner">
+            <span class="banner-icon">↪</span>
+            <span class="banner-text">
+              <strong>Overriding</strong> the project's saved niche
+              <span v-if="projectNicheId">
+                (<code>{{ projectNicheId }}</code>)
+              </span>
+              <span v-else>
+                (none)
+              </span>
+              for this generation only.
+              <a class="banner-link" @click.prevent="form.niche_id = projectNicheId">
+                Reset to project default
+              </a>
+            </span>
+          </div>
+        </div>
       </div>
 
       <!-- Action cluster lives in its own blocked region so the progress -->
@@ -1173,7 +1199,17 @@ const form = reactive({
   // and suggested_chapters will equal this value (see backend
   // rewriteLeadingCount + pinned-chapters prompt rule).
   items_per_listicle: null as number | null,
+  // v1.0.92+ — per-generation niche override. Hydrated from the project's
+  // saved niche_id on mount, but the user can dial it up/down here without
+  // touching the project meta. Empty string = "no niche for this batch"
+  // (sent as `__none__` to force override even when the project has one).
+  niche_id: '',
 })
+
+// Tracks the project's currently-saved niche so the UI can show
+// "Overriding saved niche '<name>'" when the picker doesn't match.
+// Empty string = project has no saved niche.
+const projectNicheId = ref<string>('')
 
 // ── Pattern + format wiring for the Ideas page ────────────────────────────
 //
@@ -1203,6 +1239,9 @@ const LAST_SUBJECT_KEY = 'idea_generator_last_subject'
 // the pattern keys), so each project keeps its own most-recent picks.
 const LAST_THEME_KEY = 'idea_generator_last_theme'
 const LAST_ITEMS_KEY = 'idea_generator_last_items_per_listicle'
+// v1.0.92+ — remember the most recent niche override per project. Resets
+// to project.niche_id on next load when the user hasn't picked one yet.
+const LAST_NICHE_KEY = 'idea_generator_last_niche_override'
 let patternHydrated = false
 
 /**
@@ -1256,10 +1295,13 @@ async function loadPatternPreferences() {
   // (listicle) projects saw lantern/observatory/coming-of-age vocab. Fix:
   // hit project meta for format_id, settings/config for the *_last_*
   // pattern/subject memory.
+  let metaNiche = ''
   try {
     const meta = await get<any>(`/projects/${slug.value}`)
     if (typeof meta?.format_id === 'string' && meta.format_id) formatId.value = meta.format_id
+    if (typeof meta?.niche_id === 'string') metaNiche = meta.niche_id
   } catch { /* meta unreadable → leave default */ }
+  projectNicheId.value = metaNiche
   try {
     const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
     if (typeof cfg?.[LAST_PATTERN_KEY] === 'string') form.pattern_id = cfg[LAST_PATTERN_KEY]
@@ -1268,7 +1310,18 @@ async function loadPatternPreferences() {
     if (typeof cfg?.[LAST_ITEMS_KEY] === 'number' && cfg[LAST_ITEMS_KEY] > 0) {
       form.items_per_listicle = cfg[LAST_ITEMS_KEY]
     }
-  } catch { /* config unreadable → leave defaults */ }
+    // Niche override hydration: prefer the last per-project override (if
+    // user picked one recently), otherwise fall back to the project's
+    // saved niche so the picker shows the active value out of the box.
+    if (typeof cfg?.[LAST_NICHE_KEY] === 'string') {
+      form.niche_id = cfg[LAST_NICHE_KEY]
+    } else {
+      form.niche_id = metaNiche
+    }
+  } catch {
+    // Even if config fetch fails, surface project niche as the default.
+    form.niche_id = metaNiche
+  }
   patternHydrated = true
 }
 
@@ -1284,6 +1337,7 @@ async function savePatternPreferences() {
       [LAST_SUBJECT_KEY]: form.pattern_subject,
       [LAST_THEME_KEY]: form.theme,
       [LAST_ITEMS_KEY]: form.items_per_listicle,
+      [LAST_NICHE_KEY]: form.niche_id,
     })
   } catch { /* non-fatal — selection still works in-session */ }
 }
@@ -1292,6 +1346,7 @@ watch(() => form.pattern_id, savePatternPreferences)
 watch(() => form.pattern_subject, savePatternPreferences)
 watch(() => form.theme, savePatternPreferences)
 watch(() => form.items_per_listicle, savePatternPreferences)
+watch(() => form.niche_id, savePatternPreferences)
 onMounted(loadPatternPreferences)
 onMounted(loadFormatNames)
 
@@ -2148,6 +2203,16 @@ async function generate() {
     if (!body.items_per_listicle || body.items_per_listicle <= 0) {
       delete body.items_per_listicle
     }
+    // Niche override semantics:
+    //   - form.niche_id matches projectNicheId → omit (use project default)
+    //   - form.niche_id !== projectNicheId AND empty → send '__none__'
+    //     (force "no niche for this batch" even when project has one saved)
+    //   - form.niche_id !== projectNicheId AND non-empty → send the override
+    if (form.niche_id === projectNicheId.value) {
+      delete body.niche_id
+    } else if (!form.niche_id) {
+      body.niche_id = '__none__'
+    }
     const res = await $fetch.raw(`/api/projects/${slug.value}/generate/ideas`, {
       method: 'POST',
       body,
@@ -2650,6 +2715,49 @@ onMounted(loadIdeas)
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px dashed var(--border);
+}
+
+/* v1.0.92+ — Niche picker block on the Ideas page. Same visual rhythm as
+   the pattern block above it (dashed top divider + breathing room) so
+   the two optional layers feel paired without crowding the form. */
+.ideas-niche-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.niche-override-banner {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 12px;
+  background: rgba(108, 143, 255, 0.08);
+  border: 1px solid rgba(108, 143, 255, 0.25);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.niche-override-banner .banner-icon {
+  color: var(--accent, #6c8fff);
+  font-weight: 600;
+}
+.niche-override-banner code {
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.niche-override-banner .banner-link {
+  color: var(--accent, #6c8fff);
+  cursor: pointer;
+  text-decoration: underline;
+  margin-left: 6px;
+}
+.niche-override-banner .banner-link:hover {
+  opacity: 0.8;
 }
 
 /* Import modal */

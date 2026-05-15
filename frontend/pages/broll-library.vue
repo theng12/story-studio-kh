@@ -91,6 +91,14 @@
               ✨ Auto-tag untagged{{ untaggedCount ? ` (${untaggedCount})` : '' }}
             </button>
             <button
+              class="btn btn-sm btn-secondary"
+              :disabled="!selectedPool.online || !clips.length"
+              :title="!selectedPool.online ? 'Pool offline' : !clips.length ? 'No clips to rename' : 'Apply a naming template (e.g. prayer_{n:3}.{ext}) to every clip in this pool. Preview before applying.'"
+              @click="openBulkRename"
+            >
+              ✏ Bulk rename
+            </button>
+            <button
               class="btn btn-ghost btn-sm"
               :title="'Toggle auto-normalize on new clips for this pool. When on, the next scan auto-queues normalize jobs for clips it newly indexed. Turn off if you want manual control or your SSD is slow.'"
               @click="toggleAutoNormalize"
@@ -204,6 +212,14 @@
                 >
                   ✨ Auto-tag
                 </button>
+                <button
+                  class="btn btn-ghost btn-sm"
+                  :disabled="!selectedPool.online"
+                  :title="'Rename this clip on disk. The sidecar entry + .broll-normalized/ variant follow automatically. Keep the file extension (e.g. .mp4) intact.'"
+                  @click="openRenameOne(clip.filename)"
+                >
+                  ✏ Rename
+                </button>
               </div>
             </div>
           </article>
@@ -252,12 +268,15 @@
         <div class="form-group">
           <label>
             <input type="checkbox" v-model="createDraft.auto_normalize" />
-            Auto-normalize new clips on import (recommended)
+            Auto-normalize new clips on import
           </label>
           <span class="hint">
-            When on, every newly-indexed clip gets a queued normalize job to re-encode to 1080p at
-            the target fps. Turn off if you want to control re-encodes manually (saves CPU on a
-            slow drive).
+            <strong>Off by default.</strong> When on, every newly-indexed clip gets a queued
+            normalize job to re-encode to 1080p at the target fps. For a fresh 200-clip pool that's
+            1–3&nbsp;hours of CPU + disk, so leaving this off and clicking
+            <em>⚡&nbsp;Normalize all</em> on the pool when you're ready is usually the safer
+            choice. The original files are never modified — normalized variants live alongside
+            them in a <code>.broll-normalized/</code> sidecar folder.
           </span>
         </div>
         <div v-if="createError" class="create-error">⚠ {{ createError }}</div>
@@ -269,6 +288,162 @@
             @click="submitCreate"
           >
             {{ creating ? 'Registering…' : 'Register pool' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Rename (single clip) modal ────────────────────────────────────
+         Lightweight: just a text input + Save. We re-validate client-side
+         (extension required, no path separators) so the user gets immediate
+         feedback before round-tripping the server. The backend re-validates
+         too — never trust the client's check alone. -->
+    <div v-if="renameOneOpen" class="modal-overlay" @click.self="closeRenameOne">
+      <div class="create-modal">
+        <h3>Rename clip</h3>
+        <p class="text-muted text-sm">
+          Renames the file on disk and updates the pool's sidecar in one step.
+          Any matching <code>.broll-normalized/</code> variant follows automatically.
+          <strong>Keep the file extension</strong> (e.g. <code>.mp4</code>) intact —
+          ffmpeg uses it to pick the right demuxer.
+        </p>
+        <div class="form-group">
+          <label>Current name</label>
+          <input class="input" :value="renameOneOld" disabled />
+        </div>
+        <div class="form-group">
+          <label>New name <span class="req">*</span></label>
+          <input
+            v-model="renameOneNew"
+            class="input"
+            :class="{ 'has-error': !!renameOneClientError }"
+            autofocus
+            @keyup.enter="submitRenameOne"
+          />
+          <span v-if="renameOneClientError" class="hint text-danger">⚠ {{ renameOneClientError }}</span>
+        </div>
+        <div v-if="renameOneError" class="create-error">⚠ {{ renameOneError }}</div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" :disabled="renameOneBusy" @click="closeRenameOne">Cancel</button>
+          <button
+            class="btn btn-primary"
+            :disabled="renameOneBusy || !!renameOneClientError || !renameOneNew.trim() || renameOneNew.trim() === renameOneOld"
+            @click="submitRenameOne"
+          >
+            {{ renameOneBusy ? 'Renaming…' : 'Rename' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Bulk rename modal ─────────────────────────────────────────────
+         User picks a template; we render a live preview of the first N
+         resulting names before any disk writes happen. Tokens documented
+         inline so the user doesn't have to leave the modal to find the
+         token reference. Errors are surfaced per-row after apply so the
+         user can see exactly which renames collided. -->
+    <div v-if="bulkRenameOpen" class="modal-overlay" @click.self="closeBulkRename">
+      <div class="create-modal bulk-rename-modal">
+        <h3>Bulk rename — {{ selectedPool?.name || 'pool' }}</h3>
+        <p class="text-muted text-sm">
+          Apply a naming template to every clip in this pool. Originals are
+          renamed on disk and the sidecar follows. Files are processed in
+          their current alphabetical order; the <code>{n}</code> counter
+          starts at the value below.
+        </p>
+        <div class="form-group">
+          <label>Template <span class="req">*</span></label>
+          <input
+            v-model="bulkRenameTemplate"
+            class="input"
+            placeholder="e.g. prayer_{n:3}.{ext}"
+            :disabled="bulkRenameBusy"
+          />
+          <span class="hint">
+            Tokens:
+            <code>{n}</code> 1-based index ·
+            <code>{n:3}</code> zero-padded width ·
+            <code>{ext}</code> original extension ·
+            <code>{orig}</code> original basename ·
+            <code>{sha}</code> first 8 chars of content hash.
+            Must end with a valid extension (literal <code>.mp4</code> or <code>.{ext}</code>).
+          </span>
+        </div>
+        <div class="form-group">
+          <label>Start index</label>
+          <input
+            v-model.number="bulkRenameStart"
+            class="input"
+            type="number"
+            min="1"
+            max="999999"
+            style="max-width: 140px"
+            :disabled="bulkRenameBusy"
+          />
+        </div>
+
+        <!-- Live preview: show first 8 + a "+N more" footer. Faster than
+             scrolling a 250-row preview and almost always enough to spot
+             a template that's about to wipe out unique names (e.g. {n}.mp4
+             collapses everything into 1.mp4 / 2.mp4 / 3.mp4 — visible at
+             a glance). -->
+        <div v-if="bulkRenamePreview.length" class="bulk-rename-preview">
+          <div class="bulk-rename-preview-head">
+            <strong>Preview</strong>
+            <span class="text-muted text-xs">
+              showing first {{ bulkRenamePreview.length }} of {{ clips.length }}
+            </span>
+          </div>
+          <table class="bulk-rename-table">
+            <thead>
+              <tr>
+                <th>Current</th>
+                <th>→</th>
+                <th>New</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in bulkRenamePreview" :key="row.old">
+                <td class="bulk-rename-old">{{ row.old }}</td>
+                <td class="bulk-rename-arrow">→</td>
+                <td :class="['bulk-rename-new', { 'is-error': row.error, 'is-unchanged': row.unchanged }]">
+                  <span v-if="row.error">⚠ {{ row.error }}</span>
+                  <span v-else-if="row.unchanged">(unchanged)</span>
+                  <span v-else>{{ row.next }}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Apply summary after a run completes. -->
+        <div v-if="bulkRenameResult" class="bulk-rename-result">
+          <div>
+            <strong>{{ bulkRenameResult.renamed }} renamed</strong>
+            <span v-if="bulkRenameResult.skipped"> · {{ bulkRenameResult.skipped }} skipped</span>
+            <span v-if="bulkRenameResult.errors" class="text-danger"> · {{ bulkRenameResult.errors }} errors</span>
+          </div>
+          <details v-if="bulkRenameResult.errors > 0" class="bulk-rename-errors">
+            <summary>View {{ bulkRenameResult.errors }} error{{ bulkRenameResult.errors === 1 ? '' : 's' }}</summary>
+            <ul>
+              <li v-for="row in bulkRenameResult.errorRows" :key="row.old_filename">
+                <code>{{ row.old_filename }}</code> → <code>{{ row.new_filename }}</code>: {{ row.detail }}
+              </li>
+            </ul>
+          </details>
+        </div>
+
+        <div v-if="bulkRenameError" class="create-error">⚠ {{ bulkRenameError }}</div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" :disabled="bulkRenameBusy" @click="closeBulkRename">
+            {{ bulkRenameResult ? 'Close' : 'Cancel' }}
+          </button>
+          <button
+            class="btn btn-primary"
+            :disabled="bulkRenameBusy || !bulkRenameTemplate.trim() || !clips.length"
+            @click="submitBulkRename"
+          >
+            {{ bulkRenameBusy ? 'Renaming…' : bulkRenameResult ? 'Run again' : `Rename ${clips.length} clip${clips.length === 1 ? '' : 's'}` }}
           </button>
         </div>
       </div>
@@ -530,6 +705,203 @@ async function saveTags(filename: string, tags: string[]): Promise<void> {
   }
 }
 
+// ── Rename: single clip ───────────────────────────────────────────────
+//
+// Per-clip rename is the "I want to fix THIS one name" surface. Bulk
+// rename below handles "I want to apply a template to the whole pool".
+// Both ultimately call the same renameClip helper one row at a time —
+// keeps the disk writes serial so two simultaneous renames can't race
+// on the sidecar file.
+
+const renameOneOpen = ref(false)
+const renameOneOld = ref('')
+const renameOneNew = ref('')
+const renameOneBusy = ref(false)
+const renameOneError = ref('')
+
+// Mirrors the server's isValidFilename — runs client-side so the user
+// gets feedback while typing. The server re-validates so this is purely
+// a UX nicety; if the regex here drifts from the server it just means
+// fewer pre-flight catches, never a wrong save.
+function validateNewFilename(name: string): string {
+  const trimmed = name.trim()
+  if (!trimmed) return 'Name is required'
+  if (trimmed.length > 200) return 'Name is too long (200 char limit)'
+  if (trimmed.includes('/') || trimmed.includes('\\')) return 'No path separators allowed'
+  if (trimmed.startsWith('.')) return 'Leading dot is reserved for hidden files'
+  const dot = trimmed.lastIndexOf('.')
+  if (dot <= 0 || dot === trimmed.length - 1) return 'Include a file extension (e.g. .mp4)'
+  if (!/^[A-Za-z0-9._\- ()\[\]+&#'%@$~,;!=]+$/.test(trimmed)) {
+    return 'Name contains unsupported characters'
+  }
+  return ''
+}
+
+const renameOneClientError = computed(() =>
+  renameOneNew.value && renameOneNew.value !== renameOneOld.value
+    ? validateNewFilename(renameOneNew.value)
+    : '',
+)
+
+function openRenameOne(filename: string): void {
+  renameOneOld.value = filename
+  renameOneNew.value = filename
+  renameOneError.value = ''
+  renameOneOpen.value = true
+}
+
+function closeRenameOne(): void {
+  if (renameOneBusy.value) return
+  renameOneOpen.value = false
+  renameOneOld.value = ''
+  renameOneNew.value = ''
+  renameOneError.value = ''
+}
+
+async function submitRenameOne(): Promise<void> {
+  if (!selectedPoolId.value) return
+  const next = renameOneNew.value.trim()
+  if (!next || next === renameOneOld.value) return
+  const err = validateNewFilename(next)
+  if (err) { renameOneError.value = err; return }
+  renameOneBusy.value = true
+  renameOneError.value = ''
+  try {
+    const updated = await broll.renameClip(selectedPoolId.value, renameOneOld.value, next)
+    const idx = clips.value.findIndex(c => c.filename === renameOneOld.value)
+    if (idx >= 0) clips.value[idx] = updated
+    success(`Renamed → ${updated.filename}`)
+    renameOneOpen.value = false
+    renameOneOld.value = ''
+    renameOneNew.value = ''
+  } catch (e: any) {
+    renameOneError.value = e?.data?.detail || e?.message || 'Failed to rename'
+  } finally {
+    renameOneBusy.value = false
+  }
+}
+
+// ── Rename: bulk ──────────────────────────────────────────────────────
+//
+// The bulk dialog is intentionally template-driven rather than free-form
+// per-row editing: 250 input fields in a modal is a UX trap (you forget
+// what row you're on, can't compare originals, can't see the pattern at
+// a glance). A template + preview surfaces "what will this look like"
+// before any disk writes happen.
+
+const bulkRenameOpen = ref(false)
+const bulkRenameTemplate = ref('clip_{n:3}.{ext}')
+const bulkRenameStart = ref(1)
+const bulkRenameBusy = ref(false)
+const bulkRenameError = ref('')
+
+interface BulkRenameRow {
+  old_filename: string
+  new_filename: string
+  status: 'renamed' | 'skipped' | 'error'
+  detail?: string
+}
+interface BulkRenameResult {
+  renamed: number
+  skipped: number
+  errors: number
+  errorRows: BulkRenameRow[]
+}
+const bulkRenameResult = ref<BulkRenameResult | null>(null)
+
+function openBulkRename(): void {
+  bulkRenameOpen.value = true
+  bulkRenameError.value = ''
+  bulkRenameResult.value = null
+  // Don't reset the template — users will often run multiple batches with
+  // tweaks (e.g. start index 1 batch, then 50, then 100), and re-typing
+  // the template every time is annoying.
+}
+
+function closeBulkRename(): void {
+  if (bulkRenameBusy.value) return
+  bulkRenameOpen.value = false
+}
+
+// Compute the preview client-side using the same template grammar the
+// backend implements (kept in sync via comments — if you change one,
+// change the other). Capped at 8 rows so the modal doesn't balloon
+// vertically on a 250-clip pool.
+const bulkRenamePreview = computed<Array<{ old: string; next: string; error: string; unchanged: boolean }>>(() => {
+  const template = bulkRenameTemplate.value
+  if (!template) return []
+  const rows: Array<{ old: string; next: string; error: string; unchanged: boolean }> = []
+  const sorted = [...clips.value].sort((a, b) => a.filename.localeCompare(b.filename))
+  let i = 0
+  for (const clip of sorted.slice(0, 8)) {
+    const idx = bulkRenameStart.value + i
+    i++
+    let next = template
+    const dot = clip.filename.lastIndexOf('.')
+    const origBase = dot > 0 ? clip.filename.slice(0, dot) : clip.filename
+    const origExt = dot > 0 ? clip.filename.slice(dot + 1) : ''
+    next = next.replace(/\{n:(\d+)\}/g, (_: string, w: string) => String(idx).padStart(Number(w), '0'))
+    next = next.replace(/\{n\}/g, String(idx))
+    next = next.replace(/\{ext\}/g, origExt)
+    next = next.replace(/\{orig\}/g, origBase)
+    next = next.replace(/\{sha\}/g, String(clip.sha256 || '').slice(0, 8))
+    const error = next === clip.filename ? '' : validateNewFilename(next)
+    rows.push({
+      old: clip.filename,
+      next,
+      error,
+      unchanged: next === clip.filename,
+    })
+  }
+  return rows
+})
+
+async function submitBulkRename(): Promise<void> {
+  if (!selectedPoolId.value) return
+  const template = bulkRenameTemplate.value.trim()
+  if (!template) return
+  bulkRenameBusy.value = true
+  bulkRenameError.value = ''
+  bulkRenameResult.value = null
+  try {
+    // Sort by filename to guarantee deterministic indexing — same order as
+    // the preview so what the user saw matches what runs.
+    const filenames = [...clips.value]
+      .sort((a, b) => a.filename.localeCompare(b.filename))
+      .map(c => c.filename)
+    const { rows } = await broll.renameClipsBulk(
+      selectedPoolId.value,
+      template,
+      filenames,
+      { start_index: bulkRenameStart.value },
+    )
+    const renamed = rows.filter(r => r.status === 'renamed').length
+    const skipped = rows.filter(r => r.status === 'skipped').length
+    const errorRows = rows.filter(r => r.status === 'error')
+    bulkRenameResult.value = {
+      renamed,
+      skipped,
+      errors: errorRows.length,
+      errorRows,
+    }
+    if (renamed > 0) {
+      // Re-fetch the clip grid so the renamed names + sidecar state
+      // show up. The sidecar entries are keyed by the new filename, so
+      // a fresh listClips call is the cleanest re-sync path.
+      await refreshClipsAfterJob()
+      success(`Renamed ${renamed} clip${renamed === 1 ? '' : 's'}${errorRows.length ? ` · ${errorRows.length} error${errorRows.length === 1 ? '' : 's'}` : ''}`)
+    } else if (errorRows.length) {
+      showError(`Bulk rename failed — see ${errorRows.length} error${errorRows.length === 1 ? '' : 's'} in the dialog`)
+    } else {
+      success('No changes — every clip already matches the template')
+    }
+  } catch (e: any) {
+    bulkRenameError.value = e?.data?.detail || e?.message || 'Bulk rename failed'
+  } finally {
+    bulkRenameBusy.value = false
+  }
+}
+
 // ── Create modal ──────────────────────────────────────────────────────
 
 const createModalOpen = ref(false)
@@ -537,13 +909,16 @@ const createDraft = ref({
   name: '',
   folder_path: '',
   fps_target: 24 as 24 | 30,
-  auto_normalize: true,
+  // v1.0.92+ — default OFF. Auto-normalize kicks off a long ffmpeg
+  // re-encode queue (can be hours for a 200-clip pool on an external
+  // drive). User opts in explicitly via the "⚡ Normalize all" button.
+  auto_normalize: false,
 })
 const creating = ref(false)
 const createError = ref('')
 
 function openCreateModal(): void {
-  createDraft.value = { name: '', folder_path: '', fps_target: 24, auto_normalize: true }
+  createDraft.value = { name: '', folder_path: '', fps_target: 24, auto_normalize: false }
   createError.value = ''
   createModalOpen.value = true
 }
@@ -808,5 +1183,105 @@ function onThumbError(e: Event): void {
   padding: 12px;
   text-align: center;
   font-size: 12px; color: var(--text-muted);
+}
+
+/* v1.0.92+ Rename modals --------------------------------------------- */
+.bulk-rename-modal {
+  max-width: 720px;
+  width: min(720px, 92vw);
+}
+.input.has-error {
+  border-color: var(--error, #e25c5c);
+}
+.hint.text-danger {
+  color: var(--error, #e25c5c);
+}
+.bulk-rename-preview {
+  margin-top: 6px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+}
+.bulk-rename-preview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.bulk-rename-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+}
+.bulk-rename-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 4px 8px 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-rename-table td {
+  padding: 4px 8px 4px 0;
+  vertical-align: top;
+}
+.bulk-rename-old {
+  color: var(--text-secondary);
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bulk-rename-arrow {
+  color: var(--text-muted);
+  width: 20px;
+  text-align: center;
+}
+.bulk-rename-new {
+  color: var(--text-primary);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bulk-rename-new.is-error {
+  color: var(--error, #e25c5c);
+}
+.bulk-rename-new.is-unchanged {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.bulk-rename-result {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: rgba(108, 143, 255, 0.08);
+  border: 1px solid rgba(108, 143, 255, 0.25);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.bulk-rename-errors {
+  margin-top: 6px;
+}
+.bulk-rename-errors summary {
+  cursor: pointer;
+  color: var(--accent, #6c8fff);
+  user-select: none;
+}
+.bulk-rename-errors ul {
+  margin: 8px 0 0 0;
+  padding-left: 18px;
+  font-size: 11px;
+}
+.bulk-rename-errors li {
+  margin: 4px 0;
+  line-height: 1.5;
+}
+.bulk-rename-errors code {
+  background: var(--bg-tertiary);
+  padding: 1px 4px;
+  border-radius: 3px;
 }
 </style>

@@ -4,8 +4,13 @@
       Episode
       <!-- v1.0.48: episode-count badge — confirms scope ("X loaded") so
            large projects (TerraNash has 380+) make slow loads feel
-           legitimate instead of like the app is hung. -->
-      <span v-if="!loading && episodes.length" class="ep-count">· {{ episodes.length }} loaded</span>
+           legitimate instead of like the app is hung.
+           v1.0.92: when a search is active the badge shows "N of M
+           shown" so the user sees how aggressive their filter is. -->
+      <span v-if="!loading && episodes.length" class="ep-count">
+        <template v-if="searchActive">· {{ filteredEpisodes.length }} of {{ episodes.length }} shown</template>
+        <template v-else>· {{ episodes.length }} loaded</template>
+      </span>
       <span v-else-if="loading" class="ep-loading-inline">
         <span class="ep-spinner" aria-hidden="true" />
         Loading episodes… {{ elapsedLabel }}
@@ -23,6 +28,30 @@
         {{ loading || isRevalidating ? '…' : '↻' }}
       </button>
     </div>
+    <!-- v1.0.92+ Episode search.
+         A native <select> can't be searched once it's open (you only get
+         the OS's "first letter jumps to next match" behaviour), which is
+         useless for a 380-episode project. This input filters the option
+         list before it's rendered, so opening the dropdown only shows
+         matches. Matches against episode_code ("TN0042") and title — both
+         case-insensitive, partial substring. Pressing Esc clears. -->
+    <div v-if="!loading && episodes.length > 5" class="ep-search-row">
+      <span class="ep-search-icon" aria-hidden="true">🔎</span>
+      <input
+        v-model="searchQuery"
+        class="input ep-search-input"
+        type="search"
+        :placeholder="`Search ${episodes.length} episode${episodes.length === 1 ? '' : 's'} by code or title…`"
+        @keydown.esc.prevent="searchQuery = ''"
+      />
+      <button
+        v-if="searchActive"
+        type="button"
+        class="ep-search-clear"
+        title="Clear search (Esc)"
+        @click="searchQuery = ''"
+      >✕</button>
+    </div>
     <select
       :value="modelValue"
       :disabled="loading && episodes.length === 0"
@@ -34,6 +63,9 @@
            N episodes". Loaded: standard "Select an episode…". -->
       <option value="" disabled>
         <template v-if="loading && episodes.length === 0">Loading episodes… please wait</template>
+        <template v-else-if="searchActive && filteredEpisodes.length === 0">
+          No episodes match "{{ searchQuery }}" — clear search or adjust filter
+        </template>
         <template v-else>Select an episode...</template>
       </option>
       <option v-for="ep in filteredEpisodes" :key="ep.episode_code" :value="ep.episode_code">
@@ -64,6 +96,13 @@ const slugRef = computed(() => props.projectSlug)
 const { episodes, isLoading: loading, isRevalidating, refresh, rescan } = useEpisodes(slugRef)
 const showAll = ref(false)
 
+// v1.0.92+ — episode search (case-insensitive substring on code or
+// title). Local-only state: each EpisodeSelector instance owns its own
+// query so opening the same project on two surfaces (e.g. Scripts +
+// Metadata in side-by-side windows) doesn't cross-contaminate.
+const searchQuery = ref('')
+const searchActive = computed(() => searchQuery.value.trim().length > 0)
+
 // v1.0.48 Layer 3 — cross-reference active jobs so episodes that are
 // CURRENTLY generating a script / audio / video render get a 🔄 badge
 // in the dropdown. The disk-derived status (script: bool, audio: bool,
@@ -92,6 +131,16 @@ const filteredEpisodes = computed(() => {
   if (!showAll.value && props.filterField) {
     const field = props.filterField
     list = list.filter(ep => !ep.status[field])
+  }
+  // v1.0.92+ — apply search after the pending/all filter so the count
+  // badge "N of M shown" reflects what the user is actually scanning,
+  // not the raw episodes pool.
+  if (searchActive.value) {
+    const q = searchQuery.value.trim().toLowerCase()
+    list = list.filter(ep =>
+      (ep.episode_code || '').toLowerCase().includes(q) ||
+      (ep.title || '').toLowerCase().includes(q),
+    )
   }
   return [...list].sort((a, b) => a.episode_code.localeCompare(b.episode_code))
 })
@@ -348,5 +397,54 @@ defineExpose({ refresh, rescan })
 }
 @keyframes ep-spin {
   to { transform: rotate(360deg); }
+}
+
+/* v1.0.92+ — episode search row between the toggle buttons and the
+   native <select>. Sits flush with the toggle row above and the select
+   below so the three controls read as one cluster. */
+.ep-search-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 6px 0;
+}
+.ep-search-icon {
+  position: absolute;
+  left: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
+  line-height: 1;
+}
+.ep-search-input {
+  flex: 1;
+  padding: 6px 28px 6px 28px;
+  font-size: 12px;
+}
+.ep-search-input::-webkit-search-cancel-button {
+  /* Hide the WebKit native clear button; we render our own ✕ for
+     consistent dark-mode styling across browsers + a clearer click
+     target. */
+  -webkit-appearance: none;
+}
+.ep-search-clear {
+  position: absolute;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ep-search-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 </style>

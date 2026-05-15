@@ -8,6 +8,8 @@
  *   POST   /api/broll-pools/:id/scan               — re-scan folder
  *   GET    /api/broll-pools/:id/clips              — list clips
  *   PUT    /api/broll-pools/:id/clips/:filename/tags — set tags
+ *   POST   /api/broll-pools/:id/clips/:filename/rename — rename single clip
+ *   POST   /api/broll-pools/:id/clips/rename-bulk   — bulk rename via template
  *   GET    /api/broll-pools/:id/clips/:filename/thumbnail — serve thumb JPG
  *   POST   /api/broll-pools/:id/normalize-all      — queue normalize for unnormalized clips
  *   POST   /api/broll-pools/:id/clips/:filename/normalize — queue normalize for one clip
@@ -49,7 +51,10 @@ router.post('/broll-pools', async (req, res) => {
     const pool = await bp.createPool({
       name: String(name || '').trim(),
       folder_path: String(folder_path || '').trim(),
-      auto_normalize: auto_normalize !== false,
+      // v1.0.92+ — default OFF. See broll-pool-manager.createPool for
+      // rationale (auto-normalize on a fresh 200-clip pool is 1-3hrs
+      // of CPU/disk and shouldn't fire without explicit consent).
+      auto_normalize: auto_normalize === true,
       fps_target: fps_target === 30 ? 30 : 24,
     })
     res.status(201).json(pool)
@@ -142,6 +147,39 @@ router.put('/broll-pools/:id/clips/:filename/tags', async (req, res) => {
     res.json(clip)
   } catch (e: any) {
     res.status(400).json({ detail: e?.message || 'Failed to set tags' })
+  }
+})
+
+// v1.0.92+ — single-clip rename. POST instead of PUT/PATCH because the
+// resource path itself changes; clients re-fetch by the returned filename.
+// Failure modes (invalid name, collision, offline pool) all surface as
+// 400 with a human-readable detail so the Library UI can toast it.
+router.post('/broll-pools/:id/clips/:filename/rename', async (req, res) => {
+  try {
+    const next = String(req.body?.new_filename || '').trim()
+    if (!next) return res.status(400).json({ detail: 'new_filename is required' })
+    const clip = await bp.renameClip(req.params.id, req.params.filename, next)
+    res.json(clip)
+  } catch (e: any) {
+    res.status(400).json({ detail: e?.message || 'Failed to rename clip' })
+  }
+})
+
+// v1.0.92+ — bulk template rename. Accepts a list of filenames + a template
+// string with {n} / {n:NN} / {ext} / {orig} / {sha} tokens. Returns a
+// per-row status array so the UI can render successes vs collisions/
+// validation errors without re-fetching the whole pool.
+router.post('/broll-pools/:id/clips/rename-bulk', async (req, res) => {
+  try {
+    const template = String(req.body?.template || '').trim()
+    const filenames = Array.isArray(req.body?.filenames) ? req.body.filenames.map((s: any) => String(s)) : []
+    const startIndex = Number.isFinite(req.body?.start_index) ? Number(req.body.start_index) : 1
+    if (!template) return res.status(400).json({ detail: 'template is required' })
+    if (!filenames.length) return res.status(400).json({ detail: 'filenames must be a non-empty array' })
+    const rows = await bp.renameClipsBulk(req.params.id, template, filenames, { startIndex })
+    res.json({ rows })
+  } catch (e: any) {
+    res.status(400).json({ detail: e?.message || 'Failed to bulk-rename' })
   }
 })
 

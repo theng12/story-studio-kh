@@ -249,18 +249,38 @@ function deepMerge(target: any, source: any): any {
  * the script generator must always return a usable format so the user's
  * generation flow never fails because of a missing format file.
  */
-export async function getEffectiveFormat(slug: string): Promise<Format> {
+export async function getEffectiveFormat(
+  slug: string,
+  opts?: EffectiveFormatOpts,
+): Promise<Format> {
   const project = await pm.getProject(slug)
   if (!project) {
     // No project → default format. Loader callers handle the missing-project
     // error themselves; this path supports tests / dry-runs.
     return ensureLoaded(DEFAULT_FORMAT_ID)
   }
-  return getEffectiveFormatFor(project)
+  return getEffectiveFormatFor(project, opts)
+}
+
+/**
+ * Per-call overrides for getEffectiveFormat[For]:
+ *   - nicheIdOverride: undefined → use project.niche_id (default).
+ *                      null / ''  → force "no niche" for this call.
+ *                      string    → use this niche instead of project.niche_id.
+ *
+ * Used by surfaces that let the user override the project's saved niche per
+ * generation (Ideas Generator's NichePicker, v1.0.92+) without persisting
+ * the override into the project meta.
+ */
+export interface EffectiveFormatOpts {
+  nicheIdOverride?: string | null
 }
 
 /** Same as getEffectiveFormat() but takes the ProjectMeta directly. */
-export async function getEffectiveFormatFor(project: ProjectMeta): Promise<Format> {
+export async function getEffectiveFormatFor(
+  project: ProjectMeta,
+  opts?: EffectiveFormatOpts,
+): Promise<Format> {
   const id = project.format_id || DEFAULT_FORMAT_ID
   let base: Format | null = null
   try {
@@ -295,15 +315,28 @@ export async function getEffectiveFormatFor(project: ProjectMeta): Promise<Forma
   // overrides. Niche layering only touches generator-relevant fields
   // (idea vocab, image-prompt style, metadata tags, script context) —
   // narrator pools, pacing arcs, and chapter counts stay format-owned.
-  if (project.niche_id) {
+  // Resolve which niche (if any) to layer on. Per-call override wins when
+  // provided — empty string / null means "force no niche for this call" so
+  // a user with a saved project niche can still ask the Ideas Generator
+  // to ignore it for one batch. Undefined falls through to project state.
+  const hasOverride = opts && Object.prototype.hasOwnProperty.call(opts, 'nicheIdOverride')
+  const effectiveNicheId = hasOverride
+    ? ((opts!.nicheIdOverride ?? '') || null)
+    : (project.niche_id || null)
+  if (effectiveNicheId) {
     try {
       const nicheLoader = await import('./niche-loader.js')
-      const niche = await nicheLoader.getEffectiveNicheFor(project)
+      // When overriding, load the override id directly. Otherwise use the
+      // project-aware resolver (which applies project.niche_overrides on
+      // top of the base niche file).
+      const niche = hasOverride
+        ? await nicheLoader.loadNiche(effectiveNicheId)
+        : await nicheLoader.getEffectiveNicheFor(project)
       if (niche) {
         base = applyNicheToFormat(base, niche)
       }
     } catch (e: any) {
-      console.warn(`[format-loader] failed applying niche '${project.niche_id}' for project '${project.slug}': ${e.message}`)
+      console.warn(`[format-loader] failed applying niche '${effectiveNicheId}' for project '${project.slug}': ${e.message}`)
     }
   }
   return base

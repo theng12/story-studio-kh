@@ -178,7 +178,13 @@ export async function createPool(input: {
     id,
     name: input.name.trim(),
     folder_path: input.folder_path,
-    auto_normalize: input.auto_normalize !== false, // default true
+    // v1.0.92+ — default OFF. Auto-normalize was previously default-on,
+    // which silently kicked a queue of long ffmpeg encodes the moment
+    // the user registered a fresh pool. For a 200-clip library on
+    // external SSD that's ~1-3 hours of CPU + disk. Opt-in is the
+    // safer + politer default — user clicks "⚡ Normalize all" when
+    // ready.
+    auto_normalize: input.auto_normalize === true,
     fps_target: input.fps_target ?? 24,             // default 24fps (cinematic)
     resolution_target: '1920x1080',
     created_at: new Date().toISOString(),
@@ -275,6 +281,214 @@ export async function markClipNormalized(poolId: string, filename: string): Prom
   if (!clip) return
   clip.normalized = true
   await writeSidecar(pool.folder_path, sidecar)
+}
+
+// ── Rename ──────────────────────────────────────────────────────────────
+//
+// Per-clip rename keeps the user's pool clean (clips imported from stock
+// sites land as `pexels-video-1234567-large.mp4` which is unsearchable).
+// The user picks a clear name or applies a bulk template like
+// `prayer_001.mp4`, and we:
+//   1) Validate the new name (no path separators, no empty, has extension).
+//   2) Detect collisions both in the sidecar and on disk.
+//   3) Rename the file on disk (fs.rename = atomic if same volume).
+//   4) Rename the matching normalized variant under .broll-normalized/
+//      if one exists, so renders keep using the fast-path encode.
+//   5) Rewrite the sidecar entry under the new filename key.
+//   6) Update the pool's usage_log + project usage_logs IF they reference
+//      the clip by filename (sha-based references are unaffected).
+//
+// All operations under a try/catch so a partial failure doesn't leave the
+// sidecar pointing at a missing file: we rename the file FIRST, then
+// the normalized variant, then the sidecar. If sidecar write fails the
+// disk state is already consistent (file lives at the new name); the
+// next scan reconciles it.
+
+const VALID_FILENAME_RE = /^[A-Za-z0-9._\- ()\[\]+&#'%@$~,;!=]+$/
+
+function isValidFilename(name: string): { ok: true } | { ok: false; reason: string } {
+  const trimmed = (name || '').trim()
+  if (!trimmed) return { ok: false, reason: 'name is empty' }
+  if (trimmed.length > 200) return { ok: false, reason: 'name is too long (>200 chars)' }
+  if (trimmed.includes('/') || trimmed.includes('\\')) {
+    return { ok: false, reason: 'name cannot contain path separators' }
+  }
+  if (trimmed === '.' || trimmed === '..') return { ok: false, reason: 'reserved name' }
+  if (trimmed.startsWith('.')) return { ok: false, reason: 'leading dot reserved for hidden files' }
+  if (!VALID_FILENAME_RE.test(trimmed)) {
+    return { ok: false, reason: 'name contains unsupported characters' }
+  }
+  // Must keep an extension so ffprobe / ffmpeg still picks the right
+  // demuxer. We don't enforce a specific ext (user might be renaming a
+  // .mov; that's fine), but reject extensionless names that would
+  // confuse the indexer.
+  const dot = trimmed.lastIndexOf('.')
+  if (dot <= 0 || dot === trimmed.length - 1) {
+    return { ok: false, reason: 'name must include a file extension (e.g. .mp4)' }
+  }
+  return { ok: true }
+}
+
+export async function renameClip(
+  poolId: string,
+  oldFilename: string,
+  newFilename: string,
+): Promise<BrollClip> {
+  const pool = await getPool(poolId)
+  if (!pool) throw new Error(`Pool '${poolId}' not found`)
+  if (!existsSync(pool.folder_path)) {
+    throw new Error('Pool folder offline — plug in the SSD before renaming.')
+  }
+
+  const cleanNew = newFilename.trim()
+  if (cleanNew === oldFilename) return (await readSidecar(pool.folder_path)).clips[oldFilename]
+
+  const validation = isValidFilename(cleanNew)
+  if (!validation.ok) {
+    throw new Error(`Invalid filename "${cleanNew}": ${validation.reason}`)
+  }
+
+  const sidecar = await readSidecar(pool.folder_path)
+  const clip = sidecar.clips[oldFilename]
+  if (!clip) throw new Error(`Clip '${oldFilename}' not in pool sidecar`)
+
+  if (sidecar.clips[cleanNew]) {
+    throw new Error(`Another clip already uses the name "${cleanNew}"`)
+  }
+  const oldPath = path.join(pool.folder_path, oldFilename)
+  const newPath = path.join(pool.folder_path, cleanNew)
+  if (existsSync(newPath)) {
+    throw new Error(`A file already exists at "${cleanNew}" on disk — pick a different name.`)
+  }
+
+  // Disk: original first, then normalized variant if present.
+  await fs.rename(oldPath, newPath)
+  try {
+    const normDir = normalizedSubdir(pool.folder_path)
+    const oldNorm = path.join(normDir, oldFilename)
+    const newNorm = path.join(normDir, cleanNew)
+    if (existsSync(oldNorm)) {
+      await fs.rename(oldNorm, newNorm)
+    }
+  } catch (e: any) {
+    // The original is already renamed; failing to rename the normalized
+    // variant is recoverable (next "Normalize all" will re-create it from
+    // the new name). Warn but don't abort.
+    console.warn(`[broll-rename] failed to rename normalized variant for ${oldFilename} → ${cleanNew}: ${e?.message || e}`)
+  }
+
+  // Sidecar: swap the key + the embedded filename.
+  const updated: BrollClip = { ...clip, filename: cleanNew }
+  delete sidecar.clips[oldFilename]
+  sidecar.clips[cleanNew] = updated
+  await writeSidecar(pool.folder_path, sidecar)
+
+  return updated
+}
+
+/**
+ * Bulk rename via a template. The template may contain these tokens:
+ *   {n}     → 1-based index in the input list (no padding)
+ *   {n:3}   → zero-padded to N digits ({n:3} → 001, 002, ...)
+ *   {ext}   → original extension WITHOUT the dot (e.g. "mp4")
+ *   {orig}  → original basename WITHOUT extension
+ *   {sha}   → first 8 chars of the clip's sha256 (collision-safe shorthand)
+ *
+ * The template MUST contain an extension (either literal `.mp4` or `.{ext}`)
+ * so the renamed files keep something ffmpeg recognises.
+ *
+ * Returns the list of (oldFilename, newFilename, status) so the UI can show
+ * which renames succeeded vs failed without re-fetching the whole pool.
+ */
+export interface BulkRenameRow {
+  old_filename: string
+  new_filename: string
+  status: 'renamed' | 'skipped' | 'error'
+  detail?: string
+}
+
+export async function renameClipsBulk(
+  poolId: string,
+  template: string,
+  filenames: string[],
+  opts?: { startIndex?: number },
+): Promise<BulkRenameRow[]> {
+  const pool = await getPool(poolId)
+  if (!pool) throw new Error(`Pool '${poolId}' not found`)
+  if (!existsSync(pool.folder_path)) {
+    throw new Error('Pool folder offline — plug in the SSD before renaming.')
+  }
+  const sidecar = await readSidecar(pool.folder_path)
+  const start = Math.max(1, Math.floor(opts?.startIndex ?? 1))
+  const rows: BulkRenameRow[] = []
+
+  // Pre-pass: compute target names for collision detection (within the
+  // batch and against existing sidecar entries that are NOT in the batch).
+  const batchSet = new Set(filenames)
+  const proposed: Array<{ old: string; next: string }> = []
+  let i = 0
+  for (const original of filenames) {
+    const idx = start + i
+    i++
+    const clip = sidecar.clips[original]
+    if (!clip) {
+      rows.push({ old_filename: original, new_filename: original, status: 'error', detail: 'not in sidecar' })
+      continue
+    }
+    const next = applyRenameTemplate(template, {
+      index: idx,
+      original,
+      sha: clip.sha256,
+    })
+    if (next === original) {
+      rows.push({ old_filename: original, new_filename: original, status: 'skipped', detail: 'template produced same name' })
+      continue
+    }
+    const validation = isValidFilename(next)
+    if (!validation.ok) {
+      rows.push({ old_filename: original, new_filename: next, status: 'error', detail: validation.reason })
+      continue
+    }
+    proposed.push({ old: original, next })
+  }
+
+  // Collision check: within-batch dupes + outside-batch dupes.
+  const targetCounts = new Map<string, number>()
+  for (const p of proposed) targetCounts.set(p.next, (targetCounts.get(p.next) || 0) + 1)
+  for (const p of proposed) {
+    if ((targetCounts.get(p.next) || 0) > 1) {
+      rows.push({ old_filename: p.old, new_filename: p.next, status: 'error', detail: 'template produced a duplicate name within this batch' })
+      continue
+    }
+    if (sidecar.clips[p.next] && !batchSet.has(p.next)) {
+      rows.push({ old_filename: p.old, new_filename: p.next, status: 'error', detail: 'name already taken by another clip in this pool' })
+      continue
+    }
+    try {
+      // Execute one at a time so we get fine-grained per-row status.
+      await renameClip(poolId, p.old, p.next)
+      rows.push({ old_filename: p.old, new_filename: p.next, status: 'renamed' })
+    } catch (e: any) {
+      rows.push({ old_filename: p.old, new_filename: p.next, status: 'error', detail: e?.message || String(e) })
+    }
+  }
+  return rows
+}
+
+/** Expand {n}, {n:N}, {ext}, {orig}, {sha} in a rename template. */
+export function applyRenameTemplate(
+  template: string,
+  vars: { index: number; original: string; sha: string },
+): string {
+  const dot = vars.original.lastIndexOf('.')
+  const origBase = dot > 0 ? vars.original.slice(0, dot) : vars.original
+  const origExt = dot > 0 ? vars.original.slice(dot + 1) : ''
+  return template
+    .replace(/\{n:(\d+)\}/g, (_, w) => String(vars.index).padStart(Number(w), '0'))
+    .replace(/\{n\}/g, String(vars.index))
+    .replace(/\{ext\}/g, origExt)
+    .replace(/\{orig\}/g, origBase)
+    .replace(/\{sha\}/g, vars.sha.slice(0, 8))
 }
 
 // ── Sidecar export for the scan logic ───────────────────────────────────

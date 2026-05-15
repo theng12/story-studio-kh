@@ -290,7 +290,25 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
   }
 
   const standards = await pm.getStandards(slug)
-  const format = await getEffectiveFormat(slug)
+
+  // v1.0.92+ — per-call niche override. The Ideas Generator surfaces a
+  // NichePicker that defaults to the project's saved niche_id but lets
+  // the user dial it up/down per generation. Passing the special string
+  // `'__none__'` forces "no niche" even when the project has one saved;
+  // omitting the field falls through to project.niche_id (no override).
+  const rawNiche = (req.body as any)?.niche_id
+  let nicheIdOverride: string | null | undefined
+  if (typeof rawNiche === 'string') {
+    const trimmed = rawNiche.trim()
+    if (trimmed === '__none__' || trimmed === '') nicheIdOverride = null
+    else nicheIdOverride = trimmed
+  } else {
+    nicheIdOverride = undefined
+  }
+  const format = await getEffectiveFormat(
+    slug,
+    nicheIdOverride === undefined ? undefined : { nicheIdOverride },
+  )
 
   // Optional pattern preset — when the Ideas-page picker selected one,
   // we load it here so the prompt assembler can inject the title-style
