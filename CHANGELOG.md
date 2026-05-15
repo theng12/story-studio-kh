@@ -4,6 +4,49 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.92 — 2026-05-15
+
+**Search inside every Episode Selector**
+
+A 380-episode project's dropdown was unsearchable — the native `<select>` only supports "first letter jumps to next match," which is useless when you have 200 prayer episodes that all start with `EP`. v1.0.92 adds a real search input above the selector across every tab that uses it (Scripts, Audio, Subtitles, Images, Image Prompts, Video, Video Assembly, Metadata, Upload — every per-episode generator surface):
+
+- Case-insensitive substring match against either the episode code (`TN0042`) or the title (`Morning Prayer for Anxiety`).
+- "**N of M shown**" badge live-updates as you type so you can see how aggressive your filter is.
+- Press **Esc** or click the **✕** chip to clear.
+- Empty-results state is surfaced inside the placeholder option (`No episodes match "xyz" — clear search or adjust filter`) so a too-narrow filter never looks like a broken dropdown.
+- Hidden entirely on small projects (≤5 episodes) — no clutter for the channels that don't need it.
+
+**Auto-normalize on new B-Roll pools now defaults to OFF**
+
+Previous default was ON, which silently kicked a long ffmpeg encode queue the moment you registered a fresh pool. For a 200-clip pool on an external SSD that's 1–3 hours of CPU + disk and you wouldn't know until you opened the (previously invisible — see v1.0.91) Pool jobs panel. Now the create-pool checkbox starts **unchecked**, with helper copy explaining the trade-off and pointing at the **⚡ Normalize all** button as the explicit path. Originals are never modified either way — normalized variants live alongside in `.broll-normalized/`.
+
+**Per-clip and bulk rename on B-Roll Library**
+
+Stock-footage clips arrive named `pexels-video-1234567-large.mp4`, which is unsearchable and unlovable. v1.0.92 adds two rename surfaces:
+
+- **Per-clip ✏ Rename** — opens a small modal with live client-side validation (extension required, no path separators, no leading dot, no reserved chars). Renames the file on disk, follows the matching `.broll-normalized/` variant, and rewrites the sidecar entry atomically.
+- **✏ Bulk rename** — toolbar action that opens a template-driven modal. Type a pattern like `prayer_{n:3}.{ext}` and see a **live preview** of the first 8 results before any disk write happens (`pexels-video-...` → `prayer_001.mp4`). Tokens supported: `{n}` (1-based index), `{n:NN}` (zero-padded), `{ext}` (original extension), `{orig}` (original basename), `{sha}` (first 8 chars of content hash). Per-row error surface on apply — collisions, invalid names, and "no change" all show with their reason in an expandable details panel.
+
+**NichePicker on the Ideas Generator (per-batch override)**
+
+The project's saved niche under Settings → Niche is your default flavour, but sometimes you want one batch of ideas in a different domain — generate 5 prayer ideas, then 5 motivation ideas, on the same channel, without bouncing back to Settings each time. v1.0.92 adds a niche dropdown inside the Ideas Generator form that defaults to the project's saved niche but lets you override it for this generation only:
+
+- Pre-loaded with the project's saved `niche_id` so the picker reflects your current effective state out of the box.
+- When you pick a different niche an inline **"↪ Overriding the project's saved niche (`<id>`) for this generation only"** banner appears with a one-click **Reset to project default** link.
+- Picking **No niche** while your project has one saved sends `__none__` to force "no niche layer" for this call — the project meta stays untouched.
+- Last-used override is persisted per-project so re-running the generator picks up where you left off.
+
+Backend plumbing: `getEffectiveFormat[For]` now takes an optional `{ nicheIdOverride }` so any caller can layer a different niche per-request without persisting it on the project. The `/generate/ideas` route plumbs the picker's value through. Other niche-aware generators (script, images, metadata) continue to read the project's saved niche — only Ideas Generator surfaces the override for now.
+
+**Audit pass (per the polish-quality-bar memory)**
+- `npx tsc -p electron --noEmit`: 0 errors.
+- `npm run build:frontend` (Vite production build): clean — caught nothing new but kept in the loop after v1.0.89's duplicate-`apiGet`.
+- Every touched Vue SFC parses cleanly.
+- New backend routes (`/clips/:filename/rename`, `/clips/rename-bulk`) covered by manual smoke against a real pool — single rename + bulk rename on a 12-clip test pool both moved disk + sidecar + `.broll-normalized/` correctly.
+- Episode Selector search verified against a 380-episode TerraNash project: filter shrinks from 380 → 4 → 1 instantly as the user types.
+
+---
+
 ## v1.0.91 — 2026-05-15
 
 **B-Roll pool jobs are no longer invisible**
