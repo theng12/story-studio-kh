@@ -4,6 +4,47 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.90 — 2026-05-15
+
+**8 new niches for narration-led channels**
+
+The `broll-narration` format is intentionally broad — any topic where the spoken word is the primary content and B-Roll is rotating ambient texture. v1.0.90 adds 8 built-in niches that compose with that format (or any other) to give the Ideas Generator + script generator + metadata pools real subject-domain context:
+
+- **Prayer** — Christian prayer (morning / evening / family / anxiety / healing / protection). Pastoral tone, second-person address, short.
+- **Devotional** — scripture-anchored reflections built around one passage. More instructional than raw prayer.
+- **Motivation** — discipline / mindset / consistency narration. Direct, earned, not hustle-clichéd. Pairs with cinematic running / sunrise / weight-room B-Roll or stylised anime cuts for younger audiences.
+- **Preaching** — short sermon-style exposition of a passage. Observation → interpretation → application structure.
+- **Psychology** — pop-psych narration on habits, anxiety, cognitive bias, relationships. Research-grounded but jargon-free.
+- **Philosophy** — Stoicism / Taoism / Buddhism / existentialism. Thoughtful, unhurried, ends in a question rather than a conclusion.
+- **Mindfulness** — guided meditation / breath-paced practice / body scan. Breath cadence built into the writing itself.
+- **History Narration** — short narrated history facts. Anchored to real dates / names / places; no contemporary political framing.
+
+Pick any of these on a project's Niche dropdown at creation (or later via Settings). They merge cleanly with the existing 4 niches (Animals / Plants / Insects / Fungi) so explainer-format channels still work unchanged.
+
+**Default to the idea title — only paraphrase on request**
+
+Metadata Generator's title strategy now defaults to **Use idea title** instead of AI paraphrase. The title you picked at Ideas Generator time stays the title — no LLM rewrite, no surprise SEO variants. You can flip to AI paraphrase (the previous default) when you specifically want 5 SEO-rewritten alternatives to compare.
+
+Also more honest on the metadata page: the radio options reordered with "Use idea title" first, and "AI paraphrase" labelled with what it actually does ("generate N SEO-rewritten variants and pick the first") instead of pretending to be the canonical mode.
+
+**Channel-level title prefix (and improved suffix)**
+
+New per-project **Channel prefix** + **Channel suffix** inputs that wrap every produced title — for any title mode. Saves you from retyping "Morning Prayer: " or " | Daily Prayer Channel" on every episode. Applied uniformly to:
+
+- `use_idea_title` mode: `prefix + idea_title + suffix`
+- `manual` mode: `prefix + manual_title + suffix`
+- `paraphrase` mode: each of the N LLM-generated titles is wrapped too — channel consistency on every variant
+
+Both fields are saved per metadata preset so different channels in your project list can carry different boilerplate. Live preview line shows the final wrapped output before you click Generate. The existing `metadata_template` path (Phase 4) still wins when set — it composes the full string from the template, no double-wrapping.
+
+**Audit passes (verified before release)**
+- `npx tsc -p electron --noEmit`: 0 errors.
+- Every touched Vue SFC parses cleanly.
+- New niches load through `/api/niches`: 12 total (4 original + 8 new) surface correctly.
+- Metadata title flow tested: idea-title default + prefix/suffix wrapping renders as expected in the live preview.
+
+---
+
 ## v1.0.89 — 2026-05-15
 
 **B-Roll prayer-channel workflow (Phases 1-5 + polish)**

@@ -1,0 +1,55 @@
+{
+  "id": "motivation",
+  "name": "Motivation",
+  "description": "Spoken-word motivational narration — discipline, mindset, hard work, resilience. Pair with cinematic B-Roll (runners, sunrises, weights, rain-streaked windows, lone-figure-on-mountain) or stylized anime / cinematic-character clips for the younger viewer cohort. Tone is direct, charged, but earned — avoid empty hype.",
+  "tagline": "Show up. Even when it's quiet.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "exampleTopics": [
+    "Why Discipline Beats Motivation",
+    "Show Up on the Hardest Day",
+    "The 1% Rule",
+    "Why You Quit Right Before It Works",
+    "Stop Waiting for Permission",
+    "The Cost of Comfort",
+    "Why Hard Work is the Cheat Code",
+    "Outwork Your Doubts",
+    "When You Don't Feel Like It — Do It Anyway",
+    "Become Someone Your Younger Self Would Admire",
+    "Silence Is the Best Reply to Critics",
+    "Your Future Is Built in the Boring Hours",
+    "The Discipline of Doing Less",
+    "Why Consistency Outperforms Talent"
+  ],
+
+  "vocabulary": {
+    "mood": [
+      "direct", "grounded", "charged", "earned", "calm-intense",
+      "unflinching", "steady"
+    ],
+    "theme": [
+      "discipline", "consistency", "mindset", "resilience", "grit",
+      "delayed gratification", "self-mastery", "accountability",
+      "ownership", "purpose"
+    ],
+    "genre": [
+      "motivation", "mindset", "self-improvement", "discipline talk"
+    ],
+    "keyword": [
+      "discipline", "grit", "consistency", "habits", "routine",
+      "5am", "hard work", "ownership", "accountability", "boundaries",
+      "focus", "deep work", "growth", "ego", "comparison"
+    ]
+  },
+
+  "youtubeTagsHint": [
+    "motivation", "discipline", "mindset", "self improvement",
+    "motivational speech", "hard work", "grit", "stoic motivation",
+    "daily motivation", "high performance"
+  ],
+
+  "audienceHint": "Young men + women 18-34 chasing fitness / career / financial goals — typically commute or workout listening.",
+
+  "scriptContext": "Direct second-person voice. Short sentences. Don't sell promises ('you will become rich') — sell the cost ('you'll trade comfort for ownership'). Avoid hustle-culture clichés ('rise and grind'). One concrete idea per minute of runtime."
+}

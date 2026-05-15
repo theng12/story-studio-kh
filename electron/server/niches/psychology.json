@@ -1,0 +1,56 @@
+{
+  "id": "psychology",
+  "name": "Psychology",
+  "description": "Pop-psychology narration — habits, cognitive biases, relationships, mental health, focus, anxiety, ADHD, stoicism-as-CBT. Tone is curious and practical, grounded in research without being academic. Pair with B-Roll of people in everyday moments (commute, coffee, gym, phone, mirror) or abstract footage (waves, candles, ink dropping in water).",
+  "tagline": "Why your brain does that — and what to do about it.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "exampleTopics": [
+    "The Real Reason You Procrastinate",
+    "What Anxiety Actually Is",
+    "Why You Can't Stop Comparing Yourself",
+    "The Sunk Cost Trap",
+    "Why High Performers Are Often Sad",
+    "How to Break a Loop You Keep Falling Into",
+    "Why Boundaries Feel Mean (and Aren't)",
+    "The Psychology of Why You Avoid Important Tasks",
+    "Why Rest Feels Wrong (and Why You Need It Anyway)",
+    "The 5 Love Languages — What Researchers Actually Say",
+    "Why You Pick the Same Kind of Partner Every Time",
+    "How to Spot Manipulation in Conversation",
+    "The Truth About Imposter Syndrome",
+    "Why Hard Conversations Get Easier"
+  ],
+
+  "vocabulary": {
+    "mood": [
+      "curious", "grounded", "warm", "investigative", "calm",
+      "practical", "non-judgmental"
+    ],
+    "theme": [
+      "habits", "cognition", "anxiety", "relationships", "self-awareness",
+      "focus", "mental health", "growth", "behavior change", "boundaries"
+    ],
+    "genre": [
+      "psychology", "behavioral science", "self-help", "cognitive science",
+      "mental health"
+    ],
+    "keyword": [
+      "habit loop", "cognitive bias", "attachment", "trauma response",
+      "amygdala", "prefrontal cortex", "dopamine", "anxiety",
+      "burnout", "boundary", "imposter syndrome", "rumination",
+      "self-compassion", "growth mindset"
+    ]
+  },
+
+  "youtubeTagsHint": [
+    "psychology", "mental health", "self improvement", "habits",
+    "cognitive bias", "anxiety relief", "behavioral psychology",
+    "pop psychology", "psychology facts", "mindset"
+  ],
+
+  "audienceHint": "20-40 year olds curious about why they think and feel the way they do — therapy-adjacent listeners, self-improvement readers, anxious high-achievers.",
+
+  "scriptContext": "Lead with the observable behavior, not the diagnosis. Cite real research mechanisms (amygdala / dopamine / attachment theory / CBT loops) but stay accessible — never use jargon without unpacking it. End with one practical move the listener can try this week."
+}

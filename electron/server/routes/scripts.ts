@@ -849,10 +849,16 @@ router.post('/projects/:slug/generate/metadata/seo-titles', async (req, res) => 
 
   const {
     episode_id, title, model, count, max_length, platform_preset, include_script_context,
-    title_mode, title_suffix, manual_title,
+    title_mode, title_prefix, title_suffix, manual_title,
   } = req.body
   const credErr = checkProvider(model, config)
   if (credErr) return res.status(400).json({ detail: credErr })
+
+  // v1.0.90+: every produced title can be wrapped with a channel-level
+  // prefix + suffix. Saves the user from re-typing channel boilerplate
+  // ('Morning Prayer: ', ' | Daily Prayer Channel') every episode.
+  const wrap = (s: string): string =>
+    `${title_prefix ? String(title_prefix) : ''}${s}${title_suffix ? String(title_suffix) : ''}`
 
   // Fixed-title modes — no LLM call. Returns one title (count is ignored
   // because the user chose the wording explicitly; nothing to compare).
@@ -863,8 +869,7 @@ router.post('/projects/:slug/generate/metadata/seo-titles', async (req, res) => 
     if (!base) {
       return res.status(400).json({ detail: title_mode === 'manual' ? 'manual_title is required' : 'idea title is empty' })
     }
-    const finalTitle = base + (title_suffix ? String(title_suffix) : '')
-    return res.json({ titles: [finalTitle] })
+    return res.json({ titles: [wrap(base)] })
   }
 
   const storyContext = include_script_context !== false
@@ -895,11 +900,14 @@ Output exactly ${count || 5} title options, one per line.`
   try {
     const raw = await callAi(model, '', prompt, aiCreds(config), false, { slug })
     await trackGeneration(slug, 'description')
-    const titles = raw
+    const rawTitles = raw
       .split('\n')
       .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim())
       .filter(Boolean)
       .slice(0, count || 5)
+    // Wrap LLM titles with channel prefix/suffix so paraphrase mode
+    // benefits from the same channel-consistency lock as fixed modes.
+    const titles = (title_prefix || title_suffix) ? rawTitles.map(wrap) : rawTitles
     res.json({ titles })
   } catch (e: any) {
     // Honour explicit statusCode (400 validation, 402 quota, …) and
@@ -971,9 +979,14 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
   const {
     episode_id, title, model, sections, max_chars,
     title_count, title_max_length, title_platform_preset,
-    title_mode, title_suffix, manual_title,
+    title_mode, title_prefix, title_suffix, manual_title,
     tag_count,
   } = req.body
+  // Channel prefix/suffix wrapper — v1.0.90+. Applies to fixed AND
+  // paraphrase modes so the channel boilerplate ('Morning Prayer: ',
+  // ' | Daily Prayer') stays consistent across every generation path.
+  const wrapAllTitle = (s: string): string =>
+    `${title_prefix ? String(title_prefix) : ''}${s}${title_suffix ? String(title_suffix) : ''}`
   const credErr = checkProvider(model, config)
   if (credErr) return res.status(400).json({ detail: credErr })
 
@@ -1008,7 +1021,7 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
       const base = title_mode === 'manual'
         ? String(manual_title || '').trim()
         : String(title || '').trim()
-      titles = [base + (title_suffix ? String(title_suffix) : '')]
+      titles = [wrapAllTitle(base)]
     } else {
       const platformNote = title_platform_preset && title_platform_preset !== 'custom'
         ? `Optimized for ${title_platform_preset} (max ${title_max_length} characters).`
@@ -1033,7 +1046,8 @@ Requirements:
 - Tone: ${format.metadata.titleStyleHint}.
 - One per line. No numbering, quotes, or commentary.`
       const titleRaw = await callAi(model, '', titlePrompt, aiCreds(config), false, { slug })
-      titles = titleRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, title_count || 5)
+      const rawTitles = titleRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, title_count || 5)
+      titles = (title_prefix || title_suffix) ? rawTitles.map(wrapAllTitle) : rawTitles
     }
 
     // Tags

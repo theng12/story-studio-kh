@@ -1,0 +1,53 @@
+{
+  "id": "preaching",
+  "name": "Preaching",
+  "description": "Short sermon-style narration — exposition of a passage with practical application. More structured than devotional, less conversational than prayer. Tone is pastoral but with teaching authority. Pair with B-Roll of cross / pulpit / candle / open Bible / sunrise / quiet sanctuary footage. Avoid imagery that pegs to one denomination unless the channel intentionally leans that way.",
+  "tagline": "Open the text. Preach the text. Apply the text.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "exampleTopics": [
+    "The Cost of Discipleship — Luke 14",
+    "What James Means by 'Faith Without Works'",
+    "Three Truths from Romans 8",
+    "Why Jesus Wept at Lazarus's Tomb",
+    "The Sermon on the Mount — Reframed",
+    "Why God Tested Abraham",
+    "What 'Pick Up Your Cross' Really Means",
+    "Forgiveness According to Matthew 18",
+    "Why the Beatitudes Subvert Everything",
+    "What David's Failures Teach Us",
+    "Why Paul Said 'To Live Is Christ'",
+    "The Anatomy of Repentance",
+    "What It Means to 'Walk by Faith'"
+  ],
+
+  "vocabulary": {
+    "mood": [
+      "pastoral", "authoritative", "warm", "convicting", "grounded",
+      "tender-with-truth", "deliberate"
+    ],
+    "theme": [
+      "discipleship", "obedience", "grace", "repentance", "faith",
+      "calling", "service", "kingdom", "sanctification", "humility"
+    ],
+    "genre": [
+      "preaching", "exposition", "sermon", "bible teaching", "homiletics"
+    ],
+    "keyword": [
+      "gospel", "cross", "kingdom", "covenant", "redemption",
+      "Christ", "Spirit", "scripture", "discipleship", "obedience",
+      "grace", "faith", "repentance", "sanctification"
+    ]
+  },
+
+  "youtubeTagsHint": [
+    "preaching", "sermon", "bible teaching", "expository preaching",
+    "christian sermon", "gospel preaching", "scripture exposition",
+    "bible study", "christian sermon shorts"
+  ],
+
+  "audienceHint": "Christians who want short doctrinally-anchored teaching — believers refreshing their walk, seekers exploring the faith.",
+
+  "scriptContext": "Open with the passage spoken aloud. Move through: observation (what does the text say) → interpretation (what did it mean to its first audience) → application (what does it ask of us). Cite real biblical names and contexts. Avoid pop-culture analogies unless they're genuinely illuminating."
+}

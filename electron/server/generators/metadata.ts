@@ -44,6 +44,8 @@ interface MetadataParams {
    * Fixed modes skip the LLM call and emit exactly one title (no count).
    */
   title_mode?: 'paraphrase' | 'use_idea_title' | 'manual'
+  /** Channel-level prefix prepended to every produced title (every mode). */
+  title_prefix?: string
   title_suffix?: string
   manual_title?: string
   tag_count?: number
@@ -201,13 +203,22 @@ export async function generateMetadata(job: Job): Promise<void> {
     }
 
     // ── 2. Titles ───────────────────────────────────────────────────────
-    // Fixed-title modes skip the LLM call and emit a single title.
+    // Fixed-title modes (use_idea_title / manual) skip the LLM and emit
+    // exactly one title with optional channel prefix + suffix wrapping.
+    // v1.0.90+: the frontend defaults to 'use_idea_title' so the picked
+    // idea title flows through verbatim unless the user actively asks for
+    // paraphrase. Channel prefix/suffix come from the project's saved
+    // titleConfig — they're per-channel constants that wrap every episode.
     const title_mode = req.title_mode || 'paraphrase'
+    const title_prefix = typeof req.title_prefix === 'string' ? req.title_prefix : ''
     const title_suffix = typeof req.title_suffix === 'string' ? req.title_suffix : ''
     const manual_title = typeof req.manual_title === 'string' ? req.manual_title.trim() : ''
+    const wrapTitle = (s: string): string => `${title_prefix}${s}${title_suffix}`
 
     let titles: string[]
     if (templateOutput && templateOutput.title) {
+      // Template output is already fully composed (it included channel
+      // copy in the template string). Don't wrap a second time.
       titles = [templateOutput.title]
       job.output_lines.push(`Title from template: "${titles[0]}"`)
     } else if (title_mode === 'use_idea_title' || title_mode === 'manual') {
@@ -218,7 +229,7 @@ export async function generateMetadata(job: Job): Promise<void> {
           { statusCode: 400 },
         )
       }
-      titles = [base + title_suffix]
+      titles = [wrapTitle(base)]
       job.output_lines.push(`Using ${title_mode === 'manual' ? 'manual' : 'idea'} title: "${titles[0]}"`)
     } else {
       job.output_lines.push(`Generating ${title_count} title option(s)…`)
@@ -253,10 +264,17 @@ Requirements:
 - One per line. No numbering, quotes, or commentary.`
       const titleRaw = await callAi(model, '', titlePrompt, aiCreds(config), false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
-      titles = titleRaw.split('\n')
+      const rawTitles = titleRaw.split('\n')
         .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim())
         .filter(Boolean)
         .slice(0, title_count)
+      // Wrap LLM titles with channel prefix/suffix too — paraphrase mode
+      // benefits from channel consistency the same way fixed modes do.
+      // The prompt itself doesn't include the prefix (LLM doesn't need to
+      // re-derive it), so we only apply it here once at the join step.
+      titles = (title_prefix || title_suffix)
+        ? rawTitles.map(wrapTitle)
+        : rawTitles
       job.output_lines.push(`  → ${titles.length} title(s); picking first: "${titles[0] || '(none)'}" (others saved as alternatives)`)
     }
 

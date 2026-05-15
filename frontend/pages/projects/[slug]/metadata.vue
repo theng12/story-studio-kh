@@ -57,25 +57,26 @@
         <p class="text-muted text-sm">Generate title options optimized for multiple platforms</p>
       </div>
 
-      <!-- Title mode picker — drives whether we paraphrase via LLM,
-           use the episode's idea title verbatim, or the user's typed
-           string. Fixed modes (idea / manual) skip the LLM entirely
+      <!-- Title mode picker — drives whether we copy the idea title
+           verbatim (v1.0.90+ default; preserves the title you picked at
+           Ideas Generator time), paraphrase via LLM, or use the user's
+           typed string. Fixed modes (idea / manual) skip the LLM entirely
            and produce one title; the count + platform-preset rows are
            dimmed for those modes since they don't apply. -->
       <div class="form-group mt-1">
         <label>Title mode</label>
         <div class="title-mode-row">
           <label class="title-mode-option">
-            <input type="radio" value="paraphrase" v-model="titleConfig.mode" />
-            <span><strong>AI paraphrase</strong> — rewrite the title for SEO (current default).</span>
+            <input type="radio" value="use_idea_title" v-model="titleConfig.mode" />
+            <span><strong>Use idea title</strong> (default) — copy the episode's idea title verbatim, with optional channel prefix / suffix.</span>
           </label>
           <label class="title-mode-option">
-            <input type="radio" value="use_idea_title" v-model="titleConfig.mode" />
-            <span><strong>Use idea title</strong> — copy the episode's title verbatim, with optional suffix.</span>
+            <input type="radio" value="paraphrase" v-model="titleConfig.mode" />
+            <span><strong>AI paraphrase</strong> — generate N SEO-rewritten title options and pick the first.</span>
           </label>
           <label class="title-mode-option">
             <input type="radio" value="manual" v-model="titleConfig.mode" />
-            <span><strong>Manual title</strong> — type your own, with optional suffix.</span>
+            <span><strong>Manual title</strong> — type your own, with optional channel prefix / suffix.</span>
           </label>
         </div>
       </div>
@@ -90,14 +91,34 @@
         />
       </div>
 
+      <!-- Channel prefix + suffix (v1.0.90+). Locks a constant string at
+           the front and/or back of every episode title for this project —
+           "Morning Prayer:" or " | Daily Prayer Channel" or both. Both
+           live on the project config (broll_channel_title_prefix /
+           broll_channel_title_suffix) so every metadata generation uses
+           the same values without re-typing per episode. -->
+      <div v-if="titleConfig.mode !== 'paraphrase'" class="grid-2 mt-1">
+        <div class="form-group">
+          <label>Channel prefix <span class="text-muted">(prepended to every title)</span></label>
+          <input
+            v-model="titleConfig.prefix"
+            type="text"
+            class="input"
+            placeholder="e.g. Morning Prayer:  "
+          />
+          <span class="text-muted text-xs">Saved per project. Use a trailing space / punctuation if you want a gap between the prefix and the title.</span>
+        </div>
+        <div class="form-group">
+          <label>Channel suffix <span class="text-muted">(appended to every title)</span></label>
+          <input
+            v-model="titleConfig.suffix"
+            type="text"
+            class="input"
+            placeholder="e.g.  | Daily Prayer Channel"
+          />
+        </div>
+      </div>
       <div v-if="titleConfig.mode !== 'paraphrase'" class="form-group mt-1">
-        <label>Suffix <span class="text-muted">(optional, appended to the end)</span></label>
-        <input
-          v-model="titleConfig.suffix"
-          type="text"
-          class="input"
-          placeholder="e.g. — A Cozy Sleep Story"
-        />
         <p class="text-muted text-xs hint-line">
           Preview:
           <code>{{ titlePreviewText }}</code>
@@ -553,14 +574,23 @@ const titleConfig = reactive({
   count: 5,
   includeScriptContext: true,
   /**
-   * 'paraphrase' (default) — current LLM-rewrite behaviour.
-   * 'use_idea_title' — copy the episode's idea title verbatim.
-   * 'manual'         — use `manualTitle` verbatim.
-   * For both fixed modes, `suffix` is optionally appended ("a Cozy Sleep
-   * Story", " | Sleep Stories"). Fixed modes always emit one title; the
-   * count slider applies only to paraphrase.
+   * v1.0.90+: default flipped from 'paraphrase' to 'use_idea_title' so
+   * the title the user picked at Ideas Generator time stays the title
+   * by default. Paraphrase is now opt-in for the "generate me 5 SEO
+   * variants" workflow.
+   *
+   * 'use_idea_title' (default) — copy the episode's idea title verbatim.
+   * 'paraphrase'                — LLM-rewrite into N SEO variants.
+   * 'manual'                    — use `manualTitle` verbatim.
+   * For the fixed modes (idea / manual) the project's saved channel
+   * `prefix` is prepended and `suffix` appended. Fixed modes always
+   * emit one title; the count slider applies only to paraphrase.
    */
-  mode: 'paraphrase' as 'paraphrase' | 'use_idea_title' | 'manual',
+  mode: 'use_idea_title' as 'paraphrase' | 'use_idea_title' | 'manual',
+  /** Channel-level prefix locked in front of every title. Persisted on
+   *  the project config so re-running metadata generation uses the same
+   *  value without re-typing. */
+  prefix: '',
   suffix: '',
   manualTitle: '',
 })
@@ -742,6 +772,8 @@ interface MetadataPresetSnapshot {
     count?: number
     includeScriptContext?: boolean
     mode?: 'paraphrase' | 'use_idea_title' | 'manual'
+    /** Channel-level title prefix locked across every episode (v1.0.90+). */
+    prefix?: string
     suffix?: string
     manualTitle?: string
   }
@@ -758,6 +790,7 @@ const metadataPresets = usePresets<MetadataPresetSnapshot>({
       count: titleConfig.count,
       includeScriptContext: titleConfig.includeScriptContext,
       mode: titleConfig.mode,
+      prefix: titleConfig.prefix,
       suffix: titleConfig.suffix,
       manualTitle: titleConfig.manualTitle,
     },
@@ -782,6 +815,7 @@ const metadataPresets = usePresets<MetadataPresetSnapshot>({
       if (tc.mode === 'paraphrase' || tc.mode === 'use_idea_title' || tc.mode === 'manual') {
         titleConfig.mode = tc.mode
       }
+      if (typeof tc.prefix === 'string') titleConfig.prefix = tc.prefix
       if (typeof tc.suffix === 'string') titleConfig.suffix = tc.suffix
       if (typeof tc.manualTitle === 'string') titleConfig.manualTitle = tc.manualTitle
     }
@@ -814,7 +848,7 @@ const titlePreviewText = computed(() => {
       ? '(type your title above)'
       : '(no episode selected)'
   }
-  return base + (titleConfig.suffix || '')
+  return (titleConfig.prefix || '') + base + (titleConfig.suffix || '')
 })
 
 const tagsAsString = computed({
@@ -953,6 +987,7 @@ async function generateTitles() {
       platform_preset: titleConfig.preset,
       include_script_context: titleConfig.includeScriptContext,
       title_mode: titleConfig.mode,
+      title_prefix: titleConfig.prefix,
       title_suffix: titleConfig.suffix,
       manual_title: titleConfig.manualTitle,
     })
@@ -1042,6 +1077,7 @@ async function generateAll() {
         title_max_length: titleConfig.maxLength,
         title_platform_preset: titleConfig.preset,
         title_mode: titleConfig.mode,
+        title_prefix: titleConfig.prefix,
         title_suffix: titleConfig.suffix,
         manual_title: titleConfig.manualTitle,
         tag_count: tagConfig.count,

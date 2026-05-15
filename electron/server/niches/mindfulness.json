@@ -1,0 +1,52 @@
+{
+  "id": "mindfulness",
+  "name": "Mindfulness",
+  "description": "Guided meditation, breathing exercises, body-scan, present-moment awareness. Tone is slow, present, breath-paced. Pair with B-Roll of breathing landscapes — rolling fog, slow water, candle flame, forest canopy, sunrise breath. Best for short morning resets, anxiety relief, sleep wind-down.",
+  "tagline": "Notice. Breathe. Begin again.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "exampleTopics": [
+    "A 3-Minute Morning Reset",
+    "Box Breathing for Anxious Mornings",
+    "Body Scan Before Sleep",
+    "Letting Go of the Day",
+    "Five-Senses Grounding (When Your Mind Won't Stop)",
+    "A Breath for the Long Inhale",
+    "Mindful Walking on Your Commute",
+    "Soft Belly Breath — 5 Minutes",
+    "Quiet the Inner Critic — A Guided Practice",
+    "Finding Stillness Between Tasks",
+    "A Gentle Return to the Body"
+  ],
+
+  "vocabulary": {
+    "mood": [
+      "present", "slow", "spacious", "tender", "grounded", "patient",
+      "breath-paced", "non-judgmental"
+    ],
+    "theme": [
+      "presence", "breath", "acceptance", "letting go", "awareness",
+      "body", "stillness", "compassion", "non-striving", "noticing"
+    ],
+    "genre": [
+      "mindfulness", "meditation", "breathwork", "body awareness",
+      "guided practice"
+    ],
+    "keyword": [
+      "breath", "inhale", "exhale", "body scan", "5-4-3-2-1",
+      "box breath", "diaphragm", "present moment", "anchor",
+      "noticing", "letting go", "soften", "settle"
+    ]
+  },
+
+  "youtubeTagsHint": [
+    "mindfulness", "meditation", "guided meditation", "breathing exercise",
+    "box breathing", "body scan", "anxiety meditation", "morning meditation",
+    "sleep meditation", "5 minute meditation"
+  ],
+
+  "audienceHint": "Stressed listeners reaching for a short reset — typically commute / desk-break / bedtime moments.",
+
+  "scriptContext": "Speak slowly. Use the second person ('You're sitting...', 'You feel...'). Pace the inhale and exhale cadence into the writing itself — short sentences, soft pauses, no rush. End by guiding the listener back into their day or into sleep, never with applause or 'thanks for listening' chatter."
+}

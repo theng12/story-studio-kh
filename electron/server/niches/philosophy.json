@@ -1,0 +1,54 @@
+{
+  "id": "philosophy",
+  "name": "Philosophy",
+  "description": "Short philosophical reflections — Stoicism, Taoism, Buddhism, existentialism, ethics. Tone is thoughtful and unhurried; voice asks more than it tells. Pair with B-Roll of solitary landscapes (mountain paths, foggy harbors, candlelit interiors, fields at dawn) or abstract / classical-statue imagery for ancient-philosophy channels.",
+  "tagline": "Old questions. Plain answers. Quiet voice.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "exampleTopics": [
+    "Marcus Aurelius on Things You Can't Control",
+    "The Stoic View of Anger",
+    "What Seneca Taught About Time",
+    "The Tao of Doing Less",
+    "Why Epictetus Said Suffering Is a Choice",
+    "Buddhist Mindfulness in Three Minutes",
+    "Memento Mori — Why Remembering Death Helps You Live",
+    "Amor Fati — Loving What Happens to You",
+    "The Examined Life According to Socrates",
+    "Why Boredom Is a Doorway, Not a Wall",
+    "Nietzsche on Becoming Who You Are",
+    "Camus on the Absurd — and How to Live With It"
+  ],
+
+  "vocabulary": {
+    "mood": [
+      "thoughtful", "unhurried", "wry", "tender", "patient",
+      "reflective", "spacious"
+    ],
+    "theme": [
+      "impermanence", "acceptance", "virtue", "discipline", "freedom",
+      "meaning", "self-knowledge", "death", "time", "letting go"
+    ],
+    "genre": [
+      "philosophy", "stoicism", "eastern philosophy", "existentialism",
+      "ethics", "wisdom literature"
+    ],
+    "keyword": [
+      "Stoic", "Marcus Aurelius", "Seneca", "Epictetus", "Tao",
+      "Buddha", "Socrates", "Nietzsche", "Camus", "Kierkegaard",
+      "virtue", "impermanence", "amor fati", "memento mori", "logos",
+      "dharma", "wu wei"
+    ]
+  },
+
+  "youtubeTagsHint": [
+    "philosophy", "stoicism", "stoic", "marcus aurelius", "seneca",
+    "epictetus", "buddhist philosophy", "tao", "existentialism",
+    "philosophy explained", "ancient wisdom"
+  ],
+
+  "audienceHint": "Listeners reading Daily Stoic, Tao Te Ching, Meditations, etc. Often 25-50, often professionals reaching for grounding outside religion.",
+
+  "scriptContext": "Speak like a friend who's been reading these books for years — never lecture. Quote primary sources accurately when you cite them. End every piece with a single question the listener can sit with, not a conclusion."
+}

@@ -1,0 +1,52 @@
+{
+  "id": "devotional",
+  "name": "Devotional",
+  "description": "Short scripture-anchored reflections — a verse, a thought, a takeaway. Distinct from raw prayer in that the listener is being TAUGHT something rooted in a passage, not just praying through it. Best for channels that want a steady daily-devotion cadence ('today's verse', 'a thought from Psalm 23'). Pair with calm nature / candle / sunrise B-Roll.",
+  "tagline": "A verse. A thought. A breath.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "exampleTopics": [
+    "A Thought on Psalm 23",
+    "Why Joshua 1:9 Still Matters",
+    "Three Lessons from Proverbs 3:5-6",
+    "Today's Verse: Philippians 4:6-7",
+    "The Quiet Power of Romans 8:28",
+    "What the Beatitudes Teach Us About Quiet Strength",
+    "Lessons from the Prodigal Son",
+    "Why We're Told to 'Be Still'",
+    "A Devotion on Anxiety",
+    "Trusting When You Can't See the Path",
+    "A Devotion for Tired Mothers",
+    "What Job Knew About Suffering"
+  ],
+
+  "vocabulary": {
+    "mood": [
+      "reflective", "warm", "anchored", "patient", "quiet-confidence",
+      "contemplative", "instructional"
+    ],
+    "theme": [
+      "faith", "trust", "discipleship", "obedience", "presence", "humility",
+      "wisdom", "service", "endurance", "hope"
+    ],
+    "genre": [
+      "devotional", "bible study", "reflection", "scripture meditation"
+    ],
+    "keyword": [
+      "scripture", "verse", "psalm", "proverb", "gospel", "epistle",
+      "Christ", "kingdom", "grace", "redemption", "covenant",
+      "discipleship", "obedience", "faith"
+    ]
+  },
+
+  "youtubeTagsHint": [
+    "devotional", "daily devotional", "christian devotional", "bible verse",
+    "scripture meditation", "morning devotional", "evening devotional",
+    "bible study", "christian reflection"
+  ],
+
+  "audienceHint": "Christians who want a 3-7 minute scripture-grounded reflection alongside their morning coffee or before bed.",
+
+  "scriptContext": "Anchor every devotional in ONE specific passage. Open with the verse spoken aloud, unpack it in 2-3 short reflections, end with a single takeaway the listener can carry through the day. Avoid theological tangents; stay practical and pastoral."
+}

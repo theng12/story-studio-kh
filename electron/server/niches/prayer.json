@@ -1,0 +1,62 @@
+{
+  "id": "prayer",
+  "name": "Prayer",
+  "description": "Spoken-word Christian prayer paired with calm, reverent B-Roll. Topics span morning / evening / mealtime / family / anxiety / healing / gratitude / protection / wisdom. Tone is sincere, pastoral, intimate — addressed to the listener as a single soul, not a crowd. Avoid denominational hot-buttons unless your channel explicitly leans there.",
+  "tagline": "One listener. One quiet voice. One prayer.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "exampleTopics": [
+    "Morning Prayer for Strength",
+    "Evening Prayer for Rest",
+    "A Prayer for Anxious Hearts",
+    "Prayer Before a Difficult Conversation",
+    "A Mother's Prayer for Her Children",
+    "Prayer for Healing",
+    "Prayer for Gratitude in Hard Seasons",
+    "Prayer for Protection on the Road",
+    "Prayer Before Work",
+    "Prayer for Forgiveness",
+    "Prayer to Let Go of Worry",
+    "A Prayer for Peace in the Home",
+    "Prayer for Wisdom",
+    "Prayer Through Grief",
+    "Prayer for a Tired Soul",
+    "Prayer Before Bed",
+    "Prayer for Strength to Forgive",
+    "Prayer for Marriage",
+    "Prayer for Direction"
+  ],
+
+  "vocabulary": {
+    "mood": [
+      "reverent", "tender", "grounded", "intimate", "hopeful", "still",
+      "humble", "trusting", "merciful", "watchful"
+    ],
+    "theme": [
+      "trust", "surrender", "forgiveness", "gratitude", "patience",
+      "courage", "renewal", "compassion", "rest", "presence", "hope",
+      "protection", "healing", "faith"
+    ],
+    "genre": [
+      "prayer", "devotional", "intercession", "blessing", "thanksgiving",
+      "petition", "meditation"
+    ],
+    "keyword": [
+      "Lord", "Father", "Christ", "Spirit", "grace", "mercy",
+      "stillness", "morning", "evening", "anxiety", "burden",
+      "healing", "family", "marriage", "work", "rest", "wisdom",
+      "guidance", "forgiveness", "gratitude"
+    ]
+  },
+
+  "youtubeTagsHint": [
+    "prayer", "daily prayer", "christian prayer", "morning prayer",
+    "evening prayer", "guided prayer", "prayer for anxiety", "devotional",
+    "christian meditation", "bedtime prayer"
+  ],
+
+  "audienceHint": "Christians seeking short guided prayers — typically on mobile, in transit, before bed, or during a moment of overwhelm.",
+
+  "scriptContext": "Write as a single quiet voice praying with the listener (not for them). Address God directly in the second person but speak the prayer aloud so the listener can echo it silently. Avoid corporate-prayer 'we' unless the prayer is specifically for families / marriages. End with a clear settle line so the listener knows the prayer is complete."
+}

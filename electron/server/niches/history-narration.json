@@ -1,0 +1,54 @@
+{
+  "id": "history-narration",
+  "name": "History Narration",
+  "description": "Short narrated history facts — events, people, oddities. Tone is curious and grounded; voice is the friend who reads a lot. Pair with archival footage, museum/artifact B-Roll, or stylized animated re-enactments (anime / cinematic cuts work for younger audiences).",
+  "tagline": "Everything we forgot. Briefly remembered.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "exampleTopics": [
+    "The Real Reason the Library of Alexandria Burned",
+    "What Pompeii's Final Day Actually Looked Like",
+    "The Forgotten Empress of Byzantium",
+    "How a Single Letter Started World War One",
+    "The Year Without a Summer",
+    "Why Genghis Khan Was Buried in Secret",
+    "The Plague Doctor's Mask — What It Was Really For",
+    "How the Aztec Calendar Predicted Eclipses",
+    "The Bizarre Logistics of Roman Roads",
+    "The Last Day of Cleopatra",
+    "Why the Bronze Age Suddenly Ended",
+    "The Mystery of the Voynich Manuscript",
+    "What Daily Life Looked Like in Ancient Egypt"
+  ],
+
+  "vocabulary": {
+    "mood": [
+      "curious", "grounded", "wry", "patient", "matter-of-fact",
+      "investigative", "human-scale"
+    ],
+    "theme": [
+      "empire", "everyday life", "catastrophe", "rebellion", "discovery",
+      "decline", "exchange", "ritual", "war", "famine", "trade"
+    ],
+    "genre": [
+      "history", "historical narrative", "biography", "civilization",
+      "archaeology", "history shorts"
+    ],
+    "keyword": [
+      "empire", "dynasty", "siege", "trade route", "manuscript",
+      "artifact", "dig", "translation", "campaign", "treaty",
+      "court", "throne", "rebellion", "famine", "plague"
+    ]
+  },
+
+  "youtubeTagsHint": [
+    "history", "history facts", "ancient history", "medieval history",
+    "world history", "history shorts", "history explained",
+    "historical mysteries", "did you know history"
+  ],
+
+  "audienceHint": "Casual history viewers who enjoy 5-10 minute deep-cuts — overlaps with audiences for Hardcore History, Real Civilizations, Drachinifel-style channels.",
+
+  "scriptContext": "Anchor every piece to specific dates, names, and places — vague history slides into fiction. Cite the surprising primary-source detail wherever possible ('one letter from his secretary survives, and it says...'). Avoid contemporary political framing of ancient events."
+}
