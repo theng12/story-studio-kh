@@ -26,21 +26,56 @@
   "vocabulary": {
     "mood": [
       "curious", "grounded", "warm", "investigative", "calm",
-      "practical", "non-judgmental"
+      "practical", "non-judgmental", "evidence-based", "compassionate",
+      "matter-of-fact", "exploratory", "thoughtful", "honest",
+      "research-informed", "patient", "open", "inquisitive", "sober",
+      "rigorous", "humane", "diagnostic-but-warm", "accessible",
+      "level-headed", "kind", "neutral"
     ],
     "theme": [
       "habits", "cognition", "anxiety", "relationships", "self-awareness",
-      "focus", "mental health", "growth", "behavior change", "boundaries"
+      "focus", "mental health", "growth", "behavior change", "boundaries",
+      "attachment", "trauma", "memory", "emotion regulation", "stress",
+      "burnout", "sleep", "motivation", "procrastination", "addiction",
+      "depression", "loneliness", "shame", "self-worth", "comparison",
+      "envy", "anger", "grief", "joy", "meaning", "purpose", "decision-making",
+      "perception", "identity"
     ],
     "genre": [
       "psychology", "behavioral science", "self-help", "cognitive science",
-      "mental health"
+      "mental health", "neuroscience-explainer", "social-psychology",
+      "developmental-psychology", "therapy-adjacent", "evidence-based-self-help"
     ],
     "keyword": [
-      "habit loop", "cognitive bias", "attachment", "trauma response",
-      "amygdala", "prefrontal cortex", "dopamine", "anxiety",
-      "burnout", "boundary", "imposter syndrome", "rumination",
-      "self-compassion", "growth mindset"
+      "habit loop", "cue-routine-reward", "cognitive bias", "confirmation bias",
+      "negativity bias", "availability heuristic", "anchoring", "framing",
+      "loss aversion", "attachment", "secure attachment", "anxious attachment",
+      "avoidant attachment", "disorganized attachment", "trauma response",
+      "ACEs", "PTSD", "fight-flight-freeze-fawn", "amygdala", "prefrontal cortex",
+      "hippocampus", "default mode network", "vagus nerve", "polyvagal theory",
+      "dopamine", "serotonin", "cortisol", "oxytocin", "anxiety", "panic",
+      "generalized anxiety", "social anxiety", "depression", "dysthymia",
+      "burnout", "boundary", "people-pleasing", "imposter syndrome",
+      "rumination", "intrusive thoughts", "self-compassion", "growth mindset",
+      "fixed mindset", "self-efficacy", "locus of control", "learned helplessness",
+      "self-determination theory", "intrinsic motivation", "extrinsic motivation",
+      "flow state", "deliberate practice", "cognitive load", "working memory",
+      "decision fatigue", "ego depletion", "choice overload",
+      "the hedonic treadmill", "set-point theory", "Pareto attention",
+      "deep work", "shallow work", "context switching", "monkey mind",
+      "CBT", "DBT", "ACT", "exposure therapy", "EMDR", "somatic experiencing",
+      "IFS parts work", "schema therapy", "reframing", "thought record",
+      "behavioral activation", "habit stacking", "implementation intentions",
+      "if-then planning", "WOOP", "values clarification", "psychological flexibility",
+      "mindfulness", "metacognition", "interoception", "co-regulation",
+      "social baseline", "loneliness epidemic", "attachment wounds",
+      "inner critic", "self-talk", "negative self-talk", "rumination loop",
+      "doom-scrolling", "comparison trap", "FOMO", "scarcity mindset",
+      "abundance mindset", "self-worth gap", "shame spiral", "guilt vs shame",
+      "anger as signal", "grief stages-myth", "complicated grief",
+      "post-traumatic growth", "vulnerability research", "Brené Brown",
+      "Daniel Kahneman", "Carol Dweck", "Viktor Frankl", "Gabor Maté",
+      "Bessel van der Kolk"
     ]
   },
 

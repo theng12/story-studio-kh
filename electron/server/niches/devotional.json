@@ -24,19 +24,50 @@
   "vocabulary": {
     "mood": [
       "reflective", "warm", "anchored", "patient", "quiet-confidence",
-      "contemplative", "instructional"
+      "contemplative", "instructional", "studied", "weighty", "gentle",
+      "deliberate", "rooted", "sober", "encouraging", "exhortative",
+      "thoughtful", "scholarly-pastoral", "earnest", "ruminative",
+      "settled", "honest", "questioning", "open-handed", "yielded"
     ],
     "theme": [
       "faith", "trust", "discipleship", "obedience", "presence", "humility",
-      "wisdom", "service", "endurance", "hope"
+      "wisdom", "service", "endurance", "hope", "love", "repentance",
+      "stewardship", "covenant", "kingdom", "grace", "redemption",
+      "perseverance", "compassion", "holiness", "righteousness",
+      "sanctification", "calling", "vocation", "suffering", "joy",
+      "lament", "doubt", "assurance", "providence", "salvation",
+      "imitation-of-Christ", "fruit-of-the-Spirit"
     ],
     "genre": [
-      "devotional", "bible study", "reflection", "scripture meditation"
+      "devotional", "bible study", "reflection", "scripture meditation",
+      "exposition", "spiritual reading", "lectio-divina", "topical study",
+      "verse-of-the-day", "biblical theology"
     ],
     "keyword": [
-      "scripture", "verse", "psalm", "proverb", "gospel", "epistle",
-      "Christ", "kingdom", "grace", "redemption", "covenant",
-      "discipleship", "obedience", "faith"
+      "scripture", "verse", "passage", "psalm", "proverb", "gospel",
+      "epistle", "parable", "beatitude", "narrative", "law", "prophet",
+      "wisdom-literature", "Christ", "Lord", "Spirit", "Father",
+      "kingdom", "grace", "redemption", "covenant", "discipleship",
+      "obedience", "faith", "hope", "love", "joy", "peace",
+      "patience", "kindness", "goodness", "faithfulness", "gentleness",
+      "self-control", "humility", "Genesis", "Exodus", "Psalms",
+      "Proverbs", "Ecclesiastes", "Isaiah", "Jeremiah", "Matthew",
+      "Mark", "Luke", "John", "Acts", "Romans", "Corinthians",
+      "Galatians", "Ephesians", "Philippians", "Colossians", "Hebrews",
+      "James", "Peter", "Revelation", "Moses", "David", "Solomon",
+      "Job", "Daniel", "Mary", "Paul", "Peter the disciple",
+      "John the beloved", "Abraham", "Sarah", "Ruth", "Esther",
+      "Hannah", "Elijah", "Joshua", "the Beatitudes", "the Sermon on the Mount",
+      "the Lord's Prayer", "the Good Samaritan", "the Prodigal Son",
+      "the Vine and the Branches", "the Shepherd Psalm", "Psalm 23",
+      "Psalm 91", "John 14", "Romans 8", "Philippians 4", "Hebrews 11",
+      "the resurrection", "the cross", "the temple", "the wilderness",
+      "the exile", "the exodus", "morning devotion", "evening devotion",
+      "weekly study", "Sunday school", "prayer journal", "memorisation",
+      "spiritual formation", "quiet time", "discipline of silence",
+      "biblical worldview", "the call", "the new heart", "the narrow way",
+      "the household of faith", "the body of Christ", "the bread of life",
+      "living water", "the lamp unto our feet"
     ]
   },
 

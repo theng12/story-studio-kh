@@ -24,9 +24,28 @@
       "motivation", "reflection", "blessing"
     ],
     "keywordVocabulary": [
-      "morning", "evening", "anxiety", "sleep", "healing",
-      "family", "work", "marriage", "loss", "hope", "peace",
-      "guidance", "protection", "thankfulness"
+      "morning", "evening", "midday", "midnight", "dawn", "dusk",
+      "Sunday", "weekend", "weekday", "anxiety", "fear", "worry",
+      "doubt", "stress", "burnout", "sleep", "insomnia", "rest",
+      "healing", "recovery", "renewal", "family", "marriage",
+      "parenting", "friendship", "loneliness", "community", "work",
+      "career", "transition", "retirement", "school", "study",
+      "exam", "interview", "job change", "moving", "loss", "grief",
+      "illness", "surgery", "diagnosis", "hope", "joy", "gratitude",
+      "contentment", "peace", "stillness", "ease", "guidance",
+      "wisdom", "discernment", "clarity", "direction", "protection",
+      "safety", "thankfulness", "blessing", "favor", "purpose",
+      "meaning", "calling", "vocation", "courage", "patience",
+      "kindness", "forgiveness", "mercy", "compassion", "presence",
+      "awareness", "intention", "discipline", "habit", "practice",
+      "the heavy day", "the long night", "the difficult conversation",
+      "the unresolved question", "the new beginning", "the small step",
+      "the daily walk", "before bed", "before work", "during commute",
+      "after loss", "in waiting", "in transition", "in stillness",
+      "the breath", "the body", "the heart", "the mind",
+      "morning light", "evening shadow", "candle flame", "open window",
+      "winter", "spring", "summer", "autumn", "first frost",
+      "first warmth", "harvest", "fallow season"
     ],
     "guidanceText": "Tone is sincere and personal. Avoid hype, urgency, or anything that sounds like a sales pitch. Speak as if to one listener.",
     "exampleIdeas": [

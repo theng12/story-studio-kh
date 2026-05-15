@@ -25,19 +25,52 @@
   "vocabulary": {
     "mood": [
       "pastoral", "authoritative", "warm", "convicting", "grounded",
-      "tender-with-truth", "deliberate"
+      "tender-with-truth", "deliberate", "exhortative", "expository",
+      "earnest", "sober", "weighty", "encouraging", "wise", "studied",
+      "anchored", "reverent", "instructive", "personal", "challenging",
+      "compassionate", "called", "humble-but-firm", "fatherly", "shepherding"
     ],
     "theme": [
       "discipleship", "obedience", "grace", "repentance", "faith",
-      "calling", "service", "kingdom", "sanctification", "humility"
+      "calling", "service", "kingdom", "sanctification", "humility",
+      "salvation", "atonement", "justification", "regeneration",
+      "adoption", "covenant", "incarnation", "resurrection", "ascension",
+      "second-coming", "the church", "spiritual warfare", "suffering",
+      "perseverance", "hope", "love", "holiness", "righteousness",
+      "stewardship", "evangelism", "missions"
     ],
     "genre": [
-      "preaching", "exposition", "sermon", "bible teaching", "homiletics"
+      "preaching", "exposition", "sermon", "bible teaching", "homiletics",
+      "topical sermon", "expository sermon", "verse-by-verse",
+      "evangelistic message", "discipleship teaching"
     ],
     "keyword": [
-      "gospel", "cross", "kingdom", "covenant", "redemption",
-      "Christ", "Spirit", "scripture", "discipleship", "obedience",
-      "grace", "faith", "repentance", "sanctification"
+      "gospel", "cross", "kingdom", "covenant", "redemption", "atonement",
+      "Christ", "Lord", "Spirit", "Father", "scripture", "Word",
+      "discipleship", "obedience", "grace", "faith", "repentance",
+      "sanctification", "justification", "salvation", "regeneration",
+      "adoption", "imputation", "propitiation", "sin", "righteousness",
+      "holiness", "law", "promise", "election", "calling",
+      "Genesis", "Exodus", "Leviticus", "Deuteronomy", "Psalms",
+      "Proverbs", "Isaiah", "Jeremiah", "Daniel", "Matthew", "Mark",
+      "Luke", "John", "Acts", "Romans", "1 Corinthians", "2 Corinthians",
+      "Galatians", "Ephesians", "Philippians", "Colossians",
+      "1 Thessalonians", "Hebrews", "James", "1 Peter", "Revelation",
+      "Moses", "Abraham", "David", "Solomon", "Elijah", "Paul",
+      "Peter the apostle", "John the apostle", "the prophets",
+      "the apostles", "the disciples", "the early church",
+      "the cross of Christ", "the empty tomb", "the upper room",
+      "the road to Emmaus", "the Sermon on the Mount", "the Beatitudes",
+      "the Lord's Prayer", "the Great Commission", "Pentecost",
+      "the parable of the sower", "the prodigal son", "the lost sheep",
+      "the good shepherd", "the bread of life", "the light of the world",
+      "the narrow gate", "the cost of discipleship", "abiding in Christ",
+      "the fruit of the Spirit", "spiritual gifts", "the body of Christ",
+      "the new heart", "born again", "eternal life", "the Lord's Supper",
+      "baptism", "communion", "Sunday morning", "weeknight study",
+      "small group", "expository teaching", "verse-by-verse", "outline",
+      "main idea", "application", "doctrinal core", "biblical context",
+      "original audience", "historical-grammatical", "Christ-centered"
     ]
   },
 

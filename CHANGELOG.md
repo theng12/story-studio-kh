@@ -4,6 +4,51 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.97 — 2026-05-16
+
+**Massive vocab expansion across every niche + every format**
+
+The Randomize button picks one genre + one mood + one theme + one audience + 3-5 keywords on each click. With keyword pools of 13-35 entries (the prior baseline), random combinations got repetitive fast. v1.0.97 expands every vocab pool — keywords most heavily, with mood and theme bumped modestly along the way — so each Randomize click pulls from a much wider, niche-appropriate vocabulary.
+
+**New keyword counts (was → is):**
+
+| | Niches | |
+|---|---|---|
+| prayer | 20 → **133** | spiritual needs, life situations, scripture concepts, times, people-to-pray-for |
+| devotional | 14 → **110** | books of the Bible, biblical figures, specific passages, theological concepts |
+| motivation | 15 → **108** | discipline concepts, habit-design vocab, finance/fitness/career touchstones, named authors |
+| preaching | 14 → **109** | books, figures, doctrines, expository concepts, parables |
+| psychology | 14 → **110** | cognitive biases, attachment styles, neurochemistry, therapy modalities, named researchers |
+| philosophy | 17 → **109** | schools, named philosophers, key concepts in each tradition, primary texts |
+| mindfulness | 13 → **101** | breath techniques, body parts, awareness states, MBSR/MBCT terminology, named teachers |
+| history-narration | 15 → **128** | named civilizations, figures, eras, locations, primary sources |
+| animals | 21 → **103** | species, behaviors, anatomical structures, ecological concepts, named extremes |
+| plants | 20 → **96** | photosynthesis modes, structures, dispersal, named species, allelopathic vocab |
+| fungi | 19 → **102** | spore biology, named species, decay types, host-jumping vocab, fermentation lineage |
+| insects | 20 → **108** | metamorphosis, venom delivery, named species, parasitoid behaviors |
+| | Formats | |
+| sleep-story | 35 → **100** | cozy nouns, rural rhythm, atmospheric items, slow-pace verbs |
+| listicle | 30 → **120** | listicle-friendly subject domains (illusions, paradoxes, weird animals, cold cases) |
+| bound-explainer | 25 → **87** | anatomical handicaps, ecological niche failures, named hardships |
+| broll-narration | 14 → **105** | spoken-word topics across prayer/devotional/motivation/mindfulness — covers every niche on this format |
+| documentary | 29 → **101** | named sites, primary sources, methodologies, named cases |
+| educational | 28 → **108** | named phenomena, principles, named studies, methodology terms |
+| comedy | 25 → **97** | bureaucratic absurdities, corporate jargon, small-town irritations |
+| adventure | 25 → **103** | named locations, named extremes, equipment, danger vocab |
+| true-crime | 28 → **115** | forensic methods, named procedures, surveillance vocab, witness types |
+| kids-fairytale | 32 → **116** | gentle creatures, magical objects, simple settings, kindness-friendly props |
+
+**Mood and theme pools also bumped** across every file (modestly — typically +10-20 entries per pool). Genre pools left mostly as-is since those are well-bounded by nature.
+
+**Authoring future niches**: when you add a new niche later, fill `vocabulary.mood`, `vocabulary.theme`, `vocabulary.genre`, and `vocabulary.keyword` as generously as you can. The Randomize button pulls from the union of format + niche pools, so more entries = more variety per click without changing any code.
+
+**Audit pass**
+- All 22 niche + format JSONs parse cleanly.
+- `tsc -p electron --noEmit`: 0 errors.
+- `cd frontend && npx nuxt build`: clean.
+
+---
+
 ## v1.0.96 — 2026-05-16
 
 **Niche / Pattern hierarchy now reads top-down on the Ideas Generator**

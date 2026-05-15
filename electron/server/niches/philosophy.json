@@ -24,21 +24,53 @@
   "vocabulary": {
     "mood": [
       "thoughtful", "unhurried", "wry", "tender", "patient",
-      "reflective", "spacious"
+      "reflective", "spacious", "questioning", "skeptical", "serene",
+      "contemplative", "humane", "literary", "warm-but-rigorous",
+      "honest", "open-handed", "quiet", "intellectually-humble",
+      "philosophical-friend", "elder-voice", "kindly-skeptical",
+      "anchored", "considered", "wise", "unhurried-curious"
     ],
     "theme": [
       "impermanence", "acceptance", "virtue", "discipline", "freedom",
-      "meaning", "self-knowledge", "death", "time", "letting go"
+      "meaning", "self-knowledge", "death", "time", "letting go",
+      "duty", "friendship", "love", "loss", "courage", "fear",
+      "happiness", "suffering", "anger", "patience", "judgement",
+      "perception", "identity", "the self", "the good life",
+      "truth", "wisdom", "moderation", "justice", "fate"
     ],
     "genre": [
       "philosophy", "stoicism", "eastern philosophy", "existentialism",
-      "ethics", "wisdom literature"
+      "ethics", "wisdom literature", "Taoism", "Buddhism",
+      "ancient Greek philosophy", "Roman philosophy", "Confucian thought",
+      "phenomenology", "absurdism"
     ],
     "keyword": [
-      "Stoic", "Marcus Aurelius", "Seneca", "Epictetus", "Tao",
-      "Buddha", "Socrates", "Nietzsche", "Camus", "Kierkegaard",
-      "virtue", "impermanence", "amor fati", "memento mori", "logos",
-      "dharma", "wu wei"
+      "Stoic", "Stoicism", "Marcus Aurelius", "Seneca", "Epictetus",
+      "Musonius Rufus", "Cato", "Tao", "Taoism", "Lao Tzu", "Chuang Tzu",
+      "Tao Te Ching", "Buddha", "Buddhism", "the Buddha", "Four Noble Truths",
+      "the Eightfold Path", "dhamma", "dharma", "anatta", "anicca",
+      "dukkha", "metta", "Socrates", "Plato", "Aristotle", "the Republic",
+      "the Nicomachean Ethics", "eudaimonia", "phronesis", "Nietzsche",
+      "Schopenhauer", "Kierkegaard", "Camus", "Sartre", "absurdism",
+      "the absurd", "Sisyphus", "Kafka", "Confucius", "ren",
+      "li (ritual)", "Mencius", "Heraclitus", "Diogenes the Cynic",
+      "Pyrrho", "skepticism", "virtue", "vice", "courage", "temperance",
+      "wisdom", "justice", "logos", "pathos", "ethos", "the dichotomy of control",
+      "amor fati", "memento mori", "premeditatio malorum",
+      "view from above", "the inner citadel", "the discipline of assent",
+      "the discipline of desire", "the discipline of action",
+      "wu wei", "the uncarved block", "the watercourse way",
+      "yin and yang", "the middle way", "right speech", "right action",
+      "right livelihood", "impermanence", "non-attachment", "the self",
+      "no-self", "egolessness", "shadow", "individuation", "Jung",
+      "the unexamined life", "the cave", "anamnesis", "phronesis",
+      "akrasia", "eudaimonia", "ataraxia", "apatheia", "Stoa Poikile",
+      "the Lyceum", "the Academy", "ancient Athens", "Roman Empire",
+      "letters", "Meditations", "Discourses", "Enchiridion",
+      "On the Shortness of Life", "Letters to Lucilius",
+      "Tao Te Ching chapter 11", "Dhammapada", "the Analects",
+      "rational thought", "passion", "the human condition", "freedom",
+      "responsibility", "authenticity"
     ]
   },
 

@@ -31,22 +31,53 @@
   "vocabulary": {
     "mood": [
       "reverent", "tender", "grounded", "intimate", "hopeful", "still",
-      "humble", "trusting", "merciful", "watchful"
+      "humble", "trusting", "merciful", "watchful", "devout", "contemplative",
+      "patient", "sincere", "calm", "quiet", "anchored", "prayerful",
+      "grateful", "awe-struck", "yielded", "earnest", "compassionate",
+      "steady", "soft-spoken", "settled", "expectant", "wholehearted",
+      "consoled", "fortified"
     ],
     "theme": [
       "trust", "surrender", "forgiveness", "gratitude", "patience",
       "courage", "renewal", "compassion", "rest", "presence", "hope",
-      "protection", "healing", "faith"
+      "protection", "healing", "faith", "peace", "mercy", "humility",
+      "grace", "contentment", "perseverance", "devotion", "repentance",
+      "blessing", "awe", "lament", "joy", "simplicity", "communion",
+      "longing", "dependency", "providence", "obedience", "submission",
+      "stewardship", "thanksgiving", "intercession", "stillness",
+      "endurance", "redemption", "deliverance"
     ],
     "genre": [
       "prayer", "devotional", "intercession", "blessing", "thanksgiving",
-      "petition", "meditation"
+      "petition", "meditation", "lament", "supplication", "confession",
+      "praise", "consecration"
     ],
     "keyword": [
-      "Lord", "Father", "Christ", "Spirit", "grace", "mercy",
-      "stillness", "morning", "evening", "anxiety", "burden",
-      "healing", "family", "marriage", "work", "rest", "wisdom",
-      "guidance", "forgiveness", "gratitude"
+      "Lord", "Father", "Christ", "Spirit", "Shepherd", "Comforter",
+      "Healer", "Provider", "Redeemer", "Savior", "Most High", "Almighty",
+      "Creator", "Light", "Refuge", "Rock", "Vine", "Word",
+      "grace", "mercy", "stillness", "morning", "evening", "midnight",
+      "dawn", "dusk", "Sabbath", "anxiety", "fear", "worry", "doubt",
+      "weariness", "loneliness", "grief", "anger", "shame", "regret",
+      "peace", "joy", "hope", "courage", "longing", "gratitude",
+      "contentment", "burden", "healing", "family", "marriage",
+      "parenting", "work", "school", "sickness", "finances",
+      "addiction", "friendship", "conflict", "decision", "transition",
+      "loss", "illness", "surgery", "exam", "interview", "moving",
+      "retirement", "deployment", "anniversary", "birthday", "weekend",
+      "Sunday", "Advent", "Christmas", "Lent", "Easter", "Pentecost",
+      "faith", "love", "patience", "kindness", "goodness", "faithfulness",
+      "gentleness", "self-control", "humility", "generosity",
+      "forgiveness", "perseverance", "psalm", "gospel", "parable",
+      "beatitude", "covenant", "prophet", "apostle", "disciple",
+      "sermon", "miracle", "blessing", "child", "parent", "spouse",
+      "friend", "neighbor", "leader", "the sick", "the lonely",
+      "the grieving", "the weary", "the traveling", "soldier",
+      "doctor", "teacher", "minister", "tired", "sleepless",
+      "restless", "broken", "willing", "surrendered", "listening",
+      "waiting", "church", "congregation", "communion", "baptism",
+      "fellowship", "ministry", "before bed", "before work",
+      "during commute", "in the storm", "after loss", "in waiting"
     ]
   },
 

@@ -23,20 +23,54 @@
   "vocabulary": {
     "mood": [
       "present", "slow", "spacious", "tender", "grounded", "patient",
-      "breath-paced", "non-judgmental"
+      "breath-paced", "non-judgmental", "quiet", "soft", "warm",
+      "matter-of-fact", "still", "settled", "embodied", "humane",
+      "compassionate", "unhurried", "kind", "gentle-but-direct",
+      "anchored", "open", "receptive", "attuned", "calm"
     ],
     "theme": [
       "presence", "breath", "acceptance", "letting go", "awareness",
-      "body", "stillness", "compassion", "non-striving", "noticing"
+      "body", "stillness", "compassion", "non-striving", "noticing",
+      "rest", "sleep", "anxiety", "stress", "overwhelm", "rumination",
+      "focus", "attention", "patience", "self-kindness", "boundaries",
+      "regulation", "co-regulation", "grounding", "intention", "ease",
+      "spaciousness", "release", "softening", "befriending-the-body",
+      "befriending-the-mind"
     ],
     "genre": [
       "mindfulness", "meditation", "breathwork", "body awareness",
-      "guided practice"
+      "guided practice", "yoga nidra", "loving-kindness practice",
+      "compassion meditation", "MBSR", "MBCT", "somatic practice",
+      "grounding practice"
     ],
     "keyword": [
-      "breath", "inhale", "exhale", "body scan", "5-4-3-2-1",
-      "box breath", "diaphragm", "present moment", "anchor",
-      "noticing", "letting go", "soften", "settle"
+      "breath", "inhale", "exhale", "in-breath", "out-breath",
+      "body scan", "5-4-3-2-1", "grounding", "five senses",
+      "box breath", "4-7-8 breath", "physiological sigh",
+      "alternate nostril", "diaphragmatic breath", "belly breath",
+      "ujjayi breath", "coherent breathing", "resonance breathing",
+      "diaphragm", "ribcage", "shoulders", "jaw", "tongue", "eyes",
+      "feet on the floor", "seat of the chair", "soles of the feet",
+      "palms", "back of the head", "crown", "throat", "chest",
+      "belly", "pelvis", "hips", "knees", "ankles", "spine",
+      "present moment", "this breath", "this sound", "this sensation",
+      "anchor", "noticing", "labelling", "naming", "letting go",
+      "softening", "releasing", "settling", "arriving", "landing",
+      "checking in", "tuning in", "befriending", "welcoming",
+      "the inner critic", "the wandering mind", "monkey mind",
+      "default mode", "automatic pilot", "stress response",
+      "rest-and-digest", "ventral vagal", "window of tolerance",
+      "interoception", "proprioception", "co-regulation",
+      "loving-kindness", "metta", "compassion", "self-compassion",
+      "tonglen", "RAIN", "STOP practice", "noting practice",
+      "open awareness", "focused attention", "walking meditation",
+      "eating meditation", "shower meditation", "morning practice",
+      "evening practice", "midday reset", "pre-sleep wind-down",
+      "anxiety reset", "panic ladder", "3-minute breathing space",
+      "yoga nidra", "savasana", "constructive rest", "legs-up-the-wall",
+      "child's pose", "the hum", "the buzz", "soft gaze",
+      "Jon Kabat-Zinn", "Tara Brach", "Pema Chödrön", "Thich Nhat Hanh",
+      "Sharon Salzberg"
     ]
   },
 
