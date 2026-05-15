@@ -24,6 +24,7 @@ import { generateMetadata } from '../generators/metadata.js'
 import { generateSubtitlesTranscribe } from '../generators/subtitles.js'
 import { generateYoutubeUpload } from '../generators/youtube-upload.js'
 import { generateYoutubePlaylistUpdate } from '../generators/youtube-playlist-update.js'
+import { normalizeBroll } from '../generators/broll-normalize.js'
 
 export function registerAllExecutors(): void {
   // Legacy `'script'` executor (the coupled generateEpisode) was removed
@@ -64,4 +65,8 @@ export function registerAllExecutors(): void {
   registerExecutor('subtitles_transcribe', generateSubtitlesTranscribe)
   registerExecutor('youtube_upload', generateYoutubeUpload)
   registerExecutor('youtube_playlist_update', generateYoutubePlaylistUpdate)
+  // v1.0.89+: B-Roll pipeline. Re-encodes one stock clip to 1080p at the
+  // pool's target fps (24 or 30) so Video Assembly can concat-demux for
+  // speed instead of running a per-frame filtergraph at render time.
+  registerExecutor('broll_normalize', normalizeBroll)
 }

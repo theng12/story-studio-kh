@@ -38,6 +38,7 @@ import { router as stylePreviewRouter } from './style-preview.js'
 import { router as imagePromptsEditRouter } from './image-prompts-edit.js'
 import { router as imageReferencesRouter } from './image-references.js'
 import { router as changelogRouter } from './changelog.js'
+import { router as brollPoolsRouter } from './broll-pools.js'
 
 export function mountRoutes(app: Express): void {
   app.use('/api', projectsRouter)
@@ -72,4 +73,5 @@ export function mountRoutes(app: Express): void {
   app.use('/api', imagePromptsEditRouter)
   app.use('/api', imageReferencesRouter)
   app.use('/api', changelogRouter)
+  app.use('/api', brollPoolsRouter)
 }
