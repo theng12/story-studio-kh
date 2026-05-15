@@ -22,6 +22,7 @@
 // additive inside .vue files.
 import { ref, computed, nextTick } from 'vue'
 import { useApi } from './useApi.js'
+import { useMachineLabel } from './useMachineLabel.js'
 // The Preset shape is defined on PresetPicker.vue, but we re-declare it
 // here so this module is type-resolvable outside Nuxt's `~/` alias (needed
 // by the test runner).
@@ -30,13 +31,29 @@ import { useApi } from './useApi.js'
 // it undefined and are treated as 'all'. New presets are tagged by
 // `usePresets({ presetType })` so the picker can filter per-section.
 //
+// `machine_label` (v1.0.93+) records the hostname of the device the preset
+// was saved on so the picker can filter by "this device" by default.
+// Legacy presets (saved before v1.0.93) leave it undefined and pass through
+// the filter unconditionally — they appear in both "this device" and
+// "all devices" views until the user re-saves them, at which point they
+// pick up the current device's label.
+//
 // Future types (art-style, prompt-style, etc.) slot in via this union
 // without schema changes; they share the `configKey` storage pattern.
 // (`script-style` was a 2026 experiment that lived in the Script Generator's
 // "Reference Styles" panel — removed in favour of the more general Format
 // system + FormatFromSampleWizard, which cover the same need at a better scope.)
 export type PresetType = 'script' | 'introduction' | 'art-style' | 'prompt-style' | 'all'
-export interface Preset { id: string; name: string; data: any; type?: PresetType }
+export interface Preset {
+  id: string
+  name: string
+  data: any
+  type?: PresetType
+  /** Hostname of the device this preset was saved on. Stamped automatically
+   *  on save in v1.0.93+. Missing on legacy presets — those pass through
+   *  the device filter so nothing disappears for existing users. */
+  machine_label?: string
+}
 
 export interface UsePresetsOptions<T> {
   slug: string
@@ -100,6 +117,14 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   const activeId = ref('')
   const excludeKeys = opts.excludeKeys ?? DEFAULT_EXCLUDE_KEYS
 
+  // v1.0.93+ — per-device preset filtering. `showAllDevices` defaults
+  // false so the picker only surfaces presets saved on THIS Mac. Toggle
+  // exposed so the page-level UI can render a "📍 This device" / "🌐 All
+  // devices" switch. `machineLabel` is module-cached across all usePresets
+  // instances (one HTTP call per session).
+  const { machineLabel } = useMachineLabel()
+  const showAllDevices = ref(false)
+
   const presetsKey = `${opts.configKey}_presets`
   // Active preset tracking is per-type so each section can remember its
   // own choice independently.
@@ -107,7 +132,10 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     ? `${opts.configKey}_last_preset_${opts.presetType}`
     : `${opts.configKey}_last_preset`
 
-  const presets = computed(() => {
+  // `presetsByType` — filtered by presetType only. Used for cross-device
+  // counters (so "🌐 All devices · M" shows the count across machines for
+  // THIS section's preset type, not the entire raw pool).
+  const presetsByType = computed(() => {
     if (!opts.presetType) return allPresets.value
     return allPresets.value.filter(p => {
       // Untyped presets are treated as 'all' — they appear in every section
@@ -115,6 +143,49 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
       const t = p.type || 'all'
       return t === opts.presetType || t === 'all'
     })
+  })
+
+  const presets = computed(() => {
+    // Always filter by presetType first (existing behaviour preserved).
+    const typed = presetsByType.value
+    // Until the machine-label fetch lands, show everything — falling
+    // through to "no presets visible" during the first ~50ms would be a
+    // worse experience than showing one extra second of cross-device
+    // entries. The label is cached for the rest of the session.
+    if (showAllDevices.value || !machineLabel.value) return typed
+    return typed.filter(p =>
+      // Legacy passthrough: undefined machine_label means "saved before
+      // v1.0.93" — show it everywhere so the user can re-save and stamp
+      // it with the current device.
+      !p.machine_label || p.machine_label === machineLabel.value,
+    )
+  })
+
+  /** Count of presets saved on OTHER devices that match this section's
+   *  presetType. Used by the picker's "🌐 All devices" toggle label. */
+  const crossDeviceCount = computed(() => {
+    if (!machineLabel.value) return 0
+    return presetsByType.value.filter(p =>
+      p.machine_label && p.machine_label !== machineLabel.value,
+    ).length
+  })
+
+  /** True when the currently-active preset was saved on a different device.
+   *  Drives the yellow "saved on <other-mac> — paths may not exist" banner
+   *  on the picker so the user can't miss it. */
+  const activePresetIsCrossDevice = computed(() => {
+    if (!activeId.value || !machineLabel.value) return false
+    const p = allPresets.value.find(x => x.id === activeId.value)
+    return !!(p?.machine_label && p.machine_label !== machineLabel.value)
+  })
+
+  /** Machine label of the active preset, or '' when no preset is active /
+   *  the preset is legacy (no label). Surfaces the device name in the
+   *  cross-device banner so the user knows which Mac the paths came from. */
+  const activePresetMachineLabel = computed(() => {
+    if (!activeId.value) return ''
+    const p = allPresets.value.find(x => x.id === activeId.value)
+    return p?.machine_label || ''
   })
 
   // Wrap the user's snapshot to strip excluded keys — prevents new presets
@@ -163,6 +234,13 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
       name,
       data: cleanSnapshot(),
       ...(opts.presetType ? { type: opts.presetType } : {}),
+      // v1.0.93+ — stamp the current device on every fresh save. Empty
+      // string means the label fetch hasn't landed yet (rare; only the
+      // first ~50ms of the session) — in that case we omit the field
+      // entirely so the preset is treated as legacy and stays visible
+      // across devices until it's re-saved. Better than stamping a
+      // wrong / partial label.
+      ...(machineLabel.value ? { machine_label: machineLabel.value } : {}),
     }
     // Assign by replacement (not push-mutate) so native <select> elements
     // observing `presets` re-render their options list BEFORE the new
@@ -184,6 +262,12 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     // If overwriting an untyped legacy preset from a typed instance, also
     // tag it so it stops appearing in other sections.
     if (opts.presetType && !p.type) p.type = opts.presetType
+    // v1.0.93+ — overwriting also restamps the device label so a preset
+    // brought over from another machine + edited on this one becomes
+    // "owned" by this machine. The user explicitly chose to save the
+    // current state, so it's correct to attribute it to the current
+    // device. Legacy presets gain a machine_label this way too.
+    if (machineLabel.value) p.machine_label = machineLabel.value
     await persist()
     return p
   }
@@ -206,5 +290,13 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     presets, activeId,
     load, persist,
     applyActive, saveAs, overwrite, remove, setActive,
+    // v1.0.93+ device-awareness surface. Pages pass these straight through
+    // to PresetPicker (or render their own toggle); the composable owns
+    // the filtering logic so every usePresets instance behaves identically.
+    showAllDevices,
+    machineLabel,
+    crossDeviceCount,
+    activePresetIsCrossDevice,
+    activePresetMachineLabel,
   }
 }

@@ -16,10 +16,58 @@
       :generate-status="generating ? `Rendering video for ${selectedEpisode?.title || episodeId}…${activeJobProgress > 0 ? ` (${activeJobProgress}%)` : ''}` : ''"
       @generate="generateVideo"
       @episode-selected="onEpisodeSelected"
-      @preset-applied="success('Bundle applied — all 5 steps updated')"
-      @preset-saved="success('Bundle saved')"
+      @preset-applied="onBundleApplied"
+      @preset-saved="onBundleSaved"
       @preset-deleted="success('Bundle deleted')"
     />
+
+    <!-- v1.0.93+ Cross-device + apply-time path-check banner for the bundle.
+         Surfaces files referenced by the bundle that don't exist on this
+         Mac so the user can reselect before hitting Generate. Cross-device
+         heads-up shows separately because some bundles are valid across
+         machines (no path fields) and the device chip is still useful
+         context. -->
+    <div
+      v-if="bundleCrossDeviceWarning || bundleInvalidPaths.length > 0"
+      class="card mt-2 preset-path-check"
+      :class="{ 'is-critical': bundleInvalidPaths.length > 0 }"
+    >
+      <div v-if="bundleCrossDeviceWarning" class="path-check-banner-cross-device">
+        <span aria-hidden="true">⚠</span>
+        <span>
+          This bundle was saved on
+          <strong>{{ videoBundlePresets.activePresetMachineLabel.value || 'another Mac' }}</strong>.
+          File paths inside it may point at assets that don't exist on this device.
+        </span>
+      </div>
+      <div v-if="bundleInvalidPaths.length > 0" class="path-check-invalid-block">
+        <div class="path-check-title">
+          <span aria-hidden="true">📂</span>
+          {{ bundleInvalidPaths.length }} linked
+          {{ bundleInvalidPaths.length === 1 ? 'file is' : 'files are' }}
+          missing on this Mac
+        </div>
+        <div class="path-check-hint text-muted">
+          Use <strong>Pick replacement</strong> to choose a local file, or open the relevant
+          step below and clear the field to disable the reference.
+        </div>
+        <ul class="path-check-list">
+          <li
+            v-for="(row, i) in bundleInvalidPaths"
+            :key="`${row.key}-${row.index}-${i}`"
+            class="path-check-row"
+          >
+            <span class="path-check-field">{{ bundlePathFieldLabel(row.key) }}</span>
+            <code class="path-check-value" :title="row.value">{{ shortenBundlePath(row.value) }}</code>
+            <span class="path-check-reason text-muted">{{ row.reason }}</span>
+            <button
+              class="btn btn-sm btn-secondary"
+              @click="repickBundlePath(row)"
+            >Pick replacement…</button>
+          </li>
+        </ul>
+      </div>
+    </div>
 
     <p class="text-muted mt-1 mb-2">
       Assemble scene images (or AI clips), narration, and music into a finished video via FFmpeg.
@@ -3748,6 +3796,140 @@ const videoBundlePresets = usePresets({
   },
 })
 
+// --------------- v1.0.93+ Bundle path-check ---------------
+//
+// The bundle preset aggregates intro/timeline/effects/subtitles/export
+// data, half of which contains absolute file paths. When the user moves
+// between Macs via iCloud and applies a bundle saved on another machine,
+// those paths usually break. This banner surfaces the broken paths
+// post-apply and lets the user reselect each one inline.
+//
+// Path manifest walks the current form state (which is what `applyActive`
+// just populated) — same approach as audio-merge.vue. No coupling to
+// the preset's internal `fallback.*` shape.
+
+const BUNDLE_PATH_FIELDS: Array<{ key: string }> = [
+  { key: 'intro.video_path' },
+  { key: 'outro.video_path' },
+  { key: 'timeline_clips[].video_path' },
+  { key: 'timeline_clips[].image_path' },
+  { key: 'title_image.image_path' },
+  { key: 'logo.image_path' },
+  { key: 'chroma_key.source_path' },
+  { key: 'compilation_layout.background_plate.source_path' },
+]
+
+const bundleInvalidPaths = ref<Array<{ key: string; index: number | null; value: string; reason: string }>>([])
+const bundleCrossDeviceWarning = computed(() => videoBundlePresets.activePresetIsCrossDevice.value)
+
+const { validate: validateBundlePaths } = usePresetPathValidation()
+
+/** Reproduce the path-bearing slice of the form for the validator. We
+ *  walk a thin tree rather than passing the full reactive form because
+ *  the validator only needs strings, and Vue's reactivity proxies don't
+ *  serialise as cleanly through the walker. */
+function currentBundleSnapshotForValidation() {
+  return {
+    intro: { video_path: intro.video_path },
+    outro: { video_path: outro.video_path },
+    timeline_clips: timelineClips.value.map((c: any) => ({
+      video_path: c.video_path,
+      image_path: c.image_path,
+    })),
+    title_image: { image_path: titleImage.image_path },
+    logo: { image_path: logo.image_path },
+    chroma_key: { source_path: chromaKey.source_path },
+    compilation_layout: { background_plate: { source_path: compilationLayout.backgroundPlate.source_path } },
+  }
+}
+
+async function runBundlePathCheck() {
+  try {
+    const result = await validateBundlePaths(
+      currentBundleSnapshotForValidation(),
+      BUNDLE_PATH_FIELDS,
+    )
+    bundleInvalidPaths.value = result.invalid
+  } catch {
+    /* tolerant of transient validation failures */
+  }
+}
+
+function onBundleApplied() {
+  success('Bundle applied — all 5 steps updated')
+  void runBundlePathCheck()
+}
+function onBundleSaved() {
+  success('Bundle saved')
+  // After save the snapshot just captured whatever the form currently
+  // has — re-check so the banner reflects the saved state, not the state
+  // before the user fixed any paths via the row buttons.
+  void runBundlePathCheck()
+}
+
+function bundlePathFieldLabel(key: string): string {
+  switch (key) {
+    case 'intro.video_path':                                    return 'Intro video'
+    case 'outro.video_path':                                    return 'Outro video'
+    case 'timeline_clips[].video_path':                         return 'Timeline clip (video)'
+    case 'timeline_clips[].image_path':                         return 'Timeline clip (image)'
+    case 'title_image.image_path':                              return 'Title image'
+    case 'logo.image_path':                                     return 'Logo'
+    case 'chroma_key.source_path':                              return 'Chroma key source'
+    case 'compilation_layout.background_plate.source_path':     return 'Background plate'
+    default:                                                     return key
+  }
+}
+
+function shortenBundlePath(p: string): string {
+  if (p.length <= 64) return p
+  const parts = p.split('/')
+  if (parts.length <= 3) return p
+  return `${parts.slice(0, 2).join('/')}/…/${parts.slice(-2).join('/')}`
+}
+
+/** Open the OS file picker for this row's field, then write the result
+ *  into the matching form slot. Re-validates so the banner updates
+ *  without waiting for another preset apply. */
+async function repickBundlePath(row: { key: string; index: number | null }) {
+  const isImage = row.key.endsWith('image_path') || row.key === 'logo.image_path' || row.key === 'title_image.image_path'
+  const accept = isImage ? ['image/*'] : ['video/*']
+  let newPath = ''
+  try {
+    const r = await post<{ files: Array<{ path: string }> }>(`/system/pick-files`, {
+      multi: false,
+      accept,
+    })
+    newPath = r?.files?.[0]?.path || ''
+  } catch (e: any) {
+    showError(`Pick failed — ${e?.data?.detail || e?.message || 'unknown error'}`)
+    return
+  }
+  if (!newPath) return
+
+  switch (row.key) {
+    case 'intro.video_path':         intro.video_path = newPath; break
+    case 'outro.video_path':         outro.video_path = newPath; break
+    case 'title_image.image_path':   titleImage.image_path = newPath; break
+    case 'logo.image_path':          logo.image_path = newPath; break
+    case 'chroma_key.source_path':   chromaKey.source_path = newPath; break
+    case 'compilation_layout.background_plate.source_path':
+      compilationLayout.backgroundPlate.source_path = newPath
+      break
+    case 'timeline_clips[].video_path': {
+      const i = row.index ?? -1
+      if (i >= 0 && i < timelineClips.value.length) (timelineClips.value[i] as any).video_path = newPath
+      break
+    }
+    case 'timeline_clips[].image_path': {
+      const i = row.index ?? -1
+      if (i >= 0 && i < timelineClips.value.length) (timelineClips.value[i] as any).image_path = newPath
+      break
+    }
+  }
+  await runBundlePathCheck()
+}
+
 // --------------- Computed ---------------
 const totalAudioDuration = computed(() => {
   // Merged audio produced by the upstream Audio Assembly step is the
@@ -4584,6 +4766,10 @@ onMounted(async () => {
     exportPresets.load(),
   ])
   await videoBundlePresets.load()
+  // v1.0.93+ — `videoBundlePresets.load()` auto-applies the last-active
+  // bundle. Kick off the path check so any broken links surface on first
+  // paint after the device-switch case (iCloud-synced project, fresh Mac).
+  void runBundlePathCheck()
   window.addEventListener('keydown', handleWizardShortcut)
 })
 
@@ -5063,4 +5249,70 @@ onUnmounted(() => {
 
 /* Input small */
 .input-sm { padding: 4px 6px; font-size: 12px; }
+
+/* v1.0.93+ Apply-time bundle path-check banner. Same visual language as
+   the audio-merge variant (yellow heads-up + red critical state) so the
+   user reads them the same way across surfaces. */
+.preset-path-check {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(240, 198, 116, 0.05);
+  border-left: 3px solid rgba(240, 198, 116, 0.55);
+}
+.preset-path-check.is-critical {
+  background: rgba(226, 92, 92, 0.06);
+  border-left-color: var(--error, #e25c5c);
+}
+.path-check-banner-cross-device {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.path-check-banner-cross-device > span:first-child {
+  color: rgba(240, 198, 116, 0.95);
+  font-weight: 600;
+}
+.path-check-invalid-block { display: flex; flex-direction: column; gap: 6px; }
+.path-check-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--error, #e25c5c);
+}
+.path-check-hint { font-size: 11px; line-height: 1.5; }
+.path-check-list {
+  list-style: none;
+  margin: 4px 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.path-check-row {
+  display: grid;
+  grid-template-columns: 160px 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 12px;
+}
+.path-check-field { font-weight: 500; color: var(--text-primary); }
+.path-check-value {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.path-check-reason { font-size: 11px; color: var(--error, #e25c5c); white-space: nowrap; }
 </style>

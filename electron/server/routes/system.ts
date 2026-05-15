@@ -29,6 +29,7 @@ import {
 import { resolveAssetPath, toPortablePath, isPortablePath } from '../services/path-resolver.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { isServerMode } from '../lib/server-mode.js'
+import { getMachineLabel } from '../services/manifest.js'
 
 const require = createRequire(import.meta.url)
 
@@ -395,6 +396,20 @@ router.post('/system/reveal-folder', async (req, res) => {
     console.warn('[system/reveal-folder] threw:', e?.message || e)
     res.status(500).json(humanizeBackendError(e, 'Reveal failed'))
   }
+})
+
+// ── Machine identity ───────────────────────────────────────────────────────
+//
+// v1.0.93+ — per-device preset filtering needs a stable handle for "which Mac
+// is this?". We piggy-back on the same `getMachineLabel()` helper that's
+// already stamped on portable project manifests (manifest.ts:129), so the
+// label the user sees in the preset picker matches the one they see in
+// "last edited on <machine>" elsewhere. Just `os.hostname()` under the hood
+// — no fingerprinting, no UUID, no tracking. If hostname resolution fails
+// we return 'unknown' (same fallback the manifest path uses).
+
+router.get('/system/machine-label', (_req, res) => {
+  res.json({ machine_label: getMachineLabel() })
 })
 
 // ── Queue pause (network-aware) ────────────────────────────────────────────

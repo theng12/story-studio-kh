@@ -16,7 +16,7 @@
       :generate-status="generating ? `Merging audio for ${selectedEpisode?.title || episodeId}…` : ''"
       @generate="onGenerateClick"
       @episode-selected="onEpisodeSelected"
-      @preset-applied="success('Preset applied')"
+      @preset-applied="onPresetApplied"
       @preset-saved="onPresetSaved"
       @preset-deleted="success('Preset deleted')"
     />
@@ -45,6 +45,56 @@
           One-click installer in Settings · no admin needed
         </span>
       </template>
+    </div>
+
+    <!-- v1.0.93+ cross-device + apply-time path-check banner.
+         Surfaces two related conditions:
+           - "preset is from another Mac" — yellow heads-up
+           - "one or more linked files don't exist on this Mac" — red
+             actionable list with Pick-replacement buttons that open the
+             same Browse handlers the form already has.
+         Cleared automatically when every invalid path has been replaced
+         (or when the user picks a different preset). -->
+    <div
+      v-if="presetCrossDeviceWarning || presetInvalidPaths.length > 0"
+      class="card mt-2 preset-path-check"
+      :class="{ 'is-critical': presetInvalidPaths.length > 0 }"
+    >
+      <div v-if="presetCrossDeviceWarning" class="path-check-banner-cross-device">
+        <span aria-hidden="true">⚠</span>
+        <span>
+          This preset was saved on
+          <strong>{{ mergePresets.activePresetMachineLabel.value || 'another Mac' }}</strong>.
+          File paths inside it may point at assets that don't exist on this device.
+        </span>
+      </div>
+      <div v-if="presetInvalidPaths.length > 0" class="path-check-invalid-block">
+        <div class="path-check-title">
+          <span aria-hidden="true">📂</span>
+          {{ presetInvalidPaths.length }} linked
+          {{ presetInvalidPaths.length === 1 ? 'file is' : 'files are' }}
+          missing on this Mac
+        </div>
+        <div class="path-check-hint text-muted">
+          Use <strong>Pick replacement</strong> to choose a local file for each, or open the
+          relevant section below to remove/disable the entry.
+        </div>
+        <ul class="path-check-list">
+          <li
+            v-for="(row, i) in presetInvalidPaths"
+            :key="`${row.key}-${row.index}-${i}`"
+            class="path-check-row"
+          >
+            <span class="path-check-field">{{ pathFieldLabel(row.key) }}</span>
+            <code class="path-check-value" :title="row.value">{{ shortenPath(row.value) }}</code>
+            <span class="path-check-reason text-muted">{{ row.reason }}</span>
+            <button
+              class="btn btn-sm btn-secondary"
+              @click="repickInvalidPath(row)"
+            >Pick replacement…</button>
+          </li>
+        </ul>
+      </div>
     </div>
 
     <div v-if="scanning" class="card mt-2 scanning-status">
@@ -890,6 +940,129 @@ function onPresetSaved() {
   const activeId = mergePresets.activeId.value
   const p = mergePresets.presets.value.find(x => x.id === activeId)
   success(p ? `Saved: ${p.name} (now active)` : 'Preset saved')
+  // The form state has just been re-snapshotted; re-validate to clear any
+  // banner rows for paths the user fixed via the form's own Browse buttons
+  // (i.e. paths repaired outside the Pick-replacement flow).
+  void runPresetPathCheck()
+}
+
+// ── v1.0.93+ Cross-device + path-check wiring ────────────────────────────
+//
+// Every path field we want to validate at apply-time. Kept declarative so
+// the validator can walk it; changing the merge form's path fields means
+// adding a row here, not threading new state through.
+const AUDIO_MERGE_PATH_FIELDS: Array<{ key: string }> = [
+  { key: 'intro.file' },
+  { key: 'music.files[]' },
+  { key: 'background_noise.custom_file' },
+  { key: 'ambient_tracks[].source_path' },
+]
+
+const presetInvalidPaths = ref<Array<{ key: string; index: number | null; value: string; reason: string }>>([])
+const presetCrossDeviceWarning = computed(() => mergePresets.activePresetIsCrossDevice.value)
+
+const { validate: validatePresetPaths } = usePresetPathValidation()
+
+/** Build the current state object in the exact shape the snapshot would
+ *  capture, so the validator walks the SAME tree as what was saved. We
+ *  don't call `cleanSnapshot` itself here because that runs through the
+ *  excludeKeys stripping logic; the path fields aren't affected by that,
+ *  but reproducing the snapshot shape from form state is the contract. */
+function currentMergeSnapshotForValidation() {
+  return {
+    intro: { file: intro.file },
+    music: { files: [...music.files] },
+    background_noise: { custom_file: backgroundNoise.custom_file },
+    ambient_tracks: ambientTracks.map(t => ({ source_path: t.source_path })),
+  }
+}
+
+async function runPresetPathCheck() {
+  try {
+    const result = await validatePresetPaths(
+      currentMergeSnapshotForValidation(),
+      AUDIO_MERGE_PATH_FIELDS,
+    )
+    presetInvalidPaths.value = result.invalid
+  } catch {
+    // Validation is best-effort — if the round-trip fails (e.g. backend
+    // restarting), leave the previous banner state in place rather than
+    // flashing it on/off.
+  }
+}
+
+/** Run after every Apply. The `applyActive()` synchronous emit happens
+ *  inside TopActionBar; the page only sees the @preset-applied event, so
+ *  the form state IS already updated when this fires. */
+function onPresetApplied() {
+  success('Preset applied')
+  void runPresetPathCheck()
+}
+
+/** Friendly field label for the banner row. Keeps the user-facing string
+ *  centralised so future renames don't drift between the form section
+ *  headers and the banner copy. */
+function pathFieldLabel(key: string): string {
+  switch (key) {
+    case 'intro.file':                       return 'Intro audio'
+    case 'music.files[]':                    return 'Music bed'
+    case 'background_noise.custom_file':     return 'Custom ambience'
+    case 'ambient_tracks[].source_path':     return 'Ambient track'
+    default:                                  return key
+  }
+}
+
+/** Truncate long absolute paths for the banner (the full path lives in
+ *  the title attribute for hover). Keeps the row scannable on a 1280px
+ *  layout where the full /Users/.../Mobile Documents/... eats every
+ *  pixel. */
+function shortenPath(p: string): string {
+  if (p.length <= 64) return p
+  const parts = p.split('/')
+  if (parts.length <= 3) return p
+  return `${parts.slice(0, 2).join('/')}/…/${parts.slice(-2).join('/')}`
+}
+
+/** Dispatch the right Browse-style handler for the given invalid row,
+ *  letting the user pick a replacement file from this Mac. After the
+ *  pick lands the form state updates, then we re-run the validator
+ *  so the banner row clears immediately. */
+async function repickInvalidPath(row: { key: string; index: number | null; value: string }) {
+  switch (row.key) {
+    case 'intro.file':
+      await browseIntroFile()
+      break
+    case 'music.files[]': {
+      // music.files is an array — Browse appends, then we remove the OLD
+      // (now-broken) entry so the user sees a swap, not an accumulation.
+      const old = row.value
+      await browseMusicFile()
+      const idx = music.files.indexOf(old)
+      if (idx >= 0) music.files.splice(idx, 1)
+      break
+    }
+    case 'background_noise.custom_file':
+      await browseNoiseFile()
+      break
+    case 'ambient_tracks[].source_path': {
+      // Ambient tracks pre-allocate slots — pick a replacement for the
+      // specific index that's broken, not "add another track".
+      const i = row.index ?? -1
+      if (i < 0 || i >= ambientTracks.length) return
+      try {
+        const r = await post<{ files: Array<{ path: string }> }>(`/system/pick-files`, {
+          multi: false,
+          accept: ['audio/*'],
+        })
+        const newPath = r?.files?.[0]?.path
+        if (newPath) ambientTracks[i].source_path = newPath
+      } catch (e: any) {
+        showError(`Pick failed — ${e?.data?.detail || e?.message || 'unknown error'}`)
+      }
+      break
+    }
+  }
+  await runPresetPathCheck()
 }
 
 async function checkFfmpeg() {
@@ -1067,6 +1240,12 @@ onMounted(async () => {
   checkFfmpeg()
   await applyMergeFormatDefaultsIfNoPreset()
   await mergePresets.load()
+  // v1.0.93+ — `mergePresets.load()` auto-applies the last-active preset
+  // when there is one. Run the path-check after that so the banner is
+  // already visible on first paint if any files from the saved preset
+  // don't exist on this Mac. Without this, the user would have to click
+  // Apply manually to surface stale paths after switching devices.
+  void runPresetPathCheck()
 })
 
 onUnmounted(() => {
@@ -1182,4 +1361,88 @@ onUnmounted(() => {
 
 .scanning-status { display: flex; flex-direction: column; gap: 4px; }
 .slider { width: 100%; }
+
+/* v1.0.93+ Apply-time path-check banner.
+   Two visual states:
+     - cross-device only (preset from another Mac, paths happen to be valid)
+       → yellow heads-up, no invalid list
+     - one+ invalid paths → red border + actionable list of Pick-replacement
+       rows. Critical state takes priority visually because the user can't
+       render the project without fixing it. */
+.preset-path-check {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(240, 198, 116, 0.05);
+  border-left: 3px solid rgba(240, 198, 116, 0.55);
+}
+.preset-path-check.is-critical {
+  background: rgba(226, 92, 92, 0.06);
+  border-left-color: var(--error, #e25c5c);
+}
+.path-check-banner-cross-device {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.path-check-banner-cross-device > span:first-child {
+  color: rgba(240, 198, 116, 0.95);
+  font-weight: 600;
+}
+.path-check-invalid-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.path-check-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--error, #e25c5c);
+}
+.path-check-hint {
+  font-size: 11px;
+  line-height: 1.5;
+}
+.path-check-list {
+  list-style: none;
+  margin: 4px 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.path-check-row {
+  display: grid;
+  grid-template-columns: 130px 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 12px;
+}
+.path-check-field {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.path-check-value {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.path-check-reason {
+  font-size: 11px;
+  color: var(--error, #e25c5c);
+  white-space: nowrap;
+}
 </style>

@@ -26,7 +26,7 @@
         >
           <option value="">— no preset —</option>
           <option v-for="p in presets.presets.value" :key="p.id" :value="p.id">
-            {{ p.name }}
+            {{ formatPresetOption(p) }}
           </option>
         </select>
         <template #content>
@@ -175,13 +175,21 @@ const props = withDefaults(defineProps<{
   projectSlug: string
   // Preset hooks (optional — some pages might not have presets)
   presets?: {
-    presets: { value: Array<{ id: string; name: string; data: any }> }
+    presets: { value: Array<{ id: string; name: string; data: any; machine_label?: string }> }
     activeId: { value: string }
     setActive: (id: string) => Promise<void>
     applyActive: () => any
     overwrite: () => Promise<any>
     saveAs: (name: string) => Promise<any>
     remove: () => Promise<any>
+    // v1.0.93+ device awareness (optional — older pages that haven't
+    // adopted device-aware usePresets pass nothing here and the toolbar
+    // skips the device-toggle menu item).
+    showAllDevices?: { value: boolean }
+    machineLabel?: { value: string }
+    crossDeviceCount?: { value: number }
+    activePresetIsCrossDevice?: { value: boolean }
+    activePresetMachineLabel?: { value: string }
   }
   // Episode selector
   episodeId?: string
@@ -283,10 +291,38 @@ const generateStatusSentence = computed(() => {
   return 'Idle — ready when you are.'
 })
 
+// v1.0.93+ — device-aware label rendering. In "all devices" mode every
+// option gets a `· ⌂ <machine>` suffix so the user can tell which Mac
+// each preset is from. Legacy presets (no machine_label) are tagged
+// `· (legacy)` so it's clear they predate the device-tagging system.
+function formatPresetOption(p: { name: string; machine_label?: string }): string {
+  if (!props.presets?.showAllDevices) return p.name
+  if (props.presets.showAllDevices.value) {
+    return p.machine_label ? `${p.name} · ⌂ ${p.machine_label}` : `${p.name} · (legacy)`
+  }
+  // In "this device" mode, the legacy chip is still useful — those
+  // entries show through the filter because they have no machine_label,
+  // and the user should be able to tell them apart from properly-tagged
+  // ones (they could be from any device).
+  if (!p.machine_label && props.presets.machineLabel?.value) {
+    return `${p.name} · (legacy)`
+  }
+  return p.name
+}
+
+// Whether the device-toggle entry should appear in the overflow menu.
+// Only show it when the composable opted in to device awareness AND there's
+// actually something to toggle (≥1 cross-device preset). Otherwise the
+// entry is dead weight in the menu.
+const showDeviceToggleItem = computed(() => {
+  if (!props.presets?.showAllDevices) return false
+  return (props.presets.crossDeviceCount?.value ?? 0) > 0
+})
+
 // ── Preset overflow menu items ──────────────────────────────────────────
 const presetMenuItems = computed<OverflowItem[]>(() => {
   const hasActive = !!props.presets?.activeId.value
-  return [
+  const items: OverflowItem[] = [
     {
       label: 'Apply preset to this page',
       onClick: onApply,
@@ -312,6 +348,26 @@ const presetMenuItems = computed<OverflowItem[]>(() => {
       title: 'Remove the active preset from this project.',
     },
   ]
+  // Append the device-toggle item only when relevant. Sits at the bottom
+  // (after Delete) so it doesn't interrupt the primary workflow.
+  if (showDeviceToggleItem.value && props.presets?.showAllDevices) {
+    const allDevs = props.presets.showAllDevices.value
+    const others = props.presets.crossDeviceCount?.value ?? 0
+    items.push({
+      label: allDevs
+        ? `📍 Show only this device's presets`
+        : `🌐 Show all devices (+${others} from other Macs)`,
+      onClick: () => {
+        if (props.presets?.showAllDevices) {
+          props.presets.showAllDevices.value = !props.presets.showAllDevices.value
+        }
+      },
+      title: allDevs
+        ? 'Hide presets saved on other Macs.'
+        : `Reveal presets saved on other Macs. File paths inside cross-device presets may not exist on this Mac — the page will flag any broken paths after you apply.`,
+    })
+  }
+  return items
 })
 
 function onPresetSelect(id: string) {
