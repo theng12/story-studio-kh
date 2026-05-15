@@ -4,6 +4,74 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.93 — 2026-05-16
+
+**Ideas Generator: stop reverting to sleep-story on every navigation**
+
+A real, frustrating bug the user reported on the Abiding Faith prayer project. Four overlapping symptoms — form silently reverting to fantasy/sleep-story defaults on every tab switch, generated titles still flavoured like poetic nature content even with the Prayer niche set, saved ideas occasionally disappearing from the list, "project missing" flashes. Two independent read-only audits surfaced the root causes; this release fixes all four.
+
+- **Preset auto-apply no longer races project state on Ideas.** `usePresets()` gained an `autoApplyOnLoad?: boolean` option (defaults true for back-compat). The Ideas Generator passes `false` — presets populate the dropdown but the form stays driven by the project meta until you click **Apply**. No more silent overwriting of your project's niche every time you navigate back.
+- **One sequenced mount in `ideas.vue`** replaces five fire-and-forget `onMounted()` calls that used to race each other. Project state hydrates first; reference data + ideas list load in parallel after; presets load last (inert until applied).
+- **Hydration error banners** surface every failure mode with a specific recovery action (Retry / "Open Format settings →" / "Back to projects"). Replaces the three `catch { }` blocks that used to swallow network blips and leave the page in a half-loaded state. `loadIdeas()` only updates the local list when the backend actually returned an `ideas` array — a transient blip preserves your previously-loaded view instead of blanking it.
+
+**New "Effective channel state" card at the top of the Ideas Generator**
+
+A small three-row card showing exactly what's driving the next generation:
+
+```
+Format     B-Roll Narration                       [Change]
+Niche      prayer                                 [Change project niche]
+Title wrap "Daily Prayer | <title>"
+```
+
+Falling-back values (e.g. `Format: sleep-story · ⚠ falling back — project meta has no format_id`) get a yellow warning chip with a one-click jump to where each is edited. You catch state drift BEFORE spending an API call. Replaces guesswork ("why are my prayer ideas about mountains?") with visibility.
+
+**Niche now LEADS the LLM prompt, format supports**
+
+Previously the niche merge appended its audience hint after the format's and never touched the Ideas page's `systemPromptRole` / `guidanceText`. The LLM read format vocab first ("calm, dream-like imagery") and niche vocab as a late afterthought → compromise outputs like "Daily Prayer | The Piano Tuner's Evening Prayer". Now `applyNicheToFormat()`:
+
+- Prepends the niche's `scriptContext` to `idea.systemPromptRole` as a "NICHE CONTEXT — this is the dominant voice" block
+- Prepends the niche's voice cue to `idea.guidanceText`
+- Promotes the niche's `audienceHint` to the lead audience line (format audience trails in parens)
+
+Niche owns the voice. Format owns the structure. For a Prayer-niche project on B-Roll Narration format, titles now actually land as "Morning Prayer for Strength" / "A Prayer for Anxious Hearts" — modelled on the niche's 19 example topics that v1.0.92's exampleTopics fix already exposed but the prompt's main guidance block was still drowning out.
+
+**Per-device presets + apply-time path check on Audio Merge / Video Assembly**
+
+A separate cross-device fix: presets that contain absolute file paths (intro/outro videos, music beds, logos, chroma sources, ambient tracks) no longer leak across Macs without warning.
+
+- Every saved preset is now stamped with `machine_label` (hostname, same string the portable manifest already uses).
+- Picker filters to "this Mac" by default; one-click toggle reveals presets from other Macs with a `· ⌂ <hostname>` chip per option.
+- Legacy presets without a label pass through both views and are tagged `(legacy)` — re-save to claim them. No forced migration.
+- New `GET /api/system/machine-label` endpoint surfaces the hostname; new `useMachineLabel` composable caches it module-level so all `usePresets()` instances share one fetch.
+- New `usePresetPathValidation` composable round-trips every path field through the existing `/api/system/validate-path` endpoint and surfaces broken paths in an inline banner above the form with **Pick replacement** buttons per row. Audio Merge wires it to intro/music/ambience/noise picks; Video Assembly wires it to the bundle preset (intro/outro/title image/logo/chroma source/background plate/timeline clips).
+- Cross-device banner appears separately on the picker when the active preset is from another Mac, even if no paths are broken — informs you before Generate.
+
+**Niche promoted to its own Settings tab**
+
+The NichePicker was nested inside Settings → Format as a sub-section, with no anchor in the top-level tab list. Several users couldn't find it (the exact bug the user reported on this project). Promoted to its own **"Niche"** tab between Format and Standards. The Format tab now shows a "Niche moved →" pointer card with a one-click jump for anyone landing in the old spot.
+
+**Channel title prefix/suffix on Ideas Generator (synced with Metadata Generator)**
+
+The metadata page already had a channel-level title wrap (`broll_channel_title_prefix` / `broll_channel_title_suffix` on project config). v1.0.93 extends the same wrap to the Ideas Generator using the same config keys — one source of truth for "Morning Prayer:" across both the brainstorm and the final YouTube title. Edit in either surface, both stay in sync. Live preview line so you see the result before clicking Generate.
+
+**Niche `exampleTopics` now reach the LLM's example bar**
+
+A niche file's `exampleTopics` array (e.g. prayer.json ships with 19 entries like "Morning Prayer for Strength", "A Prayer for Anxious Hearts") used to live only in the picker preview UI — the LLM never saw them. Now `applyNicheToFormat()` synthesises full `exampleIdeas` rows from the niche's topics (title from niche + themes/mood from niche vocab + chapter count/length from format defaults) and replaces the format's example ideas for that generation. The LLM matches output style to the niche's bar instead of the format's two generic examples.
+
+**Backend debug-log line on every Ideas generation**
+
+One line per generation in the server log: `[ideas-gen] effective: format=X niche=Y examples=N prefix="..."`. Catches future regressions of the "why are my prayer ideas about mountains?" class without parsing the full prompt.
+
+**Audit pass (per the polish-quality-bar memory)**
+- `npx tsc -p electron --noEmit`: 0 errors.
+- `cd frontend && npx nuxt build` (Vite production build): clean.
+- Backend `GET /api/system/machine-label`: returns current hostname.
+- Niche merge: prayer.json's 19 `exampleTopics` now reach the LLM as `exampleIdeas` with synthesised theme + mood + chapter count.
+- Manual smoke against a real prayer-niche project: titles land in the expected `Daily Prayer | Morning Prayer for X` shape after the changes.
+
+---
+
 ## v1.0.92 — 2026-05-15
 
 **Search inside every Episode Selector**
