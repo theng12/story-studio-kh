@@ -1723,20 +1723,53 @@ const customMoods = ref<string[]>([])
 const customThemes = ref<string[]>([])
 const customKeywords = ref<string[]>([])
 
+// v1.0.97+ — Niche-merged vocab pools.
+//
+// The backend's applyNicheToFormat() merges niche vocab INTO the
+// effective format for the LLM prompt. The frontend's chip-input
+// suggestions + Randomize button used to read ONLY format.idea.* —
+// so all 100+ niche-specific keywords (prayer's "Lord", "Sabbath",
+// "Prayer Before Bed", etc.) were invisible in the UI, even though
+// they reached the LLM. Fix: merge format + niche pools client-side
+// the same way the backend does, so the chip input shows the full
+// union AND Randomize picks from the union.
+const { niches: allNichesList } = useNiches()
+const activeNiche = computed(() => {
+  const id = form.niche_id
+  if (!id) return null
+  return allNichesList.value?.find(n => n.id === id) || null
+})
+
 /**
- * Resolve a vocab pool. Returns the format's vocabulary when present,
- * otherwise the GENERIC_FALLBACK_* pool (format-neutral). Used by both
- * the dropdown options and the "From [Format]" / "Generic fallback"
- * label so the user can always see where suggestions come from.
+ * Resolve a vocab pool. Merges format + niche vocab when both have
+ * entries for this field; falls back to whichever has entries; final
+ * fallback is the GENERIC_FALLBACK_* pool (format-neutral). Dedupes
+ * so a word appearing in both pools only shows once.
  */
 function vocabFor(field: 'genre' | 'mood' | 'theme' | 'keyword'): readonly string[] {
   const fmt = activeFormat.value?.idea
+  const niche = activeNiche.value
+  const merged: string[] = []
   if (fmt) {
-    if (field === 'genre' && fmt.genreVocabulary?.length) return fmt.genreVocabulary
-    if (field === 'mood' && fmt.moodVocabulary?.length) return fmt.moodVocabulary
-    if (field === 'theme' && fmt.themeVocabulary?.length) return fmt.themeVocabulary
-    if (field === 'keyword' && fmt.keywordVocabulary?.length) return fmt.keywordVocabulary
+    const fmtPool =
+      field === 'genre'   ? fmt.genreVocabulary :
+      field === 'mood'    ? fmt.moodVocabulary :
+      field === 'theme'   ? fmt.themeVocabulary :
+      /* keyword */         fmt.keywordVocabulary
+    if (fmtPool?.length) merged.push(...fmtPool)
   }
+  if (niche?.vocabulary) {
+    const nichePool =
+      field === 'genre'   ? niche.vocabulary.genre :
+      field === 'mood'    ? niche.vocabulary.mood :
+      field === 'theme'   ? niche.vocabulary.theme :
+      /* keyword */         niche.vocabulary.keyword
+    if (nichePool?.length) merged.push(...nichePool)
+  }
+  if (merged.length > 0) {
+    return Array.from(new Set(merged))
+  }
+  // No format vocab AND no niche vocab → fall back to generic pool.
   switch (field) {
     case 'genre':   return GENERIC_FALLBACK_GENRES
     case 'mood':    return GENERIC_FALLBACK_MOODS
@@ -1745,7 +1778,7 @@ function vocabFor(field: 'genre' | 'mood' | 'theme' | 'keyword'): readonly strin
   }
 }
 
-/** True if this field's pool came from the active format (vs the generic fallback). */
+/** True if this field's pool got contributions from the active format. */
 function vocabFromFormat(field: 'genre' | 'mood' | 'theme' | 'keyword'): boolean {
   const fmt = activeFormat.value?.idea
   if (!fmt) return false
@@ -1756,17 +1789,47 @@ function vocabFromFormat(field: 'genre' | 'mood' | 'theme' | 'keyword'): boolean
   return false
 }
 
-/** Short label shown next to each field's heading: "Sleep Story" or "Generic". */
+/** True if this field's pool got contributions from the active niche. */
+function vocabFromNiche(field: 'genre' | 'mood' | 'theme' | 'keyword'): boolean {
+  const n = activeNiche.value?.vocabulary
+  if (!n) return false
+  if (field === 'genre')   return !!n.genre?.length
+  if (field === 'mood')    return !!n.mood?.length
+  if (field === 'theme')   return !!n.theme?.length
+  if (field === 'keyword') return !!n.keyword?.length
+  return false
+}
+
+/** Short label shown next to each field's heading. Now reflects BOTH
+ *  format + niche when both contribute so the user can see at a glance
+ *  why a particular keyword pool is wider than the format alone would
+ *  imply. Examples:
+ *    "From Sleep Story"
+ *    "From B-Roll Narration + Prayer"
+ *    "Generic" */
 function vocabSourceLabel(field: 'genre' | 'mood' | 'theme' | 'keyword'): string {
-  return vocabFromFormat(field) ? formatDisplayName.value : 'Generic'
+  const fromFmt = vocabFromFormat(field)
+  const fromNiche = vocabFromNiche(field)
+  if (fromFmt && fromNiche) return `${formatDisplayName.value} + ${activeNiche.value!.name}`
+  if (fromFmt) return formatDisplayName.value
+  if (fromNiche) return activeNiche.value!.name
+  return 'Generic'
 }
 
 /** Tooltip explaining where the pool comes from. */
 function vocabSourceTooltip(field: 'genre' | 'mood' | 'theme' | 'keyword'): string {
-  if (vocabFromFormat(field)) {
-    return `These suggestions are from the ${formatDisplayName.value} format. Switch format to see different options.`
+  const fromFmt = vocabFromFormat(field)
+  const fromNiche = vocabFromNiche(field)
+  if (fromFmt && fromNiche) {
+    return `Suggestions merged from the ${formatDisplayName.value} format pool + the ${activeNiche.value!.name} niche pool. Both contribute; duplicates are de-duped.`
   }
-  return `The ${formatDisplayName.value} format doesn't ship its own ${field} vocabulary, so we're showing a generic fallback. You can override per-project from Settings → Format.`
+  if (fromFmt) {
+    return `These suggestions are from the ${formatDisplayName.value} format. Pick a niche to layer in additional subject-domain vocab.`
+  }
+  if (fromNiche) {
+    return `These suggestions are from the ${activeNiche.value!.name} niche. The current format doesn't ship its own ${field} vocabulary.`
+  }
+  return `Neither the ${formatDisplayName.value} format nor the active niche ships a ${field} vocabulary, so we're showing a generic fallback. You can override per-project from Settings → Format.`
 }
 
 const allGenres = computed(() => Array.from(new Set([...vocabFor('genre'), ...customGenres.value])).sort())

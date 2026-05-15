@@ -4,6 +4,27 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.98 — 2026-05-16
+
+**Niche vocab now surfaces in the Ideas Generator chip inputs and Randomize**
+
+Real bug spotted on the prayer project: v1.0.97 added 133 prayer-specific keywords to `prayer.json` (Lord, Sabbath, "Prayer Before Bed", "the lonely", etc.), but clicking the Keywords chip-input on the Ideas Generator showed ONLY broll-narration's 105 format-level keywords — the niche pool was invisible. Same for the genre / mood / theme chips: format-only.
+
+Root cause: `vocabFor()` in `ideas.vue` read exclusively from `activeFormat.idea.{genre,mood,theme,keyword}Vocabulary`. The backend's `applyNicheToFormat()` merges niche vocab into the format for the LLM prompt, but the frontend's `/formats` endpoint returns raw (un-niche-merged) format objects. So the LLM saw the merged pool, the UI didn't.
+
+Fix:
+- `vocabFor()` now merges format pool + active niche pool (de-duplicated) client-side, mirroring the backend's merge. The Keywords chip input on a prayer-niche project now shows ~238 unique entries (105 format + 133 niche, with overlaps de-duped) instead of 105.
+- **Randomize** picks from the merged pool too — so a Randomize click on a prayer project pulls from prayer-specific vocab ("Sabbath", "the weary", "Prayer Before Bed") instead of only generic broll-narration vocab ("morning", "evening", "family").
+- The "From {Source}" label next to each chip-input field now reads `B-Roll Narration + Prayer` when both contribute, `Prayer` when only the niche has vocab for that field, `B-Roll Narration` when only the format does. Tooltip explains the merge.
+
+**No backend changes.** The LLM prompt assembly was already correct — only the frontend visibility was lagging.
+
+**Audit pass**
+- `tsc -p electron --noEmit`: 0 errors.
+- `cd frontend && npx nuxt build`: clean.
+
+---
+
 ## v1.0.97 — 2026-05-16
 
 **Massive vocab expansion across every niche + every format**
