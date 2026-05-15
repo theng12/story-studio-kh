@@ -102,35 +102,60 @@ export function selectBroll(input: SelectionInput): SelectionResult {
   const warnings: string[] = []
   const excludeShas = new Set(input.exclude_shas || [])
 
-  // 1. Filter the pool.
-  let candidates = input.pool.filter(c => {
-    if (c.missing) return false
-    if (c.duration < MIN_CLIP_SEC) return false
-    if (excludeShas.has(c.sha256)) return false
-    return true
-  })
+  // Build the candidate pool. Filters are layered:
+  //   1. drop missing files
+  //   2. drop sub-MIN clips (too short to be useful)
+  //   3. drop clips in the cross-episode exclude window
+  //   4. drop clips that don't match the tag filter (tagged/themed)
+  // If the cross-episode exclude wipes out everything, we auto-relax
+  // and try again without it — better to repeat a clip than refuse to
+  // render. The warning surfaces the relaxation so the user knows why.
+  const tagSet = new Set((input.tags || []).map(t => t.trim().toLowerCase()).filter(Boolean))
+  const isTagMode = input.selection_mode === 'tagged' || input.selection_mode === 'themed'
+  if (isTagMode && !tagSet.size) {
+    warnings.push(`Mode "${input.selection_mode}" requires at least one tag — falling back to a random sample of the whole pool.`)
+  }
 
-  if (input.selection_mode === 'tagged' || input.selection_mode === 'themed') {
-    const tagSet = new Set((input.tags || []).map(t => t.trim().toLowerCase()).filter(Boolean))
-    if (!tagSet.size) {
-      warnings.push(`Mode "${input.selection_mode}" requires at least one tag — falling back to random.`)
-    } else {
-      candidates = candidates.filter(c => {
+  function applyFilters(opts: { withExcludes: boolean; withTags: boolean }): PoolClip[] {
+    return input.pool.filter(c => {
+      if (c.missing) return false
+      if (c.duration < MIN_CLIP_SEC) return false
+      if (opts.withExcludes && excludeShas.has(c.sha256)) return false
+      if (opts.withTags && isTagMode && tagSet.size) {
         const clipTags = new Set((c.tags || []).map(t => t.toLowerCase()))
         if (input.selection_mode === 'tagged') {
-          for (const t of tagSet) if (clipTags.has(t)) return true
-          return false
+          let any = false
+          for (const t of tagSet) if (clipTags.has(t)) { any = true; break }
+          if (!any) return false
+        } else {
+          for (const t of tagSet) if (!clipTags.has(t)) return false
         }
-        // themed: ALL tags must match
-        for (const t of tagSet) if (!clipTags.has(t)) return false
-        return true
-      })
+      }
+      return true
+    })
+  }
+
+  let candidates = applyFilters({ withExcludes: true, withTags: true })
+
+  // Auto-relax 1: cross-episode exclude wiped everything. Drop it.
+  if (!candidates.length && excludeShas.size) {
+    const withoutExcludes = applyFilters({ withExcludes: false, withTags: true })
+    if (withoutExcludes.length) {
+      warnings.push(
+        `Cross-episode repeat avoidance eliminated every candidate (${excludeShas.size} clip(s) used in the last uploads). ` +
+        `Relaxing the lookback for this episode — consider adding more clips, lowering broll_lookback, or both.`,
+      )
+      candidates = withoutExcludes
     }
   }
 
   const poolSizeAfterFilter = candidates.length
   if (!candidates.length) {
-    warnings.push('No clips matched the selection filter. Try a broader tag set, fewer tags, or relax repeat-avoidance.')
+    warnings.push(
+      isTagMode && tagSet.size
+        ? 'No clips matched the tag filter. Try fewer tags, broader tags, or switch to random mode.'
+        : 'The pool is empty or every clip is marked missing. Drop more files into the pool folder + re-scan.',
+    )
     return { selection: [], warnings, pool_size_after_filter: 0 }
   }
 

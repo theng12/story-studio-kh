@@ -109,8 +109,13 @@ router.post('/projects/:slug/broll/pick', async (req, res) => {
     const title = await resolveTitle(slug, episode_id)
     const narrationSec = await readNarrationDurationSec(slug, episode_id, title)
     if (!narrationSec) {
+      // Format-aware copy: broll-narration is single-chapter so audio-
+      // merge usually isn't needed; sleep-story / bound-explainer hits
+      // this same code path though, so mention merge when narration is
+      // expected to be multi-chapter. Either way the action is the same:
+      // run Audio Generator first.
       return res.status(400).json({
-        detail: `No narration audio found for ${episode_id}. Generate audio (and run audio-merge for multi-chapter formats) before picking B-Roll — the selector sizes the sequence to match narration duration.`,
+        detail: `No narration audio found for ${episode_id}. Run the Audio Generator first — the B-Roll selector sizes the sequence to match narration duration, so audio has to exist before clips can be picked.`,
       })
     }
 

@@ -35,8 +35,46 @@ import * as bp from '../services/broll-pool-manager.js'
 import * as jq from '../services/job-queue.js'
 import { getSelectionSidecar } from '../services/broll-selection-sidecar.js'
 import { resolveEpisodePaths } from '../services/utils.js'
-import { getFFmpegPath } from '../services/ffmpeg-manager.js'
+import { getFFmpegPath, getFFprobePath } from '../services/ffmpeg-manager.js'
 import type { Job, BrollUsageEntry } from '../models/types.js'
+
+/**
+ * Probe whether a file contains an audio stream. Used to decide between
+ * a real audio trim filter (clip has audio) and an anullsrc silence
+ * generator (clip has no audio) when building the amix branch. Falls
+ * back to false on any probe error — silence is the safer default.
+ */
+async function hasAudioStream(filePath: string): Promise<boolean> {
+  const ffprobe = await getFFprobePath()
+  return new Promise((resolve) => {
+    const proc = spawn(ffprobe, [
+      '-v', 'error',
+      '-select_streams', 'a:0',
+      '-show_entries', 'stream=codec_type',
+      '-of', 'csv=p=0',
+      filePath,
+    ])
+    let stdout = ''
+    proc.stdout.on('data', (d) => stdout += String(d))
+    proc.on('error', () => resolve(false))
+    proc.on('close', () => resolve(stdout.trim() === 'audio'))
+  })
+}
+
+/** Look for a burnable subtitle file in the episode's subtitles dir.
+ *  Prefer SRT (drawtext-style overlay support is widest); fall back to
+ *  ASS or VTT. Returns null when nothing burnable exists. */
+async function findSubtitlePath(subtitlesDir: string): Promise<string | null> {
+  if (!existsSync(subtitlesDir)) return null
+  const files = await fsp.readdir(subtitlesDir).catch(() => [] as string[])
+  // Preference order matches the existing video assembly path's behaviour.
+  const priorities = [/\.srt$/i, /\.ass$/i, /\.vtt$/i]
+  for (const re of priorities) {
+    const hit = files.find(f => re.test(f) && !f.startsWith('.tmp_'))
+    if (hit) return path.join(subtitlesDir, hit)
+  }
+  return null
+}
 
 interface AssembleParams {
   episode_id: string
@@ -92,45 +130,94 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   const outPath = path.join(paths.video_dir, outFilename)
   const tempPath = path.join(paths.video_dir, `.tmp-${Date.now()}-${outFilename}`)
 
-  // Build the filtergraph.
+  // ── Probe each clip for audio presence ────────────────────────────
+  // amix needs every input stream to actually exist; clips without an
+  // audio track get a generated silence stream of the same target
+  // duration so concat + amix work uniformly.
+  const clipHasAudio: boolean[] = []
+  if (broll_volume > 0) {
+    for (const c of clipPaths) clipHasAudio.push(await hasAudioStream(c.src))
+  }
+
+  // ── Subtitle burn-in (optional) ────────────────────────────────────
+  // Mirrors the existing video-assembly path's behaviour — picks up an
+  // SRT / ASS / VTT in the episode's subtitles_dir and burns it into
+  // the final video. Path needs single quotes escaped for ffmpeg's
+  // subtitles filter (its parser is finicky about colons in macOS paths).
+  const subPath = await findSubtitlePath(paths.subtitles_dir)
+  function escapeForSubtitlesFilter(p: string): string {
+    // ffmpeg's subtitles filter interprets `:` as an argument separator
+    // unless the path is wrapped + colons escaped. Backslash-escape both.
+    return p.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'")
+  }
+
+  // ── Build the filtergraph ──────────────────────────────────────────
   //
-  // Per-clip stages:
+  // Video chain (always):
   //   [N:v] trim=duration=Tn,setpts=PTS-STARTPTS,
-  //         scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,
-  //         pad=1920:1080:(ow-iw)/2:(oh-ih)/2,
-  //         fps=24,setsar=1 [vN];
+  //         scale=1920:1080:force_original_aspect_ratio=decrease,
+  //         pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1 [vN]
+  //   concat=n=N:v=1:a=0 -> [vbase]
+  //   [vbase] subtitles='...' -> [vout]   (only when an SRT exists)
   //
-  // Concat: [v0][v1]...[vN] concat=n=N:v=1:a=0 [vout]
+  // Audio chain (broll_volume == 0):
+  //   maps narration input directly — no filtergraph audio work.
   //
-  // Audio: a mix of narration (full vol) + optional clip audio (at
-  // broll_volume/100). We feed clip audio as a single concat'd stream
-  // sized to narration length; if broll_volume == 0 we just use
-  // narration verbatim.
+  // Audio chain (broll_volume > 0):
+  //   per clip with audio:  [N:a] atrim=duration=D,asetpts=PTS-STARTPTS [aN]
+  //   per clip without:     anullsrc=cl=stereo:r=44100,atrim=duration=D [aN]
+  //   concat audio:         [a0][a1]...[aN] concat=n=N:v=0:a=1 [aconcat]
+  //   duck:                 [aconcat] volume=VOL [aducked]
+  //   mix in narration:     [aducked][narration_a] amix=inputs=2:duration=longest:dropout_transition=0 [aout]
   const targetFps = pool.fps_target
   const filterParts: string[] = []
   for (let i = 0; i < clipPaths.length; i++) {
     const c = clipPaths[i]!
-    // Trim to target_duration. For pacing=timed where target > native,
-    // use loop filter — repeats the clip in place.
-    const needsLoop = c.duration > c.duration /* never; placeholder */
-    const trim = needsLoop ? '' : `trim=duration=${c.duration},setpts=PTS-STARTPTS,`
     filterParts.push(
-      `[${i}:v]${trim}scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,` +
+      `[${i}:v]trim=duration=${c.duration},setpts=PTS-STARTPTS,` +
+      `scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,` +
       `pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=${targetFps},setsar=1[v${i}]`,
     )
   }
   const concatLabels = clipPaths.map((_, i) => `[v${i}]`).join('')
-  filterParts.push(`${concatLabels}concat=n=${clipPaths.length}:v=1:a=0[vout]`)
+  // Pick the final video label — adds a subtitles step when a sub file exists.
+  let finalVideoLabel = '[vout]'
+  if (subPath) {
+    filterParts.push(`${concatLabels}concat=n=${clipPaths.length}:v=1:a=0[vbase]`)
+    filterParts.push(`[vbase]subtitles='${escapeForSubtitlesFilter(subPath)}'[vout]`)
+  } else {
+    filterParts.push(`${concatLabels}concat=n=${clipPaths.length}:v=1:a=0[vout]`)
+  }
 
-  // Audio path. broll_volume > 0 → concat clip audio + mix with narration.
-  // broll_volume == 0 → narration only (silence clip audio).
   const narrationInputIdx = clipPaths.length // first non-clip input
   const args: string[] = ['-y']
   for (const c of clipPaths) args.push('-i', c.src)
   args.push('-i', narrationPath)
+
+  // Build the audio filtergraph branch only when we're actually mixing
+  // B-Roll audio in. Below volume 1% it's inaudible vs the narration
+  // floor — fall through to narration-only to skip the amix overhead.
+  const wantMix = broll_volume >= 1
+  let audioMapTarget = `${narrationInputIdx}:a`
+  if (wantMix) {
+    for (let i = 0; i < clipPaths.length; i++) {
+      const c = clipPaths[i]!
+      if (clipHasAudio[i]) {
+        filterParts.push(`[${i}:a]atrim=duration=${c.duration},asetpts=PTS-STARTPTS[a${i}]`)
+      } else {
+        filterParts.push(`anullsrc=channel_layout=stereo:sample_rate=44100,atrim=duration=${c.duration}[a${i}]`)
+      }
+    }
+    const aConcatLabels = clipPaths.map((_, i) => `[a${i}]`).join('')
+    filterParts.push(`${aConcatLabels}concat=n=${clipPaths.length}:v=0:a=1[aconcat]`)
+    filterParts.push(`[aconcat]volume=${(broll_volume / 100).toFixed(3)}[aducked]`)
+    filterParts.push(`[aducked][${narrationInputIdx}:a]amix=inputs=2:duration=longest:dropout_transition=0[aout]`)
+    audioMapTarget = '[aout]'
+  }
+
   args.push('-filter_complex', filterParts.join(';'))
-  args.push('-map', '[vout]')
-  args.push('-map', `${narrationInputIdx}:a`)
+  args.push('-map', finalVideoLabel)
+  args.push('-map', audioMapTarget)
   // Encoder
   args.push(
     '-c:v', 'libx264',
@@ -145,12 +232,17 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
     tempPath,
   )
 
-  if (broll_volume > 0) {
-    job.output_lines.push(`B-Roll audio: ${broll_volume}% (mixed under narration) — coming in a follow-up patch; using mute for this render.`)
-    // Future: build amix=inputs=2:weights filter. Punted to keep this
-    // patch landable today.
+  if (wantMix) {
+    const withAudio = clipHasAudio.filter(Boolean).length
+    job.output_lines.push(
+      `B-Roll audio: ${broll_volume}% (mixed under narration). ` +
+      `${withAudio}/${clipPaths.length} clip(s) have audio; rest filled with silence.`,
+    )
   } else {
     job.output_lines.push(`B-Roll audio: muted (narration-only mix)`)
+  }
+  if (subPath) {
+    job.output_lines.push(`Subtitles: burning ${path.basename(subPath)} into the final frame.`)
   }
   job.output_lines.push(`Encoding ${clipPaths.length} clip(s) → ${outFilename}…`)
 
