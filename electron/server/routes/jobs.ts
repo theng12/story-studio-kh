@@ -86,6 +86,73 @@ router.get('/projects/:slug/jobs', async (req, res) => {
   res.json({ jobs: jobsList, stats })
 })
 
+// ── App-level jobs (broll_normalize, broll_autotag, etc.) ─────────────
+//
+// Per-project jobs filter by `project_slug` exact match in getJobs().
+// App-level infrastructure jobs (B-Roll normalize / auto-tag, anything
+// queued with project_slug='_app_') never showed up in any project's
+// jobs panel — they were invisible to the user. v1.0.91+: separate
+// endpoint + SSE stream surfaces them so the B-Roll Library page (and
+// future app-level surfaces) can render their own jobs panel without
+// polluting the per-project view.
+const APP_SLUG = '_app_'
+
+router.get('/jobs/app', async (_req, res) => {
+  const jobsList = await jq.getJobs(APP_SLUG)
+  const stats = jq.getQueueStats(APP_SLUG)
+  res.json({ jobs: jobsList, stats })
+})
+
+router.get('/jobs/app/:jobId', (req, res) => {
+  const job = jq.getJob(req.params.jobId)
+  if (!job || job.project_slug !== APP_SLUG) {
+    return res.status(404).json({ detail: 'Job not found' })
+  }
+  res.json(job)
+})
+
+router.get('/jobs/app/stream', async (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  })
+  res.write('retry: 5000\n\n')
+  function send(eventName: string, payload: unknown) {
+    res.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`)
+  }
+  try {
+    send('snapshot', {
+      jobs: await jq.getJobs(APP_SLUG),
+      stats: jq.getQueueStats(APP_SLUG),
+    })
+  } catch (e) {
+    console.error('[jobs/app/stream] snapshot error:', e)
+  }
+  const onUpdate = (job: Job) => {
+    if (job.project_slug !== APP_SLUG) return
+    send('update', job)
+  }
+  const onCleared = (clearedSlug: string) => {
+    if (clearedSlug !== APP_SLUG) return
+    send('cleared', {})
+  }
+  jq.jobEvents.on('update', onUpdate)
+  jq.jobEvents.on('cleared', onCleared)
+  const keepalive = setInterval(() => res.write(': ping\n\n'), 15000)
+  req.on('close', () => {
+    clearInterval(keepalive)
+    jq.jobEvents.off('update', onUpdate)
+    jq.jobEvents.off('cleared', onCleared)
+  })
+})
+
+router.delete('/jobs/app', async (_req, res) => {
+  const count = await jq.clearFinished(APP_SLUG)
+  res.json({ ok: true, cleared: count })
+})
+
 router.get('/projects/:slug/jobs/:jobId', (req, res) => {
   const job = jq.getJob(req.params.jobId)
   if (!job || job.project_slug !== req.params.slug) {

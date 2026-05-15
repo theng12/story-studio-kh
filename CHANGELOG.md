@@ -4,6 +4,36 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.91 — 2026-05-15
+
+**B-Roll pool jobs are no longer invisible**
+
+The B-Roll Library's normalize and auto-tag jobs were enqueued under the app-level scope (`project_slug='_app_'`), but the per-project Jobs panel filters by exact project_slug match. Net effect: every normalize / auto-tag job ran silently — no progress, no errors, no log lines reachable from the UI. Verified in this release against an existing pool: **101 such jobs** had run on your `nature-b-roll` pool and you had no way to see any of them.
+
+Fix: new `/api/jobs/app` endpoint family that surfaces app-scope jobs alongside an SSE stream. Plus an inline **Pool jobs** panel on the B-Roll Library page that:
+
+- Lists running + queued jobs at the top of the section, with live progress lines (ffmpeg time stamps for normalize, vision-LLM output for auto-tag).
+- Shows the last 6 recent done / error / cancelled jobs underneath for trail context.
+- Auto-collapses to a count badge when nothing's in flight; click the header to expand.
+- Colour-codes status: running (blue), queued (grey), done (green), error (red).
+- Streams via Server-Sent Events so updates land instantly with no polling.
+
+**Clip grid auto-refreshes when relevant jobs finish**
+
+Previously, after a normalize or auto-tag job completed, the user had to click ↻ Re-scan to see the new `✓ 24fps` badge or the new tags. Now the page subscribes to the app-jobs stream and refreshes the clip list automatically when any `broll_normalize` or `broll_autotag` job for the active pool transitions to done. Tags appear; normalized badges flip; no manual refresh needed.
+
+**No regression risk**
+
+The existing `/projects/:slug/jobs` route still filters by project_slug exactly — per-project Jobs panels stay clean. App-level jobs live in their own endpoint, and the new endpoint is purely additive.
+
+**Audit pass (per the polish-quality-bar memory)**
+- `npx tsc -p electron --noEmit`: 0 errors.
+- Vue SFC parse: clean.
+- `npm run build:frontend` (Vite production build): clean. ← *new in v1.0.91's audit checklist after v1.0.89's duplicate-`apiGet` slipped past dev-only smoke.*
+- Endpoint smoke: `GET /api/jobs/app` returns 101 historical jobs from the user's real pool; new normalize job queued and surfaced within a second.
+
+---
+
 ## v1.0.90 — 2026-05-15
 
 **8 new niches for narration-led channels**

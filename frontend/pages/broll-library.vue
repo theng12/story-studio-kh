@@ -115,6 +115,44 @@
           <span v-if="scanResult.errors.length" class="text-danger"> · {{ scanResult.errors.length }} errors</span>
         </div>
 
+        <!-- ── Pool jobs panel ─────────────────────────────────────────
+             B-Roll normalize + auto-tag jobs are app-level (project_slug
+             '_app_'), so they never showed up in any project's Jobs
+             tab. v1.0.91+: inline panel here streams those jobs via
+             /api/jobs/app/stream so the user sees normalize / autotag
+             progress without leaving the page. Auto-collapses to the
+             count when nothing is in flight; expands to a live list
+             with progress lines when work is queued. -->
+        <div v-if="visibleJobs.length || activeJobsCount > 0" class="pool-jobs">
+          <button class="pool-jobs-header" type="button" @click="poolJobsExpanded = !poolJobsExpanded">
+            <span class="pool-jobs-title">
+              <span aria-hidden="true">⚙</span>
+              Pool jobs
+              <span class="pool-jobs-stats">
+                <template v-if="activeJobsCount > 0">{{ activeJobsCount }} in progress</template>
+                <template v-else>{{ visibleJobs.length }} recent</template>
+              </span>
+            </span>
+            <span aria-hidden="true">{{ poolJobsExpanded ? '▾' : '▸' }}</span>
+          </button>
+
+          <div v-if="poolJobsExpanded" class="pool-jobs-list">
+            <div v-for="job in visibleJobs" :key="job.job_id" :class="['pool-job-row', `is-${job.status}`]">
+              <span class="pool-job-badge">{{ jobBadge(job) }}</span>
+              <div class="pool-job-body">
+                <div class="pool-job-title">{{ job.title || job.type }}</div>
+                <div v-if="lastProgressLine(job)" class="pool-job-progress">{{ lastProgressLine(job) }}</div>
+                <div v-if="job.status === 'error' && job.error" class="pool-job-error" :title="job.error">⚠ {{ job.error.slice(0, 200) }}</div>
+              </div>
+              <span class="pool-job-when">{{ relativeTime(job.finished_at || job.created_at) }}</span>
+            </div>
+            <div v-if="!visibleJobs.length" class="pool-jobs-empty">
+              No recent pool jobs. Drop new clips into the folder + ↻ Re-scan to queue normalize jobs;
+              click ✨ Auto-tag untagged to queue tag jobs.
+            </div>
+          </div>
+        </div>
+
         <div v-if="clipsLoading" class="muted">Loading clips…</div>
 
         <div v-else-if="!clips.length" class="empty">
@@ -239,7 +277,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('B-Roll Library')
@@ -247,6 +285,12 @@ useAppTitle('B-Roll Library')
 const broll = useBrollPools()
 const { ask } = useConfirm()
 const { success, error: showError } = useToast()
+
+// Live app-level jobs (broll_normalize + broll_autotag). The standard
+// /projects/:slug/jobs feed filters by project_slug, so app-level
+// jobs (project_slug='_app_') never show there — this composable
+// streams them separately. v1.0.91+.
+const appJobs = useAppJobs()
 
 const pools = broll.pools
 const loading = broll.loading
@@ -267,6 +311,86 @@ const untaggedCount = computed(() =>
   clips.value.filter(c => !c.missing && !(c.tags && c.tags.length)).length,
 )
 const autotagging = ref(false)
+
+// ── Pool jobs panel + auto-refresh ────────────────────────────────────
+const poolJobsExpanded = ref(true)
+
+/**
+ * Filter app-level jobs down to the ones relevant to THIS pool. Both
+ * broll_normalize and broll_autotag stash the pool_id in their params
+ * (and we also use episode_id=pool.id as a secondary handle so older
+ * code that filters by episode still works). Show running + queued
+ * always; show the last 6 done/error/cancelled for trail context.
+ */
+const visibleJobs = computed(() => {
+  if (!selectedPoolId.value) return []
+  const matchesPool = (j: any) =>
+    j.type === 'broll_normalize' || j.type === 'broll_autotag'
+      ? (j.params?.pool_id === selectedPoolId.value || j.episode_id === selectedPoolId.value)
+      : false
+  const active = appJobs.jobs.value.filter(j => matchesPool(j) && (j.status === 'queued' || j.status === 'running'))
+  const recent = appJobs.jobs.value
+    .filter(j => matchesPool(j) && (j.status === 'done' || j.status === 'error' || j.status === 'cancelled'))
+    .slice(0, 6)
+  return [...active, ...recent]
+})
+const activeJobsCount = computed(() =>
+  visibleJobs.value.filter(j => j.status === 'queued' || j.status === 'running').length,
+)
+
+function jobBadge(job: any): string {
+  if (job.status === 'queued')    return '… queued'
+  if (job.status === 'running')   return job.type === 'broll_normalize' ? '⚡ normalizing' : '✨ tagging'
+  if (job.status === 'done')      return '✓ done'
+  if (job.status === 'error')     return '⚠ error'
+  if (job.status === 'cancelled') return '○ cancelled'
+  return job.status
+}
+function lastProgressLine(job: any): string {
+  const lines = job.output_lines || []
+  if (!lines.length) return ''
+  // Prefer the most informative recent line: progress lines refresh in
+  // place, so the latest one is the live indicator. For done jobs the
+  // final line is "Done → …" which is the right summary.
+  return String(lines[lines.length - 1]).slice(0, 180)
+}
+function relativeTime(iso?: string | null): string {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    const diff = (Date.now() - d.getTime()) / 1000
+    if (diff < 30) return 'just now'
+    if (diff < 60) return `${Math.round(diff)}s ago`
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+    return d.toLocaleDateString()
+  } catch { return '' }
+}
+
+// Auto-refresh the clip grid when any normalize / autotag job for the
+// selected pool transitions to done — the sidecar's normalized flag and
+// tags array have just changed and the UI should reflect it without
+// a manual ↻ click.
+let unsubDone: (() => void) | null = null
+onMounted(() => {
+  unsubDone = appJobs.onJobDone((job: any) => {
+    if (job.status !== 'done') return
+    if (job.type !== 'broll_normalize' && job.type !== 'broll_autotag') return
+    const poolId = job.params?.pool_id || job.episode_id
+    if (poolId && poolId === selectedPoolId.value) {
+      void refreshClipsAfterJob()
+    }
+  })
+})
+onBeforeUnmount(() => { if (unsubDone) unsubDone() })
+
+async function refreshClipsAfterJob(): Promise<void> {
+  if (!selectedPoolId.value) return
+  try {
+    const r = await broll.listClips(selectedPoolId.value)
+    clips.value = r.clips
+  } catch { /* tolerate */ }
+}
 
 // ── Pool selection ─────────────────────────────────────────────────────
 
@@ -613,4 +737,76 @@ function onThumbError(e: Event): void {
   font-size: 12px;
 }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+
+/* ── Pool jobs panel ──────────────────────────────────────────────────
+   Inline panel that surfaces app-level B-Roll jobs (normalize / autotag)
+   for the active pool. SSE-driven via useAppJobs; collapsible. */
+.pool-jobs {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  overflow: hidden;
+}
+.pool-jobs-header {
+  width: 100%;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: none; cursor: pointer;
+  font: inherit; color: inherit;
+  font-size: 12px;
+}
+.pool-jobs-header:hover { background: var(--bg-hover, var(--bg-tertiary)); }
+.pool-jobs-title { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.pool-jobs-stats {
+  font-weight: 400; font-size: 11px; color: var(--text-muted);
+  padding: 1px 6px; border-radius: 8px; background: var(--bg-secondary);
+}
+.pool-jobs-list {
+  display: flex; flex-direction: column;
+  max-height: 320px; overflow-y: auto;
+}
+.pool-job-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.pool-job-badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+}
+.pool-job-row.is-running .pool-job-badge { background: rgba(108, 143, 255, 0.16); color: var(--accent, #6c8fff); }
+.pool-job-row.is-queued .pool-job-badge { background: var(--bg-tertiary); color: var(--text-muted); }
+.pool-job-row.is-done .pool-job-badge { background: rgba(34, 197, 94, 0.16); color: rgb(21, 128, 61); }
+.pool-job-row.is-error .pool-job-badge { background: rgba(220, 38, 38, 0.16); color: rgb(185, 28, 28); }
+.pool-job-row.is-cancelled .pool-job-badge { background: var(--bg-tertiary); color: var(--text-muted); }
+.pool-job-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pool-job-title {
+  font-weight: 500; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pool-job-progress {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px; color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pool-job-error {
+  font-size: 11px; color: rgb(185, 28, 28);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pool-job-when {
+  flex: 0 0 auto;
+  font-size: 11px; color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+}
+.pool-jobs-empty {
+  padding: 12px;
+  text-align: center;
+  font-size: 12px; color: var(--text-muted);
+}
 </style>
