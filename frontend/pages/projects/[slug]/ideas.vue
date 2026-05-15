@@ -208,6 +208,49 @@
             </span>
           </div>
         </div>
+
+        <!-- v1.0.93+ Channel title prefix/suffix.
+             Same project-config keys as the Metadata Generator
+             (broll_channel_title_prefix / broll_channel_title_suffix), so
+             editing here also updates the wrapping on the final YouTube
+             title. Saves typing "Morning Prayer:" on every idea AND every
+             metadata pass — one source of truth. Live preview line below
+             so the user sees what a generated title will look like before
+             clicking Generate. -->
+        <div class="ideas-title-wrap-block">
+          <div class="title-wrap-header">
+            <strong>Channel title wrap</strong>
+            <span class="text-muted text-xs">
+              · prepended/appended to every generated idea title. Synced with the Metadata Generator.
+            </span>
+          </div>
+          <div class="grid-2 mt-1">
+            <div class="form-group">
+              <label>Title prefix</label>
+              <input
+                v-model="titleConfig.prefix"
+                type="text"
+                class="input"
+                placeholder="e.g. Morning Prayer: "
+              />
+              <span class="text-muted text-xs">Trailing space / punctuation included verbatim.</span>
+            </div>
+            <div class="form-group">
+              <label>Title suffix</label>
+              <input
+                v-model="titleConfig.suffix"
+                type="text"
+                class="input"
+                placeholder="e.g.  | Daily Prayer Channel"
+              />
+              <span class="text-muted text-xs">Leading space included verbatim if you want a gap.</span>
+            </div>
+          </div>
+          <p v-if="titleConfig.prefix || titleConfig.suffix" class="text-muted text-xs mt-1 hint-line">
+            Preview:
+            <code>{{ titlePreviewText }}</code>
+          </p>
+        </div>
       </div>
 
       <!-- Action cluster lives in its own blocked region so the progress -->
@@ -1211,6 +1254,27 @@ const form = reactive({
 // Empty string = project has no saved niche.
 const projectNicheId = ref<string>('')
 
+// v1.0.93+ — channel-level title prefix/suffix. Reads from + writes to
+// the SAME project-config keys the Metadata Generator uses (broll_channel_
+// title_prefix / broll_channel_title_suffix), so editing on either surface
+// keeps both in sync. The backend's /generate/ideas route wraps every
+// generated idea's title with these values; if both are empty, no
+// wrapping happens.
+const titleConfig = reactive({
+  prefix: '',
+  suffix: '',
+})
+const TITLE_PREFIX_KEY = 'broll_channel_title_prefix'
+const TITLE_SUFFIX_KEY = 'broll_channel_title_suffix'
+
+// Sample title used in the live preview. Pulled from the prayer niche
+// example pool when the project is on the prayer niche; otherwise a
+// generic placeholder so the user can still visualise the wrap.
+const titlePreviewText = computed(() => {
+  const base = 'A Prayer for Anxious Hearts'
+  return (titleConfig.prefix || '') + base + (titleConfig.suffix || '')
+})
+
 // ── Pattern + format wiring for the Ideas page ────────────────────────────
 //
 // PatternPicker filters by current format (Part 2 of this rollout). We
@@ -1318,6 +1382,11 @@ async function loadPatternPreferences() {
     } else {
       form.niche_id = metaNiche
     }
+    // v1.0.93+ — hydrate channel title prefix/suffix from the same keys
+    // the Metadata Generator uses. One source of truth — editing in
+    // either surface updates the other.
+    if (typeof cfg?.[TITLE_PREFIX_KEY] === 'string') titleConfig.prefix = cfg[TITLE_PREFIX_KEY]
+    if (typeof cfg?.[TITLE_SUFFIX_KEY] === 'string') titleConfig.suffix = cfg[TITLE_SUFFIX_KEY]
   } catch {
     // Even if config fetch fails, surface project niche as the default.
     form.niche_id = metaNiche
@@ -1338,6 +1407,10 @@ async function savePatternPreferences() {
       [LAST_THEME_KEY]: form.theme,
       [LAST_ITEMS_KEY]: form.items_per_listicle,
       [LAST_NICHE_KEY]: form.niche_id,
+      // v1.0.93+ — channel title wrap is persisted on every edit so the
+      // metadata page picks it up on next load without an explicit save.
+      [TITLE_PREFIX_KEY]: titleConfig.prefix,
+      [TITLE_SUFFIX_KEY]: titleConfig.suffix,
     })
   } catch { /* non-fatal — selection still works in-session */ }
 }
@@ -1347,6 +1420,8 @@ watch(() => form.pattern_subject, savePatternPreferences)
 watch(() => form.theme, savePatternPreferences)
 watch(() => form.items_per_listicle, savePatternPreferences)
 watch(() => form.niche_id, savePatternPreferences)
+watch(() => titleConfig.prefix, savePatternPreferences)
+watch(() => titleConfig.suffix, savePatternPreferences)
 onMounted(loadPatternPreferences)
 onMounted(loadFormatNames)
 
@@ -2213,6 +2288,12 @@ async function generate() {
     } else if (!form.niche_id) {
       body.niche_id = '__none__'
     }
+    // v1.0.93+ channel title wrap. Always sent (even when empty) so the
+    // backend uses the form's current values rather than the project
+    // config — keeps the live preview honest with what actually gets
+    // generated. Backend treats both empty strings as "no wrapping".
+    body.title_prefix = titleConfig.prefix
+    body.title_suffix = titleConfig.suffix
     const res = await $fetch.raw(`/api/projects/${slug.value}/generate/ideas`, {
       method: 'POST',
       body,
@@ -2727,6 +2808,28 @@ onMounted(loadIdeas)
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* v1.0.93+ — Channel title wrap block. Visually paired with the niche
+   block above (same dashed divider) so the two channel-shape controls
+   (niche + title wrap) cluster together visually. */
+.ideas-title-wrap-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.title-wrap-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.hint-line code {
+  background: var(--bg-tertiary);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
 }
 .niche-override-banner {
   display: flex;

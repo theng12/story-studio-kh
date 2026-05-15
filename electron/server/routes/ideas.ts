@@ -357,14 +357,50 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     ? Math.round(body.items_per_listicle)
     : null
 
+  // v1.0.93+ — channel-level title prefix/suffix. Mirrors the
+  // titleConfig.prefix/suffix on metadata.vue (same project-config keys:
+  // broll_channel_title_prefix / broll_channel_title_suffix), but applied
+  // at idea-generation time so the brainstorm list and the final YouTube
+  // title share the same channel framing ("Morning Prayer: ...").
+  //
+  // Override semantics: if the request body carries explicit
+  // title_prefix / title_suffix strings, they win — even when empty
+  // (empty string = "no wrapping for this batch even if the project has
+  // one saved"). Undefined falls back to the project config so existing
+  // callers (Pipeline, scheduled jobs) don't accidentally drop the
+  // channel framing.
+  const rawBodyPrefix = (req.body as any)?.title_prefix
+  const rawBodySuffix = (req.body as any)?.title_suffix
+  let titlePrefix = ''
+  let titleSuffix = ''
+  if (typeof rawBodyPrefix === 'string') {
+    titlePrefix = rawBodyPrefix
+  } else if (typeof (config as any)?.broll_channel_title_prefix === 'string') {
+    titlePrefix = (config as any).broll_channel_title_prefix
+  }
+  if (typeof rawBodySuffix === 'string') {
+    titleSuffix = rawBodySuffix
+  } else if (typeof (config as any)?.broll_channel_title_suffix === 'string') {
+    titleSuffix = (config as any).broll_channel_title_suffix
+  }
+  function wrapTitle(s: string): string {
+    if (!titlePrefix && !titleSuffix) return s
+    return `${titlePrefix}${s}${titleSuffix}`
+  }
+
   function normalizeIdeas(raw: any[]): StoryIdea[] {
     return raw.map((item: any) => {
       const rawTitle: string = (item.title || 'Untitled').toString()
       const rawChapters: number = Number(item.suggested_chapters) || 10
       const chapters = pinnedChapters !== null ? pinnedChapters : rawChapters
-      const title = pinnedChapters !== null
+      const countAdjustedTitle = pinnedChapters !== null
         ? rewriteLeadingCount(rawTitle, pinnedChapters)
         : rawTitle
+      // Wrap AFTER the leading-count rewrite so "Morning Prayer: 10 Mysteries…"
+      // stays correctly wrapped when the user pinned 10 items. Wrapping
+      // before the rewrite would put the count inside the prefix and the
+      // regex would miss it.
+      const title = wrapTitle(countAdjustedTitle)
       return {
         title,
         logline: item.logline || '',
