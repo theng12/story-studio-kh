@@ -4,6 +4,63 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.89 — 2026-05-15
+
+**B-Roll prayer-channel workflow (Phases 1-5 + polish)**
+
+A complete narration-over-stock-footage pipeline for prayer / devotional / meditation channels. Five phases shipped end-to-end:
+
+*Phase 1 — Pool Library* (sidebar entry: 🎬 B-Roll Library)
+- Register one or more stock-footage pools, each pointed at a folder (typically your portable SSD). The app indexes every clip via ffprobe (duration, resolution, fps, sha256) and generates thumbnails at midpoint.
+- Tags live in a `.story-studio-broll.json` sidecar inside the folder so they travel with the SSD across machines.
+- Drop-in scan: drop new clips into the folder via Finder, click ↻ Re-scan — content-hashed so renames preserve tags + normalize state.
+- Auto-normalize on import: each new clip queues a job that re-encodes to 1080p @ 24fps (or 30 if configured) at H.264 CRF 20, preserving the source audio for later mixing. The normalized variant lives in `.broll-normalized/` so originals stay untouched.
+- Offline handling: when the SSD is unplugged the library shows clips with cached thumbnails + tags but disables scan/edit until reconnect.
+
+*Phase 2 — `broll-narration` format*
+- New built-in format that hides Scene Prompts / Scene Generator from the sidebar (irrelevant when your visuals come from a B-Roll pool, not AI image generation) and surfaces a 🎬 B-Roll Picker sidebar entry instead.
+- Project subscribes to one pool via Settings or the picker page. Multiple projects can share a pool; their cross-episode repeat-avoidance histories stay independent.
+
+*Phase 3 — Selection + assembly*
+- Per-episode B-Roll picker page (`/projects/:slug/broll`) supports four selection modes: random (shuffle the pool), tagged (any-tag match), themed (all-tags match), and **manual (click-to-add tiles + reorder + per-clip duration override)**.
+- Pacing: timed segments (each clip plays N seconds, looping if too short) OR rotate-on-end (each clip plays its native duration, capped at 15s).
+- Repeat avoidance: within-episode always on; cross-episode lookback configurable per channel (default 10). When the pool is too small and exclude window wipes everything, the selector auto-relaxes with a clear warning instead of returning empty.
+- Assembly executor: builds an FFmpeg filtergraph for 1080p H.264 output, picks the normalized variant when present (concat-fast path) or falls back to scale+pad of the original at render time.
+
+*Phase 4 — Channel-locked metadata templates*
+- New per-project template editor at `/projects/:slug/metadata-template`. Author title / description / tag-list patterns with `{placeholder}` tokens. When set, the Metadata Generator switches from three LLM calls to ONE small extraction call that fills the placeholders — title and description stay editorially consistent across every upload from that channel.
+- Recognised placeholders: `{topic}`, `{topic_tag}`, `{summary}`, `{keywords}` (LLM-filled), plus `{episode_code}`, `{date}`, `{date_long}` (deterministic, no LLM call).
+- ~3× cheaper per episode (1 LLM call vs 3). Brand consistency without re-rolling the wheel on every upload.
+
+*Phase 5 — Vision-LLM auto-tag*
+- New ✨ Auto-tag button per clip + ✨ Auto-tag untagged (N) bulk button on the B-Roll Library page. Reuses the cached thumbnail JPEG (no re-extraction from source) and asks the vision LLM for 3–7 short subject/setting/mood tags.
+- Auto-picks model: Claude Sonnet if Anthropic key configured, else GPT-4o-mini. ~$0.002 per clip on mini.
+- Existing user tags are preserved by default (unioned with vision tags). Pass `replace_tags: true` to clobber.
+
+**B-Roll polish** (v1.0.89 ships with the full set, not staged across patches)
+
+- **B-Roll audio volume slider** (0–100%) actually mixes now. Per-clip audio probe via ffprobe; clips without audio get a generated silence track of matching duration so the amix branch is uniform. Volume filter ducks the concatted B-Roll audio under the full-volume narration. Default 0% (muted) — best for prayer; bump to 10–20% for ambient texture.
+- **Per-clip camera motion** (zoom-in / zoom-out / pan-left / pan-right / pan-up / pan-down / static). Three modes: fixed (one motion across the whole episode), rotate (cycle through a pool), or random (pick from pool per segment). Uses `scale=eval=frame` + center crop so output frame size stays a constant 1920×1080 — libx264-safe.
+- **Crossfade transitions** between clips. Picks any FFmpeg xfade family (crossfade, dissolve, wipe, slide, shape) with a configurable 0.1–2.0 s duration. Hard-cut "none" stays the cheapest-render default. Unknown transition IDs fall back to hard cut with a clear log line.
+- **Subtitle burn-in**: when the episode has an SRT/ASS/VTT in its subtitles dir, the assembly path automatically appends a subtitles filter — same UX as the existing scene-images video assembly.
+- **Auto-relax for cross-episode exhaustion**: when the repeat-avoidance log wipes the pool, the selector retries without the exclude list and surfaces a warning explaining why. Better than returning empty.
+- **Manual-mode validation**: backend verifies every filename exists in the pool; warns about skipped clips by name. Empty `manual_selection` falls through to the algorithmic path (manual is opt-in).
+
+**Audit passes (verified before this release)**
+- `npx tsc -p electron --noEmit`: 0 errors.
+- Every touched Vue SFC parses cleanly.
+- End-to-end smoke: pool create → scan mixed-spec clips → tag → subscribe → manual pick with rotated motion + crossfade transition → assemble → ffprobe output: H.264 1920×1080 @ 24fps + AAC stereo as configured, duration matches narration bound.
+- 6 edge cases verified: missing clip filename, empty manual selection, invalid transition ID, no narration on disk, offline pool folder, pool-exhaustion auto-relax.
+
+**Other fixes from prior fix cycles bundled into this release**
+- `useCharacters` composable now accepts `Ref<string> | ComputedRef<string>` in addition to `string` and `() => string` — fixes the "Project '[object Object]' not found" error when creating / editing characters.
+- Style Preview cache route uses `fs.createReadStream` instead of `res.sendFile` — sidesteps Express's silent 404 on paths containing spaces (`Story Studio KH`).
+- kie.ai slug fixes: `nano-banana-2` (not `google/nano-banana-2`); GPT Image 2 in i2i mode routes to `gpt-image-2-image-to-image` with `input_urls` refs field. Project config migration auto-propagates infra fields from defaults so existing projects pick up provider-side slug changes.
+- Metadata generator wired to the job queue — navigate away mid-job without corruption.
+- Provider supports_reference_images flag now threaded correctly through the kie provider call. GPT Image 2 + Nano Banana 2 + Nano Banana Pro + Flux Kontext renders now actually consume the reference images attached, instead of silently dropping them.
+
+---
+
 ## v1.0.88 — 2026-05-14
 
 **Bound-style episode workflow — character continuity + style anchoring**

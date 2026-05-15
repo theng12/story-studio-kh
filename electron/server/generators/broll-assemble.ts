@@ -36,6 +36,8 @@ import * as jq from '../services/job-queue.js'
 import { getSelectionSidecar } from '../services/broll-selection-sidecar.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getFFmpegPath, getFFprobePath } from '../services/ffmpeg-manager.js'
+import { buildBrollMotion, type BrollMotion, pickRotatedMotion } from '../lib/broll-motion.js'
+import { getTransition } from '../models/transitions.js'
 import type { Job, BrollUsageEntry } from '../models/types.js'
 
 /**
@@ -151,42 +153,97 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
     return p.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'")
   }
 
+  // ── Resolve per-segment motion + transition for this episode ──────
+  //
+  // The selection sidecar carries motion_mode + motion_default + motion_pool
+  // + transition_id + transition_duration. Build the per-segment motion
+  // assignment up front so the filtergraph generation stays linear.
+  type Motion = BrollMotion
+  const motionMode = (sidecar as any).motion_mode || 'fixed'
+  const motionDefault: Motion = ((sidecar as any).motion_default || 'static') as Motion
+  const motionPool: Motion[] = Array.isArray((sidecar as any).motion_pool)
+    ? ((sidecar as any).motion_pool as Motion[])
+    : ['static']
+  const perSegmentMotion: Motion[] = clipPaths.map((_, i) => {
+    if (motionMode === 'fixed') return motionDefault
+    if (motionMode === 'rotate') return motionPool[i % motionPool.length] || 'static'
+    // 'random' — seeded per-segment so re-rendering the same sidecar gives
+    // identical output. Seed = episode + clip index for determinism.
+    const seed = (episode_id.split('').reduce((a, c) => a * 31 + c.charCodeAt(0), 0) + i) | 0
+    return pickRotatedMotion(motionPool, seed)
+  })
+
+  const transitionId = (sidecar as any).transition_id || 'none'
+  const transitionDef = getTransition(transitionId)
+  const useXfade = !!(transitionDef && transitionDef.xfade && clipPaths.length >= 2)
+  const xfadeDur = useXfade
+    ? Math.max(0.1, Math.min(2.0, (sidecar as any).transition_duration || 0.5))
+    : 0
+
+  job.output_lines.push(
+    `Motion: mode=${motionMode}${motionMode === 'fixed' ? ` (${motionDefault})` : ` pool=[${motionPool.join(',')}]`}`,
+  )
+  if (useXfade) {
+    job.output_lines.push(`Transitions: ${transitionDef!.label} (${xfadeDur}s xfade between every clip)`)
+  } else if (transitionId !== 'none') {
+    job.output_lines.push(`Transitions: requested "${transitionId}" but falling back to hard cuts (single-clip episode or unknown id).`)
+  } else {
+    job.output_lines.push(`Transitions: hard cuts (no xfade)`)
+  }
+
   // ── Build the filtergraph ──────────────────────────────────────────
   //
-  // Video chain (always):
-  //   [N:v] trim=duration=Tn,setpts=PTS-STARTPTS,
-  //         scale=1920:1080:force_original_aspect_ratio=decrease,
-  //         pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1 [vN]
-  //   concat=n=N:v=1:a=0 -> [vbase]
-  //   [vbase] subtitles='...' -> [vout]   (only when an SRT exists)
+  // Per-clip preparation (always): trim → motion filter → fps lock →
+  //                                 setsar → produce label [vN].
   //
-  // Audio chain (broll_volume == 0):
-  //   maps narration input directly — no filtergraph audio work.
+  // Stitch — two paths:
+  //   useXfade=false → concat=n=N:v=1:a=0 → [vbase]
+  //   useXfade=true  → xfade chain: pairwise xfade with running offset.
+  //                    Each xfade's offset = sum(prior clip durations) - xfadeDur
+  //                    Output of pair = (sum of prior durations) - xfadeDur,
+  //                    so the next xfade's offset uses the chained label.
   //
-  // Audio chain (broll_volume > 0):
-  //   per clip with audio:  [N:a] atrim=duration=D,asetpts=PTS-STARTPTS [aN]
-  //   per clip without:     anullsrc=cl=stereo:r=44100,atrim=duration=D [aN]
-  //   concat audio:         [a0][a1]...[aN] concat=n=N:v=0:a=1 [aconcat]
-  //   duck:                 [aconcat] volume=VOL [aducked]
-  //   mix in narration:     [aducked][narration_a] amix=inputs=2:duration=longest:dropout_transition=0 [aout]
+  // Then: [vbase] subtitles='…' → [vout]   (only when an SRT exists)
   const targetFps = pool.fps_target
   const filterParts: string[] = []
   for (let i = 0; i < clipPaths.length; i++) {
     const c = clipPaths[i]!
+    const motionFilter = buildBrollMotion({ motion: perSegmentMotion[i]!, duration: c.duration })
     filterParts.push(
       `[${i}:v]trim=duration=${c.duration},setpts=PTS-STARTPTS,` +
-      `scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,` +
-      `pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=${targetFps},setsar=1[v${i}]`,
+      `${motionFilter},fps=${targetFps},setsar=1[v${i}]`,
     )
   }
-  const concatLabels = clipPaths.map((_, i) => `[v${i}]`).join('')
-  // Pick the final video label — adds a subtitles step when a sub file exists.
-  let finalVideoLabel = '[vout]'
-  if (subPath) {
-    filterParts.push(`${concatLabels}concat=n=${clipPaths.length}:v=1:a=0[vbase]`)
-    filterParts.push(`[vbase]subtitles='${escapeForSubtitlesFilter(subPath)}'[vout]`)
+
+  // Pre-subtitle stitch label.
+  let stitchLabel: string
+  if (useXfade) {
+    // Build an n-way xfade chain. Output of each step replaces the previous
+    // base. Offsets are cumulative in the OUTPUT timeline (not the source
+    // timeline) — that's why xfadeDur is subtracted at each step.
+    let prevLabel = '[v0]'
+    let cumulativeOutDur = clipPaths[0]!.duration
+    for (let i = 1; i < clipPaths.length; i++) {
+      const outLabel = (i === clipPaths.length - 1) ? '[vxfade_final]' : `[vxfade${i}]`
+      const offset = (cumulativeOutDur - xfadeDur).toFixed(3)
+      filterParts.push(
+        `${prevLabel}[v${i}]xfade=transition=${transitionDef!.xfade}:duration=${xfadeDur}:offset=${offset}${outLabel}`,
+      )
+      cumulativeOutDur = cumulativeOutDur + clipPaths[i]!.duration - xfadeDur
+      prevLabel = outLabel
+    }
+    stitchLabel = '[vxfade_final]'
   } else {
-    filterParts.push(`${concatLabels}concat=n=${clipPaths.length}:v=1:a=0[vout]`)
+    const concatLabels = clipPaths.map((_, i) => `[v${i}]`).join('')
+    filterParts.push(`${concatLabels}concat=n=${clipPaths.length}:v=1:a=0[vstitched]`)
+    stitchLabel = '[vstitched]'
+  }
+
+  // Final video label — subtitle burn-in if present.
+  let finalVideoLabel = stitchLabel
+  if (subPath) {
+    filterParts.push(`${stitchLabel}subtitles='${escapeForSubtitlesFilter(subPath)}'[vout]`)
+    finalVideoLabel = '[vout]'
   }
 
   const narrationInputIdx = clipPaths.length // first non-clip input

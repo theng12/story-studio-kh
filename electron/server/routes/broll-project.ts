@@ -92,6 +92,15 @@ router.post('/projects/:slug/broll/pick', async (req, res) => {
       pacing_mode = 'rotate',
       segment_seconds = 8,
       broll_lookback,
+      // v1.0.89+ — manual picks + motion + transition settings. All
+      // optional; when absent the renderer falls back to static no-
+      // transition output matching the v1.0.88 behaviour.
+      manual_selection,        // Array<{ filename, target_duration }>
+      motion_mode,             // 'fixed' | 'rotate' | 'random'
+      motion_default,          // 'static' | 'zoom-in' | ...
+      motion_pool,             // string[] when motion_mode is rotate/random
+      transition_id,           // 'none' | 'crossfade' | ... (TransitionDef id)
+      transition_duration,     // 0.1 - 2.0 seconds
     } = req.body || {}
 
     if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
@@ -135,22 +144,58 @@ router.post('/projects/:slug/broll/pick', async (req, res) => {
       ? Array.from(new Set(usageLog.slice(-effectiveLookback).map(e => e.clip_sha)))
       : []
 
-    const result = selectBroll({
-      pool: clips.map(c => ({
-        filename: c.filename,
-        duration: c.duration,
-        sha256: c.sha256,
-        tags: c.tags || [],
-        normalized: c.normalized,
-        missing: c.missing,
-      })),
-      target_duration: narrationSec,
-      selection_mode,
-      tags,
-      pacing_mode,
-      segment_seconds,
-      exclude_shas: recentShas,
-    })
+    // Manual mode short-circuits the selector entirely — the caller has
+    // already chosen the clips + per-clip durations in the UI. We still
+    // validate every filename exists in the pool so a typo or stale
+    // sidecar can't blow up the assembly run later. Repeat-avoidance is
+    // user's call in manual mode; we don't second-guess it.
+    let result: { selection: any[]; warnings: string[]; pool_size_after_filter: number }
+    if (selection_mode === 'manual' && Array.isArray(manual_selection) && manual_selection.length) {
+      const bySha = new Map(clips.map(c => [c.filename, c]))
+      const valid: any[] = []
+      const missing: string[] = []
+      for (const entry of manual_selection) {
+        const c = bySha.get(entry.filename)
+        if (!c) { missing.push(entry.filename); continue }
+        const requested = typeof entry.target_duration === 'number'
+          ? Math.max(0.5, Math.min(c.duration, entry.target_duration))
+          : Math.min(c.duration, 15)
+        valid.push({ filename: c.filename, sha256: c.sha256, target_duration: requested })
+      }
+      const warnings: string[] = []
+      if (missing.length) warnings.push(`Skipped ${missing.length} clip(s) not present in the pool: ${missing.slice(0, 5).join(', ')}`)
+      result = { selection: valid, warnings, pool_size_after_filter: clips.length }
+    } else {
+      result = selectBroll({
+        pool: clips.map(c => ({
+          filename: c.filename,
+          duration: c.duration,
+          sha256: c.sha256,
+          tags: c.tags || [],
+          normalized: c.normalized,
+          missing: c.missing,
+        })),
+        target_duration: narrationSec,
+        selection_mode,
+        tags,
+        pacing_mode,
+        segment_seconds,
+        exclude_shas: recentShas,
+      })
+    }
+
+    // Validate motion settings. Unknown ids fall back to 'static' rather
+    // than failing the call — selector behaviour shouldn't gate on a
+    // typo in a UI setting.
+    const validMotions = new Set(['static', 'zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down'])
+    const safeMotion = (s: any): string => (typeof s === 'string' && validMotions.has(s)) ? s : 'static'
+    const safeMotionMode = (motion_mode === 'rotate' || motion_mode === 'random') ? motion_mode : 'fixed'
+    const safeMotionPool = Array.isArray(motion_pool)
+      ? motion_pool.map(safeMotion).filter((m: string) => m !== 'static' || motion_pool.length === 1)
+      : ['static']
+    const safeTransitionDur = typeof transition_duration === 'number'
+      ? Math.max(0.1, Math.min(2.0, transition_duration))
+      : 0.5
 
     await saveSelectionSidecar(slug, episode_id, title, {
       schema_version: 1,
@@ -165,6 +210,11 @@ router.post('/projects/:slug/broll/pick', async (req, res) => {
       target_duration: narrationSec,
       generated_at: new Date().toISOString(),
       warnings: result.warnings,
+      motion_mode: safeMotionMode,
+      motion_default: safeMotion(motion_default),
+      motion_pool: safeMotionPool.length ? safeMotionPool : ['static'],
+      transition_id: typeof transition_id === 'string' ? transition_id : 'none',
+      transition_duration: safeTransitionDur,
     })
 
     res.json({

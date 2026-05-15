@@ -30,6 +30,33 @@ export interface BrollSelectionSidecar {
   generated_at: string
   /** Any soft warnings the selector returned ("pool too small", etc.). */
   warnings?: string[]
+
+  /**
+   * v1.0.89+: per-episode motion + transition settings. Stored on the
+   * selection sidecar so the picker UI and the renderer agree on the
+   * exact treatment for this episode, even if the project-level
+   * defaults change later.
+   *
+   * `motion_mode = 'fixed'` → every segment uses `motion_default`.
+   * `motion_mode = 'rotate'` → each segment cycles through `motion_pool`
+   *                           in deterministic order (seeded by clip
+   *                           index). Pool can include 'static' to
+   *                           interleave still segments with moving ones.
+   * `motion_mode = 'random'` → same as rotate but with a random pick
+   *                           per segment.
+   */
+  motion_mode?: 'fixed' | 'rotate' | 'random'
+  motion_default?: string  // BrollMotion id; 'static' when no animation
+  motion_pool?: string[]   // used by 'rotate' + 'random'
+  /**
+   * Cross-clip transition. 'none' = hard cut between segments (cheapest
+   * render, cleanest cadence). Any TransitionDef id from
+   * models/transitions.ts is valid here — most prayer/devotional
+   * channels stick to 'crossfade' or 'fade-fast' at 0.5-1s duration.
+   */
+  transition_id?: string
+  /** Duration of each transition in seconds. Clamped 0.1-2.0 at render. */
+  transition_duration?: number
 }
 
 function sidecarPath(episodeDir: string): string {

@@ -158,6 +158,171 @@
       </div>
     </section>
 
+    <!-- ── Manual clip picker ────────────────────────────────────────
+         Mounts only when selection_mode === 'manual'. Two columns:
+         left = full pool grid (click a tile to add to the sequence),
+         right = ordered sequence with up/down reorder + remove + per-
+         clip target_duration input. Live total tracks against narration
+         target. v1.0.89+. -->
+    <section v-if="subscribedPool && form.selection_mode === 'manual'" class="card mt-3">
+      <h3>3. Manual clip selection</h3>
+      <p class="hint">
+        Click a tile in the pool to add it to your sequence. Reorder with the ▲ ▼ buttons; remove
+        with ✕. Each clip plays for its native duration by default — type a different number to
+        loop short clips or trim long ones. The total duration target is your narration length
+        ({{ formatDuration(narrationTargetSec) || '—' }}); pick clips until the cumulative duration
+        covers it.
+      </p>
+
+      <div class="manual-layout">
+        <div class="manual-pool">
+          <div class="manual-pool-header">
+            Pool ({{ clipsInPool.length }} clips)
+            <input
+              v-model="manualPoolFilter"
+              class="input input-sm"
+              placeholder="filter by tag / filename"
+            />
+          </div>
+          <div class="manual-pool-grid">
+            <button
+              v-for="clip in filteredManualPool"
+              :key="clip.filename"
+              type="button"
+              class="manual-tile"
+              :class="{ used: manualSelection.some(m => m.filename === clip.filename) }"
+              :title="`${clip.filename} · ${formatDuration(clip.duration)}\nTags: ${(clip.tags || []).join(', ') || '(none)'}`"
+              @click="addToManualSelection(clip)"
+            >
+              <img :src="thumbnailUrl(subscribedPoolId, clip.filename)" :alt="clip.filename" class="manual-thumb" />
+              <span class="manual-tile-name">{{ clip.filename }}</span>
+              <span class="manual-tile-dur">{{ formatDuration(clip.duration) }}</span>
+              <span v-if="manualSelection.some(m => m.filename === clip.filename)" class="manual-tile-badge">
+                ✓ {{ manualSelection.filter(m => m.filename === clip.filename).length }}×
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div class="manual-sequence">
+          <div class="manual-sequence-header">
+            Sequence ({{ manualSelection.length }} clips · {{ formatDuration(manualTotalSec) }})
+            <span :class="['manual-total-pill', manualCoverageClass]" :title="manualCoverageTitle">
+              {{ narrationTargetSec ? `${Math.round((manualTotalSec / narrationTargetSec) * 100)}%` : '—' }}
+              of narration
+            </span>
+          </div>
+          <div v-if="!manualSelection.length" class="manual-empty">
+            Click clips on the left to start building your sequence.
+          </div>
+          <ol v-else class="manual-list">
+            <li v-for="(m, idx) in manualSelection" :key="`${m.filename}-${idx}`" class="manual-row">
+              <img :src="thumbnailUrl(subscribedPoolId, m.filename)" :alt="m.filename" class="manual-row-thumb" />
+              <div class="manual-row-body">
+                <span class="manual-row-name" :title="m.filename">{{ m.filename }}</span>
+                <div class="manual-row-controls">
+                  <label class="text-xs text-muted">Play for</label>
+                  <input
+                    v-model.number="m.target_duration"
+                    type="number"
+                    min="0.5"
+                    :max="poolDurationFor(m.filename)"
+                    step="0.5"
+                    class="input input-sm input-inline"
+                  />
+                  <span class="text-xs text-muted">s · native {{ formatDuration(poolDurationFor(m.filename)) }}</span>
+                </div>
+              </div>
+              <div class="manual-row-actions">
+                <button class="btn btn-ghost btn-sm" :disabled="idx === 0" :title="'Move up'" @click="reorderManual(idx, -1)">▲</button>
+                <button class="btn btn-ghost btn-sm" :disabled="idx === manualSelection.length - 1" :title="'Move down'" @click="reorderManual(idx, 1)">▼</button>
+                <button class="btn btn-ghost btn-sm" :title="'Remove'" @click="manualSelection.splice(idx, 1)">✕</button>
+              </div>
+            </li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Motion + transitions ──────────────────────────────────────
+         Per-episode camera-move (zoom / pan / static) + clip-to-clip
+         transition. Two registers: a single fixed motion vs a pool that
+         rotates per segment. Transitions are global (one xfade between
+         every clip pair) at v1.0.89; per-segment transition overrides
+         can ship in a follow-up if useful. v1.0.89+. -->
+    <section v-if="subscribedPool" class="card mt-3">
+      <h3>4. Camera motion + transitions</h3>
+      <div class="grid-2">
+        <div class="form-group">
+          <label>Per-clip motion</label>
+          <div class="radio-row">
+            <label><input type="radio" value="fixed" v-model="form.motion_mode" /> Fixed — same motion on every clip</label>
+            <label><input type="radio" value="rotate" v-model="form.motion_mode" /> Rotate — cycle through a pool</label>
+            <label><input type="radio" value="random" v-model="form.motion_mode" /> Random — pick from pool per clip</label>
+          </div>
+          <span class="hint">
+            <strong>Fixed</strong> is the calmest — one quiet zoom across the whole episode.
+            <strong>Rotate</strong> + <strong>Random</strong> give variety; pair with the static
+            option in the pool to interleave still segments with moving ones for a natural rhythm.
+          </span>
+
+          <div v-if="form.motion_mode === 'fixed'" class="mt-2">
+            <label class="text-xs text-muted">Motion</label>
+            <select v-model="form.motion_default" class="select select-sm">
+              <option v-for="m in motionOptions" :key="m.id" :value="m.id">{{ m.label }} — {{ m.hint }}</option>
+            </select>
+          </div>
+
+          <div v-else class="mt-2">
+            <label class="text-xs text-muted">Motion pool (pick at least 1)</label>
+            <div class="motion-pool-grid">
+              <label v-for="m in motionOptions" :key="m.id" class="motion-pool-chip" :class="{ active: form.motion_pool.includes(m.id) }">
+                <input type="checkbox" :value="m.id" v-model="form.motion_pool" />
+                {{ m.label }}
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Transition between clips</label>
+          <select v-model="form.transition_id" class="select">
+            <option value="none">Hard cut (no transition) — cheapest render</option>
+            <optgroup label="Crossfade">
+              <option value="crossfade">Crossfade — classic blend</option>
+              <option value="fade-fast">Crossfade (fast) — snappy</option>
+              <option value="fade-slow">Crossfade (slow) — deliberate drift</option>
+              <option value="fade-black">Fade through black</option>
+              <option value="fade-white">Fade through white</option>
+              <option value="dissolve">Dissolve — grainy</option>
+            </optgroup>
+            <optgroup label="Wipe">
+              <option value="wipe-left">Wipe left</option>
+              <option value="wipe-right">Wipe right</option>
+              <option value="smooth-left">Smooth wipe left</option>
+              <option value="smooth-right">Smooth wipe right</option>
+            </optgroup>
+            <optgroup label="Slide">
+              <option value="slide-left">Slide left</option>
+              <option value="slide-right">Slide right</option>
+            </optgroup>
+            <optgroup label="Shape">
+              <option value="circle-open">Circle open</option>
+              <option value="circle-close">Circle close</option>
+            </optgroup>
+          </select>
+          <div v-if="form.transition_id !== 'none'" class="mt-2">
+            <label class="text-xs text-muted">Transition length (seconds)</label>
+            <input v-model.number="form.transition_duration" type="number" min="0.1" max="2" step="0.1" class="input input-sm input-inline" />
+            <span class="hint">
+              0.3–0.6s reads as deliberate; 0.8–1.5s feels meditative. Longer transitions also shorten
+              the final video — total = sum(clip durations) − (n−1) × transition length.
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ── Selected sequence preview ──────────────────────────────── -->
     <section v-if="selection.length" class="card mt-3">
       <h3>3. Selected sequence ({{ selection.length }} clips · {{ formatDuration(selectionDuration) }})</h3>
@@ -214,6 +379,72 @@ const form = reactive({
   segment_seconds: 8,
   broll_volume: 0,
   broll_lookback: 10,
+  // v1.0.89+ motion + transitions
+  motion_mode: 'fixed' as 'fixed' | 'rotate' | 'random',
+  motion_default: 'static' as 'static' | 'zoom-in' | 'zoom-out' | 'pan-left' | 'pan-right' | 'pan-up' | 'pan-down',
+  motion_pool: ['static', 'zoom-in', 'pan-right'] as string[],
+  transition_id: 'crossfade' as string,
+  transition_duration: 0.5,
+})
+
+// Motion catalogue (UI source — mirrors lib/broll-motion.ts BROLL_MOTIONS).
+const motionOptions = [
+  { id: 'static',    label: 'Static',        hint: 'No camera move' },
+  { id: 'zoom-in',   label: 'Slow Zoom In',  hint: 'Subtle push toward subject' },
+  { id: 'zoom-out',  label: 'Slow Zoom Out', hint: 'Subtle pull-back reveal' },
+  { id: 'pan-left',  label: 'Pan Left',      hint: 'Drift left' },
+  { id: 'pan-right', label: 'Pan Right',     hint: 'Drift right' },
+  { id: 'pan-up',    label: 'Pan Up',        hint: 'Drift upward' },
+  { id: 'pan-down',  label: 'Pan Down',      hint: 'Drift downward' },
+]
+
+// Manual selection state: ordered list of {filename, target_duration}.
+const manualSelection = ref<Array<{ filename: string; target_duration: number }>>([])
+const manualPoolFilter = ref('')
+const narrationTargetSec = ref<number>(0)
+
+function poolDurationFor(filename: string): number {
+  return clipsInPool.value.find(c => c.filename === filename)?.duration || 0
+}
+
+function addToManualSelection(clip: any): void {
+  const dur = Math.min(clip.duration, 15) // default per-clip cap matches rotate-mode default
+  manualSelection.value.push({ filename: clip.filename, target_duration: Math.max(0.5, dur) })
+}
+function reorderManual(idx: number, delta: -1 | 1): void {
+  const next = idx + delta
+  if (next < 0 || next >= manualSelection.value.length) return
+  const a = manualSelection.value[idx]!
+  const b = manualSelection.value[next]!
+  manualSelection.value[idx] = b
+  manualSelection.value[next] = a
+}
+
+const filteredManualPool = computed(() => {
+  const q = manualPoolFilter.value.trim().toLowerCase()
+  if (!q) return clipsInPool.value
+  return clipsInPool.value.filter(c =>
+    c.filename.toLowerCase().includes(q) ||
+    (c.tags || []).some((t: string) => t.toLowerCase().includes(q)),
+  )
+})
+
+const manualTotalSec = computed(() =>
+  manualSelection.value.reduce((s, m) => s + (m.target_duration || 0), 0),
+)
+const manualCoverageClass = computed(() => {
+  if (!narrationTargetSec.value) return 'is-neutral'
+  const pct = manualTotalSec.value / narrationTargetSec.value
+  if (pct < 0.9) return 'is-short'
+  if (pct > 1.2) return 'is-long'
+  return 'is-good'
+})
+const manualCoverageTitle = computed(() => {
+  if (!narrationTargetSec.value) return 'Pick an episode to see narration duration'
+  const pct = (manualTotalSec.value / narrationTargetSec.value) * 100
+  if (pct < 90) return `Sequence is shorter than narration — final video will end at ${formatDuration(manualTotalSec.value)} not ${formatDuration(narrationTargetSec.value)}.`
+  if (pct > 120) return `Sequence exceeds narration by ${formatDuration(manualTotalSec.value - narrationTargetSec.value)}. Excess gets trimmed at render time.`
+  return `Good coverage — sequence matches narration length.`
 })
 
 const matchingClipCount = computed(() => {
@@ -292,18 +523,38 @@ async function saveSubscription(): Promise<void> {
 
 async function pickClips(): Promise<void> {
   if (!subscribedPoolId.value || !form.episode_id || picking.value) return
+  // Manual mode requires at least one picked clip on the client.
+  if (form.selection_mode === 'manual' && manualSelection.value.length === 0) {
+    showError('Manual mode — pick at least one clip in the sequence first.')
+    return
+  }
   picking.value = true
   try {
-    const r = await post<{ selection: typeof selection.value }>(`/projects/${slug.value}/broll/pick`, {
-      episode_id: form.episode_id,
-      pool_id: subscribedPoolId.value,
-      selection_mode: form.selection_mode,
-      tags: form.tags,
-      pacing_mode: form.pacing_mode,
-      segment_seconds: form.segment_seconds,
-      broll_lookback: form.broll_lookback,
-    })
+    const r = await post<{ selection: typeof selection.value; target_duration?: number; warnings?: string[] }>(
+      `/projects/${slug.value}/broll/pick`,
+      {
+        episode_id: form.episode_id,
+        pool_id: subscribedPoolId.value,
+        selection_mode: form.selection_mode,
+        tags: form.tags,
+        pacing_mode: form.pacing_mode,
+        segment_seconds: form.segment_seconds,
+        broll_lookback: form.broll_lookback,
+        broll_volume: form.broll_volume,
+        // v1.0.89+ — manual + motion + transition payload
+        ...(form.selection_mode === 'manual' ? { manual_selection: manualSelection.value } : {}),
+        motion_mode: form.motion_mode,
+        motion_default: form.motion_default,
+        motion_pool: form.motion_pool.length ? form.motion_pool : ['static'],
+        transition_id: form.transition_id,
+        transition_duration: form.transition_duration,
+      },
+    )
     selection.value = r.selection || []
+    narrationTargetSec.value = r.target_duration || 0
+    if (r.warnings?.length) {
+      for (const w of r.warnings) showError(w)
+    }
     success(`Selected ${selection.value.length} clip(s) for ${form.episode_id}`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Selection failed')
@@ -405,4 +656,105 @@ function formatDuration(sec: number): string {
 }
 
 .seq-actions { display: flex; gap: 8px; }
+
+/* ── Manual selection grid + sequence list ───────────────────────── */
+.manual-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 8px;
+}
+.manual-pool, .manual-sequence {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  min-height: 240px;
+  max-height: 500px;
+  overflow: auto;
+}
+.manual-pool-header, .manual-sequence-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 12px; font-weight: 600; margin-bottom: 8px;
+}
+.manual-pool-header .input-sm { width: 160px; }
+.manual-pool-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+}
+.manual-tile {
+  position: relative;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0; overflow: hidden;
+  cursor: pointer;
+  font: inherit; text-align: left; color: inherit;
+  display: flex; flex-direction: column;
+}
+.manual-tile:hover { border-color: var(--accent, #6c8fff); }
+.manual-tile.used { opacity: 0.6; border-style: dashed; }
+.manual-thumb { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; }
+.manual-tile-name {
+  padding: 3px 5px 0;
+  font-size: 9px; line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-primary);
+}
+.manual-tile-dur {
+  padding: 0 5px 3px;
+  font-size: 9px; color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+}
+.manual-tile-badge {
+  position: absolute; top: 4px; right: 4px;
+  background: rgba(34,197,94,0.85); color: #fff;
+  padding: 1px 5px; border-radius: 3px; font-size: 9px; font-weight: 600;
+}
+
+.manual-empty {
+  padding: 24px 8px; text-align: center;
+  font-size: 12px; color: var(--text-muted);
+}
+.manual-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.manual-row {
+  display: flex; gap: 8px; align-items: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px;
+}
+.manual-row-thumb { width: 60px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 3px; flex-shrink: 0; }
+.manual-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.manual-row-name { font-size: 11px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.manual-row-controls { display: flex; align-items: center; gap: 4px; }
+.manual-row-actions { display: flex; gap: 2px; flex-direction: column; }
+.manual-row-actions .btn { padding: 1px 6px; font-size: 11px; }
+
+.manual-total-pill {
+  font-size: 11px; padding: 2px 8px; border-radius: 10px;
+  font-family: var(--font-mono, monospace);
+}
+.manual-total-pill.is-short { background: rgba(245, 158, 11, 0.12); color: rgb(180, 120, 8); }
+.manual-total-pill.is-good  { background: rgba(34, 197, 94, 0.12); color: rgb(21, 128, 61); }
+.manual-total-pill.is-long  { background: rgba(108, 143, 255, 0.12); color: var(--accent, #6c8fff); }
+.manual-total-pill.is-neutral { background: var(--bg-tertiary); color: var(--text-muted); }
+
+/* ── Motion pool chip picker ──────────────────────────────────────── */
+.motion-pool-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 4px;
+}
+.motion-pool-chip {
+  display: flex; align-items: center; gap: 4px;
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.motion-pool-chip.active { background: rgba(108, 143, 255, 0.12); border-color: var(--accent, #6c8fff); color: var(--accent, #6c8fff); font-weight: 600; }
+.motion-pool-chip input { margin: 0; }
+
+.select-sm { font-size: 12px; padding: 3px 6px; }
 </style>
