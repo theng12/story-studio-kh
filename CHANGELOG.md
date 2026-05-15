@@ -4,6 +4,43 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.96 — 2026-05-16
+
+**Niche / Pattern hierarchy now reads top-down on the Ideas Generator**
+
+The three layers of control that drive idea generation —
+
+- **Layer 1 · Format** (`what shape of video`: sleep-story / broll-narration / listicle / bound-explainer)
+- **Layer 2 · Niche** (`what subject domain`: prayer / motivation / plants)
+- **Layer 3 · Pattern** (`specific title template`: "Fall asleep to {X}")
+
+— should read top-down in the form too. v1.0.96 swaps the Pattern picker and Niche picker on the Ideas Generator so Niche sits above Pattern. Niche is broader (filters the entire prompt's vocab + example bar + title shape rules); Pattern is narrower (locks the title template within that niche). The previous order had Pattern first, which made the picker feel like Pattern was the more dominant control — opposite of how the resolution actually works.
+
+**Niche library merged into Settings → Niche**
+
+There were two separate niche surfaces:
+
+- The **sidebar /niches page** — full library: browse all niches, view example topics + script context + visual style, create custom niches, delete custom niches.
+- The **Settings → Niche tab** — read-only picker: pick one niche to assign to the current project.
+
+Both gone as separate surfaces. The Niche tab inside Settings now has two sub-tabs:
+
+- **Project niche** — the picker + Save flow (same as before).
+- **Niche library** — the full browse / create custom / delete custom flow (moved over from the sidebar page). Each tile shows: name + tagline + description, example topics, vocabulary stats, title-rule count, generator context, plus a "Use on this project" button that flips the picker over in one click.
+
+The sidebar's "🌽 Niches" link is gone. Old bookmarks/deep-links to `/niches` land on a friendly "moved" stub that points back at the projects list. One source for niche stuff: each project's Settings.
+
+**Niche tile shows v1.0.95 title rule count**
+
+Each niche card in the library now shows how many `titleShapeRules` it ships with (e.g. `21 title rules` for prayer, `16` for devotional). Custom niches with no rules show no badge — that's fine, the format defaults still drive the prompt. Useful for spotting at a glance which niches are "strict" vs "lenient" without opening the JSON.
+
+**Audit pass**
+- `tsc -p electron --noEmit`: 0 errors.
+- `cd frontend && npx nuxt build`: clean.
+- All routes resolve; `/niches` deep-link lands on the moved-stub page.
+
+---
+
 ## v1.0.95 — 2026-05-16
 
 **Architectural refactor: every format and niche now owns its own LLM prompt shape**

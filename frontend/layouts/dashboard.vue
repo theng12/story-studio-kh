@@ -153,9 +153,10 @@
         <NuxtLink to="/broll-library" class="nav-item" active-class="active" title="App-level B-Roll pool library. Register a folder (typically your portable SSD) holding stock footage clips. Indexes, thumbnails, tags, and optional 1080p normalize for fast video assembly.">
           <span class="nav-icon">&#127909;</span> B-Roll Library
         </NuxtLink>
-        <NuxtLink to="/niches" class="nav-item" active-class="active" title="Subject-domain library — plants, animals, fungi, insects, and your own custom niches. Layered onto any project format.">
-          <span class="nav-icon">&#127807;</span> Niches
-        </NuxtLink>
+        <!-- v1.0.96+ — Niches sidebar link removed. The full niche library
+             (browse / create custom / delete custom) now lives inside each
+             project's Settings → Niche tab as a sub-tab. One place for
+             niche stuff instead of two. -->
         <NuxtLink to="/" class="nav-item">
           <span class="nav-icon">&#8592;</span> All Projects
         </NuxtLink>

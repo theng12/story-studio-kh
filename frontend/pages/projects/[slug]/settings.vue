@@ -396,43 +396,207 @@
     </div>
 
     <!-- v1.0.93+ Niche tab — promoted out of Format so it's findable from
-         the top-level tabs. Same NichePicker + save flow as before;
-         physically separated only. -->
+         the top-level tabs. v1.0.96+ — also absorbs the standalone
+         `/niches` sidebar page (browse / create custom / delete custom)
+         so all niche-related stuff lives in one place. Sub-tabs:
+           1. Project niche       — pick the niche this project uses
+           2. Niche library       — browse all built-in + custom; create custom -->
     <div v-if="activeTab === 'niche'" class="card mt-2">
       <div class="format-tab-header">
         <div>
           <h3>Niche</h3>
           <p class="text-muted mt-1 mb-2">
-            Subject-domain layer — orthogonal to Format. Pick the topic area
-            this project covers (prayer, devotional, motivation, plants,
-            animals, fungi, insects, or your own custom niche). The niche
-            layers vocab, example titles, visual style, and YouTube tag hints
-            onto every generator without changing the format itself.
+            Subject-domain layer — orthogonal to Format. Format decides
+            <em>what shape</em> the video takes (sleep-story, broll-narration,
+            listicle); niche decides <em>what subject</em> it covers (prayer,
+            motivation, plants, your own). Generators read both at runtime
+            and layer the niche's vocabulary, title rules, visual style, and
+            YouTube tag hints on top of the format's defaults.
             <strong>Niche is optional</strong> — leave empty for format-default behavior.
           </p>
         </div>
-        <NuxtLink to="/niches" class="btn btn-secondary btn-sm">
-          Browse niches
-        </NuxtLink>
       </div>
 
-      <NichePicker v-model="nicheId" @change="onNicheChanged" />
-
-      <div class="mt-3 button-row">
-        <button class="btn btn-primary" :disabled="nicheSaving || !nicheDirty" @click="saveNicheSettings">
-          {{ nicheSaving ? 'Saving…' : 'Save niche settings' }}
-        </button>
-        <SaveIndicator v-bind="savedHintProps('niche')" />
-        <span v-if="nicheSaveError" class="text-error">{{ nicheSaveError }}</span>
+      <div class="sub-tabs mt-3">
+        <button
+          :class="['sub-tab', { active: nicheSubTab === 'project' }]"
+          @click="nicheSubTab = 'project'"
+        >Project niche</button>
+        <button
+          :class="['sub-tab', { active: nicheSubTab === 'library' }]"
+          @click="nicheSubTab = 'library'"
+        >Niche library <span class="sub-tab-count">· {{ nicheLibraryCount }}</span></button>
       </div>
 
-      <p class="text-muted text-xs mt-3">
-        <strong>Pro tip:</strong> picking a niche here locks every Ideas / Script / Metadata
-        generation on this project to that subject domain. To override for a single batch
-        without changing this saved value, use the Niche picker inside the
-        <NuxtLink :to="`/projects/${slug}/ideas`" class="link">Ideas Generator</NuxtLink>.
-      </p>
+      <!-- ── Sub-tab 1: Project niche picker ───────────────────────── -->
+      <div v-if="nicheSubTab === 'project'" class="sub-tab-body">
+        <h4 class="sub-tab-section-title">Pick the niche this project uses</h4>
+        <NichePicker v-model="nicheId" @change="onNicheChanged" />
+
+        <div class="mt-3 button-row">
+          <button class="btn btn-primary" :disabled="nicheSaving || !nicheDirty" @click="saveNicheSettings">
+            {{ nicheSaving ? 'Saving…' : 'Save niche settings' }}
+          </button>
+          <SaveIndicator v-bind="savedHintProps('niche')" />
+          <span v-if="nicheSaveError" class="text-error">{{ nicheSaveError }}</span>
+        </div>
+
+        <p class="text-muted text-xs mt-3">
+          <strong>Pro tip:</strong> picking a niche here locks every Ideas / Script / Metadata
+          generation on this project to that subject domain. To override for a single batch
+          without changing this saved value, use the Niche picker inside the
+          <NuxtLink :to="`/projects/${slug}/ideas`" class="link">Ideas Generator</NuxtLink>.
+        </p>
+        <p class="text-muted text-xs mt-1">
+          Need to add a new niche? Switch to the <strong>Niche library</strong> sub-tab above.
+        </p>
+      </div>
+
+      <!-- ── Sub-tab 2: Niche library (browse + create + delete) ─────── -->
+      <div v-if="nicheSubTab === 'library'" class="sub-tab-body">
+        <div class="niche-library-header">
+          <h4 class="sub-tab-section-title">Niche library</h4>
+          <button
+            class="btn btn-primary btn-sm"
+            :disabled="nicheCreateBusy"
+            @click="openNicheCreator"
+          >+ Create custom niche</button>
+        </div>
+        <p class="text-muted text-sm">
+          All built-in + custom niches available on this machine. Built-in niches
+          are read-only (shipped with the app). Custom niches are stored under your
+          user data dir and can be deleted if no project still references them.
+        </p>
+
+        <div v-if="nicheLibLoading" class="muted mt-3">Loading niches…</div>
+        <div v-else-if="nicheLibError" class="error-box mt-3">{{ nicheLibError }}</div>
+        <div v-else-if="!nicheLibList.length" class="empty-box mt-3">
+          No niches found. Create your first custom niche, or restore the built-ins
+          by reinstalling the app.
+        </div>
+
+        <div v-else class="niche-lib-grid mt-3">
+          <article
+            v-for="n in nicheLibList"
+            :key="n.id"
+            class="niche-lib-tile"
+            :class="{ 'tile-builtin': n.builtin, 'tile-custom': !n.builtin, 'tile-active': n.id === nicheId }"
+          >
+            <div class="tile-header">
+              <h5>{{ n.name }}</h5>
+              <span v-if="n.id === nicheId" class="badge badge-active">project niche</span>
+              <span v-if="!n.builtin" class="badge badge-custom">custom</span>
+              <span v-else class="badge badge-builtin">built-in</span>
+            </div>
+            <p v-if="n.tagline" class="tile-tagline">{{ n.tagline }}</p>
+            <p class="tile-description">{{ n.description }}</p>
+            <div class="tile-stats">
+              <span><strong>{{ n.exampleTopics.length }}</strong> example {{ n.exampleTopics.length === 1 ? 'topic' : 'topics' }}</span>
+              <span v-if="n.vocabulary?.keyword">
+                <strong>{{ n.vocabulary.keyword.length }}</strong> keywords
+              </span>
+              <span v-if="n.titleShapeRules?.length">
+                <strong>{{ n.titleShapeRules.length }}</strong> title rules
+              </span>
+              <span v-if="n.referenceImages?.length">
+                <strong>{{ n.referenceImages.length }}</strong> refs
+              </span>
+              <span v-if="n.project_count">
+                in <strong>{{ n.project_count }}</strong> {{ n.project_count === 1 ? 'project' : 'projects' }}
+              </span>
+            </div>
+            <details class="tile-details">
+              <summary>Example topics</summary>
+              <ul class="topic-list">
+                <li v-for="t in n.exampleTopics.slice(0, 10)" :key="t">{{ t }}</li>
+                <li v-if="n.exampleTopics.length > 10" class="topic-more">+{{ n.exampleTopics.length - 10 }} more</li>
+              </ul>
+            </details>
+            <details v-if="n.visualStyleSheet || n.scriptContext" class="tile-details">
+              <summary>Generator context</summary>
+              <div v-if="n.scriptContext" class="detail-row">
+                <strong>Script:</strong> {{ n.scriptContext }}
+              </div>
+              <div v-if="n.visualStyleSheet" class="detail-row">
+                <strong>Visual:</strong> {{ n.visualStyleSheet }}
+              </div>
+              <div v-if="n.negativePromptAddendum" class="detail-row">
+                <strong>Negative:</strong> {{ n.negativePromptAddendum }}
+              </div>
+            </details>
+            <div class="tile-actions">
+              <button
+                v-if="n.id !== nicheId"
+                class="btn btn-ghost btn-sm"
+                :title="'Use this niche on the current project (still requires Save below).'"
+                @click="useNicheOnProject(n.id)"
+              >Use on this project</button>
+              <button
+                v-if="!n.builtin"
+                class="btn btn-ghost btn-sm danger"
+                :title="n.project_count ? `Can't delete — ${n.project_count} project(s) still reference this niche.` : 'Delete this custom niche.'"
+                :disabled="!!n.project_count"
+                @click="confirmDeleteNiche(n)"
+              >Delete</button>
+            </div>
+          </article>
+        </div>
+      </div>
     </div>
+
+    <!-- v1.0.96+ Create-custom-niche modal. Lives under the Niche tab now
+         (the standalone /niches sidebar page is gone). Same form fields as
+         before — id, name, tagline, description, example topics, script
+         context, visual style sheet. -->
+    <Modal
+      v-if="nicheCreateOpen"
+      :visible="nicheCreateOpen"
+      size="md"
+      labelledby="niche-create-title"
+      @close="closeNicheCreator"
+    >
+      <h3 id="niche-create-title">Create custom niche</h3>
+      <p class="text-muted text-sm mt-1 mb-2">
+        Custom niches live alongside the built-ins. Fill in the basics here;
+        you can expand example topics, add a visual style sheet, or layer in
+        title shape rules later by editing the JSON file directly.
+      </p>
+      <div class="form-group">
+        <label><strong>id</strong> <span class="text-muted text-xs">lowercase slug — letters / digits / dashes / underscores</span></label>
+        <input v-model="nicheDraft.id" class="input" placeholder="e.g. gemstones" :disabled="nicheCreateBusy" />
+      </div>
+      <div class="form-group mt-2">
+        <label><strong>name</strong> <span class="text-muted text-xs">label shown in the picker</span></label>
+        <input v-model="nicheDraft.name" class="input" placeholder="e.g. Gemstones & Minerals" :disabled="nicheCreateBusy" />
+      </div>
+      <div class="form-group mt-2">
+        <label><strong>tagline</strong> <span class="text-muted text-xs">optional one-liner shown on the niche card</span></label>
+        <input v-model="nicheDraft.tagline" class="input" placeholder="e.g. Crystalline, ancient, weirdly violent to form." :disabled="nicheCreateBusy" />
+      </div>
+      <div class="form-group mt-2">
+        <label><strong>description</strong> <span class="text-muted text-xs">2-3 sentences describing what this niche covers</span></label>
+        <textarea v-model="nicheDraft.description" class="input" rows="3" :disabled="nicheCreateBusy" />
+      </div>
+      <div class="form-group mt-2">
+        <label><strong>example topics</strong> <span class="text-muted text-xs">one per line — feeds the Ideas generator's title bar</span></label>
+        <textarea v-model="nicheDraftExampleTopicsText" class="input" rows="6" :disabled="nicheCreateBusy" placeholder="Diamond&#10;Ruby&#10;Sapphire&#10;…" />
+      </div>
+      <div class="form-group mt-2">
+        <label><strong>script context</strong> <span class="text-muted text-xs">one-line context injected into the narration system prompt</span></label>
+        <textarea v-model="nicheDraft.scriptContext" class="input" rows="2" :disabled="nicheCreateBusy" />
+      </div>
+      <div class="form-group mt-2">
+        <label><strong>visual style sheet</strong> <span class="text-muted text-xs">long-form style instructions appended to every image prompt</span></label>
+        <textarea v-model="nicheDraft.visualStyleSheet" class="input" rows="3" :disabled="nicheCreateBusy" />
+      </div>
+      <div v-if="nicheCreateError" class="error-box mt-2">{{ nicheCreateError }}</div>
+      <div class="flex gap-2 mt-3" style="justify-content: flex-end">
+        <button class="btn btn-secondary" :disabled="nicheCreateBusy" @click="closeNicheCreator">Cancel</button>
+        <button class="btn btn-primary" :disabled="nicheCreateBusy || !nicheCanCreate" @click="submitNicheCreate">
+          {{ nicheCreateBusy ? 'Creating…' : 'Create niche' }}
+        </button>
+      </div>
+    </Modal>
 
     <!-- Standards -->
     <div v-if="activeTab === 'standards'" class="card mt-2">
@@ -2769,12 +2933,25 @@ async function saveFormatSettings() {
 // (mirrors the brand association setter) so the existing /projects/:slug
 // PATCH path doesn't need to learn about a new field shape.
 
-const { setProjectNiche } = useNiches()
+// v1.0.96+ — Niche tab also absorbs the standalone /niches sidebar page
+// (browse / create custom / delete custom). One source for niche stuff.
+const {
+  setProjectNiche,
+  niches: nicheLibList,
+  isLoading: nicheLibLoading,
+  error: nicheLibError,
+  createNiche: createNicheApi,
+  deleteNiche: deleteNicheApi,
+} = useNiches()
 const nicheId = ref<string>('')
 const nicheSaving = ref(false)
 const nicheSaveError = ref('')
 const nicheIdBaseline = ref<string>('')
 const nicheDirty = computed(() => nicheId.value !== nicheIdBaseline.value)
+// Sub-tab state for the merged Niche tab. Default to 'project' (the
+// picker) since that's the common case; 'library' is for browse/create.
+const nicheSubTab = ref<'project' | 'library'>('project')
+const nicheLibraryCount = computed(() => nicheLibList.value?.length || 0)
 
 function syncNicheFromProject() {
   const m = project.value as any
@@ -2805,6 +2982,105 @@ async function saveNicheSettings() {
   } finally {
     nicheSaving.value = false
   }
+}
+
+// ── v1.0.96+ Niche library: create / delete / use-on-project ──────────
+//
+// Merged in from the standalone /niches sidebar page (now retired).
+// All three actions operate on the SAME `useNiches()` cache that the
+// NichePicker above reads from, so the picker auto-updates when the user
+// creates or deletes a custom niche without a separate refresh.
+
+const nicheCreateOpen = ref(false)
+const nicheCreateBusy = ref(false)
+const nicheCreateError = ref('')
+const nicheDraft = reactive({
+  id: '',
+  name: '',
+  tagline: '',
+  description: '',
+  scriptContext: '',
+  visualStyleSheet: '',
+})
+const nicheDraftExampleTopicsText = ref('')
+
+const nicheCanCreate = computed(() => {
+  if (!nicheDraft.id.trim()) return false
+  if (!nicheDraft.name.trim()) return false
+  if (!nicheDraft.description.trim()) return false
+  if (!nicheDraftExampleTopicsText.value.trim()) return false
+  return /^[a-z0-9][a-z0-9_-]*$/.test(nicheDraft.id.trim())
+})
+
+function openNicheCreator(): void {
+  nicheDraft.id = ''
+  nicheDraft.name = ''
+  nicheDraft.tagline = ''
+  nicheDraft.description = ''
+  nicheDraft.scriptContext = ''
+  nicheDraft.visualStyleSheet = ''
+  nicheDraftExampleTopicsText.value = ''
+  nicheCreateError.value = ''
+  nicheCreateOpen.value = true
+}
+function closeNicheCreator(): void {
+  if (nicheCreateBusy.value) return
+  nicheCreateOpen.value = false
+}
+async function submitNicheCreate(): Promise<void> {
+  if (!nicheCanCreate.value) return
+  nicheCreateBusy.value = true
+  nicheCreateError.value = ''
+  try {
+    const topics = nicheDraftExampleTopicsText.value
+      .split('\n').map(s => s.trim()).filter(Boolean)
+    await createNicheApi({
+      id: nicheDraft.id.trim(),
+      name: nicheDraft.name.trim(),
+      description: nicheDraft.description.trim(),
+      builtin: false,
+      schemaVersion: 1,
+      tagline: nicheDraft.tagline.trim() || undefined,
+      exampleTopics: topics,
+      scriptContext: nicheDraft.scriptContext.trim() || undefined,
+      visualStyleSheet: nicheDraft.visualStyleSheet.trim() || undefined,
+    })
+    success(`Created custom niche "${nicheDraft.name.trim()}"`)
+    nicheCreateOpen.value = false
+  } catch (e: any) {
+    nicheCreateError.value = e?.data?.detail || e?.message || 'Failed to create niche'
+  } finally {
+    nicheCreateBusy.value = false
+  }
+}
+
+async function confirmDeleteNiche(n: { id: string; name: string; project_count?: number }): Promise<void> {
+  if (n.project_count && n.project_count > 0) {
+    showError(`Cannot delete "${n.name}" — ${n.project_count} project(s) still reference it. Change those projects' niches first.`)
+    return
+  }
+  const ok = await ask({
+    title: `Delete niche "${n.name}"?`,
+    message: 'Removes the custom niche file from this Mac. Built-in niches cannot be deleted.',
+    confirmLabel: 'Delete niche',
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    await deleteNicheApi(n.id)
+    success(`Deleted "${n.name}"`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to delete niche')
+  }
+}
+
+/** Set the picker to this niche (still requires Save in the Project-niche
+ *  sub-tab to persist). Hops back to the Project sub-tab so the user can
+ *  immediately see the picker reflect their pick and click Save. */
+function useNicheOnProject(id: string): void {
+  nicheId.value = id
+  nicheSubTab.value = 'project'
+  success(`Selected "${id}" — click Save to apply to this project.`)
 }
 
 // (Removed: connectivity precheck state. It used to live alongside the
@@ -6165,4 +6441,123 @@ async function deleteProject() {
   flex-wrap: wrap;
 }
 .niche-moved-pointer strong { color: var(--accent, #6c8fff); }
+
+/* v1.0.96+ — Niche library inside the Settings → Niche tab. The
+   standalone /niches sidebar page used to host this; merged here so
+   all niche stuff lives under Settings. */
+.sub-tab-section-title {
+  margin: 4px 0 8px 0;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.sub-tab-count {
+  color: var(--text-muted);
+  font-weight: normal;
+  font-size: 11px;
+}
+.niche-library-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 6px;
+  margin-bottom: 4px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.niche-lib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.niche-lib-tile {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm, 4px);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.15s;
+}
+.niche-lib-tile.tile-builtin { border-left-color: var(--accent, #6c8fff); }
+.niche-lib-tile.tile-custom { border-left-color: rgba(240, 198, 116, 0.85); }
+.niche-lib-tile.tile-active {
+  background: rgba(108, 143, 255, 0.06);
+  border-color: var(--accent, #6c8fff);
+}
+.niche-lib-tile .tile-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.niche-lib-tile h5 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.niche-lib-tile .badge {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.niche-lib-tile .badge-builtin { background: rgba(108, 143, 255, 0.12); color: var(--accent, #6c8fff); }
+.niche-lib-tile .badge-custom { background: rgba(240, 198, 116, 0.14); color: rgba(240, 198, 116, 0.95); }
+.niche-lib-tile .badge-active { background: rgba(108, 143, 255, 0.20); color: var(--accent, #6c8fff); font-weight: 500; }
+.niche-lib-tile .tile-tagline {
+  margin: 0;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+.niche-lib-tile .tile-description {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.niche-lib-tile .tile-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.niche-lib-tile .tile-details summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--accent, #6c8fff);
+  user-select: none;
+}
+.niche-lib-tile .topic-list {
+  list-style: none;
+  margin: 6px 0 0 0;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.niche-lib-tile .topic-list li {
+  color: var(--text-secondary);
+}
+.niche-lib-tile .topic-more {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.niche-lib-tile .detail-row {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.niche-lib-tile .tile-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.niche-lib-tile .btn.danger { color: var(--error, #e25c5c); }
 </style>

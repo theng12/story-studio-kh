@@ -273,17 +273,14 @@
           </div>
         </div>
 
-        <!-- Pattern picker (optional). When set, generated ideas follow
-             the pattern's titleTemplate (e.g. "Fall asleep to {X}") +
-             tone hints. Skip for default LLM titling. Persisted per
-             project so the user's choice sticks across reloads. -->
-        <div class="ideas-pattern-block">
-          <PatternPicker
-            v-model="form.pattern_id"
-            v-model:subject="form.pattern_subject"
-            :format-id="formatId"
-          />
-        </div>
+        <!-- v1.0.96+ Layer-2 (Niche) comes BEFORE Layer-3 (Pattern) so the
+             form reads top-to-bottom in the hierarchy that actually drives
+             the prompt:
+               Layer 1  Format        (the indicator card above)
+               Layer 2  Niche         (subject domain — this block)
+               Layer 3  Pattern       (title template — block below)
+             Previous order had Pattern first which fought the mental model
+             ("why does my pattern care about the niche?"). -->
 
         <!-- v1.0.92+ Niche override (optional). The Ideas Generator runs
              through `getEffectiveFormat({ nicheIdOverride })`, so changing
@@ -309,6 +306,18 @@
               </a>
             </span>
           </div>
+        </div>
+
+        <!-- Pattern picker (optional). When set, generated ideas follow
+             the pattern's titleTemplate (e.g. "Fall asleep to {X}") +
+             tone hints. Skip for default LLM titling. Persisted per
+             project so the user's choice sticks across reloads. -->
+        <div class="ideas-pattern-block">
+          <PatternPicker
+            v-model="form.pattern_id"
+            v-model:subject="form.pattern_subject"
+            :format-id="formatId"
+          />
         </div>
 
         <!-- v1.0.93+ Channel title prefix/suffix.
