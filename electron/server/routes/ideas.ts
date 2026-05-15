@@ -221,29 +221,63 @@ ${pattern.metadataKeywordAdditions?.length
     ? `Tone-appropriate mood words for this format: ${format.idea.moodVocabulary.slice(0, 12).join(', ')}.`
     : ''
 
-  // v1.0.94+ — Niche-aware title instruction. When the niche supplied
-  // hard rules for title shape (prayer: "Prayer for X" exclusively;
-  // devotional: "{N} Lessons from X:Y" etc.), they REPLACE the generic
-  // "evocative 5-10 words" line that was producing nature-metaphor-
-  // padded titles. Otherwise the generic rule still applies.
+  // ── v1.0.95+ Data-driven idea-prompt assembly ─────────────────────────
+  //
+  // Every voice/shape rule reads from format.idea.* (which may have
+  // been niche-merged via applyNicheToFormat). When a field is unset,
+  // the prompt falls back to a MINIMAL LENIENT instruction that points
+  // the LLM at the example ideas as the bar — the example bar does
+  // the heavy lifting for niches that don't need strict rules.
+  //
+  // The prior version had hardcoded English assumptions baked in
+  // ("evocative, 5-10 words; pick adjectives", "no two titles share
+  // noun+preposition structure", "1-2 sentences with a concrete
+  // image") that were written for sleep-story and silently coerced
+  // every other niche toward that voice. Now those strings live in
+  // JSON; the builder is a thin reader.
+
+  // Title instruction — driven by titleShapeRules + titleLengthRange.
   const titleRules = format.idea.titleShapeRules
   const titleLen = format.idea.titleLengthRange
-  const titleLengthBlurb = titleLen
-    ? `${titleLen[0]}–${titleLen[1]} words`
-    : '5–10 words'
+  const titleLengthHint = titleLen ? `${titleLen[0]}–${titleLen[1]} words` : ''
   const titleInstruction = titleRules?.length
-    ? `1. title — Follow the NICHE TITLE RULES below VERBATIM. Length: ${titleLengthBlurb}.
-   TITLE RULES (niche-specific, MUST follow — these override every other style hint above):
+    ? `1. title — Follow the TITLE RULES below VERBATIM${titleLengthHint ? ` (length: ${titleLengthHint})` : ''}.
+   TITLE RULES (format-/niche-specific, MUST follow):
 ${titleRules.map(r => `     · ${r}`).join('\n')}`
-    : `1. title — evocative, ${titleLengthBlurb}; pick adjectives that fit the format's tone (see mood vocab below)`
+    // Lenient fallback when no format/niche supplies title rules. The
+    // example ideas above carry the bar; we just nudge the LLM at
+    // length and remind it to match the examples.
+    : `1. title — Match the shape and voice of the EXAMPLES above${titleLengthHint ? `. Target length: ${titleLengthHint}` : ''}.`
 
-  // When niche supplies titleShapeRules, the "no two titles share noun+
-  // preposition structure" rule is WRONG — prayer titles SHOULD all share
-  // "Prayer for X" structure (that's the channel signature). Swap it for
-  // a "vary only the X" rule instead.
-  const sharedStructureRule = titleRules?.length
-    ? '- Structure REPETITION is correct here: the niche title rules above tell you the shape. Vary only the SUBJECT (X) across the batch, never the structure.'
-    : '- No two titles may share the same noun+preposition structure (e.g. "The X of the Y" twice)'
+  // Logline instruction.
+  const loglineRules = format.idea.loglineShapeRules
+  const loglineSent = format.idea.loglineSentenceRange
+  const loglineLengthHint = loglineSent
+    ? `${loglineSent[0]}–${loglineSent[1]} sentence${loglineSent[1] === 1 ? '' : 's'}`
+    : ''
+  const loglineInstruction = loglineRules?.length
+    ? `2. logline — Follow the LOGLINE RULES below${loglineLengthHint ? ` (${loglineLengthHint})` : ''}.
+   LOGLINE RULES:
+${loglineRules.map(r => `     · ${r}`).join('\n')}`
+    : `2. logline — ${loglineLengthHint || '1–2 sentences'} that match the example loglines' voice.`
+
+  // Themes instruction.
+  const themeRules = format.idea.themeShapeRules
+  const themeCount = format.idea.themeCountRange || [2, 4]
+  const themeInstruction = themeRules?.length
+    ? `3. themes — Array of ${themeCount[0]}–${themeCount[1]} keywords. Follow the THEME RULES below.
+   THEME RULES:
+${themeRules.map(r => `     · ${r}`).join('\n')}`
+    : `3. themes — ${themeCount[0]}–${themeCount[1]} thematic keywords matching the examples' voice.`
+
+  // Structural-variety rule — enum-driven. Sleep-story / listicle want
+  // every title to look different. Prayer wants every title to look
+  // the SAME (channel signature). Other formats are 'free'.
+  const variety = format.idea.structuralVariety || 'free'
+  const varietyRule =
+    variety === 'vary-all'          ? '- No two titles may share the same noun+preposition structure (e.g. "The X of the Y" twice).' :
+    variety === 'vary-subject-only' ? '- Structure REPETITION is correct here: the title rules above tell you the shape. Vary only the SUBJECT across the batch, never the structure.' :
+    /* 'free' */                      '- Aim for a varied batch; the LLM picks structure freely as long as it matches the examples above.'
 
   return `Generate exactly ${req.count} episode ideas for the channel format described below.
 
@@ -262,17 +296,16 @@ ${leverLines}
 
 For EACH idea, provide:
 ${titleInstruction}
-2. logline — 1–2 sentences with a concrete image or specific detail; avoid describing the premise abstractly
-3. themes — 2–4 thematic keywords, fresh combinations preferred
+${loglineInstruction}
+${themeInstruction}
 4. suggested_chapters — ${chapterRule}
 5. suggested_length — minutes-string within ${lengthExamples} (format default ${format.script.defaultLengthMinutes} min)
 6. mood — emotional arc in 2–4 words
 
 RULES:
-- Every idea must have a different angle / subject / emotional arc from the others in this batch
-${sharedStructureRule}
-- Loglines must use specific concrete nouns, not generic ones — concrete > abstract every time
-- Do not produce anything that overlaps the AVOID list above — treat it as a hard negative constraint
+- Every idea must have a different angle / subject / emotional arc from the others in this batch.
+${varietyRule}
+- Do not produce anything that overlaps the AVOID list above — treat it as a hard negative constraint.
 - Honour the format guidance above — that's the channel's voice. Don't bring in tropes from other genres.
 - TITLE-NUMBER CONSISTENCY: if your title contains a leading count number (e.g. "10 mysteries", "7 plane crashes", "12 paradoxes"), the suggested_chapters value MUST equal that number. Mismatch is the most common bug we see — pick a count first, then write the title to match.${pinned !== null ? `\n- Pinned for this batch: every title that uses a leading count number MUST use ${pinned}, and suggested_chapters MUST be ${pinned}.` : ''}
 - ${moodVocab}
@@ -454,9 +487,12 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     // ideas about mountains?" regressions are debuggable from a glance at
     // server output. Captures the four signals that determine title voice.
     const effectiveNicheId = nicheIdOverride !== undefined ? (nicheIdOverride || '(forced none)') : (project.niche_id || '(none)')
-    const titleRulesActive = format.idea.titleShapeRules?.length || 0
-    const titleLengthHint = format.idea.titleLengthRange ? `${format.idea.titleLengthRange[0]}-${format.idea.titleLengthRange[1]}w` : 'generic'
-    console.log(`[ideas-gen] effective: format=${project.format_id || '(fallback:sleep-story)'} niche=${effectiveNicheId} examples=${format.idea.exampleIdeas?.length || 0} titleRules=${titleRulesActive} titleLen=${titleLengthHint} prefix=${JSON.stringify(titlePrefix || '')} suffix=${JSON.stringify(titleSuffix || '')}`)
+    const tRules = format.idea.titleShapeRules?.length || 0
+    const lRules = format.idea.loglineShapeRules?.length || 0
+    const thRules = format.idea.themeShapeRules?.length || 0
+    const tLen = format.idea.titleLengthRange ? `${format.idea.titleLengthRange[0]}-${format.idea.titleLengthRange[1]}w` : '-'
+    const variety = format.idea.structuralVariety || 'free'
+    console.log(`[ideas-gen] effective: format=${project.format_id || '(fallback:sleep-story)'} niche=${effectiveNicheId} examples=${format.idea.exampleIdeas?.length || 0} title{rules=${tRules},len=${tLen}} logline{rules=${lRules}} themes{rules=${thRules}} variety=${variety} prefix=${JSON.stringify(titlePrefix || '')} suffix=${JSON.stringify(titleSuffix || '')}`)
     const firstRaw = await callAi(body.model, '', firstPrompt, apiKeys, false, { slug })
     const firstBatch = normalizeIdeas(parseIdeas(firstRaw))
 

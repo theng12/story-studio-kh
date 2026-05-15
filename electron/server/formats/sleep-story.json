@@ -48,6 +48,29 @@
       "grandmother", "wanderer", "scholar", "sailor"
     ],
     "guidanceText": "Sleep-friendly. Low stakes, no violence, no cliffhangers, no jump scares.",
+    "titleShapeRules": [
+      "Titles are LITERARY and EVOCATIVE — one concrete noun phrase that hints at a quiet story.",
+      "Pattern shapes that work for this format (mix across the batch — never repeat the same shape twice in one batch):",
+      "  - '{The} {Noun}'s {Noun}'         (e.g. 'The Lantern Keeper's Last Light')",
+      "  - '{The} {Subject Who} {Did X}'    (e.g. 'The Tailor Who Stitched The Snow')",
+      "  - '{The} {Adjective} {Place}'      (e.g. 'The Quiet Observatory', 'The Cobblestone Bakery')",
+      "  - '{A Verb}ing the {Noun}'         (e.g. 'Tending the Moonlit Garden', 'Mapping the Slow River')",
+      "FORBIDDEN: hype words (BEST, MUST, NOW), all-caps, urgency. Sleep-channel listeners come for calm.",
+      "Sensory imagery is encouraged — twilight, lantern, snow, river, garden, etc. — drawn from the format's keyword pool."
+    ],
+    "titleLengthRange": [4, 9],
+    "loglineShapeRules": [
+      "One literary sentence (or two short ones) introducing a SPECIFIC character and a SPECIFIC quiet task or journey.",
+      "Concrete sensory image — name an object, place, time of year. No generic premise descriptions.",
+      "Tone matches the sleep-story voice: gentle, unhurried, suggestive of slowing down."
+    ],
+    "loglineSentenceRange": [1, 2],
+    "themeShapeRules": [
+      "Pick 2-4 EMOTIONAL or ATMOSPHERIC keywords (solitude, memory, rekindling, craftsmanship, patience).",
+      "Avoid plot keywords (revenge, war, betrayal) — sleep-story themes lean inward."
+    ],
+    "themeCountRange": [2, 4],
+    "structuralVariety": "vary-all",
     "exampleIdeas": [
       {
         "title": "The Lantern Keeper's Last Light",

@@ -4,6 +4,80 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.95 — 2026-05-16
+
+**Architectural refactor: every format and niche now owns its own LLM prompt shape**
+
+User said: *"i need each format for each niche to stay within their own niche and new niche or format will have it's own applied structure instead. does this mean a lot of refactor? if so i think should must still do it."* — and they were right. The prior versions had hardcoded English assumptions baked into `buildPrompt()` (the LLM-prompt assembler) that were written when sleep-story was the only format. Niche/format overrides were retrofitted as escape hatches and kept leaking the sleep-story voice into prayer/devotional/motivation channels.
+
+v1.0.95 removes ALL hardcoded title/logline/theme assumptions from the prompt builder. Every voice rule now lives in the format JSON or the niche JSON. New niches you author later just write a JSON file — zero code changes.
+
+**The new IdeaPromptShape (six optional fields on both Format.idea and Niche)**
+
+```ts
+{
+  titleShapeRules?: string[]                    // hard rules dropped verbatim into the prompt
+  titleLengthRange?: [min, max]                 // word count
+  loglineShapeRules?: string[]
+  loglineSentenceRange?: [min, max]
+  themeShapeRules?: string[]
+  themeCountRange?: [min, max]
+  structuralVariety?: 'free' | 'vary-all' | 'vary-subject-only'
+}
+```
+
+Niches override formats on any field they set. Unset fields fall through to the format default. Unset on the format too → minimal lenient prompt fallback that just points the LLM at the example ideas as the bar.
+
+**The 10 format files now own their style:**
+
+- `sleep-story` — Literary evocative noun phrases. `"The {Noun}'s {Noun}"`, `"The {Adjective} {Place}"`. `structuralVariety: vary-all`.
+- `listicle` — Number-led counts. `"{N} {Plural Subject} Explained"`. `vary-all`.
+- `bound-explainer` — Channel signature lock. `"Why It Sucks To Be Born As {Species}"` exclusively. `vary-subject-only`.
+- `documentary` — Real subjects, attribution-rich. `"The {Subject} of {Place} Who {Verbed}"`. `vary-all`.
+- `educational` — Question-led. `"Why {Phenomenon}: {Angle}"`, `"The Hidden {Aspect} of {Familiar Thing}"`. `vary-all`.
+- `comedy` — Specific absurd situations. `"The {Subject} That {Absurd Thing}"`. `vary-all`.
+- `adventure` — Immediate stakes. `"{N} Days Adrift in {Locale}"`, `"The Last {Event} of {Place}"`. `vary-all`.
+- `true-crime` — Evidence-led. `"The {Object} That Solved {Case}"`, dignity rules for victims. `vary-all`.
+- `kids-fairytale` — Cute creature + gently-funny problem. `"The {Creature} Who {Action}"`. `vary-all`.
+- `broll-narration` — Intentionally LENIENT (your choice). The 8 niches under it each own their own title shape.
+
+**The 12 niche files — 8 with explicit title rules:**
+
+- `prayer` (21 rules, length 3-9) — `"Prayer for X"`, `"Morning/Evening Prayer for X"`, etc. Forbidden: nature/scenery modifiers, atmospheric adjectives, allegorical objects.
+- `devotional` (16 rules, length 4-10) — Scripture-anchored teaching. `"A Thought on {Book Ch:Verse}"`, `"{N} Lessons from {Ref}"`.
+- `motivation` (length 3-8) — Discipline-leaning. `"Why X Beats Y"`, `"The {N}% Rule"`, `"Show Up When X"`.
+- `preaching` (length 4-11) — Passage-anchored. `"What {Author} Means by '{Quoted Phrase}'"`, `"{N} Truths from {Book Ch}"`.
+- `psychology` (length 4-10) — Behavior-led. `"The Real Reason You {Behavior}"`, `"What {Phenomenon} Actually Is"`.
+- `philosophy` (length 4-11) — Thinker-on-topic. `"{Philosopher} on {Topic}"`, `"The Stoic View of {X}"`.
+- `mindfulness` (length 3-9) — Practice + duration. `"A {Duration} {Practice}"`, `"{Technique} for {Situation}"`.
+- `history-narration` (length 4-11) — Specific event/figure. `"The Real Reason {Specific Event}"`, `"What {Place} Actually Looked Like"`.
+
+Plant/animal/fungus/insect niches stay simple — they ride on the `bound-explainer` format's `"Why It Sucks To Be Born As {Species}"` shape without needing their own overrides.
+
+**The prompt builder is now a thin reader**
+
+`buildPrompt()` in `routes/ideas.ts` was 60 lines of hardcoded English ("title — evocative, 5–10 words; pick adjectives that fit the format's tone", "No two titles may share the same noun+preposition structure", etc.). Now it's a thin assembler that reads `format.idea.{titleShapeRules,titleLengthRange,loglineShapeRules,...}` and emits the prompt. When a field is set, that rule lands verbatim. When unset, a minimal lenient fallback ("title matches the EXAMPLES above") takes its place.
+
+Backend log line per generation now shows all the active rules:
+
+```
+[ideas-gen] effective: format=broll-narration niche=prayer examples=19 title{rules=21,len=3-9w} logline{rules=0} themes{rules=0} variety=vary-subject-only prefix="Daily Prayer | " suffix=""
+```
+
+This makes future regressions of the "prayer titles are coming out poetic" class catchable from a single log line.
+
+**Authoring a new niche or format = writing one JSON**
+
+To add a new niche the user invents later — say "trivia-shorts" or "sourdough-baking" — they just create a JSON file in `electron/server/niches/` with the niche metadata + the `titleShapeRules` / etc. fields tuned to that niche's voice. Zero code changes needed.
+
+**Audit pass**
+- `tsc -p electron --noEmit`: 0 errors.
+- `cd frontend && npx nuxt build` (Vite prod): clean.
+- All 10 format JSONs + all 12 niche JSONs parse cleanly.
+- Prayer-niche project on broll-narration format: titles should now match the AF001-AF020 reference bar (no "Sunset's Edge" / "Moonlit Waters" / "in the Garden" decoration).
+
+---
+
 ## v1.0.94 — 2026-05-16
 
 **Niches can now lock the SHAPE of generated titles (real prayer titles, not "Prayer at Sunset's Edge")**

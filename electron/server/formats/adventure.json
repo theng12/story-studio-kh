@@ -44,6 +44,28 @@
       "scar", "bloodied map", "engine fire", "fugitive", "pursuit"
     ],
     "guidanceText": "Action-forward. Stakes are real and visible from the first paragraph. No filler — every chapter advances the plot or deepens the threat.",
+    "titleShapeRules": [
+      "Titles signal IMMEDIATE STAKES — a place, a duration, an extreme.",
+      "Established shapes (mix across the batch):",
+      "  - 'The {Adjective} {Event} of {Place}'           (e.g. 'The Last Climb of Annapurna's Forgotten Ridge')",
+      "  - '{N} {Duration Unit} {Verb-ing} {Locale}'      (e.g. 'Forty-Three Days Adrift in the Pacific')",
+      "  - 'When {Vehicle / Subject} {Failed}'            (e.g. 'When the Engines Failed Over the Atlantic')",
+      "  - '{Subject} vs {Adversary}'                     (e.g. 'A Lone Swimmer vs the Drake Passage')",
+      "FORBIDDEN: cosy / dream-like titles — this format is HIGH STAKES.",
+      "Adjectives lean toward danger, distance, exposure, isolation."
+    ],
+    "titleLengthRange": [4, 11],
+    "loglineShapeRules": [
+      "1-2 sentences naming the SPECIFIC protagonist + the SPECIFIC threat + a hint at the turning point.",
+      "Concrete: name the mountain, the ocean, the year, the temperature, the count.",
+      "Voice is taut, present-tense-feel, no padding."
+    ],
+    "loglineSentenceRange": [1, 2],
+    "themeShapeRules": [
+      "Pick 2-4 keywords describing the THREAT CATEGORY + the inner-arc (survival, isolation, betrayal, duty, kinship-under-pressure)."
+    ],
+    "themeCountRange": [2, 4],
+    "structuralVariety": "vary-all",
     "exampleIdeas": [
       {
         "title": "The Last Climb of Annapurna's Forgotten Ridge",

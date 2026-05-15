@@ -48,5 +48,18 @@
 
   "audienceHint": "Stressed listeners reaching for a short reset — typically commute / desk-break / bedtime moments.",
 
-  "scriptContext": "Speak slowly. Use the second person ('You're sitting...', 'You feel...'). Pace the inhale and exhale cadence into the writing itself — short sentences, soft pauses, no rush. End by guiding the listener back into their day or into sleep, never with applause or 'thanks for listening' chatter."
+  "scriptContext": "Speak slowly. Use the second person ('You're sitting...', 'You feel...'). Pace the inhale and exhale cadence into the writing itself — short sentences, soft pauses, no rush. End by guiding the listener back into their day or into sleep, never with applause or 'thanks for listening' chatter.",
+
+  "titleShapeRules": [
+    "Titles describe a SPECIFIC PRACTICE the listener can do — duration + technique + context.",
+    "Established shapes (vary across the batch):",
+    "  - 'A {Duration} {Practice Name}'                  (e.g. 'A 3-Minute Morning Reset', 'A 10-Minute Body Scan')",
+    "  - '{Technique} for {Specific Situation}'           (e.g. 'Box Breathing for Anxious Mornings', '4-7-8 Breathing for Insomnia')",
+    "  - '{Practice} Before {Time / Event}'               (e.g. 'Body Scan Before Sleep', 'A Pause Before a Hard Meeting')",
+    "  - 'How to {Calm / Settle} {Specific Feeling}'      (e.g. 'How to Settle Pre-Sleep Racing Thoughts')",
+    "FORBIDDEN: mystical / new-age framing ('Awaken Your Inner Light'), guru-speak ('I want to teach you…'), promises of transformation, exclamation points.",
+    "Voice is matter-of-fact: this is a practice, this is how long, here's when to use it. Plain, calm, useful."
+  ],
+  "titleLengthRange": [3, 9],
+  "structuralVariety": "vary-subject-only"
 }

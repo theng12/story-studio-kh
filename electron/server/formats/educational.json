@@ -44,6 +44,28 @@
       "perception", "memory", "language", "cognition", "behavior"
     ],
     "guidanceText": "Pick topics with a clear question the episode can answer. Avoid surface-level overviews — each idea should promise specific, non-obvious information the listener leaves with.",
+    "titleShapeRules": [
+      "Titles MUST pose or hint at a SPECIFIC question the episode answers. Curiosity-led, not lecture-led.",
+      "Established shapes (mix across the batch):",
+      "  - 'Why {Phenomenon}: {The Specific Angle}'      (e.g. 'Why Bridges Sway: The Math That Saved Tacoma Narrows')",
+      "  - 'The Hidden {Aspect} of {Familiar Thing}'      (e.g. 'The Hidden Architecture of Your Tap Water')",
+      "  - 'How {Thing} {Surprising Verb}'                (e.g. 'How Honeybees Vote With Their Antennae')",
+      "  - 'What {Subject} Tell Us About {Bigger Truth}'  (e.g. 'What Coral Bleaching Tells Us About Heat Memory')",
+      "FORBIDDEN: vague topic labels ('All About Bridges', 'A Look at Honeybees') — must promise a specific question or angle.",
+      "Title should answer 'what will I learn that I didn't already know?' implicitly."
+    ],
+    "titleLengthRange": [4, 11],
+    "loglineShapeRules": [
+      "1-2 sentences naming the SPECIFIC question + a hint at the non-obvious answer or finding.",
+      "Concrete: cite a named example, a number, a recognised case where possible.",
+      "Voice is curious + evidence-grounded. Not 'magical thinking', not lecture-flat."
+    ],
+    "loglineSentenceRange": [1, 2],
+    "themeShapeRules": [
+      "Pick 2-4 keywords describing the SUBJECT DOMAIN (engineering, biology, psychology, mathematics, history-of-science)."
+    ],
+    "themeCountRange": [2, 4],
+    "structuralVariety": "vary-all",
     "exampleIdeas": [
       {
         "title": "Why Bridges Sway: The Math That Saved Tacoma Narrows",

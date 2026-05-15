@@ -177,17 +177,58 @@ export interface IdeaFormat {
     suggested_length: string
     mood: string
   }>
-  /** v1.0.94+ — Niche-supplied hard rules for title shape. When set
-   *  (typically merged in from a niche's titleShapeRules), the Ideas
-   *  Generator's prompt REPLACES the generic title instruction with
-   *  these rules. See Niche.titleShapeRules for the authoring guide.
-   *  Formats themselves shouldn't generally set this — it's an escape
-   *  hatch for niches with established title conventions (prayer:
-   *  "Prayer for X" exclusively; devotional: "{N} Lessons from X:Y"). */
+  // ── v1.0.95+ IdeaPromptShape — fully data-driven prompt assembly ─────
+  //
+  // Six optional fields control the SHAPE of generated ideas. When ANY
+  // of them is set, the Ideas Generator's LLM prompt builds the matching
+  // instruction from these values INSTEAD of using a hardcoded English
+  // sentence. When unset, the prompt falls back to a minimal lenient
+  // hint ("title fits the genre, matches the examples above") and the
+  // example ideas do the heavy lifting.
+  //
+  // Niches override formats: format.idea.titleShapeRules is the format's
+  // default; niche.titleShapeRules supersedes it if present. Same for
+  // every other field below.
+  //
+  // Why: hardcoded prompt strings ("title — evocative, 5-10 words; pick
+  // adjectives from mood vocab") were written assuming a literary
+  // sleep-story format and silently coerced every other niche/format
+  // toward that voice. The prayer-channel project kept producing
+  // "Prayer at Sunset's Edge" — adjective-decorated, nature-flavoured —
+  // because the LLM was told to use those rules. Now each format/niche
+  // owns its own structure; the prompt builder is a thin reader.
+
+  /** Hard rules for title shape. Each string is an imperative
+   *  instruction to the LLM, dropped into the prompt verbatim under a
+   *  "TITLE RULES" header. See prayer.json / devotional.json for
+   *  authoring examples. */
   titleShapeRules?: string[]
-  /** Optional override for the generic "5-10 words" title-length hint.
-   *  Same origin: typically merged in from a niche. */
+  /** Word-count range for titles. */
   titleLengthRange?: [number, number]
+
+  /** Hard rules for logline shape. Replaces the generic "1-2 sentences
+   *  with a concrete image" instruction when set. */
+  loglineShapeRules?: string[]
+  /** Sentence count range for loglines. */
+  loglineSentenceRange?: [number, number]
+
+  /** Hard rules for the themes array (subject keywords for each idea). */
+  themeShapeRules?: string[]
+  /** Number of theme keywords per idea. Defaults to [2, 4]. */
+  themeCountRange?: [number, number]
+
+  /** How much should generated titles VARY structurally across a batch?
+   *  - 'free'              → no rule (the LLM picks)
+   *  - 'vary-all'          → "no two titles may share the same noun+
+   *                          preposition structure" (sleep-story,
+   *                          listicle, true-crime — formats where the
+   *                          channel's signature IS the variety)
+   *  - 'vary-subject-only' → "repeat the established structure; vary
+   *                          only the subject X" (prayer channels:
+   *                          every title is "Prayer for X", that's the
+   *                          channel signature)
+   *  Unset = same as 'free'. */
+  structuralVariety?: 'free' | 'vary-all' | 'vary-subject-only'
 }
 
 export interface ScriptFormat {
@@ -538,28 +579,27 @@ export interface Niche {
    *  Optional — when absent, generators just use the niche name + description. */
   scriptContext?: string
 
-  /** v1.0.94+ — Hard rules for the SHAPE of generated idea titles.
-   *  When set, these REPLACE the generic title instruction in the Ideas
-   *  Generator's LLM prompt. Use this for niches where the channel's
-   *  title format is established and inflexible (prayer channels: every
-   *  title is "Prayer for X", "Morning Prayer for X", etc.; devotional
-   *  channels: every title is "A Verse for X" or "Today's Word: X").
-   *
-   *  Without this field the LLM uses the generic "evocative, 5-10 words"
-   *  rule which works for story/listicle formats but produces
-   *  nature-metaphor-padded prayer titles ("A Prayer at Sunset's Edge")
-   *  that don't match real prayer channel conventions.
-   *
-   *  The strings are dropped into the prompt verbatim under a
-   *  "TITLE RULES (niche-specific, MUST follow)" header. Write them as
-   *  imperative instructions to the LLM. Examples → see prayer.json /
-   *  devotional.json. */
-  titleShapeRules?: string[]
+  // ── v1.0.95+ IdeaPromptShape — niche-level overrides ────────────────
+  //
+  // Same shape as Format.idea (see types.ts above). Niche overrides
+  // format on any field it sets. Unset fields fall through to the
+  // format's value (or to the lenient fallback if the format is also
+  // silent). This is how "each niche owns its own structure" while
+  // keeping format-level defaults for niches that don't need to
+  // override.
+  //
+  // Authoring guide: see prayer.json (strict; locks "Prayer for X")
+  // and devotional.json (strict; locks "{N} Lessons from {Ref}").
+  // Niches that ride happily on the format default (plants, animals,
+  // fungi, insects under bound-explainer) leave these all unset.
 
-  /** Optional word-count range for titles. Overrides the generic
-   *  "5-10 words" hint in the Ideas Generator prompt. Useful for niches
-   *  with established short-title conventions (prayer: 3-8 words). */
+  titleShapeRules?: string[]
   titleLengthRange?: [number, number]
+  loglineShapeRules?: string[]
+  loglineSentenceRange?: [number, number]
+  themeShapeRules?: string[]
+  themeCountRange?: [number, number]
+  structuralVariety?: 'free' | 'vary-all' | 'vary-subject-only'
 }
 
 // ── Brand primitive (channel-level identity layer) ─────────────────────────

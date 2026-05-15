@@ -44,6 +44,28 @@
       "endangered", "lost civilisation", "field notes", "interview", "footage"
     ],
     "guidanceText": "Subject-driven, evidence-anchored, attribution-rich. The episode is about something real — be specific about what's known, what's contested, and what's still mysterious.",
+    "titleShapeRules": [
+      "Titles point at ONE specific real subject — a place, person, phenomenon, or event with a documented name.",
+      "Established shapes (mix across the batch):",
+      "  - 'The {Adjective} {Subject} {That Did X}'      (e.g. 'The Hidden Forest That Walks Across Madagascar')",
+      "  - 'The {Subject} of {Place} Who {Verbed}'        (e.g. 'The Watchmaker of Geneva Who Outlasted Three Empires')",
+      "  - 'The Day {Event Happened}'                     (e.g. 'The Day the Aral Sea Disappeared')",
+      "  - 'When {Subject} {Did X}'                       (e.g. 'When the Vatican Lost Its Library')",
+      "FORBIDDEN: vague abstractions, made-up subjects, speculative 'What if' framings. The subject must be real and verifiable.",
+      "Tone: literary-journalistic, not clickbait. Reads like a magazine longread headline."
+    ],
+    "titleLengthRange": [5, 12],
+    "loglineShapeRules": [
+      "1-2 sentences naming the SPECIFIC subject + the central question or mystery the episode investigates.",
+      "Concrete attribution: include a place, a year, a name where possible.",
+      "Avoid TV-doc voiceover clichés ('Little did they know…', 'But all was about to change…')."
+    ],
+    "loglineSentenceRange": [1, 2],
+    "themeShapeRules": [
+      "Pick 2-4 keywords describing the SUBJECT AREA + the angle (geography, history, science, biography, mystery, environmental, political)."
+    ],
+    "themeCountRange": [2, 4],
+    "structuralVariety": "vary-all",
     "exampleIdeas": [
       {
         "title": "The Hidden Forest That Walks Across Madagascar",

@@ -40,6 +40,27 @@
       "celebrity feud", "memo", "expense report", "mall"
     ],
     "guidanceText": "The humour should come from the situation and from specific observations, not from cruelty or punching down. Best comedy ideas have an unexpected angle that's funny on its own — the script's job is to mine it.",
+    "titleShapeRules": [
+      "Titles describe an absurd-but-specific SITUATION. The funny is in the specificity.",
+      "Established shapes (mix across the batch):",
+      "  - 'The {Subject} That {Absurd Thing}'           (e.g. 'The Town That Banned Selling Hats On Tuesdays')",
+      "  - '{N} Increasingly {Adjective} {Plural Subject}' (e.g. 'Eight Increasingly Bad Ideas From the Same Inventor')",
+      "  - 'How To {Verb} {Absurd Object} {Constraint}'  (e.g. 'How To Negotiate a Salary Raise From a Vending Machine')",
+      "  - 'A {Adjective} Guide To {Specific Niche Skill}' (e.g. 'A Reluctant Guide To Becoming Your Own Plumber')",
+      "FORBIDDEN: punching down, cruelty, generic 'funny' titles without a specific situation, ALL-CAPS hype.",
+      "Voice is dry, observational, situation-specific — NOT zany, NOT joke-stacked."
+    ],
+    "titleLengthRange": [4, 12],
+    "loglineShapeRules": [
+      "1-2 sentences describing the specific absurd situation + a hint at the funniest beat in the script.",
+      "Concrete: name a person, a date, a place — the funny is in the specificity, not abstraction."
+    ],
+    "loglineSentenceRange": [1, 2],
+    "themeShapeRules": [
+      "Pick 2-4 keywords describing the COMEDIC ANGLE (bureaucratic absurdity, technological mishap, etiquette failure, miscommunication, etc.)."
+    ],
+    "themeCountRange": [2, 4],
+    "structuralVariety": "vary-all",
     "exampleIdeas": [
       {
         "title": "The Town That Banned Selling Hats On Tuesdays",

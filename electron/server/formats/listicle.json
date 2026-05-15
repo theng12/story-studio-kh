@@ -83,6 +83,31 @@
       "everyday life"
     ],
     "guidanceText": "Episode ideas should be a UNIFYING theme covering 5-15 short independent topics (e.g. '10 paradoxes explained' or '7 plane crashes that changed aviation'). Don't pitch a single-topic deep-dive — that's a different channel. Each topic must be self-contained, fact-checkable, and 2-5 minutes long when narrated.",
+    "titleShapeRules": [
+      "Titles MUST lead with a NUMBER (the chapter count) followed by a plural subject and a verb/qualifier.",
+      "Established shapes (vary the subject/verb across the batch — never repeat the same combination):",
+      "  - '{N} {Plural Subject} Explained'             (e.g. '10 Sleep Mysteries Explained', '12 Paradoxes Explained')",
+      "  - '{N} {Plural Subject} That {Did X}'           (e.g. '7 Plane Crashes That Changed Aviation Forever')",
+      "  - '{N} {Plural Subject} You {Verb}'             (e.g. '15 Optical Illusions You Won't Believe')",
+      "  - '{N} {Adjective} {Plural Subject}'            (e.g. '10 Bizarre Deep-Sea Creatures')",
+      "REQUIRED: the leading number MUST match suggested_chapters EXACTLY. If the title says '10', suggested_chapters MUST be 10.",
+      "FORBIDDEN: titles without a leading number — those are deep-dive shapes, not listicle shapes.",
+      "FORBIDDEN: clickbait punctuation ('!!', all-caps, fire emoji). Title can be curious / catchy but stays evidence-based.",
+      "Subject must be PLURAL (mysteries, crashes, paradoxes, illusions, creatures, theories, facts) — singular = wrong format."
+    ],
+    "titleLengthRange": [4, 10],
+    "loglineShapeRules": [
+      "1-2 sentences describing the unifying angle + a hint at the most striking 1-2 items in the list.",
+      "Concrete: name specific examples, not 'various interesting cases'.",
+      "Evidence-based voice — research / data / documented incidents, not speculation."
+    ],
+    "loglineSentenceRange": [1, 2],
+    "themeShapeRules": [
+      "Pick 2-4 SUBJECT-AREA keywords (the domain the listicle covers, not emotional themes).",
+      "Examples: sleep / psychology / biology for sleep mysteries; aviation / safety / engineering for plane crashes."
+    ],
+    "themeCountRange": [2, 4],
+    "structuralVariety": "vary-all",
     "exampleIdeas": [
       {
         "title": "10 Sleep Mysteries Explained",

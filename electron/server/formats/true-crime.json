@@ -43,6 +43,28 @@
       "forensic lab"
     ],
     "guidanceText": "Treat real victims with dignity even in fictional or composite cases — name them as people, not as plot devices. No glamorising perpetrators. No graphic violence beyond what the investigation requires.",
+    "titleShapeRules": [
+      "Titles point at the EVIDENCE-LED angle — what specifically cracked the case open, or what specifically went wrong.",
+      "Established shapes (mix across the batch):",
+      "  - 'The {Evidence / Object} That {Solved / Hid} {Case}'  (e.g. 'The Letters That Solved a 22-Year Cold Case')",
+      "  - '{N} {Witnesses / Lies / Mistakes}, {N} {Truth}'      (e.g. 'Three Witnesses, Three Lies, One Truth')",
+      "  - 'The {Year / Duration} {Adjective} {Case Type}'       (e.g. 'The 1973 Bookstore Killings')",
+      "  - 'How {Investigator} Found {Subject}'                  (e.g. 'How a Postal Clerk Found the Cooper Money')",
+      "FORBIDDEN: glamorising perpetrators in the title (no 'The Brilliant Mind of…'), no 'shocking' / 'sick' / 'evil' adjectives, no graphic violence in the title.",
+      "Victims, where named, are named with dignity. No nicknames invented for the genre's sake."
+    ],
+    "titleLengthRange": [4, 11],
+    "loglineShapeRules": [
+      "1-2 sentences naming the SPECIFIC case + the central investigative angle.",
+      "Concrete attribution: include a year, a city, a documented case name where possible.",
+      "Voice is investigative-journalistic. No tabloid sensationalism."
+    ],
+    "loglineSentenceRange": [1, 2],
+    "themeShapeRules": [
+      "Pick 2-4 keywords describing the INVESTIGATIVE ANGLE (forensics, cold-case, missing-persons, fraud, kidnapping, postal-inspection)."
+    ],
+    "themeCountRange": [2, 4],
+    "structuralVariety": "vary-all",
     "exampleIdeas": [
       {
         "title": "The Letters That Solved a 22-Year Cold Case",

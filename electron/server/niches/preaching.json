@@ -49,5 +49,19 @@
 
   "audienceHint": "Christians who want short doctrinally-anchored teaching — believers refreshing their walk, seekers exploring the faith.",
 
-  "scriptContext": "Open with the passage spoken aloud. Move through: observation (what does the text say) → interpretation (what did it mean to its first audience) → application (what does it ask of us). Cite real biblical names and contexts. Avoid pop-culture analogies unless they're genuinely illuminating."
+  "scriptContext": "Open with the passage spoken aloud. Move through: observation (what does the text say) → interpretation (what did it mean to its first audience) → application (what does it ask of us). Cite real biblical names and contexts. Avoid pop-culture analogies unless they're genuinely illuminating.",
+
+  "titleShapeRules": [
+    "Titles MUST anchor on a SPECIFIC passage or biblical figure. Direct, doctrinally-grounded — never poetic.",
+    "Established shapes (vary the passage / figure across the batch):",
+    "  - 'The {Theme} — {Book Chapter}'              (e.g. 'The Cost of Discipleship — Luke 14')",
+    "  - 'What {Author} Means by '{Quoted Phrase}''  (e.g. 'What James Means by 'Faith Without Works'')",
+    "  - '{N} Truths from {Book Chapter}'             (e.g. 'Three Truths from Romans 8')",
+    "  - '{Figure / Book} on {Topic}'                 (e.g. 'Paul on Suffering', 'Job on Loss')",
+    "  - 'Why {Theme} Matters Now — {Book Chapter}'   (e.g. 'Why Hope Matters Now — Hebrews 6')",
+    "FORBIDDEN: vague abstractions without a passage anchor, atmospheric adjectives ('A Reflective Sermon…'), motivational-style framing.",
+    "Every title must point at a CONCRETE passage, figure, or doctrinal subject. No 'inspiring' / 'powerful' adjectives without a textual anchor."
+  ],
+  "titleLengthRange": [4, 11],
+  "structuralVariety": "vary-subject-only"
 }

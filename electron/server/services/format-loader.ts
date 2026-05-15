@@ -430,16 +430,27 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
       ? `${niche.audienceHint} (within the format's broader audience: ${format.idea.audienceDefault})`
       : format.idea.audienceDefault,
     exampleIdeas: nicheExampleIdeas || format.idea.exampleIdeas,
-    // v1.0.94+ — Niche-supplied title shape rules + length range. When
-    // the niche provides them they REPLACE the generic title instruction
-    // block in the Ideas prompt (see buildPrompt in routes/ideas.ts).
-    // Prayer / Devotional niches use this to lock title shape away from
-    // the generic "evocative 5-10 word" rule that was producing
-    // nature-metaphor-padded titles like "A Prayer at Sunset's Edge".
+    // v1.0.95+ — Full IdeaPromptShape merge. Niche overrides format on
+    // every field it sets. Unset fields fall through to format defaults
+    // (which themselves may be unset, in which case the prompt builder
+    // falls back to a minimal lenient instruction — "title fits the
+    // genre, matches the example ideas above"). This is the schema that
+    // makes "each niche owns its own structure" work: the prompt
+    // assembler has zero hardcoded English about title/logline/theme
+    // shape, niches and formats own every voice rule via JSON.
     titleShapeRules: niche.titleShapeRules?.length
       ? niche.titleShapeRules
       : format.idea.titleShapeRules,
     titleLengthRange: niche.titleLengthRange || format.idea.titleLengthRange,
+    loglineShapeRules: niche.loglineShapeRules?.length
+      ? niche.loglineShapeRules
+      : format.idea.loglineShapeRules,
+    loglineSentenceRange: niche.loglineSentenceRange || format.idea.loglineSentenceRange,
+    themeShapeRules: niche.themeShapeRules?.length
+      ? niche.themeShapeRules
+      : format.idea.themeShapeRules,
+    themeCountRange: niche.themeCountRange || format.idea.themeCountRange,
+    structuralVariety: niche.structuralVariety || format.idea.structuralVariety,
   }
 
   // Script layer — only the system-prompt-role gets niche-augmented. The

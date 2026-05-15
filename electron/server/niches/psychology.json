@@ -52,5 +52,19 @@
 
   "audienceHint": "20-40 year olds curious about why they think and feel the way they do — therapy-adjacent listeners, self-improvement readers, anxious high-achievers.",
 
-  "scriptContext": "Lead with the observable behavior, not the diagnosis. Cite real research mechanisms (amygdala / dopamine / attachment theory / CBT loops) but stay accessible — never use jargon without unpacking it. End with one practical move the listener can try this week."
+  "scriptContext": "Lead with the observable behavior, not the diagnosis. Cite real research mechanisms (amygdala / dopamine / attachment theory / CBT loops) but stay accessible — never use jargon without unpacking it. End with one practical move the listener can try this week.",
+
+  "titleShapeRules": [
+    "Titles describe a SPECIFIC mental pattern or behavior the listener recognises in themselves.",
+    "Established shapes (vary X across the batch):",
+    "  - 'The Real Reason You {Behavior}'        (e.g. 'The Real Reason You Procrastinate', 'The Real Reason You Can't Sleep')",
+    "  - 'What {Phenomenon} Actually Is'          (e.g. 'What Anxiety Actually Is', 'What Burnout Actually Is')",
+    "  - 'Why You Can't Stop {Behavior}'          (e.g. 'Why You Can't Stop Comparing Yourself', 'Why You Can't Stop Scrolling')",
+    "  - 'How {Mechanism} {Verbs} Your {Y}'        (e.g. 'How Dopamine Hijacks Your Attention', 'How Trauma Reshapes Memory')",
+    "  - 'The {N}-{Time-Unit} Rule for {X}'        (e.g. 'The Two-Minute Rule for Anxiety')",
+    "FORBIDDEN: clinical jargon in the title (DSM codes, 'pathology'), self-help platitudes ('UNLOCK YOUR…'), diagnostic claims ('Are You a Narcissist?').",
+    "Voice is therapy-adjacent: curious about behavior, evidence-grounded, accessible. Never sensational."
+  ],
+  "titleLengthRange": [4, 10],
+  "structuralVariety": "vary-subject-only"
 }

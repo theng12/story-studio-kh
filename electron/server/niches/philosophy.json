@@ -50,5 +50,18 @@
 
   "audienceHint": "Listeners reading Daily Stoic, Tao Te Ching, Meditations, etc. Often 25-50, often professionals reaching for grounding outside religion.",
 
-  "scriptContext": "Speak like a friend who's been reading these books for years — never lecture. Quote primary sources accurately when you cite them. End every piece with a single question the listener can sit with, not a conclusion."
+  "scriptContext": "Speak like a friend who's been reading these books for years — never lecture. Quote primary sources accurately when you cite them. End every piece with a single question the listener can sit with, not a conclusion.",
+
+  "titleShapeRules": [
+    "Titles MUST name a SPECIFIC philosopher or school + the topic they spoke to. Old-thinker-on-modern-problem framing.",
+    "Established shapes (vary the philosopher / topic across the batch):",
+    "  - '{Philosopher} on {Topic}'                       (e.g. 'Marcus Aurelius on Things You Can't Control', 'Confucius on Family Duty')",
+    "  - 'The {School} View of {Topic}'                   (e.g. 'The Stoic View of Anger', 'The Taoist View of Effort')",
+    "  - 'What {Philosopher} Taught About {Topic}'        (e.g. 'What Seneca Taught About Time', 'What Epictetus Taught About Loss')",
+    "  - 'Why {Philosopher} Was Right About {Topic}'      (e.g. 'Why Epicurus Was Right About Friendship')",
+    "FORBIDDEN: vague abstractions without a thinker / school anchor, motivational reframings ('UNLOCK Stoic Power'), shallow life-hack framings.",
+    "Voice is the friend-who's-been-reading-these-books. Never lecturing. The title implies a quiet conversation, not a TED talk."
+  ],
+  "titleLengthRange": [4, 11],
+  "structuralVariety": "vary-subject-only"
 }

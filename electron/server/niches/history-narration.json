@@ -50,5 +50,19 @@
 
   "audienceHint": "Casual history viewers who enjoy 5-10 minute deep-cuts — overlaps with audiences for Hardcore History, Real Civilizations, Drachinifel-style channels.",
 
-  "scriptContext": "Anchor every piece to specific dates, names, and places — vague history slides into fiction. Cite the surprising primary-source detail wherever possible ('one letter from his secretary survives, and it says...'). Avoid contemporary political framing of ancient events."
+  "scriptContext": "Anchor every piece to specific dates, names, and places — vague history slides into fiction. Cite the surprising primary-source detail wherever possible ('one letter from his secretary survives, and it says...'). Avoid contemporary political framing of ancient events.",
+
+  "titleShapeRules": [
+    "Titles point at a SPECIFIC historical event, figure, or place — never an abstract era or vague theme.",
+    "Established shapes (vary the subject across the batch):",
+    "  - 'The Real Reason {Specific Event}'              (e.g. 'The Real Reason the Library of Alexandria Burned')",
+    "  - 'What {Event / Place} Actually Looked Like'      (e.g. 'What Pompeii's Final Day Actually Looked Like')",
+    "  - 'The Forgotten {Subject} of {Place}'             (e.g. 'The Forgotten Empress of Byzantium', 'The Forgotten Plague of Justinian')",
+    "  - 'How {Subject} {Verbed} {Place / Event}'         (e.g. 'How a Single Letter Triggered the Fall of Rome')",
+    "  - 'The Day {Specific Event}'                       (e.g. 'The Day Constantinople Fell')",
+    "FORBIDDEN: contemporary political framing of ancient events, sensational reframings ('SHOCKING TRUTH about…'), made-up incidents, vague era labels without specific anchors.",
+    "Voice is the friend-who-actually-reads-the-sources: concrete date, named figure, surprising primary-source detail in the title where possible."
+  ],
+  "titleLengthRange": [4, 11],
+  "structuralVariety": "vary-subject-only"
 }

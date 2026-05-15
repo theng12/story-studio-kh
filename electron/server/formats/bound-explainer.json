@@ -74,6 +74,29 @@
       "territoriality"
     ],
     "guidanceText": "Episode ideas should pick ONE specific subject (a single named species — 'Venus Flytrap', 'Komodo Dragon', 'Bullet Ant'), NOT a category ('plants', 'big cats'). The hook is always 'Why It Sucks To Be Born As [Subject]' — keep the title formula. The body teases 3-5 of the most concrete, surprising hardships that subject faces. Avoid moralizing or environmental-PSA tone — the channel's appeal is dark, factual humor, not advocacy.",
+    "titleShapeRules": [
+      "Titles MUST follow the channel signature: 'Why It Sucks To Be Born As {a / an} {Specific Named Species}'.",
+      "The subject (X) MUST be a single named species — 'Venus Flytrap', 'Komodo Dragon', 'Bullet Ant', 'Naked Mole Rat', 'Hagfish', 'Cordyceps Fungus'.",
+      "FORBIDDEN subjects:",
+      "  - Categories ('plants', 'big cats', 'amphibians') — must be one named species",
+      "  - Made-up creatures, hybrids, or fictional species",
+      "  - Subjects that don't have well-documented anatomical/ecological hardships",
+      "Article: pick 'a' vs 'an' correctly based on the species name's first sound.",
+      "FORBIDDEN: deviating from the formula. The channel's appeal IS the formula — every title is identical except for the subject. That's the brand."
+    ],
+    "titleLengthRange": [8, 14],
+    "loglineShapeRules": [
+      "1-2 sentences written FROM THE SUBJECT'S POV ('Born X, you'll spend your life Y').",
+      "Lead with ONE concrete, surprising hardship — anatomical, ecological, or reproductive.",
+      "Voice is dry, deadpan, evidence-based. No moralizing. No PSA framing. Dark factual humor."
+    ],
+    "loglineSentenceRange": [1, 2],
+    "themeShapeRules": [
+      "Pick 2-4 keywords categorising the kinds of hardships in this episode.",
+      "Examples: 'anatomical handicaps', 'ecological niche failure', 'weird reproduction', 'predator gauntlet', 'climate vulnerability'."
+    ],
+    "themeCountRange": [2, 4],
+    "structuralVariety": "vary-subject-only",
     "exampleIdeas": [
       {
         "title": "Why It Sucks To Be Born As a Venus Flytrap",

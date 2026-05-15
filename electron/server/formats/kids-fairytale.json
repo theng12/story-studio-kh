@@ -44,6 +44,27 @@
       "umbrella", "moon", "star", "lullaby"
     ],
     "guidanceText": "Age-appropriate. No real peril, no scary monsters that aren't quickly turned funny, no death. Conflicts resolve through kindness, cleverness, or asking for help — never through violence.",
+    "titleShapeRules": [
+      "Titles introduce a SPECIFIC CREATURE or CHILD CHARACTER + a gently-funny PROBLEM they have.",
+      "Established shapes (mix across the batch):",
+      "  - 'The {Creature} Who {Action / Problem}'         (e.g. 'The Hedgehog Who Forgot How to Roll')",
+      "  - 'The {Object / Subject} That {Wouldn't / Couldn't} {Verb}'  (e.g. 'The Star That Wouldn't Stop Sneezing')",
+      "  - '{Character}'s {Adjective} {Adventure / Day}'   (e.g. 'Mossy the Mouse's Soggy Saturday')",
+      "FORBIDDEN: scary content, peril, death references, real-world violence, sad endings, lectures, moralizing.",
+      "Tone: warm, slightly silly, problem is solvable through kindness/cleverness."
+    ],
+    "titleLengthRange": [4, 10],
+    "loglineShapeRules": [
+      "1-2 sentences naming the SPECIFIC character + a gently-funny problem + a hint at the kindness-based resolution.",
+      "Concrete: name the creature, the object, the place. No abstract setups.",
+      "Voice is read-aloud-friendly — easy words, gentle rhythm."
+    ],
+    "loglineSentenceRange": [1, 2],
+    "themeShapeRules": [
+      "Pick 2-4 keywords describing the AGE-APPROPRIATE LESSON (friendship, patience, sharing, asking-for-help, curiosity, kindness)."
+    ],
+    "themeCountRange": [2, 4],
+    "structuralVariety": "vary-all",
     "exampleIdeas": [
       {
         "title": "The Hedgehog Who Forgot How to Roll",
