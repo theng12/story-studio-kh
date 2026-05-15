@@ -19,6 +19,43 @@
       </div>
     </div>
 
+    <!-- v1.0.93+ hydration-error banner. The Ideas page hits two endpoints
+         on mount (`/projects/:slug` + `/projects/:slug/settings/config`)
+         and the third (`/projects/:slug/ideas`) right after. Failures
+         used to be swallowed → "ideas disappeared", "project missing"
+         flashes, silent revert to sleep-story format. Now each failure
+         mode surfaces with a specific message + recovery action. -->
+    <div v-if="hydrationError" class="hydration-banner" :class="`is-${hydrationError.kind}`">
+      <template v-if="hydrationError.kind === 'project-missing'">
+        <strong>⚠ Project not found.</strong>
+        The URL points at <code>{{ slug }}</code> but no project with that slug exists on this Mac.
+        <NuxtLink to="/" class="banner-link">← Back to projects</NuxtLink>
+      </template>
+      <template v-else-if="hydrationError.kind === 'project-fetch'">
+        <strong>⚠ Couldn't load project.</strong>
+        {{ hydrationError.detail }}
+        <button class="banner-link" @click="retryHydration">Retry</button>
+      </template>
+      <template v-else-if="hydrationError.kind === 'project-no-format'">
+        <strong>⚠ No format set on this project.</strong>
+        Generation will fall back to <code>sleep-story</code> until you pick one —
+        prayer / devotional vocab won't read correctly until a B-Roll Narration
+        (or other) format is chosen.
+        <NuxtLink :to="`/projects/${slug}/settings#format`" class="banner-link">
+          Open Format settings →
+        </NuxtLink>
+      </template>
+      <template v-else-if="hydrationError.kind === 'config-fetch'">
+        <strong>⚠ Couldn't load project settings.</strong>
+        Pattern / theme / title-wrap preferences may be stale. {{ hydrationError.detail }}
+        <button class="banner-link" @click="retryHydration">Retry</button>
+      </template>
+    </div>
+    <div v-if="ideasLoadError" class="hydration-banner is-ideas-fetch">
+      <strong>⚠ Couldn't load ideas:</strong> {{ ideasLoadError }}
+      <button class="banner-link" @click="loadIdeas">Retry</button>
+    </div>
+
     <!-- Channel "what worked" inspiration. Auto-included server-side in
          the LLM prompt; this card surfaces what's being injected so the
          user can see the vibe reference. Hides silently when no analytics
@@ -28,6 +65,46 @@
     <!-- Generator -->
     <div class="generator-panel mt-3">
       <h3 class="generator-title">Generate New Ideas</h3>
+
+      <!-- v1.0.93+ Effective channel state.
+           Shows the THREE things that drive what the LLM will produce:
+           format (vocab + narrator voice), niche (subject domain),
+           title wrap (channel framing). Each one is a clickable jump
+           to the place it's edited. When something is "default / not
+           set", the badge goes red so the user sees the regression
+           before spending an API call. Replaces guesswork ("why are
+           my prayer ideas about mountains?") with visibility. -->
+      <div class="effective-state-card" :class="{ 'has-warning': hasEffectiveStateWarning }">
+        <div class="effective-row">
+          <span class="effective-label">Format</span>
+          <strong :class="['effective-value', { 'is-fallback': !formatId || formatId === 'sleep-story' && !projectHasExplicitFormat }]">
+            {{ formatDisplayName || formatId || 'unknown' }}
+          </strong>
+          <span v-if="!projectHasExplicitFormat" class="effective-fallback-tag">
+            ⚠ falling back — project meta has no format_id
+          </span>
+          <NuxtLink :to="`/projects/${slug}/settings#format`" class="effective-link">Change</NuxtLink>
+        </div>
+        <div class="effective-row">
+          <span class="effective-label">Niche</span>
+          <strong :class="['effective-value', { 'is-fallback': !form.niche_id }]">
+            {{ form.niche_id || '(none — format defaults only)' }}
+          </strong>
+          <span v-if="form.niche_id !== projectNicheId" class="effective-override-tag">
+            override (project saved: {{ projectNicheId || 'none' }})
+          </span>
+          <NuxtLink :to="`/projects/${slug}/settings`" @click.prevent="goToNicheTab" class="effective-link">
+            Change project niche
+          </NuxtLink>
+        </div>
+        <div class="effective-row">
+          <span class="effective-label">Title wrap</span>
+          <strong v-if="titleConfig.prefix || titleConfig.suffix" class="effective-value">
+            "{{ titleConfig.prefix }}<em>{{ effectiveStateSampleTitle }}</em>{{ titleConfig.suffix }}"
+          </strong>
+          <span v-else class="effective-value is-fallback">(no wrap — titles emitted as-is)</span>
+        </div>
+      </div>
 
       <!-- v1.0.93+ Idea-generator preset.
            Captures the entire form (genre/theme/mood/keywords/count/model,
@@ -1309,6 +1386,12 @@ const titlePreviewText = computed(() => {
 const ideasPresets = usePresets<any>({
   slug: slug.value,
   configKey: 'ideas_generator',
+  // v1.0.93+ — explicit Apply only. The Ideas form is driven primarily
+  // by project meta (format_id + niche_id); auto-applying a preset on
+  // mount races the project-meta hydration and silently overwrites the
+  // saved niche on every navigation. User must click Apply to load a
+  // preset into the form.
+  autoApplyOnLoad: false,
   snapshot: () => ({
     // Form fields. Episode-specific keys are stripped automatically by
     // usePresets (DEFAULT_EXCLUDE_KEYS handles episode_id / title), but
@@ -1429,7 +1512,51 @@ async function loadFormatNames() {
   } catch { /* fall back to displaying the id */ }
 }
 
-async function loadPatternPreferences() {
+// v1.0.93+ — page-level hydration error surface. Replaces the silent
+// `catch { }` blocks that used to swallow failures (leading to "project
+// missing" flashes and the form silently reverting to sleep-story).
+// Each error state has a specific message + an action the user can take.
+const hydrationError = ref<{ kind: 'project-missing' | 'project-fetch' | 'config-fetch' | 'project-no-format'; detail?: string } | null>(null)
+
+async function retryHydration(): Promise<void> {
+  hydrationError.value = null
+  const ok = await loadPatternPreferences()
+  if (ok) {
+    // Re-run downstream loads after a successful retry. Stays in sync
+    // with the orchestrated mount block below.
+    await Promise.all([loadFormatNames(), loadIdeas(), ideasPresets.load()])
+  }
+}
+
+// v1.0.93+ Effective channel state card support.
+//
+// `projectHasExplicitFormat` distinguishes "user picked sleep-story
+// deliberately" (good) from "form defaulted to sleep-story because meta
+// fetch failed or returned no format_id" (bad). The Format slot in the
+// card goes red only when the latter.
+const projectHasExplicitFormat = computed(() => {
+  return !hydrationError.value || hydrationError.value.kind !== 'project-no-format'
+})
+
+const hasEffectiveStateWarning = computed(() => {
+  return !projectHasExplicitFormat.value || !form.niche_id
+})
+
+// Sample title in the live wrap preview. Uses the niche's first example
+// topic when available so it's representative of what the user will get.
+const effectiveStateSampleTitle = computed(() => {
+  return 'A Prayer for Anxious Hearts'
+})
+
+function goToNicheTab(): void {
+  // The Niche tab is at `/projects/:slug/settings` with activeTab=niche
+  // (settings.vue reads from window state on mount via a manual jump in
+  // the prior commit). For now route to the settings page; the user
+  // clicks the Niche tab there.
+  navigateTo(`/projects/${slug.value}/settings`)
+}
+
+async function loadPatternPreferences(): Promise<boolean> {
   // The project's chosen format lives on the project META, not on
   // /settings/config. settings.vue + scripts.vue both read meta.format_id;
   // ideas.vue used to read /settings/config.format_id which is always
@@ -1437,13 +1564,37 @@ async function loadPatternPreferences() {
   // (listicle) projects saw lantern/observatory/coming-of-age vocab. Fix:
   // hit project meta for format_id, settings/config for the *_last_*
   // pattern/subject memory.
+  //
+  // v1.0.93+ — returns true on success so the orchestrating mount can
+  // gate downstream loads on it. Errors surface via `hydrationError`
+  // (banner in the template) rather than being swallowed.
   let metaNiche = ''
+  let metaFormatLoaded = false
   try {
     const meta = await get<any>(`/projects/${slug.value}`)
-    if (typeof meta?.format_id === 'string' && meta.format_id) formatId.value = meta.format_id
+    if (!meta) {
+      hydrationError.value = { kind: 'project-missing' }
+      return false
+    }
+    if (typeof meta?.format_id === 'string' && meta.format_id) {
+      formatId.value = meta.format_id
+      metaFormatLoaded = true
+    }
     if (typeof meta?.niche_id === 'string') metaNiche = meta.niche_id
-  } catch { /* meta unreadable → leave default */ }
+  } catch (e: any) {
+    hydrationError.value = { kind: 'project-fetch', detail: e?.data?.detail || e?.message || 'unknown error' }
+    return false
+  }
   projectNicheId.value = metaNiche
+  // No format on the project meta → the page would silently fall back
+  // to sleep-story. Surface this loudly via the banner; the user can
+  // click through to Settings → Format to set one.
+  if (!metaFormatLoaded) {
+    hydrationError.value = { kind: 'project-no-format' }
+    // Continue hydration anyway — the form is still usable, just with
+    // sleep-story defaults that the user can see flagged in the banner
+    // and the effective-state card.
+  }
   try {
     const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
     if (typeof cfg?.[LAST_PATTERN_KEY] === 'string') form.pattern_id = cfg[LAST_PATTERN_KEY]
@@ -1465,11 +1616,14 @@ async function loadPatternPreferences() {
     // either surface updates the other.
     if (typeof cfg?.[TITLE_PREFIX_KEY] === 'string') titleConfig.prefix = cfg[TITLE_PREFIX_KEY]
     if (typeof cfg?.[TITLE_SUFFIX_KEY] === 'string') titleConfig.suffix = cfg[TITLE_SUFFIX_KEY]
-  } catch {
-    // Even if config fetch fails, surface project niche as the default.
+  } catch (e: any) {
+    // Config fetch failure is non-fatal — the project state itself was
+    // loaded above. Surface a soft warning + still set the niche default.
+    hydrationError.value = { kind: 'config-fetch', detail: e?.data?.detail || e?.message || 'unknown error' }
     form.niche_id = metaNiche
   }
   patternHydrated = true
+  return true
 }
 
 async function savePatternPreferences() {
@@ -1500,8 +1654,27 @@ watch(() => form.items_per_listicle, savePatternPreferences)
 watch(() => form.niche_id, savePatternPreferences)
 watch(() => titleConfig.prefix, savePatternPreferences)
 watch(() => titleConfig.suffix, savePatternPreferences)
-onMounted(loadPatternPreferences)
-onMounted(loadFormatNames)
+// v1.0.93+ — five separate onMounted() calls used to race each other,
+// and the worst offender was usePresets() auto-applying an active preset
+// AFTER loadPatternPreferences() had populated the project niche →
+// silently reverting the form on every navigation. Now sequenced:
+//   1. Project state first (format_id + niche_id from meta). This is
+//      the source of truth for the channel; everything else is layered.
+//   2. Reference data in parallel (format list, custom lists, ideas).
+//   3. Presets last (autoApplyOnLoad: false — they populate the dropdown
+//      but don't touch the form until the user clicks Apply).
+// loadCustomLists has its own onMounted() lower in this file because
+// it's defined near the custom-list state block — kept there to avoid
+// scattering the state ownership.
+onMounted(async () => {
+  const ok = await loadPatternPreferences()
+  if (!ok) return  // banner is visible; downstream loads would compound the error noise
+  await Promise.all([
+    loadFormatNames(),
+    loadIdeas(),
+    ideasPresets.load(),  // dropdown only; no auto-apply
+  ])
+})
 
 // ── Generic fallback pools ────────────────────────────────────
 //
@@ -2334,11 +2507,30 @@ function shortDate(d: string) {
 async function loadIdeas() {
   try {
     const data = await get<any>(`/projects/${slug.value}/ideas`)
-    allIdeas.value = data.ideas || []
-    nextEpisodeNum.value = data.next_episode_number || 1
-    episodePrefix.value = data.episode_prefix || 'EP'
-  } catch {}
+    // Defensive: only clobber the local list when the backend actually
+    // returned an `ideas` array. A 200 with no body or a transient
+    // upstream issue used to result in `data.ideas || []` blanking the
+    // user's already-loaded ideas — symptom: "ideas occasionally
+    // disappear on navigation". Now we only update when we have a real
+    // array to update from.
+    if (Array.isArray(data?.ideas)) {
+      allIdeas.value = data.ideas
+      nextEpisodeNum.value = data.next_episode_number || 1
+      episodePrefix.value = data.episode_prefix || 'EP'
+      // Successful load clears any prior load-error banner.
+      ideasLoadError.value = ''
+    } else {
+      ideasLoadError.value = 'Project returned no ideas payload — try refreshing.'
+    }
+  } catch (e: any) {
+    // Surface the failure instead of swallowing it. Keep the previously-
+    // loaded ideas list intact so a transient blip doesn't wipe the
+    // user's view.
+    ideasLoadError.value = e?.data?.detail || e?.message || 'Couldn\'t load ideas from this project.'
+  }
 }
+// v1.0.93+ — visible error surface for /ideas endpoint failures.
+const ideasLoadError = ref('')
 
 async function generate() {
   generating.value = true
@@ -2735,11 +2927,9 @@ async function confirmCompact() {
   }
 }
 
-onMounted(loadIdeas)
-// v1.0.93+ — load the saved ideas presets so the picker is populated
-// the moment the page mounts. usePresets auto-applies the last-active
-// preset, so the form hydrates from it without an explicit click.
-onMounted(() => { void ideasPresets.load() })
+// loadIdeas + ideasPresets.load() are orchestrated in the main mount
+// block above (sequenced after loadPatternPreferences). Stale separate
+// onMounted() calls used to live here and were the race-condition source.
 </script>
 
 <style scoped>
@@ -3445,5 +3635,113 @@ onMounted(() => { void ideasPresets.load() })
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* v1.0.93+ Hydration error banners. Two kinds of failure surface here:
+   project-level (project-missing / project-fetch / project-no-format /
+   config-fetch) and ideas-level (ideas-fetch). All render the same
+   visual shape — yellow card with a strong call-out + a recovery action
+   on the right. The is-project-missing variant goes red because it
+   means the page can't usefully be operated until the URL is fixed. */
+.hydration-banner {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: rgba(240, 198, 116, 0.08);
+  border: 1px solid rgba(240, 198, 116, 0.30);
+  border-left: 3px solid rgba(240, 198, 116, 0.80);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 13px;
+  line-height: 1.5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.hydration-banner.is-project-missing,
+.hydration-banner.is-project-fetch {
+  background: rgba(226, 92, 92, 0.08);
+  border-color: rgba(226, 92, 92, 0.35);
+  border-left-color: var(--error, #e25c5c);
+}
+.hydration-banner code {
+  background: var(--bg-tertiary);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.hydration-banner .banner-link {
+  margin-left: auto;
+  color: var(--accent, #6c8fff);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  font-size: 13px;
+  text-decoration: underline;
+  padding: 0;
+}
+
+/* v1.0.93+ Effective channel state card. Shows what's actually driving
+   the next generation so the user can catch state drift (format reverted,
+   niche missing, etc.) BEFORE spending an API call. Renders as three
+   neat rows; turns yellow when any slot is in a fallback state. */
+.effective-state-card {
+  margin-top: 10px;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border-left: 3px solid var(--accent, #6c8fff);
+  border-radius: var(--radius-sm, 4px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.effective-state-card.has-warning {
+  border-left-color: rgba(240, 198, 116, 0.85);
+  background: rgba(240, 198, 116, 0.04);
+}
+.effective-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+}
+.effective-label {
+  display: inline-block;
+  width: 80px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.effective-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.effective-value.is-fallback {
+  color: var(--text-muted);
+  font-style: italic;
+  font-weight: normal;
+}
+.effective-value em {
+  font-style: italic;
+  color: var(--accent, #6c8fff);
+}
+.effective-fallback-tag,
+.effective-override-tag {
+  font-size: 11px;
+  color: rgba(240, 198, 116, 0.95);
+  padding: 1px 8px;
+  background: rgba(240, 198, 116, 0.10);
+  border-radius: 999px;
+}
+.effective-override-tag {
+  color: var(--accent, #6c8fff);
+  background: rgba(108, 143, 255, 0.10);
+}
+.effective-link {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--accent, #6c8fff);
+  text-decoration: underline;
 }
 </style>

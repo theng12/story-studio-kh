@@ -426,6 +426,11 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     const topPerformers = await getTopPerformersForSlug(slug, 5)
     const topBlock = formatTopPerformersBlock(topPerformers)
     const firstPrompt = buildPrompt(overshoot, format, standards, avoid, undefined, pattern, topBlock)
+    // v1.0.93+ — one-line effective-state log so future "why are my prayer
+    // ideas about mountains?" regressions are debuggable from a glance at
+    // server output. Captures the four signals that determine title voice.
+    const effectiveNicheId = nicheIdOverride !== undefined ? (nicheIdOverride || '(forced none)') : (project.niche_id || '(none)')
+    console.log(`[ideas-gen] effective: format=${project.format_id || '(fallback:sleep-story)'} niche=${effectiveNicheId} examples=${format.idea.exampleIdeas?.length || 0} prefix=${JSON.stringify(titlePrefix || '')} suffix=${JSON.stringify(titleSuffix || '')}`)
     const firstRaw = await callAi(body.model, '', firstPrompt, apiKeys, false, { slug })
     const firstBatch = normalizeIdeas(parseIdeas(firstRaw))
 

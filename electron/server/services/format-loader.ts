@@ -398,14 +398,36 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
         }))
       : undefined
 
+  // v1.0.93+ — niche LEADS the prompt, format supports. Previous merge
+  // appended niche audience after format audience and never touched the
+  // Ideas-page systemPromptRole / guidanceText. The LLM therefore read
+  // format vocab first ("calm, dream-like imagery") and niche vocab as a
+  // late afterthought → "Daily Prayer | The Piano Tuner's Evening Prayer"
+  // type compromises. Now the niche scriptContext + audienceHint appear
+  // FIRST in the prompt so the LLM anchors on the niche voice before it
+  // reads format guidance.
+  const ideaSystemPromptRole = niche.scriptContext
+    ? `NICHE CONTEXT — this is the dominant voice for the channel:\n${niche.scriptContext}\n\nFORMAT ROLE (structural backbone — niche always wins on conflict):\n${format.idea.systemPromptRole}`
+    : format.idea.systemPromptRole
+
+  // Guidance text: niche voice cue at the top, format guidance underneath.
+  const nicheGuidanceLead = niche.scriptContext || niche.description
+    ? `Channel voice for this generation: ${niche.scriptContext || niche.description}\n\n`
+    : ''
+  const ideaGuidanceText = `${nicheGuidanceLead}${format.idea.guidanceText}`
+
   const idea = {
     ...format.idea,
+    systemPromptRole: ideaSystemPromptRole,
+    guidanceText: ideaGuidanceText,
     moodVocabulary: uniqueAppend(format.idea.moodVocabulary, niche.vocabulary?.mood),
     themeVocabulary: uniqueAppend(format.idea.themeVocabulary, niche.vocabulary?.theme),
     genreVocabulary: uniqueAppend(format.idea.genreVocabulary, niche.vocabulary?.genre),
     keywordVocabulary: uniqueAppend(format.idea.keywordVocabulary, niche.vocabulary?.keyword),
+    // Niche audience leads. Format audience trails in parens for context
+    // so the LLM still knows the broader channel demographics.
     audienceDefault: niche.audienceHint
-      ? `${format.idea.audienceDefault} — ${niche.audienceHint}`
+      ? `${niche.audienceHint} (within the format's broader audience: ${format.idea.audienceDefault})`
       : format.idea.audienceDefault,
     exampleIdeas: nicheExampleIdeas || format.idea.exampleIdeas,
   }

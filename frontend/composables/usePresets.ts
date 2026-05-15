@@ -77,6 +77,17 @@ export interface UsePresetsOptions<T> {
    * of these fields in a preset (none does today).
    */
   excludeKeys?: string[]
+  /**
+   * v1.0.93+ — whether `load()` should auto-apply the active preset on
+   * mount. Defaults to `true` (every generator page relies on this for
+   * "remember my last setup" UX). Pages where the form state is also
+   * driven by another source — most notably the Ideas Generator, which
+   * hydrates `niche_id` / `format_id` from the project meta — should
+   * pass `false` and rely on the user clicking Apply explicitly. Without
+   * this opt-out the preset auto-apply races the project-meta hydration
+   * and silently overwrites the project's niche on every navigation.
+   */
+  autoApplyOnLoad?: boolean
 }
 
 // Per-episode fields that should never live inside a saved preset.
@@ -209,7 +220,14 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
       // when the user re-enters the tab. Without this, the preset dropdown
       // shows "active" but the form sits on its reactive defaults, making
       // every saved preset appear to silently revert after a navigation.
-      if (activeId.value) applyActive()
+      //
+      // v1.0.93+ opt-out: pages where the form is also driven by project
+      // meta (Ideas Generator's niche_id / format_id) pass autoApplyOnLoad
+      // = false. There the preset auto-apply was racing the project-meta
+      // hydration and silently clobbering the project's niche on every
+      // navigation — the actual bug the user reported on Abiding Faith.
+      const autoApply = opts.autoApplyOnLoad !== false
+      if (autoApply && activeId.value) applyActive()
     } catch { /* ignore */ }
   }
 
