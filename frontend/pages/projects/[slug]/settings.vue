@@ -282,33 +282,19 @@
            Niche = "what subject domain" (plants, animals, fungi, insects).
            Niche is optional — projects without one keep working with
            format defaults. -->
-      <div class="niche-section mt-4">
-        <div class="format-tab-header">
-          <div>
-            <h3>Niche</h3>
-            <p class="text-muted mt-1 mb-2">
-              Subject-domain layer — orthogonal to Format. Pick the topic
-              area this project covers (plants, animals, fungi, insects, or
-              your own custom niche). The niche layers vocab, visual style,
-              and YouTube tag hints onto every generator without changing
-              the format itself.
-              <strong>Niche is optional</strong> — leave empty for format-default behavior.
-            </p>
-          </div>
-          <NuxtLink to="/niches" class="btn btn-secondary btn-sm">
-            Browse niches
-          </NuxtLink>
-        </div>
-
-        <NichePicker v-model="nicheId" @change="onNicheChanged" />
-
-        <div class="mt-3 button-row">
-          <button class="btn btn-primary" :disabled="nicheSaving || !nicheDirty" @click="saveNicheSettings">
-            {{ nicheSaving ? 'Saving…' : 'Save niche settings' }}
-          </button>
-          <SaveIndicator v-bind="savedHintProps('niche')" />
-          <span v-if="nicheSaveError" class="text-error">{{ nicheSaveError }}</span>
-        </div>
+      <!-- v1.0.93+ Niche moved to its own top-level tab so it's findable.
+           This stub stays inside the Format tab as a wayfinding pointer
+           — users who go to Settings → Format expecting niche (the old
+           location) get a one-click jump rather than a dead end. -->
+      <div class="niche-moved-pointer mt-4">
+        <strong>Niche moved →</strong>
+        <span class="text-muted">
+          The subject-domain layer (plants / prayer / motivation / etc.) now
+          lives in its own tab so it's easier to find.
+        </span>
+        <button class="btn btn-secondary btn-sm" @click="activeTab = 'niche'">
+          Open Niche tab
+        </button>
       </div>
 
       <!-- ── Patterns sub-section ─────────────────────────────────────── -->
@@ -407,6 +393,45 @@
         @close="patternWizardOpen = false"
         @saved="onPatternSaved"
       />
+    </div>
+
+    <!-- v1.0.93+ Niche tab — promoted out of Format so it's findable from
+         the top-level tabs. Same NichePicker + save flow as before;
+         physically separated only. -->
+    <div v-if="activeTab === 'niche'" class="card mt-2">
+      <div class="format-tab-header">
+        <div>
+          <h3>Niche</h3>
+          <p class="text-muted mt-1 mb-2">
+            Subject-domain layer — orthogonal to Format. Pick the topic area
+            this project covers (prayer, devotional, motivation, plants,
+            animals, fungi, insects, or your own custom niche). The niche
+            layers vocab, example titles, visual style, and YouTube tag hints
+            onto every generator without changing the format itself.
+            <strong>Niche is optional</strong> — leave empty for format-default behavior.
+          </p>
+        </div>
+        <NuxtLink to="/niches" class="btn btn-secondary btn-sm">
+          Browse niches
+        </NuxtLink>
+      </div>
+
+      <NichePicker v-model="nicheId" @change="onNicheChanged" />
+
+      <div class="mt-3 button-row">
+        <button class="btn btn-primary" :disabled="nicheSaving || !nicheDirty" @click="saveNicheSettings">
+          {{ nicheSaving ? 'Saving…' : 'Save niche settings' }}
+        </button>
+        <SaveIndicator v-bind="savedHintProps('niche')" />
+        <span v-if="nicheSaveError" class="text-error">{{ nicheSaveError }}</span>
+      </div>
+
+      <p class="text-muted text-xs mt-3">
+        <strong>Pro tip:</strong> picking a niche here locks every Ideas / Script / Metadata
+        generation on this project to that subject domain. To override for a single batch
+        without changing this saved value, use the Niche picker inside the
+        <NuxtLink :to="`/projects/${slug}/ideas`" class="link">Ideas Generator</NuxtLink>.
+      </p>
     </div>
 
     <!-- Standards -->
@@ -3731,6 +3756,11 @@ const tabs = [
   { id: 'models', label: 'Models' },
   { id: 'voices', label: 'Voices' },
   { id: 'format', label: 'Format' },
+  // v1.0.93+ — Niche promoted out of Format. Was nested as a sub-section
+  // under Format which made it un-discoverable; users couldn't find where
+  // to set the project's subject-domain layer (the actual bug the user
+  // reported on the prayer-channel project).
+  { id: 'niche', label: 'Niche' },
   { id: 'standards', label: 'Standards' },
   { id: 'folders', label: 'Folders' },
   // Storage tab — surfaces per-episode disk usage + safe cleanup of
@@ -6121,4 +6151,18 @@ async function deleteProject() {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* v1.0.93+ Niche-moved-to-its-own-tab wayfinder inside the Format tab. */
+.niche-moved-pointer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.niche-moved-pointer strong { color: var(--accent, #6c8fff); }
 </style>

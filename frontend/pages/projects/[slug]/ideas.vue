@@ -29,6 +29,31 @@
     <div class="generator-panel mt-3">
       <h3 class="generator-title">Generate New Ideas</h3>
 
+      <!-- v1.0.93+ Idea-generator preset.
+           Captures the entire form (genre/theme/mood/keywords/count/model,
+           pattern, niche override, title prefix/suffix) so a user with
+           multiple channel framings ("Morning Prayer", "Evening Prayer",
+           "Daily Devotional") can switch between them in one click. Same
+           PresetPicker pattern used elsewhere — device-aware filtering +
+           cross-device banner come along for free. -->
+      <PresetPicker
+        label="Ideas preset"
+        hint="Saves the niche, prefix/suffix, pattern, mood/theme/audience, and the rest of this form. Pick one and click Apply to load; Save as… to capture the current form."
+        :presets="ideasPresets.presets.value"
+        :active-id="ideasPresets.activeId.value"
+        :current-machine-label="ideasPresets.machineLabel.value"
+        :show-all-devices="ideasPresets.showAllDevices.value"
+        :cross-device-count="ideasPresets.crossDeviceCount.value"
+        :active-preset-is-cross-device="ideasPresets.activePresetIsCrossDevice.value"
+        :active-preset-machine-label="ideasPresets.activePresetMachineLabel.value"
+        @update:active-id="ideasPresets.setActive"
+        @update:show-all-devices="(v: boolean) => ideasPresets.showAllDevices.value = v"
+        @apply="onIdeasPresetApplied"
+        @overwrite="ideasPresets.overwrite(); success('Preset saved')"
+        @save-as="(n: string) => ideasPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
+        @delete="ideasPresets.remove(); success('Preset deleted')"
+      />
+
       <!-- Format Indicator Card.
            Surfaces which format is currently driving every dropdown
            (genre, mood, theme, keywords, audience) + every prompt the
@@ -1274,6 +1299,59 @@ const titlePreviewText = computed(() => {
   const base = 'A Prayer for Anxious Hearts'
   return (titleConfig.prefix || '') + base + (titleConfig.suffix || '')
 })
+
+// v1.0.93+ — Ideas Generator presets. Captures the full form so users
+// running multiple channel framings on one project (e.g. "Morning Prayer"
+// AND "Evening Prayer" AND "Daily Devotional" all on Abiding Faith) can
+// switch in one click instead of retyping seven fields per batch. Device-
+// aware filtering comes from usePresets directly — presets saved on Mac A
+// stay hidden on Mac B by default with a toggle to reveal.
+const ideasPresets = usePresets<any>({
+  slug: slug.value,
+  configKey: 'ideas_generator',
+  snapshot: () => ({
+    // Form fields. Episode-specific keys are stripped automatically by
+    // usePresets (DEFAULT_EXCLUDE_KEYS handles episode_id / title), but
+    // ideas form doesn't carry those anyway — this is all channel-shape
+    // state: genre, theme, mood, keywords, audience, count, model.
+    genre: form.genre,
+    theme: form.theme,
+    audience: form.audience,
+    mood: form.mood,
+    keywords: [...form.keywords],
+    count: form.count,
+    model: form.model,
+    pattern_id: form.pattern_id,
+    pattern_subject: form.pattern_subject,
+    items_per_listicle: form.items_per_listicle,
+    niche_id: form.niche_id,
+    title_prefix: titleConfig.prefix,
+    title_suffix: titleConfig.suffix,
+  }),
+  apply: (data: any) => {
+    if (!data || typeof data !== 'object') return
+    if (typeof data.genre === 'string') form.genre = data.genre
+    if (typeof data.theme === 'string') form.theme = data.theme
+    if (typeof data.audience === 'string') form.audience = data.audience
+    if (typeof data.mood === 'string') form.mood = data.mood
+    if (Array.isArray(data.keywords)) form.keywords = [...data.keywords]
+    if (typeof data.count === 'number') form.count = data.count
+    if (typeof data.model === 'string') form.model = data.model
+    if (typeof data.pattern_id === 'string') form.pattern_id = data.pattern_id
+    if (typeof data.pattern_subject === 'string') form.pattern_subject = data.pattern_subject
+    if (data.items_per_listicle === null || typeof data.items_per_listicle === 'number') {
+      form.items_per_listicle = data.items_per_listicle
+    }
+    if (typeof data.niche_id === 'string') form.niche_id = data.niche_id
+    if (typeof data.title_prefix === 'string') titleConfig.prefix = data.title_prefix
+    if (typeof data.title_suffix === 'string') titleConfig.suffix = data.title_suffix
+  },
+})
+
+function onIdeasPresetApplied() {
+  ideasPresets.applyActive()
+  success('Preset applied')
+}
 
 // ── Pattern + format wiring for the Ideas page ────────────────────────────
 //
@@ -2658,6 +2736,10 @@ async function confirmCompact() {
 }
 
 onMounted(loadIdeas)
+// v1.0.93+ — load the saved ideas presets so the picker is populated
+// the moment the page mounts. usePresets auto-applies the last-active
+// preset, so the form hydrates from it without an explicit click.
+onMounted(() => { void ideasPresets.load() })
 </script>
 
 <style scoped>

@@ -371,6 +371,33 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
   // Build new sub-objects rather than mutating the input — Format objects
   // can be cached by loadFormat() across requests; mutating would leak
   // niche state into later format-only consumers.
+  //
+  // v1.0.93+ — niche `exampleTopics` (a flat string[] of niche-specific
+  // titles like "Morning Prayer for Strength") now REPLACES the format's
+  // `exampleIdeas` whenever the niche provides them. Before this fix the
+  // niche's example bar lived only in the picker preview UI; the LLM
+  // never saw it, so a project on the broll-narration format + prayer
+  // niche still got titles modelled on broll-narration's 2 generic
+  // examples → poetic nature-flavoured output even with "prayer" vocab
+  // sprinkled in (the actual bug the user reported).
+  //
+  // Synthesis: format's exampleIdeas is a rich object[]; niche's
+  // exampleTopics is a flat string[]. We bolt the missing fields on with
+  // sensible defaults pulled from the surrounding niche/format context.
+  // The LLM gets the niche's titles as the bar AND keeps the format's
+  // structural cues (chapters, length, narrator role).
+  const nicheExampleIdeas: Format['idea']['exampleIdeas'] | undefined =
+    Array.isArray(niche.exampleTopics) && niche.exampleTopics.length > 0
+      ? niche.exampleTopics.map(t => ({
+          title: t,
+          logline: '',  // LLM infers from title + niche scriptContext
+          themes: (niche.vocabulary?.theme || []).slice(0, 3),
+          suggested_chapters: format.script.defaultChapterCount,
+          suggested_length: `${format.script.defaultLengthMinutes} min`,
+          mood: (niche.vocabulary?.mood || [])[0] || (format.idea.moodVocabulary || [])[0] || '',
+        }))
+      : undefined
+
   const idea = {
     ...format.idea,
     moodVocabulary: uniqueAppend(format.idea.moodVocabulary, niche.vocabulary?.mood),
@@ -380,6 +407,7 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
     audienceDefault: niche.audienceHint
       ? `${format.idea.audienceDefault} — ${niche.audienceHint}`
       : format.idea.audienceDefault,
+    exampleIdeas: nicheExampleIdeas || format.idea.exampleIdeas,
   }
 
   // Script layer — only the system-prompt-role gets niche-augmented. The
