@@ -1,2 +1,0 @@
-{"ts":"2026-05-04T02:29:46.118Z","level":"info","message":"request","method":"GET","path":"/api/health","status":200,"durationMs":12}
-{"ts":"2026-05-04T02:33:11.832Z","level":"info","message":"request","method":"GET","path":"/api/health","status":200,"durationMs":7}
