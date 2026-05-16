@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.100 — 2026-05-16
+
+**Unclean-shutdown banner now auto-dismisses after 30s**
+
+The "Story Studio quit unexpectedly last time. Some jobs may not have finished — review them in Jobs" banner used to sit at the top of every page after a crash until you manually clicked ✕. Across multiple navigations within the same session it became visual noise.
+
+v1.0.100 changes it to a 30-second auto-dismiss with a visible countdown chip on the right (`30s`, `29s`, …) and a thin yellow progress bar along the bottom that drains over the window. After the countdown expires, the banner persists the dismissal (same write the manual ✕ already did) so it doesn't re-appear within the same crash-recovery session. A fresh crash sets a new `unclean_shutdown` flag and the banner returns — that's the only way it comes back.
+
+Manual ✕ still works for immediate dismissal. No backend changes — the `PATCH /last-session { unclean_shutdown_dismissed: true }` call is the same; only the trigger surface changed.
+
+**Audit pass**
+- `cd frontend && npx nuxt build`: clean.
+- Banner tested with `unclean_shutdown=true` on the dev branch — countdown ticks, progress bar drains, banner disappears at 0s.
+
+---
+
 ## v1.0.99 — 2026-05-16
 
 **Server-mode audit pass — tests, diagnostic surface, mirror-folder workflow**

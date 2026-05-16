@@ -267,6 +267,15 @@
           {{ assetMigration.status.value.estimated_files || 0 }} file(s).)
         </span>
       </div>
+      <!-- v1.0.100+ Auto-dismissing unclean-shutdown banner.
+           Was a sticky banner that hung around until the user manually
+           clicked ✕ on every launch following a crash; visible at the
+           top of every navigation. Now: shows for 30 seconds with a
+           visible countdown bar, then quietly persists the dismissal
+           and disappears. Manual ✕ still works for immediate dismissal.
+           If the app crashes AGAIN, a fresh unclean_shutdown flag is
+           set and the banner returns — that's the only way it comes
+           back. -->
       <div
         v-if="uncleanShutdown"
         class="unclean-shutdown-banner"
@@ -279,13 +288,23 @@
           Some jobs may not have finished — review them in
           <NuxtLink :to="`/projects/${slug}/jobs`" class="unclean-shutdown-link">Jobs</NuxtLink>.
         </span>
+        <span
+          class="unclean-shutdown-timer"
+          :title="`Auto-dismissing in ${uncleanShutdownSecondsLeft}s`"
+          aria-hidden="true"
+        >{{ uncleanShutdownSecondsLeft }}s</span>
         <button
           type="button"
           class="unclean-shutdown-dismiss"
-          title="Dismiss — we won't show this again until the next unexpected quit"
+          title="Dismiss now"
           aria-label="Dismiss unclean-shutdown banner"
           @click="dismissUncleanShutdown"
         >✕</button>
+        <div
+          class="unclean-shutdown-progress"
+          :style="{ width: `${uncleanShutdownProgressPct}%` }"
+          aria-hidden="true"
+        />
       </div>
       <div
         v-if="restoredChip"
@@ -446,12 +465,48 @@ async function loadSessionUiState() {
 
 async function dismissUncleanShutdown() {
   uncleanShutdown.value = false
+  if (uncleanShutdownTimer) { clearInterval(uncleanShutdownTimer); uncleanShutdownTimer = null }
   try {
     await apiPatch('/last-session', { unclean_shutdown_dismissed: true })
   } catch {
     // Fail-quiet — worst case the banner re-appears on the next reload.
   }
 }
+
+// v1.0.100+ — 30-second auto-dismiss with a visible countdown so the
+// banner stops being visually noisy after the initial heads-up. We
+// persist the dismissal on auto-fade too (same semantics as the manual
+// ✕) so navigating between pages doesn't re-show the banner within the
+// same crash-recovery session. A fresh crash sets a new
+// unclean_shutdown flag and the banner returns.
+const UNCLEAN_SHUTDOWN_AUTO_DISMISS_SECONDS = 30
+const uncleanShutdownSecondsLeft = ref(UNCLEAN_SHUTDOWN_AUTO_DISMISS_SECONDS)
+const uncleanShutdownProgressPct = computed(() =>
+  Math.max(0, Math.min(100, (uncleanShutdownSecondsLeft.value / UNCLEAN_SHUTDOWN_AUTO_DISMISS_SECONDS) * 100)),
+)
+let uncleanShutdownTimer: ReturnType<typeof setInterval> | null = null
+
+watch(uncleanShutdown, (showing) => {
+  // Start the countdown only on the transition false → true. When the
+  // banner is dismissed (manually or auto), tear the timer down.
+  if (!showing) {
+    if (uncleanShutdownTimer) { clearInterval(uncleanShutdownTimer); uncleanShutdownTimer = null }
+    return
+  }
+  uncleanShutdownSecondsLeft.value = UNCLEAN_SHUTDOWN_AUTO_DISMISS_SECONDS
+  if (uncleanShutdownTimer) clearInterval(uncleanShutdownTimer)
+  uncleanShutdownTimer = setInterval(() => {
+    uncleanShutdownSecondsLeft.value -= 1
+    if (uncleanShutdownSecondsLeft.value <= 0) {
+      // Auto-dismiss: same persistence semantics as the manual ✕.
+      void dismissUncleanShutdown()
+    }
+  }, 1000)
+})
+
+onBeforeUnmount(() => {
+  if (uncleanShutdownTimer) { clearInterval(uncleanShutdownTimer); uncleanShutdownTimer = null }
+})
 
 async function returnToProjectList() {
   restoredChip.value = false
@@ -796,6 +851,7 @@ function openWhatsNew() { _whatsNew.open() }
 /* Unclean-shutdown banner — prior run died without firing before-quit
    (force-quit, OOM, hard crash). Soft yellow accent. */
 .unclean-shutdown-banner {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -807,11 +863,25 @@ function openWhatsNew() { _whatsNew.open() }
   border-radius: var(--radius-sm);
   font-size: 12px;
   color: var(--text-secondary);
+  overflow: hidden;
 }
 .unclean-shutdown-icon { font-size: 15px; line-height: 1.2; flex-shrink: 0; }
 .unclean-shutdown-text { flex: 1; line-height: 1.5; }
 .unclean-shutdown-text strong { color: var(--text-primary); }
 .unclean-shutdown-link { color: var(--accent); text-decoration: underline; }
+/* v1.0.100+ — visible countdown chip so the user knows the banner is
+   on a timer and isn't going to nag forever. Tabular-nums keeps it from
+   jittering as the count ticks down. */
+.unclean-shutdown-timer {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  padding: 1px 7px;
+  background: var(--bg-tertiary);
+  border-radius: 999px;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
 .unclean-shutdown-dismiss {
   background: none;
   border: none;
@@ -823,6 +893,17 @@ function openWhatsNew() { _whatsNew.open() }
   flex-shrink: 0;
 }
 .unclean-shutdown-dismiss:hover { background: var(--bg-hover); color: var(--text-primary); }
+/* Bottom progress bar mirrors the timer chip — shrinks from 100% → 0%
+   over the auto-dismiss window. CSS transition softens the per-second
+   tick so it reads as a smooth fade rather than a stuttery countdown. */
+.unclean-shutdown-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: #eab308;
+  transition: width 1s linear;
+}
 
 /* Restored-where-you-left-off chip — quieter than the banners; informs the
    operator the page didn't open by their click but offers a fast escape. */
