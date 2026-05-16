@@ -133,6 +133,7 @@
     "defaultLengthMinutes": 30,
     "lengthMinutesRange": [20, 75],
     "durationPresets": [20, 30, 45, 60, 75],
+    "defaultWordsPerMinute": 130,
     "narratorStyles": [
       { "id": "A", "label": "Attenborough-esque",       "description": "Reverent, intimate, marvels at small details. Ideal for natural history and place portraits." },
       { "id": "B", "label": "Biographer's voice",       "description": "Warm, novelistic — the subject's life as a story. Suits biographies and historical figures." },
@@ -140,7 +141,11 @@
       { "id": "D", "label": "Cinematic narrator",       "description": "Big-screen documentary voice — sweeping but precise. Suits epic-scope subjects (geological time, civilisations)." },
       { "id": "E", "label": "Personal essayist",        "description": "First-person occasional — the narrator pauses to share what drew them to this subject. Adds intimacy." }
     ],
-    "defaultNarratorStyleId": "A"
+    "defaultNarratorStyleId": "A",
+    "videoDefaults": {
+      "aspectRatio": "landscape",
+      "defaultTimelineClipDurationSeconds": 120
+    }
   },
 
   "imagePrompts": {

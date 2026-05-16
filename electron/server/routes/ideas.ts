@@ -699,7 +699,7 @@ router.get('/projects/:slug/ideas/paste-prompt', async (req, res) => {
  * with defaults is explicitly NOT used — the preview table exists so the
  * user notices quality issues before they're written to disk.
  */
-function validatePastedIdea(raw: any, idx: number): { ok: true; value: {
+function validatePastedIdea(raw: any, idx: number, defaultLengthMin: number = 45): { ok: true; value: {
   title: string; logline: string; themes: string[];
   suggested_chapters: number; suggested_length: string; mood: string;
 } } | { ok: false; reason: string } {
@@ -729,10 +729,12 @@ function validatePastedIdea(raw: any, idx: number): { ok: true; value: {
     return { ok: false, reason: '"suggested_chapters" must be an integer between 1 and 20' }
   }
 
-  // suggested_length: accept any string but fall back to "45 min" if empty —
-  // this field is primarily a UI hint and not safety-critical.
+  // suggested_length: accept any string but fall back to the format's
+  // defaultLengthMinutes (passed by caller) if empty — this field is
+  // primarily a UI hint and not safety-critical. v1.0.102+: was hardcoded
+  // '45 min'; now reads format.script.defaultLengthMinutes via the caller.
   const lenRaw = typeof raw.suggested_length === 'string' ? raw.suggested_length.trim() : ''
-  const suggested_length = lenRaw || '45 min'
+  const suggested_length = lenRaw || `${defaultLengthMin} min`
 
   const mood = typeof raw.mood === 'string' ? raw.mood.trim() : ''
   if (!mood) return { ok: false, reason: 'missing or empty "mood"' }
@@ -765,11 +767,21 @@ router.post('/projects/:slug/ideas/import-paste', async (req, res) => {
     return res.status(400).json({ detail: 'Pasted JSON must be an array of idea objects' })
   }
 
+  // v1.0.102+ — pull the format's default length to use as the
+  // fallback for any pasted idea that's missing `suggested_length`.
+  // Previously hardcoded '45 min' (sleep-story). For a broll-narration
+  // / prayer project this would now be `10 min`.
+  const effectiveFormat = await getEffectiveFormat(slug)
+  const formatDefaultLengthMin =
+    effectiveFormat?.script?.defaultLengthMinutes && effectiveFormat.script.defaultLengthMinutes > 0
+      ? effectiveFormat.script.defaultLengthMinutes
+      : 45
+
   const valid: Array<{ title: string; logline: string; themes: string[];
                        suggested_chapters: number; suggested_length: string; mood: string }> = []
   const rejected: Array<{ index: number; reason: string; raw: any }> = []
   for (let i = 0; i < parsed.length; i++) {
-    const check = validatePastedIdea(parsed[i], i)
+    const check = validatePastedIdea(parsed[i], i, formatDefaultLengthMin)
     if (check.ok) valid.push(check.value)
     else rejected.push({ index: i, reason: check.reason, raw: parsed[i] })
   }

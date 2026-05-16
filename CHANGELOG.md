@@ -4,6 +4,53 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.102 — 2026-05-17
+
+**Comprehensive sweep: every remaining sleep-story-era hardcoded assumption removed**
+
+User: *"i want our new planned route to focus on flexibility and remove hardcoded feature and instead apply niche/type based settings to match and adapt for future niche expansion as well."*
+
+Three-surface audit (backend + frontend + migrations/tests) found 15 concrete items. v1.0.102 fixes them all, plus adds two new Format schema fields so future format authors get the right defaults out of the box.
+
+### Schema additions (Format.script)
+
+- **`defaultWordsPerMinute`** — Each format declares its own narration pace. Sleep-story 122 (slow); broll-narration / mindfulness / kids 130 (breath-paced); listicle 155 / comedy 165 (fast); etc. Replaces the hardcoded `122` in `scripts.vue` which was making prayer/devotional projects estimate word counts at the wrong pace.
+- **`videoDefaults.defaultTimelineClipDurationSeconds`** — Each format declares a sensible default for new manually-added timeline clips on the Video Assembly page. Sleep-story keeps the 7200-sec (2-hour) ambient bed; broll-narration is 600 (10 min); listicle/educational/kids-fairytale 60; etc. Was hardcoded `?? 7200` everywhere, giving prayer projects a 2-hour black-screen default on every new clip.
+
+All 10 format JSONs populated with both new fields. Format JSON authors of future custom niches just set them — zero code changes needed downstream.
+
+### Backend fixes
+
+- **`routes/scripts.ts:827 + :1014`** — `max_chars || 5000` fallback now reads `format.metadata.defaultMaxChars` first (matches the pattern in `pipeline.ts:414` which was format-aware already).
+- **`lib/metadata-prompt.ts:197`** — Hardcoded `['#SleepStory', '#BedtimeStory']` hashtag fallback removed. When neither user config nor format ship hashtag examples, the prompt now asks the LLM for "N relevant hashtags derived from this specific episode's subject matter" instead of biasing toward sleep-story.
+- **`routes/ideas.ts:735`** — Paste-ideas validator's `'45 min'` fallback for missing `suggested_length` is now passed in from the caller, which reads `format.script.defaultLengthMinutes` (10 min for broll-narration, etc.). Signature: `validatePastedIdea(raw, idx, defaultLengthMin = 45)`.
+- **`generators/image-prompts.ts:112`** — Last-resort `return 10` chapter fallback now consults `format.script.defaultChapterCount` first (1 for broll-narration's single-continuous narration; 10 for sleep-story; per-format for everyone else).
+
+### Frontend HIGH (silently producing wrong-flavoured output)
+
+- **`scripts.vue`**: `wordsPerMinute` was a hardcoded `const 122`; now a computed reading `formatContext.defaultWordsPerMinute` (legacy 122 fallback). All 6 call sites updated to `.value`. Total-words estimation, duration-from-words snap, and the "~N w/m" badge all reflect the format's actual narration pace.
+- **`ideas.vue`** Add/Edit Idea editor: `suggested_chapters: 10` + `suggested_length: '45 min'` form defaults are now computeds reading `activeFormat.script.defaultChapterCount` / `defaultLengthMinutes`. The `FormatLite` type gained an optional `script` block so the data is typed properly.
+- **`video-assembly.vue`** new manual timeline clip: `duration_sec ?? 7200` becomes `duration_sec ?? formatDefaultTimelineClipDurationSec.value` — hydrated from `format.script.videoDefaults.defaultTimelineClipDurationSeconds` during the existing `applyVideoFormatDefaultsIfNoPreset()` pass.
+
+### Frontend MED
+
+- **Silent `'sleep-story'` format-id fallbacks** in `scripts.vue`, `image-prompts.vue`, `video-assembly.vue`: defensive fallbacks for the rare case where `project.format_id` is missing/corrupt. The fallback stays (sane safety net) but now logs a `console.warn` so debug-mode catches the case. Production with healthy project meta sees no change.
+- **`metadata.vue` Tags placeholder**: hardcoded `"e.g. sleep story, bedtime story, relaxation"` replaced with a computed reading `format.metadata.broadKeywords` (top 5). Prayer projects now see `"e.g. prayer, devotional, daily prayer, christian meditation, morning prayer"` etc.
+
+### Audit pass
+
+- `tsc -p electron --noEmit`: 0 errors.
+- `cd frontend && npx nuxt build`: clean.
+- All 10 format JSONs parse with the two new fields.
+
+### What's NOT in this release (intentional)
+
+- `index.vue:1335` — `DEFAULT_FORMAT_ID = 'sleep-story'` for new-project creation. That's a sane default for "user just installed the app and hasn't picked a format yet" and changing it would require a different UX (mandatory format picker at create time).
+- `scripts.vue:1297` — `ep.suggested_length === '60 min' ? 60 : 45` narrow code path for parsing episode legacy data. Low-impact + hard to reach.
+- Comments referencing "sleep-story default" in various files — documentation only, no runtime impact.
+
+---
+
 ## v1.0.101 — 2026-05-16
 
 **Script Generator's Duration dropdown is now format-driven**

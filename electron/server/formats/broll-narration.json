@@ -89,6 +89,7 @@
     "defaultLengthMinutes": 10,
     "lengthMinutesRange": [3, 30],
     "durationPresets": [5, 8, 10, 15, 20, 30],
+    "defaultWordsPerMinute": 130,
     "chaptersIndependent": false,
     "narratorStyles": [
       { "id": "A", "label": "Pastoral and warm",          "description": "Steady, paternal, like a trusted pastor speaking quietly to one person." },
@@ -98,7 +99,8 @@
     ],
     "defaultNarratorStyleId": "A",
     "videoDefaults": {
-      "aspectRatio": "landscape"
+      "aspectRatio": "landscape",
+      "defaultTimelineClipDurationSeconds": 600
     },
     "audioDefaults": {
       "speed": 0.88,

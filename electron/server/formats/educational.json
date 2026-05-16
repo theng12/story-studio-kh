@@ -134,6 +134,7 @@
     "defaultLengthMinutes": 30,
     "lengthMinutesRange": [15, 75],
     "durationPresets": [15, 20, 30, 45, 60, 75],
+    "defaultWordsPerMinute": 145,
     "narratorStyles": [
       { "id": "A", "label": "Engaged teacher",         "description": "Warm, curious, the friend who explains things at the pub. Conversational but precise. Suits broad-audience explainers." },
       { "id": "B", "label": "Documentary host",        "description": "Authoritative but accessible — like a Vox or PBS host. Carries the listener through complex material with steady pacing." },
@@ -141,7 +142,11 @@
       { "id": "D", "label": "Wry expert",              "description": "Subject expert who's seen the topic so often they have favorite jokes about it. Adds humour without sacrificing rigor." },
       { "id": "E", "label": "Cosmic-perspective narrator", "description": "Sagan-esque — zooms from the listener's daily life out to the larger context, then back. Suits science / history with a wonder angle." }
     ],
-    "defaultNarratorStyleId": "A"
+    "defaultNarratorStyleId": "A",
+    "videoDefaults": {
+      "aspectRatio": "landscape",
+      "defaultTimelineClipDurationSeconds": 60
+    }
   },
 
   "imagePrompts": {

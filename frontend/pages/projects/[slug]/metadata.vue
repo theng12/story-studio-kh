@@ -532,7 +532,7 @@
           <span class="char-count">{{ preview.tags.length }} tags</span>
           <button class="btn-icon" @click="copy(tagsAsString, 'Tags')" title="Copy tags as comma-separated string">📋</button>
         </label>
-        <textarea v-model="tagsAsString" class="textarea tags-textarea" placeholder="Comma-separated tags (e.g. sleep story, bedtime story, relaxation)" />
+        <textarea v-model="tagsAsString" class="textarea tags-textarea" :placeholder="tagsPlaceholder" />
       </div>
     </div>
 
@@ -1407,11 +1407,28 @@ async function applyFormatDefaultsIfNoPreset() {
     if (typeof meta.defaultTagCount === 'number' && meta.defaultTagCount > 0) {
       tagConfig.count = meta.defaultTagCount
     }
+    // v1.0.102+ — hydrate the format's broadKeywords for the Tags
+    // placeholder so prayer / motivation / educational channels don't
+    // see "sleep story, bedtime story, relaxation" as the example.
+    if (Array.isArray(meta.broadKeywords) && meta.broadKeywords.length > 0) {
+      formatBroadKeywords.value = meta.broadKeywords.slice(0, 5)
+    }
   } catch {
     // Format endpoint unavailable / project missing — keep the legacy
     // hardcoded values (5000 / 5 / 100 / 15). Non-fatal.
   }
 }
+
+// v1.0.102+ — format-driven Tags placeholder. Populated from
+// format.metadata.broadKeywords; empty array falls back to a generic
+// hint.
+const formatBroadKeywords = ref<string[]>([])
+const tagsPlaceholder = computed<string>(() => {
+  if (formatBroadKeywords.value.length > 0) {
+    return `Comma-separated tags (e.g. ${formatBroadKeywords.value.join(', ')})`
+  }
+  return 'Comma-separated tags'
+})
 
 onMounted(async () => {
   await migrateLegacyMetadataTemplates()

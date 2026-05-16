@@ -140,13 +140,18 @@
     "defaultLengthMinutes": 45,
     "lengthMinutesRange": [25, 90],
     "durationPresets": [25, 30, 45, 60, 75, 90],
+    "defaultWordsPerMinute": 140,
     "narratorStyles": [
       { "id": "A", "label": "Measured journalist",      "description": "Public-radio cadence — calm, precise, lets pauses do work. Suits investigative deep-dives." },
       { "id": "B", "label": "Detective's notebook",     "description": "First-person from the investigating officer's perspective — observational, restrained, occasional dry asides." },
       { "id": "C", "label": "Court-record narrator",    "description": "Formal, evidentiary tone — quotes from depositions and filings woven into prose. Suits trial-focused episodes." },
       { "id": "D", "label": "Documentary host",         "description": "Narrator-of-the-larger-context — stops to explain how cases like this typically unfold, then returns to the specific story." }
     ],
-    "defaultNarratorStyleId": "A"
+    "defaultNarratorStyleId": "A",
+    "videoDefaults": {
+      "aspectRatio": "landscape",
+      "defaultTimelineClipDurationSeconds": 90
+    }
   },
 
   "imagePrompts": {

@@ -129,6 +129,7 @@
     "defaultLengthMinutes": 45,
     "lengthMinutesRange": [20, 120],
     "durationPresets": [20, 30, 45, 60, 90, 120],
+    "defaultWordsPerMinute": 135,
     "narratorStyles": [
       { "id": "A", "label": "First-person survivor",      "description": "Past tense, first-person — the protagonist recounting events, often with hindsight reflection. Visceral, urgent, no narratorial distance." },
       { "id": "B", "label": "Tense third-person",         "description": "Close third-person, present-tense feel even in past tense. The narrator sticks tight to the protagonist's body and senses." },
@@ -137,7 +138,11 @@
       { "id": "E", "label": "Mythic / heroic",            "description": "Elevated diction, classical-quest cadence. Protagonist as archetype. Suits expedition / quest tales." },
       { "id": "F", "label": "Cold / clinical",            "description": "Reportage tone — like a long-form magazine piece. Lets the events do the emotional work." }
     ],
-    "defaultNarratorStyleId": "B"
+    "defaultNarratorStyleId": "B",
+    "videoDefaults": {
+      "aspectRatio": "landscape",
+      "defaultTimelineClipDurationSeconds": 90
+    }
   },
 
   "imagePrompts": {

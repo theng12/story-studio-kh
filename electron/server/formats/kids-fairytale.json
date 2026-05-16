@@ -129,13 +129,18 @@
     "defaultLengthMinutes": 20,
     "lengthMinutesRange": [10, 40],
     "durationPresets": [10, 15, 20, 25, 30, 40],
+    "defaultWordsPerMinute": 130,
     "narratorStyles": [
       { "id": "A", "label": "Playful storybook voice",   "description": "Lively, expressive, with funny voices for different characters. The narrator is clearly having fun." },
       { "id": "B", "label": "Cozy bedtime narrator",     "description": "Warm, slow, perfect for the last story before sleep. Less performative than A; more snuggly." },
       { "id": "C", "label": "Animal-friend voice",       "description": "Especially good for talking-animal stories — gives each animal a small distinct quirk." },
       { "id": "D", "label": "Sing-song rhyming",         "description": "For stories that lean into rhyme and rhythm; cadence becomes its own character." }
     ],
-    "defaultNarratorStyleId": "A"
+    "defaultNarratorStyleId": "A",
+    "videoDefaults": {
+      "aspectRatio": "landscape",
+      "defaultTimelineClipDurationSeconds": 60
+    }
   },
 
   "imagePrompts": {

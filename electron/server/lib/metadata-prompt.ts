@@ -192,11 +192,21 @@ export function buildDescriptionPrompt(
         // sleep-story bias into format-aware metadata.
         const fmtHashtags = format?.metadata?.youtubeDescriptionStructure
         const count = cfg.count || fmtHashtags?.totalHashtagCount || 15
+        // v1.0.102+ — When neither cfg nor format ship hashtag examples,
+        // OMIT the "common ones like X" hint entirely instead of falling
+        // back to sleep-story-flavoured ['#SleepStory', '#BedtimeStory'].
+        // For custom formats that haven't declared defaults, the prompt
+        // simply asks the LLM to invent N relevant hashtags — better than
+        // pushing it toward the wrong genre.
         const exampleHashtags = (Array.isArray(cfg.defaultHashtags) && cfg.defaultHashtags.length)
           ? cfg.defaultHashtags
-          : (fmtHashtags?.defaultHashtags?.length ? fmtHashtags.defaultHashtags : ['#SleepStory', '#BedtimeStory'])
-        const exampleLine = exampleHashtags.slice(0, 3).join(' ')
-        sectionInstructions += `\n- HASHTAGS: Include ${count} relevant hashtags at the end. Include common ones like ${exampleLine} plus episode-specific ones.`
+          : (fmtHashtags?.defaultHashtags?.length ? fmtHashtags.defaultHashtags : [])
+        if (exampleHashtags.length > 0) {
+          const exampleLine = exampleHashtags.slice(0, 3).join(' ')
+          sectionInstructions += `\n- HASHTAGS: Include ${count} relevant hashtags at the end. Include common ones like ${exampleLine} plus episode-specific ones.`
+        } else {
+          sectionInstructions += `\n- HASHTAGS: Include ${count} relevant hashtags at the end, all derived from this specific episode's subject matter.`
+        }
         break
       }
       default:

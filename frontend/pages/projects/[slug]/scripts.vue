@@ -518,7 +518,17 @@ const selectedEpisode = ref<any>(null)
 // from preview-emitted side effects.
 const scriptGenerated = computed(() => !!selectedEpisode.value?.status?.script)
 
-const wordsPerMinute = 122
+// v1.0.102+ — wordsPerMinute is now FORMAT-DRIVEN. Was hardcoded 122
+// (sleep-story narration pace). Each format ships its own defaultWordsPerMinute:
+// sleep-story stays 122 (slow); listicle/comedy 155-165 (fast);
+// broll-narration / prayer 130 (breath-paced). Computed from
+// formatContext.defaultWordsPerMinute with the legacy 122 as a fallback
+// for any custom user format that hasn't been updated.
+const LEGACY_WORDS_PER_MINUTE = 122
+const wordsPerMinute = computed<number>(() => {
+  const fmtWpm = formatContext.value?.defaultWordsPerMinute
+  return typeof fmtWpm === 'number' && fmtWpm > 0 ? fmtWpm : LEGACY_WORDS_PER_MINUTE
+})
 const durationSelect = ref('45')
 const showStyleDesc = ref(false)
 const customStyleText = ref('')
@@ -586,7 +596,20 @@ const form = reactive({
 const projectFormatId = ref('sleep-story')
 const { project } = useProject()
 watch(project, (p) => {
-  if (p) projectFormatId.value = (p as any).format_id || 'sleep-story'
+  if (!p) return
+  const id = (p as any).format_id
+  if (typeof id === 'string' && id) {
+    projectFormatId.value = id
+  } else {
+    // v1.0.102+ — log the silent fallback so future "why is this
+    // generating sleep-story flavour?" debugging starts here.
+    // In practice every project has a format_id (set at create time);
+    // this branch only fires on data-corruption / partial-write edge
+    // cases. Format-aware behaviour still falls back to the
+    // sleep-story default downstream, but at least it's visible now.
+    console.warn('[scripts.vue] project.format_id missing — falling back to sleep-story for PatternPicker filtering. Set a format in Settings → Format if this is unexpected.')
+    projectFormatId.value = 'sleep-story'
+  }
 }, { immediate: true })
 
 // v1.0.82+: format-aware section labels for the UI ("Chapter" for sleep-story,
@@ -619,6 +642,10 @@ interface FormatContext {
    *  Populated from format.script.durationPresets; null falls back to
    *  the legacy sleep-story-flavoured [15, 20, 30, 45, 60, 90]. */
   durationPresets: number[] | null
+  /** v1.0.102+ — words/minute for narration of this format. Drives the
+   *  est-duration badge + the length↔total_words bidirectional snap.
+   *  null falls back to the legacy 122 (sleep-story narration pace). */
+  defaultWordsPerMinute: number | null
 }
 const formatContext = ref<FormatContext | null>(null)
 
@@ -652,7 +679,7 @@ const recommendedWordsPerChapter = computed(() => {
   const fc = formatContext.value
   if (!fc?.defaultChapterCount || !fc?.defaultLengthMinutes) return null
   if (fc.defaultChapterCount <= 0) return null
-  return Math.round((fc.defaultLengthMinutes * wordsPerMinute) / fc.defaultChapterCount)
+  return Math.round((fc.defaultLengthMinutes * wordsPerMinute.value) / fc.defaultChapterCount)
 })
 
 // Out-of-range checks. Each returns either null (in range / no data) or
@@ -793,7 +820,7 @@ async function applyScriptFormatDefaultsIfNoPreset() {
     // chapter count. Always recompute these — they're cached values whose
     // canonical inputs just changed.
     if (form.chapters > 0 && form.length > 0) {
-      form.total_words = Math.round(form.length * wordsPerMinute)
+      form.total_words = Math.round(form.length * wordsPerMinute.value)
       form.words_per_chapter = Math.round(form.total_words / form.chapters)
     }
     // Cache the format metadata for the read-only context panel below the
@@ -824,6 +851,9 @@ async function applyScriptFormatDefaultsIfNoPreset() {
       chapterCountRange: ccRange,
       lengthMinutesRange: lmRange,
       durationPresets: durationPresets && durationPresets.length > 0 ? durationPresets : null,
+      defaultWordsPerMinute: typeof sf.defaultWordsPerMinute === 'number' && sf.defaultWordsPerMinute > 0
+        ? sf.defaultWordsPerMinute
+        : null,
     }
     // Snap the duration dropdown back to a known option so the UI doesn't
     // flash 'custom' when the format default matches a value in the
@@ -1068,10 +1098,10 @@ const totalOutput = computed(() =>
   form.total_words + (intro.enabled ? intro.word_target : 0)
 )
 const estimatedDuration = computed(() =>
-  Math.round(form.total_words / wordsPerMinute)
+  Math.round(form.total_words / wordsPerMinute.value)
 )
 const estimatedTotalDuration = computed(() =>
-  Math.round(totalOutput.value / wordsPerMinute)
+  Math.round(totalOutput.value / wordsPerMinute.value)
 )
 const canSubmit = computed(() => form.episode_id && form.title)
 
@@ -1101,7 +1131,7 @@ const canSubmit = computed(() => form.episode_id && form.title)
 function onDurationChange(fromUser: boolean = true) {
   if (durationSelect.value !== 'custom') {
     form.length = Number(durationSelect.value)
-    form.total_words = Math.round(form.length * wordsPerMinute)
+    form.total_words = Math.round(form.length * wordsPerMinute.value)
     if (form.chapters > 0) {
       form.words_per_chapter = Math.round(form.total_words / form.chapters)
     }
@@ -1136,7 +1166,7 @@ function onWordsPerChapterChange() {
   primaryField.value = 'words_per_chapter'
   userTouchedSizing.value = true
   form.total_words = form.chapters * form.words_per_chapter
-  form.length = Math.round(form.total_words / wordsPerMinute)
+  form.length = Math.round(form.total_words / wordsPerMinute.value)
   durationSelect.value = standardDurationSet.value.has(form.length) ? String(form.length) : 'custom'
 }
 
@@ -1147,7 +1177,7 @@ function onTotalWordsChange() {
   if (form.chapters > 0) {
     form.words_per_chapter = Math.round(form.total_words / form.chapters)
   }
-  form.length = Math.round(form.total_words / wordsPerMinute)
+  form.length = Math.round(form.total_words / wordsPerMinute.value)
   durationSelect.value = standardDurationSet.value.has(form.length) ? String(form.length) : 'custom'
 }
 

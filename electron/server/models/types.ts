@@ -258,6 +258,14 @@ export interface ScriptFormat {
    *  in this list so the dropdown shows the right value selected on
    *  fresh project load instead of falling through to "Custom...". */
   durationPresets?: number[]
+  /** v1.0.102+ — Words-per-minute for narration of this format. Drives
+   *  total-words estimation in the Script Generator (length × WPM).
+   *  Sleep-story is slow (122); listicle/comedy are fast (155-165);
+   *  prayer / mindfulness sit around 120-140 (deliberate, breath-paced).
+   *  When unset the Script Generator falls back to the legacy hardcoded
+   *  122 — keeping prior behaviour for any custom user formats that
+   *  haven't been updated. */
+  defaultWordsPerMinute?: number
   narratorStyles: NarratorStyle[]
   defaultNarratorStyleId: string
   /**
@@ -318,6 +326,15 @@ export interface ScriptFormat {
      * formats. Optional — formats that omit it fall back to 'landscape'.
      */
     aspectRatio?: 'landscape' | 'portrait' | 'square'
+    /**
+     * v1.0.102+ — Default duration in seconds for a new manually-added
+     * timeline clip on the Video Assembly page. The hardcoded fallback
+     * was 7200 (2-hour sleep-story ambient bed); prayer / explainer /
+     * listicle channels need much shorter defaults. Optional — formats
+     * that omit it fall back to 7200 for back-compat with the sleep-
+     * story-shaped baseline.
+     */
+    defaultTimelineClipDurationSeconds?: number
   }
 
   /**

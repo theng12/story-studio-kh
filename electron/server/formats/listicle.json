@@ -182,6 +182,7 @@
     "defaultLengthMinutes": 30,
     "lengthMinutesRange": [10, 90],
     "durationPresets": [10, 15, 20, 30, 45, 60, 90],
+    "defaultWordsPerMinute": 155,
     "narratorStyles": [
       { "id": "A", "label": "Curious explainer",          "description": "Like a smart friend explaining over coffee. Confident but never condescending. Veritasium-adjacent." },
       { "id": "B", "label": "QI-style wry",               "description": "Slightly arch, finds humour in the absurd. Lets factual surprise carry the laugh; never punches the joke." },
@@ -196,7 +197,8 @@
       "secondsPerScene": 6,
       "transitionType": "fade",
       "transitionDurationSec": 0.5,
-      "aspectRatio": "landscape"
+      "aspectRatio": "landscape",
+      "defaultTimelineClipDurationSeconds": 60
     },
     "audioDefaults": {
       "speed": 1.0,

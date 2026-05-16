@@ -2387,7 +2387,16 @@ const { confirmGeneration } = useConfirmation()
 const { project: vaProject } = useProject()
 const vaFormatId = ref<string>('sleep-story')
 watch(vaProject, (p) => {
-  if (p) vaFormatId.value = (p as any).format_id || 'sleep-story'
+  if (!p) return
+  const id = (p as any).format_id
+  if (typeof id === 'string' && id) {
+    vaFormatId.value = id
+  } else {
+    // v1.0.102+ — see scripts.vue for rationale. Defensive fallback;
+    // logs to console so the case is debuggable when it fires.
+    console.warn('[video-assembly.vue] project.format_id missing — falling back to sleep-story for section labels. Set a format in Settings → Format if this is unexpected.')
+    vaFormatId.value = 'sleep-story'
+  }
 }, { immediate: true })
 const sectionLabel = useSectionLabel(vaFormatId)
 // Shared job-queue state. The dashboard layout already starts the SSE
@@ -2522,7 +2531,12 @@ function setTimelineClipKind(id: string, kind: TimelineClipKind) {
       anchor: cur.anchor,
       enabled: cur.enabled,
       image_path: cur.image_path || '',
-      duration_sec: cur.duration_sec ?? 7200, // 2-hour default — the canonical sleep-story tail
+      // v1.0.102+ — was hardcoded 7200 (2-hour sleep-story tail).
+      // Now reads from formatDefaultTimelineClipDurationSec, which
+      // is hydrated from format.script.videoDefaults
+      // .defaultTimelineClipDurationSeconds. Falls back to 7200 only
+      // when the format hasn't been updated yet.
+      duration_sec: cur.duration_sec ?? formatDefaultTimelineClipDurationSec.value,
       video_path: cur.video_path,
     }
   } else {
@@ -4721,6 +4735,12 @@ watch(activeJobFingerprint, async () => {
  * users with their own presets keep their own values. The seeding
  * only matters for fresh projects with no preset applied yet.
  */
+// v1.0.102+ — Cache `defaultTimelineClipDurationSeconds` from the
+// effective-format response so new timeline clips inherit a sensible
+// per-format default instead of the hardcoded 2-hour sleep-story
+// ambient bed.
+const formatDefaultTimelineClipDurationSec = ref<number>(7200)
+
 async function applyVideoFormatDefaultsIfNoPreset() {
   try {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)
@@ -4735,9 +4755,17 @@ async function applyVideoFormatDefaultsIfNoPreset() {
     if (typeof v.transitionDurationSec === 'number' && v.transitionDurationSec >= 0) {
       transition.duration = v.transitionDurationSec
     }
+    // v1.0.102+ — pick up the new timeline-clip default. Falls back to
+    // the legacy 7200 sec (sleep-story 2-hour bed) only when this
+    // format hasn't been updated yet, mirroring the original behaviour
+    // for back-compat with any custom user formats.
+    if (typeof v.defaultTimelineClipDurationSeconds === 'number' && v.defaultTimelineClipDurationSeconds > 0) {
+      formatDefaultTimelineClipDurationSec.value = v.defaultTimelineClipDurationSeconds
+    }
   } catch {
     // Format endpoint unavailable / project missing — keep the legacy
-    // hardcoded defaults (10 s/scene, crossfade 1.5 s). Non-fatal.
+    // hardcoded defaults (10 s/scene, crossfade 1.5 s, 7200 s timeline
+    // clip). Non-fatal.
   }
 }
 

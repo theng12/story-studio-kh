@@ -108,6 +108,16 @@ async function resolveChapterCount(
     const re = new RegExp(`^${episode_id}_Chapter_(\\d+)\\.docx$`)
     const count = entries.filter(n => re.test(n)).length
     if (count > 0) return count
+    // v1.0.102+ — last-resort: format default. Previously hardcoded 10
+    // (sleep-story median); now reads format.script.defaultChapterCount
+    // so broll-narration / prayer projects get 1 (single continuous
+    // narration), listicles get their format's default, etc.
+    try {
+      const { getEffectiveFormat } = await import('../services/format-loader.js')
+      const fmt = await getEffectiveFormat(slug)
+      const dcc = fmt?.script?.defaultChapterCount
+      if (typeof dcc === 'number' && dcc > 0) return dcc
+    } catch { /* fall through to legacy 10 */ }
   } catch { /* fall through */ }
   return 10
 }

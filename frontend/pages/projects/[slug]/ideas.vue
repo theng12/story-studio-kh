@@ -1499,6 +1499,13 @@ type FormatLite = {
     keywordVocabulary?: string[]
     guidanceText?: string
   }
+  /** v1.0.102+ — script defaults read for the Add/Edit Idea editor so
+   *  suggested_chapters / suggested_length pre-fill from the format
+   *  instead of hardcoded 10 / '45 min' (sleep-story). */
+  script?: {
+    defaultChapterCount?: number
+    defaultLengthMinutes?: number
+  }
 }
 const formatsById = ref<Record<string, FormatLite>>({})
 const activeFormat = computed<FormatLite | null>(() =>
@@ -1917,6 +1924,23 @@ const editorOpen = ref(false)
 const editorMode = ref<'add' | 'edit'>('add')
 const editorIdea = ref<any>(null)
 const editorSaving = ref(false)
+
+// v1.0.102+ — Idea editor defaults are now FORMAT-DRIVEN. Previously
+// hardcoded 10 chapters / '45 min' (sleep-story). Read from the
+// project's effective format via activeFormat (already loaded on the
+// page for the format-indicator card). Falls back to the legacy
+// 10/45 only when no format data is available (e.g. very first page
+// load before /formats has returned).
+const editorDefaultChapters = computed<number>(() => {
+  const fmtDef = activeFormat.value?.script?.defaultChapterCount
+  return typeof fmtDef === 'number' && fmtDef > 0 ? fmtDef : 10
+})
+const editorDefaultLengthMin = computed<number>(() => {
+  const fmtDef = activeFormat.value?.script?.defaultLengthMinutes
+  return typeof fmtDef === 'number' && fmtDef > 0 ? fmtDef : 45
+})
+const editorDefaultLengthStr = computed<string>(() => `${editorDefaultLengthMin.value} min`)
+
 const editorForm = reactive({
   title: '', logline: '', mood: '',
   themesList: [] as string[],
@@ -1928,8 +1952,8 @@ function resetEditorForm(from?: any) {
   editorForm.logline = from?.logline || ''
   editorForm.mood = from?.mood || ''
   editorForm.themesList = Array.isArray(from?.themes) ? [...from.themes] : []
-  editorForm.suggested_chapters = from?.suggested_chapters || 10
-  editorForm.suggested_length = from?.suggested_length || '45 min'
+  editorForm.suggested_chapters = from?.suggested_chapters || editorDefaultChapters.value
+  editorForm.suggested_length = from?.suggested_length || editorDefaultLengthStr.value
 }
 
 function openAddIdea() {
@@ -1953,8 +1977,8 @@ async function saveEditor() {
     logline: editorForm.logline.trim(),
     mood: editorForm.mood.trim(),
     themes: editorForm.themesList,
-    suggested_chapters: editorForm.suggested_chapters || 10,
-    suggested_length: editorForm.suggested_length.trim() || '45 min',
+    suggested_chapters: editorForm.suggested_chapters || editorDefaultChapters.value,
+    suggested_length: editorForm.suggested_length.trim() || editorDefaultLengthStr.value,
   }
   try {
     if (editorMode.value === 'add') {

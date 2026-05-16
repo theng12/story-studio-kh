@@ -823,8 +823,13 @@ router.post('/projects/:slug/generate/metadata/description', async (req, res) =>
   // Format passed through so the hashtags section can lean on
   // format.youtubeDescriptionStructure.defaultHashtags rather than
   // hardcoding #SleepStory examples.
+  // v1.0.102+ — char limit ALSO format-driven. Previously hardcoded 5000
+  // (sleep-story default); now reads format.metadata.defaultMaxChars so
+  // each format can pick its own (prayer / mindfulness narration is
+  // typically much shorter than a 60-min sleep story).
   const format = await getEffectiveFormat(slug)
-  const prompt = buildDescriptionPrompt(episode_id, title, storyContext, sections || [], max_chars || 5000, format)
+  const effectiveMaxChars = max_chars || format?.metadata?.defaultMaxChars || 5000
+  const prompt = buildDescriptionPrompt(episode_id, title, storyContext, sections || [], effectiveMaxChars, format)
 
   try {
     const raw = await callAi(model, '', prompt, aiCreds(config), false, { slug })
@@ -1011,7 +1016,10 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
 
     // Description (hashtags section uses format.youtubeDescriptionStructure
     // when no explicit defaults are set on the section config).
-    const descPrompt = buildDescriptionPrompt(episode_id, title, storyContext, sections || [], max_chars || 5000, format)
+    // v1.0.102+ — char limit format-driven; same logic as the per-route
+    // description endpoint above.
+    const effectiveMaxChars = max_chars || format?.metadata?.defaultMaxChars || 5000
+    const descPrompt = buildDescriptionPrompt(episode_id, title, storyContext, sections || [], effectiveMaxChars, format)
     const descRaw = await callAi(model, '', descPrompt, aiCreds(config), false, { slug })
     const description = descRaw.trim()
 

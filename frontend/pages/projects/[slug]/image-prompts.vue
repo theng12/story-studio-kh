@@ -734,7 +734,16 @@ const { project, config, refreshConfig } = useProject()
 // the labels here without a full reload.
 const projectFormatId = ref<string>('sleep-story')
 watch(project, (p) => {
-  if (p) projectFormatId.value = (p as any).format_id || 'sleep-story'
+  if (!p) return
+  const id = (p as any).format_id
+  if (typeof id === 'string' && id) {
+    projectFormatId.value = id
+  } else {
+    // v1.0.102+ — see scripts.vue for rationale. Defensive fallback;
+    // logs to console so the case is debuggable when it fires.
+    console.warn('[image-prompts.vue] project.format_id missing — falling back to sleep-story for section labels. Set a format in Settings → Format if this is unexpected.')
+    projectFormatId.value = 'sleep-story'
+  }
 }, { immediate: true })
 const sectionLabel = useSectionLabel(projectFormatId)
 const customStyles = computed<StylePresetMeta[]>(

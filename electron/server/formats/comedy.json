@@ -128,6 +128,7 @@
     "defaultLengthMinutes": 25,
     "lengthMinutesRange": [10, 60],
     "durationPresets": [10, 15, 20, 25, 30, 45, 60],
+    "defaultWordsPerMinute": 165,
     "narratorStyles": [
       { "id": "A", "label": "Wry podcast host",         "description": "Conversational, occasionally addresses the listener directly, lets pauses do work. Suits weird-but-true and absurd-history." },
       { "id": "B", "label": "Deadpan reporter",         "description": "Plays it straight no matter how absurd the material gets. Maximum contrast between content and delivery." },
@@ -135,7 +136,11 @@
       { "id": "D", "label": "Mock-academic",            "description": "Treats the absurd subject with full scholarly seriousness. Suits ill-advised-inventions, satirical explainers." },
       { "id": "E", "label": "Warm storyteller",         "description": "The friend at dinner who's going to make this thing they read about into a 20-minute bit. Affectionate, never sneering." }
     ],
-    "defaultNarratorStyleId": "A"
+    "defaultNarratorStyleId": "A",
+    "videoDefaults": {
+      "aspectRatio": "landscape",
+      "defaultTimelineClipDurationSeconds": 30
+    }
   },
 
   "imagePrompts": {
