@@ -780,7 +780,19 @@ function openWhatsNew() { _whatsNew.open() }
   flex: 1;
   width: 100%;
   padding: 32px;
-  padding-top: 0;
+  /* v1.0.103+ — was `padding-top: 0` which let any first-child banner
+     (asset-migration, unclean-shutdown, restored-chip) sit at y=0,
+     where the Electron `titleBarStyle: 'hiddenInset'` traffic lights
+     overlap content. The unclean-shutdown banner in particular got
+     its top edge clipped because `margin-top: 16px` put it at y=16 —
+     right under the traffic-light row (which sits at y=16 per
+     `trafficLightPosition` in electron/main.ts).
+     16px clears the traffic-light row (≈22px bottom edge) plus the
+     banner's own 16px margin-top = banner at y=32, with ~10px of
+     breathing room. Page titles without a leading banner also get
+     a slight +16px nudge down, which reads better aesthetically
+     against the chrome anyway. */
+  padding-top: 16px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
