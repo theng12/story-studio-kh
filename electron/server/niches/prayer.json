@@ -149,5 +149,71 @@
     ],
     "ctaShape": "Warm-pastoral, never commercial. Frame the CTA as an invitation to community ('We pray together here'), not as a transactional ask. Mention notification bell + subscribe + like as a single calm paragraph, not bullets or all-caps. If the channel has a Patreon / app / book, mention it once with a single sentence, never repeated.",
     "closingBenediction": "You are never alone. God's peace is with you always."
+  },
+
+  "thumbnailTemplate": {
+    "aspectRatio": "16:9",
+    "canvas": { "width": 1920, "height": 1080 },
+    "backgroundDimGradient": {
+      "side": "right",
+      "coverage": 0.6,
+      "color": "#000000",
+      "strength": 0.72
+    },
+    "textZones": [
+      {
+        "name": "title",
+        "defaultText": "{episode_title}",
+        "x": "right",
+        "y": "middle",
+        "xOffset": 80,
+        "yOffset": -60,
+        "maxWidth": 980,
+        "fontFamily": "Impact, 'Arial Black', 'Helvetica Neue', sans-serif",
+        "fontSize": 132,
+        "fontWeight": 900,
+        "fill": "#ffffff",
+        "letterSpacing": 2,
+        "uppercase": true,
+        "lineHeight": 1.02,
+        "textAnchor": "end",
+        "shadow": { "dx": 0, "dy": 4, "blur": 18, "color": "#000000" }
+      },
+      {
+        "name": "subtitle",
+        "defaultText": "NIGHT PRAYER",
+        "x": "center",
+        "y": "bottom",
+        "xOffset": 0,
+        "yOffset": 70,
+        "maxWidth": 1400,
+        "fontFamily": "Impact, 'Arial Black', 'Helvetica Neue', sans-serif",
+        "fontSize": 68,
+        "fontWeight": 800,
+        "fill": "#ffffff",
+        "letterSpacing": 18,
+        "uppercase": true,
+        "lineHeight": 1.0,
+        "textAnchor": "middle",
+        "shadow": { "dx": 0, "dy": 3, "blur": 12, "color": "#000000" }
+      }
+    ],
+    "accentStrokes": [
+      {
+        "x": "center",
+        "xOffset": 0,
+        "y": 940,
+        "width": 520,
+        "thickness": 4,
+        "color": "#ffffff"
+      }
+    ],
+    "logoSlot": {
+      "x": "left",
+      "y": "top",
+      "xOffset": 56,
+      "yOffset": 56,
+      "width": 132
+    }
   }
 }

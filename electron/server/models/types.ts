@@ -707,6 +707,114 @@ export interface Niche {
      *  "smash that subscribe button" / hype copy. */
     ctaShape?: string
   }
+
+  // ── v1.0.104+ ThumbnailTemplate — niche-level thumbnail composition.
+  // Declares the text-overlay layout for a YouTube thumbnail (or Shorts
+  // poster) so the user can drop a randomized character portrait into
+  // /thumbnails/compose and get back a thumbnail with the niche's text
+  // shape baked in. Prayer ships with a left-portrait + right-aligned
+  // bold title + bottom "NIGHT PRAYER" with horizontal rule template.
+  //
+  // The compose endpoint renders the text zones as SVG and composites
+  // via `sharp` — the `fontFamily` strings need to resolve through
+  // librsvg's font lookup, which uses the system font catalog. Stick to
+  // common system fonts ("Arial Black", "Georgia", "Cormorant Garamond"
+  // if installed) or shipped fonts only.
+  thumbnailTemplate?: {
+    /** YouTube standard is 16:9 (1920×1080). Other ratios reserved for
+     *  Shorts / square poster variants. */
+    aspectRatio?: '16:9' | '9:16' | '1:1'
+    /** Canvas size in px. Defaults to 1920×1080 (16:9). The compose
+     *  endpoint resizes the input portrait to fit before painting
+     *  overlays. */
+    canvas?: { width: number; height: number }
+    /** Optional gradient dim overlay to improve text legibility on
+     *  busy portraits. Prayer's portrait typically shows the subject
+     *  on the left → dim the right where the title text sits. */
+    backgroundDimGradient?: {
+      side: 'left' | 'right' | 'top' | 'bottom' | 'full'
+      /** Fraction of the canvas covered by the gradient (0..1). 0.5 =
+       *  the right half (for side='right'). Default 0.6. */
+      coverage?: number
+      /** Hex color the gradient fades TO at the dim end. Default '#000000'. */
+      color?: string
+      /** Max opacity at the dim end (0..1). Default 0.7. */
+      strength?: number
+    }
+    /** Text overlays, painted in array order (later zones layer on top). */
+    textZones?: ThumbnailTextZone[]
+    /** Decorative strokes (horizontal rules, divider lines). Painted
+     *  between the dim gradient and the text zones. */
+    accentStrokes?: ThumbnailAccentStroke[]
+    /** Optional logo / mark overlay. Image URL resolved at compose
+     *  time from a project asset or brand kit. */
+    logoSlot?: ThumbnailLogoSlot
+  }
+}
+
+/**
+ * One text overlay on a niche thumbnail. Rendered as SVG `<text>` and
+ * composited via sharp. `name` drives substitution: 'title' uses the
+ * episode title, 'subtitle' / 'brand' / anything else fall back to
+ * `defaultText` with `{episode_title}` / `{episode_code}` / `{niche_name}`
+ * placeholders supported.
+ */
+export interface ThumbnailTextZone {
+  name: string
+  defaultText?: string
+  /** Horizontal anchor edge. 'left' = x measured from the LEFT edge;
+   *  'right' = x measured from the RIGHT edge; 'center' = relative to
+   *  canvas.width / 2. */
+  x: 'left' | 'center' | 'right'
+  /** Vertical anchor edge, same semantics. */
+  y: 'top' | 'middle' | 'bottom'
+  /** Px offset from the anchored edge (or from center). */
+  xOffset?: number
+  yOffset?: number
+  /** Max paint width in px. Word-wraps within this width. */
+  maxWidth: number
+  /** CSS font-family chain. Must resolve through the system font
+   *  catalog at render time. Examples: "Impact, 'Arial Black', sans-serif",
+   *  "'Cormorant Garamond', Georgia, serif". */
+  fontFamily: string
+  fontSize: number
+  fontWeight?: 'normal' | 'bold' | 'black' | number
+  /** Hex color. Default '#ffffff'. */
+  fill?: string
+  /** Px tracking between glyphs. */
+  letterSpacing?: number
+  uppercase?: boolean
+  /** Line-height multiplier. Default 1.1. */
+  lineHeight?: number
+  /** SVG text-anchor. Usually inferred from `x` but can be overridden. */
+  textAnchor?: 'start' | 'middle' | 'end'
+  /** Optional drop shadow for legibility on busy backgrounds. */
+  shadow?: { dx?: number; dy?: number; blur?: number; color?: string }
+}
+
+/** Decorative stroke (horizontal rule / divider) on a niche thumbnail. */
+export interface ThumbnailAccentStroke {
+  /** Horizontal anchor of the stroke's centerpoint. */
+  x: 'left' | 'center' | 'right'
+  xOffset?: number
+  /** Y position in px from the top of the canvas. */
+  y: number
+  /** Stroke length in px. */
+  width: number
+  /** Stroke thickness in px. Default 4. */
+  thickness?: number
+  /** Hex color. Default '#ffffff'. */
+  color?: string
+}
+
+/** Logo / mark overlay slot on a niche thumbnail. */
+export interface ThumbnailLogoSlot {
+  x: 'left' | 'center' | 'right'
+  y: 'top' | 'middle' | 'bottom'
+  xOffset?: number
+  yOffset?: number
+  /** Render width in px (height auto-derived to preserve aspect). */
+  width: number
 }
 
 // ── Brand primitive (channel-level identity layer) ─────────────────────────

@@ -474,6 +474,21 @@
               Click any thumbnail and use 📌 Pin to lock a different one.
             </template>
           </span>
+          <!-- v1.0.104+ — niche-templated text overlay composer. Opens
+               a modal that POSTs to /thumbnails/compose with the active
+               niche's thumbnailTemplate. Disabled until at least one
+               thumbnail exists to compose over. -->
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary thumbnail-compose-btn"
+            :disabled="!editThumbs.length || !form.episode_id"
+            :title="!editThumbs.length
+              ? 'Generate at least one thumbnail first — Compose layers text over an existing image.'
+              : 'Layer the niche\'s title + subtitle + accent rule over one of these thumbnails.'"
+            @click="openComposeDialog"
+          >
+            ✏️ Compose with text…
+          </button>
         </div>
         <div class="edit-image-grid">
           <button
@@ -534,6 +549,21 @@
       :project-slug="slug"
       :image-path="imageEditTarget || ''"
       @accepted="onImageEditAccepted"
+    />
+
+    <!-- Niche-templated thumbnail composer (v1.0.104+). Opens from the -->
+    <!-- "✏️ Compose with text" button on the thumbnail grid header. -->
+    <!-- Pulls the niche's thumbnailTemplate on open, posts to the -->
+    <!-- /thumbnails/compose endpoint, optionally pins the result. -->
+    <ThumbnailComposeDialog
+      v-model="composeOpen"
+      :project-slug="slug"
+      :episode-code="composeEpisodeCode"
+      :thumbs="composeThumbs"
+      :default-title="composeDefaultTitle"
+      :initial-source-filename="composeInitialSource"
+      @composed="onComposeFinished"
+      @pinned="onComposePinned"
     />
 
     <!-- Provider prompt-cap reference table. Mounts on demand from the
@@ -1321,6 +1351,50 @@ const imageEditTarget = ref<string | null>(null)
 function openEditOnPath(path: string) {
   imageEditTarget.value = path
   imageEditOpen.value = true
+}
+
+// ── Niche-templated thumbnail composer (v1.0.104+) ───────────────────────
+//
+// Opens a dialog that POSTs to /thumbnails/compose with the active
+// niche's thumbnailTemplate. Composes are pure local file operations
+// (no API spend) so the dialog can be re-opened freely. Successful
+// composes append a new file to editThumbs via loadEditScan().
+const composeOpen = ref(false)
+const composeInitialSource = ref('')
+
+// The dialog reads these refs. We snapshot the current episode_id +
+// editThumbs at open-time so a mid-flow scan refresh doesn't yank the
+// list out from under the dialog.
+const composeEpisodeCode = computed(() => form.episode_id || '')
+const composeThumbs = computed(() => editThumbs.value.map(t => ({
+  filename: t.filename,
+  is_pinned: t.filename === pinnedThumbnailFilename.value,
+})))
+// images.vue doesn't load idea titles client-side, so we pass empty
+// — the backend substitutes the actual episode title via the ideas
+// service when the user submits with title_text blank.
+const composeDefaultTitle = computed(() => '')
+
+function openComposeDialog() {
+  // Default to the pinned thumbnail when one exists — most likely the
+  // user wants to recompose THAT image with the niche overlay. Falls
+  // back to the highest-version file (first in the sorted grid).
+  composeInitialSource.value = pinnedThumbnailFilename.value
+    || editThumbs.value[0]?.filename
+    || ''
+  composeOpen.value = true
+}
+
+function onComposeFinished(_filename: string) {
+  // Re-scan so the newly composited file appears in the grid. The
+  // dialog stays open with its in-line preview so the user can pin
+  // without scrolling back to the grid.
+  void loadEditScan()
+}
+
+function onComposePinned(filename: string) {
+  // Mirror the pin state locally without waiting for the next scan.
+  pinnedThumbnailFilename.value = filename
 }
 
 // ── Lightbox / carousel (preview-then-edit flow) ─────────────────────────
