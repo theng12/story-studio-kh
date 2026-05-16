@@ -470,6 +470,19 @@ export interface MetadataFormat {
   defaultTitleCount?: number
   defaultTitleMaxLength?: number
   defaultTagCount?: number
+
+  /** v1.0.103+ — Niche-supplied description-shape override. Merged in
+   *  from Niche.metadataDescription via applyNicheToFormat. Lets a
+   *  channel-shaped niche (prayer, devotional) override the generic
+   *  description structure with a niche-tuned voice + rules + closing
+   *  benediction. See buildDescriptionPrompt in lib/metadata-prompt.ts
+   *  for how each field lands in the LLM prompt. */
+  descriptionShape?: {
+    voiceGuidance?: string
+    descriptionShapeRules?: string[]
+    closingBenediction?: string
+    ctaShape?: string
+  }
 }
 
 export interface Format {
@@ -627,6 +640,73 @@ export interface Niche {
   themeShapeRules?: string[]
   themeCountRange?: [number, number]
   structuralVariety?: 'free' | 'vary-all' | 'vary-subject-only'
+
+  // ── v1.0.103+ ScriptStructureShape — niche-level script overrides ──
+  //
+  // When a niche has a strongly-established multi-section script template
+  // (prayer-channel videos: Reflection → Prayer → Blessing; devotional:
+  // Verse → Reflection → Application), the niche can override the
+  // format's chapter count + pacing arc + additional rules. Each field
+  // is optional; unset falls through to format.script.
+  //
+  // Use case: broll-narration format ships with `defaultChapterCount: 1`
+  // (single continuous narration) for the lenient general case, but the
+  // prayer niche under broll-narration always produces 3-section videos.
+  // Setting niche.scriptStructure here switches the script generator
+  // to a 3-section flow ONLY for prayer projects — other niches under
+  // broll-narration (mindfulness, motivation, etc.) keep the format's
+  // single-chapter shape unless they opt in too.
+  //
+  // The fields mirror Format.script's structural triplet exactly.
+  // Patterns still win over niche (they're a per-episode override —
+  // see Pattern.bodyStructure semantics in script-prompt.ts).
+  scriptStructure?: {
+    /** Override Format.script.defaultChapterCount when the niche has
+     *  a strong section convention (prayer: 3 sections). */
+    defaultChapterCount?: number
+    /** Override Format.script.chapterCountRange. */
+    chapterCountRange?: [number, number]
+    /** Replaces Format.script.pacingArc when set. Each string describes
+     *  one chapter's narrative function. {last} / {lastButOne} / {n}
+     *  placeholders work the same as on the format. */
+    pacingArc?: string[]
+    /** APPENDED to Format.script.additionalRules (not replacing) so the
+     *  niche can layer niche-specific writing constraints (e.g. prayer:
+     *  "Address God directly in second person inside the prayer body")
+     *  without losing the format's baseline rules. */
+    additionalRules?: string[]
+  }
+
+  // ── v1.0.103+ MetadataDescriptionShape — niche-level YouTube
+  // description templates. Lets prayer / devotional / motivation
+  // channels override the format's generic description structure with
+  // a niche-tuned layout (opening hook → invitation → CTA with emoji →
+  // benediction → hashtags). Each field is optional; unset falls
+  // through to format.metadata.youtubeDescriptionStructure.
+  metadataDescription?: {
+    /** Shown to the LLM as "channel voice" guidance before the
+     *  per-episode synopsis. One paragraph max. Example for prayer:
+     *  "Open with a warm second-person question to the viewer about
+     *  their current state ('Are you feeling overwhelmed by anxiety?')
+     *  before the prayer's invitation. The description SPEAKS to the
+     *  viewer, not the algorithm." */
+    voiceGuidance?: string
+    /** Hard rules dropped into the prompt verbatim. Same shape as the
+     *  IdeaPromptShape titleShapeRules. Example for prayer: "Start
+     *  with an open-hearted question or 'Dear beloved' style address",
+     *  "Include the 🙏 emoji exactly once near the CTA",
+     *  "Close with 'You are never alone. God's peace is with you
+     *  always.' as the final non-hashtag line". */
+    descriptionShapeRules?: string[]
+    /** Closing line(s) appended to every description if the LLM
+     *  doesn't already supply equivalent text. Verbatim copy. Prayer:
+     *  "You are never alone. God's peace is with you always." */
+    closingBenediction?: string
+    /** CTA paragraph hint. Tone + structure guidance for the
+     *  like-share-subscribe paragraph. Prayer: warm-pastoral, never
+     *  "smash that subscribe button" / hype copy. */
+    ctaShape?: string
+  }
 }
 
 // ── Brand primitive (channel-level identity layer) ─────────────────────────

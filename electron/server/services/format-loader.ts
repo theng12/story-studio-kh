@@ -453,15 +453,44 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
     structuralVariety: niche.structuralVariety || format.idea.structuralVariety,
   }
 
-  // Script layer — only the system-prompt-role gets niche-augmented. The
-  // pacing arc, narrator styles, rules, and chapter counts stay format-
-  // pure so niche doesn't accidentally change format-defining behaviors.
-  const script = niche.scriptContext
+  // Script layer — system-prompt-role gets niche-augmented, AND v1.0.103+
+  // niche.scriptStructure can override format.script's chapter count,
+  // pacing arc, and add additional rules. Used by niches with strong
+  // multi-section conventions (prayer-channel: Reflection → Prayer →
+  // Blessing) that don't match the format's default shape. Each field
+  // is optional; unset falls through to format.script.
+  const niche_structure = niche.scriptStructure
+  const baseScript: Format['script'] = niche.scriptContext
     ? {
         ...format.script,
         systemPromptRole: `${format.script.systemPromptRole}\n\nSubject-domain context: ${niche.scriptContext}`,
       }
-    : format.script
+    : { ...format.script }
+
+  if (niche_structure) {
+    if (typeof niche_structure.defaultChapterCount === 'number' && niche_structure.defaultChapterCount > 0) {
+      baseScript.defaultChapterCount = niche_structure.defaultChapterCount
+    }
+    if (Array.isArray(niche_structure.chapterCountRange)
+      && niche_structure.chapterCountRange.length === 2
+      && niche_structure.chapterCountRange.every(n => typeof n === 'number' && n > 0)) {
+      baseScript.chapterCountRange = [
+        niche_structure.chapterCountRange[0],
+        niche_structure.chapterCountRange[1],
+      ]
+    }
+    if (Array.isArray(niche_structure.pacingArc) && niche_structure.pacingArc.length > 0) {
+      baseScript.pacingArc = niche_structure.pacingArc.slice()
+    }
+    if (Array.isArray(niche_structure.additionalRules) && niche_structure.additionalRules.length > 0) {
+      // APPEND, don't replace — format rules stay; niche layers on top.
+      baseScript.additionalRules = [
+        ...format.script.additionalRules,
+        ...niche_structure.additionalRules,
+      ]
+    }
+  }
+  const script = baseScript
 
   // Image-prompt layer — append visualStyleSheet to defaultStyleTag (the
   // string the LLM sees baked into every prompt). visualStyleHint is the
@@ -479,9 +508,17 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
   }
 
   // Metadata layer — niche tags merged into broadKeywords pool.
+  // v1.0.103+ niche.metadataDescription propagates onto
+  // format.metadata.descriptionShape so the description prompt builder
+  // can read niche-voice/rules/CTA/closing without taking a second
+  // niche reference (everything flows through the niche-merged
+  // format object, consistent with the rest of the merge).
   const metadata = {
     ...format.metadata,
     broadKeywords: uniqueAppend(format.metadata.broadKeywords, niche.youtubeTagsHint),
+    descriptionShape: niche.metadataDescription
+      ? { ...niche.metadataDescription }
+      : format.metadata.descriptionShape,
   }
 
   return {

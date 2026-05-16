@@ -91,6 +91,25 @@
 
   "scriptContext": "Write as a single quiet voice praying with the listener (not for them). Address God directly in the second person but speak the prayer aloud so the listener can echo it silently. Avoid corporate-prayer 'we' unless the prayer is specifically for families / marriages. End with a clear settle line so the listener knows the prayer is complete.",
 
+  "scriptStructure": {
+    "defaultChapterCount": 3,
+    "chapterCountRange": [3, 5],
+    "pacingArc": [
+      "Section 1 — Reflection & Invitation. Open with a breath cue + 'Dear beloved' / 'Take a quiet moment' style invitation. Establish God as refuge / shelter / unshakable rock. Name the invisible hurts the listener brings (anxiety, fear, weariness, restless thoughts). Speak the listener INTO God's presence. ~700-900 words. Tone: tender, contemplative, second-person to listener.",
+      "Section 2 — The Prayer (Petition + Promise). Address God directly in the second person ('Heavenly Father, in this quiet moment, I come before You…'). The prayer body. Petition over mind / emotions / home / family. Cite ONE specific scripture promise — Psalm 91, Philippians 4:6-7, Isaiah 41:10, John 14:27, etc. — and let it carry the middle. End with 'In Jesus' name we pray, Amen.' ~900-1200 words. Tone: reverent, intimate, prayerful.",
+      "Section 3 — Declaration, Blessing & Call to Action. Speak a brief declaration of victory + the listener's identity in Christ. Bless the listener directly ('May the peace of God surround you…', 'Go in peace, beloved'). Close with a CTA: invite the viewer to respond 'Amen' in the comments, share a prayer request, subscribe for daily prayer. End with a final benediction. ~500-700 words. Tone: bold, warm, sending."
+    ],
+    "additionalRules": [
+      "Section 1 and Section 3 address the LISTENER pastorally ('Dear beloved', 'you'). Section 2 addresses GOD directly in the second person ('Heavenly Father, You are…'). Don't mix the two POVs within a section.",
+      "Section 2 MUST cite at least one specific scripture reference by chapter (Psalm 91, Philippians 4, Romans 8, etc.) so the prayer is anchored to the text.",
+      "Section 2 MUST end with 'Amen.' on its own line so the audio narration has a clear pause point.",
+      "Section 3's CTA is warmly pastoral, never commercial. Examples: 'If this prayer touched your heart, comment Amen.' / 'Share a prayer request below — we pray for one another here.' Never 'SMASH that subscribe button' / hype language.",
+      "Do not name specific denominations. Stay within shared Christian language (God / Lord / Father / Holy Spirit / Jesus) so the prayer reaches viewers across traditions.",
+      "Repetition is a feature, not a bug — three of 'His mercy, His grace, His peace' lands stronger than a single literary phrase. Echo the niche's vocab pool (Lord, Father, Christ, Spirit, Shepherd, Refuge, Rock, etc.) deliberately.",
+      "End every section with a natural breathing pause — comma-then-period rhythm so the narrator can taper. Don't trail off mid-thought."
+    ]
+  },
+
   "titleShapeRules": [
     "Titles MUST be DIRECT prayer subjects. The subject (X) is always a spiritual need, life situation, emotional state, or a person the prayer is FOR — never a scene, time-of-day decoration, or nature image.",
     "Use ONE of these established shapes verbatim (vary X across the batch — never reuse the same X):",
@@ -115,5 +134,20 @@
     "Repetition of the STRUCTURE across the batch is correct and expected — that's the channel signature. Vary only X, never the shape."
   ],
 
-  "titleLengthRange": [3, 9]
+  "titleLengthRange": [3, 9],
+
+  "metadataDescription": {
+    "voiceGuidance": "Speak directly to the viewer in a warm, pastoral second-person voice. The description is a continuation of the prayer's invitation — it should feel like the same voice that opens with 'Dear beloved' on the video. Open with a soft question that meets the viewer where they are ('Are you feeling overwhelmed by anxiety, fear, or uncertainty?'). Never start with 'Hey guys' / 'What's up' / 'Welcome back to the channel' — those break the spell. Refer to the video content as a 'prayer' or 'guided prayer', not 'video' or 'episode'.",
+    "descriptionShapeRules": [
+      "Open with a single short paragraph that addresses the viewer's likely state in second-person question form ('Are you feeling…?', 'Have you been carrying…?'). 1-3 sentences.",
+      "Follow with an invitation paragraph that names what the prayer covers (reflection, petition, blessing) and the specific scripture promise or theme it leans on. 2-4 sentences.",
+      "Include exactly ONE 🙏 emoji, placed at the start of the CTA paragraph (never in the opening hook, never in the hashtags).",
+      "The CTA paragraph mentions like / share / subscribe and the notification bell, but in pastoral language. Examples: 'If this prayer touched your heart, please like, share, and subscribe for more calming Christian prayers.' Never 'SMASH that subscribe button', 'don't forget to like', or any all-caps hype copy.",
+      "End the non-hashtag body with a final pastoral benediction line. The closingBenediction field below is the canonical version — match its tone closely.",
+      "Hashtags go at the very end, on their own line(s), separated by single spaces. 5-8 hashtags drawn from the prayer-channel vocabulary (#PrayerForPeace, #ChristianPrayer, #FaithOverFear, etc.). No #SleepStory, #BedtimeStory, or other sleep-channel hashtags unless the specific episode is explicitly a bedtime prayer.",
+      "Total tone is reverent + warm. No emoji clusters (✨🌙⭐💫). The 🙏 is the only emoji that belongs in a prayer-channel description."
+    ],
+    "ctaShape": "Warm-pastoral, never commercial. Frame the CTA as an invitation to community ('We pray together here'), not as a transactional ask. Mention notification bell + subscribe + like as a single calm paragraph, not bullets or all-caps. If the channel has a Patreon / app / book, mention it once with a single sentence, never repeated.",
+    "closingBenediction": "You are never alone. God's peace is with you always."
+  }
 }

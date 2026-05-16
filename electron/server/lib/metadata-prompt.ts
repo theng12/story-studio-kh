@@ -216,12 +216,38 @@ export function buildDescriptionPrompt(
     }
   }
 
+  // v1.0.103+ — niche-level description-shape guidance. When the niche
+  // (typically merged into format.metadata.descriptionShape via
+  // applyNicheToFormat) supplies a voice / rule-list / CTA tone /
+  // closing benediction, surface them at the TOP of the prompt so the
+  // LLM anchors on the channel voice before reading the section
+  // instructions. Without these the prompt is generic and prayer
+  // channels get "Hey guys! Welcome back to the channel" hype copy.
+  const descShape = format?.metadata?.descriptionShape
+  let nicheVoiceBlock = ''
+  if (descShape) {
+    const parts: string[] = []
+    if (descShape.voiceGuidance) {
+      parts.push(`CHANNEL VOICE — read this first, write in this voice:\n${descShape.voiceGuidance}`)
+    }
+    if (descShape.descriptionShapeRules?.length) {
+      parts.push(`DESCRIPTION SHAPE RULES (MUST follow):\n${descShape.descriptionShapeRules.map(r => `- ${r}`).join('\n')}`)
+    }
+    if (descShape.ctaShape) {
+      parts.push(`CTA TONE (when a like-share-subscribe paragraph appears):\n${descShape.ctaShape}`)
+    }
+    if (descShape.closingBenediction) {
+      parts.push(`CLOSING LINE (the FINAL non-hashtag line of the description, verbatim or near-verbatim):\n${JSON.stringify(descShape.closingBenediction)}`)
+    }
+    if (parts.length > 0) nicheVoiceBlock = `\n\n${parts.join('\n\n')}\n`
+  }
+
   return `Generate a YouTube description for a story episode.
 
 Episode: ${episode_id} — ${title}
 
 Story context:
-${storyContext}
+${storyContext}${nicheVoiceBlock}
 
 Include these sections IN THIS ORDER:
 ${sectionInstructions}
