@@ -123,6 +123,7 @@
     "chapterCountRange": [6, 14],
     "defaultLengthMinutes": 45,
     "lengthMinutesRange": [20, 120],
+    "durationPresets": [20, 30, 45, 60, 90, 120],
     "narratorStyles": [
       { "id": "A", "label": "Warm and intimate",          "description": "First-person narrator, very close to the character's inner world. Feels like a whispered confidence." },
       { "id": "B", "label": "Gentle third-person observer", "description": "Lyrical, slightly poetic, like watching from a warm window." },

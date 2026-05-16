@@ -128,6 +128,7 @@
     "chapterCountRange": [4, 8],
     "defaultLengthMinutes": 20,
     "lengthMinutesRange": [10, 40],
+    "durationPresets": [10, 15, 20, 25, 30, 40],
     "narratorStyles": [
       { "id": "A", "label": "Playful storybook voice",   "description": "Lively, expressive, with funny voices for different characters. The narrator is clearly having fun." },
       { "id": "B", "label": "Cozy bedtime narrator",     "description": "Warm, slow, perfect for the last story before sleep. Less performative than A; more snuggly." },

@@ -139,6 +139,7 @@
     "chapterCountRange": [5, 12],
     "defaultLengthMinutes": 45,
     "lengthMinutesRange": [25, 90],
+    "durationPresets": [25, 30, 45, 60, 75, 90],
     "narratorStyles": [
       { "id": "A", "label": "Measured journalist",      "description": "Public-radio cadence — calm, precise, lets pauses do work. Suits investigative deep-dives." },
       { "id": "B", "label": "Detective's notebook",     "description": "First-person from the investigating officer's perspective — observational, restrained, occasional dry asides." },

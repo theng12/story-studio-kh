@@ -128,6 +128,7 @@
     "chapterCountRange": [6, 14],
     "defaultLengthMinutes": 45,
     "lengthMinutesRange": [20, 120],
+    "durationPresets": [20, 30, 45, 60, 90, 120],
     "narratorStyles": [
       { "id": "A", "label": "First-person survivor",      "description": "Past tense, first-person — the protagonist recounting events, often with hindsight reflection. Visceral, urgent, no narratorial distance." },
       { "id": "B", "label": "Tense third-person",         "description": "Close third-person, present-tense feel even in past tense. The narrator sticks tight to the protagonist's body and senses." },

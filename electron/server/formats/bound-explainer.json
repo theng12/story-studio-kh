@@ -159,6 +159,7 @@
     "chapterCountRange": [3, 10],
     "defaultLengthMinutes": 12,
     "lengthMinutesRange": [8, 18],
+    "durationPresets": [8, 10, 12, 15, 18],
     "narratorStyles": [
       { "id": "A", "label": "Bound-style deadpan",         "description": "Matter-of-fact, dry, evidence-forward. Lets the absurdity of the biology carry the humor. Closest match to the reference channel." },
       { "id": "B", "label": "Sardonic explainer",          "description": "Slightly arch, occasional knowing aside, never punches the joke. QI-adjacent." },

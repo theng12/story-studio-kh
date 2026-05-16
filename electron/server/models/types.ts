@@ -248,6 +248,16 @@ export interface ScriptFormat {
   chapterCountRange: [number, number]
   defaultLengthMinutes: number
   lengthMinutesRange: [number, number]
+  /** v1.0.101+ — Recommended duration values shown in the Script
+   *  Generator's Duration dropdown. When unset, the page falls back to
+   *  the legacy sleep-story-flavoured set [15, 20, 30, 45, 60, 90].
+   *  Format authors should set this to values that make sense for their
+   *  format's typical episode length (broll-narration: [5, 8, 10, 15,
+   *  20, 30]; bound-explainer: [8, 12, 15, 20]; kids-fairytale:
+   *  [5, 8, 10, 15]). The format's `defaultLengthMinutes` should appear
+   *  in this list so the dropdown shows the right value selected on
+   *  fresh project load instead of falling through to "Custom...". */
+  durationPresets?: number[]
   narratorStyles: NarratorStyle[]
   defaultNarratorStyleId: string
   /**

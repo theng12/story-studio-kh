@@ -127,6 +127,7 @@
     "chapterCountRange": [4, 10],
     "defaultLengthMinutes": 25,
     "lengthMinutesRange": [10, 60],
+    "durationPresets": [10, 15, 20, 25, 30, 45, 60],
     "narratorStyles": [
       { "id": "A", "label": "Wry podcast host",         "description": "Conversational, occasionally addresses the listener directly, lets pauses do work. Suits weird-but-true and absurd-history." },
       { "id": "B", "label": "Deadpan reporter",         "description": "Plays it straight no matter how absurd the material gets. Maximum contrast between content and delivery." },

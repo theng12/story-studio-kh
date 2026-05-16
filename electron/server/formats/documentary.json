@@ -132,6 +132,7 @@
     "chapterCountRange": [5, 12],
     "defaultLengthMinutes": 30,
     "lengthMinutesRange": [20, 75],
+    "durationPresets": [20, 30, 45, 60, 75],
     "narratorStyles": [
       { "id": "A", "label": "Attenborough-esque",       "description": "Reverent, intimate, marvels at small details. Ideal for natural history and place portraits." },
       { "id": "B", "label": "Biographer's voice",       "description": "Warm, novelistic — the subject's life as a story. Suits biographies and historical figures." },

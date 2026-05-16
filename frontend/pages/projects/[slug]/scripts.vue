@@ -183,16 +183,17 @@
       <div class="grid-3 mt-2">
         <div class="form-group">
           <label>Duration</label>
+          <!-- v1.0.101+ Duration dropdown is now format-driven. broll-narration
+               shows [5, 8, 10, 15, 20, 30]; sleep-story keeps its
+               [20, 30, 45, 60, 90, 120]; each format owns its own
+               recommended set via script.durationPresets in its JSON. -->
           <select v-model="durationSelect" class="select" @change="onDurationChange()">
-            <option value="15">15 minutes</option>
-            <option value="20">20 minutes</option>
-            <option value="30">30 minutes</option>
-            <option value="45">45 minutes</option>
-            <option value="60">60 minutes</option>
-            <option value="90">90 minutes</option>
+            <option v-for="d in durationOptions" :key="d" :value="String(d)">
+              {{ d }} minute{{ d === 1 ? '' : 's' }}
+            </option>
             <option value="custom">Custom...</option>
           </select>
-          <input v-if="durationSelect === 'custom'" v-model.number="form.length" type="number" min="5" max="180"
+          <input v-if="durationSelect === 'custom'" v-model.number="form.length" type="number" min="1" max="240"
             class="input mt-1" placeholder="Minutes" />
         </div>
         <ModelSelector v-model="form.model" :project-slug="slug" />
@@ -503,7 +504,7 @@ function onOutlineLoaded(payload: {
   }
   if (payload.lengthMinutes && payload.lengthMinutes > 0) {
     form.length = payload.lengthMinutes
-    durationSelect.value = STANDARD_DURATIONS.has(form.length) ? String(form.length) : 'custom'
+    durationSelect.value = standardDurationSet.value.has(form.length) ? String(form.length) : 'custom'
   }
   userTouchedSizing.value = true
 }
@@ -614,8 +615,25 @@ interface FormatContext {
   defaultLengthMinutes: number | null
   chapterCountRange: [number, number] | null
   lengthMinutesRange: [number, number] | null
+  /** v1.0.101+ — duration values to show in the Duration dropdown.
+   *  Populated from format.script.durationPresets; null falls back to
+   *  the legacy sleep-story-flavoured [15, 20, 30, 45, 60, 90]. */
+  durationPresets: number[] | null
 }
 const formatContext = ref<FormatContext | null>(null)
+
+// v1.0.101+ — Duration dropdown options are now format-driven.
+// For broll-narration (prayer / devotional / motivation projects) the
+// list becomes [5, 8, 10, 15, 20, 30] instead of the sleep-story
+// [15, 20, 30, 45, 60, 90]. Falls back to the legacy set when the
+// format JSON doesn't carry durationPresets (back-compat for any
+// custom user formats that haven't been updated yet).
+const LEGACY_DURATION_PRESETS = [15, 20, 30, 45, 60, 90]
+const durationOptions = computed<number[]>(() => {
+  const presets = formatContext.value?.durationPresets
+  return Array.isArray(presets) && presets.length > 0 ? presets : LEGACY_DURATION_PRESETS
+})
+const standardDurationSet = computed<Set<number>>(() => new Set(durationOptions.value))
 
 // First sentence (or first 160 chars, whichever is shorter) — formats ship
 // long marketing-flavoured descriptions; we want a one-line summary.
@@ -778,11 +796,6 @@ async function applyScriptFormatDefaultsIfNoPreset() {
       form.total_words = Math.round(form.length * wordsPerMinute)
       form.words_per_chapter = Math.round(form.total_words / form.chapters)
     }
-    // Snap the duration dropdown back to a known option so the UI doesn't
-    // flash 'custom' when the format default happens to match a standard
-    // value (15/20/30/45/60/90).
-    durationSelect.value = STANDARD_DURATIONS.has(form.length) ? String(form.length) : 'custom'
-
     // Cache the format metadata for the read-only context panel below the
     // word-count inputs. Pulled from the same /effective-format payload —
     // no second round-trip. Range tuples are coerced; we fall back to null
@@ -796,6 +809,12 @@ async function applyScriptFormatDefaultsIfNoPreset() {
       && typeof sf.lengthMinutesRange[0] === 'number' && typeof sf.lengthMinutesRange[1] === 'number'
       ? [sf.lengthMinutesRange[0], sf.lengthMinutesRange[1]] as [number, number]
       : null
+    // v1.0.101+ duration preset list. Filter to positive numbers so a
+    // bad entry in the JSON can't produce a "0 minutes" option.
+    const durationPresets = Array.isArray(sf.durationPresets)
+      ? (sf.durationPresets as unknown[])
+          .filter((n): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0)
+      : null
     formatContext.value = {
       id: typeof f.id === 'string' ? f.id : 'unknown',
       name: typeof f.name === 'string' ? f.name : 'Format',
@@ -804,7 +823,14 @@ async function applyScriptFormatDefaultsIfNoPreset() {
       defaultLengthMinutes: typeof sf.defaultLengthMinutes === 'number' ? sf.defaultLengthMinutes : null,
       chapterCountRange: ccRange,
       lengthMinutesRange: lmRange,
+      durationPresets: durationPresets && durationPresets.length > 0 ? durationPresets : null,
     }
+    // Snap the duration dropdown back to a known option so the UI doesn't
+    // flash 'custom' when the format default matches a value in the
+    // format's own preset list. v1.0.101+: uses the format's
+    // durationPresets (via standardDurationSet computed) so broll-narration
+    // selects "10 minutes" instead of falling through to "Custom...".
+    durationSelect.value = standardDurationSet.value.has(form.length) ? String(form.length) : 'custom'
   } catch {
     // Format endpoint unavailable / project missing — keep the form's
     // hardcoded defaults. Non-fatal.
@@ -1056,7 +1082,12 @@ const canSubmit = computed(() => form.episode_id && form.title)
 // (45min → 10 chapters → 5500 words) and have been removed in favour of
 // format-driven defaults seeded once in applyScriptFormatDefaultsIfNoPreset.
 // Per-episode overrides flow through the editable inputs below.
-const STANDARD_DURATIONS = new Set([15, 20, 30, 45, 60, 90])
+//
+// v1.0.101+ — the old hardcoded STANDARD_DURATIONS = {15,20,30,45,60,90}
+// constant is gone. The "is this a standard preset?" check now reads
+// from `standardDurationSet` (computed from the format's
+// durationPresets), so broll-narration's 10 minute default no longer
+// flashes as "Custom..." on first paint.
 
 // Sync: Duration dropdown → total words (format-aware chapter count stays).
 // Words/chapter recomputes from the new total ÷ existing chapters so a
@@ -1106,7 +1137,7 @@ function onWordsPerChapterChange() {
   userTouchedSizing.value = true
   form.total_words = form.chapters * form.words_per_chapter
   form.length = Math.round(form.total_words / wordsPerMinute)
-  durationSelect.value = STANDARD_DURATIONS.has(form.length) ? String(form.length) : 'custom'
+  durationSelect.value = standardDurationSet.value.has(form.length) ? String(form.length) : 'custom'
 }
 
 // Sync: Total words changed → recalc words/chapter + duration
@@ -1117,7 +1148,7 @@ function onTotalWordsChange() {
     form.words_per_chapter = Math.round(form.total_words / form.chapters)
   }
   form.length = Math.round(form.total_words / wordsPerMinute)
-  durationSelect.value = STANDARD_DURATIONS.has(form.length) ? String(form.length) : 'custom'
+  durationSelect.value = standardDurationSet.value.has(form.length) ? String(form.length) : 'custom'
 }
 
 /**

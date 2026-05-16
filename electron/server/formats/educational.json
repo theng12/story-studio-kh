@@ -133,6 +133,7 @@
     "chapterCountRange": [5, 12],
     "defaultLengthMinutes": 30,
     "lengthMinutesRange": [15, 75],
+    "durationPresets": [15, 20, 30, 45, 60, 75],
     "narratorStyles": [
       { "id": "A", "label": "Engaged teacher",         "description": "Warm, curious, the friend who explains things at the pub. Conversational but precise. Suits broad-audience explainers." },
       { "id": "B", "label": "Documentary host",        "description": "Authoritative but accessible — like a Vox or PBS host. Carries the listener through complex material with steady pacing." },

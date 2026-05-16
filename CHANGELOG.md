@@ -4,6 +4,46 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.101 — 2026-05-16
+
+**Script Generator's Duration dropdown is now format-driven**
+
+User reported: *"inside the script generator for the prayer video... the default there didn't follow. it's also hardcoded for sleep stories and it defaults to 45 minutes script."*
+
+The Duration dropdown shipped a hardcoded sleep-story-flavoured option list — `15 / 20 / 30 / 45 / 60 / 90 minutes` — even though the format-default hydration (added back in v1.0.72) correctly read each format's `defaultLengthMinutes` and updated `form.length`. For broll-narration (prayer / devotional / motivation projects with `defaultLengthMinutes: 10`), the form value was correct (10) but the dropdown showed `Custom...` selected with `10` in a custom input — confusing and wrong-flavoured.
+
+Same architectural pattern as v1.0.95's `IdeaPromptShape` refactor: lift the hardcoded behaviour into format JSON. Each format now ships a `script.durationPresets: number[]` field with values appropriate to its typical episode length:
+
+| Format | Duration presets (minutes) |
+|---|---|
+| broll-narration | 5, 8, 10, 15, 20, 30 |
+| bound-explainer | 8, 10, 12, 15, 18 |
+| kids-fairytale | 10, 15, 20, 25, 30, 40 |
+| educational | 15, 20, 30, 45, 60, 75 |
+| comedy | 10, 15, 20, 25, 30, 45, 60 |
+| documentary | 20, 30, 45, 60, 75 |
+| listicle | 10, 15, 20, 30, 45, 60, 90 |
+| sleep-story | 20, 30, 45, 60, 90, 120 |
+| adventure | 20, 30, 45, 60, 90, 120 |
+| true-crime | 25, 30, 45, 60, 75, 90 |
+
+Each format's `defaultLengthMinutes` is present in its own preset list, so on fresh project load the dropdown reflects the format's natural default (broll-narration shows `10 minutes` selected, not `Custom...`).
+
+**Scripts page changes**:
+- `<select v-model="durationSelect">` options are now rendered from `durationOptions` (a computed from `formatContext.durationPresets`)
+- The hardcoded `STANDARD_DURATIONS = new Set([15, 20, 30, 45, 60, 90])` constant is gone. The "is this a recognised preset?" check now reads from `standardDurationSet` (also computed from the format's `durationPresets`).
+- Custom input `max` bumped from `180` to `240` so users on a long-form format with a custom value have room to type larger numbers.
+- Plural-aware label: shows `1 minute` not `1 minutes` if anyone ever sets a single-minute preset.
+
+**Authoring future formats**: when you add a new format JSON later, set `script.durationPresets` to the duration values the user is most likely to pick. The default should appear in the list. Without the field, the dropdown silently falls back to the legacy sleep-story set so existing custom formats keep working.
+
+**Audit pass**
+- `tsc -p electron --noEmit`: 0 errors.
+- `cd frontend && npx nuxt build`: clean.
+- All 10 format JSONs parse cleanly with the new field.
+
+---
+
 ## v1.0.100 — 2026-05-16
 
 **Unclean-shutdown banner now auto-dismisses after 30s**
