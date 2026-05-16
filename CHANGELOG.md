@@ -4,6 +4,44 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.103 — 2026-05-17
+
+**Niche-as-first-class, round 2: prayer-channel script structure + description voice + two UX papercuts**
+
+User shared a full real prayer-channel video script (3 sections: Reflection & Invitation → Prayer of Protection → Declaration & Blessing) plus the matching YouTube description (🙏 emoji, 25+ hashtags, "You are never alone" benediction) and asked: *"can you help me make sure my abiding faith style script structure and the metadata can be adaptive to this formats?"* This release adds two new niche-level schema layers so prayer (and every future niche) owns its own script shape AND its own description voice — without code changes.
+
+### New niche schemas
+
+- **`Niche.scriptStructure`** — declares the structural shape the script generator should follow. Fields: `defaultChapterCount`, `chapterCountRange`, `pacingArc` (per-section beats), `additionalRules` (appended to the format's script rules). Prayer ships with 3 chapters in a 3-5 range, a pacing arc of `Reflection & Invitation → Prayer of Protection & Strength → Declaration & Blessing`, and 7 additional rules covering POV switching ("you" → "we" in the middle act), the scripture-anchor rule, an "Amen" pause after each chapter, denomination-neutrality, and the repetition pattern the user's reference scripts actually use.
+- **`Niche.metadataDescription`** — declares the description-shape voice. Fields: `voiceGuidance`, `descriptionShapeRules`, `closingBenediction`, `ctaShape`. Prayer ships with pastoral second-person voice rules ("single 🙏 emoji, no all-caps hype, no SleepStory hashtags"), a warm-pastoral CTA tone, and `closingBenediction = "You are never alone. God's peace is with you always."` — which the LLM now anchors as the final non-hashtag line of every prayer-channel description.
+
+Both override structures merge through `applyNicheToFormat()` the same way every other niche-level field does. Future niches just drop a JSON file in `electron/server/niches/` populating these blocks — zero code changes.
+
+### Backend wiring
+
+- **`models/types.ts`** — added `Niche.scriptStructure?` and `Niche.metadataDescription?`. Added a mirroring `Format.metadata.descriptionShape?` so the merged-format payload carries the niche voice into the prompt builder.
+- **`services/format-loader.ts`** — `applyNicheToFormat()` extended. `scriptStructure` fields REPLACE format defaults; `additionalRules` APPENDS so format-level rules still apply. `metadataDescription` becomes `format.metadata.descriptionShape` so downstream prompt builders see one stable surface.
+- **`lib/metadata-prompt.ts`** — the YouTube-description prompt now leads with a `CHANNEL VOICE` block built from `descriptionShape`, BEFORE the section instructions. Without this, prayer descriptions were still inheriting sleep-story phrasing because the section instructions read top-to-bottom and the niche voice was buried at the end. Voice first, sections second.
+
+### Frontend UX papercuts
+
+- **Banner clip** under macOS traffic lights — the unclean-shutdown banner was being chopped by the `hiddenInset` title bar at the dashboard header. `padding-top: 0 → 16px` on `.main-content` so banners clear the title-bar overlay region cleanly.
+- **Script Outline Review — cursor-jump bug** — typing space or Enter inside a chapter's "Key facts" or "Beats" textarea was jumping the cursor to the end of the last word. Cause: the textarea was bound via `:value="arr.join('\n')"` + `@input` that re-split → mutate → re-stringify on every keystroke, which Vue saw as a content replacement and re-positioned the cursor. Fixed with a per-row buffer pattern (`Record<number, string>` keyed by chapter `n`), commits on blur. No split/trim/filter until the user leaves the field. Same fix for both Facts and Beats columns.
+- **Script Outline Review — Expand silently failed when outline was still in Draft** — clicking Expand on a Draft outline produced nothing visible. Cause: button was `disabled` when `!canExpand` (which required `approvedAt`), no surfacing of why. Fixed: button stays enabled, gets an amber `is-needs-approval` style so the state is visible, and clicking opens an inline confirm: *"This outline is still in Draft. Approve it and expand?"* → one click does both.
+
+### Audit pass
+
+- `tsc -p electron --noEmit`: 0 errors.
+- `cd frontend && npx nuxt build`: clean.
+- `prayer.json` parses with both new schemas; legacy niche JSONs (no `scriptStructure` / `metadataDescription`) pass through unchanged.
+
+### What's NOT in this release (intentional)
+
+- **Phase 3 — thumbnail composer.** The user shared a thumbnail template alongside the script/metadata (left subject portrait, right bold all-caps title, bottom "NIGHT PRAYER" with horizontal rule, top-left logo). A niche-templated thumbnail-text overlay endpoint + Compose modal on the Images page is designed but deferred to v1.0.104 to keep this release focused on the two structural-prompt fixes that ship value end-to-end today.
+- **Other niches' scriptStructure / metadataDescription.** Only prayer.json is populated — the rest of the niche library can adopt these blocks incrementally as concrete scripts arrive (true-crime, listicle, educational, etc.). The fields are optional; legacy niches keep working as-is.
+
+---
+
 ## v1.0.102 — 2026-05-17
 
 **Comprehensive sweep: every remaining sleep-story-era hardcoded assumption removed**
