@@ -101,12 +101,20 @@
                  only which honours the outline title + hook + facts via
                  the Phase 1 sidecar lookup AND any per-row word override).
                  Same row, same button, different verb depending on state. -->
+            <!-- v1.0.103+ — was `:disabled="!canExpand || expanding"`
+                 which made the button silently no-op when the outline
+                 was still in Draft. Users clicked + nothing happened +
+                 reported "silently failed". Now: only disable while
+                 expanding (in-flight); when not approved, the click
+                 handler routes to expandOne which surfaces an explicit
+                 "Approve first" toast + offer-to-approve flow. -->
             <button
               v-if="!isChapterDone(entry.n)"
               class="btn btn-sm btn-secondary"
-              :disabled="!canExpand || expanding"
+              :class="{ 'is-needs-approval': !approvedAt }"
+              :disabled="expanding"
               :title="!approvedAt
-                ? 'Approve the outline first'
+                ? 'Outline is in Draft — click to approve and expand this chapter'
                 : `Expand only chapter ${entry.n}`"
               @click="expandOne(entry.n)"
             >
@@ -171,13 +179,17 @@
             placeholder="One-line hook (provocative claim or counter-intuitive question)"
             @blur="markDirtyAndAutosave"
           />
+          <!-- v1.0.103+ — was bound via :value + @input with a
+               split/trim/filter on every keystroke, which lost trailing
+               spaces + empty lines and reset the cursor to the end.
+               Now v-model'd on a per-row text buffer; blur commits the
+               buffer to the array (split/trim/filter happens once). -->
           <textarea
             class="textarea op-facts-input"
-            :value="(outline[idx].key_facts || []).join('\n')"
+            v-model="factsBufferByN[entry.n]"
             placeholder="Key facts — one per line. The LLM uses these as expansion seeds."
             rows="2"
-            @input="onFactsInput($event, idx)"
-            @blur="markDirtyAndAutosave"
+            @blur="commitFactsBuffer(entry.n)"
           />
         </div>
         <div v-else class="op-row-body">
@@ -188,13 +200,15 @@
             rows="2"
             @blur="markDirtyAndAutosave"
           />
+          <!-- v1.0.103+ — same fix as the listicle facts textarea above.
+               Raw text lives in beatsBufferByN[n]; blur commits to the
+               array as a split/trim/filter pass. -->
           <textarea
             class="textarea op-beats-input"
-            :value="(outline[idx].key_beats || []).join('\n')"
+            v-model="beatsBufferByN[entry.n]"
             placeholder="Key beats — one per line"
             rows="2"
-            @input="onBeatsInput($event, idx)"
-            @blur="markDirtyAndAutosave"
+            @blur="commitBeatsBuffer(entry.n)"
           />
         </div>
 
@@ -246,10 +260,19 @@
         </button>
       </div>
       <div class="op-footer-right">
+        <!-- v1.0.103+ — Approval gate moved INTO the click handler so
+             the buttons fire and show explicit feedback instead of
+             going visually-dead. Still disabled when there's nothing
+             to expand or while a job is in flight. -->
         <button
           class="btn btn-secondary"
-          :disabled="!canExpand || expanding || selectedNs.length === 0"
-          :title="!approvedAt ? 'Approve the outline first' : selectedNs.length === 0 ? 'Tick the checkboxes for chapters you want to expand' : `Expand ${selectedNs.length} selected chapter(s)`"
+          :class="{ 'is-needs-approval': !approvedAt && selectedNs.length > 0 }"
+          :disabled="expanding || selectedNs.length === 0"
+          :title="!approvedAt
+            ? 'Outline is in Draft — click to approve and expand selected'
+            : selectedNs.length === 0
+              ? 'Tick the checkboxes for chapters you want to expand'
+              : `Expand ${selectedNs.length} selected chapter(s)`"
           @click="expandSelected"
         >
           <LoadingSpinner v-if="expanding" size="sm" />
@@ -257,8 +280,13 @@
         </button>
         <button
           class="btn btn-primary"
-          :disabled="!canExpand || expanding || pendingCount === 0"
-          :title="!approvedAt ? 'Approve the outline first' : pendingCount === 0 ? 'All chapters already on disk' : `Expand all ${pendingCount} pending chapter(s)`"
+          :class="{ 'is-needs-approval': !approvedAt && pendingCount > 0 }"
+          :disabled="expanding || pendingCount === 0"
+          :title="!approvedAt
+            ? 'Outline is in Draft — click to approve and expand all'
+            : pendingCount === 0
+              ? 'All chapters already on disk'
+              : `Expand all ${pendingCount} pending chapter(s)`"
           @click="expandAll"
         >
           <LoadingSpinner v-if="expanding" size="sm" />
@@ -570,6 +598,10 @@ async function loadOutline() {
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/outline${titleParam}`,
     )
     outline.value = (data.outline || []).map(e => ({ ...e }))
+    // v1.0.103+ — seed the per-row text buffers as soon as the outline
+    // is in place. Without this, the textareas render empty on first
+    // load (the v-model'd buffer object has no key for n yet).
+    seedRowBuffersFromOutline()
     mode.value = data.mode
     totalChapters.value = data.total_chapters
     chaptersDone.value = data.chapters_done || []
@@ -661,20 +693,51 @@ function onWordsBlur(idx: number) {
   markDirtyAndAutosave()
 }
 
-function onFactsInput(ev: Event, idx: number) {
-  const lines = (ev.target as HTMLTextAreaElement).value
-    .split('\n').map(s => s.trim()).filter(Boolean)
-  outline.value[idx].key_facts = lines
-  isDirty.value = true
-  justSaved.value = false
+// v1.0.103+ — Per-row text buffers for the key_facts / key_beats
+// textareas. Keyed by chapter number (entry.n) so reorders that swap
+// content but keep n stable preserve the right buffer→chapter mapping.
+//
+// The old `:value` + `@input` pattern split/trim/filtered on every
+// keystroke, which:
+//   - stripped trailing whitespace (so a typed space was instantly
+//     erased and the cursor jumped to end of line)
+//   - filtered out empty lines (so pressing Enter mid-text instantly
+//     removed the newline and the cursor jumped to end)
+// Now the textarea v-models the raw string and commits to the array
+// on blur — split/trim/filter runs ONCE per edit session, never
+// mid-typing.
+const factsBufferByN = ref<Record<number, string>>({})
+const beatsBufferByN = ref<Record<number, string>>({})
+
+/** Seed both buffer maps from the current outline. Called after
+ *  loadOutline() finishes and after reorder() swaps content (because
+ *  the buffer at n=N now has stale text for the other row's content). */
+function seedRowBuffersFromOutline(): void {
+  const facts: Record<number, string> = {}
+  const beats: Record<number, string> = {}
+  for (const entry of outline.value) {
+    facts[entry.n] = (entry.key_facts || []).join('\n')
+    beats[entry.n] = (entry.key_beats || []).join('\n')
+  }
+  factsBufferByN.value = facts
+  beatsBufferByN.value = beats
 }
 
-function onBeatsInput(ev: Event, idx: number) {
-  const lines = (ev.target as HTMLTextAreaElement).value
+function commitFactsBuffer(n: number): void {
+  const idx = outline.value.findIndex(e => e.n === n)
+  if (idx < 0) return
+  const raw = factsBufferByN.value[n] ?? ''
+  outline.value[idx].key_facts = raw
     .split('\n').map(s => s.trim()).filter(Boolean)
-  outline.value[idx].key_beats = lines
-  isDirty.value = true
-  justSaved.value = false
+  markDirtyAndAutosave()
+}
+function commitBeatsBuffer(n: number): void {
+  const idx = outline.value.findIndex(e => e.n === n)
+  if (idx < 0) return
+  const raw = beatsBufferByN.value[n] ?? ''
+  outline.value[idx].key_beats = raw
+    .split('\n').map(s => s.trim()).filter(Boolean)
+  markDirtyAndAutosave()
 }
 
 function reorder(idx: number, delta: -1 | 1) {
@@ -698,6 +761,10 @@ function reorder(idx: number, delta: -1 | 1) {
   }
   swap('title'); swap('synopsis'); swap('key_beats')
   swap('hook_line'); swap('key_facts'); swap('words_per_chapter')
+  // v1.0.103+ — the textarea buffers are keyed by n (which stays stable
+  // through a reorder), so the buffer at n=N still holds the OLD row's
+  // text after the swap. Re-seed both buffers to match the new content.
+  seedRowBuffersFromOutline()
   isDirty.value = true
   justSaved.value = false
 }
@@ -750,6 +817,29 @@ async function approveOutline() {
 
 async function postExpand(chapters: number[] | null): Promise<void> {
   if (expanding.value) return
+  // v1.0.103+ — explicit approval gate. The buttons used to be
+  // HTML-disabled when !approvedAt, which meant clicks didn't fire +
+  // users saw nothing happen. Now the buttons stay enabled and we
+  // handle the gate here: confirm-and-approve, then expand. Skip
+  // confirmation if the user is rapidly clicking through, since the
+  // intent is already obvious (they JUST said expand on a Draft).
+  if (!approvedAt.value) {
+    const { ask } = useConfirm()
+    const ok = await ask({
+      title: 'Approve the outline?',
+      message:
+        'This outline is still in Draft. Expanding chapters locks in the current outline content. ' +
+        'You can still edit and Regenerate individual chapters afterwards, but the structural review pass should happen here. ' +
+        'Click Approve to lock the outline and continue with the expansion.',
+      confirmLabel: 'Approve and expand',
+    })
+    if (!ok) return
+    await approveOutline()
+    if (!approvedAt.value) {
+      // approveOutline already surfaced an error toast; bail.
+      return
+    }
+  }
   if (isDirty.value) {
     // Auto-save before expanding so the LLM works against the user's
     // visible edits, not stale sidecar state.
@@ -1107,6 +1197,21 @@ defineExpose({ loaded, reload: loadOutline })
   background: rgba(234, 179, 8, 0.14);
   color: rgb(202, 138, 4);
   border-color: rgba(234, 179, 8, 0.3);
+}
+
+/* v1.0.103+ — Expand buttons that need approval first. Tinted amber
+   so it reads "actionable but you'll be asked to approve first" rather
+   than visually-dead disabled. Click still fires; the postExpand()
+   handler intercepts and prompts to approve. */
+.btn.is-needs-approval {
+  background: rgba(234, 179, 8, 0.10);
+  border-color: rgba(234, 179, 8, 0.45);
+  color: rgb(202, 138, 4);
+}
+.btn.is-needs-approval:hover {
+  background: rgba(234, 179, 8, 0.20);
+  border-color: rgba(234, 179, 8, 0.7);
+  color: rgb(180, 110, 0);
 }
 
 .op-row-body {
