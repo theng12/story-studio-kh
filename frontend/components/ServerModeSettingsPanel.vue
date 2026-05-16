@@ -127,6 +127,54 @@
         </div>
       </fieldset>
 
+      <!-- v1.0.99+ Server Status diagnostic.
+           Surfaces operational data from /api/server-info — bind, port,
+           uptime, credentials state, session TTL, Node/platform versions.
+           Renders only when server mode is currently active (the diagnostic
+           field is null when in desktop mode). Useful for confirming
+           "yes the mini is actually running" + "yes credentials are set"
+           from the laptop without SSHing in. -->
+      <fieldset v-if="diag" class="ssm-fieldset">
+        <legend>
+          Server Status
+          <span class="state-pill state-set" title="Server is running and answering API requests">live</span>
+        </legend>
+        <div class="ssm-diag-grid">
+          <div class="ssm-diag-row">
+            <span class="ssm-diag-label">Listening on</span>
+            <code class="ssm-diag-value">{{ diag.bind }}:{{ diag.port }}</code>
+          </div>
+          <div class="ssm-diag-row">
+            <span class="ssm-diag-label">Uptime</span>
+            <span class="ssm-diag-value">{{ formatUptime(diag.uptime_seconds) }}</span>
+          </div>
+          <div class="ssm-diag-row">
+            <span class="ssm-diag-label">Credentials</span>
+            <span class="ssm-diag-value">
+              <span v-if="diag.has_credentials" class="state-pill state-set">configured</span>
+              <span v-else class="state-pill state-empty">not set</span>
+            </span>
+          </div>
+          <div class="ssm-diag-row" v-if="diag.session_ttl_hours">
+            <span class="ssm-diag-label">Session TTL</span>
+            <span class="ssm-diag-value">{{ diag.session_ttl_hours }} h ({{ Math.round(diag.session_ttl_hours / 24) }} days)</span>
+          </div>
+          <div class="ssm-diag-row">
+            <span class="ssm-diag-label">Platform</span>
+            <code class="ssm-diag-value">{{ diag.platform }} · node {{ diag.node_version }}</code>
+          </div>
+        </div>
+        <div class="ssm-diag-refresh">
+          <button class="btn btn-ghost btn-sm" :disabled="diagLoading" @click="loadDiag">
+            {{ diagLoading ? 'Refreshing…' : '↻ Refresh' }}
+          </button>
+          <span class="ssm-field-hint">
+            Polls <code>/api/server-info</code>. Updates uptime; reflects credential changes
+            immediately. No auth required (it only returns boolean for credentials, never the hash).
+          </span>
+        </div>
+      </fieldset>
+
       <div v-if="message" :class="['ssm-message', message.kind]">{{ message.text }}</div>
     </div>
   </div>
@@ -155,6 +203,48 @@ const message = ref<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
 const form = reactive({ port: 8765, bind: '0.0.0.0' })
 const credForm = reactive({ username: '', password: '' })
+
+// v1.0.99+ — live diagnostic from /api/server-info. Populated when the
+// server is in server mode (the endpoint returns null otherwise). Polled
+// on mount + manual ↻ Refresh. Lightweight (single HTTP call returning
+// ~150 bytes of JSON) so we don't bother with an auto-refresh timer.
+interface ServerDiagnostic {
+  bind: string
+  port: number
+  has_credentials: boolean
+  session_ttl_hours: number | null
+  uptime_seconds: number
+  node_version: string
+  platform: string
+}
+const diag = ref<ServerDiagnostic | null>(null)
+const diagLoading = ref(false)
+
+async function loadDiag(): Promise<void> {
+  diagLoading.value = true
+  try {
+    const r = await get<{ diagnostic: ServerDiagnostic | null }>('/server-info')
+    diag.value = r?.diagnostic || null
+  } catch {
+    diag.value = null
+  } finally {
+    diagLoading.value = false
+  }
+}
+
+/** Human-friendly uptime: '3h 14m', '5d 2h', '47s'. */
+function formatUptime(s: number): string {
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`
+  if (s < 86400) {
+    const h = Math.floor(s / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    return `${h}h ${m}m`
+  }
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  return `${d}d ${h}h`
+}
 
 // `lockedOut` now applies ONLY to credentials — networking changes (enable
 // off, port, bind) are deliberate actions even from the web. Disabling server
@@ -302,6 +392,7 @@ async function onRotateSessions() {
 }
 
 onMounted(load)
+onMounted(loadDiag)
 
 defineExpose({ reload: load })
 </script>
@@ -407,5 +498,43 @@ defineExpose({ reload: load })
   flex: 1;
   min-width: 200px;
   line-height: 1.4;
+}
+
+/* v1.0.99+ Server Status diagnostic. Two-column grid of label/value rows
+   with a refresh footer. Sits below the Networking + Credentials cards,
+   visible only when the server is actively running in server mode. */
+.ssm-diag-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px 12px;
+  margin-top: 4px;
+}
+.ssm-diag-row {
+  display: contents;
+}
+.ssm-diag-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  align-self: center;
+}
+.ssm-diag-value {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.ssm-diag-value code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.ssm-diag-refresh {
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
 }
 </style>

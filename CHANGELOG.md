@@ -4,6 +4,45 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.99 — 2026-05-16
+
+**Server-mode audit pass — tests, diagnostic surface, mirror-folder workflow**
+
+The Mac-mini-as-render-server feature has been shippable for a while (auth, session-cookie, file-system gating, SSE-over-LAN, portable paths all work) but had zero test coverage and no in-UI diagnostic when you're connected from another machine. v1.0.99 closes those gaps before you start depending on it for real renders.
+
+**Regression tests (25 / 25 passing)** — new `electron/server/__tests__/auth-session.test.ts` + `security-host-guard.test.ts`:
+- `hashPassword` / `verifyPassword` roundtrip, wrong-password rejection, malformed-stored-hash safety, distinct-salts-per-call
+- `signSession` / `verifySession` roundtrip, tampered-body rejection, expired-cookie rejection, wrong-secret rejection, malformed-input safety
+- `parseCookieHeader` handling of multi-cookie headers + whitespace
+- `checkLoginRateLimit` allowing 5 / blocking 6th, per-IP independence
+- Host-header guard allowing loopback variants, blocking external hosts (DNS-rebind), bypassing entirely in server mode
+
+These tests run as part of `npm run test:backend` so future refactors of the auth or security layers can't silently regress the Mac mini deployment path.
+
+**Server Status diagnostic card** in Settings → Server Mode:
+- Live readout from `GET /api/server-info` showing bind, port, uptime, credentials-configured boolean, session TTL, platform/Node version
+- One-click **↻ Refresh** so you can confirm the daemon is alive from your laptop without SSHing in
+- Endpoint is intentionally unauthenticated and safe: returns booleans for credential state (never hash material), and the bind/port info is what the user typed into the URL to reach the page
+
+**`SERVER_MODE.md` updates**:
+- New "Mirror your folder layout on both Macs (recommended)" section explaining the laptop-vs-mini picker mismatch and the simple workflow workaround (identical `~/Projects/StoryStudio/` paths on both machines via iCloud / rsync / Syncthing). The portable-path layer handles assets INSIDE a project; mirror-folder handles the root.
+- New "Diagnostic from anywhere" subsection pointing at the new Settings card
+
+**No code-path bugs found** during the audit. Code is well-architected:
+- `loadServerModeConfig()` correctly prioritises explicit `enabled: false` from the JSON over the env var (lets you disable from the web UI without SSHing in to unload launchd)
+- `requireSession` middleware has the right loopback bypass — local Electron window on the mini works without a login dialog
+- `requireAllowedHost` correctly bypasses in server mode (Tailscale + session auth take over from DNS-rebind defence)
+- File-system endpoints (`/system/browse-dir`, `/system/validate-path`, `/system/pick-*`) all sit BELOW `requireSession` in `app.ts` — properly gated
+- SSE streams over LAN with 15s keepalive — no localhost-only assumptions
+- Scrypt + timing-safe-compare on password verify, HMAC-SHA256 on session signing — both correct
+
+**Audit pass**
+- `tsc -p electron --noEmit`: 0 errors.
+- `npx tsx --test electron/server/__tests__/auth-session.test.ts electron/server/__tests__/security-host-guard.test.ts`: 25 / 25 passing.
+- `cd frontend && npx nuxt build`: clean.
+
+---
+
 ## v1.0.98 — 2026-05-16
 
 **Niche vocab now surfaces in the Ideas Generator chip inputs and Randomize**

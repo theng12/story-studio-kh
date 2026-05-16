@@ -132,6 +132,24 @@ Bookmark the URL.
 
 A small connection-status banner sits in the bottom-right of every page showing the host, your username, a colored dot for round-trip latency, and a **Sign Out** button.
 
+### Mirror your folder layout on both Macs (recommended)
+
+The folder picker inside the web UI walks the **server's** filesystem (the Mac mini), not your laptop's. If the mini has projects at `/Users/macmini/Projects/StoryStudio/Foo` but your laptop has them at `/Users/laptop/Projects/StoryStudio/Foo`, the picker on the laptop will show the mini's paths — which won't match anything if you later open the same project on the laptop in desktop mode.
+
+The simple workaround: **keep an identical folder layout on both Macs.** For most users that means:
+
+- `~/Projects/StoryStudio/` as the root on both machines
+- Either iCloud Drive sync or `rsync`/`Syncthing`/`Dropbox` between the two
+- The Mac mini's launchd-managed app writes to its local copy; your laptop sees the same files seconds later
+
+Story Studio uses a portable-path layer (`${PROJECT}/00 Assets/foo.png`) for asset references INSIDE a project — those work cross-machine without configuration. The mirror-folder advice is only for the initial **project root**.
+
+If you absolutely can't mirror layouts (different usernames on the two Macs, separate drive structures, etc.), the picker on the laptop will still show the mini's paths and you'll need to remember to navigate to "where the mini keeps its files" rather than "where my laptop would keep them." Workable but slightly awkward.
+
+### Diagnostic from anywhere
+
+Open **Settings → Server Mode** on the connected browser. The **Server Status** card shows what bind+port the mini is listening on, current uptime, whether credentials are configured, the session TTL, and the platform / Node version. Useful for confirming the daemon is alive and answering before troubleshooting connectivity issues elsewhere.
+
 ---
 
 ## Walking up to the mini directly

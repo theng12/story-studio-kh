@@ -84,11 +84,32 @@ app.get('/api/health', (_req, res) => {
   })
 })
 
+// v1.0.99+ — process start timestamp so /api/server-info can report uptime
+// for the diagnostic card on the Settings page.
+const PROCESS_START_MS = Date.now()
+
 app.get('/api/server-info', (_req, res) => {
+  const cfg = getServerModeConfig()
+  // Read it fresh — credentials could have been rotated since boot.
+  const hasCredentials = !!cfg?.auth?.password_hash && !!cfg?.auth?.session_secret
   res.json({
     server_mode: SERVER_MODE,
     app_name: 'Story Studio KH',
     version: '0.1.0',
+    // v1.0.99+ — diagnostic surface for the Settings → Server Mode card.
+    // All fields are safe to expose unauthenticated: they reveal whether
+    // server mode is on + which bind/port is in use (the user already knows
+    // — they typed the URL to get here), credentials are reported as a
+    // boolean only (no hash material), and uptime is operational data.
+    diagnostic: SERVER_MODE && cfg ? {
+      bind: cfg.bind,
+      port: cfg.port,
+      has_credentials: hasCredentials,
+      session_ttl_hours: cfg.auth?.session_ttl_hours || null,
+      uptime_seconds: Math.floor((Date.now() - PROCESS_START_MS) / 1000),
+      node_version: process.versions.node,
+      platform: process.platform,
+    } : null,
   })
 })
 
