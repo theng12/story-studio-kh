@@ -418,6 +418,35 @@
       </div>
     </div>
 
+    <!-- v1.0.105+ — Outline-niche mismatch banner. Fires when the
+         loaded outline's chapter count differs from the active niche's
+         recommended defaultChapterCount. Common cause: outline was
+         generated before the niche was set (or before scriptStructure
+         landed in v1.0.103), so the outline shows 1 row when the niche
+         expects 3. Banner tells the user EXACTLY what to do instead of
+         leaving them to spot the mismatch on their own. -->
+    <div v-if="outlineNicheMismatch" class="outline-mismatch-banner">
+      <div class="omb-icon" aria-hidden="true">📑</div>
+      <div class="omb-text">
+        <strong>Outline doesn't match the niche's structure</strong> —
+        this outline has <strong>{{ outlineTotalChapters }} chapter{{ outlineTotalChapters === 1 ? '' : 's' }}</strong>,
+        but <strong>{{ nicheContext?.name }}</strong> recommends
+        <strong>{{ nicheContext?.scriptStructure?.defaultChapterCount }}</strong>
+        (one per pacing-arc section).
+        Bump <strong>Chapters</strong> in the form above to
+        <strong>{{ nicheContext?.scriptStructure?.defaultChapterCount }}</strong>
+        and regenerate the outline to use the full
+        {{ nicheContext?.scriptStructure?.pacingArc?.length || 0 }}-section structure.
+      </div>
+      <button
+        type="button"
+        class="btn btn-sm btn-secondary omb-action"
+        @click="setChaptersToNicheDefault"
+      >
+        Set chapters to {{ nicheContext?.scriptStructure?.defaultChapterCount }}
+      </button>
+    </div>
+
     <!-- Outline review (Phase 3 of the outline-first refactor). Hidden
          until the user runs Generate Outline (or any prior outline_only
          left a sidecar on disk). Per-row editable title / hook / facts
@@ -548,6 +577,12 @@ function onOutlineLoaded(payload: {
   totalWords: number | null
   lengthMinutes: number | null
 }) {
+  // v1.0.105+ — capture the outline's chapter count so the mismatch
+  // banner can compare it to the niche's recommended default. Without
+  // this we'd rely on form.chapters which gets bumped to the outline
+  // value below — but the user can also bump form.chapters manually
+  // and we want the banner to compare DISK STATE not FORM STATE.
+  outlineTotalChapters.value = payload.totalChapters
   if (payload.totalChapters > 0) form.chapters = payload.totalChapters
   if (payload.wordsPerChapter && payload.wordsPerChapter > 0) {
     form.words_per_chapter = payload.wordsPerChapter
@@ -734,6 +769,29 @@ const hasNicheStructureOverride = computed(() => {
     || (Array.isArray(s.additionalRules) && s.additionalRules.length > 0)
   )
 })
+
+// v1.0.105+ — outline-vs-niche structural mismatch tracking. Set by
+// onOutlineLoaded when a sidecar lands on disk; drives the explainer
+// banner that tells the user to bump + regenerate when the saved
+// outline doesn't match the niche's recommended chapter count.
+const outlineTotalChapters = ref(0)
+const outlineNicheMismatch = computed(() => {
+  if (outlineTotalChapters.value <= 0) return false
+  const target = nicheContext.value?.scriptStructure?.defaultChapterCount
+  if (!target || target <= 0) return false
+  return outlineTotalChapters.value !== target
+})
+
+function setChaptersToNicheDefault() {
+  const target = nicheContext.value?.scriptStructure?.defaultChapterCount
+  if (!target || target <= 0) return
+  form.chapters = target
+  // Recompute the dependent fields so the word-summary stays consistent
+  // — same logic onChaptersChange runs when the user types.
+  if (form.words_per_chapter > 0) {
+    form.total_words = form.chapters * form.words_per_chapter
+  }
+}
 
 // v1.0.101+ — Duration dropdown options are now format-driven.
 // For broll-narration (prayer / devotional / motivation projects) the
@@ -1739,6 +1797,36 @@ async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true 
   margin: 8px 0 0;
   font-size: 11px;
   line-height: 1.4;
+}
+
+/* v1.0.105+ — Outline ↔ niche mismatch banner. Fires above the
+   outline-review panel when the saved outline's chapter count doesn't
+   match the active niche's recommended default. Cyan accent so it's
+   informational, not alarming (the outline still works — the banner
+   just nudges the user to regenerate for the full niche structure). */
+.outline-mismatch-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 12px 16px;
+  background: rgba(110, 168, 254, 0.08);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--accent, #6ea8fe);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.omb-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.omb-text {
+  flex: 1;
+  min-width: 0;
+}
+.omb-action {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .format-context-header {
   display: flex;
