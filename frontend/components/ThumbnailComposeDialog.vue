@@ -73,6 +73,45 @@
             </p>
           </div>
 
+          <!-- Channel logo picker. Persists to project config so it -->
+          <!-- pre-fills on every future compose for this project. -->
+          <div v-if="hasLogoSlot" class="form-group">
+            <label class="form-label">Channel logo</label>
+            <div class="tc-logo-row">
+              <div class="tc-logo-status">
+                <template v-if="logoPath">
+                  <span class="tc-logo-name" :title="logoPath">📎 {{ logoBasename }}</span>
+                </template>
+                <template v-else>
+                  <span class="text-muted">No logo picked — the logo slot in the niche template stays empty.</span>
+                </template>
+              </div>
+              <div class="tc-logo-actions">
+                <button
+                  type="button"
+                  class="btn btn-sm btn-secondary"
+                  :disabled="composing || pickingLogo"
+                  @click="chooseLogo"
+                >
+                  {{ pickingLogo ? 'Opening…' : (logoPath ? 'Change…' : 'Choose…') }}
+                </button>
+                <button
+                  v-if="logoPath"
+                  type="button"
+                  class="btn btn-sm btn-ghost"
+                  :disabled="composing || pickingLogo"
+                  @click="clearLogo"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            <p class="text-muted tc-hint">
+              Saved on this project, so you only pick it once. PNG with transparency works best —
+              the slot is {{ logoSlotSizeHint }}.
+            </p>
+          </div>
+
           <!-- Preview slot — appears after the first successful compose -->
           <div v-if="resultUrl" class="tc-preview">
             <div class="tc-preview-head">
@@ -133,6 +172,7 @@
 import { ref, watch, computed } from 'vue'
 import { useApi } from '~/composables/useApi'
 import { useToast } from '~/composables/useToast'
+import { pickFile } from '~/composables/usePathPicker'
 
 interface ThumbEntry {
   filename: string
@@ -165,7 +205,7 @@ const emit = defineEmits<{
   'composed': [filename: string]
 }>()
 
-const { get, post } = useApi()
+const { get, put, post } = useApi()
 const { success: toastSuccess, error: toastError } = useToast()
 
 // ── Niche template state ────────────────────────────────────────────────
@@ -174,6 +214,10 @@ const hasTemplate = ref(false)
 const nicheName = ref('')
 const defaultSubtitle = ref('')
 const titleZoneSpec = ref<{ maxWidth: number; fontSize: number; uppercase: boolean } | null>(null)
+// v1.0.104+ — logo slot wiring. Only show the logo picker row when
+// the niche template declares a logoSlot; otherwise it's noise.
+const hasLogoSlot = ref(false)
+const logoSlotSizeHint = ref('120px wide')
 
 async function loadNiche() {
   nicheLoaded.value = false
@@ -181,6 +225,7 @@ async function loadNiche() {
   nicheName.value = ''
   defaultSubtitle.value = ''
   titleZoneSpec.value = null
+  hasLogoSlot.value = false
   try {
     const r = await get<{ niche: any | null }>(`/projects/${props.projectSlug}/effective-niche`)
     nicheLoaded.value = true
@@ -202,10 +247,68 @@ async function loadNiche() {
     }
     const subtitleZone = (tmpl.textZones || []).find((z: any) => z.name === 'subtitle')
     defaultSubtitle.value = subtitleZone?.defaultText || ''
+    if (tmpl.logoSlot) {
+      hasLogoSlot.value = true
+      logoSlotSizeHint.value = `${tmpl.logoSlot.width || 120}px wide, anchored ${tmpl.logoSlot.y || 'top'}-${tmpl.logoSlot.x || 'left'}`
+    }
   } catch (e: any) {
     nicheLoaded.value = true
     toastError(e?.data?.detail || 'Could not load this project\'s niche')
   }
+}
+
+// ── Channel logo state ──────────────────────────────────────────────────
+// Saved on the project config so the user only picks it once.
+const CHANNEL_LOGO_KEY = 'channel_logo_path'
+const logoPath = ref('')
+const pickingLogo = ref(false)
+const logoBasename = computed(() => {
+  const p = logoPath.value
+  if (!p) return ''
+  const m = /[^/\\]+$/.exec(p)
+  return m ? m[0] : p
+})
+
+async function loadLogoPath() {
+  try {
+    const cfg = await get<Record<string, any>>(`/projects/${props.projectSlug}/settings/config`)
+    const stored = typeof cfg?.[CHANNEL_LOGO_KEY] === 'string' ? cfg[CHANNEL_LOGO_KEY] : ''
+    logoPath.value = stored || ''
+  } catch {
+    // Config fetch can fail (no project, no config yet) — non-fatal.
+    logoPath.value = ''
+  }
+}
+
+async function persistLogoPath(p: string) {
+  try {
+    await put(`/projects/${props.projectSlug}/settings/config`, { [CHANNEL_LOGO_KEY]: p })
+  } catch (e: any) {
+    toastError(e?.data?.detail || 'Could not save logo path to project config')
+  }
+}
+
+async function chooseLogo() {
+  if (pickingLogo.value) return
+  pickingLogo.value = true
+  try {
+    const picked = await pickFile({
+      title: 'Choose a channel logo (PNG preferred)',
+      extensions: ['png', 'jpg', 'jpeg', 'webp'],
+      initial_path: logoPath.value || undefined,
+    })
+    if (!picked) return
+    logoPath.value = picked
+    await persistLogoPath(picked)
+    toastSuccess('Logo saved for this project')
+  } finally {
+    pickingLogo.value = false
+  }
+}
+
+async function clearLogo() {
+  logoPath.value = ''
+  await persistLogoPath('')
 }
 
 // ── Form state ──────────────────────────────────────────────────────────
@@ -237,6 +340,7 @@ watch(() => props.modelValue, (open) => {
       || props.thumbs[0]?.filename
       || ''
     void loadNiche()
+    void loadLogoPath()
   }
 }, { immediate: true })
 
@@ -256,6 +360,11 @@ async function compose() {
         source_filename: sourceFilename.value,
         title_text: titleText.value || undefined,
         subtitle_text: subtitleText.value || undefined,
+        // Only send a logo_path when the niche template declares a
+        // logoSlot AND the user has a saved path. The compose route
+        // 404s on a missing file, so an empty / stale entry would
+        // surface a confusing error.
+        logo_path: hasLogoSlot.value && logoPath.value ? logoPath.value : undefined,
       },
     )
     resultFilename.value = r.filename
@@ -289,9 +398,6 @@ async function pinResult() {
   }
 }
 
-// Re-export for the template — placeholder uses these directly.
-const _ = computed(() => ({ thumbs: props.thumbs })) // referenced to silence unused-prop lints if any
-void _
 </script>
 
 <style scoped>
@@ -404,5 +510,34 @@ void _
 }
 .tc-pinned-msg {
   font-size: 12px;
+}
+.tc-logo-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+}
+.tc-logo-status {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+.tc-logo-name {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, monospace);
+}
+.tc-logo-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 </style>

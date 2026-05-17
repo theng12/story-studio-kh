@@ -4,6 +4,57 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.104 — 2026-05-17
+
+**Niche-templated thumbnail composer (prayer ships the first template)**
+
+User shared the Abiding Faith thumbnail layout — left subject portrait, right bold all-caps title, bottom "NIGHT PRAYER" with horizontal rule, top-left brain-cross logo — and asked: *"do we have a text editor applicator? like we can also add thumbnail editor/fixer-upper?"* v1.0.104 ships exactly that. Generate a thumbnail portrait → click **✏️ Compose with text…** → get back a thumbnail with the niche's text shape baked in. Character image stays; only the overlay is rendered fresh, so you can re-compose freely with different titles or after re-rolling the portrait.
+
+### New niche schema
+
+- **`Niche.thumbnailTemplate`** — declares the text-overlay layout for the channel's thumbnails. Fields:
+  - `aspectRatio` + `canvas` — defaults to 1920×1080 (YouTube 16:9). Shorts (9:16) and square (1:1) are reserved.
+  - `backgroundDimGradient` — optional gradient overlay on one side of the canvas for text legibility. Prayer uses `side: right, coverage: 0.6, strength: 0.72` to darken the right where the title sits.
+  - `textZones[]` — each zone declares position (`x: left/center/right` + `y: top/middle/bottom` + offsets), `maxWidth`, font stack (`fontFamily` + `fontSize` + `fontWeight`), uppercase/letter-spacing, drop shadow, and the new **`wrapTuningMultiplier`** knob (see below). `name: 'title'` substitutes the episode title; `name: 'subtitle'` falls back to the zone's `defaultText`.
+  - `accentStrokes[]` — decorative horizontal rules.
+  - `logoSlot` — anchor + size for an optional channel-logo overlay.
+- **`ThumbnailTextZone.wrapTuningMultiplier`** — Node has no librsvg font-metric readback, so the composer estimates character widths from a per-class table (narrow `i`/`l`/`1` vs wide `M`/`W`/`m`/`w`) tuned for Impact / Arial Black at YouTube thumbnail scale. When a custom font wraps too early or too late, dial this knob up (>1) to fit more text per line or down (<1) to wrap sooner — no code change, just edit the niche JSON.
+
+Future niches drop a JSON with the same shape; zero code changes downstream. Niches without a `thumbnailTemplate` just show a one-line warning in the Compose dialog with a deep link to Settings → Niche.
+
+### Backend
+
+- **`POST /api/projects/:slug/episodes/:code/thumbnails/compose`** — new route in `routes/images.ts`. Body: `{ source_filename, title_text?, subtitle_text?, logo_path? }`. Resolves the project's effective niche, throws 422 if no `thumbnailTemplate` (with a copy-paste pointer to the prayer.json reference), composites via sharp + SVG, writes `${source}_composed_v{N}.png` next to the source so the picker grid auto-sorts the new file alongside its parent.
+- **`lib/thumbnail-composer.ts`** — pure helper for the SVG/composite logic. Handles gradient direction (`side: left/right/top/bottom/full`), accent-stroke positioning, multi-line text wrap with per-character width estimation, optional `<feDropShadow>` filter per zone, and the optional logo overlay (resized to `logoSlot.width`, composited at the anchored position).
+
+### Frontend
+
+- **`ThumbnailComposeDialog.vue`** — new component, mounted on the Images page. Opens from `✏️ Compose with text…` on the thumb grid header. Fetches `/effective-niche` on open and adapts the form: source-thumbnail picker, title-text input (defaults to the episode title), subtitle-banner input (defaults to the niche's `defaultText`), and — when the niche template declares a `logoSlot` — a **channel-logo picker** that uses the existing `pickFile()` composable and saves the chosen path to the project's config (`channel_logo_path`). Pick once, reuse for every compose in this project.
+- **Inline preview + one-click pin.** After a successful compose, the dialog renders the composited image inline with `📌 Pin this for upload`. Pin → toasts "Pinned for upload" and updates the grid badge without a page reload. Re-compose with different text any time; each compose writes a new versioned file so you don't lose previous attempts.
+- **Wrap-policy hint.** When the niche template has a `title` zone, the hint under the title field reads e.g. *"Rendered as ALL CAPS, wrapped to fit a 980px column at 132px."* so you can predict the layout before composing.
+
+### Prayer niche template (first one populated)
+
+Matches the user's reference layout:
+- Right-anchored 132px Impact title, dimmed-right gradient (60% coverage, 72% strength) for legibility on lit-background portraits
+- Centered 68px subtitle banner at the bottom with 18px letter-spacing (`NIGHT PRAYER`)
+- 520px horizontal accent rule above the subtitle banner
+- Top-left logo slot at 132×auto, 56px in from each edge
+
+### Audit pass
+
+- `tsc -p electron --noEmit`: 0 errors
+- `cd frontend && npx nuxt build`: clean
+- Niche JSON parses with both the new `thumbnailTemplate` and the legacy fields
+
+### What's NOT in this release
+
+- **Logo design + supply.** v1.0.104 lets you PICK a logo file; it doesn't generate one. You supply your own PNG with transparency.
+- **Other niches' thumbnailTemplate.** Only `prayer.json` is populated. Every other niche keeps working as-is; the Compose dialog just shows the no-template banner with a Settings link.
+- **Real font metric readback.** Estimator is heuristic with a tuning knob; the day a custom font wraps wrong, dial `wrapTuningMultiplier` instead of waiting for a code change.
+
+---
+
 ## v1.0.103 — 2026-05-17
 
 **Niche-as-first-class, round 2: prayer-channel script structure + description voice + two UX papercuts**

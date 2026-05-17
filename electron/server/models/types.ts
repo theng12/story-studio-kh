@@ -790,6 +790,16 @@ export interface ThumbnailTextZone {
   textAnchor?: 'start' | 'middle' | 'end'
   /** Optional drop shadow for legibility on busy backgrounds. */
   shadow?: { dx?: number; dy?: number; blur?: number; color?: string }
+  /**
+   * Tweak the word-wrap heuristic for this zone. The composer estimates
+   * character widths from a fontSize+weight+per-character-class table
+   * (Node has no librsvg font readback). When a custom font wraps too
+   * early or too late, dial this UP (>1) to fit more text per line
+   * (e.g. condensed fonts) or DOWN (<1) to wrap sooner (e.g. extra-
+   * wide display fonts). Default 1.0 — leave unset for stock Impact /
+   * Arial Black / Georgia which the estimator is tuned against.
+   */
+  wrapTuningMultiplier?: number
 }
 
 /** Decorative stroke (horizontal rule / divider) on a niche thumbnail. */

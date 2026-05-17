@@ -242,7 +242,10 @@ function renderTextZone(
     ? z.fontWeight
     : (z.fontWeight === 'black' ? 900 : z.fontWeight === 'bold' ? 700 : 400)
   const letterSpacing = z.letterSpacing ?? 0
-  const lines = wrapText(text, z.maxWidth, z.fontSize, weight, letterSpacing)
+  const tuning = typeof z.wrapTuningMultiplier === 'number' && z.wrapTuningMultiplier > 0
+    ? z.wrapTuningMultiplier
+    : 1
+  const lines = wrapText(text, z.maxWidth, z.fontSize, weight, letterSpacing, tuning)
 
   // 3. Anchor + positioning.
   const xAnchor = z.textAnchor || (z.x === 'left' ? 'start' : z.x === 'right' ? 'end' : 'middle')
@@ -306,37 +309,81 @@ function renderTextZone(
 }
 
 /**
- * Estimate the visual width of a string at a given font size + weight.
- * Heuristic — librsvg doesn't expose font metrics to Node and we don't
- * ship a separate metric table. Tuned against Impact / Arial Black at
- * YouTube thumbnail scale (fontSize ~70-140).
+ * Per-character width estimate. Librsvg doesn't expose font metrics to
+ * Node, so we approximate by class:
  *
- * If you find a niche template chronically wraps too early or too
- * late, tighten the per-font multiplier here or raise the zone's
- * `maxWidth` in the niche JSON.
+ *   - NARROW glyphs (i, l, j, 1, punctuation, etc.) take ~half the
+ *     baseline width
+ *   - WIDE glyphs (M, W, m, w, %, @, etc.) take ~1.6×
+ *   - Everything else uses the baseline (a function of fontSize + weight)
+ *
+ * Tuned against Impact / Arial Black at YouTube thumbnail scale
+ * (fontSize ~70-140). For other fonts, dial the zone's
+ * `wrapTuningMultiplier` in the niche JSON — see ThumbnailTextZone.
  */
-function estimateCharWidth(fontSize: number, fontWeight: number): number {
+const NARROW_CHARS = new Set([
+  'i', 'I', 'l', 'L', 'j', 'J', '1', 'f', 't', 'r',
+  '.', ',', ';', ':', '!', '|', '\'', '`', '(', ')', '[', ']',
+])
+const WIDE_CHARS = new Set([
+  'M', 'W', 'm', 'w', 'Q', '@', '%', '&', '#',
+])
+
+function baselineCharWidth(fontSize: number, fontWeight: number): number {
   if (fontWeight >= 800) return fontSize * 0.5   // Impact / Arial Black
   if (fontWeight >= 600) return fontSize * 0.55  // semibold sans
   return fontSize * 0.58                          // regular sans / serif
 }
 
-/** Word-wrap `text` into lines that fit `maxWidth`. */
+/** Visual width of one glyph, in px. */
+function charWidth(c: string, fontSize: number, fontWeight: number): number {
+  const base = baselineCharWidth(fontSize, fontWeight)
+  if (NARROW_CHARS.has(c)) return base * 0.5
+  if (WIDE_CHARS.has(c)) return base * 1.6
+  if (c === ' ') return base * 0.55
+  return base
+}
+
+/** Sum visual widths across a string. Includes per-glyph variance plus
+ *  the per-glyph letter-spacing the SVG will apply at render time. */
+function measureText(
+  s: string,
+  fontSize: number,
+  fontWeight: number,
+  letterSpacing: number,
+): number {
+  let w = 0
+  for (let i = 0; i < s.length; i++) {
+    w += charWidth(s[i]!, fontSize, fontWeight) + letterSpacing
+  }
+  return w - letterSpacing // no spacing after the last glyph
+}
+
+/**
+ * Word-wrap `text` into lines that fit `maxWidth`. Uses the per-
+ * character estimate above so narrow-heavy strings ("INVITATION TO
+ * PEACE") don't wrap one word early. `tuningMultiplier` (default 1)
+ * lets the niche template dial wrapping looser (>1) or tighter (<1)
+ * for non-stock fonts.
+ */
 function wrapText(
   text: string,
   maxWidth: number,
   fontSize: number,
   fontWeight: number,
   letterSpacing: number,
+  tuningMultiplier: number = 1,
 ): string[] {
   const words = text.split(/\s+/).filter(Boolean)
   if (!words.length) return []
-  const charW = estimateCharWidth(fontSize, fontWeight) + letterSpacing
+  // Divide budget by the tuning multiplier so >1 expands the budget
+  // (text wraps later) and <1 shrinks it (text wraps earlier).
+  const budget = maxWidth / Math.max(0.1, tuningMultiplier)
   const lines: string[] = []
   let current = ''
   for (const w of words) {
     const candidate = current ? current + ' ' + w : w
-    if (candidate.length * charW > maxWidth && current) {
+    if (measureText(candidate, fontSize, fontWeight, letterSpacing) > budget && current) {
       lines.push(current)
       current = w
     } else {
