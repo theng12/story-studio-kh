@@ -4,6 +4,83 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.106 — 2026-05-17
+
+**Recency avoidance + Script Generator niche visibility**
+
+Three patches landing in one release, all answering the same underlying user question: *"how do I know the niche layer is doing something — and how do I stop the LLM from repeating itself?"*
+
+### Recency avoidance — stop repeating scripture every 2-3 episodes
+
+User reported: prayer scripture verses (Psalm 91, Philippians 4:6-7, Isaiah 41:10) cycling every 2-3 episodes. LLMs have no cross-episode memory, so without a guardrail they default to the same 4-5 "comfort verses". v1.0.106 adds a generic recency-avoidance layer modeled after `broll_usage_log`.
+
+#### New schemas
+
+- **`Niche.recencyAvoidance`** — declarative tracking rules per niche. Fields:
+  - `label` — human label, used as the discriminator in the project log AND in the LLM prompt copy ("scripture references", "famous unsolved cases", etc.)
+  - `extractPatterns: string[]` — regex patterns (JS syntax, no slashes) that pull used items out of generated script text. Multiple patterns are unioned. Prayer ships with a 66-book Bible regex matching `Psalm 91`, `1 Peter 5:7`, `Song of Solomon 2`, all numbered + named books.
+  - `defaultLookback` — how many recent episodes to consult when building the avoid-list. Prayer ships 30.
+  - `instructionTemplate` — prompt copy with `{label}` / `{count}` / `{items}` placeholders. Prayer's template not only lists "avoid these" but actively steers the LLM toward 10 underused but powerful passages (Lamentations 3:22-24, Zephaniah 3:17, Habakkuk 3:17-19, 2 Cor 12:9, Hebrews 4:14-16, 1 Peter 5:7, Romans 8:28, James 1:2-4, Isaiah 43:1-3, Psalm 34:18, Psalm 139:7-12).
+- **`ProjectConfig.recency_log`** — flat array of `{ episode_code, used_at, kind, item }` entries. Capped at 500 (trimmed oldest-first). Multiple niche `kind`s share one log; readers filter.
+- **`ProjectConfig.recency_lookback`** — per-project override of the niche default. Empty / 0 = inherit niche default = 30.
+
+#### Backend wiring
+
+- **`services/recency-tracker.ts`** — new service. `extractItems` / `getRecentItems` / `buildAvoidanceInstruction` / `recordUsage` / `clearLog` / `applyRecencyToFormat` (clones format + appends instruction onto `format.script.additionalRules` so it flows through `systemPrompt()` in episode.ts).
+- **`generators/episode.ts`** — all 4 generator entry points (one-shot, chapter-only regen, image-prompts-only, expand-chapters wrapper) call `applyRecencyToFormat` before building the script prompt. After the unified narration docx is reassembled, `recordRecencyForEpisode` scans it and appends matches to the log. Fail-soft: a malformed regex or unreadable docx logs a warning, never fails the parent job. Idempotent: re-running the same episode dedupes by `(episode_code, kind, item)`.
+- **`GET/PUT/DELETE /api/projects/:slug/recency`** — new routes for reading state, updating per-project lookback, clearing the log.
+
+#### UI
+
+A new **green recency strip** under the niche overlay on the Script Generator:
+
+- *"🔁 Avoiding repetition — the next prompt will tell the LLM to skip N scripture references used in the last 30 episodes."*
+- **See list ↓** expander → pill grid of every reference currently on the avoid-list
+- **Lookback knob** inline — type a number to override project-wide; blank = inherit; shows resolution source ("your override / niche default / built-in default")
+- **Clear log** link with confirmation when you want a fresh start
+- Auto-refreshes after each chapter expansion (polls every 4s for 30s after `onExpansionQueued` fires, so the post-generation log additions appear without a manual reload)
+
+#### What you'll see on day 1 vs day N
+
+- **First episode**: strip shows *"Avoiding 0 scripture references"*. LLM picks freely.
+- **Episodes 2-30**: each new episode sees a growing avoid-list. By episode 10, ~10-30 distinct references are off-limits; LLM reaches into less-common passages.
+- **Episode 31+**: oldest entries fall off (default 30-episode window). Episode 1's verses become eligible again. Natural rotation.
+
+#### Generic by design
+
+Only `prayer.json` has `recencyAvoidance` populated today. Architecture is generic — any future niche drops its own `recencyAvoidance` block (different regex, different label, different lookback) and inherits the full system: prompt injection, post-generation logging, UI strip, lookback knob, clear-log. No code changes.
+
+### Script Generator — Niche overlay indicator
+
+Until this release, the Script Generator showed only the *merged* numbers (chapter range `3-5` for prayer) with no signal that the niche was driving the override. v1.0.106 adds a visible amber **🎯 Niche overlay active** card directly under the format-context card:
+
+- Chips for each override: `Chapter count 3` · `Range 3–5` · `Pacing arc 3 sections` · `+7 rules layered on format`
+- **See what changed ↓** toggle expands to show the full pacing-arc text (all 3 prayer sections verbatim) + the full additional-rules list (POV switching, scripture anchor, Amen pause, no-denomination, etc.)
+- Footer ties the overlay back to what you'll see in the outline review panel: *"one row per chapter, so for this niche you'll see 3 rows once the outline is generated"*
+
+### Script Generator — Outline-vs-niche mismatch banner
+
+When you've already got an outline on disk and its chapter count doesn't match the niche's recommended `defaultChapterCount`, a cyan info banner appears above the outline-review panel:
+
+- *"📑 Outline doesn't match the niche's structure — this outline has 1 chapter, but Prayer recommends 3 (one per pacing-arc section). Bump Chapters in the form above to 3 and regenerate the outline to use the full 3-section structure."*
+- One-click **Set chapters to 3** button bumps the form and recomputes derived word counts so you can immediately regenerate
+
+Fires when `outline.totalChapters !== niche.scriptStructure.defaultChapterCount`. Common case: outline was generated before v1.0.103 added the niche-structure merge, or before the project's niche was set. Hidden otherwise.
+
+### Audit pass
+
+- `tsc -p electron --noEmit`: 0 errors
+- `cd frontend && npx nuxt build`: clean
+- All new endpoints (GET/PUT/DELETE `/recency`) register cleanly through the existing router pipeline
+
+### What's NOT in this release
+
+- **Recency tracking on other niches.** Only prayer ships `recencyAvoidance`. Other niches (true-crime, listicle, motivation) can adopt the same system whenever you collect reference scripts — declare a regex + label in the niche JSON, no code changes.
+- **Recency for image prompts / titles / metadata.** v1.0.106 scans the narration text only. Tracking image prompts ("don't keep using the same lighting setup") or title patterns is the same architectural pattern with a different extract regex; can layer on later if a use case shows up.
+- **Settings page for browsing the full log.** Today's UI surfaces the active avoid-list + lookback + clear-log. The full historical log is accessible via `project.config.recency_log` directly; a UI viewer can land if/when users want to spot-check episodes.
+
+---
+
 ## v1.0.105 — 2026-05-17
 
 **Thumbnail templates are now a first-class browsable library, decoupled from niches**
