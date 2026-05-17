@@ -2474,6 +2474,40 @@
         </div>
       </div>
 
+      <!-- v1.0.107+ — Unlink from this Mac. Only meaningful for projects -->
+      <!-- whose folder lives OUTSIDE the default PROJECTS_ROOT (i.e. the -->
+      <!-- folder is registered in the linked-projects registry). Removes -->
+      <!-- the project from this Mac's app list WITHOUT touching the      -->
+      <!-- folder on disk — the iCloud / external / network folder stays  -->
+      <!-- exactly where it is, the app just forgets about it. Other Macs -->
+      <!-- that linked the same folder are unaffected. -->
+      <div v-if="projectIsLinked" class="danger-zone mt-3">
+        <h3>Unlink from this Mac</h3>
+        <p class="text-muted mt-1">
+          This project's folder lives at
+          <code class="path-display">{{ projectLocationPath }}</code>
+          — outside the app's default projects folder, so it's tracked as a
+          <em>linked project</em>. Unlinking removes it from this Mac's app
+          list <strong>WITHOUT touching files on disk</strong>.
+          The folder, all chapters, all audio, all images stay exactly where
+          they are. If the folder is in iCloud, iCloud's sync behaviour is
+          unchanged — it was syncing the folder before the app knew about it
+          and will continue afterward.
+        </p>
+        <p class="text-muted mt-1">
+          To re-add this project later: <em>All Projects → Add existing project folder…</em>
+          and pick the same path. Other Macs that linked the same folder are
+          unaffected.
+        </p>
+        <button
+          class="btn btn-danger mt-2"
+          :disabled="unlinking"
+          @click="unlinkFromThisMac"
+        >
+          {{ unlinking ? 'Unlinking…' : '🔗 Unlink from this Mac' }}
+        </button>
+      </div>
+
       <div class="danger-zone mt-3">
         <h3>Hide / Remove Project</h3>
         <p class="text-muted mt-1">
@@ -2670,6 +2704,57 @@ const moveProjectStatus = ref<{
   estimated_files: number
   icloud_blockers: string[]
 } | null>(null)
+
+// v1.0.107+ — Unlink-from-this-Mac state. Read on Project tab activation
+// so the danger-zone block can render conditionally without forcing the
+// user to first click "Move this project to…" (which is the only other
+// path that loads moveProjectStatus today). When `projectIsLinked` is
+// false (project lives inside PROJECTS_ROOT), the block stays hidden —
+// unlinking only applies to externally-tracked folders.
+const projectIsLinked = ref(false)
+const projectLocationPath = ref('')
+const unlinking = ref(false)
+
+async function loadProjectLocationStatus(): Promise<void> {
+  try {
+    const status = await linkedProjects.getMoveStatus(slug.value)
+    projectIsLinked.value = !!status?.is_linked
+    projectLocationPath.value = status?.current_path || ''
+  } catch {
+    // Non-fatal: a backend blip just hides the unlink block, doesn't
+    // break the rest of the Project tab.
+    projectIsLinked.value = false
+    projectLocationPath.value = ''
+  }
+}
+
+async function unlinkFromThisMac(): Promise<void> {
+  if (!projectLocationPath.value || unlinking.value) return
+  const confirmed = confirm(
+    `Unlink this project from this Mac?\n\n` +
+    `Folder: ${projectLocationPath.value}\n\n` +
+    `The folder and all its contents stay exactly where they are. The ` +
+    `app just stops tracking it on this Mac. You can re-add it later via ` +
+    `"Add existing project folder…" on the All Projects page.\n\n` +
+    `Other Macs that linked the same folder are unaffected.`,
+  )
+  if (!confirmed) return
+  unlinking.value = true
+  try {
+    const ok = await linkedProjects.remove(projectLocationPath.value)
+    if (!ok) {
+      const err = linkedProjects.lastError?.value || 'Failed to unlink — see console for details.'
+      alert(err)
+      return
+    }
+    // Project is no longer addressable by slug on this Mac → bounce
+    // back to the All Projects list so the user doesn't sit on a now-
+    // dead /projects/:slug/settings URL.
+    await navigateTo('/')
+  } finally {
+    unlinking.value = false
+  }
+}
 
 async function openMoveProjectDialog(): Promise<void> {
   moveProjectDialogOpen.value = true
@@ -3916,6 +4001,9 @@ watch(activeTab, (t) => {
   if (t === 'project' && !ytAppDefaults.value) {
     void loadYoutubeAppDefaults()
   }
+  // v1.0.107+ — load location status so the "Unlink from this Mac"
+  // danger-zone renders only when the project is actually linked.
+  if (t === 'project') void loadProjectLocationStatus()
 })
 
 // ── Item J — YouTube videoCategories.list state ────────────────────────
@@ -4268,6 +4356,7 @@ function applyHash() {
 onMounted(() => {
   applyHash()
   if (activeTab.value === 'ffmpeg') refreshFfmpegStatus()
+  if (activeTab.value === 'project') void loadProjectLocationStatus()
   loadNotifSettings()
   // The Ideas Generator's "+ New custom format" CTA lands here with
   // ?newFormat=1#format and expects the format-from-sample wizard to
