@@ -4,6 +4,89 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.107 — 2026-05-17
+
+**Audio-assembly music pool + Server Mode usability fixes + Unlink button**
+
+User-driven release. Five user-reported asks, all answered:
+
+### 1. Background music pool with auto-cycling
+
+User: *"i have like 5-10 background music i wanna cycle within the audio assembly. is that something i can do yet? right now i know i can just swap them out but it's tedious."*
+
+New project-level music pool with three cycling strategies. Files live in `{projectDir}/music/` — drop new tracks in via Finder OR use the new in-app "Add music…" picker (server copies the file into the pool folder). Mirrors the recency-tracker / broll-usage-log pattern.
+
+- **`MusicPoolPanel`** on the Audio Merge page (above the music files block). Strategy dropdown, lookback knob, cursor reset, per-track enable / rename / remove, last-used timestamp per track, "Show folder in Finder ↗" path copy.
+- **Three strategies:** `sequential` (default — E1=track1, E2=track2, wraps via cursor), `random-no-repeat` (random pick from tracks NOT used in last N episodes; falls back to least-recently-used when the pool is exhausted instead of returning null), `manual` (per-episode picks, pre-v1.0.107 behaviour).
+- **Auto-pick on episode load.** When strategy != manual and the music files list is empty, the panel pre-fills the form with the cycler's pick. Banner shows the choice + reason (*"sequential cursor 3 / 5"* or *"random pick from 3 of 5 — avoiding last 2 episodes' tracks"*) + **Pick another** + **Skip** controls. Never trumps a user's manual curation.
+- **Cursor advances only on successful merge** — the audio-merge job reads `music_pool_track` from the request and calls `recordPick()` after the file lands on disk. Opening + closing an episode without merging doesn't advance state.
+- New endpoints: `GET/PUT /api/projects/:slug/music-pool`, `POST/PATCH/DELETE /music-pool/tracks[/:filename]`, `GET /music-pool/peek-next`, `POST /music-pool/record-pick`.
+- New `ProjectConfig` fields: `music_pool_strategy` / `music_pool_cursor` / `music_pool_lookback` (default 5) / `music_pool_usage_log` (capped at 100, trimmed oldest-first) / `music_pool_tracks` (per-track metadata, auto-pruned when files disappear from disk).
+- Idempotency window: re-recording the same `(filename, episode_code)` pair within 24 h doesn't double-advance the cursor.
+
+### 2. Unlink from this Mac (for linked iCloud projects)
+
+User: *"is there a way to one day just unlink a project? i'm scared it might get deleted."*
+
+Backend has supported this since v1.0.93 (`DELETE /api/linked-projects`); UI was never wired. v1.0.107 adds the missing button.
+
+- Settings → Project → new danger-zone block **🔗 Unlink from this Mac**, visible ONLY when `projectIsLinked === true` (i.e. the project's folder lives outside the default `PROJECTS_ROOT`).
+- Copy spells out the safety guarantees explicitly: folder + all contents stay on disk, iCloud sync behaviour unchanged, other Macs that linked the same folder are unaffected, re-add via "Add existing project folder…" on All Projects.
+- Confirm dialog repeats the absolute folder path so you know exactly what's being unlinked.
+- After success: `navigateTo('/')` bounces back to All Projects (the slug is no longer addressable on this Mac).
+
+### 3. Server Mode credential lockout fixed
+
+User: *"i can't seem to be able to create credentials"* + greyed-out username / password fields in the desktop app.
+
+**Root cause:** `isServerMode()` checked only the meta tag injected by Express. But the desktop Electron BrowserWindow loads `http://127.0.0.1:PORT/` via `mainWindow.loadURL`, so it sees the same HTML the server serves to remote browsers — including the meta tag. Once you ever toggled "Enable on next launch", the desktop window started treating itself as a remote client and locked the credentials fieldset.
+
+**Fix:** `isServerMode()` now ALSO checks `window.electron.isElectron` (set by `electron/preload.cjs`). Inside the Electron BrowserWindow → desktop, credentials editable regardless of server-mode config. Remote browsers don't load the preload → property is falsy → meta tag stays authoritative.
+
+### 4. Server Mode rate limit bumped 5/min → 30/min (configurable up to 1000)
+
+User: *"is there a way to allow for more than 30 tries before locking out?"*
+
+Hardcoded `MAX_ATTEMPTS = 5` was way too tight for personal-use over Tailscale. Autofill loops and typo retries tripped it constantly.
+
+- `checkLoginRateLimit(ip, maxAttempts = 30)` — caller passes the cap.
+- New schema field: `server_mode.auth.login_max_attempts_per_minute` (default 30, range 1–1000).
+- New route: `PUT /api/app-settings/server-mode/rate-limit` — writes only the cap, no need to re-enter the password to bump it.
+- 429 response names the cap: *"Too many login attempts (max 30/min). Wait a minute and try again."*
+- New UI knob in the Server Mode panel under credentials. Type a number, blur/Enter saves. Hint copy explains the default + suggests checking for stale autofill if you keep hitting it.
+- Legacy auth blocks without the field migrate cleanly on first read (default-fill in both `getServerModeConfig` + `getServerModeSettingsSafe`). `setServerModeCredentials` preserves the existing cap when not passed (so "Change Password" doesn't reset it).
+
+### 5. `npm run reset-server-auth` — one-command credential recovery
+
+User: *"what happens if i forgot my passwords afterwards."*
+
+`password_hash` is scrypt (one-way) — no recovery from the hash. Pre-v1.0.107 the workaround was hand-editing `~/Library/Application Support/Story Studio KH/app-settings.json` to delete the auth block. Easy to mess up the JSON syntax.
+
+- New `scripts/reset-server-auth.ts` + `npm run reset-server-auth` alias.
+- Resolves the settings path via the same chain the app uses (`STORY_STUDIO_DATA_DIR` → Electron userData → XDG fallback).
+- Writes a timestamped `.bak-{ISO}.json` backup before touching the file.
+- Deletes the `server_mode.auth` block.
+- By default sets `server_mode.enabled = false` so the next launch boots in **desktop mode** (where the credential UI is editable). Pass `--keep-enabled` to leave the toggle on.
+- Login page footnote now points at the command alongside the "sit at the host Mac" guidance, with a monospace code chip.
+
+### 6. Bonus: outline prompt commits to specifics
+
+Companion fix surfaced while debugging the scripture-recency feature. The outline prompt now explicitly asks the LLM to NAME specific items (verse, case, quote, date, study) in the beats when the pacing arc requires citing one — instead of writing vague placeholders like *"Invoke a scriptural promise"*. Bad/good examples included in the prompt so the LLM has scaffolding for any niche.
+
+### Audit pass
+
+- `tsc -p electron --noEmit`: 0 errors
+- `cd frontend && npx nuxt build`: clean
+- `npm run reset-server-auth` smoke-tested against a synthetic `app-settings.json`: auth deleted, port/bind preserved, backup written
+
+### What's NOT in this release
+
+- **No auto-update channel.** Updates are still manual-install per the personal-use stance. To push a fix to a remote-server-mode Mac, install the new DMG on that Mac (or `git pull && npm run dist`).
+- **Music pool: no preview-in-browser playback yet.** The existing per-row Play button still works for files in `music.files`; the pool panel doesn't have its own preview. Trivial follow-up if it matters.
+- **Other niches' `recencyAvoidance` blocks.** Only prayer is populated; populate the rest as you collect reference scripts.
+
+---
+
 ## v1.0.106 — 2026-05-17
 
 **Recency avoidance + Script Generator niche visibility**
