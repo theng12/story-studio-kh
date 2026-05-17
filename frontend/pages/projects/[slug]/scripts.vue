@@ -277,6 +277,61 @@
         </div>
       </div>
 
+      <!-- v1.0.105+ — Niche overlay visibility. Surfaces what the active -->
+      <!-- niche is overriding on top of the format. Without this, the user -->
+      <!-- saw merged numbers in the format-context card with no signal -->
+      <!-- that the niche was the source of the override. -->
+      <div v-if="nicheContext && hasNicheStructureOverride" class="niche-overlay-card">
+        <div class="niche-overlay-head">
+          <span class="niche-overlay-icon" aria-hidden="true">🎯</span>
+          <div class="niche-overlay-text">
+            <strong>Niche overlay active: {{ nicheContext.name }}</strong>
+            <span v-if="nicheContext.tagline" class="text-muted niche-overlay-tagline"> — {{ nicheContext.tagline }}</span>
+          </div>
+          <button
+            type="button"
+            class="link-btn niche-overlay-toggle"
+            @click="showNicheOverlayDetail = !showNicheOverlayDetail"
+          >
+            {{ showNicheOverlayDetail ? 'Hide detail' : 'See what changed' }} {{ showNicheOverlayDetail ? '↑' : '↓' }}
+          </button>
+        </div>
+        <div class="niche-overlay-chips">
+          <span v-if="nicheContext.scriptStructure?.defaultChapterCount" class="niche-chip">
+            Chapter count <strong>{{ nicheContext.scriptStructure.defaultChapterCount }}</strong>
+          </span>
+          <span v-if="nicheContext.scriptStructure?.chapterCountRange" class="niche-chip">
+            Range <strong>{{ nicheContext.scriptStructure.chapterCountRange[0] }}–{{ nicheContext.scriptStructure.chapterCountRange[1] }}</strong>
+          </span>
+          <span v-if="nicheContext.scriptStructure?.pacingArc?.length" class="niche-chip">
+            Pacing arc <strong>{{ nicheContext.scriptStructure.pacingArc.length }} sections</strong>
+          </span>
+          <span v-if="nicheContext.scriptStructure?.additionalRules?.length" class="niche-chip">
+            <strong>+{{ nicheContext.scriptStructure.additionalRules.length }}</strong> rules layered on format
+          </span>
+        </div>
+        <div v-if="showNicheOverlayDetail" class="niche-overlay-detail">
+          <div v-if="nicheContext.scriptStructure?.pacingArc?.length" class="niche-overlay-block">
+            <h5 class="niche-overlay-h">Pacing arc — sent to the LLM as the chapter structure</h5>
+            <ol class="niche-overlay-list">
+              <li v-for="(p, i) in nicheContext.scriptStructure.pacingArc" :key="i">{{ p }}</li>
+            </ol>
+          </div>
+          <div v-if="nicheContext.scriptStructure?.additionalRules?.length" class="niche-overlay-block">
+            <h5 class="niche-overlay-h">Additional rules — appended to the format's existing script rules</h5>
+            <ul class="niche-overlay-list">
+              <li v-for="(r, i) in nicheContext.scriptStructure.additionalRules" :key="i">{{ r }}</li>
+            </ul>
+          </div>
+          <p class="text-muted niche-overlay-footer">
+            These flow into the script prompt at generation time. The outline-review panel below renders
+            <strong>one row per chapter</strong>, so for this niche you'll see
+            <strong>{{ nicheContext.scriptStructure?.defaultChapterCount ?? form.chapters }} rows</strong>
+            in the outline once it's generated.
+          </p>
+        </div>
+      </div>
+
       <!-- Word count section — edit any field; others recalc from your primary input -->
       <div class="word-count-section">
         <p class="text-muted text-sm mb-1">
@@ -649,6 +704,37 @@ interface FormatContext {
 }
 const formatContext = ref<FormatContext | null>(null)
 
+// v1.0.105+ — Niche overlay visibility. The merged format already
+// reflects niche overrides (defaultChapterCount, chapterCountRange,
+// pacingArc, additionalRules), but until v1.0.105 there was no way for
+// the user to SEE that the niche was the source — the chapter-range
+// chip just showed the merged numbers. This block captures the niche
+// alongside the format so the visibility strip below the format card
+// can call out exactly what the niche layered on top.
+interface NicheContext {
+  id: string
+  name: string
+  tagline?: string
+  scriptStructure?: {
+    defaultChapterCount?: number
+    chapterCountRange?: [number, number]
+    pacingArc?: string[]
+    additionalRules?: string[]
+  }
+}
+const nicheContext = ref<NicheContext | null>(null)
+const showNicheOverlayDetail = ref(false)
+const hasNicheStructureOverride = computed(() => {
+  const s = nicheContext.value?.scriptStructure
+  if (!s) return false
+  return !!(
+    s.defaultChapterCount
+    || (Array.isArray(s.chapterCountRange) && s.chapterCountRange.length === 2)
+    || (Array.isArray(s.pacingArc) && s.pacingArc.length > 0)
+    || (Array.isArray(s.additionalRules) && s.additionalRules.length > 0)
+  )
+})
+
 // v1.0.101+ — Duration dropdown options are now format-driven.
 // For broll-narration (prayer / devotional / motivation projects) the
 // list becomes [5, 8, 10, 15, 20, 30] instead of the sleep-story
@@ -861,6 +947,28 @@ async function applyScriptFormatDefaultsIfNoPreset() {
     // durationPresets (via standardDurationSet computed) so broll-narration
     // selects "10 minutes" instead of falling through to "Custom...".
     durationSelect.value = standardDurationSet.value.has(form.length) ? String(form.length) : 'custom'
+
+    // v1.0.105+ — second fetch for the niche so the overlay indicator
+    // can show what the niche is overriding on top of the format. The
+    // merged format already reflects the niche overrides; this fetch
+    // is purely for visibility (showing the diff). Fail-soft: a
+    // project without a niche just hides the overlay strip.
+    try {
+      const nicheRes = await get<{ niche: any | null }>(`/projects/${slug.value}/effective-niche`)
+      const n = nicheRes?.niche
+      if (n && typeof n.id === 'string') {
+        nicheContext.value = {
+          id: n.id,
+          name: typeof n.name === 'string' ? n.name : n.id,
+          tagline: typeof n.tagline === 'string' ? n.tagline : undefined,
+          scriptStructure: n.scriptStructure || undefined,
+        }
+      } else {
+        nicheContext.value = null
+      }
+    } catch {
+      nicheContext.value = null
+    }
   } catch {
     // Format endpoint unavailable / project missing — keep the form's
     // hardcoded defaults. Non-fatal.
@@ -1547,6 +1655,90 @@ async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true 
   border-left: 3px solid var(--accent);
   font-size: 13px;
   color: var(--text-primary);
+}
+
+/* v1.0.105+ — Niche overlay indicator. Sits directly under the format
+   context card so the user can see at a glance which numbers are coming
+   from the niche vs the format. Amber accent so it stands out from the
+   blue format card without competing with the warn chip colour. */
+.niche-overlay-card {
+  margin-top: 6px;
+  padding: 12px 16px;
+  background: rgba(245, 188, 66, 0.06);
+  border-radius: var(--radius-md);
+  border-left: 3px solid #f5bc42;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.niche-overlay-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.niche-overlay-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.niche-overlay-text {
+  flex: 1;
+  min-width: 0;
+}
+.niche-overlay-tagline {
+  font-size: 12px;
+}
+.niche-overlay-toggle {
+  font-size: 11px;
+  white-space: nowrap;
+}
+.niche-overlay-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.niche-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(245, 188, 66, 0.12);
+  border: 1px solid rgba(245, 188, 66, 0.35);
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+.niche-chip strong {
+  font-weight: 700;
+}
+.niche-overlay-detail {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(245, 188, 66, 0.18);
+}
+.niche-overlay-block {
+  margin-bottom: 10px;
+}
+.niche-overlay-h {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.niche-overlay-list {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.niche-overlay-list li {
+  margin: 2px 0;
+}
+.niche-overlay-footer {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
 }
 .format-context-header {
   display: flex;
