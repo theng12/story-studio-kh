@@ -49,7 +49,11 @@
       </form>
 
       <p class="login-footnote">
-        Forgot your password? Sit at the Mac mini and reconfigure under Settings → Server Mode.
+        Forgot your password? Sit at the host Mac and re-set it under
+        <strong>App Settings → Server Mode → Credentials</strong>.
+        If you can't sign in to the desktop app either, quit it and run
+        <code class="login-code">npm run reset-server-auth</code>
+        from the project folder to clear the password hash.
       </p>
     </div>
   </div>
@@ -177,5 +181,12 @@ onMounted(() => {
   font-size: 12px;
   line-height: 1.5;
   text-align: center;
+}
+.login-code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 11px;
 }
 </style>

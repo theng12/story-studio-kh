@@ -22,7 +22,8 @@
     "test:frontend": "cd frontend && npx tsx --import ./__tests__/setup.ts --test __tests__/*.test.ts",
     "test": "npm run test:backend && npm run test:frontend",
     "lint": "eslint electron/server electron/main.ts",
-    "lint:fix": "eslint electron/server electron/main.ts --fix"
+    "lint:fix": "eslint electron/server electron/main.ts --fix",
+    "reset-server-auth": "npx tsx scripts/reset-server-auth.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "~0.52.0",
