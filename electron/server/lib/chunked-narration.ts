@@ -576,6 +576,13 @@ ${fieldHint}
 
 Cover the full ${p.totalChapters}-${t.singular.toLowerCase()} arc. Distinct titles, clear progression, no repeated subjects, no filler ${t.plural}. The sequence as a whole should read as a coherent episode arc — ${t.singular} 1 hook, middle development, ${t.singular} ${p.totalChapters} resolution.
 
+COMMIT TO SPECIFICS at outline time. When the pacing arc above asks for a SPECIFIC item (a scripture verse, a court case, a famous quote, a named person, a specific date, a particular study), NAME that specific item in the synopsis or in one of the key_beats. Don't be vague:
+  - BAD: "Invoke a scriptural promise for assurance."
+  - GOOD: "Cite Lamentations 3:22-23 as the anchor verse: 'His mercies are new every morning.'"
+  - BAD: "Reference a relevant unsolved case."
+  - GOOD: "Center on the 1971 D.B. Cooper hijacking — money never recovered."
+Specific commitments at outline time let the user review and swap items before chapter expansion (which is expensive). If any avoidance list is in effect for this channel (see the additional rules above), respect it AT OUTLINE TIME — pick a fresh item now, don't defer the choice to expansion.
+
 Output: [ {"n":1, ...}, {"n":2, ...}, ..., {"n":${p.totalChapters}, ...} ]`
 }
 
