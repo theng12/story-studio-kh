@@ -96,5 +96,15 @@
     "Every title must point at a CONCRETE passage, figure, or doctrinal subject. No 'inspiring' / 'powerful' adjectives without a textual anchor."
   ],
   "titleLengthRange": [4, 11],
-  "structuralVariety": "vary-subject-only"
+  "structuralVariety": "vary-subject-only",
+
+  "recencyAvoidance": {
+    "label": "scripture references",
+    "extractPatterns": [
+      "\\b(?:[123]\\s+)?(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|Samuel|Kings|Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?|Proverbs|Ecclesiastes|Song\\s+of\\s+Solomon|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|Corinthians|Galatians|Ephesians|Philippians|Colossians|Thessalonians|Timothy|Titus|Philemon|Hebrews|James|Peter|Jude|Revelation)\\s+\\d+(?::\\d+(?:-\\d+)?)?"
+    ],
+    "defaultLookback": 40,
+    "instructionTemplate": "These {label} were the primary anchors in this channel's recent {count} sermons — pick a DIFFERENT primary text for this preaching episode:\n{items}\n\nPreaching channels especially benefit from showing the breadth of scripture — congregants tune in expecting to encounter passages they don't already know by heart. Branch into less-frequently-preached passages: 2 Kings 6 (Elisha and the chariots of fire), Nehemiah 8 (the public reading of the law), Acts 17 (Paul at the Areopagus), Romans 9-11 (Israel's place in salvation history), Hebrews 11 (the hall of faith), Revelation 7 (the great multitude), Job 38-41 (the Lord answers from the whirlwind), Ezekiel 37 (the valley of dry bones), Hosea 11 (the father's heart).",
+    "scopes": ["script", "metadata"]
+  }
 }

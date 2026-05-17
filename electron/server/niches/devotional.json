@@ -100,5 +100,15 @@
     "REQUIRED: every title points at a concrete scripture reference OR a concrete pastoral teaching subject. The audience comes here to LEARN something from a passage, not to enjoy poetry."
   ],
 
-  "titleLengthRange": [4, 10]
+  "titleLengthRange": [4, 10],
+
+  "recencyAvoidance": {
+    "label": "scripture references",
+    "extractPatterns": [
+      "\\b(?:[123]\\s+)?(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|Samuel|Kings|Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?|Proverbs|Ecclesiastes|Song\\s+of\\s+Solomon|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Matthew|Mark|Luke|John|Acts|Romans|Corinthians|Galatians|Ephesians|Philippians|Colossians|Thessalonians|Timothy|Titus|Philemon|Hebrews|James|Peter|Jude|Revelation)\\s+\\d+(?::\\d+(?:-\\d+)?)?"
+    ],
+    "defaultLookback": 30,
+    "instructionTemplate": "These {label} were used in this channel's recent {count} devotional episodes — anchor THIS devotional on a DIFFERENT passage:\n{items}\n\nThe Bible has 66 books and devotional channels especially benefit from variety — your audience returns for fresh teaching, not for the same six 'comfort verses' on rotation. Branch into less-quoted but theologically rich passages: 2 Corinthians 4:7-10 (treasure in jars of clay), Romans 12:1-2 (renewing of the mind), James 1:19-20 (slow to speak, slow to anger), 1 Peter 3:8-9 (live in harmony), Philippians 2:5-11 (the kenosis hymn), Hebrews 12:1-2 (cloud of witnesses), Ecclesiastes 3:1-8 (time for everything), Micah 6:8 (do justly, love mercy), Galatians 5:22-23 (fruit of the Spirit).",
+    "scopes": ["script", "metadata"]
+  }
 }

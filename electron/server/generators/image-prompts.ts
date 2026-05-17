@@ -333,6 +333,18 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     }
   } catch { /* brand layer must never break image-prompt generation */ }
 
+  // v1.0.108+ — image-prompts-scope recency. Prepends the niche's
+  // avoidance instruction when its rule covers 'image_prompts'. No-op
+  // for niches that don't ship recencyAvoidance or don't include
+  // 'image_prompts' in their scopes (most niches today). Most niches
+  // won't track image prompts — but a niche that wants to avoid e.g.
+  // "the same lighting setup" or "the same character archetype" can
+  // declare it in the JSON without any code changes here.
+  try {
+    const { prependAvoidanceToPrompt } = await import('../services/recency-tracker.js')
+    prompt = await prependAvoidanceToPrompt(project_slug, 'image_prompts', prompt)
+  } catch { /* recency must never break image-prompt generation */ }
+
   // v1.0.71+: scene-prompt chunking. Each scene prompt costs ~150 output
   // tokens; at ≥50 scenes the single-call path approaches the 16k cap.
   // Above the threshold, we split scene generation into parallel batches
@@ -459,6 +471,21 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   }
 
   job.output_lines.push(`Parsed ${scenes.length} scene(s), ${thumbnails.length} thumbnail(s).`)
+
+  // v1.0.108+ — image-prompts-scope recency. Scan the joined text of
+  // every generated prompt for matches and append to the log. Fail-
+  // soft: a regex error or unreadable config logs a warning but never
+  // fails the parent job.
+  try {
+    const { recordUsageForScope } = await import('../services/recency-tracker.js')
+    const joined = [
+      ...scenes.map((s: any) => `${s.title || ''}\n${s.prompt || ''}`),
+      ...thumbnails.map((t: any) => `${t.title || ''}\n${t.prompt || ''}`),
+    ].join('\n\n')
+    await recordUsageForScope(project_slug, episode_id, 'image_prompts', joined)
+  } catch (e: any) {
+    job.output_lines.push(`⚠ recency record (image_prompts) skipped: ${e?.message || e}`)
+  }
 
   // Resolve episode dir on disk (real folder, not the stale-title one).
   const paths = await resolveEpisodePaths(project_slug, episode_id, title)

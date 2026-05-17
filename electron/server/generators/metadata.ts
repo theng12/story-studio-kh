@@ -16,6 +16,7 @@ import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { callAi } from '../lib/ai-client.js'
+import { prependAvoidanceToPrompt, recordUsageForScope } from '../services/recency-tracker.js'
 import { SUPPORTED_MODELS } from '../models/types.js'
 import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
@@ -195,11 +196,23 @@ export async function generateMetadata(job: Job): Promise<void> {
       job.output_lines.push(`Description from template (${description.length} chars).`)
     } else {
       job.output_lines.push(`Generating description (max ${max_chars} chars)…`)
-      const descPrompt = buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, format)
+      // v1.0.108+ — prepend the niche's avoidance instruction when its
+      // rule covers the 'metadata' scope (e.g. prayer's scripture refs).
+      // No-op for niches that don't ship recencyAvoidance or don't
+      // include 'metadata' in their scopes.
+      const descPrompt = await prependAvoidanceToPrompt(
+        project_slug,
+        'metadata',
+        buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, format),
+      )
       const descRaw = await callAi(model, '', descPrompt, aiCreds(config), false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
       description = descRaw.trim()
       job.output_lines.push(`  → ${description.length} chars`)
+      // Post-generation: scan the description for matches against the
+      // niche's regex and append to the recency log. Fail-soft — never
+      // surface to the user; an analytics-style side effect.
+      await recordUsageForScope(project_slug, episode_id, 'metadata', description).catch(() => null)
     }
 
     // ── 2. Titles ───────────────────────────────────────────────────────
@@ -233,6 +246,10 @@ export async function generateMetadata(job: Job): Promise<void> {
       job.output_lines.push(`Using ${title_mode === 'manual' ? 'manual' : 'idea'} title: "${titles[0]}"`)
     } else {
       job.output_lines.push(`Generating ${title_count} title option(s)…`)
+      // v1.0.108+ — titles-scope avoidance. Same niche regex; gated by
+      // the niche's `scopes` array. Most niches won't track titles
+      // (prayer titles don't typically cite verses), but the plumbing
+      // is here for niches that want it.
       const platformNote = title_platform_preset && title_platform_preset !== 'custom'
         ? `Optimized for ${title_platform_preset} (max ${title_max_length} characters).`
         : `Maximum ${title_max_length} characters per title.`
@@ -262,12 +279,15 @@ Requirements:
 - ${platformNote}
 - Tone: ${titleTone}.
 - One per line. No numbering, quotes, or commentary.`
-      const titleRaw = await callAi(model, '', titlePrompt, aiCreds(config), false,
+      const titlePromptWithAvoidance = await prependAvoidanceToPrompt(project_slug, 'titles', titlePrompt)
+      const titleRaw = await callAi(model, '', titlePromptWithAvoidance, aiCreds(config), false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
       const rawTitles = titleRaw.split('\n')
         .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim())
         .filter(Boolean)
         .slice(0, title_count)
+      // Post-generation: scan the full title text for matches.
+      await recordUsageForScope(project_slug, episode_id, 'titles', titleRaw).catch(() => null)
       // Wrap LLM titles with channel prefix/suffix too — paraphrase mode
       // benefits from channel consistency the same way fixed modes do.
       // The prompt itself doesn't include the prefix (LLM doesn't need to

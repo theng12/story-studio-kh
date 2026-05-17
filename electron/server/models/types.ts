@@ -766,6 +766,23 @@ export interface Niche {
      * prompt:\n{items}".
      */
     instructionTemplate?: string
+    /**
+     * v1.0.108+ — which generator output scopes this rule applies to.
+     * Defaults to ['script'] when unset (backward compat for pre-v1.0.108
+     * niches like prayer's original block). Multi-scope rules let a niche
+     * track items that appear across multiple generator outputs with one
+     * shared regex + unified log.
+     *
+     * Use case: prayer's scripture regex catches `Psalm 91` whether it
+     * lands in the script narration OR the YouTube description.
+     * Declaring `scopes: ['script', 'metadata']` makes the cycler avoid
+     * the verse on BOTH surfaces.
+     *
+     * Log entries stay unified by `kind` (the label) regardless of
+     * scope — if an item appeared in episode 3's script, episode 4's
+     * description avoids it too, and vice versa.
+     */
+    scopes?: Array<'script' | 'titles' | 'image_prompts' | 'metadata'>
   }
 
   /**

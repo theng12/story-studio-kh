@@ -30,6 +30,27 @@ import * as pm from './project-manager.js'
 import { getEffectiveNiche } from './niche-loader.js'
 import type { Niche, RecencyLogEntry, Format } from '../models/types.js'
 
+/**
+ * v1.0.108+ — generator output scopes the cycler can avoid items in.
+ * Niche rules declare which scopes they apply to via `scopes?: Scope[]`.
+ * Default when unset is ['script'] for backward compat.
+ */
+export type RecencyScope = 'script' | 'titles' | 'image_prompts' | 'metadata'
+
+/** Resolve which scopes a niche's recency rule applies to. Defaults to
+ *  ['script'] for backward compat with pre-v1.0.108 niche JSONs. */
+function scopesFor(niche: Niche): RecencyScope[] {
+  const declared = niche.recencyAvoidance?.scopes
+  if (Array.isArray(declared) && declared.length > 0) return declared
+  return ['script']
+}
+
+/** Is the given scope covered by the niche's recency rule? */
+export function ruleAppliesToScope(niche: Niche | null, scope: RecencyScope): boolean {
+  if (!niche?.recencyAvoidance) return false
+  return scopesFor(niche).includes(scope)
+}
+
 /** Hard cap on log size — trimmed oldest-first once exceeded. */
 const LOG_CAP = 500
 /** Default lookback when neither project config nor niche declare one. */
@@ -181,7 +202,7 @@ export async function recordUsage(
 }
 
 /**
- * Higher-level helper for the generator paths. Loads the project's
+ * Higher-level helper for the SCRIPT generator path. Loads the project's
  * effective niche, builds the avoidance instruction, and returns a
  * NEW format object with the instruction appended to
  * `format.script.additionalRules` (so it flows naturally through
@@ -189,6 +210,7 @@ export async function recordUsage(
  *
  * Returns the format unchanged when:
  *   - the niche has no recencyAvoidance config (most niches today), or
+ *   - the niche's rule doesn't apply to the 'script' scope, or
  *   - the project's recency_log is empty for this kind (first episode)
  *
  * Callers should immediately use the returned format for subsequent
@@ -201,7 +223,7 @@ export async function applyRecencyToFormat(format: Format, slug: string): Promis
   } catch {
     return format
   }
-  if (!niche?.recencyAvoidance) return format
+  if (!ruleAppliesToScope(niche, 'script')) return format
   const text = await buildAvoidanceInstruction(slug, niche)
   if (!text) return format
   return {
@@ -211,6 +233,64 @@ export async function applyRecencyToFormat(format: Format, slug: string): Promis
       additionalRules: [...format.script.additionalRules, text],
     },
   }
+}
+
+/**
+ * v1.0.108+ — scope-aware avoidance fetch. Returns the prompt text to
+ * inject for `scope` (or empty when the niche's rule doesn't cover
+ * that scope OR the log is empty). Callers stitch this into their own
+ * prompt builder — script uses `applyRecencyToFormat` above; other
+ * scopes (titles, image_prompts, metadata) call this directly because
+ * their prompts aren't built through `format.script.additionalRules`.
+ */
+export async function getAvoidanceForScope(slug: string, scope: RecencyScope): Promise<string> {
+  let niche: Niche | null = null
+  try {
+    niche = await getEffectiveNiche(slug)
+  } catch {
+    return ''
+  }
+  if (!ruleAppliesToScope(niche, scope)) return ''
+  return await buildAvoidanceInstruction(slug, niche!)
+}
+
+/**
+ * v1.0.108+ — convenience wrapper that prepends the scope's avoidance
+ * instruction (if any) onto an existing prompt string. No-op when the
+ * niche's rule doesn't apply to the scope or the log is empty.
+ * Keeps caller sites short: one line replaces three.
+ */
+export async function prependAvoidanceToPrompt(
+  slug: string,
+  scope: RecencyScope,
+  prompt: string,
+): Promise<string> {
+  const text = await getAvoidanceForScope(slug, scope)
+  if (!text) return prompt
+  return `${text}\n\n${prompt}`
+}
+
+/**
+ * v1.0.108+ — scope-gated post-generation recording. Same shape as
+ * `recordUsage` but skips the write when the niche's rule doesn't
+ * cover the given scope. Lets generator paths call this unconditionally
+ * after each successful generation without first checking scope
+ * applicability.
+ */
+export async function recordUsageForScope(
+  slug: string,
+  episode_code: string,
+  scope: RecencyScope,
+  text: string,
+): Promise<{ kind: string; added: string[] } | null> {
+  let niche: Niche | null = null
+  try {
+    niche = await getEffectiveNiche(slug)
+  } catch {
+    return null
+  }
+  if (!ruleAppliesToScope(niche, scope)) return null
+  return await recordUsage(slug, episode_code, niche, text)
 }
 
 /** Test/utility — wipe all recency entries (or a single kind). */

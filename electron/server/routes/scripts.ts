@@ -17,6 +17,7 @@ import { formatMetadataTxt, parseMetadataTxt } from '../services/folder-migratio
 import { validateBody } from '../lib/validate.js'
 import { GenerateScriptOnlySchema, GenerateIntroductionOnlySchema, GenerateChapterOnlySchema } from '../schemas/index.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
+import { prependAvoidanceToPrompt, recordUsageForScope } from '../services/recency-tracker.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
@@ -829,11 +830,21 @@ router.post('/projects/:slug/generate/metadata/description', async (req, res) =>
   // typically much shorter than a 60-min sleep story).
   const format = await getEffectiveFormat(slug)
   const effectiveMaxChars = max_chars || format?.metadata?.defaultMaxChars || 5000
-  const prompt = buildDescriptionPrompt(episode_id, title, storyContext, sections || [], effectiveMaxChars, format)
+  // v1.0.108+ — multi-scope recency. When the niche's rule covers the
+  // 'metadata' scope (e.g. prayer's scripture refs), prepend the
+  // avoidance instruction. No-op otherwise.
+  const prompt = await prependAvoidanceToPrompt(
+    slug,
+    'metadata',
+    buildDescriptionPrompt(episode_id, title, storyContext, sections || [], effectiveMaxChars, format),
+  )
 
   try {
     const raw = await callAi(model, '', prompt, aiCreds(config), false, { slug })
     await trackGeneration(slug, 'description')
+    // Scan the freshly-generated description for any tracked items
+    // and append to the recency log. Fail-soft analytics-style write.
+    await recordUsageForScope(slug, episode_id, 'metadata', raw).catch(() => null)
     res.json({ description: raw.trim() })
   } catch (e: any) {
     // Honour explicit statusCode (400 validation, 402 quota, …) and
@@ -1019,9 +1030,15 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
     // v1.0.102+ — char limit format-driven; same logic as the per-route
     // description endpoint above.
     const effectiveMaxChars = max_chars || format?.metadata?.defaultMaxChars || 5000
-    const descPrompt = buildDescriptionPrompt(episode_id, title, storyContext, sections || [], effectiveMaxChars, format)
+    // v1.0.108+ — metadata-scope recency on the /metadata/all batch route.
+    const descPrompt = await prependAvoidanceToPrompt(
+      slug,
+      'metadata',
+      buildDescriptionPrompt(episode_id, title, storyContext, sections || [], effectiveMaxChars, format),
+    )
     const descRaw = await callAi(model, '', descPrompt, aiCreds(config), false, { slug })
     const description = descRaw.trim()
+    await recordUsageForScope(slug, episode_id, 'metadata', descRaw).catch(() => null)
 
     // Titles — fixed modes return a single title without an LLM call.
     let titles: string[]
@@ -1053,9 +1070,11 @@ Requirements:
 - ${platformNote}
 - Tone: ${format.metadata.titleStyleHint}.
 - One per line. No numbering, quotes, or commentary.`
-      const titleRaw = await callAi(model, '', titlePrompt, aiCreds(config), false, { slug })
+      const titlePromptWithAvoidance = await prependAvoidanceToPrompt(slug, 'titles', titlePrompt)
+      const titleRaw = await callAi(model, '', titlePromptWithAvoidance, aiCreds(config), false, { slug })
       const rawTitles = titleRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, title_count || 5)
       titles = (title_prefix || title_suffix) ? rawTitles.map(wrapAllTitle) : rawTitles
+      await recordUsageForScope(slug, episode_id, 'titles', titleRaw).catch(() => null)
     }
 
     // Tags
