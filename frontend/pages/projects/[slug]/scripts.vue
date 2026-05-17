@@ -513,6 +513,30 @@
       </button>
     </div>
 
+    <!-- v1.0.108+ — format-level mismatch banner. Same shape as the -->
+    <!-- niche banner above, but driven off the format's default (no -->
+    <!-- niche needed). Hidden when the niche banner is already firing -->
+    <!-- so only one CTA shows at a time. -->
+    <div v-if="outlineFormatMismatch" class="outline-mismatch-banner">
+      <div class="omb-icon" aria-hidden="true">📑</div>
+      <div class="omb-text">
+        <strong>Outline doesn't match the format's typical shape</strong> —
+        this outline has <strong>{{ outlineTotalChapters }} chapter{{ outlineTotalChapters === 1 ? '' : 's' }}</strong>,
+        but <strong>{{ formatContext?.name }}</strong> recommends
+        <strong>{{ formatContext?.defaultChapterCount }}</strong>.
+        Bump <strong>Chapters</strong> above and regenerate the outline
+        to use the format's intended arc, or stay where you are if you
+        deliberately want a different shape.
+      </div>
+      <button
+        type="button"
+        class="btn btn-sm btn-secondary omb-action"
+        @click="setChaptersToFormatDefault"
+      >
+        Set chapters to {{ formatContext?.defaultChapterCount }}
+      </button>
+    </div>
+
     <!-- Outline review (Phase 3 of the outline-first refactor). Hidden
          until the user runs Generate Outline (or any prior outline_only
          left a sidecar on disk). Per-row editable title / hook / facts
@@ -858,12 +882,40 @@ const outlineNicheMismatch = computed(() => {
   return outlineTotalChapters.value !== target
 })
 
+/**
+ * v1.0.108+ — format-level mismatch banner. Fires for projects WITHOUT
+ * a niche scriptStructure override (or with one that matches the
+ * outline) when the saved outline's chapter count diverges from the
+ * format's `defaultChapterCount`. Catches the bedtime / sleep-story /
+ * listicle projects that don't ship a niche but still have a
+ * format-default that the outline should respect.
+ *
+ * Hidden when the niche-level banner is already firing — one mismatch
+ * call-to-action at a time keeps the page from feeling nag-y.
+ */
+const outlineFormatMismatch = computed(() => {
+  if (outlineNicheMismatch.value) return false
+  if (outlineTotalChapters.value <= 0) return false
+  const target = formatContext.value?.defaultChapterCount
+  if (!target || target <= 0) return false
+  return outlineTotalChapters.value !== target
+})
+
 function setChaptersToNicheDefault() {
   const target = nicheContext.value?.scriptStructure?.defaultChapterCount
   if (!target || target <= 0) return
   form.chapters = target
   // Recompute the dependent fields so the word-summary stays consistent
   // — same logic onChaptersChange runs when the user types.
+  if (form.words_per_chapter > 0) {
+    form.total_words = form.chapters * form.words_per_chapter
+  }
+}
+
+function setChaptersToFormatDefault() {
+  const target = formatContext.value?.defaultChapterCount
+  if (!target || target <= 0) return
+  form.chapters = target
   if (form.words_per_chapter > 0) {
     form.total_words = form.chapters * form.words_per_chapter
   }

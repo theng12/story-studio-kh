@@ -1292,8 +1292,27 @@
           <input v-model="newPlaylistForm.title" class="input input-sm" placeholder="e.g. Sleep Stories 2026" />
         </div>
         <div class="form-group">
-          <label>Description <span class="text-muted" style="font-size: 11px; font-weight: normal;">(optional)</span></label>
-          <textarea v-model="newPlaylistForm.description" class="textarea" style="min-height: 60px; font-size: 12px;" />
+          <div class="flex items-center justify-between" style="margin-bottom: 4px;">
+            <label style="margin: 0;">Description <span class="text-muted" style="font-size: 11px; font-weight: normal;">(optional)</span></label>
+            <button
+              type="button"
+              class="btn btn-sm btn-ghost"
+              :disabled="!newPlaylistForm.title || generatingPlaylistDesc"
+              :title="!newPlaylistForm.title
+                ? 'Enter a title first — the LLM reads it for context.'
+                : 'Generate a description from the title + your project niche/format'"
+              @click="doGeneratePlaylistDescription"
+            >
+              {{ generatingPlaylistDesc ? 'Writing…' : '✨ Generate with AI' }}
+            </button>
+          </div>
+          <textarea v-model="newPlaylistForm.description" class="textarea" style="min-height: 80px; font-size: 12px;" />
+          <p v-if="newPlaylistForm.description" class="text-muted" style="font-size: 11px; margin-top: 4px;">
+            {{ newPlaylistForm.description.length }} chars
+            <template v-if="newPlaylistForm.description.length > 5000">
+              <strong class="text-warn">— YouTube caps playlist descriptions at 5000.</strong>
+            </template>
+          </p>
         </div>
         <div class="form-group">
           <label>Privacy</label>
@@ -3786,6 +3805,24 @@ const showCreatePlaylist = ref(false)
 const newPlaylistForm = reactive<{ title: string; description: string; privacyStatus: 'public' | 'unlisted' | 'private' }>({
   title: '', description: '', privacyStatus: 'private',
 })
+// v1.0.108+ — LLM-generated playlist description state.
+const generatingPlaylistDesc = ref(false)
+async function doGeneratePlaylistDescription() {
+  if (!newPlaylistForm.title.trim() || generatingPlaylistDesc.value) return
+  generatingPlaylistDesc.value = true
+  try {
+    const r = await post<{ description: string; length: number }>(
+      `/projects/${slug.value}/upload/playlists/generate-description`,
+      { title: newPlaylistForm.title.trim() },
+    )
+    newPlaylistForm.description = r.description
+    success(`Generated ${r.length}-char description — review + edit before creating.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to generate description.')
+  } finally {
+    generatingPlaylistDesc.value = false
+  }
+}
 async function doCreatePlaylist() {
   if (!newPlaylistForm.title.trim()) {
     showError('Playlist title required.')

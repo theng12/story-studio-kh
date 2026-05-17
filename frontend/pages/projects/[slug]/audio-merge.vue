@@ -232,6 +232,12 @@
         v-if="music.enabled"
         ref="musicPoolPanelRef"
         :project-slug="slug"
+        :default-volumes="{
+          volume: music.volume,
+          post_narration_volume: music.post_narration_volume,
+          fade_in: music.fade_in,
+          fade_out: music.fade_out,
+        }"
         @pool-changed="onPoolChanged"
       />
 
@@ -1161,7 +1167,19 @@ async function refreshPoolPeek() {
   }
   poolPeekLoading.value = true
   try {
-    const r = await get<{ track: { filename: string; path: string }; reason: string } | null>(
+    // v1.0.108+ — peek-next returns the full track object including
+    // any per-track override knobs. Apply them onto the form's globals
+    // so the merge job uses the right levels for THIS track.
+    const r = await get<{
+      track: {
+        filename: string; path: string
+        volume?: number
+        post_narration_volume?: number
+        fade_in?: number
+        fade_out?: number
+      }
+      reason: string
+    } | null>(
       `/projects/${slug.value}/music-pool/peek-next?episode_code=${encodeURIComponent(episodeId.value)}`,
     )
     if (r && r.track) {
@@ -1172,6 +1190,7 @@ async function refreshPoolPeek() {
       // — but we still surface the suggestion in the banner so they know.
       if (music.enabled && music.files.length === 0) {
         music.files.push(r.track.path)
+        applyTrackOverrides(r.track)
       } else if (!music.enabled && music.files.length === 0) {
         // Pool has a pick + music is off — auto-enable so the cycler
         // works "out of the box" for projects that opted into pool
@@ -1179,6 +1198,7 @@ async function refreshPoolPeek() {
         // this specific episode (and the Skip button clears the pick).
         music.enabled = true
         music.files.push(r.track.path)
+        applyTrackOverrides(r.track)
       }
     } else {
       poolPickedTrack.value = ''
@@ -1192,6 +1212,21 @@ async function refreshPoolPeek() {
   } finally {
     poolPeekLoading.value = false
   }
+}
+
+/** v1.0.108+ — when a pool-picked track has per-track override knobs
+ *  set, apply them onto the form's music globals so the merge job uses
+ *  the track-specific levels. Undefined fields leave the form alone. */
+function applyTrackOverrides(track: {
+  volume?: number
+  post_narration_volume?: number
+  fade_in?: number
+  fade_out?: number
+}) {
+  if (typeof track.volume === 'number') music.volume = track.volume
+  if (typeof track.post_narration_volume === 'number') music.post_narration_volume = track.post_narration_volume
+  if (typeof track.fade_in === 'number') music.fade_in = track.fade_in
+  if (typeof track.fade_out === 'number') music.fade_out = track.fade_out
 }
 
 function clearPoolPick() {

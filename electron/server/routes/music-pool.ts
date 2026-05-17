@@ -75,10 +75,25 @@ router.post('/projects/:slug/music-pool/tracks', async (req, res) => {
 router.patch('/projects/:slug/music-pool/tracks/:filename', async (req, res) => {
   try {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-    const patch: { enabled?: boolean; label?: string } = {}
+    const patch: {
+      enabled?: boolean
+      label?: string
+      volume?: number | null
+      post_narration_volume?: number | null
+      fade_in?: number | null
+      fade_out?: number | null
+    } = {}
     if (typeof req.body?.enabled === 'boolean') patch.enabled = req.body.enabled
     if (typeof req.body?.label === 'string') patch.label = req.body.label.trim()
-    if (Object.keys(patch).length === 0) return res.status(400).json({ detail: 'No valid fields to update (enabled / label)' })
+    // v1.0.108+ per-track override knobs. null = clear, number = set.
+    for (const k of ['volume', 'post_narration_volume', 'fade_in', 'fade_out'] as const) {
+      const v = (req.body || {})[k]
+      if (v === null) patch[k] = null
+      else if (typeof v === 'number' && Number.isFinite(v) && v >= 0) patch[k] = v
+    }
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({ detail: 'No valid fields to update (enabled / label / volume / post_narration_volume / fade_in / fade_out)' })
+    }
     await mp.updateTrackMeta(req.params.slug, decodeURIComponent(req.params.filename), patch)
     res.json(await mp.getPoolState(req.params.slug))
   } catch (e: any) {

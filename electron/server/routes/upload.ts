@@ -28,6 +28,7 @@ import * as playlistsSvc from '../services/upload-playlists.js'
 import * as orphans from '../services/upload-orphans.js'
 import * as renumberUndo from '../services/upload-renumber-undo.js'
 import { updateVideoMetadata, createPlaylist, listVideoStatuses, listVideoSnippetStatus } from '../lib/youtube-client.js'
+import { callAi } from '../lib/ai-client.js'
 import { getYoutubeDefaults } from '../services/app-settings.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import type { JobType } from '../models/types.js'
@@ -76,6 +77,78 @@ router.post('/projects/:slug/upload/playlists', async (req, res) => {
     res.status(201).json({ playlist })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to create playlist'))
+  }
+})
+
+// v1.0.108+ — LLM-write a playlist description from the title + the
+// project's niche/format context. Doesn't call YouTube; just returns
+// text the user can review + edit + paste into the create-playlist
+// form (or use directly via the new "✨ Generate with AI" button).
+router.post('/projects/:slug/upload/playlists/generate-description', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const title = typeof req.body?.title === 'string' ? req.body.title.trim() : ''
+    if (!title) return res.status(400).json({ detail: 'title required' })
+
+    // Pull niche + format for tone + voice context. Both are optional —
+    // the prompt degrades gracefully when a project hasn't set them.
+    const { getEffectiveNiche } = await import('../services/niche-loader.js')
+    const { getEffectiveFormat } = await import('../services/format-loader.js')
+    const niche = await getEffectiveNiche(slug)
+    const format = await getEffectiveFormat(slug)
+
+    const config = await pm.getConfig(slug)
+    if (!config) return res.status(400).json({ detail: 'Project config not found' })
+    const apiKeys = {
+      anthropic_api_key: config.anthropic_api_key,
+      openai_api_key: config.openai_api_key,
+      kie_api_key: config.kie_api_key,
+    }
+    // Default model — uses whatever the project has set for script
+    // generation if available, else a reliable fast cloud default.
+    const model = (typeof req.body?.model === 'string' && req.body.model)
+      || 'gpt-4o-mini'
+
+    // Optional caller-provided overrides
+    const videoCount = typeof req.body?.video_count === 'number' && req.body.video_count > 0
+      ? Math.floor(req.body.video_count)
+      : null
+    const targetLength = typeof req.body?.target_length === 'number' && req.body.target_length > 0
+      ? Math.floor(req.body.target_length)
+      : 500 // YouTube playlists soft-cap descriptions ~5000 chars; 500 is a
+            // comfortable hand-readable size that fits the playlist sidebar
+            // on desktop without truncation.
+
+    const nicheVoice = niche?.metadataDescription?.voiceGuidance
+      ? `\nChannel voice: ${niche.metadataDescription.voiceGuidance}`
+      : ''
+    const nicheBenediction = niche?.metadataDescription?.closingBenediction
+      ? `\nClose with this benediction verbatim: "${niche.metadataDescription.closingBenediction}"`
+      : ''
+    const formatBlurb = format?.name && format?.description
+      ? `\nFormat: ${format.name} — ${format.description}`
+      : ''
+
+    const system = `You write YouTube PLAYLIST descriptions — short, evocative paragraphs that tell a viewer what they'll get when they binge the playlist. Different from per-video descriptions: a playlist description should pitch the OVERALL theme, the kind of viewer it's for, and (if a count is known) how many videos are in it. NEVER include episode-specific spoilers. Keep it to ${targetLength} characters or less. Output ONLY the description text — no preamble, no markdown headers, no quotation marks around the whole thing.`
+
+    const userMsg = `Generate a YouTube playlist description.
+
+Playlist title: ${title}${videoCount ? `
+Approximate video count in this playlist: ${videoCount}` : ''}${formatBlurb}${nicheVoice}${nicheBenediction}
+
+Write a description that:
+- Opens with one or two sentences capturing the overall theme
+- Names the kind of viewer it's for (without being preachy)
+- ${videoCount ? `Mentions the playlist has around ${videoCount} videos and what to expect` : 'Mentions that this is a growing collection'}
+- Ends with a soft, on-brand closing line (or the benediction above if one was given)
+
+Target ~${targetLength} characters. Plain prose — no bullet lists, no all-caps, no excessive emoji (one max, only if it fits the channel voice).`
+
+    const text = await callAi(model, system, userMsg, apiKeys, false, { slug })
+    res.json({ description: text.trim(), model, length: text.trim().length })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to generate playlist description'))
   }
 })
 

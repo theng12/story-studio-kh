@@ -1694,6 +1694,21 @@ export interface MusicPoolTrack {
   /** Optional human-friendly label shown in the pool UI ("Soft Piano
    *  Loop", "Pad Wash 2 — calm"). Falls back to the filename. */
   label?: string
+  /**
+   * v1.0.108+ — optional per-track volume/fade overrides. When set,
+   * a merge job sourced from the pool uses these instead of the form's
+   * global music settings. Useful when a louder ambient bed needs its
+   * own level (e.g. one track masters quieter than the rest of the
+   * pool). All three fields are independent — set only what you want
+   * to override.
+   *   - volume:               0–100 (UI scale, % during narration)
+   *   - post_narration_volume 0–100 (UI scale, % after narration ends)
+   *   - fade_in / fade_out:   seconds, 0–10 typical
+   */
+  volume?: number
+  post_narration_volume?: number
+  fade_in?: number
+  fade_out?: number
 }
 
 /** v1.0.107+ — one entry in the music-pool usage log. */

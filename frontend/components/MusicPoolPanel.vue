@@ -74,6 +74,18 @@
           <label class="mp-track-enable" :title="t.enabled ? 'Enabled — eligible for cycling' : 'Disabled — kept on disk but skipped by the cycler'">
             <input type="checkbox" :checked="t.enabled" @change="toggleEnabled(t)" />
           </label>
+          <!-- v1.0.108+ — preview playback. Reuses one shared HTMLAudio -->
+          <!-- element so multiple tracks can't play simultaneously (and -->
+          <!-- the user doesn't have to find which row is making sound). -->
+          <button
+            type="button"
+            class="btn-icon mp-track-play"
+            :title="playingFilename === t.filename ? 'Stop preview' : `Preview ${t.label || t.filename}`"
+            @click="togglePreview(t)"
+          >
+            <span v-if="playingFilename === t.filename">&#9724;</span>
+            <span v-else>&#9654;</span>
+          </button>
           <div class="mp-track-info">
             <input
               :value="t.label"
@@ -92,12 +104,103 @@
               <span v-else class="mp-track-last text-muted">· never used</span>
             </div>
           </div>
+          <!-- v1.0.108+ — per-track override drawer toggle. Shows a dot -->
+          <!-- when any override is set so the user can spot which tracks -->
+          <!-- diverge from the form's globals at a glance. -->
+          <button
+            type="button"
+            class="btn-icon mp-track-overrides-toggle"
+            :class="{ 'has-overrides': trackHasOverrides(t) }"
+            :title="trackHasOverrides(t)
+              ? 'Per-track volume/fade overrides set (click to edit)'
+              : 'Add per-track volume/fade overrides (otherwise inherits the merge form)'"
+            @click="toggleOverrideDrawer(t.filename)"
+          >
+            <span v-if="trackHasOverrides(t)">●</span>
+            <span v-else>⚙</span>
+          </button>
           <button
             type="button"
             class="btn-icon danger mp-track-remove"
             title="Remove from disk"
             @click="removeTrack(t)"
           >&#10005;</button>
+        </div>
+        <!-- Override drawer — expandable, one-per-track inline. Edits -->
+        <!-- save on blur (no Save button needed); null/empty clears the -->
+        <!-- override so the track inherits the merge form's globals. -->
+        <div
+          v-if="openOverrideDrawer === t.filename"
+          class="mp-overrides-drawer"
+        >
+          <div class="text-muted mp-overrides-hint">
+            Per-track overrides apply WHEN this track is the one used in the merge.
+            Leave a field blank to inherit the merge form's global value.
+          </div>
+          <div class="mp-overrides-grid">
+            <label class="mp-overrides-field">
+              <span class="mp-overrides-label">Volume during narration</span>
+              <div class="mp-overrides-input-row">
+                <input
+                  type="number"
+                  class="input"
+                  min="0" max="100" step="1"
+                  :value="t.volume ?? ''"
+                  :placeholder="`Form: ${defaultVolumes.volume}%`"
+                  @blur="updateOverride(t.filename, 'volume', ($event.target as HTMLInputElement).value)"
+                />
+                <span class="text-muted mp-overrides-unit">%</span>
+              </div>
+            </label>
+            <label class="mp-overrides-field">
+              <span class="mp-overrides-label">Volume after narration</span>
+              <div class="mp-overrides-input-row">
+                <input
+                  type="number"
+                  class="input"
+                  min="0" max="100" step="1"
+                  :value="t.post_narration_volume ?? ''"
+                  :placeholder="`Form: ${defaultVolumes.post_narration_volume}%`"
+                  @blur="updateOverride(t.filename, 'post_narration_volume', ($event.target as HTMLInputElement).value)"
+                />
+                <span class="text-muted mp-overrides-unit">%</span>
+              </div>
+            </label>
+            <label class="mp-overrides-field">
+              <span class="mp-overrides-label">Fade in</span>
+              <div class="mp-overrides-input-row">
+                <input
+                  type="number"
+                  class="input"
+                  min="0" max="10" step="0.5"
+                  :value="t.fade_in ?? ''"
+                  :placeholder="`Form: ${defaultVolumes.fade_in}s`"
+                  @blur="updateOverride(t.filename, 'fade_in', ($event.target as HTMLInputElement).value)"
+                />
+                <span class="text-muted mp-overrides-unit">s</span>
+              </div>
+            </label>
+            <label class="mp-overrides-field">
+              <span class="mp-overrides-label">Fade out</span>
+              <div class="mp-overrides-input-row">
+                <input
+                  type="number"
+                  class="input"
+                  min="0" max="10" step="0.5"
+                  :value="t.fade_out ?? ''"
+                  :placeholder="`Form: ${defaultVolumes.fade_out}s`"
+                  @blur="updateOverride(t.filename, 'fade_out', ($event.target as HTMLInputElement).value)"
+                />
+                <span class="text-muted mp-overrides-unit">s</span>
+              </div>
+            </label>
+          </div>
+          <button
+            v-if="trackHasOverrides(t)"
+            type="button"
+            class="link-btn mp-overrides-clear"
+            @click="clearAllOverrides(t)"
+          >Clear all overrides for this track</button>
         </div>
       </div>
 
@@ -132,7 +235,7 @@
  * not the per-episode pick. Parent watches `enabled-tracks-changed`
  * to re-fetch the peek when the pool composition changes.
  */
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useApi } from '~/composables/useApi'
 import { useToast } from '~/composables/useToast'
 import { pickFile } from '~/composables/usePathPicker'
@@ -144,6 +247,11 @@ interface PoolTrack {
   label: string
   last_used_at: string | null
   last_used_episode: string | null
+  // v1.0.108+ per-track override knobs.
+  volume?: number
+  post_narration_volume?: number
+  fade_in?: number
+  fade_out?: number
 }
 interface PoolState {
   strategy: 'sequential' | 'random-no-repeat' | 'manual'
@@ -156,7 +264,24 @@ interface PoolState {
 
 const props = defineProps<{
   projectSlug: string
+  /** v1.0.108+ — the merge form's current global volume/fade values.
+   *  Surfaced as placeholders inside the per-track override drawer so
+   *  the user sees what they're inheriting. Parent passes a snapshot
+   *  of the music reactive object's vol/fade/post_narration_volume. */
+  defaultVolumes?: {
+    volume: number
+    post_narration_volume: number
+    fade_in: number
+    fade_out: number
+  }
 }>()
+
+const defaultVolumes = computed(() => props.defaultVolumes || {
+  volume: 15,
+  post_narration_volume: 40,
+  fade_in: 3,
+  fade_out: 5,
+})
 
 const emit = defineEmits<{
   /** Fired after any change that affects what the cycler would pick
@@ -174,6 +299,63 @@ const state = ref<PoolState | null>(null)
 const strategy = ref<'sequential' | 'random-no-repeat' | 'manual'>('sequential')
 const lookbackInput = ref(5)
 const adding = ref(false)
+
+// v1.0.108+ — single-instance preview playback. One audio element, one
+// playingFilename ref; clicking another track stops the current one
+// before starting the new playback so the panel never produces overlap-
+// ping sound. Uses the existing /video-editor/preview-image-style
+// static-pass-through endpoint? No — audio files need a real GET path.
+// We reuse the audio-merge preview endpoint that already serves bytes
+// from any project path the backend can read.
+const previewAudio = ref<HTMLAudioElement | null>(null)
+const playingFilename = ref('')
+
+function togglePreview(t: PoolTrack) {
+  // Same track playing → stop. Different track → swap source, play.
+  // Filesystem path → audio-editor preview URL (auth + range-supported).
+  if (playingFilename.value === t.filename) {
+    previewAudio.value?.pause()
+    previewAudio.value = null
+    playingFilename.value = ''
+    return
+  }
+  if (previewAudio.value) {
+    previewAudio.value.pause()
+    previewAudio.value = null
+  }
+  const url = `/api/projects/${props.projectSlug}/audio-editor/preview-audio?path=${encodeURIComponent(t.path)}`
+  const audio = new Audio(url)
+  audio.addEventListener('ended', () => {
+    if (playingFilename.value === t.filename) {
+      playingFilename.value = ''
+      previewAudio.value = null
+    }
+  })
+  audio.addEventListener('error', () => {
+    toastError(`Could not preview ${t.filename} — check that the file is readable.`)
+    if (playingFilename.value === t.filename) {
+      playingFilename.value = ''
+      previewAudio.value = null
+    }
+  })
+  previewAudio.value = audio
+  playingFilename.value = t.filename
+  void audio.play().catch(() => {
+    // Autoplay may be blocked in some contexts; the catch lets the
+    // browser surface its own error UX rather than us swallowing it.
+    if (playingFilename.value === t.filename) {
+      playingFilename.value = ''
+      previewAudio.value = null
+    }
+  })
+}
+
+// Stop any preview when the component unmounts so audio doesn't bleed
+// into the next page.
+onBeforeUnmount(() => {
+  previewAudio.value?.pause()
+  previewAudio.value = null
+})
 
 const enabledCount = computed(() => state.value?.tracks.filter(t => t.enabled).length || 0)
 
@@ -233,6 +415,66 @@ async function toggleEnabled(t: PoolTrack) {
     emit('pool-changed')
   } catch (e: any) {
     toastError(e?.data?.detail || 'Could not toggle track')
+  }
+}
+
+// v1.0.108+ — per-track override drawer state. Only ONE drawer open
+// at a time keeps the panel compact even with a 10-track pool.
+const openOverrideDrawer = ref('')
+
+function toggleOverrideDrawer(filename: string) {
+  openOverrideDrawer.value = openOverrideDrawer.value === filename ? '' : filename
+}
+
+function trackHasOverrides(t: PoolTrack): boolean {
+  return typeof t.volume === 'number'
+    || typeof t.post_narration_volume === 'number'
+    || typeof t.fade_in === 'number'
+    || typeof t.fade_out === 'number'
+}
+
+/** Save a per-track override. Empty/blank input clears the override
+ *  (track inherits the merge form's global). */
+async function updateOverride(
+  filename: string,
+  key: 'volume' | 'post_narration_volume' | 'fade_in' | 'fade_out',
+  raw: string,
+) {
+  const trimmed = (raw || '').trim()
+  // Empty input = clear the override (PATCH with null tells the backend
+  // to delete the field; see updateTrackMeta in music-pool.ts).
+  let value: number | null
+  if (trimmed === '') {
+    value = null
+  } else {
+    const n = Number(trimmed)
+    if (!Number.isFinite(n) || n < 0) return
+    value = n
+  }
+  try {
+    await patch(`/projects/${props.projectSlug}/music-pool/tracks/${encodeURIComponent(filename)}`, {
+      [key]: value,
+    })
+    await refresh()
+    emit('pool-changed')
+  } catch (e: any) {
+    toastError(e?.data?.detail || 'Could not save override')
+  }
+}
+
+async function clearAllOverrides(t: PoolTrack) {
+  try {
+    await patch(`/projects/${props.projectSlug}/music-pool/tracks/${encodeURIComponent(t.filename)}`, {
+      volume: null,
+      post_narration_volume: null,
+      fade_in: null,
+      fade_out: null,
+    })
+    await refresh()
+    emit('pool-changed')
+    toastSuccess(`Cleared all overrides for "${t.label || t.filename}"`)
+  } catch (e: any) {
+    toastError(e?.data?.detail || 'Could not clear overrides')
   }
 }
 
@@ -446,6 +688,61 @@ defineExpose({ refresh })
   width: 16px;
   height: 16px;
   cursor: pointer;
+}
+.mp-track-play {
+  flex-shrink: 0;
+}
+.mp-track-overrides-toggle {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.mp-track-overrides-toggle.has-overrides {
+  color: #b39dff;
+}
+.mp-overrides-drawer {
+  margin: 6px 0 10px 28px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  border-left: 2px solid rgba(179, 157, 255, 0.4);
+}
+.mp-overrides-hint {
+  font-size: 11px;
+  line-height: 1.45;
+  margin-bottom: 8px;
+}
+.mp-overrides-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 12px;
+}
+.mp-overrides-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mp-overrides-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.mp-overrides-input-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.mp-overrides-input-row input {
+  width: 70px;
+  font-size: 12px;
+  padding: 2px 6px;
+}
+.mp-overrides-unit {
+  font-size: 11px;
+}
+.mp-overrides-clear {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 11px;
 }
 .mp-track-info {
   flex: 1;

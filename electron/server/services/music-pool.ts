@@ -56,6 +56,12 @@ export interface PoolTrack {
   last_used_at: string | null
   /** Episode_code of the most recent recorded use, mirrors last_used_at. */
   last_used_episode: string | null
+  /** v1.0.108+ — per-track override knobs. Undefined = inherit the
+   *  merge form's global setting. */
+  volume?: number
+  post_narration_volume?: number
+  fade_in?: number
+  fade_out?: number
 }
 
 export interface PoolState {
@@ -110,6 +116,13 @@ async function scanTracks(slug: string, cfg: ProjectConfig | null): Promise<Pool
       label: meta?.label || filename.replace(AUDIO_EXT, '').replace(/[_-]+/g, ' '),
       last_used_at: usage?.used_at || null,
       last_used_episode: usage?.episode_code || null,
+      // v1.0.108+ — per-track override knobs (only included when set in
+      // the stored metadata; undefined means "inherit global form").
+      ...(typeof meta?.volume === 'number' ? { volume: meta.volume } : {}),
+      ...(typeof meta?.post_narration_volume === 'number'
+        ? { post_narration_volume: meta.post_narration_volume } : {}),
+      ...(typeof meta?.fade_in === 'number' ? { fade_in: meta.fade_in } : {}),
+      ...(typeof meta?.fade_out === 'number' ? { fade_out: meta.fade_out } : {}),
     })
   }
   return result
@@ -278,22 +291,39 @@ export async function removeTrack(slug: string, filename: string): Promise<{ rem
   return { removed: true }
 }
 
-/** Update enabled / label for one track. Auto-creates the metadata
- *  entry if it doesn't exist yet. */
+/** Update enabled / label / per-track overrides for one track.
+ *  Auto-creates the metadata entry if it doesn't exist yet. Passing
+ *  `null` for an override clears it (track inherits global form again);
+ *  omitting a field leaves the existing value alone. */
 export async function updateTrackMeta(
   slug: string,
   filename: string,
-  patch: { enabled?: boolean; label?: string },
+  patch: {
+    enabled?: boolean
+    label?: string
+    volume?: number | null
+    post_narration_volume?: number | null
+    fade_in?: number | null
+    fade_out?: number | null
+  },
 ): Promise<void> {
   const cfg = await pm.getConfig(slug)
   if (!cfg) return
   const tracks: MusicPoolTrack[] = Array.isArray(cfg.music_pool_tracks) ? [...cfg.music_pool_tracks] : []
   const idx = tracks.findIndex(t => t.filename === filename)
-  if (idx >= 0) {
-    tracks[idx] = { ...tracks[idx]!, ...patch }
-  } else {
-    tracks.push({ filename, enabled: patch.enabled ?? true, label: patch.label })
+  const existing: MusicPoolTrack = idx >= 0 ? { ...tracks[idx]! } : { filename, enabled: true }
+  if (typeof patch.enabled === 'boolean') existing.enabled = patch.enabled
+  if (typeof patch.label === 'string') existing.label = patch.label
+  // Override knobs: null = clear (delete the field), number = set,
+  // undefined = leave as-is. Lets the UI explicitly opt out of an
+  // override without re-saving the rest of the track's metadata.
+  for (const k of ['volume', 'post_narration_volume', 'fade_in', 'fade_out'] as const) {
+    const v = patch[k]
+    if (v === null) delete existing[k]
+    else if (typeof v === 'number' && Number.isFinite(v)) existing[k] = v
   }
+  if (idx >= 0) tracks[idx] = existing
+  else tracks.push(existing)
   await pm.updateConfig(slug, { music_pool_tracks: tracks } as any)
 }
 
