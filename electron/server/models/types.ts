@@ -1645,6 +1645,62 @@ export interface ProjectConfig {
    * bigger prompt; smaller = more repetition tolerance, smaller prompt.
    */
   recency_lookback?: number
+
+  /**
+   * v1.0.107+ — background music pool. Files live in
+   * {projectDir}/music/ (auto-discovered — drop in via Finder OR add
+   * via the UI). This config block holds the cycling strategy + state
+   * (cursor, usage log) + per-track metadata (enabled / label) layered
+   * on top of the disk-resident files.
+   *
+   * Strategies:
+   *   - 'sequential'        — E1=track1, E2=track2, ..., wraps via cursor
+   *   - 'random-no-repeat'  — random pick from tracks NOT used in the
+   *                           last N episodes (N = music_pool_lookback)
+   *   - 'manual'            — no auto-pick; user picks every episode
+   *                           (matches pre-v1.0.107 behaviour)
+   */
+  music_pool_strategy?: 'sequential' | 'random-no-repeat' | 'manual'
+  /** Position in the sequential rotation. 0-indexed; the next pick is
+   *  tracks[cursor % tracks.length]. Advances when a merge job actually
+   *  USES the pool's pick (not on every page open). */
+  music_pool_cursor?: number
+  /** How many recent episodes the 'random-no-repeat' strategy
+   *  consults. Default 5 — a small lookback because pools are usually
+   *  5-15 tracks (a 30-episode lookback on a 5-track pool blocks
+   *  everything). */
+  music_pool_lookback?: number
+  /** Recent usage log used by 'random-no-repeat' to avoid recent picks
+   *  AND to attribute the cycler's choice to the right episode. Capped
+   *  at 100 entries (trimmed oldest-first). */
+  music_pool_usage_log?: MusicPoolUsageEntry[]
+  /** Per-track metadata layered on top of the auto-discovered file
+   *  list. Tracks not present in the folder are pruned from this array
+   *  on every read so renames/deletes via Finder don't leak orphaned
+   *  metadata. */
+  music_pool_tracks?: MusicPoolTrack[]
+}
+
+/** v1.0.107+ — per-track metadata in the background-music pool. */
+export interface MusicPoolTrack {
+  /** Filename relative to {projectDir}/music/. The disk path is the
+   *  source of truth; this entry adds an enabled flag + optional human
+   *  label on top. */
+  filename: string
+  /** Whether this track is eligible for auto-cycling. Disabled tracks
+   *  stay in the pool (file kept on disk) but are skipped by
+   *  pickNext(). Default true. */
+  enabled: boolean
+  /** Optional human-friendly label shown in the pool UI ("Soft Piano
+   *  Loop", "Pad Wash 2 — calm"). Falls back to the filename. */
+  label?: string
+}
+
+/** v1.0.107+ — one entry in the music-pool usage log. */
+export interface MusicPoolUsageEntry {
+  filename: string
+  episode_code: string
+  used_at: string
 }
 
 /**

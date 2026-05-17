@@ -225,6 +225,38 @@
         Loops one or more music files under the narration. The post-narration volume kicks in once the last chapter ends, in case you want music to swell or fade out.
       </p>
 
+      <!-- v1.0.107+ — Music Pool panel. Manages the project-scoped pool -->
+      <!-- (strategy + tracks + cycler). Auto-pick fills music.files when -->
+      <!-- strategy != manual and the form isn't already populated. -->
+      <MusicPoolPanel
+        v-if="music.enabled"
+        ref="musicPoolPanelRef"
+        :project-slug="slug"
+        @pool-changed="onPoolChanged"
+      />
+
+      <!-- Auto-pick banner: shows when the cycler chose this episode's -->
+      <!-- track, with controls to swap or skip. -->
+      <div v-if="music.enabled && poolPickedTrack" class="pool-pick-banner mt-2">
+        <div class="ppb-icon" aria-hidden="true">🎶</div>
+        <div class="ppb-text">
+          <strong>Auto-picked from pool:</strong>
+          <span class="ppb-track">{{ poolPickedTrack }}</span>
+          <span v-if="poolPickedReason" class="text-muted ppb-reason">— {{ poolPickedReason }}</span>
+        </div>
+        <button
+          type="button"
+          class="link-btn ppb-action"
+          @click="refreshPoolPeek"
+          :disabled="poolPeekLoading"
+        >Pick another</button>
+        <button
+          type="button"
+          class="link-btn ppb-action"
+          @click="clearPoolPick"
+        >Skip — use no music</button>
+      </div>
+
       <div v-if="music.enabled" class="mt-2">
         <!-- Music File List with Play Buttons. The full path is shown on
              each row (filename in primary text, directory dimmed below)
@@ -661,6 +693,18 @@ function loadEpisodeDataDebounced() {
 
 watch(() => episodeId.value, (v) => { if (v) loadEpisodeDataDebounced() }, { immediate: true })
 
+// v1.0.107+ — when an audio-merge job completes (audioMergeGenerating
+// flips back to false after being true), the backend may have advanced
+// the music-pool cursor + appended to the usage log. Refresh the pool
+// panel + the next-track peek so the UI immediately reflects the new
+// state, without forcing the user to navigate away + back.
+watch(() => audioMergeGenerating.value, (now, prev) => {
+  if (prev === true && now === false) {
+    musicPoolPanelRef.value?.refresh()
+    void refreshPoolPeek()
+  }
+})
+
 onUnmounted(() => {
   if (episodeLoadTimer) {
     clearTimeout(episodeLoadTimer)
@@ -682,6 +726,18 @@ const music = reactive({
   fade_out: 5,
 })
 const newMusicPath = ref('')
+
+// v1.0.107+ — Music Pool integration state.
+// `poolPickedTrack` is the filename (not full path) the cycler picked
+// for the currently-loaded episode. When non-empty, it gets sent to
+// the audio-merge job as `music_pool_track` so the backend can record
+// the use after a successful merge. Reset to '' if the user clicks
+// "Pick another" or "Skip", swaps the music files manually, or unchecks
+// the Music Enabled toggle.
+const poolPickedTrack = ref('')
+const poolPickedReason = ref('')
+const poolPeekLoading = ref(false)
+const musicPoolPanelRef = ref<{ refresh: () => Promise<void> } | null>(null)
 
 const backgroundNoise = reactive({
   enabled: false,
@@ -1089,6 +1145,70 @@ async function scanAssets() {
   } finally {
     scanning.value = false
   }
+  // v1.0.107+ — after the scan settles, ask the music pool what it
+  // would pick for this episode. Auto-fills music.files when:
+  //   - the pool strategy isn't 'manual'
+  //   - the cycler returns a track (pool non-empty + has enabled tracks)
+  //   - music.files is empty (don't trample the user's manual choices)
+  await refreshPoolPeek()
+}
+
+async function refreshPoolPeek() {
+  if (!episodeId.value) {
+    poolPickedTrack.value = ''
+    poolPickedReason.value = ''
+    return
+  }
+  poolPeekLoading.value = true
+  try {
+    const r = await get<{ track: { filename: string; path: string }; reason: string } | null>(
+      `/projects/${slug.value}/music-pool/peek-next?episode_code=${encodeURIComponent(episodeId.value)}`,
+    )
+    if (r && r.track) {
+      poolPickedTrack.value = r.track.filename
+      poolPickedReason.value = r.reason
+      // Only auto-fill when the user hasn't already populated music.files.
+      // If the user already curated their own list, we DON'T trample it
+      // — but we still surface the suggestion in the banner so they know.
+      if (music.enabled && music.files.length === 0) {
+        music.files.push(r.track.path)
+      } else if (!music.enabled && music.files.length === 0) {
+        // Pool has a pick + music is off — auto-enable so the cycler
+        // works "out of the box" for projects that opted into pool
+        // cycling. User can toggle off if they don't want music for
+        // this specific episode (and the Skip button clears the pick).
+        music.enabled = true
+        music.files.push(r.track.path)
+      }
+    } else {
+      poolPickedTrack.value = ''
+      poolPickedReason.value = ''
+    }
+  } catch {
+    // Pool endpoint failed (missing route on older backend, transient
+    // network) — silently degrade to manual behaviour.
+    poolPickedTrack.value = ''
+    poolPickedReason.value = ''
+  } finally {
+    poolPeekLoading.value = false
+  }
+}
+
+function clearPoolPick() {
+  // Drop the auto-picked file from music.files (matched by basename).
+  if (poolPickedTrack.value) {
+    const idx = music.files.findIndex(f => f.split('/').pop() === poolPickedTrack.value)
+    if (idx >= 0) music.files.splice(idx, 1)
+  }
+  poolPickedTrack.value = ''
+  poolPickedReason.value = ''
+}
+
+async function onPoolChanged() {
+  // Pool composition / strategy / cursor changed in the panel — re-fetch
+  // the peek so the banner reflects the new "next track" without forcing
+  // the user to navigate away + back.
+  await refreshPoolPeek()
 }
 
 function onEpisodeSelected(ep: any) {
@@ -1162,6 +1282,16 @@ async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite')
       post_narration_volume: music.post_narration_volume / 100,
       fade_in: music.fade_in,
       fade_out: music.fade_out,
+    }
+    // v1.0.107+ — when the cycler pre-filled the track and the user
+    // didn't swap it out, tag the request so the backend records the
+    // use after a successful merge. We verify the picked file is still
+    // in music.files (user may have edited) by basename match.
+    if (poolPickedTrack.value) {
+      const stillUsed = music.files.some(f => f.split('/').pop() === poolPickedTrack.value)
+      if (stillUsed) {
+        payload.music_pool_track = poolPickedTrack.value
+      }
     }
   }
 
@@ -1443,6 +1573,39 @@ onUnmounted(() => {
 .path-check-reason {
   font-size: 11px;
   color: var(--error, #e25c5c);
+  white-space: nowrap;
+}
+
+/* v1.0.107+ — Music-pool auto-pick banner */
+.pool-pick-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(179, 157, 255, 0.08);
+  border-radius: var(--radius-md, 8px);
+  border-left: 3px solid #b39dff;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.ppb-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.ppb-text {
+  flex: 1;
+  min-width: 0;
+}
+.ppb-track {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, monospace);
+  margin-left: 4px;
+}
+.ppb-reason {
+  font-size: 11px;
+  margin-left: 6px;
+}
+.ppb-action {
+  font-size: 11px;
   white-space: nowrap;
 }
 </style>

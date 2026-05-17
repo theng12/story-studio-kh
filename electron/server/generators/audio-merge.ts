@@ -579,6 +579,23 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     job.output_lines.push(`Duration: ${finalDuration ? finalDuration.toFixed(1) + 's' : 'unknown'}`)
     job.output_dir = path.dirname(outputPath)
 
+    // v1.0.107+ — when the request was pre-filled from the music-pool
+    // cycler, record the actual use so the cursor advances + usage log
+    // updates. The frontend tags `music_pool_track` on the request
+    // when it accepted the cycler's pick; this fires once per success-
+    // ful merge to keep the pool state honest. Non-fatal: a failure to
+    // record doesn't undo the merge.
+    const poolTrack = (req as any).music_pool_track
+    if (typeof poolTrack === 'string' && poolTrack) {
+      try {
+        const { recordPick } = await import('../services/music-pool.js')
+        await recordPick(project_slug, code, poolTrack)
+        job.output_lines.push(`Music pool: recorded "${poolTrack}" as used for ${code}`)
+      } catch (e: any) {
+        job.output_lines.push(`⚠ Music pool record-pick failed: ${e.message}`)
+      }
+    }
+
     job.progress = 100
 
   } catch (err) {

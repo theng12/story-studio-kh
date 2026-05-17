@@ -32,6 +32,7 @@ import { router as brandsRouter } from './brands.js'
 import { router as nichesRouter } from './niches.js'
 import { router as thumbnailTemplatesRouter } from './thumbnail-templates.js'
 import { router as recencyRouter } from './recency.js'
+import { router as musicPoolRouter } from './music-pool.js'
 import { router as assetMigrateRouter } from './asset-migrate.js'
 import { router as linkedProjectsRouter } from './linked-projects.js'
 import { router as softDeletedProjectsRouter } from './soft-deleted-projects.js'
@@ -70,6 +71,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', nichesRouter)
   app.use('/api', thumbnailTemplatesRouter)
   app.use('/api', recencyRouter)
+  app.use('/api', musicPoolRouter)
   app.use('/api', assetMigrateRouter)
   app.use('/api', linkedProjectsRouter)
   app.use('/api', softDeletedProjectsRouter)
