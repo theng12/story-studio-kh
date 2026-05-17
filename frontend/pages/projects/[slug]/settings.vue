@@ -414,6 +414,11 @@
             YouTube tag hints on top of the format's defaults.
             <strong>Niche is optional</strong> — leave empty for format-default behavior.
           </p>
+          <p class="text-muted mt-1 mb-2" style="font-size: 12px;">
+            Each niche can point to a default <strong>thumbnail template</strong>
+            from the library. Manage your project's thumbnail layout on the
+            <NuxtLink :to="`/projects/${slug}/thumbnail-templates`">Thumbnail Templates page</NuxtLink>.
+          </p>
         </div>
       </div>
 

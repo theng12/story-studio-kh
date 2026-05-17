@@ -4,6 +4,67 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.105 — 2026-05-17
+
+**Thumbnail templates are now a first-class browsable library, decoupled from niches**
+
+User asked: *"does it actually have a preview, style or layout to show the user. and they can then follow it? like say if i want to use a truecrime thumbnail style but for the prayer one. that should be allowed right? like i can use it. but this also means i can browse and view it before selecting?"* — and the honest answer in v1.0.104 was: no preview, no library, template locked to the niche. v1.0.105 fixes all three.
+
+### Architecture: templates are their own thing now
+
+- **New `ThumbnailTemplate` top-level type** in `electron/server/models/types.ts`. Each template is a self-contained JSON file with `id`, `name`, `description`, `tagline`, `recommendedNicheIds`, and the layout fields (canvas, gradient, textZones, accentStrokes, logoSlot) that used to live inline on `Niche.thumbnailTemplate`.
+- **New library at `electron/server/thumbnail-templates/`** mirrors the niche-loader layout (built-in dir + `${PROJECTS_ROOT}/.thumbnail-templates/` user dir). Two templates ship:
+  - `portrait-block-right.json` — the layout from v1.0.104 prayer (left portrait + right-aligned title block + bottom subtitle banner + accent rule + top-left logo). Recommended for prayer; usable on any niche.
+  - `centered-hero-headline.json` — full-canvas dim, one big yellow centered all-caps headline at 168px, no subtitle banner, logo slot bottom-right. Recommended for true-crime / motivation / history / educational; usable anywhere.
+- **New `thumbnail-template-loader` service** with the same shape as `niche-loader`: `loadTemplate(id)`, `listTemplates()`, `getEffectiveTemplateFor(project, niche, config)`, mtime-keyed user cache, console-warn on malformed files.
+- **Resolution chain** (the chain the compose route walks):
+  1. Body `template_id` (per-compose override from the gallery picker)
+  2. `project.config.thumbnail_template_id` (saved project default)
+  3. `niche.defaultThumbnailTemplateId` (niche's recommended default)
+  4. `niche.thumbnailTemplate` (legacy inline — auto-promoted into the library cache under `legacy:{nicheId}` so old niches keep working)
+  5. 422 — user picks one in the dialog gallery
+- **Niche schema**: new optional `defaultThumbnailTemplateId` field. The old inline `thumbnailTemplate` field is now marked deprecated but still loads via the legacy bridge — no migration forced.
+- **`prayer.json` migrated**: inline 50-line `thumbnailTemplate` block removed, replaced with `"defaultThumbnailTemplateId": "portrait-block-right"`.
+
+### Visual previews
+
+- **`GET /api/thumbnail-templates/:id/preview.png`** — on-demand preview render. Composites the template's SVG overlay over a synthetic placeholder portrait (a generated SVG: radial gradient + soft warm "lit area" + faint `PLACEHOLDER PORTRAIT` watermark) so each gallery card shows what the template's title shape actually looks like, not just a name. Cached per-process for the placeholder, fresh-rendered per request. 5-minute `Cache-Control` so card thumbnails stay snappy.
+
+### Gallery picker UI
+
+- **New `ThumbnailTemplatePicker.vue` component** with two modes:
+  - **Compact strip** — horizontally-scrolling cards, embedded at the top of the Compose dialog. Clicking a card immediately PUTs `thumbnail_template_id` to project config so the next compose remembers the pick.
+  - **Full grid** — three-up responsive grid, used on the standalone Thumbnail Templates page (see below).
+- **★ recommendation badge** — templates whose `recommendedNicheIds` includes the project's active niche float to the top of the gallery and get a yellow ★ marker. Advisory only; every template stays clickable. The user is in charge.
+- **Active state** — currently-selected card gets a blue accent border + ✓ checkmark badge in the corner.
+
+### Standalone management page
+
+- **`/projects/:slug/thumbnail-templates`** — new full-page gallery for browsing + setting the project default. Top card shows what's currently active (which template + what resolved it: project override / niche default / legacy inline / library default), with a "Clear project override" button when the override is what's driving the choice. Below that, the full grid of templates. Below that, a "Add your own template" how-to pointing at the `{PROJECTS_ROOT}/.thumbnail-templates/` directory.
+- **Linked from**:
+  - "Browse all →" in the Compose dialog template-picker section header
+  - Settings → Niche tab — added a hint paragraph linking to the page
+
+### Compose dialog rewrite
+
+- Gallery picker moved to the top of the dialog. The dialog's intro line now shows the **active template's name + description** instead of generic prayer-flavoured copy. Title-text hint reads from the actual selected template's zone spec (e.g. *"Rendered as ALL CAPS, wrapped to fit a 1600px column at 168px."* on the hero-headline template, vs *"… 980px column at 132px."* on portrait-block-right).
+- The compose POST now sends `template_id` so the user can preview a different template without changing their saved project default. Title / subtitle / logo fields stay shared across templates — switching templates re-reads the new zone defaults but doesn't wipe user-entered text.
+- "No template" state replaces the v1.0.104 "no niche template" warning — fires only when literally no template applies (project has none, niche has no default, no legacy inline). The fix is one click in the gallery above.
+
+### Audit pass
+
+- `tsc -p electron --noEmit`: 0 errors
+- `cd frontend && npx nuxt build`: clean
+- Both built-in templates load + render preview PNGs cleanly
+- Legacy bridge tested: a niche with the deprecated inline `thumbnailTemplate` field still resolves via the `legacy:{nicheId}` synthetic id
+
+### What's NOT in this release
+
+- **Template editor UI.** Adding a new template means dropping a JSON file in `${PROJECTS_ROOT}/.thumbnail-templates/`. Visual editor (drag-the-zone-around) is deferred — the v1.0.105 surface is library + browse + apply; authoring stays JSON for now.
+- **Templates beyond the 2 built-ins.** The schema is generic and the library auto-discovers JSON files; populate it incrementally as you collect reference layouts.
+
+---
+
 ## v1.0.104 — 2026-05-17
 
 **Niche-templated thumbnail composer (prayer ships the first template)**

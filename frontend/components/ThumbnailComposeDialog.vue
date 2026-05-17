@@ -7,22 +7,36 @@
       </div>
 
       <div class="tc-body">
-        <!-- Niche-template gate. The compose endpoint refuses without a -->
-        <!-- niche.thumbnailTemplate; we surface that state here so the -->
-        <!-- user doesn't tap "Compose" only to bounce into a 422. -->
-        <div v-if="!nicheLoaded" class="text-muted tc-loading">Checking the project's niche template…</div>
-        <div v-else-if="!hasTemplate" class="tc-banner tc-banner-warn">
-          ⚠️ This project's niche
-          <template v-if="nicheName"><strong>({{ nicheName }})</strong></template>
-          does not declare a thumbnail template.
-          <NuxtLink :to="`/projects/${projectSlug}/settings#niche`" class="link-btn">Open Settings → Niche</NuxtLink>
-          and pick a niche that ships a template, or extend this niche's JSON.
+        <!-- Template gallery — top of the dialog. The picker handles -->
+        <!-- its own loading state. Selecting a card persists the -->
+        <!-- choice to project config (thumbnail_template_id) so the -->
+        <!-- next open shows the same pick. -->
+        <div class="form-group">
+          <div class="tc-section-head">
+            <label class="form-label">Template</label>
+            <NuxtLink
+              :to="`/projects/${projectSlug}/thumbnail-templates`"
+              class="link-btn tc-section-link"
+            >Browse all →</NuxtLink>
+          </div>
+          <ThumbnailTemplatePicker
+            v-model="templateId"
+            :recommended-niche-id="recommendedNicheId"
+            :compact="true"
+            @change="onTemplateChange"
+          />
+        </div>
+
+        <div v-if="!templateLoaded" class="text-muted tc-loading">Resolving the active template…</div>
+
+        <div v-else-if="!templateId" class="tc-banner tc-banner-warn">
+          ⚠️ Pick a template above to start composing. None is set as the default for this project yet — your first pick will be remembered.
         </div>
 
         <template v-else>
           <p class="text-muted tc-intro">
-            Drops the niche's title shape, subtitle banner, and accent rule onto the source thumbnail.
-            The character image stays — only the text overlay is rendered fresh.
+            <strong>{{ activeTemplate?.name || templateId }}</strong> —
+            {{ activeTemplate?.description || 'Layers text + accents over your source thumbnail.' }}
           </p>
 
           <!-- Source thumbnail picker -->
@@ -68,7 +82,7 @@
               :placeholder="defaultSubtitle || 'e.g. NIGHT PRAYER'"
             />
             <p class="text-muted tc-hint">
-              Niche default: <strong>{{ defaultSubtitle || '(none)' }}</strong>.
+              Template default: <strong>{{ defaultSubtitle || '(none)' }}</strong>.
               This is the small banner under the accent rule — usually the channel's recurring tag.
             </p>
           </div>
@@ -83,7 +97,7 @@
                   <span class="tc-logo-name" :title="logoPath">📎 {{ logoBasename }}</span>
                 </template>
                 <template v-else>
-                  <span class="text-muted">No logo picked — the logo slot in the niche template stays empty.</span>
+                  <span class="text-muted">No logo picked — the template's logo slot stays empty.</span>
                 </template>
               </div>
               <div class="tc-logo-actions">
@@ -147,7 +161,7 @@
         <button
           type="button"
           class="btn btn-primary"
-          :disabled="!hasTemplate || composing || !sourceFilename"
+          :disabled="!templateId || composing || !sourceFilename"
           @click="compose"
         >
           {{ composing ? 'Composing…' : (resultUrl ? '🔄 Compose again' : '✨ Compose') }}
@@ -159,15 +173,17 @@
 
 <script setup lang="ts">
 /**
- * Dialog for niche-templated thumbnail composition (v1.0.104+).
+ * Dialog for thumbnail composition (v1.0.105+).
  *
  * Hits POST /api/projects/:slug/episodes/:code/thumbnails/compose with
- * the active source filename + optional title/subtitle overrides. The
- * niche's thumbnailTemplate (loaded once via /effective-niche) drives
- * everything else — layout, fonts, gradient, accent strokes, logo slot.
+ * the active source filename + selected template + optional text
+ * overrides. v1.0.105 decoupled templates from niches: the dialog
+ * embeds a gallery picker at the top, and the chosen template id is
+ * persisted to project config so the next open shows the same pick.
  *
- * Closed state: `modelValue=false`. Opening it re-runs the niche fetch
- * so a niche change in another tab is picked up without a page reload.
+ * Closed state: `modelValue=false`. Opening it re-fetches both the
+ * effective template AND the niche (so the picker's ★ recommendation
+ * badges line up with the latest niche pick).
  */
 import { ref, watch, computed } from 'vue'
 import { useApi } from '~/composables/useApi'
@@ -208,52 +224,87 @@ const emit = defineEmits<{
 const { get, put, post } = useApi()
 const { success: toastSuccess, error: toastError } = useToast()
 
-// ── Niche template state ────────────────────────────────────────────────
-const nicheLoaded = ref(false)
-const hasTemplate = ref(false)
-const nicheName = ref('')
+// ── Template + niche state (v1.0.105+) ──────────────────────────────────
+// Templates live in the library and are picked via the embedded gallery.
+// The dialog persists the user's pick to project.config.thumbnail_template_id
+// so it sticks across opens.
+const templateLoaded = ref(false)
+const templateId = ref('')
+const activeTemplate = ref<any | null>(null)
+const recommendedNicheId = ref('')
 const defaultSubtitle = ref('')
 const titleZoneSpec = ref<{ maxWidth: number; fontSize: number; uppercase: boolean } | null>(null)
-// v1.0.104+ — logo slot wiring. Only show the logo picker row when
-// the niche template declares a logoSlot; otherwise it's noise.
 const hasLogoSlot = ref(false)
 const logoSlotSizeHint = ref('120px wide')
 
-async function loadNiche() {
-  nicheLoaded.value = false
-  hasTemplate.value = false
-  nicheName.value = ''
+async function loadEffectiveTemplate() {
+  templateLoaded.value = false
+  templateId.value = ''
+  activeTemplate.value = null
+  recommendedNicheId.value = ''
   defaultSubtitle.value = ''
   titleZoneSpec.value = null
   hasLogoSlot.value = false
   try {
-    const r = await get<{ niche: any | null }>(`/projects/${props.projectSlug}/effective-niche`)
-    nicheLoaded.value = true
-    if (!r.niche) return
-    nicheName.value = r.niche.name || r.niche.id || ''
-    const tmpl = r.niche.thumbnailTemplate
-    if (!tmpl) return
-    hasTemplate.value = true
-    // Pull defaults for the title + subtitle zones so the form hints
-    // line up with what the LLM will actually render. The compose
-    // endpoint uses the same fields.
-    const titleZone = (tmpl.textZones || []).find((z: any) => z.name === 'title')
-    if (titleZone) {
-      titleZoneSpec.value = {
-        maxWidth: titleZone.maxWidth,
-        fontSize: titleZone.fontSize,
-        uppercase: !!titleZone.uppercase,
-      }
+    // Niche fetch fuels the picker's ★ recommendation badge — advisory
+    // only; the gallery shows every template either way.
+    const [tplRes, nicheRes] = await Promise.all([
+      get<{ template: any | null }>(`/projects/${props.projectSlug}/effective-thumbnail-template`),
+      get<{ niche: any | null }>(`/projects/${props.projectSlug}/effective-niche`),
+    ])
+    recommendedNicheId.value = nicheRes?.niche?.id || ''
+    if (tplRes?.template) {
+      templateId.value = tplRes.template.id
+      applyTemplate(tplRes.template)
     }
-    const subtitleZone = (tmpl.textZones || []).find((z: any) => z.name === 'subtitle')
-    defaultSubtitle.value = subtitleZone?.defaultText || ''
-    if (tmpl.logoSlot) {
-      hasLogoSlot.value = true
-      logoSlotSizeHint.value = `${tmpl.logoSlot.width || 120}px wide, anchored ${tmpl.logoSlot.y || 'top'}-${tmpl.logoSlot.x || 'left'}`
-    }
+    templateLoaded.value = true
   } catch (e: any) {
-    nicheLoaded.value = true
-    toastError(e?.data?.detail || 'Could not load this project\'s niche')
+    templateLoaded.value = true
+    toastError(e?.data?.detail || 'Could not resolve the active template')
+  }
+}
+
+/** Compute the title / subtitle / logo-slot derived state from a
+ *  freshly-resolved template. Called both on initial load and when
+ *  the user picks a different card in the gallery. */
+function applyTemplate(t: any) {
+  activeTemplate.value = t
+  const titleZone = (t.textZones || []).find((z: any) => z.name === 'title')
+  titleZoneSpec.value = titleZone
+    ? {
+      maxWidth: titleZone.maxWidth,
+      fontSize: titleZone.fontSize,
+      uppercase: !!titleZone.uppercase,
+    }
+    : null
+  const subtitleZone = (t.textZones || []).find((z: any) => z.name === 'subtitle')
+  defaultSubtitle.value = subtitleZone?.defaultText || ''
+  if (t.logoSlot) {
+    hasLogoSlot.value = true
+    logoSlotSizeHint.value = `${t.logoSlot.width || 120}px wide, anchored ${t.logoSlot.y || 'top'}-${t.logoSlot.x || 'left'}`
+  } else {
+    hasLogoSlot.value = false
+  }
+}
+
+/** Picker @change handler — gets the lite-shape template object plus
+ *  the new id. Persists the id to project config so the next dialog
+ *  open shows the same pick, then fetches the FULL template (with
+ *  textZones) so the form hints update. */
+async function onTemplateChange(_lite: { id: string; name: string }) {
+  // Persist the choice. Fire-and-forget — toast on error only.
+  put(`/projects/${props.projectSlug}/settings/config`, {
+    thumbnail_template_id: templateId.value,
+  }).catch((e: any) => {
+    toastError(e?.data?.detail || 'Could not save template choice to project config')
+  })
+  // Re-fetch the full template payload so the hint UI reflects the new
+  // picker selection (zones, logoSlot, etc).
+  try {
+    const t = await get<any>(`/thumbnail-templates/${encodeURIComponent(templateId.value)}`)
+    applyTemplate(t)
+  } catch (e: any) {
+    toastError(e?.data?.detail || 'Could not load picked template')
   }
 }
 
@@ -339,7 +390,7 @@ watch(() => props.modelValue, (open) => {
     sourceFilename.value = props.initialSourceFilename
       || props.thumbs[0]?.filename
       || ''
-    void loadNiche()
+    void loadEffectiveTemplate()
     void loadLogoPath()
   }
 }, { immediate: true })
@@ -358,12 +409,17 @@ async function compose() {
       `/projects/${props.projectSlug}/episodes/${props.episodeCode}/thumbnails/compose`,
       {
         source_filename: sourceFilename.value,
+        // Per-compose template id from the gallery picker. The server's
+        // resolution chain (project override → niche default → legacy
+        // inline) is bypassed when this is set, so the user can preview
+        // a different template without changing the saved override.
+        template_id: templateId.value || undefined,
         title_text: titleText.value || undefined,
         subtitle_text: subtitleText.value || undefined,
-        // Only send a logo_path when the niche template declares a
-        // logoSlot AND the user has a saved path. The compose route
-        // 404s on a missing file, so an empty / stale entry would
-        // surface a confusing error.
+        // Only send a logo_path when the template declares a logoSlot
+        // AND the user has a saved path. The compose route 404s on a
+        // missing file, so an empty / stale entry would surface a
+        // confusing error.
         logo_path: hasLogoSlot.value && logoPath.value ? logoPath.value : undefined,
       },
     )
@@ -539,5 +595,14 @@ async function pinResult() {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+}
+.tc-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.tc-section-link {
+  font-size: 11px;
 }
 </style>

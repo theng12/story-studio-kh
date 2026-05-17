@@ -1,0 +1,77 @@
+{
+  "id": "portrait-block-right",
+  "name": "Portrait + Right Title Block",
+  "description": "Subject portrait fills the left side of the canvas; a right-anchored bold all-caps title sits over a dimmed right gradient. A horizontal accent rule + centered subtitle banner anchors the bottom. Logo slot top-left.",
+  "tagline": "Subject left, title right, banner bottom",
+  "builtin": true,
+  "schemaVersion": 1,
+  "recommendedNicheIds": ["prayer"],
+
+  "aspectRatio": "16:9",
+  "canvas": { "width": 1920, "height": 1080 },
+
+  "backgroundDimGradient": {
+    "side": "right",
+    "coverage": 0.6,
+    "color": "#000000",
+    "strength": 0.72
+  },
+
+  "textZones": [
+    {
+      "name": "title",
+      "defaultText": "{episode_title}",
+      "x": "right",
+      "y": "middle",
+      "xOffset": 80,
+      "yOffset": -60,
+      "maxWidth": 980,
+      "fontFamily": "Impact, 'Arial Black', 'Helvetica Neue', sans-serif",
+      "fontSize": 132,
+      "fontWeight": 900,
+      "fill": "#ffffff",
+      "letterSpacing": 2,
+      "uppercase": true,
+      "lineHeight": 1.02,
+      "textAnchor": "end",
+      "shadow": { "dx": 0, "dy": 4, "blur": 18, "color": "#000000" }
+    },
+    {
+      "name": "subtitle",
+      "defaultText": "NIGHT PRAYER",
+      "x": "center",
+      "y": "bottom",
+      "xOffset": 0,
+      "yOffset": 70,
+      "maxWidth": 1400,
+      "fontFamily": "Impact, 'Arial Black', 'Helvetica Neue', sans-serif",
+      "fontSize": 68,
+      "fontWeight": 800,
+      "fill": "#ffffff",
+      "letterSpacing": 18,
+      "uppercase": true,
+      "lineHeight": 1.0,
+      "textAnchor": "middle",
+      "shadow": { "dx": 0, "dy": 3, "blur": 12, "color": "#000000" }
+    }
+  ],
+
+  "accentStrokes": [
+    {
+      "x": "center",
+      "xOffset": 0,
+      "y": 940,
+      "width": 520,
+      "thickness": 4,
+      "color": "#ffffff"
+    }
+  ],
+
+  "logoSlot": {
+    "x": "left",
+    "y": "top",
+    "xOffset": 56,
+    "yOffset": 56,
+    "width": 132
+  }
+}

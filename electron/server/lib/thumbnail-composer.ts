@@ -30,7 +30,7 @@ import sharp from 'sharp'
 import fsp from 'fs/promises'
 import path from 'path'
 import type {
-  Niche,
+  ThumbnailTemplate,
   ThumbnailTextZone,
   ThumbnailAccentStroke,
 } from '../models/types.js'
@@ -38,9 +38,11 @@ import type {
 export interface ComposeInput {
   /** Source image path on disk (the portrait/background). */
   sourcePath: string
-  /** Niche providing the `thumbnailTemplate`. Compose throws if the
-   *  niche has no template. */
-  niche: Niche
+  /** Layout template. v1.0.105+ takes the template directly (decoupled
+   *  from niches) — the route is responsible for resolving the
+   *  effective template via the loader's chain (project override →
+   *  niche default → legacy inline). */
+  template: ThumbnailTemplate
   /** Text overrides keyed by zone `name`. Empty / undefined falls
    *  back to the zone's `defaultText` (with placeholder substitution
    *  applied). Example: `{ title: "A Prayer for Anxious Hearts" }`. */
@@ -53,8 +55,8 @@ export interface ComposeInput {
     niche_name?: string
   }
   /** Optional logo image — local path or already-fetched buffer. If
-   *  the niche template has a `logoSlot` AND this is provided, the
-   *  logo is composited at the slot position. */
+   *  the template has a `logoSlot` AND this is provided, the logo is
+   *  composited at the slot position. */
   logo?: { buffer?: Buffer; path?: string }
 }
 
@@ -66,11 +68,9 @@ export interface ComposeInput {
  * template; nothing to compose with" instead of generating garbage.
  */
 export async function composeThumbnail(input: ComposeInput): Promise<Buffer> {
-  const tmpl = input.niche.thumbnailTemplate
+  const tmpl = input.template
   if (!tmpl) {
-    throw new Error(
-      `Niche "${input.niche.id}" has no thumbnailTemplate. Add one to the niche JSON (see prayer.json for the canonical example) or skip Compose for this project.`,
-    )
+    throw new Error('composeThumbnail called without a template — pass an effective ThumbnailTemplate (see thumbnail-template-loader).')
   }
   const canvas = tmpl.canvas || { width: 1920, height: 1080 }
 
@@ -144,7 +144,7 @@ function resolveAnchor(
 
 /** Build the SVG that gets composited over the base portrait. */
 function buildOverlaySvg(
-  tmpl: NonNullable<Niche['thumbnailTemplate']>,
+  tmpl: ThumbnailTemplate,
   canvas: { width: number; height: number },
   input: ComposeInput,
 ): string {

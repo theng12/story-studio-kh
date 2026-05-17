@@ -13,7 +13,8 @@ import { getImagesReconcileStatus } from '../services/image-reconciler.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { readSelectedThumbnail, writeSelectedThumbnail } from '../services/upload-overrides.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import { getEffectiveNiche } from '../services/niche-loader.js'
+import { getEffectiveNiche, getEffectiveNicheFor } from '../services/niche-loader.js'
+import { getEffectiveTemplateFor, loadTemplate } from '../services/thumbnail-template-loader.js'
 import { composeThumbnail, pickComposedFilename } from '../lib/thumbnail-composer.js'
 
 export const router = Router()
@@ -259,18 +260,27 @@ router.post('/projects/:slug/episodes/:code/thumbnails/compose', async (req, res
       return res.status(400).json({ detail: 'source_filename must be a bare PNG/JPG filename (no path separators)' })
     }
 
-    // Resolve the project's effective niche. Returns null when the
-    // project has no niche_id OR the niche file is missing — surface
-    // both to the user as a 422 so they can fix the project meta.
-    const niche = await getEffectiveNiche(slug)
-    if (!niche) {
-      return res.status(422).json({
-        detail: 'Project has no niche set. Open Settings → Niche and pick one (or create one) before composing.',
-      })
+    // Resolve the effective template (v1.0.105+). Chain:
+    //   1. Body `template_id` (per-compose override from the dialog)
+    //   2. project.config.thumbnail_template_id (saved project override)
+    //   3. niche.defaultThumbnailTemplateId
+    //   4. niche.thumbnailTemplate (legacy inline bridge)
+    //   5. 422 — user picks a template in the dialog gallery
+    const project = await pm.getProject(slug)
+    const niche = project ? await getEffectiveNicheFor(project) : null
+    let template = null
+    const bodyTemplateId = typeof req.body?.template_id === 'string' ? req.body.template_id.trim() : ''
+    if (bodyTemplateId) {
+      template = await loadTemplate(bodyTemplateId)
+      if (!template) {
+        return res.status(404).json({ detail: `Template "${bodyTemplateId}" not found in the library.` })
+      }
+    } else if (project) {
+      template = await getEffectiveTemplateFor(project, niche)
     }
-    if (!niche.thumbnailTemplate) {
+    if (!template) {
       return res.status(422).json({
-        detail: `Niche "${niche.id}" does not declare a thumbnailTemplate. Open the niche JSON and add one — see prayer.json for the canonical example.`,
+        detail: 'No thumbnail template available. Open the Compose dialog\'s template gallery and pick one, or set a default in Settings → Thumbnail Templates.',
       })
     }
 
@@ -286,7 +296,7 @@ router.post('/projects/:slug/episodes/:code/thumbnails/compose', async (req, res
     const ctx = {
       episode_title: idea?.title || '',
       episode_code: code,
-      niche_name: niche.name || niche.id,
+      niche_name: niche?.name || niche?.id || '',
     }
 
     // Compose. Body fields override the niche's defaults per-zone — so
@@ -313,7 +323,7 @@ router.post('/projects/:slug/episodes/:code/thumbnails/compose', async (req, res
 
     const outBuf = await composeThumbnail({
       sourcePath,
-      niche,
+      template,
       textByZone,
       context: ctx,
       logo: logoArg,

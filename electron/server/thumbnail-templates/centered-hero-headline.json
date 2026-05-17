@@ -1,0 +1,50 @@
+{
+  "id": "centered-hero-headline",
+  "name": "Centered Hero Headline",
+  "description": "Full-canvas dim overlay (~50% strength) with one big centered all-caps headline. No subtitle banner, no accent rule. Works for hype-style channels — true-crime, motivation, storytelling, breaking-news takes — where the title needs to dominate and the portrait is supporting context.",
+  "tagline": "One big centered headline, full dim",
+  "builtin": true,
+  "schemaVersion": 1,
+  "recommendedNicheIds": ["true-crime", "motivation", "history", "educational"],
+
+  "aspectRatio": "16:9",
+  "canvas": { "width": 1920, "height": 1080 },
+
+  "backgroundDimGradient": {
+    "side": "full",
+    "coverage": 1.0,
+    "color": "#000000",
+    "strength": 0.5
+  },
+
+  "textZones": [
+    {
+      "name": "title",
+      "defaultText": "{episode_title}",
+      "x": "center",
+      "y": "middle",
+      "xOffset": 0,
+      "yOffset": 0,
+      "maxWidth": 1600,
+      "fontFamily": "Impact, 'Arial Black', 'Helvetica Neue', sans-serif",
+      "fontSize": 168,
+      "fontWeight": 900,
+      "fill": "#ffd84a",
+      "letterSpacing": 4,
+      "uppercase": true,
+      "lineHeight": 1.0,
+      "textAnchor": "middle",
+      "shadow": { "dx": 0, "dy": 6, "blur": 24, "color": "#000000" }
+    }
+  ],
+
+  "accentStrokes": [],
+
+  "logoSlot": {
+    "x": "right",
+    "y": "bottom",
+    "xOffset": 56,
+    "yOffset": 56,
+    "width": 110
+  }
+}

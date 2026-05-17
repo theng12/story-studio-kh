@@ -708,48 +708,91 @@ export interface Niche {
     ctaShape?: string
   }
 
-  // ── v1.0.104+ ThumbnailTemplate — niche-level thumbnail composition.
-  // Declares the text-overlay layout for a YouTube thumbnail (or Shorts
-  // poster) so the user can drop a randomized character portrait into
-  // /thumbnails/compose and get back a thumbnail with the niche's text
-  // shape baked in. Prayer ships with a left-portrait + right-aligned
-  // bold title + bottom "NIGHT PRAYER" with horizontal rule template.
-  //
-  // The compose endpoint renders the text zones as SVG and composites
-  // via `sharp` — the `fontFamily` strings need to resolve through
-  // librsvg's font lookup, which uses the system font catalog. Stick to
-  // common system fonts ("Arial Black", "Georgia", "Cormorant Garamond"
-  // if installed) or shipped fonts only.
-  thumbnailTemplate?: {
-    /** YouTube standard is 16:9 (1920×1080). Other ratios reserved for
-     *  Shorts / square poster variants. */
-    aspectRatio?: '16:9' | '9:16' | '1:1'
-    /** Canvas size in px. Defaults to 1920×1080 (16:9). The compose
-     *  endpoint resizes the input portrait to fit before painting
-     *  overlays. */
-    canvas?: { width: number; height: number }
-    /** Optional gradient dim overlay to improve text legibility on
-     *  busy portraits. Prayer's portrait typically shows the subject
-     *  on the left → dim the right where the title text sits. */
-    backgroundDimGradient?: {
-      side: 'left' | 'right' | 'top' | 'bottom' | 'full'
-      /** Fraction of the canvas covered by the gradient (0..1). 0.5 =
-       *  the right half (for side='right'). Default 0.6. */
-      coverage?: number
-      /** Hex color the gradient fades TO at the dim end. Default '#000000'. */
-      color?: string
-      /** Max opacity at the dim end (0..1). Default 0.7. */
-      strength?: number
-    }
-    /** Text overlays, painted in array order (later zones layer on top). */
-    textZones?: ThumbnailTextZone[]
-    /** Decorative strokes (horizontal rules, divider lines). Painted
-     *  between the dim gradient and the text zones. */
-    accentStrokes?: ThumbnailAccentStroke[]
-    /** Optional logo / mark overlay. Image URL resolved at compose
-     *  time from a project asset or brand kit. */
-    logoSlot?: ThumbnailLogoSlot
+  /**
+   * v1.0.105+ — id of the ThumbnailTemplate this niche pairs with by
+   * default. The compose endpoint resolves the effective template as:
+   *   project.config.thumbnail_template_id → niche.defaultThumbnailTemplateId → null
+   * So a project can override its niche's default ("use the centered-
+   * hero-headline template on a prayer project") via the project
+   * config key, and a niche without a defaultThumbnailTemplateId
+   * simply has no compose-time default — the user picks one in the
+   * dialog gallery.
+   *
+   * Templates live in their own library at
+   * electron/server/thumbnail-templates/{id}.json (see template-loader).
+   */
+  defaultThumbnailTemplateId?: string
+
+  /**
+   * @deprecated v1.0.105 — inline `thumbnailTemplate` on the niche
+   * is preserved for backwards compat (old niche JSONs keep working;
+   * the loader promotes the inline template into the library cache
+   * under a synthetic id). For NEW niches, declare
+   * `defaultThumbnailTemplateId` and put the template in
+   * electron/server/thumbnail-templates/{id}.json.
+   */
+  thumbnailTemplate?: Omit<ThumbnailTemplate, 'id' | 'name' | 'description' | 'builtin' | 'schemaVersion'>
+}
+
+/**
+ * First-class thumbnail template (v1.0.105+). Decoupled from niches so
+ * any template can be used on any project — prayer can use the true-
+ * crime style and vice versa.
+ *
+ * Library layout (mirrors niche-loader):
+ *   - Built-in: electron/server/thumbnail-templates/{id}.json
+ *   - User-custom: ${PROJECTS_ROOT}/.thumbnail-templates/{id}.json
+ *
+ * Templates are pure layout — no project- or episode-specific data.
+ * The compose endpoint takes (source image, template, optional text
+ * overrides, optional logo path) and renders a fresh thumbnail.
+ */
+export interface ThumbnailTemplate {
+  id: string
+  name: string
+  description: string
+  builtin: boolean
+  schemaVersion: 1
+
+  /** Short tagline for the gallery preview card. One sentence. */
+  tagline?: string
+
+  /**
+   * Niches this template was designed for. The gallery picker uses
+   * this advisory — templates whose `recommendedNicheIds` includes the
+   * project's niche float to the top of the list, but ANY template
+   * can be used on ANY niche. The user is in charge.
+   */
+  recommendedNicheIds?: string[]
+
+  // ── Layout ────────────────────────────────────────────────────────
+  /** YouTube standard is 16:9 (1920×1080). Other ratios reserved for
+   *  Shorts / square poster variants. */
+  aspectRatio?: '16:9' | '9:16' | '1:1'
+  /** Canvas size in px. Defaults to 1920×1080 (16:9). The compose
+   *  endpoint resizes the input portrait to fit before painting
+   *  overlays. */
+  canvas?: { width: number; height: number }
+  /** Optional gradient dim overlay to improve text legibility on
+   *  busy portraits. */
+  backgroundDimGradient?: {
+    side: 'left' | 'right' | 'top' | 'bottom' | 'full'
+    /** Fraction of the canvas covered by the gradient (0..1). 0.5 =
+     *  the right half (for side='right'). Default 0.6. */
+    coverage?: number
+    /** Hex color the gradient fades TO at the dim end. Default '#000000'. */
+    color?: string
+    /** Max opacity at the dim end (0..1). Default 0.7. */
+    strength?: number
   }
+  /** Text overlays, painted in array order (later zones layer on top). */
+  textZones?: ThumbnailTextZone[]
+  /** Decorative strokes (horizontal rules, divider lines). Painted
+   *  between the dim gradient and the text zones. */
+  accentStrokes?: ThumbnailAccentStroke[]
+  /** Optional logo / mark overlay. Image URL resolved at compose
+   *  time from a project asset or brand kit. */
+  logoSlot?: ThumbnailLogoSlot
 }
 
 /**
@@ -1505,6 +1548,23 @@ export interface ProjectConfig {
   broll_lookback?: number
   /** Channel-locked metadata template (LLM fills placeholders only). */
   metadata_template?: MetadataTemplate
+
+  /**
+   * v1.0.104+ — absolute path to this project's channel-logo PNG.
+   * Used by the thumbnail composer's logoSlot. Saved here so the
+   * user only picks the file once per project; the Compose dialog
+   * pre-fills from this value.
+   */
+  channel_logo_path?: string
+  /**
+   * v1.0.105+ — explicit thumbnail-template override for this project.
+   * Wins over `niche.defaultThumbnailTemplateId` in the compose
+   * resolution chain, so a prayer-niche project can opt into the
+   * `centered-hero-headline` style (or any other library template)
+   * without touching the niche JSON. Empty / unset = use the niche's
+   * default.
+   */
+  thumbnail_template_id?: string
 }
 
 /** Per-clip usage record for B-Roll repeat-avoidance (project-scoped). */
