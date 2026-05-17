@@ -356,6 +356,12 @@
           >
             {{ showRecencyDetail ? 'Hide' : 'See list' }} {{ showRecencyDetail ? '↑' : '↓' }}
           </button>
+          <NuxtLink
+            v-if="recencyState.log_size > 0"
+            :to="`/projects/${slug}/recency`"
+            class="link-btn recency-toggle"
+            title="Manage every recency entry on this project — search, filter, remove individual items"
+          >Manage log →</NuxtLink>
         </div>
         <div class="recency-controls">
           <label class="recency-lookback-label">

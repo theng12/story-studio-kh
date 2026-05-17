@@ -30,6 +30,16 @@ router.get('/projects/:slug/recency', async (req, res) => {
       // Niche has no recency config — return a stable empty shape so the
       // frontend can render "no recency tracking" without special-casing.
       const cfg = await pm.getConfig(slug)
+      const includeFull = req.query.full === '1' || req.query.full === 'true'
+      const fullLog = includeFull && Array.isArray(cfg?.recency_log)
+        ? [...cfg!.recency_log!].sort((a, b) => b.used_at.localeCompare(a.used_at))
+        : undefined
+      const kindCounts: Record<string, number> = {}
+      if (includeFull && Array.isArray(cfg?.recency_log)) {
+        for (const e of cfg!.recency_log!) {
+          kindCounts[e.kind] = (kindCounts[e.kind] || 0) + 1
+        }
+      }
       return res.json({
         enabled: false,
         kind: null,
@@ -39,6 +49,7 @@ router.get('/projects/:slug/recency', async (req, res) => {
         recent_items: [],
         log_size: Array.isArray(cfg?.recency_log) ? cfg!.recency_log!.length : 0,
         niche_id: niche?.id || null,
+        ...(includeFull ? { full_log: fullLog, kind_counts: kindCounts } : {}),
       })
     }
 
@@ -50,6 +61,21 @@ router.get('/projects/:slug/recency', async (req, res) => {
         ? 'niche'
         : 'default'
 
+    // v1.0.108+ — when ?full=1, also return the entire log (every
+    // entry, every kind, every episode) for the management page. The
+    // default response stays compact for the Script Generator strip.
+    const includeFull = req.query.full === '1' || req.query.full === 'true'
+    const fullLog = includeFull && Array.isArray(cfg?.recency_log)
+      ? [...cfg!.recency_log!].sort((a, b) => b.used_at.localeCompare(a.used_at))
+      : undefined
+    // Distinct kinds in the log — drives the filter dropdown on the page.
+    const kindCounts: Record<string, number> = {}
+    if (includeFull && Array.isArray(cfg?.recency_log)) {
+      for (const e of cfg!.recency_log!) {
+        kindCounts[e.kind] = (kindCounts[e.kind] || 0) + 1
+      }
+    }
+
     res.json({
       enabled: true,
       kind: niche.recencyAvoidance.label,
@@ -59,6 +85,7 @@ router.get('/projects/:slug/recency', async (req, res) => {
       recent_items: items,
       log_size: Array.isArray(cfg?.recency_log) ? cfg!.recency_log!.length : 0,
       niche_id: niche.id,
+      ...(includeFull ? { full_log: fullLog, kind_counts: kindCounts } : {}),
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to load recency state'))
@@ -100,5 +127,34 @@ router.delete('/projects/:slug/recency', async (req, res) => {
     res.json({ ok: true, removed })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to clear recency log'))
+  }
+})
+
+/**
+ * v1.0.108+ — surgical delete of a single (episode, kind, item) entry.
+ * Lets the user remove a specific item from the log without nuking the
+ * whole thing, e.g. "I want to re-use Psalm 91 for episode 4 even
+ * though episode 1 used it." After delete, the cycler's avoid-list no
+ * longer excludes that item.
+ */
+router.delete('/projects/:slug/recency/entry', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const episode_code = typeof req.body?.episode_code === 'string' ? req.body.episode_code.trim() : ''
+    const kind = typeof req.body?.kind === 'string' ? req.body.kind.trim() : ''
+    const item = typeof req.body?.item === 'string' ? req.body.item.trim() : ''
+    if (!episode_code || !kind || !item) {
+      return res.status(400).json({ detail: 'episode_code, kind, and item are required' })
+    }
+    const cfg = await pm.getConfig(slug)
+    if (!cfg) return res.status(404).json({ detail: 'Project config not found' })
+    const log = Array.isArray(cfg.recency_log) ? cfg.recency_log : []
+    const next = log.filter(e => !(e.episode_code === episode_code && e.kind === kind && e.item === item))
+    if (next.length === log.length) return res.status(404).json({ detail: 'Entry not found in log' })
+    await pm.updateConfig(slug, { recency_log: next } as any)
+    res.json({ ok: true, removed: 1 })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to delete log entry'))
   }
 })
