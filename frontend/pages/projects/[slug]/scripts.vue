@@ -332,6 +332,72 @@
         </div>
       </div>
 
+      <!-- v1.0.106+ — Recency avoidance strip. Renders when the active -->
+      <!-- niche declares `recencyAvoidance` (currently: prayer's      -->
+      <!-- scripture references). Shows how many items are currently   -->
+      <!-- being avoided + the lookback window + inline lookback knob. -->
+      <div v-if="recencyState && recencyState.enabled" class="recency-card">
+        <div class="recency-head">
+          <span class="recency-icon" aria-hidden="true">🔁</span>
+          <div class="recency-text">
+            <strong>Avoiding repetition</strong> —
+            the next prompt will tell the LLM to skip
+            <strong>{{ recencyState.recent_items.length }}</strong>
+            <em>{{ recencyState.label }}</em>
+            used in the last
+            <strong>{{ recencyState.lookback }}</strong>
+            episode{{ recencyState.lookback === 1 ? '' : 's' }}.
+          </div>
+          <button
+            v-if="recencyState.recent_items.length > 0"
+            type="button"
+            class="link-btn recency-toggle"
+            @click="showRecencyDetail = !showRecencyDetail"
+          >
+            {{ showRecencyDetail ? 'Hide' : 'See list' }} {{ showRecencyDetail ? '↑' : '↓' }}
+          </button>
+        </div>
+        <div class="recency-controls">
+          <label class="recency-lookback-label">
+            Lookback window
+            <input
+              v-model.number="recencyLookbackInput"
+              type="number"
+              class="input recency-lookback-input"
+              :min="0"
+              :max="200"
+              :placeholder="String(recencyState.lookback)"
+              @change="saveRecencyLookback"
+            />
+            <span class="text-muted recency-lookback-hint">
+              episodes ·
+              <template v-if="recencyState.lookback_source === 'project'">your override</template>
+              <template v-else-if="recencyState.lookback_source === 'niche'">niche default</template>
+              <template v-else>built-in default</template>
+            </span>
+          </label>
+          <button
+            v-if="recencyState.log_size > 0"
+            type="button"
+            class="link-btn recency-clear"
+            :disabled="recencyClearing"
+            @click="clearRecencyLog"
+          >
+            {{ recencyClearing ? 'Clearing…' : `Clear log (${recencyState.log_size} entries)` }}
+          </button>
+        </div>
+        <div v-if="recencyState.recent_items.length === 0" class="text-muted recency-empty">
+          Nothing logged yet. The log fills in automatically after each script generates — first
+          episode picks freely; subsequent episodes will steer away from items the channel just used.
+        </div>
+        <div v-if="showRecencyDetail && recencyState.recent_items.length > 0" class="recency-list-wrap">
+          <div class="text-muted recency-list-h">Currently being avoided</div>
+          <div class="recency-list">
+            <span v-for="(item, i) in recencyState.recent_items" :key="i" class="recency-pill">{{ item }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Word count section — edit any field; others recalc from your primary input -->
       <div class="word-count-section">
         <p class="text-muted text-sm mb-1">
@@ -560,6 +626,16 @@ function onExpansionQueued(_payload: { jobId: string; chapters: number[] | null 
   // it completes; OutlineReviewPanel's job watcher handles that).
   outlineRefreshKey.value++
   previewRefreshKey.value++
+  // v1.0.106+ — schedule a recency refresh after the job has had time
+  // to finish + the executor has appended its matches. Polling every
+  // 4s for 30s catches both fast (sub-second) and slow (multi-minute)
+  // chapter expansions without aggressive polling.
+  let attempts = 0
+  const reloader = setInterval(() => {
+    attempts++
+    void loadRecencyState()
+    if (attempts >= 8) clearInterval(reloader)
+  }, 4000)
 }
 
 /**
@@ -790,6 +866,66 @@ function setChaptersToNicheDefault() {
   // — same logic onChaptersChange runs when the user types.
   if (form.words_per_chapter > 0) {
     form.total_words = form.chapters * form.words_per_chapter
+  }
+}
+
+// ── v1.0.106+ Recency-avoidance state ──────────────────────────────────
+// Renders the recency strip + lookback knob. Reads from /recency on
+// mount + after every successful generation (a successful run appends
+// to the log, so the count + items refresh).
+interface RecencyState {
+  enabled: boolean
+  kind: string | null
+  label: string | null
+  lookback: number
+  lookback_source: 'project' | 'niche' | 'default' | null
+  recent_items: string[]
+  log_size: number
+  niche_id: string | null
+}
+const recencyState = ref<RecencyState | null>(null)
+const recencyLookbackInput = ref<number | ''>('')
+const showRecencyDetail = ref(false)
+const recencyClearing = ref(false)
+
+async function loadRecencyState() {
+  try {
+    const r = await get<RecencyState>(`/projects/${slug.value}/recency`)
+    recencyState.value = r
+    // Pre-fill the input with the project override only — leaving it
+    // empty when source is 'niche'/'default' lets the placeholder show
+    // the resolved value so the user can see "30 inherited" without
+    // confusing themselves with a typed-in number.
+    recencyLookbackInput.value = r.lookback_source === 'project' ? r.lookback : ''
+  } catch {
+    recencyState.value = null
+  }
+}
+
+async function saveRecencyLookback() {
+  const raw = recencyLookbackInput.value
+  const v = raw === '' ? 0 : Number(raw)
+  if (!Number.isFinite(v) || v < 0) {
+    recencyLookbackInput.value = ''
+    return
+  }
+  try {
+    await put(`/projects/${slug.value}/recency/lookback`, { lookback: v })
+    await loadRecencyState()
+  } catch {
+    // Non-fatal: leave the input as-is so the user can retry.
+  }
+}
+
+async function clearRecencyLog() {
+  if (recencyClearing.value) return
+  if (!confirm('Clear the entire recency log for this project? The LLM will be free to repeat recent items on the next generation.')) return
+  recencyClearing.value = true
+  try {
+    await del(`/projects/${slug.value}/recency`)
+    await loadRecencyState()
+  } finally {
+    recencyClearing.value = false
   }
 }
 
@@ -1042,6 +1178,10 @@ onMounted(async () => {
   await applyIntroFormatDefaultsIfNoPreset()
   await applyScriptFormatDefaultsIfNoPreset()
   await scriptPresets.load()
+  // v1.0.106+ — load the recency state for the avoidance strip. After
+  // generation completes the executor appends to the log; we refresh
+  // here so the strip + count reflect what's on disk.
+  await loadRecencyState()
 })
 
 interface IntroBeat {
@@ -1105,7 +1245,7 @@ onMounted(() => introPresets.load())
 // persisted here: prior behaviour used a parallel `script_settings` key
 // whose autosave ran after preset load on mount, silently clobbering
 // preset-applied values on beta-tester machines.
-const { get, put } = useApi()
+const { get, put, del } = useApi()
 let saveStylesTimeout: ReturnType<typeof setTimeout> | null = null
 
 async function loadCustomStyles() {
@@ -1827,6 +1967,97 @@ async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true 
 .omb-action {
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+/* v1.0.106+ — Recency-avoidance strip. Green/teal accent so it reads
+   as "this is making your output better" not "warning". Sits just below
+   the niche overlay since it's the same logical layer (niche-level
+   knobs influencing this episode's prompt). */
+.recency-card {
+  margin-top: 6px;
+  padding: 12px 16px;
+  background: rgba(80, 200, 160, 0.06);
+  border-radius: var(--radius-md);
+  border-left: 3px solid #4fd3a3;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.recency-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.recency-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.recency-text {
+  flex: 1;
+  min-width: 0;
+}
+.recency-text em {
+  font-style: normal;
+  color: var(--text-primary);
+}
+.recency-toggle {
+  font-size: 11px;
+  white-space: nowrap;
+}
+.recency-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.recency-lookback-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.recency-lookback-input {
+  width: 70px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.recency-lookback-hint {
+  font-size: 11px;
+}
+.recency-clear {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.recency-empty {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.recency-list-wrap {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(80, 200, 160, 0.18);
+}
+.recency-list-h {
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+.recency-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.recency-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(80, 200, 160, 0.12);
+  border: 1px solid rgba(80, 200, 160, 0.30);
+  border-radius: 10px;
+  font-size: 11px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, monospace);
+  color: var(--text-primary);
 }
 .format-context-header {
   display: flex;

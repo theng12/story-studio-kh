@@ -709,6 +709,66 @@ export interface Niche {
   }
 
   /**
+   * v1.0.106+ — declarative recency-avoidance rules. When set, the
+   * generators (script first; image-prompts + metadata can follow if
+   * the niche needs them) extract matching items from each completed
+   * episode and inject "don't repeat these" instructions into the next
+   * episode's prompt.
+   *
+   * Use case: prayer-channel niches that anchor each episode on ONE
+   * scripture reference. Without recency tracking, the LLM cycles back
+   * to the same 4-5 "comfort verses" (Psalm 91, Philippians 4:6-7,
+   * Isaiah 41:10) every 2-3 episodes. With it, the LLM is told which
+   * references were used in the last N episodes and steered toward a
+   * fresh passage.
+   *
+   * The mechanism is generic: any niche can declare what to track
+   * (regex pattern matching the items, human label for prompt copy,
+   * default lookback window). Storage lives in
+   * project.config.recency_log keyed by `kind` (the label). Multiple
+   * niches with different `kind` values coexist in one project's log.
+   */
+  recencyAvoidance?: {
+    /**
+     * Human-readable label for the kind of item being tracked. Used as
+     * the `kind` discriminator in the project's recency_log AND in the
+     * LLM prompt copy ("scripture references", "famous unsolved cases",
+     * "popular quotes", etc.). Stable id — changing this orphans
+     * existing log entries.
+     */
+    label: string
+    /**
+     * Regex pattern(s) (JS syntax, no leading/trailing slashes) used to
+     * extract used items from the generated script text. Multiple
+     * patterns are unioned (run independently, results merged). The
+     * tracker dedupes and normalizes whitespace before logging.
+     *
+     * Prayer example (all 66 books of the Bible, chapter optional,
+     * verse range optional):
+     *   "\\b(?:[123]\\s+)?(?:Genesis|Exodus|…|Revelation)\\s+\\d+(?::\\d+(?:-\\d+)?)?"
+     */
+    extractPatterns: string[]
+    /**
+     * Default lookback window (number of recent episodes to consult
+     * when building the avoidance list). Per-project overridable via
+     * project.config.recency_lookback. Default 30 if both unset.
+     */
+    defaultLookback?: number
+    /**
+     * Prompt-instruction template injected into the script prompt
+     * BEFORE generation. Placeholders:
+     *   {label} → niche.recencyAvoidance.label
+     *   {count} → number of items being avoided
+     *   {items} → bullet-list of the recently-used items
+     *
+     * Default template (used when unset): "These {label} were used in
+     * this channel's recent episodes — pick a DIFFERENT one for this
+     * prompt:\n{items}".
+     */
+    instructionTemplate?: string
+  }
+
+  /**
    * v1.0.105+ — id of the ThumbnailTemplate this niche pairs with by
    * default. The compose endpoint resolves the effective template as:
    *   project.config.thumbnail_template_id → niche.defaultThumbnailTemplateId → null
@@ -1565,6 +1625,41 @@ export interface ProjectConfig {
    * default.
    */
   thumbnail_template_id?: string
+
+  /**
+   * v1.0.106+ — recency-avoidance log. Generic across niches: each
+   * entry records WHAT was used (kind matches niche.recencyAvoidance.label),
+   * the item itself (extracted from the generated script), the episode
+   * it appeared in, and when. Capped at 500 entries (trimmed oldest-
+   * first) so storage stays bounded even on long-running channels.
+   *
+   * The pre-generation builder reads the last N entries (where N comes
+   * from `recency_lookback`, or the niche's `defaultLookback`, or 30)
+   * matching the active niche's `kind` and tells the LLM to avoid them.
+   */
+  recency_log?: RecencyLogEntry[]
+  /**
+   * Per-project override for the recency-avoidance lookback window.
+   * Falls back to niche.recencyAvoidance.defaultLookback (typically 30),
+   * which falls back to a hard-coded 30. Larger = stricter avoidance,
+   * bigger prompt; smaller = more repetition tolerance, smaller prompt.
+   */
+  recency_lookback?: number
+}
+
+/**
+ * One entry in the recency-avoidance log. Generic across niches —
+ * `kind` is the discriminator (matches niche.recencyAvoidance.label).
+ */
+export interface RecencyLogEntry {
+  /** Episode this item appeared in. */
+  episode_code: string
+  /** ISO timestamp when the entry was appended. */
+  used_at: string
+  /** Discriminator matching the niche's recencyAvoidance.label. */
+  kind: string
+  /** The extracted item itself ("Psalm 91", "Philippians 4:6-7", etc.). */
+  item: string
 }
 
 /** Per-clip usage record for B-Roll repeat-avoidance (project-scoped). */

@@ -10,6 +10,8 @@ import { callAi } from '../lib/ai-client.js'
 import { buildNarrationDocx, buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
+import { applyRecencyToFormat, recordUsage } from '../services/recency-tracker.js'
+import { getEffectiveNiche } from '../services/niche-loader.js'
 import { getEffectiveBrand } from '../services/brand-loader.js'
 import { loadPattern, applyPatternSubject } from '../services/pattern-loader.js'
 import { resolveCharacters } from '../services/character-manager.js'
@@ -379,6 +381,11 @@ async function generateEpisode(job: Job): Promise<void> {
 
   const standards = await pm.getStandards(project_slug) || ''
   let format = await getEffectiveFormat(project_slug)
+  // v1.0.106+ — append the niche's recency-avoidance instruction (if
+  // any) onto format.script.additionalRules so the LLM is told which
+  // items the channel used in its last N episodes. No-op when the
+  // niche has no recencyAvoidance config OR the log is empty.
+  format = await applyRecencyToFormat(format, project_slug)
   const title = req.title
   const length = req.length || format.script.defaultLengthMinutes
   let style = req.style === 'auto' ? autoSelectStyle(format, episode_id) : req.style
@@ -517,6 +524,13 @@ async function generateEpisode(job: Job): Promise<void> {
     const { assembleUnifiedNarration } = await import('../lib/narration-assembly.js')
     await assembleUnifiedNarration(paths.script_dir, episode_id, title)
     job.output_lines.push(`Assembled: ${path.basename(paths.narration_docx)}`)
+
+    // v1.0.106+ — scan the freshly-assembled narration for niche-tracked
+    // items (e.g. prayer scripture references) and append to the
+    // project's recency log so the NEXT episode's prompt can avoid them.
+    // Non-fatal: a malformed niche regex or unreadable docx logs a
+    // warning but doesn't fail the script run.
+    await recordRecencyForEpisode(job.project_slug, episode_id, paths.narration_docx)
 
     // Story summary used by image-prompts + YouTube description prompts.
     // Always read from the on-disk unified docx — there's no bulk LLM
@@ -696,7 +710,8 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   if (!project) throw new Error('Project not found')
 
   const standards = await pm.getStandards(project_slug) || ''
-  const format = await getEffectiveFormat(project_slug)
+  let format = await getEffectiveFormat(project_slug)
+  format = await applyRecencyToFormat(format, project_slug)
   const brand = await getEffectiveBrand(project_slug)
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
   const sysPrompt = systemPrompt(format, standards, brand)
@@ -854,7 +869,8 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   if (!project) throw new Error('Project not found')
 
   const standards = await pm.getStandards(project_slug) || ''
-  const format = await getEffectiveFormat(project_slug)
+  let format = await getEffectiveFormat(project_slug)
+  format = await applyRecencyToFormat(format, project_slug)
   const title = req.title
   const length = req.length || format.script.defaultLengthMinutes
   const style = req.style || format.script.defaultNarratorStyleId
@@ -1058,6 +1074,7 @@ async function setupChunkedJobContext(
 
   const standards = await pm.getStandards(project_slug) || ''
   let format = await getEffectiveFormat(project_slug)
+  format = await applyRecencyToFormat(format, project_slug)
   const title = req.title
 
   // For expand-chapters, prefer the sidecar's persisted snapshot over the
@@ -1236,7 +1253,42 @@ export async function generateExpandChapters(job: Job): Promise<void> {
     const paths = await resolveEpisodePaths(job.project_slug, job.episode_id, params.title)
     await assembleUnifiedNarration(paths.script_dir, job.episode_id, params.title)
     job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
+
+    // v1.0.106+ — recency record (same as in the legacy generate path
+    // above). Done once per expand-chapters run AFTER the unified docx
+    // is reassembled, so multi-batch expansions log a single set of
+    // matches instead of partials. See recordRecencyForEpisode below.
+    await recordRecencyForEpisode(job.project_slug, job.episode_id, paths.narration_docx)
   } finally {
     teardown()
+  }
+}
+
+/**
+ * v1.0.106+ helper — read the unified narration docx for an episode,
+ * convert to markdown, and run the active niche's recency extract
+ * patterns against the text. Matches are appended to the project's
+ * recency_log. No-op when the niche has no recencyAvoidance config.
+ *
+ * Idempotent: re-running for the same episode dedupes by (episode,
+ * kind, item) inside `recordUsage`, so a re-expand doesn't double-log.
+ *
+ * Fail-soft: logs a warning and returns when the docx can't be parsed
+ * or the niche regex throws — never fails the parent script-generation
+ * job over an analytics-style side effect.
+ */
+async function recordRecencyForEpisode(slug: string, episode_code: string, narrationDocxPath: string): Promise<void> {
+  try {
+    const niche = await getEffectiveNiche(slug)
+    if (!niche?.recencyAvoidance) return
+    const { narrationDocxToMarkdown } = await import('../lib/docx-parser.js')
+    const md = await narrationDocxToMarkdown(narrationDocxPath)
+    if (!md) return
+    const result = await recordUsage(slug, episode_code, niche, md)
+    if (result && result.added.length > 0) {
+      console.log(`[episode] ${slug}/${episode_code}: recency log updated with ${result.added.length} ${result.kind} (${result.added.join(', ')})`)
+    }
+  } catch (e: any) {
+    console.warn(`[episode] ${slug}/${episode_code}: recency record skipped: ${e.message}`)
   }
 }
