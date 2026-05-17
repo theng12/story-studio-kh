@@ -214,19 +214,25 @@ interface RateLimitBucket {
 const rateLimitBuckets = new Map<string, RateLimitBucket>()
 
 /**
- * Per-IP rate limit on login attempts. 5 attempts / 60s. Restart resets all
- * buckets — fine for personal use. Returns `true` when the request is allowed
- * (counter incremented), `false` when over the limit (caller responds 429).
+ * Per-IP rate limit on login attempts. Default 30 attempts / 60s — bumped
+ * from the legacy hardcoded 5 in v1.0.107 because auto-fill / typo loops
+ * routinely tripped it on the host LAN. Restart resets all buckets — fine
+ * for personal use. Returns `true` when the request is allowed (counter
+ * incremented), `false` when over the limit (caller responds 429).
+ *
+ * `maxAttempts` is passed in from the caller (auth route) so the limit
+ * can be configured per-installation via app-settings.json
+ * (`server_mode.auth.login_max_attempts_per_minute`). Fallback to 30 keeps
+ * tests + ad-hoc callers working without plumbing the config through.
  */
-export function checkLoginRateLimit(ip: string): boolean {
+export function checkLoginRateLimit(ip: string, maxAttempts: number = 30): boolean {
   const now = Date.now()
   const WINDOW_MS = 60_000
-  const MAX_ATTEMPTS = 5
   let bucket = rateLimitBuckets.get(ip)
   if (!bucket || now - bucket.windowStart >= WINDOW_MS) {
     bucket = { count: 0, windowStart: now }
     rateLimitBuckets.set(ip, bucket)
   }
   bucket.count++
-  return bucket.count <= MAX_ATTEMPTS
+  return bucket.count <= maxAttempts
 }

@@ -38,6 +38,14 @@ export interface ServerModeAuth {
   password_hash: string       // scrypt: `salt:hash` hex
   session_secret: string      // 32-byte hex, generated on first credential set
   session_ttl_hours: number   // default 168 (1 week)
+  /**
+   * v1.0.107+ — per-IP login attempt cap inside a rolling 60-second window.
+   * Bumped from the legacy hardcoded 5 (which made auto-fill / typo loops
+   * lock the user out of their own server) to a configurable knob with a
+   * personal-use default of 30. Restricting to single-digit attempts only
+   * makes sense for public-internet exposure; this app runs over Tailscale.
+   */
+  login_max_attempts_per_minute: number  // default 30
 }
 
 export interface ServerModeConfig {
@@ -50,6 +58,7 @@ export interface ServerModeConfig {
 const DEFAULT_PORT = 8765
 const DEFAULT_BIND = '0.0.0.0'
 const DEFAULT_SESSION_TTL_HOURS = 168
+const DEFAULT_LOGIN_MAX_ATTEMPTS_PER_MINUTE = 30
 
 /**
  * Resolve the app-settings.json path WITHOUT importing app-settings.ts.
@@ -148,6 +157,11 @@ export function getServerModeConfig(): ServerModeConfig | null {
           && block.auth.session_ttl_hours > 0
           ? block.auth.session_ttl_hours
           : DEFAULT_SESSION_TTL_HOURS,
+        login_max_attempts_per_minute:
+          typeof (block.auth as any).login_max_attempts_per_minute === 'number'
+            && (block.auth as any).login_max_attempts_per_minute > 0
+            ? (block.auth as any).login_max_attempts_per_minute
+            : DEFAULT_LOGIN_MAX_ATTEMPTS_PER_MINUTE,
       }
       : undefined,
   }
@@ -162,5 +176,6 @@ export function getServerModeDefaults() {
     port: DEFAULT_PORT,
     bind: DEFAULT_BIND,
     session_ttl_hours: DEFAULT_SESSION_TTL_HOURS,
+    login_max_attempts_per_minute: DEFAULT_LOGIN_MAX_ATTEMPTS_PER_MINUTE,
   }
 }

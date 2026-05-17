@@ -40,9 +40,26 @@ const state = reactive<ServerModeState>({
  * it doesn't await — index.html is already in the DOM before any Vue code
  * runs. Returns false during SSR (no `document`); the SPA is `ssr: false`
  * so this never matters in production but keeps unit tests sane.
+ *
+ * v1.0.107+ — the Electron desktop window loads the same `http://127.0.0.1`
+ * URL the server serves to remote browsers (main.ts:197 mainWindow.loadURL).
+ * So the window sees the same meta tag the server injected for remote
+ * clients. Without an additional check, sitting at the host Mac in the
+ * Electron window triggered every "this is a remote web client" code path —
+ * most painfully, the Server Mode credentials lockout
+ * (ServerModeSettingsPanel.vue:253) greyed out the username/password
+ * fields so the user couldn't set credentials at all. Fix: trust the
+ * Electron preload's `window.electron.isElectron` marker. Remote browsers
+ * don't load the preload, so the marker is falsy there and the meta-tag
+ * check stays authoritative.
  */
 export function isServerMode(): boolean {
   if (typeof document === 'undefined') return false
+  // Electron BrowserWindow → we're sitting at the host Mac, NOT a remote
+  // client. Treat the renderer as desktop regardless of how the server is
+  // configured. Preload script: electron/preload.cjs.
+  const w = window as unknown as { electron?: { isElectron?: boolean } }
+  if (w.electron?.isElectron === true) return false
   return !!document.querySelector('meta[name="story-studio-server-mode"][content="1"]')
 }
 

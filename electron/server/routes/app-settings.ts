@@ -14,6 +14,7 @@ import {
 } from '../services/app-secrets-store.js'
 import {
   getServerModeSettingsSafe, setServerModeNetworking, setServerModeCredentials,
+  setServerModeRateLimit,
   rotateServerModeSessionSecret,
   getYoutubeDefaults, setYoutubeDefaults,
   getLastSeenVersion, setLastSeenVersion,
@@ -314,6 +315,18 @@ router.put('/app-settings/server-mode/credentials', async (req, res) => {
     res.json(await setServerModeCredentials({ username, password, session_ttl_hours }))
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save credentials'))
+  }
+})
+
+router.put('/app-settings/server-mode/rate-limit', async (req, res) => {
+  const n = Number(req.body?.login_max_attempts_per_minute)
+  if (!Number.isFinite(n) || n < 1 || n > 1000) {
+    return res.status(400).json({ detail: 'login_max_attempts_per_minute must be a number between 1 and 1000' })
+  }
+  try {
+    res.json(await setServerModeRateLimit(n))
+  } catch (e: any) {
+    res.status(400).json(humanizeBackendError(e, 'Failed to update rate limit'))
   }
 })
 

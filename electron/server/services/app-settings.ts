@@ -185,6 +185,8 @@ export interface ServerModeSafeView {
   has_credentials: boolean
   username: string | null
   session_ttl_hours: number
+  /** v1.0.107+ — per-IP login rate-limit cap. Default 30/min. */
+  login_max_attempts_per_minute: number
 }
 
 export interface ServerModeNetworkingPatch {
@@ -198,6 +200,7 @@ const SERVER_MODE_DEFAULTS = {
   port: 8765,
   bind: '0.0.0.0',
   session_ttl_hours: 168,
+  login_max_attempts_per_minute: 30,
 }
 
 /**
@@ -220,6 +223,10 @@ export async function getServerModeSettingsSafe(): Promise<ServerModeSafeView> {
     session_ttl_hours: typeof auth.session_ttl_hours === 'number' && auth.session_ttl_hours > 0
       ? auth.session_ttl_hours
       : SERVER_MODE_DEFAULTS.session_ttl_hours,
+    login_max_attempts_per_minute:
+      typeof auth.login_max_attempts_per_minute === 'number' && auth.login_max_attempts_per_minute > 0
+        ? auth.login_max_attempts_per_minute
+        : SERVER_MODE_DEFAULTS.login_max_attempts_per_minute,
   }
 }
 
@@ -261,6 +268,7 @@ export async function setServerModeCredentials(opts: {
   username: string
   password: string
   session_ttl_hours?: number
+  login_max_attempts_per_minute?: number
 }): Promise<ServerModeSafeView> {
   if (!opts.username || typeof opts.username !== 'string' || !opts.username.trim()) {
     throw new Error('username is required')
@@ -271,17 +279,51 @@ export async function setServerModeCredentials(opts: {
   const ttl = typeof opts.session_ttl_hours === 'number' && opts.session_ttl_hours > 0
     ? Math.floor(opts.session_ttl_hours)
     : SERVER_MODE_DEFAULTS.session_ttl_hours
-  const password_hash = hashPassword(opts.password)
-  const session_secret = crypto.randomBytes(32).toString('hex')
+  // Preserve the existing rate-limit knob when the caller doesn't pass
+  // one — the credentials form doesn't surface it on every change, so
+  // a "Change Password" save shouldn't reset the cap back to the default.
   await withLock(APP_SETTINGS_PATH, async () => {
     const settings = await readSettings()
     const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
+    const prevAuth = (cur.auth || {}) as Record<string, any>
+    const maxAttempts = typeof opts.login_max_attempts_per_minute === 'number'
+      && opts.login_max_attempts_per_minute > 0
+      ? Math.floor(opts.login_max_attempts_per_minute)
+      : (typeof prevAuth.login_max_attempts_per_minute === 'number'
+        && prevAuth.login_max_attempts_per_minute > 0
+        ? prevAuth.login_max_attempts_per_minute
+        : SERVER_MODE_DEFAULTS.login_max_attempts_per_minute)
+    const password_hash = hashPassword(opts.password)
+    const session_secret = crypto.randomBytes(32).toString('hex')
     cur.auth = {
       username: opts.username.trim(),
       password_hash,
       session_secret,
       session_ttl_hours: ttl,
+      login_max_attempts_per_minute: maxAttempts,
     }
+    settings[SERVER_MODE_KEY] = cur
+    await writeSettings(settings)
+  })
+  return getServerModeSettingsSafe()
+}
+
+/**
+ * v1.0.107+ — update the rate-limit cap without touching the password.
+ * Surfaced as a standalone field in the Server Mode panel so the user
+ * can bump it after running into a 429 without re-entering credentials.
+ */
+export async function setServerModeRateLimit(maxAttemptsPerMinute: number): Promise<ServerModeSafeView> {
+  if (typeof maxAttemptsPerMinute !== 'number' || maxAttemptsPerMinute < 1 || maxAttemptsPerMinute > 1000) {
+    throw new Error('login_max_attempts_per_minute must be between 1 and 1000')
+  }
+  await withLock(APP_SETTINGS_PATH, async () => {
+    const settings = await readSettings()
+    const cur = (settings[SERVER_MODE_KEY] || {}) as Record<string, any>
+    if (!cur.auth || !cur.auth.password_hash) {
+      throw new Error('Credentials must be set before adjusting the rate-limit cap')
+    }
+    cur.auth.login_max_attempts_per_minute = Math.floor(maxAttemptsPerMinute)
     settings[SERVER_MODE_KEY] = cur
     await writeSettings(settings)
   })

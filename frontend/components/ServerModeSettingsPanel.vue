@@ -125,6 +125,29 @@
             {{ saving === 'rotate' ? 'Rotating…' : 'Sign Out Everywhere' }}
           </button>
         </div>
+
+        <!-- v1.0.107+ — login rate-limit knob. Standalone field so the -->
+        <!-- user can bump it after running into a 429 without re-entering -->
+        <!-- credentials (saves to /server-mode/rate-limit, NOT through    -->
+        <!-- the credentials PUT). Only meaningful when credentials are    -->
+        <!-- already configured. -->
+        <label v-if="state.has_credentials" class="ssm-field ssm-field-rate-limit">
+          <span class="ssm-field-label">Login attempts per minute (per IP)</span>
+          <input
+            v-model.number="rateLimitInput"
+            type="number"
+            min="1"
+            max="1000"
+            class="input ssm-input ssm-input-narrow"
+            @blur="saveRateLimit"
+            @keydown.enter="saveRateLimit"
+          >
+          <span class="ssm-field-hint">
+            Default <strong>30</strong>. Hit the limit? Wait 60 s, then bump this number
+            (and consider whether something is auto-filling stale credentials).
+            Hard upper bound: 1000.
+          </span>
+        </label>
       </fieldset>
 
       <!-- v1.0.99+ Server Status diagnostic.
@@ -192,16 +215,20 @@ interface ServerModeView {
   has_credentials: boolean
   username: string | null
   session_ttl_hours: number
+  login_max_attempts_per_minute: number
 }
 
 const { get, put, post } = useApi()
 
 const state = ref<ServerModeView | null>(null)
 const loading = ref(false)
-const saving = ref<'' | 'networking' | 'credentials' | 'rotate' | 'disable'>('')
+const saving = ref<'' | 'networking' | 'credentials' | 'rotate' | 'disable' | 'rate-limit'>('')
 const message = ref<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
 const form = reactive({ port: 8765, bind: '0.0.0.0' })
+// v1.0.107+ — pulled into a separate ref so an in-flight edit doesn't
+// reset on every `load()` until the user commits via blur/Enter.
+const rateLimitInput = ref(30)
 const credForm = reactive({ username: '', password: '' })
 
 // v1.0.99+ — live diagnostic from /api/server-info. Populated when the
@@ -266,11 +293,37 @@ async function load() {
     state.value = r
     form.port = r.port
     form.bind = r.bind
+    rateLimitInput.value = r.login_max_attempts_per_minute || 30
     if (!credForm.username) credForm.username = r.username || ''
   } catch (e: any) {
     message.value = { kind: 'err', text: e?.data?.detail || 'Failed to load server-mode settings' }
   } finally {
     loading.value = false
+  }
+}
+
+async function saveRateLimit() {
+  const n = Number(rateLimitInput.value)
+  if (!Number.isFinite(n) || n < 1 || n > 1000) {
+    message.value = { kind: 'err', text: 'Rate limit must be between 1 and 1000.' }
+    if (state.value?.login_max_attempts_per_minute) {
+      rateLimitInput.value = state.value.login_max_attempts_per_minute
+    }
+    return
+  }
+  if (state.value && n === state.value.login_max_attempts_per_minute) return // no-op
+  saving.value = 'rate-limit'
+  try {
+    const r = await put<ServerModeView>('/app-settings/server-mode/rate-limit', {
+      login_max_attempts_per_minute: n,
+    })
+    state.value = r
+    rateLimitInput.value = r.login_max_attempts_per_minute
+    message.value = { kind: 'ok', text: `Rate limit set to ${r.login_max_attempts_per_minute}/min.` }
+  } catch (e: any) {
+    message.value = { kind: 'err', text: e?.data?.detail || 'Failed to save rate limit' }
+  } finally {
+    saving.value = ''
   }
 }
 

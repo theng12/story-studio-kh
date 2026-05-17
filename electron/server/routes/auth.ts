@@ -28,11 +28,16 @@ export const router = Router()
  */
 router.post('/auth/login', async (req, res) => {
   const peer = req.ip || req.socket?.remoteAddress || 'unknown'
-  if (!checkLoginRateLimit(peer)) {
-    return res.status(429).json({ detail: 'Too many login attempts. Wait a minute and try again.' })
-  }
-
+  // Resolve config FIRST so the rate-limit knob is honoured. If config
+  // isn't loaded we fall back to the function's default (30/min). This
+  // order also keeps "credentials not configured" responses fast — they
+  // skip the bucket increment entirely so a misconfigured server doesn't
+  // burn the user's attempts.
   const cfg = getServerModeConfig()
+  const maxAttempts = cfg?.auth?.login_max_attempts_per_minute || 30
+  if (!checkLoginRateLimit(peer, maxAttempts)) {
+    return res.status(429).json({ detail: `Too many login attempts (max ${maxAttempts}/min). Wait a minute and try again.` })
+  }
   if (!cfg || !cfg.auth) {
     return res.status(503).json({ detail: 'Server mode credentials are not configured.' })
   }
