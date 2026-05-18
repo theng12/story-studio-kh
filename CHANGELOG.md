@@ -4,6 +4,98 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.108 — 2026-05-17
+
+**Eight-feature batch: format-mismatch banner + music polish + playlist LLM + recency-log page + multi-scope recency + thumbnail visual editor**
+
+Big user-driven release. Eight items from your pending list, all answered.
+
+### 1. Format-level chapter-count mismatch banner
+
+Sibling of the niche-level mismatch banner from v1.0.106 — but for projects WITHOUT a niche scriptStructure override. Fires above the outline-review panel when the saved outline's chapter count diverges from `format.script.defaultChapterCount`. Cyan accent, one-click "Set chapters to N" button. Suppressed when the niche banner is already firing so only one CTA appears at a time.
+
+### 2. Music Pool — preview playback in the panel
+
+Per-row ▶/■ Play/Stop button on every track in the Music Pool panel. Single-instance audio so multiple tracks can't play simultaneously; reuses `/audio-editor/preview-audio` (no new endpoint). Stops on component unmount so audio doesn't bleed into the next page.
+
+### 3. Playlist LLM-description magic button
+
+**The app already creates YouTube playlists** (Upload page, since v1.0.94) — what was missing was the magic-write description. v1.0.108 adds it:
+
+- **New endpoint:** `POST /api/projects/:slug/upload/playlists/generate-description` takes a playlist title + (optional) `video_count`, pulls niche + format context, returns ~500-char description.
+- **New button:** "✨ Generate with AI" next to the Description field in the create-playlist card. Disabled until the title is non-empty (the LLM needs the title for context). Char counter under the textarea with a warn flag when over YouTube's 5000-char cap.
+- Prayer/devotional/preaching channels get descriptions that match their `metadataDescription.voiceGuidance` + (optionally) end with the niche's `closingBenediction`. Other niches get a neutral playlist pitch.
+
+### 4. Music Pool — per-track volume / fade overrides
+
+`MusicPoolTrack` schema gains four optional override fields: `volume` / `post_narration_volume` / `fade_in` / `fade_out`. Useful when a louder ambient bed needs its own level (one track masters quieter than the rest of the pool, etc.).
+
+- **Override drawer** in the Music Pool panel — ⚙ toggle on each track row opens an inline drawer with four number inputs. Empty/blank clears the override (track inherits the merge form's globals). ● dot replaces ⚙ when any override is set so you can spot which tracks diverge from globals at a glance.
+- **Auto-pick applies overrides.** When the cycler pre-fills `music.files` from a track with overrides, `refreshPoolPeek` also sets the form's `music.volume` / `fade_in` / etc. to the track's values. So your "louder ambient bed" episode gets its louder volume automatically.
+
+### 5. Recency log management page
+
+Standalone `/projects/:slug/recency` page that surfaces the **full** log (not just the lookback-filtered slice the Script Generator strip shows):
+
+- Active rule summary card (niche id, kind, lookback source)
+- Filter by kind dropdown + free-text search across item/episode
+- Per-entry remove button (surgical — re-enables that specific item)
+- Bulk "Clear all <kind> entries" + "Clear entire log"
+- Empty / inactive-niche states with concrete next-step copy
+- Linked from the Script Generator's recency strip via a new **Manage log →** link (only renders when `log_size > 0`)
+
+Backend: `GET /recency?full=1` returns the full log + per-kind counts; `DELETE /recency/entry` removes one tuple.
+
+### 6. Multi-scope recency (script + titles + image prompts + metadata)
+
+The recency system used to scan narration only. v1.0.108 makes it generic across all four generator outputs. **The schema, log entries, and avoidance list all stay unified by `kind`** — if `Psalm 91` was used in episode 3's script, episode 4's description avoids it too (and vice versa). No more separate-bucket fragmentation.
+
+- New `Niche.recencyAvoidance.scopes?: Array<'script' | 'titles' | 'image_prompts' | 'metadata'>` field. Default `['script']` for backward compat with v1.0.106-era niche JSONs.
+- New service helpers: `getAvoidanceForScope(slug, scope)` / `prependAvoidanceToPrompt(slug, scope, prompt)` / `recordUsageForScope(slug, episode_code, scope, text)`. Existing `applyRecencyToFormat` now scope-gates to `'script'`.
+- Wired into three new generator paths:
+  - **metadata.ts** description + titles (post-gen `recordUsageForScope`)
+  - **routes/scripts.ts** `/metadata/description` + `/metadata/all` batch
+  - **image-prompts.ts** generator (prepend + post-gen scan of the joined scene/thumbnail prompts)
+
+### 7. Prayer / Devotional / Preaching niches all track scripture across script + description
+
+- **Prayer.json** — added `scopes: ['script', 'metadata']` to its existing scripture-ref rule. Same regex, two surfaces.
+- **Devotional.json** — populated for the first time. 30-episode lookback. Instruction template steers toward 9 lesser-known teaching passages (2 Corinthians 4:7-10, Romans 12:1-2, James 1:19-20, etc.).
+- **Preaching.json** — populated for the first time. 40-episode lookback (preaching channels rotate more slowly). Template steers toward 9 less-frequently-preached passages (2 Kings 6, Nehemiah 8, Acts 17, etc.).
+- History / motivation / philosophy / psychology niches NOT yet populated — what to track for those is fuzzier without concrete repetition examples. User-driven JSON edits when the pattern surfaces.
+
+### 8. Thumbnail template visual editor (MVP)
+
+Inline visual editor on the Thumbnail Templates page. Click **Edit** on any gallery card → the gallery collapses, the editor expands in place. Drag any text zone on a scaled-down 1920×1080 canvas, adjust properties inline, save.
+
+- **Drag-to-reposition** with anchor-preserving offset math. Dragging a right-anchored zone right *decreases* `xOffset` (the offset is measured FROM the right edge). Same logic for top/bottom/center. The layout's intent stays intact.
+- **Keyboard nudges**: arrow keys ±1px, Shift+arrow ±10px on the selected zone. Ignored when an input/textarea/select is focused so typing into the property fields doesn't bleed into nudging.
+- **Properties panel** on the selected zone: font size, max width, fill color (color picker), letter spacing, font weight (400-900 dropdown), uppercase toggle. Saves to local state on each edit; commits on Save.
+- **Fork-on-first-save for built-ins**: built-in templates in the app bundle stay pristine. Saving an edit to a built-in creates a `*-custom` copy in `${PROJECTS_ROOT}/.thumbnail-templates/`; subsequent edits save there. The original built-in remains reachable as the un-suffixed id.
+- **Unsaved-changes pill** in the editor header. **Cancel** confirms before discarding edits. **Save** also sets the project default to the saved id so the next compose uses the edited copy.
+
+Backend additions:
+- `POST /thumbnail-templates/:id/fork` — clones a built-in to user library
+- `PUT /thumbnail-templates/:id` — saves edits (refuses built-ins; fork first)
+- `DELETE /thumbnail-templates/:id` — removes user-library template (refuses built-ins)
+
+### Audit pass
+
+- `tsc -p electron --noEmit`: 0 errors across all four commits
+- `cd frontend && npx nuxt build`: clean throughout
+- Devotional + preaching JSONs parse cleanly with the new `scopes` field
+- Per-track override applies cleanly when auto-pick picks a track with overrides set
+- Editor drag math verified against all 9 anchor combinations (left/center/right × top/middle/bottom)
+
+### What's NOT in this release
+
+- **Drag-to-resize for thumbnail zones** — `maxWidth` is editable via a number input in the properties panel instead of corner-drag. Drag-corner-resize is a polish iteration.
+- **Reset-to-default for forked templates** — not yet wired. Easy follow-up: DELETE the user-library copy, gallery re-shows the built-in.
+- **History / motivation / philosophy / psychology recency rules** — what to track for these is fuzzier without concrete examples. Add a `recencyAvoidance` block in those niche JSONs once you spot a repetition pattern.
+- **Image-prompts recency** is wired (the plumbing exists) but no niche populates an `image_prompts` scope yet. Same JSON-edit pattern.
+
+---
+
 ## v1.0.107 — 2026-05-17
 
 **Audio-assembly music pool + Server Mode usability fixes + Unlink button**
