@@ -4,6 +4,30 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.111 — 2026-05-18
+
+**Hotfix: packaged DMG opened to a blank window.**
+
+v1.0.110 introduced a regression: installing the packaged DMG and launching the app showed a blank Electron window. Root cause was a one-line change in `electron/main.ts` while cleaning up the meta-tag injection — `sendIndex` switched from `res.send(cachedString)` to `res.sendFile(indexPath)`. Express's `sendFile` uses `fs.createReadStream` under the hood, and stream-based file reads inside Electron's ASAR archive are historically unreliable (the packaged production bundle wraps everything in `app.asar`; ASAR-aware `fs.readFile`/`fs.readFileSync` work fine but stream reads have hit edge cases for years).
+
+### Fix
+
+Reverted `sendIndex` back to the `fs.readFileSync` + cached-string + `res.send` pattern that's been load-bearing since v1.0.0 — only the meta-tag injection (no longer needed; see v1.0.110) was actually removed. No transform happens; the file is read once at boot and the same string is sent for every SPA route.
+
+Also added a one-line confirmation log at boot (`[production] preloaded index.html (N bytes)`) so any future "blank window" symptom can be diagnosed from the console without guessing.
+
+### Dev mode + v1.0.109 unaffected
+
+Only the packaged production path went through `sendIndex`. Dev mode (`npm run dev`) loads from the Nuxt dev server directly and never touches this code. v1.0.109 and earlier already used `readFileSync`, so this affected only the v1.0.110 DMG.
+
+### Files touched
+
+- `electron/main.ts` — `sendIndex` reverted to cached `readFileSync` + `res.send`. Comment updated to call out the ASAR / sendFile gotcha so the same regression can't sneak back in.
+
+No frontend changes. No backend route changes. The v1.0.110 BrowserBlock removal + hostname-based `isServerMode()` rewrite all stay in place.
+
+---
+
 ## v1.0.110 — 2026-05-18
 
 **Server Mode: remote browser tabs work everywhere now — BrowserBlock removed, isServerMode() hardened.**

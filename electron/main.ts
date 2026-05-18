@@ -150,26 +150,29 @@ async function createWindow(port: number) {
     })
 
     // ── Static SPA serving ────────────────────────────────────────────
-    // v1.0.110 — simplified. The previous version injected a `<meta
-    // name="story-studio-server-mode">` tag into a cached copy of the root
-    // index.html so the BrowserBlock guard could detect server mode
-    // synchronously. Two changes invalidated that approach:
+    // v1.0.111 — cached read of index.html (no transform). The previous
+    // version (v1.0.110) used `res.sendFile`, which under the hood streams
+    // via `fs.createReadStream` — historically flaky inside Electron's
+    // ASAR archive (packaged production builds shipped a blank window).
+    // `fs.readFileSync` is the known-good ASAR access pattern; we read
+    // once at boot and reuse the buffer.
     //
-    //   1. Nuxt static build emits per-route HTML files (`login/index.html`,
-    //      `projects/.../index.html`); express.static served those raw,
-    //      bypassing the injection — non-root URLs falsely failed the check.
-    //   2. The BrowserBlock guard itself is gone (see app.vue + the v1.0.110
-    //      CHANGELOG entry).
-    //
-    // The frontend now derives server-mode state from `window.location.
-    // hostname` instead (loopback = desktop, anything else = server mode),
-    // which works for any URL regardless of how the HTML reached the
-    // browser. So we serve every file straight from disk.
+    // The BrowserBlock-era meta-tag injection is gone (the frontend now
+    // derives server-mode state from window.location.hostname — see
+    // useServerMode.ts) so there's no transform happening; just a plain
+    // cached read.
     const indexPath = path.join(frontendPath, 'index.html')
+    let cachedIndexHtml: string | null = null
+    try {
+      cachedIndexHtml = fs.readFileSync(indexPath, 'utf-8')
+      console.log(`[production] preloaded index.html (${cachedIndexHtml.length} bytes)`)
+    } catch (e) {
+      console.warn(`[production] could not preload index.html: ${(e as Error).message}`)
+    }
 
     function sendIndex(_req: any, res: any, fallback: () => void) {
-      if (!fs.existsSync(indexPath)) return fallback()
-      res.type('html').sendFile(indexPath)
+      if (cachedIndexHtml === null) return fallback()
+      res.type('html').send(cachedIndexHtml)
     }
 
     expressApp.get(['/', '/index.html'], (req, res) => {
