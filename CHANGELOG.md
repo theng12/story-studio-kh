@@ -4,6 +4,41 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.113 — 2026-05-18
+
+**Better diagnostics for the "Internal server error" wall.**
+
+While debugging the v1.0.110-112 server-mode regressions you hit an "Internal server error" plain-text screen in the Electron window. The actual v1.0.112 binary serves `GET /` correctly (verified end-to-end with a fresh spawn + curl), so the error was almost certainly from a stale Electron window left over from one of the earlier broken builds — but the bare-text response gave zero signal about which version produced it, what threw, or how to recover.
+
+### What changed
+
+The Express global error handler in `electron/main.ts` (production-only path) was sending `res.send('Internal server error')` — a three-word string with no method, path, error message, or stack. Replaced with a small HTML error page that includes:
+
+- **Method + path** of the request that failed
+- **Error message** (HTML-escaped)
+- **Stack trace** (when present, also HTML-escaped)
+- **Reload button** so you can retry without quitting and relaunching the app
+- Styled to match the dark-app aesthetic so it doesn't look like a default browser error
+
+Same handler also now logs `[express-error] METHOD PATH → stack-or-message` to stderr (was previously just the stack), making correlation between user-visible errors and console output trivial.
+
+No behaviour change for the happy path. No new endpoints. No schema changes.
+
+### Why this matters for future debugging
+
+A 500 from this layer means something threw inside the production-only middleware chain (CSP / sendIndex / express.static / SPA fallback). With the new page, you can:
+1. Read the message + stack from the renderer directly.
+2. Copy-paste it into the conversation in seconds instead of having to dig through `~/Library/Application Support/Story Studio KH/logs/`.
+3. Hit Reload to retry without quitting the app.
+
+### Files touched
+
+- `electron/main.ts` — replaced the bare-text 500 response with an inline HTML error page. Console-log line now includes method + path.
+
+No frontend changes. No backend route changes.
+
+---
+
 ## v1.0.112 — 2026-05-18
 
 **Server-mode anonymous remote-browser load no longer reloads forever.**

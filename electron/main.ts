@@ -197,10 +197,48 @@ async function createWindow(port: number) {
       sendIndex(req, res, next)
     })
 
-    // Global error handler
-    expressApp.use((err: any, _req: any, res: any, _next: any) => {
-      console.error('[express-error]', err.stack || err)
-      res.status(500).send('Internal server error')
+    // Global error handler.
+    //
+    // v1.0.113 — surface the actual error in the renderer in production, not
+    // the bare-text "Internal server error" mask. The prior version sent a
+    // string body that the browser rendered as text, leaving the user staring
+    // at a window with three words and no path forward. Now we send a small
+    // HTML page with the method/path/message/stack inline, plus a reload
+    // button, so the user (a) sees what broke, (b) can copy-paste it to me
+    // for debugging, and (c) can retry without quitting the app. We also
+    // mirror to console.error AND the daily request log so the symptom is
+    // captured wherever the user looks.
+    expressApp.use((err: any, req: any, res: any, _next: any) => {
+      const msg = String(err?.message || err || 'unknown')
+      const stack = String(err?.stack || '')
+      console.error('[express-error]', req.method, req.path, '→', stack || msg)
+      if (res.headersSent) return
+      const safeMsg = msg.replace(/[<>&]/g, (c) =>
+        c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;')
+      const safeStack = stack.replace(/[<>&]/g, (c) =>
+        c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;')
+      res.status(500).type('html').send(`<!doctype html>
+<html><head><meta charset="utf-8"><title>Internal error · Story Studio KH</title>
+<style>
+  body { font: 14px/1.5 -apple-system, system-ui, sans-serif;
+         background: #0f1117; color: #e8e8ea; margin: 0; padding: 40px;
+         min-height: 100vh; box-sizing: border-box; }
+  h1 { color: #f87171; font-size: 18px; margin: 0 0 12px; }
+  .meta { color: #888; font-size: 12px; margin-bottom: 16px; }
+  pre { background: rgba(255,255,255,0.06); padding: 12px 14px;
+        border-radius: 6px; overflow: auto; font-size: 12px;
+        white-space: pre-wrap; word-break: break-word; }
+  button { margin-top: 18px; padding: 8px 16px; font-size: 13px;
+           background: #6ea8fe; color: #0f1117; border: 0;
+           border-radius: 6px; cursor: pointer; font-weight: 600; }
+</style></head>
+<body>
+  <h1>Internal server error</h1>
+  <div class="meta">${req.method} ${req.path}</div>
+  <pre>${safeMsg}</pre>
+  ${safeStack ? `<pre>${safeStack}</pre>` : ''}
+  <button onclick="location.reload()">Reload</button>
+</body></html>`)
     })
 
     mainWindow.loadURL(`http://127.0.0.1:${port}`)
