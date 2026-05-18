@@ -1,42 +1,42 @@
 <template>
-  <BrowserBlock v-if="blockBrowser" />
-  <template v-else>
-    <NuxtLayout>
-      <NuxtPage />
-    </NuxtLayout>
-    <ToastContainer />
-    <CostConfirmationDialog />
-    <ConfirmDialog />
-    <AppSettingsModal />
-    <!-- Server-mode-only: in-app replacement for native folder/file pickers. -->
-    <FileBrowserModal v-if="serverModeForModal" />
-    <!-- Server-mode-only: connection banner with sign-out. -->
-    <ServerModeBanner v-if="serverModeForModal" />
-    <!-- v1.0.77 — What's New modal. Auto-shows once per upgrade; can also
-         be opened manually from the sidebar version badge or Help menu. -->
-    <WhatsNewModal />
-  </template>
+  <NuxtLayout>
+    <NuxtPage />
+  </NuxtLayout>
+  <ToastContainer />
+  <CostConfirmationDialog />
+  <ConfirmDialog />
+  <AppSettingsModal />
+  <!-- Server-mode-only: in-app replacement for native folder/file pickers. -->
+  <FileBrowserModal v-if="serverModeForModal" />
+  <!-- Server-mode-only: connection banner with sign-out. -->
+  <ServerModeBanner v-if="serverModeForModal" />
+  <!-- v1.0.77 — What's New modal. Auto-shows once per upgrade; can also
+       be opened manually from the sidebar version badge or Help menu. -->
+  <WhatsNewModal />
 </template>
 
 <script setup lang="ts">
 import { isServerMode, initServerMode } from '~/composables/useServerMode'
 import { useWhatsNewModal } from '~/composables/useWhatsNewModal'
 
-// Browser-tab guard: in production, refuse to render anything if we're not
-// running inside the Electron shell (where preload.cjs sets `window.electron`)
-// AND we're not in server mode (where the headless backend explicitly invites
-// remote browser connections). Without this guard, opening http://localhost:3001/
-// in Chrome would load the full UI and the operator could click Generate,
-// burning real provider credit with none of the desktop app's safeguards.
+// v1.0.110 — removed the BrowserBlock guard that prevented loading the SPA
+// from a non-Electron browser tab unless server mode was detected. Two
+// reasons:
 //
-// Server mode signals via a <meta> tag injected at serve time by Express
-// (electron/main.ts → sendIndex), so the check is synchronous and zero-flicker.
-// DEV is intentionally untouched so `npm run dev` remains usable in a browser
-// tab for HMR-speed iteration.
-const blockBrowser = import.meta.env.PROD
-  && typeof window !== 'undefined'
-  && !(window as unknown as { electron?: unknown }).electron
-  && !isServerMode()
+//   1. The detection relied on a `<meta name="story-studio-server-mode">`
+//      tag that Express only injected into the ROOT `/index.html`. Nuxt's
+//      static build emits a separate `login/index.html`, `projects/.../
+//      index.html`, etc. — express.static served those raw, no meta tag, so
+//      navigating directly to any non-root URL falsely tripped the block
+//      even though server mode was active.
+//   2. For this app's single-user / personal-use threat model, server mode's
+//      session-cookie auth already gates everything. The block was a
+//      defence-in-depth feature that turned into a friction tax.
+//
+// Removing it: any non-Electron browser fetch lands on the SPA directly. In
+// desktop mode the backend still binds 127.0.0.1, so accidentally pointing
+// a remote browser at the host requires explicit server-mode opt-in. In
+// server mode, login.vue + the auth-gate middleware do the work.
 
 // Mount the file-browser modal only when server mode is active — saves the
 // component cost in the common (Electron) case and prevents a stray modal
@@ -55,10 +55,9 @@ if (typeof window !== 'undefined') {
 // modal so the user sees the changelog. The modal's close handler PUTs
 // the current version back so the next launch is silent until the next
 // upgrade. Wrapped in HMR/dev guard so the dev cycle doesn't pop it on
-// every save. Skips when blockBrowser is true (the BrowserBlock screen
-// has no place for a modal).
+// every save.
 const wnm = useWhatsNewModal()
-if (typeof window !== 'undefined' && !blockBrowser) {
+if (typeof window !== 'undefined') {
   void (async () => {
     if (wnm._autoCheckDone.value) return
     wnm._autoCheckDone.value = true

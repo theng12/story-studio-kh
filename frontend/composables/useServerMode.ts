@@ -36,40 +36,33 @@ const state = reactive<ServerModeState>({
 })
 
 /**
- * Sync read of the meta tag. Safe to call during `<script setup>` because
- * it doesn't await — index.html is already in the DOM before any Vue code
- * runs. Returns false during SSR (no `document`); the SPA is `ssr: false`
- * so this never matters in production but keeps unit tests sane.
+ * Sync read — safe to call during `<script setup>` because it doesn't await.
+ * Returns false during SSR (no `document`); the SPA is `ssr: false` so this
+ * never matters in production but keeps unit tests sane.
  *
- * v1.0.107+ — the Electron desktop window loads the same `http://127.0.0.1`
- * URL the server serves to remote browsers (main.ts:197 mainWindow.loadURL).
- * So the window sees the same meta tag the server injected for remote
- * clients. Without an additional check, sitting at the host Mac in the
- * Electron window triggered every "this is a remote web client" code path —
- * most painfully, the Server Mode credentials lockout
- * (ServerModeSettingsPanel.vue:253) greyed out the username/password
- * fields so the user couldn't set credentials at all. Fix: trust the
- * Electron preload's `window.electron.isElectron` marker. Remote browsers
- * don't load the preload, so the marker is falsy there and the meta-tag
- * check stays authoritative.
+ * Detection logic (v1.0.110):
+ *   1. `window.electron.isElectron === true` (set by electron/preload.cjs)
+ *      → we're sitting at the host Mac in the Electron window → desktop.
+ *   2. Hostname is loopback (`127.0.0.1` / `localhost` / `::1`)
+ *      → either `npm run dev` or the host Mac in a local browser → desktop.
+ *   3. Otherwise (Tailscale IP, *.tailnet, *.local, real LAN IP)
+ *      → remote client → server mode.
+ *
+ * Hostname-only check is reliable because server mode is the ONLY config
+ * that binds the backend on 0.0.0.0 — in default desktop mode the server
+ * binds 127.0.0.1 only, so a non-loopback URL physically can't reach the
+ * app unless server mode is active. No need for a server-injected meta
+ * tag (the previous mechanism, removed in v1.0.110 because Nuxt's static
+ * build emits per-route HTML files that `express.static` served raw,
+ * bypassing the meta-tag injection on every URL except `/`).
  */
 export function isServerMode(): boolean {
   if (typeof document === 'undefined') return false
-  // Electron BrowserWindow → we're sitting at the host Mac, NOT a remote
-  // client. Treat the renderer as desktop regardless of how the server is
-  // configured. Preload script: electron/preload.cjs.
   const w = window as unknown as { electron?: { isElectron?: boolean } }
   if (w.electron?.isElectron === true) return false
-  // v1.0.109 — second fallback: loopback hostname means we're physically at
-  // the host (either dev at localhost:3000 OR a browser pointed at the host
-  // Mac's loopback). Remote clients always reach us via the Tailscale IP /
-  // *.tailnet hostname / mDNS .local name — never loopback. Without this
-  // fallback, a flaky preload load (e.g. an in-flight TS rebuild swapping
-  // out main.js) leaves window.electron undefined and the credentials
-  // fieldset stays disabled — the original "I can't type" complaint.
-  const host = typeof window !== 'undefined' ? window.location.hostname : ''
+  const host = window.location.hostname
   if (host === '127.0.0.1' || host === 'localhost' || host === '::1') return false
-  return !!document.querySelector('meta[name="story-studio-server-mode"][content="1"]')
+  return true
 }
 
 /**

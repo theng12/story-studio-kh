@@ -149,32 +149,29 @@ async function createWindow(port: number) {
       next()
     })
 
-    // ── index.html injection ────────────────────────────────────────────
-    // The SPA needs to know synchronously whether it's running in server
-    // mode (so app.vue's BrowserBlock guard doesn't fire when a non-Electron
-    // browser is the intended client). Cheapest signal is a <meta> tag
-    // injected at serve time — readable in <script setup> before any API
-    // call returns. Cached in memory: index.html doesn't change per-request,
-    // and we already bake-in the build via nuxt generate.
+    // ── Static SPA serving ────────────────────────────────────────────
+    // v1.0.110 — simplified. The previous version injected a `<meta
+    // name="story-studio-server-mode">` tag into a cached copy of the root
+    // index.html so the BrowserBlock guard could detect server mode
+    // synchronously. Two changes invalidated that approach:
+    //
+    //   1. Nuxt static build emits per-route HTML files (`login/index.html`,
+    //      `projects/.../index.html`); express.static served those raw,
+    //      bypassing the injection — non-root URLs falsely failed the check.
+    //   2. The BrowserBlock guard itself is gone (see app.vue + the v1.0.110
+    //      CHANGELOG entry).
+    //
+    // The frontend now derives server-mode state from `window.location.
+    // hostname` instead (loopback = desktop, anything else = server mode),
+    // which works for any URL regardless of how the HTML reached the
+    // browser. So we serve every file straight from disk.
     const indexPath = path.join(frontendPath, 'index.html')
-    let cachedIndexHtml: string | null = null
-    try {
-      const raw = fs.readFileSync(indexPath, 'utf-8')
-      const serverMode = isServerMode()
-      cachedIndexHtml = serverMode
-        ? raw.replace('<head>', '<head>\n  <meta name="story-studio-server-mode" content="1">')
-        : raw
-    } catch (e) {
-      console.warn(`[production] could not preload index.html: ${(e as Error).message}`)
-    }
 
     function sendIndex(_req: any, res: any, fallback: () => void) {
-      if (cachedIndexHtml === null) return fallback()
-      res.type('html').send(cachedIndexHtml)
+      if (!fs.existsSync(indexPath)) return fallback()
+      res.type('html').sendFile(indexPath)
     }
 
-    // Intercept root + index.html BEFORE the static handler so our injected
-    // HTML wins over what express.static would serve.
     expressApp.get(['/', '/index.html'], (req, res) => {
       sendIndex(req, res, () => res.status(404).end())
     })

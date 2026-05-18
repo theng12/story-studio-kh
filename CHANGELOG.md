@@ -4,6 +4,74 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.110 — 2026-05-18
+
+**Server Mode: remote browser tabs work everywhere now — BrowserBlock removed, isServerMode() hardened.**
+
+Caught a v1.0.109 regression about an hour after shipping: you'd install the DMG, enable server mode, navigate to `http://<tailnet-ip>:8765/login` directly, and instead of the login form you'd get the **"Open Story Studio from the desktop app"** wall. Bouncing through `/` first worked; landing on `/login` first didn't. Same for any non-root URL.
+
+### Root cause
+
+The BrowserBlock guard in `app.vue` blocked the SPA from rendering whenever it detected "not Electron + not server mode". The "is this server mode?" check was a `<meta name="story-studio-server-mode">` tag that the Express server injected into the cached `/index.html`. Worked great for the root. Two problems killed it for everything else:
+
+1. **Nuxt's static build emits a separate HTML file per route** — `login/index.html`, `projects/.../index.html`, etc. `express.static` served those raw, so the meta-tag injection only fired for `/` (the path explicitly intercepted before the static middleware). Any direct navigation to a non-root URL falsely failed the check.
+2. **The check was synchronous + couldn't reach the backend.** No fallback. Once the meta tag missed, the BrowserBlock fired and the SPA never got to mount login.vue's onMounted hook that would have redirected anyway.
+
+### What changed
+
+**Removed entirely:**
+- `frontend/components/BrowserBlock.vue` — deleted.
+- The `<BrowserBlock>` mount + `blockBrowser` computed in `frontend/app.vue` — gone.
+- The meta-tag injection block in `electron/main.ts` (the `cachedIndexHtml` swap) — gone. Express now just `sendFile`s the index from disk for every SPA route. Simpler + correct.
+
+**Rewrote** `isServerMode()` in `frontend/composables/useServerMode.ts`:
+
+```ts
+// v1.0.110
+export function isServerMode(): boolean {
+  if (typeof document === 'undefined') return false
+  if ((window as any).electron?.isElectron === true) return false    // host Mac, Electron window
+  const host = window.location.hostname
+  if (host === '127.0.0.1' || host === 'localhost' || host === '::1') return false  // dev or host loopback
+  return true                                                          // Tailscale IP / *.tailnet / *.local
+}
+```
+
+Hostname-based detection is reliable for this app's threat model:
+- **Default desktop mode binds 127.0.0.1 only** — a non-loopback URL physically can't reach the backend unless server mode flipped the bind to 0.0.0.0. So "I'm being served at a Tailscale IP" is mathematically equivalent to "server mode is on".
+- **Works on every URL** regardless of how the HTML file reached the browser. Nuxt's per-route HTML files are no longer load-bearing.
+- **Doesn't depend on a preload race** — even if `window.electron` is undefined on the host, loopback hostname catches it.
+
+### Why removing the BrowserBlock is fine
+
+It was defence-in-depth against a specific paranoia: *"What if someone opens `http://localhost:3001` in a stray Chrome tab and clicks Generate, burning provider credit?"* For this app's actual usage shape — single user, personal use, behind Tailscale — the threat is essentially zero, and the cost (people locked out of the login page on their own server) is real.
+
+The remaining safeguards are still in place:
+- **Desktop mode binds `127.0.0.1`** — no remote browser can reach the backend without you flipping the switch in Settings.
+- **Server mode requires explicit `enabled: true`** in `app-settings.json` AND credentials configured — neither is auto-set.
+- **Session-cookie auth gates every API route in server mode** (`buildRequireSession` middleware in `electron/server/lib/auth-session.ts`).
+- **Per-IP login rate limiter** (default 30/min, configurable) blocks brute force.
+
+The BrowserBlock added nothing on top of those layers; it just made the front door brittle.
+
+### What this fixes for you
+
+- **Open `http://<tailnet-ip>:8765/login` directly** from any browser → see the login form, log in, you're in. No more "Open Story Studio from the desktop app" wall on routes other than `/`.
+- **Bookmark any URL** in the app (specific project / specific page) and open it from a fresh browser → works.
+- **The Mac mini's Electron window unaffected** — `window.electron.isElectron` still wins, the renderer still treats itself as desktop.
+- **Dev mode unaffected** — `npm run dev` at `localhost:3000` is loopback, still treated as desktop.
+
+### Files touched
+
+- `frontend/app.vue` — removed `<BrowserBlock>` mount, removed `blockBrowser` computed, removed the `&& !blockBrowser` guard on the What's New auto-popup.
+- `frontend/components/BrowserBlock.vue` — deleted.
+- `frontend/composables/useServerMode.ts` — `isServerMode()` rewritten to hostname-based. JSDoc updated.
+- `electron/main.ts` — removed `cachedIndexHtml` + meta-tag injection. `sendIndex` now streams the file directly. Comment updated to explain why.
+
+No backend route changes. No schema changes. No migration. The auth flow and rate limiter are untouched.
+
+---
+
 ## v1.0.109 — 2026-05-18
 
 **Server Mode credentials — unblocked + standardised.**
