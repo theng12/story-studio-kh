@@ -12,11 +12,17 @@
         <code>http://this-mac:{{ state?.port || 8765 }}/</code>. Auth via username + password.
         Tailscale handles transport security; don't expose the port to the public internet.
       </p>
-      <p v-if="lockedOut" class="ssm-locked">
-        You're connected via the web UI right now. Networking changes (enable, port, bind) are
-        editable — disabling server mode here will end this session and you'll need to sit at
-        the Mac mini directly to re-enable. <strong>Credentials are locked from the web</strong>
-        (a typo would lock you out completely); change them by sitting at the mini.
+      <!-- v1.0.109 — replaced the "credentials are locked from the web" wall
+           with an informational banner. The previous lockout was over-defensive
+           (and twice now caused users to be unable to set initial credentials
+           at all because its DOM-heuristic bypass misfired). Typo-lockout is
+           now handled by the "Confirm new password" field instead. -->
+      <p v-if="state?.is_currently_active" class="ssm-locked">
+        You're connected via the web UI right now. <strong>Changing your password will sign you
+        out</strong> — the server rotates its session secret on every credential change, so your
+        current browser cookie becomes invalid. Log back in with the new password to continue.
+        If you fat-finger it, run <code>npm run reset-server-auth</code> at the Mac mini to clear
+        the hash and start over.
       </p>
 
       <!-- One-click "switch back to desktop" — most prominent action when active. -->
@@ -81,8 +87,11 @@
         </label>
       </fieldset>
 
-      <!-- Credentials — locked from the web to prevent typo-lockout. -->
-      <fieldset :disabled="lockedOut || saving" class="ssm-fieldset">
+      <!-- v1.0.109 — credentials are editable from anywhere. Typo-lockout is
+           handled by the Confirm field below + the rate limiter + the reset
+           script. The old origin-based lockout caused more pain than it
+           prevented (see history note above the banner). -->
+      <fieldset :disabled="!!saving" class="ssm-fieldset">
         <legend>
           Credentials
           <span v-if="state.has_credentials" class="state-pill state-set">configured</span>
@@ -106,6 +115,31 @@
             placeholder="At least 8 characters"
             autocomplete="new-password"
           >
+          <span
+            v-if="credForm.password && credForm.password.length > 0 && credForm.password.length < 8"
+            class="ssm-field-hint ssm-field-hint-warn"
+          >
+            {{ 8 - credForm.password.length }} more character{{ 8 - credForm.password.length === 1 ? '' : 's' }} to go.
+          </span>
+        </label>
+        <!-- v1.0.109 — Confirm new password. Industry-standard typo guard;
+             replaces the old origin-based credential lockout. Save is gated
+             on this matching the password field above. -->
+        <label class="ssm-field">
+          <span class="ssm-field-label">Confirm password</span>
+          <input
+            v-model="credForm.passwordConfirm"
+            type="password"
+            class="input ssm-input"
+            placeholder="Re-enter the password"
+            autocomplete="new-password"
+          >
+          <span
+            v-if="credForm.passwordConfirm && credForm.password !== credForm.passwordConfirm"
+            class="ssm-field-hint ssm-field-hint-warn"
+          >
+            Doesn't match the password above.
+          </span>
         </label>
         <div class="ssm-buttons">
           <button
@@ -205,7 +239,6 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { isServerMode } from '~/composables/useServerMode'
 
 interface ServerModeView {
   enabled: boolean
@@ -229,7 +262,10 @@ const form = reactive({ port: 8765, bind: '0.0.0.0' })
 // v1.0.107+ — pulled into a separate ref so an in-flight edit doesn't
 // reset on every `load()` until the user commits via blur/Enter.
 const rateLimitInput = ref(30)
-const credForm = reactive({ username: '', password: '' })
+// v1.0.109 — passwordConfirm added so the user can self-check for typos.
+// Replaces the prior origin-based lockout that prevented web-side password
+// changes entirely.
+const credForm = reactive({ username: '', password: '', passwordConfirm: '' })
 
 // v1.0.99+ — live diagnostic from /api/server-info. Populated when the
 // server is in server mode (the endpoint returns null otherwise). Polled
@@ -273,15 +309,16 @@ function formatUptime(s: number): string {
   return `${d}d ${h}h`
 }
 
-// `lockedOut` now applies ONLY to credentials — networking changes (enable
-// off, port, bind) are deliberate actions even from the web. Disabling server
-// mode loses remote access, but that's the user's intent. Credentials remain
-// locked because a mistyped password while logged in via web = total lockout.
-const lockedOut = computed(() => isServerMode())
-
+// v1.0.109 — `lockedOut` and the origin-based DOM heuristic that gated it
+// have been removed entirely. Credentials are editable from anywhere; typo
+// protection lives in the Confirm Password field below, in the per-IP rate
+// limiter on /api/auth/login, and in the `npm run reset-server-auth` escape
+// hatch for the truly-stuck case. See the banner copy above for the
+// "you'll be signed out after save" warning when changing remotely.
 const canSaveCredentials = computed(() => {
-  if (lockedOut.value || saving.value) return false
+  if (saving.value) return false
   if (!credForm.password || credForm.password.length < 8) return false
+  if (credForm.password !== credForm.passwordConfirm) return false
   if (!credForm.username && !state.value?.username) return false
   return true
 })
@@ -334,7 +371,6 @@ function saveNetworkingDebounced() {
 }
 
 async function saveNetworking() {
-  if (lockedOut.value) return
   if (!state.value) return
   if (form.port === state.value.port && form.bind === state.value.bind) return
   saving.value = 'networking'
@@ -421,7 +457,19 @@ async function onSaveCredentials() {
       password: credForm.password,
     })
     credForm.password = ''
-    message.value = { kind: 'ok', text: 'Credentials saved. Existing sessions are invalidated.' }
+    credForm.passwordConfirm = ''
+    // v1.0.109 — clearer next-step copy. The user is almost always still
+    // missing one of: (a) toggle Enable on next launch, or (b) restart the
+    // app to flip into server mode. The original message ("Existing sessions
+    // are invalidated") was technically accurate but left them stranded.
+    message.value = {
+      kind: 'ok',
+      text: state.value?.is_currently_active
+        ? 'Credentials saved. Your current session was invalidated — log back in with the new password.'
+        : (state.value?.enabled
+          ? 'Credentials saved. Restart the app to enter server mode and start logging in remotely.'
+          : 'Credentials saved. Toggle "Enable on next launch" above, then restart the app to start logging in remotely.'),
+    }
   } catch (e: any) {
     message.value = { kind: 'err', text: e?.data?.detail || 'Save failed' }
   } finally {
@@ -509,6 +557,11 @@ defineExpose({ reload: load })
   font-size: 11px;
   color: var(--text-muted);
   line-height: 1.4;
+}
+/* v1.0.109 — amber inline hint for the typo guards on the credentials
+   form (password too short, confirm mismatch). Sits under the input. */
+.ssm-field-hint-warn {
+  color: #ca8a04;
 }
 .ssm-input { font-size: 13px; }
 .ssm-input-narrow { max-width: 180px; }

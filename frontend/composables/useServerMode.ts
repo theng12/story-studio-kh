@@ -60,6 +60,15 @@ export function isServerMode(): boolean {
   // configured. Preload script: electron/preload.cjs.
   const w = window as unknown as { electron?: { isElectron?: boolean } }
   if (w.electron?.isElectron === true) return false
+  // v1.0.109 — second fallback: loopback hostname means we're physically at
+  // the host (either dev at localhost:3000 OR a browser pointed at the host
+  // Mac's loopback). Remote clients always reach us via the Tailscale IP /
+  // *.tailnet hostname / mDNS .local name — never loopback. Without this
+  // fallback, a flaky preload load (e.g. an in-flight TS rebuild swapping
+  // out main.js) leaves window.electron undefined and the credentials
+  // fieldset stays disabled — the original "I can't type" complaint.
+  const host = typeof window !== 'undefined' ? window.location.hostname : ''
+  if (host === '127.0.0.1' || host === 'localhost' || host === '::1') return false
   return !!document.querySelector('meta[name="story-studio-server-mode"][content="1"]')
 }
 

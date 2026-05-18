@@ -4,6 +4,62 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.109 — 2026-05-18
+
+**Server Mode credentials — unblocked + standardised.**
+
+The Server Mode credentials form had two compounding bugs that combined to leave you literally unable to type into the password field, even while sitting at the host Mac. v1.0.109 rips out the offending guard entirely and replaces it with the industry-standard typo defence (a Confirm Password field). Single-purpose release — no other surface touched.
+
+### What was wrong
+
+The Credentials fieldset was disabled via a `lockedOut` computed that gated on `isServerMode()`. The intent was "you shouldn't be able to change your password while connected over Tailscale, because a typo would lock you out of the only path back in." Two problems:
+
+1. **The `isServerMode()` bypass for the Electron desktop window was fragile.** It relied on `window.electron.isElectron` being set by the preload script. If the preload's contextBridge didn't land in time (HMR race, TS rebuild mid-load, dev-mode timing), the marker stayed undefined and the renderer fell back to the meta-tag check — which in dev returns false, but in production-at-host returns true (the same meta tag the backend injects for remote clients). Net effect: the lockout fired in places it shouldn't.
+2. **The premise was wrong.** Almost every other consumer app handles "user might typo their new password" with a Confirm Password field, not by refusing to accept the change at all. The lockout reintroduced the friction (walk to the mini) that server mode exists to eliminate.
+
+### What changed
+
+- **Removed the origin-based credentials lockout entirely.** The `lockedOut` computed is gone, the `isServerMode()` import in `ServerModeSettingsPanel.vue` is gone, the locked-fieldset banner is gone. You can now edit credentials from anywhere.
+- **Added a Confirm Password field.** Industry-standard typo guard. The Set Password button stays disabled until both fields match. (See `ServerModeSettingsPanel.vue:credForm.passwordConfirm`.)
+- **Inline amber hints below the password fields.**
+  - Short password → "N more characters to go" (counts down to 8).
+  - Confirm mismatch → "Doesn't match the password above."
+  - No more silently-disabled Save button leaving you wondering what's wrong.
+- **Replaced the "credentials locked" banner** with an informational warning that only renders when you're connected via web (`state.is_currently_active === true`): *"Changing your password will sign you out — the server rotates its session secret on every credential change. Log back in with the new password to continue. If you fat-finger it, run `npm run reset-server-auth` at the Mac mini."* So you know exactly what's about to happen.
+- **Better success-toast copy after Set Password.** Picks one of three messages based on current state:
+  - Already in server mode → "Credentials saved. Your current session was invalidated — log back in with the new password."
+  - Enabled-but-not-yet-active → "Credentials saved. Restart the app to enter server mode and start logging in remotely."
+  - Disabled (the most common stuck state) → "Credentials saved. Toggle 'Enable on next launch' above, then restart the app to start logging in remotely."
+
+The old toast was just "Credentials saved. Existing sessions are invalidated." — accurate but left you stranded with no idea what to do next.
+
+### Defence in depth (what still guards you)
+
+Removing the lockout doesn't remove the typo defence — it just moves it to less-hostile places:
+
+1. **Confirm Password field** catches the typo before submit.
+2. **Login rate limiter** (`login_max_attempts_per_minute`, default 30/min per IP) catches typo-storms after submit.
+3. **`npm run reset-server-auth`** stays as the nuclear option for the genuinely-stuck case. The login-page footnote already documents it; no copy change needed.
+
+### Bonus: `isServerMode()` loopback fallback
+
+Tightened the heuristic in `frontend/composables/useServerMode.ts` so the loopback hostnames (`127.0.0.1`, `localhost`, `::1`) are treated as desktop regardless of whether the preload marker landed. Not load-bearing anymore (the lockout is gone), but used by `app.vue` to gate `FileBrowserModal` + `ServerModeBanner` + the native-picker shim in `useApi`. Same logic, more robust.
+
+### What this fixes for you
+
+- **Open Server Mode → Credentials → can immediately type into the username + password fields**, regardless of whether you're at the host Mac, in dev mode, or in a remote browser.
+- **Cannot accidentally lock yourself out** by typo — the Confirm field catches it.
+- **Know what to do next** after Set Password instead of staring at "Existing sessions are invalidated" with no callout.
+
+### Files touched
+
+- `frontend/components/ServerModeSettingsPanel.vue` — removed `lockedOut`, added `passwordConfirm`, inline hints, smarter success toast, replacement informational banner. Removed `isServerMode` import + dead `saveNetworking` lockout gate.
+- `frontend/composables/useServerMode.ts` — loopback-hostname fallback added to `isServerMode()` for the still-active downstream callers (banner, modal mount, picker shim).
+
+No backend changes. No DB / schema migration. No new endpoints. The auth flow itself (set / login / verify / rotate) was already proved healthy end-to-end via supertest probes against the real Express app — the bug was purely in the renderer's typing access.
+
+---
+
 ## v1.0.108 — 2026-05-17
 
 **Eight-feature batch: format-mismatch banner + music polish + playlist LLM + recency-log page + multi-scope recency + thumbnail visual editor**
