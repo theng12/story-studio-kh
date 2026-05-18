@@ -56,14 +56,32 @@ if (typeof window !== 'undefined') {
 // the current version back so the next launch is silent until the next
 // upgrade. Wrapped in HMR/dev guard so the dev cycle doesn't pop it on
 // every save.
+//
+// v1.0.112 — gate the probe on auth-ready in server mode. Without the gate,
+// app.vue mounted on /login → fired this fetch → backend returned 401 →
+// useApi redirected to /login → infinite refresh loop. The fetch hits an
+// auth-gated endpoint, so it can't run before initServerMode() confirms
+// the user is signed in. Desktop mode hits no auth gate, so it runs
+// immediately (initServerMode resolves synchronously for non-server-mode).
 const wnm = useWhatsNewModal()
+const useApiPromise = typeof window !== 'undefined'
+  ? import('~/composables/useApi')
+  : null
 if (typeof window !== 'undefined') {
   void (async () => {
     if (wnm._autoCheckDone.value) return
     wnm._autoCheckDone.value = true
-    // Lazy-import useApi here to avoid a top-level dependency cycle (this
-    // file imports many composables already).
-    const { useApi: _useApi } = await import('~/composables/useApi')
+    // Wait for the auth-state probe to settle. In desktop mode this
+    // resolves immediately (state.authChecked is set synchronously). In
+    // server mode it awaits the /api/auth/me round-trip.
+    await initServerMode().catch(() => {})
+    // In server mode, skip when anonymous — the gated endpoint would
+    // 401 and useApi would helpfully redirect to /login, which on a fresh
+    // remote-browser load IS the page we're already on → infinite loop.
+    const { useServerMode } = await import('~/composables/useServerMode')
+    const sm = useServerMode()
+    if (sm.isServerMode && !sm.isAuthenticated) return
+    const { useApi: _useApi } = await useApiPromise!
     const { get } = _useApi()
     try {
       const r = await get<{ last_seen_version: string | null }>('/app-settings/last-seen-version')

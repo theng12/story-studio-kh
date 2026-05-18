@@ -4,6 +4,64 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.112 — 2026-05-18
+
+**Server-mode anonymous remote-browser load no longer reloads forever.**
+
+Third v1.0.10x patch in the server-mode area today. This one fixes a genuinely-nasty infinite redirect loop you hit immediately after installing v1.0.111 and pointing a remote browser at the headless mini. Four root causes compounded; all four are now fixed.
+
+### The bug chain
+
+When you opened `http://<tailnet-ip>:8765/` from your laptop with no session cookie:
+
+1. `pages/index.vue` mounted → fired `loadData()` → 401 from the auth-gated `/api/projects` endpoint.
+2. `useApi`'s `handleAuthExpired` fired `window.location.assign('/login')`. **Correct so far.**
+3. Browser GET'd `/login`. `express.static` saw `frontend/.output/public/login/` was a directory and issued **HTTP 301 → `/login/`** (trailing-slash redirect, on by default).
+4. SPA loaded at `pathname === '/login/'`.
+5. `app.vue`'s **What's New auto-popup** fired `get('/app-settings/last-seen-version')` (auth-gated) → 401.
+6. `useApi`'s guard checked `pathname === '/login'` — failed because actual pathname was `'/login/'` with trailing slash → fired ANOTHER `window.location.assign('/login')`.
+7. Express.static 301'd again to `/login/`. SPA loaded again. WNM popup fired again. 401 again. Goto step 6. **Infinite refresh loop.**
+
+### What was fixed (four sites, root-cause first)
+
+1. **`useApi.ts:handleAuthExpired` (the load-bearing fix).**
+   - **Trailing-slash tolerance**: `pathname.replace(/\/+$/, '') || '/'` before the comparison. `/login/` now matches `/login`.
+   - **Re-entrancy guard**: a module-scoped `_redirectingToLogin` flag. Pages typically fire many parallel API calls — the first 401 latches the flag; subsequent 401s in the same page-lifetime become no-ops. Less amplification of any future bug in this area, and quieter dev-tools logs.
+
+2. **`electron/main.ts` express.static — `redirect: false`.**
+   - Disables the automatic directory-to-trailing-slash 301. `GET /login` (no slash) now falls through to the SPA fallback that serves the cached root `index.html`. Pathname stays canonical (`/login`, no slash) from the URL bar. The trailing-slash-tolerant check in #1 covers the case where a user explicitly types `/login/`.
+
+3. **`app.vue` What's New auto-popup — deferred until auth settles.**
+   - Previously: fire-and-forget at component setup, racing `initServerMode()`. In server-mode-anonymous, the request fired before the auth check completed → 401 → triggered the redirect chain above.
+   - Now: `await initServerMode()` first, then check `if (sm.isServerMode && !sm.isAuthenticated) return`. The popup only fires once we know the user is signed in, so its API call is never the 401 source.
+
+4. **`ServerModeBanner.vue` banner-visibility check — same trailing-slash tolerance.**
+   - Cosmetic only (the banner shouldn't render on `/login` regardless of slash), but worth fixing in the same pass so the same gotcha can't bite twice.
+
+### Audit: what else COULD have looped, doesn't
+
+Walked every `window.location.assign` site and every page-mount API call before declaring done:
+
+- **`login.vue` onMounted** — redirects to `/` only when `isServerMode()` is false. In server mode it does nothing. No API calls fire from this page before submit. ✓
+- **`login.vue` onSubmit success** — redirects to `/` after `POST /api/auth/login` succeeds. By definition the user is now authenticated; subsequent calls won't 401. ✓
+- **`ServerModeBanner.vue` onSignOut** — clears cookie via `POST /api/auth/logout`, marks signed-out, redirects to `/login`. WNM popup defer (#3) ensures `/login` doesn't fire an auth-gated call. ✓
+- **`layouts/default.vue` (used by /login)** — pure template, no script, no API calls. ✓
+- **`useApi.waitForBootReady` /api/health probe** — public route, never 401. ✓
+- **`initServerMode` /api/auth/me probe** — path starts with `/auth/`, `handleAuthExpired` skips. ✓
+
+Every other page mounts under `layouts/dashboard.vue` and the dashboard layout is auth-required by design — those pages firing 401s and redirecting to `/login` is the *correct* behaviour for an anonymous session. The only thing v1.0.112 changes is that the redirect **terminates** at `/login` instead of bouncing back.
+
+### Files touched
+
+- `frontend/composables/useApi.ts` — `handleAuthExpired` trailing-slash + re-entrancy guard.
+- `electron/main.ts` — `express.static({ redirect: false })`.
+- `frontend/app.vue` — WNM auto-popup gated on `initServerMode()` + `isAuthenticated`.
+- `frontend/components/ServerModeBanner.vue` — visibility check trailing-slash tolerance.
+
+No backend route changes. No schema changes. The actual auth flow (cookie minting, session verify, rate limiter) is untouched — it was correct all along; the renderer was just getting in its own way.
+
+---
+
 ## v1.0.111 — 2026-05-18
 
 **Hotfix: packaged DMG opened to a blank window.**

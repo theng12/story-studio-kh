@@ -179,7 +179,16 @@ async function createWindow(port: number) {
       sendIndex(req, res, () => res.status(404).end())
     })
 
-    expressApp.use(express.default.static(frontendPath, { dotfiles: 'allow' }))
+    // `redirect: false` — without it, express.static issues HTTP 301 to add a
+    // trailing slash whenever a request path matches a directory in the build
+    // output (e.g. `GET /login` → `GET /login/`, because Nuxt emits
+    // `login/index.html`). The trailing slash then broke the "already on
+    // /login" guard in useApi.ts and caused a redirect loop in remote-browser
+    // sessions (v1.0.112 incident). useApi now normalises trailing slashes
+    // defensively, but disabling the redirect altogether keeps URLs canonical
+    // and avoids the SPA loading from `/foo/` for routes whose code expects
+    // `/foo` — one source of truth.
+    expressApp.use(express.default.static(frontendPath, { dotfiles: 'allow', redirect: false }))
 
     // SPA fallback — Express 5 / path-to-regexp v8 removed bare '*' wildcards
     expressApp.use((req, res, next) => {

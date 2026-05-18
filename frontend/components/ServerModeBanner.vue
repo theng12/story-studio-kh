@@ -28,13 +28,19 @@ const signingOut = ref(false)
 const latencyMs = ref<number | null>(null)
 let latencyTimer: ReturnType<typeof setInterval> | null = null
 
-const showBanner = computed(() =>
-  isServerMode()
-  && state.authChecked
-  && state.isAuthenticated
-  // Hide on the login page itself (no point showing "Connected to mac-mini" there)
-  && (typeof window === 'undefined' || window.location.pathname !== '/login')
-)
+const showBanner = computed(() => {
+  if (!isServerMode()) return false
+  if (!state.authChecked) return false
+  if (!state.isAuthenticated) return false
+  // Hide on the login page itself (no point showing "Connected to mac-mini" there).
+  // v1.0.112 — normalize trailing slash so `/login/` (from express.static's
+  // directory-redirect, until disabled in v1.0.112) also matches.
+  if (typeof window !== 'undefined') {
+    const p = window.location.pathname.replace(/\/+$/, '') || '/'
+    if (p === '/login') return false
+  }
+  return true
+})
 
 const host = computed(() => {
   if (typeof window === 'undefined') return ''

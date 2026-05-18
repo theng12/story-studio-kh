@@ -80,11 +80,31 @@ function waitForBootReady(): Promise<void> {
  * (Electron) mode where 401 doesn't exist as a normal flow, and skip
  * when the call is /auth/me (the SPA's "am I logged in?" probe expects
  * 401 to mean "no").
+ *
+ * v1.0.112 — two hardening changes after a real infinite-refresh loop hit
+ * production from a remote browser:
+ *   1. Trailing-slash tolerance in the "already on /login" guard.
+ *      Nuxt static build emits `login/index.html` (a directory); express.
+ *      static redirects `GET /login` → `GET /login/` (HTTP 301) so the
+ *      ACTUAL pathname is `/login/`. The previous exact-match check
+ *      (`=== '/login'`) never fired, so every 401 redirected and the
+ *      destination 401'd again and the loop ran forever.
+ *   2. Re-entrancy guard. A page typically fires many API calls in
+ *      parallel; if the session is gone, ALL of them 401 and ALL of them
+ *      tried to call window.location.assign. Harmless individually, but
+ *      it amplified the loop above and made debugging noisier. Latch the
+ *      first redirect; subsequent 401s become no-ops.
  */
+let _redirectingToLogin = false
 function handleAuthExpired(path: string): void {
+  if (_redirectingToLogin) return
   if (typeof window === 'undefined') return
   if (path.startsWith('/auth/')) return
-  if (window.location.pathname === '/login') return
+  // Normalize trailing slash. Browsers report `/login/` after express.static's
+  // directory-redirect, but the SPA's canonical login URL is `/login`.
+  const currentPath = window.location.pathname.replace(/\/+$/, '') || '/'
+  if (currentPath === '/login') return
+  _redirectingToLogin = true
   // Synchronous redirect — every in-flight fetch will land in `catch`
   // before the navigation completes; that's fine, the page is unloading.
   window.location.assign('/login')
