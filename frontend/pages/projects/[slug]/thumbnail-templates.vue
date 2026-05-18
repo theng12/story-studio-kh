@@ -49,13 +49,26 @@
       ★ marks templates recommended for this project's niche
       <template v-if="nicheId"> (<strong>{{ nicheId }}</strong>)</template>.
       Click any card to set it as the project default — the next time you open the Compose dialog it'll
-      load with that template already selected.
+      load with that template already selected. Or hit <strong>Edit</strong> on any card to open the
+      visual editor (built-ins fork to your user library on first save).
     </p>
 
     <ThumbnailTemplatePicker
+      v-if="!editingId"
       v-model="selectedId"
       :recommended-niche-id="nicheId"
       @change="onTemplateChange"
+      :show-edit-buttons="true"
+      @edit="onEditTemplate"
+    />
+
+    <!-- v1.0.108+ — inline visual editor. Mounts in place of the -->
+    <!-- gallery while editing. Save forks built-ins; cancel reverts. -->
+    <ThumbnailTemplateEditor
+      v-else
+      :template-id="editingId"
+      @saved="onEditorSaved"
+      @cancelled="onEditorCancelled"
     />
 
     <div class="card tt-howto mt-3">
@@ -166,6 +179,32 @@ async function onTemplateChange(t: { id: string; name: string }) {
   } catch (e: any) {
     toastError(e?.data?.detail || 'Could not save template choice')
   }
+}
+
+// v1.0.108+ — inline visual editor state. When non-empty, the
+// gallery is replaced by the editor for that template id.
+const editingId = ref('')
+
+function onEditTemplate(id: string) {
+  editingId.value = id
+}
+
+async function onEditorSaved(savedId: string) {
+  editingId.value = ''
+  // The save may have forked a built-in to a new id. Switch the
+  // project default to the saved id so the next compose uses the
+  // edited copy. Also refreshes the gallery so the new card appears.
+  selectedId.value = savedId
+  try {
+    await put(`/projects/${slug.value}/settings/config`, {
+      thumbnail_template_id: savedId,
+    })
+  } catch { /* non-fatal */ }
+  await loadAll()
+}
+
+function onEditorCancelled() {
+  editingId.value = ''
 }
 
 async function clearProjectOverride() {

@@ -48,6 +48,124 @@ router.get('/thumbnail-templates/:id', async (req, res) => {
   }
 })
 
+// ── v1.0.108+ Visual editor: fork + save + delete ─────────────────────────
+//
+// Built-in templates in the app bundle stay pristine (the user might
+// `git pull` and lose tweaks if we wrote back into the bundle dir).
+// Editing a built-in clones it into ${PROJECTS_ROOT}/.thumbnail-templates/
+// with a `-custom` suffix; subsequent edits save there. The original
+// built-in remains reachable as a "Reset to default" option.
+//
+// User-library templates are edited in place via PUT.
+
+import fs from 'fs/promises'
+import path from 'path'
+
+/**
+ * POST /thumbnail-templates/:id/fork  — copies a built-in into the
+ * user library. Returns the new template (same shape with a new id +
+ * builtin: false). Idempotent: re-forking the same id returns the
+ * existing user copy rather than creating a duplicate.
+ */
+router.post('/thumbnail-templates/:id/fork', async (req, res) => {
+  try {
+    const sourceId = req.params.id
+    const source = await tl.loadTemplate(sourceId)
+    if (!source) return res.status(404).json({ detail: `Template "${sourceId}" not found` })
+    // Derive a user-library id. Preserves the original id stem so the
+    // "Reset to default" UI can pair the custom copy back to its
+    // source by stripping the suffix.
+    const userId = sourceId.endsWith('-custom') ? sourceId : `${sourceId}-custom`
+    await tl.ensureTemplatesDir()
+    const userPath = tl.templateFilePath(userId)
+    // Re-forking: if the user copy already exists, return it as-is.
+    // The frontend can decide whether to overwrite (via PUT) or just
+    // use the existing fork.
+    try {
+      await fs.access(userPath)
+      const existing = await tl.loadTemplate(userId)
+      if (existing) return res.json({ template: existing, created: false })
+    } catch { /* file doesn't exist; create it */ }
+    const forked: ThumbnailTemplate = {
+      ...source,
+      id: userId,
+      name: source.name.endsWith(' (custom)') ? source.name : `${source.name} (custom)`,
+      builtin: false,
+    }
+    await fs.writeFile(userPath, JSON.stringify(forked, null, 2) + '\n')
+    tl.invalidateTemplateCache(userId)
+    res.status(201).json({ template: forked, created: true })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to fork template'))
+  }
+})
+
+/**
+ * PUT /thumbnail-templates/:id  — save edits to a user-library
+ * template. Refuses to overwrite a built-in (builtin: true) to keep
+ * the bundle pristine — the frontend should fork first, then PUT to
+ * the forked id.
+ */
+router.put('/thumbnail-templates/:id', async (req, res) => {
+  try {
+    const id = req.params.id
+    const existing = await tl.loadTemplate(id)
+    if (!existing) return res.status(404).json({ detail: `Template "${id}" not found` })
+    if (existing.builtin) {
+      return res.status(403).json({
+        detail: `"${id}" is a built-in template. Fork it first (POST /thumbnail-templates/:id/fork), then save edits to the forked id.`,
+      })
+    }
+    const body = req.body || {}
+    if (!body || typeof body !== 'object') return res.status(400).json({ detail: 'Body must be a JSON object' })
+    // Preserve id + builtin flag from disk regardless of what the
+    // body claims — the caller shouldn't be changing those.
+    const merged: ThumbnailTemplate = {
+      ...body,
+      id,
+      builtin: false,
+      schemaVersion: 1,
+    }
+    // Spot-check required fields so we don't write a malformed JSON
+    // that would later throw at loadTemplate.
+    if (typeof merged.name !== 'string' || !merged.name) {
+      return res.status(400).json({ detail: 'name is required' })
+    }
+    if (typeof merged.description !== 'string') {
+      return res.status(400).json({ detail: 'description is required' })
+    }
+    const filePath = tl.templateFilePath(id)
+    await fs.mkdir(path.dirname(filePath), { recursive: true })
+    await fs.writeFile(filePath, JSON.stringify(merged, null, 2) + '\n')
+    tl.invalidateTemplateCache(id)
+    res.json({ template: merged })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save template'))
+  }
+})
+
+/**
+ * DELETE /thumbnail-templates/:id  — removes a user-library template.
+ * Refuses to delete built-ins (they live in the app bundle and would
+ * just regenerate on next launch).
+ */
+router.delete('/thumbnail-templates/:id', async (req, res) => {
+  try {
+    const id = req.params.id
+    const existing = await tl.loadTemplate(id)
+    if (!existing) return res.status(404).json({ detail: `Template "${id}" not found` })
+    if (existing.builtin) {
+      return res.status(403).json({ detail: `"${id}" is a built-in template and cannot be deleted.` })
+    }
+    const filePath = tl.templateFilePath(id)
+    await fs.unlink(filePath)
+    tl.invalidateTemplateCache(id)
+    res.json({ ok: true, removed: id })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to delete template'))
+  }
+})
+
 // ── Per-project effective template ─────────────────────────────────────────
 //
 // Resolves the same chain the compose endpoint uses (project override →

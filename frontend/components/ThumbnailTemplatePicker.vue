@@ -28,6 +28,18 @@
         <div class="ttp-meta">
           <div class="ttp-name">{{ t.name }}</div>
           <div v-if="t.tagline" class="ttp-tagline">{{ t.tagline }}</div>
+          <div v-if="showEditButtons" class="ttp-actions">
+            <button
+              type="button"
+              class="link-btn ttp-edit"
+              :title="t.builtin
+                ? 'Open the visual editor. Built-ins fork to your user library on first save — the original stays pristine.'
+                : 'Open the visual editor. Changes save in place to your user library.'"
+              @click.stop="emit('edit', t.id)"
+            >
+              {{ t.builtin ? 'Edit (forks to user library)' : 'Edit' }}
+            </button>
+          </div>
         </div>
       </button>
     </div>
@@ -75,6 +87,11 @@ const props = defineProps<{
   recommendedNicheId?: string
   /** Compact horizontal-strip layout for embedding in a dialog. */
   compact?: boolean
+  /** v1.0.108+ — show per-card "Edit" buttons that open the visual
+   *  editor. Hidden by default so the compact dialog strip stays
+   *  uncluttered; turned on by the Thumbnail Templates management
+   *  page. */
+  showEditButtons?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -83,6 +100,8 @@ const emit = defineEmits<{
    *  saves the parent a second roundtrip when it needs the template's
    *  textZones / logoSlot for hint UI. */
   'change': [template: ThumbnailTemplateLite]
+  /** v1.0.108+ — Edit button clicked. Parent opens the visual editor. */
+  'edit': [id: string]
 }>()
 
 const { get } = useApi()
@@ -250,6 +269,12 @@ onMounted(async () => {
   color: var(--text-muted, #b3b3bb);
   margin-top: 3px;
   line-height: 1.3;
+}
+.ttp-actions {
+  margin-top: 8px;
+}
+.ttp-edit {
+  font-size: 11px;
 }
 
 /* Compact-mode card metadata gets tighter */
