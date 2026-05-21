@@ -4,6 +4,53 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.114 — 2026-05-21
+
+**Two unrelated UX fixes that bit the user in production this week.**
+
+### 1. B-Roll formats no longer dead-end on Video Assembly
+
+If a project's format declared `visualSource: 'broll'` (prayer, devotional, narration-over-stock), the project sidebar still showed "Video Generator" and "Video Assembly" entries — both of which target the scene-based pipeline. Clicking either landed on a page whose first validation step was "At least 1 scene image is required" with no escape hatch. Meanwhile the proper B-Roll page existed (`/projects/:slug/broll`) and the matching backend pipeline (`broll-assemble.ts`) was wired correctly — the user just couldn't find it from the nav.
+
+Three changes:
+
+- **Sidebar (`frontend/layouts/dashboard.vue`)** — gated "Video Generator" and "Video Assembly" behind `!isBroll`, matching the existing treatment of "Scene Prompts" and "Scene Generator" from v1.0.93+. B-Roll projects now show only the entries that apply to them.
+- **Sidebar rename** — "B-Roll Picker" → **"B-Roll Video"**. The page does *both* clip selection AND final video assembly; the old "Picker" label undersold it and made users hunt for a non-existent "Video Assembly" step they'd never reach.
+- **Safety-net banner on `/video-assembly` and `/video`** — anyone who URL-types those paths or follows an old bookmark on a B-Roll project now sees a friendly card:
+  > *This project uses B-Roll, not scene images. The Video Assembly page is for scene-based formats only.* **[Go to B-Roll Video →]**
+  
+  Instead of the cryptic "At least 1 scene image is required" red text below an empty assets pane.
+
+No backend changes. The validation in `routes/video.ts:958` stays correct for scene projects; the banner just stops B-Roll users from ever reaching it.
+
+### 2. Jobs page: Repair & Retry split into two separate buttons
+
+**The footgun.** The Jobs page had a single "Repair & Retry" button for failed jobs. It tried to repair (poll the provider for already-completed work, free) THEN retry (delete + re-submit, charges). When repair failed or timed out, the retry phase still fired — so clicking the button repeatedly to "make it work" stacked up duplicate provider submissions. Real money. The user noticed when GenAIPro's task list filled with duplicate TTS jobs from a single episode.
+
+**The fix.** Two separate buttons with clear visual hierarchy and copy:
+
+| Button | Style | What it does | Cost |
+|---|---|---|---|
+| **Repair** | primary | Polls the provider for tasks submitted but not finished downloading; pulls completed results down for free. Never re-submits. | Free |
+| **Retry** | secondary | Deletes the failed job and re-submits a fresh generation request. | May charge |
+
+- Repair is shown only for job types that support it (`audio`, `images`, `scene_images`, `thumb_images`, `video`); other types just see Retry.
+- Tooltips spell out the cost implication explicitly (uppercase "SAFE" vs. "CHARGES MAY APPLY") so the user never clicks blindly again.
+- Both buttons are deliberate solo actions — clicking one never invokes the other. Combined with the per-chunk skip-when-on-disk guards already in the generators, clicking Repair → Retry in order is safe (retry skips anything Repair pulled down), but the user makes that call deliberately.
+
+**Bulk recovery** — the "Repair & Retry all (N)" button on the restart-recovery banner became **"Repair all (N)"**, now fanning out to the safe `repairJobOnly` for each interrupted job instead of the combined path. After bulk repair finishes, the user reviews jobs individually and clicks Retry on any whose chunks are still missing. Non-repairable interrupted job types (script-only / metadata / etc.) are filtered out of the bulk count since "Repair" is meaningless for them.
+
+### Files touched
+
+- `frontend/layouts/dashboard.vue` — broll sidebar gating + rename
+- `frontend/pages/projects/[slug]/video-assembly.vue` — wrong-pipeline banner + `isBrollFormat` ref
+- `frontend/pages/projects/[slug]/video.vue` — same banner on Video Generator
+- `frontend/pages/projects/[slug]/jobs.vue` — `repairJobOnly` extracted, `retryJob` becomes resubmit-only, two template button sites updated, bulk-recovery banner updated, cross-reference copy in tooltips/toasts updated
+
+No backend changes for either fix. No schema changes. No new endpoints.
+
+---
+
 ## v1.0.113 — 2026-05-18
 
 **Better diagnostics for the "Internal server error" wall.**

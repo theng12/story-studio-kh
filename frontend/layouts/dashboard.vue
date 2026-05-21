@@ -78,20 +78,31 @@
         >
           Scene Generator <span v-if="imageGenerating" class="nav-pulse" />
         </NuxtLink>
-        <!-- B-Roll Picker — only shown when this project's format declares
-             visualSource: 'broll'. Points at the per-project B-Roll
-             selection surface (which is Video Assembly itself for broll
-             formats — the form below switches to the picker UI). -->
+        <!-- B-Roll Video — only shown when this project's format declares
+             visualSource: 'broll' (prayer / devotional / narration-over-
+             stock). Renamed in v1.0.114 from "B-Roll Picker" because the
+             page does BOTH selection AND final video assembly — the old
+             "Picker" label undersold it and made users hunt for a
+             non-existent "Video Assembly" step. -->
         <NuxtLink
           v-if="isBroll"
           :to="`/projects/${slug}/broll`"
           class="nav-item"
           active-class="active"
-          title="Pick B-Roll clips for this episode from your subscribed pool. Random / tagged / themed / manual order modes available."
+          title="Pick B-Roll clips for this episode AND assemble the final video. Random / tagged / themed / manual selection modes, then one-click assemble."
         >
-          🎬 B-Roll Picker
+          🎬 B-Roll Video
         </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/video`" class="nav-item" active-class="active">
+        <!-- Video Generator + Video Assembly hidden for B-Roll formats
+             (v1.0.114). Both pages target the scene-image pipeline; for
+             broll formats they'd fail with "at least 1 scene required".
+             The B-Roll Video entry above replaces both. -->
+        <NuxtLink
+          v-if="!isBroll"
+          :to="`/projects/${slug}/video`"
+          class="nav-item"
+          active-class="active"
+        >
           Video Generator <span v-if="videoGenerating" class="nav-pulse" />
         </NuxtLink>
         <NuxtLink :to="`/projects/${slug}/audio`" class="nav-item" active-class="active">
@@ -103,7 +114,12 @@
         <NuxtLink :to="`/projects/${slug}/audio-merge`" class="nav-item" active-class="active">
           Audio Assembly <span v-if="audioMergeGenerating" class="nav-pulse" />
         </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/video-assembly`" class="nav-item" active-class="active">
+        <NuxtLink
+          v-if="!isBroll"
+          :to="`/projects/${slug}/video-assembly`"
+          class="nav-item"
+          active-class="active"
+        >
           Video Assembly
         </NuxtLink>
 

@@ -4,6 +4,29 @@
       <Breadcrumb />
       <h1 class="page-title">Video Assembly</h1>
     </div>
+
+    <!-- v1.0.114 — wrong-page redirect banner for B-Roll formats. The
+         scenes-based Video Assembly pipeline hard-errors with "At least
+         1 scene image is required" because broll projects never generate
+         scene images. The dedicated B-Roll Video page handles both clip
+         selection and final assembly for those formats. Banner offers a
+         one-click jump instead of leaving the user stuck. -->
+    <div v-if="isBrollFormat" class="card wrong-pipeline-banner">
+      <div class="wpb-icon" aria-hidden="true">🎬</div>
+      <div class="wpb-body">
+        <div class="wpb-title">This project uses B-Roll, not scene images.</div>
+        <div class="wpb-text">
+          The Video Assembly page is for scene-based formats — it can't render
+          this project because it requires at least one scene image. Use the
+          <strong>B-Roll Video</strong> page instead, which handles both clip
+          selection and the final video assembly.
+        </div>
+        <NuxtLink :to="`/projects/${slug}/broll`" class="btn btn-primary wpb-cta">
+          Go to B-Roll Video →
+        </NuxtLink>
+      </div>
+    </div>
+
     <TopActionBar
       :project-slug="slug"
       :presets="videoBundlePresets"
@@ -4741,9 +4764,16 @@ watch(activeJobFingerprint, async () => {
 // ambient bed.
 const formatDefaultTimelineClipDurationSec = ref<number>(7200)
 
+// v1.0.114 — surfaces the wrong-pipeline banner above the page content
+// when the project's format declares `visualSource: 'broll'`. Set inside
+// applyVideoFormatDefaultsIfNoPreset (which already fetches the format)
+// so we don't add a second roundtrip.
+const isBrollFormat = ref<boolean>(false)
+
 async function applyVideoFormatDefaultsIfNoPreset() {
   try {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    isBrollFormat.value = f?.visualSource === 'broll'
     const v = f?.script?.videoDefaults
     if (!v) return
     if (typeof v.secondsPerScene === 'number' && v.secondsPerScene > 0) {
@@ -4807,6 +4837,26 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* v1.0.114 — Wrong-pipeline banner shown above the page when the project's
+   format declares visualSource: 'broll'. Same visual weight as the
+   bundle-path-check banner below so the user immediately reads it as
+   "important context before you do anything else on this page." */
+.wrong-pipeline-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin: 12px 0 16px;
+  padding: 14px 16px;
+  border-left: 3px solid #6ea8fe;
+  background: rgba(110, 168, 254, 0.08);
+}
+.wpb-icon { font-size: 22px; line-height: 1; padding-top: 2px; }
+.wpb-body { flex: 1; min-width: 0; }
+.wpb-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.wpb-text { font-size: 13px; line-height: 1.5; color: var(--text-secondary, #b3b3bb); margin-bottom: 10px; }
+.wpb-text strong { color: var(--text-primary, #e8e8ea); }
+.wpb-cta { font-size: 13px; }
+
 /* ── Inline-style sweep helpers (2026-05-02) ─────────────────────────────
  * The cluster below replaced ~135 inline `style="..."` blocks. They keep
  * the existing visuals 1:1 — the only goal is to make the markup re-themable

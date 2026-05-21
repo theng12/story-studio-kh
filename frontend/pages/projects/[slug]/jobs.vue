@@ -27,10 +27,12 @@
 
     <!-- Restart-recovery banner: surfaces when one or more jobs got
          marked as "Interrupted by app restart" (job-queue.ts boots running
-         jobs into 'error' state with that exact message). The user might
-         not realise that Repair & Retry on each one is FREE — it polls
-         the existing provider task before charging anything new. The
-         button fans out to the existing per-job retry path. -->
+         jobs into 'error' state with that exact message). v1.0.114 — this
+         banner now calls Repair (download already-completed provider work)
+         only, never Retry. After the bulk Repair finishes the user can
+         dismiss individual jobs or click Retry on any whose chunks are
+         still missing. The previous "Repair & Retry all" path could
+         duplicate-submit when Repair failed mid-flight. -->
     <div
       v-if="!restartBannerDismissed && interruptedJobs.length > 0"
       class="restart-recovery-banner"
@@ -38,15 +40,16 @@
       <span class="rrb-icon" aria-hidden="true">↻</span>
       <span class="rrb-text">
         <strong>{{ interruptedJobs.length }} job{{ interruptedJobs.length === 1 ? '' : 's' }} interrupted by app restart.</strong>
-        Tasks already submitted to the provider may be recoverable for
-        free — Repair &amp; Retry polls them before charging anything new.
+        Tasks already submitted to the provider may be recoverable for free —
+        Repair polls them and downloads completed results. After it finishes,
+        click Retry on any job whose chunks are still missing.
       </span>
       <button
         class="btn btn-xs btn-primary"
         :disabled="repairingAllInterrupted"
         @click="repairAllInterrupted"
       >
-        {{ repairingAllInterrupted ? 'Repairing…' : `Repair & Retry all (${interruptedJobs.length})` }}
+        {{ repairingAllInterrupted ? 'Repairing…' : `Repair all (${interruptedJobsRepairable.length})` }}
       </button>
       <button
         class="rrb-dismiss"
@@ -220,17 +223,31 @@
               v-if="job.status === 'queued' || job.status === 'running'"
               class="btn btn-xs btn-danger"
               @click="cancelJob(job)"
-              :title="job.status === 'running' ? 'Stops local polling. In-flight provider tasks may still complete and bill — use Repair & Retry afterward to recover them for free.' : 'Removes from queue before any submit happens. No charge.'"
+              :title="job.status === 'running' ? 'Stops local polling. In-flight provider tasks may still complete and bill — use the Repair button afterward to recover them for free.' : 'Removes from queue before any submit happens. No charge.'"
             >
               {{ job.status === 'running' ? 'Stop' : 'Cancel' }}
             </button>
+            <!-- v1.0.114 — Repair / Retry split. Repair (left) is the safe
+                 default: polls the provider for already-completed tasks
+                 and downloads them. Never re-submits. Retry (right) is
+                 the explicit "re-run, charge me again" action. The old
+                 combined button caused duplicate provider tasks when
+                 users clicked it repeatedly to "make it work". -->
+            <button
+              v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job.type)"
+              class="btn btn-xs btn-primary"
+              @click="repairJobOnly(job)"
+              title="SAFE — Polls the provider for tasks that were submitted but never finished downloading, and pulls them in for free. Never re-submits anything. Click this FIRST when a job timed out — the provider often finished the work on its side. If chunks are still missing afterwards, then click Retry."
+            >
+              Repair
+            </button>
             <button
               v-if="job.status === 'error' || job.status === 'cancelled'"
-              class="btn btn-xs btn-primary"
+              class="btn btn-xs btn-secondary"
               @click="retryJob(job)"
-              title="Recovers any in-flight tasks for free first (poll the provider for already-paid-for results), then submits fresh requests only for what's truly missing. Avoids double-billing for tasks that were submitted but didn't finish downloading."
+              title="CHARGES MAY APPLY — Deletes this failed job and re-submits a fresh generation request to the provider. Use only when Repair couldn't recover everything OR when the original submit truly failed. The generator skips chunks already on disk, so running Repair first means Retry only re-submits genuinely-missing chunks."
             >
-              Repair &amp; Retry
+              Retry
             </button>
             <button
               v-if="['done', 'error', 'cancelled'].includes(job.status)"
@@ -378,13 +395,22 @@
               <span v-if="job.title" class="text-muted">- {{ job.title }}</span>
             </div>
             <div class="flex items-center gap-1">
+              <!-- v1.0.114 — Repair / Retry split (mirror of expanded view above). -->
+              <button
+                v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job.type)"
+                class="btn btn-xs btn-primary"
+                @click="repairJobOnly(job)"
+                title="SAFE — Polls the provider for already-completed tasks and downloads them for free. Never re-submits. Click this FIRST when a job timed out."
+              >
+                Repair
+              </button>
               <button
                 v-if="job.status === 'error' || job.status === 'cancelled'"
-                class="btn btn-xs btn-primary"
+                class="btn btn-xs btn-secondary"
                 @click="retryJob(job)"
-                title="Recovers any in-flight tasks for free first (poll the provider for already-paid-for results), then submits fresh requests only for what's truly missing. Avoids double-billing."
+                title="CHARGES MAY APPLY — Re-submits a fresh generation. Use when Repair couldn't recover everything OR when the original submit truly failed."
               >
-                Repair &amp; Retry
+                Retry
               </button>
               <button class="btn-icon" @click="removeJob(job.job_id)" title="Dismiss">&#10005;</button>
             </div>
@@ -518,27 +544,21 @@ const INTERRUPTED_ERROR_TEXT = 'Interrupted by app restart'
 const interruptedJobs = computed(() =>
   jobs.value.filter((j: RJob) => j.status === 'error' && j.error === INTERRUPTED_ERROR_TEXT)
 )
+// v1.0.114 — Only the repairable subset gets fanned out by the bulk
+// "Repair all" button. Non-repairable interrupted jobs (script-only /
+// metadata / etc.) stay visible — the user can Retry them individually
+// after reviewing whether they want to spend money to re-run.
+const interruptedJobsRepairable = computed(() =>
+  interruptedJobs.value.filter((j: RJob) => jobCanBeRepaired(j.type))
+)
 async function repairAllInterrupted() {
-  // Snapshot the list — retryJob() deletes each job + re-enqueues, so
-  // iterating a reactive array directly would shrink under our feet.
-  const snapshot = [...interruptedJobs.value]
+  // v1.0.114 — fan out to repairJobOnly instead of retryJob. Same
+  // concurrency cap (3) as before. Repairing in parallel is safe because
+  // each call only polls the provider + downloads, no charges.
+  const snapshot = [...interruptedJobsRepairable.value]
   if (snapshot.length === 0) return
   repairingAllInterrupted.value = true
   try {
-    // v1.0.71+: parallel fan-out with a small concurrency cap.
-    //
-    // The previous serial loop (`for … await retryJob`) was usable
-    // for 2-3 interrupted jobs but fell off a cliff once retryJob
-    // started awaiting queued repair jobs (images-repair / video-repair)
-    // to reach terminal state — 20 interrupted jobs × 2 min repair
-    // each = 40 min serially. Each repair runs on the backend job
-    // queue, so firing many in parallel doesn't overload anything
-    // local; the queue's own concurrency rules govern how many
-    // actually run at once on the provider.
-    //
-    // Cap at 3 concurrent retries client-side so a single bulk-repair
-    // doesn't enqueue 50 fresh generation submits in the same instant
-    // (the queue would handle it but the toast spam would be ugly).
     const CONCURRENCY = 3
     let cursor = 0
     async function worker() {
@@ -546,12 +566,12 @@ async function repairAllInterrupted() {
         const idx = cursor++
         if (idx >= snapshot.length) return
         try {
-          await retryJob(snapshot[idx]!)
+          await repairJobOnly(snapshot[idx]!)
         } catch (e: any) {
-          // retryJob already surfaces toasts on individual failures;
+          // repairJobOnly already surfaces toasts on individual failures;
           // catch here so one bad apple doesn't abort the rest of the
           // bulk run.
-          console.warn('[bulk-repair] retry failed:', e?.message || e)
+          console.warn('[bulk-repair] repair failed:', e?.message || e)
         }
       }
     }
@@ -919,7 +939,7 @@ function toggleExpand(jobId: string) {
 // Job types that can have in-flight provider charges at cancel time. A
 // queued cancel (worker hasn't picked up yet) never charges; a running
 // cancel of a "free" type (local ffmpeg, YouTube upload) doesn't either.
-// This set is used to decide whether to surface the Repair & Retry hint
+// This set is used to decide whether to surface the Repair hint
 // — over-warning on free jobs would teach users to dismiss the toast.
 const COST_INCURRING_TYPES = new Set([
   'script-only', 'introduction-only', 'chapter-only',
@@ -941,7 +961,7 @@ async function cancelJob(job: RJob) {
       // for free if the user wants to come back to it.
       success(
         'Stopped — in-flight tasks may still complete on the provider. ' +
-        'Use Repair & Retry on this job to download them for free.'
+        'Use the Repair button on this job to download them for free.'
       )
     } else {
       success(job.status === 'queued' ? 'Job cancelled (no charge)' : 'Job stopped')
@@ -954,6 +974,126 @@ async function removeJob(jobId: string) {
     await del(`/projects/${slug.value}/jobs/${jobId}`)
     success('Job removed')
   } catch (e: any) { showError(e.data?.detail || 'Failed to remove job') }
+}
+
+// v1.0.114 — The endpoints that recover already-completed work from the
+// provider WITHOUT submitting any new tasks. Shared by both:
+//   • repairJobOnly() — Repair button on the Jobs page (this file)
+//   • retryJob() — the legacy combined Repair-then-Retry path
+// Sync repair returns the reconciliation result in the POST response;
+// queued repair returns a job_id we must poll until terminal before
+// considering the repair "done" (otherwise the retry races it).
+const REPAIR_ENDPOINTS: Record<string, { url: string; body: any; mode: 'sync' | 'queued' }> = {
+  audio: {
+    url: `/projects/${slug.value}/episodes/__EPISODE__/audio-repair`,
+    body: { provider: 'genaipro' },
+    mode: 'sync',
+  },
+  images: {
+    url: `/projects/${slug.value}/generate/images-repair`,
+    body: { episode_id: '__EPISODE__' },
+    mode: 'queued',
+  },
+  scene_images: {
+    url: `/projects/${slug.value}/generate/images-repair`,
+    body: { episode_id: '__EPISODE__' },
+    mode: 'queued',
+  },
+  thumb_images: {
+    url: `/projects/${slug.value}/generate/images-repair`,
+    body: { episode_id: '__EPISODE__' },
+    mode: 'queued',
+  },
+  video: {
+    url: `/projects/${slug.value}/generate/video-repair`,
+    body: { episode_id: '__EPISODE__' },
+    mode: 'queued',
+  },
+}
+
+function jobCanBeRepaired(jobType: string): boolean {
+  return jobType in REPAIR_ENDPOINTS
+}
+
+/**
+ * v1.0.114 — Repair-only handler for the Jobs page.
+ *
+ * Polls the provider for any tasks the original job submitted but didn't
+ * finish downloading, then pulls those results down for free. NEVER
+ * submits new TTS / image / video generation requests. This is the safe
+ * action when a job timed out locally but the provider may have finished
+ * on its side.
+ *
+ * Split out of retryJob() because the combined "Repair & Retry" button
+ * had a footgun: if the repair phase failed or timed out, the retry
+ * phase still fired and resubmitted = duplicate provider charges. Users
+ * who clicked it repeatedly to "make it work" stacked up duplicate TTS
+ * jobs on GenAIPro (real bug report). Now Repair is a deliberate solo
+ * action; Retry is a deliberate solo action; nothing combines them.
+ *
+ * The original failed job is NOT removed after repair — the user decides
+ * (dismiss if everything came back, click Retry if some chunks are still
+ * missing).
+ */
+async function repairJobOnly(job: RJob) {
+  const template = REPAIR_ENDPOINTS[job.type]
+  if (!template) {
+    showError(`This job type doesn't support repair. Use Retry to re-submit instead.`)
+    return
+  }
+  // Substitute the episode_id into both URL and body templates so the
+  // shared REPAIR_ENDPOINTS map stays declarative.
+  const url = template.url.replace('__EPISODE__', job.episode_id)
+  const body = JSON.parse(
+    JSON.stringify(template.body).replace(/__EPISODE__/g, job.episode_id)
+  )
+
+  info(`Recovering in-flight ${jobTypeLabel(job.type)} tasks for ${job.episode_id} (no charge)…`)
+  try {
+    const resp = await post<{
+      job_id?: string
+      recovered?: number
+      still_missing?: number
+      present_before?: number
+      total_expected?: number
+    }>(url, body)
+
+    if (template.mode === 'queued' && resp?.job_id) {
+      await waitForJobTerminal(resp.job_id, 10 * 60_000)
+    }
+
+    // Sync repair returns a useful summary; queued repair returns nothing
+    // until we re-fetch the job, so we just say "done" for those.
+    const recovered = typeof resp?.recovered === 'number' ? resp.recovered : null
+    const missing = typeof resp?.still_missing === 'number' ? resp.still_missing : null
+    if (recovered !== null && missing !== null) {
+      if (missing === 0 && recovered > 0) {
+        success(
+          `Recovered ${recovered} task(s) from the provider. ` +
+          `Everything is on disk — you can dismiss this failed job now.`
+        )
+      } else if (missing === 0 && recovered === 0) {
+        success(
+          `Nothing to recover — all assets were already on disk. ` +
+          `The original failure was likely transient; you can dismiss this job.`
+        )
+      } else if (missing > 0 && recovered > 0) {
+        info(
+          `Recovered ${recovered} task(s). ${missing} still missing — ` +
+          `click Retry to re-submit only the missing chunks.`
+        )
+      } else {
+        info(
+          `Provider had nothing completed to recover (${missing} chunks still missing). ` +
+          `Click Retry to re-submit them.`
+        )
+      }
+    } else {
+      success(`Repair complete for ${jobTypeLabel(job.type)} on ${job.episode_id}.`)
+    }
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Repair failed')
+  }
 }
 
 async function retryJob(job: RJob) {
@@ -1012,84 +1152,17 @@ async function retryJob(job: RJob) {
   const target = endpointMap[job.type]
   if (!target) { showError(`Cannot retry job type: ${job.type}`); return }
 
-  // v1.0.71+: repair-FIRST for asset-producing job types. Before this, a
-  // "Repair & Retry" on a failed audio / images / video job just deleted
-  // the job and re-submitted the original generation endpoint. The
-  // generators' internal auto-recovery only fires per-chunk and only
-  // when manifest filenames match between runs, so race conditions and
-  // pre-record failures fell through to fresh submits and produced
-  // DUPLICATE provider tasks (user's bug report). We now explicitly
-  // call the repair endpoint AND wait for it to finish before submitting
-  // the retry, so anything in-flight on the provider lands on disk
-  // first; the retry generator's per-chunk skip-when-on-disk guard
-  // then ensures only truly missing chunks get fresh submits.
-  //
-  // Endpoint shapes differ:
-  //   • audio-repair  → SYNCHRONOUS: returns reconciled status in the
-  //                     POST response. Awaiting POST = repair done.
-  //   • images-repair → QUEUED: POST returns job_id immediately, the
-  //                     real work happens in the queue. We must poll
-  //                     /jobs/:job_id until it reaches a terminal
-  //                     state before considering the repair "done".
-  //   • video-repair  → same as images-repair (queued).
-  const REPAIR_FIRST: Record<string, { url: string; body: any; mode: 'sync' | 'queued' }> = {
-    audio: {
-      url: `/projects/${slug.value}/episodes/${job.episode_id}/audio-repair`,
-      body: { provider: job.params?.provider || 'genaipro' },
-      mode: 'sync',
-    },
-    images: {
-      url: `/projects/${slug.value}/generate/images-repair`,
-      body: { episode_id: job.episode_id },
-      mode: 'queued',
-    },
-    scene_images: {
-      url: `/projects/${slug.value}/generate/images-repair`,
-      body: { episode_id: job.episode_id },
-      mode: 'queued',
-    },
-    thumb_images: {
-      url: `/projects/${slug.value}/generate/images-repair`,
-      body: { episode_id: job.episode_id },
-      mode: 'queued',
-    },
-    video: {
-      url: `/projects/${slug.value}/generate/video-repair`,
-      body: { episode_id: job.episode_id },
-      mode: 'queued',
-    },
-  }
-  const repair = REPAIR_FIRST[job.type]
-
+  // v1.0.114 — Retry is now RESUBMIT-ONLY. The previous Repair-then-Retry
+  // combined path was split out into repairJobOnly() above, exposed as
+  // its own button on the Jobs page. The Generator's per-chunk skip-when-
+  // on-disk guards STILL prevent duplicates IF the user clicked Repair
+  // first (recommended for audio/images/video) and any in-flight provider
+  // results landed on disk before this retry runs. But Retry no longer
+  // auto-invokes Repair, because the combined path had a footgun: if
+  // Repair failed/timed out, Retry still fired and resubmitted, causing
+  // duplicate provider charges on every "retry until it works" click.
+  // Now both actions are deliberate solo clicks; nothing combines them.
   try {
-    if (repair) {
-      info(`Recovering in-flight ${jobTypeLabel(job.type)} tasks for ${job.episode_id} (no charge)…`)
-      try {
-        const resp = await post<{ job_id?: string }>(repair.url, repair.body)
-        if (repair.mode === 'queued' && resp?.job_id) {
-          // Wait for the queued repair job to reach a terminal state
-          // (done/error/cancelled). Without this, the retry submitted
-          // below races against the still-running repair — the retry's
-          // generator scans disk BEFORE repair has finished downloading,
-          // sees no images, and re-submits fresh requests = duplicates
-          // on the provider.
-          await waitForJobTerminal(resp.job_id, /* timeoutMs */ 10 * 60_000)
-        }
-      } catch (e: any) {
-        // Repair failure (or wait-timeout) is NON-FATAL for the retry —
-        // log and continue. The worst case is a fresh re-submit (today's
-        // behaviour); the best case (most retries) repair lands and the
-        // retry skips already-on-disk chunks. The console breadcrumb
-        // helps with debugging if we ever see a duplicate-task report
-        // again.
-        console.warn('[retry] repair phase failed/timed out, proceeding with fresh retry:',
-          e?.data?.detail || e?.message || e)
-      }
-    }
-
-    // Remove the failed job, then re-queue. Generators are per-chunk
-    // idempotent: anything repair just landed on disk will be skipped
-    // automatically by the retry's executor.
     await del(`/projects/${slug.value}/jobs/${job.job_id}`)
     await post(target.url, target.params)
     success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)

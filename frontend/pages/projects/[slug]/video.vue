@@ -4,6 +4,25 @@
       <Breadcrumb />
       <h1 class="page-title">Video Generator</h1>
     </div>
+
+    <!-- v1.0.114 — wrong-pipeline banner for B-Roll formats. The Video
+         Generator turns scene images into AI video clips (image-to-video
+         via Veo / Sora); broll projects skip image generation entirely,
+         so this page has nothing to feed. Banner redirects to B-Roll Video. -->
+    <div v-if="isBrollFormat" class="card wrong-pipeline-banner">
+      <div class="wpb-icon" aria-hidden="true">🎬</div>
+      <div class="wpb-body">
+        <div class="wpb-title">This project uses B-Roll, not AI-generated video clips.</div>
+        <div class="wpb-text">
+          The Video Generator turns scene images into AI video via Veo / Sora —
+          but B-Roll formats source video from your stock-footage pool instead.
+          Use the <strong>B-Roll Video</strong> page for clip selection and final assembly.
+        </div>
+        <NuxtLink :to="`/projects/${slug}/broll`" class="btn btn-primary wpb-cta">
+          Go to B-Roll Video →
+        </NuxtLink>
+      </div>
+    </div>
     <!-- Live download speed while AI-video clips are streaming back from
          the provider. Veo clips can be hundreds of MB each — this strip
          shows the user where the connection is at. Auto-hides between runs. -->
@@ -303,9 +322,17 @@ const videoPresets = usePresets<any>({
  *
  * Saved presets still override these — preset.load() runs after seeding.
  */
+// v1.0.114 — wrong-pipeline banner. The Video Generator page generates
+// AI video clips from scene images (image-to-video via Veo / Sora). For
+// broll formats there are no scene images to feed it — this page would
+// just sit empty / fail. Set in applyVideoFormatDefaultsIfNoPreset to
+// piggyback on the existing format roundtrip.
+const isBrollFormat = ref<boolean>(false)
+
 async function applyVideoFormatDefaultsIfNoPreset() {
   try {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    isBrollFormat.value = f?.visualSource === 'broll'
     const v = f?.script?.videoDefaults
     const ar = v?.aspectRatio
     if (ar === 'landscape' || ar === 'portrait') form.aspect_ratio = ar
@@ -546,6 +573,23 @@ async function generateSingleScene(img: { filename: string; path: string; scene_
 </script>
 
 <style scoped>
+/* v1.0.114 — Wrong-pipeline banner (same visual treatment as video-assembly.vue). */
+.wrong-pipeline-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin: 12px 0 16px;
+  padding: 14px 16px;
+  border-left: 3px solid #6ea8fe;
+  background: rgba(110, 168, 254, 0.08);
+}
+.wpb-icon { font-size: 22px; line-height: 1; padding-top: 2px; }
+.wpb-body { flex: 1; min-width: 0; }
+.wpb-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.wpb-text { font-size: 13px; line-height: 1.5; color: var(--text-secondary, #b3b3bb); margin-bottom: 10px; }
+.wpb-text strong { color: var(--text-primary, #e8e8ea); }
+.wpb-cta { font-size: 13px; }
+
 /* Form-field width tokens. */
 .input-narrow { max-width: 120px; }
 
