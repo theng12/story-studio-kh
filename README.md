@@ -31,3 +31,9 @@ straight through Gatekeeper from then on. Reinstall not needed.
 in Finder → **Open** → click **Open** in the dialog. On Sonoma+ this
 button is sometimes greyed out for ad-hoc apps; the Terminal command
 above always works.)
+
+## Project docs
+
+- [`CHANGELOG.md`](CHANGELOG.md) — what shipped in each release.
+- [`docs/`](docs/) — architecture, operations, planning, history, in-flight refactors. Start at [`docs/README.md`](docs/README.md) for the map.
+- [`audit-reports/`](audit-reports/) — the 12-part audit series (kept at root because the test suite cites it).

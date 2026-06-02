@@ -16,9 +16,8 @@
  */
 import { existsSync } from 'fs'
 import * as bp from '../services/broll-pool-manager.js'
-import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import { analyzeStyle, resolveVisionModel } from '../lib/vision-client.js'
+import { analyzeStyle, visionKeyAvailable } from '../lib/vision-client.js'
 import type { Job } from '../models/types.js'
 
 interface AutotagParams {
@@ -28,27 +27,6 @@ interface AutotagParams {
   /** When true, suggested tags REPLACE existing tags; when false (default),
    *  they're unioned with whatever the user already set. */
   replace_tags?: boolean
-}
-
-/** Pick the best vision model for the configured key set. Same fallback
- *  chain as the character describe-from-image route (which is in a
- *  per-PROJECT route — auto-tag operates on the app-level pool so we
- *  don't have a project context here. The job-queue stores a
- *  project_slug='_app_' placeholder; we read app-level keys via
- *  app-settings.ts since this isn't tied to any one project). */
-async function resolveVisionApiKey(model: string): Promise<{ model: string; apiKey: string }> {
-  const { getAppSetting } = await import('../services/app-settings.js')
-  const anthropic = (await getAppSetting('anthropic_api_key').catch(() => '')) as string
-  const openai = (await getAppSetting('openai_api_key').catch(() => '')) as string
-
-  const resolved = resolveVisionModel(model)
-  if (resolved.startsWith('claude') && anthropic) return { model: resolved, apiKey: anthropic }
-  if (resolved.startsWith('gpt') && openai) return { model: resolved, apiKey: openai }
-  // Fall through the same auto-pick order the per-character route uses:
-  // Claude (best vision) → GPT-4o-mini (cheapest fallback) → error.
-  if (anthropic) return { model: 'claude-sonnet-4-6', apiKey: anthropic }
-  if (openai) return { model: 'gpt-4o-mini', apiKey: openai }
-  throw new Error('No vision-capable API key configured. Add an Anthropic OR OpenAI key in Settings → API Keys.')
 }
 
 function parseTagsResponse(raw: string): string[] {
@@ -70,7 +48,7 @@ function parseTagsResponse(raw: string): string[] {
 }
 
 export async function generateBrollAutotag(job: Job): Promise<void> {
-  const { pool_id, filename, model, replace_tags } = job.params as AutotagParams
+  const { pool_id, filename, replace_tags } = job.params as AutotagParams
   if (!pool_id || !filename) throw new Error('pool_id and filename are required')
 
   const pool = await bp.getPool(pool_id)
@@ -87,15 +65,16 @@ export async function generateBrollAutotag(job: Job): Promise<void> {
 
   job.output_lines.push(`Clip: ${filename} (${clip.width}×${clip.height} · ${clip.fps}fps)`)
 
-  const { model: vModel, apiKey } = await resolveVisionApiKey(model || '')
-  job.output_lines.push(`Vision model: ${vModel}`)
+  // Vision auto-routes (kie.ai Claude → GPT-4o fallback) inside analyzeStyle.
+  if (!(await visionKeyAvailable())) {
+    throw new Error('No vision-capable API key configured. Add a kie.ai OR OpenAI key in Settings → API Keys.')
+  }
 
   const result = await analyzeStyle({
     imagePath: thumbPath,
-    model: vModel,
-    apiKey,
     mode: 'tags',
   })
+  job.output_lines.push(`Vision model: ${result.model_used}`)
 
   const suggestedTags = parseTagsResponse(result.style_text)
   if (!suggestedTags.length) {

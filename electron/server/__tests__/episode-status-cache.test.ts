@@ -280,6 +280,7 @@ describe('episode-status-cache', () => {
       slug: SLUG,
       episode_code: 'EP777',
       status: {
+        research: false,
         script: true, introduction: false,
         scene_prompts: false, thumb_prompts: false,
         metadata: false,

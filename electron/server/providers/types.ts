@@ -31,16 +31,16 @@ export interface ProviderMeta {
   providerId?: string
   /**
    * FUTURE (Delivery 2 scaffolding only — no implementation yet).
-   * Aggregator providers (OpenRouter, Together) can implement this to claim
-   * model ids that look like another provider's (e.g. `anthropic/claude-...`).
-   * Returns the aggregator-assigned routing target id, or `undefined` to
-   * decline the model.
+   * Aggregator providers can implement this to claim model ids that look
+   * like another provider's (e.g. `anthropic/claude-...`). Returns the
+   * aggregator-assigned routing target id, or `undefined` to decline the
+   * model.
    */
   resolveModelProvider?: (modelId: string) => string | undefined
   /**
    * FUTURE (Delivery 2 scaffolding only — no implementation yet).
-   * Providers with dynamic catalogs (OpenRouter) can implement this to
-   * return their live model list. The registry will call it lazily.
+   * Providers with dynamic catalogs can implement this to return their
+   * live model list. The registry will call it lazily.
    */
   fetchModelCatalog?: (apiKey: string) => Promise<import('../models/types.js').UnifiedModel[]>
 }

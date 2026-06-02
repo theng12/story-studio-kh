@@ -260,6 +260,27 @@ async function applyLoudnorm(
   ], { timeoutMs: audioMergeTimeoutMs() })
 }
 
+/**
+ * v1.0.224 — collapse a chapter-audio filename to its CHAPTER key, so the
+ * multiple chunk files a long chapter is split into (`{code}_{slug}_part1.mp3`,
+ * `_part2.mp3`, … — written by the audio generator when a section exceeds the
+ * TTS char cap) group back under one chapter. Without this, the merge treated
+ * every part as its own "chapter": it put silence gaps BETWEEN parts of the
+ * same chapter and wrote per-part sections into audio_chapters.json — which
+ * then didn't line up with the per-chapter SRTs the Subtitles step produces,
+ * so the stitch came out empty/misaligned.
+ */
+export function chapterKeyOf(filename: string, code: string): string {
+  let base = filename.replace(/\.[^.]+$/, '')
+  if (base.startsWith(`${code}_`)) base = base.slice(code.length + 1)
+  // Strip the tempdir `_normalized` marker, then any trailing `_part{N}` /
+  // `_v{N}` suffixes (in any order). Mirrors the per-chapter SRT grouping in
+  // generators/subtitles.ts so the chapter slugs match on both sides.
+  base = base.replace(/_normalized$/i, '')
+  while (/(?:_part\d+|_v\d+)$/i.test(base)) base = base.replace(/(?:_part\d+|_v\d+)$/i, '')
+  return base
+}
+
 // ── Main Generator ────────────────────────────────────────────────────────
 
 export async function generateAudioMerge(job: Job): Promise<void> {
@@ -429,9 +450,15 @@ export async function generateAudioMerge(job: Job): Promise<void> {
 
     for (let i = 0; i < chapterFiles.length; i++) {
       concatLines.push(escPath(chapterFiles[i]))
-      // Insert silence between chapters (not after the last one)
+      // v1.0.224 — insert the silence gap only between DIFFERENT chapters,
+      // never between the parts of one chapter (a long chapter is split into
+      // _part1/_part2/… files). `validChapters` is parallel-indexed to
+      // `chapterFiles` (the normalized copies preserve order), so derive the
+      // chapter key from the original filename.
       if (i < chapterFiles.length - 1 && silenceFile) {
-        concatLines.push(escPath(silenceFile))
+        const curKey = chapterKeyOf(path.basename(validChapters[i]), code)
+        const nextKey = chapterKeyOf(path.basename(validChapters[i + 1]), code)
+        if (curKey !== nextKey) concatLines.push(escPath(silenceFile))
       }
     }
 
@@ -460,26 +487,47 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     // Probe the PRE-normalisation paths so the slugs match what
     // parseNarrationDocx produced ("Chapter_01" etc.) rather than the
     // tempdir `_normalized.mp3` filenames.
-    type ChapterEntry = { slug: string; duration_s: number; source_file: string }
+    type ChapterEntry = { slug: string; duration_s: number; source_file: string; source_files?: string[] }
     const chaptersForSidecar: ChapterEntry[] = []
     try {
+      // v1.0.224 — GROUP parts by chapter. A long chapter split into
+      // {code}_{slug}_part1.mp3 / _part2.mp3 becomes ONE section whose
+      // duration is the SUM of its parts. This is what makes the stitcher's
+      // per-section offsets line up with the per-chapter SRTs (the Subtitles
+      // step writes one {code}_{slug}.srt per chapter, parts concatenated).
+      const groups = new Map<string, ChapterEntry>()
+      const order: string[] = []
       for (const p of validChapters) {
         const d = await getAudioDuration(p).catch(() => null)
         if (d == null) continue
         const filename = path.basename(p)
-        const baseNoExt = filename.replace(/\.[^.]+$/, '')
-        // Strip the episode-code prefix ("TN0143_") so the slug is the
-        // bare section name. startsWith check keeps slug intact for any
-        // unusual filenames that don't follow the convention.
-        const slug = baseNoExt.startsWith(`${code}_`)
-          ? baseNoExt.slice(code.length + 1)
-          : baseNoExt
-        chaptersForSidecar.push({ slug, duration_s: d, source_file: filename })
+        const slug = chapterKeyOf(filename, code)
+        let g = groups.get(slug)
+        if (!g) {
+          g = { slug, duration_s: 0, source_file: filename, source_files: [] }
+          groups.set(slug, g)
+          order.push(slug)
+        }
+        g.duration_s += d
+        g.source_files!.push(filename)
       }
+      for (const slug of order) chaptersForSidecar.push(groups.get(slug)!)
       const sidecarPath = path.join(episodeDir, 'audio_chapters.json')
-      await fs.writeFile(sidecarPath, JSON.stringify({ sections: chaptersForSidecar }, null, 2))
+      // v1.0.140+ — Persist the gap_duration the merge actually used.
+      // Subtitle derivation (`/video-editor/subtitles/from-chapters`)
+      // reads this so its cue timestamps match the merged audio's
+      // actual section spacing instead of the hardcoded 5s fallback.
+      // Without this, any user with a non-default gap saw their
+      // burned-in subtitles drift further behind the audio with every
+      // section. Schema bump implicit: older sidecars without the
+      // field fall back to the old default-5 behaviour, which matches
+      // pre-fix renders so we don't surprise anyone.
+      await fs.writeFile(sidecarPath, JSON.stringify({
+        sections: chaptersForSidecar,
+        gap_duration_s: req.gap_duration,
+      }, null, 2))
       job.output_lines.push(
-        `Wrote chapter-duration sidecar (audio_chapters.json): ${chaptersForSidecar.length} section(s)`,
+        `Wrote chapter-duration sidecar (audio_chapters.json): ${chaptersForSidecar.length} section(s), gap=${req.gap_duration}s`,
       )
     } catch (e: any) {
       job.output_lines.push(`Note: chapter-duration sidecar skipped (${e?.message || 'write error'})`)

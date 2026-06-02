@@ -234,14 +234,14 @@ describe('expandChapters — approval gate + selective expansion', () => {
     // Disk reflects: chapters 3, 5, 7 exist; 1, 2, 4, 6, 8 do not.
     for (const n of [3, 5, 7]) {
       assert.equal(
-        existsSync(path.join(scriptDir, `EP0700_Chapter_${String(n).padStart(2, '0')}.docx`)),
+        existsSync(path.join(scriptDir, `EP0700_Chapter_${String(n).padStart(2, '0')}.md`)),
         true,
         `chapter ${n} should exist`,
       )
     }
     for (const n of [1, 2, 4, 6, 8]) {
       assert.equal(
-        existsSync(path.join(scriptDir, `EP0700_Chapter_${String(n).padStart(2, '0')}.docx`)),
+        existsSync(path.join(scriptDir, `EP0700_Chapter_${String(n).padStart(2, '0')}.md`)),
         false,
         `chapter ${n} should NOT exist (not in chaptersToExpand)`,
       )
@@ -283,8 +283,6 @@ describe('v3 generation_params snapshot (persist + read-back)', () => {
       length: 30,
       total_words: 7500,
       words_per_chapter: 400,
-      pattern_id: 'pat-listicle',
-      pattern_subject: 'Curious chemistry',
       character_ids: ['char-narrator'],
       custom_style_text: 'wry, observational',
     }

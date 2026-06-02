@@ -40,6 +40,10 @@ const openaiProvider: TextProvider = {
   },
 
   supportsModel(modelId: string): boolean {
+    // `-kie` ids are GPT-via-kie.ai (routed through the kie provider with the
+    // kie_api_key) — don't claim them here, or we'd call OpenAI direct with a
+    // bogus model id and the wrong key.
+    if (modelId.endsWith('-kie')) return false
     return MODELS.includes(modelId)
       || modelId.startsWith('gpt-')
       || /^o[1-9]/.test(modelId)

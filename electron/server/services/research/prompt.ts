@@ -1,0 +1,211 @@
+/**
+ * Shared prompt builder + JSON parser for the three research adapters
+ * (v1.0.142+).
+ *
+ * Every adapter sends roughly the same prompt structure — only the
+ * model + transport differ. Centralised here so we can iterate on
+ * prompt quality in one place + the JSON contract stays stable
+ * across adapters.
+ *
+ * Output contract: the LLM must return ONLY a JSON object matching
+ * `ResearchJsonContract`. The parser is tolerant of leading prose
+ * (some models prepend "Here's the research:" no matter what you
+ * ask) — it walks the string for the first `{...}` block and
+ * `JSON.parse`s that. Returns a minimal empty-shape object if
+ * parsing fails so downstream code doesn't crash; the script
+ * generator will surface "no claims" to the user instead.
+ */
+
+import type {
+  ResearchClaim,
+  ResearchCitation,
+  ResearchOutput,
+  ResearchRunOptions,
+  ResearchStructureSection,
+} from '../../models/types.js'
+
+export interface ResearchJsonContract {
+  summary?: string
+  claims?: Array<{
+    text: string
+    citation_indices?: number[]
+    confidence?: 'high' | 'medium' | 'low' | 'unknown'
+    note?: string
+  }>
+  citations?: Array<{
+    title: string
+    url: string
+    snippet?: string
+  }>
+  structure?: Array<{
+    heading: string
+    brief: string
+    /** Indices into the claims array (not the final ids — those are
+     *  assigned client-side after parsing). */
+    claim_indices?: number[]
+  }>
+}
+
+const SYSTEM_TEMPLATE = `You are a research assistant for a factual explainer video.
+
+Your job:
+  1. Research the user's topic.
+  2. Return a structured JSON object with verifiable claims, citations, and a recommended episode structure.
+
+Output rules (strict):
+  - Return ONLY a JSON object. No prose before or after. No markdown fences.
+  - Every claim is a short declarative sentence (one sentence per claim, never compound).
+  - Cite every claim. Use \`citation_indices\` to point into the \`citations\` array (zero-based).
+  - When you can't cite a claim, mark it with \`"confidence": "low"\` and add a \`note\` recommending manual verification. Don't make up URLs.
+  - \`summary\` is 2-4 sentences of context — the user reads this before the claims list.
+  - \`structure\` is 4-8 recommended episode sections (heading + brief + which claims belong there). The script generator uses this as a default outline; the user can edit it later.
+
+JSON schema:
+{
+  "summary": "<2-4 sentences>",
+  "claims": [
+    { "text": "<one declarative sentence>", "citation_indices": [<int>...], "confidence": "high|medium|low|unknown", "note": "<optional caveat>" }
+  ],
+  "citations": [
+    { "title": "<source title>", "url": "<URL or empty>", "snippet": "<optional quoted passage>" }
+  ],
+  "structure": [
+    { "heading": "<short section title>", "brief": "<one sentence on what this section covers>", "claim_indices": [<int>...] }
+  ]
+}`
+
+const LLM_ONLY_SYSTEM_NOTE = `
+
+IMPORTANT — you do NOT have live web access on this call. Don't fabricate URLs. For every claim:
+  - Mark confidence "low" or "unknown" unless you are absolutely certain from training data.
+  - In the \`note\` field, recommend a specific verification path (e.g. "Cross-check against [specific archive/journal/database]").
+  - Leave \`citation_indices\` empty for any unverifiable claim — the user will research these manually.
+  - \`citations\` can be empty (or list well-known canonical sources like "Encyclopedia Britannica entry on X" with empty URL).`
+
+export function buildResearchPrompt(opts: ResearchRunOptions, mode: 'web' | 'llm-only' = 'web'): {
+  system: string
+  user: string
+} {
+  const system = mode === 'llm-only'
+    ? SYSTEM_TEMPLATE + LLM_ONLY_SYSTEM_NOTE
+    : SYSTEM_TEMPLATE
+
+  const sourceCap = opts.max_sources ?? 8
+  const userParts: string[] = [
+    `Topic: ${opts.topic}`,
+    `Cap on distinct sources: ${sourceCap}`,
+  ]
+  if (opts.specific_questions && opts.specific_questions.trim()) {
+    userParts.push(`Specifically answer these questions:\n${opts.specific_questions.trim()}`)
+  }
+  userParts.push('Return the JSON object now.')
+
+  return { system, user: userParts.join('\n\n') }
+}
+
+/** Tolerant JSON parser. Some models prepend "Here's the research:"
+ *  or wrap output in markdown fences despite instructions. Walk for
+ *  the first { and the matching last } and parse that slice. */
+export function parseResearchJson(raw: string): ResearchJsonContract {
+  if (!raw || typeof raw !== 'string') return {}
+
+  // Strip common markdown fence wrappers.
+  let cleaned = raw.trim()
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
+  }
+
+  // Find the first { and the last } — naive but works when there's
+  // a single top-level object (which our prompt enforces).
+  const firstBrace = cleaned.indexOf('{')
+  const lastBrace = cleaned.lastIndexOf('}')
+  if (firstBrace < 0 || lastBrace <= firstBrace) return {}
+  const slice = cleaned.slice(firstBrace, lastBrace + 1)
+
+  try {
+    const parsed = JSON.parse(slice)
+    if (parsed && typeof parsed === 'object') return parsed
+  } catch {
+    // Fall through to empty
+  }
+  return {}
+}
+
+function freshId(): string {
+  return `claim_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+/** Shared assembly path: parse the JSON the LLM emitted, dedupe
+ *  citations across LLM-supplied + adapter-supplied, write the unified
+ *  ResearchOutput. Used by every research adapter (perplexity, llm-only). */
+export function assembleOutput(
+  raw: string,
+  liveCitations: ResearchCitation[],
+  meta: {
+    topic: string
+    specific_questions?: string
+    provider: ResearchOutput['source_provider']
+    model?: string
+  },
+): ResearchOutput {
+  const parsed = parseResearchJson(raw)
+
+  // Merge LLM-supplied citations (from the JSON block) with adapter-
+  // supplied ones (annotations / top-level), deduped by URL.
+  const byUrl = new Map<string, ResearchCitation>()
+  for (const c of liveCitations) {
+    if (c.url && !byUrl.has(c.url)) byUrl.set(c.url, c)
+  }
+  for (const c of parsed.citations || []) {
+    if (c.url && !byUrl.has(c.url)) byUrl.set(c.url, c)
+  }
+  const finalCitations = Array.from(byUrl.values())
+
+  // Rewrite each parsed claim's citation indices to point into the
+  // merged list. The LLM produces indices into ITS own citations
+  // array; we map those URLs to positions in finalCitations.
+  const parsedCitationUrls = (parsed.citations || []).map(c => c.url)
+  const claims: ResearchClaim[] = (parsed.claims || []).map((c) => {
+    const remapped: number[] = []
+    for (const idx of c.citation_indices || []) {
+      const url = parsedCitationUrls[idx]
+      if (!url) continue
+      const newIdx = finalCitations.findIndex(fc => fc.url === url)
+      if (newIdx >= 0) remapped.push(newIdx)
+    }
+    return {
+      id: freshId(),
+      text: c.text,
+      status: 'unreviewed',
+      citation_indices: remapped,
+      confidence: c.confidence,
+      note: c.note,
+    }
+  })
+
+  // The structure (if present) references claim ids — but the parsed
+  // version uses original claim indices, since the LLM didn't know
+  // the final ids. Rebuild claim_ids from the new claims array using
+  // text-match. Cheap O(N*M) walk; M tiny (~5-10 sections).
+  let structure: ResearchStructureSection[] | undefined
+  if (parsed.structure && parsed.structure.length) {
+    structure = parsed.structure.map((s) => ({
+      heading: s.heading,
+      brief: s.brief,
+      claim_ids: (s.claim_indices || []).map((i: number) => claims[i]?.id).filter(Boolean) as string[],
+    }))
+  }
+
+  return {
+    schema_version: 1,
+    source_provider: meta.provider,
+    source_model: meta.model,
+    generated_at: new Date().toISOString(),
+    topic: meta.topic,
+    specific_questions: meta.specific_questions,
+    claims,
+    citations: finalCitations,
+    structure,
+    summary: parsed.summary,
+  }
+}

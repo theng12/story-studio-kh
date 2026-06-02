@@ -50,7 +50,59 @@
           </template>
         </template>
       </Popover>
-      <OverflowMenu :items="presetMenuItems" aria-label="Preset actions" />
+      <!-- v1.0.119+ — Preset actions inlined as buttons. The previous
+           ⋯ overflow menu hid four common actions (Apply / Save /
+           Save as… / Delete) behind a kebab, which trained the user to
+           click twice for the operation they perform every session.
+           Matches the PresetPicker row style used elsewhere (Ideas,
+           Image Prompts) so the action set is consistent project-wide. -->
+      <div class="preset-actions" role="group" aria-label="Preset actions">
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          :disabled="!hasActivePreset"
+          title="Load the preset's saved values into this page's form."
+          @click="onApply"
+        >Apply</button>
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          :disabled="!hasActivePreset"
+          title="Save the page's current values back into the active preset."
+          @click="onOverwrite"
+        >Save</button>
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          title="Snapshot the current values under a new preset name."
+          @click="openSaveAs"
+        >Save as…</button>
+        <button
+          type="button"
+          class="btn btn-sm btn-danger"
+          :disabled="!hasActivePreset"
+          title="Remove the active preset from this project."
+          @click="onDelete"
+        >Delete</button>
+        <!-- Cross-device toggle: only visible when there's actually
+             at least one cross-device preset to toggle to. -->
+        <button
+          v-if="showDeviceToggleItem"
+          type="button"
+          class="btn btn-sm btn-ghost preset-device-toggle"
+          :title="presets?.showAllDevices?.value
+            ? 'Hide presets saved on other Macs.'
+            : `Reveal presets saved on other Macs. File paths inside cross-device presets may not exist on this Mac — the page will flag any broken paths after you apply.`"
+          @click="toggleDeviceVisibility"
+        >
+          <template v-if="presets?.showAllDevices?.value">
+            📍 This device only
+          </template>
+          <template v-else>
+            🌐 All devices (+{{ presets?.crossDeviceCount?.value ?? 0 }})
+          </template>
+        </button>
+      </div>
     </div>
 
     <!-- Episode region -->
@@ -158,15 +210,8 @@ import EpisodeSelector from './EpisodeSelector.vue'
 import Modal from './Modal.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import Popover from './Popover.vue'
-import OverflowMenu from './OverflowMenu.vue'
-
-type OverflowItem = {
-  label: string
-  onClick: () => void | Promise<void>
-  disabled?: boolean
-  danger?: boolean
-  title?: string
-}
+// v1.0.119 — Removed OverflowMenu import + OverflowItem shape: preset
+// actions inlined as buttons in the template, no kebab fallback.
 
 // `presets` is the full object returned by usePresets() on the page.
 // Typed loosely to avoid pulling the composable's type graph into here;
@@ -319,56 +364,16 @@ const showDeviceToggleItem = computed(() => {
   return (props.presets.crossDeviceCount?.value ?? 0) > 0
 })
 
-// ── Preset overflow menu items ──────────────────────────────────────────
-const presetMenuItems = computed<OverflowItem[]>(() => {
-  const hasActive = !!props.presets?.activeId.value
-  const items: OverflowItem[] = [
-    {
-      label: 'Apply preset to this page',
-      onClick: onApply,
-      disabled: !hasActive,
-      title: 'Load the preset\'s saved values into this page\'s form.',
-    },
-    {
-      label: 'Overwrite current preset',
-      onClick: onOverwrite,
-      disabled: !hasActive,
-      title: 'Save the page\'s current values back into the active preset.',
-    },
-    {
-      label: 'Save as new preset…',
-      onClick: openSaveAs,
-      title: 'Snapshot the current values under a new preset name.',
-    },
-    {
-      label: 'Delete preset',
-      onClick: onDelete,
-      disabled: !hasActive,
-      danger: true,
-      title: 'Remove the active preset from this project.',
-    },
-  ]
-  // Append the device-toggle item only when relevant. Sits at the bottom
-  // (after Delete) so it doesn't interrupt the primary workflow.
-  if (showDeviceToggleItem.value && props.presets?.showAllDevices) {
-    const allDevs = props.presets.showAllDevices.value
-    const others = props.presets.crossDeviceCount?.value ?? 0
-    items.push({
-      label: allDevs
-        ? `📍 Show only this device's presets`
-        : `🌐 Show all devices (+${others} from other Macs)`,
-      onClick: () => {
-        if (props.presets?.showAllDevices) {
-          props.presets.showAllDevices.value = !props.presets.showAllDevices.value
-        }
-      },
-      title: allDevs
-        ? 'Hide presets saved on other Macs.'
-        : `Reveal presets saved on other Macs. File paths inside cross-device presets may not exist on this Mac — the page will flag any broken paths after you apply.`,
-    })
+// v1.0.119 — Preset actions inlined as buttons (no more kebab menu).
+// `hasActivePreset` gates Apply / Save / Delete; Save as… is always
+// enabled since it captures the current form regardless of selection.
+const hasActivePreset = computed(() => !!props.presets?.activeId.value)
+
+function toggleDeviceVisibility() {
+  if (props.presets?.showAllDevices) {
+    props.presets.showAllDevices.value = !props.presets.showAllDevices.value
   }
-  return items
-})
+}
 
 function onPresetSelect(id: string) {
   props.presets?.setActive(id)
@@ -459,6 +464,25 @@ function episodeStatusClass(ep: any, key: string) {
 .preset-select {
   min-width: 160px;
   max-width: 240px;
+}
+
+/* v1.0.119 — inline preset actions (Apply / Save / Save as… / Delete +
+   optional device toggle). flex-wrap so the row gracefully collapses
+   under the dropdown on a tight viewport instead of pushing Generate
+   off-screen on the right. gap matches the surrounding region's gap
+   so the whole bar reads as one rhythm. */
+.preset-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.preset-actions .btn {
+  white-space: nowrap;
+}
+.preset-device-toggle {
+  margin-left: 4px;
+  font-size: 11px;
 }
 
 .episode-region {

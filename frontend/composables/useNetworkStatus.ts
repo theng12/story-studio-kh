@@ -1,11 +1,18 @@
 /**
- * Tracks network reachability for the app.
+ * Tracks reachability of the app's backend (the engine that runs jobs) and
+ * mirrors it to the job queue's pause state.
  *
- * Two signals:
- *   - navigator.onLine — fast but only detects interface state, not internet.
- *   - Periodic HEAD to /api/health — confirms the backend is actually reachable.
+ * v1.0.190 — reachability is decided ONLY by a periodic probe to the local
+ * backend (`GET /api/health`), never by `navigator.onLine`. Chromium's
+ * `navigator.onLine` throws false negatives on macOS (sleep/wake, VPN /
+ * Tailscale changes, Wi-Fi interface flaps) even when the internet is fine —
+ * and the old code "trusted it immediately", which paused the whole job queue
+ * and left jobs stuck at "Queued" with no explanation. The probe hits the
+ * local server, so "offline" now means "the job engine is unreachable", which
+ * is the only state where pausing the queue is actually correct. The browser's
+ * online/offline events are treated as a nudge to re-probe, not as gospel.
  *
- * Exposes a singleton state so every component reads the same value.
+ * Exposes a singleton so every component reads the same value.
  */
 
 // Explicit Vue import so this module is usable from plain node:test (no
@@ -16,34 +23,31 @@ import { ref, readonly } from 'vue'
 const online = ref(true)
 const lastChecked = ref<number>(Date.now())
 // `queueSyncFailed` is true when the most recent attempt to mirror the
-// online↔paused state to the backend failed. The dashboard layout reads
-// this to show a "queue may be out of sync" warning next to the network
-// indicator — otherwise the operator sees "Offline" and assumes new jobs
-// are safely paused, when in reality the pause POST never landed and the
-// worker is still chewing through queued items against a flaky backend.
+// online↔paused state to the backend failed. The dashboard layout reads this
+// to warn that the pause/resume command didn't land.
 const queueSyncFailed = ref(false)
 let started = false
 let interval: ReturnType<typeof setInterval> | null = null
-let lastPausedState: boolean | null = null
+// The pause state we last *intended* to set on the backend. Recorded on every
+// attempt (not just success) so a failed PAUSE to an unreachable backend isn't
+// retried every probe — that's spam to a dead endpoint, and jobs aren't running
+// anyway. A failed RESUME is different: see the retry note in syncQueueState.
+let lastSyncedPaused: boolean | null = null
 
 /**
- * Tell the backend to pause or resume the job queue based on connectivity.
- * No-op if the state hasn't changed, so we don't spam the endpoint every
- * 20 s probe.
- *
- * On failure we still record the attempted state (so we don't retry every
- * 20 s against an already-broken backend — that's spam, not signal) but
- * we flip `queueSyncFailed` so the network indicator can warn the operator
- * that the pause/resume command didn't land. Silent catch used to let the
- * UI say "Offline" while the worker quietly chewed through queued jobs.
+ * Tell the backend to pause or resume the job queue based on reachability.
+ * Skips the POST when we're already in the intended state — EXCEPT when a
+ * previous *resume* failed: in that case we retry, because a dropped resume
+ * POST (backend briefly busy during the transition) would otherwise leave the
+ * queue paused forever with the UI showing "Online". We deliberately do NOT
+ * retry failed *pauses*: if the backend is unreachable the pause can't land
+ * anyway and jobs aren't running, so retrying is pointless noise.
  */
 async function syncQueueState(nowOnline: boolean) {
   const shouldBePaused = !nowOnline
-  if (lastPausedState === shouldBePaused) return
-  // Record the attempt up front so a failed POST doesn't cause us to spam
-  // the backend on every subsequent probe — the next legitimate state
-  // transition will retry naturally. Failure surfaces via queueSyncFailed.
-  lastPausedState = shouldBePaused
+  const resumeRetry = queueSyncFailed.value && shouldBePaused === false
+  if (lastSyncedPaused === shouldBePaused && !resumeRetry) return
+  lastSyncedPaused = shouldBePaused
   try {
     const res = await fetch(`/api/system/queue/${shouldBePaused ? 'pause' : 'resume'}`, { method: 'POST' })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -63,13 +67,8 @@ async function probe(): Promise<boolean> {
 }
 
 async function refresh() {
-  // If the browser says offline, trust it immediately.
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    online.value = false
-    lastChecked.value = Date.now()
-    await syncQueueState(false)
-    return
-  }
+  // Reachability of the local job engine is the only signal that gates the
+  // queue. navigator.onLine is intentionally NOT consulted (see file header).
   online.value = await probe()
   lastChecked.value = Date.now()
   await syncQueueState(online.value)
@@ -80,9 +79,10 @@ export function useNetworkStatus() {
     started = true
     // Initial probe
     refresh()
-    // Browser events
+    // Browser online/offline events only nudge a fresh probe — they never
+    // directly flip the state (navigator.onLine is too flaky to trust).
     window.addEventListener('online', refresh)
-    window.addEventListener('offline', () => { online.value = false; lastChecked.value = Date.now() })
+    window.addEventListener('offline', refresh)
     // Periodic re-check every 20 s
     interval = setInterval(refresh, 20000)
   }

@@ -160,7 +160,7 @@ export function useConfirmation() {
   async function saveSkipPreference(type: string) {
     const route = useRoute()
     const slug = route.params.slug as string
-    const prefs = { ...((config.value as any)?.confirmation_preferences || {}) }
+    const prefs = { ...(config.value?.confirmation_preferences || {}) }
     prefs[type] = false
     try {
       await put(`/projects/${slug}/settings/config`, { confirmation_preferences: prefs })

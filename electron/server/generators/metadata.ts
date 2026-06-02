@@ -19,10 +19,12 @@ import { callAi } from '../lib/ai-client.js'
 import { prependAvoidanceToPrompt, recordUsageForScope } from '../services/recency-tracker.js'
 import { SUPPORTED_MODELS } from '../models/types.js'
 import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js'
+import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { formatMetadataTxt } from '../services/folder-migration.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
+import { appendSourcesToDescription, sourcesSectionEnabled } from '../lib/research-sources.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import type { Job } from '../models/types.js'
@@ -54,7 +56,6 @@ interface MetadataParams {
 
 function checkProvider(model: string, config: any): string | null {
   const provider = SUPPORTED_MODELS[model]
-  if (provider === 'anthropic' && !config.anthropic_api_key) return 'No Anthropic key configured'
   if (provider === 'openai' && !config.openai_api_key) return 'No OpenAI key configured'
   if (provider === 'kie' && !config.kie_api_key) return 'No kie.ai key configured'
   return null
@@ -71,9 +72,8 @@ function aiCreds(config: any) {
 async function readStoryContext(slug: string, episode_id: string, title: string, maxChars = 2000): Promise<string> {
   try {
     const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-    const mammoth = await import('mammoth')
-    const result = await mammoth.default.extractRawText({ path: paths.narration_docx })
-    return result.value.slice(0, maxChars)
+    const raw = await readArtifactRawText(paths.narration_docx)
+    return raw.slice(0, maxChars)
   } catch {
     return `Episode: ${episode_id}, Title: ${title}`
   }
@@ -125,7 +125,7 @@ export async function generateMetadata(job: Job): Promise<void> {
 
   // Model + defaults. Batch mode inherits whatever the user set on the
   // Metadata page; any missing params fall back to sensible defaults.
-  const model = req.model || 'gpt-4o'
+  const model = req.model || 'deepseek-v4-flash'
   const credErr = checkProvider(model, config)
   if (credErr) throw new Error(credErr)
 
@@ -213,6 +213,16 @@ export async function generateMetadata(job: Job): Promise<void> {
       // niche's regex and append to the recency log. Fail-soft — never
       // surface to the user; an analytics-style side effect.
       await recordUsageForScope(project_slug, episode_id, 'metadata', description).catch(() => null)
+    }
+
+    // v1.0.197 — append the kept research sources (deterministic, real URLs);
+    // v1.0.198 — gated on the Sources section being present + enabled.
+    {
+      const sourcesRes = await appendSourcesToDescription(project_slug, episode_id, description, format, max_chars, sourcesSectionEnabled(sections))
+      description = sourcesRes.description
+      if (sourcesRes.appended) {
+        job.output_lines.push(`Appended ${sourcesRes.appended} research source(s) to the description${sourcesRes.dropped ? ` (+${sourcesRes.dropped} dropped for length)` : ''}.`)
+      }
     }
 
     // ── 2. Titles ───────────────────────────────────────────────────────

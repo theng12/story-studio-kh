@@ -359,3 +359,109 @@ function versionOf(filename: string): number {
   const m = /_v(\d+)/.exec(filename)
   return m ? parseInt(m[1]!, 10) : 0
 }
+
+// ── Image Studio KH (v1.0.151+) ──────────────────────────────────────────
+//
+// Sibling of /voicestudio/* in routes/audio.ts. Three helper routes that
+// the Settings → Local Models panel calls:
+//   GET  /imagestudio/base-url   — read configured URL + default
+//   PUT  /imagestudio/base-url   — persist URL (per-Mac via app-secrets)
+//   POST /imagestudio/test       — health + catalog + LoRA count in one call
+//   GET  /imagestudio/catalog    — pass-through proxy of the modal's catalog
+//
+// The test endpoint folds in catalog summary + LoRA count so the
+// Settings UI renders "✓ Connected · Image Studio v1.3.2 · N models ·
+// 0 LoRAs" in one round-trip.
+
+router.get('/imagestudio/base-url', async (_req, res) => {
+  try {
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const { DEFAULT_IMAGESTUDIO_BASE_URL } = await import('../lib/imagestudio-client.js')
+    const stored = await getApiKey('imagestudio')
+    res.json({ baseUrl: stored || '', defaultBaseUrl: DEFAULT_IMAGESTUDIO_BASE_URL })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not read Image Studio base URL'))
+  }
+})
+
+router.put('/imagestudio/base-url', async (req, res) => {
+  try {
+    const baseUrl = typeof req.body?.baseUrl === 'string' ? req.body.baseUrl.trim() : ''
+    if (!baseUrl) return res.status(400).json({ detail: 'baseUrl is required' })
+    if (!/^https?:\/\//i.test(baseUrl)) {
+      return res.status(400).json({ detail: 'baseUrl must start with http:// or https://' })
+    }
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    await setApiKey('imagestudio', baseUrl.replace(/\/+$/, ''))
+    res.json({ ok: true, baseUrl })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not save Image Studio base URL'))
+  }
+})
+
+router.post('/imagestudio/test', async (req, res) => {
+  try {
+    const {
+      health: isHealth, catalog: isCatalog, listLoras: isLoras,
+      DEFAULT_IMAGESTUDIO_BASE_URL,
+    } = await import('../lib/imagestudio-client.js')
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const incoming = typeof req.body?.baseUrl === 'string' ? req.body.baseUrl.trim() : ''
+    const baseUrl = incoming || (await getApiKey('imagestudio')) || DEFAULT_IMAGESTUDIO_BASE_URL
+    if (!baseUrl) {
+      return res.json({ ok: false, error: 'No Image Studio URL set. Enter your modal URL above and Save, then Test.' })
+    }
+    const h = await isHealth(baseUrl)
+    if (!h.ok) {
+      return res.json({ ok: false, baseUrl, error: h.error || 'Health check failed' })
+    }
+    const [cat, loras] = await Promise.all([
+      isCatalog(baseUrl).catch(() => ({ families: {}, models: [] })),
+      isLoras(baseUrl).catch(() => [] as any[]),
+    ])
+    res.json({
+      ok: true,
+      baseUrl,
+      appVersion: h.appVersion,
+      apiVersion: h.apiVersion,
+      familyCount: Object.keys(cat.families).length,
+      modelCount: cat.models.length,
+      loraCount: Array.isArray(loras) ? loras.length : 0,
+    })
+  } catch (e: any) {
+    res.json({ ok: false, error: e?.message || String(e) })
+  }
+})
+
+router.get('/imagestudio/catalog', async (_req, res) => {
+  try {
+    const { catalog: isCatalog, DEFAULT_IMAGESTUDIO_BASE_URL } = await import('../lib/imagestudio-client.js')
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const baseUrl = (await getApiKey('imagestudio')) || DEFAULT_IMAGESTUDIO_BASE_URL
+    if (!baseUrl) { res.json({ baseUrl: '', families: {}, models: [] }); return }
+    const cat = await isCatalog(baseUrl)
+    res.json({ baseUrl, ...cat })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not load Image Studio catalog'))
+  }
+})
+
+// GET /imagestudio/models — the dynamic model list for the image picker
+// (mirror of /voicestudio/models). Joins the live catalog with diagnostics
+// (per-family ready) + system memory (fits). Each row carries a Story Studio
+// model id (`imagestudio:<repo>`) the generator/provider resolve directly,
+// plus capabilities so the picker can gate txt2img/img2img/edit. `ok:false`
+// (modal offline) → frontend keeps whatever it had / hides the local section.
+router.get('/imagestudio/models', async (_req, res) => {
+  try {
+    const { listAvailableModels, DEFAULT_IMAGESTUDIO_BASE_URL } = await import('../lib/imagestudio-client.js')
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const stored = await getApiKey('imagestudio')
+    const baseUrl = stored || DEFAULT_IMAGESTUDIO_BASE_URL
+    if (!baseUrl) { res.json({ ok: false, configured: false, models: [], baseUrl: '' }); return }
+    const result = await listAvailableModels(baseUrl)
+    res.json({ ...result, configured: !!stored, baseUrl })
+  } catch (e: any) {
+    res.json({ ok: false, configured: false, models: [], error: e?.message || 'probe failed' })
+  }
+})

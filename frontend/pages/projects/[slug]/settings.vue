@@ -2,17 +2,58 @@
   <div>
     <h1>Settings</h1>
 
-    <!-- Tab navigation -->
-    <div class="tabs mt-3">
-      <button v-for="tab in tabs" :key="tab.id" :class="['tab', { active: activeTab === tab.id }]" @click="activeTab = tab.id">
-        {{ tab.label }}
-      </button>
+    <!-- v1.0.184 (S1) — grouped + scope-zoned settings nav. Replaces the flat
+         15-tab row. Two scopes (This Mac vs This Project) make it obvious what
+         travels with the project vs. what stays on this machine; topic groups
+         within each make 15 entries scannable. `tabs` (flat) is still derived
+         below for back-compat (deep links, saved tab state). -->
+    <nav class="settings-nav mt-3">
+      <div v-for="zone in tabZones" :key="zone.id" class="settings-zone">
+        <div class="settings-zone-head">
+          <span class="settings-zone-title">{{ zone.title }}</span>
+          <span class="settings-zone-scope">{{ zone.scope }}</span>
+        </div>
+        <div v-for="group in zone.groups" :key="group.title" class="settings-group">
+          <span class="settings-group-label">{{ group.title }}</span>
+          <div class="settings-group-tabs">
+            <button
+              v-for="tab in group.tabs"
+              :key="tab.id"
+              :class="['tab', { active: activeTab === tab.id }]"
+              @click="activeTab = tab.id"
+            >{{ tab.label }}</button>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- v1.0.186 (S3) — scope banner. Mirrors the active tab's zone so the
+         user always knows, in plain language, whether the panel they're
+         editing stays on this Mac or travels with the project. -->
+    <div
+      v-if="activeZone"
+      :class="['settings-scope-banner', activeZone.id === 'machine' ? 'scope-machine' : 'scope-project']"
+    >
+      <span class="scope-banner-icon" aria-hidden="true">{{ activeZone.id === 'machine' ? '⚙' : '📁' }}</span>
+      <span class="scope-banner-text">
+        <strong>{{ activeZone.title }}</strong>
+        <template v-if="activeZone.id === 'machine'">
+          — these stay on this Mac and are never synced. They're shared by every project you open on this machine.
+        </template>
+        <template v-else>
+          — these travel with the project. Copy or sync the project folder to another Mac and they come along.
+        </template>
+      </span>
     </div>
 
-    <!-- (API Keys moved out to app-level Settings — see <NuxtLink to="/app-settings">/app-settings</NuxtLink>.
-         Keys are now per-machine, configured once for the whole app
-         instead of per-project.) -->
-
+    <!-- App (per-machine): API Keys + Appearance + Server Mode.
+         v1.0.185 (S2) — folded the standalone App-Settings modal into the
+         "This Mac" zone here. Same <ThisMacSettings> component the modal now
+         wraps, so there is one source of truth. It owns its own data
+         lifecycle (loads on mount / when this tab is shown). -->
+    <div v-if="activeTab === 'app'" class="card mt-2">
+      <ThisMacSettings />
+    </div>
 
     <!-- Models (Editable) -->
     <div v-if="activeTab === 'models'" class="card mt-2">
@@ -297,102 +338,11 @@
         </button>
       </div>
 
-      <!-- ── Patterns sub-section ─────────────────────────────────────── -->
-      <!-- Lives inside the Format tab because patterns compose with formats —
-           the user picks a format on the project + a pattern per-episode (or
-           per-ideas-batch) on top. The card below mirrors the Format card's
-           visual structure (header + help text + action button on the right). -->
-      <div class="patterns-section mt-4">
-        <div class="format-tab-header">
-          <div>
-            <h3>Patterns</h3>
-            <p class="text-muted mt-1 mb-2">
-              Patterns control title shape and body structure within a format
-              (e.g. "Fall asleep to {X}", "History of {X} explained").
-              <strong>We ship 8 presets.</strong> Pick one in the Script
-              Generator or the Ideas Generator — or create your own here, either
-              by hand or by extracting from a sample script.
-            </p>
-          </div>
-          <div class="patterns-actions">
-            <button class="btn btn-secondary btn-sm" @click="openNewPatternEditor">+ New Pattern</button>
-            <button class="btn btn-secondary btn-sm" @click="patternWizardOpen = true">+ Extract from Sample</button>
-          </div>
-        </div>
+      <!-- v1.0.165 — Patterns sub-section removed. The Pattern
+           customization system was retired; its one piece of value
+           (the "{X}" title-template shape) is now a plain optional
+           field on the Ideas Generator. -->
 
-        <div class="patterns-filter mt-2">
-          <label class="filter-toggle">
-            <input type="checkbox" v-model="patternsFilterToCurrent" />
-            Show only patterns compatible with the current format
-            <code v-if="patternsFilterToCurrent && formatId">({{ formatId }})</code>
-          </label>
-        </div>
-
-        <div v-if="patternsLoading && !visiblePatterns.length" class="text-muted mt-2">Loading patterns…</div>
-        <div v-else-if="!visiblePatterns.length" class="text-muted mt-2 empty-state">
-          No patterns match the current filter.
-          <button class="btn btn-ghost btn-sm" @click="patternsFilterToCurrent = false">Show all</button>
-        </div>
-        <div v-else class="pattern-grid mt-2">
-          <div
-            v-for="p in visiblePatterns"
-            :key="p.id"
-            class="pattern-card"
-            :class="{ builtin: p.builtin }"
-          >
-            <div class="pat-card-head">
-              <strong>{{ p.name }}</strong>
-              <span class="pat-badge" :class="p.builtin ? 'badge-builtin' : 'badge-custom'">
-                {{ p.builtin ? 'Built-in' : 'Custom' }}
-              </span>
-            </div>
-            <div class="pat-card-template">
-              <code>{{ p.titleTemplate }}</code>
-              <span v-if="p.preferredFormats?.length" class="pat-card-formats">
-                · {{ p.preferredFormats.join(', ') }}
-              </span>
-            </div>
-            <p class="pat-card-desc">{{ p.description }}</p>
-            <div class="pat-card-actions">
-              <button
-                class="btn btn-ghost btn-sm"
-                :title="p.builtin ? 'Built-ins are read-only — copy as new to make changes.' : 'Edit pattern'"
-                :disabled="p.builtin"
-                @click="openEditPatternEditor(p)"
-              >
-                {{ p.builtin ? 'View only' : 'Edit' }}
-              </button>
-              <button
-                class="btn btn-ghost btn-sm"
-                title="Make a custom copy you can edit"
-                @click="copyPatternAsNew(p)"
-              >
-                Copy as new
-              </button>
-              <button
-                v-if="!p.builtin"
-                class="btn btn-ghost btn-sm danger"
-                @click="confirmDeletePattern(p)"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <PatternEditorModal
-        :open="patternEditorOpen"
-        :pattern="patternEditorTarget"
-        @close="patternEditorOpen = false"
-        @saved="onPatternSaved"
-      />
-      <PatternFromSampleWizard
-        :open="patternWizardOpen"
-        :project-slug="slug"
-        @close="patternWizardOpen = false"
-        @saved="onPatternSaved"
-      />
     </div>
 
     <!-- v1.0.93+ Niche tab — promoted out of Format so it's findable from
@@ -712,10 +662,10 @@
 
     <!-- Storage — per-episode disk usage + cleanup of uploaded final
          videos + external-root configuration. The pain point this
-         tab solves: sleep stories produce 5-10 GB final videos that
-         bog down iCloud sync. Once a video is on YouTube (sidecar
-         shows video_id), the local copy is operationally redundant
-         and can be deleted to reclaim disk. -->
+         tab solves: long-form video projects produce 5-10 GB final
+         video files that bog down iCloud sync. Once a video is on
+         YouTube (sidecar shows video_id), the local copy is
+         operationally redundant and can be deleted to reclaim disk. -->
     <div v-if="activeTab === 'storage'" class="card mt-2">
       <h3>Storage</h3>
 
@@ -810,10 +760,10 @@
               same project at once.
             </li>
             <li>
-              <strong>5–10 GB final videos.</strong> Sleep stories produce
-              huge final-video files. If you're on iCloud Drive with limited
-              space, set the external final-video root above and/or use the
-              cleanup button below.
+              <strong>5–10 GB final videos.</strong> Long-form video
+              projects produce huge final-video files. If you're on iCloud
+              Drive with limited space, set the external final-video root
+              above and/or use the cleanup button below.
             </li>
           </ul>
         </details>
@@ -1415,100 +1365,215 @@
       </div>
     </div>
 
-    <!-- Local TTS (Chatterbox) -->
+    <!-- Local Models tab. v1.0.149+ — was "Local TTS" (Chatterbox).
+         Voice Studio KH is the only section today; future TTI / extra
+         TTS modals will append below. v1.0.150 removed the legacy
+         Chatterbox section entirely (chatterbox-mlx is reachable
+         through Voice Studio's family list if needed). -->
     <div v-if="activeTab === 'local-tts'" class="card mt-2">
-      <h3>Local TTS — Chatterbox (self-hosted)</h3>
+      <!-- v1.0.207 — setup explainer. Local models run on YOUR Mac (free,
+           private, no per-use cost or rate limits). The two wrappers below
+           are the author's own open-source projects; Pinokio installs them
+           with their framework + Python dependencies in one click. -->
+      <div class="local-help">
+        <h3 style="margin-top:0;">💻 Run your own local AI models (free &amp; private)</h3>
+        <p class="text-muted mt-1" style="font-size: 12.5px; line-height: 1.6;">
+          Story Studio can generate <strong>narration</strong> and
+          <strong>images</strong> on your own Apple-Silicon Mac instead of a
+          paid cloud API — <strong>$0 per use</strong>, no rate limits, and
+          nothing leaves your machine. You run two small local servers
+          ("modals") and paste each one's URL below. Setup is a few clicks:
+        </p>
+        <ol class="local-help-steps">
+          <li>
+            <strong>Install Pinokio</strong> — a free 1-click app installer
+            for AI tools. It bundles the whole runtime (Python, the ML
+            framework, every dependency) so you never touch a terminal.
+            <a href="https://beta.pinokio.co/" target="_blank" rel="noopener" @click.prevent="openExternal('https://beta.pinokio.co/')">beta.pinokio.co ↗</a>
+          </li>
+          <li>
+            <strong>Install the two wrappers</strong> (open-source, built for
+            exactly this — friendly controls, model downloads, one-click
+            start/stop). In Pinokio, use "Download from URL" with these repos:
+            <ul class="local-help-repos">
+              <li>
+                🎙 Voice Studio (TTS — VoxCPM, Kokoro, Qwen3-TTS, Bark…):
+                <a href="https://github.com/theng12/voicestudio-mac" target="_blank" rel="noopener" @click.prevent="openExternal('https://github.com/theng12/voicestudio-mac')">github.com/theng12/voicestudio-mac ↗</a>
+              </li>
+              <li>
+                🖼 Image Studio (FLUX, Qwen-Image, Z-Image, FIBO…):
+                <a href="https://github.com/theng12/imagestudio-mac" target="_blank" rel="noopener" @click.prevent="openExternal('https://github.com/theng12/imagestudio-mac')">github.com/theng12/imagestudio-mac ↗</a>
+              </li>
+            </ul>
+          </li>
+          <li>
+            <strong>Start each modal</strong> in Pinokio and copy its address.
+            The <strong>port is fixed</strong> (Voice Studio <code>47870</code>,
+            Image Studio <code>47868</code>); only the host changes per machine.
+            Reach it however suits you — Bonjour
+            (<code>http://your-mac.local:PORT</code>), a direct LAN IP
+            (<code>http://192.168.x.x:PORT</code>), or a
+            <strong>Tailscale</strong> IP for access from another network.
+          </li>
+          <li>
+            <strong>Paste the URL</strong> into the matching box below, hit
+            <strong>Save URL</strong>, then <strong>Test connection</strong>.
+            That's it — every project on this Mac shares it.
+          </li>
+        </ol>
+      </div>
+
+      <hr style="border: 0; border-top: 1px solid var(--border); margin: 22px 0 18px;" />
+
+      <h3>Voice Studio KH (local TTS modal)</h3>
       <p class="text-muted mt-1" style="font-size: 12px;">
-        Generate narration using a Chatterbox TTS server running on your own
-        machine (typically a Mac mini reached over Tailscale). No per-character
-        cost, no upstream rate limits. Requires the server to be running and
-        reachable. <a href="https://github.com/resemble-ai/chatterbox" target="_blank" rel="noopener" style="color: var(--accent);">Learn more →</a>
+        Narration via a Pinokio-launched wrapper fronting many TTS engine
+        families (VoxCPM-MLX, Kokoro-MLX, Qwen3-TTS, Chatterbox-MLX, Bark…)
+        on your Apple-Silicon Mac. Set the modal URL below — there's no
+        default host (it's your machine, reached however you like). The
+        audio model dropdown surfaces whichever engines your modal reports
+        as ready. No per-character cost, no upstream rate limits. The URL is
+        per-machine — every project on this Mac shares it.
       </p>
 
       <div class="local-tts-row mt-3">
-        <label class="local-tts-toggle">
-          <input type="checkbox" v-model="chatterboxEnabledDraft" />
-          <span><strong>Enable for this project</strong></span>
-          <span class="text-muted" style="font-size: 11px; margin-left: 6px;">
-            (When off, "Chatterbox – Default Voice" / "Chatterbox – Cloned Voice" are hidden from the audio model picker.)
-          </span>
-        </label>
-      </div>
-
-      <div class="local-tts-row mt-3">
-        <label class="local-tts-label">Server URL (per machine)</label>
+        <label class="local-tts-label">Modal URL (per machine)</label>
         <div class="local-tts-url-row">
           <input
-            v-model="chatterboxBaseUrlDraft"
+            v-model="voicestudioBaseUrlDraft"
             type="text"
             class="input input-sm"
-            :placeholder="chatterboxDefaultBaseUrl"
+            :placeholder="voicestudioUrlExample"
             spellcheck="false"
           />
           <button
             class="btn btn-sm btn-secondary"
-            :disabled="chatterboxBaseUrlSaving"
-            @click="saveChatterboxBaseUrl"
+            :disabled="voicestudioBaseUrlSaving"
+            @click="saveVoicestudioBaseUrl"
           >
-            {{ chatterboxBaseUrlSaving ? 'Saving…' : 'Save URL' }}
+            {{ voicestudioBaseUrlSaving ? 'Saving…' : 'Save URL' }}
           </button>
           <button
             class="btn btn-sm btn-secondary"
-            :disabled="chatterboxTesting"
-            @click="testChatterboxConnection"
+            :disabled="voicestudioTesting"
+            @click="testVoicestudioConnection"
           >
-            {{ chatterboxTesting ? 'Testing…' : 'Test connection' }}
+            {{ voicestudioTesting ? 'Testing…' : 'Test connection' }}
           </button>
         </div>
         <p class="text-muted mt-1" style="font-size: 11px;">
-          Stored once per Mac (in app secrets), so moving this project to a
-          machine without Tailscale won't carry a stale URL. Default:
-          <code>{{ chatterboxDefaultBaseUrl }}</code>.
+          e.g. <code>http://your-mac.local:47870</code> (Bonjour),
+          <code>http://192.168.1.50:47870</code> (LAN IP), or your Tailscale
+          IP for remote access. Port <code>47870</code> is fixed; the host is
+          yours. If a job starts failing with "connection refused", re-open
+          the modal in Pinokio and re-test.
         </p>
-        <div v-if="chatterboxTestResult" class="local-tts-pill mt-2" :class="{ ok: chatterboxTestResult.ok, err: !chatterboxTestResult.ok }">
-          <span v-if="chatterboxTestResult.ok">
-            ✓ Reachable
-            <span v-if="chatterboxTestResult.device"> · device {{ chatterboxTestResult.device }}</span>
-            <span v-if="chatterboxTestResult.modelLoaded === true"> · model loaded</span>
-            <span v-else-if="chatterboxTestResult.modelLoaded === false"> · model not loaded yet</span>
-            <span v-if="chatterboxTestResult.sampleRate"> · {{ chatterboxTestResult.sampleRate }} Hz</span>
+        <div v-if="voicestudioTestResult" class="local-tts-pill mt-2" :class="{ ok: voicestudioTestResult.ok, err: !voicestudioTestResult.ok }">
+          <span v-if="voicestudioTestResult.ok">
+            ✓ Connected
+            <span v-if="voicestudioTestResult.appVersion"> · Voice Studio v{{ voicestudioTestResult.appVersion }}</span>
+            <span v-if="voicestudioTestResult.device"> · device {{ voicestudioTestResult.device }}</span>
+            <span v-if="voicestudioTestResult.loadedFamilies?.length">
+              · loaded: {{ voicestudioTestResult.loadedFamilies.join(', ') }}
+            </span>
+            <span v-else-if="voicestudioTestResult.loadedFamilies"> · no engine loaded</span>
+            <span v-if="typeof voicestudioTestResult.voiceLibraryCount === 'number'">
+              · {{ voicestudioTestResult.voiceLibraryCount }} saved voice{{ voicestudioTestResult.voiceLibraryCount === 1 ? '' : 's' }}
+            </span>
           </span>
           <span v-else>
-            ✗ {{ chatterboxTestResult.error || 'Unreachable' }}
+            ✗ {{ voicestudioTestResult.error || 'Unreachable' }}
           </span>
         </div>
       </div>
 
-      <div class="local-tts-row mt-4">
-        <label class="local-tts-label">Cloned voice reference (5–15 s clip)</label>
-        <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
-          Upload a short, clean recording of the voice you want to clone. Used
-          when you pick "Chatterbox – Cloned Voice" as the audio model. The
-          file is sent to your local server and the returned reference id is
-          stored on this project. One reference per project; uploading replaces.
-        </p>
-        <div class="local-tts-upload-row mt-2">
+      <p class="text-muted mt-3" style="font-size: 11px;">
+        Once the URL is set, pick any <strong>[Voice Studio · local]</strong>
+        engine from the audio model dropdown on the
+        <NuxtLink :to="`/projects/${slug}/audio`" style="color: var(--accent);">Audio Generator</NuxtLink>
+        — the list reflects whatever your modal currently has loaded. No
+        per-project enable flag — set the URL once on this Mac and every
+        project can use it.
+      </p>
+
+      <hr style="border: 0; border-top: 1px solid var(--border); margin: 28px 0 18px;" />
+
+      <!-- ─── Image Studio KH (v1.0.151+) ──────────────────────────────
+           Sibling of Voice Studio: Pinokio FastAPI wrapper hosting
+           FLUX.2 / FLUX.1 / Qwen-Image / FIBO / Z-Image families on
+           Apple Silicon MLX. Distinct port (Pinokio assigns one per
+           modal). v1.0.158+ Bonjour .local hostname.
+           v1.0.159+ runs on the M1 (Voice Studio split off to M4). -->
+      <h3>Image Studio KH (local TTI modal)</h3>
+      <p class="text-muted mt-1" style="font-size: 12px;">
+        Scene + thumbnail images via a Pinokio-launched wrapper hosting
+        FLUX-family + Qwen-Image + Z-Image + FIBO models (text-to-image,
+        image-to-image, and instruction-edit). Set the modal URL below —
+        no default host, it's your machine. The image model dropdown
+        surfaces your modal's live catalog and only enables the models your
+        Mac's memory can actually run. No per-image cost. The URL is
+        per-machine — every project on this Mac shares it.
+      </p>
+
+      <div class="local-tts-row mt-3">
+        <label class="local-tts-label">Modal URL (per machine)</label>
+        <div class="local-tts-url-row">
           <input
-            ref="chatterboxFileInput"
-            type="file"
-            accept="audio/*"
+            v-model="imagestudioBaseUrlDraft"
+            type="text"
             class="input input-sm"
-            @change="onChatterboxReferenceFile"
+            :placeholder="imagestudioUrlExample"
+            spellcheck="false"
           />
-          <span v-if="chatterboxUploading" class="text-muted" style="font-size: 11px;">Uploading…</span>
+          <button
+            class="btn btn-sm btn-secondary"
+            :disabled="imagestudioBaseUrlSaving"
+            @click="saveImagestudioBaseUrl"
+          >
+            {{ imagestudioBaseUrlSaving ? 'Saving…' : 'Save URL' }}
+          </button>
+          <button
+            class="btn btn-sm btn-secondary"
+            :disabled="imagestudioTesting"
+            @click="testImagestudioConnection"
+          >
+            {{ imagestudioTesting ? 'Testing…' : 'Test connection' }}
+          </button>
         </div>
-        <div v-if="chatterboxReferenceIdLocal" class="local-tts-current mt-2">
-          <span class="text-muted" style="font-size: 11px;">Current reference id:</span>
-          <code style="font-size: 11px;">{{ chatterboxReferenceIdLocal }}</code>
+        <p class="text-muted mt-1" style="font-size: 11px;">
+          e.g. <code>http://your-mac.local:47868</code> (Bonjour),
+          <code>http://192.168.1.50:47868</code> (LAN IP), or your Tailscale
+          IP. Port <code>47868</code> is fixed (distinct from Voice Studio's
+          <code>47870</code>); the host is yours. Re-test after relaunching
+          the modal in Pinokio.
+        </p>
+        <div v-if="imagestudioTestResult" class="local-tts-pill mt-2" :class="{ ok: imagestudioTestResult.ok, err: !imagestudioTestResult.ok }">
+          <span v-if="imagestudioTestResult.ok">
+            ✓ Connected
+            <span v-if="imagestudioTestResult.appVersion"> · Image Studio v{{ imagestudioTestResult.appVersion }}</span>
+            <span v-if="typeof imagestudioTestResult.modelCount === 'number'">
+              · {{ imagestudioTestResult.modelCount }} model{{ imagestudioTestResult.modelCount === 1 ? '' : 's' }} in catalog
+            </span>
+            <span v-if="typeof imagestudioTestResult.familyCount === 'number'">
+              · {{ imagestudioTestResult.familyCount }} engine famil{{ imagestudioTestResult.familyCount === 1 ? 'y' : 'ies' }}
+            </span>
+            <span v-if="typeof imagestudioTestResult.loraCount === 'number'">
+              · {{ imagestudioTestResult.loraCount }} LoRA{{ imagestudioTestResult.loraCount === 1 ? '' : 's' }}
+            </span>
+          </span>
+          <span v-else>
+            ✗ {{ imagestudioTestResult.error || 'Unreachable' }}
+          </span>
         </div>
       </div>
 
-      <div class="flex gap-2 mt-3" style="align-items: center;">
-        <button class="btn btn-primary" :disabled="chatterboxEnabledSaving" @click="saveChatterboxEnabled">
-          {{ chatterboxEnabledSaving ? 'Saving…' : 'Save project settings' }}
-        </button>
-        <SaveIndicator v-bind="savedHintProps('chatterbox')" />
-      </div>
+      <p class="text-muted mt-3" style="font-size: 11px;">
+        Once the URL is set, the <strong>💻 local</strong> section of the
+        image model picker (Scene / Thumbnail Generator) lists your modal's
+        catalog — runnable models first, oversized ones shown but disabled.
+        No per-project enable flag.
+      </p>
+
     </div>
 
     <!-- FFmpeg -->
@@ -2265,8 +2330,8 @@
           <!-- Move THIS PROJECT to a different folder. Distinct from the
                Storage tab's global "Move projects to…" — that one moves
                every project at once; this lets the operator pick a
-               destination just for this one project (e.g. TerraNash to
-               iCloud, Dozing Knight stays local). The destination is
+               destination just for this one project (e.g. one channel to
+               iCloud, another stays local). The destination is
                registered as a linked path so the slug keeps resolving
                after the move. -->
           <button
@@ -2365,8 +2430,8 @@
            dialog above: this relocates the project's ENTIRE folder
            (metadata + assets) to a chosen destination, then registers
            it as a linked project so its slug keeps resolving after the
-           move. Powers the per-project "TerraNash to iCloud while
-           Dozing Knight stays local" workflow. -->
+           move. Powers the per-project "one channel to iCloud while
+           another stays local" workflow. -->
       <div v-if="moveProjectDialogOpen" class="modal-overlay" @click.self="closeMoveProjectDialog">
         <div class="modal" style="max-width: 660px;">
           <h2>Move this project to…</h2>
@@ -2635,6 +2700,11 @@
 </template>
 
 <script setup lang="ts">
+// pickFolder() branches between Electron's native dialog and the in-app
+// FileBrowserModal (server mode / remote tailnet browser). Not auto-imported
+// — it's a bare named export, not a useX composable.
+import { pickFolder as pickFolderShared } from '~/composables/usePathPicker'
+
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Settings')
 const route = useRoute()
@@ -2775,11 +2845,12 @@ function closeMoveProjectDialog(): void {
 }
 async function browseMoveProjectDest(): Promise<void> {
   try {
-    const r = await post<{ path: string | null }>('/system/pick-folder', {
+    const path = await pickFolderShared({
       title: 'Choose a destination folder for this project',
-      buttonLabel: 'Use This Folder',
+      button_label: 'Use This Folder',
+      initial_path: moveProjectDest.value || undefined,
     })
-    if (r?.path) moveProjectDest.value = r.path
+    if (path) moveProjectDest.value = path
   } catch (e: any) {
     moveProjectError.value = e?.data?.detail || e?.message || 'Folder picker failed'
   }
@@ -2861,98 +2932,15 @@ const formatWizardOpen = ref(false)
 // extract-from-sample wizard is project-scoped because it uses the
 // project's API keys. The list itself is shared — saving a pattern in
 // one project makes it available in every project's picker.
-import type { Pattern } from '~/composables/usePatterns'
-const {
-  patterns: allPatterns,
-  isLoading: patternsLoading,
-  compatibleWith: patternsCompatibleWith,
-  remove: removePattern,
-  refresh: refreshPatterns,
-} = usePatterns()
-const patternsFilterToCurrent = ref(true)
-const patternEditorOpen = ref(false)
-const patternEditorTarget = ref<Pattern | null>(null)
-const patternWizardOpen = ref(false)
-
-const visiblePatterns = computed<Pattern[]>(() => {
-  if (!patternsFilterToCurrent.value) return allPatterns.value
-  // compatibleWith returns patterns whose preferredFormats includes the
-  // current format id OR has no preference at all. The latter is the
-  // "this pattern is generic, applies anywhere" case — they always show.
-  return patternsCompatibleWith(formatId.value)
-})
-
-function openNewPatternEditor() {
-  patternEditorTarget.value = null
-  patternEditorOpen.value = true
-}
-
-function openEditPatternEditor(p: Pattern) {
-  if (p.builtin) return  // safety — button is disabled but guard regardless
-  patternEditorTarget.value = p
-  patternEditorOpen.value = true
-}
-
-/**
- * Open the editor pre-filled with this pattern's data but with id and
- * name suffixed " (copy)" + builtin=false so the user can save it as
- * their own custom variant. Solves "I love this built-in but want to
- * tweak the closing line" without making the user retype every field.
- */
-function copyPatternAsNew(p: Pattern) {
-  const copy: Pattern = {
-    ...p,
-    id: deriveCopyId(p.id),
-    name: p.name.endsWith('(copy)') ? p.name : `${p.name} (copy)`,
-    builtin: false,
-    schemaVersion: 1,
-  }
-  patternEditorTarget.value = null  // create-mode (id field unlocked)
-  // Stash the copy data via a quick re-open after the dialog mounts.
-  // Simpler than threading a "prefill" prop through the editor: open
-  // create-mode, then let the editor's reset-on-open hook fire, then
-  // mutate target to populate it. Cleanest is just: pass the copy as
-  // an "edit target" with builtin=false; the editor unlocks id when
-  // the edit target's id matches an existing built-in (the create
-  // path handles unlocked id naturally).
-  patternEditorTarget.value = copy
-  patternEditorOpen.value = true
-}
-
-function deriveCopyId(srcId: string): string {
-  // Append `-copy` (or `-copy-2`, etc. if it collides). Cheap collision
-  // check against the loaded list — server still validates.
-  const base = `${srcId}-copy`
-  if (!allPatterns.value.some(p => p.id === base)) return base
-  for (let i = 2; i < 100; i++) {
-    const candidate = `${base}-${i}`
-    if (!allPatterns.value.some(p => p.id === candidate)) return candidate
-  }
-  return base
-}
-
-async function confirmDeletePattern(p: Pattern) {
-  if (p.builtin) return
-  if (!confirm(`Delete pattern "${p.name}"? This removes the file at .patterns/${p.id}.json.`)) return
-  try {
-    await removePattern(p.id)
-  } catch (e: any) {
-    alert(e?.data?.detail || e?.message || 'Failed to delete pattern')
-  }
-}
-
-function onPatternSaved(_id: string) {
-  patternEditorOpen.value = false
-  patternWizardOpen.value = false
-  // Composable refresh already fires inside save/update; this re-pings
-  // in case the wizard's child save didn't propagate to our slot.
-  refreshPatterns().catch(() => {})
-}
+// v1.0.165 — the Patterns sub-section and all its state (usePatterns
+// composable, editor + wizard modals, CRUD helpers) were removed with
+// the Pattern system. The "{X}" title-template capability lives on the
+// Ideas Generator now as a plain optional field.
 
 // ── Format tab state ───────────────────────────────────────────────────────
 //
 // Per the Format primitive (Phase 1), each project carries:
-//   - format_id: which base format profile to apply (defaults to 'sleep-story')
+//   - format_id: which base format profile to apply (defaults to 'narrative')
 //   - format_overrides: deep-partial of the resolved Format applied on top
 //
 // We mirror those into local refs while editing so the user can swap formats
@@ -2960,14 +2948,14 @@ function onPatternSaved(_id: string) {
 // load syncs from project.value once useProject hydrates; the watcher below
 // handles slug changes (project switcher in the sidebar).
 const { formats: allFormats, find: findFormat, refresh: refreshFormats } = useFormats()
-const formatId = ref<string>('sleep-story')
+const formatId = ref<string>('narrative')
 const formatOverrides = ref<Record<string, any> | null>(null)
 const formatSaving = ref(false)
 const formatSaveError = ref('')
 // Track baseline values to compute "dirty" — comparing JSON for overrides is
 // the cheapest correctness check (deep equality across nested objects).
 const formatBaselineJson = ref<string>('null')
-const formatIdBaseline = ref<string>('sleep-story')
+const formatIdBaseline = ref<string>('narrative')
 
 const selectedBaseFormat = computed(() => findFormat(formatId.value) || null)
 const formatDirty = computed(() => {
@@ -2978,7 +2966,7 @@ const formatDirty = computed(() => {
 function syncFormatFromProject() {
   const m = project.value as any
   if (!m) return
-  formatId.value = m.format_id || 'sleep-story'
+  formatId.value = m.format_id || 'narrative'
   formatOverrides.value = m.format_overrides || null
   formatIdBaseline.value = formatId.value
   formatBaselineJson.value = JSON.stringify(formatOverrides.value || null)
@@ -3374,13 +3362,13 @@ function pickerHelpFor(e: any): string {
 async function browseAndSetExternalRoot() {
   externalRootPickerHelp.value = ''
   try {
-    const r = await post<{ path: string | null }>('/system/pick-folder', {
+    const path = await pickFolderShared({
       title: 'Choose external final-video folder',
-      buttonLabel: 'Use this folder',
-      defaultPath: externalRootInput.value || undefined,
+      button_label: 'Use this folder',
+      initial_path: externalRootInput.value || undefined,
     })
-    if (!r.path) return  // User cancelled the dialog.
-    externalRootInput.value = r.path
+    if (!path) return  // User cancelled the dialog.
+    externalRootInput.value = path
     await saveExternalRoot()
   } catch (e: any) {
     externalRootPickerHelp.value = pickerHelpFor(e)
@@ -3641,19 +3629,20 @@ onMounted(loadProjectsRoot)
 
 async function browseAndMoveProjectsRoot() {
   projectsRootPickerHelp.value = ''
-  // Step 0: pick the destination via the native folder picker.
-  let pick: { path: string | null }
+  // Step 0: pick the destination via the shared folder picker.
+  let pickedPath: string | null
   try {
-    pick = await post<{ path: string | null }>('/system/pick-folder', {
+    pickedPath = await pickFolderShared({
       title: 'Choose where to store projects',
-      buttonLabel: 'Use this folder',
-      defaultPath: projectsRoot.value?.effective_path,
+      button_label: 'Use this folder',
+      initial_path: projectsRoot.value?.effective_path,
     })
   } catch (e: any) {
     projectsRootPickerHelp.value = pickerHelpFor(e)
     return
   }
-  if (!pick.path) return  // User cancelled.
+  if (!pickedPath) return  // User cancelled.
+  const pick = { path: pickedPath }
 
   // Step 0.5: pre-flight sizing so the confirmation dialog tells the
   // user what they're about to do. Now also includes the per-project
@@ -3773,18 +3762,19 @@ async function browseAndMoveProjectsRoot() {
  */
 async function browseAndUseExistingProjectsRoot() {
   projectsRootPickerHelp.value = ''
-  let pick: { path: string | null }
+  let pickedPath: string | null
   try {
-    pick = await post<{ path: string | null }>('/system/pick-folder', {
+    pickedPath = await pickFolderShared({
       title: 'Choose existing projects folder',
-      buttonLabel: 'Use this folder',
-      defaultPath: projectsRoot.value?.effective_path,
+      button_label: 'Use this folder',
+      initial_path: projectsRoot.value?.effective_path,
     })
   } catch (e: any) {
     projectsRootPickerHelp.value = pickerHelpFor(e)
     return
   }
-  if (!pick.path) return  // user cancelled
+  if (!pickedPath) return  // user cancelled
+  const pick = { path: pickedPath }
 
   // Inspect what's at the picked path so the confirmation message
   // is accurate. Saves the user from accidentally pointing at the
@@ -3873,123 +3863,174 @@ async function resetProjectsRoot() {
   }
 }
 
-// ── Local TTS (Chatterbox) tab state ────────────────────────────────────
-// Per-project enable + per-project cloned reference id come from `config`.
-// The base URL itself is per-machine (app secrets bucket), fetched on tab
-// mount via /chatterbox/base-url. Test connection hits the live server.
-const chatterboxDefaultBaseUrl = ref('http://100.66.3.3:5052')
-const chatterboxBaseUrlDraft = ref('')
-const chatterboxBaseUrlSaving = ref(false)
-const chatterboxTesting = ref(false)
-const chatterboxTestResult = ref<{ ok: boolean; device?: string; modelLoaded?: boolean; sampleRate?: number; error?: string } | null>(null)
-const chatterboxEnabledDraft = ref(false)
-const chatterboxEnabledSaving = ref(false)
-const chatterboxReferenceIdLocal = ref('')
-const chatterboxUploading = ref(false)
-const chatterboxFileInput = ref<HTMLInputElement | null>(null)
+// v1.0.150 — The Chatterbox standalone provider was removed. All the
+// chatterbox* state, loaders, savers, test-connection, and reference-upload
+// handlers that used to live here have been deleted. Old project.json
+// files keep their chatterbox_enabled / chatterbox_reference_id fields on
+// disk (we marked the types @deprecated) — nothing reads them anymore.
 
-async function loadChatterboxBaseUrl() {
+// ── Voice Studio KH (v1.0.149+) ────────────────────────────────────────
+// Pinokio FastAPI wrapper hosting twelve TTS engine families. Same
+// "URL-as-secret" pattern as Chatterbox (Tailscale handles auth), but
+// app-level only — no per-project enable flag. URL set = enabled.
+//
+// Test response is richer than Chatterbox's: returns the wrapper's app
+// version, MPS/CUDA/CPU device, which engine families are loaded right
+// now, and how many voices are in the user's library. The Settings UI
+// renders all of that into the "✓ Connected" pill.
+interface VoiceStudioTestResult {
+  ok: boolean
+  baseUrl?: string
+  appVersion?: string
+  apiVersion?: string
+  device?: string
+  loadedFamilies?: string[]
+  wiredFamilies?: string[]
+  voiceLibraryCount?: number
+  error?: string
+}
+// v1.0.158 — was the Tailscale IP. Switched to Bonjour `.local`
+// hostname for stability (user reported the tailnet IP changing across
+// reconnects).
+// v1.0.159 — moved from M1 to M4 hostname after the user added a
+// second Mac mini. M1 dedicated to Image Studio (8GB fits TTI but not
+// VoxCPM2); M4 hosts Voice Studio.
+// The frontend ref is just the placeholder shown before
+// /voicestudio/base-url resolves with the authoritative default from
+// the backend's lib constant.
+// v1.0.207 — no hardcoded default host (it was the author's own Mac). The
+// field is empty until the user enters their own URL; this string is shown
+// only as a greyed-out placeholder example.
+const voicestudioUrlExample = 'http://your-mac.local:47870'
+const voicestudioBaseUrlDraft = ref('')
+const voicestudioBaseUrlSaving = ref(false)
+const voicestudioTesting = ref(false)
+const voicestudioTestResult = ref<VoiceStudioTestResult | null>(null)
+
+async function loadVoicestudioBaseUrl() {
   try {
-    const r = await get<{ baseUrl: string; defaultBaseUrl: string }>('/chatterbox/base-url')
-    chatterboxBaseUrlDraft.value = r.baseUrl || r.defaultBaseUrl
-    if (r.defaultBaseUrl) chatterboxDefaultBaseUrl.value = r.defaultBaseUrl
+    const r = await get<{ baseUrl: string }>('/voicestudio/base-url')
+    voicestudioBaseUrlDraft.value = r.baseUrl || ''
   } catch {
-    chatterboxBaseUrlDraft.value = chatterboxDefaultBaseUrl.value
+    voicestudioBaseUrlDraft.value = ''
   }
 }
 
-async function saveChatterboxBaseUrl() {
-  const url = chatterboxBaseUrlDraft.value.trim()
+async function saveVoicestudioBaseUrl() {
+  const url = voicestudioBaseUrlDraft.value.trim()
   if (!url) {
-    showError('Server URL is required.')
+    showError('Modal URL is required.')
     return
   }
-  chatterboxBaseUrlSaving.value = true
+  voicestudioBaseUrlSaving.value = true
   try {
-    await put('/chatterbox/base-url', { baseUrl: url })
-    success('Chatterbox URL saved.')
-    chatterboxTestResult.value = null
+    await put('/voicestudio/base-url', { baseUrl: url })
+    success('Voice Studio URL saved.')
+    voicestudioTestResult.value = null
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to save URL')
   } finally {
-    chatterboxBaseUrlSaving.value = false
+    voicestudioBaseUrlSaving.value = false
   }
 }
 
-async function testChatterboxConnection() {
-  chatterboxTesting.value = true
-  chatterboxTestResult.value = null
+async function testVoicestudioConnection() {
+  voicestudioTesting.value = true
+  voicestudioTestResult.value = null
   try {
-    chatterboxTestResult.value = await post('/chatterbox/test', { baseUrl: chatterboxBaseUrlDraft.value.trim() })
+    voicestudioTestResult.value = await post<VoiceStudioTestResult>(
+      '/voicestudio/test',
+      { baseUrl: voicestudioBaseUrlDraft.value.trim() },
+    )
   } catch (e: any) {
-    chatterboxTestResult.value = { ok: false, error: e?.data?.detail || e?.message || 'Test failed' }
+    voicestudioTestResult.value = { ok: false, error: e?.data?.detail || e?.message || 'Test failed' }
   } finally {
-    chatterboxTesting.value = false
+    voicestudioTesting.value = false
   }
 }
 
-async function saveChatterboxEnabled() {
-  chatterboxEnabledSaving.value = true
+// ── Image Studio KH (v1.0.151+) ────────────────────────────────────────
+// Sibling of Voice Studio: Pinokio FastAPI wrapper hosting FLUX / Qwen /
+// FIBO / Z-Image families on Apple Silicon MLX. Same URL-as-secret
+// pattern (per-machine via app-secrets, no real key — Tailscale at
+// transport layer). Distinct port from Voice Studio because Pinokio
+// assigns each modal its own.
+interface ImageStudioTestResult {
+  ok: boolean
+  baseUrl?: string
+  appVersion?: string
+  apiVersion?: string
+  familyCount?: number
+  modelCount?: number
+  loraCount?: number
+  error?: string
+}
+// v1.0.207 — see voicestudioUrlExample above; empty until the user sets it.
+const imagestudioUrlExample = 'http://your-mac.local:47868'
+const imagestudioBaseUrlDraft = ref('')
+const imagestudioBaseUrlSaving = ref(false)
+const imagestudioTesting = ref(false)
+const imagestudioTestResult = ref<ImageStudioTestResult | null>(null)
+
+async function loadImagestudioBaseUrl() {
   try {
-    await put(`/projects/${slug.value}/settings/config`, { chatterbox_enabled: chatterboxEnabledDraft.value })
-    stampSaved('chatterbox')
-    success('Local TTS settings saved.')
-    await refreshConfig()
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to save')
-  } finally {
-    chatterboxEnabledSaving.value = false
+    const r = await get<{ baseUrl: string }>('/imagestudio/base-url')
+    imagestudioBaseUrlDraft.value = r.baseUrl || ''
+  } catch {
+    imagestudioBaseUrlDraft.value = ''
   }
 }
 
-async function onChatterboxReferenceFile(ev: Event) {
-  const input = ev.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  // Lightweight validation — duration check needs decoding which we skip
-  // here (server enforces the 10MB cap); type check is enough for V1.
-  if (!file.type.startsWith('audio/')) {
-    showError('Please upload an audio file (wav/mp3/m4a/etc.).')
-    input.value = ''
+async function saveImagestudioBaseUrl() {
+  const url = imagestudioBaseUrlDraft.value.trim()
+  if (!url) {
+    showError('Modal URL is required.')
     return
   }
-  chatterboxUploading.value = true
+  imagestudioBaseUrlSaving.value = true
   try {
-    const buf = await file.arrayBuffer()
-    // FileReader.readAsDataURL would also work but base64-encoding the
-    // ArrayBuffer is straightforward and avoids the Promise dance.
-    const base64 = btoa(
-      new Uint8Array(buf).reduce((acc, b) => acc + String.fromCharCode(b), ''),
-    )
-    const resp = await post<{ ok: boolean; referenceId: string }>(
-      `/projects/${slug.value}/chatterbox/reference`,
-      { filename: file.name, data_base64: base64 },
-    )
-    chatterboxReferenceIdLocal.value = resp.referenceId
-    success(`Reference uploaded — id ${resp.referenceId.slice(0, 12)}…`)
-    await refreshConfig()
+    await put('/imagestudio/base-url', { baseUrl: url })
+    success('Image Studio URL saved.')
+    imagestudioTestResult.value = null
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Reference upload failed')
+    showError(e?.data?.detail || e?.message || 'Failed to save URL')
   } finally {
-    chatterboxUploading.value = false
-    if (chatterboxFileInput.value) chatterboxFileInput.value.value = ''
+    imagestudioBaseUrlSaving.value = false
   }
 }
 
-// Hydrate from project config (per-project enable + reference id) and from
-// the per-machine base URL endpoint whenever config arrives or slug changes.
-watch(config, (c) => {
-  const cfg = c as any
-  chatterboxEnabledDraft.value = !!cfg?.chatterbox_enabled
-  chatterboxReferenceIdLocal.value = cfg?.chatterbox_reference_id || ''
-  // Item J — `projectForm.category_id` is hydrated in a later watch
-  // (line ~3654) because projectForm is declared after this point and
-  // `immediate: true` would TDZ-error here.
-}, { immediate: true })
+async function testImagestudioConnection() {
+  imagestudioTesting.value = true
+  imagestudioTestResult.value = null
+  try {
+    imagestudioTestResult.value = await post<ImageStudioTestResult>(
+      '/imagestudio/test',
+      { baseUrl: imagestudioBaseUrlDraft.value.trim() },
+    )
+  } catch (e: any) {
+    imagestudioTestResult.value = { ok: false, error: e?.data?.detail || e?.message || 'Test failed' }
+  } finally {
+    imagestudioTesting.value = false
+  }
+}
+
+// v1.0.150 — onChatterboxReferenceFile + the config watcher hydrating
+// chatterbox_enabled / chatterbox_reference_id were deleted together with
+// the rest of the Chatterbox integration. The fields still exist on
+// disk for legacy projects (see types.ts @deprecated tags) but nothing
+// in the frontend reads them.
 
 watch(activeTab, (t) => {
-  if (t === 'local-tts' && !chatterboxBaseUrlDraft.value) {
-    void loadChatterboxBaseUrl()
+  // v1.0.149+ — lazy-load the Voice Studio URL when the user enters the
+  // Local Models tab so we pay the round-trip exactly once per session.
+  if (t === 'local-tts' && !voicestudioBaseUrlDraft.value) {
+    void loadVoicestudioBaseUrl()
+  }
+  // v1.0.151+ — same lazy-load for the Image Studio URL. Independent of
+  // Voice Studio so each round-trip is paid only when the user opens
+  // the section that needs it.
+  if (t === 'local-tts' && !imagestudioBaseUrlDraft.value) {
+    void loadImagestudioBaseUrl()
   }
   // Item J — lazy-load the YouTube category list when the user enters
   // the Project tab so the dropdown is populated without a click. Cached
@@ -4119,36 +4160,79 @@ async function onYoutubeBackfillApply() {
   await runYoutubeBackfill(false)
 }
 
-const tabs = [
-  // API keys moved to app-level Settings (see /app-settings) — they're
-  // per-machine now, not per-project.
-  { id: 'models', label: 'Models' },
-  { id: 'voices', label: 'Voices' },
-  { id: 'format', label: 'Format' },
-  // v1.0.93+ — Niche promoted out of Format. Was nested as a sub-section
-  // under Format which made it un-discoverable; users couldn't find where
-  // to set the project's subject-domain layer (the actual bug the user
-  // reported on the prayer-channel project).
-  { id: 'niche', label: 'Niche' },
-  { id: 'standards', label: 'Standards' },
-  { id: 'folders', label: 'Folders' },
-  // Storage tab — surfaces per-episode disk usage + safe cleanup of
-  // already-uploaded final videos. Lives next to Folders since both
-  // are file-system concerns.
-  { id: 'storage', label: 'Storage' },
-  // 'assets' moved out to its own top-level page at /projects/:slug/assets —
-  // the tab was cramped in Settings and the repair flow deserves the space.
-  { id: 'roots', label: 'Named Roots' },
-  { id: 'confirmations', label: 'Confirmations' },
-  { id: 'performance', label: 'Performance' },
-  { id: 'local-tts', label: 'Local TTS' },
-  { id: 'ffmpeg', label: 'FFmpeg' },
-  { id: 'notifications', label: 'Notifications' },
-  { id: 'project', label: 'Project' },
-  // About — version + build date so beta testers can quote the exact build
-  // they're on. Last because it's reference-only, not configuration.
-  { id: 'about', label: 'About' },
+// v1.0.184 (S1) — settings nav grouped into two SCOPE zones, then topic
+// groups within each. The scope split is the headline win: per-machine items
+// (Local Models / FFmpeg / Notifications — all save to /app-settings, /voicestudio,
+// /imagestudio, or the FFmpeg installer) are visually separated from per-project
+// items (everything that saves to /projects/:slug/...), so it's obvious what
+// travels with the project across Macs vs. what stays on this machine.
+// (API Keys + Appearance + Server Mode still live in the App-Settings modal;
+// S2 folds them into the "This Mac" zone here.)
+//
+// Scope verified by save target, not assumption:
+//   per-project (PUT /projects/:slug/settings/config or project storage):
+//     Models, Voices, Format, Niche, Standards, Folders, Storage, Named Roots,
+//     Confirmations, Performance, Project, About
+//   per-machine (PUT /app-settings/*, /voicestudio/*, /imagestudio/*, FFmpeg installer):
+//     Local Models, FFmpeg, Notifications
+const tabZones = [
+  {
+    id: 'machine',
+    title: 'This Mac',
+    scope: 'stays on this machine · never synced',
+    groups: [
+      { title: 'App', tabs: [
+        // v1.0.185 (S2) — API Keys / Appearance / Server Mode merged in from
+        // the old standalone App-Settings modal. One "Settings" surface now.
+        { id: 'app', label: 'API Keys & Appearance' },
+      ] },
+      { title: 'Local & system', tabs: [
+        // id stays 'local-tts' for saved-tab-state / deep-link back-compat.
+        { id: 'local-tts', label: 'Local Models' },
+        { id: 'ffmpeg', label: 'FFmpeg' },
+        { id: 'notifications', label: 'Notifications' },
+      ] },
+    ],
+  },
+  {
+    id: 'project',
+    title: 'This Project',
+    scope: 'travels with the project',
+    groups: [
+      { title: 'Content', tabs: [
+        { id: 'format', label: 'Format' },
+        { id: 'niche', label: 'Niche' },
+        { id: 'standards', label: 'Standards' },
+      ] },
+      { title: 'Generation', tabs: [
+        { id: 'models', label: 'Models' },
+        { id: 'voices', label: 'Voices' },
+        { id: 'performance', label: 'Performance' },
+      ] },
+      { title: 'Files', tabs: [
+        { id: 'folders', label: 'Folders' },
+        { id: 'storage', label: 'Storage' },
+        { id: 'roots', label: 'Named Roots' },
+      ] },
+      { title: 'Other', tabs: [
+        { id: 'confirmations', label: 'Confirmations' },
+        { id: 'project', label: 'Project' },
+        { id: 'about', label: 'About' },
+      ] },
+    ],
+  },
 ]
+
+// Flat list derived from the zones — preserves the old `tabs` contract for any
+// code that iterates ids (deep-link validation, saved tab state, etc.).
+const tabs = tabZones.flatMap(z => z.groups.flatMap(g => g.tabs))
+
+// v1.0.186 (S3) — the zone (This Mac / This Project) that owns the active tab.
+// Drives the in-page scope banner so the user always sees whether the panel
+// they're editing is per-machine or per-project.
+const activeZone = computed(() =>
+  tabZones.find(z => z.groups.some(g => g.tabs.some(t => t.id === activeTab.value))) || null,
+)
 
 // ── FFmpeg tab state ─────────────────────────────────────────────────────
 // The backend exposes a self-contained installer at POST /ffmpeg/install
@@ -5095,10 +5179,13 @@ async function loadNamedRoots() {
 async function pickRootFolder() {
   pickingRootFolder.value = true
   try {
-    const data = await post<{ path: string | null }>('/system/pick-folder', {})
-    if (data?.path) newRootPath.value = data.path
+    const path = await pickFolderShared({
+      title: `Choose folder for $\{${newRootName.value.toUpperCase()}\}`,
+      initial_path: newRootPath.value || undefined,
+    })
+    if (path) newRootPath.value = path
   } catch (e: any) {
-    showError(e.data?.detail || 'Could not open folder picker')
+    showError(e?.data?.detail || 'Could not open folder picker')
   } finally {
     pickingRootFolder.value = false
   }
@@ -5627,73 +5714,7 @@ async function deleteProject() {
 .format-tab-header > div { flex: 1; }
 .format-tab-header h3 { margin: 0 0 4px; }
 
-/* ── Patterns sub-section ────────────────────────────────────────────── */
-.patterns-section {
-  border-top: 1px solid var(--border);
-  padding-top: 18px;
-}
-.patterns-actions { display: flex; gap: 6px; flex-shrink: 0; }
-.patterns-filter { padding: 0 2px; }
-.filter-toggle {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px; color: var(--text-secondary); cursor: pointer;
-}
-.filter-toggle code {
-  font-size: 11px; background: var(--bg-tertiary);
-  padding: 1px 5px; border-radius: 3px;
-}
-.empty-state {
-  display: flex; align-items: center; gap: 10px;
-  padding: 14px; background: var(--bg-tertiary);
-  border-radius: var(--radius-sm); font-size: 13px;
-}
-
-.pattern-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 10px;
-}
-.pattern-card {
-  display: flex; flex-direction: column; gap: 6px;
-  padding: 12px 14px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-.pattern-card.builtin { background: var(--bg-secondary); }
-.pat-card-head {
-  display: flex; justify-content: space-between; align-items: center; gap: 8px;
-}
-.pat-card-head strong { font-size: 13px; }
-.pat-badge {
-  font-size: 10px; font-weight: 500;
-  padding: 2px 7px; border-radius: 999px;
-  text-transform: uppercase; letter-spacing: 0.04em;
-}
-.badge-builtin { background: rgba(120, 130, 140, 0.18); color: var(--text-muted); }
-.badge-custom { background: rgba(75, 130, 200, 0.18); color: var(--accent, #4b82c8); }
-.pat-card-template {
-  font-size: 11px;
-}
-.pat-card-template code {
-  background: var(--bg-primary);
-  padding: 2px 6px; border-radius: 3px;
-  font-family: 'Menlo', 'Monaco', monospace;
-}
-.pat-card-formats { color: var(--text-muted); font-size: 10px; margin-left: 4px; }
-.pat-card-desc {
-  margin: 0; font-size: 11px; color: var(--text-secondary);
-  line-height: 1.45;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.pat-card-actions {
-  display: flex; gap: 4px; margin-top: auto; padding-top: 4px;
-}
-.pat-card-actions .btn-ghost.danger {
-  color: var(--error, #e25c5c);
-  margin-left: auto;
-}
+/* v1.0.165 — Patterns sub-section CSS removed with the Pattern system. */
 
 /* ── FFmpeg tab ──────────────────────────────────────────────────────── */
 .ffmpeg-status-row {
@@ -5815,6 +5836,93 @@ async function deleteProject() {
 .tab.active {
   color: var(--accent);
   border-bottom-color: var(--accent);
+}
+
+/* v1.0.184 (S1) — grouped + scope-zoned settings nav. */
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.settings-zone {
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: var(--radius-sm, 6px);
+  padding: 10px 14px 12px;
+  background: var(--bg-secondary, transparent);
+}
+.settings-zone-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.settings-zone-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+}
+.settings-zone-scope {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.settings-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 4px 0;
+}
+.settings-group + .settings-group { border-top: 1px dashed var(--border, #2a2a2a); }
+.settings-group-label {
+  flex: 0 0 88px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.settings-group-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+/* In the grouped nav, tabs read as pills rather than underline-tabs. */
+.settings-group-tabs .tab {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.settings-group-tabs .tab.active {
+  background: rgba(108, 143, 255, 0.10);
+  border-color: var(--accent, #6c8fff);
+  border-bottom-color: var(--accent, #6c8fff);
+}
+
+/* v1.0.186 (S3) — scope banner. Colour-keyed to the active zone so the
+   per-machine vs per-project distinction is obvious at a glance. */
+.settings-scope-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 14px 0 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.settings-scope-banner .scope-banner-icon { font-size: 15px; line-height: 1.4; }
+.settings-scope-banner strong { color: var(--text-primary); }
+.scope-machine {
+  border-left-color: #b07cff;
+  background: rgba(176, 124, 255, 0.07);
+}
+.scope-project {
+  border-left-color: var(--accent, #6c8fff);
+  background: rgba(108, 143, 255, 0.07);
 }
 
 .edit-table {
@@ -6441,6 +6549,21 @@ async function deleteProject() {
   font-size: 13px;
   user-select: text;
 }
+
+/* Local models — setup explainer (v1.0.207) */
+.local-help {
+  background: rgba(91, 179, 124, 0.06);
+  border: 1px solid rgba(91, 179, 124, 0.28);
+  border-radius: var(--radius-md, 8px);
+  padding: 14px 16px;
+}
+.local-help-steps { margin: 10px 0 2px; padding-left: 20px; font-size: 12.5px; line-height: 1.65; color: var(--text-secondary); }
+.local-help-steps > li { margin-bottom: 8px; }
+.local-help-steps strong { color: var(--text-primary); }
+.local-help-steps a { color: var(--accent); text-decoration: none; }
+.local-help-steps a:hover { text-decoration: underline; }
+.local-help-repos { list-style: none; margin: 6px 0 2px; padding-left: 0; display: flex; flex-direction: column; gap: 4px; }
+.local-help-repos > li { font-size: 12px; }
 
 /* Local TTS (Chatterbox) tab */
 .local-tts-row { display: flex; flex-direction: column; gap: 4px; }

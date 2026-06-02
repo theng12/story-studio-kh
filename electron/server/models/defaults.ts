@@ -5,6 +5,7 @@
  */
 
 import type { ImageModelConfig, AudioModelConfig, VoicePreset, VideoModelConfig } from './types.js'
+import { voicestudioAudioDefaults } from '../lib/voicestudio-client.js'
 
 // Every built-in image model today is served by kie.ai; tagging them here
 // makes the provider explicit for the unified catalog view and avoids the
@@ -79,6 +80,43 @@ export const DEFAULT_IMAGE_MODELS: Record<string, ImageModelConfig> = {
     provider: 'kie',
     supports_reference_images: true,
   },
+  // v1.0.234+ — OFFICIAL OpenAI Images API (your own OpenAI key, billed on
+  // your OpenAI platform account — separate from kie.ai credits). Same
+  // gpt-image-2 model, hit directly: txt2img → /v1/images/generations,
+  // img2img → /v1/images/edits (references sent as image[] files). cost is
+  // token-based on OpenAI, so credits_per_image is 0 here (watch spend on the
+  // OpenAI dashboard). Needs API Organization Verification on platform.openai.com.
+  'gpt-image-2-openai': {
+    label: 'GPT Image 2 (direct)',
+    credits_per_image: 0,
+    prompt_char_cap: 4000,
+    endpoint: '', poll: '', type: 'openai',
+    api_model: 'gpt-image-2',
+    provider: 'openai-image',
+    supports_reference_images: true,
+  },
+  // v1.0.236+ — Google Gemini "Nano Banana" image models via OpenRouter (your
+  // own OpenRouter credit, token-billed — watch spend on openrouter.ai). Both
+  // do text-to-image AND image-to-image/edits (references sent as image_url
+  // blocks). credits_per_image 0 since OpenRouter prices by tokens.
+  'gemini-2-5-flash-image-openrouter': {
+    label: 'Gemini 2.5 Flash Image (Nano Banana)',
+    credits_per_image: 0,
+    prompt_char_cap: 4000,
+    endpoint: '', poll: '', type: 'openrouter',
+    api_model: 'google/gemini-2.5-flash-image',
+    provider: 'openrouter-image',
+    supports_reference_images: true,
+  },
+  'gemini-3-1-flash-image-openrouter': {
+    label: 'Gemini 3.1 Flash Image',
+    credits_per_image: 0,
+    prompt_char_cap: 4000,
+    endpoint: '', poll: '', type: 'openrouter',
+    api_model: 'google/gemini-3.1-flash-image-preview',
+    provider: 'openrouter-image',
+    supports_reference_images: true,
+  },
   'nano-banana-2': {
     label: 'Nano Banana 2',
     credits_per_image: 8, default_tier: '1k',
@@ -121,6 +159,27 @@ export const DEFAULT_IMAGE_MODELS: Record<string, ImageModelConfig> = {
     endpoint: '/jobs/createTask', poll: '/jobs/recordInfo', type: 'jobs',
     api_model: 'ideogram/v3-text-to-image', provider: 'kie',
   },
+
+  // ── v1.0.151+ Image Studio KH (Pinokio FastAPI wrapper, local MLX) ───
+  // Sibling of Voice Studio. The model id surfaced here is the only
+  // catalog entry that fits an 8 GB M1 (per /api/catalog probing during
+  // the v1.0.151 integration). Adding more families (FLUX.2 dev,
+  // Qwen-Image, FIBO, Z-Image) is a 2-line change once you're on a Mac
+  // with more unified memory: append the id here + the matching repo
+  // entry in providers/image/imagestudio.ts → MODEL_TO_REPO.
+  //
+  // Cost is $0 — Apple Silicon compute. The kie-shape required fields
+  // (endpoint / poll / type / api_model) are empty strings: they only
+  // route through the kie provider; the imagestudio dispatch bypasses
+  // them via the `provider: 'imagestudio'` field.
+  'imagestudio-flux2-klein-mlx-4bit': {
+    label: 'FLUX.2 klein 4B (MLX 4-bit) [Image Studio · local]',
+    credits_per_image: 0,
+    prompt_char_cap: 1000,
+    endpoint: '', poll: '', type: 'local',
+    api_model: 'AITRADER/FLUX2-klein-4B-mlx-4bit',
+    provider: 'imagestudio',
+  },
 }
 
 export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {
@@ -131,7 +190,7 @@ export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {
   'eleven_turbo_v2_5':      { label: 'ElevenLabs Turbo v2.5 [direct]',      cost_per_1k_chars: 0.15, provider: 'elevenlabs' },
   'eleven_flash_v2_5':      { label: 'ElevenLabs Flash v2.5 [direct]',      cost_per_1k_chars: 0.10, provider: 'elevenlabs' },
   // fal.ai models — verified against live fal.ai docs in Delivery 5
-  // (docs/refactors/fal-model-audit.md). Entries for `v2` and `flash-v2.5`
+  // (docs/history/fal-model-audit-2026-04.md). Entries for `v2` and `flash-v2.5`
   // were dropped because those queue endpoints do not exist on fal.ai.
   'turbo-v2.5':       { label: 'ElevenLabs Turbo v2.5 [fal]',       cost_per_1k_chars: 0.05, provider: 'fal' },
   'multilingual-v2':  { label: 'ElevenLabs Multilingual v2 [fal]',  cost_per_1k_chars: 0.10, provider: 'fal' },
@@ -141,10 +200,82 @@ export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {
   'genaipro-turbo-v2.5':      { label: 'ElevenLabs Turbo v2.5 [GenAIPro]',      cost_per_1k_chars: 0.05, provider: 'genaipro' },
   'genaipro-flash-v2.5':      { label: 'ElevenLabs Flash v2.5 [GenAIPro]',      cost_per_1k_chars: 0.03, provider: 'genaipro' },
   'genaipro-v3':              { label: 'ElevenLabs v3 [GenAIPro]',              cost_per_1k_chars: 0.10, provider: 'genaipro' },
-  // Chatterbox — self-hosted TTS over Tailscale. Cost is $0 (local compute).
-  // Hidden from projects that haven't set chatterbox_enabled in their config.
-  'chatterbox-default':       { label: 'Chatterbox – Default Voice [local]',    cost_per_1k_chars: 0,    provider: 'chatterbox' },
-  'chatterbox-cloned':        { label: 'Chatterbox – Cloned Voice [local]',     cost_per_1k_chars: 0,    provider: 'chatterbox' },
+  // v1.0.149+ — Voice Studio KH local modal (Pinokio FastAPI wrapper).
+  // v1.0.150+ — replaced the standalone 'chatterbox-default' /
+  // 'chatterbox-cloned' entries entirely. Chatterbox is reachable
+  // through Voice Studio's chatterbox-mlx family if the user wants
+  // it back. Existing projects with chatterbox-* selected as the
+  // active audio model will need to switch to a different model the
+  // first time they open the Audio Generator after upgrading — the
+  // mergeCatalog flow drops orphan ids that no longer exist in defaults.
+  // Multi-family TTS host reached over Tailscale; today we surface one
+  // engine (VoxCPM2 4-bit MLX). Cost $0 — local Apple Silicon compute.
+  // Hidden from projects that haven't set the modal URL in App Settings
+  // → Local Models. Adding more families (kokoro-mlx, qwen3-tts, etc.)
+  // is one line here + a matching entry in providers/audio/voicestudio.ts.
+  // v1.0.160+ — soft cap 1500 chars (down from 3000 in v1.0.156).
+  //
+  // History of this number, FULL:
+  //   v1.0.155: 500. Set from the modal catalog's
+  //     `text_guidance.soft_max_chars: 600` plus a user-reported
+  //     hallucination zone at 500-600 chars. Both signals seemed to
+  //     confirm each other.
+  //   v1.0.156: 3000. User pushed the Voice Studio author to verify
+  //     upstream — the catalog's 600 was an eyeballed guess, not from
+  //     openbmb / mlx-audio sources. Architecture max: 4096 audio
+  //     tokens × ~6.25 Hz ≈ ~11 minutes of audio ≈ ~8-10k characters.
+  //     User landed on 3000 as a practical sweet spot (~1/3 of arch
+  //     max). Story Studio matched exactly so the modal never had to
+  //     internally re-split.
+  //   v1.0.160: 1500. Crash report from the modal author. A 2755-char
+  //     submit (under the 3000 cap) requested a 13.13 GB Metal buffer
+  //     allocation vs the M4's 9.53 GB per-buffer Metal limit → Abort
+  //     trap 6 → entire voicestudio server killed. Author derived 1500
+  //     as ~50% safety margin under 9.53 GB single-request budget.
+  //   v1.0.161: 1000. 1500 crashed AGAIN — the user reported only the
+  //     first chunk's WAV came back before the server died. That maps
+  //     to cross-request memory pressure: each individual 1500-char
+  //     request fits inside 9.5 GB but two consecutive submits don't
+  //     give Metal time to release buffers between them, so request #2
+  //     piles on top of #1's not-yet-freed allocations. Two coordinated
+  //     fixes in v1.0.161:
+  //       (a) drop the per-request cap to 1000 chars (halves the
+  //           single-request alloc — request fits with margin even when
+  //           voice cloning is enabled and the cloning reference is
+  //           still resident from the previous call).
+  //       (b) audio.ts inserts an inter-chunk cooldown sleep
+  //           (`VOICESTUDIO_INTER_CHUNK_DELAY_MS` ≈ 3000) between
+  //           consecutive submits to a voicestudio-* model. Gives
+  //           the Metal driver an explicit window to deallocate
+  //           buffers from the previous forward pass before the next
+  //           one allocates.
+  //     The "right" server-side fix is still the runtime memory gate
+  //     the modal author flagged as P1 — until that lands, our cap +
+  //     cooldown is the only thing keeping the modal alive on batches.
+  //
+  // Big-picture lesson banked here: engine spec ≠ hardware ceiling.
+  // Architecture token limits describe what the model can REPRESENT,
+  // not what the user's specific GPU/Metal stack can ALLOCATE during
+  // a single forward pass. For diffusion-based audio models, the
+  // hardware ceiling moves with output duration and is the binding
+  // constraint on consumer Apple Silicon — always derive from the
+  // crash data when you have it, not the model card.
+  //
+  // If the modal lands its planned runtime memory gate (estimates
+  // alloc from input × engine factor, fails the single request
+  // cleanly before allocation, leaves the server alive), this client-
+  // side cap stops being load-bearing. Until then it's the only thing
+  // standing between an over-long submit and a dead server.
+  // v1.0.203+ — every Voice Studio engine is generated from the catalog
+  // (VOICESTUDIO_ENGINES in voicestudio-client.ts): VoxCPM (cloning),
+  // Kokoro / Qwen3-TTS / Bark (built-in voicepacks), Chatterbox (cloning),
+  // … Registering them all here keeps generation/preview/chunk-cap native;
+  // the audio page only *shows* the ones the live modal reports available
+  // (GET /voicestudio/models). Adding an engine = one catalog row, no edit
+  // here. The shared voicestudio inter-chunk cooldown (audio.ts) applies to
+  // every voicestudio-* model. (Kokoro/Bark aren't diffusion-based so they
+  // don't hit VoxCPM's Metal single-buffer ceiling — caps reflect that.)
+  ...voicestudioAudioDefaults(),
 }
 
 export const DEFAULT_VOICE_PRESETS: VoicePreset[] = [

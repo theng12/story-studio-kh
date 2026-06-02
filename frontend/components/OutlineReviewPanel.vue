@@ -49,10 +49,6 @@
         🔒 Locked at outline build:
         <span class="op-locked-pill">{{ generationParams.model }}</span>
         <span class="op-locked-pill">~{{ generationParams.words_per_chapter.toLocaleString() }} words/chapter</span>
-        <span v-if="generationParams.pattern_id" class="op-locked-pill">
-          pattern: {{ generationParams.pattern_id
-            }}{{ generationParams.pattern_subject ? ` · "${generationParams.pattern_subject}"` : '' }}
-        </span>
         <span v-if="generationParams.character_ids?.length" class="op-locked-pill">
           cast: {{ generationParams.character_ids.length }}
         </span>
@@ -316,8 +312,6 @@ interface GenerationParams {
   length?: number
   total_words?: number
   words_per_chapter: number
-  pattern_id?: string
-  pattern_subject?: string
   character_ids?: string[]
   custom_style_text?: string
 }
@@ -438,11 +432,10 @@ const lockedParamsTooltip = computed(() => {
   ]
   if (gp.length) parts.push(`Length: ${gp.length} min`)
   if (gp.total_words) parts.push(`Total words: ${gp.total_words.toLocaleString()}`)
-  if (gp.pattern_id) parts.push(`Pattern: ${gp.pattern_id}${gp.pattern_subject ? ` ("${gp.pattern_subject}")` : ''}`)
   if (gp.character_ids?.length) parts.push(`Cast: ${gp.character_ids.length} character(s)`)
   return parts.join(' · ') +
     '\n\nExpand-chapters reads these from the outline sidecar, not the form above. ' +
-    'To change model/words/pattern/cast, regenerate the outline.'
+    'To change model/words/cast, regenerate the outline.'
 })
 
 // SSE-driven view of the queue: any chapter-only or expand_chapters job
@@ -858,12 +851,11 @@ async function postExpand(chapters: number[] | null): Promise<void> {
       title: props.title || '',
       model: props.form?.model,
       style: props.form?.style,
+      perspective: props.form?.perspective,
       length: props.form?.length,
       chapters: props.form?.chapters,
       total_words: props.form?.total_words,
       words_per_chapter: props.form?.words_per_chapter,
-      pattern_id: props.form?.pattern_id,
-      pattern_subject: props.form?.pattern_subject,
       character_ids: props.form?.character_ids,
       custom_style_text: props.form?.custom_style_text,
     }

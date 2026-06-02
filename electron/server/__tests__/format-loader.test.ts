@@ -2,7 +2,7 @@
  * Tests for the Format loader (services/format-loader.ts).
  *
  * Coverage:
- *   - Built-in 'sleep-story' format loads with required fields
+ *   - Built-in 'narrative' format loads with required fields
  *   - listFormats() returns at least the built-in
  *   - mergeFormatOverrides() deep-merges objects, replaces arrays wholesale
  *   - getEffectiveFormat() defaults to sleep-story when project has no format_id
@@ -44,20 +44,20 @@ describe('format-loader', () => {
     loader._clearFormatCaches()
   })
 
-  test("built-in 'sleep-story' loads with all required fields", async () => {
-    const fmt = await loader.loadFormat('sleep-story')
-    assert.ok(fmt, 'sleep-story must exist')
-    assert.equal(fmt!.id, 'sleep-story')
+  test("built-in 'narrative' loads with all required fields", async () => {
+    const fmt = await loader.loadFormat('narrative')
+    assert.ok(fmt, 'narrative must exist')
+    assert.equal(fmt!.id, 'narrative')
     assert.equal(fmt!.builtin, true)
     assert.equal(fmt!.schemaVersion, 1)
-    assert.ok(fmt!.script.systemPromptRole.includes('sleep story'),
-      'system prompt should mention sleep story')
+    assert.ok(fmt!.script.systemPromptRole.length > 0,
+      'system prompt should be non-empty')
     assert.ok(fmt!.script.narratorStyles.length >= 10,
       'should have all 10 narrator styles preserved')
     assert.equal(fmt!.script.defaultNarratorStyleId, 'A')
     assert.deepEqual(fmt!.imagePrompts.defaultScenesTotalRange, [24, 30])
     assert.equal(fmt!.imagePrompts.defaultThumbnails, 5)
-    assert.ok(fmt!.metadata.broadKeywords.includes('sleep story'))
+    assert.ok(Array.isArray(fmt!.metadata.broadKeywords) && fmt!.metadata.broadKeywords.length > 0)
   })
 
   test('loadFormat() returns null for unknown id', async () => {
@@ -65,14 +65,13 @@ describe('format-loader', () => {
     assert.equal(fmt, null)
   })
 
-  // Locks shape parity across all 8 built-in formats so adding fields to
-  // sleep-story (the most-tested format) doesn't silently leave the
-  // other formats with stale schemas. Without this, a new required
-  // field would only blow up at runtime when a user picks the format
-  // for a real project.
+  // Locks shape parity across all built-in formats so adding fields to
+  // narrative (the most-tested format) doesn't silently leave the
+  // others with stale schemas. v1.0.162 consolidated to 4 formats —
+  // see CHANGELOG for the migration of the 9 sleep-story-flavoured
+  // formats into the unified 'narrative' format + niches.
   const ALL_BUILTIN_FORMATS = [
-    'sleep-story', 'listicle', 'educational', 'kids-fairytale',
-    'comedy', 'adventure', 'documentary', 'true-crime',
+    'narrative', 'listicle', 'stock-footage', 'narration-synced',
   ]
   for (const id of ALL_BUILTIN_FORMATS) {
     test(`built-in '${id}' loads with all required fields`, async () => {
@@ -149,11 +148,11 @@ describe('format-loader', () => {
   test('listFormats() includes the built-in sleep-story', async () => {
     const list = await loader.listFormats()
     const ids = list.map(f => f.id)
-    assert.ok(ids.includes('sleep-story'), `sleep-story must appear; got ${ids.join(',')}`)
+    assert.ok(ids.includes('narrative'), `sleep-story must appear; got ${ids.join(',')}`)
   })
 
   test('mergeFormatOverrides: deep-merges objects', async () => {
-    const base = (await loader.loadFormat('sleep-story'))!
+    const base = (await loader.loadFormat('narrative'))!
     const merged = loader.mergeFormatOverrides(base, {
       script: { closingHint: 'Ride into the sunset, hero.' },
     })
@@ -164,7 +163,7 @@ describe('format-loader', () => {
   })
 
   test('mergeFormatOverrides: arrays REPLACE wholesale (not element-merge)', async () => {
-    const base = (await loader.loadFormat('sleep-story'))!
+    const base = (await loader.loadFormat('narrative'))!
     const merged = loader.mergeFormatOverrides(base, {
       metadata: { broadKeywords: ['adventure', 'thriller'] },
     })
@@ -185,7 +184,7 @@ describe('format-loader', () => {
     }))
 
     const fmt = await loader.getEffectiveFormat('no-format-project')
-    assert.equal(fmt.id, 'sleep-story', 'should default to sleep-story')
+    assert.equal(fmt.id, 'narrative', 'should default to sleep-story')
   })
 
   test('getEffectiveFormat: applies project.format_overrides', async () => {
@@ -196,7 +195,7 @@ describe('format-loader', () => {
       episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season',
       folder_template: '{season_prefix} {season_num}/{code} - {title}/',
       subfolder_names: {}, output_root: 'episodes', created_at: new Date().toISOString(),
-      format_id: 'sleep-story',
+      format_id: 'narrative',
       format_overrides: {
         script: { closingHint: 'Custom closing.' },
         metadata: { broadKeywords: ['custom-kw'] },
@@ -204,7 +203,7 @@ describe('format-loader', () => {
     }))
 
     const fmt = await loader.getEffectiveFormat('override-project')
-    assert.equal(fmt.id, 'sleep-story')
+    assert.equal(fmt.id, 'narrative')
     assert.equal(fmt.script.closingHint, 'Custom closing.')
     assert.deepEqual(fmt.metadata.broadKeywords, ['custom-kw'])
     // Untouched fields survive
@@ -223,15 +222,15 @@ describe('format-loader', () => {
     }))
 
     const fmt = await loader.getEffectiveFormat('bad-format-project')
-    assert.equal(fmt.id, 'sleep-story', 'falls back to default on bad id')
+    assert.equal(fmt.id, 'narrative', 'falls back to default on bad id')
   })
 
   test('user-custom format in .formats/ shadows built-in by id', async () => {
     const userFormatsDir = path.join(pm.PROJECTS_ROOT, '.formats')
     await fs.mkdir(userFormatsDir, { recursive: true })
-    // Forge a "sleep-story" override with a different name
+    // Forge a "narrative" override with a different name
     const forged = {
-      id: 'sleep-story',
+      id: 'narrative',
       name: 'Sleep Story (custom)',
       description: 'forged',
       builtin: false,
@@ -248,10 +247,12 @@ describe('format-loader', () => {
       imagePrompts: { purposeNote: 'forged', visualStyleHint: 'forged', defaultScenesTotalRange: [1, 1], defaultThumbnails: 1, defaultStyleTag: 'forged', characterReferenceMode: 'inline', recommendedAspect: '16:9' },
       metadata: { purposeNote: 'forged', titleStyleHint: 'forged', titleHookRules: [], tagsContext: 'forged', tagsHookRules: [], broadKeywords: [], youtubeDescriptionStructure: { musicLabel: 'X', booksSectionLabel: 'X', supportSection: 'X', aiDisclosure: 'X', defaultHashtags: [], totalHashtagCount: 0 } },
     }
-    await fs.writeFile(path.join(userFormatsDir, 'sleep-story.json'), JSON.stringify(forged))
+    // The loader resolves user overrides by filename `{id}.json`, so the file
+    // must be named for the id it shadows (`narrative`), not the legacy name.
+    await fs.writeFile(path.join(userFormatsDir, 'narrative.json'), JSON.stringify(forged))
 
     loader._clearFormatCaches()
-    const fmt = await loader.loadFormat('sleep-story')
+    const fmt = await loader.loadFormat('narrative')
     assert.equal(fmt!.name, 'Sleep Story (custom)', 'user format must shadow built-in')
     assert.equal(fmt!.builtin, false)
   })
@@ -280,7 +281,7 @@ describe('format-loader', () => {
       episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season',
       folder_template: '{season_prefix} {season_num}/{code} - {title}/',
       subfolder_names: {}, output_root: 'episodes', created_at: new Date().toISOString(),
-      format_id: 'sleep-story',
+      format_id: 'narrative',
       brand_id: 'demo',
     }))
 
@@ -310,7 +311,7 @@ describe('format-loader', () => {
       episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season',
       folder_template: '{season_prefix} {season_num}/{code} - {title}/',
       subfolder_names: {}, output_root: 'episodes', created_at: new Date().toISOString(),
-      format_id: 'sleep-story',
+      format_id: 'narrative',
       brand_id: 'demo',
       format_overrides: {
         script: { closingHint: 'PROJECT closing.' },
@@ -331,13 +332,13 @@ describe('format-loader', () => {
       episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season',
       folder_template: '{season_prefix} {season_num}/{code} - {title}/',
       subfolder_names: {}, output_root: 'episodes', created_at: new Date().toISOString(),
-      format_id: 'sleep-story',
+      format_id: 'narrative',
       brand_id: 'this-brand-does-not-exist',
     }))
 
     // Should not throw — generators must keep working with literal defaults
     const fmt = await loader.getEffectiveFormat('dangling-brand')
-    assert.equal(fmt.id, 'sleep-story')
+    assert.equal(fmt.id, 'narrative')
     assert.ok(fmt.script.closingHint.length > 0, 'falls back to base format closing hint')
   })
 

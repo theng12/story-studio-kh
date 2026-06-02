@@ -1,11 +1,11 @@
 {
   "id": "centered-hero-headline",
   "name": "Centered Hero Headline",
-  "description": "Full-canvas dim overlay (~50% strength) with one big centered all-caps headline. No subtitle banner, no accent rule. Works for hype-style channels — true-crime, motivation, storytelling, breaking-news takes — where the title needs to dominate and the portrait is supporting context.",
+  "description": "Full-canvas dim overlay (~50% strength) with one big centered all-caps headline. No subtitle banner, no accent rule. Works for hype-style channels — true-crime storytelling, motivation, breaking-news takes — where the title needs to dominate and the portrait is supporting context.",
   "tagline": "One big centered headline, full dim",
   "builtin": true,
   "schemaVersion": 1,
-  "recommendedNicheIds": ["true-crime", "motivation", "history", "educational"],
+  "recommendedNicheIds": ["motivation", "history-narration", "psychology"],
 
   "aspectRatio": "16:9",
   "canvas": { "width": 1920, "height": 1080 },

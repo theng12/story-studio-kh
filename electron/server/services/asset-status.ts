@@ -19,6 +19,7 @@ import path from 'path'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
 import { unwrapICloudPlaceholderName } from '../lib/sync-safe.js'
 import { resolveEpisodePaths, resolveSubfolderNames } from './utils.js'
+import { resolveResearchPaths } from '../lib/research-paths.js'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import {
@@ -113,22 +114,21 @@ export function isIntroductionMarker(filename: string): boolean {
   const name = unwrapICloudPlaceholderName(filename)
   // Sidecar JSON written by generateIntroductionOnly. Cheap O(1) check.
   if (name.endsWith('.intro.json')) return true
-  // Legacy file from the pre-merge era. Kept as a fallback so older
-  // projects keep reporting introduction: true; new runs replace these
-  // by overwriting the unified narration + writing the sidecar.
-  if (name.endsWith('_Introduction.docx')) return true
+  // Legacy / pre-sidecar intro source file (either extension). Kept as a
+  // fallback so older projects keep reporting introduction: true; new runs
+  // replace these by overwriting the unified narration + writing the sidecar.
+  if (/_Introduction\.(?:md|docx)$/i.test(name)) return true
   return false
 }
 
 export function isScriptChaptersDocx(filename: string): boolean {
-  // Any .docx not part of the legacy separate-intro file. The unified
-  // narration docx (which now may contain the intro section inside)
-  // counts as "script present" — that's the chapters file, by spec.
-  // Unwrap iCloud placeholder names so a synced-but-not-yet-downloaded
-  // file is still detected as present (otherwise the app would offer to
-  // regenerate over a file that's mid-sync).
+  // Any narration artifact (.md current, .docx legacy) that isn't the
+  // separate-intro file counts as "script present" — that's the chapters /
+  // unified-narration file, by spec. Unwrap iCloud placeholder names so a
+  // synced-but-not-yet-downloaded file is still detected as present
+  // (otherwise the app would offer to regenerate over a file that's mid-sync).
   const name = unwrapICloudPlaceholderName(filename)
-  return name.endsWith('.docx') && !name.endsWith('_Introduction.docx')
+  return /\.(?:md|docx)$/i.test(name) && !/_Introduction\.(?:md|docx)$/i.test(name)
 }
 
 export interface ScriptFolderState {
@@ -374,7 +374,9 @@ export async function getVideoStatus(slug: string, episodeId: string): Promise<V
   // generator does (loadPrompts in ai-video.ts).
   async function findFirstPrompts(): Promise<string | null> {
     const candidates = [
+      `${code}_Video_Prompts.md`,
       `${code}_Video_Prompts.docx`,
+      `${code}_Scene_Prompts.md`,
       `${code}_Scene_Prompts.docx`,
     ]
     async function recurse(dir: string, depth = 0): Promise<string | null> {
@@ -643,6 +645,12 @@ export async function auditProjectAssets(slug: string): Promise<EpisodeAuditRow[
 //     asset-reconciler checks (partial generations report as NOT done)
 
 export interface EpisodeStatus {
+  // Research sidecar (`research.json`) present at the episode_dir root.
+  // Only the research-driven formats (timestamp-driven, continuity-chain)
+  // produce it; it's the field the Research page filters its "pending"
+  // episode list by, so a finished research run drops out of pending.
+  // NOT folded into all_done — research is optional for most formats.
+  research: boolean
   script: boolean
   introduction: boolean
   scene_prompts: boolean
@@ -681,6 +689,7 @@ export interface EpisodeStatus {
 
 function emptyStatus(): EpisodeStatus {
   return {
+    research: false,
     script: false, introduction: false,
     scene_prompts: false, thumb_prompts: false,
     metadata: false,
@@ -869,9 +878,15 @@ export async function computeEpisodeStatus(
     const scriptState = deriveScriptFolderState(scriptFiles)
     status.script = scriptState.script
     status.introduction = scriptState.introduction
-    status.scene_prompts = scenePromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.json'))
-    status.thumb_prompts = thumbPromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.json'))
+    status.scene_prompts = scenePromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md') || f.endsWith('.json'))
+    status.thumb_prompts = thumbPromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md') || f.endsWith('.json'))
     status.metadata = metadataFiles.some(f => f.endsWith('.txt') || f.endsWith('.json') || f.endsWith('.md'))
+
+    // Research sidecar now lives in the "{code} - 11 Research" folder
+    // (resolveResearchPaths auto-migrates any legacy loose copy). episode_dir
+    // is a watched folder for the cache, so a freshly written research file
+    // advances its mtime and invalidates the entry.
+    status.research = await fileHasContent((await resolveResearchPaths(paths.episode_dir, code)).jsonPath)
 
     // If ANY of the four primary readdirs errored, mark the entire status
     // unreliable. The cache will skip persistence and the next read will
@@ -924,10 +939,10 @@ export async function computeEpisodeStatus(
               if (state.introduction) status.introduction = true
             }
             if (cleanSub.includes('scene prompt')) {
-              if (files.some((f: string) => f.endsWith('.docx') || f.endsWith('.json'))) status.scene_prompts = true
+              if (files.some((f: string) => f.endsWith('.docx') || f.endsWith('.md') || f.endsWith('.json'))) status.scene_prompts = true
             }
             if (cleanSub.includes('thumbnail prompt')) {
-              if (files.some((f: string) => f.endsWith('.docx') || f.endsWith('.json'))) status.thumb_prompts = true
+              if (files.some((f: string) => f.endsWith('.docx') || f.endsWith('.md') || f.endsWith('.json'))) status.thumb_prompts = true
             }
             if (cleanSub.includes('metadata') || cleanSub.includes('description')) {
               if (files.some((f: string) => f.endsWith('.txt') || f.endsWith('.json') || f.endsWith('.md'))) status.metadata = true
@@ -1136,6 +1151,7 @@ export async function computeEpisodeStatus(
 /** Phase 1 helper — returns an EpisodeStatus with every field set to true. */
 function allDoneStatus(): EpisodeStatus {
   return {
+    research: true,
     script: true, introduction: true,
     scene_prompts: true, thumb_prompts: true,
     metadata: true,

@@ -10,8 +10,8 @@
  * project-manager so a single digest covers all your channels.
  *
  * Designed to be cheap: per-project, one `getIdeas('accepted')` call
- * plus one `readSidecarRaw` per accepted episode. For TerraNash-sized
- * projects (~150 episodes) this is well under a second.
+ * plus one `readSidecarRaw` per accepted episode. For large projects
+ * (~150 episodes) this is well under a second.
  */
 
 import * as pm from './project-manager.js'

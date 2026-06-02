@@ -124,9 +124,9 @@ export function classifySubfolder(name: string): keyof InspectedAssets | null {
 }
 
 const ASSET_EXT: Record<keyof InspectedAssets, RegExp> = {
-  script: /\.docx$/i,
-  scene_prompts: /\.(docx|json)$/i,
-  thumb_prompts: /\.(docx|json)$/i,
+  script: /\.(docx|md)$/i,
+  scene_prompts: /\.(docx|md|json)$/i,
+  thumb_prompts: /\.(docx|md|json)$/i,
   images: /\.(png|jpe?g|webp)$/i,
   thumbnails: /\.(png|jpe?g|webp)$/i,
   audio: /\.(mp3|wav|m4a)$/i,

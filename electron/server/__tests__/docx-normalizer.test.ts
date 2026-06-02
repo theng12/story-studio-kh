@@ -17,6 +17,30 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import { Document, Packer, Paragraph, HeadingLevel } from 'docx'
+
+// Build a REAL Word .docx source (the app's builder now emits Markdown, so the
+// normalizer's legacy-ingest path must be exercised with a genuine .docx that
+// mammoth can read). Mirrors the pre-v1.0.228 docx-builder rendering.
+async function writeRealDocx(md: string, outputPath: string, includeTitleBlock = true): Promise<void> {
+  const paragraphs: Paragraph[] = []
+  if (includeTitleBlock) {
+    paragraphs.push(new Paragraph({ text: TITLE, heading: HeadingLevel.TITLE }))
+    paragraphs.push(new Paragraph({ text: `Story Studio • Episode ${CODE}` }))
+    paragraphs.push(new Paragraph({ text: '' }))
+  }
+  for (const line of md.trim().split('\n')) {
+    const t = line.trim()
+    if (t.startsWith('## ')) paragraphs.push(new Paragraph({ text: t.slice(3).trim(), heading: HeadingLevel.HEADING_2 }))
+    else if (t.startsWith('# ')) paragraphs.push(new Paragraph({ text: t.slice(2).trim(), heading: HeadingLevel.HEADING_1 }))
+    else if (t === '') paragraphs.push(new Paragraph({ text: '' }))
+    else paragraphs.push(new Paragraph({ text: t }))
+  }
+  const doc = new Document({ sections: [{ children: paragraphs }] })
+  const buf = await Packer.toBuffer(doc)
+  await fs.mkdir(path.dirname(outputPath), { recursive: true })
+  await fs.writeFile(outputPath, buf)
+}
 
 let normalizer: typeof import('../services/docx-normalizer.js')
 let pm: typeof import('../services/project-manager.js')
@@ -82,7 +106,7 @@ The second chapter brings a subtle shift in pace and direction.
 
 The protagonist makes a small but pivotal choice.
 `
-  await docxBuilder.buildNarrationDocx(md, CODE, TITLE, p)
+  await writeRealDocx(md, p)
 }
 
 async function makeLegacyDocx(p: string): Promise<void> {
@@ -90,13 +114,7 @@ async function makeLegacyDocx(p: string): Promise<void> {
   for (let i = 0; i < 30; i++) {
     paragraphs.push(`Paragraph ${i + 1}: this is a long-enough paragraph to ensure the source narration crosses the 200-character minimum that the normaliser requires for safety.`)
   }
-  await docxBuilder.buildNarrationDocx(
-    paragraphs.join('\n\n'),
-    CODE,
-    TITLE,
-    p,
-    { includeTitleBlock: false },
-  )
+  await writeRealDocx(paragraphs.join('\n\n'), p, false)
 }
 
 function makeMock(): (model: string, system: string, user: string, apiKeys: any) => Promise<string> {
@@ -110,7 +128,6 @@ describe('docx-normalizer', () => {
   before(async () => {
     tmp = await useTempDataDir()
     pm = await import('../services/project-manager.js')
-    docxBuilder = await import('../lib/docx-builder.js')
     normalizer = await import('../services/docx-normalizer.js')
     assert.equal(pm.PROJECTS_ROOT, path.join(tmp.dir, 'projects'))
   })
@@ -172,10 +189,10 @@ A final paragraph closes the loop.
     assert.equal(r.introduction_written, true)
     assert.ok(r.backup_at, 'backup path returned')
     assert.ok(existsSync(r.backup_at!), 'backup file exists on disk')
-    assert.ok(existsSync(path.join(scriptDir, `${CODE}_Chapter_01.docx`)), 'chapter 1 file exists')
-    assert.ok(existsSync(path.join(scriptDir, `${CODE}_Chapter_02.docx`)), 'chapter 2 file exists')
-    assert.ok(existsSync(path.join(scriptDir, `${CODE}_Introduction.docx`)), 'intro file exists')
-    assert.ok(existsSync(path.join(scriptDir, `${CODE}_Script_Narration.docx`)), 'unified file written')
+    assert.ok(existsSync(path.join(scriptDir, `${CODE}_Chapter_01.md`)), 'chapter 1 file exists')
+    assert.ok(existsSync(path.join(scriptDir, `${CODE}_Chapter_02.md`)), 'chapter 2 file exists')
+    assert.ok(existsSync(path.join(scriptDir, `${CODE}_Introduction.md`)), 'intro file exists')
+    assert.ok(existsSync(path.join(scriptDir, `${CODE}_Script_Narration.md`)), 'unified file written')
     assert.ok(lastUserPrompt.includes(TITLE), 'episode title injected into prompt')
     assert.ok(lastUserPrompt.length > 200, 'prompt includes the source text')
   })
@@ -194,7 +211,7 @@ A final paragraph closes the loop.
       /zero chapters/,
     )
     const files = await fs.readdir(scriptDir)
-    assert.equal(files.some(f => /Chapter_\d+\.docx$/.test(f)), false, 'no chapter files written on bad LLM output')
+    assert.equal(files.some(f => /Chapter_\d+\.(?:md|docx)$/.test(f)), false, 'no chapter files written on bad LLM output')
   })
 
   test('source path not on disk → throws', async () => {
@@ -212,7 +229,7 @@ A final paragraph closes the loop.
   test('source too short → throws (avoid wasting tokens on a typo)', async () => {
     const { scriptDir } = await makeProject()
     const docxPath = path.join(scriptDir, `${CODE}_short.docx`)
-    await docxBuilder.buildNarrationDocx('hello', CODE, TITLE, docxPath, { includeTitleBlock: false })
+    await writeRealDocx('hello', docxPath, false)
     await assert.rejects(
       () => normalizer.normalizeNarrationDocx(SLUG, CODE, docxPath, {
         model: 'gpt-4o',
@@ -236,5 +253,32 @@ A final paragraph closes the loop.
       }),
       /not found in accepted ideas/,
     )
+  })
+
+  // Dual-read regression guard (v1.0.228): new artifacts are .md, but legacy
+  // projects still have real Word .docx on disk. parseNarrationDocx must read
+  // those via mammoth (the .docx branch of readStructuredLines).
+  test('legacy .docx narration still parses into chapter sections', async () => {
+    const { scriptDir } = await makeProject()
+    const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+    const md = `# Introduction
+
+Intro paragraph for the legacy doc.
+
+# ${TITLE} — Narration
+
+## Chapter 01: The First
+
+Body of chapter one, long enough to be a real section.
+
+## Chapter 02: The Second
+
+Body of chapter two, also a real section.
+`
+    const docxPath = path.join(scriptDir, `${CODE}_Script_Narration.docx`)
+    await writeRealDocx(md, docxPath)
+    const sections = await parseNarrationDocx(docxPath)
+    assert.deepEqual(sections.map(s => s.slug), ['Introduction', 'Chapter_01', 'Chapter_02'])
+    assert.ok(sections.find(s => s.slug === 'Chapter_02')!.text.includes('chapter two'))
   })
 })

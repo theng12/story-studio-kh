@@ -84,7 +84,7 @@
         <div class="form-group">
           <label>Persona</label>
           <textarea class="input" v-model="brand.narration!.persona" rows="3"
-            placeholder="A calm, slow-paced narrator for sleep stories. Always third person. Never breaks the fourth wall." />
+            placeholder="A clear, evidence-based narrator for explainer videos. Confident but never preachy. Third person. Never breaks the fourth wall." />
         </div>
         <div class="form-group">
           <label>Default voice id</label>
@@ -190,7 +190,7 @@
         <div class="form-group">
           <label>Description outro template</label>
           <textarea class="input" v-model="brand.metadata!.description_outro_template" rows="3"
-            placeholder="Subscribe for more sleep stories. Sweet dreams." />
+            placeholder="Subscribe to keep the videos coming. New episode every week." />
         </div>
         <div class="form-group">
           <label>Attribution template</label>

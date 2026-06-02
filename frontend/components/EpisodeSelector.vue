@@ -3,8 +3,8 @@
     <label>
       Episode
       <!-- v1.0.48: episode-count badge — confirms scope ("X loaded") so
-           large projects (TerraNash has 380+) make slow loads feel
-           legitimate instead of like the app is hung.
+           large projects (a channel with 380+ episodes) make slow loads
+           feel legitimate instead of like the app is hung.
            v1.0.92: when a search is active the badge shows "N of M
            shown" so the user sees how aggressive their filter is. -->
       <span v-if="!loading && episodes.length" class="ep-count">
@@ -231,6 +231,9 @@ function statusSuffix(ep: any): string {
     if (s.merged_audio) return ' ✓'
     if (!s.audio) return ' ○ no narration'
     return ''
+  }
+  if (props.filterField === 'research') {
+    return s.research ? ' ✓ researched' : ''
   }
   return s.all_done ? ' ✓' : ''
 }

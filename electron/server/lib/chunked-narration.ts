@@ -46,12 +46,14 @@ import path from 'path'
 import { createHash } from 'crypto'
 import { callAi } from './ai-client.js'
 import { writeJsonAtomic } from './atomic-store.js'
+import { resolveResearchPaths } from './research-paths.js'
 import {
   splitNarrationIntoChapters,
   writeChapterFiles,
   chapterFilePath,
   type NarrationParts,
 } from './narration-assembly.js'
+import { resolveReadPath } from './episode-artifacts.js'
 import * as jq from '../services/job-queue.js'
 import type { Job, Format, Character } from '../models/types.js'
 
@@ -193,8 +195,6 @@ export interface GenerationParams {
   length?: number
   total_words?: number
   words_per_chapter: number
-  pattern_id?: string
-  pattern_subject?: string
   character_ids?: string[]
   custom_style_text?: string
 }
@@ -254,10 +254,6 @@ export interface ChunkedNarrationParams {
   /** Caller's cancel-checker — polled between batches so user-cancel
    *  unwinds cleanly even if the LLM SDK doesn't abort instantly. */
   isCancelled?: () => boolean
-  /** Optional pattern info — folded into the params_hash so a different
-   *  pattern wipes the resume sidecar. */
-  patternId?: string
-  patternSubject?: string
   /** Force regenerate from scratch (ignores existing sidecar / chapter files). */
   force?: boolean
   /** v3+: snapshot of the script-form fields that produced this run. When
@@ -430,7 +426,9 @@ export async function expandChapters(
   // exists and is non-zero.
   const verifiedDone = new Set<number>()
   for (const n of sidecar.chapters_done) {
-    if (chapterFileLooksValid(chapterFilePath(params.scriptDir, params.episode_id, n))) {
+    // resolveReadPath: a legacy episode's chapter may be .docx, not .md —
+    // it must still count as done so resume doesn't re-generate it.
+    if (chapterFileLooksValid(resolveReadPath(chapterFilePath(params.scriptDir, params.episode_id, n)))) {
       verifiedDone.add(n)
     }
   }
@@ -506,13 +504,60 @@ function estimateBatchCount(pending: number, mode: ChunkedMode): number {
 
 // ── Outline phase ──────────────────────────────────────────────────────────
 
+/**
+ * v1.0.145+ — Research-context injection. If the episode has a
+ * research.json sidecar (produced by v1.0.142's Research page) and any
+ * of its claims have status === 'verified', return a block we append
+ * to the outline prompt so the LLM sees the verified facts as binding
+ * context.
+ *
+ * Backward-compatible: when no sidecar exists OR no claims are
+ * verified, returns the empty string and the prompt is unchanged —
+ * the script generator behaves exactly as it did pre-1.0.145 for
+ * every other format.
+ *
+ * `scriptDir` is `<episode_dir>/<script_subfolder>`, so the episode
+ * dir is its parent.
+ */
+async function loadResearchContextBlock(scriptDir: string, code: string): Promise<string> {
+  try {
+    const episodeDir = path.dirname(scriptDir)
+    const { jsonPath } = await resolveResearchPaths(episodeDir, code)
+    const raw = await fs.readFile(jsonPath, 'utf-8')
+    const parsed = JSON.parse(raw) as { claims?: Array<{ text: string; status?: string; note?: string }> }
+    const verified = (parsed.claims || []).filter(c => c.status === 'verified' && c.text?.trim())
+    if (verified.length === 0) return ''
+    const bullets = verified.map((c, i) => `${i + 1}. ${c.text}`).join('\n')
+    return [
+      '',
+      '── Verified research facts (use these to anchor outline + script accuracy) ──',
+      bullets,
+      'These facts were independently researched and confirmed. The episode should be consistent with them throughout — do not contradict, and prefer to reference these specific claims when planning chapter beats.',
+      '',
+    ].join('\n')
+  } catch {
+    // ENOENT (no research) or parse error — silent pass-through.
+    return ''
+  }
+}
+
 async function buildOutline(
   job: Job, params: ChunkedNarrationParams, mode: ChunkedMode,
 ): Promise<OutlineEntry[]> {
   const compact = params.totalChapters > COMPACT_OUTLINE_THRESHOLD
-  const prompt = mode === 'listicle'
+  let prompt = mode === 'listicle'
     ? listicleOutlinePrompt(params, compact)
     : narrativeOutlinePrompt(params, compact)
+
+  // v1.0.145+ — Inject verified research claims when present. Logged
+  // so the Jobs panel surfaces "used N research claims" — useful to
+  // confirm the wiring is actually firing without rereading the prompt.
+  const researchBlock = await loadResearchContextBlock(params.scriptDir, params.episode_id)
+  if (researchBlock) {
+    prompt += researchBlock
+    const claimCount = (researchBlock.match(/^\d+\./gm) || []).length
+    job.output_lines.push(`[chunked] Injected ${claimCount} verified research claim(s) into outline prompt.`)
+  }
 
   // Outline is a one-shot non-streaming JSON array call. Use the same
   // system prompt the caller built so format role + brand persona are in
@@ -641,7 +686,7 @@ async function expandNarrativeSequential(
     const priorChapterN = firstN - 1
     let transitionWindow = ''
     if (priorChapterN >= 1) {
-      const priorPath = chapterFilePath(params.scriptDir, params.episode_id, priorChapterN)
+      const priorPath = resolveReadPath(chapterFilePath(params.scriptDir, params.episode_id, priorChapterN))
       if (existsSync(priorPath)) {
         try {
           const { narrationDocxToMarkdown } = await import('./docx-parser.js')
@@ -1095,8 +1140,6 @@ function computeParamsHash(p: ChunkedNarrationParams): string {
     fmt: p.format.id,
     n: p.totalChapters,
     w: p.wordsPerChapter,
-    pat: p.patternId || '',
-    sub: p.patternSubject || '',
     chars: (p.characters || []).map(c => c.id).sort(),
   })
   return createHash('sha256').update(blob).digest('hex').slice(0, 16)

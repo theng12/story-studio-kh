@@ -9,8 +9,8 @@
  *       PROJECTS_ROOT  = ~/Library/Application Support/Story Studio KH/projects/
  *                        ├── Local-Project/
  *       linked paths  = [
- *         /iCloud/Stories/TerraNash/,
- *         /iCloud/Stories/Dozing Knight/,
+ *         /iCloud/Videos/Channel-One/,
+ *         /iCloud/Videos/Channel-Two/,
  *       ]
  *     → All three projects visible on Mac A.
  *
@@ -18,8 +18,8 @@
  *       PROJECTS_ROOT  = ~/Library/Application Support/Story Studio KH/projects/
  *                        ├── Beta-Local-Project/
  *       linked paths  = [
- *         /iCloud/Stories/TerraNash/,
- *         /iCloud/Stories/Dozing Knight/,
+ *         /iCloud/Videos/Channel-One/,
+ *         /iCloud/Videos/Channel-Two/,
  *       ]
  *     → The two iCloud-resident projects show up on Mac B alongside
  *       its local-only Beta-Local-Project.

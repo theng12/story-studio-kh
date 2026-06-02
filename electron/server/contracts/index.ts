@@ -332,9 +332,9 @@ export interface SafeProjectConfigResponse {
   audio_pricing_last_updated: string
   video_pricing_last_updated?: string
   confirmation_preferences?: Record<string, boolean>
-  /** Per-project Chatterbox (Local TTS) gate; when false the model dropdown hides chatterbox-* entries. */
+  /** @deprecated v1.0.150 — Chatterbox provider removed; field retained so old project.json parses. */
   chatterbox_enabled?: boolean
-  /** UUID returned by Chatterbox /api/upload-reference, used when chatterbox-cloned is selected. */
+  /** @deprecated v1.0.150 — see chatterbox_enabled. */
   chatterbox_reference_id?: string
 }
 
@@ -377,16 +377,6 @@ export const GenerateScriptOnlySchema = z.object({
   total_words: z.number().int().positive().optional(),
   words_per_chapter: z.number().int().positive().optional(),
   generate_image_prompts: z.boolean().optional(),
-  // Pattern primitive (Phase 4b): optional per-episode template that
-  // composes on top of the project's Format. {pattern_subject} is the
-  // {X} value the pattern's titleTemplate substitutes ('London' for
-  // 'The entire history of London explained').
-  // Empty string = "no pattern (use format defaults)" — the dropdown's
-  // first option. Treat it the same as omitting the field entirely; the
-  // generator's truthiness check (`if (req.pattern_id) …`) already
-  // handles both.
-  pattern_id: z.string().max(120).optional(),
-  pattern_subject: z.string().max(300).optional(),
   // Character primitive (Phase 5): optional cast list — the LLM uses
   // these names + descriptions instead of inventing characters.
   character_ids: z.array(z.string().min(1).max(120)).optional(),

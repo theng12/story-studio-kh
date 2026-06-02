@@ -13,6 +13,7 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { callAi } from '../lib/ai-client.js'
 import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js'
+import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { getVideoStatus } from '../services/asset-status.js'
@@ -51,9 +52,7 @@ router.post('/projects/:slug/generate/video-prompts', async (req, res) => {
   let storyContext = ''
   try {
     const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-    const mammoth = await import('mammoth')
-    const r = await mammoth.default.extractRawText({ path: paths.narration_docx })
-    storyContext = r.value.slice(0, 3000)
+    storyContext = (await readArtifactRawText(paths.narration_docx)).slice(0, 3000)
   } catch {
     storyContext = `Episode: ${episode_id}, Title: ${title || 'Unknown'}`
   }
@@ -87,7 +86,7 @@ RETURN ONLY THIS JSON (no markdown):
 }`
 
   try {
-    const raw = await callAi(model || 'gpt-4o', sys, userPrompt, {
+    const raw = await callAi(model || 'deepseek-v4-flash', sys, userPrompt, {
       anthropic_api_key: config.anthropic_api_key,
       openai_api_key: config.openai_api_key,
       kie_api_key: config.kie_api_key,
@@ -123,7 +122,7 @@ router.post('/projects/:slug/generate/video-prompts/save', async (req, res) => {
     for (const s of (prompts?.scenes || [])) {
       text += `## Scene ${s.number}: ${s.title}\n\n${s.prompt}\n\n`
     }
-    const outPath = path.join(videoDir, `${episode_id}_Video_Prompts.docx`)
+    const outPath = path.join(videoDir, `${episode_id}_Video_Prompts.md`)
     await buildImagePromptsDocx(text, episode_id, title || '', outPath)
 
     res.json({ ok: true, path: outPath })

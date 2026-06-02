@@ -26,12 +26,12 @@
         <button
           type="button"
           class="home-settings-btn"
-          title="App-wide settings — API keys, notifications, FFmpeg"
-          aria-label="Open App Settings"
+          title="This Mac — API keys, appearance, server mode. Shared across every project on this machine, never synced. (Per-project settings live inside each project.)"
+          aria-label="Open This Mac settings"
           @click="appSettingsModal.open()"
         >
           <span class="home-settings-icon" aria-hidden="true">⚙</span>
-          <span class="home-settings-label">App Settings</span>
+          <span class="home-settings-label">Settings</span>
         </button>
       </div>
     </header>
@@ -388,7 +388,7 @@
                Template above governs the on-disk layout; Format below
                governs what the LLM produces. They're independent —
                sleep-stories with a listicle format work, blank with
-               sleep-story works. Default 'sleep-story' preserves the
+               sleep-story works. Default 'narrative' preserves the
                original behaviour for users who skip the picker.
                v1.0.69: the auto-selected default format gets a
                "Default" badge so users know which one they'll ship
@@ -463,9 +463,9 @@
 
           <!-- Niche picker (orthogonal subject-domain layer).
                Optional — empty selection means "format defaults only".
-               Pairs with any format: bound-explainer × plants for the
-               Bound-style explainer flow; sleep-story × gemstones for
-               TerraNash episodes; listicle × animals for nature listicles.
+               Pairs with any format: narrative × plants for a calm
+               plant-focused story; narrative × gemstones for a gemstone
+               narrative; listicle × animals for nature listicles.
                Sits underneath the format grid so the visual hierarchy
                reads "what shape (format) of what subject (niche)". -->
           <div class="form-group" style="margin-top: 16px;">
@@ -625,8 +625,13 @@
         <div v-if="step ===4">
           <p class="text-muted mb-2">
             Add API keys for the services you want to use. You can skip this
-            and add them later in
-            <NuxtLink to="/app-settings" style="color: var(--accent); text-decoration: underline;">App Settings</NuxtLink>.
+            and add them later from the
+            <button
+              type="button"
+              @click="appSettingsModal.open()"
+              style="background: none; border: 0; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer;"
+            >⚙ Settings</button>
+            button on the home screen (or any project's Settings → This Mac).
           </p>
           <div class="precheck-banner precheck-info" style="margin-bottom: 12px;">
             <span>
@@ -1219,6 +1224,11 @@
 </template>
 
 <script setup lang="ts">
+// pickFolder() branches between Electron's native dialog and the in-app
+// FileBrowserModal (server mode / remote tailnet browser). Not auto-imported
+// — it's a bare named export, not a useX composable.
+import { pickFolder as pickFolderShared } from '~/composables/usePathPicker'
+
 useAppTitle()
 const { get, post, put } = useApi()
 const { success, error: showError } = useToast()
@@ -1259,12 +1269,13 @@ function closeAddLinked(): void {
 }
 async function browseLinkedFolder(): Promise<void> {
   try {
-    const r = await post<{ path: string | null }>('/system/pick-folder', {
+    const path = await pickFolderShared({
       title: 'Pick a Story Studio project folder',
-      buttonLabel: 'Use This Folder',
+      button_label: 'Use This Folder',
+      initial_path: addLinkedPath.value || undefined,
     })
-    if (!r?.path) return
-    addLinkedPath.value = r.path
+    if (!path) return
+    addLinkedPath.value = path
     await inspectLinked()
   } catch (e: any) {
     addLinkedError.value = e?.data?.detail || e?.message || 'Folder picker failed'
@@ -1332,7 +1343,7 @@ type FormatLite = { id: string; name: string; description?: string; builtin?: bo
 // Mirrors electron/server/services/format-loader.ts:DEFAULT_FORMAT_ID.
 // Frontend can't import the backend constant directly (no shared
 // module boundary today), so we duplicate it. Keep both in sync.
-const DEFAULT_FORMAT_ID = 'sleep-story'
+const DEFAULT_FORMAT_ID = 'narrative'
 const formats = ref<FormatLite[]>([])
 const formatsLoading = ref(false)
 
@@ -1379,15 +1390,17 @@ function formatIcon(id: string): string {
   // doesn't ask the user for an emoji and we don't want to bake a
   // mapping that requires a code change every time someone ships
   // a new built-in.
+  //
+  // v1.0.162 — pruned to the 4 consolidated formats (was 8 entries
+  // for the pre-consolidation set: sleep-story / documentary /
+  // educational / comedy / adventure / true-crime / kids-fairytale +
+  // listicle). Niches do the content variation now; formats only
+  // describe the production pipeline.
   const map: Record<string, string> = {
-    'sleep-story':    '🌙',
-    'listicle':       '📊',
-    'documentary':    '🎬',
-    'educational':    '📖',
-    'comedy':         '😄',
-    'adventure':      '🗺️',
-    'true-crime':     '🔍',
-    'kids-fairytale': '🧚',
+    'narrative':         '📖',
+    'listicle':          '📊',
+    'stock-footage':     '🎞',
+    'narration-synced':  '🎯',
   }
   return map[id] || '☆'
 }
@@ -1427,7 +1440,7 @@ const form = reactive<{
   output_root: '',
   // Default matches the project-manager fallback so users who don't
   // touch the Channel Format picker get the legacy behaviour.
-  format_id: 'sleep-story',
+  format_id: 'narrative',
   niche_id: '',
 })
 
@@ -1554,10 +1567,13 @@ async function recheckFFmpeg() {
 async function pickFolder() {
   picking.value = true
   try {
-    const r = await post<{ path: string | null }>('/system/pick-folder', {})
-    if (r.path) form.output_root = r.path
+    const path = await pickFolderShared({
+      title: 'Choose project save location',
+      initial_path: form.output_root || undefined,
+    })
+    if (path) form.output_root = path
   } catch (e: any) {
-    showError(e.data?.detail || 'Folder picker failed')
+    showError(e?.data?.detail || e?.message || 'Folder picker failed')
   } finally {
     picking.value = false
   }
@@ -2293,15 +2309,18 @@ async function pickImportFolder() {
   importing.value = true
   importError.value = ''
   try {
-    const r = await post<{ path: string | null }>('/system/pick-folder', {})
-    if (!r.path) return
-    importSource.value = r.path
-    const inspect = await post<ImportPreview>('/projects/import/inspect', { source_path: r.path })
+    const path = await pickFolderShared({
+      title: 'Pick a project folder to import',
+      initial_path: importSource.value || undefined,
+    })
+    if (!path) return
+    importSource.value = path
+    const inspect = await post<ImportPreview>('/projects/import/inspect', { source_path: path })
     importPreview.value = inspect
     for (const k of Object.keys(overrides)) delete (overrides as any)[k]
     importStep.value = 'confirm'
   } catch (e: any) {
-    importError.value = e.data?.detail || 'Could not read that folder.'
+    importError.value = e?.data?.detail || 'Could not read that folder.'
   } finally {
     importing.value = false
   }
@@ -2669,9 +2688,9 @@ onMounted(async () => {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  padding: 32px;
-  width: 520px;
-  max-height: 85vh;
+  padding: 40px;
+  width: min(880px, 92vw);
+  max-height: 90vh;
   overflow-y: auto;
 }
 

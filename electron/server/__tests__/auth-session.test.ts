@@ -128,23 +128,25 @@ describe('parseCookieHeader', () => {
 })
 
 describe('checkLoginRateLimit', () => {
+  // Pass an explicit maxAttempts so the test pins the limit it asserts,
+  // independent of the configurable default (bumped 5 → 30 in v1.0.107).
   test('allows up to 5 attempts per IP, blocks the 6th', () => {
     // Use a unique IP per test run so previous test buckets don't leak.
     const ip = `203.0.113.${Math.floor(Math.random() * 200) + 1}`
     for (let i = 0; i < 5; i++) {
-      assert.equal(checkLoginRateLimit(ip), true, `attempt ${i + 1} should be allowed`)
+      assert.equal(checkLoginRateLimit(ip, 5), true, `attempt ${i + 1} should be allowed`)
     }
-    assert.equal(checkLoginRateLimit(ip), false, '6th attempt should be blocked')
-    assert.equal(checkLoginRateLimit(ip), false, '7th attempt should still be blocked')
+    assert.equal(checkLoginRateLimit(ip, 5), false, '6th attempt should be blocked')
+    assert.equal(checkLoginRateLimit(ip, 5), false, '7th attempt should still be blocked')
   })
 
   test('different IPs are tracked independently', () => {
     const ipA = `198.51.100.${Math.floor(Math.random() * 100) + 1}`
     const ipB = `198.51.100.${Math.floor(Math.random() * 100) + 100}`
     // Exhaust ipA's budget.
-    for (let i = 0; i < 5; i++) checkLoginRateLimit(ipA)
-    assert.equal(checkLoginRateLimit(ipA), false, 'ipA should be blocked')
+    for (let i = 0; i < 5; i++) checkLoginRateLimit(ipA, 5)
+    assert.equal(checkLoginRateLimit(ipA, 5), false, 'ipA should be blocked')
     // ipB still has its full budget.
-    assert.equal(checkLoginRateLimit(ipB), true, 'ipB should be allowed')
+    assert.equal(checkLoginRateLimit(ipB, 5), true, 'ipB should be allowed')
   })
 })

@@ -17,10 +17,17 @@ export const PROVIDER_DISPLAY: Record<string, string> = {
   elevenlabs: 'ElevenLabs (direct)',
   fal: 'fal.ai (ElevenLabs)',
   genaipro: 'GenAIPro (ElevenLabs)',
-  // Image — currently all via kie.ai
+  // v1.0.149+ — Voice Studio KH local modal (Pinokio FastAPI wrapper,
+  // reached over Tailscale). v1.0.150 dropped the standalone Chatterbox
+  // entry (chatterbox-mlx is reachable through Voice Studio's family list).
+  voicestudio: 'Voice Studio KH (local)',
+  // Image — kie.ai for cloud + Image Studio KH (v1.0.151+) for the
+  // local Pinokio modal (FLUX / Qwen / Z-Image on Apple Silicon MLX).
   kie: 'kie.ai',
+  imagestudio: 'Image Studio KH (local)',
   // LLM
-  anthropic: 'Anthropic',
+  deepseek: 'DeepSeek',
+  openrouter: 'OpenRouter',
   openai: 'OpenAI',
 }
 
@@ -30,12 +37,15 @@ export const PROVIDER_DISPLAY: Record<string, string> = {
  * in the app consistently.
  */
 const DEFAULT_ORDER = [
-  // TTS ordering — user-reported preference: direct first, then gateways
-  'elevenlabs', 'fal', 'genaipro',
-  // Image
-  'kie',
-  // LLM
-  'anthropic', 'openai',
+  // TTS ordering — user-reported preference: direct first, then gateways,
+  // then local-modal options at the bottom (advanced; require Tailscale +
+  // a running Pinokio modal).
+  'elevenlabs', 'fal', 'genaipro', 'voicestudio',
+  // Image — kie.ai cloud first, then local Pinokio modal at the bottom.
+  'kie', 'imagestudio',
+  // LLM — DeepSeek first (cheapest, the project default), then OpenRouter,
+  // then OpenAI. (kie.ai's Claude/GPT/Gemini group sorts under 'kie' above.)
+  'deepseek', 'openrouter', 'openai',
 ]
 
 export interface ModelGroup<T> {
@@ -80,5 +90,9 @@ export function resolveAudioProvider(id: string, m: { provider?: string }): stri
   if (m.provider) return m.provider
   if (id.startsWith('eleven_')) return 'elevenlabs'
   if (id.startsWith('genaipro-')) return 'genaipro'
+  // v1.0.149+ — Voice Studio KH (Pinokio local modal).
+  // v1.0.150 dropped the standalone chatterbox-* prefix (rolled into
+  // Voice Studio's family list).
+  if (id.startsWith('voicestudio-')) return 'voicestudio'
   return 'fal'
 }

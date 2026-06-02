@@ -1,0 +1,57 @@
+═══════════════════════════════════════════════════════════════════
+  Story Studio KH — first-time install on a new Mac
+═══════════════════════════════════════════════════════════════════
+
+If you downloaded this DMG via Telegram, AirDrop, the web, email,
+or any other internet route, macOS attaches a "quarantine" flag to
+the file. Story Studio KH is signed with an ad-hoc certificate
+(personal use, no Apple Developer ID), so Gatekeeper blocks it on
+launch with one of these messages:
+
+  • "Story Studio KH is damaged and can't be opened."
+  • "Story Studio KH can't be opened because it is from an
+     unidentified developer."
+
+This is normal. The fix takes 10 seconds.
+
+───────────────────────────────────────────────────────────────────
+  Step 1 — Install the app
+───────────────────────────────────────────────────────────────────
+
+Drag "Story Studio KH.app" from this DMG into your Applications
+folder. Don't try to launch it yet.
+
+───────────────────────────────────────────────────────────────────
+  Step 2 — Remove the quarantine flag
+───────────────────────────────────────────────────────────────────
+
+Open Terminal (⌘-Space, type "Terminal", Enter) and paste:
+
+  xattr -dr com.apple.quarantine "/Applications/Story Studio KH.app"
+
+Hit Enter. No output = success.
+
+───────────────────────────────────────────────────────────────────
+  Step 3 — Launch
+───────────────────────────────────────────────────────────────────
+
+Open Story Studio KH from Launchpad or Applications. It should
+start normally now.
+
+───────────────────────────────────────────────────────────────────
+  Why is this needed?
+───────────────────────────────────────────────────────────────────
+
+macOS only fully trusts apps signed by an Apple Developer ID and
+notarized by Apple — that costs $99/year and isn't worth it for a
+personal-use app. The ad-hoc signature works fine when the app is
+copied via USB / local network (no quarantine flag), but downloads
+from Telegram or the web hit Gatekeeper.
+
+The xattr command above strips the quarantine flag so Gatekeeper
+falls through to the ad-hoc signature, which it accepts.
+
+You only need to run this command once per install (or after a
+new DMG version replaces the old install).
+
+═══════════════════════════════════════════════════════════════════

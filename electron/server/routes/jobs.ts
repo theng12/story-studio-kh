@@ -103,14 +103,15 @@ router.get('/jobs/app', async (_req, res) => {
   res.json({ jobs: jobsList, stats })
 })
 
-router.get('/jobs/app/:jobId', (req, res) => {
-  const job = jq.getJob(req.params.jobId)
-  if (!job || job.project_slug !== APP_SLUG) {
-    return res.status(404).json({ detail: 'Job not found' })
-  }
-  res.json(job)
-})
-
+// v1.0.131+ — IMPORTANT: /jobs/app/stream MUST be registered BEFORE
+// /jobs/app/:jobId. Express dispatches routes in registration order;
+// the wildcard `:jobId` would match a literal `stream` and the handler
+// would look up a (nonexistent) job called "stream", returning 404 to
+// every EventSource the frontend opens. That 404 then trips the SSE
+// auto-retry loop (~every 5s) and the user sees a never-ending stream
+// of `Failed to load resource: …jobs/app/stream:1 (Not Found)` console
+// errors. Reordered + reserved-word guard so a future re-reorder fails
+// cleanly instead of silently regressing.
 router.get('/jobs/app/stream', async (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -146,6 +147,26 @@ router.get('/jobs/app/stream', async (req, res) => {
     jq.jobEvents.off('update', onUpdate)
     jq.jobEvents.off('cleared', onCleared)
   })
+})
+
+// /jobs/app/:jobId — must come AFTER /jobs/app/stream (see comment on the
+// stream route). The reserved-word guard below makes a future re-reorder
+// regression fail loudly instead of silently 404-looping the SSE again.
+router.get('/jobs/app/:jobId', (req, res) => {
+  if (req.params.jobId === 'stream') {
+    // Should be unreachable — Express picks the literal '/jobs/app/stream'
+    // route ahead of this wildcard. Surface a 500 with a clear diagnostic
+    // if it ever DOES land here so the route-order regression is obvious.
+    return res.status(500).json({
+      detail: 'Route order regression: /jobs/app/stream is being shadowed by /jobs/app/:jobId. ' +
+              'Re-check routes/jobs.ts — the stream handler must be registered first.',
+    })
+  }
+  const job = jq.getJob(req.params.jobId)
+  if (!job || job.project_slug !== APP_SLUG) {
+    return res.status(404).json({ detail: 'Job not found' })
+  }
+  res.json(job)
 })
 
 router.delete('/jobs/app', async (_req, res) => {
@@ -227,6 +248,20 @@ router.post('/projects/:slug/estimate-cost', validateBody(EstimateCostSchema), a
       // type === 'images' means both scenes + thumbnails (unified page "Both" mode).
       const model = params?.model || 'grok-imagine'
       const modelConfig = config.image_models?.[model]
+      // Local Image Studio models are free (Apple-Silicon compute). They're
+      // surfaced dynamically (`imagestudio:<repo>`) so they aren't in the
+      // saved catalog — detect by id/provider, not by a config lookup, and
+      // force $0 so the cost dialog reads "Free" instead of defaulting to 1
+      // credit/image for an unknown model.
+      const isLocalImage = model.startsWith('imagestudio:')
+        || model.startsWith('imagestudio-')
+        || (modelConfig as any)?.provider === 'imagestudio'
+      // v1.0.234 — direct/token-billed image providers (OpenAI Images API,
+      // OpenRouter Gemini): billed on the user's own provider account by tokens,
+      // not kie credits. Don't show a kie-credit figure.
+      const directProvider = (modelConfig as any)?.provider
+      const isOpenAiImage = directProvider === 'openai-image' || directProvider === 'openrouter-image'
+      const directBillLabel = directProvider === 'openrouter-image' ? 'OpenRouter' : 'OpenAI'
       // Tier-aware pricing: variable-priced models (nano-banana-2,
       // ideogram-v3, etc.) carry a `tiers[]` array. The request can name
       // a tier via params.tier; absent → default_tier → credits_per_image.
@@ -237,7 +272,7 @@ router.post('/projects/:slug/estimate-cost', validateBody(EstimateCostSchema), a
         ? (tiers.find(t => t.id === requestedTier)
             ?? tiers.find(t => t.id === (modelConfig as any)?.default_tier))
         : undefined
-      const creditsPerImage = tierEntry?.credits ?? modelConfig?.credits_per_image ?? 1
+      const creditsPerImage = (isLocalImage || isOpenAiImage) ? 0 : (tierEntry?.credits ?? modelConfig?.credits_per_image ?? 1)
       const wantThumbs = type === 'thumb_images'
       const wantBoth = type === 'images'
 
@@ -263,20 +298,33 @@ router.post('/projects/:slug/estimate-cost', validateBody(EstimateCostSchema), a
       estimate.estimated_duration = formatDuration(durationSec)
       const kind = wantBoth ? 'image(s) (scenes + thumbnails)' : wantThumbs ? 'thumbnail(s)' : 'scene(s)'
       const tierSuffix = tierEntry ? ` · ${tierEntry.label}` : ''
-      estimate.details = `${promptCount} ${kind} × ${creditsPerImage} credit${creditsPerImage > 1 ? 's' : ''} (${modelConfig?.label || model}${tierSuffix})`
+      estimate.details = isLocalImage
+        ? `${promptCount} ${kind} · Free — local Image Studio model (no per-image cost)`
+        : isOpenAiImage
+          ? `${promptCount} ${kind} · billed on your ${directBillLabel} account (token-based — see the ${directBillLabel} dashboard)`
+          : `${promptCount} ${kind} × ${creditsPerImage} credit${creditsPerImage > 1 ? 's' : ''} (${modelConfig?.label || model}${tierSuffix})`
 
-      // Include current kie balance
-      try {
-        const { getKieCredits } = await import('../services/utils.js')
-        const bal = await getKieCredits(config.kie_api_key)
-        if (bal !== null) estimate.current_balance = bal
-      } catch { /* skip */ }
+      // Include current kie balance (kie cloud models only — local/OpenAI have none).
+      if (!isLocalImage && !isOpenAiImage) {
+        try {
+          const { getKieCredits } = await import('../services/utils.js')
+          const bal = await getKieCredits(config.kie_api_key)
+          if (bal !== null) estimate.current_balance = bal
+        } catch { /* skip */ }
+      }
 
     } else if (type === 'audio') {
       // Audio generation: character-count-based
       const model = params?.model || 'turbo-v2.5'
       const audioModel = config.audio_models?.[model]
-      const costPer1k = audioModel?.cost_per_1k_chars || 0.05
+      // Local Voice Studio models are free. Detect by id/provider and force
+      // $0. Also note: cost_per_1k_chars of 0 is a VALID free price — use a
+      // typeof check, not `|| 0.05`, so an explicit 0 isn't coerced to 0.05.
+      const isLocalAudio = model.startsWith('voicestudio-')
+        || (audioModel as any)?.provider === 'voicestudio'
+      const costPer1k = isLocalAudio
+        ? 0
+        : (typeof audioModel?.cost_per_1k_chars === 'number' ? audioModel.cost_per_1k_chars : 0.05)
 
       // Try to get character count from narration file
       let charCount = params?.char_count || 0
@@ -291,14 +339,18 @@ router.post('/projects/:slug/estimate-cost', validateBody(EstimateCostSchema), a
       estimate.estimated_cost = Math.round(cost * 100) / 100
       estimate.cost_unit = 'USD'
       estimate.estimated_duration = formatDuration(durationSec)
-      estimate.details = `~${charCount.toLocaleString()} chars × $${costPer1k}/1k (${audioModel?.label || model})`
+      estimate.details = isLocalAudio
+        ? `~${charCount.toLocaleString()} chars · Free — local Voice Studio model (no per-character cost)`
+        : `~${charCount.toLocaleString()} chars × $${costPer1k}/1k (${audioModel?.label || model})`
 
-      // Include current fal balance
-      try {
-        const { getFalBalance } = await import('../services/utils.js')
-        const bal = await getFalBalance(config.fal_api_key)
-        if (bal !== null) estimate.current_balance = bal
-      } catch { /* skip */ }
+      // Include current fal balance (cloud models only — local has no balance).
+      if (!isLocalAudio) {
+        try {
+          const { getFalBalance } = await import('../services/utils.js')
+          const bal = await getFalBalance(config.fal_api_key)
+          if (bal !== null) estimate.current_balance = bal
+        } catch { /* skip */ }
+      }
 
     } else if (type === 'scene_prompts' || type === 'thumb_prompts' || type === 'metadata') {
       // Prompt/metadata generation: token-based
@@ -401,8 +453,12 @@ async function countPromptsFromFile(slug: string, episodeId: string, isThumbnail
   const outputRoot = await pm.getProjectOutputRoot(slug)
   if (!outputRoot) return 0
 
-  const filename = isThumbnails ? `${code}_Thumbnail_Prompts.docx` : `${code}_Scene_Prompts.docx`
-  const fallback = `${code}_Image_Prompts.docx`
+  // Accept .md (current) and legacy .docx, separate file or old combined.
+  const stem = isThumbnails ? `${code}_Thumbnail_Prompts` : `${code}_Scene_Prompts`
+  const names = new Set([
+    `${stem}.md`, `${stem}.docx`,
+    `${code}_Image_Prompts.md`, `${code}_Image_Prompts.docx`,
+  ])
 
   // Search recursively for the file
   async function findFile(dir: string): Promise<string | null> {
@@ -410,7 +466,7 @@ async function countPromptsFromFile(slug: string, episodeId: string, isThumbnail
       const entries = await fs.readdir(dir, { withFileTypes: true })
       for (const e of entries) {
         const fp = path.join(dir, e.name)
-        if (e.isFile() && (e.name === filename || e.name === fallback)) return fp
+        if (e.isFile() && names.has(e.name)) return fp
         if (e.isDirectory()) {
           const found = await findFile(fp)
           if (found) return found
@@ -435,14 +491,14 @@ async function countNarrationChars(slug: string, episodeId: string): Promise<num
   const outputRoot = await pm.getProjectOutputRoot(slug)
   if (!outputRoot) return 0
 
-  const filename = `${code}_Script_Narration.docx`
+  const narrationNames = new Set([`${code}_Script_Narration.md`, `${code}_Script_Narration.docx`])
 
   async function findFile(dir: string): Promise<string | null> {
     try {
       const entries = await fs.readdir(dir, { withFileTypes: true })
       for (const e of entries) {
         const fp = path.join(dir, e.name)
-        if (e.isFile() && e.name === filename) return fp
+        if (e.isFile() && narrationNames.has(e.name)) return fp
         if (e.isDirectory()) {
           const found = await findFile(fp)
           if (found) return found

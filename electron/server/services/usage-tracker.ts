@@ -70,12 +70,13 @@ async function appendToHistory(entry: UsageEntry): Promise<void> {
 }
 
 export function trackUsage(model: string, inputTokens: number, outputTokens: number): void {
+  const provider = providerForModel(model)
   const pricing = MODEL_PRICING[model] || { input: 5.0, output: 15.0 }
   const cost = (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000
 
   const entry: UsageEntry = {
     model,
-    provider: providerForModel(model),
+    provider,
     input_tokens: inputTokens,
     output_tokens: outputTokens,
     cost,

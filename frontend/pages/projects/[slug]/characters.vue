@@ -24,6 +24,7 @@
         v-for="c in characters"
         :key="c.id"
         :character="c"
+        :thumbnail-url="cardThumb(c)"
       >
         <template #actions>
           <button v-if="c.scope === 'episode'" class="btn btn-ghost btn-sm" :title="'Make this character available to every episode in the project'" @click="promote(c)">
@@ -47,6 +48,23 @@
         </header>
 
         <div class="ed-body">
+          <!-- v1.0.192 — two ways to create a character. "From description" is
+               the classic text-first flow; "From character sheet" makes the
+               reference-image upload primary (it stages + uploads when you
+               create). Edit mode hides the toggle (you're past creation). -->
+          <div v-if="!editing" class="create-mode-toggle">
+            <button
+              type="button"
+              :class="['cmt-btn', { active: createMode === 'description' }]"
+              @click="createMode = 'description'"
+            >✍️ From description</button>
+            <button
+              type="button"
+              :class="['cmt-btn', { active: createMode === 'sheet' }]"
+              @click="createMode = 'sheet'"
+            >🖼 From character sheet</button>
+          </div>
+
           <div class="form-group">
             <label>Name <span class="req">*</span></label>
             <span class="hint">Displayed everywhere; the LLM uses this exact spelling.</span>
@@ -76,9 +94,13 @@
               <template v-if="editing && (draft.references?.images?.length || 0) > 0">
                 Or click <strong>✨ Describe from image</strong> on any reference below to bootstrap.
               </template>
+              <template v-else-if="!editing && createMode === 'sheet'">
+                Drop your character sheet below — it uploads when you create. A short description still helps the
+                script + prompts; you can refine it with <strong>✨ Describe from image</strong> afterward.
+              </template>
               <template v-else-if="!editing">
-                Save the character first to upload reference portraits — then a one-click "Describe from image" button
-                will auto-fill this field from your uploaded picture.
+                Tip: switch to <strong>🖼 From character sheet</strong> above to build this character from a
+                reference image. Reference portraits can also be uploaded after creating.
               </template>
             </span>
             <textarea v-model="draft.description" class="input" rows="4" />
@@ -161,43 +183,31 @@
             />
           </div>
 
-          <div v-if="editing" class="form-group">
-            <label>Reference images (optional)</label>
+          <div v-if="editing || createMode === 'sheet'" class="form-group">
+            <label>
+              Reference images
+              <span class="text-muted" style="font-weight:400">{{ !editing && createMode === 'sheet' ? '(your character sheet)' : '(optional)' }}</span>
+            </label>
             <span class="hint">
-              Drop, paste, or click to upload reference portraits. Used by image generators that support
-              reference images (Flux Kontext, Nano Banana, Qwen Image 2). Max 5 MB each.
+              Drop, paste, or click to upload reference portraits — the look anchor. Used by image
+              generators that support reference images (Flux Kontext, Nano Banana, Qwen Image 2). Max 5 MB each.
+              <template v-if="!editing && createMode === 'sheet'"> They upload automatically when you create the character.</template>
             </span>
 
-            <div
-              :class="['ref-dropzone', { 'is-drag': isDragging, 'is-busy': uploadingImg }]"
-              @dragenter.prevent="onDragEnter"
-              @dragover.prevent="onDragOver"
-              @dragleave.prevent="onDragLeave"
-              @drop.prevent="onFilesDropped"
-              @paste="onPaste"
-              tabindex="0"
-              role="button"
-              aria-label="Drop, paste, or click to upload a reference image"
-              @click="fileInput?.click()"
-              @keydown.enter.prevent="fileInput?.click()"
-              @keydown.space.prevent="fileInput?.click()"
-            >
-              <input
-                ref="fileInput"
-                type="file"
-                accept="image/*"
-                multiple
-                class="ref-dropzone-hidden-input"
-                @change="onFileInputChange"
-              />
-              <div class="ref-dropzone-inner">
-                <span class="ref-dropzone-icon" aria-hidden="true">📷</span>
-                <strong>Drop images here</strong>
-                <span class="ref-dropzone-or">— or paste from clipboard, or click to browse</span>
-              </div>
-              <div v-if="uploadingImg" class="ref-dropzone-busy">
-                <LoadingSpinner size="sm" />
-                <span>Uploading {{ uploadQueueRemaining }} of {{ uploadQueueTotal }}…</span>
+            <ReferenceDropzone
+              multiple
+              :busy="uploadingImg"
+              :total="uploadQueueTotal"
+              :remaining="uploadQueueRemaining"
+              @files="onRefFiles"
+            />
+
+            <!-- Staged-on-create previews: files wait here until the character
+                 exists, then upload on Create. (Edit mode uploads immediately.) -->
+            <div v-if="!editing && stagedPreviews.length" class="staged-refs">
+              <div v-for="(url, i) in stagedPreviews" :key="i" class="staged-ref">
+                <img :src="url" alt="staged reference" />
+                <button type="button" class="staged-ref-x" title="Remove" @click="removeStaged(i)">✕</button>
               </div>
             </div>
 
@@ -383,6 +393,38 @@ const canSave = computed(() => {
   return true
 })
 
+// v1.0.192 — create modes + upload-at-create staging. In create mode the
+// dropzone stages File objects (with object-URL previews) instead of uploading
+// — there's no character id yet — and save() uploads them right after
+// cm.create(). Edit mode keeps uploading immediately.
+const createMode = ref<'description' | 'sheet'>('description')
+const stagedFiles = ref<File[]>([])
+const stagedPreviews = ref<string[]>([])
+
+function clearStaged() {
+  for (const u of stagedPreviews.value) URL.revokeObjectURL(u)
+  stagedFiles.value = []
+  stagedPreviews.value = []
+}
+function stageFiles(files: File[]) {
+  for (const f of files) {
+    const why = rejectReason(f)
+    if (why) { showError(why); continue }
+    stagedFiles.value.push(f)
+    stagedPreviews.value.push(URL.createObjectURL(f))
+  }
+}
+function removeStaged(i: number) {
+  URL.revokeObjectURL(stagedPreviews.value[i])
+  stagedFiles.value.splice(i, 1)
+  stagedPreviews.value.splice(i, 1)
+}
+/** Dropzone output router: edit mode uploads now; create mode stages. */
+function onRefFiles(files: File[]) {
+  if (editing.value) void uploadFiles(files)
+  else stageFiles(files)
+}
+
 function openCreate() {
   editing.value = null
   draft.value = { name: '', description: '', scope: 'episode', archetype: '' }
@@ -390,6 +432,8 @@ function openCreate() {
   speechTonation.value = ''
   speechVoiceId.value = ''
   styleKeywords.value = []
+  createMode.value = 'description'
+  clearStaged()
   saveError.value = ''
   editorOpen.value = true
 }
@@ -409,6 +453,7 @@ function openEdit(c: Character) {
 }
 
 function closeEditor() {
+  clearStaged()
   editorOpen.value = false
 }
 
@@ -449,7 +494,19 @@ async function save() {
       if (idx >= 0) characters.value.splice(idx, 1, updated)
       success(`Updated "${updated.name}"`)
     } else {
-      const created = await cm.create(payload)
+      let created = await cm.create(payload)
+      // Upload any staged sheet images now that the character exists, then
+      // re-fetch so the new list card shows its thumbnail + reference count.
+      if (stagedFiles.value.length) {
+        let upErr: string | null = null
+        for (const f of stagedFiles.value) {
+          try { await cm.uploadReferenceImage(created.id, f) }
+          catch (e: any) { if (!upErr) upErr = e?.data?.detail || e?.message || 'Image upload failed' }
+        }
+        try { created = await cm.getOne(created.id) } catch { /* keep created as-is */ }
+        clearStaged()
+        if (upErr) showError(upErr)
+      }
       characters.value = [created, ...characters.value]
       success(`Created "${created.name}"`)
     }
@@ -517,10 +574,8 @@ async function confirmDelete(c: Character) {
   }
 }
 
-// ── Reference image upload (drop zone — drag, paste, or click) ───────────
-const fileInput = ref<HTMLInputElement | null>(null)
+// ── Reference image upload (drag/paste/click handled by <ReferenceDropzone>) ──
 const uploadingImg = ref(false)
-const isDragging = ref(false)
 
 // Per-image "Describe from image" state — tracks WHICH reference filename
 // is currently being analysed so the spinner shows on the right card.
@@ -596,11 +651,10 @@ watch(visionModel, (v) => {
   else localStorage.removeItem(VISION_MODEL_STORAGE_KEY)
 })
 
-// API keys live in the global App Settings modal (not a `/settings`
-// route — that's the per-project page and doesn't host the Anthropic /
-// OpenAI keys). Reuse the singleton modal the dashboard's top-bar
-// "App Settings" button uses so the user lands on the same surface
-// they're already familiar with.
+// API keys are per-machine ("This Mac" settings). The quick "Add keys →"
+// link opens the singleton This-Mac modal so the user can drop in a key
+// without leaving the character editor. (The same settings also live in
+// Settings → This Mac → API Keys, reachable from the sidebar.)
 const appSettingsModal = useAppSettingsModal()
 function openAppSettings() {
   appSettingsModal.open()
@@ -615,6 +669,16 @@ function openAppSettings() {
 function referenceImageUrl(filename: string): string {
   if (!editing.value) return ''
   return `/api/projects/${slug.value}/characters/${editing.value.id}/reference-image/${encodeURIComponent(filename)}`
+}
+
+// v1.0.191 — first reference image as a list-card thumbnail (undefined when the
+// character has none). Same URL shape as referenceImageUrl but per-character so
+// the library list + the continuity Character Sheet render identical cards.
+function cardThumb(c: Character): string | undefined {
+  const img = c.references?.images?.[0]
+  return img
+    ? `/api/projects/${slug.value}/characters/${c.id}/reference-image/${encodeURIComponent(img)}`
+    : undefined
 }
 
 /**
@@ -731,78 +795,10 @@ async function uploadFiles(files: File[]) {
   if (firstError) {
     showError(firstError + (accepted.length > 1 ? ` (and possibly more — see console)` : ''))
   }
-  if (fileInput.value) fileInput.value.value = ''
 }
-
-function onFileInputChange(e: Event) {
-  const target = e.target as HTMLInputElement
-  const files = Array.from(target.files || [])
-  if (files.length) void uploadFiles(files)
-}
-
-// Drag counter — dragenter/leave fire for child elements too, so a naive
-// boolean flicker every time the user moves between the icon and the
-// border. Tracking nested-enter depth keeps the highlighted state stable
-// for the duration of the drag.
-let dragDepth = 0
-function onDragEnter(_e: DragEvent) {
-  dragDepth++
-  isDragging.value = true
-}
-function onDragOver(_e: DragEvent) {
-  // Just preventing default in the @dragover.prevent template binding is
-  // enough — the dataTransfer dropEffect default is fine for our case.
-}
-function onDragLeave(_e: DragEvent) {
-  dragDepth = Math.max(0, dragDepth - 1)
-  if (dragDepth === 0) isDragging.value = false
-}
-
-function onFilesDropped(e: DragEvent) {
-  dragDepth = 0
-  isDragging.value = false
-  const files = Array.from(e.dataTransfer?.files || []).filter(f => f.type.startsWith('image/'))
-  if (!files.length && e.dataTransfer?.files?.length) {
-    // User dropped files but none were images — give them a nudge instead
-    // of silently doing nothing.
-    showError('Only image files are accepted (PNG, JPEG, WebP, GIF).')
-    return
-  }
-  if (files.length) void uploadFiles(files)
-}
-
-/**
- * Pasting an image (e.g. from a screenshot, or copy-from-browser) lands
- * in clipboardData.files when the source is a real image MIME, or in
- * clipboardData.items for some browser flavours. We check both to cover
- * "copy image" from common targets (Finder Quick Look, browser context
- * menu, screenshot tools).
- */
-function onPaste(e: ClipboardEvent) {
-  if (!editing.value) return
-  const cd = e.clipboardData
-  if (!cd) return
-  const files: File[] = []
-  if (cd.files && cd.files.length) {
-    for (let i = 0; i < cd.files.length; i++) {
-      const f = cd.files.item(i)
-      if (f && f.type.startsWith('image/')) files.push(f)
-    }
-  }
-  if (!files.length && cd.items && cd.items.length) {
-    for (let i = 0; i < cd.items.length; i++) {
-      const item = cd.items[i]
-      if (item.kind === 'file' && item.type.startsWith('image/')) {
-        const f = item.getAsFile()
-        if (f) files.push(f)
-      }
-    }
-  }
-  if (files.length) {
-    e.preventDefault()
-    void uploadFiles(files)
-  }
-}
+// v1.0.192 — the drag/paste/click handlers + drag-depth tracking moved into
+// the shared <ReferenceDropzone>; the editor just routes its `files` event to
+// uploadFiles (edit) or stageFiles (create) via onRefFiles above.
 </script>
 
 <style scoped>
@@ -995,62 +991,8 @@ function onPaste(e: ClipboardEvent) {
 }
 .episode-chip.active .episode-chip-title { color: var(--accent, #6c8fff); }
 
-/* Reference-image drop zone — drag, paste, or click. Replaces the bare
- * <input type="file"> we used to ship; gives consistent affordance with
- * the rest of the app + multi-file support. */
-.ref-dropzone {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  margin-top: 6px;
-  padding: 18px 16px;
-  border: 1.5px dashed var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-  outline: none;
-}
-.ref-dropzone:hover { border-color: var(--text-secondary); }
-.ref-dropzone:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
-.ref-dropzone.is-drag {
-  border-color: var(--accent);
-  background: var(--accent-dim);
-}
-.ref-dropzone.is-busy { cursor: wait; opacity: 0.85; }
-
-.ref-dropzone-hidden-input {
-  /* Visually hidden but still focusable + clickable — the wrapper
-   * .ref-dropzone proxies clicks to it. */
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.ref-dropzone-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  text-align: center;
-}
-.ref-dropzone-icon { font-size: 20px; line-height: 1; }
-.ref-dropzone-or { font-size: 11px; color: var(--text-muted); }
-
-.ref-dropzone-busy {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--accent);
-  margin-top: 6px;
-}
+/* v1.0.192 — the drop-zone styles moved into the shared <ReferenceDropzone>
+   component (components/ReferenceDropzone.vue). */
 
 .ed-footer {
   display: flex;
@@ -1060,6 +1002,60 @@ function onPaste(e: ClipboardEvent) {
   padding: 14px 18px;
   border-top: 1px solid var(--border);
 }
+
+/* v1.0.192 — create-mode toggle (segmented) + staged-on-create previews. */
+.create-mode-toggle {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  margin-bottom: 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.cmt-btn {
+  padding: 6px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.cmt-btn:hover:not(.active) { background: var(--bg-hover); color: var(--text-primary); }
+.cmt-btn.active { background: var(--accent); color: var(--accent-on); }
+
+.staged-refs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.staged-ref {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.staged-ref img { width: 100%; height: 100%; object-fit: cover; }
+.staged-ref-x {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.staged-ref-x:hover { background: rgba(0, 0, 0, 0.85); }
 
 .error-msg {
   font-size: 11px;

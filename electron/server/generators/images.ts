@@ -22,18 +22,13 @@ import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
 import fs from 'fs/promises'
 
-const THUMB_TEXT_STYLES = [
-  'ornate serif font, radiant gold, glowing with warm magical light',
-  '3D metallic gold, dramatically lit, casting a rich soft glow',
-  'flowing elegant script, golden shimmer, soft ethereal light',
-  'bold sweeping letters, majestic golden hue, luminous atmosphere',
-  'mystical glowing font, deep gold, warm magical radiance',
-]
-
-function enhanceThumbnailPrompt(prompt: string, episodeTitle: string, number: number): string {
-  const style = THUMB_TEXT_STYLES[(number - 1) % THUMB_TEXT_STYLES.length]
-  return `${prompt.trimEnd()} The episode title "${episodeTitle}" is displayed in ${style}, perfectly centered in the frame, large and legible against the background.`
-}
+// NOTE (v1.0.224): the old `enhanceThumbnailPrompt` + hardcoded gold/glowing
+// `THUMB_TEXT_STYLES` were removed. They force-appended a sleep-story title
+// instruction to EVERY thumbnail at render time, overriding the user's picks
+// and ignoring the format. The thumbnail prompt now arrives from
+// generators/image-prompts.ts already carrying the correct (format-aware)
+// title-text directive — or, in composite mode, intentionally text-free for
+// the thumbnail composer. So the render path uses `thumb.prompt` verbatim.
 
 /**
  * Search recursively for a file matching any of the candidate filenames.
@@ -59,9 +54,11 @@ export async function findScenePromptsFile(slug: string, episodeId: string): Pro
   const outputRoot = await pm.getProjectOutputRoot(slug)
   if (!outputRoot) throw new Error('Project directory not found')
 
-  // Try new separate file first, then fall back to old combined file
+  // Prefer .md (current), then legacy .docx; new separate file before old combined.
   const candidates = [
+    `${code}_Scene_Prompts.md`,
     `${code}_Scene_Prompts.docx`,
+    `${code}_Image_Prompts.md`,
     `${code}_Image_Prompts.docx`,
   ]
   const found = await findFileRecursive(outputRoot, candidates)
@@ -74,9 +71,11 @@ export async function findThumbPromptsFile(slug: string, episodeId: string): Pro
   const outputRoot = await pm.getProjectOutputRoot(slug)
   if (!outputRoot) throw new Error('Project directory not found')
 
-  // Try new separate file first, then fall back to old combined file
+  // Prefer .md (current), then legacy .docx; new separate file before old combined.
   const candidates = [
+    `${code}_Thumbnail_Prompts.md`,
     `${code}_Thumbnail_Prompts.docx`,
+    `${code}_Image_Prompts.md`,
     `${code}_Image_Prompts.docx`,
   ]
   const found = await findFileRecursive(outputRoot, candidates)
@@ -162,7 +161,23 @@ export async function generateImages(job: Job): Promise<void> {
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
   const modelName = req.model || 'grok-imagine'
-  const modelConfig: ImageModelConfig = config.image_models[modelName]
+  let modelConfig: ImageModelConfig = config.image_models[modelName]
+  if (!modelConfig) {
+    // v1.0.205+ — Image Studio models are surfaced dynamically from the
+    // modal's live catalog (id = `imagestudio:<repo>`), so they don't live
+    // in the persisted per-project catalog. Synthesize a minimal config so
+    // they generate like any registered local model. The provider resolves
+    // the repo + endpoint (txt2img/img2img/edit) from the id + capabilities.
+    const { repoForModelId } = await import('../lib/imagestudio-client.js')
+    const repo = repoForModelId(modelName)
+    if (repo) {
+      modelConfig = {
+        label: repo, credits_per_image: 0, prompt_char_cap: 1000,
+        endpoint: '', poll: '', type: 'local', api_model: repo,
+        provider: 'imagestudio', supports_reference_images: true,
+      } as any
+    }
+  }
   if (!modelConfig) throw new Error(`Unknown image model: ${modelName}`)
 
   // Resolve provider (backward-compat: infer 'kie' if provider field missing)
@@ -193,11 +208,20 @@ export async function generateImages(job: Job): Promise<void> {
     model: modelName,
     jobId: job.job_id,
   })
-  if (!apiKey) throw new Error(`No API key configured for ${imageProvider.meta.name}. Add one in Settings → API Keys.`)
+  // v1.0.151+ — Image Studio is a local Pinokio modal; the "apiKey"
+  // slot carries its Tailscale base URL. An empty value means the user
+  // hasn't set it yet — the provider falls back to the discovered
+  // tailnet default, which works for the user who set up the modal
+  // and fails-fast with a friendly error otherwise. Skip the
+  // no-key throw so the provider gets to attempt the default.
+  if (!apiKey && providerId !== 'imagestudio') {
+    throw new Error(`No API key configured for ${imageProvider.meta.name}. Add one in Settings → API Keys.`)
+  }
 
   // Preflight: refuse immediately if the provider balance is clearly zero.
   // Fast fail-fast — much better UX than discovering the empty balance
   // after the first provider submit returns "insufficient credits".
+  // Local modals (imagestudio) have no balance — skip the check.
   if (providerId === 'kie') await assertBalanceAvailable('kie', apiKey)
 
   // Find scene and thumbnail prompt files (separate or combined)
@@ -269,10 +293,6 @@ export async function generateImages(job: Job): Promise<void> {
       `Cast with style keywords: ${castWithStyle.map(c => `${c.name} (${(c.references!.style_keywords || []).join(', ')})`).join('; ')} — appended to prompts when these characters appear`,
     )
   }
-
-  // Extract episode title from folder
-  const dirName = path.basename(resolvedEpDir)
-  const episodeTitle = dirName.includes(' - ') ? dirName.split(' - ').slice(1).join(' - ') : episode_id
 
   /**
    * Auto-detect which characters appear in a scene by scanning the prompt
@@ -410,9 +430,30 @@ export async function generateImages(job: Job): Promise<void> {
   const force = req.force || false
   const errors: string[] = []
   // Concurrency: project config → request override → default 5. Clamp 1..10.
+  // v1.0.154+ — local Pinokio modals (imagestudio) can only run one
+  // MLX inference at a time on Apple Silicon. Firing 5 simultaneous
+  // submits just queues 4 of them server-side AND burns 4 local poll
+  // loops that race the same per-job timeout. Clamp to 1 so:
+  //   - the modal queue depth stays at 1
+  //   - each next submit waits for the previous one's poll to finish
+  //   - the per-job timeout only has to cover actual inference time
+  //     (~5 min) rather than queue wait time
+  //   - deep batches (100-200 scenes) drain serially without false
+  //     failures on jobs queued behind a dozen others
+  // Cloud providers (kie.ai) keep the default 5 — their queue scales
+  // horizontally and the per-second-rate-limit concern is the real cap.
   const configConcurrency = Number((config as any).image_concurrency) || 0
   const reqConcurrency = Number((req as any).concurrency) || 0
-  const concurrency = Math.max(1, Math.min(10, reqConcurrency || configConcurrency || 5))
+  const isLocalProvider = providerId === 'imagestudio'
+  const baseConcurrency = Math.max(1, Math.min(10, reqConcurrency || configConcurrency || 5))
+  const concurrency = isLocalProvider ? 1 : baseConcurrency
+  if (isLocalProvider && baseConcurrency !== 1) {
+    job.output_lines.push(
+      `Local modal (${providerId}): clamped concurrency from ${baseConcurrency} → 1 ` +
+      `(Apple Silicon MLX inference is serial; the modal queues anyway). ` +
+      `Per-job poll budget is 24h, so deep batches will complete sequentially.`,
+    )
+  }
   // Launch stagger: delay each pool worker's FIRST task by `i * staggerMs` so
   // the initial-burst submit doesn't trip per-second 429s on Kie / fal.
   // After the spread the rolling pool runs at full concurrency. Default 0
@@ -550,13 +591,10 @@ export async function generateImages(job: Job): Promise<void> {
         return
       }
     }
-    const enhanced = enhanceThumbnailPrompt(thumb.prompt, episodeTitle, thumb.number)
     try {
-      // Thumbnail prompts also reference characters — use the original
-      // (un-enhanced) prompt for matching so the title overlay text doesn't
-      // confuse the name detector. Style keywords get appended to the
-      // already-enhanced prompt so they ride alongside the title overlay
-      // instructions, not before them.
+      // The thumbnail prompt already carries its (format-aware) title-text
+      // directive from image-prompts.ts — render it verbatim. Character
+      // name-matching and style keywords operate on the same prompt.
       // For thumbnails, multi-source img2img refs use the same resolver
       // — master + chars stack additively. Per-scene refs use the thumb
       // number bucket, chain mode reads thumb N-1's render. Most users
@@ -566,7 +604,7 @@ export async function generateImages(job: Job): Promise<void> {
         number: thumb.number, prompt: thumb.prompt,
       })
       const styleKeywords = resolveSceneStyleKeywords(thumb.prompt)
-      const finalPrompt = applyStyleKeywords(enhanced, styleKeywords)
+      const finalPrompt = applyStyleKeywords(thumb.prompt, styleKeywords)
       const result = await imageProvider!.generateImage({
         prompt: finalPrompt, apiKey, aspectRatio, modelId: modelName, providerParams,
         referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
@@ -578,7 +616,7 @@ export async function generateImages(job: Job): Promise<void> {
           provider: imageProvider!.meta.providerId || imageProvider!.meta.id,
           task_id: result.taskId!,
           submitted_at: new Date().toISOString(),
-          input_hash: hashInput(enhanced),
+          input_hash: hashInput(thumb.prompt),
         })))
       }
       for (let i = 0; i < urls.length; i++) {

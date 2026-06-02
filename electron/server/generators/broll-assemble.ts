@@ -38,7 +38,8 @@ import { resolveEpisodePaths } from '../services/utils.js'
 import { getFFmpegPath, getFFprobePath } from '../services/ffmpeg-manager.js'
 import { buildBrollMotion, type BrollMotion, pickRotatedMotion } from '../lib/broll-motion.js'
 import { getTransition } from '../models/transitions.js'
-import type { Job, BrollUsageEntry } from '../models/types.js'
+import { buildAssStyle } from '../lib/subtitle-builder.js'
+import type { Job, BrollUsageEntry, VideoSubtitleStyle } from '../models/types.js'
 
 /**
  * Probe whether a file contains an audio stream. Used to decide between
@@ -82,11 +83,27 @@ interface AssembleParams {
   episode_id: string
   title: string
   broll_volume: number
+  /** v1.0.127+ — when false, skip subtitle burn-in even if a file exists.
+   *  Was previously implicit "present == on" which forced users to delete
+   *  the SRT to render without subtitles. Default true preserves legacy
+   *  behaviour: callers who don't pass the field still get subtitles
+   *  burned when a file is present. */
+  subtitles_enabled?: boolean
+  /** v1.0.127+ — when present, ffmpeg's `subtitles` filter receives a
+   *  `force_style=…` argument built via buildAssStyle(). Matches the
+   *  scene-based video-assembly path's per-style override mechanism.
+   *  Omitted → the SRT's own formatting (or libass defaults) drives. */
+  subtitles_style?: VideoSubtitleStyle
 }
 
 export async function generateBrollAssemble(job: Job): Promise<void> {
   const { project_slug, episode_id } = job
-  const { title, broll_volume = 0 } = job.params as AssembleParams
+  const {
+    title,
+    broll_volume = 0,
+    subtitles_enabled = true,
+    subtitles_style,
+  } = job.params as AssembleParams
 
   const sidecar = await getSelectionSidecar(project_slug, episode_id, title)
   if (!sidecar || !sidecar.selection?.length) {
@@ -126,11 +143,49 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   const narrationPath = await findNarrationPath(paths.merged_audio_dir, paths.audio_dir)
   if (!narrationPath) throw new Error('No narration audio found — generate audio (and merge if multi-chapter) first.')
 
-  // Output path. video_dir might not exist yet; create it.
-  await fsp.mkdir(paths.video_dir, { recursive: true })
+  // v1.0.130+ — Resolve the final output directory BEFORE the render so
+  // ffmpeg writes its temp file directly into the final destination. Two
+  // wins: (1) honors the user's `external_final_video_root` opt-in
+  // (Settings → Storage) so B-Roll renders can land OUTSIDE iCloud-synced
+  // project trees, matching the scene-based video.ts:1395-1437 path; (2)
+  // no cross-filesystem rename, so the EXDEV copy-and-delete fallback
+  // dance isn't needed. Falls back to the project tree's `video_dir` if
+  // the external root isn't set or resolution fails — never blocks a
+  // render because of misconfigured optional storage.
   const outFilename = `${episode_id}_BRoll.mp4`
-  const outPath = path.join(paths.video_dir, outFilename)
-  const tempPath = path.join(paths.video_dir, `.tmp-${Date.now()}-${outFilename}`)
+  let finalDir = paths.video_dir
+  try {
+    const { ensureExternalFinalVideoDir } = await import('../services/external-video-store.js')
+    const externalDir = await ensureExternalFinalVideoDir(project_slug, episode_id, title || '')
+    if (externalDir) {
+      finalDir = externalDir
+      job.output_lines.push(`External final-video root configured → ${finalDir}`)
+    }
+  } catch (e: any) {
+    job.output_lines.push(`External path resolve failed (${e?.message || e}); using project tree`)
+  }
+  await fsp.mkdir(finalDir, { recursive: true })
+  const outPath = path.join(finalDir, outFilename)
+  const tempPath = path.join(finalDir, `.tmp-${Date.now()}-${outFilename}`)
+
+  // v1.0.130+ — Clean up stale .tmp- orphans from prior crashes / cancels
+  // for THIS episode's output before starting. The dot-prefix was meant to
+  // hide in-progress renders from Finder, but if the rename to outPath
+  // never ran (ffmpeg crashed, user cancelled, OS killed the process), the
+  // hidden temp file sits on disk forever — and on iCloud-synced project
+  // trees, it syncs across machines too. Walk finalDir for any prior
+  // `.tmp-…-${outFilename}` and remove it. Strict filename match so we
+  // never delete unrelated temp files in the same directory.
+  try {
+    const existing = await fsp.readdir(finalDir).catch(() => [])
+    for (const f of existing) {
+      if (!f.startsWith('.tmp-') || !f.endsWith(outFilename)) continue
+      const full = path.join(finalDir, f)
+      if (full === tempPath) continue  // ours from this run — ffmpeg will overwrite
+      await fsp.rm(full, { force: true }).catch(() => { /* best effort */ })
+      job.output_lines.push(`Cleaned up stale temp file: ${f}`)
+    }
+  } catch { /* swallow — cleanup is best-effort */ }
 
   // ── Probe each clip for audio presence ────────────────────────────
   // amix needs every input stream to actually exist; clips without an
@@ -146,12 +201,28 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   // SRT / ASS / VTT in the episode's subtitles_dir and burns it into
   // the final video. Path needs single quotes escaped for ffmpeg's
   // subtitles filter (its parser is finicky about colons in macOS paths).
-  const subPath = await findSubtitlePath(paths.subtitles_dir)
+  // v1.0.127+ — Only locate the SRT when subtitles are enabled. Disabled
+  // skips the disk scan AND the burn-in branch below, no matter what
+  // files exist in subtitles_dir. The user can keep a generated SRT on
+  // disk and toggle rendering with subs vs without without re-running
+  // the generate step.
+  const subPath = subtitles_enabled ? await findSubtitlePath(paths.subtitles_dir) : null
   function escapeForSubtitlesFilter(p: string): string {
     // ffmpeg's subtitles filter interprets `:` as an argument separator
     // unless the path is wrapped + colons escaped. Backslash-escape both.
     return p.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'")
   }
+  // v1.0.127+ — force_style overrides. ffmpeg's subtitles filter accepts
+  // a `force_style=` clause that libass applies on top of the file's own
+  // styling, mirroring the scene-based assembly's per-style overrides.
+  // The value must NOT be wrapped in single quotes (the outer filter is
+  // already inside single quotes); commas inside the value are fine.
+  function escapeForceStyleValue(v: string): string {
+    return v.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+  }
+  const forceStyleClause = (subPath && subtitles_style)
+    ? `:force_style='${escapeForceStyleValue(buildAssStyle(subtitles_style))}'`
+    : ''
 
   // ── Resolve per-segment motion + transition for this episode ──────
   //
@@ -239,11 +310,15 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
     stitchLabel = '[vstitched]'
   }
 
-  // Final video label — subtitle burn-in if present.
+  // Final video label — subtitle burn-in if enabled AND a file exists.
   let finalVideoLabel = stitchLabel
   if (subPath) {
-    filterParts.push(`${stitchLabel}subtitles='${escapeForSubtitlesFilter(subPath)}'[vout]`)
+    filterParts.push(
+      `${stitchLabel}subtitles='${escapeForSubtitlesFilter(subPath)}'${forceStyleClause}[vout]`,
+    )
     finalVideoLabel = '[vout]'
+  } else if (!subtitles_enabled) {
+    job.output_lines.push(`Subtitles: disabled by request — skipping burn-in even though a file may exist.`)
   }
 
   const narrationInputIdx = clipPaths.length // first non-clip input
@@ -304,35 +379,50 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   job.output_lines.push(`Encoding ${clipPaths.length} clip(s) → ${outFilename}…`)
 
   const ffmpeg = await getFFmpegPath()
-  await new Promise<void>((resolve, reject) => {
-    const proc = spawn(ffmpeg, args)
-    let stderr = ''
-    proc.stderr.on('data', (d) => {
-      const s = String(d)
-      stderr += s
-      const tMatch = /time=([\d:.]+)/.exec(s)
-      if (tMatch) {
-        const last = job.output_lines[job.output_lines.length - 1] || ''
-        if (!last.startsWith('  progress:')) job.output_lines.push(`  progress: ${tMatch[1]}`)
-        else job.output_lines[job.output_lines.length - 1] = `  progress: ${tMatch[1]}`
-      }
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(ffmpeg, args)
+      let stderr = ''
+      proc.stderr.on('data', (d) => {
+        const s = String(d)
+        stderr += s
+        const tMatch = /time=([\d:.]+)/.exec(s)
+        if (tMatch) {
+          const last = job.output_lines[job.output_lines.length - 1] || ''
+          if (!last.startsWith('  progress:')) job.output_lines.push(`  progress: ${tMatch[1]}`)
+          else job.output_lines[job.output_lines.length - 1] = `  progress: ${tMatch[1]}`
+        }
+      })
+      proc.on('error', reject)
+      proc.on('close', (code) => {
+        if (code === 0) return resolve()
+        reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(-500)}`))
+      })
+      const cancelWatcher = setInterval(() => {
+        if (jq.isCancelled(job.job_id)) { proc.kill('SIGTERM'); clearInterval(cancelWatcher) }
+      }, 500)
+      proc.on('close', () => clearInterval(cancelWatcher))
     })
-    proc.on('error', reject)
-    proc.on('close', (code) => {
-      if (code === 0) return resolve()
-      reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(-500)}`))
-    })
-    const cancelWatcher = setInterval(() => {
-      if (jq.isCancelled(job.job_id)) { proc.kill('SIGTERM'); clearInterval(cancelWatcher) }
-    }, 500)
-    proc.on('close', () => clearInterval(cancelWatcher))
-  })
+  } catch (err) {
+    // v1.0.130+ — Error-path cleanup. Without this, a failed/cancelled
+    // ffmpeg leaves the `.tmp-…` file hidden in finalDir (which on
+    // iCloud-synced project trees syncs across every machine). The
+    // startup cleanup above catches it on the next run, but an immediate
+    // sweep prevents the user's Finder from showing a partial render
+    // they can't see (and can't easily delete without `ls -la`). Best
+    // effort — if removal fails (file already gone, perms), we just
+    // rethrow the original ffmpeg error.
+    await fsp.rm(tempPath, { force: true }).catch(() => { /* swallow */ })
+    throw err
+  }
 
-  // Atomic rename so a half-encoded file never appears as final.
+  // Atomic rename so a half-encoded file never appears as final. Same
+  // filesystem (we write the temp INTO finalDir in v1.0.130+), so this
+  // is a metadata-only rename — no cross-volume copy needed.
   await fsp.rename(tempPath, outPath)
   const stat = await fsp.stat(outPath)
   job.output_lines.push(`Done → ${outFilename} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`)
-  job.output_dir = paths.video_dir
+  job.output_dir = finalDir
 
   // Append usage log (per-channel) — for cross-episode repeat avoidance.
   await appendUsageLog(project_slug, episode_id, sidecar.selection)

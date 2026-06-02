@@ -12,10 +12,12 @@ before(async () => {
   // Import registry and all providers (self-register on import)
   registry = (await import('../providers/registry.js')).registry
   await import('../providers/image/kie.js')
+  await import('../providers/image/openai-image.js')
   await import('../providers/audio/fal.js')
-  await import('../providers/text/anthropic.js')
   await import('../providers/text/openai.js')
   await import('../providers/text/kie-text.js')
+  await import('../providers/text/deepseek.js')
+  await import('../providers/text/openrouter.js')
 })
 
 describe('Registry registration', () => {
@@ -33,10 +35,16 @@ describe('Registry registration', () => {
     assert.equal(p?.meta.apiKeyField, 'fal_api_key')
   })
 
-  test('has anthropic, openai, kie text providers registered', () => {
-    assert.ok(registry.getTextProvider('anthropic'))
+  test('has openai, kie text providers registered', () => {
     assert.ok(registry.getTextProvider('openai'))
     assert.ok(registry.getTextProvider('kie'))
+  })
+
+  test('has openai-image (OpenAI direct) image provider registered', () => {
+    const p = registry.getImageProvider('openai-image')
+    assert.ok(p, 'openai-image provider should be registered')
+    assert.equal(p?.meta.id, 'openai-image')
+    assert.equal(p?.meta.apiKeyField, 'openai_api_key')
   })
 
   test('listImageProviders / listAudioProviders / listTextProviders', () => {
@@ -50,49 +58,67 @@ describe('Registry registration', () => {
 })
 
 describe('Text provider supportsModel()', () => {
-  test('anthropic claims claude-* models', () => {
-    const p = registry.getTextProvider('anthropic')!
-    assert.equal(p.supportsModel('claude-opus-4-6'), true)
-    assert.equal(p.supportsModel('claude-sonnet-4-6'), true)
-    assert.equal(p.supportsModel('claude-anything'), true)
-    assert.equal(p.supportsModel('gpt-4o'), false)
-  })
-
   test('openai claims gpt-* and o1* models', () => {
     const p = registry.getTextProvider('openai')!
     assert.equal(p.supportsModel('gpt-4o'), true)
     assert.equal(p.supportsModel('gpt-4o-mini'), true)
     assert.equal(p.supportsModel('o1-mini'), true)
     assert.equal(p.supportsModel('claude-opus-4-6'), false)
+    // …but NOT the kie-routed GPT ids.
+    assert.equal(p.supportsModel('gpt-5-2-kie'), false)
   })
 
-  test('kie text claims -kie suffixed models', () => {
+  test('kie text claims its chat-catalog ids (exact match)', () => {
     const p = registry.getTextProvider('kie')!
-    assert.equal(p.supportsModel('deepseek-v3-kie'), true)
-    assert.equal(p.supportsModel('deepseek-r1-kie'), true)
+    // The kie chat catalog (Claude / GPT / Gemini routed through kie.ai).
+    assert.equal(p.supportsModel('claude-opus-4-8-kie'), true)
+    assert.equal(p.supportsModel('gpt-5-2-kie'), true)
+    assert.equal(p.supportsModel('gemini-3-pro-kie'), true)
+    assert.equal(p.supportsModel('gemini-2.5-flash-kie'), true)
     assert.equal(p.supportsModel('gpt-4o'), false)
+    // Retired in v1.0.235 — kie no longer claims the old DeepSeek ids.
+    assert.equal(p.supportsModel('deepseek-v3-kie'), false)
+  })
+
+  test('deepseek + openrouter claim their exact ids only (no cross-claim)', () => {
+    const ds = registry.getTextProvider('deepseek')!
+    const or = registry.getTextProvider('openrouter')!
+    assert.equal(ds.supportsModel('deepseek-v4-flash'), true)
+    assert.equal(ds.supportsModel('deepseek-v4-pro'), true)
+    // deepseek provider must NOT steal the OpenRouter-routed id.
+    assert.equal(ds.supportsModel('deepseek-v4-flash-openrouter'), false)
+    assert.equal(or.supportsModel('deepseek-v4-flash-openrouter'), true)
+    assert.equal(or.supportsModel('deepseek-v4-flash'), false)
   })
 })
 
 describe('findTextProviderForModel dispatch', () => {
-  test('routes claude-* to anthropic', () => {
-    const p = registry.findTextProviderForModel('claude-opus-4-6')
-    assert.equal(p?.meta.id, 'anthropic')
-  })
-
   test('routes gpt-* to openai', () => {
     const p = registry.findTextProviderForModel('gpt-4o-mini')
     assert.equal(p?.meta.id, 'openai')
   })
 
-  test('routes *-kie to kie', () => {
-    const p = registry.findTextProviderForModel('deepseek-v3-kie')
-    assert.equal(p?.meta.id, 'kie')
+  test('routes official DeepSeek + OpenRouter ids to their providers', () => {
+    assert.equal(registry.findTextProviderForModel('deepseek-v4-flash')?.meta.id, 'deepseek')
+    assert.equal(registry.findTextProviderForModel('deepseek-v4-flash-openrouter')?.meta.id, 'openrouter')
   })
 
-  test('returns undefined for unknown model', () => {
-    const p = registry.findTextProviderForModel('unknown-model-xyz-123')
-    assert.equal(p, undefined)
+  test('routes kie-routed Claude/GPT to kie, not their direct provider', () => {
+    // Guards the prefix collision: `claude-…-kie` startsWith `claude-` and
+    // `gpt-…-kie` startsWith `gpt-`, so without the `-kie` guard these would
+    // be claimed by openai first (boot registers it earlier).
+    assert.equal(registry.findTextProviderForModel('claude-opus-4-8-kie')?.meta.id, 'kie')
+    assert.equal(registry.findTextProviderForModel('gpt-5-2-kie')?.meta.id, 'kie')
+    assert.equal(registry.findTextProviderForModel('gpt-5-5-kie')?.meta.id, 'kie')
+    assert.equal(registry.findTextProviderForModel('gemini-3.1-pro-kie')?.meta.id, 'kie')
+  })
+
+  test('returns undefined for unknown / retired model', () => {
+    assert.equal(registry.findTextProviderForModel('unknown-model-xyz-123'), undefined)
+    // Direct Anthropic + kie DeepSeek were retired — no provider claims them
+    // (callAi remaps these via LEGACY_MODEL_ALIASES before dispatch).
+    assert.equal(registry.findTextProviderForModel('claude-opus-4-6'), undefined)
+    assert.equal(registry.findTextProviderForModel('deepseek-v3-kie'), undefined)
   })
 })
 
@@ -132,11 +158,19 @@ describe('Audio provider (fal)', () => {
 })
 
 describe('Text providers error handling', () => {
-  test('anthropic throws without API key', async () => {
-    const p = registry.getTextProvider('anthropic')!
+  test('deepseek throws without API key', async () => {
+    const p = registry.getTextProvider('deepseek')!
     await assert.rejects(() =>
-      p.callText({ model: 'claude-opus-4-6', system: 's', userMessage: 'u', apiKey: '' }),
-      /No Anthropic API key configured/i,
+      p.callText({ model: 'deepseek-v4-flash', system: 's', userMessage: 'u', apiKey: '' }),
+      /No DeepSeek API key configured/i,
+    )
+  })
+
+  test('openrouter throws without API key', async () => {
+    const p = registry.getTextProvider('openrouter')!
+    await assert.rejects(() =>
+      p.callText({ model: 'deepseek-v4-flash-openrouter', system: 's', userMessage: 'u', apiKey: '' }),
+      /No OpenRouter API key configured/i,
     )
   })
 
@@ -151,7 +185,7 @@ describe('Text providers error handling', () => {
   test('kie text throws without API key', async () => {
     const p = registry.getTextProvider('kie')!
     await assert.rejects(() =>
-      p.callText({ model: 'deepseek-v3-kie', system: 's', userMessage: 'u', apiKey: '' }),
+      p.callText({ model: 'claude-opus-4-8-kie', system: 's', userMessage: 'u', apiKey: '' }),
       /No kie\.ai API key configured/i,
     )
   })

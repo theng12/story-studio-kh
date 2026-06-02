@@ -65,6 +65,18 @@
           <span class="cs-pill" :class="`pill-${runtimeStatus(s)}`">
             {{ statusText(runtimeStatus(s)) }}
           </span>
+          <!-- In-app listen: play the generated audio without opening Finder.
+               Only shown once at least one chunk exists on disk. -->
+          <button
+            v-if="s.present_chunks > 0"
+            type="button"
+            class="cs-play"
+            :class="{ playing: playingSlug === s.slug }"
+            :title="playingSlug === s.slug ? 'Stop' : 'Play generated audio'"
+            :aria-label="playingSlug === s.slug ? 'Stop' : 'Play generated audio'"
+            @click.stop.prevent="togglePlay(s)"
+          >{{ playingSlug === s.slug ? '⏸' : '▶' }}</button>
+          <span v-else class="cs-play-spacer" aria-hidden="true" />
         </label>
       </li>
     </ul>
@@ -119,9 +131,41 @@ const emit = defineEmits<{
 
 const { get } = useApi()
 const { jobs } = useJobs()
+const { error: showError } = useToast()
 
 const sections = ref<SectionRow[]>([])
 const loading = ref(false)
+
+// ── In-app playback ─────────────────────────────────────────────────────
+// One <audio> at a time, streamed from the new /audio-file endpoint. Lets
+// the user listen to a generated section without opening the audio folder.
+const playingSlug = ref<string | null>(null)
+let audioEl: HTMLAudioElement | null = null
+
+function stopPlay() {
+  if (audioEl) { try { audioEl.pause() } catch { /* already stopped */ } audioEl = null }
+  playingSlug.value = null
+}
+
+function togglePlay(s: SectionRow) {
+  if (playingSlug.value === s.slug) { stopPlay(); return }
+  stopPlay()
+  // Relative /api URL — same origin as the SPA, so cookies (server mode) ride
+  // along and seeking works via the endpoint's Range support.
+  const url = `/api/projects/${props.projectSlug}/episodes/${encodeURIComponent(props.episodeId)}/audio-file?section=${encodeURIComponent(s.slug)}`
+  const el = new Audio(url)
+  audioEl = el
+  playingSlug.value = s.slug
+  el.addEventListener('ended', () => { if (audioEl === el) stopPlay() })
+  el.addEventListener('error', () => {
+    if (audioEl === el) { stopPlay(); showError("Couldn't play this section's audio.") }
+  })
+  el.play().catch(() => { if (audioEl === el) stopPlay() })
+}
+
+// Stop playback when the episode changes or the component unmounts.
+watch(() => props.episodeId, stopPlay)
+onBeforeUnmount(stopPlay)
 const allowDuplicatesLocal = ref(props.allowDuplicates)
 
 watch(() => props.allowDuplicates, v => { allowDuplicatesLocal.value = v })
@@ -291,7 +335,7 @@ watch(() => [props.episodeId, props.refreshKey], refresh, { immediate: true })
 
 .cs-row {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto 1fr auto auto auto;
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
@@ -299,6 +343,22 @@ watch(() => [props.episodeId, props.refreshKey], refresh, { immediate: true })
   font-size: 13px;
 }
 .cs-row input[type="checkbox"] { margin: 0; }
+
+.cs-play {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 8px;
+  flex-shrink: 0;
+}
+.cs-play:hover { background: var(--accent-dim); }
+.cs-play.playing { background: var(--accent-dim); border-color: var(--accent); }
+/* Keeps the pill column aligned when a row has no audio yet (no play button). */
+.cs-play-spacer { display: inline-block; width: 1px; }
 
 .cs-name {
   color: var(--text-primary);

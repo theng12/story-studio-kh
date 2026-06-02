@@ -6,11 +6,11 @@
  * in userData (never synced) so each computer defines its own mapping.
  *
  *   Example: on machine A the user maps
- *     TERRANASH → /Users/alice/iCloud/.../TerraNash Video Asset - Full
+ *     CHANNEL_ASSETS → /Users/alice/iCloud/.../Channel Video Assets
  *   On machine B the same name maps to
- *     TERRANASH → /Users/bob/iCloud/.../TerraNash Video Asset - Full
+ *     CHANNEL_ASSETS → /Users/bob/iCloud/.../Channel Video Assets
  *   Presets stored in the synced project folder can reference
- *     ${TERRANASH}/00 TerraNash Logo.png
+ *     ${CHANNEL_ASSETS}/00 Channel Logo.png
  *   and resolve correctly on both machines.
  *
  * Reserved names:

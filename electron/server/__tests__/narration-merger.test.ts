@@ -80,7 +80,7 @@ describe('stripIntroFromNarrationMarkdown', () => {
 
 describe('narration docx round-trip', () => {
   test('chapters-only docx → markdown → docx preserves chapter titles', async () => {
-    const docxPath = path.join(tmpDir, 'roundtrip-chapters.docx')
+    const docxPath = path.join(tmpDir, 'roundtrip-chapters.md')
     await buildNarrationDocx(CHAPTERS_MARKDOWN, 'TST0001', 'The Tidal Sojourn', docxPath)
 
     const markdown = await narrationDocxToMarkdown(docxPath)
@@ -92,7 +92,7 @@ describe('narration docx round-trip', () => {
 
   test('intro merged into chapters: parser sees Introduction as first section', async () => {
     // Step 1: chapters file on disk
-    const docxPath = path.join(tmpDir, 'roundtrip-merged.docx')
+    const docxPath = path.join(tmpDir, 'roundtrip-merged.md')
     await buildNarrationDocx(CHAPTERS_MARKDOWN, 'TST0002', 'The Tidal Sojourn', docxPath)
 
     // Step 2-4: simulate generateIntroductionOnly — read chapters, splice
@@ -132,7 +132,7 @@ describe('narration docx round-trip', () => {
   })
 
   test('re-running intro replaces the prior one (no stacking)', async () => {
-    const docxPath = path.join(tmpDir, 'roundtrip-rerun.docx')
+    const docxPath = path.join(tmpDir, 'roundtrip-rerun.md')
     await buildNarrationDocx(CHAPTERS_MARKDOWN, 'TST0003', 'X', docxPath)
 
     // First intro

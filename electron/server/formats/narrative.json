@@ -1,0 +1,426 @@
+{
+  "id": "narrative",
+  "name": "Narrative Video (AI-generated scenes)",
+  "description": "Story-shaped video with AI-generated scenes distributed evenly across the duration. Use this for fictional or narrative content where each chapter advances a story arc and the visuals illustrate the action: bedtime stories, sleep narratives, true-crime retellings, kids' fairytales, adventure tales, historical fiction — anything with characters and a plot. Pipeline: idea → chaptered script → audio (one MP3 per chapter) → AI-generated scene images evenly across the video → final assembly. Layer a niche on top (mindfulness, fairy-tale, history-narration, prayer-as-story, motivation) to tune the voice without changing the production shape. NOT for factual explainers where viewers need scenes to match specific narration moments — pick Narration-synced instead. NOT for content where pre-existing footage carries the visual mood — pick Voice over Stock Footage.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "idea": {
+    "systemPromptRole": "You are helping generate new story ideas for a narrative video channel. The episode is a story with characters and a plot; the niche selected (if any) shapes WHICH kind of story.",
+    "audienceDefault": "adults",
+    "moodVocabulary": [
+      "gentle",
+      "calm",
+      "soothing",
+      "tender",
+      "wistful",
+      "tranquil",
+      "peaceful",
+      "hushed wonder",
+      "tender patience",
+      "gentle nostalgia",
+      "quiet resolve",
+      "dreamlike",
+      "lulling",
+      "hushed",
+      "muted",
+      "embered",
+      "soft-spoken",
+      "fireside",
+      "candle-lit",
+      "drifting",
+      "amber-toned",
+      "moonlit",
+      "sun-dappled",
+      "lake-still",
+      "cottage-warm",
+      "slow-burning",
+      "snow-quieted",
+      "tide-rocked",
+      "starlit",
+      "ginger-and-honey",
+      "wool-blanket",
+      "library-hushed"
+    ],
+    "themeVocabulary": [
+      "solitude",
+      "memory",
+      "rekindling",
+      "craftsmanship",
+      "time",
+      "loss",
+      "patience",
+      "wonder",
+      "nature",
+      "heritage",
+      "reflection",
+      "homecoming",
+      "letting-go",
+      "gentle-discovery",
+      "quiet-courage",
+      "tending",
+      "stewardship",
+      "small-mercies",
+      "first-snow",
+      "lost-and-found-objects",
+      "intergenerational-quiet",
+      "rural-rhythm",
+      "the-long-walk",
+      "the-slow-task",
+      "kindness-among-strangers",
+      "watching-weather",
+      "tending-the-fire",
+      "writing-a-letter",
+      "the-old-house",
+      "the-found-map",
+      "the-returning-light"
+    ],
+    "genreVocabulary": [
+      "fantasy",
+      "fairy-tale",
+      "folklore",
+      "magical-realism",
+      "slice-of-life",
+      "mythology",
+      "nature",
+      "historical",
+      "mystic",
+      "bedtime-story",
+      "pastoral",
+      "cozy-mystery",
+      "anthology",
+      "ghost-story",
+      "watercolour-fable",
+      "old-world-tale",
+      "lakeside-memoir",
+      "village-chronicle",
+      "winter-tale",
+      "river-tale",
+      "harbour-tale",
+      "garden-tale"
+    ],
+    "keywordVocabulary": [
+      "forest",
+      "ocean",
+      "mountain",
+      "valley",
+      "village",
+      "hamlet",
+      "island",
+      "archipelago",
+      "ancient",
+      "twilight",
+      "dawn",
+      "dusk",
+      "starlight",
+      "moonlit",
+      "lantern",
+      "candle",
+      "whisper",
+      "river",
+      "stream",
+      "brook",
+      "meadow",
+      "field",
+      "garden",
+      "orchard",
+      "vineyard",
+      "snow",
+      "frost",
+      "ice",
+      "cabin",
+      "cottage",
+      "lighthouse",
+      "tower",
+      "windmill",
+      "bridge",
+      "library",
+      "observatory",
+      "temple",
+      "shrine",
+      "chapel",
+      "abbey",
+      "loom",
+      "kiln",
+      "forge",
+      "compass",
+      "locket",
+      "clock",
+      "pocket watch",
+      "mirror",
+      "lantern-glass",
+      "wolf",
+      "owl",
+      "stag",
+      "fox",
+      "hare",
+      "barn cat",
+      "mountain goat",
+      "fawn",
+      "swan",
+      "heron",
+      "kingfisher",
+      "moth",
+      "firefly",
+      "grandmother",
+      "grandfather",
+      "wanderer",
+      "scholar",
+      "sailor",
+      "innkeeper",
+      "ferryman",
+      "weaver",
+      "miller",
+      "cartographer",
+      "bookbinder",
+      "watchmaker",
+      "lighthouse keeper",
+      "snow-cured wool",
+      "linen sheet",
+      "iron stove",
+      "kettle",
+      "hearth",
+      "embers",
+      "knitting needles",
+      "ancient map",
+      "stargazer's chart",
+      "atlas",
+      "almanac",
+      "tide chart",
+      "ledger",
+      "diary",
+      "songbook",
+      "hymnal",
+      "the long autumn",
+      "the slow river",
+      "the harvest-moon",
+      "the second snowfall",
+      "the first thaw",
+      "the lighthouse beam",
+      "the candle in the window",
+      "the morning bread",
+      "the kettle's whistle"
+    ],
+    "guidanceText": "Sleep-friendly. Low stakes, no violence, no cliffhangers, no jump scares.",
+    "titleShapeRules": [
+      "Titles are LITERARY and EVOCATIVE — one concrete noun phrase that hints at a quiet story.",
+      "Pattern shapes that work for this format (mix across the batch — never repeat the same shape twice in one batch):",
+      "  - '{The} {Noun}'s {Noun}'         (e.g. 'The Lantern Keeper's Last Light')",
+      "  - '{The} {Subject Who} {Did X}'    (e.g. 'The Tailor Who Stitched The Snow')",
+      "  - '{The} {Adjective} {Place}'      (e.g. 'The Quiet Observatory', 'The Cobblestone Bakery')",
+      "  - '{A Verb}ing the {Noun}'         (e.g. 'Tending the Moonlit Garden', 'Mapping the Slow River')",
+      "FORBIDDEN: hype words (BEST, MUST, NOW), all-caps, urgency. Sleep-channel listeners come for calm.",
+      "Sensory imagery is encouraged — twilight, lantern, snow, river, garden, etc. — drawn from the format's keyword pool."
+    ],
+    "titleLengthRange": [
+      4,
+      9
+    ],
+    "loglineShapeRules": [
+      "One literary sentence (or two short ones) introducing a SPECIFIC character and a SPECIFIC quiet task or journey.",
+      "Concrete sensory image — name an object, place, time of year. No generic premise descriptions.",
+      "Tone matches the sleep-story voice: gentle, unhurried, suggestive of slowing down."
+    ],
+    "loglineSentenceRange": [
+      1,
+      2
+    ],
+    "themeShapeRules": [
+      "Pick 2-4 EMOTIONAL or ATMOSPHERIC keywords (solitude, memory, rekindling, craftsmanship, patience).",
+      "Avoid plot keywords (revenge, war, betrayal) — sleep-story themes lean inward."
+    ],
+    "themeCountRange": [
+      2,
+      4
+    ],
+    "structuralVariety": "vary-all",
+    "exampleIdeas": [
+      {
+        "title": "The Lantern Keeper's Last Light",
+        "logline": "A retired lighthouse keeper returns to her abandoned tower to restore one final beacon before the winter storms set in.",
+        "themes": [
+          "solitude",
+          "memory",
+          "rekindling"
+        ],
+        "suggested_chapters": 10,
+        "suggested_length": "45 min",
+        "mood": "gentle nostalgia, quiet resolve"
+      },
+      {
+        "title": "The Tailor Who Stitched The Snow",
+        "logline": "An elderly mountain tailor accepts one impossible commission: repair a torn cloak woven from falling snow, before spring ends the order.",
+        "themes": [
+          "craftsmanship",
+          "time",
+          "loss"
+        ],
+        "suggested_chapters": 8,
+        "suggested_length": "45 min",
+        "mood": "hushed wonder, tender patience"
+      }
+    ]
+  },
+  "script": {
+    "systemPromptRole": "You are a world-class narrative writer. The niche selected (if any) tells you the GENRE — your job is to produce engaging chapter-based prose for that genre and audience.",
+    "additionalRules": [
+      "Write prose that feels like a skilled human author — appropriate to the genre (literary for sleep / fairy-tale; tighter and propulsive for mystery / thriller; observational and dry for documentary).",
+      "No robotic pronoun chains. Never start more than 2 consecutive sentences with the same pronoun.",
+      "Use the character's name or a descriptive noun at least once every 3-4 sentences.",
+      "No singular they/them for individual characters — always use he/she matching the character.",
+      "Chapter headings use Arabic numbers only (Chapter 1, Chapter 2...), never Roman numerals.",
+      "Each chapter heading must include a descriptive title."
+    ],
+    "pacingArc": [
+      "Chapters 1-3: Setting, character introduction, world-building",
+      "Chapters 4-6: Journey, exploration, character development, complication",
+      "Chapters 7-{lastButOne}: Build — rising tension or deeper exploration as the chosen genre demands",
+      "Chapter {last}: Resolution — emotionally satisfying close suited to the genre and audience"
+    ],
+    "closingHint": "The story should be engaging, immersive, and well-paced for the chosen genre. Sleep / meditation niches: lean into slowing pace and gentle resolution. Mystery / thriller niches: build tension and pay off the central question. Comedy niches: land the jokes cleanly. History / biographical niches: prioritize factual accuracy over invention.",
+    "defaultChapterCount": 10,
+    "chapterCountRange": [
+      6,
+      14
+    ],
+    "defaultLengthMinutes": 45,
+    "lengthMinutesRange": [
+      20,
+      120
+    ],
+    "durationPresets": [
+      20,
+      30,
+      45,
+      60,
+      90,
+      120
+    ],
+    "defaultWordsPerMinute": 122,
+    "narratorStyles": [
+      {
+        "id": "A",
+        "label": "Warm and intimate",
+        "description": "First-person narrator, very close to the character's inner world. Feels like a whispered confidence."
+      },
+      {
+        "id": "B",
+        "label": "Gentle third-person observer",
+        "description": "Lyrical, slightly poetic, like watching from a warm window."
+      },
+      {
+        "id": "C",
+        "label": "Classic quiet storyteller",
+        "description": "Traditional \"once there was\" tone, timeless and cosy, like a fireside tale."
+      },
+      {
+        "id": "D",
+        "label": "Poetic and lyrical",
+        "description": "Rich metaphors, flowing sentences, language that sounds like music. Every paragraph is art."
+      },
+      {
+        "id": "E",
+        "label": "Whimsical and playful",
+        "description": "Light-hearted, a little cheeky, with gentle humour. Perfect for younger audiences or lighthearted tales."
+      },
+      {
+        "id": "F",
+        "label": "Mysterious and atmospheric",
+        "description": "Fog-shrouded prose, building intrigue slowly. The world feels ancient and full of secrets."
+      },
+      {
+        "id": "G",
+        "label": "Grandparent bedtime voice",
+        "description": "Warm, unhurried, with the cadence of someone who has told a thousand stories and loves every one."
+      },
+      {
+        "id": "H",
+        "label": "Nature documentary calm",
+        "description": "Patient, reverent, finding wonder in small details of the natural world."
+      },
+      {
+        "id": "I",
+        "label": "Meditative and mindful",
+        "description": "Present-tense awareness, grounding the listener in each sensory moment. Breath-paced prose."
+      },
+      {
+        "id": "J",
+        "label": "Fairy tale narrator",
+        "description": "Storybook formality with a wink. \"Once upon a time\" energy, clear moral arcs, satisfying endings."
+      }
+    ],
+    "defaultNarratorStyleId": "A",
+    "videoDefaults": {
+      "aspectRatio": "landscape",
+      "defaultTimelineClipDurationSeconds": 7200
+    },
+    "audioDefaults": {
+      "speed": 1,
+      "stability": 1,
+      "similarity": 1
+    },
+    "audioMergeDefaults": {
+      "normalizeVolume": false,
+      "gapDurationSec": 3
+    }
+  },
+  "imagePrompts": {
+    "purposeNote": "for a narrative-video episode",
+    "visualStyleHint": "tuned to the genre — soft and dreamlike for sleep / fairy-tale niches; cinematic and moody for mystery / thriller; vintage / period for historical narrative",
+    "defaultScenesTotalRange": [
+      24,
+      30
+    ],
+    "defaultThumbnails": 5,
+    "defaultStyleTag": "Cinematic illustration style, balanced composition, warm and luminous colour palette. The niche layer further tunes mood and palette when set.",
+    "characterReferenceMode": "inline",
+    "recommendedAspect": "16:9",
+    "thumbnail": {
+      "conceptGuidance": "A cinematic, dramatic cover capturing the single most evocative moment or character of the story. One clear focal subject, shallow depth of field, dramatic key lighting and atmosphere — the still that makes someone want to press play.",
+      "compositionRules": [
+        "A single dramatic focal subject (a character's face or a pivotal object) rendered large",
+        "Cinematic lighting — strong key light, rim light, atmospheric depth",
+        "Rule-of-thirds with a cleaner, lower-clutter area reserved for the title"
+      ],
+      "defaultTextStyle": "gold",
+      "defaultFontStyle": "serif",
+      "moodKeywords": ["cinematic", "atmospheric", "dramatic", "high-contrast"],
+      "avoid": ["flat even lighting", "cluttered busy frames", "tiny distant subjects", "washed-out palette"]
+    }
+  },
+  "metadata": {
+    "purposeNote": "for a narrative-video episode",
+    "titleStyleHint": "appropriate to the chosen genre — calm and literary for sleep / fairy-tale, propulsive and intriguing for mystery / thriller, factual-leaning for biographical / historical narrative",
+    "titleHookRules": [
+      "Each title should be hook-y and curiosity-driven without being clickbait.",
+      "Include relevant SEO keywords where natural for the genre."
+    ],
+    "tagsContext": "for this narrative video",
+    "tagsHookRules": [
+      "Mix of broad genre keywords (narrative, story, etc.) and episode-specific keywords from the script.",
+      "Each tag should be 1-4 words.",
+      "No \"#\" prefix — these are YouTube tags, not hashtags."
+    ],
+    "broadKeywords": [
+      "story",
+      "narrative",
+      "audiobook",
+      "audio drama"
+    ],
+    "defaultMaxChars": 5000,
+    "defaultTitleCount": 5,
+    "defaultTitleMaxLength": 100,
+    "defaultTagCount": 15,
+    "youtubeDescriptionStructure": {
+      "musicLabel": "MUSIC",
+      "booksSectionLabel": "📚 BOOKS WE RECOMMEND:",
+      "supportSection": "💛 SUPPORT:\nSubscribe for free — it keeps the stories coming.",
+      "aiDisclosure": "🤖 AI DISCLOSURE:\nThis story was written with the assistance of AI tools and reviewed for quality.",
+      "defaultHashtags": [
+        "#Story",
+        "#Narrative"
+      ],
+      "totalHashtagCount": 15
+    },
+    "defaultStarterTemplate": "explainer"
+  }
+}

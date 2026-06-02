@@ -60,14 +60,25 @@
       </div>
 
       <!-- Track list -->
-      <div v-if="state.tracks.length === 0" class="mp-empty">
+      <div v-if="safeTracks.length === 0" class="mp-empty">
         <p>Pool is empty. Drop audio files into <code class="mp-mono">{{ state.folder }}</code>
         via Finder, or click <strong>Add music</strong> below. Accepted: mp3 / wav / m4a / aac / ogg / flac.</p>
       </div>
       <div v-else class="mp-tracks">
+        <!-- v1.0.133+ — Iterate `safeTracks` (a computed that filters
+             out malformed entries from `state.tracks`) instead of the
+             raw array, AND key by `t.path` instead of `t.filename`.
+             Two layers of protection against the audio-merge.vue
+             episode-change cascade race: a partial/sparse `state` ref
+             from a midway-through-load fetch can't produce undefined
+             entries here, and even if some other path delivers a track
+             without a `filename` the v-for + :key still resolve (path
+             is mandatory on PoolTrack, more stable as a unique key —
+             user-edited labels rename `filename` semantically but the
+             path stays). -->
         <div
-          v-for="t in state.tracks"
-          :key="t.filename"
+          v-for="t in safeTracks"
+          :key="t.path"
           class="mp-track"
           :class="{ 'mp-track-disabled': !t.enabled }"
         >
@@ -358,6 +369,28 @@ onBeforeUnmount(() => {
 })
 
 const enabledCount = computed(() => state.value?.tracks.filter(t => t.enabled).length || 0)
+
+// v1.0.133+ — Defensive filter for the template v-for. The audio-merge
+// page's episode-change cascade fans out reactive triggers fast enough
+// that the v-for can render against a transient `state` where one or
+// more `tracks[i]` is undefined or missing required fields (e.g. mid-
+// fetch overwrite, sparse-array edge from a malformed backend response,
+// or two concurrent refresh()es from the parent's `refreshPoolPeek()` +
+// this panel's own onMounted refresh()). Without this guard, the v-for
+// hits `t.filename` (now `t.path`) on undefined and the render throws
+// "Cannot read properties of undefined (reading …)" — visible in
+// DevTools, doesn't crash the page but spams the console on every
+// episode switch.
+//
+// Strict filter: must be an object with BOTH a non-empty path and a
+// filename. Drops sparse / partial entries without surfacing an error
+// (the user doesn't need to see "1 malformed track skipped" — the
+// missing entry is a backend bug, not an operator concern).
+const safeTracks = computed(() => {
+  const raw = state.value?.tracks
+  if (!Array.isArray(raw)) return []
+  return raw.filter(t => t && typeof t.path === 'string' && t.path && typeof t.filename === 'string')
+})
 
 async function refresh() {
   loading.value = true

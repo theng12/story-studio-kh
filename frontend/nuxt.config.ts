@@ -74,6 +74,30 @@ export default defineNuxtConfig({
       link: [
         { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
       ],
+      // v1.0.147+ — sync inline boot script that resolves the user's
+      // chosen theme (localStorage → matchMedia fallback) and stamps
+      // <html data-theme> + color-scheme BEFORE the bundle parses and
+      // any stylesheet applies. Without this, light-mode users would
+      // see a brief dark flash on every page load because main.css's
+      // :root defaults paint before the .client.ts plugin runs.
+      // Keep the storage key + media query in sync with
+      // composables/useTheme.ts (the runtime owner).
+      script: [
+        {
+          tagPosition: 'head',
+          type: 'text/javascript',
+          innerHTML:
+            "(function(){try{" +
+              "var k='story-studio:theme';" +
+              "var m=localStorage.getItem(k);" +
+              "if(m!=='light'&&m!=='dark'&&m!=='system')m='system';" +
+              "var r=m==='system'?(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):m;" +
+              "var d=document.documentElement;" +
+              "d.setAttribute('data-theme',r);" +
+              "d.style.colorScheme=r;" +
+            "}catch(e){}})();",
+        },
+      ],
     },
   },
 

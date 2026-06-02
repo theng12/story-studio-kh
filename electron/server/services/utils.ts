@@ -123,12 +123,46 @@ export async function resolveEpisodePaths(slug: string, code: string, title: str
     merged_audio_dir: mergedAudioDir,
     subtitles_dir: subtitlesDir,
     video_dir: videoDir,
-    narration_docx: path.join(scriptDir, `${code}_Script_Narration.docx`),
-    scene_prompts_docx: path.join(scenePromptsDir, `${code}_Scene_Prompts.docx`),
-    thumb_prompts_docx: path.join(thumbPromptsDir, `${code}_Thumbnail_Prompts.docx`),
+    // v1.0.228 — artifacts are now Markdown (.md). The `*_docx` KEY names are
+    // kept (referenced widely) but the values point at .md. Readers of these
+    // constants must go through resolveReadPath()/readArtifactRawText() in
+    // lib/episode-artifacts.ts so legacy `.docx`-only episodes still resolve.
+    narration_docx: path.join(scriptDir, `${code}_Script_Narration.md`),
+    scene_prompts_docx: path.join(scenePromptsDir, `${code}_Scene_Prompts.md`),
+    thumb_prompts_docx: path.join(thumbPromptsDir, `${code}_Thumbnail_Prompts.md`),
     metadata_txt: path.join(metadataDir, `${code}_Metadata.txt`),
     metadata_json: path.join(metadataDir, `${code}_Metadata.json`),
   }
+}
+
+/**
+ * Resolve an episode's paths from the CODE alone, looking up the canonical
+ * title from the idea store.
+ *
+ * v1.0.188 bug fix: the folder template is `{code} - {title}`, so a caller
+ * that only knows the code MUST pass the episode's real title or it resolves
+ * to a phantom `{code} - ` folder and silently misses every sidecar
+ * (research.json, scene_plan.json, audio_chapters.json, the stitched SRT…).
+ * Several routes + jobs in the research / scene-plan / scene-review pipeline
+ * were passing '' (or, for research, the topic), so saved files landed in the
+ * real folder while reads looked in the empty one — research "saved" but never
+ * surfaced. This helper does the idea lookup once, the same way the episode
+ * folder was created (episode.ts resolves with idea.title), so reads + writes
+ * always agree. Falls back to '' (legacy behaviour) if the idea isn't found —
+ * never throws, since it's a path resolver.
+ *
+ * Uses a dynamic import of idea-manager to avoid a static import cycle
+ * (idea-manager imports this module), matching resolveEpisodePaths's own
+ * dynamic-import style.
+ */
+export async function resolveEpisodePathsByCode(slug: string, code: string): Promise<EpisodePaths> {
+  let title = ''
+  try {
+    const im = await import('./idea-manager.js')
+    const ideas = await im.getIdeas(slug)
+    title = ideas.find(i => i.episode_code === code)?.title || ''
+  } catch { /* fall back to '' — better than throwing from a path resolver */ }
+  return resolveEpisodePaths(slug, code, title)
 }
 
 // ── Resolve subfolder names from project config ────────────────────────────
@@ -379,14 +413,22 @@ export async function getElevenLabsBalance(apiKey: string): Promise<ElevenLabsBa
  */
 export type TestKeyResult = { valid: boolean; reachable: boolean; message: string }
 
-type Probe = { kind: 'http'; status: number; body: any } | { kind: 'network'; error: string }
+type Probe =
+  | { kind: 'http'; status: number; body: any; headers: Record<string, string> }
+  | { kind: 'network'; error: string }
 
 async function probeJson(url: string, headers: Record<string, string>): Promise<Probe> {
   try {
     const resp = await fetch(url, { headers, signal: AbortSignal.timeout(5000) })
     let body: any = null
     try { body = await resp.json() } catch { /* non-JSON is fine */ }
-    return { kind: 'http', status: resp.status, body }
+    // Lowercase header names — Pexels exposes rate-limit info as
+    // `X-Ratelimit-Remaining`, the WHATWG fetch normalizes to lowercase,
+    // and callers do exact-key lookups so an explicit lowercase map is
+    // the least-surprising contract.
+    const headersOut: Record<string, string> = {}
+    resp.headers.forEach((v, k) => { headersOut[k.toLowerCase()] = v })
+    return { kind: 'http', status: resp.status, body, headers: headersOut }
   } catch (e: any) {
     return { kind: 'network', error: e?.message || 'Network error' }
   }
@@ -400,9 +442,18 @@ export async function testApiKey(provider: string, apiKey: string): Promise<Test
     if (r.kind === 'network') return { valid: false, reachable: false, message: r.error }
     return { valid: r.status === 200, reachable: true, message: r.status === 200 ? 'OK' : `HTTP ${r.status}` }
   }
-  if (provider === 'anthropic') {
-    const r = await probeJson('https://api.anthropic.com/v1/models', { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' })
+  if (provider === 'deepseek') {
+    // Official DeepSeek API — OpenAI-compatible models list, Bearer auth.
+    const r = await probeJson('https://api.deepseek.com/models', { Authorization: `Bearer ${apiKey}` })
     if (r.kind === 'network') return { valid: false, reachable: false, message: r.error }
+    return { valid: r.status === 200, reachable: true, message: r.status === 200 ? 'OK' : `HTTP ${r.status}` }
+  }
+  if (provider === 'openrouter') {
+    // OpenRouter exposes /auth/key which echoes the key's limits — a clean
+    // 200 means the key is valid; 401 means it isn't.
+    const r = await probeJson('https://openrouter.ai/api/v1/auth/key', { Authorization: `Bearer ${apiKey}` })
+    if (r.kind === 'network') return { valid: false, reachable: false, message: r.error }
+    if (r.status === 401) return { valid: false, reachable: true, message: 'Invalid key (401)' }
     return { valid: r.status === 200, reachable: true, message: r.status === 200 ? 'OK' : `HTTP ${r.status}` }
   }
   if (provider === 'kie') {
@@ -446,6 +497,72 @@ export async function testApiKey(provider: string, apiKey: string): Promise<Test
     return credits !== null
       ? { valid: true, reachable: true, message: `Credits: ${credits.toLocaleString()}` }
       : { valid: false, reachable: true, message: 'Unexpected response shape' }
+  }
+  // v1.0.123+ — Pexels probe. The `popular` endpoint returns one video
+  // with a per_page=1 request — cheapest possible auth check. Pexels
+  // takes the raw key as the Authorization header (NO `Bearer ` prefix —
+  // a common foot-gun). Quota: 1 request consumed of the 200/hr budget.
+  if (provider === 'pexels') {
+    const r = await probeJson('https://api.pexels.com/videos/popular?per_page=1', { Authorization: apiKey })
+    if (r.kind === 'network') return { valid: false, reachable: false, message: r.error }
+    if (r.status === 401) return { valid: false, reachable: true, message: 'Invalid key (401)' }
+    if (r.status !== 200) return { valid: false, reachable: true, message: `HTTP ${r.status}` }
+    // Pexels exposes rate-limit headers — surface remaining/hour so the
+    // user sees how much budget they have before doing real searches.
+    const remaining = r.headers?.['x-ratelimit-remaining']
+    const limit = r.headers?.['x-ratelimit-limit']
+    const tail = (remaining && limit) ? ` · ${remaining}/${limit} req remaining this hour` : ''
+    return { valid: true, reachable: true, message: `Key works${tail}` }
+  }
+  // v1.0.142+ — Perplexity probe. There's no documented free probe
+  // endpoint, so do the cheapest possible chat completion: 1 token of
+  // output on the smallest model. Costs roughly $0.000003 per test —
+  // negligible. Auth failures return 401; bad model id returns 400;
+  // missing credit returns 402.
+  if (provider === 'perplexity') {
+    try {
+      const resp = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'sonar',
+          messages: [{ role: 'user', content: 'ok' }],
+          max_tokens: 1,
+        }),
+        signal: AbortSignal.timeout(8000),
+      })
+      if (resp.status === 401) return { valid: false, reachable: true, message: 'Invalid key (401)' }
+      if (resp.status === 402) return { valid: false, reachable: true, message: 'No credit on Perplexity account' }
+      if (resp.status === 429) return { valid: true, reachable: true, message: 'Key works (rate-limited right now)' }
+      if (!resp.ok) {
+        const t = await resp.text().catch(() => '')
+        return { valid: false, reachable: true, message: `HTTP ${resp.status}${t ? ` — ${t.slice(0, 80)}` : ''}` }
+      }
+      return { valid: true, reachable: true, message: 'Key works' }
+    } catch (e: any) {
+      return { valid: false, reachable: false, message: e?.message || 'Network error' }
+    }
+  }
+  // v1.0.123+ — Pixabay probe. Pixabay's videos endpoint min `per_page`
+  // is 3 — passing 1 returns HTTP 400 "Parameter 'per_page' is out of
+  // valid range." Quota: ~100/min, plenty for a one-off probe. Key is
+  // a query parameter, not a header (Pixabay convention).
+  if (provider === 'pixabay') {
+    const r = await probeJson(`https://pixabay.com/api/videos/?key=${encodeURIComponent(apiKey)}&per_page=3`, {})
+    if (r.kind === 'network') return { valid: false, reachable: false, message: r.error }
+    // Pixabay returns 400 with a body containing "Invalid API key" when
+    // the key is bad — they don't use 401 / 403. Disambiguate.
+    if (r.status === 400) {
+      const text = typeof r.body === 'string' ? r.body : JSON.stringify(r.body || '')
+      if (/invalid api key/i.test(text)) return { valid: false, reachable: true, message: 'Invalid key' }
+      return { valid: false, reachable: true, message: `HTTP 400 — ${text.slice(0, 80)}` }
+    }
+    if (r.status !== 200) return { valid: false, reachable: true, message: `HTTP ${r.status}` }
+    const total = r.body?.totalHits ?? r.body?.total ?? null
+    return { valid: true, reachable: true, message: total !== null ? `Key works (${total.toLocaleString()} hits available)` : 'Key works' }
   }
   return { valid: false, reachable: false, message: `Unknown provider: ${provider}` }
 }

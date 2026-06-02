@@ -171,7 +171,7 @@ describe('writeChapterFiles + assembleUnifiedNarration round-trip', () => {
     assert.equal(result.introduction_present, false)
 
     // Re-parse the unified output: must yield Chapter_01 + Chapter_02 in order.
-    const unifiedPath = path.join(dir, `${code}_Script_Narration.docx`)
+    const unifiedPath = path.join(dir, `${code}_Script_Narration.md`)
     const sections = await parseNarrationDocx(unifiedPath)
     const slugs = sections.map(s => s.slug)
     assert.deepEqual(slugs, ['Chapter_01', 'Chapter_02'])
@@ -195,7 +195,7 @@ describe('writeChapterFiles + assembleUnifiedNarration round-trip', () => {
     assert.equal(result.introduction_present, true)
     assert.deepEqual(result.chapter_numbers, [1, 2, 3])
 
-    const sections = await parseNarrationDocx(path.join(dir, `${code}_Script_Narration.docx`))
+    const sections = await parseNarrationDocx(path.join(dir, `${code}_Script_Narration.md`))
     // CRITICAL: audio-reconciler uses sections[0].slug to build chunk
     // filenames. If Introduction isn't slug-exact and first, the audio
     // pipeline silently produces wrong filenames.
@@ -213,11 +213,11 @@ describe('writeChapterFiles + assembleUnifiedNarration round-trip', () => {
 
     await writeChapterFiles(dir, code, title, splitNarrationIntoChapters(BULK_WITH_INTRO))
     await assembleUnifiedNarration(dir, code, title)
-    const firstSlugs = (await parseNarrationDocx(path.join(dir, `${code}_Script_Narration.docx`))).map(s => s.slug)
+    const firstSlugs = (await parseNarrationDocx(path.join(dir, `${code}_Script_Narration.md`))).map(s => s.slug)
 
     // Re-assemble without changing anything on disk. Slugs must be stable.
     await assembleUnifiedNarration(dir, code, title)
-    const secondSlugs = (await parseNarrationDocx(path.join(dir, `${code}_Script_Narration.docx`))).map(s => s.slug)
+    const secondSlugs = (await parseNarrationDocx(path.join(dir, `${code}_Script_Narration.md`))).map(s => s.slug)
     assert.deepEqual(secondSlugs, firstSlugs, 'slug list must be stable across re-assemblies')
   })
 
@@ -236,7 +236,7 @@ describe('writeChapterFiles + assembleUnifiedNarration round-trip', () => {
     })
     await assembleUnifiedNarration(dir, code, title)
 
-    const sections = await parseNarrationDocx(path.join(dir, `${code}_Script_Narration.docx`))
+    const sections = await parseNarrationDocx(path.join(dir, `${code}_Script_Narration.md`))
     assert.deepEqual(sections.map(s => s.slug), ['Chapter_01', 'Chapter_02'], 'chapter list unchanged')
     assert.match(sections[0]!.text, /chapter one/, 'Chapter 01 untouched')
     assert.match(sections[1]!.text, /New body for chapter two/, 'Chapter 02 replaced')
@@ -247,7 +247,7 @@ describe('writeChapterFiles + assembleUnifiedNarration round-trip', () => {
     const code = 'TST0005'
     const result = await assembleUnifiedNarration(dir, code, 'X')
     assert.deepEqual(result, { chapter_numbers: [], introduction_present: false })
-    assert.ok(!existsSync(path.join(dir, `${code}_Script_Narration.docx`)), 'no unified file when nothing to assemble')
+    assert.ok(!existsSync(path.join(dir, `${code}_Script_Narration.md`)), 'no unified file when nothing to assemble')
   })
 })
 
@@ -258,7 +258,7 @@ describe('ensureChapterFilesMigrated', () => {
     const title = 'Legacy'
 
     // Lay down a legacy unified narration with no per-chapter files.
-    await buildNarrationDocx(BULK_WITH_INTRO, code, title, path.join(dir, `${code}_Script_Narration.docx`))
+    await buildNarrationDocx(BULK_WITH_INTRO, code, title, path.join(dir, `${code}_Script_Narration.md`))
     assert.ok(!existsSync(chapterFilePath(dir, code, 1)), 'precondition: no chapter files yet')
 
     const ran = await ensureChapterFilesMigrated(dir, code, title)
@@ -274,7 +274,7 @@ describe('ensureChapterFilesMigrated', () => {
     const code = 'TST0007'
     const title = 'Legacy'
 
-    await buildNarrationDocx(BULK_NO_INTRO, code, title, path.join(dir, `${code}_Script_Narration.docx`))
+    await buildNarrationDocx(BULK_NO_INTRO, code, title, path.join(dir, `${code}_Script_Narration.md`))
     await ensureChapterFilesMigrated(dir, code, title)
     const firstRan = await ensureChapterFilesMigrated(dir, code, title)
     // First migration ran; the SECOND call must be a no-op.

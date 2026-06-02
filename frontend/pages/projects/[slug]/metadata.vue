@@ -11,9 +11,9 @@
       filter-field="metadata"
       generate-label="Generate Metadata"
       loading-label="Generating…"
-      :generate-loading="genAll"
+      :generate-loading="metadataJobActiveForEpisode"
       :generate-disabled="!episodeId || !scriptReady"
-      :generate-status="genAll ? `Generating metadata for ${episodeId}…` : (episodeId && !scriptReady ? noScriptTooltip : '')"
+      :generate-status="metadataJobActiveForEpisode ? `Generating metadata for ${episodeId}…` : (episodeId && !scriptReady ? noScriptTooltip : '')"
       @generate="generateAll"
       @episode-selected="onEpisodeSelected"
       @preset-applied="success('Preset applied')"
@@ -50,6 +50,48 @@
       </div>
     </div>
 
+    <!-- v1.0.198 — starter templates. Format-neutral starting points that
+         replace the old sleep-story-only default. The format-matched one is
+         applied automatically on a fresh episode; pick another to switch. -->
+    <div class="card mt-2 starter-templates">
+      <div class="shared-settings-label">
+        <span>Starter template</span>
+        <span class="text-muted text-xs font-normal">a starting point for the description sections — tweak after applying</span>
+      </div>
+      <div class="starter-templates-row mt-1">
+        <button
+          v-for="t in starterTemplates"
+          :key="t.id"
+          type="button"
+          :class="['starter-tpl-btn', { active: activeTemplateId === t.id }]"
+          :title="t.description"
+          @click="applyStarterTemplate(t.id)"
+        >{{ t.label }}</button>
+        <button
+          type="button"
+          class="starter-tpl-btn starter-tpl-reset"
+          title="Re-apply this format's default template (discards section tweaks; presets untouched)"
+          @click="resetToFormatDefault"
+        >↺ Reset to format default</button>
+      </div>
+      <!-- v1.0.200 — live outline: the enabled sections in render order. -->
+      <div v-if="enabledSectionLabels.length" class="section-outline mt-2">
+        <span class="text-muted text-xs">Description shape:</span>
+        <template v-for="(lbl, i) in enabledSectionLabels" :key="i">
+          <span class="outline-chip">{{ lbl }}</span><span v-if="i < enabledSectionLabels.length - 1" class="outline-sep">→</span>
+        </template>
+      </div>
+    </div>
+
+    <!-- v1.0.182 — the three section editors collapse behind the shared
+         AdvancedDisclosure. The common path is: pick model → Generate
+         Metadata (top button runs all three) → review the Preview. Open
+         only to fine-tune title mode, the description's channel template,
+         or tag count. Open state remembered per project. -->
+    <AdvancedDisclosure
+      label="Customize sections (title mode · description template · tags)"
+      :persist-key="META_ADV_KEY"
+    >
     <!-- ═══════ 1. SEO Video Title ═══════ -->
     <div class="card mt-2">
       <div class="card-header">
@@ -255,7 +297,7 @@
               </div>
               <div class="form-group">
                 <label>Starting format <span class="text-muted font-normal">(optional — leave blank for LLM-suggested opener)</span></label>
-                <input v-model="section.config.starting_format" class="input" placeholder="e.g. 🌙 Welcome back to [Your Channel Name]." />
+                <input v-model="section.config.starting_format" class="input" placeholder="Optional opening line, e.g. “In this video…” or your channel's standard intro" />
                 <p class="text-muted text-xs hint-line">
                   If set, every hook will begin with EXACTLY this text, then continue naturally.
                 </p>
@@ -401,6 +443,43 @@
               <textarea v-model="section.config.text" class="textarea config-textarea" />
             </div>
 
+            <!-- v1.0.198 (M1b) — Sources: the episode's research citations,
+                 appended (real links) when you generate. Toggle the section
+                 off to omit sources entirely. -->
+            <div v-if="section.id === 'sources'" class="sources-section">
+              <div v-if="!episodeId" class="text-muted text-xs">Pick an episode to load its research sources.</div>
+              <div v-else-if="!researchLoaded" class="text-muted text-xs">
+                No research for this episode — sources come from the
+                <NuxtLink :to="`/projects/${slug}/research`" class="meta-template-link">Research</NuxtLink> step.
+                Nothing is added until you run research.
+              </div>
+              <template v-else>
+                <div class="sources-bulk">
+                  <span class="text-muted text-xs">In description ({{ includedSrcPreview.length }}):</span>
+                  <button type="button" class="btn btn-xs btn-secondary" :disabled="savingResearch" @click="bulkSrc('all')">All</button>
+                  <button type="button" class="btn btn-xs btn-secondary" :disabled="savingResearch" @click="bulkSrc('verified')" title="Only sources cited by a verified claim">Verified-backing</button>
+                  <button type="button" class="btn btn-xs btn-ghost" :disabled="savingResearch" @click="bulkSrc('none')">None</button>
+                </div>
+                <ul class="sources-list">
+                  <li v-for="(c, i) in researchCitations" :key="i" :class="{ 'src-off': c.url && !srcIncluded(c) }">
+                    <input
+                      v-if="c.url"
+                      type="checkbox"
+                      :checked="srcIncluded(c)"
+                      :disabled="savingResearch"
+                      @change="setSrcIncluded(c, ($event.target as HTMLInputElement).checked)"
+                    />
+                    <a v-if="c.url" :href="c.url" target="_blank" rel="noopener noreferrer">{{ c.title || c.url }}</a>
+                    <span v-else>{{ c.title }}</span>
+                    <span v-if="c.url && verifiedBackingSet.has(i)" class="src-vbadge" title="Cited by a verified claim">verified-backing</span>
+                  </li>
+                </ul>
+                <p class="text-muted text-xs sources-note">
+                  Appended to the description with real links when you generate. Your picks are shared with the Research page.
+                </p>
+              </template>
+            </div>
+
             <div v-if="section.id === 'hashtags'" class="form-group">
               <label>Number of hashtags to generate (inside description)</label>
               <input v-model.number="section.config.count" type="number" min="5" max="30" class="input input-narrow" />
@@ -416,11 +495,26 @@
                 <textarea v-model="section.config.instructions" class="textarea config-textarea" placeholder="Describe what this section should contain..." />
               </div>
             </div>
+
+            <!-- v1.0.199 — generic editor: a catalog section type flagged
+                 `generic` renders its fields here, so a new simple section
+                 type needs no bespoke editor block above. -->
+            <div v-for="f in genericFieldsFor(section.id)" :key="f.key" class="form-group">
+              <label>{{ f.label }}</label>
+              <textarea v-if="f.type === 'textarea'" v-model="section.config[f.key]" class="textarea config-textarea" />
+              <input v-else :type="f.type === 'number' ? 'number' : 'text'" v-model="section.config[f.key]" class="input" />
+            </div>
           </div>
         </div>
       </div>
 
       <div class="flex items-center gap-2 mt-2 flex-wrap">
+        <!-- v1.0.199 — add any built-in section type (from the catalog) to the
+             current template, not just custom ones. -->
+        <select v-if="addableSections.length" class="select select-sm add-section-select" @change="onAddSection" title="Add a built-in section to this description">
+          <option value="">+ Add section…</option>
+          <option v-for="c in addableSections" :key="c.id" :value="c.id">{{ c.label }}</option>
+        </select>
         <button class="btn btn-sm btn-secondary" @click="addCustomBlock">+ Add Custom Section</button>
         <button
           class="btn btn-sm btn-primary"
@@ -454,6 +548,7 @@
         {{ genTags ? 'Generating tags…' : 'Generate Tags Only' }}
       </button>
     </div>
+    </AdvancedDisclosure>
 
 
     <!-- ═══════ Preview ═══════ -->
@@ -551,6 +646,11 @@ const { metaGenerating } = useGenerating()
 const episodeId = ref('')
 const model = ref('gpt-4o')
 
+// v1.0.182 — Phase-2 scaffold. The three section editors collapse behind the
+// shared <AdvancedDisclosure>; this key persists the open state per project.
+// The component owns the localStorage read/write.
+const META_ADV_KEY = `metadata_advanced_open_${slug.value}`
+
 // Source-of-truth gating: every metadata generator (descriptions, titles,
 // tags, "Generate All") reads narration context from the script docx, so
 // we disable the buttons until episode.status.script flips true. Refetches
@@ -566,6 +666,31 @@ const genTitles = ref(false)
 const genDesc = ref(false)
 const genTags = ref(false)
 const genAll = ref(false)
+
+// v1.0.115+ — per-episode "is a metadata job in flight" computed. The
+// existing `genAll` ref stays true through the whole job (waitForJob
+// blocks until done), but when the user swaps episodes mid-render it
+// kept the new episode's TopActionBar stuck in "Generating metadata for
+// [new ep]…" loading state even though the job belongs to the OLD ep.
+// Derive from the jobs list instead so the UI reflects whichever
+// episode the user is currently looking at.
+const { jobs: metaJobs } = useJobs()
+const metadataJobActiveForEpisode = computed(() => {
+  if (!episodeId.value) return false
+  return metaJobs.value.some((j: any) =>
+    j.episode_id === episodeId.value &&
+    j.project_slug === slug.value &&
+    j.type === 'metadata' &&
+    (j.status === 'queued' || j.status === 'running'),
+  )
+})
+
+// Defensive — clear genAll on episode swap. The original waitForJob
+// is still tracking the OLD episode's job in the background; this just
+// stops it from gating the new episode's UI.
+watch(episodeId, (newEp, oldEp) => {
+  if (newEp !== oldEp) genAll.value = false
+})
 
 // Section configs
 const titleConfig = reactive({
@@ -639,17 +764,24 @@ interface Section { id: string; label: string; type: 'builtin' | 'custom'; enabl
 //
 // Old sections ('metadata', old-shape 'cta') are auto-migrated by the
 // `apply` function in usePresets so existing presets transparently upgrade.
+// v1.0.198 — format-neutral baseline. The old default had Narrator + Music
+// credits ON and sleep-story copy ("…reviewed for quality and warmth"); both
+// assumed a sleep-story channel. The page now applies a format-matched starter
+// template on a fresh episode (see starterTemplates / applyStarterTemplate),
+// so this baseline only shows for the brief pre-mount moment + as the "reset"
+// fallback. Narrator/Music/Videos default OFF; copy is channel-neutral.
+const NEUTRAL_AI_DISCLOSURE = 'Created with the help of AI tools and reviewed before publishing.'
 const defaultSections: Section[] = [
-  { id: 'hook', label: 'Hook / Intro Paragraph', type: 'builtin', enabled: true, config: { characters: 250, starting_format: '' } },
-  { id: 'narrator', label: 'Narrator Credit', type: 'builtin', enabled: true, config: { name: '' } },
-  { id: 'music', label: 'Music Credit', type: 'builtin', enabled: true, config: { title: '', link: '', disclaimer: 'Music used with permission. See link above for full credit.' } },
-  { id: 'channels', label: 'Channel Mentions', type: 'builtin', enabled: true, config: { channels: [{ name: '', url: '', kind: 'own' as 'own' | 'recommended' }] } },
-  { id: 'videos', label: 'Video Recommendations', type: 'builtin', enabled: true, config: { videos: [{ name: '', url: '' }] } },
+  { id: 'hook', label: 'Hook / Intro Paragraph', type: 'builtin', enabled: true, config: { characters: 220, starting_format: '' } },
+  { id: 'narrator', label: 'Narrator Credit', type: 'builtin', enabled: false, config: { name: '' } },
+  { id: 'music', label: 'Music Credit', type: 'builtin', enabled: false, config: { title: '', link: '', disclaimer: 'Music used with permission. See link above for full credit.' } },
+  { id: 'channels', label: 'Channel Mentions', type: 'builtin', enabled: false, config: { channels: [{ name: '', url: '', kind: 'own' as 'own' | 'recommended' }] } },
+  { id: 'videos', label: 'Video Recommendations', type: 'builtin', enabled: false, config: { videos: [{ name: '', url: '' }] } },
   { id: 'playlists', label: 'Playlists', type: 'builtin', enabled: false, config: { playlists: [{ name: '', url: '' }] } },
   { id: 'cta', label: 'Subscribe / Like CTA', type: 'builtin', enabled: true, config: { custom_lines: [] as string[] } },
-  { id: 'support', label: 'Support / Membership', type: 'builtin', enabled: true, config: { platforms: [] as Array<{ kind: string; url: string; label?: string }> } },
+  { id: 'support', label: 'Support / Membership', type: 'builtin', enabled: false, config: { platforms: [] as Array<{ kind: string; url: string; label?: string }> } },
   { id: 'affiliate', label: 'Affiliate Disclaimer', type: 'builtin', enabled: false, config: { text: 'As an Amazon Associate we earn from qualifying purchases.' } },
-  { id: 'ai-disclosure', label: 'AI Disclosure', type: 'builtin', enabled: true, config: { text: 'This story was written with the assistance of AI tools and reviewed for quality and warmth.' } },
+  { id: 'ai-disclosure', label: 'AI Disclosure', type: 'builtin', enabled: true, config: { text: NEUTRAL_AI_DISCLOSURE } },
   { id: 'hashtags', label: 'Hashtags (inside description)', type: 'builtin', enabled: true, config: { count: 15 } },
 ]
 
@@ -752,6 +884,196 @@ function migrateSections(input: Section[]): { migrated: Section[]; didMigrate: b
 }
 
 const sections = ref<Section[]>(JSON.parse(JSON.stringify(defaultSections)))
+
+// ── v1.0.198 — format-neutral starter templates ────────────────────────────
+// Replace the one-size-fits-all (sleep-story) default with use-case starters.
+// On a fresh episode the page applies the one matching the project's format;
+// the picker lets the user switch. Each builds an ordered section list.
+function sec(id: string, label: string, enabled: boolean, config: SectionConfig = {}): Section {
+  return { id, label, type: 'builtin', enabled, config }
+}
+function tplPov(): Section[] {
+  return [
+    sec('hook', 'Hook / Intro Paragraph', true, { characters: 220, starting_format: '' }),
+    sec('cta', 'Subscribe / Like CTA', true, { custom_lines: [] }),
+    sec('channels', 'Channel Mentions', false, { channels: [{ name: '', url: '', kind: 'own' }] }),
+    sec('support', 'Support / Membership', true, { platforms: [] }),
+    sec('ai-disclosure', 'AI Disclosure', true, { text: NEUTRAL_AI_DISCLOSURE }),
+    sec('hashtags', 'Hashtags (inside description)', true, { count: 15 }),
+  ]
+}
+function tplExplainer(): Section[] {
+  return [
+    sec('hook', 'Hook / Intro Paragraph', true, { characters: 250, starting_format: '' }),
+    sec('sources', '📚 Sources', true, {}),
+    sec('cta', 'Subscribe / Like CTA', true, { custom_lines: [] }),
+    sec('ai-disclosure', 'AI Disclosure', true, { text: NEUTRAL_AI_DISCLOSURE }),
+    sec('hashtags', 'Hashtags (inside description)', true, { count: 15 }),
+  ]
+}
+function tplListicle(): Section[] {
+  return [
+    sec('hook', 'Hook / Intro Paragraph', true, { characters: 200, starting_format: '' }),
+    sec('cta', 'Subscribe / Like CTA', true, { custom_lines: [] }),
+    sec('hashtags', 'Hashtags (inside description)', true, { count: 20 }),
+  ]
+}
+function tplMinimal(): Section[] {
+  return [
+    sec('hook', 'Hook / Intro Paragraph', true, { characters: 150, starting_format: '' }),
+    sec('hashtags', 'Hashtags (inside description)', true, { count: 12 }),
+  ]
+}
+interface StarterTemplate { id: string; label: string; description: string; build: () => Section[] }
+const starterTemplates: StarterTemplate[] = [
+  { id: 'pov',       label: 'POV Creator',                   description: 'First-person creator channel — hook, CTA, support, links. No narrator/music credit.', build: tplPov },
+  { id: 'explainer', label: 'Faceless Explainer / Documentary', description: 'Fact-checked explainer — includes a 📚 Sources section for your research citations.', build: tplExplainer },
+  { id: 'listicle',  label: 'Listicle / Top-N',              description: 'Numbered-list videos — punchy hook, tag-heavy.', build: tplListicle },
+  { id: 'minimal',   label: 'Minimal',                       description: 'Just a short hook + hashtags. Nothing else.', build: tplMinimal },
+]
+function templateIdForFormat(formatId: string): string {
+  switch (formatId) {
+    case 'continuity-chain': return 'pov'
+    case 'narration-synced': return 'explainer'
+    case 'narrative':        return 'explainer'
+    case 'listicle':         return 'listicle'
+    default:                 return 'minimal'
+  }
+}
+// ── v1.0.199 — section catalog (mirrors the backend registry) ──────────────
+// The list of addable section types + their default config. The "Add section"
+// menu reads this, so any built-in section composes onto any template, and a
+// future simple type is one catalog entry (with `generic` + `fields` it needs
+// no bespoke editor — rendered by the generic editor block below).
+interface CatalogField { key: string; label: string; type: 'text' | 'number' | 'textarea' }
+interface CatalogEntry { id: string; label: string; defaultConfig: () => SectionConfig; generic?: boolean; fields?: CatalogField[] }
+const SECTION_CATALOG: CatalogEntry[] = [
+  { id: 'hook',          label: 'Hook / Intro Paragraph',        defaultConfig: () => ({ characters: 220, starting_format: '' }) },
+  { id: 'narrator',      label: 'Narrator Credit',               defaultConfig: () => ({ name: '' }) },
+  { id: 'music',         label: 'Music Credit',                  defaultConfig: () => ({ title: '', link: '', disclaimer: 'Music used with permission. See link above for full credit.' }) },
+  { id: 'channels',      label: 'Channel Mentions',              defaultConfig: () => ({ channels: [{ name: '', url: '', kind: 'own' }] }) },
+  { id: 'videos',        label: 'Video Recommendations',         defaultConfig: () => ({ videos: [{ name: '', url: '' }] }) },
+  { id: 'playlists',     label: 'Playlists',                     defaultConfig: () => ({ playlists: [{ name: '', url: '' }] }) },
+  { id: 'sources',       label: '📚 Sources',                    defaultConfig: () => ({}) },
+  { id: 'cta',           label: 'Subscribe / Like CTA',          defaultConfig: () => ({ custom_lines: [] }) },
+  { id: 'support',       label: 'Support / Membership',          defaultConfig: () => ({ platforms: [] }) },
+  { id: 'affiliate',     label: 'Affiliate Disclaimer',          defaultConfig: () => ({ text: 'As an Amazon Associate we earn from qualifying purchases.' }) },
+  { id: 'ai-disclosure', label: 'AI Disclosure',                 defaultConfig: () => ({ text: NEUTRAL_AI_DISCLOSURE }) },
+  { id: 'hashtags',      label: 'Hashtags (inside description)',  defaultConfig: () => ({ count: 15 }) },
+]
+const catalogById = (id: string) => SECTION_CATALOG.find(c => c.id === id)
+// Section types not already in the current list — offered in the Add menu.
+const addableSections = computed(() => SECTION_CATALOG.filter(c => !sections.value.some(s => s.id === c.id)))
+function addSection(id: string): void {
+  const c = catalogById(id)
+  if (!c || sections.value.some(s => s.id === id)) return
+  sections.value.push({ id: c.id, label: c.label, type: 'builtin', enabled: true, config: c.defaultConfig() })
+}
+function onAddSection(e: Event): void {
+  const el = e.target as HTMLSelectElement
+  if (el.value) addSection(el.value)
+  el.value = ''
+}
+// Generic-editor support: a catalog type flagged `generic` renders its fields
+// from the registry, so a new simple section type needs no bespoke editor.
+function genericFieldsFor(id: string): CatalogField[] {
+  const c = catalogById(id)
+  return c?.generic ? (c.fields || []) : []
+}
+
+const activeTemplateId = ref<string>('')
+function applyStarterTemplate(tplId: string, opts: { silent?: boolean } = {}): void {
+  const tpl = starterTemplates.find(t => t.id === tplId)
+  if (!tpl) return
+  // Manual apply replaces the current sections — confirm so accidental clicks
+  // don't wipe a configured description. Auto-apply on mount passes silent.
+  if (!opts.silent && activeTemplateId.value && activeTemplateId.value !== tplId) {
+    if (!confirm(`Apply the "${tpl.label}" starter template? This replaces the current description sections (your saved presets are untouched).`)) return
+  }
+  sections.value = tpl.build()
+  activeTemplateId.value = tplId
+}
+
+// v1.0.200 (M2) — re-apply the format-matched starter template (a clean reset
+// after experimenting), reading the format's declared default.
+async function resetToFormatDefault(): Promise<void> {
+  let tplId = 'minimal'
+  try {
+    const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    const declared = f?.metadata?.defaultStarterTemplate
+    tplId = (typeof declared === 'string' && starterTemplates.some(t => t.id === declared))
+      ? declared
+      : templateIdForFormat(f?.id || '')
+  } catch { /* fall back to minimal */ }
+  applyStarterTemplate(tplId)
+}
+
+// v1.0.200 (M3) — live section outline: the enabled sections in render order,
+// shown as a strip so you see the description's shape before generating.
+const enabledSectionLabels = computed(() => sections.value.filter(s => s.enabled).map(s => s.label))
+
+// ── v1.0.198 (M1b) — Sources section: the episode's research citations ──────
+// Mirrors the Research page's per-source include picks (source of truth is
+// research.json). Editing here persists straight back so both pages agree.
+interface SrcCitation { title: string; url: string; snippet?: string; include_in_description?: boolean }
+const researchCitations = ref<SrcCitation[]>([])
+const researchClaims = ref<Array<{ status: string; citation_indices: number[] }>>([])
+const researchLoaded = ref(false)
+const savingResearch = ref(false)
+
+async function loadResearchForSources(): Promise<void> {
+  researchCitations.value = []
+  researchClaims.value = []
+  researchLoaded.value = false
+  if (!episodeId.value) return
+  try {
+    const r = await get<{ exists: boolean; research?: any }>(`/projects/${slug.value}/research/${episodeId.value}`)
+    if (r.exists && r.research) {
+      researchCitations.value = r.research.citations || []
+      researchClaims.value = r.research.claims || []
+      researchLoaded.value = true
+    }
+  } catch { /* no research for this episode — section shows the hint */ }
+}
+
+function srcIncluded(c: SrcCitation): boolean { return c.include_in_description !== false }
+const verifiedBackingSet = computed(() => {
+  const s = new Set<number>()
+  for (const cl of researchClaims.value) {
+    if (cl.status === 'verified') for (const i of cl.citation_indices || []) s.add(i)
+  }
+  return s
+})
+const includedSrcPreview = computed(() => researchCitations.value.filter(c => c.url && srcIncluded(c)))
+
+async function persistResearchIncludes(): Promise<void> {
+  if (!episodeId.value || !researchLoaded.value) return
+  savingResearch.value = true
+  try {
+    // Re-read then patch only the include flags so we never clobber the
+    // claims/edits the Research page owns.
+    const r = await get<{ exists: boolean; research?: any }>(`/projects/${slug.value}/research/${episodeId.value}`)
+    if (!r.exists || !r.research) return
+    const fresh = r.research
+    fresh.citations = (fresh.citations || []).map((c: any, i: number) => ({
+      ...c,
+      include_in_description: researchCitations.value[i]?.include_in_description,
+    }))
+    await put(`/projects/${slug.value}/research/${episodeId.value}`, fresh)
+  } catch { /* best-effort — the picks still apply for this session */ } finally {
+    savingResearch.value = false
+  }
+}
+async function setSrcIncluded(c: SrcCitation, val: boolean): Promise<void> {
+  c.include_in_description = val
+  await persistResearchIncludes()
+}
+async function bulkSrc(mode: 'all' | 'verified' | 'none'): Promise<void> {
+  researchCitations.value.forEach((c, i) => {
+    c.include_in_description = mode === 'all' ? true : mode === 'none' ? false : verifiedBackingSet.value.has(i)
+  })
+  await persistResearchIncludes()
+}
 
 // ── Unified preset wiring ──────────────────────────────────────────────────
 // Swapped off the custom youtube_templates schema onto the same usePresets
@@ -1310,6 +1632,7 @@ watch([() => preview.title, () => preview.description, () => preview.tags], () =
 watch(episodeId, async () => {
   await suppressAutoSaveDuring(() => loadExistingMetadata())
   resetAutoSaveSession()
+  void loadResearchForSources()
 })
 
 // Loading a different version explicitly should also start a new editing
@@ -1413,6 +1736,19 @@ async function applyFormatDefaultsIfNoPreset() {
     if (Array.isArray(meta.broadKeywords) && meta.broadKeywords.length > 0) {
       formatBroadKeywords.value = meta.broadKeywords.slice(0, 5)
     }
+    // v1.0.198 — apply the format-matched starter template's section set so a
+    // fresh episode opens with sensible, channel-appropriate sections instead
+    // of the old sleep-story default. preset.load() (called right after in
+    // onMounted) overrides this when the user has a saved preset, so existing
+    // presets are unaffected.
+    // v1.0.199 — the format declares its starter template (metadata.
+    // defaultStarterTemplate); fall back to the id-based mapping for formats
+    // that haven't declared one. So adding a new format needs no edit here.
+    const declared = (meta as any).defaultStarterTemplate
+    const tplId = (typeof declared === 'string' && starterTemplates.some(t => t.id === declared))
+      ? declared
+      : templateIdForFormat(f?.id || '')
+    applyStarterTemplate(tplId, { silent: true })
   } catch {
     // Format endpoint unavailable / project missing — keep the legacy
     // hardcoded values (5000 / 5 / 100 / 15). Non-fatal.
@@ -1439,6 +1775,9 @@ onMounted(async () => {
   await metadataPresets.load()
   // Best-effort load — failure is fine, the manual inputs still work.
   loadAvailablePlaylists().catch(() => {})
+  // v1.0.198 (M1b) — research sources for the Sources section (episodeId may
+  // already be set from query/restore, so the watcher won't have fired yet).
+  void loadResearchForSources()
 })
 </script>
 
@@ -1449,6 +1788,51 @@ onMounted(async () => {
 }
 
 .shared-settings { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 16px; }
+
+/* v1.0.198 — starter-template picker. */
+.starter-templates { padding: 12px 16px; }
+.starter-templates-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.starter-tpl-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.starter-tpl-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+.starter-tpl-btn.active { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
+.starter-tpl-reset { margin-left: auto; color: var(--text-muted); }
+.starter-tpl-reset:hover { color: var(--text-primary); }
+
+/* v1.0.200 — live section outline. */
+.section-outline { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.outline-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+.outline-sep { color: var(--text-muted); font-size: 11px; }
+
+/* v1.0.198 (M1b) — Sources section. */
+.sources-section { display: flex; flex-direction: column; gap: 6px; }
+.sources-bulk { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sources-list { list-style: none; margin: 4px 0 0; padding: 0; font-size: 12px; }
+.sources-list li { display: flex; align-items: center; gap: 6px; margin: 4px 0; line-height: 1.4; flex-wrap: wrap; }
+.sources-list li.src-off { opacity: 0.5; }
+.sources-note { margin: 4px 0 0; line-height: 1.5; }
+.src-vbadge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(91, 179, 124, 0.16);
+  color: #5bb37c;
+}
 .shared-settings-label { display: flex; flex-direction: column; gap: 2px; font-size: 13px; font-weight: 600; color: var(--text-secondary); min-width: 110px; }
 .shared-settings-control { max-width: 420px; margin: 0; }
 
@@ -1682,4 +2066,5 @@ onMounted(async () => {
   margin-left: auto;
   font-size: 12px;
 }
+
 </style>

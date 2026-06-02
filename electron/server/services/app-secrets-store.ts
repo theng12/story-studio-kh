@@ -37,22 +37,54 @@ export const SECRET_PROVIDERS = [
   'kie',
   'fal',
   'openai',
+  // v1.0.235+ — direct Anthropic was retired (replaced by kie.ai Claude) but
+  // the bucket id stays so any previously-stored key isn't orphaned; it just
+  // no longer has a Settings UI row or a registered text provider.
   'anthropic',
+  // v1.0.235+ — DeepSeek official API + OpenRouter gateway (OpenAI-compatible
+  // text providers). App-level keys; resolved by callAi tier-3.
+  'deepseek',
+  'openrouter',
   'genaipro',
   'elevenlabs',
   'google',
-  // Chatterbox is a self-hosted TTS server reached over Tailscale. The
-  // "apiKey" slot here actually carries the base URL (e.g.
-  // `http://100.66.3.3:5052`) — Tailscale handles auth at the network
-  // layer so there's no real secret to store. Reusing the secrets store
-  // gives us per-machine semantics without spinning up a separate file.
-  'chatterbox',
+  // v1.0.149+ — Voice Studio KH (Pinokio-launched wrapper around
+  // VoxCPM-MLX + 11 other TTS engine families). The "apiKey" slot here
+  // carries the base URL of the Tailscale-reachable FastAPI server
+  // (e.g. http://100.120.246.10:47870), not a real secret — Tailscale
+  // handles auth at the network layer. Reusing the secrets store gives
+  // us per-machine semantics without spinning up a separate file.
+  // v1.0.150+ — the standalone 'chatterbox' provider slot was removed
+  // (Chatterbox is reachable through Voice Studio's chatterbox-mlx
+  // family if needed); existing stored values for 'chatterbox' become
+  // dead JSON keys and are ignored.
+  'voicestudio',
+  // v1.0.151+ — Image Studio KH (sibling of Voice Studio: Pinokio
+  // FastAPI wrapper hosting FLUX / Qwen / FIBO / Z-Image families on
+  // Apple Silicon MLX). Same "URL-as-secret" semantics — the apiKey
+  // slot carries the modal's Tailscale base URL (e.g.
+  // http://100.120.246.10:47868), Tailscale handles transport auth.
+  'imagestudio',
+  // v1.0.122+ — Free / CC stock-footage providers for the B-Roll Fetch
+  // feature. Both expose a simple JSON search API and free tier; keys
+  // are personal (one per Mac) and never shipped with the binary.
+  'pexels',
+  'pixabay',
+  // v1.0.142+ — Perplexity API. Powers the live-web-search source of the
+  // Research phase in the timestamp-driven pipeline. Optional — the
+  // LLM-only research source works with any configured text-provider key.
+  'perplexity',
 ] as const
 export type ProviderId = typeof SECRET_PROVIDERS[number]
 
 export interface AppSecretsV3 {
   schema_version: typeof APP_SECRETS_SCHEMA_VERSION
-  providers: Partial<Record<ProviderId, { apiKey: string }>>
+  // `userSet` marks a value the user explicitly saved (vs a default that an
+  // older app version carried into storage). Explicitly-saved values are
+  // NEVER rewritten by the legacy-default migration — see getApiKey. This
+  // is what makes the per-machine local-modal URLs (voicestudio/imagestudio)
+  // fully user-controlled: whatever you Save is what the app uses.
+  providers: Partial<Record<ProviderId, { apiKey: string; userSet?: boolean }>>
 }
 
 interface EncryptedEnvelope {
@@ -126,7 +158,10 @@ function normaliseV3(raw: any): AppSecretsV3 {
     for (const [k, v] of Object.entries(providers)) {
       if (!isKnownProvider(k)) continue
       const apiKey = typeof (v as any)?.apiKey === 'string' ? (v as any).apiKey : ''
-      if (apiKey) out.providers[k] = { apiKey }
+      // Preserve the `userSet` marker (an explicit Save) so getApiKey's
+      // "explicit value wins" rule survives the read/normalise round-trip.
+      const userSet = (v as any)?.userSet === true
+      if (apiKey) out.providers[k] = userSet ? { apiKey, userSet: true } : { apiKey }
     }
   }
   return out
@@ -226,7 +261,66 @@ async function pruneOldBackups(filePath: string): Promise<void> {
 export async function getApiKey(providerId: string): Promise<string> {
   if (!isKnownProvider(providerId)) return ''
   const v3 = await readAppSecrets()
-  return v3.providers[providerId]?.apiKey ?? ''
+  const entry = v3.providers[providerId]
+  const stored = entry?.apiKey ?? ''
+  // v1.0.206 — an explicitly-saved value is authoritative and is NEVER
+  // rewritten. This is the fix for "I saved m1 but it keeps using m4": the
+  // legacy-default migration below used to override the user's saved local-
+  // modal URL because that URL had once been a shipped default. Now any
+  // value the user Saved (userSet) is returned verbatim.
+  if (entry?.userSet) return stored
+  // Legacy migration only for values that were never explicitly saved —
+  // i.e. a stale default an older app version carried into storage. Only
+  // the dead Tailscale-IP defaults remain in scope (see migrateLegacyDefault);
+  // `.local` hostnames are legitimate per-machine choices and are left alone.
+  return migrateLegacyDefault(providerId, stored)
+}
+
+/**
+ * v1.0.158+ — rewrite stored URLs that match any pre-current default
+ * for either local modal so existing installs migrate cleanly without
+ * the user clearing-and-re-saving in Settings. User-typed URLs (any
+ * shape other than a listed legacy default) are left alone so a
+ * deliberate Tailscale IP / custom hostname isn't silently overwritten.
+ *
+ * Lives in the secrets store (not the client libs) to avoid a circular
+ * import — both clients already depend on this module.
+ *
+ * History of the migration targets:
+ *   voicestudio:
+ *     v1.0.149-v1.0.157  http://100.120.246.10:47870           (Tailscale IP)
+ *     v1.0.158           http://theng-macmini-m1.local:47870   (M1 Bonjour)
+ *     v1.0.159+          http://theng-macmini-m4.local:47870   (M4 Bonjour — current)
+ *
+ *   imagestudio:
+ *     v1.0.151-v1.0.157  http://100.120.246.10:47868           (Tailscale IP)
+ *     v1.0.158+          http://theng-macmini-m1.local:47868   (M1 Bonjour — current)
+ *
+ * The M1 stays the canonical Image Studio host even after v1.0.159 split
+ * Voice Studio onto the M4 — Image generation fits comfortably in M1's
+ * 8 GB unified memory while VoxCPM2 doesn't, so the user runs both
+ * modals simultaneously on separate Macs.
+ */
+// v1.0.206 — ONLY the dead Tailscale-IP defaults remain here. `.local`
+// hostnames (m1/m4) are legitimate per-machine hosts the user switches
+// between — migrating one to another fought the user's explicit Save, which
+// was the whole bug. Those are no longer migrated; an explicit Save wins
+// regardless (see getApiKey → userSet), and the only thing the migration
+// still does is upgrade the truly-unreachable original Tailscale IP.
+const VOICESTUDIO_LEGACY_DEFAULTS = new Set<string>([
+  'http://100.120.246.10:47870',           // v1.0.149-v1.0.157 (dead Tailscale IP)
+])
+const IMAGESTUDIO_LEGACY_DEFAULTS = new Set<string>([
+  'http://100.120.246.10:47868',           // v1.0.151-v1.0.157 (dead Tailscale IP)
+])
+// v1.0.207 — local-modal defaults are now empty (no universal host), so a
+// stored value matching the original dead Tailscale-IP default migrates to
+// EMPTY ("unconfigured") rather than to another machine's hostname. The
+// user then sees the clean empty state + setup help and enters their own URL.
+function migrateLegacyDefault(providerId: string, stored: string): string {
+  if (providerId === 'voicestudio' && VOICESTUDIO_LEGACY_DEFAULTS.has(stored)) return ''
+  if (providerId === 'imagestudio' && IMAGESTUDIO_LEGACY_DEFAULTS.has(stored)) return ''
+  return stored
 }
 
 export async function setApiKey(providerId: string, apiKey: string): Promise<void> {
@@ -236,7 +330,7 @@ export async function setApiKey(providerId: string, apiKey: string): Promise<voi
     if (!trimmed) {
       delete v3.providers[providerId]
     } else {
-      v3.providers[providerId] = { apiKey: trimmed }
+      v3.providers[providerId] = { apiKey: trimmed, userSet: true }
     }
   })
 }

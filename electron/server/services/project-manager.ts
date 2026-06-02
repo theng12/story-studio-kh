@@ -739,7 +739,7 @@ export interface DeleteProjectResult {
    *  shows + what the "Open in Finder" button reveals. */
   orphan_path?: string
   /** Human name from project.json so the dialog can say
-   *  "TerraNash files are still at …" rather than just the slug. */
+   *  "<Project Name> files are still at …" rather than just the slug. */
   name?: string
 }
 
@@ -939,12 +939,11 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     has_genaipro_key: !!(config as any).genaipro_api_key,
     has_elevenlabs_key: !!(config as any).elevenlabs_api_key,
     has_google_key: !!(config as any).google_api_key,
-    // Chatterbox (Local TTS) — per-project gate + per-project cloned-voice id.
-    // No `has_chatterbox_key` boolean: there's no API key, just a base URL
-    // stored per-machine in the secrets bucket.
-    chatterbox_enabled: !!(config as any).chatterbox_enabled,
-    chatterbox_reference_id: typeof (config as any).chatterbox_reference_id === 'string'
-      ? (config as any).chatterbox_reference_id : undefined,
+    // v1.0.150 — Chatterbox standalone provider removed. The
+    // chatterbox_enabled / chatterbox_reference_id fields stay in the
+    // project.json on disk if they were set in pre-1.0.150 projects, but
+    // we no longer surface them in the safe config response — the
+    // frontend has nothing left to do with them.
     // Item J — YouTube videoCategories.list ID for fresh uploads + PATCHes.
     // Pass through unchanged; default-22 logic lives in upload-metadata.ts
     // so old projects without the field keep working without migration.

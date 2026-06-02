@@ -18,7 +18,7 @@ import { Router } from 'express'
 import { existsSync } from 'fs'
 import * as cm from '../services/character-manager.js'
 import * as pm from '../services/project-manager.js'
-import { analyzeStyle, resolveVisionModel } from '../lib/vision-client.js'
+import { analyzeStyle, visionKeyAvailable } from '../lib/vision-client.js'
 import { respondWithError, humanizeBackendError } from '../lib/humanize-backend-error.js'
 
 export const router = Router()
@@ -178,48 +178,17 @@ router.post('/projects/:slug/characters/:id/describe-from-image', async (req, re
       return res.status(404).json({ detail: `Reference image file missing on disk: ${filename}` })
     }
 
-    // Pick a vision model the user actually has a key for. Order of
-    // preference:
-    //   1. Explicit body.model — only honoured if the user has the key for
-    //      its provider. Falls through silently to (2) if the key is
-    //      missing so the user isn't punished for the dropdown default.
-    //   2. Claude Sonnet (best vision quality) if Anthropic key is set.
-    //   3. GPT-4o if only OpenAI key is set.
-    //   4. Hard error with a key-config hint.
-    const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
-    const hasAnthropic = !!config.anthropic_api_key
-    const hasOpenAi = !!config.openai_api_key
-
-    let model = ''
-    let apiKey = ''
-    if (requestedModel) {
-      const resolved = resolveVisionModel(requestedModel)
-      const keyForRequested =
-        resolved.startsWith('claude') ? (config.anthropic_api_key || '') :
-        resolved.startsWith('gpt')    ? (config.openai_api_key    || '') : ''
-      if (keyForRequested) {
-        model = resolved
-        apiKey = keyForRequested
-      }
-    }
-    if (!model) {
-      // Auto-pick whichever provider the user has configured.
-      if (hasAnthropic) {
-        model = 'claude-sonnet-4-6'
-        apiKey = config.anthropic_api_key
-      } else if (hasOpenAi) {
-        model = 'gpt-4o'
-        apiKey = config.openai_api_key
-      } else {
-        return res.status(400).json({
-          detail: 'No vision-capable API key configured. Add an Anthropic OR OpenAI key in Settings → API Keys to use "Describe from image".',
-        })
-      }
+    // Vision auto-routes (kie.ai Claude → GPT-4o fallback) inside
+    // analyzeStyle; we only confirm SOME vision key exists for a clean 400.
+    if (!(await visionKeyAvailable())) {
+      return res.status(400).json({
+        detail: 'No vision-capable API key configured. Add a kie.ai OR OpenAI key in Settings → API Keys to use "Describe from image".',
+      })
     }
 
     const focus = typeof req.body?.focus === 'string' ? req.body.focus.trim() : ''
     const result = await analyzeStyle({
-      imagePath, model, apiKey, focus: focus || null, mode: 'character',
+      imagePath, focus: focus || null, mode: 'character',
     })
     if (result.style_text === 'NO_CLEAR_SUBJECT') {
       return res.status(422).json({

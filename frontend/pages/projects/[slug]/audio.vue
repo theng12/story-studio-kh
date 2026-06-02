@@ -15,8 +15,8 @@
       generate-label="Generate Audio"
       loading-label="Queuing…"
       :generate-loading="submitting"
-      :generate-disabled="!form.episode_id || !scriptReady"
-      :generate-status="audioGenerating ? `Generating audio for ${form.episode_id}…` : (form.episode_id && !scriptReady ? noScriptTooltip : '')"
+      :generate-disabled="!form.episode_id || !scriptReady || !form.voice"
+      :generate-status="audioJobActiveForEpisode ? `Generating audio for ${form.episode_id}…` : (form.episode_id && !scriptReady ? noScriptTooltip : (!form.voice ? 'Pick a voice first — there is no default.' : ''))"
       @generate="submit"
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
@@ -53,7 +53,7 @@
           <select v-model="form.model" class="select">
             <optgroup v-for="g in audioModelGroups" :key="g.provider" :label="g.label">
               <option v-for="m in g.items" :key="m.id" :value="m.id">
-                {{ m.data.label }} (${{ m.data.cost_per_1k_chars }}/1K chars)
+                {{ m.data.label }} {{ m.data.cost_per_1k_chars > 0 ? `($${m.data.cost_per_1k_chars}/1K chars)` : '(Free · local)' }}
               </option>
             </optgroup>
           </select>
@@ -67,6 +67,9 @@
             v-model="form.voice"
             :project-slug="slug"
             :custom-voices="config?.voice_presets || []"
+            :audio-model-provider="currentAudioProvider"
+            :audio-model-id="form.model"
+            require-selection
             class="voice-picker-flex"
             @preview="previewVoiceId"
           />
@@ -242,13 +245,59 @@ const slug = computed(() => route.params.slug as string)
 const { post, get } = useApi()
 const { project, config } = useProject()
 
+// v1.0.203+ — which Voice Studio engines the live modal can actually run.
+// Every voicestudio-* model is registered in the catalog so generation +
+// preview work, but we only SHOW the ones the modal reports available — so
+// the dropdown is dynamic: spin up Chatterbox/Qwen3 on the modal and it
+// appears here with zero app changes. `null` = not probed yet; `ok:false`
+// = modal offline → we fall back to showing every registered engine.
+const vsAvailable = ref<{ ok: boolean; ids: Set<string> } | null>(null)
+async function loadVoicestudioModels() {
+  try {
+    const data = await get<{ ok: boolean; models: { id: string }[] }>(`/voicestudio/models`)
+    vsAvailable.value = { ok: !!data.ok, ids: new Set((data.models || []).map(m => m.id)) }
+  } catch {
+    vsAvailable.value = { ok: false, ids: new Set() }
+  }
+}
+
+// The audio_models catalog with unavailable Voice Studio engines hidden.
+// Cloud models are never touched. Only filters when we have a definitive
+// OK probe; otherwise everything shows (never strand the user with an
+// empty/short dropdown because the modal blipped).
+const visibleAudioModels = computed<Record<string, any>>(() => {
+  const all = (config.value?.audio_models || {}) as Record<string, any>
+  const probe = vsAvailable.value
+  if (!probe || !probe.ok) return all
+  const out: Record<string, any> = {}
+  for (const [id, m] of Object.entries(all)) {
+    const isVoiceStudio = resolveAudioProvider(id, m) === 'voicestudio'
+    if (isVoiceStudio && !probe.ids.has(id)) continue
+    out[id] = m
+  }
+  return out
+})
+
 // Group the audio model catalog by TTS provider for the dropdown.
 const audioModelGroups = computed(() =>
-  groupModels<any>(config.value?.audio_models, (id, m) => resolveAudioProvider(id, m)),
+  groupModels<any>(visibleAudioModels.value, (id, m) => resolveAudioProvider(id, m)),
 )
+
+// v1.0.157 — `currentAudioProvider` computed + the cross-source voice
+// reset watcher moved BELOW the `form = reactive({...})` declaration
+// further down. v1.0.150 placed them here and v1.0.151-156 piled
+// further changes on top, but neither version actually touched the
+// audio page — the TDZ error stayed latent. `watch(currentAudioProvider, …)`
+// triggers Vue's dependency tracker, which calls the computed getter
+// once at setup() to register the source — and the getter reads
+// `form.model`, which throws ReferenceError because `form` (a `const`)
+// isn't initialized yet at this point in the script-setup body. Entire
+// setup() unwinds → blank Audio Generator page.
+
 const { success, info: showInfo, error: showError } = useToast()
 const { audioGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
+const { jobs } = useJobs()
 const submitting = ref(false)
 
 const form = reactive({
@@ -266,6 +315,48 @@ const form = reactive({
   // existing { force, no_overwrite } pair. Default 'skip' matches the old
   // default behaviour (force=false, no_overwrite=false).
   generation_mode: 'skip' as 'skip' | 'regenerate' | 'new_version',
+})
+
+// v1.0.150+ — resolve the provider of the currently-picked audio model so
+// the VoicePicker can surface the right voice section. Cloud providers
+// (elevenlabs / fal / genaipro) all share the ElevenLabs voice id space;
+// 'voicestudio' has its own UUID space, so the picker uses this signal
+// to gate which voices are compatible. Empty string means "no model yet"
+// → picker shows everything.
+//
+// v1.0.157 — moved BELOW the `form = reactive({...})` declaration. See
+// the placeholder comment above where this used to live (line ~250).
+const currentAudioProvider = computed<string>(() => {
+  if (!form.model) return ''
+  const entry = config.value?.audio_models?.[form.model] as any
+  return resolveAudioProvider(form.model, entry || {})
+})
+
+// v1.0.207+ — voice/model compatibility reconciliation now lives inside
+// VoicePicker (it has the catalogue + Voice Studio voice lists to judge
+// against). On a model change it keeps the voice if it's still usable and
+// clears + toasts only when it genuinely isn't — so loading a saved preset
+// no longer silently wipes a Voice Studio voice (the old coarse cloud↔local
+// watcher here did exactly that).
+
+// v1.0.115+ — per-episode "is an audio job in flight" computed. The
+// global `audioGenerating` (from useGenerating) stays true as long as
+// ANY audio job is queued/running in the app, so its status text was
+// leaking into pages where the current episode wasn't the one actually
+// generating. This narrows it to the episode currently selected here.
+const audioJobActiveForEpisode = computed(() => {
+  if (!form.episode_id) return false
+  return jobs.value.some((j: any) =>
+    j.episode_id === form.episode_id &&
+    j.project_slug === slug.value &&
+    j.type === 'audio' &&
+    (j.status === 'queued' || j.status === 'running'),
+  )
+})
+
+// Defensive — clear `submitting` on episode swap.
+watch(() => form.episode_id, (newEp, oldEp) => {
+  if (newEp !== oldEp) submitting.value = false
 })
 
 // Audio generation parses the narration .docx to know what sections to
@@ -345,6 +436,7 @@ async function applyAudioFormatDefaultsIfNoPreset() {
 onMounted(async () => {
   await applyAudioFormatDefaultsIfNoPreset()
   await audioPresets.load()
+  void loadVoicestudioModels()
 })
 
 // Effective section list = what the AudioChapterSelector says to actually
@@ -501,6 +593,13 @@ watch(() => form.episode_id, (v) => {
 
 // ── Main generation ────────────────────────────────────────────────────
 async function submit() {
+  // A voice MUST be explicitly picked — there is no default. This guards the
+  // programmatic path; the Generate button is also disabled until a voice is
+  // set. Prevents the silent "generated with the default voice" failure mode.
+  if (!form.voice) {
+    showError('Pick a voice first — audio generation needs an explicit voice (no default).')
+    return
+  }
   // Build the actual payload. If the user picked specific sections in the
   // selector, we send them as the comma-joined `sections` string the backend
   // already understands. If nothing is selected and they hit Generate, treat

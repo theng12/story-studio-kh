@@ -96,7 +96,7 @@ Every peer client that writes provider bytes to disk cleans up on error: [kie-cl
 
 Grep for `statfs`, `diskusage`, `check-disk-space`, `freemem`, `checkFreeSpace` across app source returns only `node_modules` matches. Neither [generators/video.ts](electron/server/generators/video.ts), [generators/audio-merge.ts](electron/server/generators/audio-merge.ts), nor [routes/pipeline.ts](electron/server/routes/pipeline.ts) checks free space before starting. A batch of 20 video assemblies at 1080p / high-quality averages ~500 MB–1 GB each; running on a 50 GB-free disk mid-batch fails halfway, *after* burning hours of FFmpeg encode time on episodes that then can't write. FFmpeg's own ENOSPC error is cryptic (and Session 07 M6 flagged that the stderr tail persisted into `jobs.json` is 5 lines truncated).
 
-The QA checklist ([QA_CHECKLIST.md:12](QA_CHECKLIST.md:12)) documents "Confirm at least 5 GB free disk space" as manual operator discipline — but no code enforces it. Node 18+ has `fs.statfs` built in; a pre-start check that sums `(num_episodes × estimated_per_episode_bytes) + 20%` against `statfs` on `PROJECTS_ROOT` would cost one filesystem call per batch submission.
+The QA checklist ([qa-checklist.md:12](../docs/operations/qa-checklist.md:12)) documents "Confirm at least 5 GB free disk space" as manual operator discipline — but no code enforces it. Node 18+ has `fs.statfs` built in; a pre-start check that sums `(num_episodes × estimated_per_episode_bytes) + 20%` against `statfs` on `PROJECTS_ROOT` would cost one filesystem call per batch submission.
 
 → **Fix-task spawned: "Fix: precheck free disk space before batch / video assembly"**
 
@@ -176,7 +176,7 @@ Not covered — each of these corresponds to a finding above:
 | 4 | Info | Stale `status: 'running'` persists on disk after restart until next write. | [job-queue.ts:228-234](electron/server/services/job-queue.ts:228) | — |
 | 5 | **High** | Orphan FFmpeg on Electron crash/force-quit. `before-quit` closes server but doesn't SIGTERM `childrenByJob`. No boot-time orphan reap. | [main.ts:287-289](electron/main.ts:287), [job-queue.ts:220-240](electron/server/services/job-queue.ts:220) | **Spawned** |
 | 6 | Medium | ElevenLabs `generateTtsToFile` `pipeline()` has no error cleanup — leaves partial MP3 that the skip-if-exists guard treats as valid. | [elevenlabs-client.ts:85-95](electron/server/lib/elevenlabs-client.ts:85), [audio.ts:201](electron/server/generators/audio.ts:201) | **Spawned** |
-| 7 | Medium | No pre-start disk-space check before batch / video assembly. 20×500 MB batch on a 10 GB-free disk fails halfway, burning hours. | (no code exists); [QA_CHECKLIST.md:12](QA_CHECKLIST.md:12) | **Spawned** |
+| 7 | Medium | No pre-start disk-space check before batch / video assembly. 20×500 MB batch on a 10 GB-free disk fails halfway, burning hours. | (no code exists); [qa-checklist.md:12](../docs/operations/qa-checklist.md:12) | **Spawned** |
 | 8 | Info | No auto-retry on failed jobs (matches Session 04 posture — leave as-is). | [job-queue.ts:321-332](electron/server/services/job-queue.ts:321) | — |
 | 9 | Info | Per-type concurrency = 1 globally. No output-collision risk found. | [job-queue.ts:153-177](electron/server/services/job-queue.ts:153) | — |
 | 10 | Info | Pipeline chain fires only on `running → done`; cancellations and failures halt the chain (correct). | [job-queue.ts:295-319](electron/server/services/job-queue.ts:295) | — |

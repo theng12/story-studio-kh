@@ -161,7 +161,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
       title: 'Test Episode',
       totalChapters: 12,
       wordsPerChapter: 500,
-      format: makeFormat('sleep-story'),
+      format: makeFormat('narrative'),
       systemPrompt: 'system',
       scriptDir,
       model: FAKE_MODEL,
@@ -175,7 +175,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     assert.equal(result.totalBatches, 4)
     // Every chapter docx is on disk.
     for (let n = 1; n <= 12; n++) {
-      assert.equal(existsSync(path.join(scriptDir, `EP0001_Chapter_${String(n).padStart(2, '0')}.docx`)), true,
+      assert.equal(existsSync(path.join(scriptDir, `EP0001_Chapter_${String(n).padStart(2, '0')}.md`)), true,
         `chapter ${n} docx should exist`)
     }
     // Sidecar reflects the final state.
@@ -193,7 +193,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     const job1 = makeJob(scriptDir)
     await generateNarrativeChunked(job1, {
       episode_id: 'EP0042', title: 'Resume Test', totalChapters: 6, wordsPerChapter: 500,
-      format: makeFormat('sleep-story'), systemPrompt: 'sys', scriptDir,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir,
       model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
     })
     const callsRun1 = fakeCalls.length
@@ -204,7 +204,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     const job2 = makeJob(scriptDir)
     const result = await generateNarrativeChunked(job2, {
       episode_id: 'EP0042', title: 'Resume Test', totalChapters: 6, wordsPerChapter: 500,
-      format: makeFormat('sleep-story'), systemPrompt: 'sys', scriptDir,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir,
       model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
     })
     assert.equal(fakeCalls.length, 0, 'fully-completed run does no LLM calls on resume')
@@ -225,13 +225,13 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     const job1 = makeJob(scriptDir)
     await generateNarrativeChunked(job1, {
       episode_id: 'EP0500', title: 'Zero Byte Test', totalChapters: 6, wordsPerChapter: 500,
-      format: makeFormat('sleep-story'), systemPrompt: 'sys', scriptDir,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir,
       model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
     })
     // Truncate chapter 4's docx — simulates the file system flushing the
     // metadata but not the content before the crash. File exists but is
     // 0 bytes.
-    const ch4Path = path.join(scriptDir, 'EP0500_Chapter_04.docx')
+    const ch4Path = path.join(scriptDir, 'EP0500_Chapter_04.md')
     assert.equal(existsSync(ch4Path), true, 'chapter 4 should exist after first run')
     await fs.writeFile(ch4Path, '')
     const truncatedSize = (await fs.stat(ch4Path)).size
@@ -241,7 +241,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     const job2 = makeJob(scriptDir)
     const result = await generateNarrativeChunked(job2, {
       episode_id: 'EP0500', title: 'Zero Byte Test', totalChapters: 6, wordsPerChapter: 500,
-      format: makeFormat('sleep-story'), systemPrompt: 'sys', scriptDir,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir,
       model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
     })
     // Post-fix: resume notices chapter 4 is 0 bytes, drops it, re-runs
@@ -267,7 +267,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     await assert.rejects(
       generateNarrativeChunked(job1, {
         episode_id: 'EP0099', title: 'Cancel Test', totalChapters: 9, wordsPerChapter: 500,
-        format: makeFormat('sleep-story'), systemPrompt: 'sys', scriptDir,
+        format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir,
         model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
       }),
       /Cancelled by user/,
@@ -282,7 +282,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     const job2 = makeJob(scriptDir)
     const result = await generateNarrativeChunked(job2, {
       episode_id: 'EP0099', title: 'Cancel Test', totalChapters: 9, wordsPerChapter: 500,
-      format: makeFormat('sleep-story'), systemPrompt: 'sys', scriptDir,
+      format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir,
       model: FAKE_MODEL, apiKeys: { anthropic_api_key: 'fake' },
     })
     // 9 - 6 = 3 chapters left, batch size 3 = 1 expansion call. NO outline
@@ -314,7 +314,7 @@ describe('generateListicleChunked — end-to-end with fake provider', () => {
     // Every chapter docx exists. Order is irrelevant for correctness
     // (assembly sorts by `n`); we assert presence not call sequence.
     for (let n = 1; n <= 24; n++) {
-      assert.equal(existsSync(path.join(scriptDir, `EP1001_Chapter_${String(n).padStart(2, '0')}.docx`)), true)
+      assert.equal(existsSync(path.join(scriptDir, `EP1001_Chapter_${String(n).padStart(2, '0')}.md`)), true)
     }
   })
 

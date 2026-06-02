@@ -92,7 +92,7 @@ export function toPortablePath(abs: string, projectOutputRoot?: string): string 
   }
 
   // Choose the longest matching root so nested mappings (e.g.
-  // SHARED_ASSETS → /foo and TERRANASH → /foo/TerraNash) pick the
+  // SHARED_ASSETS → /foo and CHANNEL_ASSETS → /foo/channel) pick the
   // most specific one.
   const roots = Object.entries(listNamedRoots())
     .filter(([, v]) => path.isAbsolute(v))

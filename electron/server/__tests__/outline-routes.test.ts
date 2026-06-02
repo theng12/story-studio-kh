@@ -61,9 +61,10 @@ before(async () => {
   assert.equal(proj.status, 201)
   slug = proj.body.slug
 
-  // API key gate.
+  // API key gate. (Direct Anthropic was retired in v1.0.235; use a kie.ai
+  // key — Claude now routes through kie.ai — so the text-key guard passes.)
   await request(app).put(`/api/projects/${slug}/settings/api-keys`).send({
-    anthropic_api_key: 'sk-test-not-real',
+    kie_api_key: 'sk-test-not-real',
   })
 
   const { resolveEpisodePaths } = await import('../services/utils.js')
@@ -274,7 +275,7 @@ describe('POST /expand-chapters — chapters[] validation', () => {
     await createSidecar({ approved: true })
     const res = await request(app)
       .post(`/api/projects/${slug}/generate/expand-chapters`)
-      .send({ episode_id: EPISODE_ID, title: TITLE, chapters: 'all' })
+      .send({ episode_id: EPISODE_ID, title: TITLE, chapters_to_expand: 'all' })
     assert.equal(res.status, 400)
     assert.match(res.body.detail, /must be an array/)
   })
@@ -283,7 +284,7 @@ describe('POST /expand-chapters — chapters[] validation', () => {
     await createSidecar({ approved: true })
     const res = await request(app)
       .post(`/api/projects/${slug}/generate/expand-chapters`)
-      .send({ episode_id: EPISODE_ID, title: TITLE, chapters: [1, 99] })
+      .send({ episode_id: EPISODE_ID, title: TITLE, chapters_to_expand: [1, 99] })
     assert.equal(res.status, 400)
     assert.match(res.body.detail, /Invalid chapter number/)
   })
@@ -292,7 +293,7 @@ describe('POST /expand-chapters — chapters[] validation', () => {
     await createSidecar({ approved: true })
     const res = await request(app)
       .post(`/api/projects/${slug}/generate/expand-chapters`)
-      .send({ episode_id: EPISODE_ID, title: TITLE, chapters: [1.5] })
+      .send({ episode_id: EPISODE_ID, title: TITLE, chapters_to_expand: [1.5] })
     assert.equal(res.status, 400)
     assert.match(res.body.detail, /Invalid chapter number/)
   })
@@ -301,7 +302,7 @@ describe('POST /expand-chapters — chapters[] validation', () => {
     await createSidecar({ approved: true })
     const res = await request(app)
       .post(`/api/projects/${slug}/generate/expand-chapters`)
-      .send({ episode_id: EPISODE_ID, title: TITLE, chapters: ['abc'] })
+      .send({ episode_id: EPISODE_ID, title: TITLE, chapters_to_expand: ['abc'] })
     assert.equal(res.status, 400)
     assert.match(res.body.detail, /Invalid chapter number/)
   })
@@ -310,7 +311,7 @@ describe('POST /expand-chapters — chapters[] validation', () => {
     await createSidecar({ approved: true })
     const res = await request(app)
       .post(`/api/projects/${slug}/generate/expand-chapters`)
-      .send({ episode_id: EPISODE_ID, title: TITLE, chapters: [1, 3] })
+      .send({ episode_id: EPISODE_ID, title: TITLE, chapters_to_expand: [1, 3] })
     assert.equal(res.status, 201, `expected 201, got ${res.status} body=${JSON.stringify(res.body)}`)
     assert.ok(res.body.job_id, 'must return a job_id')
     // Cancel the queued job so it doesn't keep running in the test process.

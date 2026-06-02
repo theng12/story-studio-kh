@@ -1,0 +1,183 @@
+/**
+ * Scene Plan routes for the timestamp-driven pipeline (v1.0.143+).
+ *
+ *   POST /api/projects/:slug/scene-plan/:episodeId/stitch-subtitles
+ *   POST /api/projects/:slug/scene-plan/:episodeId/run
+ *   GET  /api/projects/:slug/scene-plan/:episodeId
+ *   PUT  /api/projects/:slug/scene-plan/:episodeId
+ *   DELETE /api/projects/:slug/scene-plan/:episodeId
+ */
+
+import { Router } from 'express'
+import fs from 'fs/promises'
+import { existsSync } from 'fs'
+import path from 'path'
+import * as pm from '../services/project-manager.js'
+import * as jq from '../services/job-queue.js'
+import { resolveEpisodePathsByCode } from '../services/utils.js'
+import { resolveResearchPaths } from '../lib/research-paths.js'
+import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { stitchSubtitles } from '../services/subtitle-stitcher.js'
+import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
+import type { JobType, ScenePlan } from '../models/types.js'
+
+export const router = Router()
+
+// ── POST /scene-plan/:ep/stitch-subtitles ─────────────────────────────
+// Synchronous (no job queue) — the stitch is just file I/O + math,
+// completes in <1s even for long episodes. Returns the result body
+// directly so the frontend can render the cue count without polling.
+router.post('/projects/:slug/scene-plan/:episodeId/stitch-subtitles', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const result = await stitchSubtitles({
+      episode_dir: paths.episode_dir,
+      subtitles_dir: paths.subtitles_dir,
+      episode_code: episodeId.toUpperCase(),
+    })
+    res.json(result)
+  } catch (e: any) {
+    res.status(400).json(humanizeBackendError(e, 'Subtitle stitching failed'))
+  }
+})
+
+// ── POST /scene-plan/:ep/run ──────────────────────────────────────────
+router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+  const body = req.body || {}
+  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  if (!model) return res.status(400).json({ detail: 'model is required' })
+
+  const targetSceneCount = typeof body.target_scene_count === 'number' ? body.target_scene_count : undefined
+  const useResearch = body.use_research === false ? false : true  // default true
+  const title = typeof body.title === 'string' ? body.title : ''
+  // v1.0.242 — visual-prompt detail level (1–4) + global style + custom text.
+  const detailLevel = typeof body.detail_level === 'number'
+    ? Math.min(4, Math.max(1, Math.round(body.detail_level)))
+    : undefined
+  const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
+  const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
+
+  if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
+    return res.status(409).json({ detail: `Scene plan already running for ${episodeId}` })
+  }
+
+  const job = jq.enqueue({
+    project_slug: slug,
+    type: 'scene_plan_run' as JobType,
+    episode_id: episodeId,
+    title: `Plan scenes — ${episodeId}`,
+    params: {
+      episode_id: episodeId,
+      title,
+      model,
+      target_scene_count: targetSceneCount,
+      use_research: useResearch,
+      detail_level: detailLevel,
+      style_prompt: stylePrompt || undefined,
+      custom_instructions: customInstructions || undefined,
+    },
+  })
+  res.status(201).json(job)
+})
+
+// ── GET /scene-plan/:ep ───────────────────────────────────────────────
+// Returns the existing plan + status flags so the page can render the
+// 3-step wizard correctly (stitch ready? plan ready? drift?).
+router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const stitchedSrtPath = path.join(paths.subtitles_dir, `${episodeId.toUpperCase()}_stitched.srt`)
+    const stitchedMetaPath = `${stitchedSrtPath}.json`
+    const scenePlanPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
+    const researchPath = (await resolveResearchPaths(paths.episode_dir, episodeId)).jsonPath
+    const audioChaptersPath = path.join(paths.episode_dir, 'audio_chapters.json')
+
+    let stitchedMeta: any = null
+    let scenePlan: ScenePlan | null = null
+    let audioMergeGap: number | null = null
+
+    if (existsSync(stitchedMetaPath)) {
+      try { stitchedMeta = JSON.parse(await fs.readFile(stitchedMetaPath, 'utf-8')) } catch { /* ignore */ }
+    }
+    if (existsSync(scenePlanPath)) {
+      try { scenePlan = JSON.parse(await fs.readFile(scenePlanPath, 'utf-8')) as ScenePlan } catch { /* ignore */ }
+    }
+    if (existsSync(audioChaptersPath)) {
+      try {
+        const a = JSON.parse(await fs.readFile(audioChaptersPath, 'utf-8'))
+        if (typeof a?.gap_duration_s === 'number') audioMergeGap = a.gap_duration_s
+      } catch { /* ignore */ }
+    }
+
+    // Drift flag: stitched-SRT was built against a different gap than
+    // the current audio_chapters.json gap. UI surfaces "re-stitch
+    // recommended" so the timing stays accurate.
+    let stitchedDrift = false
+    if (stitchedMeta && typeof stitchedMeta.gap_duration_s === 'number' && audioMergeGap !== null) {
+      if (stitchedMeta.gap_duration_s !== audioMergeGap) stitchedDrift = true
+    }
+
+    res.json({
+      stitched_srt: existsSync(stitchedSrtPath) ? {
+        path: stitchedSrtPath,
+        meta: stitchedMeta,
+        drifts_from_current_merge: stitchedDrift,
+      } : null,
+      scene_plan: scenePlan,
+      audio_merged: existsSync(audioChaptersPath),
+      audio_merge_gap_s: audioMergeGap,
+      research_available: existsSync(researchPath),
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to read scene plan status'))
+  }
+})
+
+// ── PUT /scene-plan/:ep ───────────────────────────────────────────────
+router.put('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+  const body = req.body as Partial<ScenePlan> | undefined
+  if (!body || body.schema_version !== 1) {
+    return res.status(400).json({ detail: 'Invalid scene plan payload (missing schema_version: 1)' })
+  }
+  if (!Array.isArray(body.scenes)) {
+    return res.status(400).json({ detail: 'Invalid scene plan payload (scenes must be an array)' })
+  }
+
+  try {
+    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    await fs.mkdir(paths.episode_dir, { recursive: true })
+    const sidecarPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
+    await fs.writeFile(sidecarPath, JSON.stringify(body, null, 2), 'utf-8')
+    res.json({ ok: true, sidecar_path: sidecarPath })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save scene plan'))
+  }
+})
+
+// ── DELETE /scene-plan/:ep ────────────────────────────────────────────
+router.delete('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const sidecarPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
+    try {
+      await fs.unlink(sidecarPath)
+    } catch (e: any) {
+      if (e?.code !== 'ENOENT') throw e
+    }
+    res.json({ ok: true })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to delete scene plan'))
+  }
+})

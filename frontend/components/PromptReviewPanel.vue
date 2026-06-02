@@ -25,7 +25,7 @@
       {{ error }}
     </div>
     <template v-else>
-      <ul v-if="scenes.length" class="prp-list" role="list">
+      <ul v-if="scenes.length && showScenes" class="prp-list" role="list">
         <li class="prp-section">
           Scenes
           <span v-if="scenes.length > SCENES_PAGE_SIZE" class="prp-section-meta">
@@ -85,7 +85,7 @@
           </select>
         </li>
       </ul>
-      <ul v-if="thumbnails.length" class="prp-list" role="list">
+      <ul v-if="thumbnails.length && showThumbs" class="prp-list" role="list">
         <li class="prp-section">Thumbnails</li>
         <li v-for="row in thumbnails" :key="`t-${row.number}`" class="prp-row">
           <PromptRow
@@ -98,8 +98,8 @@
           />
         </li>
       </ul>
-      <div v-if="!scenes.length && !thumbnails.length" class="text-muted text-md prp-status">
-        No prompts found yet. Click Generate above first.
+      <div v-if="(showScenes && !scenes.length && pool === 'scenes') || (showThumbs && !thumbnails.length && pool === 'thumbnails') || (!scenes.length && !thumbnails.length)" class="text-muted text-md prp-status">
+        No {{ pool === 'scenes' ? 'scene' : pool === 'thumbnails' ? 'thumbnail' : '' }} prompts found yet. Click Generate above first.
       </div>
     </template>
   </div>
@@ -134,10 +134,17 @@ const props = defineProps<{
   /** Friendly model labels for the row tooltips ("Seedream", etc.). */
   sceneModelLabel?: string
   thumbnailModelLabel?: string
+  /** v1.0.209 — which pool to show. The split Thumbnail-Prompts /
+   *  Scene-Prompts pages pass 'thumbnails' / 'scenes' so each only lists +
+   *  regenerates its own pool. Defaults to 'all' (both) for any other use. */
+  pool?: 'scenes' | 'thumbnails' | 'all'
 }>()
 
 const { get, post } = useApi()
 const { success, error: showError } = useToast()
+
+const showScenes = computed(() => (props.pool ?? 'all') !== 'thumbnails')
+const showThumbs = computed(() => (props.pool ?? 'all') !== 'scenes')
 
 const scenes = ref<PromptRowData[]>([])
 const thumbnails = ref<PromptRowData[]>([])

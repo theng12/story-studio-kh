@@ -5,27 +5,10 @@
       <h1 class="page-title">Video Assembly</h1>
     </div>
 
-    <!-- v1.0.114 — wrong-page redirect banner for B-Roll formats. The
-         scenes-based Video Assembly pipeline hard-errors with "At least
-         1 scene image is required" because broll projects never generate
-         scene images. The dedicated B-Roll Video page handles both clip
-         selection and final assembly for those formats. Banner offers a
-         one-click jump instead of leaving the user stuck. -->
-    <div v-if="isBrollFormat" class="card wrong-pipeline-banner">
-      <div class="wpb-icon" aria-hidden="true">🎬</div>
-      <div class="wpb-body">
-        <div class="wpb-title">This project uses B-Roll, not scene images.</div>
-        <div class="wpb-text">
-          The Video Assembly page is for scene-based formats — it can't render
-          this project because it requires at least one scene image. Use the
-          <strong>B-Roll Video</strong> page instead, which handles both clip
-          selection and the final video assembly.
-        </div>
-        <NuxtLink :to="`/projects/${slug}/broll`" class="btn btn-primary wpb-cta">
-          Go to B-Roll Video →
-        </NuxtLink>
-      </div>
-    </div>
+    <!-- v1.0.115+ — tabbed pipeline switcher. Replaces the v1.0.114
+         wrong-pipeline banner. Both pipelines are accessible from either
+         tab, regardless of project format — the user picks. -->
+    <VideoPipelineTabs />
 
     <TopActionBar
       :project-slug="slug"
@@ -851,12 +834,13 @@
         <div class="effects-controls-scroll">
 
       <!-- ─── Video Layout (v1.0.63+ / Path C) ─────────────────────────
-           Picks between the standard scene-clip pipeline (sleep stories)
-           and the inverted compilation layout (BrainWise / listicle:
-           looping background plate as base, per-chapter foreground icons
-           composited on top with chapter-aligned timing). The card is at
-           the very top of Step 4 because the choice changes how every
-           OTHER setting on this page applies. -->
+           Picks between the standard scene-clip pipeline (narrative /
+           scene-images flow) and the inverted compilation layout
+           (BrainWise / listicle: looping background plate as base,
+           per-chapter foreground icons composited on top with
+           chapter-aligned timing). The card is at the very top of
+           Step 4 because the choice changes how every OTHER setting
+           on this page applies. -->
       <div class="settings-section mt-1" style="border: 2px solid var(--accent); border-radius: 8px; padding: 12px;">
         <div class="flex gap-2 items-center">
           <h4 style="margin: 0;">📐 Video Layout</h4>
@@ -1581,7 +1565,7 @@
         <label class="checkbox-label">
           <input type="checkbox" v-model="alignVisualsToChapters" />
           <strong>Align scenes to {{ sectionLabel.singular }} audio</strong>
-          <span class="text-muted text-xs"> (off for sleep stories)</span>
+          <span class="text-muted text-xs"> (typically off for evenly-paced narrative; on for listicle / structured-section formats)</span>
         </label>
         <p class="text-muted text-xs hint-line">
           When ON, scenes generated for {{ sectionLabel.singular }} N play during {{ sectionLabel.singular }} N's narration —
@@ -1896,81 +1880,20 @@
       </div>
 
       <div v-if="subtitles.enabled" class="mt-2">
-        <!-- Source tabs -->
+        <!-- v1.0.216+ — Subtitle CREATION moved to the dedicated Subtitles
+             tab. Video Assembly only picks which SRT to burn in + styles it. -->
         <div class="settings-section">
-          <h4>Source</h4>
-          <div class="flex gap-2 mt-1">
-            <button :class="['btn btn-sm', subtitles.source === 'chapters' ? 'btn-primary' : 'btn-secondary']"
-              @click="subtitles.source = 'chapters'">Auto from chapters</button>
-            <button :class="['btn btn-sm', subtitles.source === 'upload' ? 'btn-primary' : 'btn-secondary']"
-              @click="subtitles.source = 'upload'">Import .srt / .vtt</button>
-            <button :class="['btn btn-sm', subtitles.source === 'whisper' ? 'btn-primary' : 'btn-secondary']"
-              @click="subtitles.source = 'whisper'">Transcribe (Whisper)</button>
-          </div>
-
-          <!-- Chapters -->
-          <div v-if="subtitles.source === 'chapters'" class="mt-2">
-            <p class="text-muted text-sm">
-              Derives one cue per chapter from the individual chapter audio files — fast, free, chapter-level only.
-            </p>
-            <p v-if="subtitlesStatus && !subtitlesStatus.has_chapter_audio"
-               class="validation-msg text-sm">
-              No chapter audio files found. Either run Audio Generator for this episode or pick a different source.
-            </p>
-            <button class="btn btn-sm btn-secondary mt-1"
-              :disabled="subtitlesGenerating || !episodeId || !subtitlesStatus?.has_chapter_audio"
-              @click="generateFromChapters">
-              {{ subtitlesGenerating ? 'Generating…' : 'Generate SRT from chapters' }}
-            </button>
-          </div>
-
-          <!-- Upload -->
-          <div v-if="subtitles.source === 'upload'" class="mt-2">
-            <p class="text-muted text-sm">Pick a subtitle file from disk — we'll copy and normalize it.</p>
-            <div class="flex gap-2 mt-1 items-center">
-              <FilePicker
-                v-model="subtitleUploadPath"
-                placeholder="/path/to/subtitles.srt"
-                :filters="[{ name: 'Subtitles', extensions: ['srt', 'vtt'] }]"
-                title="Choose a subtitle file"
-                clearable
-              />
-              <button class="btn btn-sm btn-primary"
-                :disabled="subtitlesGenerating || !subtitleUploadPath || !episodeId"
-                @click="importSubtitles">
-                {{ subtitlesGenerating ? 'Importing…' : 'Import' }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Whisper -->
-          <div v-if="subtitles.source === 'whisper'" class="mt-2">
-            <p class="text-muted text-sm">
-              Transcribes the merged audio via OpenAI Whisper. Gives word-level captions. Costs ~$0.006 per minute of audio.
-            </p>
-            <p v-if="subtitlesStatus && !subtitlesStatus.has_openai_key"
-               class="validation-msg text-sm">
-              OpenAI API key not set. Add one under Settings → API Keys.
-            </p>
-            <p v-if="subtitlesStatus && !subtitlesStatus.has_merged_audio"
-               class="validation-msg text-sm">
-              No merged audio file found. Run Audio Assembly for this episode first.
-            </p>
-            <p v-if="hasExistingWhisperSrt" class="text-muted text-sm">
-              <strong>{{ existingWhisperSrtName }}</strong> already exists — the job will skip
-              the (paid) Whisper API and reuse it. Tick below to re-run with a fresh charge.
-            </p>
-            <label v-if="hasExistingWhisperSrt"
-                   class="flex items-center gap-1 mt-1 text-sm">
-              <input type="checkbox" v-model="whisperForce" />
-              Re-run transcription (charges Whisper API again)
-            </label>
-            <button class="btn btn-sm btn-secondary mt-1"
-              :disabled="subtitlesGenerating || !episodeId || !subtitlesStatus?.has_merged_audio || !subtitlesStatus?.has_openai_key"
-              @click="transcribeWithWhisper">
-              {{ subtitlesGenerating ? 'Queued — check Jobs panel' : (hasExistingWhisperSrt && !whisperForce ? 'Reuse existing transcript' : 'Transcribe now') }}
-            </button>
-          </div>
+          <h4>Subtitle file</h4>
+          <p class="text-muted text-sm">
+            Create or transcribe subtitles in the
+            <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">Subtitles tab</NuxtLink>
+            (per-chapter Whisper, from chapters, or import), then pick the file to burn in below.
+          </p>
+          <p v-if="!subtitles.srt_path && !subtitlesStatus?.existing_srts?.length"
+             class="validation-msg text-sm mt-2">
+            No subtitle files for this episode yet — create them in the
+            <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">Subtitles tab</NuxtLink> first.
+          </p>
 
           <!-- Current SRT -->
           <div v-if="subtitles.srt_path" class="text-sm mt-2">
@@ -2408,7 +2331,7 @@ const { confirmGeneration } = useConfirmation()
 // "Per-scene reason assignments", a listicle project sees "Per-scene
 // topic assignments", etc. Reactive on project meta change.
 const { project: vaProject } = useProject()
-const vaFormatId = ref<string>('sleep-story')
+const vaFormatId = ref<string>('narrative')
 watch(vaProject, (p) => {
   if (!p) return
   const id = (p as any).format_id
@@ -2418,7 +2341,7 @@ watch(vaProject, (p) => {
     // v1.0.102+ — see scripts.vue for rationale. Defensive fallback;
     // logs to console so the case is debuggable when it fires.
     console.warn('[video-assembly.vue] project.format_id missing — falling back to sleep-story for section labels. Set a format in Settings → Format if this is unexpected.')
-    vaFormatId.value = 'sleep-story'
+    vaFormatId.value = 'narrative'
   }
 }, { immediate: true })
 const sectionLabel = useSectionLabel(vaFormatId)
@@ -3290,8 +3213,6 @@ const subtitles = reactive({
   },
 })
 
-const subtitleUploadPath = ref('')
-const subtitlesGenerating = ref(false)
 const subtitlesStatus = ref<{
   has_libass: boolean
   has_merged_audio: boolean
@@ -3320,78 +3241,9 @@ async function loadSubtitlesStatus() {
   } catch { /* non-fatal */ }
 }
 
-async function generateFromChapters() {
-  if (!episodeId.value) return
-  subtitlesGenerating.value = true
-  try {
-    const r = await post<{ srt_path: string; cues: number }>(
-      `/projects/${slug.value}/video-editor/subtitles/from-chapters/${episodeId.value}`,
-      { gap_sec: 5 },
-    )
-    subtitles.srt_path = r.srt_path
-    success(`Generated ${r.cues} chapter cues`)
-    await loadSubtitlesStatus()
-  } catch (e: any) {
-    showError(e.data?.detail || 'Chapter subtitles failed')
-  } finally {
-    subtitlesGenerating.value = false
-  }
-}
-
-async function importSubtitles() {
-  if (!episodeId.value || !subtitleUploadPath.value) return
-  subtitlesGenerating.value = true
-  try {
-    const r = await post<{ srt_path: string; cues: number; warnings: string[] }>(
-      `/projects/${slug.value}/video-editor/subtitles/import/${episodeId.value}`,
-      { source_path: subtitleUploadPath.value },
-    )
-    subtitles.srt_path = r.srt_path
-    success(`Imported ${r.cues} cues${r.warnings?.length ? ` (${r.warnings.length} warnings)` : ''}`)
-    subtitleUploadPath.value = ''
-    await loadSubtitlesStatus()
-  } catch (e: any) {
-    showError(e.data?.detail || 'Import failed')
-  } finally {
-    subtitlesGenerating.value = false
-  }
-}
-
-// Whether a previous Whisper SRT (`{code}_whisper.srt`) already exists for
-// this episode — the backend skips re-billing in that case unless `force`
-// is true, so the UI surfaces that explicitly.
-const hasExistingWhisperSrt = computed(() => {
-  const list = subtitlesStatus.value?.existing_srts || []
-  return list.some(s => /_whisper\.srt$/i.test(s.filename))
-})
-const existingWhisperSrtName = computed(() => {
-  const list = subtitlesStatus.value?.existing_srts || []
-  const found = list.find(s => /_whisper\.srt$/i.test(s.filename))
-  return found?.filename || ''
-})
-const whisperForce = ref(false)
-
-async function transcribeWithWhisper() {
-  if (!episodeId.value) return
-  subtitlesGenerating.value = true
-  try {
-    await post(
-      `/projects/${slug.value}/video-editor/subtitles/transcribe/${episodeId.value}`,
-      { language: 'en', force: whisperForce.value },
-    )
-    success(
-      hasExistingWhisperSrt.value && !whisperForce.value
-        ? 'Existing transcript will be reused — no Whisper charge'
-        : 'Whisper transcription queued — check Jobs panel for progress'
-    )
-    // We don't set srt_path here because the job is async. The user reloads
-    // the status pill when the job finishes and can then pick the SRT.
-  } catch (e: any) {
-    showError(e.data?.detail || 'Failed to queue transcription')
-  } finally {
-    subtitlesGenerating.value = false
-  }
-}
+// v1.0.216 — subtitle CREATION (from-chapters / import / Whisper transcribe)
+// moved to the dedicated Subtitles tab. Video Assembly only reads the existing
+// SRT list (via loadSubtitlesStatus above) to let the user pick one to burn in.
 
 const titleCardOpen = ref(false)
 const chapterTitlesOpen = ref(false)
@@ -4695,6 +4547,44 @@ function handleWizardShortcut(e: KeyboardEvent) {
   }
 }
 
+// v1.0.115+ — Episode-switch reset for the in-flight panel.
+//
+// Bug fixed: previously, submitting a video_assembly job for episode A
+// and then switching to episode B in the same EpisodeSelector left
+// `generating` true, `activeJobId` pinned to A's job, and the progress
+// panel still streaming A's output_lines — even though `selectedEpisode`
+// and `episodeId` had moved to B. The Generate button stayed in
+// "Rendering…" state for B and was unclickable until the user navigated
+// away from /video-assembly and back (which remounts the page and resets
+// the local refs to their initial values).
+//
+// Fix: watch `episodeId` and on any change, clear the in-flight refs.
+// If the new episode ALSO has a video_assembly job in flight, reattach
+// to it so the panel + button reflect the actual state of the newly-
+// selected episode (instead of forcing the user to wait for the
+// fingerprint watcher below to opportunistically pick it up — which it
+// wouldn't, because `activeJobId` was still pointing at the old job).
+watch(episodeId, (newEp, oldEp) => {
+  if (newEp === oldEp) return
+  generating.value = false
+  activeJobId.value = null
+  jobOutput.value = []
+  activeJobProgress.value = 0
+  if (!newEp) return
+  const job = allJobs.value.find(j =>
+    j.episode_id === newEp &&
+    j.project_slug === slug.value &&
+    j.type === 'video_assembly' &&
+    (j.status === 'queued' || j.status === 'running'),
+  )
+  if (job) {
+    generating.value = true
+    activeJobId.value = job.job_id
+    jobOutput.value = [...(job.output_lines || [])]
+    activeJobProgress.value = typeof job.progress === 'number' ? job.progress : 0
+  }
+})
+
 // Mirror the active video-assembly job onto the wizard's in-flight panel.
 // useJobs() streams updates via SSE, so every push to `output_lines` on
 // the backend shows up here within one tick. We flip `generating` off
@@ -4764,16 +4654,9 @@ watch(activeJobFingerprint, async () => {
 // ambient bed.
 const formatDefaultTimelineClipDurationSec = ref<number>(7200)
 
-// v1.0.114 — surfaces the wrong-pipeline banner above the page content
-// when the project's format declares `visualSource: 'broll'`. Set inside
-// applyVideoFormatDefaultsIfNoPreset (which already fetches the format)
-// so we don't add a second roundtrip.
-const isBrollFormat = ref<boolean>(false)
-
 async function applyVideoFormatDefaultsIfNoPreset() {
   try {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)
-    isBrollFormat.value = f?.visualSource === 'broll'
     const v = f?.script?.videoDefaults
     if (!v) return
     if (typeof v.secondsPerScene === 'number' && v.secondsPerScene > 0) {
@@ -4837,26 +4720,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* v1.0.114 — Wrong-pipeline banner shown above the page when the project's
-   format declares visualSource: 'broll'. Same visual weight as the
-   bundle-path-check banner below so the user immediately reads it as
-   "important context before you do anything else on this page." */
-.wrong-pipeline-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  margin: 12px 0 16px;
-  padding: 14px 16px;
-  border-left: 3px solid #6ea8fe;
-  background: rgba(110, 168, 254, 0.08);
-}
-.wpb-icon { font-size: 22px; line-height: 1; padding-top: 2px; }
-.wpb-body { flex: 1; min-width: 0; }
-.wpb-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
-.wpb-text { font-size: 13px; line-height: 1.5; color: var(--text-secondary, #b3b3bb); margin-bottom: 10px; }
-.wpb-text strong { color: var(--text-primary, #e8e8ea); }
-.wpb-cta { font-size: 13px; }
-
 /* ── Inline-style sweep helpers (2026-05-02) ─────────────────────────────
  * The cluster below replaced ~135 inline `style="..."` blocks. They keep
  * the existing visuals 1:1 — the only goal is to make the markup re-themable

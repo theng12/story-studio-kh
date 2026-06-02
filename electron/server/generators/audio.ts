@@ -12,9 +12,12 @@ import { generateTts as generateTtsFal, downloadAudio } from '../lib/fal-client.
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { generateTts as generateTtsGenaipro } from '../lib/genaipro-client.js'
 import { generateTtsToFile as generateTtsElevenLabs } from '../lib/elevenlabs-client.js'
-import { generateTtsToFile as generateTtsChatterbox } from '../providers/audio/chatterbox.js'
+// v1.0.149+ — Voice Studio KH (Pinokio FastAPI wrapper, multi-engine).
+// v1.0.150+ — superseded the standalone Chatterbox helper entirely;
+// Chatterbox-mlx is reachable through Voice Studio's family list now.
+import { generateTtsToFile as generateTtsVoiceStudio } from '../providers/audio/voicestudio.js'
+import { DEFAULT_VOICESTUDIO_BASE_URL } from '../lib/voicestudio-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { DEFAULT_CHATTERBOX_BASE_URL } from '../lib/chatterbox-client.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
@@ -28,7 +31,7 @@ import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
 
-type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'chatterbox'
+type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio'
 
 /**
  * Pick the TTS provider for a given model. Prefers the explicit `provider`
@@ -44,7 +47,7 @@ function resolveAudioProvider(
   if (typeof modelId === 'string') {
     if (modelId.startsWith('eleven_')) return 'elevenlabs'
     if (modelId.startsWith('genaipro-')) return 'genaipro'
-    if (modelId.startsWith('chatterbox-')) return 'chatterbox'
+    if (modelId.startsWith('voicestudio-')) return 'voicestudio'
   }
   return 'fal'
 }
@@ -73,7 +76,9 @@ export class NarrationMissingError extends Error {
 
 export async function findNarrationFile(slug: string, episodeId: string): Promise<string> {
   const code = episodeId.toUpperCase()
-  const filename = `${code}_Script_Narration.docx`
+  // Prefer the Markdown narration; fall back to a legacy .docx.
+  const filename = `${code}_Script_Narration.md`
+  const candidates = new Set([filename, `${code}_Script_Narration.docx`])
 
   const outputRoot = await pm.getProjectOutputRoot(slug)
   if (!outputRoot) throw new Error('Project directory not found')
@@ -81,11 +86,15 @@ export async function findNarrationFile(slug: string, episodeId: string): Promis
   async function findRecursive(dir: string): Promise<string | null> {
     try {
       const entries = await fs.readdir(dir, { withFileTypes: true })
+      // Within a directory, a present .md wins over a sibling .docx.
+      const names = entries.filter(e => e.isFile()).map(e => e.name)
+      if (names.includes(filename)) return path.join(dir, filename)
+      for (const name of names) {
+        if (candidates.has(name)) return path.join(dir, name)
+      }
       for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name)
-        if (entry.isFile() && entry.name === filename) return fullPath
         if (entry.isDirectory()) {
-          const found = await findRecursive(fullPath)
+          const found = await findRecursive(path.join(dir, entry.name))
           if (found) return found
         }
       }
@@ -128,33 +137,27 @@ export async function generateAudio(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as GenerateAudioRequest
 
-  // Load the project's effective brand once. Two downstream consumers
-  // need it: the voice-fallback below, and the lexicon substitution
-  // applied to parsed sections further down. Best-effort — a brand
-  // load failure must never break audio generation.
+  // Load the project's effective brand once for the lexicon substitution
+  // applied to parsed sections further down. Best-effort — a brand load
+  // failure must never break audio generation.
   let brand: import('../models/types.js').Brand | null = null
   try {
     const { getEffectiveBrand } = await import('../services/brand-loader.js')
     brand = await getEffectiveBrand(project_slug)
   } catch { /* brand layer must never break audio generation */ }
 
-  // Brand fallback for voice: when the request didn't pin a voice id,
-  // use the project's brand-default voice (and any default settings).
-  // Episode/per-character overrides downstream still win — this only
-  // covers the "user didn't pick a voice" path that would otherwise
-  // depend on the provider's hardcoded default.
-  if ((!req.voice || !String(req.voice).trim()) && brand) {
-    const fallbackVoice = brand.narration?.default_voice_id?.trim()
-    if (fallbackVoice) {
-      req.voice = fallbackVoice
-      const settings = brand.narration?.default_voice_settings
-      if (settings) {
-        if (typeof settings.stability === 'number' && req.stability === undefined) req.stability = settings.stability
-        if (typeof settings.similarity === 'number' && req.similarity === undefined) req.similarity = settings.similarity
-        if (typeof settings.speed === 'number' && req.speed === undefined) req.speed = settings.speed
-      }
-      job.output_lines.push(`Voice fallback from brand: ${fallbackVoice}`)
-    }
+  // No silent defaults (v1.0.210+): a voice MUST be explicitly chosen.
+  // The Audio tab requires a pick before Generate, and pipeline runs carry
+  // the voice from each step's saved preset (the pipeline pre-flight also
+  // rejects a voiceless audio preset). If we still arrive here without a
+  // voice, fail loudly rather than letting a brand/provider default quietly
+  // substitute a voice the user never chose — that masked-default behaviour
+  // is exactly what produced "wrong voice" renders before.
+  if (!req.voice || !String(req.voice).trim()) {
+    throw new Error(
+      'No voice selected for audio generation. Pick a voice on the Audio tab and '
+      + 're-save your preset — there is no default voice.',
+    )
   }
 
   // Format fallback for TTS settings (speed/stability/similarity). Each
@@ -207,22 +210,28 @@ export async function generateAudio(job: Job): Promise<void> {
   const providerId = resolveAudioProvider(req.model, config.audio_models)
   const providerLabel = providerId === 'elevenlabs' ? 'ElevenLabs (direct)'
     : providerId === 'genaipro' ? 'GenAIPro'
-    : providerId === 'chatterbox' ? 'Chatterbox (Local)'
+    : providerId === 'voicestudio' ? 'Voice Studio (Local)'
     : 'fal.ai'
 
-  // Chatterbox is special — there is no API key. The "key" we resolve is the
-  // base URL stored in the per-machine secrets bucket (default 100.66.3.3:5052
-  // over Tailscale). The per-project `chatterbox_enabled` toggle gates whether
-  // the model is even allowed to run.
+  // Voice Studio KH is special — there is no API key. The "key" we resolve
+  // is the base URL of the Tailscale-reachable Pinokio modal stored in the
+  // per-machine secrets bucket. URL set in App Settings → Local Models IS
+  // the enable signal; no per-project toggle needed.
   let apiKey: string
-  if (providerId === 'chatterbox') {
-    if (!(config as any).chatterbox_enabled) {
+  if (providerId === 'voicestudio') {
+    // v1.0.149+ — same pattern as chatterbox: the "apiKey" we resolve is
+    // the base URL of the Tailscale-reachable Voice Studio modal. Unlike
+    // chatterbox there's no per-project enable flag — the URL being set
+    // in App Settings → Local Models IS the enable. Falls through to the
+    // default tailnet IP if nothing is configured (which fails fast at
+    // the first connection if Tailscale isn't up).
+    apiKey = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+    if (!apiKey) {
       throw new Error(
-        'Chatterbox (Local TTS) is not enabled for this project. ' +
-        'Turn it on in Settings → Local TTS, then try again.',
+        'Voice Studio modal URL not configured. ' +
+        'Open App Settings → Local Models and set the URL.',
       )
     }
-    apiKey = (await getApiKey('chatterbox')) || DEFAULT_CHATTERBOX_BASE_URL
   } else {
     apiKey = await resolveApiKeyForProviderId(project_slug, providerId, {
       model: req.model,
@@ -256,6 +265,28 @@ export async function generateAudio(job: Job): Promise<void> {
   job.output_lines.push(`Sections: ${allSections.length} found`)
   for (const s of allSections) {
     job.output_lines.push(`  ${s.label} (${s.text.length.toLocaleString()} chars)`)
+  }
+
+  // v1.0.215+ — TTS-friendly normalization (the deterministic safeguard).
+  // LLM narration often carries em dashes, smart quotes, ellipses, semicolons
+  // and stray markdown that local engines (Kokoro/Bark) read unnaturally —
+  // an em dash becomes a garbled run-on or an odd pause, which is what makes
+  // the audio sound fake. Rewrite to simple spoken punctuation on every
+  // section BEFORE lexicon + chunking, so delivery is natural no matter what
+  // the script carried. The audio reconciler applies the SAME pass so its
+  // predicted chunk boundaries/filenames stay aligned.
+  {
+    const { normalizeForTts } = await import('../lib/tts-text.js')
+    let totalFixed = 0
+    for (const s of allSections) {
+      const r = normalizeForTts(s.text)
+      if (r.changes) { s.text = r.text; totalFixed += r.changes }
+    }
+    if (totalFixed) {
+      job.output_lines.push(
+        `Normalized ${totalFixed} TTS-unfriendly mark(s) (em dashes, smart quotes, …) for natural delivery.`,
+      )
+    }
   }
 
   // Apply the brand's pronunciation lexicon (pre-TTS substitution) to
@@ -375,6 +406,30 @@ export async function generateAudio(job: Job): Promise<void> {
     job.output_lines.push(`Cast: ${projectCharacters.length} character(s), ${withVoices} with voice IDs`)
   }
 
+  // [per-model chunk-size cap] v1.0.155+ — ElevenLabs comfortably handles
+  // ~4800-char chunks (chunker's default). Local MLX TTS models have
+  // much tighter soft caps (VoxCPM2: 600, F5-TTS: 400, etc., per the
+  // modal's own /api/catalog). Read the cap off
+  // AudioModelConfig.tts_soft_max_chars when set; the chunker falls
+  // back to 4800 when the field is undefined (every cloud model today).
+  // Story Studio's chunker splits at sentence boundaries within this
+  // cap; ffmpeg concatenates the per-chunk WAVs in the usual
+  // section-merge step — same code path that already handles
+  // ElevenLabs's smaller cloud chunks. The result: VoxCPM2-driven
+  // sections come out cleanly stitched at sentence boundaries instead
+  // of mlx-audio's arbitrary internal cuts.
+  const modelEntry = config.audio_models?.[req.model] as any
+  const ttsChunkCap: number | undefined =
+    typeof modelEntry?.tts_soft_max_chars === 'number' && modelEntry.tts_soft_max_chars > 0
+      ? modelEntry.tts_soft_max_chars
+      : undefined
+  if (ttsChunkCap) {
+    job.output_lines.push(
+      `Chunk cap for ${req.model}: ${ttsChunkCap} chars per submit ` +
+      `(model-specific; see AudioModelConfig.tts_soft_max_chars).`,
+    )
+  }
+
   for (const section of sections) {
     if (isCancelled()) break
     const filename = `${code}_${section.slug}.mp3`
@@ -423,7 +478,7 @@ export async function generateAudio(job: Job): Promise<void> {
       continue
     }
 
-    const chunks = chunkText(section.text)
+    const chunks = chunkText(section.text, ttsChunkCap)
     job.output_lines.push(
       `${section.label} (${section.text.length.toLocaleString()} chars${chunks.length > 1 ? `, ${chunks.length} parts` : ''})`,
     )
@@ -462,7 +517,10 @@ export async function generateAudio(job: Job): Promise<void> {
   ) {
     const intermediates: Array<{ order: number; path: string }> = []
     plan.segments.forEach((seg, segIdx) => {
-      const segChunks = chunkText(seg.text)
+      // v1.0.155+ — routed-segment chunking honours the same per-model
+      // cap as the main-section chunker above, so character-routed
+      // dialogue lines respect VoxCPM2's 500-char limit too.
+      const segChunks = chunkText(seg.text, ttsChunkCap)
       segChunks.forEach((chunkBody, chunkIdx) => {
         const speakerSlug = (seg.speaker || 'narrator').replace(/[^a-zA-Z0-9]/g, '_')
         const basename = `${code}_${sectionSlug}_seg${String(segIdx + 1).padStart(2, '0')}_${speakerSlug}_part${String(chunkIdx + 1).padStart(2, '0')}.mp3`
@@ -483,7 +541,25 @@ export async function generateAudio(job: Job): Promise<void> {
 
   // ── Concurrency pool ───────────────────────────────────────────────────
   const rawConcurrency = Number((config as any).audio_concurrency) || 0
-  const concurrency = Math.max(1, Math.min(15, rawConcurrency || 3))
+  // v1.0.154+ — Voice Studio runs on Apple Silicon MLX; multiple TTS
+  // submits to the same modal serialise anyway. Clamp local-modal
+  // concurrency to 1 so we don't burn parallel poll loops on jobs the
+  // modal has just queued behind each other. Cloud providers keep
+  // their tier-tuned default (3 is the ElevenLabs Starter-safe cap).
+  const baseAudioConcurrency = Math.max(1, Math.min(15, rawConcurrency || 3))
+  const isLocalAudioProvider = providerId === 'voicestudio'
+  const concurrency = isLocalAudioProvider ? 1 : baseAudioConcurrency
+  if (isLocalAudioProvider && baseAudioConcurrency !== 1) {
+    job.output_lines.push(
+      `Local modal (${providerId}): clamped concurrency from ${baseAudioConcurrency} → 1 ` +
+      `(Apple Silicon MLX inference is serial). Per-job poll budget is 24h.`,
+    )
+  }
+
+  // v1.0.155 — `ttsChunkCap` is computed earlier (just before the
+  // section loop) so the chunkText() calls in the loop can reference it
+  // without a forward-reference error. See the block annotated
+  // "[per-model chunk-size cap]" above.
   // Launch stagger: delay each pool worker's FIRST task by `i * staggerMs`
   // so all N workers don't submit to ElevenLabs/fal/GenAIPro in the same
   // millisecond. Default 0 (no stagger) — opt-in via Settings → Audio →
@@ -526,19 +602,19 @@ export async function generateAudio(job: Job): Promise<void> {
           signal: controller.signal,
           onProgress: makeChunkCb(),
         })
-      } else if (providerId === 'chatterbox') {
-        // Chatterbox writes the WAV straight to the output path. The "apiKey"
-        // we resolved is the base URL. For chatterbox-cloned, pass the
-        // project's stored reference_id; chatterbox-default ignores it.
-        const referenceId = (config as any).chatterbox_reference_id || undefined
-        await generateTtsChatterbox(apiKey, task.outputPath, {
+      } else if (providerId === 'voicestudio') {
+        // v1.0.149+ — Voice Studio KH writes the WAV straight to the
+        // output path via its async job pipeline (POST → poll → download).
+        // The "apiKey" we resolved is the modal's base URL. `voiceId`
+        // (when set) maps to `voice_library_id` for zero-shot cloning
+        // against one of the user's saved reference clips.
+        await generateTtsVoiceStudio(apiKey, task.outputPath, {
           text: task.chunkText,
-          apiKey, // ignored by the helper but required by the type
+          apiKey, // ignored by the helper but required by the AudioGenerationRequest type
           modelId: req.model,
           voiceId: effectiveVoice,
           speed: req.speed,
         }, {
-          referenceId,
           signal: controller.signal,
           isCancelled,
           onProgress: makeChunkCb(),
@@ -614,6 +690,14 @@ export async function generateAudio(job: Job): Promise<void> {
       }
       job.output_lines.push(`  Saved: ${path.basename(task.outputPath)}`)
     } catch (e: any) {
+      // A user cancel is NOT a chunk failure. Recording it in errors[] makes
+      // the run end with a misleading "N section(s) failed: … Cancelled by
+      // user". Skip it — the queue stamps the job 'cancelled' on its own (it
+      // checks the cancel set on both the throw and clean-return paths).
+      if (isCancelled() || /cancell?ed|abort/i.test(e?.message || '')) {
+        job.output_lines.push('  Cancelled.')
+        return
+      }
       // Settled-pool semantics: one chunk failure doesn't kill the batch.
       // The queue stamps status='error' after the loop if errors.length > 0.
       job.output_lines.push(`  Failed: ${e.message}`)
@@ -625,6 +709,42 @@ export async function generateAudio(job: Job): Promise<void> {
   // i-th worker delays its first task by i * launchStaggerMs to smooth the
   // initial-burst submit. sleepCancellable ticks every 200ms so a user
   // cancel during the stagger window unwinds without hanging.
+  // v1.0.161+ — Defensive cross-request handling for local-modal providers.
+  //
+  // [1] Inter-chunk cooldown. Apple Silicon Metal driver releases buffers
+  // ASYNCHRONOUSLY — the moment a forward pass finishes returning bytes,
+  // the underlying GPU allocations are still queued for deallocation. A
+  // back-to-back submit can hit a partly-cleaned memory pool that doesn't
+  // have headroom for the next allocation, even when each request would
+  // fit individually. Reproducer (voicestudio v1.2.6, M4): two 1500-char
+  // submits in sequence crashed the server on submit #2 with the same
+  // Abort: 6 / Metal OOM that v1.0.160 fixed for single-request size.
+  // 3 s gives Metal a reliable window to drain the previous pass's pool.
+  //
+  // [2] Server-died detection. When a chunk fails with a network-layer
+  // error (ECONNRESET / fetch failed / refused) AFTER the modal previously
+  // succeeded in this run, the modal process has likely died. Subsequent
+  // submits into a dead process just queue pointless work and produce
+  // cascading confusing errors. processTask sets `modalDiedDuringRun`
+  // when it detects the pattern (mid-loop, before catching); the worker
+  // checks the flag at top of each iteration and short-circuits with a
+  // clear "modal died — restart Voice Studio and retry" message.
+  const isLocalModalAudio = providerId === 'voicestudio'
+  const LOCAL_MODAL_INTER_CHUNK_DELAY_MS = 3_000
+  let localModalPriorChunkCompleted = false
+  let modalDiedDuringRun = false
+  function looksLikeServerDied(err: any): boolean {
+    const msg = (err?.message || String(err || '')).toLowerCase()
+    return (
+      msg.includes('econnreset') ||
+      msg.includes('fetch failed') ||
+      msg.includes('connection refused') ||
+      msg.includes('socket hang up') ||
+      msg.includes('cannot reach voice studio') ||
+      msg.includes('refused the connection')
+    )
+  }
+
   async function worker(workerIndex: number): Promise<void> {
     if (launchStaggerMs > 0 && workerIndex > 0) {
       try {
@@ -634,7 +754,50 @@ export async function generateAudio(job: Job): Promise<void> {
     while (cursor < tasks.length) {
       if (isCancelled()) return
       const i = cursor++
+      // Server-died short-circuit. processTask sets the flag below
+      // when it catches a network-layer failure that came AFTER a
+      // successful chunk in the same run.
+      if (isLocalModalAudio && modalDiedDuringRun) {
+        const skipMsg =
+          `  Skipping chunk ${i + 1} — local Voice Studio modal stopped ` +
+          `responding earlier in this run. Restart Voice Studio in ` +
+          `Pinokio (Stop → Start) and retry the generation.`
+        job.output_lines.push(skipMsg)
+        errors.push(`${tasks[i]!.sectionLabel}: modal died mid-batch — restart required`)
+        continue
+      }
+      // Inter-chunk cooldown — only between consecutive successful
+      // submits to the same local modal. First chunk runs immediately
+      // (no prior buffers to wait on); cooldown kicks in starting at
+      // chunk #2.
+      if (isLocalModalAudio && localModalPriorChunkCompleted) {
+        try {
+          await sleepCancellable(LOCAL_MODAL_INTER_CHUNK_DELAY_MS, isCancelled)
+        } catch { return /* cancelled mid-cooldown */ }
+      }
+      // Inspect the errors[] tail length to detect whether processTask
+      // succeeded or pushed a new failure. processTask swallows
+      // exceptions and appends to errors[] — we can't use a plain
+      // try/catch around it.
+      const errorsBefore = errors.length
       await processTask(tasks[i]!)
+      const failed = errors.length > errorsBefore
+      if (!failed) {
+        if (isLocalModalAudio) localModalPriorChunkCompleted = true
+      } else if (isLocalModalAudio && localModalPriorChunkCompleted) {
+        // Failed AFTER at least one chunk in this run already succeeded.
+        // Inspect the just-pushed error string for server-died patterns.
+        const lastErr = errors[errors.length - 1] || ''
+        if (looksLikeServerDied(lastErr)) {
+          modalDiedDuringRun = true
+          job.output_lines.push(
+            `  ⚠ Local Voice Studio modal stopped responding mid-batch ` +
+            `after chunk(s) had already succeeded — looks like a server ` +
+            `crash on the modal side. Aborting remaining chunks. Restart ` +
+            `Voice Studio in Pinokio (Stop → Start), then retry.`,
+          )
+        }
+      }
     }
   }
   try {
@@ -689,8 +852,10 @@ export async function generateAudio(job: Job): Promise<void> {
   }
 
   // Partial-failure semantics: throw so the queue stamps status='error'
-  // instead of 'done'. A cancelled job is handled by the queue's own check.
-  if (errors.length) {
+  // instead of 'done'. But never throw on a cancel — the queue's own cancel
+  // check would stamp it 'cancelled' anyway, and throwing here only attaches a
+  // misleading "N section(s) failed" message to a job the user chose to stop.
+  if (errors.length && !isCancelled()) {
     job.output_lines.push(`Completed with ${errors.length} error(s)`)
     const preview = errors.slice(0, 3).join('; ')
     const suffix = errors.length > 3 ? `; +${errors.length - 3} more` : ''
@@ -698,8 +863,4 @@ export async function generateAudio(job: Job): Promise<void> {
   }
   job.output_lines.push(`All audio saved to: ${audioDir}`)
   job.output_dir = audioDir
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }

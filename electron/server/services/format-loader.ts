@@ -34,8 +34,21 @@ import type { Format, DeepPartial, ProjectMeta } from '../models/types.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
 
-/** Default base format used when a project has no `format_id` set yet. */
-export const DEFAULT_FORMAT_ID = 'sleep-story'
+/**
+ * Default base format used when a project has no `format_id` set yet, OR
+ * when a project references a format_id that no longer exists on disk
+ * (e.g. one of the 9 sleep-story-flavoured formats deleted in v1.0.162).
+ *
+ * History: was 'sleep-story' through v1.0.161. v1.0.162 consolidated the
+ * 11 formats down to 4 (narrative / listicle / stock-footage / narration-
+ * synced) and made 'narrative' the new default. Old projects that had
+ * format_id of 'true-crime' / 'comedy' / 'kids-fairytale' / 'sleep-story'
+ * etc. now fall back to 'narrative' on the next config read — they all
+ * used the scene-images pipeline anyway, so the production behaviour
+ * is unchanged. Niches (mindfulness, prayer, history-narration, etc.)
+ * still do the content tuning on top.
+ */
+export const DEFAULT_FORMAT_ID = 'narrative'
 
 // ── Built-in directory resolution ──────────────────────────────────────────
 //
@@ -502,6 +515,11 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
   if (niche.defaultStyleKeywords?.length) {
     stylePieces.push(`Niche keywords: ${niche.defaultStyleKeywords.join(', ')}`)
   }
+  // The spread preserves every other imagePrompts field — including the
+  // v1.0.224 `thumbnail` art-direction block — so per-format thumbnail
+  // guidance survives niche application. Only `defaultStyleTag` (scene style)
+  // is rewritten here; project/brand `format_overrides` deep-merge the
+  // `thumbnail` object key-by-key separately.
   const imagePrompts = {
     ...format.imagePrompts,
     defaultStyleTag: stylePieces.join('\n\n'),

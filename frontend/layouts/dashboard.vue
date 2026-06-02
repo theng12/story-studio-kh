@@ -3,9 +3,15 @@
     <!-- Skip link for keyboard users — appears on focus, lets them jump past the sidebar nav -->
     <a href="#main-content" class="skip-link">Skip to main content</a>
 
-    <!-- Top bar: draggable area reserving space for macOS traffic lights. -->
+    <!-- Top bar: draggable area reserving space for macOS traffic lights,
+         with a no-drag actions cluster on the right for the notification
+         bell. The drag region flexes to fill the gap so the window stays
+         draggable everywhere except over the bell. -->
     <header class="top-bar">
       <div class="titlebar-drag"></div>
+      <div class="top-bar-actions">
+        <NotificationCenter v-if="slug" :slug="slug" />
+      </div>
     </header>
     <FfmpegSetupDialog />
     <div class="layout-body">
@@ -34,11 +40,25 @@
 
         <div class="nav-divider" />
         <div class="nav-section-label">Generators</div>
+        <!-- v1.0.141+ — Research page comes BEFORE Script Generator
+             for the timestamp-driven pipeline; it produces a citations
+             sidecar the script generator can consume. Hidden for
+             scene-images / broll pipelines (those don't have a
+             research phase today). Real content lands in 1.0.142. -->
+        <NuxtLink
+          v-if="isTimestampDriven || isContinuityChain"
+          :to="`/projects/${slug}/research`"
+          class="nav-item"
+          active-class="active"
+          title="Research + fact-checking phase. Produces a citations sidecar the script generator consumes. Optional — handy when the niche is factual."
+        >
+          <span class="nav-icon">&#128270;</span> Research
+        </NuxtLink>
         <NuxtLink :to="`/projects/${slug}/scripts`" class="nav-item" active-class="active">
-          Script Generator <span v-if="scriptGenerating" class="nav-pulse" />
+          <span class="nav-icon">&#128221;</span> Script Generator <span v-if="scriptGenerating" class="nav-pulse" />
         </NuxtLink>
         <NuxtLink :to="`/projects/${slug}/metadata`" class="nav-item" active-class="active">
-          Metadata Generator <span v-if="metaGenerating" class="nav-pulse" />
+          <span class="nav-icon">&#128203;</span> Metadata Generator <span v-if="metaGenerating" class="nav-pulse" />
         </NuxtLink>
         <!-- v1.0.88+: Image Prompts split into two sidebar entries that
              both open /image-prompts but pre-select the corresponding tab
@@ -52,75 +72,108 @@
           :to="`/projects/${slug}/image-prompts?tab=thumbnails`"
           :class="['nav-item', { active: isImagePromptsActive('thumbnails') }]"
         >
-          Thumbnail Prompts <span v-if="thumbPromptGenerating" class="nav-pulse" />
+          <span class="nav-icon">&#128173;</span> Thumbnail Prompts <span v-if="thumbPromptGenerating" class="nav-pulse" />
         </NuxtLink>
         <!-- Scene Prompts hidden for B-Roll-driven formats (prayer /
              devotional / narration-over-stock). Those formats render
              video from the B-Roll pool instead of per-scene AI stills,
              so this generator is irrelevant. -->
         <NuxtLink
-          v-if="!isBroll"
+          v-if="!hidesScenePages"
           :to="`/projects/${slug}/image-prompts?tab=scenes`"
           :class="['nav-item', { active: isImagePromptsActive('scenes') }]"
         >
-          Scene Prompts <span v-if="promptGenerating" class="nav-pulse" />
+          <span class="nav-icon">&#128172;</span> Scene Prompts <span v-if="promptGenerating" class="nav-pulse" />
         </NuxtLink>
         <NuxtLink
           :to="`/projects/${slug}/images?tab=thumbnails`"
           :class="['nav-item', { active: isImagesActive('thumbnails') }]"
         >
-          Thumbnail Generator <span v-if="thumbImageGenerating" class="nav-pulse" />
+          <span class="nav-icon">&#128444;</span> Thumbnail Generator <span v-if="thumbImageGenerating" class="nav-pulse" />
         </NuxtLink>
         <NuxtLink
-          v-if="!isBroll"
+          v-if="!hidesScenePages"
           :to="`/projects/${slug}/images?tab=scenes`"
           :class="['nav-item', { active: isImagesActive('scenes') }]"
         >
-          Scene Generator <span v-if="imageGenerating" class="nav-pulse" />
+          <span class="nav-icon">&#127912;</span> Scene Generator <span v-if="imageGenerating" class="nav-pulse" />
         </NuxtLink>
-        <!-- B-Roll Video — only shown when this project's format declares
-             visualSource: 'broll' (prayer / devotional / narration-over-
-             stock). Renamed in v1.0.114 from "B-Roll Picker" because the
-             page does BOTH selection AND final video assembly — the old
-             "Picker" label undersold it and made users hunt for a
-             non-existent "Video Assembly" step. -->
+        <!-- Video Generator hidden for B-Roll formats — that pipeline
+             generates AI video for scene images, and broll projects don't
+             have scenes. v1.0.115+ moved B-Roll *Video Assembly* into the
+             single Video Assembly entry below (with tabs). -->
         <NuxtLink
-          v-if="isBroll"
-          :to="`/projects/${slug}/broll`"
-          class="nav-item"
-          active-class="active"
-          title="Pick B-Roll clips for this episode AND assemble the final video. Random / tagged / themed / manual selection modes, then one-click assemble."
-        >
-          🎬 B-Roll Video
-        </NuxtLink>
-        <!-- Video Generator + Video Assembly hidden for B-Roll formats
-             (v1.0.114). Both pages target the scene-image pipeline; for
-             broll formats they'd fail with "at least 1 scene required".
-             The B-Roll Video entry above replaces both. -->
-        <NuxtLink
-          v-if="!isBroll"
+          v-if="!hidesScenePages"
           :to="`/projects/${slug}/video`"
           class="nav-item"
           active-class="active"
         >
-          Video Generator <span v-if="videoGenerating" class="nav-pulse" />
+          <span class="nav-icon">&#128249;</span> Video Generator <span v-if="videoGenerating" class="nav-pulse" />
         </NuxtLink>
         <NuxtLink :to="`/projects/${slug}/audio`" class="nav-item" active-class="active">
-          Audio Generator <span v-if="audioGenerating" class="nav-pulse" />
+          <span class="nav-icon">&#127897;</span> Audio Generator <span v-if="audioGenerating" class="nav-pulse" />
         </NuxtLink>
 
         <div class="nav-divider" />
         <div class="nav-section-label">Assembly</div>
         <NuxtLink :to="`/projects/${slug}/audio-merge`" class="nav-item" active-class="active">
-          Audio Assembly <span v-if="audioMergeGenerating" class="nav-pulse" />
+          <span class="nav-icon">&#128266;</span> Audio Assembly <span v-if="audioMergeGenerating" class="nav-pulse" />
+        </NuxtLink>
+        <!-- v1.0.216+ — Subtitles workshop. Creates the episode's subtitle
+             track (per-chapter Whisper / from-chapters / import) from the
+             chapter audio. Sits after Audio Assembly; Scene Plan stitches its
+             per-chapter SRTs and Video Assembly burns them in. -->
+        <NuxtLink :to="`/projects/${slug}/subtitles`" class="nav-item" active-class="active" title="Create the episode's subtitles (per-chapter Whisper, from chapters, or import). Built from chapter audio; consumed by Scene Plan + Video Assembly.">
+          <span class="nav-icon">&#128292;</span> Subtitles
+        </NuxtLink>
+        <!-- v1.0.187+ — Character Sheet: continuity-chain only. Drop in the
+             anchor image (+ optional Characters) before planning/rendering
+             scenes; every scene is rendered against it for a consistent
+             on-screen character. -->
+        <NuxtLink
+          v-if="isContinuityChain"
+          :to="`/projects/${slug}/character-sheet`"
+          class="nav-item"
+          active-class="active"
+          title="Drop in the character sheet that anchors every scene's look, plus any project Characters to keep on screen."
+        >
+          <span class="nav-icon">&#127917;</span> Character Sheet
+        </NuxtLink>
+        <!-- v1.0.141+ — Scene Plan + Scene Review sit between Audio
+             Assembly (audio + stitched subtitle land here) and Video
+             Assembly (final render). Both show for the audio-paced
+             pipelines (timestamp-driven + continuity-chain, v1.0.187+);
+             scene-images and broll skip straight to Video Assembly. -->
+        <NuxtLink
+          v-if="usesScenePlan"
+          :to="`/projects/${slug}/scene-plan`"
+          class="nav-item"
+          active-class="active"
+          title="Plan scenes against the stitched audio timeline — LLM picks natural beats from the script + merged subtitle."
+        >
+          <span class="nav-icon">&#128218;</span> Scene Plan
         </NuxtLink>
         <NuxtLink
-          v-if="!isBroll"
-          :to="`/projects/${slug}/video-assembly`"
+          v-if="usesScenePlan"
+          :to="`/projects/${slug}/scene-review`"
+          class="nav-item"
+          active-class="active"
+          title="Per-scene preview against transcript + audio. Approve scenes before final assembly is allowed."
+        >
+          <span class="nav-icon">&#9989;</span> Scene Review
+        </NuxtLink>
+        <!-- Video Assembly target depends on the active pipeline:
+             - scene-images / broll → /video-assembly (existing page,
+               has tabs for scenes vs broll inside).
+             - timestamp-driven / continuity-chain → /timestamp-assemble
+               (v1.0.145+ page with the greenlight gate that requires every
+               scene in scene_plan.json to be approved before render). -->
+        <NuxtLink
+          :to="`/projects/${slug}/${usesScenePlan ? 'timestamp-assemble' : 'video-assembly'}`"
           class="nav-item"
           active-class="active"
         >
-          Video Assembly
+          <span class="nav-icon">&#127902;</span> Video Assembly
         </NuxtLink>
 
         <div class="nav-divider" />
@@ -128,12 +181,10 @@
         <NuxtLink :to="`/projects/${slug}/upload`" class="nav-item" active-class="active" title="YouTube Upload — connect a channel, queue episodes, schedule via publishAt.">
           <span class="nav-icon">&#9654;</span> YouTube Upload
         </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/tiktok-upload`" class="nav-item" active-class="active" title="TikTok Upload — Content Posting API integration planned for v2.">
-          <span class="nav-icon">&#9673;</span> TikTok Upload
-        </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/facebook-upload`" class="nav-item" active-class="active" title="Facebook Upload — Graph API page-video publishing planned for v2.">
-          <span class="nav-icon">&#119127;</span> Facebook Upload
-        </NuxtLink>
+        <!-- v1.0.163 — TikTok + Facebook upload entries removed.
+             The pages were 41-line "Coming in v2" stubs cluttering the
+             sidebar. When real work on either platform starts, add the
+             entry back as part of that implementation task. -->
 
         <div class="nav-divider" />
         <div class="nav-section-label">Library</div>
@@ -152,17 +203,14 @@
           <span class="nav-icon">&#9881;</span> Jobs
           <span v-if="stats.running + stats.queued > 0" class="nav-badge">{{ stats.running + stats.queued }}</span>
         </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/settings`" class="nav-item" active-class="active">
+        <NuxtLink :to="`/projects/${slug}/settings`" class="nav-item" active-class="active" title="Everything for this project AND this Mac — API keys, appearance, models, voices, folders. Grouped into ‘This Mac’ vs ‘This Project’ zones.">
           <span class="nav-icon">&#9881;</span> Settings
         </NuxtLink>
-        <button
-          type="button"
-          class="nav-item nav-item-button"
-          title="App-wide settings — API keys live here, shared across every project on this Mac."
-          @click="appSettingsModal.open()"
-        >
-          <span class="nav-icon">&#128273;</span> App Settings
-        </button>
+        <!-- v1.0.186 (S3) — the standalone "App Settings" button was retired.
+             Its contents (API keys, appearance, server mode) now live in the
+             Settings page under the "This Mac" zone, so a single "Settings"
+             entry is the one front door. The modal still exists for the
+             all-projects index, where no project Settings page is available. -->
         <NuxtLink to="/character-library" class="nav-item" active-class="active" title="App-level character library shared across all projects on this machine. Save characters here to reuse across channels.">
           <span class="nav-icon">&#127991;</span> Character Library
         </NuxtLink>
@@ -198,8 +246,8 @@
           class="network-status"
           :class="[networkOnline ? 'online' : 'offline', { 'queue-warn': networkQueueSyncFailed }]"
           :title="networkQueueSyncFailed
-            ? 'Queue pause/resume command failed — backend may not have honoured the offline state. Retrying.'
-            : (networkOnline ? 'Connected' : 'No internet — new jobs will wait for connection')"
+            ? 'Queue pause/resume command failed — backend may not have honoured the state. Retrying automatically.'
+            : (networkOnline ? 'App engine reachable — jobs run normally' : 'Can\'t reach the app engine — new jobs will wait until it\'s back')"
         >
           <span class="network-dot" />
           <span class="network-label">{{ networkOnline ? 'Online' : 'Offline' }}</span>
@@ -343,6 +391,12 @@
           @click="restoredChip = false"
         >✕</button>
       </div>
+      <!-- v1.0.169 — Format-aware production flow ribbon. Renders the full
+           creation chain for this project's format (resolved into
+           `visualSource` above) with the current page highlighted, so the
+           user always sees where they are + what's next. Only shows on
+           project pages (slug present). -->
+      <FlowRibbon v-if="slug" :slug="slug" :visual-source="visualSource" />
       <slot />
     </main>
     </div><!-- /.layout-body -->
@@ -372,6 +426,9 @@ function isImagesActive(tab: 'thumbnails' | 'scenes'): boolean {
 
 const { project, loadProject } = useProject()
 const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling } = useJobs()
+// Notification-center readiness checks (upload dest / API keys / FFmpeg).
+// Refreshed per project below; the bell lives in the top bar.
+const { refreshReadiness } = useNotifications()
 
 // v1.0.89+: format-aware sidebar. B-Roll-driven formats (prayer /
 // devotional / narration over stock footage) hide scene/thumbnail-prompt
@@ -385,16 +442,55 @@ const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling 
 // its textual position is safe at runtime. A duplicate `const { get: apiGet } = useApi()`
 // here passed tsx-watch but failed Vite's prod build with "Identifier
 // already declared" — removed in v1.0.89.
-const visualSource = ref<'scene-images' | 'broll'>('scene-images')
+// v1.0.141+ — `visualSource` now has three possible values. The
+// timestamp-driven pipeline adds Research / Scene Plan / Scene Review
+// pages and hides the same scene-prompts / scene-generator / video-
+// generator entries that the broll pipeline hides (those don't apply
+// when visuals are placed against the audio timeline rather than
+// pre-planned). isBroll + isTimestampDriven are mutually exclusive
+// flags driven off the same source so templates can branch cleanly.
+const visualSource = ref<'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain'>('scene-images')
 async function loadVisualSource(): Promise<void> {
   if (!slug.value) return
   try {
-    const f = await apiGet<{ visualSource?: 'scene-images' | 'broll' }>(`/projects/${slug.value}/effective-format`)
-    visualSource.value = f?.visualSource === 'broll' ? 'broll' : 'scene-images'
+    const f = await apiGet<{ visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' }>(`/projects/${slug.value}/effective-format`)
+    if (f?.visualSource === 'broll') visualSource.value = 'broll'
+    else if (f?.visualSource === 'timestamp-driven') visualSource.value = 'timestamp-driven'
+    else if (f?.visualSource === 'continuity-chain') visualSource.value = 'continuity-chain'
+    else visualSource.value = 'scene-images'
   } catch { /* leave as default */ }
 }
 const isBroll = computed(() => visualSource.value === 'broll')
+const isTimestampDriven = computed(() => visualSource.value === 'timestamp-driven')
+// v1.0.187+ — continuity-chain extends the timestamp (audio-paced) pipeline:
+// it shares Scene Plan / Scene Review / Timestamp Assemble and hides the
+// scene-prompts/generator pages, but adds a Character Sheet step and has NO
+// Research phase.
+const isContinuityChain = computed(() => visualSource.value === 'continuity-chain')
+/** True when the active pipeline plans scenes against the actual audio
+ *  timeline (timestamp-driven OR continuity-chain) — these share the
+ *  Scene Plan / Scene Review pages and route assembly to /timestamp-assemble. */
+const usesScenePlan = computed(() => isTimestampDriven.value || isContinuityChain.value)
+/** True when the active pipeline plans scenes against the actual
+ *  audio timeline OR pulls them from a B-Roll pool — i.e. NOT the
+ *  classic scene-images pipeline. Used by sidebar entries that the
+ *  same way for both alternative pipelines (Scene Prompts / Scene
+ *  Generator / Video Generator are all hidden when this is true). */
+const hidesScenePages = computed(() => isBroll.value || isTimestampDriven.value || isContinuityChain.value)
 watch(slug, () => { void loadVisualSource() }, { immediate: true })
+// v1.0.146+ — also re-fetch the effective format when the project's
+// format_id / brand_id / niche_id changes, even while staying on the
+// same slug. Without this, switching the project to a different format
+// in Settings → Format (or Ideas → Format Overrides) updates the
+// merged format on disk but the sidebar stays stuck on whatever the
+// visualSource was when the layout first mounted, because the slug
+// watcher above only fires on slug change. The Settings tab calls
+// loadProject() after saving, so project.value.format_id is reactive
+// here; watching it covers every format-mutating UI path.
+watch(
+  () => [project.value?.format_id, project.value?.brand_id, project.value?.niche_id] as const,
+  () => { void loadVisualSource() },
+)
 
 // Cross-tab batch-completion signals (toast + title badge). The Electron
 // main process owns the native-OS notification path via job-notifier.ts;
@@ -423,7 +519,6 @@ const {
 // now, so the "credentials came from a different machine" condition can't
 // arise. (See app-secrets-store.ts.)
 const assetMigration = useAssetMigration()
-const appSettingsModal = useAppSettingsModal()
 
 /**
  * Compact byte formatter for the recovery banner copy. Mirrors the
@@ -449,6 +544,9 @@ watch(slug, async (s) => {
     await loadProject(s)
     startJobPolling(s)
     startCreditPolling(s)
+    // Fire the readiness probes for the notification center. Fail-quiet
+    // inside the composable; never blocks project load.
+    void refreshReadiness(s)
   }
 }, { immediate: true })
 
@@ -584,13 +682,27 @@ function openWhatsNew() { _whatsNew.open() }
   z-index: 200;
   background: var(--bg-secondary);
   flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
 }
 
-/* Draggable titlebar area — reserves space for macOS traffic lights and lets user drag window. */
+/* Draggable titlebar area — reserves space for macOS traffic lights and lets
+   user drag window. Flexes to fill all space left of the actions cluster. */
 .titlebar-drag {
+  flex: 1;
   height: 38px;
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
+}
+
+/* Right-aligned, non-draggable cluster holding the notification bell. */
+.top-bar-actions {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: no-drag;
 }
 
 /* Body takes remaining space below top-bar, holds sidebar + main content side-by-side. */
@@ -652,16 +764,6 @@ function openWhatsNew() { _whatsNew.open() }
 }
 .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 .nav-item.active { background: var(--accent-dim); color: var(--accent); }
-/* App Settings is a button, not a link — strip native button chrome so it
-   visually matches the surrounding NuxtLink rows. */
-.nav-item-button {
-  background: transparent;
-  border: 0;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-}
 .nav-icon { width: 16px; text-align: center; font-size: 13px; }
 
 .nav-divider-label,
@@ -677,7 +779,7 @@ function openWhatsNew() { _whatsNew.open() }
 .nav-pulse { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s infinite; }
 @keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.4; transform:scale(0.8); } }
 
-.nav-badge { margin-left: auto; background: var(--accent); color: #0f1117; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px; }
+.nav-badge { margin-left: auto; background: var(--accent); color: var(--accent-on); font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px; }
 
 .sidebar-credits {
   flex-shrink: 0;                   /* stay pinned at the bottom — never shrinks or scrolls off */

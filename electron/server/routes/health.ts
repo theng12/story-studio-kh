@@ -161,20 +161,46 @@ router.post('/app/restart', (_req, res) => {
   }, 200)
 })
 
-// Serve available AI models to the frontend (with key availability)
+// Serve available AI models to the frontend (with key availability).
+//
+// v1.0.129+ — Key resolution is now consistent across providers. Earlier
+// versions only checked per-project config (`config.<provider>_api_key`)
+// for openai/anthropic/kie and showed "(no key)" in the dropdown when
+// the key only lived in the app-level secrets store. The user IS using
+// the app-level store (via App Settings → API Keys) for every provider
+// today, so any model showed "(no key)" unless they ALSO duplicated the
+// key into project config — confusing and undocumented behaviour. Now:
+//   1. Try the app-level secrets store via getApiKey(providerId) first.
+//   2. Fall back to per-project config field if no app-level key set
+//      (preserves backwards compatibility with old projects that have
+//      the key inlined in their config.json).
 router.get('/models', async (req, res) => {
   const slug = req.query.project as string
-  let hasKeys: Record<string, boolean> = {}
 
+  // App-level secrets — present regardless of project context.
+  const { getApiKey } = await import('../services/app-secrets-store.js')
+  const appOpenai = await getApiKey('openai').catch(() => '')
+  const appKie = await getApiKey('kie').catch(() => '')
+  const appDeepseek = await getApiKey('deepseek').catch(() => '')
+  const appOpenrouter = await getApiKey('openrouter').catch(() => '')
+
+  // Per-project fallback for backwards compat (only openai/kie are stored
+  // per-project; deepseek/openrouter are app-level only).
+  let cfgOpenai = ''
+  let cfgKie = ''
   if (slug) {
     const config = await pm.getConfig(slug)
     if (config) {
-      hasKeys = {
-        anthropic: !!config.anthropic_api_key,
-        openai: !!config.openai_api_key,
-        kie: !!config.kie_api_key,
-      }
+      cfgOpenai = config.openai_api_key || ''
+      cfgKie = config.kie_api_key || ''
     }
+  }
+
+  const hasKeys: Record<string, boolean> = {
+    openai: !!(appOpenai || cfgOpenai),
+    kie: !!(appKie || cfgKie),
+    deepseek: !!appDeepseek,
+    openrouter: !!appOpenrouter,
   }
 
   const models = Object.entries(MODEL_LABELS).map(([id, label]) => ({
@@ -183,6 +209,7 @@ router.get('/models', async (req, res) => {
     provider: SUPPORTED_MODELS[id],
     available: hasKeys[SUPPORTED_MODELS[id]] ?? false,
     disabled_reason: KNOWN_UNAVAILABLE_REASONS[id] ?? null,
+    hint: null,
   }))
   res.json(models)
 })
@@ -281,14 +308,15 @@ router.get('/projects/:slug/dashboard-stats', async (req, res) => {
             const stat = await fsP.stat(subPath)
             if (!stat.isDirectory()) return
             const files = await fsP.readdir(subPath)
+            const hasTextArtifact = (fl: string[]) => fl.some(f => f.endsWith('.md') || f.endsWith('.docx'))
             if ((cleanSub.endsWith('script') || cleanSub.includes('01 script')) && !cleanSub.includes('prompt') && !cleanSub.includes('description')) {
-              if (files.some(f => f.endsWith('.docx'))) scriptsGenerated++
+              if (hasTextArtifact(files)) scriptsGenerated++
             }
             if (cleanSub.includes('scene prompt')) {
-              if (files.some(f => f.endsWith('.docx'))) scenePromptsGenerated++
+              if (hasTextArtifact(files)) scenePromptsGenerated++
             }
             if (cleanSub.includes('thumbnail prompt')) {
-              if (files.some(f => f.endsWith('.docx'))) thumbPromptsGenerated++
+              if (hasTextArtifact(files)) thumbPromptsGenerated++
             }
             if (cleanSub.includes('scene image') || cleanSub.includes('background image')) {
               const imgs = files.filter(f => f.endsWith('.png') || f.endsWith('.jpg'))
@@ -392,7 +420,6 @@ router.get('/projects/:slug/health', async (req, res) => {
       kie: !!config.kie_api_key,
       fal: !!config.fal_api_key,
       openai: !!config.openai_api_key,
-      anthropic: !!config.anthropic_api_key,
       elevenlabs: !!(config as any).elevenlabs_api_key,
       genaipro: !!(config as any).genaipro_api_key,
     },
@@ -423,7 +450,8 @@ router.get('/projects/:slug/health', async (req, res) => {
 router.get('/connectivity/precheck', async (_req, res) => {
   const PROVIDERS = [
     { host: 'api.openai.com',    probeUrl: 'https://api.openai.com/v1/models',    label: 'OpenAI' },
-    { host: 'api.anthropic.com', probeUrl: 'https://api.anthropic.com/v1/models', label: 'Anthropic' },
+    { host: 'api.deepseek.com',  probeUrl: 'https://api.deepseek.com/models',     label: 'DeepSeek' },
+    { host: 'openrouter.ai',     probeUrl: 'https://openrouter.ai/api/v1/models', label: 'OpenRouter' },
     { host: 'api.kie.ai',        probeUrl: 'https://api.kie.ai/api/v1/chat/credit', label: 'kie.ai' },
     { host: 'queue.fal.run',     probeUrl: 'https://queue.fal.run/',              label: 'fal.ai' },
     { host: 'api.elevenlabs.io', probeUrl: 'https://api.elevenlabs.io/v1/voices', label: 'ElevenLabs' },

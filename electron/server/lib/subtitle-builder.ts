@@ -40,6 +40,54 @@ export function chaptersToSrt(chapters: Chapter[], opts?: { max_lines?: number; 
   return parts.join('\n')
 }
 
+/** v1.0.143+ — Cue shape used by the parser + stitcher. Mirrors what
+ *  callers expect from an SRT line (timestamps in seconds, payload
+ *  text already unwrapped — newlines collapsed to spaces when callers
+ *  want it as one line). */
+export interface SrtCue {
+  index: number
+  start_sec: number
+  end_sec: number
+  text: string
+}
+
+/** v1.0.143+ — Lenient SRT parser. Handles both LF and CRLF newlines,
+ *  optional cue index lines, both `,` and `.` as the millisecond
+ *  separator (some tools emit one, some the other), and forgives
+ *  trailing whitespace. Returns an empty array on unparseable input
+ *  rather than throwing — callers decide whether to surface an error. */
+export function parseSrt(raw: string): SrtCue[] {
+  if (!raw || typeof raw !== 'string') return []
+  // Normalise line endings + strip BOM. Whisper / ffmpeg sometimes
+  // emit BOM on macOS, which would otherwise eat the first index line.
+  const normalized = raw.replace(/^﻿/, '').replace(/\r\n?/g, '\n')
+  const blocks = normalized.split(/\n\n+/).map(b => b.trim()).filter(Boolean)
+  const cues: SrtCue[] = []
+  const TS = /^(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})/
+  let autoIdx = 0
+  for (const block of blocks) {
+    const lines = block.split('\n')
+    if (lines.length === 0) continue
+    // First line is either an index or the timestamp itself.
+    let i = 0
+    let cueIdx = ++autoIdx
+    if (/^\d+$/.test(lines[i]!.trim())) {
+      cueIdx = parseInt(lines[i]!.trim(), 10)
+      i++
+    }
+    const tsLine = lines[i]
+    if (!tsLine) continue
+    const m = TS.exec(tsLine)
+    if (!m) continue
+    const start = parseInt(m[1]!, 10) * 3600 + parseInt(m[2]!, 10) * 60 + parseInt(m[3]!, 10) + parseInt(m[4]!.padEnd(3, '0'), 10) / 1000
+    const end = parseInt(m[5]!, 10) * 3600 + parseInt(m[6]!, 10) * 60 + parseInt(m[7]!, 10) + parseInt(m[8]!.padEnd(3, '0'), 10) / 1000
+    const text = lines.slice(i + 1).join(' ').trim()
+    if (!text) continue
+    cues.push({ index: cueIdx, start_sec: start, end_sec: end, text })
+  }
+  return cues
+}
+
 /** Convert seconds (float) to an SRT `HH:MM:SS,mmm` timestamp. */
 export function formatSrtTime(totalSec: number): string {
   if (!isFinite(totalSec) || totalSec < 0) totalSec = 0

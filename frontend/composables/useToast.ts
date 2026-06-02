@@ -34,6 +34,16 @@ export interface Toast {
 const toasts = ref<Toast[]>([])
 let nextId = 0
 
+// v1.0.124+ — Dedupe identical error messages within a short window.
+// Polling loops + watchers that hit a 404 every tick were generating a
+// constant stream of identical toasts (the symptom that surfaced this
+// fix was a "Project not found" toast firing every 5 seconds on the
+// B-Roll picker page). The dedupe is keyed on the FINAL message string
+// (post-humanizeError) so two callers that surface the same underlying
+// problem still collapse to one toast.
+const _recentErrorAt = new Map<string, number>()
+const ERROR_DEDUPE_WINDOW_MS = 3000
+
 export interface UndoableOptions {
   message: string
   /**
@@ -127,7 +137,42 @@ export function useToast() {
   }
 
   function success(message: string) { show(message, 'success') }
-  function error(message: string) { show(humanizeError(message), 'error', 7000) }
+  function error(message: string) {
+    // v1.0.125+ — Slug-race sentinel from useApi. Surfaces when a caller
+    // built a URL like `/projects/${slug}/...` before route.params.slug
+    // had resolved — useApi short-circuits these BEFORE fetching and
+    // throws an error whose message is the sentinel. Common patterns
+    // (`e?.data?.detail || e?.message || 'fallback'`) all carry the
+    // sentinel through to here, so a substring check catches every
+    // shape. Silent return — these are never user-actionable.
+    if (typeof message === 'string' && message.includes('__slug_race__')) return
+    const final = humanizeError(message)
+    // v1.0.124+ — Dedupe + diagnostic. Same error within 3s short-circuits.
+    // Stack trace logged so dev-tools can identify any mystery toast source
+    // (the original use case: a "Project not found" toast was firing every
+    // 5s on the broll page from an unknown caller — static grep couldn't
+    // find the call site, so the trace is the fast path forward).
+    const now = Date.now()
+    const last = _recentErrorAt.get(final) ?? 0
+    if (now - last < ERROR_DEDUPE_WINDOW_MS) {
+      // Keep the dev signal even on dedupe — the user might be debugging
+      // a fast-firing loop and wants to see how often it actually triggers.
+      // eslint-disable-next-line no-console
+      console.warn('[useToast.error] (deduped)', final)
+      return
+    }
+    _recentErrorAt.set(final, now)
+    // Prune old entries occasionally so the map doesn't grow unbounded
+    // across long sessions.
+    if (_recentErrorAt.size > 50) {
+      for (const [k, ts] of _recentErrorAt) {
+        if (now - ts > ERROR_DEDUPE_WINDOW_MS * 5) _recentErrorAt.delete(k)
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.warn('[useToast.error]', final, '\n', new Error('toast trace').stack)
+    show(final, 'error', 7000)
+  }
   function info(message: string) { show(message, 'info') }
 
   /**

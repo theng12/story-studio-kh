@@ -69,12 +69,13 @@ describe('buildDescriptionPrompt — hashtags section', () => {
     assert.doesNotMatch(prompt, /#SleepStory/, 'must not leak sleep-story hashtag into a true-crime prompt')
   })
 
-  test('omitted format (legacy callers) falls back to #SleepStory examples', () => {
-    // Pre-v1.0.69 callers don't pass the format. Behaviour must stay
-    // identical so existing tests / interactive flows don't change.
+  test('omitted format + no example hashtags → episode-derived, no sleep-story leak', () => {
+    // v1.0.102+ removed the #SleepStory / #BedtimeStory fallback so format-blind
+    // callers don't leak sleep-story bias into every channel's metadata.
     const prompt = buildDescriptionPrompt('EP0001', '', 'context', sectionsWithHashtags, 5000)
     assert.match(prompt, /Include 15 relevant hashtags/)
-    assert.match(prompt, /#SleepStory #BedtimeStory/)
+    assert.match(prompt, /all derived from this specific episode/)
+    assert.doesNotMatch(prompt, /#SleepStory/)
   })
 
   test('user-configured cfg.defaultHashtags overrides format-supplied ones', () => {
@@ -93,11 +94,12 @@ describe('buildDescriptionPrompt — hashtags section', () => {
     assert.doesNotMatch(prompt, /#explained/)
   })
 
-  test('format with empty hashtags array still falls back to legacy default', () => {
-    // A custom format that didn't bother to fill youtubeDescriptionStructure
-    // shouldn't break — we degrade to the legacy sleep-story example.
+  test('format with empty hashtags array → episode-derived, no sleep-story leak', () => {
+    // A custom format that didn't fill youtubeDescriptionStructure shouldn't
+    // break — it asks the LLM for episode-specific hashtags (no sleep-story).
     const fmt = makeFormat([], 15)
     const prompt = buildDescriptionPrompt('EP0001', '', 'context', sectionsWithHashtags, 5000, fmt)
-    assert.match(prompt, /#SleepStory #BedtimeStory/)
+    assert.match(prompt, /all derived from this specific episode/)
+    assert.doesNotMatch(prompt, /#SleepStory/)
   })
 })

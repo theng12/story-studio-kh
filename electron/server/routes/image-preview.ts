@@ -29,6 +29,7 @@ import { validateBody } from '../lib/validate.js'
 import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
 import * as pm from '../services/project-manager.js'
 import { resolveEpisodePaths } from '../services/utils.js'
+import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { getCached, savePreview, pathForHash } from '../services/image-preview-cache.js'
 import type { ImageModelConfig } from '../models/types.js'
 
@@ -55,16 +56,19 @@ router.get('/projects/:slug/episodes/:episodeId/image-prompts', async (req, res)
     let scenes: any[] = []
     let thumbnails: any[] = []
     let anyFound = false
-    if (paths.scene_prompts_docx && existsSync(paths.scene_prompts_docx)) {
+    // resolveReadPath: prefer .md, fall back to a legacy .docx sibling.
+    const scenePath = paths.scene_prompts_docx ? resolveReadPath(paths.scene_prompts_docx) : ''
+    const thumbPath = paths.thumb_prompts_docx ? resolveReadPath(paths.thumb_prompts_docx) : ''
+    if (scenePath && existsSync(scenePath)) {
       try {
-        const parsed = await parseImagePromptsDocx(paths.scene_prompts_docx)
+        const parsed = await parseImagePromptsDocx(scenePath)
         scenes = parsed.scenes || []
         anyFound = true
       } catch { /* unreadable — leave empty */ }
     }
-    if (paths.thumb_prompts_docx && existsSync(paths.thumb_prompts_docx)) {
+    if (thumbPath && existsSync(thumbPath)) {
       try {
-        const parsed = await parseImagePromptsDocx(paths.thumb_prompts_docx)
+        const parsed = await parseImagePromptsDocx(thumbPath)
         thumbnails = parsed.thumbnails || []
         anyFound = true
       } catch { /* unreadable — leave empty */ }

@@ -45,33 +45,36 @@
       </button>
     </div>
 
-    <!-- Sub-mode tabs (scenes / thumbnails / both) — independent of
-         image_mode; both apply within whichever pipeline is selected. -->
-    <div class="mode-tabs mt-2" role="tablist" aria-label="Image generation mode">
-      <button
-        v-for="tab in modeTabs" :key="tab.id"
-        :class="['mode-tab', { active: form.mode === tab.id }]"
-        role="tab"
-        :aria-selected="form.mode === tab.id"
-        @click="selectMode(tab.id)"
-      >
-        <span class="mode-tab-icon" aria-hidden="true">{{ tab.icon }}</span>
-        <span class="mode-tab-label">{{ tab.label }}</span>
-        <span class="mode-tab-hint">{{ tab.hint }}</span>
-      </button>
+    <!-- v1.0.201 — the in-page Thumbnail/Scene switcher was removed so each
+         sidebar entry (Thumbnail Generator / Scene Generator) is its own
+         focused view. The mode is set by the sidebar's ?tab=; switch via the
+         sidebar. Formats that don't use scenes (broll, timestamp, continuity-
+         chain) only show Thumbnail Generator in the sidebar, so no scene
+         controls leak in here. -->
+    <div class="generator-mode-head mt-2">
+      <span class="generator-mode-icon" aria-hidden="true">{{ form.mode === 'thumbs' ? '📸' : '🎬' }}</span>
+      <strong>{{ form.mode === 'thumbs' ? 'Thumbnail Generator' : 'Scene Generator' }}</strong>
+      <span class="text-muted text-xs">{{ form.mode === 'thumbs' ? 'YouTube thumbnails' : 'Story artwork (scene images)' }}</span>
     </div>
 
     <div class="card mt-2">
       <div class="grid-2">
         <div class="form-group">
           <label>Image Model <span class="required" aria-hidden="true">*</span></label>
-          <select v-model="activeForm.model" class="select">
-            <optgroup v-for="g in imageModelGroups" :key="g.provider" :label="g.label">
-              <option v-for="m in g.items" :key="m.id" :value="m.id">
-                {{ formatModelOption(m) }}
-              </option>
-            </optgroup>
-          </select>
+          <!-- v1.0.152+ — custom ImageModelPicker replaces the plain
+               <select>. Source-aware (☁︎ cloud vs 💻 local), live
+               catalog fetch from the Image Studio modal, capability
+               badges, search + I2I filter, open-modal-UI link. The
+               picker emits the same string model id the old select
+               did, so the watch(activeForm.value.model, …) below and
+               every downstream computed (cap, tier, label, etc.) keep
+               working unchanged. -->
+          <ImageModelPicker
+            v-model="activeForm.model"
+            :project-slug="slug"
+            :image-models="config?.image_models || {}"
+            :image-mode="activeForm.image_mode"
+          />
           <span v-if="form.mode === 'thumbs'" class="text-muted text-xs">
             Tip: Use a higher-quality model for eye-catching thumbnails
           </span>
@@ -635,24 +638,14 @@ const { config } = useProject()
 // All image models currently go via kie.ai. Grouping future-proofs the
 // dropdown for when a second provider is added.
 //
-// In img2img mode we filter to models that declare
-// supports_reference_images: true in their config — others would
-// silently ignore the references and produce text2img output, which
-// is misleading. Inventory of supporting models from
-// electron/server/models/defaults.ts: flux-kontext-pro, flux-kontext-max,
-// qwen-image-2, nano-banana, gpt-image-2, nano-banana-2, nano-banana-pro.
-const imageModelGroups = computed(() => {
-  const all = groupModels(config.value?.image_models, () => 'kie')
-  if (activeForm.value.image_mode !== 'img2img') return all
-  return all.map(g => ({
-    ...g,
-    items: g.items.filter((m: any) => {
-      const cfg = (config.value?.image_models || {} as any)[m.id]
-      const params = cfg?.provider_params || cfg
-      return params?.supports_reference_images === true
-    }),
-  })).filter(g => g.items.length > 0)
-})
+// v1.0.152 — the legacy `imageModelGroups` computed + the
+// `formatModelOption(m)` formatter that drove the old <optgroup>
+// <select> have been removed. ImageModelPicker (introduced in 1.0.152)
+// owns the grouping, search, capability filter, and label formatting
+// internally. The picker reads `config.image_models` directly and
+// emits a model id back into activeForm.value.model — every existing
+// downstream watch / computed (cap, tier, label) continues to fire
+// unchanged because the bound value type didn't change.
 
 // Surface a hint when the user's currently-selected model isn't in the
 // img2img-eligible list, so they aren't surprised by silent text2img
@@ -772,21 +765,10 @@ function formatUsd(credits: number): string {
   return usd < 0.01 ? `$${usd.toFixed(3)}` : `$${usd.toFixed(usd < 0.1 ? 3 : 2)}`
 }
 
-// Renders a single line for the model dropdown. For tiered models we
-// show a price RANGE (cheapest tier → priciest) so the user sees at a
-// glance that the cost varies with resolution/speed; the tier picker
-// below the dropdown locks in the actual choice. Flat-priced models
-// just show one number.
-function formatModelOption(m: { data: any }): string {
-  const d = m.data
-  if (Array.isArray(d.tiers) && d.tiers.length > 1) {
-    const credits = d.tiers.map((t: any) => t.credits)
-    const min = Math.min(...credits)
-    const max = Math.max(...credits)
-    return `${d.label} (${min}–${max} cr · ${formatUsd(min)}–${formatUsd(max)})`
-  }
-  return `${d.label} (${d.credits_per_image} cr · ${formatUsd(d.credits_per_image)})`
-}
+// v1.0.152 — `formatModelOption()` was the option-row formatter for
+// the old plain <select>. The new ImageModelPicker renders its own
+// rows with structured chips (cost / capability / size / gated
+// badges), so the formatter is no longer called. Removed.
 
 // Tier helpers — exposed to the template via computeds so the picker
 // renders only when the active model has tiers.
@@ -1808,6 +1790,11 @@ async function submit() {
   border-color: rgba(245, 158, 11, 0.35);
 }
 .missing-detail { font-family: var(--font-mono, monospace); }
+
+/* v1.0.201 — focused-view header (replaces the thumbnail/scene switcher). */
+.generator-mode-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.generator-mode-head strong { font-size: 15px; }
+.generator-mode-icon { font-size: 16px; }
 
 .mode-tabs {
   display: flex;

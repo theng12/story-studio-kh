@@ -14,7 +14,7 @@ import { redactSecrets } from './redact-secrets.js'
 // Map of audio model id (from config.audio_models) → fal.ai queue slug.
 // Every id registered in `DEFAULT_AUDIO_MODELS` with `provider: 'fal'` must
 // have a live queue endpoint here. Verified against fal.ai in Delivery 5 —
-// see docs/refactors/fal-model-audit.md. Removed entries: `v2` (endpoint
+// see docs/history/fal-model-audit-2026-04.md. Removed entries: `v2` (endpoint
 // never existed on fal; ElevenLabs v2 is superseded by eleven-v3) and
 // `flash-v2.5` (also never existed on fal — turbo-v2.5 is fal's low-latency
 // option).

@@ -9,9 +9,11 @@ import * as jq from '../services/job-queue.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { callAi } from '../lib/ai-client.js'
 import { resolveSubfolderNames } from '../services/utils.js'
-import { SUPPORTED_MODELS, type Format, type Pattern } from '../models/types.js'
+import { SUPPORTED_MODELS, type Format } from '../models/types.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
-import { loadPattern } from '../services/pattern-loader.js'
+// v1.0.165 — loadPattern + the Pattern type are no longer used here;
+// the Pattern system's {X} title shape is a plain title_template string
+// now. The full pattern-loader removal lands in the 1.0.166 backend pass.
 import type { GenerateIdeasRequest, StoryIdea } from '../models/types.js'
 import { filterGenerated, type SimilarityCandidate } from '../services/idea-similarity.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -120,7 +122,7 @@ function buildPrompt(
   standards: string | null | undefined,
   avoid: AvoidItem[],
   extraAvoidNote?: string,
-  pattern?: Pattern | null,
+  titleTemplate?: string,
   topPerformersBlock: string = '',
 ): string {
   const keywords = req.keywords?.length ? req.keywords.join(', ') : 'none specified'
@@ -149,25 +151,22 @@ function buildPrompt(
 
 ${format.idea.guidanceText}`
 
-  // Pattern guidance — when the user picked a Pattern preset on the Ideas
-  // page, we instruct the LLM to follow the pattern's titleTemplate +
-  // tone hints. The {X} placeholder gets filled per-idea with concrete
-  // values (the LLM picks them — `pattern_subject` is just a hint for
-  // what KIND of value to pick).
-  const patternBlock = pattern
-    ? `\n⟂ TITLE STYLE (PATTERN PRESET) ⟂
+  // v1.0.165+ — Title template (optional). When the user set a template
+  // on the Ideas page (e.g. "Fall asleep to {X}"), instruct the LLM to
+  // shape EVERY generated title to it, filling the literal {X} with a
+  // concrete subject the LLM picks fresh per idea. Replaced the old
+  // Pattern preset system, which carried this same {X} mechanic plus
+  // opening/closing-device directives the user never used.
+  const titleTemplateBlock = (titleTemplate && titleTemplate.trim())
+    ? `\n⟂ TITLE TEMPLATE ⟂
 Each generated idea's title MUST follow this template literally, with {X} substituted by a concrete value:
 
-  Template: "${pattern.titleTemplate}"
-  {X} represents: ${pattern.subjectLabel}${req.pattern_subject ? ` (e.g. "${req.pattern_subject}", but pick a different concrete value per idea)` : ' (pick a different concrete value per idea — never write the literal word "X")'}
+  Template: "${titleTemplate.trim()}"
 
-Generation rules under this pattern:
-- Replace {X} with a SPECIFIC concrete noun every time (a place / era / craft / object / person / system, depending on the subjectLabel).
-- The {X} value should vary across the batch — don't repeat the same subject for two ideas.
-- Opening hook style: ${pattern.openingDevice}
-${pattern.metadataKeywordAdditions?.length
-  ? `- Themes/keywords this pattern cares about: ${pattern.metadataKeywordAdditions.join(', ')} (incorporate naturally — don't keyword-stuff)`
-  : ''}
+Rules:
+- Replace {X} with a SPECIFIC concrete noun (a place / era / craft / object / person / topic — whatever fits the channel and the idea).
+- Pick a DIFFERENT {X} value for every idea in the batch — never repeat a subject, and never write the literal word "X".
+- Keep the rest of the template wording exactly as written; only {X} changes.
 `
     : ''
 
@@ -282,7 +281,7 @@ ${themeRules.map(r => `     · ${r}`).join('\n')}`
   return `Generate exactly ${req.count} episode ideas for the channel format described below.
 
 ${formatGuidance}
-${patternBlock}${topPerformersBlock}${exampleBlock}
+${titleTemplateBlock}${topPerformersBlock}${exampleBlock}
 PARAMETERS:
 - Genre: ${req.genre}
 - Theme: ${req.theme || 'open / surprise me'}
@@ -336,9 +335,6 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
   const body: GenerateIdeasRequest = req.body
   const provider = SUPPORTED_MODELS[body.model]
 
-  if (provider === 'anthropic' && !config.anthropic_api_key) {
-    return res.status(400).json({ detail: 'No Anthropic API key configured.' })
-  }
   if (provider === 'openai' && !config.openai_api_key) {
     return res.status(400).json({ detail: 'No OpenAI API key configured.' })
   }
@@ -370,25 +366,13 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
   // Optional pattern preset — when the Ideas-page picker selected one,
   // we load it here so the prompt assembler can inject the title-style
   // block. Failure to load (deleted pattern, malformed file, etc.)
-  // degrades gracefully to "no pattern" rather than failing the whole
-  // generation request — but we do surface the failure to the caller
-  // via the X-Pattern-Warning response header (v1.0.69+) so the Ideas
-  // page can toast a warning. Previously the failure was console-only,
-  // so users saw their pattern silently dropped from the prompt.
-  let pattern: Pattern | null = null
-  let patternWarning: string | null = null
-  if (typeof body.pattern_id === 'string' && body.pattern_id) {
-    try {
-      pattern = await loadPattern(body.pattern_id)
-      if (!pattern) {
-        patternWarning = `Pattern "${body.pattern_id}" not found — ideas were generated without it.`
-      }
-    } catch (e: any) {
-      const msg = e?.message || String(e)
-      console.warn(`[ideas-gen] failed to load pattern ${body.pattern_id}: ${msg}`)
-      patternWarning = `Pattern "${body.pattern_id}" failed to load (${msg}) — ideas were generated without it.`
-    }
-  }
+  // v1.0.165+ — optional title template. A plain string the user typed
+  // on the Ideas page (e.g. "Fall asleep to {X}"). Can't "fail to load"
+  // like the old Pattern presets did, so there's no warning path —
+  // the X-Pattern-Warning header + loadPattern call were removed.
+  const titleTemplate = typeof (body as any).title_template === 'string'
+    ? (body as any).title_template.trim()
+    : ''
 
   // Build the AVOID list from everything we already know about this project.
   // Sort newest-first so the 30-item cap keeps the freshest signals.
@@ -482,7 +466,7 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     const { formatTopPerformersBlock } = await import('../lib/brand-prompt.js')
     const topPerformers = await getTopPerformersForSlug(slug, 5)
     const topBlock = formatTopPerformersBlock(topPerformers)
-    const firstPrompt = buildPrompt(overshoot, format, standards, avoid, undefined, pattern, topBlock)
+    const firstPrompt = buildPrompt(overshoot, format, standards, avoid, undefined, titleTemplate, topBlock)
     // v1.0.93+ — one-line effective-state log so future "why are my prayer
     // ideas about mountains?" regressions are debuggable from a glance at
     // server output. Captures the four signals that determine title voice.
@@ -518,7 +502,7 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
         ...avoid,
         ...kept.map(k => ({ title: k.title, mood: k.mood, themes: k.themes })),
       ]
-      const retryPrompt = buildPrompt(retryReq, format, standards, retryAvoid, rejectedTitles, pattern, topBlock)
+      const retryPrompt = buildPrompt(retryReq, format, standards, retryAvoid, rejectedTitles, titleTemplate, topBlock)
       try {
         const retryRaw = await callAi(body.model, '', retryPrompt, apiKeys, false, { slug })
         const retryBatch = normalizeIdeas(parseIdeas(retryRaw))
@@ -552,9 +536,6 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     // header so the Ideas page can show a non-blocking toast. Header
     // shape (vs body) keeps the existing array response unchanged for
     // clients that don't care.
-    if (patternWarning) {
-      res.setHeader('X-Pattern-Warning', encodeURIComponent(patternWarning))
-    }
     res.json(stored)
   } catch (e: any) {
     // Honour explicit statusCode (provider 4xx, schema 400, …) so the
@@ -587,31 +568,26 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
  */
 function buildPastePrompt(
   format: Format,
-  pattern?: Pattern | null,
-  patternSubject?: string,
+  titleTemplate?: string,
 ): string {
   const exampleJson = format.idea.exampleIdeas?.length
     ? JSON.stringify(format.idea.exampleIdeas, null, 2)
     : '[\n  // (no examples in this format — match the shape above)\n]'
 
-  // Pattern guidance — same shape as the in-app generate flow uses
-  // (see buildIdeasPrompt above) so a paste-into-ChatGPT run produces
-  // ideas with the same title/opening style as a generate-in-app run.
-  // Only emitted when a pattern is actually selected.
-  const patternBlock = pattern
-    ? `\n⟂ TITLE STYLE (PATTERN PRESET) ⟂
+  // v1.0.165+ — title template (optional). Same shape as the in-app
+  // generate flow so a paste-into-ChatGPT run produces ideas with the
+  // same title shape as a generate-in-app run. Only emitted when set.
+  const titleTemplateBlock = (titleTemplate && titleTemplate.trim())
+    ? `\n⟂ TITLE TEMPLATE ⟂
 Each generated idea's title MUST follow this template literally, with {X} substituted by a concrete value:
 
-  Template: "${pattern.titleTemplate}"
-  {X} represents: ${pattern.subjectLabel}${patternSubject ? ` (e.g. "${patternSubject}", but pick a different concrete value per idea)` : ' (pick a different concrete value per idea — never write the literal word "X")'}
+  Template: "${titleTemplate.trim()}"
 
-Pattern rules:
-- Replace {X} with a SPECIFIC concrete noun every time (a place / era / craft / object / person / system, depending on the subjectLabel).
-- The {X} value should vary across the batch — don't repeat the same subject for two ideas.
-- Opening hook style for the logline: ${pattern.openingDevice}
-${pattern.metadataKeywordAdditions?.length
-    ? `- Themes/keywords this pattern cares about: ${pattern.metadataKeywordAdditions.join(', ')} (incorporate naturally — don't keyword-stuff)\n`
-    : ''}`
+Rules:
+- Replace {X} with a SPECIFIC concrete noun (a place / era / craft / object / person / topic — whatever fits the channel and the idea).
+- Pick a DIFFERENT {X} value for every idea — never repeat a subject, and never write the literal word "X".
+- Keep the rest of the template wording exactly as written; only {X} changes.
+`
     : ''
 
   // Format-derived shape (v1.0.65). Sleep-story-specific values like
@@ -664,7 +640,7 @@ Rules:
 - Don't invent extra keys — the importer only reads the six above.
 - If you're unsure about a field, leave the idea out rather than guessing.
 - Honour the format's voice above. Don't bring in tropes from other genres.
-${patternBlock}
+${titleTemplateBlock}
 Produce N ideas. (Replace N with however many you want, e.g. 10.)
 
 Example of a valid response:
@@ -677,19 +653,12 @@ router.get('/projects/:slug/ideas/paste-prompt', async (req, res) => {
   const project = await pm.getProject(req.params.slug)
   if (!project) return res.status(404).json({ detail: 'Project not found' })
   const format = await getEffectiveFormat(req.params.slug)
-  // Optional ?pattern_id=... &pattern_subject=... to fold a Pattern preset
-  // into the copied prompt, matching the in-app generate flow. When the
-  // pattern can't be loaded (deleted / typo), we fall through to the plain
-  // format-only prompt — better than 500-ing because the user picked a
-  // pattern that no longer exists.
-  const patternId = typeof req.query.pattern_id === 'string' ? req.query.pattern_id.trim() : ''
-  const patternSubject = typeof req.query.pattern_subject === 'string' ? req.query.pattern_subject.trim() : ''
-  let pattern: Pattern | null = null
-  if (patternId) {
-    try { pattern = await loadPattern(patternId) }
-    catch { pattern = null }
-  }
-  res.type('text/plain').send(buildPastePrompt(format, pattern, patternSubject))
+  // v1.0.165+ — optional ?title_template=... to fold the title shape
+  // into the copied prompt, matching the in-app generate flow.
+  const titleTemplate = typeof req.query.title_template === 'string'
+    ? req.query.title_template.trim()
+    : ''
+  res.type('text/plain').send(buildPastePrompt(format, titleTemplate))
 })
 
 /**

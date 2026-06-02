@@ -18,7 +18,7 @@
     <p class="text-muted mt-1 mb-2">
       Select episodes and steps to run as a batch. Each episode's chain runs
       in sequence (<span title="Each step waits for the previous to finish on the same episode before starting.">
-        script → intro → metadata → image prompts → images → video clips → audio → audio merge → video assembly
+        {{ chainSentence }}
       </span>); different episodes' steps run concurrently when the queue has capacity.
       Pick the preset each step runs with using the dropdowns below — selections stick across sessions.
       <strong title="Pending = anything the 'Select all pending' button picks up. Includes every core step plus video assembly (added 2026 — previously excluded).">Video Assembly is now included in pending</strong>
@@ -35,52 +35,75 @@
       </div>
 
       <div class="steps-grid mt-2">
-        <label
-          v-for="step in stepsMeta"
-          :key="step.id"
-          class="step-tile"
-          :class="{
-            selected: stepChecked[step.id],
-            missing: stepChecked[step.id] && !presetNameFor(step.id),
-            costly: step.costly,
-            disabled: stepDisabled(step.id),
-          }"
-          :title="stepDisabledReason(step.id)"
-        >
-          <input type="checkbox" v-model="stepChecked[step.id]" :disabled="stepDisabled(step.id)" />
-          <div class="step-body">
-            <div class="step-head">
-              <span class="step-icon" aria-hidden="true">{{ step.icon }}</span>
-              <strong>{{ step.label }}</strong>
+        <template v-for="entry in chainEntries" :key="entry.kind === 'step' ? entry.id : entry.key">
+          <!-- Batchable step → checkbox tile (enqueued by Run Batch). -->
+          <label
+            v-if="entry.kind === 'step'"
+            class="step-tile"
+            :class="{
+              selected: stepChecked[entry.id],
+              missing: stepChecked[entry.id] && !presetNameFor(entry.id),
+              costly: entry.costly,
+              disabled: stepDisabled(entry.id),
+            }"
+            :title="stepDisabledReason(entry.id)"
+          >
+            <input type="checkbox" v-model="stepChecked[entry.id]" :disabled="stepDisabled(entry.id)" />
+            <div class="step-body">
+              <div class="step-head">
+                <span class="step-icon" aria-hidden="true">{{ entry.icon }}</span>
+                <strong>{{ entry.label }}</strong>
+              </div>
+              <div class="step-preset" @click.stop>
+                <label class="step-preset-label">Preset</label>
+                <select
+                  class="step-preset-select"
+                  :value="activePresetIdFor(entry.id)"
+                  :disabled="presetSaving[entry.id]"
+                  :title="presetSelectTooltip(entry.id)"
+                  @change="onPresetChange(entry.id, ($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="">— pick one —</option>
+                  <option
+                    v-for="p in presetsForStep(entry.id)"
+                    :key="p.id"
+                    :value="p.id"
+                  >{{ p.name }}</option>
+                </select>
+                <NuxtLink
+                  :to="`/projects/${slug}${entry.link}`"
+                  class="preset-link"
+                  title="Open the per-stage page to edit, save-as, rename or delete this step's presets."
+                >Manage →</NuxtLink>
+                <span v-if="!activePresetIdFor(entry.id)" class="preset-missing">⚠ no preset selected</span>
+              </div>
+              <div v-if="stepDisabled(entry.id)" class="step-warning">{{ stepDisabledReason(entry.id) }}</div>
+              <div v-else-if="entry.warning" class="step-warning">⚠ {{ entry.warning }}</div>
             </div>
-            <div class="step-preset" @click.stop>
-              <label class="step-preset-label">Preset</label>
-              <select
-                class="step-preset-select"
-                :value="activePresetIdFor(step.id)"
-                :disabled="presetSaving[step.id]"
-                :title="presetSelectTooltip(step.id)"
-                @change="onPresetChange(step.id, ($event.target as HTMLSelectElement).value)"
-              >
-                <option value="">— pick one —</option>
-                <option
-                  v-for="p in presetsForStep(step.id)"
-                  :key="p.id"
-                  :value="p.id"
-                >{{ p.name }}</option>
-              </select>
-              <NuxtLink
-                :to="`/projects/${slug}${step.link}`"
-                class="preset-link"
-                title="Open the per-stage page to edit, save-as, rename or delete this step's presets."
-              >Manage →</NuxtLink>
-              <span v-if="!activePresetIdFor(step.id)" class="preset-missing">⚠ no preset selected</span>
+          </label>
+          <!-- External node → read-only "Open page →" card. Not enqueued by
+               Run Batch; documents the real chain order + where to run it. -->
+          <div
+            v-else
+            class="step-tile step-tile-external"
+            :title="entry.note"
+          >
+            <span class="external-badge" aria-hidden="true">↗</span>
+            <div class="step-body">
+              <div class="step-head">
+                <span class="step-icon" aria-hidden="true">{{ entry.icon }}</span>
+                <strong>{{ entry.label }}</strong>
+              </div>
+              <div class="step-external-note">{{ entry.note }}</div>
+              <NuxtLink :to="`/projects/${slug}${entry.link}`" class="preset-link">Open page →</NuxtLink>
             </div>
-            <div v-if="stepDisabled(step.id)" class="step-warning">{{ stepDisabledReason(step.id) }}</div>
-            <div v-else-if="step.warning" class="step-warning">⚠ {{ step.warning }}</div>
           </div>
-        </label>
+        </template>
       </div>
+      <p class="text-muted text-sm mt-2">
+        Showing the <strong>{{ chainLabel }}</strong> chain.
+        <span v-if="hasExternalNodes">Steps marked “↗” run from their own page (not part of Run Batch) — they're shown here so the full order is visible.</span>
+      </p>
     </div>
 
     <!-- ── Episodes to include ──────────────────────────────────────────── -->
@@ -194,12 +217,12 @@
               <option value="missing-script">Missing script ({{ missingCountByStep['script-only'] }})</option>
               <option value="missing-introduction">Missing introduction ({{ missingCountByStep['introduction-only'] }})</option>
               <option value="missing-image-prompts">Missing image prompts ({{ missingCountByStep['image_prompts'] }})</option>
-              <option value="missing-images">Missing images ({{ missingCountByStep['images'] }})</option>
+              <option v-if="!hidesScenePages" value="missing-images">Missing images ({{ missingCountByStep['images'] }})</option>
               <option value="missing-audio">Missing audio ({{ missingCountByStep['audio'] }})</option>
               <option value="missing-audio-merge">Missing merged audio ({{ missingCountByStep['audio_merge'] }})</option>
               <option value="missing-metadata">Missing metadata ({{ missingCountByStep['metadata'] }})</option>
-              <option value="missing-video">Missing video ({{ missingCountByStep['video'] }})</option>
-              <option value="missing-video-assembly">Missing video assembly ({{ missingCountByStep['video_assembly'] }})</option>
+              <option v-if="!hidesScenePages" value="missing-video">Missing video ({{ missingCountByStep['video'] }})</option>
+              <option v-if="!hidesScenePages" value="missing-video-assembly">Missing video assembly ({{ missingCountByStep['video_assembly'] }})</option>
             </optgroup>
           </select>
           <span
@@ -271,7 +294,7 @@
                  with the skip logic. -->
             <div class="ep-status">
               <span
-                v-for="step in stepsMeta"
+                v-for="step in visibleSteps"
                 :key="step.id"
                 :class="[
                   'ep-pill',
@@ -477,6 +500,44 @@ const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const { config, refreshConfig } = useProject()
 
+// ── Active pipeline (format-aware) ──────────────────────────────────────
+// v1.0.167 — the Pipeline page is no longer hardwired to the scene-images
+// chain. It reads the project's effective `visualSource` (same call the
+// sidebar uses) and renders ONLY the steps that belong to the active
+// format's real chain:
+//   - scene-images (narrative / listicle): the full classic chain.
+//   - broll (stock-footage): no scene prompts/images/video-clips; image
+//     prompts + images run in THUMBNAIL-ONLY mode; the final render lives
+//     on the B-Roll page (shown as an "Open page →" chain node).
+//   - timestamp-driven (narration-synced): adds Research up front and
+//     Scene Plan / Scene Review / Timestamp Assemble at the end — all of
+//     which run from their own pages (Scene Review is a human approval
+//     gate by design), so they appear as "Open page →" nodes too.
+// External (non-batchable) nodes are display-only: they document the real
+// chain order but are never enqueued by Run Batch.
+const visualSource = ref<'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain'>('scene-images')
+async function loadVisualSource(): Promise<void> {
+  if (!slug.value) return
+  try {
+    const f = await get<{ visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' }>(`/projects/${slug.value}/effective-format`)
+    if (f?.visualSource === 'broll') visualSource.value = 'broll'
+    else if (f?.visualSource === 'timestamp-driven') visualSource.value = 'timestamp-driven'
+    else if (f?.visualSource === 'continuity-chain') visualSource.value = 'continuity-chain'
+    else visualSource.value = 'scene-images'
+  } catch { /* leave as default — scene-images is the safe superset */ }
+}
+const isBroll = computed(() => visualSource.value === 'broll')
+const isTimestampDriven = computed(() => visualSource.value === 'timestamp-driven')
+// v1.0.187+ — continuity-chain shares the audio-paced (timestamp) chain
+// but inserts a Character Sheet node and renders scenes sequentially.
+const isContinuityChain = computed(() => visualSource.value === 'continuity-chain')
+// Scene-only steps (scene prompts, scene images, AI video clips) are
+// irrelevant for the alternative pipelines — broll pulls visuals from a
+// pool; timestamp-driven + continuity-chain place them against the audio
+// timeline.
+const hidesScenePages = computed(() => isBroll.value || isTimestampDriven.value || isContinuityChain.value)
+watch(slug, () => { void loadVisualSource() }, { immediate: true })
+
 // ── Step metadata ──────────────────────────────────────────────────────
 // ID matches the BatchStep enum on the backend (routes/pipeline.ts).
 //
@@ -501,11 +562,64 @@ interface StepMeta {
   /** Human-readable warning rendered on the step tile when costly. */
   warning?: string
 }
+
+// v1.0.167 — External chain nodes. These are real steps in the broll /
+// timestamp-driven chains that the batch runner does NOT enqueue: either
+// they're pool-level (B-Roll fetch/assemble live on the B-Roll page) or a
+// human approval gate (Scene Review) or simply not wired into run-batch's
+// VALID_STEPS yet (Research, Scene Plan, Timestamp Assemble). We render
+// them inline so the chain reads end-to-end, each with an "Open page →"
+// link to the page that actually runs it. They carry no checkbox, no
+// preset, and never count toward the batch.
+interface ExternalNode {
+  kind: 'external'
+  key: string
+  label: string
+  icon: string
+  link: string
+  /** Short note shown under the node explaining where/why it runs. */
+  note: string
+}
+// A chain entry is either a batchable step or an external (open-the-page) node.
+type ChainEntry = ({ kind: 'step' } & StepMeta) | ExternalNode
+
+const EXTERNAL_NODES: Record<string, ExternalNode> = {
+  research: {
+    kind: 'external', key: 'research', label: 'Research', icon: '🔍', link: '/research',
+    note: 'Runs on the Research page — produces the citations sidecar the script consumes.',
+  },
+  broll: {
+    kind: 'external', key: 'broll', label: 'B-Roll Fetch + Assemble', icon: '🎞', link: '/broll',
+    note: 'Runs on the B-Roll page — fetch/pick clips from the pool, then assemble the final video there.',
+  },
+  character_sheet: {
+    kind: 'external', key: 'character_sheet', label: 'Character Sheet', icon: '🎭', link: '/character-sheet',
+    note: 'Runs on the Character Sheet page — drop in the anchor image (+ optional Characters) so every scene renders the same character.',
+  },
+  scene_plan: {
+    kind: 'external', key: 'scene_plan', label: 'Scene Plan', icon: '📚', link: '/scene-plan',
+    note: 'Runs on the Scene Plan page — the LLM places scenes against the stitched audio timeline.',
+  },
+  scene_review: {
+    kind: 'external', key: 'scene_review', label: 'Scene Review', icon: '✅', link: '/scene-review',
+    note: 'Manual approval gate — review each planned scene before final assembly is unlocked.',
+  },
+  timestamp_assemble: {
+    kind: 'external', key: 'timestamp_assemble', label: 'Timestamp Assemble', icon: '🎞', link: '/timestamp-assemble',
+    note: 'Runs on the Timestamp Assemble page — final render once every scene is approved.',
+  },
+}
+
 // Order in this array is the chain order for each episode's batch run.
 // script-only → introduction-only → metadata → image_prompts → images →
 // (video if opted in) → audio → audio_merge → video_assembly.
 // Metadata sits early so titles/descriptions are ready before any image work
 // — image prompts and the post-merge metadata-driven exports both benefit.
+//
+// This is the canonical FULL list of batchable steps (keyed by StepId).
+// All the preset/status/done helpers below key off it. What the user
+// actually SEES is `chainEntries` — a per-format ordered slice of this
+// list interleaved with EXTERNAL_NODES (see below).
 const stepsMeta: StepMeta[] = [
   { id: 'script-only',       label: 'Script (chapters)', icon: '📝', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_script' },
   { id: 'introduction-only', label: 'Introduction',      icon: '🎙', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_introduction' },
@@ -524,6 +638,93 @@ const stepsMeta: StepMeta[] = [
   { id: 'audio_merge',       label: 'Audio Merge',       icon: '🎛', link: '/audio-merge',    presetList: 'audio_merge_presets',     presetActive: 'audio_merge_last_preset' },
   { id: 'video_assembly',    label: 'Video Assembly',    icon: '🎞', link: '/video-assembly', presetList: 'video_bundle_presets',    presetActive: 'video_bundle_last_preset' },
 ]
+const stepById = (id: StepId): StepMeta => stepsMeta.find(s => s.id === id)!
+
+// ── Per-format chains ───────────────────────────────────────────────────
+// Each entry is either a batchable StepId (rendered as a checkbox tile) or
+// an EXTERNAL_NODES key (rendered as a read-only "Open page →" node). The
+// order is the real production chain for that format. `image_prompts` and
+// `thumb_images` appear in all three formats — broll/timestamp use only the
+// thumbnail output (see the image_prompts note above the chain computeds).
+//
+// Legacy unified `images` is intentionally NOT in any chain — it's kept in
+// stepsMeta only so old saved selections still resolve. Fresh runs use the
+// split thumb/scene steps.
+type ChainSpec = Array<StepId | { external: keyof typeof EXTERNAL_NODES }>
+
+const CHAIN_SCENE_IMAGES: ChainSpec = [
+  'script-only', 'introduction-only', 'metadata',
+  'image_prompts', 'thumb_images', 'scene_images', 'video',
+  'audio', 'audio_merge', 'video_assembly',
+]
+const CHAIN_BROLL: ChainSpec = [
+  'script-only', 'introduction-only', 'metadata',
+  'image_prompts', 'thumb_images',
+  'audio', 'audio_merge',
+  { external: 'broll' },
+]
+const CHAIN_TIMESTAMP: ChainSpec = [
+  { external: 'research' },
+  'script-only', 'introduction-only', 'metadata',
+  'image_prompts', 'thumb_images',
+  'audio', 'audio_merge',
+  { external: 'scene_plan' }, { external: 'scene_review' }, { external: 'timestamp_assemble' },
+]
+// Continuity-chain — like timestamp, minus Research, plus the Character Sheet
+// node before planning. Scenes render sequentially on the Scene Review page
+// (anchored to the sheet), so no batchable scene/image step here either.
+const CHAIN_CONTINUITY: ChainSpec = [
+  { external: 'research' },
+  'script-only', 'introduction-only', 'metadata',
+  'image_prompts', 'thumb_images',
+  'audio', 'audio_merge',
+  { external: 'character_sheet' },
+  { external: 'scene_plan' }, { external: 'scene_review' }, { external: 'timestamp_assemble' },
+]
+
+const activeChainSpec = computed<ChainSpec>(() => {
+  if (isBroll.value) return CHAIN_BROLL
+  if (isTimestampDriven.value) return CHAIN_TIMESTAMP
+  if (isContinuityChain.value) return CHAIN_CONTINUITY
+  return CHAIN_SCENE_IMAGES
+})
+
+// The full ordered display list (steps + external nodes) for the template.
+const chainEntries = computed<ChainEntry[]>(() =>
+  activeChainSpec.value.map((e): ChainEntry =>
+    typeof e === 'string'
+      ? { kind: 'step', ...stepById(e) }
+      : EXTERNAL_NODES[e.external],
+  ),
+)
+
+// Just the batchable steps for the active format, in chain order. This
+// REPLACES the old `stepsMeta` everywhere the UI iterates "the steps the
+// user can run" (tiles, pills, pending logic, counts).
+const visibleSteps = computed<StepMeta[]>(() =>
+  chainEntries.value.filter((e): e is { kind: 'step' } & StepMeta => e.kind === 'step'),
+)
+
+// Note on image_prompts for broll/timestamp: the batch runner generates
+// BOTH scene + thumbnail prompts (mode 'all') regardless of format. For
+// broll/timestamp the scene prompts go unused, but keeping mode 'all' is
+// deliberate — the done-detector requires both scene_prompts AND
+// thumb_prompts on disk, so a thumbnails-only run would read as forever
+// "pending" and re-queue endlessly. Every format gets a scene_prompts
+// subfolder, so nothing throws. The thumbnail (what these formats
+// actually need) is produced either way.
+
+const chainLabel = computed(() => {
+  if (isBroll.value) return 'B-Roll (stock footage)'
+  if (isTimestampDriven.value) return 'narration-synced (timestamp-driven)'
+  if (isContinuityChain.value) return 'continuity-chain (character-locked, live-paced)'
+  return 'scene-images'
+})
+const hasExternalNodes = computed(() => chainEntries.value.some(e => e.kind === 'external'))
+// Human-readable chain order for the page header — built from the active
+// format's chain so it always matches what's actually shown below.
+const chainSentence = computed(() => chainEntries.value.map(e => e.label).join(' → '))
+
 const stepChecked = reactive<Record<StepId, boolean>>({
   'script-only': true,
   'introduction-only': true,
@@ -571,7 +772,11 @@ function stepDisabledReason(stepId: StepId): string {
   return ''
 }
 
-const checkedStepsOrdered = computed(() => stepsMeta.filter(s => stepChecked[s.id]))
+// Only batchable steps that (a) belong to the active format's chain AND
+// (b) are checked. visibleSteps is already in chain order, so the batch
+// runs in the right sequence. A step checked under one format then hidden
+// by a format switch simply drops out — no stale steps get enqueued.
+const checkedStepsOrdered = computed(() => visibleSteps.value.filter(s => stepChecked[s.id]))
 const checkedStepCount = computed(() => checkedStepsOrdered.value.length)
 
 // Legacy-fallback map. Scripts page uses typed presets (introduced when
@@ -810,14 +1015,23 @@ const searchQuery = ref('')
 // separately lets a partially-rendered episode (e.g. scenes done,
 // thumbs pending) show up in the missing-scene-only filter without
 // false-positive blocking everything else.
-const CORE_STEP_IDS: StepId[] = [
-  'script-only', 'introduction-only', 'image_prompts',
-  'thumb_images', 'scene_images', 'audio', 'audio_merge', 'metadata', 'video_assembly',
-]
+// v1.0.167 — CORE steps are now derived from the active format's chain
+// rather than hardcoded to the scene-images set. "Core" = every batchable
+// step in the chain EXCEPT the opt-in AI `video` clips step and the legacy
+// unified `images` step. For broll/timestamp the scene-only steps simply
+// aren't in visibleSteps, so they never count toward "missing core" — a
+// stock-footage episode isn't flagged pending just because it has no
+// scene images. (video_assembly stays core for scene-images; broll and
+// timestamp end on external nodes the batch can't run, so their core set
+// stops at audio_merge — correct, since the final render is a separate,
+// page-driven step.)
+const CORE_STEP_IDS = computed<StepId[]>(() =>
+  visibleSteps.value.map(s => s.id).filter(id => id !== 'video' && id !== 'images'),
+)
 
 function missingCoreSteps(ep: Episode): number {
   let n = 0
-  for (const id of CORE_STEP_IDS) {
+  for (const id of CORE_STEP_IDS.value) {
     if (!isStepDoneForEpisode(id, ep.status)) n++
   }
   return n
@@ -1686,6 +1900,28 @@ async function submit() {
    bottom of this file. The menu is teleported to <body>, which puts it
    outside this scoped style scope (no data-v-* attribute on its DOM),
    so the styles need to be global to apply. */
+
+/* v1.0.167 — External chain node: read-only "Open page" tile for steps the
+   batch runner does not enqueue (research, broll, scene-plan, scene-review,
+   timestamp-assemble). Dashed + dimmer + no checkbox so it reads as
+   informational, not selectable. */
+.step-tile-external {
+  cursor: default;
+  border-style: dashed;
+  opacity: 0.9;
+}
+.step-tile-external .external-badge {
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+.step-external-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 2px 0 4px;
+}
 </style>
 
 <!-- Unscoped — applies to the kebab menu after it teleports to <body>.

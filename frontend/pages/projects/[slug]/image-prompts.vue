@@ -9,7 +9,7 @@
       :presets="promptPresets"
       v-model:episode-id="form.episode_id"
       filter-field="prompts"
-      generate-label="Generate All Image Prompts"
+      :generate-label="generateLabel"
       loading-label="Generating…"
       :generate-loading="generating"
       :generate-disabled="!form.episode_id || !scriptReady"
@@ -22,22 +22,34 @@
 
     <p class="text-muted mt-1 mb-2">
       Image prompts are split into two pools — <strong>scenes</strong> (per-chapter visuals used in the final video)
-      and <strong>thumbnails</strong> (cover art candidates). Keeping them separate means a scene regen doesn't clobber
-      your saved thumbnails and vice-versa. Generate both at once with the top button, or each pool independently below.
+      and <strong>thumbnails</strong> (cover art candidates). This is the
+      <strong>{{ formTab === 'thumbnails' ? 'Thumbnail' : 'Scene' }} Prompts</strong> page — Generate here only
+      affects {{ formTab === 'thumbnails' ? 'thumbnails' : 'scenes' }}; switch pools from the sidebar. Keeping them
+      separate means a scene regen never clobbers your saved thumbnails and vice-versa.
     </p>
 
     <div class="card mt-3">
-      <!-- Cast for this episode — same picker as the Scripts page. The
-           selected character names + descriptions are folded into the
-           LLM prompt so every scene/thumbnail prompt actually includes
-           the character description as the requirements demand (instead
-           of the LLM inventing or drifting between regenerations). -->
+      <!-- v1.0.179 — character references are opt-in here too (matches the
+           Script page). Off by default → the LLM describes scene subjects
+           freely. Toggle on to fold a pinned cast's names + descriptions
+           into every scene/thumbnail prompt for consistency across
+           regenerations. Turning it off clears the selection. -->
       <div v-if="form.episode_id" class="form-group field-wide">
-        <CharacterPicker
-          v-model="activeForm.character_ids"
-          :project-slug="slug"
-          :episode-code="form.episode_id"
-        />
+        <label class="toggle-label">
+          <input type="checkbox" v-model="useCharacters" />
+          <span>Use character references</span>
+        </label>
+        <span class="text-muted text-xs hint-line">
+          Off = the AI describes characters freely per prompt. On = pin a cast
+          so every scene/thumbnail prompt reuses the same descriptions.
+        </span>
+        <div v-if="useCharacters" class="mt-2">
+          <CharacterPicker
+            v-model="activeForm.character_ids"
+            :project-slug="slug"
+            :episode-code="form.episode_id"
+          />
+        </div>
       </div>
 
       <div class="form-group field-medium">
@@ -255,23 +267,15 @@
            is FIRST because in YouTube production the thumbnail is what you
            sweat first (it's the CTR lever); scenes follow once the cover
            image direction is locked. v1.0.87+. -->
-      <div class="form-tabs mt-2">
-        <button
-          type="button"
-          :class="['form-tab', { active: formTab === 'thumbnails' }]"
-          @click="formTab = 'thumbnails'"
-        >
-          🖼️ Thumbnail Prompts
-          <span class="text-muted text-xs ml-1">({{ safeThumbCount }})</span>
-        </button>
-        <button
-          type="button"
-          :class="['form-tab', { active: formTab === 'scenes' }]"
-          @click="formTab = 'scenes'"
-        >
-          🎬 Scene Prompts
-          <span class="text-muted text-xs ml-1">({{ effectiveSceneCount }})</span>
-        </button>
+      <!-- v1.0.201 — the in-page Thumbnail/Scene switcher was removed so each
+           sidebar entry (Thumbnail Prompts / Scene Prompts) is its own focused
+           view. The mode is set by the sidebar's ?tab=; switch via the sidebar.
+           This keeps the split honest — formats that don't use scenes (broll,
+           timestamp, continuity-chain) never surface scene controls here. -->
+      <div class="generator-mode-head mt-2">
+        <span class="generator-mode-icon" aria-hidden="true">{{ formTab === 'thumbnails' ? '🖼️' : '🎬' }}</span>
+        <strong>{{ formTab === 'thumbnails' ? 'Thumbnail Prompts' : 'Scene Prompts' }}</strong>
+        <span class="text-muted text-xs">{{ formTab === 'thumbnails' ? `${safeThumbCount} thumbnail prompt(s)` : `${effectiveSceneCount} scene prompt(s)` }}</span>
       </div>
 
       <!-- ── Scene Prompts section ─────────────────────────────────────── -->
@@ -407,6 +411,66 @@
           </div>
         </div>
 
+        <!-- v1.0.224 — title-text mode + dynamic art direction ─────────── -->
+        <div class="form-group mt-2">
+          <label>Title text</label>
+          <select v-model="form.thumbnail.thumb_title_mode" class="select">
+            <option value="ai">Render the title into the image (AI)</option>
+            <option value="composite">Text-free background — overlay the title afterward (Compose)</option>
+          </select>
+          <p class="text-muted text-xs hint-line">
+            <template v-if="form.thumbnail.thumb_title_mode === 'composite'">
+              The thumbnail is generated WITHOUT any text. After rendering, use the Compose dialog to overlay a crisp, perfectly legible title via your thumbnail template — the text / font / position pickers above are ignored in this mode.
+            </template>
+            <template v-else>
+              The AI renders the episode title into the image using the text / font / position above (defaulting to this format's recommended style). Quick, but lettering can occasionally come out imperfect — switch to Compose for guaranteed-legible text.
+            </template>
+          </p>
+        </div>
+
+        <div class="form-group mt-2">
+          <label>Art direction <span class="text-muted">(optional — overrides the format + best-practice defaults)</span></label>
+          <textarea
+            v-model="form.thumbnail.thumb_art_direction"
+            class="textarea"
+            rows="2"
+            placeholder="e.g. extreme close-up on a shocked face, neon-on-black palette, bold arrow + circle highlight…"
+          />
+        </div>
+
+        <div class="form-group mt-1">
+          <label>Replicate a reference thumbnail <span class="text-muted">(optional)</span></label>
+          <div class="flex gap-2 items-center flex-wrap">
+            <button
+              type="button"
+              class="btn btn-sm btn-secondary"
+              :disabled="extractingThumbRef"
+              title="Pick a thumbnail you want to emulate — a vision model extracts its look and the prompt replicates it."
+              @click="extractThumbReferenceStyle"
+            >
+              <LoadingSpinner v-if="extractingThumbRef" size="sm" />
+              <span v-else aria-hidden="true">📷</span>
+              {{ form.thumbnail.thumb_reference_style ? 'Change reference thumbnail…' : 'Extract style from a reference thumbnail…' }}
+            </button>
+            <button
+              v-if="form.thumbnail.thumb_reference_style"
+              type="button"
+              class="btn btn-sm btn-secondary"
+              title="Clear the reference style"
+              @click="form.thumbnail.thumb_reference_style = ''"
+            >
+              ✕ Clear
+            </button>
+          </div>
+          <textarea
+            v-if="form.thumbnail.thumb_reference_style"
+            v-model="form.thumbnail.thumb_reference_style"
+            class="textarea mt-1"
+            rows="3"
+            placeholder="Extracted reference style (editable)…"
+          />
+        </div>
+
         <!-- Randomize + Surprise Me: full-size like the Ideas generator's -->
         <!-- action cluster so these feel like first-class actions, not -->
         <!-- afterthoughts (pain-point from test feedback). -->
@@ -485,6 +549,7 @@
       :thumbnail-prompt-cap="capPreviewInfo.cap"
       :scene-model-label="capPreviewInfo.label"
       :thumbnail-model-label="capPreviewInfo.label"
+      :pool="formTab"
     />
 
     <!-- Provider prompt-cap reference table. Same modal shape as the
@@ -539,7 +604,7 @@
     <div v-if="generatedPrompts || history.length > 0" class="mt-3">
       <div class="tabs">
         <button :class="['tab', { active: activeTab === 'current' }]" @click="activeTab = 'current'">
-          Current {{ generatedPrompts ? `(${generatedPrompts.scenes.length + generatedPrompts.thumbnails.length})` : '' }}
+          Current {{ generatedPrompts ? `(${formTab === 'thumbnails' ? generatedPrompts.thumbnails.length : generatedPrompts.scenes.length})` : '' }}
         </button>
         <button :class="['tab', { active: activeTab === 'history' }]" @click="activeTab = 'history'">
           History ({{ history.length }})
@@ -558,27 +623,34 @@
           </div>
         </div>
 
-        <h3 class="mt-2">Scene Prompts ({{ generatedPrompts.scenes.length }})</h3>
-        <div class="prompt-list mt-1">
-          <div v-for="(scene, i) in generatedPrompts.scenes" :key="i" class="prompt-item">
-            <div class="prompt-header">
-              <strong>Scene {{ scene.number }}: {{ scene.title }}</strong>
-              <button class="btn-icon" @click="removePrompt('scenes', Number(i))">✕</button>
+        <!-- v1.0.209 — only show the active pool so the split is honest:
+             Scene-Prompts page shows scene results, Thumbnail-Prompts shows
+             thumbnails. (Both are still on disk; this is just the view.) -->
+        <template v-if="formTab === 'scenes'">
+          <h3 class="mt-2">Scene Prompts ({{ generatedPrompts.scenes.length }})</h3>
+          <div class="prompt-list mt-1">
+            <div v-for="(scene, i) in generatedPrompts.scenes" :key="i" class="prompt-item">
+              <div class="prompt-header">
+                <strong>Scene {{ scene.number }}: {{ scene.title }}</strong>
+                <button class="btn-icon" @click="removePrompt('scenes', Number(i))">✕</button>
+              </div>
+              <textarea v-model="scene.prompt" class="textarea prompt-edit" />
             </div>
-            <textarea v-model="scene.prompt" class="textarea prompt-edit" />
           </div>
-        </div>
+        </template>
 
-        <h3 class="mt-3">Thumbnail Prompts ({{ generatedPrompts.thumbnails.length }})</h3>
-        <div class="prompt-list mt-1">
-          <div v-for="(thumb, i) in generatedPrompts.thumbnails" :key="i" class="prompt-item">
-            <div class="prompt-header">
-              <strong>Thumbnail {{ thumb.number }}: {{ thumb.title }}</strong>
-              <button class="btn-icon" @click="removePrompt('thumbnails', Number(i))">✕</button>
+        <template v-if="formTab === 'thumbnails'">
+          <h3 class="mt-2">Thumbnail Prompts ({{ generatedPrompts.thumbnails.length }})</h3>
+          <div class="prompt-list mt-1">
+            <div v-for="(thumb, i) in generatedPrompts.thumbnails" :key="i" class="prompt-item">
+              <div class="prompt-header">
+                <strong>Thumbnail {{ thumb.number }}: {{ thumb.title }}</strong>
+                <button class="btn-icon" @click="removePrompt('thumbnails', Number(i))">✕</button>
+              </div>
+              <textarea v-model="thumb.prompt" class="textarea prompt-edit" />
             </div>
-            <textarea v-model="thumb.prompt" class="textarea prompt-edit" />
           </div>
-        </div>
+        </template>
       </div>
 
       <EmptyState
@@ -647,6 +719,18 @@ const generating = ref(false)
 // sees their just-generated prompts in the regen panel.
 const reviewRefreshKey = ref(0)
 const showStyleEditor = ref(false)
+
+// v1.0.179 — character references opt-in (mirrors the Script page). Default
+// OFF; toggle reveals the picker. Off clears the selection so a stale cast
+// never leaks into a prompt run. Auto-on when the active form already carries
+// characters (editing an episode that was set up with a cast).
+const useCharacters = ref(false)
+watch(useCharacters, (on) => {
+  if (!on && activeForm.value.character_ids.length) activeForm.value.character_ids = []
+})
+watch(() => activeForm.value.character_ids.length, (n) => {
+  if (n > 0 && !useCharacters.value) useCharacters.value = true
+})
 const generatedPrompts = ref<any>(null)
 const activeTab = ref('current')
 
@@ -704,6 +788,11 @@ watch(() => route.query.tab, (v) => {
   const next = v === 'scenes' ? 'scenes' : 'thumbnails'
   if (next !== formTab.value) formTab.value = next
 })
+// Top action-bar label reflects the active pool (the button only generates
+// that pool now — see generate()).
+const generateLabel = computed(() =>
+  formTab.value === 'thumbnails' ? 'Generate Thumbnail Prompts' : 'Generate Scene Prompts',
+)
 // Push the query when the user clicks the inline tabs, so the URL
 // reflects the visible state and the sidebar's active-state highlight
 // follows. Uses replace so the back button doesn't accumulate every
@@ -732,7 +821,7 @@ const { project, config, refreshConfig } = useProject()
 // v1.0.83+: format-aware section label ("Chapter"/"Reason"/"Topic").
 // Watches the project meta so swapping format in Settings live-updates
 // the labels here without a full reload.
-const projectFormatId = ref<string>('sleep-story')
+const projectFormatId = ref<string>('narrative')
 watch(project, (p) => {
   if (!p) return
   const id = (p as any).format_id
@@ -742,7 +831,7 @@ watch(project, (p) => {
     // v1.0.102+ — see scripts.vue for rationale. Defensive fallback;
     // logs to console so the case is debuggable when it fires.
     console.warn('[image-prompts.vue] project.format_id missing — falling back to sleep-story for section labels. Set a format in Settings → Format if this is unexpected.')
-    projectFormatId.value = 'sleep-story'
+    projectFormatId.value = 'narrative'
   }
 }, { immediate: true })
 const sectionLabel = useSectionLabel(projectFormatId)
@@ -866,6 +955,10 @@ type ThumbnailForm = SharedFormFields & {
   thumb_text_position: string
   thumb_font_style: string
   thumb_font_style_custom: string
+  // v1.0.224 — dynamic thumbnail direction (auto-saved via the preset snapshot).
+  thumb_title_mode: 'ai' | 'composite'
+  thumb_art_direction: string
+  thumb_reference_style: string
 }
 type SceneForm = SharedFormFields & {
   scenes_per_chapter: number
@@ -889,6 +982,9 @@ const form = reactive({
     thumb_text_position: 'center',
     thumb_font_style: 'serif',
     thumb_font_style_custom: '',
+    thumb_title_mode: 'ai',
+    thumb_art_direction: '',
+    thumb_reference_style: '',
   } as ThumbnailForm,
   scene: {
     model: 'gpt-4o',
@@ -901,6 +997,17 @@ const form = reactive({
     total_scenes: 10,
     chapter_count_override: null as number | null,
   } as SceneForm,
+})
+
+// v1.0.115+ — clear the in-flight indicator on episode swap. The local
+// `generating` ref is normally true only during the POST window (reset
+// in the submit handler's `finally`), but defensively clearing it on
+// episode change prevents the TopActionBar from briefly showing
+// "Generating prompts for [old ep]…" if the user is fast enough to swap
+// while the POST is still inflight. Symmetrical with video-assembly.vue
+// and audio-merge.vue.
+watch(() => form.episode_id, (newEp, oldEp) => {
+  if (newEp !== oldEp) generating.value = false
 })
 
 // The active sub-form. Template bindings on shared-field controls use
@@ -1315,6 +1422,40 @@ function clearReference() {
   lastAnalysisModel.value = null
 }
 
+// v1.0.224 — thumbnail-scoped reference replication. Distinct from the scene
+// style extractor above (which writes the scene style_tag): this pulls a
+// thumbnail's look into form.thumbnail.thumb_reference_style, which the
+// generator injects as the reference layer of the thumbnail art direction.
+const extractingThumbRef = ref(false)
+async function extractThumbReferenceStyle() {
+  try {
+    const r = await post<{ path: string | null }>('/system/pick-file', {
+      title: 'Choose a reference thumbnail',
+      buttonLabel: 'Use as Reference',
+      filters: [
+        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    })
+    if (!r.path) return
+    extractingThumbRef.value = true
+    const data = await post<{ style_text: string; model_used: string }>(
+      `/projects/${slug.value}/analyze-style`,
+      {
+        image_path: r.path,
+        model: visionModel.value,
+        focus: 'YouTube thumbnail: focal subject, composition, lighting, color palette, mood, and title-text treatment',
+      },
+    )
+    form.thumbnail.thumb_reference_style = data.style_text
+    success(`Reference thumbnail style extracted via ${data.model_used}`)
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Reference style extraction failed')
+  } finally {
+    extractingThumbRef.value = false
+  }
+}
+
 // ── Save-as-preset flow ─────────────────────────────────────────────────
 // Captures whatever's in activeForm.value.style_tag right now (could be a vision-
 // extracted description, a hand-written one, or a fork of an existing
@@ -1516,6 +1657,9 @@ async function runGenerate(mode: PromptMode) {
       thumb_text_position: form.thumbnail.thumb_text_position,
       thumb_font_style: form.thumbnail.thumb_font_style,
       thumb_font_style_custom: form.thumbnail.thumb_font_style_custom,
+      thumb_title_mode: form.thumbnail.thumb_title_mode,
+      thumb_art_direction: form.thumbnail.thumb_art_direction,
+      thumb_reference_style: form.thumbnail.thumb_reference_style,
       title: selectedEpisode.value?.title || '',
       mode,
       // Cast for this generation. Backend resolves these via
@@ -1596,7 +1740,13 @@ async function runGenerate(mode: PromptMode) {
   }
 }
 
-async function generate() { await runGenerate('all') }
+// v1.0.209 — the top action-bar button respects the active split tab so
+// the Thumbnail-Prompts page generates ONLY thumbnails and the Scene-Prompts
+// page generates ONLY scenes (it used to always run 'all', which is why a
+// thumbnail-only run still produced scene prompts).
+async function generate() {
+  await runGenerate(formTab.value === 'thumbnails' ? 'thumbnails' : 'scenes')
+}
 async function generateScenes() { await runGenerate('scenes') }
 async function generateThumbnails() { await runGenerate('thumbnails') }
 
@@ -1616,6 +1766,11 @@ async function saveToFile() {
 </script>
 
 <style scoped>
+/* v1.0.201 — focused-view header (replaces the thumbnail/scene switcher). */
+.generator-mode-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.generator-mode-head strong { font-size: 15px; }
+.generator-mode-icon { font-size: 16px; }
+
 /* Form-field width tokens (mirror scripts.vue). */
 .field-medium { max-width: 520px; }
 .field-wide   { max-width: 720px; }
@@ -1731,29 +1886,10 @@ async function saveToFile() {
 .tab:hover { color: var(--text-primary); }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-/* Form section tabs (Thumbnail | Scene). Same visual register as the
- * Current/History tabs above so the page reads as one tabbed surface. */
-.form-tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-}
-.form-tab {
-  padding: 10px 18px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-muted);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  font-family: inherit;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.form-tab:hover { color: var(--text-primary); }
-.form-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+/* Form section tabs (Thumbnail | Scene): styles moved to
+ * assets/css/main.css in v1.0.117 so ideas.vue + scripts.vue can
+ * reuse them. Same visual register as the Current/History tabs above
+ * so the page reads as one tabbed surface. */
 
 /* History table */
 .history-table {

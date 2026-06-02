@@ -77,14 +77,17 @@ async function loadPrompts(slug: string, episodeId: string, req: GenerateVideoRe
   if (!outputRoot) throw new Error('Project directory not found')
 
   if (req.prompt_source === 'video_prompts') {
-    const found = await findFileRecursive(outputRoot, [`${code}_Video_Prompts.docx`])
-    if (!found) throw new Error(`Could not find ${code}_Video_Prompts.docx. Generate video prompts first.`)
+    const found = await findFileRecursive(outputRoot, [`${code}_Video_Prompts.md`, `${code}_Video_Prompts.docx`])
+    if (!found) throw new Error(`Could not find ${code}_Video_Prompts.md. Generate video prompts first.`)
     const parsed = await parseImagePromptsDocx(found)
     return parsed.scenes.length ? parsed.scenes : parsed.thumbnails
   }
 
-  // scene_prompts fallback (reuse still-image prompts)
-  const found = await findFileRecursive(outputRoot, [`${code}_Scene_Prompts.docx`, `${code}_Image_Prompts.docx`])
+  // scene_prompts fallback (reuse still-image prompts). Prefer .md, then legacy .docx.
+  const found = await findFileRecursive(outputRoot, [
+    `${code}_Scene_Prompts.md`, `${code}_Scene_Prompts.docx`,
+    `${code}_Image_Prompts.md`, `${code}_Image_Prompts.docx`,
+  ])
   if (!found) throw new Error(`Could not find scene prompts for ${code}. Generate them first.`)
   const parsed = await parseImagePromptsDocx(found)
   return parsed.scenes

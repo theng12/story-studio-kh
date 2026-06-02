@@ -6,7 +6,7 @@
         {{ currentVoice?.name || defaultLabel }}
       </span>
       <span v-if="currentVoice && isFavourite(currentVoice.voice_id)" class="vp-star-badge" title="Favourited" aria-hidden="true">★</span>
-      <span v-if="currentVoice && !isAvailable(currentVoice.voice_id)" class="vp-badge cat-unavailable" title="This voice isn't in your current ElevenLabs catalog — generation will fail. Pick another voice or refresh the catalog.">unavailable</span>
+      <span v-if="currentVoice && !isAvailable(currentVoice.voice_id)" class="vp-badge cat-unavailable" title="This voice isn't available for the selected model. Pick another voice.">unavailable</span>
       <span v-else-if="currentVoice" class="vp-badge" :class="`cat-${currentVoice.category}`">
         {{ categoryLabel(currentVoice.category) }}
       </span>
@@ -15,17 +15,22 @@
 
     <!-- Expanded panel -->
     <div v-if="expanded" class="vp-panel">
-      <!-- Prominent loading banner: the ElevenLabs fetch can take 3–8 s on -->
-      <!-- a cold open, especially with 100+ shared voices. Users were -->
-      <!-- wondering why the panel was empty (test feedback). -->
-      <div v-if="loading || refreshing" class="vp-loading-banner">
+      <!-- Scope banner — names the active model family + what voices apply,
+           so the user understands at a glance why only certain voices show.
+           Hidden when no model is selected (scope = 'all'). -->
+      <div v-if="scope !== 'all'" class="vp-scope" :class="scopeFamily">
+        <span class="vp-scope-icon" aria-hidden="true">{{ scopeFamily === 'voicestudio' ? '💻' : '☁︎' }}</span>
+        <span class="vp-scope-text" v-html="scopeBanner" />
+      </div>
+
+      <!-- Loading banner for the ElevenLabs catalog fetch (cloud scopes). -->
+      <div v-if="(loading || refreshing) && scopeFamily === 'cloud'" class="vp-loading-banner">
         <LoadingSpinner size="sm" />
         <span>{{ refreshing ? 'Refreshing voice catalog from ElevenLabs…' : 'Fetching voice catalog — may take a few seconds…' }}</span>
       </div>
 
-      <!-- No-key banner: show when the catalog resolved as `snapshot` (i.e. -->
-      <!-- no ElevenLabs key configured). Actionable link into Settings. -->
-      <div v-if="!loading && !refreshing && source === 'snapshot' && hasElevenLabsKey === false" class="vp-nokey-banner">
+      <!-- No-key banner: only relevant for cloud scopes on the offline snapshot. -->
+      <div v-if="!loading && !refreshing && scopeFamily === 'cloud' && source === 'snapshot' && hasElevenLabsKey === false" class="vp-nokey-banner">
         <div class="vp-nokey-title">Add your ElevenLabs API key to unlock 100+ voices</div>
         <div class="vp-nokey-body">
           You're seeing the offline snapshot ({{ catalog.length }} voices). Paste your key in
@@ -34,7 +39,7 @@
         </div>
       </div>
 
-      <!-- Toolbar: search + refresh + source chip -->
+      <!-- Toolbar: search + refresh (refresh only meaningful for cloud) -->
       <div class="vp-toolbar">
         <input
           v-model="search"
@@ -44,6 +49,7 @@
           autofocus
         />
         <button
+          v-if="scopeFamily === 'cloud'"
           type="button"
           class="btn btn-sm btn-secondary"
           :disabled="refreshing"
@@ -55,49 +61,34 @@
           Refresh
         </button>
       </div>
-      <div class="vp-source-row">
+      <div v-if="scopeFamily === 'cloud'" class="vp-source-row">
         <span class="vp-source" :title="sourceTooltip">{{ sourceLabel }}</span>
         <span v-if="loadError" class="vp-error" :title="loadError">⚠ {{ loadError }}</span>
       </div>
 
-      <!-- Filters -->
-      <div class="vp-filters">
-        <select v-model="filterGender" class="select select-sm">
-          <option value="">Any gender</option>
-          <option value="male">Male</option>
-          <option value="female">Female</option>
-          <option value="neutral">Neutral</option>
-        </select>
-        <select v-model="filterUseCase" class="select select-sm">
-          <option value="">Any use case</option>
-          <option v-for="u in useCaseOptions" :key="u" :value="u">{{ u }}</option>
-        </select>
-        <button
-          v-if="search || filterGender || filterUseCase"
-          type="button"
-          class="btn btn-sm btn-ghost"
-          @click="clearFilters"
-        >
-          Clear
-        </button>
-      </div>
-
       <div class="vp-list">
-        <!-- Default / clear selection row -->
+        <!-- Default / clear selection row. Hidden when the parent requires an
+             explicit pick (audio generator). Copy adapts to the model family. -->
         <button
+          v-if="!requireSelection"
           type="button"
           class="vp-row default-row"
           :class="{ selected: modelValue === null }"
           @click="select(null)"
         >
-          <span class="vp-row-name">{{ defaultLabel }}</span>
-          <span class="vp-row-meta">Use whatever the model defaults to</span>
+          <span class="vp-row-name">{{ defaultRowLabel }}</span>
+          <span class="vp-row-meta">{{ defaultRowMeta }}</span>
         </button>
 
-        <!-- Favourites -->
+        <!-- Favourites — filtered to voices compatible with the active model. -->
         <div v-if="favouriteVoices.length" class="vp-section">
           <div class="vp-section-heading">★ Favourites ({{ favouriteVoices.length }})</div>
-          <div v-for="v in favouriteVoices" :key="'fav-' + v.voice_id" class="vp-row" :class="{ selected: modelValue === v.voice_id, unavailable: !isAvailable(v.voice_id) }">
+          <div
+            v-for="v in favouriteVoices"
+            :key="'fav-' + v.voice_id"
+            class="vp-row"
+            :class="{ selected: modelValue === v.voice_id }"
+          >
             <button type="button" class="vp-star favourited" @click.stop="toggleFavourite(v.voice_id)" :title="'Unfavourite ' + v.name">★</button>
             <button type="button" class="vp-select" @click="select(v.voice_id)">
               <span class="vp-row-name">{{ v.name }}</span>
@@ -105,16 +96,84 @@
                 <span v-if="v.gender && v.gender !== 'unknown'" class="vp-chip">{{ v.gender }}</span>
                 <span v-if="v.accent" class="vp-chip">{{ v.accent }}</span>
                 <span v-if="v.use_case" class="vp-chip">{{ v.use_case }}</span>
-                <span v-if="!isAvailable(v.voice_id)" class="vp-chip warn">unavailable</span>
               </span>
             </button>
-            <button type="button" class="vp-preview" :disabled="!v.voice_id || !isAvailable(v.voice_id)" :title="isAvailable(v.voice_id) ? 'Preview voice' : 'Voice unavailable'" @click.stop="$emit('preview', v.voice_id)" aria-label="Preview">▶</button>
+            <button type="button" class="vp-preview" :disabled="!v.voice_id" title="Preview voice" @click.stop="$emit('preview', v.voice_id)" aria-label="Preview">▶</button>
           </div>
         </div>
 
-        <!-- My Custom Voices (project presets) -->
-        <div v-if="filteredCustomVoices.length" class="vp-section">
-          <div class="vp-section-heading">My Custom Voices ({{ filteredCustomVoices.length }})</div>
+        <!-- Voice Studio (local) — voicepack speakers OR cloning library,
+             depending on the selected engine. Shown only for voicestudio scope. -->
+        <div
+          v-if="scopeFamily === 'voicestudio' && (filteredVoicestudioVoices.length || voicestudioLoading || voicestudioError)"
+          class="vp-section vp-section-local"
+        >
+          <div class="vp-section-heading vp-vs-heading">
+            <span>
+              {{ voicestudioSectionTitle }}
+              <span v-if="filteredVoicestudioVoices.length">({{ filteredVoicestudioVoices.length }})</span>
+            </span>
+            <span class="vp-vs-actions">
+              <button
+                type="button"
+                class="vp-vs-refresh"
+                :disabled="voicestudioLoading"
+                title="Re-fetch the live voice list from your Voice Studio modal"
+                @click.stop="loadVoicestudioVoices"
+              >{{ voicestudioLoading ? '…' : '⟳' }}</button>
+              <a
+                class="vp-vs-manage"
+                href="#"
+                title="Open the Voice Studio modal's web UI"
+                @click.stop.prevent="openVoiceStudioWeb"
+              >open modal UI ↗</a>
+            </span>
+          </div>
+          <div v-if="voicestudioError" class="vp-vs-error">
+            ⚠ {{ voicestudioError }} — set the URL in
+            <a href="#" class="vp-nokey-link" @click.prevent="goToLocalModelsSettings">Settings → This Mac → Local Models</a>
+            and try Refresh.
+          </div>
+          <div v-else-if="voicestudioLoading" class="vp-loading">
+            <LoadingSpinner size="sm" /> Loading {{ scope === 'voicestudio-voicepack' ? voicepackEngineLabel + ' speakers' : 'your cloned voices' }}…
+          </div>
+          <div v-else-if="!filteredVoicestudioVoices.length" class="vp-vs-empty">
+            <template v-if="scope === 'voicestudio-voicepack'">
+              No {{ voicepackEngineLabel }} speakers reported by the modal.
+              <a href="#" class="vp-nokey-link" @click.prevent="loadVoicestudioVoices">Retry ↻</a>
+            </template>
+            <template v-else>
+              No voices uploaded to Voice Studio yet — generation will use the engine's zero-shot default.
+              <a href="#" class="vp-nokey-link" @click.prevent="openVoiceStudioWeb">Add a clone in the modal UI ↗</a>
+            </template>
+          </div>
+          <div
+            v-for="v in filteredVoicestudioVoices"
+            :key="'vs-' + v.id"
+            class="vp-row"
+            :class="{ selected: modelValue === v.id }"
+          >
+            <button type="button" class="vp-star" :class="{ favourited: isFavourite(v.id) }" @click.stop="toggleFavourite(v.id)" :title="isFavourite(v.id) ? 'Unfavourite' : 'Favourite this voice'">
+              {{ isFavourite(v.id) ? '★' : '☆' }}
+            </button>
+            <button type="button" class="vp-select" @click="select(v.id)">
+              <span class="vp-row-name">{{ v.name }}</span>
+              <span class="vp-row-meta">
+                <span class="vp-chip vp-vs-chip">{{ scope === 'voicestudio-voicepack' ? 'built-in' : 'local clone' }}</span>
+                <span v-if="v.gender && v.gender !== 'unknown'" class="vp-chip">{{ v.gender }}</span>
+                <span v-if="v.language && v.language !== 'en'" class="vp-chip subtle">{{ v.language }}</span>
+                <span v-if="typeof v.duration_seconds === 'number'" class="vp-chip subtle">{{ Math.round(v.duration_seconds) }}s ref</span>
+              </span>
+            </button>
+            <button type="button" class="vp-preview" title="Preview voice" @click.stop="$emit('preview', v.id)" aria-label="Preview">▶</button>
+          </div>
+        </div>
+
+        <!-- Saved voices — your ElevenLabs voice ids (project voice_presets).
+             ONLY valid on ElevenLabs direct (your own account); hidden for the
+             fal/GenAIPro proxies, which use their own ElevenLabs accounts. -->
+        <div v-if="scope === 'elevenlabs-direct' && filteredCustomVoices.length" class="vp-section vp-section-saved">
+          <div class="vp-section-heading">☁︎ Saved voices ({{ filteredCustomVoices.length }})</div>
           <div
             v-for="v in filteredCustomVoices"
             :key="'custom-' + v.voice_id"
@@ -135,10 +194,12 @@
           </div>
         </div>
 
-        <!-- Catalog -->
-        <div v-if="filteredCatalogVoices.length" class="vp-section">
+        <!-- ElevenLabs catalog — direct shows everything; the fal/GenAIPro
+             proxies show ONLY premade voices (the globally-available set). -->
+        <div v-if="scopeFamily === 'cloud' && filteredCatalogVoices.length" class="vp-section vp-section-eleven">
           <div class="vp-section-heading">
-            Catalog ({{ filteredCatalogVoices.length }}<span v-if="search || filterGender || filterUseCase"> filtered</span>)
+            ☁︎ {{ scope === 'elevenlabs-proxy' ? 'ElevenLabs premade voices' : 'ElevenLabs voices' }}
+            ({{ filteredCatalogVoices.length }}<span v-if="search"> filtered</span>)
           </div>
           <div
             v-for="v in visibleCatalogVoices"
@@ -165,7 +226,7 @@
             <button type="button" class="vp-preview" title="Preview voice" @click.stop="$emit('preview', v.voice_id)" aria-label="Preview">▶</button>
           </div>
 
-          <!-- Lazy load the rest: we cap at 60 rows initially to keep DOM cheap. -->
+          <!-- Lazy load the rest: cap at 60 rows initially to keep DOM cheap. -->
           <button
             v-if="filteredCatalogVoices.length > visibleCatalogVoices.length"
             type="button"
@@ -177,13 +238,10 @@
         </div>
 
         <div
-          v-if="!loading && !favouriteVoices.length && !filteredCustomVoices.length && !filteredCatalogVoices.length"
+          v-if="!loading && !voicestudioLoading && !favouriteVoices.length && !filteredCustomVoices.length && !filteredCatalogVoices.length && !filteredVoicestudioVoices.length && !voicestudioError"
           class="vp-empty"
         >
-          No voices match. Try clearing filters, or hit Refresh if the catalog is empty.
-        </div>
-        <div v-if="loading" class="vp-loading">
-          <LoadingSpinner size="sm" /> Loading catalog…
+          No voices to show for this model. Try a different search<span v-if="scopeFamily === 'cloud'">, or hit Refresh</span>.
         </div>
       </div>
     </div>
@@ -192,14 +250,26 @@
 
 <script setup lang="ts">
 /**
- * VoicePicker — rich catalog browser with three stacked sections:
- *   1. Favourites (pinned per-project, server-persisted)
- *   2. My Custom Voices (project.voice_presets)
- *   3. Catalog (live ElevenLabs pull via /voices/catalog, cached 24h)
+ * VoicePicker — model-aware voice browser (v1.0.207+).
  *
- * Emits `update:modelValue` on select and `preview` on ▶-click so the
- * parent (audio.vue) can drive the TTS preview call with its current
- * model + slider state. The picker itself doesn't know about TTS.
+ * The picker shows ONLY the voices that work with the currently-selected
+ * audio model, in three visually-distinct families:
+ *
+ *   • ElevenLabs (direct)   → "Saved voices" (your account's voice_presets)
+ *                              + the full "ElevenLabs voices" catalog.
+ *   • fal.ai / GenAIPro     → "ElevenLabs premade voices" ONLY. The proxies
+ *                              call ElevenLabs with THEIR account, so your
+ *                              private saved/cloned voice ids don't exist
+ *                              there — they're hidden, not just dimmed.
+ *   • Voice Studio (local)  → either the engine's built-in voicepack
+ *                              (Kokoro / Bark / Qwen3 speakers) OR your
+ *                              uploaded clones (VoxCPM / Chatterbox),
+ *                              depending on the engine. Local ids live in
+ *                              their own space (no ElevenLabs lookup).
+ *
+ * Incompatible families are hidden entirely (per product decision) so the
+ * three never mix. When the model changes such that the current selection
+ * no longer works, the picker clears it and toasts — never silently.
  */
 
 interface VoiceMeta {
@@ -225,14 +295,38 @@ interface CatalogResponse {
   has_elevenlabs_key?: boolean
 }
 
+interface VoiceStudioVoice {
+  id: string
+  name: string
+  language?: string
+  gender?: string
+  duration_seconds?: number
+  has_transcript?: boolean
+  created_at?: number
+}
+
 const props = withDefaults(defineProps<{
   modelValue: string | null
   projectSlug: string
   customVoices?: VoicePreset[]
   defaultLabel?: string
+  /** Provider id of the selected audio model: 'elevenlabs' | 'fal' | 'genaipro' | 'voicestudio' | ''. */
+  audioModelProvider?: string
+  /** Selected audio model id (e.g. 'voicestudio-kokoro'). Distinguishes voicepack vs cloning engines. */
+  audioModelId?: string
+  /**
+   * When true, hide the "Default (let model pick)" row so the user MUST pick
+   * an explicit voice. The audio generator sets this — a silent default was
+   * how a wrong/unset voice slipped through to generation. The Settings
+   * catalogue picker leaves it false (null = "clear" is fine there).
+   */
+  requireSelection?: boolean
 }>(), {
   customVoices: () => [],
   defaultLabel: 'Default (let model pick)',
+  audioModelProvider: '',
+  audioModelId: '',
+  requireSelection: false,
 })
 
 const emit = defineEmits<{
@@ -241,7 +335,7 @@ const emit = defineEmits<{
 }>()
 
 const { get, post, put } = useApi()
-const { success, error: showError } = useToast()
+const { success, error: showError, info: showInfo } = useToast()
 
 const expanded = ref(false)
 const loading = ref(false)
@@ -255,60 +349,138 @@ const hasElevenLabsKey = ref<boolean | null>(null)
 const fetchedAt = ref<string | null>(null)
 
 const search = ref('')
-const filterGender = ref('')
-const filterUseCase = ref('')
 const showAllCatalog = ref(false)
 
-// Lookup helpers — derived from the current catalog. `voice_id → meta`
-// makes favouriteVoices / customVoices resolution cheap.
+const voicestudioVoices = ref<VoiceStudioVoice[]>([])
+const voicestudioLoading = ref(false)
+const voicestudioError = ref('')
+const voicestudioBaseUrl = ref<string>('')
+
+// ── Scope: the single source of truth for which families are shown ──────────
+// Derived deterministically from the model id/provider (no async dependency)
+// so sections render correctly the instant the model changes.
+type Scope = 'elevenlabs-direct' | 'elevenlabs-proxy' | 'voicestudio-voicepack' | 'voicestudio-cloning' | 'all'
+
+// Voice Studio engines that ship a built-in voicepack (vs. ones that clone
+// from your uploaded reference clips). Mirrors VOICESTUDIO_ENGINES on the
+// backend (voiceField !== 'voice_library_id').
+const VOICEPACK_MODEL_IDS = new Set(['voicestudio-kokoro', 'voicestudio-qwen3-tts', 'voicestudio-bark'])
+
+const scope = computed<Scope>(() => {
+  const p = props.audioModelProvider
+  if (p === 'voicestudio') {
+    return VOICEPACK_MODEL_IDS.has(props.audioModelId) ? 'voicestudio-voicepack' : 'voicestudio-cloning'
+  }
+  if (p === 'elevenlabs') return 'elevenlabs-direct'
+  if (p === 'fal' || p === 'genaipro') return 'elevenlabs-proxy'
+  return 'all'
+})
+
+/** Coarse family for styling/branching: 'cloud' | 'voicestudio' | 'all'. */
+const scopeFamily = computed<'cloud' | 'voicestudio' | 'all'>(() => {
+  if (scope.value === 'voicestudio-voicepack' || scope.value === 'voicestudio-cloning') return 'voicestudio'
+  if (scope.value === 'elevenlabs-direct' || scope.value === 'elevenlabs-proxy') return 'cloud'
+  return 'all'
+})
+
+const cloudProviderLabel = computed(() => {
+  switch (props.audioModelProvider) {
+    case 'elevenlabs': return 'ElevenLabs (direct)'
+    case 'genaipro': return 'GenAIPro'
+    case 'fal': return 'fal.ai'
+    default: return 'a cloud TTS provider'
+  }
+})
+
+const voicepackEngineLabel = computed(() => {
+  const fam = (props.audioModelId || '').replace(/^voicestudio-/, '').replace(/-mlx$/, '')
+  if (!fam) return 'Voicepack'
+  return fam.charAt(0).toUpperCase() + fam.slice(1)
+})
+
+const voicestudioSectionTitle = computed(() =>
+  scope.value === 'voicestudio-voicepack'
+    ? `🎙 ${voicepackEngineLabel.value} voices`
+    : '💻 Your cloned voices',
+)
+
+const scopeBanner = computed(() => {
+  switch (scope.value) {
+    case 'elevenlabs-direct':
+      return 'Model: <strong>ElevenLabs (direct)</strong> — your <strong>saved voices</strong> and the full <strong>ElevenLabs</strong> catalogue are usable.'
+    case 'elevenlabs-proxy':
+      return `Model: <strong>${cloudProviderLabel.value}</strong> — only <strong>ElevenLabs premade</strong> voices work here. Your saved custom voices need <strong>ElevenLabs (direct)</strong>.`
+    case 'voicestudio-voicepack':
+      return `Model: <strong>${voicepackEngineLabel.value} (local)</strong> — pick from its <strong>built-in voicepack</strong> below.`
+    case 'voicestudio-cloning':
+      return `Model: <strong>${voicepackEngineLabel.value} (local)</strong> — pick one of <strong>your cloned voices</strong>, or use the zero-shot default.`
+    default:
+      return ''
+  }
+})
+
+const defaultRowLabel = computed(() => props.defaultLabel)
+const defaultRowMeta = computed(() => {
+  if (scope.value === 'voicestudio-cloning') return 'Zero-shot — the engine\'s built-in default voice (no clone)'
+  if (scope.value === 'voicestudio-voicepack') return 'Use the engine\'s default speaker'
+  return 'Use whatever the model defaults to'
+})
+
+// ── Lookups ────────────────────────────────────────────────────────────────
 const catalogById = computed(() => {
   const m = new Map<string, VoiceMeta>()
   for (const v of catalog.value) m.set(v.voice_id, v)
   return m
 })
 
+/** Non-destructive compatibility check used to filter favourites + the trigger. */
+function compatibleForScope(id: string): boolean {
+  switch (scope.value) {
+    case 'all':
+      return true
+    case 'voicestudio-voicepack':
+    case 'voicestudio-cloning':
+      return voicestudioVoices.value.some(v => v.id === id)
+    case 'elevenlabs-direct':
+      return props.customVoices.some(p => p.voice_id === id) || catalogById.value.has(id)
+    case 'elevenlabs-proxy': {
+      const v = catalogById.value.get(id)
+      return !!v && v.category === 'premade'
+    }
+  }
+}
+
 const currentVoice = computed<VoiceMeta | null>(() => {
   if (!props.modelValue) return null
   const fromCatalog = catalogById.value.get(props.modelValue)
   if (fromCatalog) return fromCatalog
-  // Fall back to project preset if user selected a custom voice not in catalog.
   const preset = props.customVoices.find(p => p.voice_id === props.modelValue)
   if (preset) {
-    return {
-      voice_id: preset.voice_id,
-      name: preset.name,
-      category: 'cloned',
-      gender: 'unknown',
-      language: 'en',
-    }
+    return { voice_id: preset.voice_id, name: preset.name, category: 'cloned', gender: 'unknown', language: 'en' }
   }
-  // Unknown voice — show the id so users notice it and can unfavourite.
-  return {
-    voice_id: props.modelValue,
-    name: props.modelValue.slice(0, 12) + '…',
-    category: 'unknown',
-    gender: 'unknown',
-    language: 'en',
+  const vs = voicestudioVoices.value.find(v => v.id === props.modelValue)
+  if (vs) {
+    return { voice_id: vs.id, name: vs.name, category: 'library', gender: (vs.gender as any) || 'unknown', language: vs.language || 'en' }
   }
+  return { voice_id: props.modelValue, name: props.modelValue.slice(0, 12) + '…', category: 'unknown', gender: 'unknown', language: 'en' }
 })
 
 function isFavourite(voiceId: string): boolean {
   return favouriteIds.value.includes(voiceId)
 }
 
+/**
+ * Whether a voice is usable with the selected model. Voice Studio ids live in
+ * their own space (governed by the local modal, not the ElevenLabs catalog),
+ * so we never judge them against the cloud catalogue — that was the v1.0.206
+ * "UNAVAILABLE" bug on Kokoro/Chatterbox voices.
+ */
 function isAvailable(voiceId: string): boolean {
-  // Optimistic during load / on snapshot source — we can't tell what the
-  // user's live catalog contains in those states, and grey-flashing every
-  // voice for a few seconds on first open looks broken.
-  if (loading.value || refreshing.value) return true
+  if (loading.value || refreshing.value || voicestudioLoading.value) return true
+  // Local-model scope: availability is the modal's call, not ElevenLabs'.
+  if (scopeFamily.value === 'voicestudio') return true
+  if (voicestudioVoices.value.some(v => v.id === voiceId)) return true
   if (source.value === 'snapshot' || source.value === null) return true
-  // Once a live/cached catalog is in hand, treat it as authoritative for
-  // BOTH premade voices AND user-cloned voices. ElevenLabs `/v1/voices`
-  // returns the entire account-wide list (premade + cloned + library +
-  // generated), so a custom voice missing from the catalog means the user
-  // either deleted it upstream or lost subscription access — surface as
-  // unavailable so they can unfavourite / re-add. (Per audit pain-point
-  // #11/#12 "when a cloned voice can't be used, grey it out".)
   return catalogById.value.has(voiceId)
 }
 
@@ -317,21 +489,13 @@ function categoryLabel(cat: string): string {
     case 'premade': return 'Premade'
     case 'cloned': return 'Custom'
     case 'generated': return 'Generated'
-    case 'library': return 'Library'
+    case 'library': return 'Local'
     case 'professional': return 'Pro'
     default: return ''
   }
 }
 
-const useCaseOptions = computed(() => {
-  const set = new Set<string>()
-  for (const v of catalog.value) if (v.use_case) set.add(v.use_case)
-  return Array.from(set).sort()
-})
-
 function matchesFilters(v: VoiceMeta): boolean {
-  if (filterGender.value && v.gender !== filterGender.value) return false
-  if (filterUseCase.value && v.use_case !== filterUseCase.value) return false
   if (search.value.trim()) {
     const q = search.value.trim().toLowerCase()
     const haystack = [v.name, v.accent, v.use_case, v.description, v.age].filter(Boolean).join(' ').toLowerCase()
@@ -340,48 +504,61 @@ function matchesFilters(v: VoiceMeta): boolean {
   return true
 }
 
-// Favourites first — preserve the server's pin order (not alphabetical).
+// Favourites first, filtered to the active scope so incompatible pins hide.
 const favouriteVoices = computed<VoiceMeta[]>(() => {
   const out: VoiceMeta[] = []
   for (const id of favouriteIds.value) {
+    if (!compatibleForScope(id)) continue
     const fromCatalog = catalogById.value.get(id)
-    if (fromCatalog && matchesFilters(fromCatalog)) { out.push(fromCatalog); continue }
+    if (fromCatalog) { if (matchesFilters(fromCatalog)) out.push(fromCatalog); continue }
     const preset = props.customVoices.find(p => p.voice_id === id)
     if (preset) {
-      const synthetic: VoiceMeta = {
-        voice_id: preset.voice_id, name: preset.name, category: 'cloned',
-        gender: 'unknown', language: 'en',
-      }
+      const synthetic: VoiceMeta = { voice_id: preset.voice_id, name: preset.name, category: 'cloned', gender: 'unknown', language: 'en' }
       if (matchesFilters(synthetic)) out.push(synthetic)
       continue
     }
-    // Favourited voice that's no longer in the catalog — surface as
-    // unavailable so the user can unfavourite it. Only show when the
-    // search/filter doesn't hide it.
-    const synthetic: VoiceMeta = {
-      voice_id: id, name: id.slice(0, 12) + '… (not in catalog)',
-      category: 'unknown', gender: 'unknown', language: 'en',
+    const vs = voicestudioVoices.value.find(v => v.id === id)
+    if (vs) {
+      const synthetic: VoiceMeta = { voice_id: vs.id, name: vs.name, category: 'library', gender: (vs.gender as any) || 'unknown', language: vs.language || 'en' }
+      if (matchesFilters(synthetic)) out.push(synthetic)
     }
-    if (matchesFilters(synthetic)) out.push(synthetic)
   }
   return out
 })
 
 const filteredCustomVoices = computed<VoiceMeta[]>(() => {
+  if (scope.value !== 'elevenlabs-direct') return []
   const favSet = new Set(favouriteIds.value)
   return props.customVoices
     .filter(p => !favSet.has(p.voice_id))
-    .map(p => ({
-      voice_id: p.voice_id, name: p.name, category: 'cloned' as const,
-      gender: 'unknown' as const, language: 'en',
-    }))
+    .map(p => ({ voice_id: p.voice_id, name: p.name, category: 'cloned' as const, gender: 'unknown' as const, language: 'en' }))
     .filter(matchesFilters)
 })
 
 const filteredCatalogVoices = computed<VoiceMeta[]>(() => {
+  if (scopeFamily.value !== 'cloud') return []
   const favSet = new Set(favouriteIds.value)
   const customSet = new Set(props.customVoices.map(p => p.voice_id))
-  return catalog.value.filter(v => !favSet.has(v.voice_id) && !customSet.has(v.voice_id) && matchesFilters(v))
+  const proxyOnly = scope.value === 'elevenlabs-proxy'
+  return catalog.value.filter(v => {
+    if (favSet.has(v.voice_id)) return false
+    // Saved presets surface in their own section under direct; never duplicate.
+    if (scope.value === 'elevenlabs-direct' && customSet.has(v.voice_id)) return false
+    if (proxyOnly && v.category !== 'premade') return false
+    return matchesFilters(v)
+  })
+})
+
+const filteredVoicestudioVoices = computed<VoiceStudioVoice[]>(() => {
+  if (scopeFamily.value !== 'voicestudio') return []
+  return voicestudioVoices.value.filter(v => {
+    if (search.value.trim()) {
+      const q = search.value.trim().toLowerCase()
+      const haystack = [v.name, v.language, v.gender].filter(Boolean).join(' ').toLowerCase()
+      if (!haystack.includes(q)) return false
+    }
+    return true
+  })
 })
 
 const VISIBLE_CAP = 60
@@ -414,16 +591,11 @@ const sourceTooltip = computed(() => {
 })
 
 // ── Data loading ────────────────────────────────────────────────────────
-/**
- * Race guard against route-transition slugs. props.projectSlug arrives
- * via parent v-bind which can briefly be undefined / "undefined" during
- * the navigation tick. Bailing here avoids /projects/undefined/voices/*
- * 404 noise.
- */
 function hasValidSlug(): boolean {
   const s = props.projectSlug
   return !!s && s !== 'undefined'
 }
+
 async function loadCatalog() {
   if (!hasValidSlug()) return
   loading.value = true
@@ -438,6 +610,7 @@ async function loadCatalog() {
     loadError.value = e?.data?.detail || e?.message || 'Failed to load catalog'
   } finally {
     loading.value = false
+    reconcileSelection()
   }
 }
 
@@ -447,6 +620,34 @@ async function loadFavourites() {
     const data = await get<{ voice_ids: string[] }>(`/projects/${props.projectSlug}/voices/favourites`)
     favouriteIds.value = Array.isArray(data.voice_ids) ? data.voice_ids : []
   } catch { /* tolerate — keep empty */ }
+}
+
+/**
+ * Load the Voice Studio voices for the selected engine: built-in speakers for
+ * voicepack engines (Kokoro …), the user's clone library for cloning engines
+ * (VoxCPM …). Skipped (and cleared) when the model is a cloud one — those use
+ * the ElevenLabs id space, so a stale local list would just confuse things.
+ */
+async function loadVoicestudioVoices() {
+  if (scopeFamily.value === 'cloud') {
+    voicestudioVoices.value = []
+    voicestudioError.value = ''
+    return
+  }
+  voicestudioLoading.value = true
+  voicestudioError.value = ''
+  try {
+    const qs = props.audioModelId ? `?model=${encodeURIComponent(props.audioModelId)}` : ''
+    const data = await get<{ voices: VoiceStudioVoice[]; baseUrl: string; source?: 'library' | 'voicepack' }>(`/voicestudio/voices${qs}`)
+    voicestudioVoices.value = Array.isArray(data.voices) ? data.voices : []
+    voicestudioBaseUrl.value = data.baseUrl || ''
+  } catch (e: any) {
+    voicestudioError.value = e?.data?.detail || e?.message || 'Voice Studio modal unreachable'
+    voicestudioVoices.value = []
+  } finally {
+    voicestudioLoading.value = false
+    reconcileSelection()
+  }
 }
 
 async function refreshCatalog() {
@@ -476,6 +677,43 @@ async function saveFavourites(ids: string[]) {
   }
 }
 
+/**
+ * Keep-if-compatible-else-clear. Runs after the relevant voice list for the
+ * current scope is loaded, so we only clear a selection we're confident is
+ * incompatible — never on a slow fetch and never when the local modal is
+ * offline (we can't prove incompatibility then, so we keep the selection).
+ */
+function reconcileSelection() {
+  const id = props.modelValue
+  if (!id) return
+  const sc = scope.value
+  if (sc === 'all') return
+
+  if (scopeFamily.value === 'voicestudio') {
+    if (voicestudioLoading.value) return                 // still loading — wait
+    if (voicestudioError.value) return                   // modal offline — keep selection
+    if (!voicestudioVoices.value.length) return          // can't confirm — keep
+    if (voicestudioVoices.value.some(v => v.id === id)) return  // compatible
+    return clearIncompatible()                            // cloud id on a local model
+  }
+
+  // Cloud scope — only judge once we actually have a live/cached catalogue.
+  if (loading.value || source.value === null || source.value === 'snapshot') return
+  if (sc === 'elevenlabs-direct') {
+    if (props.customVoices.some(p => p.voice_id === id) || catalogById.value.has(id)) return
+    return clearIncompatible()
+  }
+  // elevenlabs-proxy — only premade catalogue voices are valid.
+  const v = catalogById.value.get(id)
+  if (v && v.category === 'premade') return
+  return clearIncompatible()
+}
+
+function clearIncompatible() {
+  emit('update:modelValue', null)
+  showInfo("Voice cleared — it isn't available for this model. Pick one below.")
+}
+
 // ── Actions ─────────────────────────────────────────────────────────────
 function select(voiceId: string | null) {
   emit('update:modelValue', voiceId)
@@ -485,11 +723,8 @@ function select(voiceId: string | null) {
 async function toggleFavourite(voiceId: string) {
   const cur = [...favouriteIds.value]
   const idx = cur.indexOf(voiceId)
-  if (idx >= 0) {
-    cur.splice(idx, 1)
-  } else {
-    cur.unshift(voiceId)  // Pin to top of favourites list.
-  }
+  if (idx >= 0) cur.splice(idx, 1)
+  else cur.unshift(voiceId)
   favouriteIds.value = cur
   await saveFavourites(cur)
 }
@@ -500,37 +735,56 @@ function toggle() {
     void loadCatalog()
     void loadFavourites()
   }
-}
-
-function clearFilters() {
-  search.value = ''
-  filterGender.value = ''
-  filterUseCase.value = ''
-  showAllCatalog.value = false
+  if (expanded.value && scopeFamily.value === 'voicestudio' && !voicestudioVoices.value.length && !voicestudioLoading.value) {
+    void loadVoicestudioVoices()
+  }
 }
 
 function goToSettings() {
-  // Navigate through Vue Router so we don't lose the app shell + state.
   const router = useRouter()
   void router.push(`/projects/${props.projectSlug}/settings#api-keys`)
   expanded.value = false
 }
 
-// Close on Escape; only when expanded.
-function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape' && expanded.value) {
-    expanded.value = false
+function goToLocalModelsSettings() {
+  const router = useRouter()
+  void router.push(`/projects/${props.projectSlug}/settings#local-tts`)
+  expanded.value = false
+}
+
+function openVoiceStudioWeb() {
+  const url = voicestudioBaseUrl.value
+  if (!url) {
+    showError('Voice Studio URL not set — configure it in Settings → This Mac → Local Models.')
+    return
+  }
+  try {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  } catch {
+    window.location.href = url
   }
 }
+
+function onKey(e: KeyboardEvent) {
+  if (e.key === 'Escape' && expanded.value) expanded.value = false
+}
+
 onMounted(() => {
   void loadCatalog()
   void loadFavourites()
+  void loadVoicestudioVoices()
   window.addEventListener('keydown', onKey)
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
-// Reset lazy-load cap when filters change so results stay ≤ VISIBLE_CAP.
-watch([search, filterGender, filterUseCase], () => { showAllCatalog.value = false })
+watch(search, () => { showAllCatalog.value = false })
+
+// Re-fetch the right voice list whenever the model (id-space) changes, then
+// reconcile the current selection against the new scope.
+watch(() => [props.audioModelId, props.audioModelProvider], () => {
+  void loadVoicestudioVoices()
+  reconcileSelection()
+})
 </script>
 
 <style scoped>
@@ -612,6 +866,11 @@ watch([search, filterGender, filterUseCase], () => { showAllCatalog.value = fals
 .vp-section { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
 .vp-section-heading { font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; color: var(--text-muted); padding: 4px 8px; font-weight: 600; }
 
+/* Family accent stripes so the three groups read distinctly at a glance. */
+.vp-section-local  { border-left: 2px solid rgba(74, 222, 128, 0.55); padding-left: 6px; background: rgba(74, 222, 128, 0.04); border-radius: 2px; }
+.vp-section-saved  { border-left: 2px solid rgba(167, 139, 250, 0.55); padding-left: 6px; background: rgba(167, 139, 250, 0.04); border-radius: 2px; }
+.vp-section-eleven { border-left: 2px solid rgba(96, 165, 250, 0.55); padding-left: 6px; background: rgba(96, 165, 250, 0.04); border-radius: 2px; }
+
 .vp-row, .default-row {
   display: flex; align-items: center; gap: 6px;
   padding: 6px 6px;
@@ -664,5 +923,69 @@ watch([search, filterGender, filterUseCase], () => { showAllCatalog.value = fals
 
 .vp-load-more { margin: 6px auto 2px; }
 .vp-empty { padding: 24px 16px; text-align: center; font-size: 12px; color: var(--text-muted); }
-.vp-loading { display: flex; gap: 8px; align-items: center; padding: 16px; font-size: 12px; color: var(--text-muted); }
+.vp-loading { display: flex; gap: 8px; align-items: center; padding: 12px; font-size: 12px; color: var(--text-muted); }
+
+/* Scope banner — names the active model family at the top of the panel. */
+.vp-scope {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px 12px;
+  margin: 8px 12px 0;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.vp-scope.voicestudio {
+  background: rgba(74, 222, 128, 0.08);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  color: var(--text-secondary);
+}
+.vp-scope.cloud {
+  background: rgba(96, 165, 250, 0.08);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  color: var(--text-secondary);
+}
+.vp-scope :deep(strong) { color: var(--text-primary); }
+.vp-scope-icon { font-size: 14px; line-height: 1.2; flex-shrink: 0; }
+.vp-scope-text { flex: 1; }
+
+/* Voice Studio section heading row — heading text + actions on the right. */
+.vp-vs-heading {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  flex-wrap: wrap;
+}
+.vp-vs-actions { display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; }
+.vp-vs-refresh {
+  background: none; border: 1px solid var(--border); border-radius: 4px;
+  padding: 0 6px; line-height: 1.8;
+  color: var(--text-muted); font-size: 12px;
+  cursor: pointer;
+}
+.vp-vs-refresh:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.vp-vs-refresh:disabled { opacity: 0.5; cursor: default; }
+.vp-vs-manage { font-size: 10.5px; color: var(--accent); text-decoration: none; }
+.vp-vs-manage:hover { text-decoration: underline; }
+
+.vp-vs-error {
+  margin: 4px 12px 0;
+  padding: 6px 10px;
+  background: rgba(245, 158, 11, 0.10);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 4px;
+  font-size: 11px;
+  color: rgb(180, 83, 9);
+  line-height: 1.5;
+}
+.vp-vs-empty {
+  margin: 4px 12px 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.vp-vs-chip {
+  background: rgba(74, 222, 128, 0.15) !important;
+  color: rgb(22, 134, 70) !important;
+  text-transform: lowercase;
+}
 </style>

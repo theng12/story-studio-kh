@@ -8,12 +8,13 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { callAi } from '../lib/ai-client.js'
 import { buildNarrationDocx, buildImagePromptsDocx } from '../lib/docx-builder.js'
+import { matchChapterFile, introMarkerPath } from '../lib/episode-artifacts.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
 import { applyRecencyToFormat, recordUsage } from '../services/recency-tracker.js'
 import { getEffectiveNiche } from '../services/niche-loader.js'
 import { getEffectiveBrand } from '../services/brand-loader.js'
-import { loadPattern, applyPatternSubject } from '../services/pattern-loader.js'
+// v1.0.166 — pattern-loader import removed with the Pattern system.
 import { resolveCharacters } from '../services/character-manager.js'
 
 import * as pm from '../services/project-manager.js'
@@ -31,55 +32,11 @@ import {
   type GenerationParams,
 } from '../lib/chunked-narration.js'
 import { castPromptBlock, castImagePromptBlock } from '../lib/character-prompt-blocks.js'
-import type { GenerateScriptRequest, Job, Format, NarratorStyle, Pattern, Character } from '../models/types.js'
+import type { GenerateScriptRequest, Job, Format, NarratorStyle, Character } from '../models/types.js'
 
-/**
- * Apply a Pattern's overrides on top of a resolved Format. Returns a new
- * Format with the pattern's body shape, opening device, and closing device
- * folded in — the rest of the prompt-assembly code keeps working unchanged
- * because everything still looks like a Format.
- *
- * - Pattern.bodyStructure → REPLACES format.script.pacingArc when set
- * - Pattern.openingDevice → prepended to format.script.systemPromptRole as
- *   an additional rule (so the LLM's first move respects it)
- * - Pattern.closingDevice → appended to format.script.closingHint
- * - Pattern.metadataKeywordAdditions → appended to format.metadata.broadKeywords
- *
- * Subject substitution ({X}, {lastButOne}, {last}) happens here too.
- */
-function fuseFormatWithPattern(
-  format: Format,
-  pattern: Pattern,
-  subject: string,
-  chapterCount: number,
-): Format {
-  const { resolvedOpeningDevice, resolvedBodyStructure, resolvedClosingDevice }
-    = applyPatternSubject(pattern, subject, chapterCount)
-
-  // The opening device is folded into additionalRules so it shows up in the
-  // system prompt's rule block — the LLM hits it before generating chapter 1.
-  const fusedRules = [
-    `Episode opening device (this episode only): ${resolvedOpeningDevice}`,
-    ...format.script.additionalRules,
-  ]
-
-  return {
-    ...format,
-    script: {
-      ...format.script,
-      additionalRules: fusedRules,
-      pacingArc: resolvedBodyStructure ?? format.script.pacingArc,
-      closingHint: `${format.script.closingHint} ${resolvedClosingDevice}`.trim(),
-    },
-    metadata: {
-      ...format.metadata,
-      broadKeywords: [
-        ...format.metadata.broadKeywords,
-        ...(pattern.metadataKeywordAdditions || []),
-      ],
-    },
-  }
-}
+// v1.0.166 — fuseFormatWithPattern() removed with the Pattern system.
+// Title shaping happens at idea-time via the Ideas page's title_template
+// field; the script generator uses the project's effective format directly.
 
 /**
  * Narrator-style description lookup over the effective Format. Replaces the
@@ -94,6 +51,39 @@ function narratorStyleFor(format: Format, styleId: string): NarratorStyle {
     ?? list[0]
 }
 
+// ── Narrative point of view (v1.0.196) ──────────────────────────────────────
+// First/second/third person — orthogonal to narrator style. Resolved from the
+// Script form's picker (req.perspective) with the format's defaultPerspective
+// as the fallback, then appended as a prominent rule so it overrides any
+// perspective baked into the format's own copy.
+type Perspective = 'first' | 'second' | 'third'
+function perspectiveDirective(p: Perspective): string {
+  switch (p) {
+    case 'first':
+      return 'POINT OF VIEW — write the narration in FIRST person: the speaker refers to themselves as "I", "me", "my" and speaks about their own actions, plan, or experience. Do not narrate the subject from the outside.'
+    case 'second':
+      return 'POINT OF VIEW — write the narration in SECOND person: address the viewer directly as "you" and "your" (e.g. "here\'s what you\'d do…"). Do not use first-person "I"/"we" for the protagonist, nor third-person "he/she/they".'
+    case 'third':
+      return 'POINT OF VIEW — write the narration in THIRD person: refer to the subject by name and as "he", "she", or "they"; the narrator is an outside observer, not a participant. Avoid first-person "I"/"we" and second-person "you" for the subject.'
+  }
+}
+function resolvePerspective(reqPerspective: unknown, format: Format): Perspective | '' {
+  const p = String(reqPerspective || '').toLowerCase()
+  if (p === 'first' || p === 'second' || p === 'third') return p
+  const def = format.script.defaultPerspective
+  return def === 'first' || def === 'second' || def === 'third' ? def : ''
+}
+function applyPerspectiveToFormat(format: Format, perspective: Perspective | ''): Format {
+  if (!perspective) return format
+  return {
+    ...format,
+    script: {
+      ...format.script,
+      additionalRules: [...format.script.additionalRules, perspectiveDirective(perspective)],
+    },
+  }
+}
+
 function systemPrompt(format: Format, productionStandards: string, brand?: import('../models/types.js').Brand | null): string {
   // Format-specific addendum is prepended to the user's free-form standards.
   // Both flow into the same "Follow these production standards exactly:" block
@@ -103,6 +93,18 @@ function systemPrompt(format: Format, productionStandards: string, brand?: impor
 
   const additionalRules = format.script.additionalRules.map(r => `- ${r}`).join('\n')
 
+  // v1.0.215+ — Universal "write for the voice" guidance. This narration is
+  // fed to a text-to-speech engine, so notation that reads fine on the page
+  // (em dashes, semicolons, ellipses, markdown) comes out unnatural when
+  // spoken — worse on local engines. A deterministic normalizer in the audio
+  // path is the hard safeguard; this nudges the LLM to write clean, speakable
+  // prose up front so the text on disk is good too. Kept format-agnostic: it
+  // governs punctuation + speakability, not the format's tone/voice.
+  const ttsWritingGuidance = `Write for the EAR — this script is read aloud by a text-to-speech voice:
+- Use ONLY simple, spoken punctuation: periods, commas, and question marks. Do NOT use em dashes or en dashes (—, –), semicolons, ellipses (…), parentheses, asterisks, or any markdown/special symbols — speech engines read them unnaturally. Use a comma or start a new sentence instead.
+- Favour natural, speakable sentences with varied length. Avoid long, clause-stacked or piled-up appositive phrasing (e.g. "the old light in his eyes, a sentinel, a friend") that sounds artificial when spoken aloud.
+- Spell things as they should be said (e.g. "Doctor" not "Dr.", "and" not "&").`
+
   const baseSystem = `${format.script.systemPromptRole}
 
 Follow these production standards exactly:
@@ -110,7 +112,9 @@ Follow these production standards exactly:
 ${standardsBody}
 
 Additional rules:
-${additionalRules}`
+${additionalRules}
+
+${ttsWritingGuidance}`
 
   // Brand persona (if the project has a brand attached) wins position-wise:
   // it sets channel-level voice context that the format-level role refines.
@@ -386,6 +390,7 @@ async function generateEpisode(job: Job): Promise<void> {
   // items the channel used in its last N episodes. No-op when the
   // niche has no recencyAvoidance config OR the log is empty.
   format = await applyRecencyToFormat(format, project_slug)
+  format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format))
   const title = req.title
   const length = req.length || format.script.defaultLengthMinutes
   let style = req.style === 'auto' ? autoSelectStyle(format, episode_id) : req.style
@@ -395,25 +400,18 @@ async function generateEpisode(job: Job): Promise<void> {
     customStyleText = (params as any).custom_style_text || (params as any).intro_settings?.custom_style_text
   }
   const chapters = req.chapters || format.script.defaultChapterCount
-  let totalWords = req.total_words || (length === 45 ? 5500 : 7500)
-  let wordsPerChapter = req.words_per_chapter || Math.floor(totalWords / chapters)
+  // v1.0.168 — word sizing comes straight from the request: the script form
+  // now always sends explicit chapters + words_per_chapter, and duration is
+  // informational only (no longer drives word math). For API callers that
+  // omit the fields, fall back to per-chapter × chapters with a neutral
+  // per-chapter default — never the old duration-keyed 5500/7500 guess.
+  let wordsPerChapter = req.words_per_chapter || (req.total_words ? Math.floor(req.total_words / chapters) : 550)
+  let totalWords = req.total_words || (wordsPerChapter * chapters)
 
-  // Pattern composition (Phase 4b): when the request carries a pattern_id,
-  // load it and fuse it on top of the Format. The result is a derived
-  // Format that the rest of the prompt machinery treats normally — pacing
-  // arc, opening rule, closing hint, metadata keywords are all updated.
-  // Missing patterns log + skip (Format alone still produces a usable
-  // episode), preserving back-compat with no-pattern requests.
-  if (req.pattern_id) {
-    const pattern = await loadPattern(req.pattern_id)
-    if (pattern) {
-      const subject = req.pattern_subject || ''
-      format = fuseFormatWithPattern(format, pattern, subject, chapters)
-      job.output_lines.push(`Applied pattern: ${pattern.name}` + (subject ? ` (subject: "${subject}")` : ''))
-    } else {
-      job.output_lines.push(`Pattern '${req.pattern_id}' not found — generating without pattern`)
-    }
-  }
+  // v1.0.166 — Pattern composition removed. The Pattern system retired in
+  // v1.0.165/166; title shaping now happens at idea-time via the Ideas
+  // page's title_template field, so the script generator just uses the
+  // project's effective format (+ niche) directly.
 
   // Character resolution (Phase 5): if character_ids was passed, fetch the
   // cast and thread them into both the script + image prompts. Empty array
@@ -505,8 +503,6 @@ async function generateEpisode(job: Job): Promise<void> {
       characters: characters.length ? characters : undefined,
       signal: controller.signal,
       isCancelled: () => jq.isCancelled(job.job_id),
-      patternId: req.pattern_id,
-      patternSubject: req.pattern_subject,
       force: !!(params as any).force,
     }
     const result = format.script.chaptersIndependent
@@ -619,10 +615,11 @@ export async function generateScriptOnly(job: Job): Promise<void> {
   // chapters-only content; any old _Introduction.docx + .intro.json sidecar
   // are now stale). Delete up-front, idempotent on missing files.
   const paths = await resolveEpisodePaths(job.project_slug, job.episode_id, (baseParams.title as string) || '')
-  const introMarker = paths.narration_docx.replace(/\.docx$/, '.intro.json')
-  const introDocx = path.join(paths.script_dir, `${job.episode_id}_Introduction.docx`)
+  const introMarker = introMarkerPath(paths.narration_docx)
   await fs.unlink(introMarker).catch(() => {})
-  await fs.unlink(introDocx).catch(() => {})
+  // Delete both the new .md and any legacy .docx intro source.
+  await fs.unlink(path.join(paths.script_dir, `${job.episode_id}_Introduction.md`)).catch(() => {})
+  await fs.unlink(path.join(paths.script_dir, `${job.episode_id}_Introduction.docx`)).catch(() => {})
 
   await generateEpisode({ ...job, params: baseParams })
 
@@ -712,6 +709,7 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   const standards = await pm.getStandards(project_slug) || ''
   let format = await getEffectiveFormat(project_slug)
   format = await applyRecencyToFormat(format, project_slug)
+  format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format))
   const brand = await getEffectiveBrand(project_slug)
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
   const sysPrompt = systemPrompt(format, standards, brand)
@@ -730,11 +728,9 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   // text isn't needed here, just enough to anchor tone + plot.
   let entries: string[] = []
   try { entries = await fs.readdir(paths.script_dir) } catch { /* empty */ }
-  const chapterRe = new RegExp(`^${episode_id}_Chapter_(\\d+)\\.docx$`)
   const existingNumbers = entries
-    .map(n => n.match(chapterRe))
-    .filter((m): m is RegExpMatchArray => !!m)
-    .map(m => parseInt(m[1], 10))
+    .map(n => matchChapterFile(n, episode_id))
+    .filter((n): n is number => n !== null)
     .sort((a, b) => a - b)
 
   const { narrationDocxToMarkdown } = await import('../lib/docx-parser.js')
@@ -848,7 +844,7 @@ Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${s
     await writeChapterFiles(paths.script_dir, episode_id, title, {
       chapters: [{ number: chapterNumber, title: newTitle, text: body }],
     })
-    job.output_lines.push(`Wrote: ${episode_id}_Chapter_${String(chapterNumber).padStart(2, '0')}.docx`)
+    job.output_lines.push(`Wrote: ${episode_id}_Chapter_${String(chapterNumber).padStart(2, '0')}.md`)
 
     await assembleUnifiedNarration(paths.script_dir, episode_id, title)
     job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
@@ -871,6 +867,7 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   const standards = await pm.getStandards(project_slug) || ''
   let format = await getEffectiveFormat(project_slug)
   format = await applyRecencyToFormat(format, project_slug)
+  format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format))
   const title = req.title
   const length = req.length || format.script.defaultLengthMinutes
   const style = req.style || format.script.defaultNarratorStyleId
@@ -972,8 +969,7 @@ Output ONLY the introduction text. No meta-commentary. No story chapters.`
   // After potential migration, verify chapters exist.
   let scriptDirEntries: string[] = []
   try { scriptDirEntries = await fs.readdir(paths.script_dir) } catch { /* missing */ }
-  const chapterRe = new RegExp(`^${episode_id}_Chapter_\\d+\\.docx$`)
-  const hasAnyChapter = scriptDirEntries.some(n => chapterRe.test(n))
+  const hasAnyChapter = scriptDirEntries.some(n => matchChapterFile(n, episode_id) !== null)
   if (!hasAnyChapter) {
     throw new Error(
       'No chapter source files found. Generate the script (chapters) first; ' +
@@ -986,7 +982,7 @@ Output ONLY the introduction text. No meta-commentary. No story chapters.`
     if (jq.isCancelled(job.job_id)) controller.abort()
   }, 500)
   try {
-    const introText = await callAi(style === 'custom' ? 'gpt-4o' : req.model, sysPrompt, introPrompt, apiKeys, true,
+    const introText = await callAi(style === 'custom' ? 'deepseek-v4-flash' : req.model, sysPrompt, introPrompt, apiKeys, true,
       { slug: project_slug, jobId: job.job_id, signal: controller.signal })
     const wordCount = introText.split(/\s+/).length
     job.output_lines.push(`Introduction: ${wordCount.toLocaleString()} words`)
@@ -998,17 +994,17 @@ Output ONLY the introduction text. No meta-commentary. No story chapters.`
       chapters: [],
       intro: { text: introText.trim() },
     })
-    job.output_lines.push(`Wrote: ${episode_id}_Introduction.docx`)
+    job.output_lines.push(`Wrote: ${episode_id}_Introduction.md`)
 
     // Re-assemble unified narration so downstream sees the intro section.
     await assembleUnifiedNarration(paths.script_dir, episode_id, title)
     job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
 
     // Sidecar marker so /projects/:slug/episodes can flip
-    // `episode.status.introduction = true` without re-parsing the docx on
+    // `episode.status.introduction = true` without re-parsing the narration on
     // every list call. Also records intro metadata for later display.
-    const introMarkerPath = paths.narration_docx.replace(/\.docx$/, '.intro.json')
-    await fs.writeFile(introMarkerPath, JSON.stringify({
+    const introMarkerFile = introMarkerPath(paths.narration_docx)
+    await fs.writeFile(introMarkerFile, JSON.stringify({
       generated_at: new Date().toISOString(),
       host_name: introSettings.host_name,
       word_target: introSettings.word_target,
@@ -1075,6 +1071,7 @@ async function setupChunkedJobContext(
   const standards = await pm.getStandards(project_slug) || ''
   let format = await getEffectiveFormat(project_slug)
   format = await applyRecencyToFormat(format, project_slug)
+  format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format))
   const title = req.title
 
   // For expand-chapters, prefer the sidecar's persisted snapshot over the
@@ -1104,24 +1101,16 @@ async function setupChunkedJobContext(
   }
   const length = snapshot?.length ?? req.length ?? format.script.defaultLengthMinutes
   const chapters = snapshotTotalChapters ?? req.chapters ?? format.script.defaultChapterCount
-  const totalWords = snapshot?.total_words ?? req.total_words ?? (length === 45 ? 5500 : 7500)
-  const wordsPerChapter = snapshot?.words_per_chapter ?? req.words_per_chapter ?? Math.floor(totalWords / chapters)
-  const patternId = snapshot?.pattern_id ?? req.pattern_id
-  const patternSubject = snapshot?.pattern_subject ?? req.pattern_subject
+  // v1.0.168 — word sizing is chapters × words-per-chapter, never a
+  // duration-keyed guess. Prefer explicit per-chapter target; derive total
+  // from it. Falls back to a neutral 550/chapter only when nothing is set.
+  const wordsPerChapter = snapshot?.words_per_chapter ?? req.words_per_chapter
+    ?? (snapshot?.total_words ?? req.total_words ? Math.floor((snapshot?.total_words ?? req.total_words!) / chapters) : 550)
+  const totalWords = snapshot?.total_words ?? req.total_words ?? (wordsPerChapter * chapters)
   const characterIds = snapshot?.character_ids ?? req.character_ids
   const customStyleText = snapshot?.custom_style_text ?? (req as any).custom_style_text
 
-  // Pattern fusion (same path generateEpisode uses).
-  if (patternId) {
-    const pattern = await loadPattern(patternId)
-    if (pattern) {
-      const subject = patternSubject || ''
-      format = fuseFormatWithPattern(format, pattern, subject, chapters)
-      job.output_lines.push(`Applied pattern: ${pattern.name}` + (subject ? ` (subject: "${subject}")` : ''))
-    } else {
-      job.output_lines.push(`Pattern '${patternId}' not found — generating without pattern`)
-    }
-  }
+  // v1.0.166 — Pattern fusion removed with the Pattern system.
 
   const characters = characterIds?.length
     ? await resolveCharacters(project_slug, characterIds)
@@ -1155,8 +1144,6 @@ async function setupChunkedJobContext(
     length,
     total_words: totalWords,
     words_per_chapter: wordsPerChapter,
-    pattern_id: patternId,
-    pattern_subject: patternSubject,
     character_ids: characterIds,
     custom_style_text: customStyleText,
   }
@@ -1174,9 +1161,7 @@ async function setupChunkedJobContext(
     characters: characters.length ? characters : undefined,
     signal: controller.signal,
     isCancelled: () => jq.isCancelled(job.job_id),
-    patternId,
-    patternSubject,
-    force: !!(jobParams as any).force,
+    force: !!(job.params as any).force,
     generationParams,
   }
   const mode: ChunkedMode = format.script.chaptersIndependent ? 'listicle' : 'narrative'

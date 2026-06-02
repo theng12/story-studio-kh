@@ -2,6 +2,7 @@ import { Router } from 'express'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { registry } from '../providers/registry.js'
+import { resolveArtifact } from '../lib/episode-artifacts.js'
 import { validateBody } from '../lib/validate.js'
 import { GenerateAudioSchema } from '../schemas/index.js'
 import { generateTtsBuffer } from '../lib/elevenlabs-client.js'
@@ -15,13 +16,14 @@ export const router = Router()
 function resolveAudioProvider(
   modelId: string | undefined,
   audioModels: Record<string, AudioModelConfig> | undefined,
-): 'fal' | 'genaipro' | 'elevenlabs' | 'chatterbox' {
+): 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' {
   if (!modelId) return 'fal'
   const entry = audioModels?.[modelId]
   if (entry?.provider) return entry.provider
   if (modelId.startsWith('eleven_')) return 'elevenlabs'
   if (modelId.startsWith('genaipro-')) return 'genaipro'
-  if (modelId.startsWith('chatterbox-')) return 'chatterbox'
+  // v1.0.149+ — Voice Studio KH (Pinokio FastAPI wrapper, local Tailscale).
+  if (modelId.startsWith('voicestudio-')) return 'voicestudio'
   return 'fal'
 }
 
@@ -33,14 +35,15 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
   if (!config) return res.status(400).json({ detail: 'Project config missing.' })
 
   // Pick the TTS provider for the model the user selected and verify the
-  // right key (or, for Chatterbox, the per-project enable flag) is set —
-  // the Audio Generator now supports four providers, so gating on fal
-  // only would reject every eleven_* / genaipro-* / chatterbox-* job.
+  // right key is set. v1.0.149+ added Voice Studio (local Pinokio modal,
+  // no key — URL alone is the enable). v1.0.150 dropped the standalone
+  // Chatterbox provider entirely (rolled into Voice Studio's family list).
   const providerId = resolveAudioProvider(req.body.model, config.audio_models)
-  if (providerId === 'chatterbox') {
-    if (!(config as any).chatterbox_enabled) {
-      return res.status(400).json({ detail: 'Chatterbox (Local TTS) is not enabled for this project. Turn it on in Settings → Local TTS.' })
-    }
+  if (providerId === 'voicestudio') {
+    // v1.0.149+ — no per-project enable flag; the modal URL is app-level
+    // (set in App Settings → Local Models). If the URL is missing OR the
+    // modal is offline we fail fast at generation time with a clear error
+    // from the client rather than refusing the queue request here.
   } else {
     const apiKey = providerId === 'elevenlabs' ? ((config as any).elevenlabs_api_key || '')
       : providerId === 'genaipro' ? ((config as any).genaipro_api_key || '')
@@ -80,13 +83,11 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
 
   const providerId = resolveAudioProvider(model, config.audio_models)
   let apiKey = ''
-  if (providerId === 'chatterbox') {
-    if (!(config as any).chatterbox_enabled) {
-      return res.status(400).json({ detail: 'Chatterbox (Local TTS) is not enabled for this project.' })
-    }
+  if (providerId === 'voicestudio') {
+    // v1.0.149+ — Voice Studio KH preview. "apiKey" carries the modal URL.
     const { getApiKey } = await import('../services/app-secrets-store.js')
-    const { DEFAULT_CHATTERBOX_BASE_URL } = await import('../lib/chatterbox-client.js')
-    apiKey = (await getApiKey('chatterbox')) || DEFAULT_CHATTERBOX_BASE_URL
+    const { DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
+    apiKey = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
   } else {
     apiKey = providerId === 'elevenlabs' ? ((config as any).elevenlabs_api_key || '')
       : providerId === 'genaipro' ? ((config as any).genaipro_api_key || '')
@@ -103,17 +104,18 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
     : 'Welcome to the story. Take a deep breath, settle in, and let your mind drift.'
 
   try {
-    if (providerId === 'chatterbox') {
-      // Generate to a temp WAV, inline as a data URL, delete the file. Keeps
-      // the preview-voice contract (return playable URL) without exposing
-      // file:// or making the browser hit the local Chatterbox server itself.
+    if (providerId === 'voicestudio') {
+      // Voice Studio KH (local Pinokio modal): generate to a temp WAV,
+      // inline as a data URL, delete the file. Keeps the preview-voice
+      // contract (return a playable URL) without exposing file:// or
+      // making the browser hit the local modal directly.
       const fs = await import('fs/promises')
-      const provider = registry.getAudioProvider('chatterbox')
-      if (!provider) return res.status(500).json({ detail: 'chatterbox audio provider not registered' })
+      const provider = registry.getAudioProvider('voicestudio')
+      if (!provider) return res.status(500).json({ detail: 'voicestudio audio provider not registered' })
       const result = await provider.generateAudio({
         text: sample,
         apiKey,
-        modelId: model || 'chatterbox-default',
+        modelId: model || 'voicestudio-voxcpm-mlx',
         voiceId: voice_id || undefined,
         speed, stability, similarity,
       })
@@ -228,10 +230,10 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
       // Source: chapter file for Chapter_NN, intro file for Introduction.
       let sourcePath: string | null = null
       if (slug === 'Introduction') {
-        sourcePath = path.join(scriptDir, `${code}_Introduction.docx`)
+        sourcePath = resolveArtifact(scriptDir, `${code}_Introduction`)
       } else {
         const m = slug.match(/^Chapter_(\d+)$/)
-        if (m) sourcePath = path.join(scriptDir, `${code}_Chapter_${m[1]}.docx`)
+        if (m) sourcePath = resolveArtifact(scriptDir, `${code}_Chapter_${m[1]}`)
       }
       if (!sourcePath) return false
       let sourceMs: number
@@ -274,6 +276,63 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
   }
 })
 
+// GET /projects/:slug/episodes/:code/audio-file?section=<slug>[&part=N]
+// Streams a generated section's audio so the user can listen IN-APP instead
+// of digging into the audio folder in Finder. Reuses the reconciler's
+// present-file view to resolve the filename, then hands off to res.sendFile
+// (sets audio/mpeg + supports Range requests for seeking). Single-chunk
+// sections are the norm; ?part selects a chunk for multi-part sections.
+router.get('/projects/:slug/episodes/:code/audio-file', async (req, res) => {
+  try {
+    const { slug, code } = req.params
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const section = typeof req.query.section === 'string' ? req.query.section : ''
+    if (!section) return res.status(400).json({ detail: 'section query param required' })
+
+    const status = await getAudioStatus(slug, code)
+    const path = await import('path')
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    // Match this section's chunk filenames: `<CODE>_<section>[_partN][_vN].mp3`
+    // (the optional `_vN` is appended by "save as new version" audio runs).
+    const re = new RegExp(`^${esc(code)}_${esc(section)}(?:_part\\d+)?(?:_v\\d+)?\\.mp3$`, 'i')
+    const matches = (status.present || []).filter((f: string) => re.test(f)).sort()
+    if (!matches.length) return res.status(404).json({ detail: 'No generated audio for this section yet' })
+
+    const partRaw = typeof req.query.part === 'string' ? parseInt(req.query.part, 10) : 0
+    const idx = Number.isFinite(partRaw) ? Math.max(0, Math.min(partRaw, matches.length - 1)) : 0
+    const abs = path.resolve(status.audio_dir, matches[idx]!)
+
+    // Path-traversal guard — the resolved file must live inside audio_dir.
+    const dirAbs = path.resolve(status.audio_dir)
+    if (abs !== dirAbs && !abs.startsWith(dirAbs + path.sep)) {
+      return res.status(400).json({ detail: 'Invalid path' })
+    }
+    // Content-Type by CONTENT, not extension: Voice Studio (Kokoro etc.)
+    // returns WAV bytes that we persist under a `.mp3` name, so trusting the
+    // extension would mislabel them audio/mpeg and some players choke. Sniff
+    // the RIFF/WAVE header and serve audio/wav; otherwise default to mpeg.
+    let contentType = 'audio/mpeg'
+    try {
+      const fsp = await import('fs/promises')
+      const fh = await fsp.open(abs, 'r')
+      try {
+        const buf = Buffer.alloc(12)
+        await fh.read(buf, 0, 12, 0)
+        if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WAVE') {
+          contentType = 'audio/wav'
+        }
+      } finally {
+        await fh.close()
+      }
+    } catch { /* unreadable → let sendFile fail below with a 404 */ }
+    res.sendFile(abs, { headers: { 'Content-Type': contentType } }, (err: any) => {
+      if (err && !res.headersSent) res.status(404).json({ detail: 'Audio file not found on disk' })
+    })
+  } catch (e: any) {
+    res.status(400).json(humanizeBackendError(e, 'Could not load audio file'))
+  }
+})
+
 router.post('/projects/:slug/episodes/:code/audio-repair', async (req, res) => {
   try {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
@@ -292,90 +351,178 @@ router.post('/projects/:slug/episodes/:code/audio-repair', async (req, res) => {
   }
 })
 
-// ── Chatterbox (Local TTS) helper routes ───────────────────────────────────
-// Tiny endpoints that the Settings → Local TTS panel calls for:
-//   - reading/writing the per-machine base URL (stored in app-secrets bucket)
-//   - probing /health + /api/status with a chosen URL ("Test connection")
-//   - uploading a reference voice clip and storing the returned UUID on the
-//     project config
+// ── Voice Studio KH (v1.0.149+) ───────────────────────────────────────────
+//
+// Local TTS modal launched via Pinokio, reached over Tailscale. The
+// "apiKey" slot in app-secrets carries the base URL (no real secret —
+// Tailscale handles transport auth). Three routes:
+//   GET  /voicestudio/base-url        — read configured URL + default
+//   PUT  /voicestudio/base-url        — persist URL (per-Mac via app-secrets)
+//   POST /voicestudio/test            — health + availability probe in one call
+//
+// The test endpoint folds in the availability response so the Settings UI
+// can show "Connected — voxcpm-mlx loaded · device mps" in one round-trip.
+//
+// Listing the user's saved voice library and proxying voice audio bytes
+// to the renderer is handled by:
+//   GET  /voicestudio/voices            — list saved voices for the picker
+// (left as a future addition once the audio picker has UI to surface them).
 
-router.get('/chatterbox/base-url', async (_req, res) => {
+router.get('/voicestudio/base-url', async (_req, res) => {
   try {
     const { getApiKey } = await import('../services/app-secrets-store.js')
-    const { DEFAULT_CHATTERBOX_BASE_URL } = await import('../lib/chatterbox-client.js')
-    const stored = await getApiKey('chatterbox')
-    res.json({ baseUrl: stored || '', defaultBaseUrl: DEFAULT_CHATTERBOX_BASE_URL })
+    const { DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
+    const stored = await getApiKey('voicestudio')
+    res.json({ baseUrl: stored || '', defaultBaseUrl: DEFAULT_VOICESTUDIO_BASE_URL })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Could not read Chatterbox base URL'))
+    res.status(500).json(humanizeBackendError(e, 'Could not read Voice Studio base URL'))
   }
 })
 
-router.put('/chatterbox/base-url', async (req, res) => {
+router.put('/voicestudio/base-url', async (req, res) => {
   try {
     const baseUrl = typeof req.body?.baseUrl === 'string' ? req.body.baseUrl.trim() : ''
-    // Reject empty (use DELETE if the user wants to clear) — silent acceptance
-    // would leave the user thinking it saved while the next generation falls
-    // back to the default URL.
     if (!baseUrl) return res.status(400).json({ detail: 'baseUrl is required' })
     if (!/^https?:\/\//i.test(baseUrl)) {
       return res.status(400).json({ detail: 'baseUrl must start with http:// or https://' })
     }
     const { setApiKey } = await import('../services/app-secrets-store.js')
-    await setApiKey('chatterbox', baseUrl.replace(/\/+$/, ''))
+    await setApiKey('voicestudio', baseUrl.replace(/\/+$/, ''))
     res.json({ ok: true, baseUrl })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Could not save Chatterbox base URL'))
+    res.status(500).json(humanizeBackendError(e, 'Could not save Voice Studio base URL'))
   }
 })
 
-router.post('/chatterbox/test', async (req, res) => {
+router.post('/voicestudio/test', async (req, res) => {
   try {
-    const { health: cbHealth, DEFAULT_CHATTERBOX_BASE_URL } = await import('../lib/chatterbox-client.js')
+    const {
+      health: vsHealth, availability: vsAvail, listVoices: vsVoices,
+      DEFAULT_VOICESTUDIO_BASE_URL,
+    } = await import('../lib/voicestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const incoming = typeof req.body?.baseUrl === 'string' ? req.body.baseUrl.trim() : ''
-    const baseUrl = incoming || (await getApiKey('chatterbox')) || DEFAULT_CHATTERBOX_BASE_URL
-    const result = await cbHealth(baseUrl)
-    res.json({ ...result, baseUrl })
+    const baseUrl = incoming || (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+    if (!baseUrl) {
+      return res.json({ ok: false, error: 'No Voice Studio URL set. Enter your modal URL above and Save, then Test.' })
+    }
+    // Health first — if the process isn't reachable, skip the rest so the
+    // user sees a clean "unreachable" response instead of three layered errors.
+    const h = await vsHealth(baseUrl)
+    if (!h.ok) {
+      return res.json({ ok: false, baseUrl, error: h.error || 'Health check failed' })
+    }
+    // Availability + voice count in parallel — both are cheap GETs.
+    const [a, v] = await Promise.all([
+      vsAvail(baseUrl),
+      vsVoices(baseUrl).catch(() => [] as any[]),
+    ])
+    const loadedFamilies = Object.entries(a.engines)
+      .filter(([, on]) => on)
+      .map(([fam]) => fam)
+    res.json({
+      ok: true,
+      baseUrl,
+      appVersion: h.appVersion,
+      apiVersion: h.apiVersion,
+      device: a.device,
+      loadedFamilies,
+      wiredFamilies: a.wiredFamilies,
+      voiceLibraryCount: Array.isArray(v) ? v.length : 0,
+    })
   } catch (e: any) {
     res.json({ ok: false, error: e?.message || String(e) })
   }
 })
 
-// Reference voice upload — base64-in-JSON to avoid adding a multipart parser.
-// Mirror of the pattern in routes/characters.ts. The frontend reads the
-// file via FileReader.readAsDataURL and strips the `data:*;base64,` prefix.
-const MAX_REFERENCE_BYTES = 10 * 1024 * 1024
-
-router.post('/projects/:slug/chatterbox/reference', async (req, res) => {
+// GET /voicestudio/voices[?model=<id>] — voices for the picker.
+//   - voicepack models (Kokoro, …): the engine's built-in preset speakers
+//     (`am_liam` etc.), pulled live from the availability probe.
+//   - cloning models (VoxCPM) / no model: the user's saved reference clips.
+// Both return the same {id,name,language,gender} shape so the picker's
+// "Voice Studio library" section renders either unchanged. The `source`
+// field lets the frontend relabel the section ('library' vs 'voicepack').
+router.get('/voicestudio/voices', async (req, res) => {
   try {
-    const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-    const config = await pm.getConfig(slug)
-    if (!config) return res.status(400).json({ detail: 'Project config missing' })
-
-    const { filename, data_base64 } = req.body || {}
-    if (typeof filename !== 'string' || !filename.trim()) {
-      return res.status(400).json({ detail: 'filename is required' })
-    }
-    if (typeof data_base64 !== 'string' || !data_base64) {
-      return res.status(400).json({ detail: 'data_base64 is required' })
-    }
-    const buf = Buffer.from(data_base64, 'base64')
-    if (buf.length === 0) return res.status(400).json({ detail: 'decoded audio is empty' })
-    if (buf.length > MAX_REFERENCE_BYTES) {
-      return res.status(413).json({ detail: `Reference clip too large (${buf.length} bytes, max ${MAX_REFERENCE_BYTES})` })
-    }
-
-    const { uploadReference, DEFAULT_CHATTERBOX_BASE_URL } = await import('../lib/chatterbox-client.js')
+    const {
+      listVoices, listPresetVoices, familyShipsVoicepack,
+      familyForModelId, DEFAULT_VOICESTUDIO_BASE_URL,
+    } = await import('../lib/voicestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
-    const baseUrl = (await getApiKey('chatterbox')) || DEFAULT_CHATTERBOX_BASE_URL
-    const { referenceId } = await uploadReference(baseUrl, buf, filename)
-
-    // Persist the UUID on ProjectConfig so chatterbox-cloned generations
-    // pick it up automatically.
-    await pm.updateConfig(slug, { chatterbox_reference_id: referenceId } as any)
-    res.json({ ok: true, referenceId })
+    const baseUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+    if (!baseUrl) { res.json({ voices: [], baseUrl: '', source: 'library' }); return }
+    const modelId = typeof req.query.model === 'string' ? req.query.model : ''
+    const family = familyForModelId(modelId)
+    if (family && familyShipsVoicepack(family)) {
+      const voices = await listPresetVoices(baseUrl, family)
+      res.json({ voices, baseUrl, source: 'voicepack' })
+      return
+    }
+    const voices = await listVoices(baseUrl)
+    res.json({ voices, baseUrl, source: 'library' })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Reference voice upload failed'))
+    res.status(502).json(humanizeBackendError(e, 'Could not load Voice Studio voice library'))
   }
 })
+
+// GET /voicestudio/models — the Voice Studio engines the live modal can
+// currently run, for dynamically filtering the audio-model dropdown. Every
+// engine in the catalog is always registered in DEFAULT_AUDIO_MODELS (so
+// generation/preview work); this endpoint tells the frontend which to
+// *show*. `ok:false` (modal offline/unreachable) → frontend falls back to
+// showing all registered voicestudio models so the dropdown never empties.
+router.get('/voicestudio/models', async (_req, res) => {
+  try {
+    const { listAvailableEngines, DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const stored = await getApiKey('voicestudio')
+    const baseUrl = stored || DEFAULT_VOICESTUDIO_BASE_URL
+    if (!baseUrl) { res.json({ ok: false, configured: false, models: [], baseUrl: '' }); return }
+    const result = await listAvailableEngines(baseUrl)
+    res.json({ ...result, configured: !!stored, baseUrl })
+  } catch (e: any) {
+    // Non-fatal — report not-ok so the frontend keeps the static list.
+    res.json({ configured: false, ok: false, models: [], error: e?.message || 'probe failed' })
+  }
+})
+
+// v1.0.217+ — Whisper STT availability proxy. The Subtitles tab calls this to
+// learn which Whisper models the modal has cached + ready, so it can gate the
+// "Transcribe (local)" action and offer the right model. Non-fatal on a
+// missing URL / offline modal (the tab falls back to OpenAI).
+router.get('/voicestudio/transcribe-availability', async (_req, res) => {
+  try {
+    const { transcribeAvailability, DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const baseUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+    if (!baseUrl) { res.json({ available: false, configured: false, models: [] }); return }
+    const avail = await transcribeAvailability(baseUrl)
+    res.json({ ...avail, configured: true })
+  } catch (e: any) {
+    res.json({ available: false, configured: false, models: [], error: e?.message || 'probe failed' })
+  }
+})
+
+// v1.0.217+ — Trigger a one-time Whisper model download on the modal (reuses
+// the generic download manager the TTS models use). Returns immediately; the
+// Subtitles tab polls /voicestudio/transcribe-availability for `cached: true`.
+router.post('/voicestudio/download-model', async (req, res) => {
+  try {
+    const repo = typeof req.body?.repo === 'string' ? req.body.repo.trim() : ''
+    if (!repo) return res.status(400).json({ detail: 'repo is required' })
+    const { downloadTranscribeModel, DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const baseUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+    if (!baseUrl) return res.status(400).json({ detail: 'Voice Studio URL not set — add it in Settings → This Mac → Local Models.' })
+    const r = await downloadTranscribeModel(baseUrl, repo)
+    res.json({ ok: true, ...r })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not start model download'))
+  }
+})
+
+// v1.0.150+ — The /projects/:slug/chatterbox/reference upload route was
+// removed alongside the rest of the Chatterbox integration. Voice Studio
+// KH manages its own voice library via its built-in web UI (the user
+// uploads reference clips there directly); Story Studio just reads them
+// back through GET /voicestudio/voices.

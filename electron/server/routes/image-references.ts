@@ -31,6 +31,7 @@ export const router = Router()
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024 // 10 MB — img2img refs can be larger than char portraits.
 const MASTER_FILENAME = 'master.png'
+const STYLE_FILENAME = 'style.png'  // v1.0.229 — continuity style reference
 
 /**
  * Resolve the per-episode references directory.
@@ -100,6 +101,25 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/master', asy
   }
 })
 
+// ── POST style ───────────────────────────────────────────────────────────
+// v1.0.229 — continuity-chain style reference (saved as style.png alongside
+// the master sheet). Attached to every scene when references.style is on.
+router.post('/projects/:slug/episodes/:episodeId/img2img-references/style', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const titleParam = (req.body?.title as string | undefined) || (req.query.title as string) || ''
+  try {
+    const project = await pm.getProject(slug)
+    if (!project) return res.status(404).json({ detail: 'Project not found' })
+    const buf = decodeUploadBuffer(req.body)
+    if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
+    const dir = await refsDir(slug, episodeId, titleParam, { create: true })
+    await fs.writeFile(path.join(dir, STYLE_FILENAME), buf.data)
+    res.json({ ok: true, url: fileUrl(slug, episodeId, STYLE_FILENAME), size_bytes: buf.data.length })
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to save style reference' })
+  }
+})
+
 // ── POST per-scene ───────────────────────────────────────────────────────
 router.post('/projects/:slug/episodes/:episodeId/img2img-references/scene/:n', async (req, res) => {
   const { slug, episodeId } = req.params
@@ -141,6 +161,20 @@ router.delete('/projects/:slug/episodes/:episodeId/img2img-references/master', a
   }
 })
 
+// ── DELETE style ─────────────────────────────────────────────────────────
+router.delete('/projects/:slug/episodes/:episodeId/img2img-references/style', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const titleParam = (req.query.title as string) || ''
+  try {
+    const dir = await refsDir(slug, episodeId, titleParam)
+    const target = path.join(dir, STYLE_FILENAME)
+    if (existsSync(target)) await fs.rm(target)
+    res.json({ ok: true })
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to delete style reference' })
+  }
+})
+
 // ── DELETE per-scene ─────────────────────────────────────────────────────
 router.delete('/projects/:slug/episodes/:episodeId/img2img-references/scene/:n', async (req, res) => {
   const { slug, episodeId } = req.params
@@ -169,6 +203,7 @@ router.get('/projects/:slug/episodes/:episodeId/img2img-references', async (req,
     try { entries = await fs.readdir(dir) } catch { entries = [] }
     const out: {
       master?: { url: string; size_bytes: number }
+      style?: { url: string; size_bytes: number }
       scenes: { number: number; url: string; size_bytes: number }[]
     } = { scenes: [] }
     for (const name of entries) {
@@ -177,6 +212,8 @@ router.get('/projects/:slug/episodes/:episodeId/img2img-references', async (req,
       try { size = (await fs.stat(abs)).size } catch { /* skip */ }
       if (name === MASTER_FILENAME) {
         out.master = { url: fileUrl(slug, episodeId, name), size_bytes: size }
+      } else if (name === STYLE_FILENAME) {
+        out.style = { url: fileUrl(slug, episodeId, name), size_bytes: size }
       } else {
         const m = name.match(/^scene-(\d+)\.png$/)
         if (m) {
@@ -199,7 +236,9 @@ router.get('/projects/:slug/episodes/:episodeId/img2img-references', async (req,
 router.get('/projects/:slug/episodes/:episodeId/img2img-references/file/:filename', async (req, res) => {
   const { slug, episodeId, filename } = req.params
   // Restrict to known filename shapes to block path traversal.
-  if (filename !== MASTER_FILENAME && !/^scene-\d+\.png$/.test(filename)) {
+  // v1.0.237 — include style.png (was missing, so the style-reference preview
+  // 400'd and showed a broken image even though the file exists + renders).
+  if (filename !== MASTER_FILENAME && filename !== STYLE_FILENAME && !/^scene-\d+\.png$/.test(filename)) {
     return res.status(400).json({ detail: 'Invalid reference filename' })
   }
   const titleParam = (req.query.title as string) || ''
@@ -217,7 +256,7 @@ router.get('/projects/:slug/episodes/:episodeId/img2img-references/file/:filenam
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-function decodeUploadBuffer(body: any):
+export function decodeUploadBuffer(body: any):
   | { ok: true; data: Buffer }
   | { ok: false; status: number; detail: string }
 {

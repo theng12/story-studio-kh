@@ -17,31 +17,10 @@
         <span class="text-muted" style="margin-left: 6px;">{{ statsPhase }}</span>
       </div>
     </div>
-    <!-- Partial-scan banner: surfaces when the backend hit its 25s safety
-         timeout or skipped iCloud-evicted folders. Tells the user the
-         counts they see are incomplete and offers a retry once macOS has
-         materialised more files. -->
-    <div
-      v-else-if="stats?.scan?.partial || (stats?.scan?.icloud_skipped > 0)"
-      class="dash-partial-banner"
-      role="status"
-      aria-live="polite"
-    >
-      <span class="dash-partial-icon">⚠</span>
-      <div class="dash-partial-text">
-        <strong>Partial scan.</strong>
-        <span class="text-muted" style="margin-left: 6px;">
-          <template v-if="stats?.scan?.partial">
-            The folder walk hit the {{ Math.round((stats?.scan?.duration_ms || 0) / 1000) }}s safety timeout — counts below are partial.
-          </template>
-          <template v-else-if="stats?.scan?.icloud_skipped > 0">
-            {{ stats.scan.icloud_skipped }} folder{{ stats.scan.icloud_skipped === 1 ? '' : 's' }} skipped — likely still downloading from iCloud.
-          </template>
-          Wait a moment for iCloud to finish, then click Retry.
-        </span>
-      </div>
-      <button class="btn btn-sm btn-secondary" @click="reloadDashboard">↻ Retry</button>
-    </div>
+    <!-- Partial-scan + dashboard-load-error notices moved into the
+         notification center's "Action needed" tab (v1.0.196+) — they're
+         transient/retryable, so they live in the bell rather than as
+         inline banners. See reportReadiness() in the script. -->
 
     <!-- Asset-integrity banner: surfaces gaps that survived a folder
          transfer / partial sync. Read-only; nothing is regenerated. See
@@ -139,25 +118,9 @@
       <span class="no-upload-cta">Open &rarr;</span>
     </NuxtLink>
 
-    <!-- Stats / audit / accounts load errors. Inline because the dashboard
-         is the operator's "everything looks fine" view — a silent fetch
-         failure here used to mean an empty grid that looked like a brand-new
-         project. Now they see exactly which signal we couldn't refresh. -->
-    <div
-      v-if="statsLoadError || auditLoadError || accountsLoadError"
-      class="dash-stale-banner"
-      role="status"
-      aria-live="polite"
-    >
-      <span class="dash-stale-icon" aria-hidden="true">&#9888;</span>
-      <span class="dash-stale-text">
-        <strong>Some dashboard data couldn't be loaded.</strong>
-        <span v-if="statsLoadError"> Stats: {{ statsLoadError }}.</span>
-        <span v-if="auditLoadError"> Asset audit: {{ auditLoadError }}.</span>
-        <span v-if="accountsLoadError"> Upload destinations: {{ accountsLoadError }}.</span>
-      </span>
-      <button class="btn btn-sm btn-secondary" @click="reloadDashboard">Retry</button>
-    </div>
+    <!-- (Stats / audit / accounts load errors now surface in the
+         notification center's "Action needed" tab with a Retry action —
+         see reportReadiness().) -->
 
     <!-- Hero stats row -->
     <div class="hero-stats mt-3">
@@ -335,6 +298,10 @@ const slug = computed(() => route.params.slug as string)
 const { project } = useProject()
 const { stats: jobStats, jobsStale, lastRefreshError } = useJobs()
 const { get } = useApi()
+// Notification center: dashboard pushes its transient/asset readiness items
+// into the shared store so they appear in the bell's "Action needed" tab
+// instead of as inline banners. See reportReadiness() below.
+const notif = useNotifications()
 
 const stats = ref<any>(null)
 // Mount-time fetches are one-shot (no retry loop), so a single failure
@@ -364,8 +331,8 @@ const statsPhase = computed(() => {
 // state, which is O(episodes × asset-stages) and easily hits 60+ seconds on
 // large projects. We don't fire it on mount; the operator clicks "Run audit"
 // when they want it. Result is cached at module scope for 30 min so leaving
-// and re-entering the dashboard inside that window is free. See the agent's
-// 102.5s measurement on TerraNash (379 episodes) — the previous on-mount
+// and re-entering the dashboard inside that window is free. Benchmark:
+// 102.5s on a 379-episode iCloud-synced project — the previous on-mount
 // fetch was the dominant cause of "dashboard takes forever".
 const audit = ref<ProjectAudit | null>(null)
 const auditRanAt = ref<number>(0)
@@ -456,6 +423,9 @@ async function reloadDashboard() {
         stats.value = await get(`/projects/${slug.value}/dashboard-stats`)
         statsLoadError.value = ''
       } catch (e: any) {
+        // v1.0.129+ — slug-race rejections from useApi shouldn't surface
+        // as a banner; the next valid load will replace this attempt.
+        if (e?.__slugRace) return
         statsLoadError.value = e?.data?.detail || e?.message || 'Failed to load dashboard stats'
       } finally {
         statsLoading.value = false
@@ -469,6 +439,7 @@ async function reloadDashboard() {
         uploadAccountCount.value = total
         accountsLoadError.value = ''
       } catch (e: any) {
+        if (e?.__slugRace) return  // v1.0.129+ — silent on slug-race
         // Treat fetch failure as "unknown" — don't show the missing-destinations
         // banner if we can't confirm the gap (false alarm), but record the
         // error so we render a separate "couldn't check" indicator instead of
@@ -488,6 +459,68 @@ async function reloadDashboard() {
     audit.value = null
     auditRanAt.value = 0
   }
+  reportReadiness()
+}
+
+/**
+ * Push the dashboard's transient + asset readiness state into the
+ * notification center (the bell's "Action needed" tab), reconciling each
+ * item: report when the condition holds, clear when it's resolved. Replaces
+ * the old inline partial-scan / load-error / asset banners. Retry-style
+ * fixes pass `onClick: reloadDashboard` since they can't be a plain route.
+ */
+function reportReadiness() {
+  const s = slug.value
+  if (!s) return
+
+  // Partial / iCloud-skipped scan.
+  const scan = stats.value?.scan
+  if (scan?.partial || (scan?.icloud_skipped ?? 0) > 0) {
+    const why = scan?.partial
+      ? `The folder walk hit the ${Math.round((scan?.duration_ms || 0) / 1000)}s safety timeout — counts shown are partial.`
+      : `${scan.icloud_skipped} folder${scan.icloud_skipped === 1 ? '' : 's'} skipped — likely still downloading from iCloud.`
+    notif.report(s, {
+      key: 'partial-scan',
+      severity: 'info',
+      title: 'Partial project scan',
+      detail: `${why} Wait for iCloud to finish, then retry.`,
+      onClick: reloadDashboard,
+      actionLabel: 'Retry',
+    })
+  } else {
+    notif.clear(s, 'partial-scan')
+  }
+
+  // Dashboard data fetch failures.
+  if (statsLoadError.value || auditLoadError.value || accountsLoadError.value) {
+    const parts: string[] = []
+    if (statsLoadError.value) parts.push(`Stats: ${statsLoadError.value}`)
+    if (auditLoadError.value) parts.push(`Asset audit: ${auditLoadError.value}`)
+    if (accountsLoadError.value) parts.push(`Upload destinations: ${accountsLoadError.value}`)
+    notif.report(s, {
+      key: 'load-error',
+      severity: 'warning',
+      title: "Some dashboard data couldn't be loaded",
+      detail: `${parts.join('. ')}.`,
+      onClick: reloadDashboard,
+      actionLabel: 'Retry',
+    })
+  } else {
+    notif.clear(s, 'load-error')
+  }
+
+  // Asset-integrity gaps (only known after the audit has run).
+  if (audit.value && audit.value.total_missing > 0) {
+    notif.report(s, {
+      key: 'assets',
+      severity: 'warning',
+      title: `${audit.value.total_missing} asset${audit.value.total_missing === 1 ? '' : 's'} missing across ${audit.value.episodes_with_missing} episode${audit.value.episodes_with_missing === 1 ? '' : 's'}`,
+      detail: 'Likely a partial transfer or interrupted sync. The Repair buttons on each asset page can re-download without spending credits.',
+      to: `/projects/${s}/assets`,
+    })
+  } else {
+    notif.clear(s, 'assets')
+  }
 }
 
 async function runAudit() {
@@ -503,12 +536,20 @@ async function runAudit() {
     auditLoadError.value = e?.data?.detail || e?.message || 'Asset audit failed'
   } finally {
     auditRunning.value = false
+    reportReadiness()
   }
 }
 
 onMounted(reloadDashboard)
 onBeforeUnmount(() => {
   if (statsElapsedTimer) { clearInterval(statsElapsedTimer); statsElapsedTimer = null }
+  // Drop the reported items that carry an `onClick: reloadDashboard` closure.
+  // Left in place they'd keep this (now torn-down) page's reactive graph alive
+  // and, if clicked from the bell, run reloadDashboard against dead refs. They
+  // re-report on the next dashboard visit if the condition still holds. The
+  // `assets` item is route-based (no closure), so it's fine to leave standing.
+  const s = slug.value
+  if (s) { notif.clear(s, 'partial-scan'); notif.clear(s, 'load-error') }
 })
 </script>
 

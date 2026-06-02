@@ -162,7 +162,7 @@ export interface NotificationPayload {
 /**
  * Project label appended to notification titles when supplied (v1.0.61+).
  * Lets the user see which channel/project the ping is from at a glance —
- * critical when running multiple projects (TerraNash, Dozing Knight, …)
+ * critical when running multiple projects (one channel, another channel, …)
  * because today's titles like "Pipeline finished" don't say which one.
  * Falls back gracefully when the dispatch layer can't resolve a name.
  */

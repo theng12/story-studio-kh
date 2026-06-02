@@ -6,9 +6,10 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
-import { callAi } from '../lib/ai-client.js'
+import { callAi, hasAnyTextProviderKey } from '../lib/ai-client.js'
 import { SUPPORTED_MODELS } from '../models/types.js'
 import { resolveEpisodePaths } from '../services/utils.js'
+import { resolveReadPath, readArtifactRawText } from '../lib/episode-artifacts.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { resolveSubfolderNames } from '../services/utils.js'
@@ -17,6 +18,7 @@ import { formatMetadataTxt, parseMetadataTxt } from '../services/folder-migratio
 import { validateBody } from '../lib/validate.js'
 import { GenerateScriptOnlySchema, GenerateIntroductionOnlySchema, GenerateChapterOnlySchema } from '../schemas/index.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
+import { appendSourcesToDescription, sourcesSectionEnabled } from '../lib/research-sources.js'
 import { prependAvoidanceToPrompt, recordUsageForScope } from '../services/recency-tracker.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
@@ -38,7 +40,7 @@ router.post('/projects/:slug/generate/script-only', validateBody(GenerateScriptO
   if (!project) return res.status(404).json({ detail: 'Project not found' })
 
   const config = await pm.getConfig(slug)
-  if (!config?.anthropic_api_key && !config?.openai_api_key) {
+  if (!(await hasAnyTextProviderKey(config))) {
     return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
   }
 
@@ -75,7 +77,7 @@ router.post('/projects/:slug/generate/outline-only', validateBody(GenerateScript
   if (!project) return res.status(404).json({ detail: 'Project not found' })
 
   const config = await pm.getConfig(slug)
-  if (!config?.anthropic_api_key && !config?.openai_api_key) {
+  if (!(await hasAnyTextProviderKey(config))) {
     return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
   }
 
@@ -99,7 +101,7 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
   if (!project) return res.status(404).json({ detail: 'Project not found' })
 
   const config = await pm.getConfig(slug)
-  if (!config?.anthropic_api_key && !config?.openai_api_key) {
+  if (!(await hasAnyTextProviderKey(config))) {
     return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
   }
 
@@ -320,7 +322,7 @@ router.post('/projects/:slug/generate/chapter-only', validateBody(GenerateChapte
   if (!project) return res.status(404).json({ detail: 'Project not found' })
 
   const config = await pm.getConfig(slug)
-  if (!config?.anthropic_api_key && !config?.openai_api_key) {
+  if (!(await hasAnyTextProviderKey(config))) {
     return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
   }
 
@@ -355,7 +357,7 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
   if (!project) return res.status(404).json({ detail: 'Project not found' })
 
   const config = await pm.getConfig(slug)
-  if (!config?.anthropic_api_key && !config?.openai_api_key) {
+  if (!(await hasAnyTextProviderKey(config))) {
     return res.status(400).json({ detail: 'No AI API key configured. Add one in Settings.' })
   }
 
@@ -382,15 +384,16 @@ router.get('/projects/:slug/episodes/:episodeId/script-content', async (req, res
     const paths = await resolveEpisodePaths(slug, episodeId, titleQuery)
     const result: any = { script: null, introduction: null }
 
-    if (existsSync(paths.narration_docx)) {
+    const narrationPath = resolveReadPath(paths.narration_docx)
+    if (existsSync(narrationPath)) {
       // Single source of truth: introduction (when present) lives INSIDE
-      // the narration docx as an "Introduction" section, not in a sibling
+      // the narration file as an "Introduction" section, not in a sibling
       // file. We split here so each preview panel gets only its slice
       // while the underlying file stays unified for the audio /
       // subtitles / video pipelines.
       const { parseNarrationDocx } = await import('../lib/docx-parser.js')
-      const sections = await parseNarrationDocx(paths.narration_docx)
-      const stat = await fs.stat(paths.narration_docx)
+      const sections = await parseNarrationDocx(narrationPath)
+      const stat = await fs.stat(narrationPath)
 
       const introSection = sections.find(s => s.slug === 'Introduction')
       const chapterSections = sections.filter(s => s.slug !== 'Introduction')
@@ -635,9 +638,6 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
   // when it's present.
   if (model) {
     const provider = SUPPORTED_MODELS[model]
-    if (provider === 'anthropic' && !config.anthropic_api_key) {
-      return res.status(400).json({ detail: 'No Anthropic key configured. Add one in Settings.' })
-    }
     if (provider === 'openai' && !config.openai_api_key) {
       return res.status(400).json({ detail: 'No OpenAI key configured. Add one in Settings.' })
     }
@@ -736,7 +736,7 @@ router.post('/projects/:slug/generate/image-prompts/save', async (req, res) => {
       }
       let sceneText = `# Scene Prompts\n\n`
       for (const s of prompts.scenes) sceneText += `## Scene ${s.number}: ${s.title}\n\n${s.prompt}\n\n`
-      await buildImagePromptsDocx(sceneText, episode_id, title, pathMod.join(sceneDir, `${episode_id}_Scene_Prompts.docx`))
+      await buildImagePromptsDocx(sceneText, episode_id, title, pathMod.join(sceneDir, `${episode_id}_Scene_Prompts.md`))
     }
 
     // Save thumbnail prompts to Thumbnail Prompts folder. Same caveat as
@@ -760,7 +760,7 @@ router.post('/projects/:slug/generate/image-prompts/save', async (req, res) => {
       }
       let thumbText = `# Thumbnail Prompts\n\n`
       for (const t of prompts.thumbnails) thumbText += `## Thumbnail ${t.number}: ${t.title}\n\n${t.prompt}\n\n`
-      await buildImagePromptsDocx(thumbText, episode_id, title, pathMod.join(thumbDir, `${episode_id}_Thumbnail_Prompts.docx`))
+      await buildImagePromptsDocx(thumbText, episode_id, title, pathMod.join(thumbDir, `${episode_id}_Thumbnail_Prompts.md`))
     }
 
     res.json({ ok: true, path: paths.scene_prompts_docx })
@@ -776,9 +776,8 @@ router.post('/projects/:slug/generate/image-prompts/save', async (req, res) => {
 async function readStoryContext(slug: string, episode_id: string, title: string, maxChars = 2000): Promise<string> {
   try {
     const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-    const mammoth = await import('mammoth')
-    const result = await mammoth.default.extractRawText({ path: paths.narration_docx })
-    return result.value.slice(0, maxChars)
+    const raw = await readArtifactRawText(paths.narration_docx)
+    return raw.slice(0, maxChars)
   } catch {
     return `Episode: ${episode_id}, Title: ${title}`
   }
@@ -786,7 +785,6 @@ async function readStoryContext(slug: string, episode_id: string, title: string,
 
 function checkProvider(model: string, config: any): string | null {
   const provider = SUPPORTED_MODELS[model]
-  if (provider === 'anthropic' && !config.anthropic_api_key) return 'No Anthropic key'
   if (provider === 'openai' && !config.openai_api_key) return 'No OpenAI key'
   if (provider === 'kie' && !config.kie_api_key) return 'No kie.ai key'
   return null
@@ -845,7 +843,12 @@ router.post('/projects/:slug/generate/metadata/description', async (req, res) =>
     // Scan the freshly-generated description for any tracked items
     // and append to the recency log. Fail-soft analytics-style write.
     await recordUsageForScope(slug, episode_id, 'metadata', raw).catch(() => null)
-    res.json({ description: raw.trim() })
+    // v1.0.197 — append the kept research sources (deterministic, real URLs);
+    // v1.0.198 — gated on the description's Sources section being present + on.
+    const withSources = await appendSourcesToDescription(
+      slug, episode_id, raw.trim(), format, effectiveMaxChars, sourcesSectionEnabled(sections),
+    )
+    res.json({ description: withSources.description })
   } catch (e: any) {
     // Honour explicit statusCode (400 validation, 402 quota, …) and
     // surface the raw error via humanizeBackendError so users see
@@ -1385,8 +1388,8 @@ router.post('/projects/:slug/episodes/:code/normalize-script', async (req, res) 
     }
 
     const config = await pm.getConfig(slug)
-    if (!config?.anthropic_api_key && !config?.openai_api_key) {
-      return res.status(400).json({ detail: 'Project missing API keys (anthropic or openai required)' })
+    if (!(await hasAnyTextProviderKey(config))) {
+      return res.status(400).json({ detail: 'Project missing API keys — add a text-model key (kie.ai, DeepSeek, OpenRouter, or OpenAI) in Settings.' })
     }
     const apiKeys = {
       anthropic_api_key: (config as any).anthropic_api_key || '',

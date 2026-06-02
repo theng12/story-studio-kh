@@ -219,7 +219,7 @@ export function resolveStepParams(
     return {
       episode_id: episodeId,
       title: title || '',
-      model: data.model || 'gpt-4o',
+      model: data.model || 'deepseek-v4-flash',
       host_name: intro.host_name,
       word_target: intro.word_target,
       custom_opening: intro.custom_opening,
@@ -409,7 +409,7 @@ export function resolveStepParams(
     return {
       episode_id: episodeId,
       title: title || '',
-      model: 'gpt-4o',
+      model: 'deepseek-v4-flash',
       sections: Array.isArray(data.sections) ? data.sections : [],
       max_chars: fmtMeta?.defaultMaxChars ?? 5000,
       title_count: fmtMeta?.defaultTitleCount ?? 5,
@@ -731,6 +731,21 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       detail: 'One or more selected steps have no active preset',
       missing,
     })
+  }
+
+  // No silent defaults (v1.0.210+): the audio step's preset must carry an
+  // explicit voice. The backend no longer substitutes a brand/provider
+  // default, so a voiceless preset would fail mid-batch — reject it here,
+  // before anything is enqueued, with an actionable message.
+  if (steps.includes('audio')) {
+    const ap = presetByStep['audio'] as StoredPreset | undefined
+    const voice = ap?.data?.form?.voice ?? (ap as any)?.form?.voice
+    if (!voice || !String(voice).trim()) {
+      return res.status(400).json({
+        detail: 'Your Audio preset has no voice selected. Open the Audio tab, pick a voice, re-save the preset, then run the pipeline again — there is no default voice.',
+        missing: [{ step: 'audio', reason: 'preset has no voice selected' }],
+      })
+    }
   }
 
   // Free-disk-space precheck. Burning hours of FFmpeg time only to fail

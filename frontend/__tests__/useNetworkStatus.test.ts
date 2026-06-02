@@ -1,13 +1,12 @@
 /**
- * Tests for `useNetworkStatus` — the online/offline banner + queue-pause driver.
+ * Tests for `useNetworkStatus` — the reachability badge + queue-pause driver.
  *
- * The composable merges two signals:
- *   1. `navigator.onLine` — fast, OS-level interface state.
- *   2. A periodic `HEAD /api/health` probe — confirms the backend is
- *      actually reachable even when the OS thinks we're online.
- *
- * When it flips offline, it POSTs `/api/system/queue/pause` so new jobs
- * don't try to submit without connectivity. On recovery it resumes.
+ * v1.0.190 — reachability is decided by ONE signal: a periodic
+ * `GET /api/health` probe of the local backend. `navigator.onLine` is
+ * deliberately ignored (it false-negatives on macOS sleep/wake + VPN changes
+ * and used to freeze the whole queue). When the probe fails it POSTs
+ * `/api/system/queue/pause`; on recovery it resumes (and retries a dropped
+ * resume so the queue can't get stuck paused).
  *
  * Runs under happy-dom (registered by __tests__/setup.ts). `fetch` is
  * stubbed per test; the composable's module-scoped `started` flag means
@@ -116,17 +115,22 @@ describe('useNetworkStatus', () => {
     assert.equal(resumeCalls, 1, 'resume POST must be idempotent')
   })
 
-  test('navigator.onLine=false takes precedence over a successful probe', async () => {
+  test('navigator.onLine=false is IGNORED — the backend probe decides (v1.0.190 fix)', async () => {
     const { online, refresh } = useNetworkStatus()
-    // Health endpoint would say we're fine, but the OS says the interface is down.
+    // The OS claims the interface is down (a common macOS false-negative after
+    // sleep/wake or a VPN flap), but the backend probe succeeds. We must stay
+    // online so a flaky browser flag can never freeze the job queue.
     handler = () => ({ ok: true, status: 200 })
     // happy-dom's navigator has writable onLine; flip it and re-check.
     Object.defineProperty(globalThis.navigator, 'onLine', { value: false, configurable: true })
+    fetchCalls = []
 
     try {
       await refresh()
-      assert.equal(online.value, false,
-        'navigator.onLine=false must be trusted immediately even if the probe would succeed')
+      assert.equal(online.value, true,
+        'navigator.onLine=false must NOT force offline when the backend is reachable')
+      assert.ok(!fetchCalls.some(u => u === '/api/system/queue/pause'),
+        'a flaky navigator.onLine must not trigger a queue pause')
     } finally {
       Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true })
     }

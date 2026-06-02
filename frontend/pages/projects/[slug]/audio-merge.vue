@@ -160,8 +160,17 @@
       </div>
     </div>
 
+    <!-- v1.0.182 — the five layering cards (intro / normalization / music /
+         ambience / ambient layers) collapse behind the shared
+         AdvancedDisclosure so the page opens onto Narration Chapters →
+         Generate. Open state remembered per project via persist-key. -->
+    <AdvancedDisclosure
+      v-if="chapters.length"
+      label="Audio layers (intro · normalization · music · ambience)"
+      :persist-key="MERGE_ADV_KEY"
+    >
     <!-- Intro Audio -->
-    <div v-if="chapters.length" class="card mt-2">
+    <div class="card mt-2">
       <div class="flex gap-2 items-center">
         <label class="checkbox-label" @click.stop>
           <input type="checkbox" v-model="intro.enabled" />
@@ -530,6 +539,7 @@
         </div>
       </div>
     </div>
+    </AdvancedDisclosure>
 
     <!-- Generate -->
     <div v-if="chapters.length" class="card mt-2">
@@ -646,6 +656,22 @@ const ffmpegStatus = ref<{ installed: boolean; version?: string } | null>(null)
 const scannedAssets = ref<any>(null)
 const scanning = ref(false)
 const generating = ref(false)
+
+// v1.0.182 — Phase-2 scaffold. The five layering cards (intro clip, volume
+// normalization, background music, ambience, ambient layers) collapse behind
+// the shared <AdvancedDisclosure>. Open state is remembered per project via
+// this key; the component owns the localStorage read/write now.
+const MERGE_ADV_KEY = `audio_merge_advanced_open_${slug.value}`
+
+// v1.0.115+ — clear the in-flight indicator on episode swap. The local
+// `generating` ref is normally true only during the POST window (it's
+// reset in the submit handler's `finally`), so this is defensive — but
+// if the user switches episodes while the POST is still in flight, we
+// don't want the new episode's TopActionBar showing "Merging audio for
+// [old ep]…". Symmetrical with the same fix in video-assembly.vue.
+watch(episodeId, (newEp, oldEp) => {
+  if (newEp !== oldEp) generating.value = false
+})
 
 // ── Merged-audio integrity pill ──
 interface MergeStatusState { loading: boolean; error: string; present: boolean; file: string }

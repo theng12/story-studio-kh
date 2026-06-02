@@ -109,6 +109,40 @@
           </div>
         </div>
 
+        <!-- v1.0.122+ — Tab nav for the selected pool. Three views:
+             Clips (the existing grid + scan/normalize/autotag controls),
+             Fetch (search Pexels/Pixabay + queue downloads into THIS pool),
+             Asset Log (every clip's source + license + fetched_at). -->
+        <div class="form-tabs mt-2">
+          <button
+            type="button"
+            :class="['form-tab', { active: poolTab === 'clips' }]"
+            @click="poolTab = 'clips'"
+          >
+            🎞 Clips
+            <span class="text-muted text-xs ml-1">({{ clips.length }})</span>
+          </button>
+          <button
+            type="button"
+            :class="['form-tab', { active: poolTab === 'fetch' }]"
+            @click="poolTab = 'fetch'"
+          >
+            🔎 Fetch
+            <span class="text-muted text-xs ml-1">(Pexels · Pixabay)</span>
+          </button>
+          <button
+            type="button"
+            :class="['form-tab', { active: poolTab === 'log' }]"
+            @click="poolTab = 'log'"
+          >
+            📋 Asset Log
+            <span class="text-muted text-xs ml-1">({{ provenanceCount }})</span>
+          </button>
+        </div>
+
+        <!-- ── Clips tab (existing pool view) ─────────────────────────── -->
+        <div v-show="poolTab === 'clips'">
+
         <div v-if="!selectedPool.online" class="offline-banner">
           🔌 SSD not connected — connect <code>{{ selectedPool.folder_path }}</code> to scan or edit tags.
           Indexed clip metadata is preserved.
@@ -221,9 +255,200 @@
                   ✏ Rename
                 </button>
               </div>
+              <!-- v1.0.122+ — Provenance hover. Native title attribute so
+                   the user gets a tooltip on hover without an extra
+                   component mount per clip. The clip-source-pill below
+                   shows the source badge at-a-glance and links out. -->
+              <div
+                v-if="provenanceFor(clip.filename)"
+                class="clip-source-row"
+                :title="provenanceTooltip(clip.filename)"
+              >
+                <span :class="['clip-source-pill', `source-${provenanceFor(clip.filename)!.source}`]">
+                  {{ provenanceFor(clip.filename)!.source }}
+                </span>
+                <a
+                  class="clip-source-link"
+                  :href="provenanceFor(clip.filename)!.source_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  @click.stop
+                >view source ↗</a>
+              </div>
+              <div v-else class="clip-source-row clip-source-local" title="Hand-added clip — no fetch provenance recorded.">
+                <span class="clip-source-pill source-local">local</span>
+              </div>
             </div>
           </article>
         </div>
+
+        </div><!-- /Clips tab -->
+
+        <!-- ── Fetch tab ──────────────────────────────────────────────── -->
+        <div v-show="poolTab === 'fetch'">
+          <div class="fetch-controls">
+            <div class="fetch-providers" role="group" aria-label="Search providers">
+              <label v-for="p in providersState" :key="p.provider" :class="['fetch-provider', { 'is-unconfigured': !p.configured }]">
+                <input
+                  type="checkbox"
+                  :checked="enabledProviders[p.provider]"
+                  :disabled="!p.configured"
+                  @change="(e: any) => enabledProviders[p.provider] = e.target.checked"
+                />
+                <span>{{ p.name }}</span>
+                <span v-if="!p.configured" class="text-muted text-xs">no key</span>
+              </label>
+            </div>
+            <div class="fetch-search-row">
+              <input
+                v-model="fetchQuery"
+                class="input"
+                placeholder="ocean sunset, calm beach, slow motion clouds…"
+                @keydown.enter="runFetchSearch"
+              />
+              <select v-model="fetchQuality" class="select" title="Quality preference. Falls back to next-best when the requested isn't available. HD matches normalize target (1080p) — UHD costs bandwidth + storage with no render benefit.">
+                <option value="hd">HD (1080p)</option>
+                <option value="uhd">UHD (4K)</option>
+                <option value="sd">SD</option>
+              </select>
+              <button
+                class="btn btn-primary"
+                :disabled="!canFetchSearch"
+                @click="runFetchSearch"
+              >
+                <LoadingSpinner v-if="fetchLoading" size="sm" />
+                {{ fetchLoading ? 'Searching…' : 'Search' }}
+              </button>
+            </div>
+            <p v-if="!anyProviderConfigured" class="fetch-hint text-warn">
+              No fetch providers configured. Add a Pexels or Pixabay API key under
+              <strong>App Settings → API Keys</strong> (both free, no attribution required),
+              or tick the <strong>NASA</strong> checkbox above for key-free public-domain
+              video from NASA's Image &amp; Video Library.
+            </p>
+          </div>
+
+          <div v-if="fetchError" class="fetch-error">⚠ {{ fetchError }}</div>
+
+          <div v-if="fetchResults.length" class="fetch-summary">
+            <span>{{ fetchResults.length }} result{{ fetchResults.length === 1 ? '' : 's' }} · {{ alreadyHaveCount }} already in pool · {{ selectedFetchCount }} selected</span>
+            <div class="fetch-summary-actions">
+              <button class="btn btn-secondary btn-sm" :disabled="!fetchResults.length" @click="toggleSelectAll">
+                {{ allSelectableSelected ? 'Deselect all' : 'Select all new' }}
+              </button>
+              <button
+                class="btn btn-primary btn-sm"
+                :disabled="!selectedFetchCount || queueingFetch || !selectedPool?.online"
+                :title="!selectedPool?.online ? 'Pool offline — plug in the SSD first' : ''"
+                @click="queueSelectedFetches"
+              >
+                {{ queueingFetch ? 'Queuing…' : `Add ${selectedFetchCount} to pool` }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="fetchResults.length" class="fetch-grid">
+            <article
+              v-for="r in fetchResults"
+              :key="`${r.provider}-${r.source_id}`"
+              :class="['fetch-card', { 'is-already-have': r.already_have, 'is-selected': isFetchSelected(r) }]"
+            >
+              <label class="fetch-card-select">
+                <input
+                  type="checkbox"
+                  :checked="isFetchSelected(r)"
+                  :disabled="r.already_have"
+                  @change="toggleFetchPick(r)"
+                />
+              </label>
+              <div class="fetch-thumb-wrap">
+                <img :src="r.thumbnail_url" :alt="`${r.provider} ${r.source_id}`" loading="lazy" class="fetch-thumb" />
+                <span class="fetch-duration">{{ formatDuration(r.duration) }}</span>
+                <span :class="['fetch-provider-pill', `source-${r.provider}`]">{{ r.provider }}</span>
+                <span v-if="r.already_have" class="fetch-have-badge" title="A clip from this provider with this source_id is already in this pool.">✓ in pool</span>
+              </div>
+              <div class="fetch-card-body">
+                <div class="fetch-card-meta text-muted text-xs">
+                  {{ r.width }}×{{ r.height }} · by {{ r.author || 'Unknown' }}
+                </div>
+                <div class="fetch-card-license text-muted text-xs">
+                  <a :href="r.license_url" target="_blank" rel="noopener noreferrer">{{ r.license }}</a> ·
+                  <a :href="r.source_url" target="_blank" rel="noopener noreferrer">view source ↗</a>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div v-else-if="!fetchLoading && fetchQuery && !fetchError" class="muted">
+            No results. Try different keywords, or enable another provider above.
+          </div>
+
+          <div v-else-if="!fetchQuery" class="empty">
+            Type keywords above and hit <strong>Search</strong> to find free stock B-Roll on Pexels and Pixabay.
+            Clips you've already added to this pool are flagged automatically — you can re-search the same
+            terms next month and only pick the new ones.
+          </div>
+        </div><!-- /Fetch tab -->
+
+        <!-- ── Asset Log tab ──────────────────────────────────────────── -->
+        <div v-show="poolTab === 'log'">
+          <div class="log-toolbar">
+            <input
+              v-model="logSearch"
+              class="input log-search"
+              placeholder="Filter by filename, source, author, keywords…"
+            />
+            <select v-model="logSourceFilter" class="select select-sm">
+              <option value="all">All sources</option>
+              <option value="pexels">Pexels</option>
+              <option value="pixabay">Pixabay</option>
+            </select>
+            <button
+              class="btn btn-sm btn-secondary"
+              :disabled="!filteredLogRows.length"
+              :title="'Download the filtered rows as CSV — handy if you need to share license attribution outside the app.'"
+              @click="exportLogCsv"
+            >
+              ⬇ Export CSV
+            </button>
+          </div>
+
+          <div v-if="!provenanceCount" class="empty">
+            No fetched clips yet. Use the <strong>🔎 Fetch</strong> tab to pull stock clips into this pool —
+            each one writes a provenance sidecar that shows up here with source, license, date, and the
+            keywords that found it. Hand-added clips don't have provenance records.
+          </div>
+
+          <table v-else class="log-table">
+            <thead>
+              <tr>
+                <th @click="setLogSort('filename')" :class="logSortClass('filename')">Filename</th>
+                <th @click="setLogSort('source')" :class="logSortClass('source')">Source</th>
+                <th @click="setLogSort('author')" :class="logSortClass('author')">Author</th>
+                <th @click="setLogSort('fetched_at')" :class="logSortClass('fetched_at')">Fetched</th>
+                <th>Keywords</th>
+                <th>License</th>
+                <th>Link</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in filteredLogRows" :key="row.filename">
+                <td class="log-cell-filename" :title="row.filename">{{ row.filename }}</td>
+                <td><span :class="['clip-source-pill', `source-${row.source}`]">{{ row.source }}</span></td>
+                <td class="text-muted">{{ row.author || '—' }}</td>
+                <td class="text-muted text-xs">{{ formatLocalDateTime(row.fetched_at) }}</td>
+                <td class="log-cell-keywords">
+                  <span v-for="(kw, i) in row.search_keywords" :key="i" class="log-keyword">{{ kw }}</span>
+                </td>
+                <td class="text-xs"><a :href="row.license_url" target="_blank" rel="noopener noreferrer">{{ row.license }}</a></td>
+                <td class="text-xs"><a :href="row.source_url" target="_blank" rel="noopener noreferrer">view ↗</a></td>
+              </tr>
+              <tr v-if="!filteredLogRows.length">
+                <td colspan="7" class="muted">No rows match the filter.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div><!-- /Asset Log tab -->
       </section>
     </div>
 
@@ -246,16 +471,30 @@
         </div>
         <div class="form-group">
           <label>Folder path <span class="req">*</span></label>
+          <!-- v1.0.118+ — Browse… button wired to usePathPicker so the
+               user gets a native folder dialog (Electron desktop) or the
+               in-app FileBrowserModal (server mode) instead of having to
+               hand-type the path. The .path-input-row wrapper was sitting
+               here in the original markup waiting for the button — just
+               needed the click handler + styles. -->
           <div class="path-input-row">
             <input
               v-model="createDraft.folder_path"
               class="input"
               placeholder="/Volumes/SSD/prayer-broll"
             />
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="picking"
+              @click="onBrowseFolder"
+            >
+              📁 {{ picking ? 'Opening…' : 'Browse…' }}
+            </button>
           </div>
           <span class="hint">
-            Full absolute path. Tip: open the folder in Finder, right-click → Get Info, copy the
-            "Where:" value.
+            Click <strong>Browse…</strong> to pick the folder, or paste the full absolute path.
+            Tip: open the folder in Finder, right-click → Get Info, copy the "Where:" value.
           </span>
         </div>
         <div class="form-group">
@@ -452,7 +691,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, reactive } from 'vue'
+// v1.0.118+ — pickFolder() branches between Electron's native dialog
+// and the in-app FileBrowserModal (server mode) so the same callsite
+// works in both modes. Not auto-imported (it's a bare named export,
+// not a useX composable) — needs explicit import.
+import { pickFolder } from '~/composables/usePathPicker'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('B-Roll Library')
@@ -460,6 +704,26 @@ useAppTitle('B-Roll Library')
 const broll = useBrollPools()
 const { ask } = useConfirm()
 const { success, error: showError } = useToast()
+
+// v1.0.118+ — Folder-picker state for the Register pool modal. `picking`
+// is true while the dialog is open so the Browse button shows a loading
+// label and ignores double-clicks.
+const picking = ref(false)
+async function onBrowseFolder() {
+  picking.value = true
+  try {
+    const picked = await pickFolder({
+      title: 'Choose B-Roll pool folder',
+      initial_path: createDraft.value.folder_path || undefined,
+      button_label: 'Use this folder',
+    })
+    if (picked) createDraft.value.folder_path = picked
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Folder picker failed')
+  } finally {
+    picking.value = false
+  }
+}
 
 // Live app-level jobs (broll_normalize + broll_autotag). The standard
 // /projects/:slug/jobs feed filters by project_slug, so app-level
@@ -564,7 +828,373 @@ async function refreshClipsAfterJob(): Promise<void> {
   try {
     const r = await broll.listClips(selectedPoolId.value)
     clips.value = r.clips
+    // v1.0.122+: refresh provenance too so a freshly-fetched clip's
+    // sidecar shows up in the Asset Log and hover tooltips without
+    // requiring a tab toggle / page refresh.
+    void loadProvenance()
   } catch { /* tolerate */ }
+}
+
+// ── v1.0.122+ Pool tab nav (Clips / Fetch / Asset Log) ──────────────────
+// URL-synced via ?tab= so refresh + back/forward + deep links work.
+// Same shape as ideas.vue / scripts.vue / image-prompts.vue.
+const _route = useRoute()
+const _router = useRouter()
+const poolTab = ref<'clips' | 'fetch' | 'log'>(
+  _route.query.tab === 'fetch' ? 'fetch'
+    : _route.query.tab === 'log' ? 'log'
+    : 'clips',
+)
+watch(() => _route.query.tab, (v) => {
+  const next = v === 'fetch' ? 'fetch' : v === 'log' ? 'log' : 'clips'
+  if (next !== poolTab.value) poolTab.value = next
+})
+watch(poolTab, (v) => {
+  const cur = String(_route.query.tab || 'clips')
+  if (cur === v) return
+  _router.replace({ query: { ..._route.query, tab: v } })
+  // Lazy-load tab content the first time the user opens it. This keeps
+  // the initial pool-page render cheap (no provenance scan, no
+  // providers probe) for the common case of just wanting to view clips.
+  if (v === 'fetch') void loadProvidersOnce()
+  if (v === 'log' || v === 'clips') void loadProvenanceOnce()
+})
+
+// ── v1.0.122+ Fetch state ───────────────────────────────────────────────
+interface ConfiguredProvider {
+  provider: 'pexels' | 'pixabay' | 'nasa'
+  name: string
+  configured: boolean
+}
+interface FetchResultUi {
+  provider: 'pexels' | 'pixabay' | 'nasa'
+  source_id: string
+  source_url: string
+  thumbnail_url: string
+  duration: number
+  width: number
+  height: number
+  author: string
+  author_url?: string
+  license: string
+  license_url: string
+  files: Array<{ quality: string; url: string; width: number; height: number }>
+  already_have: boolean
+}
+const { get: apiGet, post: apiPost } = useApi()
+
+const providersState = ref<ConfiguredProvider[]>([])
+const enabledProviders = reactive<Record<'pexels' | 'pixabay' | 'nasa', boolean>>({
+  pexels: true,
+  pixabay: true,
+  // v1.0.136+ — NASA Image & Video Library (public domain, no API key).
+  // Defaults OFF because most users searching "ocean sunset" want stock
+  // footage, not space telescope archives — NASA's catalog is niche
+  // (space, science, missions). Users who want it tick the checkbox.
+  nasa: false,
+})
+const anyProviderConfigured = computed(() => providersState.value.some(p => p.configured))
+const fetchQuery = ref('')
+const fetchQuality = ref<'hd' | 'uhd' | 'sd'>('hd')
+const fetchResults = ref<FetchResultUi[]>([])
+const fetchLoading = ref(false)
+const fetchError = ref<string | null>(null)
+const selectedFetchKeys = ref<Set<string>>(new Set())
+const queueingFetch = ref(false)
+
+const canFetchSearch = computed(() => {
+  if (fetchLoading.value) return false
+  if (!fetchQuery.value.trim()) return false
+  if (!anyProviderConfigured.value) return false
+  // At least one enabled-AND-configured provider needs to be ticked.
+  return providersState.value.some(p => p.configured && enabledProviders[p.provider])
+})
+
+const alreadyHaveCount = computed(() => fetchResults.value.filter(r => r.already_have).length)
+const selectedFetchCount = computed(() => selectedFetchKeys.value.size)
+const allSelectableSelected = computed(() => {
+  const selectable = fetchResults.value.filter(r => !r.already_have)
+  if (selectable.length === 0) return false
+  return selectable.every(r => selectedFetchKeys.value.has(fetchKey(r)))
+})
+
+function fetchKey(r: { provider: string; source_id: string }): string {
+  return `${r.provider}::${r.source_id}`
+}
+function isFetchSelected(r: FetchResultUi): boolean {
+  return selectedFetchKeys.value.has(fetchKey(r))
+}
+function toggleFetchPick(r: FetchResultUi): void {
+  if (r.already_have) return
+  const k = fetchKey(r)
+  const next = new Set(selectedFetchKeys.value)
+  if (next.has(k)) next.delete(k); else next.add(k)
+  selectedFetchKeys.value = next
+}
+function toggleSelectAll(): void {
+  if (allSelectableSelected.value) {
+    selectedFetchKeys.value = new Set()
+  } else {
+    const next = new Set<string>()
+    for (const r of fetchResults.value) {
+      if (!r.already_have) next.add(fetchKey(r))
+    }
+    selectedFetchKeys.value = next
+  }
+}
+
+let _providersLoaded = false
+async function loadProvidersOnce(): Promise<void> {
+  if (_providersLoaded) return
+  try {
+    const r = await apiGet<{ providers: ConfiguredProvider[] }>('/broll-fetch/providers')
+    providersState.value = r.providers
+    _providersLoaded = true
+    // If only one provider is configured, leave both enabled by default
+    // and let the search route ignore the un-keyed one. The "no key"
+    // dimmed label is enough UX signal.
+  } catch (e: any) {
+    fetchError.value = e?.data?.detail || e?.message || 'Failed to load providers'
+  }
+}
+
+async function runFetchSearch(): Promise<void> {
+  if (!canFetchSearch.value) return
+  const q = fetchQuery.value.trim()
+  fetchLoading.value = true
+  fetchError.value = null
+  fetchResults.value = []
+  selectedFetchKeys.value = new Set()
+  try {
+    // Fan out to enabled+configured providers in parallel.
+    const providers = providersState.value
+      .filter(p => p.configured && enabledProviders[p.provider])
+      .map(p => p.provider)
+    const responses = await Promise.allSettled(
+      providers.map(prov => apiGet<{ provider: string; results: FetchResultUi[] }>(
+        `/broll-fetch/search?provider=${prov}&q=${encodeURIComponent(q)}&pool_id=${encodeURIComponent(selectedPoolId.value)}&per_page=20`,
+      )),
+    )
+    const collected: FetchResultUi[] = []
+    const errs: string[] = []
+    for (let i = 0; i < responses.length; i++) {
+      const res = responses[i]
+      if (res?.status === 'fulfilled') {
+        collected.push(...(res.value.results || []))
+      } else if (res?.status === 'rejected') {
+        const msg = res.reason?.data?.detail || res.reason?.message || 'Search failed'
+        errs.push(`${providers[i]}: ${msg}`)
+      }
+    }
+    fetchResults.value = collected
+    if (errs.length && collected.length === 0) {
+      // All providers failed — surface the union.
+      fetchError.value = errs.join(' · ')
+    } else if (errs.length) {
+      // Partial failure — show a non-blocking hint via toast so the
+      // user can act on what did come back.
+      showError(`Partial search failure: ${errs.join(' · ')}`)
+    }
+  } catch (e: any) {
+    fetchError.value = e?.data?.detail || e?.message || 'Search failed'
+  } finally {
+    fetchLoading.value = false
+  }
+}
+
+async function queueSelectedFetches(): Promise<void> {
+  if (!selectedFetchCount.value || !selectedPool.value) return
+  queueingFetch.value = true
+  try {
+    // Group picks by provider so the backend gets one request per
+    // provider with its full result list — fewer roundtrips than per-
+    // clip POSTs, and the queue dedupe runs once per call.
+    const byProvider: Record<string, FetchResultUi[]> = { pexels: [], pixabay: [] }
+    for (const r of fetchResults.value) {
+      if (!selectedFetchKeys.value.has(fetchKey(r))) continue
+      if (r.already_have) continue
+      if (byProvider[r.provider]) byProvider[r.provider]!.push(r)
+    }
+    let totalQueued = 0
+    for (const [provider, results] of Object.entries(byProvider)) {
+      if (!results.length) continue
+      const resp = await apiPost<{ queued: number; skipped: number }>(
+        `/broll-pools/${selectedPoolId.value}/fetch`,
+        {
+          provider,
+          results,
+          search_keywords: fetchQuery.value.trim().split(/\s+/).filter(Boolean),
+          quality: fetchQuality.value,
+        },
+      )
+      totalQueued += resp.queued
+    }
+    if (totalQueued > 0) {
+      success(`Queued ${totalQueued} fetch job${totalQueued === 1 ? '' : 's'}. Watch the Pool jobs panel under Clips for progress.`)
+      // Clear selection — but keep results visible so the user can see
+      // their picks have flipped to "in pool" once jobs finish + a
+      // refresh fires.
+      selectedFetchKeys.value = new Set()
+      // Optimistically mark them as already-have so the UI updates
+      // immediately; the next provenance refresh confirms.
+      for (const r of fetchResults.value) {
+        if (byProvider[r.provider]?.includes(r)) {
+          r.already_have = true
+        }
+      }
+    } else {
+      showError('No jobs queued — every pick was already in the pool.')
+    }
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to queue fetch')
+  } finally {
+    queueingFetch.value = false
+  }
+}
+
+// ── v1.0.122+ Provenance state ──────────────────────────────────────────
+interface ProvenanceRow {
+  filename: string
+  source: 'pexels' | 'pixabay' | 'nasa'
+  source_id: string
+  source_url: string
+  author: string
+  author_url?: string
+  license: string
+  license_url: string
+  fetched_at: string
+  search_keywords: string[]
+  downloaded_width: number
+  downloaded_height: number
+  source_width: number
+  source_height: number
+  duration: number
+}
+const provenance = ref<ProvenanceRow[]>([])
+const provenanceMap = computed<Record<string, ProvenanceRow>>(() => {
+  const out: Record<string, ProvenanceRow> = {}
+  for (const r of provenance.value) out[r.filename] = r
+  return out
+})
+const provenanceCount = computed(() => provenance.value.length)
+function provenanceFor(filename: string): ProvenanceRow | null {
+  return provenanceMap.value[filename] || null
+}
+function provenanceTooltip(filename: string): string {
+  const p = provenanceMap.value[filename]
+  if (!p) return ''
+  const lines = [
+    `${p.source} #${p.source_id}`,
+    `by ${p.author || 'Unknown'}`,
+    `License: ${p.license}`,
+    `Fetched: ${formatLocalDateTime(p.fetched_at)}`,
+  ]
+  if (p.search_keywords.length) lines.push(`Keywords: ${p.search_keywords.join(', ')}`)
+  return lines.join('\n')
+}
+
+let _provenanceLoadedFor = ''
+async function loadProvenance(): Promise<void> {
+  if (!selectedPoolId.value) {
+    provenance.value = []
+    return
+  }
+  try {
+    const r = await apiGet<{ records: ProvenanceRow[] }>(`/broll-pools/${selectedPoolId.value}/provenance`)
+    provenance.value = r.records || []
+    _provenanceLoadedFor = selectedPoolId.value
+  } catch {
+    // Provenance is best-effort UX — never block the page on a load failure.
+    provenance.value = []
+  }
+}
+async function loadProvenanceOnce(): Promise<void> {
+  if (_provenanceLoadedFor === selectedPoolId.value && provenance.value.length) return
+  await loadProvenance()
+}
+
+// Refresh provenance whenever the selected pool changes.
+watch(selectedPoolId, () => { void loadProvenance() }, { immediate: false })
+
+// ── v1.0.122+ Asset Log filtering + sorting ─────────────────────────────
+const logSearch = ref('')
+const logSourceFilter = ref<'all' | 'pexels' | 'pixabay' | 'nasa'>('all')
+const logSort = ref<{ key: 'filename' | 'source' | 'author' | 'fetched_at'; dir: 'asc' | 'desc' }>({ key: 'fetched_at', dir: 'desc' })
+function setLogSort(key: 'filename' | 'source' | 'author' | 'fetched_at'): void {
+  if (logSort.value.key === key) {
+    logSort.value.dir = logSort.value.dir === 'asc' ? 'desc' : 'asc'
+  } else {
+    logSort.value = { key, dir: key === 'fetched_at' ? 'desc' : 'asc' }
+  }
+}
+function logSortClass(key: 'filename' | 'source' | 'author' | 'fetched_at'): string {
+  return logSort.value.key === key ? `is-sort-${logSort.value.dir}` : 'sortable'
+}
+const filteredLogRows = computed<ProvenanceRow[]>(() => {
+  const q = logSearch.value.trim().toLowerCase()
+  let rows = provenance.value
+  if (logSourceFilter.value !== 'all') rows = rows.filter(r => r.source === logSourceFilter.value)
+  if (q) {
+    rows = rows.filter(r =>
+      r.filename.toLowerCase().includes(q)
+      || r.source.toLowerCase().includes(q)
+      || (r.author || '').toLowerCase().includes(q)
+      || r.search_keywords.some(kw => kw.toLowerCase().includes(q)),
+    )
+  }
+  const { key, dir } = logSort.value
+  const mul = dir === 'asc' ? 1 : -1
+  rows = [...rows].sort((a, b) => {
+    const av = (a as any)[key] ?? ''
+    const bv = (b as any)[key] ?? ''
+    return av < bv ? -1 * mul : av > bv ? 1 * mul : 0
+  })
+  return rows
+})
+
+function exportLogCsv(): void {
+  const rows = filteredLogRows.value
+  if (!rows.length) return
+  const headers = ['filename', 'source', 'source_id', 'author', 'license', 'license_url', 'fetched_at', 'keywords', 'source_url', 'downloaded_resolution', 'duration_sec']
+  const csv = [
+    headers.join(','),
+    ...rows.map(r => [
+      csvCell(r.filename),
+      csvCell(r.source),
+      csvCell(r.source_id),
+      csvCell(r.author),
+      csvCell(r.license),
+      csvCell(r.license_url),
+      csvCell(r.fetched_at),
+      csvCell(r.search_keywords.join('; ')),
+      csvCell(r.source_url),
+      csvCell(`${r.downloaded_width}x${r.downloaded_height}`),
+      csvCell(String(r.duration)),
+    ].join(',')),
+  ].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `broll-assets-${selectedPool.value?.name || 'pool'}-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+function csvCell(v: string): string {
+  // Quote if contains comma, quote, or newline. Escape inner quotes.
+  if (/[",\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`
+  return v
+}
+function formatLocalDateTime(iso: string): string {
+  try {
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return iso
+    return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
+  } catch {
+    return iso
+  }
 }
 
 // ── Pool selection ─────────────────────────────────────────────────────
@@ -1103,6 +1733,14 @@ function onThumbError(e: Event): void {
 .form-group label { font-size: 12px; color: var(--text-primary); }
 .form-group .hint { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
 .req { color: var(--error, #e25c5c); font-weight: bold; }
+
+/* v1.0.118+ — Input + Browse button row inside the Register pool modal.
+   The input grows; the button sits flush on the right with a fixed
+   intrinsic size. align-items keeps the button height matched to the
+   input so they share a baseline. */
+.path-input-row { display: flex; gap: 6px; align-items: stretch; }
+.path-input-row .input { flex: 1; min-width: 0; }
+.path-input-row .btn { flex: 0 0 auto; white-space: nowrap; }
 .radio-row { display: flex; gap: 16px; font-size: 12px; }
 .create-error {
   padding: 6px 10px;
@@ -1283,5 +1921,195 @@ function onThumbError(e: Event): void {
   background: var(--bg-tertiary);
   padding: 1px 4px;
   border-radius: 3px;
+}
+
+/* ── v1.0.122+ — Fetch tab + Asset Log + clip-source pill ────────────── */
+
+/* Source pill (Pexels / Pixabay / local) — used in clip cards AND the
+   Asset Log table. Colour-coded so the eye can scan a mixed pool. */
+.clip-source-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.clip-source-row.clip-source-local { opacity: 0.7; }
+.clip-source-pill {
+  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+.clip-source-pill.source-pexels { background: rgba(5, 168, 122, 0.18); color: #5fd9b1; }
+.clip-source-pill.source-pixabay { background: rgba(46, 192, 84, 0.18); color: #6fd58a; }
+.clip-source-pill.source-local { background: rgba(127, 127, 127, 0.18); color: var(--text-muted); }
+.clip-source-link {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.clip-source-link:hover { color: var(--accent); }
+
+/* Fetch tab controls + result grid */
+.fetch-controls { margin: 12px 0; display: flex; flex-direction: column; gap: 10px; }
+.fetch-providers { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.fetch-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.fetch-provider.is-unconfigured { opacity: 0.55; cursor: not-allowed; }
+.fetch-search-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fetch-search-row .input { flex: 1 1 320px; min-width: 240px; }
+.fetch-search-row .select { flex: 0 0 auto; }
+.fetch-hint {
+  font-size: 12px;
+  padding: 8px 12px;
+  background: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  border-radius: 6px;
+}
+.fetch-error {
+  margin: 10px 0;
+  padding: 10px 12px;
+  background: rgba(239, 68, 68, 0.10);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.fetch-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 8px 0;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.fetch-summary-actions { display: flex; gap: 8px; }
+
+.fetch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.fetch-card {
+  position: relative;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.12s, opacity 0.12s;
+}
+.fetch-card.is-already-have { opacity: 0.45; }
+.fetch-card.is-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.fetch-card-select {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.fetch-thumb-wrap { position: relative; aspect-ratio: 16 / 9; background: #000; }
+.fetch-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fetch-duration {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.fetch-provider-pill {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+.fetch-have-badge {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  background: rgba(127, 127, 127, 0.65);
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.fetch-card-body { padding: 8px 10px 10px; }
+.fetch-card-meta { line-height: 1.4; }
+.fetch-card-license { line-height: 1.4; margin-top: 4px; }
+.fetch-card-license a { color: var(--text-muted); }
+.fetch-card-license a:hover { color: var(--accent); }
+
+/* Asset Log table */
+.log-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+.log-search { flex: 1 1 320px; min-width: 220px; }
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.log-table th, .log-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.log-table th {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  user-select: none;
+}
+.log-table th.is-sort-asc::after { content: ' ▲'; }
+.log-table th.is-sort-desc::after { content: ' ▼'; }
+.log-cell-filename {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.log-cell-keywords { line-height: 1.6; }
+.log-keyword {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 1px 2px;
+  background: var(--bg-tertiary);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 </style>

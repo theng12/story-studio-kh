@@ -1,0 +1,221 @@
+{
+  "id": "narration-synced",
+  "name": "Narration-synced (scenes follow audio timing)",
+  "description": "Factual video where every scene visual is placed at a specific timestamp matching the actual spoken audio, not evenly distributed across chapters. Use this for history explainers, science breakdowns, news commentary — anything where viewers pay close attention to specific moments and the visual needs to illustrate what's being said as it's said. Pipeline: Research (Perplexity or LLM-only — pick per episode) → script that incorporates verified research claims → audio → per-chapter subtitle generation → stitched subtitle timeline → LLM picks natural scene beats from the transcript → per-scene image generation → Scene Review (manual approval) → Timestamp Video Assembly. The Scene Plan and Scene Review pages are exposed for this pipeline — not for the other formats. Layer a niche (history-narration, psychology, fungi, plants, insects, animals) to tune the research and narration voice. NOT for narrative storytelling — use Narrative. NOT for stock-footage flow — use Voice over Stock Footage.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "visualSource": "timestamp-driven",
+  "idea": {
+    "systemPromptRole": "You are helping generate new episode ideas for a factual explainer channel. Each episode should pick one specific, well-bounded topic that benefits from visual support synchronized to specific moments in the narration (a date, a name, a number, a concept). Avoid open-ended or purely opinion topics — the format rewards concreteness.",
+    "audienceDefault": "curious adults who want a clear, fact-checked explanation in under 15 minutes",
+    "moodVocabulary": [
+      "informative",
+      "engaging",
+      "matter-of-fact",
+      "curious",
+      "precise",
+      "thoughtful",
+      "accessible",
+      "rigorous",
+      "clear",
+      "grounded"
+    ],
+    "themeVocabulary": [
+      "history",
+      "science",
+      "technology",
+      "biology",
+      "economics",
+      "politics",
+      "culture",
+      "society",
+      "discovery",
+      "invention",
+      "controversy",
+      "misconception",
+      "breakthrough"
+    ],
+    "genreVocabulary": [
+      "explainer",
+      "documentary",
+      "educational",
+      "breakdown",
+      "deep dive",
+      "case study",
+      "investigation"
+    ],
+    "keywordVocabulary": [
+      "what is",
+      "how does",
+      "why did",
+      "the truth about",
+      "explained",
+      "the science of",
+      "the history of",
+      "the rise of",
+      "the fall of",
+      "the case for",
+      "the case against"
+    ],
+    "guidanceText": "Topics must be specific enough that a 10-15 minute video can fully address them. 'World War II' is too broad; 'Why the German invasion of Norway in 1940 succeeded' is right-sized. Every claim should be verifiable — the Research phase produces a citations sidecar before scripting begins.",
+    "exampleIdeas": [
+      {
+        "title": "Why the Tacoma Narrows Bridge Collapsed in 1940",
+        "logline": "The textbook 'resonance' explanation is wrong — what actually destroyed Galloping Gertie was aeroelastic flutter, and the distinction matters.",
+        "themes": [
+          "engineering",
+          "misconception",
+          "history"
+        ],
+        "suggested_chapters": 6,
+        "suggested_length": "12 min",
+        "mood": "engaging, precise"
+      },
+      {
+        "title": "The Antikythera Mechanism: a 2000-year-old computer",
+        "logline": "Recovered from a Roman shipwreck in 1901, the device's gear train computed astronomical positions. How was it lost for centuries — and what does it imply about Hellenistic engineering?",
+        "themes": [
+          "discovery",
+          "history",
+          "technology"
+        ],
+        "suggested_chapters": 5,
+        "suggested_length": "10 min",
+        "mood": "curious, thoughtful"
+      }
+    ]
+  },
+  "script": {
+    "systemPromptRole": "You are writing a factual explainer narration. The visual layer will be planned AFTER the audio is generated, with scene boundaries matching the actual spoken-word timeline — so write in a way that has clear, concrete beats the visual planner can latch onto (dates, named entities, numbers, specific events).",
+    "additionalRules": [
+      "Open with a hook that names the specific question the episode answers.",
+      "Each chapter should advance the explanation with a concrete claim, named entity, or specific fact — avoid vague filler that gives the scene planner nothing to visualize.",
+      "Cite when uncertain. The Research phase produces a citations sidecar that the LLM has access to; use it.",
+      "Close by tying the explanation back to the opening hook.",
+      "Avoid theatrical / cinematic language that doesn't earn its keep — the visual layer is informative, not dramatic."
+    ],
+    "pacingArc": [
+      "Hook: state the specific question or misconception",
+      "Setup: relevant historical / scientific context",
+      "Core: the explanation itself, broken into 3-5 numbered beats",
+      "Counter: address the common misconception or alternative theory if any",
+      "Resolution: re-state the answer, tie back to the hook"
+    ],
+    "closingHint": "Resolve the hook explicitly.",
+    "defaultChapterCount": 6,
+    "chapterCountRange": [
+      4,
+      10
+    ],
+    "defaultLengthMinutes": 12,
+    "lengthMinutesRange": [
+      5,
+      25
+    ],
+    "durationPresets": [
+      5,
+      8,
+      10,
+      12,
+      15,
+      20
+    ],
+    "defaultWordsPerMinute": 155,
+    "chaptersIndependent": false,
+    "narratorStyles": [
+      {
+        "id": "A",
+        "label": "Clear and conversational",
+        "description": "Easy to follow, medium pace, like a knowledgeable friend explaining over coffee."
+      },
+      {
+        "id": "B",
+        "label": "Documentary-formal",
+        "description": "Slightly more measured and authoritative, evokes a museum audio guide."
+      },
+      {
+        "id": "C",
+        "label": "Energetic and engaging",
+        "description": "Faster, more inflected, leans into the storytelling. Good for adventure/history topics."
+      }
+    ],
+    "defaultNarratorStyleId": "A",
+    "videoDefaults": {
+      "aspectRatio": "landscape",
+      "defaultTimelineClipDurationSeconds": 4
+    },
+    "audioDefaults": {
+      "speed": 1,
+      "stability": 0.9,
+      "similarity": 0.9
+    },
+    "audioMergeDefaults": {
+      "normalizeVolume": true,
+      "gapDurationSec": 2
+    }
+  },
+  "imagePrompts": {
+    "purposeNote": "(populated by the Scene Plan page in v1.0.143+ — the LLM produces one visual prompt per planned scene, tagged with its start/end timestamps from the stitched subtitle)",
+    "visualStyleHint": "",
+    "defaultScenesTotalRange": [
+      20,
+      80
+    ],
+    "defaultThumbnails": 3,
+    "defaultStyleTag": "Clear illustrative still — high contrast, readable at a glance. Avoid over-stylization; the visual should support the spoken claim, not compete with it.",
+    "characterReferenceMode": "none",
+    "recommendedAspect": "16:9",
+    "thumbnail": {
+      "conceptGuidance": "A clear, credible explainer cover. One subject that instantly signals the topic, rendered with documentary-clean high contrast — informative and trustworthy, not sensational.",
+      "compositionRules": [
+        "One topic-signaling focal subject, crisply lit",
+        "High contrast and clean composition that reads at a glance",
+        "Reserved space for a concise, legible title"
+      ],
+      "defaultTextStyle": "shadow",
+      "defaultFontStyle": "condensed",
+      "moodKeywords": ["clear", "credible", "informative", "high-contrast"],
+      "avoid": ["clickbait gore or shock", "misleading drama", "muddy or over-stylized art"]
+    }
+  },
+  "metadata": {
+    "purposeNote": "for a fact-checked explainer / educational channel",
+    "titleStyleHint": "specific + searchable — name the topic, not the mood",
+    "titleHookRules": [
+      "Lead with the specific question or claim the video addresses.",
+      "Include a date, named entity, or number when it sharpens the topic.",
+      "Avoid clickbait constructions ('You Won't BELIEVE…'); the audience is here for the explanation."
+    ],
+    "tagsContext": "for a fact-checked explainer video",
+    "tagsHookRules": [
+      "Mix broad topic keywords with episode-specific named entities.",
+      "Each tag should be 1-4 words.",
+      "No \"#\" prefix — these are YouTube tags, not hashtags."
+    ],
+    "broadKeywords": [
+      "explainer",
+      "educational",
+      "documentary",
+      "history",
+      "science",
+      "breakdown",
+      "deep dive"
+    ],
+    "defaultMaxChars": 4000,
+    "defaultTitleCount": 5,
+    "defaultTitleMaxLength": 100,
+    "defaultTagCount": 15,
+    "youtubeDescriptionStructure": {
+      "musicLabel": "MUSIC",
+      "booksSectionLabel": "📚 SOURCES:",
+      "supportSection": "Subscribe for more deep dives.",
+      "aiDisclosure": "🤖 AI DISCLOSURE:\nAssembled with AI tools; research phase produces verifiable citations that are reviewed before publication.",
+      "defaultHashtags": [
+        "#Explainer",
+        "#Documentary"
+      ],
+      "totalHashtagCount": 8
+    },
+    "defaultStarterTemplate": "explainer"
+  }
+}

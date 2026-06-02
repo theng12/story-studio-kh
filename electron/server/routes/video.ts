@@ -738,14 +738,64 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
     ])
 
     const subtitlesDir = await resolveSubtitlesDir(slug, episodeId)
-    const existingSrts: Array<{ path: string; filename: string; mtime: number }> = []
+    // v1.0.140+ — Drift detection prep: read the current audio-merge
+    // gap from audio_chapters.json (written by the audio-merge job).
+    // Each existing SRT's parallel `.srt.json` records the gap that
+    // SRT was generated against. Compare to surface a warning when
+    // the user re-merged with a different gap but never re-derived
+    // the subtitle — the burn-in would drift section-by-section.
+    let currentMergeGap: number | null = null
+    try {
+      const sidecarPath = path.join(assets.episode_dir, 'audio_chapters.json')
+      const raw = await fs.readFile(sidecarPath, 'utf-8')
+      const parsed = JSON.parse(raw)
+      if (typeof parsed?.gap_duration_s === 'number') {
+        currentMergeGap = parsed.gap_duration_s
+      }
+    } catch { /* missing sidecar — old merge or no merge yet */ }
+
+    interface ExistingSrt {
+      path: string
+      filename: string
+      mtime: number
+      /** v1.0.140+ — gap value this SRT was generated against, when known. */
+      generated_with_gap_s?: number | null
+      /** v1.0.140+ — true when generated_with_gap_s !== currentMergeGap.
+       *  Frontend renders a warning chip on the row when this is true. */
+      drifts_from_current_merge?: boolean
+      /** Best-effort human description of the drift severity. */
+      drift_note?: string
+    }
+    const existingSrts: ExistingSrt[] = []
     try {
       const entries = await fs.readdir(subtitlesDir)
       for (const f of entries) {
         if (!/\.(srt|vtt|ass)$/i.test(f)) continue
         const full = path.join(subtitlesDir, f)
         const stat = await fs.stat(full)
-        existingSrts.push({ path: full, filename: f, mtime: stat.mtimeMs })
+        const entry: ExistingSrt = { path: full, filename: f, mtime: stat.mtimeMs }
+
+        // Look for the parallel .json metadata sidecar that
+        // /subtitles/from-chapters writes alongside its output. If
+        // present, we know the exact gap the SRT was generated against.
+        try {
+          const metaRaw = await fs.readFile(`${full}.json`, 'utf-8')
+          const meta = JSON.parse(metaRaw)
+          if (typeof meta?.gap_duration_s === 'number') {
+            entry.generated_with_gap_s = meta.gap_duration_s
+            if (currentMergeGap !== null && meta.gap_duration_s !== currentMergeGap) {
+              entry.drifts_from_current_merge = true
+              const diff = currentMergeGap - meta.gap_duration_s
+              const sign = diff > 0 ? '+' : ''
+              entry.drift_note =
+                `This SRT was derived with gap=${meta.gap_duration_s}s but the merged audio uses ` +
+                `gap=${currentMergeGap}s. Each section's cues drift ${sign}${diff.toFixed(1)}s ` +
+                `× section index. Re-derive to fix.`
+            }
+          }
+        } catch { /* no meta sidecar — was hand-imported, Whisper-transcribed, or pre-1.0.140 */ }
+
+        existingSrts.push(entry)
       }
       existingSrts.sort((a, b) => b.mtime - a.mtime)
     } catch { /* no dir yet — fine */ }
@@ -757,6 +807,7 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       has_openai_key: !!(config as any)?.openai_api_key,
       existing_srts: existingSrts,
       subtitles_dir: subtitlesDir,
+      current_merge_gap_s: currentMergeGap,
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not compute subtitle status'))
@@ -765,7 +816,20 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
 
 /** Derive SRT cues from the episode's individual chapter audio files.
  *  Each chapter is one cue spanning its full duration — suitable for
- *  section markers, not word-level captions. */
+ *  section markers, not word-level captions.
+ *
+ *  v1.0.140+ — Gap resolution priority:
+ *    1. `req.body.gap_sec` (explicit override from caller, e.g. user
+ *       typed a value in the UI form)
+ *    2. `audio_chapters.json.gap_duration_s` (the gap the audio-merge
+ *       job actually used — written into the sidecar at merge time)
+ *    3. Hardcoded 5s fallback (pre-1.0.140 behaviour for legacy projects
+ *       whose sidecar predates the gap field)
+ *
+ *  The sidecar path is the fix for the cross-section drift the user
+ *  flagged: without it, anyone whose audio-merge gap was ≠5s saw their
+ *  chapters-derived subtitles fall progressively behind the burned-in
+ *  audio (each section's cue starts 2-3s late, error compounds). */
 router.post('/projects/:slug/video-editor/subtitles/from-chapters/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
@@ -774,7 +838,28 @@ router.post('/projects/:slug/video-editor/subtitles/from-chapters/:episodeId', a
     if (assets.audio_sections.length === 0) {
       return res.status(400).json({ detail: 'No chapter audio files found for this episode' })
     }
-    const gap = typeof req.body?.gap_sec === 'number' ? req.body.gap_sec : 5
+
+    // Resolve the gap. Explicit body value wins; else read from the
+    // audio-merge sidecar; else default 5. The episode_dir-relative
+    // sidecar lookup mirrors the audio-merge generator's write path.
+    let gap = typeof req.body?.gap_sec === 'number' ? req.body.gap_sec : null
+    let gap_source: 'body' | 'sidecar' | 'default' = 'body'
+    if (gap == null) {
+      try {
+        const sidecarPath = path.join(assets.episode_dir, 'audio_chapters.json')
+        const raw = await fs.readFile(sidecarPath, 'utf-8')
+        const parsed = JSON.parse(raw)
+        if (typeof parsed?.gap_duration_s === 'number') {
+          gap = parsed.gap_duration_s
+          gap_source = 'sidecar'
+        }
+      } catch { /* missing or unreadable sidecar — fall through */ }
+    }
+    if (gap == null) {
+      gap = 5
+      gap_source = 'default'
+    }
+
     const chapters = chaptersFromDurations(
       assets.audio_sections.map(a => ({
         title: a.label || a.filename.replace(/\.[^.]+$/, ''),
@@ -792,7 +877,22 @@ router.post('/projects/:slug/video-editor/subtitles/from-chapters/:episodeId', a
     const outPath = path.join(outDir, `${episodeId.toUpperCase()}_chapters.srt`)
     await fs.writeFile(outPath, srt, 'utf-8')
 
-    res.json({ srt_path: outPath, cues: chapters.length })
+    // v1.0.140+ — Stamp the gap used into a parallel JSON sidecar so
+    // the drift-detection in subtitles/status can compare it against
+    // the current audio-merge gap and surface a "regen me" warning
+    // when they differ. Filename mirrors the SRT for trivial pairing.
+    try {
+      const meta = {
+        srt: path.basename(outPath),
+        gap_duration_s: gap,
+        gap_source,
+        generated_at: new Date().toISOString(),
+        cues: chapters.length,
+      }
+      await fs.writeFile(`${outPath}.json`, JSON.stringify(meta, null, 2))
+    } catch { /* best-effort */ }
+
+    res.json({ srt_path: outPath, cues: chapters.length, gap_sec: gap, gap_source })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not derive subtitles from chapters'))
   }
@@ -834,9 +934,23 @@ router.post('/projects/:slug/video-editor/subtitles/import/:episodeId', async (r
 router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-  const config = await pm.getConfig(slug)
-  if (!(config as any)?.openai_api_key) {
-    return res.status(400).json({ detail: 'OpenAI API key not configured. Add one in Settings → API Keys.' })
+
+  // v1.0.217+ — engine-aware gating. 'voicestudio' = the local modal's free
+  // Whisper STT (no OpenAI key needed); 'openai' = the paid fallback.
+  const engine = req.body?.engine === 'voicestudio' ? 'voicestudio' : 'openai'
+  const { getApiKey } = await import('../services/app-secrets-store.js')
+  if (engine === 'openai') {
+    const config = await pm.getConfig(slug)
+    const appKey = await getApiKey('openai').catch(() => '')
+    if (!appKey && !(config as any)?.openai_api_key) {
+      return res.status(400).json({ detail: 'OpenAI API key not configured. Add one in Settings → API Keys, or pick the Voice Studio engine.' })
+    }
+  } else {
+    const { DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
+    const baseUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+    if (!baseUrl) {
+      return res.status(400).json({ detail: 'Voice Studio URL not set — add it in Settings → This Mac → Local Models, or pick the OpenAI engine.' })
+    }
   }
 
   if (isDuplicate(slug, episodeId, 'subtitles_transcribe')) {
@@ -851,15 +965,83 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
     params: {
       episode_id: episodeId,
       language: req.body?.language,
-      model: req.body?.model || 'whisper-1',
+      // Whisper model id. For openai: undefined → 'whisper-1'. For voicestudio:
+      // a Whisper repo → resolved to the modal's default_model when absent.
+      model: req.body?.model,
       audio_path: req.body?.audio_path,
-      // When true, re-run Whisper even if {code}_whisper.srt exists. Default
-      // false: the generator now skips when the SRT is already on disk to
-      // avoid re-billing the paid Whisper API.
+      // When true, re-run even if the SRT exists. Default false: the generator
+      // skips when the SRT is already on disk to avoid re-billing/recompute.
       force: req.body?.force === true,
+      // v1.0.216+ — per-chapter mode: transcribe each chapter's clean
+      // narration into {code}_{slug}.srt (what Scene Plan's stitcher consumes).
+      per_chapter: req.body?.per_chapter === true,
+      // v1.0.217+ — transcription engine ('voicestudio' local | 'openai').
+      engine,
     },
   })
   res.status(201).json(job)
+})
+
+/** v1.0.135+ — Delete a single subtitle file from an episode's
+ *  subtitles_dir. Lets the user remove a generated/imported subtitle
+ *  from inside the app instead of opening Finder.
+ *
+ *  Strict path validation:
+ *   - filename must not contain path separators (`/` or `\`) — blocks
+ *     traversal attempts like `../../something`.
+ *   - filename must end in `.srt`, `.vtt`, or `.ass` — the same shapes
+ *     the burn-in path recognises. We don't delete arbitrary files in
+ *     the subtitles dir.
+ *   - filename must not start with `.` — protects any future hidden
+ *     temp/staging files from collateral deletes.
+ *
+ *  Returns the updated `existing_srts` list (same shape as the status
+ *  endpoint) so the frontend can swap state in-place without a second
+ *  GET. */
+router.delete('/projects/:slug/video-editor/subtitles/:episodeId/:filename', async (req, res) => {
+  const { slug, episodeId, filename } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+  if (
+    !filename ||
+    filename.includes('/') ||
+    filename.includes('\\') ||
+    filename.startsWith('.') ||
+    !/\.(srt|vtt|ass)$/i.test(filename)
+  ) {
+    return res.status(400).json({ detail: `Invalid subtitle filename: ${filename}` })
+  }
+
+  try {
+    const subtitlesDir = await resolveSubtitlesDir(slug, episodeId)
+    const target = path.join(subtitlesDir, filename)
+
+    try {
+      await fs.unlink(target)
+    } catch (e: any) {
+      if (e?.code === 'ENOENT') {
+        return res.status(404).json({ detail: `Subtitle file not found: ${filename}` })
+      }
+      throw e
+    }
+
+    // Return the fresh listing so the caller can swap state in-place.
+    const existingSrts: Array<{ path: string; filename: string; mtime: number }> = []
+    try {
+      const entries = await fs.readdir(subtitlesDir)
+      for (const f of entries) {
+        if (!/\.(srt|vtt|ass)$/i.test(f)) continue
+        const full = path.join(subtitlesDir, f)
+        const stat = await fs.stat(full)
+        existingSrts.push({ path: full, filename: f, mtime: stat.mtimeMs })
+      }
+      existingSrts.sort((a, b) => b.mtime - a.mtime)
+    } catch { /* dir gone after the unlink — fine, just return empty */ }
+
+    res.json({ existing_srts: existingSrts, deleted: filename })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not delete subtitle file'))
+  }
 })
 
 /** Render a ~1.5 s preview clip showing the user's chosen subtitle style

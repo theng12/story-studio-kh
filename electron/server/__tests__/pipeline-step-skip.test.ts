@@ -31,6 +31,7 @@ let isStepAlreadyDone: typeof import('../routes/pipeline.js').isStepAlreadyDone
 
 function fullStatus(overrides: Partial<EpisodeStatus> = {}): EpisodeStatus {
   return {
+    research: false,
     script: false, introduction: false,
     scene_prompts: false, thumb_prompts: false,
     metadata: false,

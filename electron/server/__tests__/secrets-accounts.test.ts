@@ -211,3 +211,35 @@ describe('provenance — retired no-ops', () => {
     assert.equal(await appSecrets.getApiKey('openai'), 'sk-1')
   })
 })
+
+// v1.0.206 — the per-machine local-modal URLs must be fully user-controlled.
+describe('local-modal base URL — explicit Save always wins', () => {
+  test('a saved Voice Studio .local host is returned verbatim (no m1→m4 rewrite)', async () => {
+    await appSecrets.setApiKey('voicestudio', 'http://theng-macmini-m1.local:47870')
+    // The old read-through migration rewrote this to the m4 default; it must not now.
+    assert.equal(await appSecrets.getApiKey('voicestudio'), 'http://theng-macmini-m1.local:47870')
+  })
+
+  test('userSet bypasses migration even for a value still in a legacy set', async () => {
+    // If the user deliberately types the old Tailscale IP, Save makes it stick.
+    await appSecrets.setApiKey('voicestudio', 'http://100.120.246.10:47870')
+    assert.equal(await appSecrets.getApiKey('voicestudio'), 'http://100.120.246.10:47870')
+  })
+
+  test('a saved Image Studio URL with a custom port is respected', async () => {
+    await appSecrets.setApiKey('imagestudio', 'http://192.168.1.50:48000')
+    assert.equal(await appSecrets.getApiKey('imagestudio'), 'http://192.168.1.50:48000')
+  })
+
+  test('an unsaved dead Tailscale-IP default clears to empty (reconfigure)', async () => {
+    // A value an OLD app version carried into storage without the userSet
+    // marker. With empty defaults, the dead IP now clears to '' so the user
+    // sees the clean unconfigured state + setup help, not a stranger's host.
+    const p = appSecrets.appSecretsPath()
+    await fs.writeFile(p, JSON.stringify({
+      schema_version: 3,
+      providers: { imagestudio: { apiKey: 'http://100.120.246.10:47868' } },
+    }), 'utf-8')
+    assert.equal(await appSecrets.getApiKey('imagestudio'), '')
+  })
+})

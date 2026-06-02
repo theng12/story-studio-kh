@@ -268,6 +268,11 @@ export interface ScriptFormat {
   defaultWordsPerMinute?: number
   narratorStyles: NarratorStyle[]
   defaultNarratorStyleId: string
+  /** v1.0.196 — default narrative point of view. The Script form's
+   *  "Point of view" picker defaults to this. Omitted = the picker shows
+   *  "Auto" and injects no perspective directive (the format keeps its own
+   *  voice). 'first' for first-person POV formats like continuity-chain. */
+  defaultPerspective?: 'first' | 'second' | 'third'
   /**
    * v1.0.71+: signals to chunked-narration whether chapters can be
    * expanded in PARALLEL (true — listicle / explainer where each chapter
@@ -431,12 +436,38 @@ export interface ImagePromptFormat {
    *     cuts aligned to spoken sentence breaks instead of uniform 10s
    *     cuts that drift across the narration.
    *
-   * Older format JSONs without this field default to "chapter" so
-   * sleep-story / listicle / TerraNash behavior is unchanged. Only
-   * formats that explicitly opt in (bound-explainer.json sets
-   * "sentence") get the new path.
+   * Format JSONs without this field default to "chapter" so the
+   * narrative / listicle behaviour is unchanged. Only formats that
+   * explicitly opt in (set "sentence") get the new sentence-aligned
+   * path — typically narration-synced, where scenes track the audio.
    */
   alignment?: 'chapter' | 'sentence'
+  /**
+   * v1.0.224+: per-format YOUTUBE THUMBNAIL art direction. The thumbnail is
+   * the highest-leverage CTR asset, and it used to be hardcoded toward a
+   * single (sleep-story) gold/glowing aesthetic. This block lets each format
+   * steer the thumbnail IMAGE concept independently of the scene
+   * `defaultStyleTag` — a listicle wants a bold clickable cover, NOT the
+   * minimalist white scene badge. The generator layers it: format → universal
+   * YouTube CTR rules → optional reference-style replication → per-project
+   * art-direction override. Optional: formats without it fall back to a
+   * generic high-CTR directive.
+   */
+  thumbnail?: {
+    /** What the thumbnail IMAGE depicts (subject, composition, energy) —
+     *  NOT the title text. */
+    conceptGuidance: string
+    /** Composition rules (framing, palette, focal subject). */
+    compositionRules?: string[]
+    /** Default TEXT_STYLES key for the baked title (AI title mode). */
+    defaultTextStyle?: string
+    /** Default FONT_STYLES key for the baked title (AI title mode). */
+    defaultFontStyle?: string
+    /** Mood adjectives folded into the directive. */
+    moodKeywords?: string[]
+    /** Anti-patterns to explicitly avoid for this format. */
+    avoid?: string[]
+  }
 }
 
 export interface YoutubeDescriptionStructure {
@@ -470,6 +501,11 @@ export interface MetadataFormat {
   defaultTitleCount?: number
   defaultTitleMaxLength?: number
   defaultTagCount?: number
+  /** v1.0.199 — which Metadata Generator starter template this format opens
+   *  with on a fresh episode ('pov' | 'explainer' | 'listicle' | 'minimal' or
+   *  a future id). Lets a new format declare its metadata default in data
+   *  instead of a hardcoded frontend mapping. Absent → frontend fallback. */
+  defaultStarterTemplate?: string
 
   /** v1.0.103+ — Niche-supplied description-shape override. Merged in
    *  from Niche.metadataDescription via applyNicheToFormat. Lets a
@@ -512,11 +548,28 @@ export interface Format {
    *   - 'broll': pulls clips from an app-level B-Roll pool. Used by
    *     prayer / devotional / narration-over-stock formats where every
    *     frame is human-shot footage instead of generated art.
-   * Drives sidebar visibility (Scene Prompts / Scene Generator hidden
-   * when 'broll'), pipeline step set, and which generator the Video
-   * Assembly button triggers.
+   *   - 'timestamp-driven' (v1.0.141+): scenes are placed against the
+   *     ACTUAL audio timeline (stitched per-chapter SRTs + the merge
+   *     gap from audio_chapters.json) rather than evenly distributed.
+   *     One scene per LLM-decided natural beat in the script; each
+   *     scene's duration matches the spoken-word window it covers.
+   *     Adds Research / Scene Plan / Scene Review pages to the
+   *     sidebar; hides Scene Prompts / Scene Generator / Video
+   *     Generator (same gating as 'broll').
+   * Drives sidebar visibility, pipeline step set, and which
+   * generator the Video Assembly button triggers.
+   *
+   *   'continuity-chain' (v1.0.187+) — like 'timestamp-driven' (audio →
+   *     subtitles → timed scene plan), but scenes render SEQUENTIALLY via
+   *     img2img: a dropped-in character sheet anchors identity and each
+   *     scene can reference the previous scene's render for visual
+   *     continuity. User-set pacing guardrails (min/max seconds) drive a
+   *     "feels live" cut density. Same sidebar gating as 'timestamp-driven'
+   *     (Scene Plan / Scene Review / Timestamp Assemble) PLUS a Character
+   *     Sheet page. Research is available too (optional — handy when the
+   *     niche is factual).
    */
-  visualSource?: 'scene-images' | 'broll'
+  visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain'
 }
 
 // ── Niche primitive (subject-domain layer, orthogonal to Format) ───────────
@@ -525,10 +578,10 @@ export interface Format {
 // project covering that subject. Format answers "what shape of video";
 // Niche answers "what subject domain". The two compose freely:
 //
-//   bound-explainer × plants     → "Why It Sucks To Be Born As a Venus Flytrap"
-//   bound-explainer × animals    → "Why It Sucks To Be Born As a Komodo Dragon"
-//   listicle        × plants     → "10 Weirdest Plants on Earth"
-//   sleep-story     × gemstones  → "The Sleeping Caves" (TerraNash episode)
+//   narrative × plants    → "Why It Sucks To Be Born As a Venus Flytrap"
+//   narrative × animals   → "Why It Sucks To Be Born As a Komodo Dragon"
+//   listicle  × plants    → "10 Weirdest Plants on Earth"
+//   narrative × gemstones → "The Sleeping Caves" (a calm narrative episode)
 //
 // Layered with Format + Brand:
 //   base format → brand.format_overrides → project.format_overrides
@@ -1079,25 +1132,8 @@ export interface Brand {
   format_overrides?: DeepPartial<Format>
 }
 
-// ── Pattern primitive (Phase 4b of format/character/pattern system) ────────
-//
-// Pattern is the EPISODE-shape layer that composes ON TOP of Format. Format
-// gives the channel-level vibe (Sleep / Adventure / Educational); Pattern
-// gives the per-episode shape ("Fall asleep to X", "What it's like to be
-// born as X", "The entire history of X explained"). Patterns cut across
-// formats — "History of X explained" works for educational, comedy, sleep,
-// and true crime alike. So they're a separate primitive picked at episode
-// generation time, not at project setup time.
-//
-// Composition (in prompt-assembler.ts):
-//   1. Format provides systemPromptRole + production rules + narrator pool
-//   2. Pattern's openingDevice prepends to the body
-//   3. Pattern's bodyStructure (when set) REPLACES format.script.pacingArc
-//   4. Pattern's closingDevice appends to the final chapter instructions
-//   5. Pattern's metadataKeywordAdditions extend the broad-keyword pool
-//
-// Built-in patterns ship at electron/server/patterns/{id}.json (extraResources
-// entry mirrors formats). User-custom at ${PROJECTS_ROOT}/.patterns/{id}.json.
+// v1.0.166 — Pattern primitive removed with the Pattern system. Title shaping
+// now happens at idea-time via the Ideas page's title_template field.
 
 // ── Character primitive (Phase 5 of format/character/pattern system) ──────
 //
@@ -1168,45 +1204,6 @@ export interface Character {
   source: 'project' | 'imported'
   schemaVersion: 1
   created_at: string
-}
-
-export interface Pattern {
-  id: string
-  name: string
-  description: string
-  builtin: boolean
-  schemaVersion: 1
-
-  /** Title template with {X} placeholder — e.g. 'Fall asleep to {X}'. */
-  titleTemplate: string
-
-  /** Human label for what {X} represents in the picker UI. */
-  subjectLabel: string
-
-  /** Narrative POV the LLM should adopt. */
-  pov: 'first' | 'second' | 'third' | 'mixed'
-
-  /** Instruction prepended to the script body — sets the opening device. */
-  openingDevice: string
-
-  /**
-   * Per-chapter body shape. When set, OVERRIDES format.script.pacingArc.
-   * `{X}` is substituted with the user's subject. `{lastButOne}` and
-   * `{last}` are substituted with chapter numbers (same as Format).
-   */
-  bodyStructure?: string[]
-
-  /** Instruction appended to the final-chapter instructions. */
-  closingDevice: string
-
-  /** Suggested length range — when set, tightens format.script.lengthMinutesRange. */
-  suggestedLengthMinutes?: [number, number]
-
-  /** Empty array = works with any format. Otherwise lists format ids that pair best. */
-  preferredFormats?: string[]
-
-  /** Tags appended to the metadata broad-keyword pool when this pattern is used. */
-  metadataKeywordAdditions?: string[]
 }
 
 /**
@@ -1473,7 +1470,22 @@ export interface AudioModelConfig {
    * if missing, the audio generator falls back to prefix-based detection
    * (`genaipro-*` → genaipro, `eleven_*` → elevenlabs, else fal).
    */
-  provider?: 'fal' | 'genaipro' | 'elevenlabs' | 'chatterbox'
+  provider?: 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio'
+  /**
+   * v1.0.155+ — soft per-call character cap for chunking. The TTS
+   * chunker (lib/text-chunker.ts) splits narration sections into
+   * chunks of at most this many characters before submitting each to
+   * the provider; ffmpeg then concatenates the per-chunk WAVs into one
+   * section file. ElevenLabs / fal / GenAIPro models leave this unset
+   * and use the chunker's default (4800, headroom under the 5000-char
+   * per-call ceiling). Local MLX models on Pinokio Voice Studio have
+   * much tighter caps reported in the modal's own `/api/catalog`
+   * (VoxCPM2: 600, F5-TTS: 400, etc.); set this field to the
+   * per-model number with a small safety buffer (e.g. 500 for VoxCPM2)
+   * so Story Studio controls the seam boundaries (sentence-level)
+   * instead of relying on mlx-audio's internal arbitrary-cut splitter.
+   */
+  tts_soft_max_chars?: number
   /** Set on user-added entries. See `ImageModelConfig.is_custom` for rationale. */
   is_custom?: boolean
 }
@@ -1559,14 +1571,13 @@ export interface ProjectConfig {
   elevenlabs_api_key?: string
   google_api_key?: string
   /**
-   * Per-project gate for the self-hosted Chatterbox TTS provider. Off by
-   * default so the chatterbox-* models stay hidden from projects that
-   * don't use it. Base URL itself lives per-machine in the app secrets
-   * store under provider id `chatterbox` (so moving the project to a
-   * machine without Tailscale doesn't carry a stale URL).
+   * @deprecated v1.0.150 — The Chatterbox standalone provider was removed.
+   * Field kept on the type so existing project.json files don't fail to
+   * parse; value is no longer read anywhere. (Chatterbox-mlx is reachable
+   * through Voice Studio's family list if it's ever needed again.)
    */
   chatterbox_enabled?: boolean
-  /** Reference clip UUID returned by Chatterbox's /api/upload-reference. */
+  /** @deprecated v1.0.150 — see chatterbox_enabled. */
   chatterbox_reference_id?: string
   /**
    * YouTube videoCategories.list ID applied to every fresh upload
@@ -1773,7 +1784,9 @@ export interface SafeProjectConfig {
   has_genaipro_key?: boolean
   has_elevenlabs_key?: boolean
   has_google_key?: boolean
+  /** @deprecated v1.0.150 — removed alongside the standalone Chatterbox provider. */
   chatterbox_enabled?: boolean
+  /** @deprecated v1.0.150 — removed alongside the standalone Chatterbox provider. */
   chatterbox_reference_id?: string
   image_models: Record<string, ImageModelConfig>
   image_pricing_last_updated: string
@@ -1819,7 +1832,7 @@ export interface UpdateConfigRequest {
 
 // ── Jobs ────────────────────────────────────────────────────────────────────
 
-export type JobType = 'script-only' | 'introduction-only' | 'chapter-only' | 'outline_only' | 'expand_chapters' | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'images_repair' | 'audio' | 'audio_merge' | 'metadata' | 'video' | 'video_repair' | 'video_assembly' | 'subtitles_transcribe' | 'youtube_upload' | 'youtube_playlist_update' | 'broll_normalize' | 'broll_assemble' | 'broll_autotag'
+export type JobType = 'script-only' | 'introduction-only' | 'chapter-only' | 'outline_only' | 'expand_chapters' | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'images_repair' | 'audio' | 'audio_merge' | 'metadata' | 'video' | 'video_repair' | 'video_assembly' | 'subtitles_transcribe' | 'youtube_upload' | 'youtube_playlist_update' | 'broll_normalize' | 'broll_assemble' | 'broll_autotag' | 'broll_fetch' | 'research_run' | 'scene_plan_run' | 'scene_image_generate' | 'timestamp_video_assemble' | 'continuity_render'
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
 /**
@@ -1895,19 +1908,13 @@ export interface GenerateIdeasRequest {
   count: number
   model: string
   /**
-   * Optional pattern preset to apply to title style. When set, the
-   * idea-generator prompt instructs the LLM to produce titles that
-   * match the pattern's titleTemplate (e.g. "Fall asleep to {X}").
-   * Empty / unset = LLM uses its default freeform titling.
+   * v1.0.165+ — optional title template. When set (e.g. "Fall asleep to
+   * {X}"), the idea-generator prompt instructs the LLM to shape EVERY
+   * generated title to it, replacing the literal {X} with a concrete
+   * subject the LLM picks fresh per idea. Empty / unset = freeform
+   * LLM titling. Replaced the Pattern preset system.
    */
-  pattern_id?: string
-  /**
-   * Optional subject filler for the pattern's {X} placeholder. Used as
-   * a hint to the LLM ("the {X} value should be a place / era / etc.")
-   * — generated ideas substitute real concrete values per-title rather
-   * than literally "{X}". Ignored when pattern_id is empty.
-   */
-  pattern_subject?: string
+  title_template?: string
   /**
    * Pin the per-idea chapter / item count (v1.0.70+).
    *
@@ -1946,15 +1953,6 @@ export interface GenerateScriptRequest {
   generate_image_prompts: boolean
   generate_youtube_desc: boolean
   /**
-   * Pattern primitive (Phase 4b): when set, the script generator composes
-   * the named Pattern (episode template) on top of the project's effective
-   * Format. `pattern_subject` is the {X} value the pattern's titleTemplate
-   * substitutes ("London" for "The entire history of London explained").
-   * Both optional — generation works without a pattern.
-   */
-  pattern_id?: string
-  pattern_subject?: string
-  /**
    * Character primitive (Phase 5): when set, the script generator passes
    * the named cast into the prompt — the LLM uses these names + descriptions
    * instead of inventing characters. Empty array = today's "LLM invents
@@ -1962,6 +1960,10 @@ export interface GenerateScriptRequest {
    * each character's description into the per-scene prompts.
    */
   character_ids?: string[]
+  /** v1.0.196 — narrative point of view override: 'first' | 'second' |
+   *  'third'. 'auto' / absent → use the format's defaultPerspective (or none,
+   *  which keeps the format's own voice). */
+  perspective?: string
 }
 
 export interface GenerateImagesRequest {
@@ -2637,13 +2639,9 @@ export interface AudioMergeRequest {
 
 // ── AI Models ───────────────────────────────────────────────────────────────
 
-export type AiProvider = 'anthropic' | 'openai' | 'kie'
+export type AiProvider = 'openai' | 'kie' | 'deepseek' | 'openrouter'
 
 export const SUPPORTED_MODELS: Record<string, AiProvider> = {
-  // Anthropic
-  'claude-opus-4-6': 'anthropic',
-  'claude-sonnet-4-6': 'anthropic',
-  'claude-haiku-4-5': 'anthropic',
   // OpenAI — current + legacy
   'gpt-5': 'openai',
   'gpt-5-mini': 'openai',
@@ -2655,16 +2653,36 @@ export const SUPPORTED_MODELS: Record<string, AiProvider> = {
   'o3': 'openai',
   'o3-mini': 'openai',
   'o4-mini': 'openai',
-  // kie.ai (OpenAI-compatible)
-  'deepseek-v3-kie': 'kie',
-  'deepseek-r1-kie': 'kie',
+  // DeepSeek (official API — api.deepseek.com)
+  'deepseek-v4-flash': 'deepseek',
+  'deepseek-v4-pro': 'deepseek',
+  // OpenRouter (curated)
+  'deepseek-v4-flash-openrouter': 'openrouter',
+  // kie.ai chat catalog (routed per-family by providers/text/kie-text.ts).
+  'claude-opus-4-8-kie': 'kie',
+  'claude-opus-4-7-kie': 'kie',
+  'claude-opus-4-6-kie': 'kie',
+  'claude-opus-4-5-kie': 'kie',
+  'claude-sonnet-4-6-kie': 'kie',
+  'claude-sonnet-4-5-kie': 'kie',
+  'claude-haiku-4-5-kie': 'kie',
+  'gpt-5-2-kie': 'kie',
+  'gpt-5-4-kie': 'kie',
+  'gpt-5-5-kie': 'kie',
+  'gemini-3-pro-kie': 'kie',
+  'gemini-3-flash-kie': 'kie',
+  'gemini-3.1-pro-kie': 'kie',
+  'gemini-2-5-pro-kie': 'kie',
+  'gemini-2.5-flash-kie': 'kie',
 }
 
 /** Display labels for the frontend model selectors */
 export const MODEL_LABELS: Record<string, string> = {
-  'claude-opus-4-6':   'Claude Opus 4 [Anthropic]',
-  'claude-sonnet-4-6': 'Claude Sonnet 4 [Anthropic]',
-  'claude-haiku-4-5':  'Claude Haiku 4.5 [Anthropic]',
+  // DeepSeek official (the new default lives here)
+  'deepseek-v4-flash': 'DeepSeek V4 Flash [DeepSeek]',
+  'deepseek-v4-pro':   'DeepSeek V4 Pro [DeepSeek]',
+  // OpenRouter (curated)
+  'deepseek-v4-flash-openrouter': 'DeepSeek V4 Flash [OpenRouter]',
   'gpt-5':             'GPT-5 [OpenAI]',
   'gpt-5-mini':        'GPT-5 Mini [OpenAI]',
   'gpt-4.1':           'GPT-4.1 [OpenAI]',
@@ -2675,8 +2693,40 @@ export const MODEL_LABELS: Record<string, string> = {
   'o3':                'o3 [OpenAI reasoning]',
   'o3-mini':           'o3 Mini [OpenAI reasoning]',
   'o4-mini':           'o4 Mini [OpenAI reasoning]',
-  'deepseek-v3-kie':   'DeepSeek V3 [kie.ai]',
-  'deepseek-r1-kie':   'DeepSeek R1 [kie.ai]',
+  // kie.ai chat catalog — same model names, billed through your kie.ai key.
+  'claude-opus-4-8-kie':   'Claude Opus 4.8 [kie.ai]',
+  'claude-opus-4-7-kie':   'Claude Opus 4.7 [kie.ai]',
+  'claude-opus-4-6-kie':   'Claude Opus 4.6 [kie.ai]',
+  'claude-opus-4-5-kie':   'Claude Opus 4.5 [kie.ai]',
+  'claude-sonnet-4-6-kie': 'Claude Sonnet 4.6 [kie.ai]',
+  'claude-sonnet-4-5-kie': 'Claude Sonnet 4.5 [kie.ai]',
+  'claude-haiku-4-5-kie':  'Claude Haiku 4.5 [kie.ai]',
+  'gpt-5-2-kie':           'GPT-5.2 [kie.ai]',
+  'gpt-5-4-kie':           'GPT-5.4 [kie.ai]',
+  'gpt-5-5-kie':           'GPT-5.5 [kie.ai]',
+  'gemini-3-pro-kie':      'Gemini 3 Pro [kie.ai]',
+  'gemini-3-flash-kie':    'Gemini 3 Flash [kie.ai]',
+  'gemini-3.1-pro-kie':    'Gemini 3.1 Pro [kie.ai]',
+  'gemini-2-5-pro-kie':    'Gemini 2.5 Pro [kie.ai]',
+  'gemini-2.5-flash-kie':  'Gemini 2.5 Flash [kie.ai]',
+}
+
+/**
+ * Legacy → current model-id remap (v1.0.235+). When direct Anthropic and the
+ * kie.ai DeepSeek models were retired, existing projects/jobs may still have a
+ * removed id persisted in their config. callAi normalises through this map at
+ * dispatch time so saved selections keep working without a disk migration.
+ * The frontend ModelSelector self-heals separately (auto-falls-back to the
+ * first available model), so this only matters for headless/pipeline paths.
+ */
+export const LEGACY_MODEL_ALIASES: Record<string, string> = {
+  // Direct Anthropic → closest kie.ai Claude.
+  'claude-opus-4-6':   'claude-opus-4-8-kie',
+  'claude-sonnet-4-6': 'claude-sonnet-4-6-kie',
+  'claude-haiku-4-5':  'claude-haiku-4-5-kie',
+  // Retired kie.ai DeepSeek → official DeepSeek.
+  'deepseek-v3-kie':   'deepseek-v4-flash',
+  'deepseek-r1-kie':   'deepseek-v4-pro',
 }
 
 // Models that the OpenAI-key check would otherwise mark "available" but
@@ -2686,4 +2736,247 @@ export const MODEL_LABELS: Record<string, string> = {
 export const KNOWN_UNAVAILABLE_REASONS: Record<string, string> = {
   'gpt-5':      'Your OpenAI account does not have GPT-5 access. Use GPT-4o or Claude.',
   'gpt-5-mini': 'Your OpenAI account does not have GPT-5 access. Use GPT-4o-mini or Claude Haiku.',
+}
+
+// ── Research types (v1.0.142+ — timestamp-driven pipeline) ──────────────
+//
+// Output of the research-and-fact-check phase that runs BEFORE script
+// generation on episodes using the `explainer-fact-checked` format
+// (visualSource: 'timestamp-driven'). Persisted to two sidecars in the
+// episode dir:
+//   - `research.json` — machine-readable, source of truth
+//   - `research.md`   — human-readable, for the user to read alongside
+//
+// The script generator in v1.0.143+ reads `research.json` when present
+// and injects its `claims` (filtered to `status === 'verified'`) into
+// the prompt context so factual claims in the final script are
+// traceable to real sources.
+
+export type ResearchSourceProvider = 'perplexity' | 'llm-only'
+
+/** One factual claim the research adapter returned, with status flags
+ *  the user can toggle in the Research page UI. */
+export interface ResearchClaim {
+  /** Stable id for UI editing. Generated client-side as `claim_<rand>`. */
+  id: string
+  /** The claim itself, written as a short declarative sentence. */
+  text: string
+  /** User-controlled state. Defaults to 'unreviewed' on adapter output;
+   *  the script generator only uses claims marked 'verified'. */
+  status: 'unreviewed' | 'verified' | 'ignored'
+  /** Source citation indices (offsets into ResearchOutput.citations).
+   *  Empty for LLM-only-with-disclaimers adapter output where the LLM
+   *  recommends manual verification rather than naming a URL. */
+  citation_indices: number[]
+  /** Adapter-supplied confidence ("high" | "medium" | "low" | "unknown")
+   *  that the user can use to triage which claims need the closest review. */
+  confidence?: 'high' | 'medium' | 'low' | 'unknown'
+  /** Adapter-supplied note explaining the claim's nuance / caveat —
+   *  most useful for LLM-only-with-disclaimers output. */
+  note?: string
+}
+
+export interface ResearchCitation {
+  /** Display title of the source (article headline, paper title, etc.). */
+  title: string
+  /** URL the user can open. Always present for web-search adapters;
+   *  empty string for LLM-only-with-disclaimers (which has no URL). */
+  url: string
+  /** Adapter-supplied snippet — the passage / quote the adapter cited
+   *  from when forming the claim. Helps the user spot-check without
+   *  opening every URL. */
+  snippet?: string
+  /** v1.0.197 — include this source in the YouTube description's SOURCES
+   *  block. Toggled per-source on the Research page (bulk: all / verified-
+   *  backing / none). Absent = included (default-on for existing research). */
+  include_in_description?: boolean
+}
+
+/** Adapter's recommended episode structure: a starting point for the
+ *  script generator, NOT a binding outline. The user can edit / regen
+ *  the actual outline in the Script Generator later. */
+export interface ResearchStructureSection {
+  heading: string
+  /** Short summary of what this section should cover. */
+  brief: string
+  /** Which claim ids belong here. */
+  claim_ids: string[]
+}
+
+export interface ResearchOutput {
+  schema_version: 1
+  /** Which adapter produced this. Surfaced in the Research page UI so
+   *  the user remembers what tool generated the citations. */
+  source_provider: ResearchSourceProvider
+  /** Provider-specific model id (e.g. `perplexity/sonar-pro` for OR,
+   *  `sonar-medium-online` for direct Perplexity, or the underlying
+   *  LLM id for llm-only). Useful for cost-tracing in the future. */
+  source_model?: string
+  /** When the research run completed. ISO8601. */
+  generated_at: string
+  /** The episode topic the research was framed around. */
+  topic: string
+  /** User-supplied 'specifically answer these' questions, joined into
+   *  the adapter's prompt. Empty string means topic-only research. */
+  specific_questions?: string
+  /** The claims the adapter returned. The Research page UI flips
+   *  status flags in-place; user clicks Save to persist. */
+  claims: ResearchClaim[]
+  /** Sources. Indexed by ResearchClaim.citation_indices. */
+  citations: ResearchCitation[]
+  /** Recommended episode structure. Script generator uses this as a
+   *  default outline when present. */
+  structure?: ResearchStructureSection[]
+  /** Adapter's free-form summary of the topic — surfaces above the
+   *  claims list as context. */
+  summary?: string
+}
+
+/** Options passed to ResearchAdapter.run(). */
+export interface ResearchRunOptions {
+  topic: string
+  specific_questions?: string
+  /** Cap on the number of distinct sources the adapter should consult.
+   *  Adapters round / interpret as appropriate. */
+  max_sources?: number
+  /** v1.0.175 — optional text model id for the LLM-only adapter. Lets the
+   *  user pick any provider (kie.ai, OpenAI, DeepSeek, Anthropic…) instead
+   *  of the hardcoded Anthropic default. The web-search adapter (Perplexity)
+   *  ignores this — it's bound to search-capable models. Unset = the
+   *  adapter's own default. */
+  model?: string
+}
+
+// ── Continuity-chain config (v1.0.189+ — continuity-chain pipeline) ─────
+//
+// Per-episode settings for the continuity-chain format, set on the Character
+// Sheet page and persisted to `<episode_dir>/continuity.json`. Consumed by the
+// density-paced scene planner (CC3) and the sequential renderer (CC4).
+
+export interface ContinuityConfig {
+  schema_version: 1
+  /** Project character IDs that anchor every scene's look in this episode.
+   *  Their reference images feed the img2img 'characters' reference source. */
+  anchor_character_ids: string[]
+  /** Also use the per-episode uploaded sheet (img2img-references/master.png)
+   *  as a reference for every scene. */
+  use_episode_sheet: boolean
+  /** User-set pacing guardrails (seconds). The paced planner cuts scenes so
+   *  each lands within [min_sec, max_sec]; the LLM picks where to cut, denser
+   *  where the narration is busy ("feels live"). */
+  pacing: { min_sec: number; max_sec: number }
+  /** Which references each scene's sequential render attaches (independent
+   *  toggles, matching images.ts reference_sources). */
+  references: {
+    /** chain mode — the previous scene's render seeds the next (continuity). */
+    prev_render: boolean
+    /** the episode master sheet, on every scene. */
+    sheet: boolean
+    /** the anchor characters' reference images. */
+    characters: boolean
+    /** v1.0.229 — an optional style-reference image (img2img-references/
+     *  style.png): the look/palette/rendering the scenes should match,
+     *  attached to every scene alongside the subject references. */
+    style?: boolean
+  }
+  /** img2img denoise / strength (0..1). Lower = closer to the references
+   *  (more consistent, risks near-identical frames); higher = more variation. */
+  denoise_strength: number
+  /** ISO8601 of the last save. */
+  updated_at: string
+}
+
+// ── Scene Plan types (v1.0.143+ — timestamp-driven pipeline) ────────────
+//
+// Output of the LLM scene planner. Persisted to
+// `<episode_dir>/scene_plan.json`. v1.0.144's Scene Review page reads
+// this + writes back with approval flags. v1.0.145's video assembler
+// consumes the approved plan to render the final video.
+
+export interface ScenePlanEntry {
+  /** Stable id for UI editing — survives reorder / split / merge. */
+  id: string
+  /** 1-based position in the final video. Recomputed on save. */
+  scene_index: number
+  /** Start time on the stitched-audio timeline, in seconds. */
+  start_sec: number
+  /** End time on the stitched-audio timeline, in seconds. */
+  end_sec: number
+  /** The chunk of transcript this scene covers — taken verbatim
+   *  from the stitched SRT cues that fall in the [start, end] window.
+   *  The image generator uses this as the primary semantic anchor for
+   *  the visual prompt. */
+  transcript_segment: string
+  /** The visual prompt the image generator will use. LLM-generated
+   *  initially; user-editable in the Scene Plan UI. */
+  visual_prompt: string
+  /** v1.0.144+ — set by the Scene Review page when the user approves
+   *  this scene's image. Video assembly is blocked until every scene
+   *  is approved. */
+  approved?: boolean
+  /** v1.0.144+ — path to the generated image file once it exists. */
+  image_path?: string
+  /** Reason the LLM picked this scene boundary, used as a hint in
+   *  the Scene Plan UI ("Topic shift to <X>", "Named entity intro:
+   *  <Y>"). Optional. */
+  boundary_reason?: string
+}
+
+export interface ScenePlan {
+  schema_version: 1
+  /** When the LLM planner produced this. ISO8601. */
+  generated_at: string
+  /** Model id used for the planner pass. */
+  planner_model?: string
+  /** Stitched SRT filename this plan was built against. Drift-detection
+   *  in the Scene Plan UI compares this to the current stitched SRT. */
+  source_stitched_srt?: string
+  /** Total duration the plan covers — should match the stitched SRT
+   *  total_duration_sec at generation time. */
+  total_duration_sec: number
+  /** Whether the research.json sidecar was injected as context when
+   *  the LLM planned. Surfaces in the UI so the user knows. */
+  research_used: boolean
+  /** Ordered scenes. scene_index reflects current order. */
+  scenes: ScenePlanEntry[]
+  /** v1.0.226 — how many LLM time-windows the chunked planner assembled this
+   *  plan from. 1 for short episodes; >1 for long ones planned in segments so
+   *  the model's output never truncates. */
+  planned_in_windows?: number
+}
+
+/** Options passed to the scene planner. */
+export interface ScenePlanRunOptions {
+  /** Path to the stitched SRT (output of the subtitle stitcher). */
+  stitched_srt_path: string
+  /** Path to research.json — included as context when present. */
+  research_path?: string
+  /** Path to the narration docx — included as context when present
+   *  (richer than the SRT-only transcript). */
+  narration_docx_path?: string
+  /** LLM model id (anything supported by callAi). */
+  model: string
+  /** Target scene count. Adapters interpret as a guideline, not strict. */
+  target_scene_count?: number
+  /** v1.0.242 — how richly the LLM writes each `visual_prompt`. 1 = concise
+   *  one-liner … 4 = vivid cinematic paragraph. Defaults to 2 (the historical
+   *  "2-3 sentences" behaviour) when unset. Drives the length + coverage spec
+   *  injected into the planner prompt. */
+  detail_level?: number
+  /** v1.0.242 — global visual-style guidance woven into EVERY scene's
+   *  visual_prompt (medium, art style, rendering, colour treatment). Free text
+   *  from the user; empty/undefined = no style override. */
+  style_prompt?: string
+  /** v1.0.242 — extra free-text instructions the planner must follow for all
+   *  scenes (e.g. recurring props, things to always/never show). */
+  custom_instructions?: string
+  /** v1.0.193 (continuity-chain) — density pacing guardrails. When set, the
+   *  planner segments scenes to fit [min_sec, max_sec] (the user's per-episode
+   *  band from continuity.json) and cuts denser on busy passages for a "live"
+   *  feel, instead of leaning on target_scene_count. */
+  pacing?: { min_sec: number; max_sec: number; mode?: 'live' }
+  /** v1.0.226 — progress callback for the chunked planner; fires once per
+   *  time-window as its scenes come back (done, total windows, cumulative
+   *  scene count). Lets the generator surface live progress + per-window logs. */
+  onProgress?: (done: number, total: number, scenesSoFar: number) => void
 }

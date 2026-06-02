@@ -234,6 +234,27 @@ const queues: Record<JobType, QueueState> = {
   // Vision-LLM auto-tag — frames a clip's midpoint, asks GPT-4o-mini
   // for short tags, writes to the pool sidecar. Cheap (~$0.002/clip).
   broll_autotag: { pending: [], running: false, executor: null },
+  // v1.0.122+: B-Roll fetch — downloads one clip from Pexels/Pixabay
+  // into the target pool + writes a provenance sidecar. Does NOT
+  // auto-chain a normalize job (user-controlled per v1.0.122 design).
+  broll_fetch: { pending: [], running: false, executor: null },
+  // v1.0.142+: Research phase for the timestamp-driven pipeline.
+  // One-shot adapter call (Perplexity / LLM-only)
+  // → writes research.json + research.md to the episode dir.
+  research_run: { pending: [], running: false, executor: null },
+  // v1.0.143+: Scene planner — LLM picks natural narrative beats
+  // against the stitched SRT, emits scene_plan.json. 20-60s call.
+  scene_plan_run: { pending: [], running: false, executor: null },
+  // v1.0.144+: Per-scene image gen for the timestamp-driven pipeline.
+  // One job per scene; bulk "Generate all missing" enqueues N of these.
+  scene_image_generate: { pending: [], running: false, executor: null },
+  // v1.0.145+: Final ffmpeg render for the timestamp-driven pipeline.
+  // Gated on every scene in scene_plan.json being approved.
+  timestamp_video_assemble: { pending: [], running: false, executor: null },
+  // v1.0.194+: continuity-chain sequential renderer. Renders every scene in
+  // scene_plan.json in order, each img2img-anchored to the previous render +
+  // the character sheet/characters. One long serial job (resumable).
+  continuity_render: { pending: [], running: false, executor: null },
 }
 
 // ── Persistence ─────────────────────────────────────────────────────────────

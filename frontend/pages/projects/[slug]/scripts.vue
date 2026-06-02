@@ -13,7 +13,7 @@
       loading-label="Queuing…"
       :generate-loading="submitting"
       :generate-disabled="!canSubmit"
-      :generate-status="scriptGenerating ? `Building outline for ${form.episode_id}…` : ''"
+      :generate-status="scriptJobActiveForEpisode ? `Building outline for ${form.episode_id}…` : ''"
       @generate="submitOutline"
       @episode-selected="onEpisodeSelected"
       @preset-applied="success('Preset applied')"
@@ -22,53 +22,89 @@
     />
 
     <p class="text-muted mt-1 mb-2">
-      Generate narration scripts in two phases: <strong>Generate Outline</strong> first, review and edit topics in the
-      panel below, then <strong>Expand</strong> the chapters you want. The <strong>Generate Introduction</strong>
-      button below unlocks once the script chapters are on disk — the introduction needs the chapters as context.
+      Three distinct steps, one per tab. Start on the
+      <strong>Outline</strong> tab to plan the chapter list, then expand the chapters you want.
+      The <strong>Script</strong> tab shows the on-disk per-chapter files and lets you regenerate any single chapter.
+      The <strong>Introduction</strong> tab writes the opening once the chapters are on disk — the introduction needs the chapters as context.
     </p>
 
-    <div class="card mt-3">
+    <!-- v1.0.117+ — Three tabs split out from the one long page that
+         previously stacked outline form, intro section, and chapter
+         list one above the other. ?tab= keeps the URL honest so deep
+         links + back/forward + refresh land on the same view.
+         Default is 'outline' because that's the natural starting
+         point of a fresh episode; the Introduction tab opens a
+         "needs script first" gate when no chapters exist, which is a
+         bad first impression. -->
+    <!-- v1.0.176 — tab order follows the real flow: Outline (plan) →
+         Script (write/regenerate) → Introduction (optional, last). -->
+    <div class="form-tabs mt-3">
+      <button
+        type="button"
+        :class="['form-tab', { active: scriptsTab === 'outline' }]"
+        @click="scriptsTab = 'outline'"
+      >
+        📑 Outline
+      </button>
+      <button
+        type="button"
+        :class="['form-tab', { active: scriptsTab === 'script' }]"
+        @click="scriptsTab = 'script'"
+      >
+        📝 Script
+      </button>
+      <button
+        type="button"
+        :class="['form-tab', { active: scriptsTab === 'introduction' }]"
+        @click="scriptsTab = 'introduction'"
+      >
+        🎬 Introduction <span class="text-muted text-xs">(optional)</span>
+      </button>
+    </div>
+
+    <!-- v1.0.117+ — Basics card lives on Introduction + Outline tabs.
+         Hidden on Script tab so chapter regen has the whole pane to
+         itself. Title / pattern / character / normalize stay visible
+         on the first two tabs so the user always sees what episode
+         they're configuring. -->
+    <div class="card mt-3" v-show="scriptsTab !== 'script'">
       <div class="form-group field-medium">
         <label>Episode Title</label>
         <input v-model="form.title" class="input" placeholder="The Whispering Forest" />
       </div>
 
-      <!-- Pattern picker (Phase 4b) — optional per-episode template that
-           composes on top of the project's format. Empty = format defaults. -->
-      <div class="form-group mt-2 field-wide">
-        <PatternPicker
-          v-model="form.pattern_id"
-          v-model:subject="form.pattern_subject"
-          :format-id="projectFormatId"
-        />
+      <!-- v1.0.165 — Pattern picker removed. The Script Generator's
+           shape comes from the project's format + niche; the title
+           template (when set on the Ideas page) already shaped the
+           title that flows into the script. -->
+
+      <!-- v1.0.176 — Character references are now opt-in. Off by default so
+           a normal run is uncluttered + the LLM invents its own cast (the
+           common case). Toggle on to pin a persistent cast; the picker only
+           appears then. Turning it off clears the selection so an empty
+           cast is never sent by accident. -->
+      <div v-if="form.episode_id" class="form-group mt-2 field-wide">
+        <label class="toggle-label">
+          <input type="checkbox" v-model="useCharacters" />
+          <span>Use character references</span>
+        </label>
+        <span class="text-muted text-xs hint-line">
+          Off = the AI invents characters as it writes. On = pin a persistent
+          cast (names + descriptions) the script must use.
+        </span>
+        <div v-if="useCharacters" class="mt-2">
+          <CharacterPicker
+            v-model="form.character_ids"
+            :project-slug="slug"
+            :episode-code="form.episode_id"
+          />
+        </div>
       </div>
 
-      <!-- Character picker (Phase 5) — optional cast. The LLM uses these
-           names + descriptions instead of inventing characters. Multi-select. -->
-      <div v-if="form.episode_id" class="form-group mt-2 field-wide">
-        <CharacterPicker
-          v-model="form.character_ids"
-          :project-slug="slug"
-          :episode-code="form.episode_id"
-        />
-      </div>
-
-      <!-- Legacy-narration normaliser entry point. Sits below the cast
-           picker because it's a cousin of the script-generation flow:
-           "I have a script already, just need it in our format." Hides
-           when no episode is selected (the route needs a code). -->
-      <div v-if="form.episode_id" class="form-group mt-2 field-wide">
-        <button
-          class="btn btn-sm btn-secondary"
-          title="Restructure a pre-Story-Studio narration docx into the canonical per-chapter format. Idempotent — already-canonical files are skipped."
-          @click="normalizeOpen = true"
-        >🛠 Normalize legacy narration…</button>
-        <p class="text-muted text-xs hint-line">
-          Got a script from before Story Studio (or hand-written prose)?
-          Normalize it once and the rest of the pipeline (audio, subtitles,
-          assembly) will read it correctly.
-        </p>
-      </div>
+      <!-- v1.0.174 — the legacy-narration normalizer moved into the Outline
+           tab's "Advanced options" disclosure (it's a power op, not a
+           per-episode basic). The dialog itself stays mounted here so it
+           can open from there. -->
       <NormalizeNarrationDialog
         v-if="normalizeOpen && form.episode_id"
         :visible="normalizeOpen"
@@ -78,8 +114,9 @@
         @normalized="onNarrationNormalized"
       />
 
-      <!-- Introduction (on top, toggleable) -->
-      <div class="intro-section mt-2">
+      <!-- Introduction (on top, toggleable) — v1.0.117+ only visible on
+           Introduction tab. -->
+      <div class="intro-section mt-2" v-show="scriptsTab === 'introduction'">
         <div class="intro-header">
           <label class="toggle-label">
             <input type="checkbox" v-model="intro.enabled" />
@@ -179,23 +216,18 @@
         </div>
       </div>
 
-      <!-- Main settings -->
-      <div class="grid-3 mt-2">
-        <div class="form-group">
-          <label>Duration</label>
-          <!-- v1.0.101+ Duration dropdown is now format-driven. broll-narration
-               shows [5, 8, 10, 15, 20, 30]; sleep-story keeps its
-               [20, 30, 45, 60, 90, 120]; each format owns its own
-               recommended set via script.durationPresets in its JSON. -->
-          <select v-model="durationSelect" class="select" @change="onDurationChange()">
-            <option v-for="d in durationOptions" :key="d" :value="String(d)">
-              {{ d }} minute{{ d === 1 ? '' : 's' }}
-            </option>
-            <option value="custom">Custom...</option>
-          </select>
-          <input v-if="durationSelect === 'custom'" v-model.number="form.length" type="number" min="1" max="240"
-            class="input mt-1" placeholder="Minutes" />
-        </div>
+      <!-- v1.0.117+ — Main settings (duration, model, narrator style),
+           format context, niche overlay, recency, word counts, and the
+           force-regen checkbox all live on the Outline tab. Wrapped in
+           one v-show so we can hide the whole block on the Introduction
+           tab without juggling per-row toggles. -->
+      <div v-show="scriptsTab === 'outline'">
+
+      <!-- Main settings — v1.0.168: Duration is no longer a control. Length
+           is determined by chapters × words-per-chapter (Word count section
+           below) and shown there as a read-only estimate. Model + Narrator
+           Style are the only Main-settings inputs now. -->
+      <div class="grid-2 mt-2">
         <ModelSelector v-model="form.model" :project-slug="slug" />
         <div class="form-group">
           <label>Narrator Style</label>
@@ -233,17 +265,47 @@
             View / edit description
           </button>
         </div>
+
+        <!-- v1.0.196 — narrative point of view (orthogonal to narrator style). -->
+        <div class="form-group">
+          <label>Point of view <span class="text-muted" style="font-weight:400">(narrative person)</span></label>
+          <select v-model="form.perspective" class="select">
+            <option value="auto">Auto (format default)</option>
+            <option value="first">First person — I, me, my</option>
+            <option value="second">Second person — you, your</option>
+            <option value="third">Third person — he, she, they</option>
+          </select>
+          <span class="text-muted text-xs">
+            How the narration is voiced. Continuity-chain defaults to first-person; other formats keep their own voice on Auto. Switch any time.
+          </span>
+        </div>
       </div>
 
+      <!-- v1.0.174 — Context strip. The three advisory cards (format
+           envelope, niche overlay, recency avoidance) used to stack here
+           always-open, pushing the word counts + outline far down the page.
+           They're now folded into one collapsible strip: a quiet summary
+           line by default, full detail (with all their controls) on click.
+           The strip flags itself ("⚠ check") + is worth opening when the
+           chapter/length choice falls outside the format envelope. -->
+      <ContextStrip
+        v-if="formatContext || nicheContext || (recencyState && recencyState.enabled)"
+        v-model:open="scriptContextExpanded"
+        :has-warning="scriptContextNeedsAttention"
+        warn-label="⚠ check"
+        open-label="▾ Hide detail"
+        closed-label="▸ Format · topic · recency"
+      >
+        <template #summary>
+          <span class="ctx-key">Shaping this script</span>
+          <span class="ctx-value">{{ scriptContextSummary }}</span>
+        </template>
+
       <!-- Format context — read-only "what kind of script is this" hint.
-           Replaces the deleted Quick Presets row (which pinned hardcoded
-           sleep-story numbers across all formats). Pulls name + summary +
-           recommended ranges from the project's effective format JSON,
-           so each channel sees its own context (sleep-story shows the
-           dreamy 6-14 chapter envelope, listicle shows 3-20, etc.). The
-           range chips light up amber when the user's current input falls
-           outside the recommended envelope — purely informational, not a
-           block. Hidden when format metadata hasn't loaded yet. -->
+           Pulls name + summary + recommended ranges from the project's
+           effective format JSON; range chips light up amber when the
+           user's current input falls outside the recommended envelope —
+           purely informational, not a block. -->
       <div v-if="formatContext" class="format-context-card">
         <div class="format-context-header">
           <span class="format-context-icon" aria-hidden="true">ⓘ</span>
@@ -404,39 +466,37 @@
         </div>
       </div>
 
-      <!-- Word count section — edit any field; others recalc from your primary input -->
+      </ContextStrip>
+
+      <!-- Word count section — v1.0.168: TWO real inputs in order
+           (1 chapters → 2 words/chapter). Total words + estimated duration
+           are DERIVED and read-only. Editing chapters never rewrites your
+           per-chapter target; duration is informational only. -->
       <div class="word-count-section">
         <p class="text-muted text-sm mb-1">
-          Edit any field below — the others auto-update. The field you last edited drives the calculation.
+          Set <strong>{{ sectionLabel.plural }}</strong>, then <strong>words per {{ sectionLabel.singular }}</strong>.
+          Total words and duration update automatically — changing one input never rewrites the other.
         </p>
         <div class="grid-4">
-          <div class="form-group" :class="{ 'is-primary': primaryField === 'chapters' }">
-            <label>
-              {{ sectionLabel.Plural }}
-              <span v-if="primaryField === 'chapters'" class="primary-badge">primary</span>
-            </label>
+          <div class="form-group">
+            <label>1 · {{ sectionLabel.Plural }}</label>
             <input v-model.number="form.chapters" class="input" type="number" min="1" max="30" @input="onChaptersChange" />
-          </div>
-          <div class="form-group" :class="{ 'is-primary': primaryField === 'words_per_chapter' }">
-            <label>
-              Words/{{ sectionLabel.Singular }}
-              <span v-if="primaryField === 'words_per_chapter'" class="primary-badge">primary</span>
-            </label>
-            <input v-model.number="form.words_per_chapter" class="input" type="number" min="100" @input="onWordsPerChapterChange" />
-          </div>
-          <div class="form-group" :class="{ 'is-primary': primaryField === 'total_words' }">
-            <label>
-              Story Body Words
-              <span v-if="primaryField === 'total_words'" class="primary-badge">primary</span>
-              <span v-else class="calc-badge">excl. intro</span>
-            </label>
-            <input v-model.number="form.total_words" class="input" type="number" min="500" @input="onTotalWordsChange" />
+            <span class="sizing-sub text-muted">How many {{ sectionLabel.plural.toLowerCase() }} to write.</span>
           </div>
           <div class="form-group">
-            <label>Est. Duration <span class="calc-badge">~{{ wordsPerMinute }} w/m</span></label>
-            <div class="estimate-box">
-              ~{{ estimatedDuration }} min
-            </div>
+            <label>2 · Words / {{ sectionLabel.Singular }}</label>
+            <input v-model.number="form.words_per_chapter" class="input" type="number" min="100" @input="onWordsPerChapterChange" />
+            <span class="sizing-sub text-muted">Target length of each {{ sectionLabel.singular.toLowerCase() }}.</span>
+          </div>
+          <div class="form-group">
+            <label>Total words <span class="calc-badge">derived</span></label>
+            <div class="estimate-box">{{ form.total_words.toLocaleString() }}</div>
+            <span class="sizing-sub text-muted">{{ form.chapters }} × {{ form.words_per_chapter.toLocaleString() }} / {{ sectionLabel.singular.toLowerCase() }}</span>
+          </div>
+          <div class="form-group">
+            <label>Est. duration <span class="calc-badge">info only</span></label>
+            <div class="estimate-box">≈ {{ estimatedDuration }} min</div>
+            <span class="sizing-sub text-muted">at ~{{ wordsPerMinute }} w/min · does not control generation</span>
           </div>
         </div>
         <div class="word-summary">
@@ -446,6 +506,13 @@
           <template v-if="intro.enabled"> + <strong>~{{ intro.word_target }}</strong> intro</template>
           = <strong class="text-accent">~{{ totalOutput.toLocaleString() }} total (~{{ estimatedTotalDuration }} min)</strong>
         </div>
+        <p class="sizing-scale text-muted">
+          Rough guide at ~{{ wordsPerMinute }} w/min:
+          1,000 words ≈ {{ Math.round(1000 / wordsPerMinute) }} min ·
+          5,000 ≈ {{ Math.round(5000 / wordsPerMinute) }} min ·
+          10,000 ≈ {{ Math.round(10000 / wordsPerMinute) }} min.
+          Duration is a reference estimate — it does not control generation.
+        </p>
 
         <!-- v1.0.70: title vs chapter-count consistency check. Many of
              our formats encode the count in the title ("10 mysteries
@@ -479,16 +546,37 @@
 
       </div>
 
-      <div class="flex items-center gap-2 mt-2 flex-wrap">
+      <!-- v1.0.182 — Advanced disclosure (shared component). Power controls
+           (force-regenerate, legacy-narration normalizer) collapse here so the
+           default Outline view is just: context strip → model/narrator →
+           word counts → Generate. -->
+      <AdvancedDisclosure v-model:open="scriptAdvancedExpanded" label="Advanced options">
         <label class="checkbox-label">
           <input type="checkbox" v-model="form.force" />
           Force regenerate (overwrite existing)
         </label>
         <span class="text-muted text-xs">
-          Per-chapter regeneration is below — fix one chapter without redoing the rest.
+          Per-chapter regeneration is on the Script tab — fix one chapter without redoing the rest.
         </span>
-      </div>
+        <div v-if="form.episode_id" class="mt-2">
+          <button
+            class="btn btn-sm btn-secondary"
+            title="Restructure a pre-Story-Studio narration docx into the canonical per-chapter format. Idempotent — already-canonical files are skipped."
+            @click="normalizeOpen = true"
+          >🛠 Normalize legacy narration…</button>
+          <p class="text-muted text-xs hint-line">
+            Got a script from before Story Studio (or hand-written prose)?
+            Normalize it once and the rest of the pipeline reads it correctly.
+          </p>
+        </div>
+      </AdvancedDisclosure>
+
+      </div><!-- /Outline-only main-settings block -->
     </div>
+
+    <!-- v1.0.117+ — Outline mismatch banners + OutlineReviewPanel only
+         render on the Outline tab. Hidden on Introduction + Script. -->
+    <div v-show="scriptsTab === 'outline'">
 
     <!-- v1.0.105+ — Outline-niche mismatch banner. Fires when the
          loaded outline's chapter count differs from the active niche's
@@ -560,6 +648,11 @@
       @outline-loaded="onOutlineLoaded"
     />
 
+    </div><!-- /Outline tab -->
+
+    <!-- v1.0.117+ — Script tab: per-chapter regen + script preview. -->
+    <div v-show="scriptsTab === 'script'">
+
     <!-- Per-chapter source files panel (per-chapter refactor). One row per
          chapter with its own Regenerate button. The unified narration
          downstream consumers read is auto-assembled after every regen. -->
@@ -581,6 +674,14 @@
       :title="form.title"
       :refresh-key="previewRefreshKey"
     />
+
+    </div><!-- /Script tab -->
+
+    <!-- v1.0.117+ — Introduction tab: preview-only block. The intro
+         generator form sits inside the basics card (toggled via the
+         same scriptsTab v-show pattern) so the user configures intro
+         options and reviews the result side-by-side. -->
+    <div v-show="scriptsTab === 'introduction'">
     <IntroductionPreview
       v-if="panelsReady && form.episode_id"
       :project-slug="slug"
@@ -588,6 +689,7 @@
       :title="form.title"
       :refresh-key="previewRefreshKey"
     />
+    </div><!-- /Introduction tab -->
 
     <!-- Save custom style preset modal (replaces blocked window.prompt) -->
     <div v-if="showSaveStyle" class="modal-overlay" @click.self="showSaveStyle = false">
@@ -615,7 +717,30 @@
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Script Generator')
 const route = useRoute()
+const _router = useRouter()
 const slug = computed(() => route.params.slug as string)
+
+// v1.0.117+ — Page tabs: Introduction / Outline / Script. Same ?tab=
+// sync pattern as image-prompts.vue (v1.0.88) and ideas.vue. Defaults
+// to 'outline' on first visit — it's the natural starting point of a
+// fresh episode, and Introduction lands on a "needs script first"
+// gate when no chapters exist, which is a bad first impression.
+const scriptsTab = ref<'introduction' | 'outline' | 'script'>(
+  route.query.tab === 'introduction' ? 'introduction'
+    : route.query.tab === 'script' ? 'script'
+    : 'outline',
+)
+watch(() => route.query.tab, (v) => {
+  const next = v === 'introduction' ? 'introduction'
+    : v === 'script' ? 'script'
+    : 'outline'
+  if (next !== scriptsTab.value) scriptsTab.value = next
+})
+watch(scriptsTab, (v) => {
+  const cur = String(route.query.tab || 'outline')
+  if (cur === v) return
+  _router.replace({ query: { ...route.query, tab: v } })
+})
 
 // Delay mounting heavy v-if'd panels (OutlineReviewPanel + ChapterListPanel +
 // preview cards) by one tick after the page itself mounts. Without this gate,
@@ -728,6 +853,20 @@ const wordsPerMinute = computed<number>(() => {
 const durationSelect = ref('45')
 const showStyleDesc = ref(false)
 const customStyleText = ref('')
+
+// v1.0.174 — Phase-0 declutter (the page template). The Outline tab used to
+// stack three always-open advisory cards (format context, niche overlay,
+// recency) + power controls inline with the primary inputs. These two
+// disclosures fold all of that away by default:
+//   • scriptContextExpanded → the "what shapes this script" detail
+//     (format envelope + niche overlay + recency-avoidance controls).
+//   • scriptAdvancedExpanded → power controls (force-regenerate, normalize
+//     legacy narration). Collapsed for beginners; one click for full control.
+// A small "needs attention" flag keeps the context strip honest: it opens
+// itself / shows a warning dot when the outline mismatches the format/niche
+// or when chapters fall outside the recommended envelope.
+const scriptContextExpanded = ref(false)
+const scriptAdvancedExpanded = ref(false)
 const customStyles = ref<Array<{ id: string; name: string; description: string }>>([])
 
 const STYLE_DESCRIPTIONS: Record<string, string> = {
@@ -770,26 +909,42 @@ const form = reactive({
   length: Number(route.query.length) || 45,
   model: 'gpt-4o',
   style: 'auto',
+  // v1.0.196 — narrative point of view. 'auto' = use the format's default
+  // (continuity-chain → first person; others → no override). first/second/third
+  // override it per script.
+  perspective: 'auto',
   chapters: Number(route.query.chapters) || 10,
   total_words: 5500,
   words_per_chapter: 550,
   generate_image_prompts: false,
   generate_youtube_desc: false,
   force: false,
-  // Pattern primitive (Phase 4b): empty pattern_id = no pattern (current
-  // behavior). When set, the script generator fuses the named pattern on
-  // top of the project's effective format, substituting {X} with subject.
-  pattern_id: '',
-  pattern_subject: '',
+  // v1.0.165 — pattern_id / pattern_subject removed with the Pattern
+  // system. Title shaping now happens at idea-time via the Ideas page's
+  // title-template field; the script generator reads format + niche.
   // Character primitive (Phase 5): optional cast — selected ids flow through
   // /generate/script-only so the LLM uses these names + descriptions.
   character_ids: [] as string[],
 })
 
-// Look up the project's current format id so PatternPicker can show
-// "pairs with this format" badges. Loads once on mount + when slug changes;
-// project-meta arrival triggers the watcher that hydrates formatId.
-const projectFormatId = ref('sleep-story')
+// v1.0.176 — character references are opt-in. Default OFF; the toggle reveals
+// the picker. Turning it off clears any selection so an outdated cast can't
+// leak into a run the user thinks is cast-free. Auto-enables when a loaded
+// episode already carries characters (so editing an existing pick still
+// shows it).
+const useCharacters = ref(false)
+watch(useCharacters, (on) => {
+  if (!on && form.character_ids.length) form.character_ids = []
+})
+watch(() => form.character_ids.length, (n) => {
+  if (n > 0 && !useCharacters.value) useCharacters.value = true
+})
+
+// Look up the project's current format id so the section-label
+// vocabulary (Chapter / Topic / Section) resolves correctly. Loads
+// once on mount + when slug changes; project-meta arrival triggers the
+// watcher that hydrates formatId.
+const projectFormatId = ref('narrative')
 const { project } = useProject()
 watch(project, (p) => {
   if (!p) return
@@ -797,14 +952,11 @@ watch(project, (p) => {
   if (typeof id === 'string' && id) {
     projectFormatId.value = id
   } else {
-    // v1.0.102+ — log the silent fallback so future "why is this
-    // generating sleep-story flavour?" debugging starts here.
     // In practice every project has a format_id (set at create time);
     // this branch only fires on data-corruption / partial-write edge
-    // cases. Format-aware behaviour still falls back to the
-    // sleep-story default downstream, but at least it's visible now.
-    console.warn('[scripts.vue] project.format_id missing — falling back to sleep-story for PatternPicker filtering. Set a format in Settings → Format if this is unexpected.')
-    projectFormatId.value = 'sleep-story'
+    // cases. Section labels fall back to the narrative default.
+    console.warn('[scripts.vue] project.format_id missing — falling back to narrative for section labels. Set a format in Settings → Format if this is unexpected.')
+    projectFormatId.value = 'narrative'
   }
 }, { immediate: true })
 
@@ -1039,6 +1191,19 @@ const lengthOutOfRange = computed<string | null>(() => {
   return null
 })
 
+// v1.0.174 — the context strip shows a warning dot (and is worth opening)
+// when the user's chapter/length choice is outside the format's envelope.
+// Purely advisory — generation still proceeds.
+const scriptContextNeedsAttention = computed<boolean>(() =>
+  !!(chaptersOutOfRange.value || lengthOutOfRange.value),
+)
+// One-line summary for the collapsed context strip: format · topic · size.
+const scriptContextSummary = computed<string>(() => {
+  const fmt = formatContext.value?.name || 'format'
+  const topic = nicheContext.value?.name || 'none'
+  return `${fmt} · Topic: ${topic} · ${form.chapters} ${sectionLabel.value.plural.toLowerCase()} × ${form.words_per_chapter} words`
+})
+
 // Sync style description when style changes (must be after form definition)
 watch(() => form.style, (s) => {
   const desc = STYLE_DESCRIPTIONS[s]
@@ -1151,15 +1316,20 @@ async function applyScriptFormatDefaultsIfNoPreset() {
     if (!chaptersFromUrl && typeof sf.defaultChapterCount === 'number' && sf.defaultChapterCount > 0) {
       form.chapters = sf.defaultChapterCount
     }
-    if (!lengthFromUrl && typeof sf.defaultLengthMinutes === 'number' && sf.defaultLengthMinutes > 0) {
-      form.length = sf.defaultLengthMinutes
-    }
-    // Derive total + per-chapter from the (possibly-updated) length and
-    // chapter count. Always recompute these — they're cached values whose
-    // canonical inputs just changed.
-    if (form.chapters > 0 && form.length > 0) {
-      form.total_words = Math.round(form.length * wordsPerMinute.value)
-      form.words_per_chapter = Math.round(form.total_words / form.chapters)
+    // v1.0.168 — seed the TWO inputs (chapters + words-per-chapter). Prefer an
+    // explicit per-chapter default from the format; otherwise derive it once
+    // from the format's default length so existing formats without the new
+    // field still land on a sensible per-chapter target. total_words + the
+    // duration estimate recompute from these via the sizing watcher; duration
+    // is no longer seeded as an input.
+    if (!lengthFromUrl) {
+      const sfWpc = (sf as any).defaultWordsPerChapter
+      if (typeof sfWpc === 'number' && sfWpc > 0) {
+        form.words_per_chapter = sfWpc
+      } else if (typeof sf.defaultLengthMinutes === 'number' && sf.defaultLengthMinutes > 0 && form.chapters > 0) {
+        const seededTotal = Math.round(sf.defaultLengthMinutes * wordsPerMinute.value)
+        form.words_per_chapter = Math.round(seededTotal / form.chapters)
+      }
     }
     // Cache the format metadata for the read-only context panel below the
     // word-count inputs. Pulled from the same /effective-format payload —
@@ -1352,6 +1522,27 @@ const seenDoneJobs = new Set<string>()
 const watchedScriptTypes = new Set<string>([
   'script-only', 'introduction-only', 'outline_only', 'expand_chapters', 'chapter-only',
 ])
+
+// v1.0.115+ — per-episode "is a script-related job in flight" computed.
+// The global `scriptGenerating` (from useGenerating) stays true as long
+// as ANY script job is queued/running, so its status text leaked into
+// pages where the current episode wasn't the one actually generating.
+// This narrows it to the episode currently selected here.
+const scriptJobActiveForEpisode = computed(() => {
+  if (!form.episode_id) return false
+  return jobs.value.some((j: any) =>
+    j.episode_id === form.episode_id &&
+    j.project_slug === slug.value &&
+    watchedScriptTypes.has(j.type) &&
+    (j.status === 'queued' || j.status === 'running'),
+  )
+})
+
+// Defensive — clear `submitting` on episode swap.
+watch(() => form.episode_id, (newEp, oldEp) => {
+  if (newEp !== oldEp) submitting.value = false
+})
+
 const scriptJobsSignal = computed(() =>
   jobs.value
     .filter(j => watchedScriptTypes.has(j.type) && j.episode_id === form.episode_id)
@@ -1377,8 +1568,8 @@ watch(scriptJobsSignal, () => {
 })
 
 // v1.0.48 — read from the shared `useEpisodes` cache instead of
-// re-fetching `/projects/:slug/episodes` on every swap. On TerraNash
-// (380+ episodes) the full-list fetch took 30s+, blocking the page
+// re-fetching `/projects/:slug/episodes` on every swap. On a large
+// channel (380+ episodes) the full-list fetch took 30s+, blocking the page
 // from showing fresh data on every dropdown change. The cache is
 // already warm from the EpisodeSelector mount, so a swap is now an
 // O(N) array find — instant. Auto-revalidates on `done` job events
@@ -1492,58 +1683,44 @@ const canSubmit = computed(() => form.episode_id && form.title)
 // the sizing as touched so subsequent episode picks won't overwrite. The
 // internal callers (onEpisodeSelected) pass `false` so the auto-applied
 // suggestion doesn't lock out the next swap.
-function onDurationChange(fromUser: boolean = true) {
-  if (durationSelect.value !== 'custom') {
-    form.length = Number(durationSelect.value)
-    form.total_words = Math.round(form.length * wordsPerMinute.value)
-    if (form.chapters > 0) {
-      form.words_per_chapter = Math.round(form.total_words / form.chapters)
-    }
-  }
-  if (fromUser) userTouchedSizing.value = true
+// v1.0.168 — Sizing model. TWO inputs only: chapter count + words-per-chapter.
+// Total words + the duration estimate are DERIVED and read-only. There is no
+// cross-recalc — changing the chapter count NEVER rewrites your per-chapter
+// word target, and duration is informational (total ÷ words-per-minute), no
+// longer a control. A single one-directional watcher keeps the derived
+// fields in sync from the two inputs (also covers preset/outline restore +
+// format-switch, where chapters/wpc change programmatically). Writing
+// total_words/length inside the watcher never retriggers it, so no loop.
+function recomputeDerivedSizing() {
+  const ch = form.chapters > 0 ? form.chapters : 0
+  const wpc = form.words_per_chapter > 0 ? form.words_per_chapter : 0
+  form.total_words = ch * wpc
+  form.length = wordsPerMinute.value > 0 ? Math.round(form.total_words / wordsPerMinute.value) : 0
 }
 
-// Track which word-count field was last edited, so we can visually highlight
-// it as "primary" and make the sync rules obvious.
-const primaryField = ref<'chapters' | 'words_per_chapter' | 'total_words'>('total_words')
-
-// Sticky-input guard: once the user has manually edited any sizing input
-// (chapters / words/chapter / total words / duration), we stop auto-
-// overwriting those fields when they pick a different episode. Without this,
-// the dropdown selection bulldozed typed values back to 10 chapters and the
-// length × 122 wpm "random number" — exact issue user reported. First
-// selection (when nothing is touched) still applies episode suggestions so
-// brand-new episodes get sensible defaults.
+// Retained: tells the page the user has taken control of sizing, so format
+// defaults + episode-swap suggestions stop overwriting their numbers.
 const userTouchedSizing = ref(false)
+// Retained for back-compat with code that references primaryField; with the
+// derived model there is no longer a "primary" field, but the ref keeps
+// existing call sites (e.g. setChaptersTo* helpers) compiling.
+const primaryField = ref<'chapters' | 'words_per_chapter' | 'total_words'>('words_per_chapter')
 
-// Sync: Chapters changed → recalc words/chapter (total stays)
+// The two inputs only flag user control — they do NOT touch each other.
 function onChaptersChange() {
-  primaryField.value = 'chapters'
   userTouchedSizing.value = true
-  if (form.chapters > 0) {
-    form.words_per_chapter = Math.round(form.total_words / form.chapters)
-  }
 }
-
-// Sync: Words/chapter changed → recalc total words
 function onWordsPerChapterChange() {
-  primaryField.value = 'words_per_chapter'
   userTouchedSizing.value = true
-  form.total_words = form.chapters * form.words_per_chapter
-  form.length = Math.round(form.total_words / wordsPerMinute.value)
-  durationSelect.value = standardDurationSet.value.has(form.length) ? String(form.length) : 'custom'
 }
 
-// Sync: Total words changed → recalc words/chapter + duration
-function onTotalWordsChange() {
-  primaryField.value = 'total_words'
-  userTouchedSizing.value = true
-  if (form.chapters > 0) {
-    form.words_per_chapter = Math.round(form.total_words / form.chapters)
-  }
-  form.length = Math.round(form.total_words / wordsPerMinute.value)
-  durationSelect.value = standardDurationSet.value.has(form.length) ? String(form.length) : 'custom'
-}
+// Derived fields follow the two inputs (and the format's words-per-minute)
+// one-directionally. immediate => correct on first paint.
+watch(
+  [() => form.chapters, () => form.words_per_chapter, wordsPerMinute],
+  () => recomputeDerivedSizing(),
+  { immediate: true },
+)
 
 /**
  * Rough cost estimate for chunked-mode script generation (v1.0.71+).
@@ -1681,17 +1858,20 @@ function onEpisodeSelected(ep: any) {
   // and the user wouldn't expect their last episode's title to follow them
   // to a new pick.
   form.title = ep.title
-  // Sizing fields (chapters / length / total_words / words_per_chapter)
-  // ONLY auto-apply on a fresh form. Once the user has typed in any of
-  // those inputs (tracked by userTouchedSizing), episode swaps leave the
-  // typed values alone — so picking a different episode doesn't bulldoze
-  // "20 chapters × 700 words" back to "10 × 5490". User-reported issue.
+  // Sizing fields ONLY auto-apply on a fresh form. Once the user has typed
+  // in chapters or words-per-chapter (tracked by userTouchedSizing), episode
+  // swaps leave the typed values alone. v1.0.168 — we seed the TWO inputs
+  // (chapters + words-per-chapter) and let the derived watcher compute total
+  // + duration. Words-per-chapter is derived ONCE from the episode's
+  // suggested duration so a fresh pick lands on a sensible per-chapter size;
+  // after that the user owns both numbers.
   if (!userTouchedSizing.value) {
-    form.chapters = ep.suggested_chapters || 10
+    const ch = ep.suggested_chapters || 10
+    form.chapters = ch
     const dur = ep.suggested_length === '60 min' ? 60 : 45
-    form.length = dur
-    durationSelect.value = String(dur)
-    onDurationChange(/* fromUser */ false)
+    const seededTotal = Math.round(dur * wordsPerMinute.value)
+    form.words_per_chapter = ch > 0 ? Math.round(seededTotal / ch) : seededTotal
+    // total_words + length recompute via the sizing watcher.
   }
 }
 
@@ -1903,6 +2083,13 @@ async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true 
    envelope (chapter range, duration range, recommended wpc) before they
    override anything. Range chips light up amber via .rec-chip-warn when
    the user's current value is outside the recommended range. */
+/* v1.0.174 — Phase-0 page template: collapsible context strip + advanced
+   disclosure. This is the pattern the other flow pages will adopt. */
+/* v1.0.183 — strip chrome moved to the shared ContextStrip component. Only
+   .ctx-key / .ctx-value (used in this page's summary slot) remain. */
+.ctx-key { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.ctx-value { font-weight: 500; }
+
 .format-context-card {
   margin-top: 8px;
   padding: 14px 16px;

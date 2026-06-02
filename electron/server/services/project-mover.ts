@@ -10,8 +10,8 @@
  * project lived inside it. That made the "Storage tab → Move projects"
  * flow all-or-nothing: either every project goes to iCloud or none do.
  *
- * Operators with mixed needs (TerraNash in iCloud for cross-Mac sync,
- * Dozing Knight on local SSD for fast scratch renders) couldn't be
+ * Operators with mixed needs (one channel in iCloud for cross-Mac
+ * sync, another on a local SSD for fast scratch renders) couldn't be
  * served. This service is the per-project escape hatch: pick any
  * destination folder, the project moves there, and a linked-paths
  * entry keeps it discoverable across boots.

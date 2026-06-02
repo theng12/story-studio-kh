@@ -25,6 +25,7 @@ import { trackGeneration } from '../services/session-tracker.js'
 import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import type { Job } from '../models/types.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
+import { matchChapterFile, readArtifactRawText } from '../lib/episode-artifacts.js'
 
 // Preset shape we expect in job.params (from the Image Prompts page's
 // usePresets snapshot { form: {...} }, unwrapped by routes/pipeline.ts).
@@ -52,6 +53,15 @@ interface ImagePromptsParams {
   thumb_text_position?: string
   thumb_font_style?: string
   thumb_font_style_custom?: string
+  /** v1.0.224 — free-text per-project art direction; overrides format + CTR. */
+  thumb_art_direction?: string
+  /** v1.0.224 — 'ai' bakes the title into the image (format-aware styling);
+   *  'composite' asks for a text-free background so a crisp title can be
+   *  overlaid afterward via the thumbnail composer. */
+  thumb_title_mode?: 'ai' | 'composite'
+  /** v1.0.224 — vision-extracted style descriptor from a reference thumbnail
+   *  the user wants to replicate. */
+  thumb_reference_style?: string
   mode?: 'all' | 'scenes' | 'thumbnails'
   /**
    * Cast for this episode — passed through from a saved Image Prompts
@@ -65,7 +75,6 @@ interface ImagePromptsParams {
 
 function checkProvider(model: string, config: any): string | null {
   const provider = SUPPORTED_MODELS[model]
-  if (provider === 'anthropic' && !config.anthropic_api_key) return 'No Anthropic key configured'
   if (provider === 'openai' && !config.openai_api_key) return 'No OpenAI key configured'
   if (provider === 'kie' && !config.kie_api_key) return 'No kie.ai key configured'
   return null
@@ -102,11 +111,10 @@ async function resolveChapterCount(
     if (sidecar && typeof sidecar.total_chapters === 'number' && sidecar.total_chapters > 0) {
       return sidecar.total_chapters
     }
-    // No sidecar — count chapter docx files on disk as a fallback.
+    // No sidecar — count chapter files on disk as a fallback (.md or legacy .docx).
     let entries: string[] = []
     try { entries = await fs.readdir(paths.script_dir) } catch { /* missing dir */ }
-    const re = new RegExp(`^${episode_id}_Chapter_(\\d+)\\.docx$`)
-    const count = entries.filter(n => re.test(n)).length
+    const count = entries.filter(n => matchChapterFile(n, episode_id) !== null).length
     if (count > 0) return count
     // v1.0.102+ — last-resort: format default. Previously hardcoded 10
     // (sleep-story median); now reads format.script.defaultChapterCount
@@ -126,9 +134,8 @@ async function resolveChapterCount(
 async function readStoryContext(slug: string, episode_id: string, title: string): Promise<string> {
   try {
     const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-    const mammoth = await import('mammoth')
-    const result = await mammoth.default.extractRawText({ path: paths.narration_docx })
-    return result.value.slice(0, 3000)
+    const raw = await readArtifactRawText(paths.narration_docx)
+    return raw.slice(0, 3000)
   } catch {
     return `Episode: ${episode_id}, Title: ${title || 'Unknown'}`
   }
@@ -154,6 +161,97 @@ function parseImagePromptsJson(raw: string): { scenes?: any[]; thumbnails?: any[
   }
 }
 
+/** Shape of `format.imagePrompts.thumbnail` (see ImagePromptFormat). */
+interface ThumbnailFmt {
+  conceptGuidance?: string
+  compositionRules?: string[]
+  defaultTextStyle?: string
+  defaultFontStyle?: string
+  moodKeywords?: string[]
+  avoid?: string[]
+}
+
+// Fallback thumbnail concept for any format that ships no `thumbnail` block.
+const GENERIC_THUMBNAIL_CONCEPT =
+  'A bold, high-impact YouTube cover with ONE clear focal subject that signals the topic at a glance. ' +
+  'Vivid saturated color, strong directional lighting, clear depth. This is a COVER designed to win the click — not a scene still.'
+
+// Universal YouTube CTR rules applied to every thumbnail regardless of format.
+const YOUTUBE_CTR_RULES = [
+  'One clear, bold focal subject that reads instantly.',
+  'High contrast with saturated, punchy color.',
+  'A large expressive face or one dominant object when it suits the topic.',
+  'Rule-of-thirds composition with strong, directional lighting and clear foreground/background separation.',
+  'Minimal clutter — must stay legible as a tiny mobile preview (~320px wide).',
+]
+
+const GENERIC_THUMBNAIL_AVOID = [
+  'low contrast or washed-out / muddy color',
+  'tiny details that vanish at preview size',
+  'busy collages or multiple competing subjects',
+  'flat, evenly-lit, boring framing',
+]
+
+/**
+ * Build the THUMBNAIL portion of the image-prompts request (v1.0.224). Layers,
+ * later overriding earlier: (a) per-format art direction → (b) universal
+ * YouTube CTR rules → (c) reference-style replication → (d) per-project
+ * art-direction override. Then the title-text line branches on `titleMode`:
+ * 'ai' bakes a format-aware title into the image; 'composite' demands a
+ * text-free background for a crisp overlay added by the composer afterward.
+ */
+function buildThumbnailDirective(opts: {
+  title: string
+  thumbs: number
+  titleMode: 'ai' | 'composite'
+  fontStyle: string
+  fontStyleCustom?: string
+  textStyle: string
+  textStyleCustom?: string
+  textPosition: string
+  artDirection?: string
+  referenceStyle?: string
+  fmt?: ThumbnailFmt | null
+}): string {
+  if (opts.thumbs <= 0) return ''
+  const fmt = opts.fmt
+  const lines: string[] = []
+  lines.push(
+    `THUMBNAIL ART DIRECTION — the thumbnail is the single most important asset for click-through. ` +
+    `It is a COVER, not a scene still: do NOT reuse the scene style tag for thumbnails. Follow the direction below.`,
+  )
+  lines.push(`CONCEPT: ${(fmt?.conceptGuidance || '').trim() || GENERIC_THUMBNAIL_CONCEPT}`)
+  if (fmt?.compositionRules?.length) {
+    lines.push(`COMPOSITION:\n${fmt.compositionRules.map(r => `  - ${r}`).join('\n')}`)
+  }
+  if (fmt?.moodKeywords?.length) lines.push(`MOOD: ${fmt.moodKeywords.join(', ')}`)
+  lines.push(`YOUTUBE BEST-PRACTICES (apply to every thumbnail):\n${YOUTUBE_CTR_RULES.map(r => `  - ${r}`).join('\n')}`)
+  lines.push(`AVOID: ${[...(fmt?.avoid || []), ...GENERIC_THUMBNAIL_AVOID].join('; ')}`)
+
+  // (c) reference-style replication — overrides the generic/format look.
+  const ref = (opts.referenceStyle || '').trim()
+  if (ref) lines.push(`REFERENCE STYLE — replicate this look as closely as possible (overrides the look above): ${ref}`)
+  // (d) per-project art direction — highest priority.
+  const ad = (opts.artDirection || '').trim()
+  if (ad) lines.push(`PRIORITY ART DIRECTION (overrides everything above on any conflict): ${ad}`)
+
+  // Title text — AI-baked (format-aware) vs composite (text-free background).
+  if (opts.titleMode === 'composite') {
+    lines.push(
+      `TITLE TEXT: Render NO text, title, lettering, watermark, or logo anywhere in the image. ` +
+      `Leave a clean, uncluttered area (consistent with the composition) where a crisp title will be overlaid afterward.`,
+    )
+  } else {
+    const fontPhrase = resolveFontStyle(opts.fontStyle, opts.fontStyleCustom)
+    const textPhrase = resolveTextStyle(opts.textStyle, opts.textStyleCustom)
+    lines.push(
+      `TITLE TEXT: The episode title "${opts.title}" must appear in ${fontPhrase}, ${textPhrase}, ` +
+      `positioned at the ${opts.textPosition || 'center'} of the frame — large, bold, and legible with strong contrast against the background.`,
+    )
+  }
+  return lines.join('\n\n')
+}
+
 function buildPrompt(args: {
   episode_id: string
   title: string
@@ -164,16 +262,10 @@ function buildPrompt(args: {
   thumbs: number
   style_tag: string
   aspect_ratio: string
-  thumb_font_style: string
-  thumb_font_style_custom?: string
-  thumb_text_style: string
-  thumb_text_style_custom?: string
-  thumb_text_position: string
+  /** Full thumbnail instruction block from buildThumbnailDirective(); '' when thumbs===0. */
+  thumbnailDirective: string
 }): string {
-  const { episode_id, title, storyContext, castBlock, sceneCount, thumbs, style_tag, aspect_ratio } = args
-  const fontPhrase = resolveFontStyle(args.thumb_font_style, args.thumb_font_style_custom)
-  const textPhrase = resolveTextStyle(args.thumb_text_style, args.thumb_text_style_custom)
-  const thumbTextInstruction = `The episode title "${title}" displayed in ${fontPhrase}, ${textPhrase}, positioned at the ${args.thumb_text_position || 'center'} of the frame, large and legible.`
+  const { episode_id, title, storyContext, castBlock, sceneCount, thumbs, style_tag, aspect_ratio, thumbnailDirective } = args
 
   const ratioDescriptions: Record<string, string> = {
     '16:9': 'wide 16:9 landscape format with cinematic framing',
@@ -222,9 +314,7 @@ FORMAT — return ONLY a JSON object:
   "scenes": [{"number": 1, "title": "Brief Title", "prompt": "Full prompt text..."}],
   "thumbnails": [{"number": 1, "title": "Brief Title", "prompt": "Full prompt text..."}]
 }
-
-THUMBNAIL RULE: Every thumbnail must include: '${thumbTextInstruction}'
-
+${thumbs > 0 ? `\n${thumbnailDirective}\n` : ''}
 No markdown, no commentary, just valid JSON.`
 }
 
@@ -235,7 +325,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
 
-  const model = req.model || 'gpt-4o'
+  const model = req.model || 'deepseek-v4-flash'
   const credErr = checkProvider(model, config)
   if (credErr) throw new Error(credErr)
 
@@ -293,6 +383,41 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   }
   const castBlock = castImagePromptBlock(characters)
 
+  // v1.0.224 — resolve per-format thumbnail art direction (best-effort; a
+  // missing format falls back to the generic high-CTR directive). The AI
+  // title styling defaults to the FORMAT's defaults, not a hardcoded
+  // serif/gold (the old sleep-story bias).
+  let thumbFmt: ThumbnailFmt | null = null
+  if (thumbs > 0) {
+    try {
+      const { getEffectiveFormat } = await import('../services/format-loader.js')
+      const fmt = await getEffectiveFormat(project_slug)
+      thumbFmt = (fmt?.imagePrompts as any)?.thumbnail || null
+    } catch { /* generic fallback */ }
+  }
+  const titleMode: 'ai' | 'composite' = req.thumb_title_mode === 'composite' ? 'composite' : 'ai'
+  const thumbnailDirective = buildThumbnailDirective({
+    title,
+    thumbs,
+    titleMode,
+    fontStyle: req.thumb_font_style || thumbFmt?.defaultFontStyle || 'serif',
+    fontStyleCustom: req.thumb_font_style_custom,
+    textStyle: req.thumb_text_style || thumbFmt?.defaultTextStyle || 'gold',
+    textStyleCustom: req.thumb_text_style_custom,
+    textPosition: req.thumb_text_position || 'center',
+    artDirection: req.thumb_art_direction,
+    referenceStyle: req.thumb_reference_style,
+    fmt: thumbFmt,
+  })
+  if (thumbs > 0) {
+    job.output_lines.push(
+      `Thumbnail art direction: ${thumbFmt ? 'format-specific' : 'generic high-CTR'}` +
+      `, title mode = ${titleMode}` +
+      (req.thumb_reference_style ? ', reference style applied' : '') +
+      (req.thumb_art_direction ? ', custom art direction applied' : ''),
+    )
+  }
+
   const basePrompt = buildPrompt({
     episode_id,
     title,
@@ -302,11 +427,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     thumbs,
     style_tag: req.style_tag || '',
     aspect_ratio: req.aspect_ratio || '16:9',
-    thumb_font_style: req.thumb_font_style || 'serif',
-    thumb_font_style_custom: req.thumb_font_style_custom,
-    thumb_text_style: req.thumb_text_style || 'gold',
-    thumb_text_style_custom: req.thumb_text_style_custom,
-    thumb_text_position: req.thumb_text_position || 'center',
+    thumbnailDirective,
   })
 
   // Brand-level image styling: prepend channel keywords + append the
@@ -502,7 +623,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     if (!sceneDir) throw new Error(`Scene prompts folder not found: ${names.scene_prompts}`)
     let sceneText = `# Scene Prompts\n\n`
     for (const s of scenes) sceneText += `## Scene ${s.number}: ${s.title}\n\n${s.prompt}\n\n`
-    const outPath = path.join(sceneDir, `${episode_id}_Scene_Prompts.docx`)
+    const outPath = path.join(sceneDir, `${episode_id}_Scene_Prompts.md`)
     await buildImagePromptsDocx(sceneText, episode_id, title, outPath)
     job.output_lines.push(`Saved scenes → ${path.basename(outPath)}`)
   }
@@ -513,7 +634,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     if (!thumbDir) throw new Error(`Thumbnail prompts folder not found: ${names.thumb_prompts}`)
     let thumbText = `# Thumbnail Prompts\n\n`
     for (const t of thumbnails) thumbText += `## Thumbnail ${t.number}: ${t.title}\n\n${t.prompt}\n\n`
-    const outPath = path.join(thumbDir, `${episode_id}_Thumbnail_Prompts.docx`)
+    const outPath = path.join(thumbDir, `${episode_id}_Thumbnail_Prompts.md`)
     await buildImagePromptsDocx(thumbText, episode_id, title, outPath)
     job.output_lines.push(`Saved thumbnails → ${path.basename(outPath)}`)
   }

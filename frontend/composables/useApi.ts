@@ -171,6 +171,44 @@ export function useApi() {
   const baseURL = '/api'
 
   async function api<T = any>(path: string, options: any = {}): Promise<T> {
+    // v1.0.125+ — Slug-race short-circuit.
+    //
+    // Route transitions (and the dashboard layout's `immediate: true`
+    // slug watcher) can fire callers BEFORE `route.params.slug` resolves
+    // — `slug.value` is then `undefined`, and any caller that builds a
+    // URL via `${slug.value}` produces the literal substring
+    // `/projects/undefined/...` (template-literal artifact). The backend
+    // 404s every such request with `{ detail: 'Project not found' }`,
+    // which then surfaces as a spammy toast on the affected page.
+    //
+    // Two existing composables (`useProject.ts:48`, `useCredits.ts:42`)
+    // already guard against this locally — but every OTHER composable
+    // and page would need the same per-callsite check to be safe. Guard
+    // here so the whole app gets it for free, and the backend never sees
+    // the bogus path.
+    //
+    // Sentinel format on the thrown error:
+    //   err.message      = '__slug_race__'
+    //   err.data.detail  = '__slug_race__'
+    // — useToast.error() checks both and silently swallows.
+    if (
+      path.includes('/undefined/') ||
+      path.endsWith('/undefined') ||
+      /\/undefined[?#]/.test(path) ||
+      // v1.0.129+ — Also catch query-string variants. /models?project=X,
+      // /usage?project=X, /dashboard-stats?project=X etc. all stringify
+      // undefined into the value and would otherwise reach the backend
+      // (which has no project context to resolve and 404s with the same
+      // 'Project not found' detail). Match common slug-bearing param
+      // names: project, slug, project_slug, episode, episode_id.
+      /[?&](project|slug|project_slug|episode|episode_id)=undefined(?:&|$|#)/.test(path)
+    ) {
+      const err: any = new Error('__slug_race__')
+      err.data = { detail: '__slug_race__' }
+      err.__slugRace = true
+      throw err
+    }
+
     // Health probe itself must NEVER wait on the boot-ready gate — the
     // gate IS that probe. Skip for any /health endpoint to avoid the
     // recursive deadlock.

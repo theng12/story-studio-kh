@@ -1,0 +1,216 @@
+{
+  "id": "continuity-chain",
+  "name": "Continuity Scenes (character-locked, live-paced)",
+  "description": "First-person / POV video where the SAME character (or set) appears across every scene, and scenes are rendered sequentially so each one flows from the last — giving a continuous, almost-live feel. You drop in a character sheet; the LLM picks an establishing scene from it, then every following scene references the previous render (and/or the sheet) so the look stays consistent. Pacing is driven by the audio: you set a per-episode min/max scene length (e.g. 1–10s or 5–20s) and the planner cuts more often where the narration is busy. Pipeline: idea → first-person script → audio → per-chapter subtitles → stitched timeline → Character Sheet (drop in the anchor) → Scene Plan (paced cuts) → sequential Continuity Render → Scene Review (approve) → Timestamp Video Assembly. Great for 'if I had $1000 today, here's how I'd multiply it' / 'if I had a MacBook today, here's how I'd make money with it' style POV advice — but the technique applies to any topic that benefits from a consistent on-screen character. SLOW by design (each scene waits on the previous render) in exchange for character consistency. NOT for evenly-distributed scene-images storytelling (use Narrative) and NOT for stock-footage (use Voice over Stock Footage).",
+  "builtin": true,
+  "schemaVersion": 1,
+  "visualSource": "continuity-chain",
+  "idea": {
+    "systemPromptRole": "You are helping generate first-person, point-of-view episode ideas for a creator-led channel where one consistent on-screen character carries the whole video. Each idea should be framed from the creator's perspective and lend itself to a sequence of concrete, visualizable moments the character moves through (sitting at a desk, opening a laptop, walking into a shop, counting cash). Favour aspirational, actionable, 'here's exactly what I'd do' angles over abstract commentary.",
+    "audienceDefault": "viewers who want a relatable, first-person walkthrough they can imagine themselves doing",
+    "moodVocabulary": [
+      "aspirational",
+      "motivating",
+      "candid",
+      "energetic",
+      "personal",
+      "practical",
+      "confident",
+      "hustle",
+      "grounded",
+      "real"
+    ],
+    "themeVocabulary": [
+      "money",
+      "side-hustle",
+      "productivity",
+      "tech",
+      "entrepreneurship",
+      "self-improvement",
+      "daily-routine",
+      "challenge",
+      "first-person",
+      "lifestyle"
+    ],
+    "genreVocabulary": [
+      "POV",
+      "vlog-style",
+      "challenge",
+      "how-I-would",
+      "day-in-the-life",
+      "walkthrough",
+      "experiment"
+    ],
+    "keywordVocabulary": [
+      "if I had",
+      "here's what I'd do",
+      "how I would",
+      "starting from",
+      "in 24 hours",
+      "with just",
+      "step by step",
+      "from scratch",
+      "my plan to"
+    ],
+    "guidanceText": "Each idea should imply a clear sequence of scenes the character physically moves through, so the continuity chain has distinct beats to render. 'How to save money' is too abstract; 'If I had $1000 today, here's exactly what I'd do to multiply it' gives a walkable, scene-by-scene arc. Keep it first-person and concrete.",
+    "exampleIdeas": [
+      {
+        "title": "If I had $1000 today, here's exactly what I'd do to multiply it",
+        "logline": "A first-person play-by-play: from an empty account to a working plan, each step shown as its own scene with the same person on screen.",
+        "themes": [
+          "money",
+          "side-hustle",
+          "first-person"
+        ],
+        "suggested_chapters": 6,
+        "suggested_length": "8 min",
+        "mood": "aspirational, practical"
+      },
+      {
+        "title": "If I had a MacBook today, here's how I'd make money with it",
+        "logline": "One creator, one laptop — walking through the exact tools and first moves, scene by scene, to go from zero to first dollar.",
+        "themes": [
+          "tech",
+          "entrepreneurship",
+          "productivity"
+        ],
+        "suggested_chapters": 5,
+        "suggested_length": "7 min",
+        "mood": "motivating, candid"
+      }
+    ]
+  },
+  "script": {
+    "defaultPerspective": "first",
+    "systemPromptRole": "You are writing a point-of-view narration where ONE character carries the whole video and the visuals are rendered scene-by-scene to match the audio. The narrative person (first / second / third) is set by the script's Point-of-view picker — follow it exactly. Write in a natural spoken voice. Crucially, give the visual planner clear, concrete physical beats to latch onto — what the on-screen character is doing, holding, looking at, or where they are — because each beat becomes its own rendered scene in a continuity chain. Short, vivid, action-anchored sentences beat long abstract ones.",
+    "additionalRules": [
+      "Keep the chosen point of view (the Point-of-view setting) consistent throughout.",
+      "Anchor each idea to a concrete, visualizable action or location — the planner turns these into scenes.",
+      "Prefer short, punchy sentences over long abstract ones; busy passages should imply faster cuts.",
+      "Keep one consistent on-screen persona — don't introduce new unnamed people the chain can't render consistently.",
+      "Close with a clear payoff or call to action that lands the POV premise."
+    ],
+    "pacingArc": [
+      "Hook: state the first-person premise ('If I had X today…')",
+      "Setup: the starting situation, shown as an establishing scene",
+      "Core: the step-by-step plan, each step its own concrete beat",
+      "Momentum: a busier stretch of quick actions (faster cuts)",
+      "Payoff: the result, tie back to the opening premise"
+    ],
+    "closingHint": "End on the payoff that resolves the opening 'if I had…' premise.",
+    "defaultChapterCount": 5,
+    "chapterCountRange": [
+      3,
+      10
+    ],
+    "defaultLengthMinutes": 8,
+    "lengthMinutesRange": [
+      3,
+      20
+    ],
+    "durationPresets": [
+      5,
+      6,
+      8,
+      10,
+      12
+    ],
+    "defaultWordsPerMinute": 160,
+    "chaptersIndependent": false,
+    "narratorStyles": [
+      {
+        "id": "A",
+        "label": "Casual first-person",
+        "description": "Relaxed, conversational 'talking to a friend' voice. The default for POV creator content."
+      },
+      {
+        "id": "B",
+        "label": "High-energy hustle",
+        "description": "Faster, punchier, motivational — leans into momentum and quick wins."
+      },
+      {
+        "id": "C",
+        "label": "Calm and deliberate",
+        "description": "Measured, confident, 'let me walk you through this' pacing. Good for thoughtful walkthroughs."
+      }
+    ],
+    "defaultNarratorStyleId": "A",
+    "videoDefaults": {
+      "aspectRatio": "landscape",
+      "defaultTimelineClipDurationSeconds": 4
+    },
+    "audioDefaults": {
+      "speed": 1,
+      "stability": 0.85,
+      "similarity": 0.9
+    },
+    "audioMergeDefaults": {
+      "normalizeVolume": true,
+      "gapDurationSec": 1
+    }
+  },
+  "imagePrompts": {
+    "purposeNote": "(populated by the Scene Plan page — the LLM produces one visual prompt per planned scene, paced to the user-set min/max scene length. The Continuity Render then generates each scene sequentially, anchoring on the character sheet and optionally referencing the previous scene's render.)",
+    "visualStyleHint": "Keep the SAME character, wardrobe, and setting consistent across every scene — the continuity chain depends on it. Describe what the character is doing in this beat; the look is carried by the reference images.",
+    "defaultScenesTotalRange": [
+      20,
+      120
+    ],
+    "defaultThumbnails": 3,
+    "defaultStyleTag": "Consistent character, consistent lighting and style across scenes. Cohesive, grounded, slightly cinematic. The same person should be recognizable in every frame.",
+    "characterReferenceMode": "none",
+    "recommendedAspect": "16:9",
+    "thumbnail": {
+      "conceptGuidance": "A cover featuring the story's recurring character as a clear hero, mid-action in a relatable setting, in the same consistent look used across the chain. Authentic and energetic — the viewer should recognize the character instantly.",
+      "compositionRules": [
+        "Recurring character as the clear hero, large in frame, mid-action",
+        "Consistent wardrobe and style with the rest of the chain",
+        "Relatable, grounded setting with a clean area for the title"
+      ],
+      "defaultTextStyle": "shadow",
+      "defaultFontStyle": "bold",
+      "moodKeywords": ["authentic", "energetic", "relatable"],
+      "avoid": ["faceless or distant framing", "inconsistent character look", "generic stock feel"]
+    }
+  },
+  "metadata": {
+    "purposeNote": "for a first-person / POV creator channel (advice, side-hustle, challenge, day-in-the-life)",
+    "titleStyleHint": "first-person + concrete payoff — 'If I had X, here's how I'd Y'",
+    "titleHookRules": [
+      "Lead with the first-person premise the video pays off.",
+      "Name the concrete constraint or starting point ($1000, a MacBook, 24 hours).",
+      "Imply a clear result the viewer wants ('multiply it', 'make money', 'go from zero')."
+    ],
+    "tagsContext": "for a first-person POV advice / hustle video",
+    "tagsHookRules": [
+      "Mix broad topic keywords (side hustle, make money online) with the specific premise.",
+      "Each tag should be 1-4 words.",
+      "No \"#\" prefix — these are YouTube tags, not hashtags."
+    ],
+    "broadKeywords": [
+      "side hustle",
+      "make money",
+      "first person",
+      "pov",
+      "productivity",
+      "entrepreneurship",
+      "how i would"
+    ],
+    "defaultMaxChars": 4000,
+    "defaultTitleCount": 5,
+    "defaultTitleMaxLength": 100,
+    "defaultTagCount": 15,
+    "youtubeDescriptionStructure": {
+      "musicLabel": "MUSIC",
+      "booksSectionLabel": "🔗 LINKS:",
+      "supportSection": "Subscribe for more first-person breakdowns.",
+      "aiDisclosure": "🤖 AI DISCLOSURE:\nVisuals assembled with AI tools; scenes are rendered to match the narration.",
+      "defaultHashtags": [
+        "#SideHustle",
+        "#POV"
+      ],
+      "totalHashtagCount": 8
+    },
+    "defaultStarterTemplate": "pov"
+  }
+}

@@ -1,10 +1,9 @@
 {
   "id": "listicle",
-  "name": "Listicle / Explainer",
-  "description": "Multi-topic explainer videos in the '100 X explained' / 'N mysteries' / 'N plane crashes' style — BrainWise-channel format. Each chapter is an independent topic with hook → explanation → micro-payoff; no narrative continuity between chapters. Pairs with compilation video layout (looping background + per-chapter foreground icons). Generated visuals are minimalist circular badges on a white-key background, sized + positioned via the project's foreground defaults.",
+  "name": "Listicle (numbered Top-N)",
+  "description": "Multi-topic explainer video in the 'Top N X' / 'N things you didn't know' / 'N Y explained' shape. Each chapter is an independent topic with hook → reveal → micro-payoff; no narrative continuity between chapters. Use this for educational countdowns ('10 Sleep Mysteries Explained'), ranking videos ('15 Cheapest Cities'), trivia compilations, BrainWise-channel style. Pipeline matches Narrative (AI-generated scenes per chapter) but the script shape is enumeration, not story arc. Pairs with compilation video layout (looping background + per-chapter foreground icons / minimalist circular badges). Layer a niche to set the topic domain — history-narration, animals, plants, psychology, fungi, insects. NOT for cohesive stories with characters — use Narrative. NOT for citation-dependent factual content — use Narration-synced.",
   "builtin": true,
   "schemaVersion": 1,
-
   "idea": {
     "systemPromptRole": "You are helping generate new episode ideas for a multi-topic explainer / listicle YouTube channel. Each episode is a single video bundling several short, independent topics around a unifying theme.",
     "audienceDefault": "curious adults",
@@ -81,37 +80,95 @@
       "cold cases",
       "lost civilizations",
       "everyday life",
-      "optical illusions", "auditory illusions", "cognitive biases",
-      "logical fallacies", "famous paradoxes", "thought experiments",
-      "unsolved math problems", "mathematical coincidences",
-      "physics weirdness", "quantum mysteries", "astronomical scales",
-      "tiny scales", "weird animals", "extreme adaptations",
-      "deep-sea creatures", "extinct creatures", "fossil mysteries",
-      "weird plants", "carnivorous plants", "weird fungi",
-      "ancient inventions", "ancient computers", "lost technologies",
-      "engineering disasters", "aviation incidents", "maritime disasters",
-      "submarine incidents", "spaceflight mishaps", "near-misses",
-      "near-extinctions", "narrow escapes", "famous coincidences",
-      "weird laws still on the books", "obscure rules", "strange tax codes",
-      "language oddities", "untranslatable words", "phonetic curiosities",
-      "lost-in-translation moments", "etymological surprises",
-      "place-name origins", "name-meaning surprises", "linguistic relatives",
-      "writing-system origins", "missing letters", "obsolete punctuation",
-      "scientific accidents", "lucky discoveries", "serendipity in science",
-      "left-handed facts", "right-handed facts", "human-body oddities",
-      "anatomy curiosities", "genetic mosaicism", "chimerism",
-      "weird inheritance", "rare conditions", "extreme aging",
-      "longevity records", "premature aging", "child prodigies",
-      "savant abilities", "synaesthesia", "phantom limbs",
-      "déjà vu", "tip-of-the-tongue", "involuntary memories",
-      "famous unsolved cases", "famous heists", "famous forgeries",
-      "art-world scandals", "music-world hoaxes", "publishing-world frauds",
-      "film-set disasters", "lost media", "found footage",
-      "abandoned places", "ghost towns", "lost cities",
-      "unfinished megaprojects", "scrapped inventions", "patent oddities",
-      "weird trademarks", "lost languages", "rediscovered languages",
-      "isolated populations", "uncontacted tribes",
-      "expeditions that disappeared", "cold cases solved by DNA",
+      "optical illusions",
+      "auditory illusions",
+      "cognitive biases",
+      "logical fallacies",
+      "famous paradoxes",
+      "thought experiments",
+      "unsolved math problems",
+      "mathematical coincidences",
+      "physics weirdness",
+      "quantum mysteries",
+      "astronomical scales",
+      "tiny scales",
+      "weird animals",
+      "extreme adaptations",
+      "deep-sea creatures",
+      "extinct creatures",
+      "fossil mysteries",
+      "weird plants",
+      "carnivorous plants",
+      "weird fungi",
+      "ancient inventions",
+      "ancient computers",
+      "lost technologies",
+      "engineering disasters",
+      "aviation incidents",
+      "maritime disasters",
+      "submarine incidents",
+      "spaceflight mishaps",
+      "near-misses",
+      "near-extinctions",
+      "narrow escapes",
+      "famous coincidences",
+      "weird laws still on the books",
+      "obscure rules",
+      "strange tax codes",
+      "language oddities",
+      "untranslatable words",
+      "phonetic curiosities",
+      "lost-in-translation moments",
+      "etymological surprises",
+      "place-name origins",
+      "name-meaning surprises",
+      "linguistic relatives",
+      "writing-system origins",
+      "missing letters",
+      "obsolete punctuation",
+      "scientific accidents",
+      "lucky discoveries",
+      "serendipity in science",
+      "left-handed facts",
+      "right-handed facts",
+      "human-body oddities",
+      "anatomy curiosities",
+      "genetic mosaicism",
+      "chimerism",
+      "weird inheritance",
+      "rare conditions",
+      "extreme aging",
+      "longevity records",
+      "premature aging",
+      "child prodigies",
+      "savant abilities",
+      "synaesthesia",
+      "phantom limbs",
+      "déjà vu",
+      "tip-of-the-tongue",
+      "involuntary memories",
+      "famous unsolved cases",
+      "famous heists",
+      "famous forgeries",
+      "art-world scandals",
+      "music-world hoaxes",
+      "publishing-world frauds",
+      "film-set disasters",
+      "lost media",
+      "found footage",
+      "abandoned places",
+      "ghost towns",
+      "lost cities",
+      "unfinished megaprojects",
+      "scrapped inventions",
+      "patent oddities",
+      "weird trademarks",
+      "lost languages",
+      "rediscovered languages",
+      "isolated populations",
+      "uncontacted tribes",
+      "expeditions that disappeared",
+      "cold cases solved by DNA",
       "wrongful convictions overturned"
     ],
     "guidanceText": "Episode ideas should be a UNIFYING theme covering 5-15 short independent topics (e.g. '10 paradoxes explained' or '7 plane crashes that changed aviation'). Don't pitch a single-topic deep-dive — that's a different channel. Each topic must be self-contained, fact-checkable, and 2-5 minutes long when narrated.",
@@ -127,24 +184,37 @@
       "FORBIDDEN: clickbait punctuation ('!!', all-caps, fire emoji). Title can be curious / catchy but stays evidence-based.",
       "Subject must be PLURAL (mysteries, crashes, paradoxes, illusions, creatures, theories, facts) — singular = wrong format."
     ],
-    "titleLengthRange": [4, 10],
+    "titleLengthRange": [
+      4,
+      10
+    ],
     "loglineShapeRules": [
       "1-2 sentences describing the unifying angle + a hint at the most striking 1-2 items in the list.",
       "Concrete: name specific examples, not 'various interesting cases'.",
       "Evidence-based voice — research / data / documented incidents, not speculation."
     ],
-    "loglineSentenceRange": [1, 2],
+    "loglineSentenceRange": [
+      1,
+      2
+    ],
     "themeShapeRules": [
       "Pick 2-4 SUBJECT-AREA keywords (the domain the listicle covers, not emotional themes).",
       "Examples: sleep / psychology / biology for sleep mysteries; aviation / safety / engineering for plane crashes."
     ],
-    "themeCountRange": [2, 4],
+    "themeCountRange": [
+      2,
+      4
+    ],
     "structuralVariety": "vary-all",
     "exampleIdeas": [
       {
         "title": "10 Sleep Mysteries Explained",
         "logline": "From why we yawn to why we never seem to fall in dreams without waking — ten everyday sleep oddities, each settled in 3 minutes.",
-        "themes": ["sleep", "psychology", "biology"],
+        "themes": [
+          "sleep",
+          "psychology",
+          "biology"
+        ],
         "suggested_chapters": 10,
         "suggested_length": "30 min",
         "mood": "curious, accessible, evidence-based"
@@ -152,14 +222,16 @@
       {
         "title": "7 Plane Crashes That Changed Aviation Forever",
         "logline": "Each disaster rewrote a rule still saving lives today. Seven case studies — what went wrong, what was learned, what we owe to the lost.",
-        "themes": ["historical events", "engineering failures"],
+        "themes": [
+          "historical events",
+          "engineering failures"
+        ],
         "suggested_chapters": 7,
         "suggested_length": "35 min",
         "mood": "matter-of-fact, evidence-based"
       }
     ]
   },
-
   "script": {
     "systemPromptRole": "You are a clear, curious explainer-channel writer. You don't tell stories — you bundle short, independent topics around a unifying theme, each with a hook, an explanation, and a memorable micro-payoff. Think of QI, Veritasium, RealLifeLore in tone: confident, evidence-based, occasionally wry, never preachy.",
     "additionalRules": [
@@ -178,21 +250,58 @@
     ],
     "closingHint": "Each topic must stand alone — a viewer dropping in mid-video should still get a complete topic.",
     "defaultChapterCount": 10,
-    "chapterCountRange": [3, 20],
+    "chapterCountRange": [
+      3,
+      20
+    ],
     "defaultLengthMinutes": 30,
-    "lengthMinutesRange": [10, 90],
-    "durationPresets": [10, 15, 20, 30, 45, 60, 90],
+    "lengthMinutesRange": [
+      10,
+      90
+    ],
+    "durationPresets": [
+      10,
+      15,
+      20,
+      30,
+      45,
+      60,
+      90
+    ],
     "defaultWordsPerMinute": 155,
     "narratorStyles": [
-      { "id": "A", "label": "Curious explainer",          "description": "Like a smart friend explaining over coffee. Confident but never condescending. Veritasium-adjacent." },
-      { "id": "B", "label": "QI-style wry",               "description": "Slightly arch, finds humour in the absurd. Lets factual surprise carry the laugh; never punches the joke." },
-      { "id": "C", "label": "Documentary deadpan",        "description": "Matter-of-fact, evidence-forward, quiet authority. RealLifeLore in narration mode." },
-      { "id": "D", "label": "Energetic listicle host",    "description": "Punchy, paced, conversational. Closer to a long-form podcast host than a documentary narrator." },
-      { "id": "E", "label": "Educational calm",           "description": "Patient, clear, slightly schoolteacher — but the cool kind who made the subject feel alive." }
+      {
+        "id": "A",
+        "label": "Curious explainer",
+        "description": "Like a smart friend explaining over coffee. Confident but never condescending. Veritasium-adjacent."
+      },
+      {
+        "id": "B",
+        "label": "QI-style wry",
+        "description": "Slightly arch, finds humour in the absurd. Lets factual surprise carry the laugh; never punches the joke."
+      },
+      {
+        "id": "C",
+        "label": "Documentary deadpan",
+        "description": "Matter-of-fact, evidence-forward, quiet authority. RealLifeLore in narration mode."
+      },
+      {
+        "id": "D",
+        "label": "Energetic listicle host",
+        "description": "Punchy, paced, conversational. Closer to a long-form podcast host than a documentary narrator."
+      },
+      {
+        "id": "E",
+        "label": "Educational calm",
+        "description": "Patient, clear, slightly schoolteacher — but the cool kind who made the subject feel alive."
+      }
     ],
     "defaultNarratorStyleId": "A",
     "chaptersIndependent": true,
-    "sectionLabel": { "singular": "Topic", "plural": "Topics" },
+    "sectionLabel": {
+      "singular": "Topic",
+      "plural": "Topics"
+    },
     "videoDefaults": {
       "secondsPerScene": 6,
       "transitionType": "fade",
@@ -201,7 +310,7 @@
       "defaultTimelineClipDurationSeconds": 60
     },
     "audioDefaults": {
-      "speed": 1.0,
+      "speed": 1,
       "stability": 0.6,
       "similarity": 0.8
     },
@@ -220,17 +329,30 @@
       "exampleText": "Hello there… I'm {host_name}.\nHere on {channel_name}, we explore mysteries, paradoxes, history, and the everyday phenomena.\nIf you enjoy getting your brain picked, you're welcome to subscribe… and leave a like or a comment if you'd like.\nNow… let's begin."
     }
   },
-
   "imagePrompts": {
     "purposeNote": "for a multi-topic explainer episode (one minimalist circular badge per topic, designed to composite over a starfield / atmospheric background via chroma-key)",
     "visualStyleHint": "minimalist circular badge, flat colors, isolated subject, white background for chroma-key",
-    "defaultScenesTotalRange": [10, 10],
+    "defaultScenesTotalRange": [
+      10,
+      10
+    ],
     "defaultThumbnails": 3,
     "defaultStyleTag": "Minimalist circular badge illustration with the subject framed inside a white circular border. Flat colors, bold simple line work, isolated subject (no background imagery — pure white background fills everything outside the circle for chroma-key removal). Single-concept icon style, like a sticker or pictogram. Avoid text inside the badge unless the topic explicitly calls for one short word. Aspect 16:9 with the badge centered.",
     "characterReferenceMode": "inline",
-    "recommendedAspect": "16:9"
+    "recommendedAspect": "16:9",
+    "thumbnail": {
+      "conceptGuidance": "A bold, punchy cover for a numbered explainer. Feature ONE striking hero subject drawn from the most surprising item in the list, rendered large and high-impact, optionally with a big number motif. This is a clickable COVER — NOT the minimalist white-background scene badge (badges are for in-video compositing only).",
+      "compositionRules": [
+        "One oversized hero subject filling much of the frame",
+        "Punchy, saturated palette with a strong high-contrast band reserved for the title and/or a large number",
+        "Poster-like crisp edges with clear separation from the background"
+      ],
+      "defaultTextStyle": "shadow",
+      "defaultFontStyle": "bold",
+      "moodKeywords": ["punchy", "bold", "high-energy", "eye-catching", "high-contrast"],
+      "avoid": ["white chroma-key background", "minimalist circular badge look", "pastel or low-contrast palette", "busy multi-subject collage"]
+    }
   },
-
   "metadata": {
     "purposeNote": "for a listicle / explainer episode bundling N independent topics",
     "titleStyleHint": "punchy listicle / explainer title — number-led, hook-first, optimised for YouTube CTR without being clickbait",
@@ -263,10 +385,13 @@
       "booksSectionLabel": "📚 FURTHER READING:",
       "supportSection": "💡 SUPPORT:\nSubscribe to keep the topics coming. New episode every week.",
       "aiDisclosure": "🤖 AI DISCLOSURE:\nResearch consolidation and narration assisted by AI tools, reviewed for accuracy.",
-      "defaultHashtags": ["#explained", "#facts"],
+      "defaultHashtags": [
+        "#explained",
+        "#facts"
+      ],
       "totalHashtagCount": 12
-    }
+    },
+    "defaultStarterTemplate": "listicle"
   },
-
   "productionStandardsAddendum": "LISTICLE / EXPLAINER FORMAT — CRITICAL RULES\n\n1. Each chapter is an independent topic. Do NOT carry recurring characters, settings, or plot threads between chapters.\n2. Every chapter opens with a HOOK (question or counter-intuitive claim) and ends with a MICRO-PAYOFF (memorable line / open question / wry beat).\n3. Evidence-based. When making a factual claim, mention the mechanism, source, or notable example. Avoid bare assertions.\n4. Conversational but precise. No marketing speak. No 'mind-blowing'. No 'this will change your life'.\n5. The chapter title doubles as the on-screen text overlay during that chapter, so write it as a question or bold claim suitable for a YouTube graphic — not as a noun phrase like 'Hibernation Patterns'."
 }

@@ -4,6 +4,4074 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.242 — 2026-06-03
+
+### Added — Scene-planner detail control, style prompt, custom instructions + savable presets
+The scene planner wrote every `visual_prompt` at one fixed richness ("2-3 sentences"), which often came out too broad (e.g. *"the character leans down and looks at his window"*). You can now control how detailed the LLM's descriptions are, steer their look, and save the whole setup:
+
+- **Visual detail slider (Concise → Standard → Detailed → Cinematic).** Drives both the length and which elements the planner must describe — at **Cinematic** it covers full subject/wardrobe/expression, exact action, layered background + props, shot type/angle/lens/DoF, the lighting setup, colour grade, and atmosphere (~110–150 words). **Standard** is the historical default, so existing behaviour is unchanged until you move the slider.
+- **Style prompt** — global visual style (medium, art style, lighting feel, colour treatment) woven into *every* scene's `visual_prompt` rather than repeated verbatim.
+- **Custom instructions** — free-text directives the planner honours across all scenes (recurring props, framing rules, things to always/never show).
+- **Savable presets** — the Scene Plan page now has the same device-aware **PresetPicker** as the Ideas/Scripts pages. Save the model, target count, research toggle, detail level, style, and custom instructions as a named preset and re-apply in one click. Stored under `config.scene_plan_presets`.
+
+The chosen detail level + style/custom text are also logged to the Jobs panel for each plan run.
+
+### Files
+- `electron/server/services/scene-planner.ts` (detail-level specs + style/custom-instruction injection into the planner prompt)
+- `electron/server/models/types.ts` · `electron/server/routes/scene-plan.ts` · `electron/server/generators/scene-plan.ts` (thread `detail_level` / `style_prompt` / `custom_instructions` through)
+- `frontend/pages/projects/[slug]/scene-plan.vue` (detail slider, style + custom-text fields, PresetPicker)
+- `frontend/composables/usePresets.ts` (`scene-plan` preset type)
+
+---
+
+## v1.0.241 — 2026-06-03
+
+### Added — Parallel render mode (style + sheet only, no continuity) + click-to-preview
+Continuity rendering had one path: a **sequential chain** where each scene is anchored to the *previous* scene's render. That gives the best frame-to-frame consistency but forces one-scene-at-a-time rendering — slow for long episodes. This release opens a second path **without abandoning the chain**:
+
+- **⚡ Render in parallel** — renders scenes concurrently using **only the style image + character sheet/anchor characters** (the previous-render reference is dropped, so scenes no longer depend on each other). A bounded pool runs several at once, so a 60-scene episode finishes in a fraction of the sequential time. There's a **⚡↻ Re-render all (parallel)** variant for a fast bulk re-roll, and a new **Parallel ×N** picker (×2–×8, default ×3) to tune how many scenes render at once — handy for keeping a local modal from being overloaded.
+- The existing **🎬 Render sequentially** chain is unchanged and still the default for maximum continuity. The live "Now rendering" panel adapts: in parallel mode it shows the shared references and how many scenes are in flight, and **every** in-flight scene gets the spinner (not just one).
+- **Click any generated scene image to preview it full-size** in a lightbox, with ←/→ to step through scenes that have images and Esc to close. Approve or jump-to-audio right from the preview. (The per-scene timestamp button still seeks the audio player.)
+
+### Files
+- `electron/server/generators/continuity-render.ts` (independent/parallel render branch with a bounded concurrency pool; serialised plan + status writes)
+- `electron/server/routes/scene-review.ts` (`independent` + `concurrency` params on continuity-render)
+- `frontend/pages/projects/[slug]/scene-review.vue` (parallel render buttons + concurrency picker, parallel-aware live panel, click-to-preview lightbox)
+
+---
+
+## v1.0.240 — 2026-06-03
+
+### Added — Aspect-ratio control in Scene Review (and the frame is now visible)
+Scene Review only ever rendered at a hardcoded **16:9** with no way to see or change it — the ratio control lived solely on the standalone Images page. Now the Greenlight panel has an **Aspect** dropdown (16:9 Landscape, 21:9 Ultrawide, 4:3, 1:1, 9:16 Portrait) sitting left of the model picker, and the picked ratio is sent to every render path (single regen, generate-all-missing, continuity render). To make the frame visible rather than implied, **the scene thumbnails — filled, empty, and the "generating" placeholder — re-shape live to whatever ratio you select**, so you see the exact frame you're rendering at. Defaults to 16:9, so existing flows are unchanged.
+
+### Files
+- `frontend/pages/projects/[slug]/scene-review.vue` (aspect dropdown + reactive thumbnail aspect-ratio)
+
+---
+
+## v1.0.239 — 2026-06-03
+
+### Changed — Image model picker shows the real provider per model (no more "everything is kie.ai")
+With OpenAI-direct and OpenRouter image models added, the picker was still labelling every cloud model under one **"Cloud — kie.ai"** heading, which was inaccurate. Now each cloud model carries a **colour-coded provider badge at the front** — **kie.ai**, **OpenAI**, or **OpenRouter** — so you can tell at a glance who actually serves it. The rows are grouped by provider, the misleading "kie.ai" section label is gone (just "☁︎ Cloud models (N)"), and the picker's trigger pill shows the selected model's provider badge too. Redundant "[OpenAI · direct]" / "[OpenRouter]" suffixes were trimmed from the model names since the badge now carries that.
+
+### Files
+- `frontend/components/ImageModelPicker.vue` (provider badges + grouping + trigger) · `electron/server/models/defaults.ts` (trimmed labels)
+
+---
+
+## v1.0.238 — 2026-06-03
+
+### Fixed — Style reference preview was broken (404), and the render endpoint was mislabelled
+- **Style reference now previews.** The style image (`style.png`) was saved and used in renders correctly, but its *thumbnail* showed a broken image on both the Character Sheet page and the Scene Review "feeding in" panel. The file-serving route's filename allow-list included `master.png` and `scene-NN.png` but not `style.png`, so the preview request 400'd. Added `style.png` to the allow-list.
+- **Render banner now says "image-to-image" correctly.** When rendering with references on a direct provider (OpenAI GPT Image 2, OpenRouter Gemini), the live panel mislabelled the call as "text-to-image". The label was derived from the kie-specific `api_model_i2i` field, which those providers don't have (they do img2img via `/edits` / `image_url` blocks). It now reflects whether references are actually attached to a reference-capable model — so a continuity render with your character sheet + style + previous render correctly reads **image-to-image**.
+
+### Files
+- `electron/server/routes/image-references.ts` (allow `style.png`) · `electron/server/generators/continuity-render.ts` (endpoint label)
+
+---
+
+## v1.0.237 — 2026-06-03
+
+### Changed — LLM provider lineup: DeepSeek + OpenRouter in, direct Anthropic out
+
+The text-model roster was reworked for cost. The **AI Model** dropdown (Settings → This Mac for keys) now offers:
+- **DeepSeek (official API)** — `DeepSeek V4 Flash` (the new default model — cheapest) and `DeepSeek V4 Pro`. Add a **DeepSeek** key in Settings.
+- **OpenRouter** — `DeepSeek V4 Flash [OpenRouter]` to start (curated; more can be added). Add an **OpenRouter** key.
+- **kie.ai** Claude / GPT / Gemini (unchanged) and **OpenAI** direct (unchanged).
+
+**Removed:**
+- **Direct/official Anthropic** — the provider, its Claude models, and its Settings key field are gone. Claude is now reached more cheaply through **kie.ai**. (Any Anthropic key you'd stored is left untouched on disk but no longer used or shown.)
+- **kie.ai DeepSeek** (`DeepSeek V3/R1 [kie.ai]`) — kie dropped support; use the official DeepSeek provider instead.
+
+**Vision repointed.** Reference-image analysis (character-sheet/style extraction, B-roll auto-tagging) used direct Anthropic Claude. It now routes through **kie.ai Claude (Sonnet)** with an automatic **GPT-4o fallback** (uses your OpenAI key) — so it keeps working without an Anthropic key. Note: kie.ai's Claude endpoint doesn't document image input, so if it can't read the image the system silently falls back to GPT-4o; for reliable vision keep an OpenAI key configured.
+
+**Existing projects keep working.** Saved selections pointing at a removed model (e.g. `claude-opus-4-6`, `deepseek-v3-kie`) are transparently remapped at call time (→ kie.ai Claude / official DeepSeek) — no project edits needed.
+
+### Files
+- `electron/server/providers/text/deepseek.ts` · `electron/server/providers/text/openrouter.ts` (new) · `electron/server/providers/text/kie-text.ts` · `electron/server/lib/vision-client.ts` · `electron/server/lib/ai-client.ts` · `electron/server/models/types.ts` · `electron/server/services/app-secrets-store.ts` · `electron/server/routes/{vision,characters,health,scripts}.ts` · `electron/server/generators/broll-autotag.ts` · `frontend/components/ThisMacSettings.vue` · `frontend/composables/useModelGroups.ts`
+
+---
+
+## v1.0.236 — 2026-06-03
+
+### Added — Google Gemini "Nano Banana" image models via OpenRouter (text-to-image + image-to-image)
+You can now generate images through **OpenRouter** using your existing OpenRouter credit — the same account you use for the LLM models. Two new image models in the picker:
+- **Gemini 2.5 Flash Image / Nano Banana [OpenRouter]** (`google/gemini-2.5-flash-image`)
+- **Gemini 3.1 Flash Image [OpenRouter]** (`google/gemini-3.1-flash-image-preview`)
+
+Both support **references**, so they work for continuity-chain. Under the hood, OpenRouter serves image generation through its chat-completions endpoint with `modalities: ["image","text"]`: text-to-image sends just the prompt; **image-to-image** attaches your reference images (character sheet + style + previous render) as `image_url` blocks, and the generated image comes back base64 and is saved like any other render.
+
+Cost shows as *"billed on your OpenRouter account (token-based)"* — watch spend on openrouter.ai. (One caveat: OpenRouter has no universal size parameter for Gemini image, so aspect ratio is requested via the prompt — Gemini honours it well, but if you need an exact ratio for video, double-check the first render.)
+
+### Verified
+Confirmed against OpenRouter's model pages that both `gemini-2.5-flash-image` (Nano Banana) and `gemini-3.1-flash-image-preview` are image-generation models that also accept image input for edits/img2img.
+
+### Files
+- `electron/server/providers/image/openrouter-image.ts` (new provider) · `electron/server/boot/providers.ts` (register) · `electron/server/models/defaults.ts` (two model entries) · `electron/server/routes/jobs.ts` (cost wording)
+- `frontend/components/ImageModelPicker.vue` (cost chip)
+
+---
+
+## v1.0.235 — 2026-06-03
+
+### Added — Official OpenAI image generation (GPT Image 2 direct, with image-to-image)
+You can now generate scene/thumbnail images with the **official OpenAI Images API**, billed straight to your **own OpenAI API key** — the same key you use for chat. No separate key, no kie.ai credits: it spends your OpenAI balance directly (great for using up leftover credit).
+
+- New image model **"GPT Image 2 [OpenAI · direct]"** in the model picker (cloud section). It supports references, so it works for continuity-chain too.
+- **Text-to-image** uses `POST /v1/images/generations`; **image-to-image** uses `POST /v1/images/edits` automatically when references are attached (character sheet + style + previous render are sent as the input images). So a continuity render with this model hits OpenAI's real img2img path.
+- Cost shows as *"billed on your OpenAI account (token-based — see the OpenAI dashboard)"* rather than a kie-credit figure, since OpenAI prices images by tokens.
+
+Two things to know: (1) the key bills your **OpenAI API platform** account (platform.openai.com), which is separate from a ChatGPT subscription — make sure your credit is there. (2) GPT-Image models may require a one-time **"API Organization Verification"** on the OpenAI console; if you hit that error, the app tells you exactly where to verify.
+
+### Files
+- `electron/server/providers/image/openai-image.ts` (new provider: /generations + /edits) · `electron/server/boot/providers.ts` (register) · `electron/server/models/defaults.ts` (model entry) · `electron/server/lib/kie-client.ts` (`downloadImage` now decodes `data:`/base64 results) · `electron/server/routes/jobs.ts` (cost wording)
+- `frontend/components/ImageModelPicker.vue` (cost chip)
+
+---
+
+## v1.0.234 — 2026-06-03
+
+### Added — kie.ai chat models (Claude, GPT, Gemini) selectable everywhere
+The AI Model dropdown now lists kie.ai's chat catalog under a **kie.ai** group, billed through your single kie.ai key — so you can run Scene Plan, Script, Ideas, and Metadata on Opus 4.8, Sonnet 4.6, Haiku 4.5, GPT-5.2/5.4/5.5, or Gemini 3 Pro / 3 Flash / 3.1 Pro / 2.5 Pro / 2.5 Flash without separate Anthropic/OpenAI keys. Your direct-provider entries are untouched; the kie.ai versions are tagged `[kie.ai]` so the two are easy to tell apart.
+
+Under the hood this was more than a list addition: kie.ai's chat surface is a patchwork of four different API shapes (Claude uses the Anthropic Messages endpoint, GPT-5.2 uses OpenAI chat-completions, GPT-5.4/5.5 use the Responses API, Gemini uses per-model OpenAI-compatible paths) with inconsistent slugs (some hyphenated, some dotted). The kie text provider now routes each model through an explicit, verified table. Two models that only expose non-chat shapes — **Gemini 3.5 Flash** (Google-native `generateContent`) and **OpenAI Codex** — were left out pending their own adapter.
+
+### Improved — Scene Plan visual prompts are now detailed, not one-liners
+Scene planning was emitting a single short sentence per scene ("a person speaking"), which made for lackluster images. The planner now asks for **2-3 concrete sentences (~30-60 words)** per scene covering subject + appearance, action/pose, setting, camera framing, lighting, and mood — for both the explainer and continuity-chain planners. Same JSON shape, timestamps, and cross-segment continuity; just richer prompts feeding the image generator. (Root cause was the instruction, not the model.)
+
+### Files
+- `electron/server/providers/text/kie-text.ts` · `electron/server/providers/text/anthropic.ts` · `electron/server/providers/text/openai.ts` · `electron/server/models/types.ts` · `electron/server/services/scene-planner.ts`
+
+---
+
+## v1.0.233 — 2026-06-03
+
+### Added — Live "Now rendering" preview on Scene Review (see what's feeding into the model)
+During a continuity render you can now watch what's happening instead of staring at a static list. A live panel shows, for the scene rendering right now:
+- **"Rendering scene 42 of 273 → gpt-image-2 (image-to-image)"** — the model + which endpoint it's using.
+- The scene's **prompt**.
+- **Thumbnails of the exact reference images being fed in** — the character sheet, style reference, character images, and the previous scene's render — each labelled, with a pulsing highlight and an arrow into the scene being produced.
+
+The renderer publishes this live (a small status sidecar updated before each scene), so it's always the *real* set of images going to the API, not a guess. A **👁 Hide/Show preview** toggle (next to the progress bar) turns the panel off if you'd rather keep it minimal — your choice is remembered.
+
+(The per-scene spinner overlay + progress banner from v1.0.231 still apply; this adds the reference preview on top.)
+
+### Files
+- `electron/server/generators/continuity-render.ts` (live render-status sidecar with reference URLs) · `electron/server/routes/scene-review.ts` (surface `render_status`)
+- `frontend/pages/projects/[slug]/scene-review.vue` (live preview panel + toggle)
+
+---
+
+## v1.0.232 — 2026-06-02
+
+### Fixed — Continuity render now actually uses image-to-image (your references were being ignored!)
+This is the big one. The continuity renderer was passing your references (character sheet, style, previous render) to the model, but it built an **incomplete provider-params object** that dropped `api_model_i2i`, `refs_field`, and `supports_reference_images`. So the kie provider never switched to the image-to-image endpoint — **every scene rendered text-to-image and silently ignored all references.** That's exactly why kie.ai history showed `gpt-image-2-text-to-image` instead of `-image-to-image`.
+
+Fixed: the renderer now forwards the full param set (matching the normal image generator). With references present, kie correctly uses the model's **`api_model_i2i`** variant (e.g. `gpt-image-2-image-to-image`), and your character sheet + style + previous-render references are actually consumed. The "model doesn't support references" warning also stops mis-firing.
+
+### Added — Generate ONE scene with references (one click)
+Each scene's button now does the right thing per format. For **continuity-chain**, it's **"🎬 Generate (refs)"** — renders just that one scene with the full reference stack (character sheet + style + characters + the previous scene's render), no re-chaining of the rest. Perfect for re-rolling a single scene you don't like. (For non-continuity formats it's the normal prompt-only "↻ Regenerate".)
+
+### Added — Upload your own image for any scene
+Every scene now has an **"⬆ Upload"** button: drop in your own image (e.g. a free one from the web) and it becomes that scene's render directly — no generation. Saved into the episode's scene images and recorded in the plan; the scene resets to needs-approval so you can greenlight it.
+
+### Files
+- `electron/server/generators/continuity-render.ts` (full provider-params + single-scene mode) · `electron/server/routes/scene-review.ts` (single_scene_id + upload route) · `electron/server/routes/image-references.ts` (exported decoder)
+- `frontend/pages/projects/[slug]/scene-review.vue` (per-scene generate-with-refs + upload buttons)
+
+---
+
+## v1.0.231 — 2026-06-02
+
+### Fixed — Reference uploads now show a persistent "✓ Saved" indicator
+Uploading an episode sheet or style reference only flashed a toast for a few seconds, so it was easy to think nothing happened and re-upload. Two fixes on the Character Sheet page:
+- Each reference section (Episode sheet, Style reference) now shows a persistent green **✓ Saved** badge in its header whenever a reference exists, plus the thumbnail preview.
+- Existence is now read from the references listing (authoritative) instead of a hidden image probe that could flip back to "not saved" on a transient load hiccup right after upload — which is exactly what made it look broken.
+
+### Changed — Bigger, more readable image-model picker
+The image-model dropdown (Scene Review / Generators) inherited the trigger's width, so when it sat inline in a toolbar it was cramped and hard to read. It's now a fixed, comfortable width (460px, clamped to the viewport) with larger row text and a stronger shadow.
+
+### Added — Live "generating" animation while scenes render
+Scene Review now shows what's happening during a render:
+- A **spinner overlay** on the exact scene being rendered right now (parsed from the render job's progress), and a "Rendering…" overlay on scenes being re-rolled.
+- A **progress banner** ("Rendering scene 42 of 273… · 15% overall") with a bar.
+- The page **auto-refreshes while a render is active**, so finished images appear in place as each one completes — no manual reload.
+
+### Files
+- `frontend/pages/projects/[slug]/character-sheet.vue` (saved badges + reliable existence) · `frontend/components/ImageModelPicker.vue` (panel size/readability) · `frontend/pages/projects/[slug]/scene-review.vue` (live render state + auto-refresh)
+
+---
+
+## v1.0.230 — 2026-06-02
+
+### Fixed — Scene Review now has a real IMAGE-model picker (was showing text models)
+On the Scene Review page (where continuity-chain scenes render and per-scene re-rolls happen), the model dropdown was the **LLM** `ModelSelector` — it listed text models (gpt-4.1, Claude…), not image models. So you couldn't pick **GPT Image 2** or any reference-capable image model, and the render then failed to resolve a valid image model. It's now the proper **Image model picker** (same as the Scene/Thumbnail Generator), so you can select GPT Image 2, Nano Banana, Flux Kontext, your local Image Studio models, etc. — with reference/img2img filtering shown. For continuity-chain it defaults to img2img mode so reference-capable models surface first.
+
+### Added — Style reference image for continuity-chain
+Alongside the character sheet, you can now give an episode a **style reference** — an image whose look/palette/lighting/rendering every scene should match. Combined with a reference-capable model like GPT Image 2, each scene renders from: **the scene's prompt + character sheet/anchors + the previous render (for flow) + your style reference.**
+
+- The **Character Sheet** page has a new *"Style reference (optional)"* section: drop/paste/upload one image (saved as the episode's `style.png`), with an "Apply this style to every scene" toggle. It also appears in the per-scene reference checklist.
+- The sequential renderer attaches the style reference to every scene when enabled.
+
+So the full continuity recipe is now: **GPT Image 2 (model) + character sheet + style reference + the planned prompt.**
+
+### Files
+- `frontend/pages/projects/[slug]/scene-review.vue` (ImageModelPicker) · `frontend/pages/projects/[slug]/character-sheet.vue` (style upload + toggle)
+- `electron/server/routes/image-references.ts` (style.png upload/delete/list) · `electron/server/generators/continuity-render.ts` (attach style ref) · `electron/server/routes/continuity.ts` + `electron/server/models/types.ts` (`references.style`)
+
+---
+
+## v1.0.229 — 2026-06-02
+
+### Changed — Scripts & prompts are now Markdown (.md), not Word (.docx)
+Chapter scripts, the unified narration, and the scene / thumbnail / video prompt sheets now save as plain-text **Markdown (`.md`)** instead of `.docx`. They're lighter, open in any text editor (no Word/Office needed), and are easy to read, edit, and diff. Under the hood the app was already working in Markdown and converting to/from Word on every read and write — dropping `.docx` removes that round-trip entirely (and the heavy `docx` dependency from the shipped app).
+
+- **Nothing to migrate.** Existing episodes keep working untouched: every reader prefers a `.md` file but transparently falls back to a legacy `.docx` (still read via `mammoth`). An old project simply upgrades to `.md` the next time you regenerate that chapter/prompt — no bulk conversion, no data loss, and mixed `.md`+`.docx` folders assemble correctly.
+- All readers, status checks, reconcilers, the resume guard, and folder/import classifiers were updated to recognize both extensions, so an episode is never mis-reported as "not generated".
+- The legacy "normalize a Word doc" import tool still ingests real `.docx` (that's its job) — it just writes the canonical chapter files as `.md` now.
+
+### Files
+- New `electron/server/lib/episode-artifacts.ts` (central `.md`-preferred resolver + dual-read raw-text reader + chapter matcher) · `lib/docx-builder.ts` (writes `.md`, drops the `docx` package) · `lib/docx-parser.ts` (`markdownToLines` + `readStructuredLines`; same parser API) · `services/utils.ts` (artifact paths → `.md`) · producers (`generators/{episode,image-prompts,images,ai-video,metadata,audio}.ts`, `routes/{scripts,ai-video}.ts`) · readers/detectors (`services/{asset-status,scene-planner,episode-import}.ts`, `lib/{narration-assembly,chunked-narration}.ts`, `routes/{audio,jobs,health,image-preview,image-prompts-edit,scene-plan}.ts`) · tests updated + new legacy-`.docx` dual-read guard · `docx` moved to devDependencies.
+
+---
+
+## v1.0.228 — 2026-06-02
+
+### Added — Cross-segment continuity in the chunked Scene Planner ("story so far")
+The chunked planner (v1.0.227) plans a long episode in time-segments, each in its own LLM call. Each segment saw the full narration, but **not the visual choices earlier segments made** — so on a long video the character's look / wardrobe / setting could drift slightly after each segment seam, and the rendered images wouldn't flow as one continuous person.
+
+Now, before planning each segment after the first, the planner injects a compact **"story so far"** recap built from the scenes already planned:
+- the **establishing shot** (the anchor visual from segment 1), and
+- the **last few scenes' visual prompts** (the immediate seam — "continue smoothly from this").
+
+with a "keep this consistent" instruction tuned per format — character/wardrobe continuity for continuity-chain, general visual-style consistency for explainers. It's derived from the plan itself, so there's **no extra LLM call and no added cost**. Net effect: characters and settings stay consistent across the whole video, even when it's planned in many segments.
+
+### Files
+- `electron/server/services/scene-planner.ts` (`buildStorySoFar` + per-segment injection) · `scene-planner-salvage.test.ts` (+4 tests, 13 total)
+
+---
+
+## v1.0.227 — 2026-06-02
+
+### Changed — Scene Plan now scales to any episode length (chunked planner)
+v1.0.226 raised the planner's output budget and added salvage, but a *very* long episode could still bump the ceiling. This is the proper fix: **the planner now plans the episode in time-segments instead of one giant response.** Episode length no longer matters — each segment's output is small and bounded, so it can never truncate.
+
+How it works:
+- The stitched timeline is split into contiguous **~30-scene windows** aligned to subtitle cue boundaries (never mid-cue). Each window is planned in its own LLM call, with the **full narration + research as context** (input is cheap — only output was ever the constraint) but asked to produce scenes for **that segment only**.
+- Segments are **stitched into one continuous plan** — boundaries are seamed so there's never a gap with no image, scenes are re-indexed end-to-end, and a window that returns nothing is auto-filled rather than leaving a hole.
+- The Jobs log shows live progress (*"Planned segment 3/6 — 92 scenes so far…"*) and notes when an episode was planned in multiple segments.
+
+Net effect: a 5-minute or a 50-minute episode both plan reliably; "LLM returned no usable scenes" from output truncation is gone. Short episodes still plan in a single pass (one window), so nothing changes for them.
+
+### Files
+- `electron/server/services/scene-planner.ts` (window builder + per-window planning loop + contiguity seaming) · `electron/server/generators/scene-plan.ts` (per-segment progress) · `electron/server/models/types.ts` (`onProgress`, `planned_in_windows`) · `scene-planner-salvage.test.ts` (+4 windowing tests, 9 total)
+
+---
+
+## v1.0.226 — 2026-06-02
+
+### Fixed — Scene Plan "LLM returned no usable scenes" on long episodes (output truncation)
+Planning a long episode (e.g. the 14-chapter *From Lava to Loam*) failed with "LLM returned no usable scenes". The cause was **output-token truncation**, not the input context window: the planner asked for the whole episode's scene list in one response, but the model's reply was capped at **8,000 output tokens**. A long plan overran that, the JSON came back cut off mid-array, and the parser silently discarded the *entire* response → zero scenes.
+
+Three fixes:
+- **Bigger output budget.** The planner now requests up to **16,000 output tokens** (was the default 8,000), so most full episodes fit in a single pass. (Plumbed a `maxTokens` override through the AI client to the provider.)
+- **Salvage truncated plans.** If the response *still* overruns, the parser now recovers every **complete** scene object that finished (string-aware brace matching) instead of throwing the whole thing away — so you get a valid, usable plan for the part that completed rather than a hard error.
+- **Honest diagnostics.** If a plan ends well short of the audio, the job log now warns *"Plan covers only ~N% of the audio… the model's output was likely truncated"* with the fix (larger-output model, or widen the pacing band to make fewer scenes). The hard-failure message also reports the output length and whether it looked truncated.
+
+If you saw this on an episode, just **re-run Scene Plan** — with the higher cap it should now complete; if your episode is extremely long you'll get a covered-percentage warning instead of a silent failure.
+
+### Files
+- `electron/server/services/scene-planner.ts` (16k cap + JSON salvage + diagnostic) · `electron/server/lib/ai-client.ts` (`maxTokens` passthrough) · `electron/server/generators/scene-plan.ts` (coverage warning) · new `scene-planner-salvage.test.ts` (5 tests)
+
+---
+
+## v1.0.225 — 2026-06-02
+
+### Changed — Thumbnail prompts are now dynamic & format-aware (no longer sleep-story-only)
+The thumbnail is the single most important asset for click-through, but the prompt logic was written only for sleep stories: it inherited the scene style and force-appended a hardcoded gold/glowing title treatment to every thumbnail, ignoring the format and even the user's own font/text picks. A listicle thumbnail came out as a minimalist white badge; everything looked like a sleep story. Reworked end-to-end:
+
+- **Per-format art direction.** Each format now carries a `thumbnail` block (concept, composition, mood, default text/font, anti-patterns). Narrative → cinematic; listicle → bold high-impact cover with a hero subject (explicitly NOT a white badge); stock-footage → calm golden-hour; narration-synced → clean credible explainer; continuity-chain → recurring hero mid-action. Formats without one fall back to a generic high-CTR directive.
+- **YouTube CTR best-practices** baked into every thumbnail prompt: one bold focal subject, high contrast + saturated color, large faces / dominant objects, rule-of-thirds, strong lighting, legible at mobile size, minimal clutter.
+- **Reference-style replication.** Upload a thumbnail you want to emulate; a vision model extracts its look (reusing `/analyze-style`) and the prompt replicates it.
+- **Per-project art-direction override** — a free-text box that overrides format + best-practice defaults for one episode.
+- **Two title-text modes (per project):** *AI* bakes the title into the image (now format-aware, honoring your picks — the hardcoded gold double-instruction is gone), or *Composite* generates a text-free background so you can overlay crisp, guaranteed-legible text via the existing Compose dialog/template.
+- All four layers compose, later overriding earlier: format → CTR rules → reference style → your art direction. The new controls auto-save through the existing Image-Prompts preset snapshot. Scene-prompt generation is unchanged.
+
+### Files
+- `electron/server/generators/image-prompts.ts` (new `buildThumbnailDirective` + format resolution; thumbnail portion rerouted) · `electron/server/generators/images.ts` (removed the hardcoded `THUMB_TEXT_STYLES` / `enhanceThumbnailPrompt` gold override) · `electron/server/models/types.ts` (`ImagePromptFormat.thumbnail`) · `electron/server/formats/{narrative,listicle,stock-footage,narration-synced,continuity-chain}.json` · `electron/server/services/format-loader.ts` (comment) · `frontend/pages/projects/[slug]/image-prompts.vue` (title-mode toggle, art-direction box, reference-thumbnail extractor)
+
+---
+
+## v1.0.224 — 2026-06-02
+
+### Fixed — Multi-part (chunked) chapters now stay one chapter through merge, subtitles & stitch
+When a chapter's narration exceeds the TTS character cap (e.g. 2000 for Kokoro), the audio generator splits it into `{code}_{slug}_part1.mp3`, `_part2.mp3`, …. The **Audio Assembly** step was treating every *part* as its own chapter, which broke the timeline in two ways:
+
+- It inserted a **silence gap between the parts of the same chapter** (there should only be a gap between *chapters*), padding the narration with little pauses mid-chapter.
+- It wrote **`audio_chapters.json` with one section per part** (`Chapter_01_part1`, `Chapter_01_part2`, …). But the **Subtitles** step correctly groups parts into one SRT per chapter (`{code}_Chapter_01.srt`) — so the per-part sections never matched the per-chapter SRTs, and the **stitch came out empty/misaligned** (the blank-SRT issue you hit).
+
+Now Audio Assembly **groups parts back into their chapter**: gaps go only between chapters, and `audio_chapters.json` has one section per chapter with the **summed** duration. That lines up exactly with the per-chapter SRTs, so stitching matches and scene timing is correct. Single-chunk chapters are unaffected.
+
+**To apply it to an episode you already generated:** re-run **Audio Assembly** (regenerates the merged audio without the mid-chapter gaps + rewrites `audio_chapters.json` grouped), then **re-stitch** in the Subtitles tab. Your per-chapter SRTs don't need redoing — they were already correct.
+
+### Files
+- `electron/server/generators/audio-merge.ts` (group parts by chapter: gap-only-between-chapters + summed-duration sections; new exported `chapterKeyOf`) · new `chapter-part-grouping.test.ts` (6 tests)
+
+---
+
+## v1.0.223 — 2026-06-02
+
+### Fixed — Subtitle stitch no longer writes a blank SRT (and moved into the Subtitles workspace)
+
+**Bug: the stitched .srt came out empty.** The stitcher matches each audio section (from `audio_chapters.json`) to its per-chapter SRT file by name. When the section slug and the SRT filename differed in format (e.g. section `chapter_1` vs file `EP0001_Chapter1.srt` — case / underscore / spacing drift), nothing matched, and it **silently wrote a 0-cue blank file**. Scene Plan then sent that empty SRT to the LLM and errored ("nothing to send").
+
+- **Tolerant matching:** filenames are now matched by normalizing both sides (strip the `{code}_` prefix, `.srt`, a trailing `_whisper`, then compare letters/digits only). So `chapter_1` ↔ `EP0001_Chapter1.srt` ↔ `Chapter 1.srt` all match.
+- **Fails loudly instead of blank:** if a stitch would produce 0 cues, it now **throws a diagnostic** (lists the section slugs it looked for and the SRT files present) and **does not write an empty file**. The message tells you exactly what to fix — usually "run Transcribe (Whisper) per-chapter" or "those SRTs are empty, re-transcribe".
+
+**Moved: subtitles + their stitch now live in one workspace.** The stitch step used to be buried in Scene Plan. It's now in the **Subtitles** page as a "Stitch into the timeline" step — right where you create the per-chapter SRTs. Scene Plan's step 1 is now a read-only status that links back to Subtitles to (re)stitch.
+
+### Files
+- `electron/server/services/subtitle-stitcher.ts` (normalized matching + loud-empty failure) · new `subtitle-stitcher.test.ts` (3 tests)
+- `frontend/pages/projects/[slug]/subtitles.vue` (new Stitch step) · `frontend/pages/projects/[slug]/scene-plan.vue` (step 1 → status + link)
+
+---
+
+## v1.0.222 — 2026-06-02
+
+### Fixed — two behavioral items from the audit (your call)
+
+- **Cancelling an audio/TTS job no longer reports as a failure.** When you stop a generation mid-run, the cancelled chunk was being recorded as an error, so the job ended `error` with a misleading "N section(s) failed: … Cancelled by user". A cancel is now recognized as a cancel — the queue stamps the job `cancelled` with a clean record, no phantom error.
+- **TTS text cleaner no longer deletes legitimate symbols.** `normalizeForTts` used to strip every `*`, `_`, and backtick anywhere in the narration — which also mangled real prose ("5 * 3", "rated 4*", `snake_case` identifiers). It now strips only leading headings and *paired* emphasis (`**bold**`, `*italic*`, `__bold__`, `_italic_`, `` `code` ``), keeping the wrapped words; underscore emphasis is matched only at word boundaries so snake_case is never touched. Lone symbols are left exactly as written. (Verified against a case table.)
+
+Subtitle transcription language stays pinned to English on the local engine (your choice) — best for English content. The 8 pre-existing backend test failures (unrelated to recent work) will be looked at in a separate follow-up.
+
+### Files
+- `electron/server/generators/audio.ts` · `electron/server/lib/tts-text.ts`
+
+---
+
+## v1.0.221 — 2026-06-02
+
+### Fixed — issues surfaced by a full app audit
+A read-only audit (correctness + security passes over the recent audio/subtitles/transcription/research/notification work) turned up a handful of real issues. The safe ones are fixed here:
+
+- **Subtitles: versioned audio created phantom chapters.** The per-chapter grouping regex didn't account for the `_vN` suffix that "save as new version" audio runs append, so `EP_Chapter_01_v2.mp3` grouped as a bogus chapter `Chapter_01_v2`. The grouping regex (and the in-app audio-file player route) now tolerate `_vN` and group under the real chapter slug.
+- **Subtitles: empty/evicted audio gave a confusing "zero cues".** Per-chapter transcription now refuses to send a missing or 0-byte file (e.g. an iCloud-evicted placeholder, or a silently-empty concat) to the engine, surfacing a clear "chapter audio missing or empty — re-generate" skip instead.
+- **Transcribe upload hardening.** The multipart file upload now wraps the buffer in an explicit `Uint8Array` before building the `Blob` — the form that's safe across Electron's bundled Node/undici versions (a raw `Buffer` BlobPart can produce an empty body on some).
+- **Dashboard notifications: stale-closure leak.** The dashboard's "partial scan" / "load error" notification items carried a live `reloadDashboard` closure; they're now cleared when the dashboard unmounts so they can't pin the torn-down page's reactive graph or fire against dead refs. They re-report on the next visit if the condition persists.
+- Removed an unused `sleep()` helper in the audio generator.
+
+The audit found **no critical or high security issues** — the audio-file streaming endpoint's path-traversal guard is sound (served filenames come from a disk-derived allowlist, not user input) and is correctly auth-gated in server mode.
+
+### Files
+- `electron/server/generators/subtitles.ts` · `electron/server/routes/audio.ts` · `electron/server/lib/voicestudio-client.ts` · `electron/server/generators/audio.ts` · `frontend/pages/projects/[slug]/index.vue`
+
+---
+
+## v1.0.220 — 2026-06-02
+
+### Changed — Research output now lives in its own "11 Research" folder
+Research was the only pipeline step writing loose files (`research.json` + `research.md`) at the episode root, while every other stage has a numbered folder. It now lives in **`{code} - 11 Research/`**, consistent with the rest.
+
+- **Auto-migration:** existing loose `research.json` / `research.md` are moved into the folder on first access (read or write) — a rename within the same episode dir, so it's fast and safe (incl. iCloud-synced projects). Nothing to do manually; it happens the first time you open the dashboard, the Research page, Scene Plan, or generate.
+- All readers/writers go through one `resolveResearchPaths()` helper (the research generator, the Research page read/write/delete, the script-gen context injector, Scene Plan, description-sources, and the asset-status check) so the location is defined once.
+- Implemented as a localized helper rather than a new entry in the formal subfolder schema — research status is tracked separately from the asset audit, so this avoids spurious "missing research" audit rows.
+
+### Files
+- `electron/server/lib/research-paths.ts` (new — folder + auto-migration) · `electron/server/generators/research.ts` · `electron/server/routes/research.ts` · `electron/server/generators/scene-plan.ts` · `electron/server/routes/scene-plan.ts` · `electron/server/lib/research-sources.ts` · `electron/server/lib/chunked-narration.ts` · `electron/server/services/asset-status.ts`
+
+---
+
+## v1.0.219 — 2026-06-02
+
+### Changed — Subtitle engine + model are now savable presets
+The Subtitles tab's transcription engine (Voice Studio / OpenAI) and Whisper model choice now save through the standard **preset system** in the top bar — Save / Save as / Apply, remembered per project and auto-applied on return — instead of a hidden per-machine value. Same pattern as every other generator tab. (Stored under its own `subtitles_generator` presets, separate from Video Assembly's subtitle-*style* presets.)
+
+### Changed — Subtitles tab prefers a downloaded Whisper model
+The model dropdown now defaults to one that's actually **cached** on the modal (so you can transcribe immediately with what you have), falling back to the recommended default — which prompts a download — only when nothing is cached.
+
+### Fixed — Removed an incorrect transcription error hint
+A hint added in 1.0.218 wrongly blamed the q4 model / suggested downloading the full turbo. The real cause was modal-side (the Whisper repos ship no HF processor; Voice Studio v1.4.3 now attaches it from the base OpenAI repo). The client now passes the modal's own clear error through instead. Verified end-to-end: q4 transcribes a chapter to valid SRT.
+
+### Files
+- `frontend/pages/projects/[slug]/subtitles.vue` (preset-backed engine/model + cached-first pick) · `electron/server/lib/voicestudio-client.ts` (drop the wrong error hint)
+
+---
+
+## v1.0.218 — 2026-06-02
+
+### Added — Free local subtitle transcription via Voice Studio (you pick the engine)
+Subtitle transcription no longer has to go through the paid OpenAI Whisper API. Voice Studio KH (v1.4.0+) now exposes a local Whisper STT endpoint — it reuses the `mlx-audio` dependency already there for TTS, the same GPU lock, and the same model-download manager — so you can transcribe on your own Mac for **$0, private, no rate limits**, and it's near-perfect on your own clean TTS narration.
+
+- **The Subtitles tab now has an engine chooser** — **Voice Studio (local, free)** vs **OpenAI Whisper (paid fallback)**. You pick per project (remembered); there's no silent default, and OpenAI stays available as a backup.
+- **Voice Studio engine:** lists the modal's Whisper models (`GET /api/transcribe/availability`), gates on the chosen model being downloaded, and offers a one-click **Download model** (with progress re-check) when it isn't — honoring the modal's "no silent 1.6 GB download" rule (HTTP 409 → download-then-retry). Each chapter's audio is sent to `POST /api/transcribe`; the returned SRT is written straight to `{code}_{slug}.srt`. Defaults to `whisper-large-v3-turbo`.
+- Transcription runs **sequentially** (one chapter at a time) since STT and TTS share one GPU lock on the modal.
+
+### Changed — Removed dead subtitle-creation code from Video Assembly
+Pruned the now-unused subtitle creation handlers (`generateFromChapters` / `importSubtitles` / `transcribeWithWhisper` and their state) left behind when creation moved to the Subtitles tab in v1.0.216. Video Assembly keeps burn-in + styling + picking an existing SRT.
+
+### Files
+- `electron/server/lib/voicestudio-client.ts` (transcribe client: availability / file upload / model download) · `electron/server/generators/subtitles.ts` (per-chapter engine branch) · `electron/server/routes/video.ts` (engine-aware transcribe endpoint) · `electron/server/routes/audio.ts` (availability + download proxies)
+- `frontend/pages/projects/[slug]/subtitles.vue` (engine + model selector) · `frontend/pages/projects/[slug]/video-assembly.vue` (dead-code prune)
+
+---
+
+## v1.0.217 — 2026-06-02
+
+### Fixed — Thumbnail Prompts / Scene Prompts now generate only their own pool
+The v1.0.201 split gave Thumbnail Prompts and Scene Prompts separate sidebar entries, but the page's **top "Generate" button still ran both pools** — so clicking Generate on the Thumbnail Prompts page also produced scene prompts. The split was only skin-deep (heading + the small per-pool sections); the main button and the results/review lists still spanned both.
+
+- **The top Generate button now respects the active page.** On Thumbnail Prompts it generates **thumbnails only**; on Scene Prompts, **scenes only**. The button is relabeled accordingly ("Generate Thumbnail Prompts" / "Generate Scene Prompts") and the intro text now states exactly what Generate will touch.
+- **The review + results lists are scoped to the page too.** The per-prompt Regenerate panel and the Current-results list show only the active pool (the other pool's prompts on disk are untouched — switch pools from the sidebar to see them). `PromptReviewPanel` gained a `pool` prop driving this.
+
+The Image **Generator** pages (Thumbnail / Scene Generator) were already correctly scoped — this fix is for the **Prompts** pages.
+
+### Files
+- `frontend/pages/projects/[slug]/image-prompts.vue` (tab-aware Generate + label + scoped results) · `frontend/components/PromptReviewPanel.vue` (new `pool` prop)
+
+---
+
+## v1.0.216 — 2026-06-02
+
+### Added — Dedicated Subtitles tab (fixes the missing step before Scene Plan)
+Subtitle *creation* lived only in Video Assembly — which is **after** Scene Plan in the audio-paced pipeline. So Scene Plan needed per-chapter subtitles, told you to "generate subtitles first," but there was nowhere to do it before that point. Worse: nothing actually produced the **per-chapter** SRTs the Scene Plan stitcher consumes (the only Whisper job did the whole merged track). That seam is now fixed.
+
+- **New Subtitles tab** (sidebar + flow ribbon, placed right after **Audio Assembly**, before Scene Plan). Its own episode selector, status, and per-chapter coverage view. Three creation methods, all writing to the episode's "09 Subtitles Output" folder:
+  - **Transcribe (Whisper, per-chapter)** — transcribes each chapter's clean narration audio into `{code}_{slug}.srt`. These are exactly the per-chapter SRTs Scene Plan stitches into the global timeline. Transcribing the clean per-chapter audio (vs. the merged track) also keeps intro/music out of the transcript. Skips chapters that already have an SRT unless you tick "Re-run".
+  - **From chapters** — one cue per chapter from durations (fast, free).
+  - **Import** — bring your own `.srt`/`.vtt`.
+- **Backend:** added a `per_chapter` mode to the transcription job — it groups each chapter's MP3 parts, concatenates them, and Whisper-transcribes per chapter.
+- **Video Assembly:** subtitle **creation** (generate-from-chapters / transcribe) was removed from Step 5; it now just **picks an existing SRT to burn in + styles it** (the sleep-stories burn-in workflow is unchanged). A link points to the Subtitles tab.
+- **Scene Plan:** the "stitch" step and its old error now point you to the Subtitles tab.
+
+### Files
+- `frontend/pages/projects/[slug]/subtitles.vue` (new) · `frontend/composables/useProjectFlow.ts` + `frontend/layouts/dashboard.vue` (nav/flow entry)
+- `electron/server/generators/subtitles.ts` + `electron/server/routes/video.ts` (per-chapter transcription)
+- `frontend/pages/projects/[slug]/video-assembly.vue` (creation removed, burn-in kept) · `electron/server/services/subtitle-stitcher.ts` + `frontend/pages/projects/[slug]/scene-plan.vue` (point at the new tab)
+
+---
+
+## v1.0.215 — 2026-06-02
+
+### Changed — Narration now reads naturally for text-to-speech (two safeguards)
+LLM-written narration loves em dashes, smart quotes, ellipses, semicolons and the odd stray markdown mark. Robust cloud voices (ElevenLabs) mostly cope, but local engines (Kokoro, Bark, …) read an em dash as a garbled run-on ("eyes—a" → "eyesa") or an unnatural pause — which is what made the audio sound fake. Two layers now prevent it:
+
+- **Deterministic safeguard (the guarantee):** every section is normalized to simple spoken punctuation right before it's sent to *any* TTS engine — em/en dashes and `--` → comma, smart quotes → ASCII, `…` → `...`, semicolons → comma, stray markdown stripped. Works on **every** script (old and new) and doesn't depend on the model behaving. A single ASCII hyphen ("well-being") is left intact. Applied identically in the audio generator and the audio reconciler so chunk boundaries stay aligned. Example: *"the old light in his eyes—a sentinel, a friend"* → *"…in his eyes, a sentinel, a friend."*
+- **Up-front writing guidance:** the script generator's system prompt now instructs the LLM to write for the ear — simple punctuation only (periods, commas, question marks), natural speakable sentences, and to avoid long clause-stacked or ornate phrasing that sounds artificial aloud. So new scripts come out clean on disk too. Format-agnostic — it governs punctuation + speakability, not your format's tone.
+
+Together: the prompt keeps the source text clean, and the normalizer guarantees the audio is natural even if something slips through.
+
+### Files
+- `electron/server/lib/tts-text.ts` (new — `normalizeForTts`) · `electron/server/generators/audio.ts` + `electron/server/services/audio-reconciler.ts` (apply pre-TTS) · `electron/server/generators/episode.ts` (system-prompt writing guidance)
+
+---
+
+## v1.0.214 — 2026-06-02
+
+### Changed — Voice Studio (local) audio now saved as real MP3
+Local TTS engines (Kokoro, Bark, VoxCPM, …) return WAV, which we'd been writing under a `.mp3` name — bytes and extension didn't match. Going forward, Voice Studio output is **transcoded to real MP3 (192 kbps) on save**, so every audio file in the project is genuinely MP3.
+
+Why this is the right call over keeping `.wav`:
+- The whole pipeline assumes one format — the section merge uses FFmpeg `-c copy` (which can't mix WAV + MP3 codecs), and video assembly / upload expect MP3. One format = no mixed-format bugs.
+- ~10× smaller files (a chapter chunk drops from ~4 MB WAV to ~1.7 MB MP3) — lighter on disk and iCloud sync.
+- 192 kbps is transparent for speech narration; YouTube re-encodes anyway.
+
+Implementation: download the engine's WAV to a temp file, encode to MP3 at the target path (`libmp3lame`, the same encoder Audio Assembly already uses), clean up the temp. Download progress still streams live; the encode is a fast local step.
+
+**Existing** Voice Studio audio (WAV-in-`.mp3` from before this build) is left as-is — it still plays in-app (the player sniffs WAV) and the audio status detects it; only newly-generated audio is real MP3. Regenerate a section if you want it converted.
+
+### Files
+- `electron/server/providers/audio/voicestudio.ts` (download → FFmpeg transcode to MP3 on save)
+
+---
+
+## v1.0.213 — 2026-06-02
+
+### Fixed — Multi-part local-model audio showed as "not generated" (it was saved)
+Generating with a local Voice Studio model (e.g. Kokoro) saved the audio correctly, but the app's audio status showed every section as **0/1 chunks / not generated** — so it looked like nothing saved. Cause: the audio reconciler computed expected chunks with the chunker's **default 4800-char cap**, while the generator splits at the **model's** `tts_soft_max_chars` (Kokoro = 2000). A ~3500-char chapter became **2 files** on disk (`…_part1.mp3`, `…_part2.mp3`) but the reconciler only looked for a single `…{slug}.mp3` → no match.
+
+- The reconciler now resolves the **same per-model cap the generator used** (from the episode's most recent audio job's model → `AudioModelConfig.tts_soft_max_chars`) and chunks identically, so saved multi-part sections are detected as complete. Chapter selector pills, the audio-status, and the new in-app play buttons now reflect reality.
+
+### Fixed — In-app audio player mislabeled Voice Studio WAV output
+Voice Studio (Kokoro/Bark/…) returns WAV bytes that we persist under a `.mp3` name. The `audio-file` streaming endpoint trusted the extension and sent `audio/mpeg`, which some players reject. It now **sniffs the RIFF/WAVE header** and serves `audio/wav` for those files (real MP3 from cloud providers is unchanged), so in-app preview plays reliably.
+
+### Files
+- `electron/server/services/audio-reconciler.ts` (per-model chunk cap in `getAudioStatus`) · `electron/server/routes/audio.ts` (content-type sniff in the audio-file endpoint)
+
+---
+
+## v1.0.212 — 2026-06-02
+
+### Fixed — Qwen3-TTS & Chatterbox pointed at non-existent model repos
+Audit of the remaining Voice Studio engines (cross-checked against the live modal's `/api/catalog`) found two engine rows pinned to repo strings the modal doesn't have. Story Studio sends `repo` verbatim, so selecting these would hard-error on the modal (`Repo … is not in the catalog`) — not a silent default like Kokoro, but a flat failure.
+
+- **Qwen3-TTS:** `Qwen/Qwen3-TTS` → **`mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit`**. Qwen3 dispatches mode by repo name (*Base* → clone, *CustomVoice* → preset speaker, *VoiceDesign* → prompt); we pin the **CustomVoice** variant, which matches our existing `preset_speaker` voice field. Label updated accordingly.
+- **Chatterbox MLX:** `mlx-community/Chatterbox` → **`mlx-community/chatterbox-4bit`** (real catalog variant; the newer, smaller v1.2.1 build). Voice field `voice_library_id` was already correct.
+
+VoxCPM (`voice_library_id`), Kokoro (`voice`, fixed in 1.0.211), and Bark (`bark_voice_preset`) were verified correct — no change. Thanks to the Voice Studio KH author for the field/mode dispatch details.
+
+### Files
+- `electron/server/lib/voicestudio-client.ts` (qwen3-tts + chatterbox-mlx repo strings; qwen3 label)
+
+---
+
+## v1.0.211 — 2026-06-02
+
+### Fixed — Kokoro now actually uses the voice you pick (correct submit field)
+Confirmed with the Voice Studio KH wrapper's author: **Kokoro reads the `voice` field**, but Story Studio's engine catalog mapped Kokoro's voice into `preset_speaker`. The modal never saw the picked speaker, so it fell back to its own default — the real reason a Kokoro render (e.g. "Liam") came out in the wrong voice, independent of the v1.0.209 selection fixes.
+
+- Kokoro's `voiceField` is now `voice` (was `preset_speaker`); Story Studio POSTs `{ voice: "am_liam", … }` and `_generate_kokoro` picks it up.
+- `preset_speaker` remains for **Qwen3 CustomVoice** only; VoxCPM/Chatterbox keep `voice_library_id`; Bark keeps `bark_voice_preset`.
+- Added `'voice'` to the `VoiceStudioVoiceField` union. No Voice Studio API change — the wrapper was already correct.
+
+### Files
+- `electron/server/lib/voicestudio-client.ts` (Kokoro `voiceField` → `voice`; type union + catalog comment)
+
+---
+
+## v1.0.210 — 2026-06-02
+
+### Changed — No silent voice defaults, anywhere (pipeline included)
+Following v1.0.209 (the Audio tab now requires an explicit voice), the backend no longer substitutes a default voice either. Previously, if an audio job arrived without a voice, the generator quietly fell back to the project's brand-default voice (and failing that, the provider's hardcoded default) — which is how a render could come out in the wrong voice without warning.
+
+- **Generator:** audio generation now **fails loudly** with "No voice selected…" instead of applying a brand/provider default. A voice must be explicitly chosen.
+- **Pipeline:** the batch pre-flight now **rejects a voiceless Audio preset up front** (alongside the existing "no active preset" check), with a clear message: pick a voice on the Audio tab, re-save the preset, then run. Nothing is enqueued until every step — including audio — has a real voice, so a 20-episode batch can't burn time only to render in the wrong voice.
+
+### Files
+- `electron/server/generators/audio.ts` (brand-default voice fallback → hard error) · `electron/server/routes/pipeline.ts` (pre-flight voiceless-preset rejection)
+
+---
+
+## v1.0.209 — 2026-06-02
+
+### Fixed — Local (Voice Studio) voices no longer show "UNAVAILABLE" or fall back to the default
+Picking a local voice (e.g. Kokoro's "Liam") flagged it **UNAVAILABLE** and, on generation, silently used the engine's default voice instead. Two root causes, both fixed:
+
+- **Availability was judged against the ElevenLabs catalogue only.** Voice Studio voices live in their own id-space, so they were never "found" and always read as unavailable. Local-model voices are now governed by the modal's own list, not ElevenLabs.
+- **The selection was silently cleared on load.** A coarse cloud↔local watcher wiped the voice whenever the model family changed — including when a saved preset loaded a Voice Studio model — so by generation time the voice was empty and the default kicked in. The picker now **keeps the voice if it's still compatible** and only clears it (with a toast) when it genuinely isn't.
+
+### Changed — Audio voice selection is now model-aware (three distinct families)
+The picker shows only the voices that work with the selected TTS model, never mixed:
+
+- **ElevenLabs (direct)** → your **Saved voices** + the full **ElevenLabs** catalogue.
+- **fal.ai / GenAIPro** → **ElevenLabs premade voices only** (the proxies use their own ElevenLabs account, so your private saved/cloned ids don't exist there — they're hidden).
+- **Voice Studio (local)** → the engine's **built-in voicepack** (Kokoro / Bark / Qwen3) *or* **your cloned voices** (VoxCPM / Chatterbox), depending on the model.
+
+Each family is visually distinct; incompatible voices are hidden rather than dimmed.
+
+### Changed — A voice must be picked (no silent default) + simpler search
+- Removed the "Default (let model pick)" option in the audio generator and **disabled Generate until a voice is chosen** — this is what let a wrong/unset voice slip through to a render. (The Settings catalogue picker is unaffected.)
+- Removed the **gender** and **use-case** filters from the voice search — just a text search now.
+
+### Added — Listen to generated audio in-app
+Every generated section in the audio chapter list now has a **▶ play / ⏸ stop** button, streamed from a new range-capable endpoint — no more opening the audio folder in Finder to hear a chapter.
+
+### Added — Notification center (bell, two tabs)
+A bell in the top bar with an unread badge opens a panel with **Activity** (finished jobs / renders / uploads for the current project) and **Action needed** (setup gaps that risk a wasted render: no upload destination, no usable AI key, FFmpeg missing — each dismissible until next launch). The dashboard's transient banners now route here, with the critical blocker still shown inline.
+
+### Removed — OpenRouter
+The OpenRouter LLM provider was removed (hard to use, redundant). The remaining LLM providers — **Anthropic, OpenAI, and kie.ai** — plus all kie.ai and fal.ai integrations are unchanged. The research "OpenRouter (live web)" source was dropped; Perplexity and LLM-only remain.
+
+### Files
+- `frontend/components/VoicePicker.vue` (model-aware scopes, availability fix, keep-voice reconcile, no-default option, simplified search) · `frontend/pages/projects/[slug]/audio.vue` (require a voice; removed coarse reset watcher)
+- `frontend/components/AudioChapterSelector.vue` + `electron/server/routes/audio.ts` (in-app section playback + `GET …/audio-file` streaming endpoint)
+- `frontend/components/NotificationCenter.vue` · `frontend/composables/useNotifications.ts` · `frontend/layouts/dashboard.vue` · `frontend/pages/projects/[slug]/index.vue` (notification center)
+- OpenRouter removal across `electron/server/providers/text/`, `routes/`, `models/types.ts`, research adapters, and `frontend/` model pickers/settings
+
+---
+
+## v1.0.208 — 2026-06-02
+
+### Fixed — Local models now correctly estimate as $0 (Free)
+Local Voice Studio / Image Studio models are free (they run on your own Mac), but the pre-generation cost estimate still showed a charge. Two bugs:
+
+- **Audio:** the estimate read `cost_per_1k_chars || 0.05` — and since a free model's cost is `0` (falsy), it fell through to the cloud default of **$0.05/1k chars**. Now a local TTS model is detected and priced at **$0**, and an explicit `0` price is respected (no longer coerced to `0.05`).
+- **Images:** dynamic Image Studio models (`imagestudio:<repo>`) aren't in the saved catalog, so the estimate defaulted to **1 credit/image**. Local image models are now detected by id/provider and priced at **$0**.
+
+Because the cost is now $0, the confirmation dialog auto-skips for local generation (no nag); on a forced re-generate it reads **"Free — local model (no per-use cost)"** with the live cloud balance lookup skipped. Also tidied the inline labels: the audio model dropdown shows **"(Free · local)"** instead of "($0/1K chars)", matching the image picker's existing **free** chip.
+
+### Files
+- `electron/server/routes/jobs.ts` (estimate-cost: detect local providers → $0; fix falsy-zero coercion) · `frontend/pages/projects/[slug]/audio.vue` (Free label)
+
+---
+
+## v1.0.207 — 2026-06-02
+
+### Changed — Local-modal URLs default to empty + a built-in setup guide
+The Voice Studio / Image Studio URLs used to default to the original author's own Macs (`…-m1.local` / `…-m4.local`). That's meaningless for anyone else — every user runs the modal on their own machine and reaches it their own way. Now both default to **empty**: you enter your own URL, and the app fails fast with a clear "set your URL" message until you do (no probing a stranger's hostname).
+
+- **No hardcoded host.** Defaults are blank; the input shows a greyed example (`http://your-mac.local:47870`). The host is yours — Bonjour (`*.local`), a direct LAN IP, or a Tailscale IP for remote access. Only the **port is fixed** (Voice Studio `47870`, Image Studio `47868`). Combined with v1.0.206 (your Save always wins), the URL is now fully under your control.
+- **A stale dead-IP default now clears to empty** instead of being rewritten to another machine — so you land on the clean unconfigured state + setup help.
+- **New setup guide** at the top of Settings → This Mac → Local Models: a step-by-step explainer for running local models for free — install **Pinokio** (1-click AI-app installer that bundles the whole runtime + dependencies, no terminal), install the two open-source wrappers, start them, paste the URL. Links open in your browser:
+  - Pinokio — https://beta.pinokio.co/
+  - Voice Studio wrapper — https://github.com/theng12/voicestudio-mac
+  - Image Studio wrapper — https://github.com/theng12/imagestudio-mac
+- The Local Models copy was de-machine-specified throughout (no more "M1/M4 Mac mini" references) and now points at the dynamic model lists both modals expose.
+
+### Files
+- `electron/server/lib/voicestudio-client.ts` · `electron/server/lib/imagestudio-client.ts` (empty defaults) · `electron/server/services/app-secrets-store.ts` (dead-IP → empty) · `electron/server/routes/audio.ts` · `electron/server/routes/images.ts` (graceful "not configured" on empty URL)
+- `frontend/pages/projects/[slug]/settings.vue` (setup guide + example placeholders + de-machine-specified copy)
+
+---
+
+## v1.0.206 — 2026-06-02
+
+### Fixed — Saved local-modal URLs (Voice Studio / Image Studio) are now always respected
+Saving the Voice Studio URL as `http://theng-macmini-m1.local:47870` had no effect — the app kept routing to `…-m4.local`. Cause: a read-through "legacy default" migration that rewrote any stored URL matching a *former shipped default* up to the current default. Because `…-m1.local:47870` had once been a default, your explicit save was silently overwritten to the m4 default on every read.
+
+- **Your Save now always wins.** Explicitly-saved local-modal URLs (Voice Studio and Image Studio) are never rewritten — whatever you enter and Save is exactly what the app uses for routing, previews, and generation. This applies to any host/IP and any port, so moving a modal to a different Mac (the IP/host changes; the port stays) just works once you update + Save the URL.
+- **`.local` hostnames are no longer "legacy defaults."** The migration now only touches the original, unreachable Tailscale-IP default (`100.120.246.10`) for first-run upgrades — it no longer fights a legitimate `m1`/`m4` host choice. So your already-saved `m1` URL is honored immediately after updating, without needing to re-save.
+- Under the hood: saved values carry a `userSet` marker that bypasses the migration entirely, and that marker now survives the secrets-store read/normalise round-trip (it was being dropped before).
+
+If you'd previously saved a URL that was getting overridden, just open Settings → This Mac → Local Models and confirm it shows the host you want (re-Save if needed) — it'll stick now.
+
+### Files
+- `electron/server/services/app-secrets-store.ts` (userSet-wins logic + preserve marker on read; trimmed the legacy-default set to dead IPs only) · regression tests in `secrets-accounts.test.ts`
+
+---
+
+## v1.0.205 — 2026-06-02
+
+### Added — Image Studio (local) is now fully dynamic, with img2img + instruction-edit
+Mirroring the dynamic Voice Studio work, the local **Image Studio KH** integration no longer exposes a single hardcoded model — it surfaces your modal's **entire live catalog**, and now drives all three modes (text‑to‑image, image‑to‑image, instruction‑edit). Verified end‑to‑end against the live modal (txt2img, img2img, edit all returned valid PNGs).
+
+- **Live, self‑updating model list.** The image model picker's local section now comes straight from the modal's `GET /api/catalog`, joined with `/diagnostics` (which engine families are loaded) and `/system` (your Mac's memory). Every model the modal knows appears automatically — download a new one or run on a bigger Mac and it shows up with **zero app changes**. Models your Mac can't run are shown but disabled with a clear chip (*needs more RAM* / *engine off*); runnable ones sort to the top. On an 8 GB M1 that's the FLUX.2‑klein 4‑bit MLX build; on a 32 GB+ Mac the FLUX/Qwen/Z‑Image/FIBO families light up on their own.
+- **img2img + edit wired.** Reference‑image generation (e.g. the continuity‑chain renderer and character‑referenced scenes) now routes through the local model when you pick one: models with **img2img** capability use `/api/generate/img2img`; **edit‑only** models (FLUX.1 Kontext, Qwen‑Image‑Edit, FIBO‑Edit) use `/api/generate/edit`. The right endpoint is chosen automatically from each model's catalog capabilities. Text‑only generation uses `/api/generate/txt2img` as before.
+- **Capability filters** in the picker (T2I / I2I / Edit) now reflect real per‑model capabilities from the catalog, and the picker labels each row with its `i2i` / `edit` support, size, and `gated` status.
+- **Future‑proof, no per‑model wiring.** Model ids are now `imagestudio:<repo>` resolved directly from the catalog, so the provider + generator handle any model the modal lists without a code change (the old `imagestudio-flux2-klein-mlx-4bit` id still works).
+
+Notes: the brush/mask image‑editor (App‑side masked edit) still uses the cloud edit providers — the local modal's edit is whole‑image instruction edit (no mask), so it's wired into the reference‑image generation path rather than the mask editor. Per‑machine URL/port is unchanged (set in Settings → This Mac → Local Models; port 47868 is fixed, IP can vary per Mac).
+
+### Files
+- `electron/server/lib/imagestudio-client.ts` (img2img/edit submitters, diagnostics/system, `listAvailableModels`, repo↔id helpers) · `electron/server/providers/image/imagestudio.ts` (dynamic repo + capability routing) · `electron/server/generators/images.ts` (resolve dynamic ids) · `electron/server/routes/images.ts` (`GET /imagestudio/models`)
+- `frontend/components/ImageModelPicker.vue` (live catalog-driven local section + readiness gating)
+
+---
+
+## v1.0.204 — 2026-06-02
+
+### Fixed — Finished research now leaves the "pending" episode list
+The Research page's episode picker filtered its **pending** list by *script* status, not *research* — so an episode you'd just finished researching never dropped out of pending (it only would once a script existed). Research completion wasn't tracked as an episode status at all.
+
+- Added a **`research`** episode-status field, set when `research.json` exists at the episode root. The Research page now filters its pending list by this, so a completed research run leaves "pending" immediately (the status cache already watches that folder, so it refreshes on the next list load / when the job finishes). In the "show all" view, researched episodes show a **✓ researched** marker. It's intentionally **not** folded into "all done" — research is optional for most formats.
+
+### Added — "Verify all" (bulk claim review) on the Research page
+Reviewing dozens of surfaced claims one-by-one was tedious. The Claims section now has a bulk row:
+
+- **✓ Verify all** — mark every claim verified in one click (only verified claims flow into the Script Generator).
+- **↺ Reset all** — back to unreviewed/pending.
+- **⊘ Ignore all** — ignore every claim.
+
+These flip the **Save** button on (nothing persists until you Save), same as per-claim edits.
+
+### Files
+- `electron/server/services/asset-status.ts` (new `research` status field + detection) · two test fixtures updated
+- `frontend/pages/projects/[slug]/research.vue` (bulk verify) · `frontend/components/EpisodeSelector.vue` (research filter suffix)
+
+---
+
+## v1.0.203 — 2026-06-02
+
+### Changed — Voice Studio engines are now fully dynamic (every engine your modal runs auto-appears)
+Following v1.0.202 (which added Kokoro), the integration is now **catalog-driven** so you never have to ask for a specific engine to be wired in again. There's a single engine catalog (`VOICESTUDIO_ENGINES`) that every part of the integration derives from — the model dropdown, the live availability gate, the request the provider sends, and the voice picker. **Adding a future engine is a one-line catalog row; usually it just shows up on its own.**
+
+- **The audio-model dropdown only shows what your modal can actually run.** Story Studio probes your modal's `/availability` and lists exactly the engines it reports — so the moment you enable, say, **Chatterbox** or **Qwen3-TTS** on the modal, it appears in the dropdown with no app change. On a typical modal you'll now see **VoxCPM, Kokoro, Qwen3-TTS, and Bark** instead of just VoxCPM. If the modal is offline, the full known list shows (so the dropdown never empties).
+- **Each engine sends the right request automatically.** Cloning engines (VoxCPM, Chatterbox) use your uploaded reference clip (`voice_library_id`); voicepack engines (Kokoro, Qwen3-TTS) use a built-in named speaker (`preset_speaker`); Bark uses its own preset field (`bark_voice_preset`). The voice picker surfaces the correct voice list per engine — Kokoro/Qwen3 presets vs your cloning library — and relabels itself accordingly.
+- **Verified end-to-end against the live modal:** Kokoro + *Liam* (`am_liam`) submits, renders (~3s), and returns valid audio; the modal echoes the exact field the provider sends.
+
+### Why this matters
+Previously each new engine needed code in four places (family map, repo map, defaults row, voicepack flag). Now it's one catalog row — and for engines already in the catalog, enabling them on the modal is all it takes. New engines the catalog doesn't know yet still need a one-line entry (we need its repo + how it takes a voice), but nothing else.
+
+### Files
+- `electron/server/lib/voicestudio-client.ts` (engine catalog + `listAvailableEngines` + catalog-driven availability) · `electron/server/providers/audio/voicestudio.ts` · `electron/server/models/defaults.ts` · `electron/server/routes/audio.ts` (`GET /voicestudio/models`)
+- `frontend/pages/projects/[slug]/audio.vue` (dynamic dropdown filter)
+
+---
+
+## v1.0.202 — 2026-06-02
+
+### Added — Kokoro voice engine in Voice Studio (local TTS), with its built-in voicepack
+The local Voice Studio integration previously surfaced only **VoxCPM** even though the modal runs many engines. **Kokoro v1.0 (82M)** is now a first-class audio model — fast, near-real-time English — and it brings its own **voicepack** of named speakers (e.g. **Liam — `am_liam`**) rather than voice cloning.
+
+- **New audio model:** *Kokoro v1.0 82M [Voice Studio · local]*. Pick it in the Audio Generator's model dropdown, alongside VoxCPM. Cost $0 (local Apple Silicon).
+- **Voicepack-aware voice picker:** when Kokoro is the selected model, the Voice section now lists Kokoro's **preset speakers** (American/British male & female — Liam, Heart, Bella, George, …), pulled live from your modal. Select VoxCPM and the picker switches back to your **cloning library**. The picker re-fetches automatically when you change models, and labels the section accordingly (*"🎙 Kokoro voices — built-in voicepack"* vs *"💻 Voice Studio KH library"*).
+- **Correct request shape:** Kokoro/voicepack engines send the choice as `preset_speaker`; cloning engines (VoxCPM) send `voice_library_id` — handled automatically by the family the model maps to. Preview ▶ works for Kokoro presets too.
+- **Extensible:** model→engine-family is now a single shared map (`VOICESTUDIO_MODEL_TO_FAMILY`), and voicepack engines are declared in one place (`familyShipsVoicepack`) — adding qwen3-tts or another engine later is a one-line change plus a model row. Speaker ids are decoded into friendly labels (accent + gender) with a bundled fallback pack if the modal doesn't advertise its presets.
+
+### Files
+- `electron/server/lib/voicestudio-client.ts` · `electron/server/providers/audio/voicestudio.ts` · `electron/server/models/defaults.ts` · `electron/server/routes/audio.ts`
+- `frontend/components/VoicePicker.vue` · `frontend/pages/projects/[slug]/audio.vue`
+
+---
+
+## v1.0.201 — 2026-06-02
+
+### Changed — Thumbnail vs Scene generators are now truly separate (no shared tab switcher)
+The sidebar splits Thumbnail Prompts / Scene Prompts / Thumbnail Generator / Scene Generator into four entries, but each page still rendered an in-page Thumbnail↔Scene **switcher** that re-mixed them — so opening **Thumbnail Generator** still showed a **Scene** tab. Worst on formats that don't use scenes at all (broll, timestamp-driven, continuity-chain): you'd see a Scene Generator tab you can't and shouldn't use.
+
+- **The in-page switcher is gone** on both the Image Prompts and Image Generator pages. Each is now a single, focused view set by the sidebar entry you clicked (via `?tab=`), with a clear header ("📸 Thumbnail Generator" / "🎬 Scene Generator"). Switch between them from the sidebar — the same four entries that were always there.
+- For **broll / timestamp-driven / continuity-chain**, the sidebar already hides the Scene entries, so those pages now only ever show the Thumbnail view — no stray scene controls, no confusion.
+
+Pure UX/structure — generation, presets, and outputs are unchanged; the thumbnail and scene outputs were always separate on disk, and the UI now matches that.
+
+### Files
+- `frontend/pages/projects/[slug]/images.vue` · `frontend/pages/projects/[slug]/image-prompts.vue`
+
+## v1.0.200 — 2026-06-02
+
+### Changed — Metadata Generator: reset-to-default + live description shape (rework M2 + M3)
+- **↺ Reset to format default** (next to the starter templates) re-applies the format's default starter template — a clean reset after experimenting. Reads the format's declared `defaultStarterTemplate`; your saved presets are untouched.
+- **Live "Description shape" outline** shows the enabled sections in render order as chips (e.g. *Hook → Sources → CTA → Hashtags*), updating as you toggle/reorder — so you see the description's structure before generating. Combines with the existing Preview (with its char-count-vs-limit) for a build-then-see flow.
+
+(The full two-pane side-by-side layout is the remaining visual polish — the page is otherwise fully reworked: format-first templates, composable Sources/any section, data-driven extensibility, reset, and the live outline.)
+
+### Files
+- `frontend/pages/projects/[slug]/metadata.vue`
+
+## v1.0.199 — 2026-06-02
+
+### Changed — Metadata Generator is now data-driven (extensible sections / templates / formats)
+Reworked the internals so adding section types, starter templates, and formats is **config, not code** in N places.
+
+- **Section registry (one source of truth).** Every description section type now lives in `electron/server/lib/metadata-sections.ts` as a data entry — `{ id, label, defaultConfig, buildInstruction() }`. The prompt builder loops the registry instead of a hardcoded `switch`, so **adding a section type's prompt is one entry**. (Also de-sleep-storied a couple of strings: "MORE STORIES" → "MORE VIDEOS", neutral AI-disclosure default.)
+- **Formats declare their default template.** New `format.metadata.defaultStarterTemplate` (in the format JSON) decides which Metadata starter template a format opens with — so **adding a format needs no frontend edit** (continuity-chain→POV, narration-synced/narrative→Explainer, listicle→Listicle; the id-mapping remains a fallback).
+- **Composable sections in the builder.** A new **"+ Add section…"** menu (driven by a frontend section catalog) lets you add ANY built-in section type — Sources, Music, Channels, Support, etc. — onto any template, not just custom blocks. A generic field-editor renders future simple section types with no bespoke editor needed.
+
+Net: a new section type = one registry entry (+ a catalog entry, + a small editor only if it's complex); a new template = one data entry; a new format = declare `defaultStarterTemplate`.
+
+### Files
+- new `electron/server/lib/metadata-sections.ts` · `electron/server/lib/metadata-prompt.ts` (registry-driven) · `electron/server/models/types.ts` · the 4 `electron/server/formats/*.json`
+- `frontend/pages/projects/[slug]/metadata.vue` (section catalog, Add-section menu, generic editor, format-declared template)
+- `electron/server/__tests__/metadata-prompt-format-aware.test.ts` (updated stale #SleepStory assertions to the v1.0.102 behaviour)
+
+## v1.0.198 — 2026-06-02
+
+### Changed — Metadata Generator: format-first starter templates + a Sources section (rework M1)
+First milestone of the Metadata rework — killing the sleep-story DNA and surfacing the research sources.
+
+- **Format-neutral starter templates.** The old one-size default assumed a sleep-story channel (Narrator + Music credits ON, "🌙 Welcome back" hook, "…reviewed for quality and **warmth**" disclosure). It's replaced by four starting points — **POV Creator · Faceless Explainer / Documentary · Listicle / Top-N · Minimal** — shown as a picker at the top. On a fresh episode the page **auto-applies the one matching your project's format** (continuity-chain→POV, narration-synced/narrative→Explainer, listicle→Listicle, else→Minimal). Narrator/Music/Video-recommendations now default **off**; copy is channel-neutral. (Your saved presets still override, untouched.)
+- **📚 Sources is now a real description section.** Toggle it on (it's on in the Explainer template) and it shows the episode's research sources with per-source include checkboxes + bulk **All / Verified-backing / None** — the same picks as the Research page, saved straight back to `research.json`. The real-link SOURCES block is appended on generate, and is now **gated on this section** — if your template has no Sources section (POV/Listicle/Minimal), nothing is appended; turn it on to include them.
+
+Next: M2 (preset UX overhaul) and M3 (the two-pane live-preview layout).
+
+### Files
+- `frontend/pages/projects/[slug]/metadata.vue` (starter templates, Sources section, neutral defaults)
+- `electron/server/lib/research-sources.ts` (sources-section gate) · `electron/server/routes/scripts.ts` · `electron/server/generators/metadata.ts` · `electron/server/models/types.ts`
+
+## v1.0.197 — 2026-06-02
+
+### Added — Research sources flow into the YouTube description
+When an episode has research, its real sources (title + link) are now appended to the generated description automatically — so you can cite them on YouTube. Previously the citations only lived on the Research page; the description never saw them (and the old hard-coded "SOURCES" template actually told the LLM to *invent* books).
+
+- **Deterministic SOURCES block.** After the description is generated (both the **Metadata page** and the **Pipeline batch** run), the kept research sources are appended verbatim from `research.json` — `- Title — URL`. Built in code, never by the LLM, so **URLs are never hallucinated or altered**. Uses the format's section label (e.g. "📚 SOURCES:") and respects the description's character budget (overflow is noted, not silently cut).
+- **Pick which sources go in.** The Research page's Sources list now has a checkbox per source plus bulk buttons: **All · Verified-backing · None**. "Verified-backing" ticks only the sources cited by a claim you marked verified (and each such source shows a "verified-backing" badge). Your choice saves into `research.json` (Save as usual).
+- Only kicks in when research exists; non-research episodes are unchanged.
+
+So for narration-synced / continuity-chain episodes you research, pick your sources, then generate Metadata → the description comes out with a clean, real-link SOURCES list ready to publish.
+
+### Files
+- new `electron/server/lib/research-sources.ts` · `electron/server/generators/metadata.ts` · `electron/server/routes/scripts.ts` (metadata/description) · `electron/server/models/types.ts` (ResearchCitation.include_in_description)
+- `frontend/pages/projects/[slug]/research.vue` (per-source toggles + bulk)
+
+## v1.0.196 — 2026-06-02
+
+### Added — "Point of view" picker: write scripts in first / second / third person
+The script's narrative person used to be baked into the format (continuity-chain was hard-wired to first-person "I"). It's now a per-script control, separate from narrator style.
+
+- **New "Point of view" picker** on the Script Generator: **Auto (format default) · First (I, me, my) · Second (you, your) · Third (he, she, they)**. Works for every format, switchable per script.
+- The choice injects a clear point-of-view directive into the narration prompt across **all** generation paths — outline, full script expansion, single-chapter regen, and the introduction — so the whole script stays in the chosen person.
+- **continuity-chain defaults to First person** (its old behaviour) but its format copy is now perspective-agnostic, so switching to second/third works cleanly. **Other formats default to Auto** — no directive, their existing voice is unchanged.
+
+So you can now write the same continuity-chain idea as "**If I** had $1000…" (first), "**If you** had $1000…" (second), or "**She** had $1000…" (third) just by flipping the picker.
+
+### Files
+- `electron/server/generators/episode.ts` (perspective directive injected at all 4 script paths) · `electron/server/models/types.ts` (FormatScript.defaultPerspective, GenerateScriptRequest.perspective) · `electron/server/formats/continuity-chain.json`
+- `frontend/pages/projects/[slug]/scripts.vue` (picker + form) · `frontend/components/OutlineReviewPanel.vue` (expand request)
+
+## v1.0.195 — 2026-06-02
+
+### Added — Re-chain from a scene + continuity-chain pipeline complete (CC5)
+The last piece: when you re-roll or edit a single scene in a continuity chain, the scenes after it referenced the OLD render — so they need to re-chain. Scene Review now does that.
+
+- **"⛓ From here" on every scene** (continuity-chain projects) re-renders THAT scene and every scene after it, re-chaining downstream — each anchored to the previous (newly-rendered) frame. Earlier scenes are kept and seed the chain. Use it after editing a scene's prompt or when the look drifts partway through. (The plain "↻ Regenerate" still does a quick single-image re-roll with no chaining.)
+- **Final assembly confirmed.** continuity-chain's Video Assembly routes to the existing **Timestamp Assemble**, which renders one image per scene over the merged audio from the approved `scene_plan.json` — it works on the continuity plan unchanged (greenlight gate: every scene approved).
+
+**The continuity-chain format is now end-to-end:** Idea → (Research, optional) → first-person Script → Audio → Character Sheet (anchor + pacing + reference toggles + denoise) → density-paced Scene Plan → sequential continuity render (with resume + re-chain) → Scene Review → Timestamp Assemble. A character-locked, live-paced video from a dropped-in sheet.
+
+### Files
+- `electron/server/generators/continuity-render.ts` (from_scene_id re-chain) · `electron/server/routes/scene-review.ts`
+- `frontend/pages/projects/[slug]/scene-review.vue` (per-scene "From here" + render-options wiring)
+
+## v1.0.194 — 2026-06-02
+
+### Added — Sequential continuity renderer (CC4 — the core)
+The heart of the continuity-chain format: a renderer that generates **every scene in order**, each one **img2img-anchored to the previous scene's render** plus your character sheet/characters — so the same character carries through the whole video and consecutive frames flow into one another.
+
+- **New `continuity_render` job + generator.** Scene 1 is the establishing shot (sheet + anchor characters only); scene N references the previous render + the sheet + characters, exactly per the toggles you set on the Character Sheet (`continuity.json`). It writes `scene_images/<id>.png` + the `image_path` back into `scene_plan.json`, so Scene Review and Timestamp Assemble pick them up unchanged.
+- **Resumable + cancellable.** It's one long serial job (each scene depends on the last). It **skips scenes that already have an image** — so a crashed or cancelled run continues where it left off — and an existing render still seeds the next scene. Per-scene progress + log lines; cancel from the Jobs panel between (and during) scenes.
+- **Scene Review gets a "🎬 Render sequentially" button** (continuity-chain projects only) plus "↻ Re-render all" (force a clean re-run). Pick a reference-capable image model (e.g. Flux Kontext, Nano Banana) — the renderer warns if the chosen model can't consume reference images (it would render prompt-only with no visual chaining).
+
+The denoise/strength from the Character Sheet is forwarded to the provider (best-effort) — most current providers don't expose an explicit img2img strength, so the continuity comes from the reference images themselves. CC5 (final assembly + regenerate-from-scene-N re-chaining + polish) is next.
+
+### Files
+- new `electron/server/generators/continuity-render.ts` (+ job type, queue, executor registration)
+- `electron/server/routes/scene-review.ts` (continuity-render route)
+- `frontend/pages/projects/[slug]/scene-review.vue` (render buttons)
+
+## v1.0.193 — 2026-06-02
+
+### Added — Density-paced Scene Plan for continuity-chain (CC3)
+For continuity-chain episodes the Scene Plan now paces for a **live feel** instead of aiming at a fixed scene count. It honours the **per-episode min/max-seconds band** you set on the Character Sheet, and the LLM cuts **more often during busy / fast / action-packed passages** — exactly the "a lot of keyboards → more scenes" behaviour you described.
+
+- **The scene planner takes a `pacing` band.** When present, both the prompt and the post-validation use your `min_sec`–`max_sec` (from `continuity.json`) instead of the default 3–12s window. The system prompt switches to a character-driven, live-paced brief: track the on-screen action moment-to-moment, favour the shorter end of the range on dense passages, hold longer only on slow/reflective ones, and keep the same character/wardrobe/setting across scenes.
+- **The Scene Plan job auto-detects continuity-chain** (via the effective format) and reads the band from `continuity.json`, falling back to a sensible **2–8s "live"** default if you haven't set one yet. Other formats are unchanged — they still use the natural-beats explainer planner.
+- **The Scene Plan page shows a live-pacing chip** (e.g. "scenes 2–8s, cut denser on busy passages") with a link to change it on the Character Sheet.
+
+CC4 (the sequential renderer that actually generates each scene img2img-anchored to the previous render + the sheet) is next; this step gets the timed, paced plan ready for it.
+
+### Files
+- `electron/server/services/scene-planner.ts` · `electron/server/generators/scene-plan.ts` · `electron/server/models/types.ts` (ScenePlanRunOptions.pacing)
+- `frontend/pages/projects/[slug]/scene-plan.vue` (live-pacing chip)
+
+## v1.0.192 — 2026-06-02
+
+### Added — Two ways to create a character + upload-at-create; shared drop-zone (CC2b, part 2)
+The Characters editor now offers an explicit choice when you make a character, and you no longer have to save first to add a reference image.
+
+- **Create-mode toggle: "✍️ From description" vs "🖼 From character sheet."** Sheet mode makes the reference-image upload primary (it's framed as "your character sheet").
+- **Upload-at-create.** In create mode the drop-zone now *stages* images (with live previews + per-image remove) and uploads them automatically right after the character is created — previously you had to create, reopen, then upload. Edit mode still uploads immediately.
+- **One shared `ReferenceDropzone` component** (drag / paste / click) now powers the Characters editor AND the continuity **Character Sheet** page's episode-sheet slot — so the episode sheet gained the same rich drag-and-drop the library has (it was a plain button before). The old inline drop-zone + its handlers + styles were removed in favour of the shared one.
+
+(The episode sheet still needs a short description in sheet mode because the backend requires one — you can refine it with ✨ Describe from image after creating.)
+
+### Files
+- new `frontend/components/ReferenceDropzone.vue`
+- `frontend/pages/projects/[slug]/characters.vue` (create modes + staging, dead inline drop-zone removed)
+- `frontend/pages/projects/[slug]/character-sheet.vue` (episode sheet → shared drop-zone)
+
+## v1.0.191 — 2026-06-02
+
+### Changed — Character Sheet + Characters library now share one card (CC2b, part 1)
+The continuity **Character Sheet** page and the **Characters** library showed characters two different ways. They now render the same component, so picking an anchor looks and reads exactly like the library.
+
+- **`CharacterCard` gained an optional thumbnail + a selectable mode.** Pass `thumbnailUrl` to show the character's first reference image; pass `selectable` + `selected` (and listen for `toggle`) to turn the card into a pickable tile. With neither, it renders exactly as before.
+- **The Character Sheet anchor picker now uses `CharacterCard`** — so each character shows its thumbnail, archetype, scope badge, description, episode chips, and a clear "no reference image — won't lock the look" warning, instead of the old bare tile.
+- **The Characters library list now shows thumbnails too** (first reference image), so the two surfaces match at a glance.
+
+Pure presentation/alignment — no data or behaviour changes. Part 2 (the Characters editor's explicit "from description" / "from sheet" creation modes + upload-at-create, on a shared dropzone) follows next.
+
+### Files
+- `frontend/components/CharacterCard.vue`
+- `frontend/pages/projects/[slug]/character-sheet.vue` · `frontend/pages/projects/[slug]/characters.vue`
+
+## v1.0.190 — 2026-06-01
+
+### Fixed — Jobs stuck at "Queued" because the app falsely thought it was offline
+Generating an outline (or any job) could leave it parked at **Queued / "Waiting…"** with **0 running**, forever. Root cause: the connectivity check trusted the browser's `navigator.onLine` flag and "trusted it immediately" when it read `false` — but on macOS that flag throws **false negatives** after sleep/wake, VPN/Tailscale changes, or Wi-Fi interface flaps, **even when the internet is fine**. A false "offline" POSTed `queue/pause`, and the queue's pause gate then parked every job. There was also no indication *why* a job was stuck, and no way to un-stick it from the UI.
+
+- **Reachability now comes from one honest signal** — a probe of the local backend (`GET /api/health`), never `navigator.onLine`. So "offline" now means "the engine that runs jobs is unreachable" (the only state where pausing is actually correct). The browser's online/offline events just nudge a fresh probe instead of being trusted blindly.
+- **A dropped *resume* can no longer get the queue stuck paused.** If the resume command fails (backend briefly busy during the transition), it's retried on the next probe instead of being recorded as "already done" forever.
+- **The Jobs page now shows a paused-queue banner** with a one-click **Resume now** (re-probes + resumes) — so a parked job is never a silent mystery again.
+- Network badge tooltip reworded to match ("App engine reachable" / "Can't reach the app engine — new jobs will wait").
+
+`useNetworkStatus` unit tests updated to lock in the new behaviour (5/5 pass), including a regression test that a flaky `navigator.onLine === false` must NOT pause the queue.
+
+### Files
+- `frontend/composables/useNetworkStatus.ts` · `frontend/__tests__/useNetworkStatus.test.ts`
+- `frontend/pages/projects/[slug]/jobs.vue` (paused banner + manual Resume) · `frontend/layouts/dashboard.vue` (badge copy)
+
+## v1.0.189 — 2026-06-01
+
+### Added — Character Sheet step for continuity-chain (CC2a)
+The continuity-chain format's anchor step is now real (replacing the CC1 stub). On the **Character Sheet** page you:
+
+- **Pick the Character(s) that anchor this episode** — the project's characters are shown with their reference-image thumbnails; tick who appears. Their images become the per-scene visual anchor. Characters with no reference image are flagged (they can't lock the look yet).
+- **Optionally drop in a one-off episode sheet** — a single reference used for every scene in just this episode. Reuses the existing img2img *master* reference slot (upload / replace / remove + a "use this sheet on every scene" toggle).
+- **Set the continuity config** — a user-defined **pacing band** (min/max seconds the Scene Plan cuts within), per-scene **reference toggles** (previous render / episode sheet / characters — independent, matching the renderer's reference sources), and a **denoise/strength** slider.
+
+Settings persist to `<episode_dir>/continuity.json` via new `GET/PUT /projects/:slug/continuity/:episodeId` routes (folder-resolved by the v1.0.188 canonical-title helper). The paced Scene Plan (CC3) and the sequential renderer (CC4) will read this config — it's set-and-saved now, consumed next.
+
+(The Characters *editor* polish — explicit "from description" vs "from sheet" creation modes + upload-at-create — follows as its own focused update so the large editor gets proper care.)
+
+### Files
+- new `electron/server/routes/continuity.ts` (+ mounted in `routes/index.ts`) · `ContinuityConfig` in `electron/server/models/types.ts`
+- `frontend/pages/projects/[slug]/character-sheet.vue` (stub → real page)
+
+## v1.0.188 — 2026-06-01
+
+### Fixed — Research (and the whole timestamp pipeline) saved to one folder but read from another
+Episode folders are named `{code} - {title}` (e.g. `EP0001 - From Lava to Loam…`). The research / scene-plan / scene-review **routes and jobs resolved the folder from the episode CODE alone, passing an empty title** — which produces a phantom `EP0001 - ` path that doesn't exist. So research genuinely *ran and saved* (into the real, title-named folder, because the run used your topic as the title), but every reload looked in the empty-title folder and found nothing — the page silently showed the empty state. The same bug stopped Scene Plan from finding `audio_chapters.json` / the stitched subtitle, i.e. it broke the post-audio half of the narration-synced pipeline too.
+
+- **New `resolveEpisodePathsByCode(slug, code)`** helper resolves the folder by looking up the canonical `idea.title` — exactly how the folder was created — so reads and writes always agree (and it survives later title edits, which rename the folder). Falls back to the old behaviour if no idea is found; never throws.
+- Applied across the 7 code-keyed call sites: `routes/{research,scene-plan,scene-review}.ts` and `generators/{research,scene-plan,scene-image,timestamp-video-assemble}.ts`. **Your existing research now surfaces** when you reopen the episode — no re-run needed (the file was always there).
+
+### Added — Research step is now available in the continuity-chain format
+Per request: the new continuity-chain format now exposes the **Research** step (sidebar + Flow Ribbon + Pipeline chain), like narration-synced. It's optional — handy when you point the niche at factual content.
+
+### Files
+- new helper in `electron/server/services/utils.ts`
+- `electron/server/routes/{research,scene-plan,scene-review}.ts`
+- `electron/server/generators/{research,scene-plan,scene-image,timestamp-video-assemble}.ts`
+- `frontend/composables/useProjectFlow.ts` · `frontend/layouts/dashboard.vue` · `frontend/pages/projects/[slug]/pipeline.vue` · `electron/server/models/types.ts`
+
+## v1.0.187 — 2026-06-01
+
+### Added — Continuity-chain format scaffold (4th visualSource, CC1)
+Groundwork for a new video format: **Continuity Scenes (character-locked, live-paced)**. It's an audio-first pipeline like narration-synced, but scenes will render *sequentially* via img2img — a dropped-in character sheet anchors the look and each scene can reference the previous render for a continuous, almost-live feel, with pacing driven by the narration. Aimed at first-person / POV content ("If I had $1000 today, here's how I'd multiply it") but applies to any topic that wants a consistent on-screen character.
+
+This release is the **navigable skeleton only** (same scaffold-first approach used for narration-synced in v1.0.141); the real steps land over CC2–CC5.
+
+- **New `visualSource: 'continuity-chain'`** type + **`continuity-chain.json`** built-in format (auto-discovered by the format loader, so it appears in the format picker). Generic format with POV/first-person idea + script defaults.
+- **Flow gating**: `useProjectFlow` gains the continuity flow (Ideas → Script → Metadata → Thumbnails → Audio → Audio Assembly → **Character Sheet** → Scene Plan → Scene Review → Timestamp Assemble — no Research). The sidebar + Flow Ribbon + Pipeline chain all branch on the new source: it reuses Scene Plan / Scene Review / Timestamp Assemble (like timestamp-driven), hides the scene-prompt/generator pages, and adds a new **Character Sheet** entry.
+- **New Character Sheet page** (stub) — the anchor step where the sheet + optional Characters + pacing/reference config will live (CC2).
+
+No existing format changes; this is purely additive.
+
+### Files
+- `electron/server/models/types.ts` · new `electron/server/formats/continuity-chain.json`
+- `frontend/composables/useProjectFlow.ts` · `frontend/layouts/dashboard.vue` · `frontend/pages/projects/[slug]/pipeline.vue`
+- new `frontend/pages/projects/[slug]/character-sheet.vue`
+
+## v1.0.186 — 2026-06-01
+
+### Changed — Settings: scope banners + retired the "App Settings" name (Settings reorg, S3 — final step)
+The last step of folding two settings surfaces into one. With per-machine settings now living inside the project Settings page (S2), the separate **App Settings** entry was redundant and the "App vs Project" wording was the remaining source of confusion. This step makes scope obvious and gives everything one name: **Settings**.
+
+- **Scope banner.** A colour-keyed banner now sits above each Settings panel and follows the active tab's zone, in plain language: *"⚙ This Mac — these stay on this Mac and are never synced…"* (lilac) vs *"📁 This Project — these travel with the project…"* (blue). You always know what you're editing.
+- **Retired the standalone "App Settings" button** from the project sidebar — the Settings page's **This Mac** zone already hosts API Keys / Appearance / Server Mode, so one **Settings** link is the single front door. (The lightweight modal still exists for the all-projects home screen, where no project is open.)
+- **Renamed the home-screen button** "App Settings" → **Settings** with a clearer tooltip, and **fixed a dead link** in the first-run wizard that pointed at a non-existent `/app-settings` route — it now opens the settings panel directly.
+- **Honest cross-references.** The "no key / URL not set" prompts in the voice + image pickers said *"App Settings → Local Models"* but actually navigate to the project Settings page; relabelled to *"Settings → This Mac → Local Models"* to match where they land.
+
+No settings move and nothing changes about storage — API keys are still per-machine at `app-secrets.json` (mode 0600), never synced. This completes the Settings consolidation (S1 grouped nav → S2 merge → S3 scope + naming).
+
+### Files
+- `frontend/layouts/dashboard.vue`
+- `frontend/pages/index.vue`
+- `frontend/pages/projects/[slug]/settings.vue`
+- `frontend/pages/projects/[slug]/characters.vue`
+- `frontend/components/{VoicePicker,ImageModelPicker}.vue`
+
+## v1.0.185 — 2026-06-01
+
+### Changed — One "Settings" surface: App settings folded into the project Settings page (Settings reorg, S2)
+There used to be two separate places to change settings: a standalone **App Settings** modal (API Keys + Appearance + Server Mode) and the project **Settings** page. That split was a common source of "where do I set my key?" confusion. The App-Settings body is now a shared component, **`ThisMacSettings`**, mounted in the project Settings page under the **⚙ This Mac** zone as a new **App** group → *API Keys & Appearance* tab. Everything per-machine now lives in one scannable place alongside Local Models / FFmpeg / Notifications.
+
+- **New `frontend/components/ThisMacSettings.vue`** — self-contained per-machine settings (appearance theme picker · API keys for all providers · Server Mode in a collapsed advanced section). Owns its own data lifecycle (loads the key list on mount), so it works embedded in the page or inside the modal with no prop wiring.
+- **`AppSettingsModal.vue` is now a thin wrapper** around `<ThisMacSettings>`. It's kept *only* as the slug-less entry point — the all-projects index and characters page have no project Settings page to open, so the modal still serves them. Re-mounts on each open so it re-fetches.
+- **`settings.vue`** gains the matching `activeTab === 'app'` panel; the flat `tabs` list (deep links, saved tab state) already derives from the zones, so the `app` deep-link works for free.
+
+No keys move and no behaviour changes — API keys still live per-machine at `app-secrets.json` (mode 0600), never synced. This is purely a "one front door for settings" consolidation.
+
+### Files
+- New `frontend/components/ThisMacSettings.vue`
+- `frontend/components/AppSettingsModal.vue`
+- `frontend/pages/projects/[slug]/settings.vue`
+
+## v1.0.184 — 2026-06-01
+
+### Changed — Project Settings: grouped + scope-zoned navigation (Settings reorg, S1)
+The project Settings page had 15 flat, equal-weight tabs in one long row — hard to scan and giving no hint about which settings travel with the project vs. stay on this machine. The nav is now organised into two **scope zones**, each with topic groups:
+
+- **⚙ This Mac** *(stays on this machine · never synced)* — **Local & system:** Local Models · FFmpeg · Notifications.
+- **This Project** *(travels with the project)* — **Content:** Format · Niche · Standards · · **Generation:** Models · Voices · Performance · · **Files:** Folders · Storage · Named Roots · · **Other:** Confirmations · Project · About.
+
+The scope split was verified by each tab's actual save target (per-machine ones write to `/app-settings`, `/voicestudio`, `/imagestudio`, or the FFmpeg installer; per-project ones write to `/projects/:slug/...`), not by assumption — so the labels are honest about what syncs.
+
+Pure navigation reorg: every tab + panel is unchanged, deep links and saved tab state still work (the flat tab list is derived from the zones). This is step 1 of the Settings consolidation; a later step folds the App-Settings modal's API Keys / Appearance / Server Mode into the "This Mac" zone here.
+
+### Files
+- `frontend/pages/projects/[slug]/settings.vue`
+
+## v1.0.183 — 2026-05-31
+
+### Changed — Shared ContextStrip component (Phase 2 complete)
+The "what shapes this step" context strip (the collapsible summary line + detail panel) was hand-rolled twice — on Ideas and Script — with the same bordered shell, amber warning state, toggle button, and expand/collapse. Extracted into one reusable component, completing the Phase-2 kit of shared primitives.
+
+- **New `frontend/components/ContextStrip.vue`**: owns the chrome (border, warning tint, summary button, expand/collapse, optional per-project persistence, `v-model:open`). Pages pass their own summary line via a `summary` slot and their detail panel via the default slot.
+- **Retrofitted** `ideas.vue` (Format · Topic · Titles chips) and `scripts.vue` (format envelope + niche overlay + recency controls) onto it; removed both copies of the dead chrome CSS. Identical look + behaviour, one source of truth.
+
+**Phase 2 (modular scaffold) is now complete.** The flow pages compose three shared primitives — `FlowRibbon` (format-aware step ribbon), `AdvancedDisclosure` (Simple/Advanced split), and `ContextStrip` (what-shapes-this) — rather than each re-implementing them. Future formats and new pages inherit the patterns for free. (Deliberately did NOT build a monolithic page-shell — the pages legitimately differ: tabs on Script, a wizard on Video Assembly, sections on Metadata.)
+
+### Files
+- New `frontend/components/ContextStrip.vue`
+- `frontend/pages/projects/[slug]/{ideas,scripts}.vue`
+
+## v1.0.182 — 2026-05-31
+
+### Changed — Shared AdvancedDisclosure component (Phase 2: modular scaffold)
+Phase 0 + 1 of the declutter put a Simple-tier / Advanced-disclosure pattern on the Script, Metadata, and Audio Assembly pages — but each hand-rolled its own toggle button, body wrapper, per-project persistence, and CSS (three near-identical copies). This release extracts that into one reusable component so the pattern is enforced, not copy-pasted — the future-proofing step: new flow pages (and future formats) get the identical look + behaviour by dropping in one tag.
+
+- **New `frontend/components/AdvancedDisclosure.vue`**: a labelled collapsible (auto ▸/▾ chevron) with a slotted body, an optional `persist-key` for per-project open/closed memory (the component owns the localStorage read/write), an optional `badge` chip, and optional `v-model:open`.
+- **Retrofitted** `scripts.vue`, `metadata.vue`, `audio-merge.vue` onto it — removed three hand-rolled toggles + their dead refs/watchers/CSS. Identical behaviour, less code, one source of truth. (Persistence is preserved on Metadata + Audio Assembly; Script stays session-only via `v-model:open`.)
+
+No user-visible behaviour change — the disclosures look and act the same, they're just unified underneath.
+
+### Files
+- New `frontend/components/AdvancedDisclosure.vue`
+- `frontend/pages/projects/[slug]/{scripts,metadata,audio-merge}.vue`
+
+## v1.0.181 — 2026-05-31
+
+### Removed/cleanup — OpenRouter removal follow-up
+The OpenRouter LLM feature (text provider + the research `openrouter-online` source) was removed in a prior session for being buggy and not beginner-friendly. Audited the whole tree for leftovers:
+
+- **Code: fully clean.** Both `providers/text/openrouter.ts` and `services/research/openrouter-online.ts` are gone; `SECRET_PROVIDERS`, `SUPPORTED_MODELS`, the `AiProvider` and `ResearchSourceProvider` type unions, boot registration, app-settings UI, and the frontend all carry zero OpenRouter references. `tsc` clean, providers test 17/17, full build green.
+- **Fixed the one leftover:** the `narration-synced` format description still advertised "Perplexity / OpenRouter :online / LLM-only" as research sources. Corrected to "Perplexity or LLM-only" so the format card matches the two sources that actually exist.
+- The v1.0.177 `callAi` key-resolution fallback remains valid — it resolves keys generically by provider id, so it correctly covers the remaining providers (anthropic / openai / kie / fal) with no OpenRouter-specific code.
+
+### Files
+- `electron/server/formats/narration-synced.json`
+
+## v1.0.180 — 2026-05-31
+
+### Changed — Audio Assembly decluttered (Phase 1 cont.)
+- **Audio Assembly:** the five layering cards (Intro Audio · Volume Normalization · Background Music · Ambience · Ambient Layers) collapse behind one **"Audio layers"** disclosure. The page now opens onto **Narration Chapters → Generate Merged Audio**; open the disclosure to layer in music, ambience, normalization, or an intro clip. Open state is remembered per project. Nothing removed.
+- **Audio (TTS) generator:** audited and left as-is — it's already lean (voice picker + generation mode + integrity), no clutter to hide.
+
+### Files
+- `frontend/pages/projects/[slug]/audio-merge.vue`
+
+## v1.0.179 — 2026-05-31
+
+### Changed — Image Prompts: character references opt-in (Phase 1 cont.)
+Continuing the page-template rollout. Auditing the image pages found they were already well-disclosed (the custom-style editor is gated behind the "custom" art-style option; the model-caps table is a modal), so the one always-on item out of step with the new template was the character picker.
+
+- **Image Prompts:** the cast picker is now behind a **"Use character references"** toggle, off by default — matching the Script page. Off = the AI describes scene subjects freely; on = pin a cast so every scene/thumbnail prompt reuses the same descriptions. Toggling off clears the selection; auto-enables when editing an episode that already has a cast.
+- **Images:** no change needed — it renders from existing prompts and has no character picker.
+
+### Files
+- `frontend/pages/projects/[slug]/image-prompts.vue`
+
+## v1.0.178 — 2026-05-31
+
+### Changed — Metadata Generator decluttered (Phase 1 of the page-template rollout)
+Applied the Script-page template pattern to Metadata. The page used to stack three dense section editors (SEO Title mode + the full description channel-template editor + Tags count) before the Preview — overwhelming for the common path, which is simply: pick model → **Generate Metadata** (the top button runs all three) → review the Preview.
+
+- The three section editors now collapse behind one **"Customize sections"** disclosure (title mode · description template · tags). Default-closed; the page opens onto model + Preview.
+- The open/closed choice is **remembered per project** (`metadata_advanced_open_<slug>`), so once you've tuned your channel template it stays visible.
+- Nothing removed — every control (title modes, prefix/suffix, the drag-to-reorder description sections, playlist/channel/support editors, tag count) is intact inside the disclosure.
+
+### Files
+- `frontend/pages/projects/[slug]/metadata.vue`
+
+## v1.0.177 — 2026-05-31
+
+### Fixed — OpenRouter "No API key configured" even when a key was saved
+Generating a script / outline (or any text job) with an OpenRouter model could fail with "No OpenRouter API key configured" despite a valid key being saved in App Settings. Root cause was in the shared `callAi` key-resolution fallback:
+
+- Tier 1 was the account-aware, slug-based resolver. When it returned empty for any reason (the `__slug_race__` sentinel slug, a slug-less job, an account-store hiccup), control fell to tier 2.
+- Tier 2 read the caller's legacy `apiKeys` bag — but that bag only ever carries `{anthropic, openai, kie}`. It has **no field for OpenRouter** (nor fal / google), so it could never recover an OpenRouter key. The failure was structural, not intermittent: any tier-1 miss = guaranteed dead end for OpenRouter.
+
+**Fix:** added a tier-3 fallback that reads the **app-level key store directly**, keyed by the provider's canonical id (`openrouter` / `fal` / `google` / …) resolved from the model. App keys are per-machine and global, so this works without a slug and covers every registered provider — not just OpenRouter. The provider's own "no key" error still fires if the key genuinely isn't set.
+
+### Files
+- `electron/server/lib/ai-client.ts`
+
+## v1.0.176 — 2026-05-31
+
+### Changed — Script Generator: tab order + character references are opt-in
+- **Tab order now follows the real flow:** **Outline → Script → Introduction**. Outline (plan) comes first (still the default landing tab), then Script (write/regenerate), then Introduction — which is explicitly labelled **(optional)** and sits last, since it needs the chapters as context.
+- **Character references are now opt-in.** The cast picker used to render whenever an episode was selected; now it's behind a **"Use character references"** toggle that's **off by default**. Off = the AI invents its own cast (the common case, uncluttered). On = the picker appears and you pin a persistent cast. Toggling off clears the selection so a stale cast can't leak into a run; the toggle auto-enables when you load an episode that already has characters.
+
+### Files
+- `frontend/pages/projects/[slug]/scripts.vue`
+
+## v1.0.175 — 2026-05-31
+
+### Added — Research: free model choice on the LLM-only source
+The Research page had no model picker. Its "LLM-only" source was silently hardcoded to Anthropic's `claude-sonnet-4-6` — so anyone without an Anthropic key (e.g. kie.ai / OpenAI / DeepSeek / OpenRouter users) hit a dead default. (A code comment literally promised "the frontend will offer a model picker in a future iteration"; this is that iteration.)
+
+- When **LLM-only** is the chosen source, the standard **ModelSelector** now appears — the same picker used on every other generator page, surfacing your full configured catalog (kie.ai, OpenAI, DeepSeek, OpenRouter, Anthropic…). `callAi` resolves the right provider + key from the model id, so any configured provider just works.
+- **No forced default**: your pick is remembered per project (`research_llm_model_<slug>`). Re-opening a saved llm-only run restores the model it used.
+- The two **web-search sources** (Perplexity, OpenRouter `:online`) are unchanged — they stay bound to their search-capable models, so the picker only shows for LLM-only.
+
+Plumbed an optional `model` through the run route → `research_run` job → `ResearchRunOptions` → the llm-only adapter (falls back to the old default only when nothing is picked).
+
+### Files
+- `frontend/pages/projects/[slug]/research.vue`
+- `electron/server/{routes/research.ts, generators/research.ts, services/research/llm-only.ts, models/types.ts}`
+
+## v1.0.174 — 2026-05-31
+
+### Changed — Script Generator decluttered (establishes the page template)
+The Outline tab used to stack three always-open advisory cards (format envelope · niche overlay · recency avoidance) plus power controls inline with the primary inputs — pushing the word counts and the outline far down the page. This is the first page reworked onto the **standard flow-page template** that the rest of the generator pages will adopt:
+
+- **Context strip** — the three advisory cards fold into one collapsible "Shaping this script" strip: a quiet summary line (`Format · Topic · N chapters × W words`) by default, full detail on click. It shows a **⚠ check** flag when your chapter/length choice falls outside the format's recommended envelope.
+- **Simple tier** stays visible: Model · Narrator Style · Chapters · Words/chapter. That's all a normal run needs.
+- **Advanced options** (collapsed) — Force-regenerate and the legacy-narration normalizer move behind one disclosure. One click for full granular control; nothing removed.
+
+Net: the Outline tab opens onto context-strip → model/narrator → word counts → Generate, instead of a wall of cards. Behaviour, fields, and the generation request are unchanged.
+
+### Files
+- `frontend/pages/projects/[slug]/scripts.vue`
+
+## v1.0.173 — 2026-05-31
+
+### Fixed — Flow ribbon was clipped to half-height at the top of the page
+The format-aware flow ribbon (v1.0.169) rendered as half-cut pills jammed against the top edge, partly hidden behind the page header. Cause: `.main-content` is a fixed-height column flex scroll container, and the ribbon had no `flex-shrink: 0` — so the column compressed it vertically and its own `overflow` then clipped the pills.
+
+- Added `flex-shrink: 0` so the ribbon always keeps its full height; switched its vertical overflow to `visible` (only horizontal scroll remains, for long flows).
+- Gave it a proper band treatment — surface background, border, rounded corners, and 16px breathing room below — so it reads as a distinct, fully-visible strip above the page content rather than floating pills.
+
+This applies on every project page, so the same fix benefits the other tabs as their UX work begins.
+
+### Files
+- `frontend/components/FlowRibbon.vue`
+
+## v1.0.172 — 2026-05-31
+
+### Changed — Ideas Generator: plain-language microcopy
+Final pass of the Ideas-page UX cleanup — replaced leftover internal jargon in helper text with plain language (UI text only; no behaviour change):
+
+- The dropdown "where these suggestions come from" tooltips now say **"Topic"** instead of the internal **"niche"**, and read in plainer terms.
+- The page intro blurb is rewritten to be beginner-oriented (what Generate does, and that Randomize/Surprise Me are the no-pressure starting points).
+- Fixed a stale settings-load warning that still referenced the removed **Pattern** system — it now mentions your saved topic + title branding.
+
+This completes the Ideas-page redesign series (v1.0.169 flow ribbon → v1.0.170 context strip → v1.0.171 grouped form → v1.0.172 microcopy).
+
+### Files
+- `frontend/pages/projects/[slug]/ideas.vue`
+
+## v1.0.171 — 2026-05-31
+
+### Changed — Ideas Generator: form grouped into labelled sections + secondary actions demoted
+The generator form was a long flat list of fields. It's now organised into three labelled sections (no fields removed — everything is still here, just grouped + relabelled in plain language):
+
+- **What to make** — Audience, Genre, Theme, Mood, Keywords, How many ideas.
+- **Topic & titles** — Topic (the niche override, now labelled "Topic"), Title shape (the optional `{X}` template), Channel branding on titles (prefix/suffix, relabelled "Before the title" / "After the title").
+- **Generation settings** — Model, How many items per video (was "Items per listicle / chapters per idea").
+
+Secondary actions (Add manually / Paste from an LLM / Import episode folder) now collapse behind one **"Other ways to add"** disclosure so they no longer compete visually with the **Generate Ideas** button. Generate / 🎲 Randomize / ✨ Surprise Me stay as the primary action row.
+
+All changes are UI text + layout only — field names, config keys, and the generation request are unchanged.
+
+### Files
+- `frontend/pages/projects/[slug]/ideas.vue`
+
+## v1.0.170 — 2026-05-31
+
+### Changed — Ideas Generator: one context strip instead of two config cards
+The Ideas page used to open with two stacked config cards before the form — an "Effective state" card and a "Format indicator" card — which together showed **Format up to three times** with three different "Change" links. Beginners couldn't tell which was authoritative. Both are now collapsed into a single quiet **Channel context strip**:
+
+- One line summarises what drives generation: **Format · Topic · Titles**. (Part of the ongoing relabel: "Niche" reads as "Topic" in the UI; the config key is unchanged.)
+- A click expands a **"⚙ Change setup"** panel carrying the detail the old cards held — format name + Built-in/Custom badge + description, Switch format / + New custom links, the project-topic override note, and the title-branding preview.
+- The strip turns **red ("⚠ check setup")** only when something's actually broken (no explicit format on the project), preserving the "catch it before you spend an API call" safety the old card had.
+
+Net: the generator form is now visible far higher on the page, and Format appears once.
+
+### Files
+- `frontend/pages/projects/[slug]/ideas.vue` (template + CSS; backend + field names unchanged)
+
+## v1.0.169 — 2026-05-31
+
+### Added — Format-aware production flow ribbon
+A slim ribbon now sits at the top of every project page showing the full creation chain for THIS project's format, with the current page highlighted and each step clickable. It answers "where am I / what's next" without reading the sidebar — the first of a series of UX changes to make the app legible to newcomers.
+
+The chain is **format-aware** (driven by the same `visualSource` that gates the sidebar), so each format shows its real sequence:
+- **narrative / listicle (scene-images):** Ideas → Script → Metadata → Thumbnail Prompts → Scene Prompts → Thumbnails → Scenes → Audio → Audio Assembly → Video Assembly
+- **stock-footage (B-Roll):** Ideas → Script → Metadata → Thumbnail Prompts → Thumbnails → Audio → Audio Assembly → Video Assembly
+- **narration-synced (timestamp-driven):** Ideas → Research → Script → Metadata → Thumbnail Prompts → Thumbnails → Audio → Audio Assembly → Scene Plan → Scene Review → Timestamp Assemble
+
+Steps before the current one read as "done so far" (green), the current step is ringed in accent, upcoming steps are muted. Long chains scroll horizontally; off-flow pages (Dashboard / Jobs / Settings / Library) show the ribbon as a map with nothing highlighted. Tools (Jobs, Settings, Library, Pipeline, AI Video) are intentionally not steps.
+
+### Files
+- New `frontend/components/FlowRibbon.vue` + `frontend/composables/useProjectFlow.ts`
+- Mounted once in `frontend/layouts/dashboard.vue` (above page content)
+
+## v1.0.168 — 2026-05-30
+
+### Changed — Script Generator sizing controls (chapters + words, duration is now informational)
+The Duration / Chapters / Words-per-chapter / Total-words fields used to cross-recalculate in a "last-writer-wins" cascade — changing the chapter count silently rewrote your per-chapter word target, and duration was both an input and an output depending on what you touched last. That's gone.
+
+- **Two real inputs, in order:** **(1) Chapters → (2) Words per chapter.** Nothing auto-changes the other. Editing the chapter count no longer touches your per-chapter word target.
+- **Total words is derived** (chapters × words-per-chapter), shown read-only with a "derived" badge.
+- **Duration is informational only** — a read-only "≈ N min" estimate (total ÷ the format's words-per-minute), badged "info". It no longer drives generation or word math. The old duration dropdown / custom-minutes input is removed.
+- **Hints added:** each input has a one-line sub-label, and a rough scale line shows "1,000 words ≈ X min · 5,000 ≈ Y · 10,000 ≈ Z" at the active format's words-per-minute (narrative 122, listicle 155, narration-synced 130).
+- **Format defaults** now seed the two inputs (chapter count + words-per-chapter) instead of seeding duration; total + estimate are derived from them.
+- **Backend:** removed the magic `length === 45 ? 5500 : 7500` word-count fallback in the script generator. Word sizing comes straight from the request (chapters + words-per-chapter); API callers that omit them fall back to per-chapter × chapters with a neutral default — never a duration-keyed guess.
+
+### Files touched
+- `frontend/pages/projects/[slug]/scripts.vue`
+- `electron/server/generators/episode.ts`
+
+## v1.0.167 — 2026-05-30
+
+### Changed — Pipeline page is now format-aware
+The Pipeline page was hardwired to the scene-images chain — every project, regardless of format, saw the same step list (Script → … → Scene Images → Video Clips → Video Assembly). For the three non-scene-image formats that was both wrong (irrelevant steps shown) and incomplete (their real steps missing). It now reads the project's effective `visualSource` and renders only the active format's real chain:
+
+- **narrative / listicle (scene-images):** unchanged — the full classic chain.
+- **stock-footage (B-Roll):** drops Scene Prompts, Scene Images, and AI Video Clips. Ends with a **B-Roll Fetch + Assemble** node that opens the B-Roll page (where the pool is filled and the final video is rendered).
+- **narration-synced (timestamp-driven):** adds **Research** up front and **Scene Plan → Scene Review → Timestamp Assemble** at the end.
+
+**Batchable vs. external steps.** "Run Batch" still enqueues only the steps the batch runner supports (the shared core: script → intro → metadata → image prompts → thumbnail images → audio → audio merge, plus scene images + video clips + video assembly for scene-image formats). The format-specific steps — Research, B-Roll, Scene Plan, Scene Review (a human approval gate by design), Timestamp Assemble — render inline as read-only "↗ Open page →" nodes so the full chain order is visible, but run from their own pages. No backend/batch changes; zero new risk to existing scene-image runs.
+
+- The episode status pills, the "Missing a specific step" filter, "Select all pending", and the missing-core counter are all derived from the active format's chain — a stock-footage episode is no longer flagged "pending" for scene images it will never have.
+- The page header sentence now reflects the active chain instead of a hardcoded one.
+
+### Files touched
+- `frontend/pages/projects/[slug]/pipeline.vue`
+
+## v1.0.166 — 2026-05-30
+
+### Removed — Pattern system (backend)
+Completes the Pattern-system retirement begun in v1.0.165 (which removed the UI). This release deletes all backend pattern code, so choosing what to make is now just **format + niche**, with optional idea-time title templating.
+
+- Deleted `services/pattern-loader.ts`, `lib/pattern-extraction-prompt.ts`, and all 8 built-in pattern JSONs (`server/patterns/`).
+- Removed the `/api/patterns` library + CRUD + from-sample routes from `routes/projects.ts`. Format endpoints are untouched.
+- Removed `fuseFormatWithPattern()` and all pattern fusion from the script generator (`generators/episode.ts`) — both the non-chunked and chunked-outline paths.
+- Dropped `pattern_id` / `pattern_subject` / `patternId` / `patternSubject` from `GenerationParams`, `ChunkedNarrationParams`, the params-hash, the v3 sidecar snapshot, `GenerateIdeasRequest`, and `GenerateScriptRequest`.
+- Removed the `Pattern` interface (`models/types.ts`) and the `PatternSchema` / `PatternUpsertSchema` Zod contracts (`contracts/index.ts`).
+- Deleted the pattern-only tests (`pattern-crud`, `pattern-loader`, `ideas-generator-pattern`) and scrubbed pattern fields from the sidecar + outline-expand tests. Full suite green: 20 files / 91 tests; `tsc --noEmit` clean.
+
+## v1.0.165 — 2026-05-30
+
+**Pattern system removed (frontend half). Its one useful capability — the `{X}` title shape — is now a plain "Title template" field on the Ideas Generator.**
+
+The Pattern system was a fifth customization layer (on top of format / niche / brand / project-overrides) that, per the user's own usage, never got used — "I just pick format + niche." It carried real cognitive load (a dedicated picker on Ideas + Scripts, a whole Patterns sub-section in Settings with editor + extract-from-sample wizard, 8 preset JSONs, CRUD) for a single piece of value: the `{X}` title template ("Fall asleep to {X}", "History of {X} explained").
+
+This release rips out the entire pattern UI and replaces that one capability with a simple optional field.
+
+### What changed — frontend
+
+- **`ideas.vue`** — the `PatternPicker` block is replaced by a **"Title template (optional)"** text input (placeholder `e.g. Fall asleep to {X}`). The paste-prompt chip strip, the in-modal `PatternEditorModal`, and all the pattern persistence / watchers / paste-URL plumbing went with it. New behaviour: when set, the backend shapes **every** generated idea's title to the template, filling `{X}` with each idea's own subject — so 10 ideas under `"Fall asleep to {X}"` become 10 *different* "Fall asleep to …" titles. (The old pattern locked the whole batch to one subject; this is strictly better.) Persisted per-project under `idea_generator_last_title_template`.
+- **`scripts.vue`** — `PatternPicker` + the `pattern_id` / `pattern_subject` form fields removed. `projectFormatId` kept (it drives the Chapter/Topic/Section labels). The Script Generator's shape comes from format + niche; the title was already shaped at idea time.
+- **`settings.vue`** — the entire **Patterns sub-section** (grid, New/Extract buttons, editor + wizard modals, `usePatterns` state, CRUD helpers, ~120 lines of script + ~70 lines of CSS) deleted.
+- **`OutlineReviewPanel.vue`** — the "locked at outline build" pattern pill + the `pattern_id`/`pattern_subject` snapshot fields removed.
+- **Deleted files:** `PatternPicker.vue`, `PatternEditorModal.vue`, `PatternFromSampleWizard.vue`, `composables/usePatterns.ts`.
+
+### What changed — backend (`routes/ideas.ts`)
+
+- `buildPrompt()` + `buildPastePrompt()` now take a `titleTemplate` string instead of a `Pattern` object. The injected prompt block is simpler: "shape every title to this template, `{X}` = a fresh concrete subject per idea."
+- The `/generate/ideas` route reads `body.title_template` instead of loading a pattern. The `X-Pattern-Warning` response header (patterns could "fail to load"; a plain string can't) and the `loadPattern` call are gone.
+- The `/ideas/paste-prompt` route's `?pattern_id=&pattern_subject=` query params became `?title_template=`.
+- `GenerateIdeasRequest` gains `title_template?`; `pattern_id?` / `pattern_subject?` marked `@deprecated` (kept so old persisted snapshots still parse; the route ignores them).
+
+### What did NOT change yet
+
+The backend pattern *machinery* still exists — `services/pattern-loader.ts`, `lib/pattern-extraction-prompt.ts`, the 8 `patterns/*.json`, the `/patterns/*` routes in `routes/projects.ts`, the `Pattern` type, the `fuseFormatWithPattern` path in `episode.ts`, and the pattern tests. None of it is reachable from the UI anymore (dead code), and it all still compiles. **v1.0.166 will delete that backend half** — split out so each release is independently build-verifiable. Typecheck passes clean at this checkpoint (`tsc --noEmit` exit 0).
+
+### Files touched
+
+- `frontend/pages/projects/[slug]/ideas.vue`, `scripts.vue`, `settings.vue`
+- `frontend/components/OutlineReviewPanel.vue`
+- deleted: `frontend/components/{PatternPicker,PatternEditorModal,PatternFromSampleWizard}.vue`, `frontend/composables/usePatterns.ts`
+- `electron/server/routes/ideas.ts`
+- `electron/server/models/types.ts` (`GenerateIdeasRequest` — `title_template` added, pattern fields deprecated)
+
+---
+
+## v1.0.164 — 2026-05-30
+
+**Internal cleanup: every "TerraNash" / "Dozing Knight" channel-name reference removed from source comments. Stale format-id examples in comments fixed too.**
+
+Not user-visible — these are all dev comments — but they dated the code to a specific user's channels and assumed the reader knew what "TerraNash" meant. Genericized so the codebase reads as a general multi-format tool, not a tool that grew out of one person's sleep-story channel.
+
+### What changed
+
+Replaced channel-specific names with generic descriptions everywhere, **preserving the useful provenance** (performance numbers, episode counts) while dropping the proper nouns:
+
+**Backend** (8 files):
+- `electron/server/models/types.ts` — alignment-field comment (`sleep-story / listicle / TerraNash` → `narrative / listicle`); niche-composition examples (`bound-explainer × plants`, `sleep-story × gemstones (TerraNash episode)` → `narrative × plants`, `narrative × gemstones`). Also updated the now-deleted format ids to the current 4-format set.
+- `electron/server/services/project-manager.ts` — orphan-path dialog example.
+- `electron/server/services/digest-builder.ts` — "TerraNash-sized projects (~150 episodes)" → "large projects (~150 episodes)".
+- `electron/server/services/named-roots.ts` — the `${TERRANASH}` named-root example → `${CHANNEL_ASSETS}`.
+- `electron/server/services/project-mover.ts` — mixed-storage-needs example.
+- `electron/server/services/path-resolver.ts` — nested-root-mapping example.
+- `electron/server/services/linked-projects.ts` — the cross-Mac linked-paths walkthrough (×2 blocks) → `Channel-One` / `Channel-Two`.
+- `electron/server/services/job-notifier.ts` — multi-project notification example.
+
+**Frontend** (6 files):
+- `frontend/composables/useLinkedProjects.ts` — per-Mac subset-linking example.
+- `frontend/components/EpisodeSelector.vue` — episode-count-badge comment ("TerraNash has 380+" → "a channel with 380+ episodes").
+- `frontend/components/ModelSelector.vue` — slow-first-fetch loading-hint comment.
+- `frontend/pages/projects/[slug]/index.vue` — the 102.5s dashboard-audit benchmark ("on TerraNash (379 episodes)" → "on a 379-episode iCloud-synced project" — number preserved).
+- `frontend/pages/projects/[slug]/settings.vue` — move-project dialog comments (×2).
+- `frontend/pages/projects/[slug]/scripts.vue` — episode-cache-swap perf comment.
+- `frontend/pages/index.vue` — niche-picker comment also had stale `bound-explainer` / `sleep-story` format ids from before the v1.0.162 consolidation; fixed to `narrative`.
+
+### Verification
+
+```
+$ grep -rn "TerraNash\|Dozing Knight" electron/server frontend  (excluding dist/node_modules/.nuxt)
+✓ ZERO references in source
+```
+
+### Decision recap
+
+Last release (v1.0.163) I'd flagged leaving these alone for "provenance value". On reflection — and per your call — the channel names don't actually add provenance; the *numbers* do (102.5s on 379 episodes, 380+ episode lists, ~150-episode digests). Those are all preserved. Only the proper nouns are gone, which is pure upside: the comments still teach the same lessons without dating the code to one person's setup.
+
+### Files touched
+
+14 source files, comments only. Zero behaviour change — the build is byte-identical except for the embedded comment strings.
+
+---
+
+## v1.0.163 — 2026-05-30
+
+**Legacy "sleep story" framing swept out of the user-visible UI + product description. Two dead-stub upload pages deleted. Tiny correctness polish.**
+
+Story Studio shipped as a sleep-story tool; the codebase grew into a multi-format video pipeline but the framing didn't follow. This release does the remaining sweep of user-visible legacy text + cuts two upload-page stubs that have been "Coming in v2" placeholders for too long.
+
+### A — `package.json` description
+
+Was:
+
+> *"Story Studio KH — story production desktop app for scripts, images, and audio"*
+
+Now:
+
+> *"Story Studio KH — multi-format video pipeline for YouTube channels. Research, scripts, voice, scenes, B-roll, and assembly across 4 production formats (narrative / listicle / stock-footage / narration-synced)."*
+
+The first one was three releases out-of-date. The second is what the app actually is today.
+
+### B — 4 user-visible "sleep story" strings, scrubbed
+
+- `frontend/pages/projects/[slug]/settings.vue:715,813` — Storage tab's "5–10 GB final videos. Sleep stories produce huge final-video files" → "Long-form video projects produce huge final-video files". The concern (iCloud sync bog) applies to any format that produces multi-GB outputs, not just sleep stories.
+- `frontend/pages/projects/[slug]/video-assembly.vue:837,1567` — Video Layout dev comment + "Align scenes to chapter audio (off for sleep stories)" hint. Both rewritten to reference the format generically — *"typically off for evenly-paced narrative; on for listicle / structured-section formats"*.
+- `frontend/pages/brands/[id].vue:87` — Persona placeholder *"A calm, slow-paced narrator for sleep stories..."* → *"A clear, evidence-based narrator for explainer videos. Confident but never preachy..."*. Explainer-flavoured because that's the broader use case post-v1.0.162; users can override per project.
+- `frontend/pages/brands/[id].vue:193` — Description outro placeholder *"Subscribe for more sleep stories. Sweet dreams."* → *"Subscribe to keep the videos coming. New episode every week."*
+
+The last user-facing surface that says "sleep" without context is gone.
+
+### C — TikTok + Facebook upload stubs deleted
+
+Both pages were **41-line "Coming in v2" placeholders** that took up sidebar real estate alongside the working YouTube upload page. The pages — and their sidebar `<NuxtLink>` entries in `frontend/layouts/dashboard.vue` — are gone. When TikTok Content Posting API and Facebook Graph API work actually starts, the entries get re-added as part of that implementation task.
+
+Files removed:
+- `frontend/pages/projects/[slug]/tiktok-upload.vue`
+- `frontend/pages/projects/[slug]/facebook-upload.vue`
+
+Sidebar Upload Center now shows just the one working entry (YouTube). Less noise, less aspirational fiction.
+
+### D — Per-format `sectionLabel` on stock-footage
+
+The `sectionLabel: { singular, plural }` field exists in the format schema and is consumed by the chunked-narration outline builder + the audio chunk-labels. v1.0.162 only had it set on `listicle` (Topic / Topics). v1.0.163 adds it to `stock-footage`:
+
+```json
+"sectionLabel": { "singular": "Section", "plural": "Sections" }
+```
+
+Prayer / devotional / motivational projects don't produce *chapters* — they produce continuous narration broken into thematic sections (the prayer niche's `Reflection → Prayer → Blessing` shape, for instance). "Section / Sections" reads more honestly than "Chapter / Chapters" in the UI.
+
+`narrative` keeps `Chapter / Chapters` (no JSON entry needed — falls through to the chunker's default). `narration-synced` also keeps `Chapter / Chapters` because the script unit IS still chapters; scenes live one layer down in the Scene Plan / Scene Review pipeline.
+
+### E — TerraNash references in dev comments
+
+Audit found 6+ source files that mention TerraNash by name in code comments (mostly performance-benchmark provenance like *"102.5s measurement on TerraNash (379 episodes)"*). They're not user-visible and the specific channel name gives the next maintainer useful context about WHERE the numbers came from. **Decision: leave them alone.** Genericizing would lose provenance without buying anything.
+
+### Files touched
+
+- `package.json` — description.
+- `frontend/pages/projects/[slug]/settings.vue` — Storage-tab copy ×2.
+- `frontend/pages/projects/[slug]/video-assembly.vue` — Video Layout comment + alignment hint.
+- `frontend/pages/brands/[id].vue` — persona + outro placeholders.
+- `frontend/pages/projects/[slug]/tiktok-upload.vue` — deleted.
+- `frontend/pages/projects/[slug]/facebook-upload.vue` — deleted.
+- `frontend/layouts/dashboard.vue` — TT/FB sidebar entries removed; replacement comment left in place explaining the v1.0.163 cut.
+- `electron/server/formats/stock-footage.json` — `sectionLabel` added.
+
+---
+
+## 📐 Patterns-vs-Niches deep dive (for next discussion)
+
+Per Q from the v1.0.163 audit: *should the Patterns layer be merged into Niches?* This release doesn't change anything — but here's the analysis ready for the next discussion to draw on.
+
+### What each layer does today
+
+**Niches** *(12 files in `electron/server/niches/`)* shape **content topic + voice**:
+- `vocabulary`: mood / theme / genre / keyword pools
+- `audienceHint`: who this is for
+- `scriptContext`: prepended to the script-system-prompt so narration adopts the niche voice
+- `visualStyleSheet`, `defaultStyleKeywords`: tunes image-prompt defaults
+- `exampleTopics`: titles the LLM models its ideas on
+- `youtubeTagsHint`, `metadataDescription`: SEO + outro tuning
+- `titleShapeRules`, `loglineShapeRules`, `themeShapeRules`: shape rules for the idea step
+- Optional `scriptStructure`: chapter count, pacing arc, additional rules
+- Effective format = format ⊕ niche merge (see `applyNicheToFormat` in `format-loader.ts`).
+
+**Patterns** *(8 files in `electron/server/patterns/`)* shape **title template + episode structural convention**:
+- `name`: human-readable label with `{X}` placeholder ("Fall asleep to {X}")
+- `titlePattern`: regex / template form the LLM matches
+- `openingHook`, `bodyArc`, `closingDevice`: per-section directives
+- `pov`: first/second/third-person stance
+- `suggestedLengthMinutes`, `preferredFormats`: hints to surface "this pattern pairs with X format"
+- `metadataKeywordAdditions`: extra tags for the metadata layer
+
+### Where they overlap
+
+| Concern | Niche covers it | Pattern covers it |
+|---|---|---|
+| Title shape rules | ✓ (`titleShapeRules`) | ✓ (`titlePattern` + name template) |
+| Episode pacing arc | ✓ when `scriptStructure.pacingArc` is set | ✓ (`bodyArc`) |
+| Opening style | ✗ | ✓ (`openingHook`) |
+| Closing style | ✗ | ✓ (`closingDevice`) |
+| POV (first / third person) | ✗ | ✓ (`pov`) |
+| Section / chapter count | ✓ (`scriptStructure.defaultChapterCount`) | ~ (`bodyArc` implies it) |
+| Vocabulary pools | ✓ | ✗ |
+| Voice / persona | ✓ (`scriptContext`) | ✗ |
+| Suggested episode length | ~ via format defaults | ✓ |
+| Title-template `{X}` substitution | ✗ | ✓ — patterns are the only layer that uses {X} |
+| Metadata SEO tags | ✓ | ✓ (`metadataKeywordAdditions`) |
+
+**Patterns own three things niches don't:** POV stance, opening-hook directives, closing-device directives, and the `{X}` placeholder mechanic. Niches own three things patterns don't: vocabulary pools, voice/persona context, and visual style sheet.
+
+### Three options for the next discussion
+
+**Option 1 — Merge patterns into niches.** Add `pov`, `openingHook`, `closingDevice`, `titleTemplate` fields to the niche schema. Delete the pattern JSON files + the PatternPicker UI. Each existing pattern becomes a sub-niche or gets folded into an existing niche.
+
+- **Pro**: 4 customization layers instead of 5. Niche becomes the single content-axis answer. PatternPicker UI deleted.
+- **Con**: Every niche × pattern combo today (e.g. `prayer × whisper-tour-X`) collapses to one niche choice. The user loses the orthogonal pick.
+- **Effort**: ~3 releases. Schema migration, pattern-data merger, UI delete, fix all callers.
+
+**Option 2 — Keep both, draw clearer boundaries in the docs.** Patterns own title-template-with-{X} + per-section directives; niches own content topic + voice. Document the split. Don't change code.
+
+- **Pro**: Zero risk. The orthogonality (niche × pattern) is real — `prayer × whisper-tour-X` and `mindfulness × whisper-tour-X` produce genuinely different videos.
+- **Con**: 5 customization layers stays a lot.
+- **Effort**: Zero code. Some doc rewriting.
+
+**Option 3 — Keep patterns, but stop surfacing them in the day-to-day UI.** Pattern stays as a power-user feature reachable from Settings → Pattern, hide from Scripts page + Ideas page where it currently shows. Niche becomes the default content-axis answer for the common case.
+
+- **Pro**: The picker UX gets simpler for the 90% case (just pick a niche). Power users who need title-template-with-{X} still have it.
+- **Con**: Two-tier UX (basic / advanced) is more cognitive load to maintain than either "always show" or "never show".
+- **Effort**: ~1 release. UI hide + a "show advanced" toggle.
+
+**My read**: Option 2 is what the architecture actually wants. Patterns and niches *are* genuinely orthogonal — they just feel redundant because their roles weren't explained. The next thing isn't a code change, it's a clear `docs/formats-niches-patterns.md` that draws the diagonal. Optional follow-up: the picker UX in Scripts / Ideas might benefit from clearer "Niche shapes WHAT it's about, Pattern shapes HOW it's structured" labels next to each picker.
+
+But that's a discussion for next time. This release is just the polish sweep.
+
+---
+
+## v1.0.162 — 2026-05-26
+
+**Format consolidation: 11 formats → 4. Production pipeline becomes the format, niches own content variation.**
+
+You spotted the architectural problem: 9 of the 11 built-in formats (`sleep-story`, `true-crime`, `comedy`, `kids-fairytale`, `adventure`, `documentary`, `educational`, `bound-explainer`, `listicle`) all used the *same* `scene-images` pipeline with different prompt vocabulary. They were niches in costume — and we already had a real niche layer (`prayer.json`, `mindfulness.json`, `history-narration.json`, etc.) doing the actual content shaping.
+
+This release consolidates to **4 formats, each representing a distinct production pipeline:**
+
+| Format | Pipeline | What it does |
+|---|---|---|
+| **`narrative`** | scene-images | Story-shaped video with AI-generated scenes evenly distributed across chapters. Sleep stories, fiction, true-crime narratives, kids' fairytales, adventure, biographical — all the same shape. |
+| **`listicle`** | scene-images | Multi-topic "Top N" / "N things you didn't know" / "N Y explained" — each chapter an independent topic with hook → reveal → micro-payoff. |
+| **`stock-footage`** | broll | Continuous narration over rotating stock footage from the B-Roll Library pool. Prayer, devotional, meditation, motivational. |
+| **`narration-synced`** | timestamp-driven | Research → script → audio → subs → scenes placed at specific audio timestamps. Factual explainers where scene-to-narration sync matters. |
+
+Niches (`prayer`, `mindfulness`, `history-narration`, `psychology`, `motivation`, `philosophy`, `devotional`, `preaching`, `animals`, `plants`, `fungi`, `insects`) continue to layer content topic / voice tuning on top of any of the 4 formats.
+
+### Deletions
+
+11 format JSONs removed:
+- `adventure.json`, `bound-explainer.json`, `comedy.json`, `documentary.json`, `educational.json`, `kids-fairytale.json`, `sleep-story.json`, `true-crime.json` — all were scene-images pipeline variants; merged into `narrative`.
+- `broll-narration.json` — renamed to `stock-footage.json`.
+- `explainer-fact-checked.json` — renamed to `narration-synced.json`.
+- (Old `listicle.json` was rewritten with cleaner copy for the new 4-format world.)
+
+### Code changes
+
+- `electron/server/services/format-loader.ts` — `DEFAULT_FORMAT_ID`: `'sleep-story'` → `'narrative'`. Long comment explains the migration so future-me knows projects with `format_id: 'true-crime'` etc. (none of yours, but possible for re-importers) fall back to `'narrative'` on read.
+- **Frontend hardcoded defaults** — `index.vue`, `scripts.vue`, `settings.vue`, `ideas.vue`, `video-assembly.vue`, `image-prompts.vue` all had `ref('sleep-story')` fallback initializers. All updated to `'narrative'`.
+- **`frontend/pages/index.vue → formatIcon()`** — emoji map pruned from 8 entries (sleep-story / documentary / educational / comedy / adventure / true-crime / kids-fairytale + listicle) to **4**: `narrative 📖`, `listicle 📊`, `stock-footage 🎞`, `narration-synced 🎯`.
+- **Patterns** — `whisper-tour-X`, `fall-asleep-to-X`, `born-as-X`, `history-of-X-explained`, `N-X-that-changed-Y`, `day-in-the-life-X`, `survive-in-X`, `top-N-X-explained` all had `preferredFormats` arrays pointing at deleted ids. Each remapped to the appropriate new format ids (most → `narrative` + `narration-synced`; structured countdowns → `listicle`).
+- **`electron/server/lib/pattern-extraction-prompt.ts`** — embedded prompt example + fallback hint updated to reference the new 4 ids.
+- **`electron/server/thumbnail-templates/centered-hero-headline.json`** — `recommendedNicheIds` listed `true-crime` (was a format, not a niche) + `history` + `educational` (not niches at all). Replaced with actual niche ids: `motivation`, `history-narration`, `psychology`.
+- **Tests** — `format-loader.test.ts` updated to test the new 4 formats; `chunked-narration-smoke.test.ts` + `pattern-crud.test.ts` fixture strings refreshed.
+
+### What I wrote into each format JSON
+
+Each new format JSON gets a `description` field that follows a consistent "good for / not great for" structure so the picker card explains the trade-offs at-a-glance:
+
+- *"Use this for [list of use cases]. Pipeline: [how it works]. Layer a niche to [content tuning]. NOT for [counter-cases] — pick [other format] instead."*
+
+That's the copy you said I should write for you. If any of those descriptions reads off, easy to tune — they're just strings in the JSON.
+
+### What the architecture means now
+
+```
+Format = production pipeline ────────────  4 choices ─────────  what kind of video
+                                                                am I making
+
+Niche = content topic / voice ───────────  12+ choices ──────  what is it
+                                                                about
+```
+
+Fully orthogonal. `narrative + mindfulness` = sleep meditation. `narrative + history-narration` = historical fiction. `listicle + animals` = "10 Weird Deep-Sea Creatures". `stock-footage + prayer` = your prayer channel. `narration-synced + history-narration` = factual history explainer with cited scenes.
+
+### Files touched
+
+- `electron/server/formats/` — 11 JSONs removed, 4 created (`narrative.json`, `listicle.json`, `stock-footage.json`, `narration-synced.json`).
+- `electron/server/services/format-loader.ts` — default id change.
+- `electron/server/lib/pattern-extraction-prompt.ts` — prompt copy.
+- `electron/server/patterns/*.json` — 8 patterns' `preferredFormats` arrays.
+- `electron/server/thumbnail-templates/centered-hero-headline.json` — `recommendedNicheIds` fix.
+- `electron/server/__tests__/format-loader.test.ts`, `chunked-narration-smoke.test.ts`, `pattern-crud.test.ts` — refs updated.
+- `frontend/pages/index.vue` — emoji map + DEFAULT_FORMAT_ID const.
+- `frontend/pages/projects/[slug]/` — `scripts.vue`, `settings.vue`, `ideas.vue`, `video-assembly.vue`, `image-prompts.vue` — fallback ref strings.
+
+### Follow-ups I'd suggest later (not in this release)
+
+- **Settings → Format tab** picker UI could surface the 4-format cards more prominently now that there are only 4 to choose between. Today the picker renders generic cards from the format JSON's `description`; that's fine, but a "what kind of video are you making?" wizard at project-create-time would be a nice clarity bump.
+- **Niche × Format compatibility hints**. Not all niche/format combos make equal sense (`stock-footage + history-narration` works; `narration-synced + prayer` doesn't really). Could add an `incompatibleFormats: []` array on niche JSONs and grey the format card in the picker accordingly. Low-leverage; only worth it if you find yourself confused at picker time.
+
+---
+
+## v1.0.161 — 2026-05-26
+
+**Voice Studio crashed again on the 1500-char cap. Defensive triple-fix: cap → 1000, 3 s inter-chunk cooldown, server-died short-circuit.**
+
+Reported: tried a Voice Studio narration on v1.0.160 (1500-char cap). Got **only one WAV** back before the modal crashed. The reproducer matches the symptom that v1.0.160 was supposed to fix, but with one chunk's worth of work completing first.
+
+That symptom — first request succeeds, second request crashes — is the signature of **cross-request memory pressure**, not single-request OOM. Each individual 1500-char request fits inside the M4's 9.5 GB Metal cap; two consecutive ones don't, because the Metal driver releases buffers asynchronously and the second submit allocates on top of the first request's not-yet-freed pool.
+
+### Three coordinated fixes
+
+**[A] Cap dropped 1500 → 1000.**
+
+`electron/server/models/defaults.ts` — `voicestudio-voxcpm-mlx.tts_soft_max_chars`: **1500 → 1000**. Halves the per-request allocation so even with residual buffers from the previous call, the next request has comfortable headroom under 9.5 GB. The full history comment is extended again with the v1.0.161 reasoning.
+
+**[B] 3-second inter-chunk cooldown.**
+
+`electron/server/generators/audio.ts` — when `providerId === 'voicestudio'`, the worker inserts a `sleepCancellable(3000)` between consecutive submits to the same local modal. First chunk runs immediately (no prior buffers to wait on); cooldown only kicks in starting at chunk #2. Cancellable so a user-abort during the sleep window unwinds in ≤200 ms.
+
+Rationale: the Metal driver doesn't release buffers synchronously on forward-pass completion — there's a queue. 3 seconds is empirically enough on Apple Silicon for the driver to drain the previous pass's allocations before the next submit hits.
+
+Cost: 3 s × (chunks − 1) per section. For a typical 3-chunk section, +6 s of wall clock. Tiny compared to the ~90 s per chunk inference time and not at all compared to "server crashes and you re-run".
+
+**[C] Server-died short-circuit.**
+
+When a chunk fails with a network-layer error pattern (`ECONNRESET` / `fetch failed` / `connection refused` / `socket hang up` / our own friendly-error strings) AFTER at least one chunk in the same run already succeeded, the worker sets a `modalDiedDuringRun` flag. Subsequent task iterations check the flag at the top of the loop and short-circuit with a clean error message:
+
+> *Skipping chunk N — local Voice Studio modal stopped responding earlier in this run. Restart Voice Studio in Pinokio (Stop → Start) and retry the generation.*
+
+Without this: each subsequent chunk runs its full 30 s connect-timeout, accumulates another confusing entry in the error log, and the user has to read through cascading network failures to find the original crash signal. With this: the first failure surfaces as THE error, the rest are clean skips.
+
+Implementation note: `processTask` swallows all exceptions internally (settled-pool semantics — one failure doesn't kill the batch). So the worker can't use a `try/catch` around it; it inspects `errors.length` before/after to detect a new failure, then scans the just-pushed error string for server-died patterns.
+
+### Two hypotheses for why 1500 wasn't enough
+
+This release's design assumes hypothesis B (cross-request memory pressure). Hypothesis A (single-request alloc still over cap) is also possible — voice cloning loads the reference audio into Metal memory and that footprint isn't included in the author's linear allocation formula. If a follow-up crash happens with the 1000-char cap + cooldown, hypothesis A is the likely cause and the next move is to drop the cap further OR have the modal author measure the actual cloning overhead.
+
+The triple-fix is designed so we get one signal back regardless of which hypothesis is right:
+- If next run completes cleanly → it was cross-request pressure (cooldown + smaller cap both helped).
+- If next run crashes after >1 chunk completed → the cooldown wasn't enough; needs cap-down further.
+- If next run crashes on chunk #1 → single-request alloc is over the line even at 1000 chars; modal-side memory gate becomes the only fix.
+
+### What to do now
+
+1. Restart Voice Studio in Pinokio on the M4 (the crashed server can't recover otherwise).
+2. Install this build (instructions below). Cap auto-applies.
+3. Retry the narration. Watch the Jobs panel:
+   - You should see `Chunk cap for voicestudio-voxcpm-mlx: 1000 chars per submit` in the log.
+   - Between consecutive chunks for the same section, you'll see ~3 s of dead time (the cooldown).
+   - If anything fails mid-batch, the rest of the section's chunks short-circuit with the restart-instructions message instead of cascading network errors.
+
+If it still crashes, send the modal author the Job log + the Pinokio crash trace and they can tell us which hypothesis is in play.
+
+### Files touched
+
+- `electron/server/models/defaults.ts` — cap 1500 → 1000; history comment extended.
+- `electron/server/generators/audio.ts` — `localModalPriorChunkCompleted` + `modalDiedDuringRun` shared flags, 3 s `sleepCancellable` between local-modal chunks, server-died short-circuit at top of worker loop.
+
+---
+
+## v1.0.160 — 2026-05-26
+
+**VoxCPM2 cap dropped 3000 → 1500. Modal author traced a server-killing Metal OOM to the v1.0.156 cap; engine spec ≠ hardware ceiling.**
+
+Voice Studio modal author hit a crash on Story Studio job `e1ac4d2b5693` and posted the full diagnosis:
+
+- **Input**: 2755 chars (slightly under our v1.0.156 cap of 3000).
+- **Allocation requested**: 13.13 GB Metal buffer.
+- **M4 per-buffer Metal limit**: 9.53 GB.
+- **Result**: `Abort trap: 6` after ~3-4 min of running. **The entire Voice Studio server died**, not just that one request — `/api/generate/txt2speech` returned nothing, all queued jobs lost.
+
+### Why the v1.0.156 cap was wrong
+
+The v1.0.156 number (3000) came from grounding against the architecture limit: 4096 audio tokens × ~6.25 Hz = ~11 min of output ≈ ~10k chars before the *model* itself would refuse. The math was correct for that dimension and wrong for the binding one.
+
+VoxCPM2 is **diffusion-based**. Activation buffers scale **linearly with output audio duration**. The 4096-token ceiling is a statement about what the model can REPRESENT, not what your specific GPU / Metal stack can ALLOCATE during a single forward pass. On a 16 GB unified-memory M4, the per-buffer Metal limit caps out around 9.5 GB — and that hits well before the architecture limit when output runs past ~90 s.
+
+The modal author re-derived the safe cap from the crash data:
+
+```
+2755 chars → 13.13 GB request
+safe_alloc / requested = 9.53 / 13.13 = 0.73
+2755 × 0.73 ≈ 2000 char hard ceiling
+minus margin for other apps → ~1500-1800 char SAFE cap
+```
+
+### Modal-side fix (already shipped by author)
+
+Voice Studio modal **v1.2.6** dropped its catalog `text_guidance.soft_max_chars` from 3000 → 1500 and added a UI chip warning. CAVEAT: that's a **UI-only** soft cap. The API has no server-side gating yet — anything calling `/api/generate/txt2speech` directly (i.e. us) can still submit any length and crash the server. The author flagged a runtime memory gate as P1 inside `_generate_voxcpm`, but until that lands, Story Studio is the only thing keeping the modal alive on over-long calls.
+
+### Story Studio fix (this release)
+
+One field, one number:
+
+- `electron/server/models/defaults.ts` — `voicestudio-voxcpm-mlx.tts_soft_max_chars`: **3000 → 1500**.
+
+The chunker code itself doesn't change. The Jobs-panel log line will now read:
+
+> `Chunk cap for voicestudio-voxcpm-mlx: 1500 chars per submit (model-specific; see AudioModelConfig.tts_soft_max_chars).`
+
+The full-history comment in `defaults.ts` is extended with the crash narrative + the "engine spec ≠ hardware ceiling" lesson so the next time someone bumps this number they read why 1500 isn't arbitrary.
+
+### What this means for your VoxCPM2 narration
+
+A 4000-char chapter section's path:
+
+| Version | Cap | Chunks per section | Time per chunk | Total chunks |
+|---|---|---|---|---|
+| v1.0.155 | 500 | ~8 | ~40 s | ~8 |
+| v1.0.156 | 3000 | ~2 | ~3 min | ~2 (but each could crash the server) |
+| v1.0.160 | **1500** | **~3** | **~90 s** | **~3 (all comfortably under Metal cap)** |
+
+So you're back to a few-chunks-per-section model — but each chunk is safely below the Metal ceiling. ffmpeg still stitches them at the same sentence boundaries Story Studio picks, so the output WAV quality matches the v1.0.156 path. The only thing that changes is how many submit/poll/download round-trips per section (about 3 instead of 2).
+
+### Before you install
+
+The modal author noted the v1.2.6 update is **on the modal side** — you need to refresh Voice Studio in Pinokio (Stop → Start, possibly Update first if Pinokio prompts) on the M4 to pick up the new 1500-char UI cap. That's separate from this Story Studio release. Either order works (Story Studio's cap is independent of the modal's UI cap), but ideally do both.
+
+### Action items
+
+- **Story Studio side**: install this build, no further action.
+- **Modal side**: in Pinokio on the M4 → Voice Studio → Stop → Update → Start (pulls v1.2.6). If the modal is currently in the crashed state, it has to be restarted regardless.
+
+### Lesson banked
+
+For diffusion-based audio (and likely diffusion-based image too — FIBO, anything diffusion in Image Studio's family list), hardware ceilings move with output size and can sit below the architecture-token limit. Always derive caps from crash data when you have it; only fall back to architecture maths when no real-world ceiling has been measured yet. Comment in `defaults.ts` updated accordingly so this isn't relearned next iteration.
+
+### Files touched
+
+- `electron/server/models/defaults.ts` — single number changed; long history comment extended.
+
+---
+
+## v1.0.159 — 2026-05-26
+
+**Voice Studio moved off the M1 onto a second Mac mini (M4). Image Studio stays on the M1. Both run concurrently — no more swapping in Pinokio.**
+
+User added a second Mac mini specifically because the M1's 8 GB unified memory couldn't run VoxCPM2 comfortably (the model wants more headroom for stable long-form synthesis). The new M4 Mac mini hosts Voice Studio; the M1 stays dedicated to Image Studio (FLUX.2 klein 4-bit MLX fits comfortably on 8 GB). Both modals are reachable simultaneously via their respective Bonjour hostnames.
+
+Verified before the change:
+```
+$ curl http://theng-macmini-m4.local:47870/api/health
+{"ok":true,"version":"0.1.0","app_version":"1.2.5",...}   ← M4 Voice Studio
+
+$ curl http://theng-macmini-m1.local:47868/api/health
+{"ok":true,"version":"0.1.0","app_version":"1.3.2",...}   ← M1 Image Studio (unchanged)
+```
+
+(Note the per-machine app-version drift: M4 picked up Voice Studio v1.2.5 while the M1's Voice Studio install was still on v1.2.2. Pinokio updates per-Mac, not per-tailnet.)
+
+### What changed
+
+**Voice Studio default**: `http://theng-macmini-m1.local:47870` → **`http://theng-macmini-m4.local:47870`**.
+
+**Image Studio default**: unchanged (`http://theng-macmini-m1.local:47868`).
+
+**Auto-migration** in `electron/server/services/app-secrets-store.ts → migrateLegacyDefault()` now recognises *both* legacy values as the migration source for Voice Studio:
+
+| Stored value | Migrates to |
+|---|---|
+| `http://100.120.246.10:47870` *(v1.0.149-v1.0.157 Tailscale)* | M4 Bonjour |
+| `http://theng-macmini-m1.local:47870` *(v1.0.158 only)* | M4 Bonjour |
+| anything else | unchanged |
+
+So users who installed v1.0.158 (with the M1 hostname stored) get a transparent move to M4 on first read. Users who typed a custom URL keep it. Read-through, no write — downgrade path stays safe.
+
+**Settings UI copy** in both Local Models sections updated to mention the split explicitly — *"Voice Studio runs on the M4; Image Studio runs on the M1. Both can run simultaneously."*
+
+### Why the split makes sense
+
+- **M1 8 GB**: comfortable headroom for FLUX.2 klein 4-bit (2.3 GB on disk, similar in active memory); not enough for VoxCPM2's audio-token decoder + transformer stack to produce stable multi-paragraph output.
+- **M4 (newer + more memory presumably)**: handles VoxCPM2 cleanly without the 600-char hallucination zone the M1 had pre-v1.0.156.
+- **Concurrency**: previous workflow forced the user to stop one modal in Pinokio before starting the other. With dedicated hardware per modal, both stay up indefinitely. Story Studio doesn't notice the split — each provider still talks to its own URL via the same secrets-store / client / dispatch path.
+
+### Files touched
+
+- `electron/server/lib/voicestudio-client.ts` — `DEFAULT_VOICESTUDIO_BASE_URL` → M4; `LEGACY_VOICESTUDIO_BASE_URLS` array tracks the full history.
+- `electron/server/services/app-secrets-store.ts` — `migrateLegacyDefault()` reworked from inline `===` checks to per-modal `Set<string>` of legacy defaults so future moves are a one-line append.
+- `frontend/pages/projects/[slug]/settings.vue` — Voice Studio section default ref + descriptive copy updated; Image Studio section copy updated to note M1-stays-on-TTI.
+
+---
+
+## v1.0.158 — 2026-05-26
+
+**Local-modal defaults switched from Tailscale IP to Bonjour `.local` hostname. Stable across reconnects.**
+
+Reported: the Tailscale tailnet IP we discovered during the v1.0.149/151 integration probes (`100.120.246.10`) wasn't actually stable on the user's setup — it shifted between reconnects, which meant every save-and-test cycle in Settings → Local Models needed a fresh IP. Their Voice Studio author suggested using Bonjour (mDNS / `*.local`) which broadcasts the host's preferred name independently of the IP layer.
+
+Verified both modals resolve cleanly via Bonjour from Story Studio's Mac:
+
+```
+$ curl http://theng-macmini-m1.local:47868/api/health
+{"ok":true,"version":"0.1.0","app_version":"1.3.2",...}
+
+$ curl http://theng-macmini-m1.local:47870/api/health
+{"ok":true,"version":"0.1.0","app_version":"1.2.2",...}
+```
+
+### Fix
+
+**New defaults** (both client libs):
+
+- `DEFAULT_VOICESTUDIO_BASE_URL`: `http://100.120.246.10:47870` → **`http://theng-macmini-m1.local:47870`**
+- `DEFAULT_IMAGESTUDIO_BASE_URL`: `http://100.120.246.10:47868` → **`http://theng-macmini-m1.local:47868`**
+
+**Auto-migration**: `electron/server/services/app-secrets-store.ts → getApiKey()` now runs a `migrateLegacyDefault(providerId, stored)` pass on read. When the stored value exactly matches the pre-1.0.158 Tailscale-IP default (i.e. the user never customised it), the read returns the new Bonjour default instead. A user-typed Tailscale IP — any other shape — is left alone since they may be using it deliberately for remote access where `.local` doesn't resolve.
+
+The migration is a **read-through, not a write-through** — the underlying `app-secrets.json` file stays unchanged, so a downgrade-then-upgrade cycle still picks the right value for whichever version is running.
+
+**Settings UI copy** in both Local Models sections now explains the trade-off:
+
+> *Default: `http://theng-macmini-m1.local:47870` (Bonjour mDNS name — stable across reboots, only resolves on the same LAN; use a Tailscale tailnet IP instead for remote access).*
+
+### Trade-off worth knowing
+
+`.local` resolution depends on mDNS / Bonjour multicast, which is **same-LAN only**. If you take your laptop to a coffee shop or a different Wi-Fi network, `.local` won't resolve and Story Studio will report the modal as unreachable. Both Macs need to be on the same network segment. For remote work, swap the URL back to a Tailscale tailnet IP via Settings → Local Models — Tailscale's WireGuard mesh works across networks but pays the cost of the unstable-IP behaviour we just moved away from.
+
+Realistic recommendation: keep Bonjour as the default; switch to Tailscale only when you're genuinely remote.
+
+### Files touched
+
+- `electron/server/lib/voicestudio-client.ts` — new default + `LEGACY_VOICESTUDIO_BASE_URL` export for the migrator.
+- `electron/server/lib/imagestudio-client.ts` — same shape.
+- `electron/server/services/app-secrets-store.ts` — `migrateLegacyDefault()` read-through.
+- `frontend/pages/projects/[slug]/settings.vue` — updated section copy + initial-ref defaults in both `voicestudioDefaultBaseUrl` / `imagestudioDefaultBaseUrl` placeholders.
+
+---
+
+## v1.0.157 — 2026-05-26
+
+**Hotfix: Audio Generator was rendering blank in v1.0.150–v1.0.156. Temporal Dead Zone bug.**
+
+Reported on v1.0.156: clicking **Audio Generator** in the sidebar opens the page header but the main content area is completely blank — no form, no model picker, no submit button.
+
+### What was wrong
+
+When v1.0.150 added the cross-source voice-reset behaviour (auto-clear `form.voice` when the user switches between cloud TTS and Voice Studio), the new code landed in the *wrong order* in the `<script setup>`:
+
+```ts
+const currentAudioProvider = computed<string>(() => {
+  if (!form.model) return ''     // ← reads `form`
+  ...
+})
+
+watch(currentAudioProvider, (next, prev) => {
+  if (!form.voice) return        // ← reads `form`
+  ...
+})
+
+// ...30 lines later...
+
+const form = reactive({          // ← `form` finally declared here
+  episode_id: '',
+  model: 'turbo-v2.5',
+  ...
+})
+```
+
+Vue's `watch(source, callback)` reads `source.value` once at setup time to register the dependency tracker (even with `immediate: false`). For a computed source, that **invokes the getter**. The getter reads `form.model`, but `form` is a `const` declared further down the file — TDZ → `ReferenceError: Cannot access 'form' before initialization` → entire `<script setup>` fails → page renders blank.
+
+### Why this only surfaced now
+
+v1.0.150 shipped this seven releases ago. The Audio Generator page was broken the whole time. Between v1.0.150 and v1.0.156 the user was working on:
+
+- Theme system (v1.0.147)
+- Research auto-fill (v1.0.148)
+- Voice Studio integration (v1.0.149)
+- Voice management refactor + Chatterbox removal (v1.0.150)
+- Image Studio integration (v1.0.151)
+- Image picker refactor (v1.0.152)
+- Local-modal envelope/state hotfix (v1.0.153)
+- Local-modal deep-batch tuning (v1.0.154)
+- Per-model TTS chunk cap (v1.0.155)
+- VoxCPM2 cap correction (v1.0.156)
+
+The Audio Generator page wasn't opened in any of those test loops, so the regression sat latent until today's check.
+
+### Fix
+
+`frontend/pages/projects/[slug]/audio.vue` — moved the `currentAudioProvider` computed + the cross-source-reset `watch()` to *after* the `form = reactive({...})` declaration. Zero behaviour change otherwise; the original placement comment is preserved at the old site as a "moved below — see line X" pointer so the history reads cleanly.
+
+A 30-line block traded line numbers; that's the entire fix.
+
+### Lesson banked
+
+Anything that reads a `const` declared later in `<script setup>` will TDZ-fail. The bug was invisible to the typecheck (Vue's `script setup` lets variables be referenced before declaration syntactically — TypeScript/ESLint don't flag it because of hoisting semantics for function decls, even though `const` doesn't actually hoist), and to the build (the bundle compiled cleanly). Only runtime exposes it.
+
+Going forward when I add a `computed` or `watch` that touches form state in any `*.vue` page, I'll place it adjacent to (just after) the `reactive()` block that owns that state, not in the "happens to look tidy near the other computeds" zone above it. The blank-page failure mode is silent — no console error visible in the page itself — so this kind of TDZ bug can hide for releases.
+
+### Files touched
+
+- `frontend/pages/projects/[slug]/audio.vue` — 30-line block relocated; behaviour unchanged.
+
+---
+
+## v1.0.156 — 2026-05-26
+
+**VoxCPM2 chunk cap: 500 → 3000 chars. The v1.0.155 cap was 6× too conservative.**
+
+The user pushed the Voice Studio author to verify where the 600-char `soft_max_chars` in the modal's catalog actually came from. The answer was unflattering — it was a conservative eyeballed guess in the wrapper's `text_guidance`, **not** from the VoxCPM2 docs, mlx-audio source, or the openbmb model card.
+
+After the author checked the real upstream:
+
+- **Architecture ceiling**: `max_tokens: 4096` (audio tokens) in both the PyTorch `voxcpm` package and `mlx-audio`'s `voxcpm.py`.
+- **Token rate**: ~6.25 Hz → 4096 tokens ÷ 6.25 = ~655 s = ~11 min of audio per single call.
+- **In characters**: ~8 000–10 000 chars of English text before upstream truncation.
+- **Official caveat**: the openbmb model card warns *"occasional instability may occur with very long or highly expressive inputs"* — qualitative only, no specific number.
+
+The user landed on **3000 chars** as a practical sweet spot (~1/3 of architecture max, generous headroom for the autoregressive drift on long takes).
+
+### Story Studio change
+
+One field on one model entry:
+
+- `electron/server/models/defaults.ts` — `voicestudio-voxcpm-mlx.tts_soft_max_chars`: **500 → 3000**.
+
+The chunker code itself doesn't change (it already takes the cap as a parameter). The Jobs-panel log line will now read:
+
+> `Chunk cap for voicestudio-voxcpm-mlx: 3000 chars per submit (model-specific; see AudioModelConfig.tts_soft_max_chars).`
+
+A long history-of-this-number comment is parked in `defaults.ts` so future-me knows the reasoning chain when someone asks "where did 3000 come from" months from now.
+
+### What this means for your VoxCPM2 narration
+
+The v1.0.155 path chunked aggressively — a 4000-char chapter section became **~8 chunks** × ~40 s each. Effective but slower than necessary because most "seams" between those chunks were inside-paragraph sentence breaks where mlx-audio's internal splitter would have produced identical results.
+
+The v1.0.156 path chunks **6× less aggressively** — a 4000-char section becomes **~2 chunks** × ~3 min each. Same total compute on the M1 (the modal still has to process the same characters either way) but **fewer ffmpeg concat boundaries** and **fewer per-submit overhead penalties** (modal warm-up, HTTP round-trip, file I/O between Story Studio and modal).
+
+For a 200-scene batch this matters: 8× chunks per section → 2× chunks per section = roughly 4× fewer submit/poll/download round-trips over the whole batch. Same audio quality, less HTTP traffic, less Jobs-panel noise.
+
+### If you ever want to revisit
+
+The number lives at one site: `DEFAULT_AUDIO_MODELS['voicestudio-voxcpm-mlx'].tts_soft_max_chars` in `electron/server/models/defaults.ts`. Bump it down if you notice drift on a particular voice clone, or bump up toward 5000-6000 if you want even fewer chunks and trust the model's stability on your content.
+
+A future enhancement could live-fetch `text_guidance.soft_max_chars` from the modal's `/api/catalog` at job start so changes to the modal-side cap auto-propagate. Not built today because (a) the modal's catalog is currently stale (still reports 600 — author hasn't shipped the 3000 update yet) and (b) you may want a different cap than the modal's recommendation. Easy to add as a "prefer live, fall back to default" lookup if it becomes a recurring need.
+
+### Files touched
+
+- `electron/server/models/defaults.ts` — one number changed, long history comment added.
+
+---
+
+## v1.0.155 — 2026-05-26
+
+**Per-model TTS chunk cap: VoxCPM2 (Voice Studio) now chunks at 500 chars instead of 4800. Solves the hallucination-on-long-text problem.**
+
+You spotted the constraint: VoxCPM2 starts to degrade in the 500-600 character zone. The modal's own catalog confirms it (`soft_max_chars: 600` with a note *"seams between chunks may be audible"* when mlx-audio's internal splitter kicks in for longer text). Story Studio's chunker defaulted to **4800 chars** — tuned for ElevenLabs's 5000-char API ceiling — which was sending 8× over the soft cap on every Voice Studio submit.
+
+### Fix
+
+Three coordinated changes, all isolated to the audio path:
+
+- **`electron/server/lib/text-chunker.ts`** — added a **word-level fallback** so the chunker can drop sentences that individually exceed the cap. The existing logic split at paragraph → sentence boundaries; if a single 700-char run-on sentence appeared in narration with a 500-char target, it would have been emitted as one oversized chunk that VoxCPM2 would hallucinate on. The new path greedy-packs words up to the cap and starts a fresh chunk at the word boundary that would have crossed it. Rare in prose narration; relevant for verbose technical / academic content.
+- **`electron/server/models/types.ts`** — added `tts_soft_max_chars?: number` to `AudioModelConfig`. Optional per-model field that overrides the chunker's default. Cloud providers leave it unset (4800 stays the default); local MLX models populate it with their modal-reported soft cap minus a safety buffer.
+- **`electron/server/models/defaults.ts`** — set `tts_soft_max_chars: 500` on `voicestudio-voxcpm-mlx`. 100-char buffer below the catalog's 600 cap matches your observed degradation zone exactly.
+
+### How dispatch reads it
+
+`electron/server/generators/audio.ts` looks up the per-model cap once at job start and passes it through to every `chunkText()` call:
+
+- Main-section chunking (`chunkText(section.text, ttsChunkCap)`).
+- Routed-segment chunking for character-routed dialogue (`chunkText(seg.text, ttsChunkCap)`).
+
+A Jobs-panel log line records the resolved cap so you can verify per run:
+
+> `Chunk cap for voicestudio-voxcpm-mlx: 500 chars per submit (model-specific; see AudioModelConfig.tts_soft_max_chars).`
+
+ElevenLabs / fal / GenAIPro models don't set the field, so they default to 4800 — no behavioural change for those paths.
+
+### What this means for your VoxCPM2 narration
+
+Before: a 4000-char chapter section went as ONE chunk → mlx-audio split it internally at arbitrary character positions → audible seams + occasional hallucination near boundaries.
+
+After: a 4000-char chapter section becomes **~8 chunks** at sentence boundaries Story Studio chose → each chunk is a full VoxCPM2 submit comfortably under the soft cap → ffmpeg concatenates the per-chunk WAVs into one section file (same pipeline that handles ElevenLabs's smaller cloud chunks today).
+
+Trade-off: 8 chunks × ~40 s each = ~5 min per chapter section, vs ~40 s when sent as one big chunk and trusting mlx-audio. You pay roughly the same total compute (the modal's internal splitter was processing the same text either way) for noticeably cleaner seams.
+
+### Future models
+
+Adding new Voice Studio families later (Kokoro-MLX, Qwen3-TTS, etc.) is a one-line append per family — set `tts_soft_max_chars` to the value in the modal's `/api/catalog` `text_guidance.soft_max_chars` field, with the safety buffer of your choice. For reference, the modal currently reports: F5-TTS 400, Chatterbox 500, Spark-TTS 400, Bark 150 (hard cap), Orpheus 170 (hard cap), Kokoro/Qwen3-TTS 400. Bark/Orpheus are particularly tight — wire those with the cap minus 30 chars to leave headroom.
+
+### Files touched
+
+- `electron/server/lib/text-chunker.ts` — word-level fallback for over-cap sentences.
+- `electron/server/models/types.ts` — `tts_soft_max_chars?: number` on `AudioModelConfig`.
+- `electron/server/models/defaults.ts` — `tts_soft_max_chars: 500` on `voicestudio-voxcpm-mlx`.
+- `electron/server/generators/audio.ts` — per-model cap resolved at job start, passed into both `chunkText()` call sites.
+
+---
+
+## v1.0.154 — 2026-05-26
+
+**Deep-batch support for local modals: 24 h per-job poll budget + concurrency = 1.**
+
+Reported v1.0.153: "Can the modal handle 100-200 queued scenes?" Probe answer: yes (the wrapper holds the job list in memory, no documented cap — currently tracking 18 jobs without issue). But Story Studio's own settings would have caused **false-failures past job #6**:
+
+- The local-modal client polled with a 30-min default timeout. FLUX.2 klein 4-bit takes ~5 min per image on the 8 GB M1, serialised because only one inference fits in unified memory. Job #7 in the queue starts running at minute 30 — exactly when our poll would have given up, even though the modal would have completed it just fine.
+- The image generator launched 5 concurrent submits with a 2-second stagger by default. Apple Silicon MLX inferences serialise anyway, so 4 of every 5 just queued at the modal AND burned 4 parallel poll loops racing the same timeout.
+
+### Fix
+
+**Per-provider timeout policy.** `electron/server/lib/imagestudio-client.ts` + `electron/server/lib/voicestudio-client.ts` default `DEFAULT_TIMEOUT_MS` bumped **30 min → 24 h**. That comfortably covers the worst case for a 200-scene batch on the 8 GB M1 (16.5 h modal-queued + 5 min running ≈ 16.6 h). Cloud providers (kie.ai, ElevenLabs, fal, GenAIPro) keep their existing per-call timeouts — their rate-limit and per-request budgets are the right cap there.
+
+**Concurrency = 1 for local-modal providers.** `electron/server/generators/images.ts` + `electron/server/generators/audio.ts` now detect `providerId === 'imagestudio'` / `'voicestudio'` and clamp the worker pool to 1 regardless of the configured project / request concurrency. A log line records the clamp so the Jobs panel surfaces what happened:
+
+> `Local modal (imagestudio): clamped concurrency from 5 → 1 (Apple Silicon MLX inference is serial; the modal queues anyway). Per-job poll budget is 24h, so deep batches will complete sequentially.`
+
+Cloud providers keep their existing defaults (5 for images, 3 for audio).
+
+### So for 100-200 scenes specifically
+
+You can submit 200 scenes in one Generate click. With v1.0.154:
+- All 200 hit the modal almost immediately (a few seconds of submit traffic).
+- Modal queues serially; Story Studio polls one at a time.
+- Each Story Studio job sees `state: queued` → `running` → `done` correctly (1.0.153 fix) within its 24 h poll budget.
+- Outputs download to disk as each one finishes.
+- Total wall clock on the 8 GB M1: ~16.5 hours of compute for 200 FLUX.2 klein 4-bit images. Plug in the Mac, keep Tailscale connected, leave it running overnight.
+
+If the modal Mac sleeps mid-batch the in-flight requests fail and Tailscale reconnects on wake — but the modal's queue is in-memory, so anything still queued at sleep time is lost. If you're doing a long unattended run, set Energy Saver → "Prevent automatic sleeping" on the modal Mac.
+
+### Files touched
+
+- `electron/server/lib/imagestudio-client.ts` — `DEFAULT_TIMEOUT_MS` 30 min → 24 h with explanatory comment.
+- `electron/server/lib/voicestudio-client.ts` — same fix for the sibling client.
+- `electron/server/generators/images.ts` — concurrency clamp to 1 for `imagestudio`, with a log line.
+- `electron/server/generators/audio.ts` — concurrency clamp to 1 for `voicestudio`, with a log line.
+
+---
+
+## v1.0.153 — 2026-05-26
+
+**Hotfix: Image Studio + Voice Studio response parsing — every submit was reporting "no job_id" even though the modal accepted the job.**
+
+Reported on v1.0.152: every thumbnail generation against `imagestudio-flux2-klein-mlx-4bit` failed with:
+
+> `Image Studio submit returned no job_id: {"job":{"id":"629b1ea64acb","mode":"txt2img","state":"running"...`
+
+The job id `629b1ea64acb` was right there in the error payload — the modal had accepted the submit, generated the thumbnail successfully (`state: "done"` ~290 s later), and stored it to disk. Story Studio just couldn't parse the response. Two assumptions were wrong:
+
+1. **Response envelope.** Both `/api/generate/txt2img` and `/api/generate/jobs/{id}` wrap the payload in `{ job: { id, state, … } }`. v1.0.151's client read `data.job_id || data.id` at the top level — always undefined → "no job_id" error.
+2. **State field name.** The poll loop checked `job.status === 'done'`, but the modal sends the field as `state`. Even if the id had parsed, polling would have spun forever because `job.status` was undefined.
+
+The same bug almost certainly affected the v1.0.149 Voice Studio client — sibling wrapper from the same Pinokio author with the same response shape — but we hadn't end-to-end tested a TTS generation, so it sat latent.
+
+### Fix
+
+Both `electron/server/lib/imagestudio-client.ts` and `electron/server/lib/voicestudio-client.ts` get a new `unwrapJob()` helper that:
+
+- Unwraps `{ job: {…} }` if present; falls through to a flat object if the wrapper changes in a later modal release.
+- Accepts either `state` or `status`; normalises alternative spellings (`completed` / `succeeded` / `finished` → `'done'`, `error` → `'failed'`) so the poll loop's union check still matches.
+- Accepts either `id` or `job_id` as the job identifier.
+
+`submitTxt2Img` / `submitTxt2Speech` + `pollJob` (both files) call the helper now. Verified against the modal live — the user's failed thumbnail run actually completed, and the same poll URL re-fetched the result successfully.
+
+### Why this slipped past v1.0.151
+
+The integration probe sampled the OpenAPI spec + the catalog endpoints, but never fired an actual `txt2img` submit (the modal was idle for the user during the probe). Without an end-to-end submit, the response shape mismatch wasn't visible. Going forward, any new local-modal integration gets an end-to-end test against a real job before it ships.
+
+### Files touched
+
+- `electron/server/lib/imagestudio-client.ts` — `unwrapJob()` + reworked `submitTxt2Img` + `pollJob`.
+- `electron/server/lib/voicestudio-client.ts` — same fix for sibling wrapper.
+
+### Note on the user's run
+
+The 5 thumbnails in the failed batch all reached the modal (job ids `629b1ea64acb`, `34e61068bc78`, `54083791993e`, `ddf09855f3fa`, `3dd15ed8e7f5`) and queued serially on the M1. With v1.0.153 the same workflow will report `state: queued` → `running` → `done` correctly and each finished image downloads to disk. Expect ~5 minutes per FLUX.2 klein 4-bit image on an 8 GB M1.
+
+---
+
+## v1.0.152 — 2026-05-26
+
+**Image model selection refactor: parallel to the v1.0.150 voice picker, now for images.**
+
+Plain `<select>` → custom `ImageModelPicker` with source-aware sections + live catalog from the Image Studio modal. Same design language as `VoicePicker` so the two pickers read as one system.
+
+### What changed in the picker
+
+- **Trigger pill** carries the model label, a colour-coded **source chip** (☁︎ cloud / 💻 local), and a **cost chip** (`0.8 cr · $0.004` for cloud, `free` for local) — at-a-glance you know what you're about to spend before you even open the menu.
+- **Top hint banner** explains the cloud-vs-local trade-off: cloud charges credits per image, fast, always available; local is free (Apple Silicon compute) but requires Pinokio + the modal + Tailscale.
+- **Two grouped sections** — `☁︎ Cloud — kie.ai` and `💻 Image Studio KH — local`. The local section sits below with a subtle green accent border so the eye links to the per-row green `free` chip.
+- **Search + capability filter** — type to narrow, filter chips for `All` / `T2I` / `I2I / refs` / `Edit` so you can quickly find the right model for the task. The I2I filter narrows to models with `supports_reference_images: true` (cloud Kontext + Nano Banana + GPT Image 2) plus local models whose catalog `capabilities` array includes `img2img` or `edit`.
+- **Per-row badges** — cost (`free` / `N cr · ~$USD`), capability (`refs`, `MLX`, `tiered`), size (`2.3 GB`), gating (`gated`). Local rows also carry a `best_for` italic blurb from the modal's catalog (e.g. "Maximum klein 4B quality, on-the-fly quantization") under the badges.
+- **Img2img mode dimming** — when the parent passes `imageMode === 'img2img'`, every model without reference-image support dims to 55% opacity, the Select button disables, and a `no refs` warning chip appears. Identical UX shape to VoicePicker's cross-source dim.
+- **Local section actions** — `⟳` button re-fetches the modal's catalog live; **`open modal UI ↗`** opens Image Studio's own web UI in the user's browser so they can manage what's downloaded without leaving Story Studio.
+- **Empty-state friendliness** — when the modal is offline the local section shows an inline notice with a link to App Settings → Local Models. Cloud section keeps working independently.
+
+### Files touched
+
+- `frontend/components/ImageModelPicker.vue` *(new)* — the picker itself (~480 lines incl. styles).
+- `frontend/pages/projects/[slug]/images.vue` — `<select v-model="activeForm.model"><optgroup>…` replaced with `<ImageModelPicker v-model="activeForm.model" :image-mode="activeForm.image_mode" />`. The legacy `imageModelGroups` computed + `formatModelOption()` helper are removed (the picker owns grouping + label formatting internally). Every downstream watch / computed (`activeModelCap`, `modelTiers`, `currentModelSupportsRefs`, etc.) continues to fire unchanged because the bound value type is identical.
+
+### What didn't change
+
+- The cap-row + img2img-mode warning that sit under the picker still render the same. They consume `activeForm.value.model` and don't care which UI surfaces the pick.
+- Aspect ratio + tier picker + generation mode + reference image strip — all unchanged.
+- Backend dispatch — same model id is sent to the same provider; only the UI layer was rebuilt.
+
+---
+
+## v1.0.151 — 2026-05-26
+
+**Image Studio KH wired in: local FLUX.2 klein MLX image generation via Tailscale + Pinokio.**
+
+Sibling of the v1.0.149 Voice Studio integration. Image Studio KH v1.3.2 is the second Pinokio modal — distinct port (`47868` vs Voice Studio's `47870`), same wrapper architecture, hosts fourteen image-generation engine families (FLUX.2 klein/dev, FLUX.1 schnell/dev/Kontext, Qwen-Image/Edit, FIBO, Z-Image, ...) on Apple Silicon MLX.
+
+### What this release ships
+
+**`FLUX.2 klein 4B (MLX 4-bit) [Image Studio · local]`** appears in the image model dropdown on Scene Generator + Thumbnail Generator pages, under a new "Image Studio KH (local)" optgroup. The repo `AITRADER/FLUX2-klein-4B-mlx-4bit` is the only catalog entry that fits an **8 GB M1** — what the user's modal machine reports via `/api/system`; larger Macs can add more families (FLUX.1 schnell, Qwen-Image, FIBO) with a one-line append per family in `providers/image/imagestudio.ts` → `MODEL_TO_REPO` and `models/defaults.ts`.
+
+**App Settings → Local Models** gains a second section below Voice Studio: URL field (default `http://100.120.246.10:47868`), Save, Test connection. The test pill folds health + catalog + LoRA-count into one round-trip so you see `✓ Connected · Image Studio v1.3.2 · N models · 0 LoRAs` at a glance.
+
+**Aspect ratio mapping** — when the image picker passes `1:1` / `16:9` / `4:3` / `21:9` / `3:2` / `9:16` / `3:4` / `2:3`, the provider resolves to the exact pixel dimensions the modal's `/api/generate/availability` endpoint returns. No drift between Story Studio and the modal.
+
+### How it's wired
+
+**Backend:**
+
+- `electron/server/lib/imagestudio-client.ts` *(new)* — health / catalog / listLoras / submitTxt2Img / pollJob / cancelJob / downloadImage / jobImageUrl. Mirrors `voicestudio-client.ts` with the same Tailscale-aware friendly-error mapping (sleeping modal → clear "Tailscale may have disconnected" message; port-shift → "Pinokio sometimes shifts ports between launches"; timeout → retry hint). Adaptive 2 s → 5 s → 10 s polling cadence honouring `eta_seconds`. Best-effort `DELETE /api/generate/jobs/{id}` on cancel.
+- `electron/server/providers/image/imagestudio.ts` *(new)* — `ImageProvider` impl. Maps `imagestudio-flux2-klein-mlx-4bit` → `AITRADER/FLUX2-klein-4B-mlx-4bit`. Aspect ratio → width/height table; per-family default `steps` + `guidance` (klein 4-bit: 4 steps, guidance 1.0 — distilled models ignore guidance regardless). Returns `urls: [${baseUrl}/api/generate/jobs/{jobId}/image]` so the existing `downloadImage(url, savePath)` in `generators/images.ts` fetches it directly — no temp-file dance needed.
+- `electron/server/services/app-secrets-store.ts` — `'imagestudio'` added to `SECRET_PROVIDERS`. Same URL-as-secret pattern as voicestudio.
+- `electron/server/models/defaults.ts` — `imagestudio-flux2-klein-mlx-4bit` entry in `DEFAULT_IMAGE_MODELS`, $0 cost, `provider: 'imagestudio'`. Kie-shape required fields (`endpoint` / `poll` / `type` / `api_model`) are empty strings since they're only read by the kie provider.
+- `electron/server/routes/images.ts` — appended `GET /imagestudio/base-url`, `PUT /imagestudio/base-url`, `POST /imagestudio/test`, `GET /imagestudio/catalog` (proxy). Test endpoint parallelises health + catalog + LoRAs.
+- `electron/server/generators/images.ts` + `electron/server/generators/scene-image.ts` — both no-key throws now exempt `providerId === 'imagestudio'` (the modal's apiKey slot is actually a URL; empty falls back to the discovered tailnet default inside the provider). `assertBalanceAvailable` skipped for local modals.
+- `electron/server/boot/providers.ts` — registers the new provider.
+
+**Frontend:**
+
+- `frontend/pages/projects/[slug]/settings.vue` — new **Image Studio KH (local TTI modal)** section in the Local Models tab, below Voice Studio. Same Save/Test UX shape with a richer connection pill (app version + family count + model count + LoRA count). Lazy-loads on first tab open like Voice Studio.
+- `frontend/composables/useModelGroups.ts` — `imagestudio` added to `PROVIDER_DISPLAY` ("Image Studio KH (local)") and `DEFAULT_ORDER` (after kie, before LLMs).
+- `frontend/pages/projects/[slug]/images.vue` — `groupModels()` callback was hardcoded `() => 'kie'`; now reads `m?.provider || 'kie'` so Image Studio entries land in their own optgroup. Legacy kie models keep working without the explicit `provider` field via the fallback.
+
+### Connection-failure handling
+
+Mirrors v1.0.149's Voice Studio integration:
+
+- **Modal asleep / Tailscale dropped** → friendly "Cannot reach Image Studio modal — check that Tailscale is connected and Pinokio is running."
+- **Pinokio port shifted** → "Confirm Pinokio still has the wrapper running on that port — Pinokio sometimes shifts ports between launches." Re-test in Settings → Local Models after a Pinokio restart.
+
+### Swap protocol
+
+Per your "one modal at a time" workflow: stop Voice Studio in Pinokio, start Image Studio, then run images. Story Studio fails any new audio job with a clear "modal offline" instead of silently timing out, and switching back is just a Pinokio click + `Test connection` in Settings. The two URLs are stored independently, so you don't have to retype anything.
+
+---
+
+## v1.0.150 — 2026-05-26
+
+**Voice management refactor: Voice Studio library voices now surface in the picker + full Chatterbox cleanup.**
+
+Two coupled changes that finish the local-modal integration:
+
+### 1. Chatterbox removed entirely
+
+Per request: the v1.0.149 release left a "Legacy Chatterbox" section in App Settings for backward-compat. v1.0.150 deletes the entire standalone provider — code, routes, model entries, secrets slot, UI. If Chatterbox is ever needed again, it's reachable via Voice Studio's `chatterbox-mlx` family in the wrapper's UI; no separate Story Studio integration to maintain.
+
+**Files deleted:**
+- `electron/server/lib/chatterbox-client.ts`
+- `electron/server/providers/audio/chatterbox.ts`
+
+**Other backend cleanup:**
+- `electron/server/boot/providers.ts` — Chatterbox import dropped.
+- `electron/server/services/app-secrets-store.ts` — `'chatterbox'` removed from `SECRET_PROVIDERS`.
+- `electron/server/models/defaults.ts` — `chatterbox-default` / `chatterbox-cloned` model entries removed. (`mergeCatalog` in project-manager drops orphan ids on next config read, so existing projects with Chatterbox selected as their audio model will need to switch to a different model the first time they open the Audio Generator after upgrading.)
+- `electron/server/models/types.ts` + `electron/server/contracts/index.ts` — `chatterbox_enabled` / `chatterbox_reference_id` marked `@deprecated` so old `project.json` files still parse cleanly; nothing reads the fields anymore.
+- `electron/server/routes/audio.ts` — all `/chatterbox/*` routes deleted; `resolveAudioProvider()` no longer recognises the prefix; `preview-voice` dispatch simplified to voicestudio-only for local TTS.
+- `electron/server/generators/audio.ts` — Chatterbox branch removed from the dispatch ladder; `AudioProviderId` union shrunk.
+- `electron/server/services/project-manager.ts` — `chatterbox_enabled` / `chatterbox_reference_id` no longer surfaced on the safe-config response.
+
+**Frontend cleanup:**
+- `frontend/pages/projects/[slug]/settings.vue` — the entire "Legacy: Chatterbox" section under the Local Models tab + every state ref / loader / saver / file-upload handler (~120 lines).
+- `frontend/composables/useModelGroups.ts` — `chatterbox` removed from `PROVIDER_DISPLAY`, `DEFAULT_ORDER`, and `resolveAudioProvider()`.
+
+### 2. Voice management refactor
+
+The Voice Studio modal had 5+ saved clones, but they had nowhere to surface in Story Studio's audio picker — picking a Voice Studio TTS model still showed ElevenLabs voicepacks. v1.0.150 makes the picker source-aware:
+
+**New "Voice Studio KH library" section** in `VoicePicker.vue`:
+- Lazy-fetched from `GET /voicestudio/voices` on first panel open (and re-fetched on the section's ⟳ button).
+- Per-row metadata: name, gender, language, reference-clip duration, plus a green `local clone` chip so it visually links to the green compat banner.
+- An **`open modal UI ↗` link** sends the user to the Voice Studio web UI in their browser to upload new voices / set transcripts / delete — the wrapper already has a full management surface; no need to duplicate it inside Story Studio.
+
+**Source-awareness:**
+- New `audioModelProvider` prop on the picker — passed from `audio.vue` based on the currently-selected model (`elevenlabs` / `fal` / `genaipro` / `voicestudio`).
+- A new **compat hint banner** at the top of the panel explains which section applies to the current model. Two colour variants: **green** when on Voice Studio, **blue** when on a cloud TTS provider.
+- The non-matching section is dimmed to 55% opacity with a `— wrong model family` note, every row in it shows a `wrong model` chip, and the Select / Preview buttons are disabled. The cloud providers (ElevenLabs / fal / GenAIPro) all share the ElevenLabs id space so they're treated as one source; Voice Studio has its own UUID space.
+
+**Auto-reset on incompatible model switch:**
+- `audio.vue` now watches `currentAudioProvider` and clears `form.voice` when the user crosses the cloud ↔ Voice Studio boundary — so picking a Voice Studio voice and then switching to ElevenLabs doesn't submit a UUID that ElevenLabs would 404 on. Switching between cloud providers (ElevenLabs ↔ GenAIPro ↔ fal) keeps the voice id because they share the id space.
+
+### Files touched
+
+- `frontend/components/VoicePicker.vue` — Voice Studio voice fetching + section + compat hint + dim treatment + open-modal link.
+- `frontend/pages/projects/[slug]/audio.vue` — passes `audioModelProvider` to the picker + resets voice on cross-source model switches.
+
+---
+
+## v1.0.149 — 2026-05-26
+
+**Voice Studio KH wired in: local VoxCPM2-MLX TTS via Tailscale + Pinokio.**
+
+You can now drive Story Studio's audio generator from a Pinokio-launched FastAPI wrapper (Voice Studio KH v1.2.2) that hosts twelve TTS engine families. The wrapper is reached over Tailscale, so the URL stays private. No per-character cost, no upstream rate limits — just your Mac's MPS compute.
+
+### What this release ships
+
+- **`VoxCPM2 4-bit MLX [Voice Studio · local]`** appears in the Audio Generator's model dropdown under a new "Voice Studio KH (local)" optgroup. Pick it like any other TTS model; the rest of the audio pipeline (chunk splitting, per-task manifests, cancellation, retry, manifest recovery) works exactly the same.
+- **App Settings → Local Models** (was "Local TTS") — new section at the top for Voice Studio: URL field, Save, Test connection. The test response folds in the wrapper's app version, MPS/CPU device, which engine families are currently loaded, and how many voices are in your saved library — so the "✓ Connected" pill tells you everything you need at a glance. Defaults to the Tailscale tailnet address discovered during the integration probe (`http://100.120.246.10:47870`).
+- **Adding more families later is a 2-line change.** Today only `voicestudio-voxcpm-mlx` is registered; the client + provider already cover all twelve wired families (voxcpm, voxcpm-mlx, kokoro, kokoro-mlx, qwen3-tts, chatterbox-mlx, spark-tts-mlx, orpheus, kittentts, vibevoice, bark, omnivoice). Append the model id to `DEFAULT_AUDIO_MODELS` (defaults.ts) + the `MODEL_TO_FAMILY` map (providers/audio/voicestudio.ts) and it shows up in the picker.
+
+### How it's wired
+
+**Backend (mirrors the Chatterbox pattern):**
+
+- `electron/server/lib/voicestudio-client.ts` *(new)* — HTTP client: `health()`, `availability()`, `listVoices()`, `submitTxt2Speech()`, `pollJob()` (adaptive 2s → 5s → 10s cadence, honours `eta_seconds`), `cancelJob()` (best-effort `DELETE /api/generate/jobs/{id}`), `downloadAudio()` (streamed, zero-byte guard, fail-quiet cleanup on error). Friendly-error helper translates the common Tailscale failure modes (modal asleep, port shifted, network unreachable, refused, timeout) into actionable English.
+- `electron/server/providers/audio/voicestudio.ts` *(new)* — `AudioProvider` impl. Maps `voicestudio-voxcpm-mlx` → `mlx-community/VoxCPM2-4bit`. `voiceId` from the Story Studio request maps to `voice_library_id` for zero-shot cloning against the user's saved reference clips.
+- `electron/server/services/app-secrets-store.ts` — added `'voicestudio'` to `SECRET_PROVIDERS`. Same as Chatterbox, the "apiKey" slot here actually carries the base URL — Tailscale handles transport security so there's no real secret.
+- `electron/server/models/defaults.ts` — added `voicestudio-voxcpm-mlx` to `DEFAULT_AUDIO_MODELS` (cost $0; provider `voicestudio`). `AudioModelConfig.provider` union extended to include `'voicestudio'`.
+- `electron/server/routes/audio.ts` — `resolveAudioProvider()` recognises the new prefix; preview-voice handler dispatches voicestudio jobs (inline data-URL audio, same trick as Chatterbox). New routes: `GET /voicestudio/base-url`, `PUT /voicestudio/base-url`, `POST /voicestudio/test`, `GET /voicestudio/voices`. The test endpoint folds `/api/health` + `/api/generate/availability` + voice-count into one response so the Settings pill renders in one round-trip.
+- `electron/server/generators/audio.ts` — extended `AudioProviderId` union + dispatch + label. The voicestudio branch resolves the apiKey from `getApiKey('voicestudio')` (falls back to the discovered default) and writes WAVs straight to the chunk output path via the new `generateTtsToFile` export.
+- `electron/server/boot/providers.ts` — registers the new provider.
+
+**Frontend:**
+
+- `frontend/pages/projects/[slug]/settings.vue` — tab `local-tts` renamed from "Local TTS" → "Local Models" (id kept stable so deep-links + saved tab state still resolve). New Voice Studio KH section at the top with URL field, Save, Test connection — pill renders the wrapper's app version, device, loaded families, and voice count. Existing Chatterbox section moved below under a "Legacy" header so old projects that already opted in keep working.
+- `frontend/composables/useModelGroups.ts` — added `voicestudio` to `PROVIDER_DISPLAY` ("Voice Studio KH (local)") + `DEFAULT_ORDER` (slots after the cloud TTS providers) + `resolveAudioProvider()` (`voicestudio-*` prefix). Existing audio.vue grouping picks the new optgroup up unconditionally.
+
+### How model entries surface in existing projects
+
+`project-manager.ts → mergeCatalog()` starts with `DEFAULT_AUDIO_MODELS` and overlays the project's saved overrides per-entry — so newly-added default model ids appear in every existing project on next config read, no migration write needed. The Audio Generator dropdown will show **VoxCPM2 4-bit MLX [Voice Studio · local]** the first time the user opens audio.vue after the v1.0.149 upgrade. Picking it fails with a clear "URL not configured" error if the user hasn't visited Settings → Local Models yet.
+
+### Connection failure handling
+
+Tailscale is reliable for this use case (WireGuard mesh, single-digit-ms overhead), but two failure modes need explicit handling:
+
+- **Modal machine sleeps** → in-flight requests fail; the friendly-error layer surfaces "Cannot reach Voice Studio modal — check that Tailscale is connected and Pinokio is running."
+- **Pinokio shifts ports between launches** → 'ECONNREFUSED' is surfaced as "Confirm Pinokio still has the wrapper running on that port — Pinokio sometimes shifts ports between launches." Re-test the connection in Settings → Local Models when this happens.
+
+Best-effort `DELETE /api/generate/jobs/{id}` is called when the user cancels a job, so the modal isn't left rendering audio Story Studio is about to throw away.
+
+---
+
+## v1.0.148 — 2026-05-25
+
+**Research page: auto-fill topic from the picked episode's title (saves a copy/paste round-trip).**
+
+Reported testing v1.0.147 on the new `explainer-fact-checked` pipeline: pick an episode like `EP0001 — From Lava to Loam: How Volcanic Eruptions Fertilize Deserts`, the **Topic** field stayed empty even though the title was right there in the episode selector dropdown. The user had to re-type the title (or hand-paste it) before they could click Run research.
+
+### Fix
+
+`frontend/pages/projects/[slug]/research.vue`:
+
+- Pulled the shared `useEpisodes(slug)` SWR cache (same one the EpisodeSelector uses internally — no duplicate fetch) and added a `selectedEpisode` computed that maps `episodeId → EpisodeRow`.
+- `loadExisting()` now does one of two things when there's no saved `research.json` for the picked episode:
+  - **Episode list already loaded** → seeds `form.topic` with the episode's title (and clears `specific_questions`, which would otherwise carry over from the previous episode).
+  - **Episode list still in flight** → leaves the topic blank; a new `watch(() => selectedEpisode.value?.title)` backfills the moment the title arrives.
+- Both paths guard with `if (result.value) return` (don't overwrite saved research) and `if (form.value.topic.trim()) return` in the watcher (don't clobber an edit the user has already started typing).
+- Switching between episodes that both have no research now correctly swaps the seeded topic — the prior fix would leave EP0001's title in the field after switching to EP0002.
+
+The Ideas-Generator-produced titles already follow the *"specific is better than broad"* guidance the page surfaces under the topic input, so seeding the title is the right default for ≥ 90% of cases. The user can still edit before running if they want to narrow / rephrase.
+
+### Files touched
+
+- `frontend/pages/projects/[slug]/research.vue` — topic seed + episode-list race guard.
+
+---
+
+## v1.0.147 — 2026-05-25
+
+**Light / Dark / System theme switcher + fix: source-card text dimmed when picked while unconfigured.**
+
+Two things this release:
+
+### 1. Three-mode theme system (Light / Dark / System)
+
+Story Studio was dark-only since launch. Now there's a real picker in **App Settings → Appearance** with three modes:
+
+- **Light** — soft off-white body (`#f3f5f9`) with cards in pure white "floating" above the page. Accent shifts to a darker burnt-amber (`#b56e10`) so the gold tone stays readable as text + active-state hint against light surfaces (contrast ≥ 4.5:1 on white).
+- **Dark** — the existing palette, unchanged.
+- **System** — follows your Mac's appearance. When macOS is set to *Auto*, the app flips live at sunset/sunrise via a `matchMedia('(prefers-color-scheme: light)')` listener — no reload needed.
+
+**No flash on load.** A synchronous inline script in `<head>` (added via `nuxt.config.ts` → `app.head.script`) resolves the chosen mode from `localStorage` and stamps `<html data-theme>` + `color-scheme` BEFORE the JS bundle parses or `main.css` paints. So light-mode users no longer see a brief dark flash on every page load.
+
+**Architecture:**
+
+- `frontend/assets/css/main.css` — `:root` holds the dark palette (default). `:root[data-theme="light"]` overrides every color variable with the light values. New `--accent-on` variable holds the text color that should sit ON the accent background (dark text on light-amber for dark mode, white text on dark-amber for light mode) — replaces hardcoded `color: #0f1117` in `.btn-primary`, `.nav-badge`, and `research-source-badge.active`, which would have become unreadable in light mode.
+- `frontend/composables/useTheme.ts` — singleton store. Three exports: `mode` (user pick), `resolved` (what's actually applied), `setMode()` (persist + apply + attach matchMedia listener for the system-flips-live behavior).
+- `frontend/plugins/theme.client.ts` — Nuxt client plugin that delegates to `_initTheme()` so the composable initializes after Vite mounts (a hair after the inline script but before the root app renders).
+- `frontend/components/AppSettingsModal.vue` — segmented Light / Dark / System control above the API-keys list. When 'System' is active, the chip displays which theme the OS is currently delivering (`System → light` / `System → dark`).
+
+**Persistence:** `localStorage['story-studio:theme']` — `'light' | 'dark' | 'system'`. Defaults to `'system'` on a fresh install so the app respects whatever you've already configured at the OS level.
+
+### 2. Source-card text dimmed when picking an unconfigured source
+
+`frontend/pages/projects/[slug]/research.vue` had two scoped-style bugs the user spotted on v1.0.146 (Research tab, "1. Source" section):
+
+- **`.research-source-card.active` background was `rgba(108, 143, 255, 0.08)`** — a hardcoded *blue* tint that fought the app's amber accent palette. Now uses `var(--accent-dim)` so the active state matches the active-tab + active-nav-item visual register everywhere else.
+- **`.research-source-card.unconfigured { opacity: 0.6 }`** applied to ALL unconfigured cards, including the one currently picked. Result: picking an unconfigured source visibly dimmed the whole card (including its body text) to 60%, which made the picked card look more washed-out than the unpicked ones — the opposite of what should happen. Now scoped to `.unconfigured:not(.active)` so the dim-to-60% "you can't pick this" cue drops the moment the user DOES pick it. The 'no key' badge alone carries the warning from there.
+
+### Files touched
+
+- `frontend/assets/css/main.css` — light palette + `--accent-on`.
+- `frontend/composables/useTheme.ts` *(new)* — store + `_initTheme`.
+- `frontend/plugins/theme.client.ts` *(new)* — boot hook.
+- `frontend/nuxt.config.ts` — inline pre-script in `<head>`.
+- `frontend/components/AppSettingsModal.vue` — Appearance picker section.
+- `frontend/layouts/dashboard.vue` — `.nav-badge` text color → `var(--accent-on)`.
+- `frontend/pages/projects/[slug]/research.vue` — active-state + unconfigured-but-active fixes; badge text color → `var(--accent-on)`.
+
+---
+
+## v1.0.146 — 2026-05-25
+
+**Bugfix: sidebar wasn't updating after switching a project to the timestamp-driven format (Research / Scene Plan / Scene Review entries stayed hidden).**
+
+Reported on v1.0.145: after switching the project (e.g. *Boundless Times*) to `explainer-fact-checked` in Settings → Format, the Ideas page correctly displayed the new format card — but the sidebar still showed the old set of entries (Scene Prompts / Scene Generator / Video Generator visible; Research / 📚 Scene Plan / ✅ Scene Review absent). Restarting the app worked around it; staying on the same project did not.
+
+### Root cause
+
+`frontend/layouts/dashboard.vue` fetches `/api/projects/:slug/effective-format` inside `loadVisualSource()` to drive the `isBroll` / `isTimestampDriven` flags that gate sidebar entries. The fetch was wired to `watch(slug, …, { immediate: true })` — which only fires when the operator navigates between *different* projects.
+
+When the format mutates on the **same** project (Settings → Format Save calls `loadProject()`, which updates `project.value.format_id` reactively), the slug doesn't change, so `loadVisualSource()` never re-ran and the sidebar's `visualSource` ref stayed stuck at whatever it was when the layout first mounted.
+
+### Fix
+
+Added a second watcher in `dashboard.vue` that re-fetches the effective format whenever any of `project.value.format_id` / `brand_id` / `niche_id` changes — the three fields that influence the merged format (and therefore `visualSource`). Settings → Format already calls `loadProject()` after the save, so the watcher fires automatically; no extra plumbing needed in the format picker.
+
+After this, switching format updates the sidebar in-place — no app restart needed.
+
+### Files touched
+
+- `frontend/layouts/dashboard.vue` — added `watch(() => [project.value?.format_id, brand_id, niche_id], () => void loadVisualSource())`.
+
+---
+
+## v1.0.145 — 2026-05-25
+
+**Timestamp-driven pipeline #5 (FINAL): Video assembler + greenlight enforcement + research→script wiring. Loop closed.**
+
+This release ships the last three pieces of the timestamp-driven pipeline. After install + Settings → Format → `explainer-fact-checked`, the full round-trip works on a single episode:
+
+```
+Research (1.0.142)
+   ↓ research.json (verified claims)
+Script Generator (1.0.143 outline / expand)
+   ↓ verified claims injected into outline prompt   ← v1.0.145 wires this
+   ↓ narration docx
+Audio Generator + Assembly
+   ↓ merged audio + audio_chapters.json (gap)
+Subtitles (per chapter)
+   ↓
+Scene Plan (1.0.143)
+   ↓ stitched SRT + scene_plan.json
+Scene Review (1.0.144)
+   ↓ per-scene images + approvals (greenlight gate)
+Timestamp Video Assembly  ← v1.0.145 ships this
+   ↓
+final mp4 (in external_final_video_root if configured)
+```
+
+### Backend
+
+**`generators/timestamp-video-assemble.ts`** *(new)*:
+- New `timestamp_video_assemble` job. Inputs: `scene_plan.json`, merged audio (largest file in `merged_audio_dir`), optional stitched SRT for burn-in.
+- **Greenlight enforcement at the executor level** — refuses to render when any scene has `approved: false` (with a clear error: *"Refused to assemble — N/M scene(s) not yet approved. Open Scene Review and approve every scene before rendering."*).
+- Verifies every scene has its image on disk before starting ffmpeg — surfaces missing-image list up front rather than failing mid-render.
+- ffmpeg concat-demuxer for video (each image looped for its `[start_sec, end_sec]` window) + the merged audio as a separate input + optional `subtitles=` filter for SRT burn-in. Single ffmpeg invocation, no per-scene sub-renders — fast even on 15-minute episodes.
+- Honors **v1.0.130's external_final_video_root pattern** — writes to the external SSD path when configured, falls back to project tree. Atomic temp-then-rename with stale-temp cleanup on retry + error-path cleanup on failure.
+- Output: `<output_dir>/<code>_timestamp.mp4`.
+
+**`routes/scene-review.ts`** — extended:
+- `POST /scene-review/:ep/assemble` — pre-flight gate (refuses with `code: 'NOT_GREENLIT'` when scenes aren't all approved) + queues `timestamp_video_assemble`. Per-episode dedupe.
+
+**`lib/chunked-narration.ts`** — research → script wiring:
+- New `loadResearchContextBlock(scriptDir)` helper. Reads `<episode_dir>/research.json` (sibling of scriptDir), filters claims to `status === 'verified'`, returns a formatted "Verified research facts" block to append to the outline prompt.
+- `buildOutline()` calls the helper + appends the block to the user prompt when present. Logs `[chunked] Injected N verified research claim(s) into outline prompt.` to the Jobs panel so the wiring is observably firing.
+- **Fully backward-compatible** — when no `research.json` exists (every project that isn't `explainer-fact-checked`), the function returns an empty string and the prompt is unchanged. Sleep-story / B-roll / scene-images flows behave exactly as before.
+
+**Wiring:**
+- `models/types.ts` — `JobType` extended with `'timestamp_video_assemble'`.
+- `services/job-queue.ts` — queue state for new job type.
+- `boot/executors.ts` — registers `runTimestampVideoAssemble`.
+
+### Frontend
+
+**`pages/projects/[slug]/timestamp-assemble.vue`** *(new)*:
+- Mirrors broll.vue layout. Mounts dashboard layout + VideoPipelineTabs + TopActionBar.
+- TopActionBar's generate button is the headline **🎞 Assemble video** action.
+- Greenlight panel: shows `N / M approved (P with images, Q missing)`. Goes green ("✅ Greenlit — every scene approved") when ready.
+- Inline link to Scene Review when gating's blocking ("open Scene Review to approve").
+- Empty-state when no scene plan exists yet (links to Scene Plan page).
+
+**`layouts/dashboard.vue`**:
+- Video Assembly sidebar entry's `:to` now branches on `isTimestampDriven` → `/timestamp-assemble` for the new pipeline, `/video-assembly` for everything else. Single sidebar entry; the underlying page changes per format.
+
+**`components/VideoPipelineTabs.vue`**:
+- Added a **🕐 Timestamps** tab alongside the existing 🎞 Scenes / 🎬 B-Roll tabs. Always visible (consistent with the other tabs being available regardless of project format), so the user can flip pipelines on any project.
+- `activeTab` computed extended to recognize `/timestamp-assemble`.
+
+### Where the verified claims actually land in the prompt
+
+The injected block appears at the bottom of the outline prompt, right before the JSON-array contract:
+
+```
+── Verified research facts (use these to anchor outline + script accuracy) ──
+1. <claim text>
+2. <claim text>
+3. ...
+These facts were independently researched and confirmed. The episode
+should be consistent with them throughout — do not contradict, and
+prefer to reference these specific claims when planning chapter beats.
+```
+
+This way the LLM gets the facts as context AFTER it's seen the format role, episode title, target chapter count, and the rest of the planning context — best position for the model to actually anchor on them.
+
+### What's NOT in this release (deliberately deferred)
+
+- **Per-chapter research injection.** Today, verified claims inject into the OUTLINE prompt only. The per-chapter expansion (`expandChapters`) doesn't re-see the claims. The outline's `key_facts` already carries claim references forward, so individual chapter writing inherits the anchoring — but a future iteration could surface the full claim list in each chapter's batch prompt too.
+- **Claim-citation footer in the final video description.** The metadata generator doesn't currently emit a "Sources:" section sourced from research.json. The `research.md` sidecar is the user's manual source for that today.
+- **Scene-image variant gallery.** Per-scene gen produces one image. No N-variants picker. Defer until user feedback says it's needed.
+
+### Files touched
+
+- `electron/server/generators/timestamp-video-assemble.ts` *(new)*
+- `electron/server/routes/scene-review.ts` — `POST /assemble` endpoint
+- `electron/server/lib/chunked-narration.ts` — `loadResearchContextBlock` + injection into `buildOutline`
+- `electron/server/models/types.ts` — `JobType` extension
+- `electron/server/services/job-queue.ts` — queue state
+- `electron/server/boot/executors.ts` — registers executor
+- `frontend/pages/projects/[slug]/timestamp-assemble.vue` *(new)*
+- `frontend/layouts/dashboard.vue` — sidebar Video Assembly target branches on `isTimestampDriven`
+- `frontend/components/VideoPipelineTabs.vue` — 🕐 Timestamps tab + `activeTab` extension
+
+No new dependencies, no schema migrations.
+
+### Verification (end-to-end smoke test of the whole pipeline)
+
+After install, on a fresh `explainer-fact-checked` project + episode:
+
+1. **🔍 Research** → topic: "Why the Tacoma Narrows Bridge collapsed in 1940" → Run → review claims → mark a few **✓ Verified** → Save.
+2. **📝 Script Generator** → Generate Outline. Jobs panel should log `[chunked] Injected N verified research claim(s) into outline prompt.`
+3. Approve + expand chapters. Final narration docx lands in the episode dir.
+4. **🎙 Audio Generator** → generate chapters. **🔊 Audio Assembly** → merge with your preferred gap.
+5. Subtitles section → generate per-chapter (chapters or Whisper).
+6. **📚 Scene Plan** → Stitch subtitles → Plan scenes (pick a model).
+7. **✅ Scene Review** → Generate all missing → wait for images → Approve all.
+8. Sidebar **🎞 Video Assembly** → lands on **/timestamp-assemble** (because format is timestamp-driven). Greenlight panel is green.
+9. Click **🎞 Assemble video** → Jobs panel runs `timestamp_video_assemble` → final mp4 lands at your external_final_video_root.
+10. Open the mp4 — each scene's image plays across its planned window, with narration underneath and (if generated) the stitched subtitle burned in.
+
+**The user-sketched flow you described in the kickoff message — "first adding research and fact-checking, then write the script, then generate the audio, then get the subtitle with timestamps, that is the one way for us to know which timestamps is what word being spoken so we can generate scenes to match" — now works on this app, end-to-end, today.**
+
+### Recap of the 5-release rollout
+
+| Release | What it shipped |
+|---|---|
+| **1.0.140** | Subtitle drift fix (gap persisted in `audio_chapters.json`, propagated to chapters-derived SRT) |
+| **1.0.141** | `visualSource: 'timestamp-driven'` + format example + sidebar gating + page stubs |
+| **1.0.142** | Research page real content — 3 adapters (Perplexity / OpenRouter `:online` / LLM-only), citations sidecar |
+| **1.0.143** | Subtitle stitcher + LLM scene planner + Scene Plan UI |
+| **1.0.144** | Scene Review page — per-scene gen + synced audio + per-scene + bulk approval |
+| **1.0.145** | Timestamp video assembler + greenlight gate + research → script wiring |
+
+---
+
+## v1.0.144 — 2026-05-25
+
+**Timestamp-driven pipeline #4: Scene Review — per-scene image gen + synced audio + approval gate.**
+
+The Scene Review stub from 1.0.141 now does the actual work. Per-scene image generation, synced audio playback that highlights the current scene as you listen, per-scene Approve toggle + bulk Approve all. Final video assembly is now gated on every scene being approved (the gate ENFORCEMENT in the assembler lands in v1.0.145; this release ships the approval state + greenlight indicator).
+
+### Backend
+
+**`generators/scene-image.ts`** *(new)*:
+- New `scene_image_generate` job: one scene per job. Reads the scene by id from `scene_plan.json`, calls the configured image provider (reuses existing kie.ai / fal.ai plumbing), writes the result to `<episode_dir>/scene_images/<scene_id>.png`, updates the scene_plan.json entry's `image_path` + resets `approved: false` so the user re-approves after a regen.
+- Filename = scene id (stable across split/merge in the Scene Plan UI) so the Scene Review page can look images up by id without tracking positional shifts.
+- Single variant only — no _v1/_v2 proliferation; the user re-rolls if unhappy.
+
+**`routes/scene-review.ts`** *(new)*:
+- `GET /scene-review/:ep` — returns `{ scene_plan, scenes[], audio_path, stats }`. Each scene gets an `image_filename` field (null when not generated). `stats.all_approved` is the greenlight flag the v1.0.145 assembler will gate on.
+- `POST /scene-review/:ep/generate-image` — queues one `scene_image_generate` for `{ scene_id, model }`. Per-scene dedupe — same scene id can't be in flight twice.
+- `POST /scene-review/:ep/generate-missing` — bulk path. Walks scenes, skips any with an image already, skips any already in flight, enqueues the rest. Returns `{ queued, skipped, queued_scene_ids[] }`.
+- `PUT /scene-review/:ep/approve` — two body shapes: `{ scene_id, approved }` for per-scene, `{ all: true|false }` for bulk. Bulk-approve only flips scenes that HAVE an image (approving a no-image scene would block the assembler anyway).
+- `GET /scene-review/:ep/image/:sceneId` — streams the scene PNG. Strict alphanumeric+underscore+dash id whitelist so the route can't escape `scene_images/`. `Cache-Control: no-store` so regen+reload picks up the new image without query-string busters.
+- `GET /scene-review/:ep/audio` — streams the merged audio (largest mp3/wav/m4a in `merged_audio_dir`, same heuristic broll-assemble uses). Powers the synced player.
+
+**Wiring:**
+- `models/types.ts` — `JobType` extended with `'scene_image_generate'`.
+- `services/job-queue.ts` — queue state for `scene_image_generate`.
+- `boot/executors.ts` — registers `generateSceneImageJob`.
+- `routes/index.ts` — mounts the new router.
+
+### Frontend
+
+**`pages/projects/[slug]/scene-review.vue`** — full rewrite of the v1.0.141 stub.
+
+Layout:
+- **Greenlight panel** at top — shows `N / M approved (P with images, Q missing)`. Turns into a green "✅ Greenlit — ready for Video Assembly" card when every scene is approved. Holds the ModelSelector (used for per-scene + bulk gen) + Approve all / Reset buttons.
+- **Audio player** below — `<audio>` element loaded from `/scene-review/:ep/audio`. `currentTime` drives the `is-current` highlight on the matching scene row.
+- **Scene rows** — 3-column grid (thumbnail | body | actions):
+  - Thumbnail: image when present, "No image yet (click to generate)" placeholder when not. Click → seeks the audio to scene start.
+  - Body: scene index, time window button (click to jump), boundary reason hint, transcript, collapsible visual prompt.
+  - Actions: **↻ Regenerate** (queues image gen, polls until present, busts the img cache to swap without browser caching), **Approve** toggle (disabled until image exists).
+
+**TopActionBar** is wired as the bulk "Generate all missing" trigger — that's the page's primary headline action when there are scenes without images.
+
+### Cache busting
+
+`<img :src="imageUrl(scene)" :key="imageKey(scene)">` includes a page-level `cacheBuster` ref in both the URL query string AND the Vue key. Regen completes → cacheBuster gets bumped → Vue re-renders the img with a fresh URL + fresh DOM element → no stale browser cache. Same trick for the audio src.
+
+### What v1.0.144 deliberately leaves to v1.0.145
+
+- **Video Assembly greenlight enforcement.** The `all_approved` flag is computed + returned today, but the existing Video Assembly page doesn't yet read it. v1.0.145 wires the gate so the Generate button on `/video-assembly` is disabled with a "go approve scenes first" hint until the flag is true.
+- **Scene-plan-aware video render.** Today the assembler renders against the legacy "evenly distribute N scenes across audio" path. v1.0.145 swaps in a code path that reads `scene_plan.json` and renders each image across its `[start_sec, end_sec]` window with the SRT-stitched audio underneath.
+- **Research → Script Generator wiring.** Today `research.json` is produced (1.0.142) but the Script Generator's prompt context doesn't include it. v1.0.145 closes that loop too.
+
+### Files touched
+
+- `electron/server/generators/scene-image.ts` *(new)*
+- `electron/server/routes/scene-review.ts` *(new)*
+- `electron/server/routes/index.ts` — mount + import
+- `electron/server/models/types.ts` — `JobType` extension
+- `electron/server/services/job-queue.ts` — queue state
+- `electron/server/boot/executors.ts` — registers executor
+- `frontend/pages/projects/[slug]/scene-review.vue` — full rewrite
+
+No new dependencies, no schema migrations.
+
+### Verification
+
+After install (on an `explainer-fact-checked` project with a saved scene_plan.json from 1.0.143):
+
+1. Sidebar → **✅ Scene Review**.
+2. Greenlight panel renders: "0 / N approved (0 with images, N missing)".
+3. Pick a model in the panel's ModelSelector.
+4. Either: click **Generate all missing** in the TopActionBar (queues N jobs at once), OR click an individual thumbnail's "No image yet" placeholder (queues one).
+5. Jobs panel shows `scene_image_generate` jobs working. As each lands, the thumbnail populates.
+6. Click thumbnails to seek the audio; the current scene gets a blue highlight as playback advances.
+7. **Approve** each scene you're happy with; or use bulk **✓ Approve all** once spot-checked.
+8. When all scenes are approved, the panel turns green: "✅ Greenlit — ready for Video Assembly".
+
+### Coming next (v1.0.145 — closes the loop)
+
+- Video Assembly Generate button gated on `all_approved`.
+- New video render path that reads `scene_plan.json` and places each image across its window with the stitched audio underneath.
+- Script Generator prompt context picks up `research.json` (verified claims only) so the round-trip you sketched — research → script → audio → stitch → scene plan → scene review → assemble — works end-to-end on a single episode.
+
+---
+
+## v1.0.143 — 2026-05-25
+
+**Timestamp-driven pipeline #3: Subtitle stitcher + LLM scene planner + editable Scene Plan page.**
+
+The Scene Plan stub from 1.0.141 now does the actual work. Three steps in one page:
+
+1. **Stitch subtitles** — combines per-chapter SRTs into a single global-timeline SRT using the gap value v1.0.140 persists. Idempotent.
+2. **Plan scenes** — LLM reads the stitched SRT + optional `research.json` + the narration docx, picks natural narrative beats, emits `scene_plan.json`.
+3. **Edit** — per-row Merge / Split / Remove, recompute scene_index on save.
+
+### Backend
+
+**`lib/subtitle-builder.ts`:**
+- New `SrtCue` type + `parseSrt(raw)` helper — lenient parser that handles LF/CRLF, `,` vs `.` ms separator, optional cue indices, BOM. Returns empty array on garbage rather than throwing.
+
+**`services/subtitle-stitcher.ts`** *(new)*:
+- `stitchSubtitles({ episode_dir, subtitles_dir, episode_code })`. Reads `audio_chapters.json` for per-section durations + gap. Walks each section, finds the matching SRT (`<slug>.srt`, `<code>_<slug>.srt`, `<slug>_whisper.srt`, or case-insensitive fallback), parses cues, offsets by cumulative `start_time + gap × index`, clamps cue end_sec to section duration so cues don't bleed into silence gaps, concatenates.
+- Writes `<subtitles_dir>/<code>_stitched.srt` + companion `.json` meta sidecar (matches v1.0.140's drift-detection pattern: records gap used + per-section provenance).
+
+**`services/scene-planner.ts`** *(new)*:
+- `planScenes({ stitched_srt_path, research_path?, narration_docx_path?, model, target_scene_count? })`.
+- Loads stitched SRT, parses cues, builds the prompt with full SRT + optional research context (verified claims only) + optional narration markdown (first 6k chars).
+- Calls `callAi()` with any text-provider model.
+- Strict scene-duration enforcement post-LLM: clamps to 3-12s window, snaps each boundary to nearest cue start/end so scene changes don't land mid-word.
+- Returns `ScenePlan` with stable scene ids (survive split/merge), recommended boundary reasons, `research_used` flag.
+
+**`generators/scene-plan.ts`** *(new)*:
+- `runScenePlanJob` executor: calls `planScenes()`, writes `scene_plan.json` to the episode dir.
+
+**`routes/scene-plan.ts`** *(new)*:
+- `POST /scene-plan/:ep/stitch-subtitles` — synchronous (under 1s), returns result body for immediate UI render.
+- `POST /scene-plan/:ep/run` — queues `scene_plan_run` job (20-60s LLM call).
+- `GET /scene-plan/:ep` — reads `scene_plan.json` + stitched-SRT meta + audio merge gap + research availability. Includes a `drifts_from_current_merge` flag on the stitched SRT so the UI can prompt re-stitch when the gap changed.
+- `PUT /scene-plan/:ep` — saves edited plan (schema validation: `schema_version: 1`, `scenes` array).
+- `DELETE /scene-plan/:ep` — drops the sidecar.
+
+**Wiring:**
+- `models/types.ts` — `ScenePlanEntry`, `ScenePlan`, `ScenePlanRunOptions` types added.
+- `models/types.ts` — `JobType` extended with `'scene_plan_run'`.
+- `services/job-queue.ts` — queue state for `scene_plan_run`.
+- `boot/executors.ts` — registers the new executor.
+- `routes/index.ts` — mounts the new router.
+
+### Frontend
+
+**`pages/projects/[slug]/scene-plan.vue`** — full rewrite of the v1.0.141 stub:
+- TopActionBar with **Plan scenes** as the primary generate action.
+- Section 1: stitch status + button. Surfaces audio-merge-not-run warning, current SRT cue/section/duration counts, drift warning when gap changed since stitch.
+- Section 2: ModelSelector (reuses existing component) + target scene count input + "Include research.json as context" toggle (only shown when research sidecar exists).
+- Section 3: editable scene list — each row shows index, time window, duration, boundary reason hint, transcript segment (editable textarea), visual prompt (editable textarea), Merge up / Split / Remove actions. Save button enables only when dirty.
+- Per-episode auto-load on episode change.
+
+### What "natural beats" actually means in this implementation
+
+The planner prompt explicitly tells the LLM to pick boundaries at:
+- Topic shifts (new subtopic introduced)
+- Named entity introductions (first mention of person/place/year/statistic)
+- Tonal pivots (setup → conclusion, claim → counterclaim)
+
+And constrains:
+- Min scene duration: 3s (avoids one-image-per-word cost explosion)
+- Max scene duration: 12s (avoids 60s-of-dead-still-image dead air)
+- Boundaries snap to actual SRT cue start/end times post-LLM (no mid-word visual changes)
+
+If the LLM emits a scene that violates min/max, the normalizer nudges it. If it picks boundaries between cues, the normalizer snaps to the nearest cue boundary. Total scene count is computed (not LLM-decided) when no `target_scene_count` is provided — default is ~1 scene per 8 seconds.
+
+### Files touched
+
+- `electron/server/lib/subtitle-builder.ts` — `SrtCue` + `parseSrt`
+- `electron/server/services/subtitle-stitcher.ts` *(new)*
+- `electron/server/services/scene-planner.ts` *(new)*
+- `electron/server/generators/scene-plan.ts` *(new)*
+- `electron/server/routes/scene-plan.ts` *(new)*
+- `electron/server/routes/index.ts` — mount + import the new router
+- `electron/server/models/types.ts` — `ScenePlanEntry`, `ScenePlan`, `ScenePlanRunOptions`, `JobType` extension
+- `electron/server/services/job-queue.ts` — `scene_plan_run` queue
+- `electron/server/boot/executors.ts` — registers executor
+- `frontend/pages/projects/[slug]/scene-plan.vue` — full rewrite
+
+No new dependencies, no schema migrations, no frontend libraries added.
+
+### Verification
+
+After install (smoke-test on an `explainer-fact-checked` project with audio already merged):
+
+1. Sidebar → **📚 Scene Plan**.
+2. **Step 1** shows the audio merge gap. Click **Stitch subtitles** → succeeds, shows cue/section/duration counts.
+3. **Step 2** — pick a model, optionally set target scene count, optionally tick "Include research.json" if available.
+4. Click **Plan scenes** in the TopActionBar → Jobs panel shows `scene_plan_run` working (20-60s).
+5. Step 3 populates with the editable scene list. Edit a few prompts, click **Save**.
+6. Open `<episode_dir>/scene_plan.json` in Finder — matches what you saved.
+
+### Coming next
+
+- **1.0.144**: Scene Review page — per-scene image preview against transcript + audio + bulk "Approve all". Replaces the v1.0.141 stub.
+- **1.0.145**: Video assembler reads the approved `scene_plan.json` + greenlight gate on Video Assembly. Closes the loop. Also wires `research.json` (verified claims) into the Script Generator's prompt context — the round-trip you sketched works end-to-end.
+
+---
+
+## v1.0.142 — 2026-05-25
+
+**Timestamp-driven pipeline #2: Research phase real content (three adapters, citations sidecar, edit + save).**
+
+The Research page that shipped as a scaffold in 1.0.141 now does the actual work. Pick a source per episode, type a topic + any specific questions, run, review the returned claims (verify / ignore / leave unreviewed), save. Output goes to `research.json` + `research.md` in the episode dir; the Script Generator will read from `research.json` in v1.0.143+ and inject verified claims into its prompt context.
+
+### Three source adapters (your locked answer — all three, you pick per-episode)
+
+| Adapter | Key required | What it does |
+|---|---|---|
+| **🔥 OpenRouter `:online` (default)** | Existing OpenRouter key from v1.0.128 | Calls `perplexity/llama-3.1-sonar-small-128k-online` via OpenRouter — live web search + citations in one chat-completions call. Cheapest path; reuses the key you already have. |
+| **Perplexity (direct)** | New `perplexity` key (App Settings) | Direct Perplexity API. Use this if you have a Perplexity Pro subscription and want to bill research separately. Same underlying models, slightly more expensive than via OR. |
+| **LLM-only (no web search)** | Any text-provider key | Uses your existing OpenAI / Anthropic / kie / OpenRouter key (defaults to `claude-sonnet-4-6`). No live web — the LLM is explicitly told to mark every claim with confidence + a manual-verification path. Useful when training data covers the topic well or you don't want to spend on web-search credits. |
+
+Each adapter's `isConfigured()` is surfaced in the source-picker UI as a "no key" badge on cards that need a key you haven't added.
+
+### Output shape
+
+`research.json` (machine-readable, source of truth) + `research.md` (human-readable, view in Finder):
+
+```ts
+{
+  schema_version: 1,
+  source_provider: 'openrouter-online' | 'perplexity' | 'llm-only',
+  source_model: string,            // e.g. 'perplexity/llama-3.1-sonar-...'
+  generated_at: ISO8601,
+  topic: string,
+  specific_questions?: string,
+  claims: [{
+    id: 'claim_<rand>',
+    text: string,                  // single declarative sentence
+    status: 'unreviewed' | 'verified' | 'ignored',
+    citation_indices: number[],    // into citations[]
+    confidence?: 'high' | 'medium' | 'low' | 'unknown',
+    note?: string,                 // adapter-supplied caveat
+  }],
+  citations: [{ title, url, snippet? }],
+  structure?: [{ heading, brief, claim_ids[] }],   // recommended episode outline
+  summary?: string,
+}
+```
+
+### Backend pieces
+
+- `electron/server/models/types.ts` — `ResearchOutput`, `ResearchClaim`, `ResearchCitation`, `ResearchStructureSection`, `ResearchRunOptions`, `ResearchSourceProvider` types
+- `electron/server/services/research/types.ts` — `ResearchAdapter` interface (mirrors broll-fetchers pattern)
+- `electron/server/services/research/prompt.ts` — shared system+user prompt builder, JSON-tolerant parser (some models prepend prose / fence the JSON)
+- `electron/server/services/research/openrouter-online.ts` — OR adapter (reuses OpenAI SDK with OR baseURL), shared `assembleOutput()` helper used by all three
+- `electron/server/services/research/perplexity.ts` — direct Perplexity adapter (also OpenAI-compatible API)
+- `electron/server/services/research/llm-only.ts` — LLM-only adapter via existing `callAi()` gateway
+- `electron/server/services/research/index.ts` — adapter registry
+- `electron/server/services/app-secrets-store.ts` — `'perplexity'` added to `SECRET_PROVIDERS`
+- `electron/server/services/utils.ts` — `testApiKey('perplexity', key)` probe (cheapest possible chat call: 1 output token on `sonar`)
+- `electron/server/generators/research.ts` — `runResearchJob` executor, renders `research.md` from the unified output
+- `electron/server/boot/executors.ts` — registers `research_run` executor
+- `electron/server/services/job-queue.ts` — `research_run` queue state
+- `electron/server/models/types.ts` — `JobType` union extended with `'research_run'`
+- `electron/server/routes/research.ts` *(new)* — `GET /research/sources`, `GET/PUT/DELETE /projects/:slug/research/:episodeId`, `POST /projects/:slug/research/:episodeId/run`
+- `electron/server/routes/index.ts` — mounts the new router
+
+### Frontend pieces
+
+- `frontend/components/AppSettingsModal.vue` — `'perplexity'` row in API Keys (placeholder `pplx-…`, affiliate URL to perplexity.ai/settings/api)
+- `frontend/pages/projects/[slug]/research.vue` — full rewrite of the v1.0.141 stub. TopActionBar episode picker, source-picker grid (3 cards with configured-or-not badges), topic + specific-questions form, results panel with per-claim **✓ Verified** / **✕ Ignored** toggle + citation links + recommended structure + sources. Save button enables only when dirty; Delete button drops the sidecar after confirm.
+
+### Job flow
+
+1. User picks source + topic, clicks **Run research**.
+2. POST `/projects/:slug/research/:episodeId/run` queues a `research_run` job.
+3. Executor calls the picked adapter's `run()`, writes `research.json` + `research.md`.
+4. Frontend polls `GET /projects/:slug/research/:episodeId` every 3s until it sees a result matching the topic submitted (90s timeout with a clear error message).
+5. UI populates with the returned claims; user reviews + saves.
+
+### What's intentionally NOT here
+
+- **Per-adapter model picker.** LLM-only defaults to `claude-sonnet-4-6`; OpenRouter `:online` defaults to `perplexity/llama-3.1-sonar-small-128k-online`; Perplexity defaults to `sonar`. Surfacing a model picker per adapter would crowd the UI; defer to feedback.
+- **Cost estimate.** Each adapter's cost is small (~$0.005-0.05 per research run) but not shown pre-run. Future addition.
+- **Research preset.** Like the other generator pages have presets, the Research page could too — topic templates, source defaults. Deferred.
+- **Script Generator wiring.** v1.0.143's job is to make the Script Generator read `research.json` and inject verified claims into the prompt. Today the sidecar is produced but not yet consumed.
+
+### Verification
+
+After install (smoke-test path on an `explainer-fact-checked` project):
+
+1. **App Settings → API Keys** → confirm at least one of OpenRouter / Perplexity / OpenAI is configured.
+2. **Sidebar → 🔍 Research** → source-picker grid renders three cards. Configured ones are bright; missing-key ones are dimmed with a "no key" badge.
+3. Type a topic (e.g. "Why the Tacoma Narrows Bridge collapsed in 1940") → click **Run research** in the TopActionBar.
+4. Watch the Jobs panel → the `research_run` job runs (10-30s for web-search adapters, faster for LLM-only).
+5. Results panel populates: summary + claims + structure + sources. Click `[1]` / `[2]` etc. on a claim to open the cited URL.
+6. Click **✓ Verified** on the claims you trust; **✕ Ignored** on ones you don't. Save.
+7. Open `<episode_dir>/research.md` in Finder (QuickLook works) — same content, human-readable.
+
+### Coming next
+
+- **1.0.143**: Scene Plan page — subtitle stitcher (using v1.0.140's gap sidecar) + LLM scene planner reading the script + stitched SRT + editable plan UI
+- **1.0.144**: Scene Review page — per-scene approval grid + synced audio + bulk Approve all
+- **1.0.145**: Video assembler consumes `scene_plan.json` + greenlight gate on Video Assembly + Script Generator gains research-context injection (closes the loop on this release's output)
+
+---
+
+## v1.0.141 — 2026-05-25
+
+**Timestamp-driven pipeline scaffolding — new `visualSource` peer, sidebar gating, three page stubs.**
+
+First of a 5-release rollout (1.0.141 → 1.0.145) for the factual / explainer video flow you sketched. This release ships the **plumbing only** — routing, format gating, navigation — so we can verify the scaffolding works end-to-end before any real research / scene-planning / review logic lands in subsequent releases.
+
+### What ships in 1.0.141
+
+**New `visualSource` value:**
+
+`electron/server/models/types.ts` — `visualSource` union extended:
+
+```ts
+visualSource?: 'scene-images' | 'broll' | 'timestamp-driven'
+```
+
+The new value declares the format as one where scenes are placed against the ACTUAL audio timeline (stitched per-chapter SRTs + the merge gap from v1.0.140's `audio_chapters.json` sidecar) rather than evenly distributed across chapters. Adds Research / Scene Plan / Scene Review pages; hides Scene Prompts / Scene Generator / Video Generator the same way `broll` does today (they don't apply when visuals are timestamp-locked).
+
+**New built-in format:**
+
+`electron/server/formats/explainer-fact-checked.json` — opts into `visualSource: 'timestamp-driven'`. Use it as the canonical example for the new pipeline (history / science / news commentary / anything where scene-to-narration sync matters more than meditative pacing). Pick it from **Settings → Format** on any episode you want to drive through the new flow.
+
+Format defaults are calibrated for factual content: 6 chapters default (range 4-10), 12 minute default, 155 wpm narration pace, gap=2.0s between chapters in audio merge (vs. 5.0 for sleep-story), three narrator styles (Clear-and-conversational / Documentary-formal / Energetic). Audio normalization on by default.
+
+**Sidebar gating:**
+
+`frontend/layouts/dashboard.vue`:
+
+- `visualSource` ref typed to the new union; `loadVisualSource()` reads from `/effective-format` and falls back to `'scene-images'` for any unknown value (backward compat with older formats).
+- `isBroll` stays the same as before — still drives existing B-Roll-specific UX.
+- New `isTimestampDriven` computed, mutually exclusive with `isBroll`.
+- New `hidesScenePages` computed (`isBroll || isTimestampDriven`) — both alternative pipelines hide the same three entries (Scene Prompts, Scene Generator, Video Generator). All three `v-if="!isBroll"` checks swapped to `v-if="!hidesScenePages"` so timestamp-driven projects also skip those pages without a per-page edit.
+- Three new sidebar entries added, each visible only when `isTimestampDriven`:
+  - **🔍 Research** (above Script Generator — research comes first in this pipeline)
+  - **📚 Scene Plan** (between Audio Assembly and Video Assembly — runs after audio merge produces the timeline)
+  - **✅ Scene Review** (between Scene Plan and Video Assembly — last gate before render)
+
+**Three new page stubs:**
+
+- `frontend/pages/projects/[slug]/research.vue`
+- `frontend/pages/projects/[slug]/scene-plan.vue`
+- `frontend/pages/projects/[slug]/scene-review.vue`
+
+Each mounts the dashboard layout, has a Breadcrumb + page title, and shows a scaffolded placeholder card explaining what'll ship in the corresponding 1.0.142 / 1.0.143 / 1.0.144 release. No backend logic, no API calls, no functional UI — just routing validation. The accent-coloured left border on the placeholder card makes it visually obvious that the page isn't done.
+
+### How to verify the scaffold
+
+After install:
+
+1. On any project, open **Settings → Format** and pick **Explainer (fact-checked + timestamp-driven scenes)**.
+2. The sidebar should now show **🔍 Research** above Script Generator AND hide **Scene Prompts / Scene Generator / Video Generator**.
+3. Between Audio Assembly and Video Assembly, **📚 Scene Plan** + **✅ Scene Review** appear.
+4. Click each — they load the dashboard layout cleanly with the placeholder card. Breadcrumb shows the right path.
+5. Switch the project back to any other format (sleep-story / broll-narration / etc.) — the three new entries disappear and the previously-hidden scene pages return. Mutual exclusivity holds.
+
+### Files touched
+
+- `electron/server/models/types.ts` — `visualSource` union extended + doc comment expanded
+- `electron/server/formats/explainer-fact-checked.json` *(new)*
+- `frontend/layouts/dashboard.vue` — `visualSource` ref typing, `isTimestampDriven` + `hidesScenePages` computeds, three sidebar entries, `!isBroll` → `!hidesScenePages` swaps
+- `frontend/pages/projects/[slug]/research.vue` *(new)*
+- `frontend/pages/projects/[slug]/scene-plan.vue` *(new)*
+- `frontend/pages/projects/[slug]/scene-review.vue` *(new)*
+
+No new backend routes, no schema migrations, no new dependencies. Existing projects keep their behaviour — only projects that explicitly pick the new format get the new pipeline.
+
+### Coming next
+
+- **1.0.142**: Research page real content — three adapters (Perplexity / OpenRouter `:online` / LLM-only-with-disclaimers), per-episode source picker, citations sidecar
+- **1.0.143**: Scene Plan page — subtitle stitcher + LLM scene planner + editable plan UI
+- **1.0.144**: Scene Review page — per-scene approval grid + synced audio + bulk Approve all
+- **1.0.145**: Video assembler consumes `scene_plan.json` + greenlight gate on Video Assembly
+
+---
+
+## v1.0.140 — 2026-05-25
+
+**Subtitle drift fix: the audio-merge gap value now flows into chapter-derived SRTs.**
+
+Pre-1.0.140 bug, surfaced while scoping the larger timestamp-driven pipeline work: the `subtitles/from-chapters` route hardcoded a 5-second inter-chapter gap when computing cue timestamps. The audio-merge job's actual `gap_duration` (user-set on the Audio Assembly page, often 2-3 seconds for explainer content) was never persisted anywhere the subtitle generator could read it. Result: every section's cues started later than the audio it was supposed to caption, error compounding section-by-section (a 9-section script with `gap=2` user-set, `gap=5` SRT-default, drifts the final section's cues 24s late vs. the burned-in audio).
+
+### What changed
+
+**`electron/server/generators/audio-merge.ts`:**
+
+The `audio_chapters.json` sidecar already written by the merge job now includes `gap_duration_s: <number>` alongside the existing `sections[]` array. Older sidecars without the field fall back to the previous default-5 behaviour — pre-fix renders match pre-fix behaviour, no surprises.
+
+**`electron/server/routes/video.ts` — `subtitles/from-chapters` route:**
+
+Gap resolution priority is now:
+1. `req.body.gap_sec` — explicit override from the caller (UI form field if the user types one)
+2. `audio_chapters.json.gap_duration_s` — the gap the merge job actually used
+3. Hardcoded `5` — pre-1.0.140 fallback for projects whose sidecar predates the field
+
+The route writes a parallel `<srtfile>.json` metadata sidecar recording the exact gap the SRT was derived against, used by the drift detector below.
+
+**`electron/server/routes/video.ts` — `subtitles/status` route:**
+
+Now reads `audio_chapters.json` for the current merge gap and each SRT's parallel `.json` metadata for the gap-at-derivation. When they differ, the SRT entry gets:
+- `drifts_from_current_merge: true`
+- `drift_note: "This SRT was derived with gap=2s but the merged audio uses gap=5s. Each section's cues drift +3s × section index. Re-derive to fix."`
+- `generated_with_gap_s` for the row's display
+
+Status response also surfaces `current_merge_gap_s` so the frontend can show "audio merge uses Xs gap" context where appropriate.
+
+**`frontend/pages/projects/[slug]/broll.vue`:**
+
+Subtitle file rows now render a yellow `⚠ drift (was Xs, now Ys)` chip when the backend flags `drifts_from_current_merge`. Tooltip = the full `drift_note`. Existing in-app delete (1.0.135) and the rest of the row stay unchanged. The `subtitlesStatus` TypeScript shape picks up the three new fields per SRT plus the top-level `current_merge_gap_s`.
+
+### Why this ships separately from the timestamp-driven pipeline
+
+The same drift bug existed in the **sleep-story** flow too — any user who ever changed the audio-merge gap and re-derived chapter subtitles got progressively-misaligned cues burned into their final video. Worth shipping as its own release rather than waiting on the bigger feature, since users who never adopt the timestamp-driven pipeline still benefit.
+
+### Files touched
+
+- `electron/server/generators/audio-merge.ts` — sidecar gain `gap_duration_s` field
+- `electron/server/routes/video.ts` — `from-chapters` reads sidecar gap + writes derivation metadata; `status` computes drift + returns `current_merge_gap_s`
+- `frontend/pages/projects/[slug]/broll.vue` — drift chip in subtitle row, TypeScript shape extended, scoped style for `.broll-srt-drift`
+
+No new endpoints, no schema migrations, no new dependencies.
+
+### Verification
+
+After install:
+
+1. Set the audio-merge gap to a non-default value (e.g. 2.0s) on Audio Assembly. Run **Generate Merged Audio**.
+2. On the B-Roll page → Subtitles section → click **Auto from chapters**. The new chapters SRT is derived using the 2s gap from the sidecar (job log: `gap=2s, source=sidecar`).
+3. Now change the audio-merge gap to 5.0s and re-merge. Re-load the subtitles status.
+4. The same SRT row in the "Subtitle files on disk" list shows a yellow `⚠ drift (was 2s, now 5s)` chip. Hover → full drift note. Click **Auto from chapters** again to regenerate against the new gap — the chip disappears.
+
+### Coming next (multi-release sequence for the timestamp-driven pipeline)
+
+- **1.0.141**: New `visualSource: 'timestamp-driven'` format peer + sidebar gating + empty page scaffolding
+- **1.0.142**: Research page with three adapters (Perplexity / OpenRouter `:online` / LLM-only-with-disclaimers), user picks per-episode
+- **1.0.143**: Scene Plan page using LLM-decided natural beats
+- **1.0.144**: Scene Review page with per-scene approve + bulk approve-all
+- **1.0.145**: Video assembler consumes the scene-plan + greenlight gating
+
+---
+
+## v1.0.139 — 2026-05-24
+
+**OpenRouter follow-up #3 (final): cost tracking flows into the Cost dashboard.**
+
+`/usage/rollup` (and its session-level cousin `/usage`) reads from the JSONL spend log written by `services/usage-tracker.ts`. The tracker auto-handled any model passed to `trackFromText()`, but:
+
+1. `providerForModel()` string-sniffer returned `'other'` for OpenRouter ids (`meta-llama/llama-3.2-3b-instruct:free` doesn't start with `gpt`/`claude`/`gemini`). All OpenRouter spend lumped into an unhelpful "other" bucket on the dashboard.
+2. `MODEL_PRICING` map had no OpenRouter entries → every paid OpenRouter call fell through to the generic `{ input: 5.00, output: 15.00 }` default. Wildly over-attributed spend for `:free` models (showed $0.005 for what was actually $0) and roughly wrong for paid ones (Llama 3.3 70B priced like GPT-4-class instead of $0.59 / 1M).
+
+### Fix
+
+`electron/server/services/usage-tracker.ts`:
+
+- **`looksLikeOpenRouterId()`** helper — strict `vendor/model[:variant]` shape check. Single-slash test reliable because OpenAI / Anthropic / kie ids never contain `/`.
+- **`providerForModel()`** runs the OpenRouter check first. Any matching id now records under `provider: 'openrouter'` so the Cost dashboard's per-provider rollup attributes OpenRouter spend separately.
+- **Lazy OpenRouter pricing cache.** Module-level `Map<id, { input, output }>` hydrated on first use from the on-disk file at `<userData>/openrouter-models.cache.json` that the `/api/openrouter/models/live` route already maintains (since 1.0.128). Idempotent flag (`_orPricingHydrated`) prevents two concurrent first-calls from double-loading.
+  - `:free` ids hardcode to `{ input: 0, output: 0 }` — no cache read needed; cost always 0.
+  - Paid ids hit the cache. Miss → cost recorded as 0 (entry still appears in the rollup with the model id visible — better than dropping it). The disk hydration runs in the background after the first call; subsequent calls in the same session see the populated pricing.
+- **`getModelPricing()`** extended to merge `_orPricingCache` into its response. The dashboard's "model rates" display now shows OpenRouter entries alongside OpenAI / Anthropic, with their per-1M-token rates (when the cache is populated).
+
+### What populates the cache
+
+- User clicks **🔄 Browse OpenRouter catalog** in the model picker (existing 1.0.128 affordance) → writes the cache.
+- User toggles **"Use full OpenRouter catalog in the dropdown"** in the model picker (new 1.0.138 affordance) → also writes the cache as a side effect.
+- Otherwise: the file doesn't exist until one of the above runs. Paid OpenRouter calls in that window record cost 0 (we have no pricing source). Once cached, subsequent calls have correct pricing.
+
+A future release could prefetch the cache on app boot — deliberately not in this one. The boot path is already heavy; adding a network round-trip for users who haven't opted into the live catalog UX is gratuitous.
+
+### Why no pricing-refresh-on-stale
+
+The on-disk cache is written by `/openrouter/models/live` with a 5-min TTL on the route side, but the tracker treats it as authoritative whenever it exists. OpenRouter pricing changes infrequently (months between vendor adjustments); reading the cache once per process lifetime is fine. If the file is stale by 24h, the user has bigger refresh problems than per-token-cost drift.
+
+### Files touched
+
+- `electron/server/services/usage-tracker.ts` — `looksLikeOpenRouterId()` helper, `providerForModel()` extended, `_orPricingCache` + `hydrateOpenRouterPricingFromDisk()` + `openRouterPricing()` added, `trackUsage()` routes OpenRouter pricing through the new resolver, `getModelPricing()` merges the cache into its response.
+
+No frontend changes — the dashboard already groups by `provider` from the JSONL entries, and the new `openrouter` provider value flows through unchanged.
+
+### Verification
+
+After install:
+
+1. Make sure the OpenRouter pricing cache file exists: either click **🔄 Browse OpenRouter catalog** in any model picker, or toggle on "Use full OpenRouter catalog in the dropdown" once.
+2. Run a generation against an OpenRouter model — pick a `:free` one (e.g. `🆓 Llama 3.2 3B Instruct`) for a no-cost sanity check, or a paid one like `Claude 3.5 Haiku [OpenRouter]` for a real-dollar entry.
+3. Open **Usage** from the home page → the rollup now shows an `openrouter` row in the per-provider breakdown.
+4. Free model entries → `$0.00`. Paid entries → priced from the cache (matches what the catalog browser shows for that model in $/1M tokens).
+5. Per-model pricing table (in `/usage/pricing`) now includes OpenRouter ids alongside the static OpenAI / Anthropic entries.
+
+---
+
+## v1.0.138 — 2026-05-24
+
+**OpenRouter follow-up #2: full live catalog in the dropdown (opt-in toggle).**
+
+Until now the AI Model dropdown carried only the curated 13 OpenRouter entries hardcoded in `MODEL_LABELS`. Users wanting any of OpenRouter's ~200 other models had to either type the id into the custom-id input or click through the 🔄 catalog browser. Fine for power users, friction for everyone else.
+
+### What changed
+
+`frontend/components/ModelSelector.vue`:
+
+- New checkbox in the OpenRouter section: **"Use full OpenRouter catalog in the dropdown"**. Persists in `localStorage` under `ms.openrouter.use_live`.
+- When toggled on, the component hits the existing `GET /api/openrouter/models/live` route (added in 1.0.128, 5-minute cached server-side) and converts each result into the same `LlmModelRow` shape the curated entries use:
+  - **Label**: `🆓 {name} [OpenRouter]` for free models, `{name} [OpenRouter]` for paid (matches the curated convention so the existing show-paid filter works unchanged).
+  - **Hint**: free models inherit the same shared rate-limit footer as 1.0.137; paid models get a per-1M-token pricing line built from the live `pricing.prompt` + `pricing.completion` fields. Both surface as the dropdown tooltip on hover.
+  - **Available**: re-derived on every render from the current `allModels` snapshot — adding/removing the OpenRouter key in App Settings flips availability immediately on every live entry, no toggle bounce needed.
+- The dropdown's OpenRouter `<optgroup>` now sources from the live catalog when the toggle is on, replacing the curated 13. Non-OpenRouter providers (OpenAI / Anthropic / kie) are untouched either way.
+- "Show paid models" toggle still applies — to the live source when it's on, the curated when it's off. Same code path, same UX.
+- Error path: if the live fetch fails, the toggle stays on (so the user sees the error message and can retry by toggling off+on), and the dropdown falls back to the curated entries via the empty `liveOpenRouterModels` array. Never breaks the picker because OpenRouter is briefly unreachable.
+
+### Trade-off acknowledged
+
+The live catalog has ~200 entries. With "Show paid" enabled the dropdown becomes long. No search/filter inside the dropdown for now — the existing 🔄 Browse OpenRouter catalog panel from 1.0.128 (which has click-to-select) is the better UX for "find a specific model by name", and it's still right there below the dropdown. The live-catalog toggle is for the use case of "I want one I've used before from this vendor and the curated set doesn't have it" — quick scroll, not search.
+
+### Why no backend changes
+
+The `/api/openrouter/models/live` route already exists. This release just hooks the existing route into a new frontend surface. Server-side cache (5-min TTL, on-disk) keeps the load light — the toggle's first ON flips the dropdown after one upstream round-trip; subsequent flips are instant.
+
+### Files touched
+
+- `frontend/components/ModelSelector.vue` — toggle markup, `useLiveOpenRouter` ref + localStorage hydration, `loadLiveOpenRouterModels()` async loader, `liveOpenRouterModels` cache, `paidCount` updated to read from current source, `visibleModels` swaps the OpenRouter slice when the toggle is on.
+
+No new dependencies, no schema changes, no backend changes.
+
+### Verification
+
+After install:
+
+1. Open Script Generator → AI Model dropdown — same 8 🆓 OpenRouter entries as before (curated mode).
+2. Tick **"Use full OpenRouter catalog in the dropdown"** — toggle shows `loading…` briefly, then the OpenRouter optgroup expands to the full free-tier list from upstream (~15-20 entries depending on what's currently `:free`).
+3. Tick **"Show OpenRouter paid models"** — the full ~200-model paid catalog appears. Hover any → tooltip shows per-1M-token pricing.
+4. Refresh the app — toggle stays ON (localStorage), dropdown is populated again on next mount.
+5. Remove OpenRouter key from App Settings → reload → dropdown still shows live entries but all marked `(no key)` (availability re-derived from current `allModels` snapshot).
+
+---
+
+## v1.0.137 — 2026-05-24
+
+**OpenRouter follow-up #1: per-model hints in the AI Model dropdown.**
+
+The OpenRouter integration from 1.0.128 surfaced the catalog but didn't give the user any per-model context at the choice point. *"Is Llama 3.2 3B Instruct any good for outlines? What about Mistral 7B?"* — the answer was buried in the OpenRouter docs. And the free-tier shared rate-limit (~20 req/min, ~200 req/day across ALL `:free` models combined) was documented only in the App Settings → API Keys helper text, far from where the user actually picks a model.
+
+### What changed
+
+`electron/server/routes/health.ts`:
+
+- `/models` response now includes a `hint?: string | null` field per entry.
+- For OpenRouter models, the hint is populated from `OPENROUTER_CURATED[i].hint` — the curated quality / use-case lines already shipped with the original integration but never exposed to the UI. E.g. for `meta-llama/llama-3.2-3b-instruct:free`: *"Small + fast. Good for ideas, mood/tag classification, short metadata. Falls down on long narrative."*
+- For every `:free` OpenRouter model the hint also carries a rate-limit footer: *"Rate limit: free models share a global ~20 req/min, ~200 req/day budget across ALL `:free` OpenRouter models combined."* Joined to the curated hint with a blank line so the tooltip reads as two paragraphs.
+- Non-OpenRouter models report `hint: null` for now (curated hints for Claude / GPT / kie would be valuable; deferred).
+
+`frontend/components/ModelSelector.vue`:
+
+- `LlmModelRow` interface picks up the optional `hint` field.
+- `tooltipFor(m)` now falls through to the hint when the model is **available** (i.e. no disabled-reason and the key is configured). The disabled-reason and no-key tooltips still take precedence — those are gating, the hint is optional context.
+
+The dropdown's `<option title="…">` binding already drives the native browser tooltip — no template changes needed. Hover any OpenRouter model in the AI Model picker → the curated hint shows up.
+
+### Why hint as a backend-supplied field instead of a frontend lookup
+
+Could have shipped `OPENROUTER_CURATED` as a frontend constant + lookup table in ModelSelector. Kept it server-side because:
+
+1. The next two releases (1.0.138 dynamic catalog ingest, 1.0.139 cost tracking) will need to merge live OpenRouter data into the catalog. Server-side is the right place for that merge to live; the frontend stays a dumb consumer of an opaque "here are the models you can pick" response.
+2. Other providers' hints — when we add them later — will follow the same pattern: backend resolves the curated text per model, frontend just displays whatever the response gives. No per-provider branching in the picker.
+
+### Files touched
+
+- `electron/server/routes/health.ts` — `/models` now resolves + returns the OpenRouter hint per entry, with the rate-limit footer appended on `:free` models
+- `frontend/components/ModelSelector.vue` — `LlmModelRow.hint?`, `tooltipFor()` returns it when the model is available
+
+No new dependencies, no schema changes. The hint field is additive — older frontend builds ignore it; older backend builds just return `hint: undefined`, which the frontend's `?? null` handles cleanly.
+
+### Verification
+
+After install:
+
+1. Open any generator page (Script / Ideas / Metadata).
+2. AI Model dropdown → hover **🆓 Llama 3.2 3B Instruct [OpenRouter]** → native tooltip shows the use-case hint + rate-limit footer.
+3. Hover **🆓 Llama 3.3 70B Instruct** → shows *"Best free narrative quality. Subject to the shared free-tier rate limits."* + rate-limit footer.
+4. Hover a paid OpenRouter model (e.g. **Claude 3.5 Haiku [OpenRouter]** with "Show paid" enabled) → shows the use-case hint without the rate-limit footer (paid tier doesn't share the bucket).
+5. Hover **Claude Opus 4 [Anthropic]** → no hint (Anthropic models don't have curated hints yet); other tooltip states (no-key, unavailable) work as before.
+
+---
+
+## v1.0.136 — 2026-05-24
+
+**NASA Image &amp; Video Library as a third B-Roll Fetch provider — public domain, no API key.**
+
+You'd said yes to NASA / Public Domain sources during the original Pexels + Pixabay scoping; this delivers it. Third adapter slots into the existing fetcher architecture without touching the route layer's call paths or the provenance schema.
+
+### Why NASA specifically (vs Wikimedia / Internet Archive)
+
+- **Stable API.** `https://images-api.nasa.gov/` returns clean JSON, no auth required, ~5000 req/hr rate limit. Wikimedia Commons would need per-clip license-tag parsing (CC-BY-SA vs CC-BY vs CC0 differ in attribution requirements) and that's a real engineering tax. Internet Archive's catalog quality varies wildly. NASA is the highest-signal PD source by a wide margin.
+- **License clarity.** Most NASA-created content is public domain. Per-item exceptions exist (third-party contributors, mission insignia) — surfaced in the per-clip metadata. The license link on every result points at NASA's Media Usage Guidelines so the user can double-check anything they're worried about.
+- **Niche coverage.** Space, science, missions, Earth imagery. Pairs well with Pexels/Pixabay (the "everyday stock" providers) — searches like "earth from space" or "rocket launch" or "aurora" return content the other two can't.
+
+### Backend
+
+`electron/server/services/broll-fetchers/nasa.ts` (new) — implements `FetchAdapter`:
+
+- `isConfigured()` returns `true` unconditionally (no key needed, no app-secrets row).
+- `search(q)` hits `GET /search?q=…&media_type=video&page=…&page_size=…`. Two-stage because NASA splits search metadata from asset manifests:
+  1. Search returns items with thumbnail + title + an asset-manifest URL.
+  2. Resolve up to 5 manifests in parallel (bounded concurrency) to get the actual `~orig.mp4` / `~large.mp4` / `~medium.mp4` / `~small.mp4` URLs. Items whose manifest fails or has no playable video are dropped — the UI never shows undownloadable results.
+- Filename-suffix → quality mapping: `~orig` → uhd, `~large` → hd, `~medium` → sd, `~small` / `~mobile` → tiny. NASA doesn't expose true dimensions in the manifest, so a typical-width estimate per bucket drives the picker's sort.
+- `duration` is set to 0 — NASA doesn't surface it in the search response, and a third round-trip per item (to `metadata.json`) would slow the search noticeably. Frontend just shows `0s` for now; a future release could fetch metadata lazily on hover.
+
+`electron/server/services/broll-fetchers/index.ts` registers the adapter. `electron/server/services/broll-fetchers/types.ts` extends `FetchProvider` to `'pexels' | 'pixabay' | 'nasa'`. `routes/broll-fetch.ts` adds `nasa: 'NASA'` to `DISPLAY_NAMES`.
+
+### Frontend
+
+`frontend/pages/broll-library.vue` Fetch tab:
+
+- `enabledProviders.nasa` defaults to `false`. Most users searching "ocean sunset" want stock footage, not space telescope archives — NASA's catalog is niche enough that opt-in via the checkbox is the right default.
+- The provider checkboxes auto-populate from the backend's `/broll-fetch/providers` response (which iterates the ADAPTERS map), so NASA appears automatically with `configured: true` and no `(no key)` annotation.
+- Empty-state hint copy updated: *"…or tick the NASA checkbox above for key-free public-domain video from NASA's Image & Video Library."* — surfaces the no-key path so users who haven't set up Pexels / Pixabay can still fetch immediately.
+
+### Files touched
+
+- `electron/server/services/broll-fetchers/nasa.ts` *(new — ~200 lines)*
+- `electron/server/services/broll-fetchers/types.ts` — FetchProvider union extended
+- `electron/server/services/broll-fetchers/index.ts` — registry entry
+- `electron/server/routes/broll-fetch.ts` — DISPLAY_NAMES entry
+- `frontend/pages/broll-library.vue` — provider type union extension, NASA default, empty-state copy
+
+No backend schema changes. No new dependencies. The Pixabay 24h cache from v1.0.134 covers NASA too automatically (same shared cache layer in the search route) — repeated NASA searches within 24h serve from memory.
+
+### Verification
+
+After install:
+
+1. B-Roll Library → 🔎 Fetch tab. The provider list now shows three checkboxes: ☐ NASA, ☑ Pexels, ☑ Pixabay (depending on which keys you have configured).
+2. Untick Pexels + Pixabay, tick NASA, search "aurora" → results appear with `NASA` source pill and PD license.
+3. Pick one, add to pool — the download chain works as for the other providers (provenance sidecar written, optional auto-tag + auto-normalize chain per pool settings).
+4. The Asset Log shows the new clip with `source: nasa` and the NASA Media Usage Guidelines license link.
+
+---
+
+## v1.0.135 — 2026-05-24
+
+**B-Roll subtitle in-app delete — no more Finder side-trip.**
+
+The v1.0.126 Subtitles section on the B-Roll page listed existing subtitle files for each episode but offered no way to remove one. The footer hint said *"To remove subtitles entirely, delete the file from the episode's `subtitles/` folder in Finder."* — a forced context switch for what's a one-click action.
+
+### Backend
+
+`electron/server/routes/video.ts` — new route:
+
+```
+DELETE /api/projects/:slug/video-editor/subtitles/:episodeId/:filename
+```
+
+Strict path validation up front:
+
+- Filename must NOT contain `/` or `\` — blocks traversal attempts like `../../something`.
+- Filename must NOT start with `.` — protects any future hidden temp / staging files from collateral deletes.
+- Filename MUST end in `.srt`, `.vtt`, or `.ass` — the same shapes the broll-assemble burn-in walk recognises. We don't delete arbitrary files in the subtitles dir.
+
+404 if file doesn't exist (caught from `fs.unlink`'s ENOENT). Returns the freshly-read `existing_srts` list (same shape as the GET status endpoint) so the frontend can swap state in-place without a second round-trip.
+
+### Frontend
+
+`frontend/pages/projects/[slug]/broll.vue`:
+
+- Small `✕` button next to each entry in the "Subtitle files on disk for this episode" list. Hover state is red-tinted opt-in so the row reads as informational by default — no accidental deletes from a stray mouseover.
+- Click → `useConfirm` dialog with `danger: true` ("Delete `<filename>`? This removes the file from the episode's subtitles/ folder. If this was the file your next assembly would have burned in, the render will go out with no subtitles…"). Subtitle deletes are not undoable from inside the app, so we ask once.
+- Per-filename in-flight state (`brollSubtitlesDeletingFilename`). Only the button being deleted shows the ⏳ spinner; other rows stay clickable. Single-flight gate prevents two deletes from racing.
+- On success, swap `subtitlesStatus.existing_srts` to the fresh list from the response (no second GET).
+
+The old "delete from Finder" footer hint was the natural place to live this addition — that hint no longer applies and could come out, but I left it for one release as a reminder of the manual fallback in case anyone reports the in-app delete misbehaves on edge cases (locked file, permission denied, etc.).
+
+### Files touched
+
+- `electron/server/routes/video.ts` — DELETE route with strict validation, returns refreshed list
+- `frontend/pages/projects/[slug]/broll.vue` — button markup, `deleteBrollSubtitle` handler, per-filename in-flight ref, `useConfirm` import (the page wasn't using it before), `del` added to the destructured `useApi` return, scoped styles for `.broll-srt-del`
+
+No backend schema changes, no new endpoints beyond the DELETE, no new dependencies.
+
+### Verification
+
+After install:
+
+1. B-Roll page → pick a project with at least one subtitle file in the episode's `subtitles/` folder.
+2. The list under "Subtitle files on disk for this episode" should now show a `✕` button on the right of each row.
+3. Click the `✕` → confirm dialog appears → click **Delete** → toast says `Deleted <filename>` and the row disappears.
+4. Check Finder: the file is gone from `subtitles/`.
+5. Cancel from the confirm dialog → nothing changes.
+
+---
+
+## v1.0.134 — 2026-05-24
+
+**Pixabay 24h search-response cache — honor the API terms literally, not just in spirit.**
+
+When applying for the Pixabay API key, one of the three required checkboxes is *"API responses will be cached to avoid identical requests within 24 hours."* The single-user nature of this app meant we honored the rule in practice (you rarely fire the same keyword search twice in a day), but there was no actual cache enforcing it. Now there is — and the same cache covers Pexels for free, conserving the 200-req/hr free-tier quota.
+
+### What changed
+
+`electron/server/routes/broll-fetch.ts`:
+
+- Module-level `Map<string, { results, cachedAt }>` cache, TTL = 24h.
+- Cache key shape: `${provider}::${normalized_q}::${perPage}::${page}`. Normalization lowercases + trims + collapses internal whitespace so `"ocean sunset"` and `"Ocean   Sunset"` hit the same entry.
+- On every `GET /api/broll-fetch/search`, check the cache first. Hit (within TTL) → serve from memory, no upstream call. Stale hit → drop the entry, re-fetch, store the new response. Miss → fetch, store.
+- Response now includes a `cached: true | false` field so the Network tab + frontend can see which searches were served locally vs round-tripped. (Frontend doesn't display it yet — purely for debugging / future analytics.)
+- In-memory only. Process restart clears, which matches how you mentally model "fresh app launch = fresh search."
+- No size bound. Single-user app stays well under 100 entries per day; LRU eviction would be over-engineering. If usage patterns change later, a `size > 500 → prune oldest` check is a one-line addition.
+
+### Why both providers, not just Pixabay
+
+Pexels' terms don't require caching, but they don't forbid it either, and skipping their searches when we'd ask the exact same question 5 minutes later is just polite. The code path is identical for both, so applying it universally is simpler than per-provider branching.
+
+### Files touched
+
+- `electron/server/routes/broll-fetch.ts` — cache map, `searchCacheKey()` helper, check-before-fetch logic, `cached` field on the response
+
+No frontend changes. No backend schema changes. No new dependencies. The existing Network → Fetch tab UX is unchanged; cache hits just happen faster and don't show up in the upstream's rate-limit headers.
+
+### Verification
+
+After install:
+
+1. Open B-Roll Library → 🔎 Fetch tab → search "ocean sunset" against Pixabay. Note the response time (network round-trip).
+2. Search "ocean sunset" again immediately — DevTools → Network → expand the `/api/broll-fetch/search` response. `cached: true` should be set; response time should be near-zero.
+3. Search "Ocean Sunset" (different case) — should also hit the same cache entry.
+4. Search "ocean storm" — fresh search, `cached: false`, normal round-trip.
+
+---
+
+## v1.0.133 — 2026-05-24
+
+**Fix: `TypeError: Cannot read properties of undefined (reading 'filename')` on Audio Assembly.**
+
+User reported the error spamming DevTools console whenever they changed episodes on the Audio Assembly page. The trace pattern (`V.onUpdate:episodeId` → reactive cascade → render → `Proxy.<anonymous>` → `.filename` throw) plus the stack depth screamed render-time access on an undefined entry, not a logic-layer bug.
+
+### Root cause
+
+`frontend/components/MusicPoolPanel.vue` was the only `.filename` access on the Audio Assembly page reachable from a render path the trace described. Specifically, line 70:
+
+```vue
+<div v-for="t in state.tracks" :key="t.filename" …>
+```
+
+During the episode-change cascade in `audio-merge.vue`:
+
+1. `watch(episodeId, …)` fires `loadEpisodeDataDebounced()` (200 ms trailing debounce).
+2. `loadEpisodeData()` runs `scanAssets()` + `refreshMergeStatus()` in parallel.
+3. `scanAssets()` calls `refreshPoolPeek()` on completion (GET `/music-pool/peek-next`).
+4. Meanwhile, MusicPoolPanel's own `onMounted()` calls its `refresh()` (GET `/music-pool`).
+
+Two concurrent fetches into the same `state` ref. During the brief overlap, Vue's reactivity can drive a re-render against a partial / sparse `state.tracks`. When the v-for evaluates `:key="t.filename"` against an entry where `t` is undefined (or missing `filename`), the proxy getter throws — silent in the user-facing UI (the page keeps working), loud in DevTools.
+
+### Fix
+
+Two layers, both in `MusicPoolPanel.vue`:
+
+1. **`:key="t.filename"` → `:key="t.path"`.** `path` is mandatory on every `PoolTrack`, more stable as a unique key (user-editable labels can re-stamp `filename` semantically; `path` doesn't change). Eliminates one whole class of "key threw on undefined" regression.
+2. **New `safeTracks` computed.** Filters `state.value?.tracks` to entries that are objects with non-empty `path` AND a string `filename`. The v-for iterates `safeTracks` instead of raw `state.tracks`. Sparse / partial entries never reach the render. No user-facing warning — the missing entries would be a backend bug, not an operator concern.
+
+The `v-if="state.tracks.length === 0"` empty-state check is also rewritten to use `safeTracks.length === 0` so the "Pool is empty" hint shows correctly when the only entries are malformed.
+
+### What was ruled out (saved here so the next debugging pass doesn't repeat the work)
+
+- Three other `.filename` template reads in `audio-merge.vue` (lines 141, 303, 519) — all inside v-for loops over arrays whose entries can't be undefined at render time (template scoping holds the reference even if the source ref updates mid-render).
+- `r.track.filename` at line 1196 — guarded with `if (r && r.track)`.
+- `file.filename` at line 833 — called from a click handler with a v-for variable, defined at click time.
+- `applyTrackOverrides` — has `typeof` guards on every field.
+
+### Files touched
+
+- `frontend/components/MusicPoolPanel.vue` — `:key` swap, `safeTracks` computed, empty-state check rewired, two inline comments documenting both layers of the fix.
+
+No backend changes. No new dependencies.
+
+### Verification
+
+After install:
+
+1. Open Audio Assembly (any project with a music pool configured).
+2. DevTools → Console → switch episodes a few times rapidly. No `TypeError: Cannot read properties of undefined (reading 'filename')` errors should appear.
+3. Music Pool panel still renders the same tracks with the same controls — `:key` change is invisible to the user.
+
+---
+
+## v1.0.132 — 2026-05-24
+
+**Version chip on every page, not just inside projects.**
+
+Project pages (the dashboard layout) have shown the running version in the sidebar footer since v1.0.77. But every other page — home (`/`), B-Roll Library, Character Library, Usage, Brands, App Settings — uses the `default` layout, which had no version indicator. Coming back to a fresh launch and wanting to know "which build am I on?" required either opening a project, hovering the dock icon, or checking the dmg name.
+
+### What changed
+
+`frontend/layouts/default.vue`:
+
+- Small version chip pinned to the top-right of the draggable titlebar. Shows `v1.0.132 · 2026-05-24`. Tooltip: `Story Studio KH v1.0.132 · built 2026-05-24 — click for What's New`. Click → opens the existing What's New modal (the singleton from `useWhatsNewModal` is already mounted in `app.vue`).
+- Reuses the same monospace-pill visual register as the dashboard sidebar's version badge so the look stays consistent regardless of which page you're on.
+- `-webkit-app-region: no-drag` on the chip wrapper so the click actually reaches it — without that opt-out, macOS treats the whole titlebar as a window-drag target and the button never receives the event.
+
+### Files touched
+
+- `frontend/layouts/default.vue` — added the chip, the script-setup for `appVersion` / `buildDate` / `openWhatsNew`, and scoped styles for the badge + `.top-bar-version` wrapper.
+
+No backend changes. No new dependencies — `appVersion` and `buildDate` are already in `useRuntimeConfig().public` (baked from the root `package.json` + build timestamp by `nuxt.config.ts`).
+
+---
+
+## v1.0.131 — 2026-05-22
+
+**Fix: `/jobs/app/stream` 404 — broke episode-list freshness on navigate-revisit.**
+
+The user reported: *"I always get this error after I go to Settings or something else while working on a project and then returning. Rendering all the episodes selection isn't working anymore as well."*
+
+The DevTools Console screenshot was the smoking gun: a red `Failed to load resource: …jobs/app/stream:1 (Not Found)` line. The route DOES exist in `electron/server/routes/jobs.ts` — but Express was never reaching it.
+
+### Root cause
+
+Three routes registered in this order:
+
+```ts
+router.get('/jobs/app',          ...)  // line 100
+router.get('/jobs/app/:jobId',   ...)  // line 106  ← was here
+router.get('/jobs/app/stream',   ...)  // line 114  ← never reached
+```
+
+Express dispatches in registration order. When a `GET /jobs/app/stream` request arrived, it walked the routes:
+
+1. `/jobs/app` — no match (extra path segment)
+2. `/jobs/app/:jobId` — **MATCH** with `jobId = 'stream'`
+3. Handler looked up a job called `'stream'`, didn't find one, returned `404 { detail: 'Job not found' }`.
+
+The literal `/jobs/app/stream` route at line 114 was never reachable. Every `EventSource('/api/jobs/app/stream')` the frontend opened got the 404, tripped the SSE auto-retry loop (browsers retry every ~5s by default), and the user saw a spew of console errors.
+
+### Why navigate-revisit looked broken
+
+`useAppJobs` opens the SSE on mount of any page that uses it (B-Roll Library, the broll page indirectly via subscribed-pool dropdown freshness, etc.). On a fresh page load the connection 404s, retries kick in, and the listener never gets the project-state events (`update` / `cleared`) that drive episode-list freshness. The episode dropdown stops getting `done` job signals → never refreshes → looks frozen.
+
+The first visit "worked" because the page mounted with already-fresh episode state from the initial fetch. Coming back from Settings, the state had drifted but the SSE couldn't deliver the updates that would have synced it back.
+
+### Fix
+
+`electron/server/routes/jobs.ts`:
+
+1. **Reordered the routes** — `/jobs/app/stream` (literal) now registered BEFORE `/jobs/app/:jobId` (wildcard). Express picks the more-specific match first.
+2. **Reserved-word guard** on the `:jobId` handler — if `req.params.jobId === 'stream'` it returns `500 { detail: 'Route order regression: /jobs/app/stream is being shadowed…' }`. Should be unreachable, but if a future refactor re-reorders the routes the failure is loud instead of silently 404-looping the SSE again.
+3. **Inline comment** above the stream route documenting why ordering matters.
+
+### Why no test in this release
+
+A test for "Express dispatches the right handler for `/jobs/app/stream`" is doable but exotic (supertest + assert against an SSE response, which has no clean termination). The reserved-word guard at runtime gives equivalent regression coverage — any future re-reorder produces an immediate, loud 500 in any test that hits the stream endpoint, instead of a quiet 404 that looks like normal job-not-found.
+
+### Files touched
+
+- `electron/server/routes/jobs.ts` — route reorder + reserved-word guard + comment
+
+No frontend changes. No new dependencies. The frontend's `useAppJobs` composable was always correct — it was just hitting a backend bug.
+
+### Verification
+
+After install:
+
+1. Open any project page → DevTools → Console → no more `Failed to load resource: …jobs/app/stream` errors.
+2. Navigate to **Settings** → back to the project's broll page → episode dropdown still updates when a job completes. Pool subscription reflects the previously-selected pool (it always did at the server level; the visible "pick a pool" was the symptom of a stale render that the SSE updates would have corrected).
+3. DevTools → Network → filter for `jobs/app/stream` → status `200` (event stream), not `404`.
+
+---
+
+## v1.0.130 — 2026-05-22
+
+**B-Roll videos now honor the external storage opt-in + temp files no longer orphan on failure.**
+
+Two related bugs in `broll-assemble.ts`, both surfaced by the same install-testing observation: *"the broll video saved into iCloud and a hidden file is sitting there."*
+
+### Bug 1: B-Roll renders ignored `external_final_video_root`
+
+The scene-based assembler at `video.ts:1395-1437` honors an app-level setting `external_final_video_root` (Settings → Storage → External final-video root). When configured, the 5-10 GB final MP4 lands at the external location (typically an SSD) instead of inside the iCloud-synced project tree — keeps cloud-storage bills sane and the project tree free of giant binaries that don't change.
+
+But `broll-assemble.ts` wrote directly to `paths.video_dir` — the project tree, full stop. No external-root check. On any user with iCloud-synced projects, every B-Roll render uploaded into iCloud.
+
+### Bug 2: Hidden `.tmp-*` files orphaned on render failure
+
+The temp filename pattern was `path.join(paths.video_dir, `.tmp-${Date.now()}-${outFilename}`)`. The dot-prefix is intentional — hides the in-progress render from Finder and Spotlight, so the user can't accidentally open a half-encoded file. The final step renames `tempPath → outPath` once ffmpeg exits with code 0.
+
+Failure modes the rename never reaches:
+- ffmpeg crashes (non-zero exit)
+- user cancels the job
+- OS kills the process (low memory, sleep + wake on slow disk)
+
+In every case the `.tmp-…-${outFilename}` file stays on disk. It's invisible in Finder (the dot makes it hidden by default), so the user only finds it via `ls -la` or by spotting an "iCloud is uploading 600 MB" notification. That's exactly what surfaced this fix.
+
+### What changed
+
+`electron/server/generators/broll-assemble.ts`:
+
+**1. Resolve final dir BEFORE the render.** Mirror the video.ts pattern:
+
+```ts
+let finalDir = paths.video_dir
+try {
+  const { ensureExternalFinalVideoDir } = await import('../services/external-video-store.js')
+  const externalDir = await ensureExternalFinalVideoDir(project_slug, episode_id, title || '')
+  if (externalDir) {
+    finalDir = externalDir
+    job.output_lines.push(`External final-video root configured → ${finalDir}`)
+  }
+} catch (e: any) {
+  job.output_lines.push(`External path resolve failed (${e?.message || e}); using project tree`)
+}
+```
+
+Temp + final BOTH live in `finalDir` now. Same filesystem → the rename is metadata-only, no cross-volume copy needed. Setup is symmetrical with the scene-based assembler — if the user moves a project to a different external root later, both pipelines pick it up automatically.
+
+**2. Startup cleanup of stale `.tmp-*` orphans.** Before the render starts, scan `finalDir` for any prior temp file matching this episode's outFilename and delete it:
+
+```ts
+for (const f of existing) {
+  if (!f.startsWith('.tmp-') || !f.endsWith(outFilename)) continue
+  const full = path.join(finalDir, f)
+  if (full === tempPath) continue  // ours from this run
+  await fsp.rm(full, { force: true }).catch(() => {})
+  job.output_lines.push(`Cleaned up stale temp file: ${f}`)
+}
+```
+
+Strict filename match (must end with `${episode_id}_BRoll.mp4`) so unrelated temp files in the same dir are never touched. Catches every prior orphaned render on the next run, in addition to fixing the immediate one.
+
+**3. Error-path cleanup.** Wrap the ffmpeg await in try/catch — on rejection, `fsp.rm(tempPath, { force: true })` before rethrowing. Even if the OS kills the next run before startup-cleanup gets to it, an in-band failure now cleans itself up immediately. The job log reports the original ffmpeg error verbatim; the cleanup is silent (best-effort).
+
+**4. `job.output_dir` reports the real location.** Previously hardcoded to `paths.video_dir`. Now reflects `finalDir`, so the Jobs panel link "Open in Finder" points at the actual output directory when external root is configured.
+
+### Migration note for existing orphans
+
+If you've got `.tmp-*` files sitting in iCloud-synced project trees from earlier renders, the simplest fix is to re-run B-Roll Assemble on each affected episode once on 1.0.130 — the startup cleanup will sweep them. Or manually: `cd "iCloud Drive/...episode-folder/Video Assembly Output" && rm .tmp-*BRoll.mp4`.
+
+If you haven't configured an external final-video root yet but want to going forward: **Settings → Storage → External final-video root** → pick a folder on your SSD. From the next render, both scene-based and B-Roll outputs land there, with the project tree as a fallback for anything that fails to write to the external path.
+
+### Files touched
+
+- `electron/server/generators/broll-assemble.ts` — final-dir resolution, startup-time stale-temp cleanup, error-path cleanup, `job.output_dir` corrected
+
+No backend schema changes, no new endpoints, no frontend changes — the existing Settings → Storage UI already supports configuring `external_final_video_root`, this just hooks B-Roll into it.
+
+---
+
+## v1.0.129 — 2026-05-22
+
+**Three related fixes after 1.0.128 install testing.**
+
+### 1. Slug-race sentinel was leaking through to the dashboard banner
+
+v1.0.125 introduced a `__slug_race__` sentinel error thrown by useApi when a request fires before `route.params.slug` has resolved (so the URL would otherwise stringify to `/projects/undefined/...`). `useToast.error()` silently swallows the sentinel — but the project dashboard page (`pages/projects/[slug]/index.vue`) doesn't use the toast for these errors. It stores `e?.data?.detail` directly into ref-state and renders it in an inline "Some dashboard data couldn't be loaded" banner:
+
+> Some dashboard data couldn't be loaded. Stats: `__slug_race__`. Upload destinations: `__slug_race__`.
+
+Fix: each `await get()` catch on the dashboard now checks `e?.__slugRace` first and `return`s silently. The next valid load (a few ticks later, once the slug resolves) replaces this attempt with real data — so the user just sees a brief loading state instead of a sentinel-string banner.
+
+### 2. `?project=undefined` was bypassing the slug-race guard
+
+The 1.0.125 useApi guard catches `/undefined/` in the URL **path** — but `/models?project=undefined` puts the sentinel in a **query parameter**, so the request was still hitting the backend, getting an empty `hasKeys` map, and showing every paid model as "(no key)". OpenRouter was the only thing that worked because its key check doesn't depend on the slug.
+
+The guard's regex now also matches query-string variants:
+
+```
+/[?&](project|slug|project_slug|episode|episode_id)=undefined(?:&|$|#)/
+```
+
+That covers `/models?project=undefined`, `/usage?slug=undefined`, etc. — every slug-bearing query param that could 404 the backend in the same race. Same `__slug_race__` rejection, same silent-swallow in useToast.
+
+### 3. `/models` now resolves keys from BOTH the app secrets store AND project config
+
+Pre-existing issue surfaced by the screenshot: the user has OpenAI / Kie.ai / Fal.ai / GenAI Pro / ElevenLabs all configured under **App Settings → API Keys** (which writes to the app-level secrets store at `<userData>/app-secrets.json`), but the AI Model dropdown was showing every Claude/GPT/DeepSeek/kie entry as "(no key)".
+
+Cause: the `/models` route checked only **per-project config** (`config.openai_api_key`, `config.anthropic_api_key`, `config.kie_api_key`) — the inline-in-project.json mechanism from before App Settings existed. App-level keys never made it into the availability flag. (OpenRouter worked because 1.0.128 added an explicit `getApiKey('openrouter')` lookup against the app store.)
+
+Fixed by making key resolution consistent: `/models` now reads the app-level secrets store first via `getApiKey(provider)` for each of `openai` / `anthropic` / `kie` / `openrouter`, and falls back to per-project config only if no app-level key is set. Backwards-compatible with old projects that have keys inlined in their `config.json`.
+
+### Files touched
+
+- `frontend/composables/useApi.ts` — extended slug-race regex to match query strings
+- `frontend/pages/projects/[slug]/index.vue` — two catch blocks check `e?.__slugRace`
+- `electron/server/routes/health.ts` — `/models` reads app-level secrets for every provider
+
+No new endpoints, no schema changes, no new dependencies.
+
+### Verification path
+
+1. Open the project dashboard (`/projects/:slug`) — no `__slug_race__` banner; data renders cleanly.
+2. Open Script Generator → AI Model dropdown — Claude / GPT-4o / DeepSeek entries show as available (no `(no key)` label) when those providers are configured in App Settings, even on first mount before per-project config is read.
+3. Network tab: no requests to `/api/models?project=undefined` (rejected by useApi).
+4. Console: no `[useToast.error] Project not found` lines (same suppression as 1.0.125).
+
+---
+
+## v1.0.128 — 2026-05-22
+
+**OpenRouter as a first-class LLM provider — free tier + paid + custom IDs + live catalog browser.**
+
+OpenRouter is an LLM aggregator with an OpenAI-compatible API gating 100+ models including a `:free` tier (vendor-subsidised, rate-limited). The provider architecture in `electron/server/providers/text/` was clearly built for this — each existing provider (`openai`, `anthropic`, `kie-text`) implements a `TextProvider` interface and self-registers. OpenRouter slots in clean.
+
+### Backend
+
+`electron/server/providers/text/openrouter.ts` (new):
+
+- Reuses the OpenAI SDK with `baseURL: 'https://openrouter.ai/api/v1'` + OpenRouter's optional `HTTP-Referer` / `X-Title` attribution headers.
+- Self-registers via `registry.registerText(...)`.
+- `supportsModel()` accepts the curated list AND any `vendor/model[:variant]` shape — that's what lets the frontend's custom-model input route through without a release for every new vendor.
+- Maps OpenRouter-specific HTTP responses to actionable errors: `401 → "API key invalid"`, `402 → "no credit for this model — pick a :free model or top up"`, `429 → "rate limit hit (free tier shares ~20 req/min, ~200 req/day)"`, `404 → "model id rejected — check vendor/model format"`.
+- Exports `OPENROUTER_CURATED` — 13-model catalog (8 free + 5 paid) consumed by the new `/openrouter/models` routes.
+
+`electron/server/routes/openrouter.ts` (new):
+
+- `GET /api/openrouter/models` — returns the curated catalog (no network, always works).
+- `GET /api/openrouter/models/live[?force=1]` — proxies `https://openrouter.ai/api/v1/models`, caches the result on disk at `<userData>/openrouter-models.cache.json` with a 5-minute TTL. Falls back to the cached copy if the upstream is unreachable.
+
+`electron/server/services/utils.ts`:
+
+- New `testApiKey('openrouter', key)` probe hits `GET /api/v1/auth/key` and surfaces credit balance + tier ("Key works (free tier) · $0.0234 used of $5.00 limit").
+
+`electron/server/services/app-secrets-store.ts`:
+
+- `'openrouter'` added to `SECRET_PROVIDERS`.
+
+`electron/server/models/types.ts`:
+
+- `AiProvider` union extended with `'openrouter'`.
+- 13 OpenRouter ids added to `SUPPORTED_MODELS` (8 `:free`, 5 paid).
+- `MODEL_LABELS` entries with a leading `🆓` prefix on free models for visual separation in the dropdown.
+
+`electron/server/routes/health.ts`:
+
+- The `/models` endpoint now reads the app-secrets store for the OpenRouter key (it lives there, not in per-project config like Anthropic/OpenAI/kie). OpenRouter models show as available regardless of which project the picker is rendering for.
+
+`electron/server/boot/providers.ts`:
+
+- Imports `'../providers/text/openrouter.js'` so it self-registers at startup.
+
+### Frontend
+
+`frontend/components/AppSettingsModal.vue`:
+
+- New "OpenRouter" row in App Settings → API Keys with help text covering the rate-limit reality and a link to `https://openrouter.ai/keys`.
+
+`frontend/composables/useModelGroups.ts`:
+
+- `PROVIDER_DISPLAY.openrouter = 'OpenRouter'` so the optgroup label reads cleanly.
+- `'openrouter'` added to `DEFAULT_ORDER` after the direct providers — direct keys take visual priority but OpenRouter is reachable in one scroll.
+
+`frontend/components/ModelSelector.vue` — three additions, inline so the picker stays a single visual unit:
+
+1. **Show OpenRouter paid models toggle.** Defaults off (persists in localStorage). When off, paid OpenRouter models are filtered out of the dropdown AND the live-catalog panel. Free models (label starts with `🆓`) are always visible. Toggle helper text shows the count of paid models hidden so the user knows the toggle is doing something. Auto-fallback also respects the toggle — a paid model is never selected silently when the toggle is off.
+2. **Custom model-id text input.** A monospace text field below the select accepting any `vendor/model[:variant]` id. Strict regex validation (`/^[\w.-]+\/[\w.-]+(?::[\w.-]+)?$/`) so accidental typos (`gpt-4o` without a slash) don't get routed to OpenRouter. Enter or **Use** commits.
+3. **🔄 Browse OpenRouter catalog button.** Opens an inline panel that calls `GET /api/openrouter/models/live` (cached 5 min). Lists every model with id, name, tier pill (FREE / pricing-per-1M-tokens), and click-to-fill. Filter respects the show-paid toggle. A ↻ icon in the panel header forces a fresh fetch.
+
+### What "free" actually means on OpenRouter
+
+Documented in the App Settings help text + the `:free` model tooltips so it's visible at the choice point, not buried:
+
+- Free models share a **global rate limit** of ~20 req/min and ~200 req/day across ALL `:free` models combined. Quality varies — Llama 3.2/3.3 and Gemini Flash 1.5 are usable for ideas + metadata; small Mistrals are mediocre for long narrative.
+- OpenRouter free models can be pulled or rate-limit-tightened without warning. The live-catalog browser is how you'd spot a model disappearing.
+- The auth probe surfaces tier explicitly: "Key works (free tier)" vs "Key works".
+
+### Files touched
+
+- `electron/server/providers/text/openrouter.ts` *(new)*
+- `electron/server/routes/openrouter.ts` *(new)*
+- `electron/server/routes/index.ts` — mount + export the new router
+- `electron/server/boot/providers.ts` — import for self-registration
+- `electron/server/services/app-secrets-store.ts` — `'openrouter'` in `SECRET_PROVIDERS`
+- `electron/server/services/utils.ts` — `testApiKey()` probe
+- `electron/server/models/types.ts` — `AiProvider` union + `SUPPORTED_MODELS` + `MODEL_LABELS`
+- `electron/server/routes/health.ts` — `/models` reads the app-level OpenRouter key
+- `frontend/components/AppSettingsModal.vue` — App Settings row
+- `frontend/composables/useModelGroups.ts` — `PROVIDER_DISPLAY` + `DEFAULT_ORDER`
+- `frontend/components/ModelSelector.vue` — show-paid toggle, custom-id input, live-catalog browser
+
+No new dependencies. The OpenAI SDK was already in the bundle and is what does the actual HTTP work — OpenRouter just gets a different `baseURL`.
+
+### Verification path after install
+
+1. **App Settings → API Keys** → scroll to **OpenRouter**. Paste a key from `openrouter.ai/keys`. **Test** → should report `Key works (free tier) · $0.00 used` or similar.
+2. **Any generator page** (Script / Ideas / Metadata) → the AI Model dropdown now has an **OpenRouter** optgroup with the 8 free models prefixed with 🆓.
+3. Tick **Show OpenRouter paid models** below the select → the 5 paid Claude/GPT/DeepSeek/Gemini entries appear.
+4. Paste a custom id (e.g. `mistralai/mixtral-8x7b-instruct`) into the custom-id field → click **Use** → the selector commits the id.
+5. Click **🔄 Browse OpenRouter catalog** → live list appears, free pill on the free models, per-1M-token pricing on the paid ones, click any row → custom-id field fills and selector commits.
+
+### Out of scope (flagged for future)
+
+- **Dynamic ingest of live-catalog ids into the dropdown.** Right now the dropdown surfaces only the curated 13. The live browser lets you discover + use the rest via the custom-id input. A future release could merge live catalog into `MODEL_LABELS` at runtime.
+- **Per-model rate-limit hints in the dropdown.** Today the helper text under the toggle covers the global free-tier behaviour; per-model isn't surfaced.
+- **Cost tracking integration.** OpenRouter costs aren't wired into the existing usage-rollup (`/usage/rollup`) — paid OpenRouter calls don't show up in the Cost dashboard. Real work; defer.
+
+---
+
+## v1.0.127 — 2026-05-22
+
+**B-Roll subtitles get parity with the scene-based pipeline: enable toggle, style picker, format-aware chapter-gap default.**
+
+Follow-up to v1.0.126. Three real gaps closed, plus one clarification in the helper text:
+
+### 1. Inter-chapter gap is now correct
+
+The bug: v1.0.126's "Auto from chapters" subtitle generator hardcoded `gap_sec: 5` in the request body. Audio Assembly does add silence between chapters — controlled by `gap_duration` (default 5s, but format-overridable via the format's `audioMergeDefaults.gapDurationSec`). If a project tightened the gap to, say, 3 seconds, the subtitle cues drifted forward by 2 seconds per chapter — by chapter 10 the cue for chapter 10 lined up with chapter 8's audio.
+
+The fix:
+
+- `broll.vue` now fetches `/projects/:slug/effective-format` on mount and reads `script.audioMergeDefaults.gapDurationSec`.
+- A new **"Gap between chapters (sec)"** input in the chapters source flow displays this value, with a "restore format default" affordance and a hint explaining what it does.
+- The user can override per-project (the value persists to `config.broll_subtitles.gap_sec` via the auto-save below).
+- The button label now shows the resolved gap: *"Generate SRT from chapters (gap: 3s)"* — no ambiguity about what's being sent.
+- The success toast surfaces it too: *"Generated 14 chapter cues at 3s inter-chapter gap"*.
+
+### 2. Enable toggle (replaces "delete the SRT to skip burn-in")
+
+Before: broll-assemble would auto-burn whatever it found in `subtitles_dir`. To render without subtitles, the user had to delete the file.
+
+After:
+
+- An **"Enable subtitles"** checkbox at the top of the Subtitles section.
+- Setting flows through to `broll-assemble.ts` via a new `subtitles_enabled` job param (default `true` so callers that don't pass it still get the legacy behaviour).
+- When disabled, the assembler skips the subtitles filter entirely — even if a file exists. Job log records the skip: *"Subtitles: disabled by request — skipping burn-in even though a file may exist."*
+- The existing-SRTs list copy adapts to the toggle state — when off it says "currently disabled by the toggle above; will be burned when re-enabled" instead of "this will be burned on the next assembly".
+
+### 3. Style picker (font / size / colour / position / background)
+
+Before: broll-assemble used ffmpeg's bare `subtitles` filter — whatever styling the SRT carried (usually none) was final.
+
+After:
+
+- The `<SubtitleStylePicker>` component the scene-based Video Assembly already uses now mounts inside the broll Subtitles section when subtitles are enabled. Same controls, same live-preview backdrop, same UX.
+- Style flows to `broll-assemble.ts` via a new `subtitles_style` job param (VideoSubtitleStyle shape).
+- The assembler runs `buildAssStyle(style)` (already exported from `lib/subtitle-builder.ts` — no duplication) and appends `:force_style='…'` to the ffmpeg `subtitles` filter. libass picks up the overrides on top of the SRT's own styling.
+- Style is persisted to `config.broll_subtitles.style` and saved per-project so a chosen look survives reloads + applies to every B-Roll render going forward.
+
+### 4. Whisper helper text is explicit about which API
+
+The 1.0.126 copy left users wondering whether transcription went through kie.ai, fal.ai, or somewhere else. The new copy says:
+
+> *Transcribes the merged audio via the **OpenAI Whisper API** directly — uses the OpenAI key configured in **App Settings → API Keys** (not kie.ai, not fal.ai). Produces word-level cues. Costs ~$0.006/min on the `whisper-1` model; OpenAI handles billing on your account.*
+
+Implementation hasn't changed — `lib/whisper-client.ts:62` instantiates `new OpenAI({ apiKey })` against `api.openai.com`. The helper text just tells you that now.
+
+### Auto-save
+
+All three persistent fields (`enabled`, `gap_sec`, `style`) are wrapped in `useAutoSave({ debounceMs: 800 })`. Any change — toggling the checkbox, dragging the font-size slider in the style picker, bumping the gap number — schedules a write to `config.broll_subtitles`. The composable's flush-on-unload guarantees a navigation-during-debounce doesn't lose the last edit.
+
+### Files touched
+
+- `electron/server/generators/broll-assemble.ts` — `AssembleParams.subtitles_enabled?: boolean`, `subtitles_style?: VideoSubtitleStyle`; subtitle scan + filter only runs when enabled; `:force_style='…'` clause appended when style is present
+- `electron/server/routes/broll-project.ts` — assemble route accepts + forwards `subtitles_enabled` + `subtitles_style`
+- `frontend/pages/projects/[slug]/broll.vue` — `brollSubtitles` reactive (enabled + gap_sec + style), format-gap loader, enable toggle, gap input, SubtitleStylePicker mount, updated Whisper copy, `assembleVideo` sends subtitle params, useAutoSave debounced persistence to `config.broll_subtitles`
+
+No new endpoints. No schema changes other than the optional fields on the assemble job-params payload (which are backward-compatible — older payloads still work).
+
+### What's still on the to-do list (deliberately out of scope)
+
+- **Audio-merge sidecar with ground-truth gap.** Format default + manual override covers the common case, but a project that ran audio-merge with a one-off `gap_duration` (non-format-default, not saved as a merge preset) won't surface that value here. Recording the gap value used per-render into a per-episode meta sidecar would make this fully self-correcting. Real work — defer.
+- **Per-file SRT selection.** When multiple subtitle files exist, the assembler picks the first match by priority. UI doesn't let the user choose which one. Pass-through is straightforward; the priority rule covers most cases. Defer.
+- **In-app delete.** Now that the enable toggle exists, deleting the file is rarely needed. Defer.
+
+---
+
+## v1.0.126 — 2026-05-22
+
+**B-Roll page: subtitles section.**
+
+The scene-based Video Assembly page had a full subtitle workflow (Step 5 of the wizard — chapters / import / Whisper sources, style picker, libass detection). The B-Roll Picker page had none — even though `broll-assemble.ts:144-302` already auto-burns any `.srt` / `.ass` / `.vtt` it finds in the episode's `subtitles_dir`. So the backend was ready; the UI just had no surface for actually putting a file there.
+
+### What got added
+
+A new **"4. Subtitles (optional)"** section on `pages/projects/[slug]/broll.vue`, sitting between the existing motion / transitions settings and the Selected sequence preview. Mirrors video-assembly.vue's Step 5 in a simplified form:
+
+- **Three sources**, same UI register as the scene page:
+  - 📑 **Auto from chapters** — derives one cue per chapter from the per-chapter audio files (one line per chapter; fast, free, chapter-level granularity).
+  - 📂 **Import .srt / .vtt** — pick a file from disk; backend copies it into `subtitles/` and normalises line endings.
+  - 🎙 **Transcribe (Whisper)** — queues a job that runs the merged audio through OpenAI Whisper for word-level cues (~$0.006/min). Detects an existing `_whisper.srt` and offers to reuse vs re-charge.
+- **libass detection** — warns if the bundled ffmpeg can't burn subtitles (rare, but harmless to surface).
+- **Per-source preconditions** — chapters source disables itself when no chapter audio exists; Whisper source disables itself when there's no merged audio or no OpenAI API key configured.
+- **Existing-SRTs list** — shows what's in the episode's `subtitles/` folder. Tells you which file will be burned on the next assembly (broll-assemble picks the first match by priority: `.srt` → `.ass` → `.vtt`).
+- **Episode-aware** — status refreshes on episode change; the upload path + Whisper-force checkbox reset so a stale upload from a previous episode doesn't accidentally import into the new one.
+
+### What's intentionally NOT in this release
+
+- **No enabled toggle.** The broll assembler doesn't have one — presence of an SRT in `subtitles_dir` IS the toggle. To render without subtitles, delete the file from `subtitles/` in Finder.
+- **No style picker** (font / size / colours / position). The scene-based Video Assembly has one because that pipeline builds a libass-styled ASS file at render time. The broll pipeline currently relies on the SRT file's own formatting via ffmpeg's bare `subtitles` filter. Adding style override here would require either generating a sidecar ASS with `force_style=…` or upgrading the broll assembler's filtergraph — both fair work but out of scope for this fix. A footer note explains the limitation in-line.
+- **No in-app delete.** Same reason — the assembler doesn't offer a no-subs mode, and "delete the SRT" via Finder is the existing escape hatch. The note flags this as a future addition.
+
+### Implementation detail
+
+The four `/video-editor/subtitles/*` endpoints are **pipeline-agnostic** — they read/write per-episode in the project's `subtitles_dir`, no knowledge of scene-vs-broll-vs-anything-else. So the broll page reuses them verbatim:
+
+- `GET /projects/:slug/video-editor/subtitles/status/:episode` — libass / merged_audio / chapter_audio / openai_key gates + existing-SRTs list
+- `POST /projects/:slug/video-editor/subtitles/from-chapters/:episode`
+- `POST /projects/:slug/video-editor/subtitles/import/:episode`
+- `POST /projects/:slug/video-editor/subtitles/transcribe/:episode`
+
+Same shape, same handlers — only the calling page is new.
+
+### Files touched
+
+- `frontend/pages/projects/[slug]/broll.vue` — new section markup, four async handlers, status loaders in `onMounted` + episode-id watcher, `<style>` additions for the SRT list and validation-msg block
+
+No backend changes. No new endpoints. The subtitle code that was added to `broll-assemble.ts` back in v1.0.89 has been quietly working for any user who placed a file there manually — this just gives it a button.
+
+---
+
+## v1.0.125 — 2026-05-22
+
+**Root-cause fix: "Project not found" toast (and the underlying 20+ /projects/undefined/… 404s).**
+
+v1.0.124 dedupe + stack-trace logging did its job — the trace pasted from the user's console showed the actual bug: every URL on the broll page was hitting `/api/projects/undefined/...`.
+
+```
+GET  /api/projects/undefined/episodes?refresh=1     → 404
+GET  /api/projects/undefined/effective-format       → 404
+GET  /api/projects/undefined/settings/config        → 404  (×8)
+GET  /api/projects/undefined/video-editor/transitions/catalog → 404
+GET  /api/projects/undefined/video-editor/animations/catalog  → 404
+PUT  /api/projects/undefined/settings/config        → 404  ← this one toasted
+```
+
+### Why "undefined"
+
+Template-literal artifact. `route.params.slug` resolves asynchronously during route transitions; callers that build URLs via `` `/projects/${slug.value}/...` `` BEFORE the param lands stringify `undefined` to the literal four-letter substring `"undefined"`. The backend then 404s with `{ detail: 'Project not found' }`, and any caller that surfaces `e?.data?.detail` as a toast prints "Project not found" — even though the project is fine and the page is rendering correctly with the real slug a few ticks later.
+
+Two existing composables (`composables/useProject.ts:48`, `composables/useCredits.ts:42`) already guard against this locally with `if (!slug || slug === 'undefined') return`. Every OTHER composable and page would need the same per-callsite check to be safe.
+
+### Fix at the `useApi` layer instead
+
+`composables/useApi.ts` short-circuits any request whose path contains `/undefined/`, ends with `/undefined`, or has `/undefined?` (query-string variant). Instead of fetching, it throws a sentinel error:
+
+```ts
+err.message     = '__slug_race__'
+err.data.detail = '__slug_race__'
+err.__slugRace  = true
+```
+
+`composables/useToast.error()` checks for the `__slug_race__` substring (catches every common surfacing pattern — `e?.data?.detail`, `e?.message`, `e?.error`, raw string) and silently swallows. The deduping infrastructure from 1.0.124 stays in place; this lands earlier in the chain so deduplication isn't even reached for slug-race rejections.
+
+### Why a sentinel string instead of "fix saveSubscription"
+
+The trace showed `saveSubscription` (broll.vue line 547, PUT to settings/config) as one toast source — but the GET storms showed ~10 different composables also firing with `/undefined/`. Patching each callsite individually would be playing whack-a-mole forever and miss future ones. The `useApi` guard is one place that catches every callsite at once, AND keeps the backend's logs clean (no bogus 404s in the Electron main-process stderr).
+
+### What's still useful from 1.0.124
+
+Both stay in place:
+
+- **Dedupe**: collapses identical error messages within 3 seconds. Still useful for non-slug-race spam (any future polling-bug regression).
+- **Stack-trace logging**: every `useToast.error()` call still logs the trace. Made identifying THIS bug a 30-second job; the same diagnostic stays available for the next mystery toast that comes along.
+
+### Files touched
+
+- `frontend/composables/useApi.ts` — slug-race short-circuit before the fetch + sentinel error
+- `frontend/composables/useToast.ts` — sentinel detection at the top of `error()`, before humanize / dedupe / show
+
+No backend changes. The per-callsite guards in `useProject.ts` and `useCredits.ts` stay (they short-circuit even earlier, no exception thrown at all — a nice belt-and-suspenders).
+
+### Verification path
+
+1. Install + open `/projects/abiding-faith/broll`.
+2. Open dev tools (Cmd+Option+I) → Network tab — there should be **zero** requests to `/projects/undefined/…` now (they're refused before fetch).
+3. Console tab — no more `[useToast.error] Project not found`. The page should land cleanly without the spam.
+4. If anything DOES go wrong, the trace logging from 1.0.124 is still there to surface it.
+
+---
+
+## v1.0.124 — 2026-05-22
+
+**Stop the spam: dedupe error toasts + log stack traces so we can identify mystery sources.**
+
+A "Project not found" toast was firing every ~5 seconds on the B-Roll picker page even though the project was clearly loaded (the page rendered fine). The toast just kept popping. Static grep across composables, layouts, and components couldn't find the caller — none of the `showError(e?.data?.detail || …)` sites I could see were on a poll loop, and the obvious candidates (`useCredits` health poll, `useJobs` fallback poll, `useEpisodes`, `useEpisodeStatus`) all caught their errors silently.
+
+Rather than continue hunting in the dark, two changes in `composables/useToast.ts`:
+
+### 1. Dedupe identical error toasts within 3 seconds
+
+`error(message)` now records the final (post-`humanizeError`) message in a `Map<string, timestamp>`. A subsequent call with the same message inside the 3-second window short-circuits — no DOM toast, no second timer. The map self-prunes when it exceeds 50 entries.
+
+This is a **real UX fix** independent of root cause. Even if some unknown poll loop is hitting a 404 every 5 seconds, the user now sees one toast and not a constant pile-up. The deduped call still logs to the dev console (`[useToast.error] (deduped) Project not found`) so the underlying issue stays visible to whoever's debugging.
+
+### 2. Stack trace on every error toast
+
+Every `error(message)` call now does:
+
+```js
+console.warn('[useToast.error]', final, '\n', new Error('toast trace').stack)
+```
+
+Open dev tools (Cmd+Option+I → Console) when you see a mystery toast, and the previous warn line carries the full call stack. Identifying the source of any future "where's this error coming from" turns into a 30-second debug instead of a multi-hour grep.
+
+### Why this approach instead of "just find and fix the original bug"
+
+Looked at every plausible caller across the layout's startup chain (`loadProject`, `loadVisualSource`, `startJobPolling`, `startCreditPolling`), every `showError` site in `pages/`, `components/`, `composables/`. None of them surface a bare `Project not found` toast on a poll cycle in the code I can read statically. That means either:
+
+- A composable I'm missing is doing it (worth identifying via the stack trace).
+- An error is leaking through an uncaught promise that Vue's default handler is forwarding to something that toasts (the stack trace will name the originating site).
+- A pre-existing handler I read wrong actually does fire on this path (the stack will show which one).
+
+The dedupe makes the symptom tolerable while the trace gives you everything needed to nail the root cause on the next reproduction. After install, hit the broll page, wait for the toast, open dev tools (Cmd+Option+I), and the `[useToast.error]` console.warn will name the caller. Paste that back and the actual fix is a one-liner.
+
+### Files touched
+
+- `frontend/composables/useToast.ts` — module-level `_recentErrorAt` Map + `ERROR_DEDUPE_WINDOW_MS = 3000`; `error()` wrapped with dedupe check + stack-trace `console.warn`
+
+No backend changes. No schema changes. No other behaviour changes — `success()` / `info()` / `showAction()` / `successUndoable()` are untouched (no reason to dedupe those).
+
+---
+
+## v1.0.123 — 2026-05-22
+
+**Fix: "Test" button on Pexels + Pixabay API keys returned "Unknown provider".**
+
+v1.0.122 added the two providers to `SECRET_PROVIDERS` (so saving / reading the keys worked) and wired the actual search + download path through them (so a real Fetch search would have worked). But it forgot to extend `testApiKey()` in `services/utils.ts` — that function has a switch-like chain of per-provider HTTP probes and falls through to a `{ valid: false, reachable: false, message: 'Unknown provider: <id>' }` for anything it doesn't recognise.
+
+Result: keys saved fine, the green `configured` badge showed, but clicking **Test** in App Settings → API Keys produced a red "Unknown provider: pexels" / "Unknown provider: pixabay" banner. The actual Fetch tab wasn't broken — just the in-app probe was.
+
+### What changed
+
+`electron/server/services/utils.ts`:
+
+- **`probeJson` helper now returns response headers** (lowercased) in addition to status + body. Pexels exposes rate-limit info (`x-ratelimit-remaining`, `x-ratelimit-limit`) in headers and the test message surfaces those so the user sees their hourly budget at-a-glance. Existing probes don't read `headers` so the change is additive.
+- **New `pexels` probe**: `GET https://api.pexels.com/videos/popular?per_page=1` with the raw key as `Authorization` (no `Bearer` prefix — Pexels is one of the few APIs that wants the raw key, easy foot-gun). 200 → key works; 401 → invalid; any other status → `HTTP <n>` with the actual code. Quota: 1 call against the 200/hr budget per click.
+- **New `pixabay` probe**: `GET https://pixabay.com/api/videos/?key=KEY&per_page=3`. Pixabay's min `per_page` for videos is 3 (passing 1 returns HTTP 400 with a "Parameter 'per_page' is out of valid range" body — discovered while building this), so the probe asks for 3 even though we only care about the auth + base reachability. Pixabay uses HTTP 400 + body text "Invalid API key" instead of 401/403 for bad keys, so the probe disambiguates 400-because-bad-key from 400-because-other-validation-error.
+- On success, both probes surface useful detail in the Test result message — Pexels shows "Key works · 199/200 req remaining this hour", Pixabay shows "Key works (12,345 hits available)".
+
+### Files touched
+
+- `electron/server/services/utils.ts` — `probeJson` returns headers; `testApiKey` gets `pexels` + `pixabay` branches
+
+No other changes. The fetcher service (`services/broll-fetchers/pexels.ts`, `pixabay.ts`) already had the right endpoints + auth scheme from v1.0.122 — this fix is strictly about the in-app Test button parity.
+
+### Verification path after install
+
+1. App Settings → API Keys → Pexels row → **Test** → should now say "Key works · 199/200 req remaining this hour" (the count depends on what else you've called today).
+2. Same on Pixabay → "Key works (12,345 hits available)" or similar.
+3. B-Roll Library → Fetch tab → search "ocean sunset" → results should render. (This was always going to work — the Fetch path was correct in 1.0.122; only the Test probe was broken.)
+
+---
+
+## v1.0.122 — 2026-05-21
+
+**B-Roll Fetch — pull free / CC clips from Pexels and Pixabay straight into a pool, with per-clip provenance.**
+
+Up to now the only way to grow a B-Roll pool was: open a browser, search Pexels/Pixabay by hand, download, drag the file into Finder, open Story Studio, click Re-scan. Plus there was no record of where any clip came from once it landed. This release closes both gaps.
+
+### 1. App Settings → API Keys: Pexels + Pixabay
+
+Two new provider rows in the App Settings modal, mirroring the existing OpenAI / Anthropic / fal / kie pattern. Get a key at [pexels.com/api](https://www.pexels.com/api/new/) (200 req/hr, 20k/mo free) or [pixabay.com/api/docs](https://pixabay.com/api/docs/) (~100 req/min free). Both have a Pexels / Pixabay License — free for commercial use, no attribution required, modifications allowed.
+
+`SECRET_PROVIDERS` in `electron/server/services/app-secrets-store.ts` extended with `'pexels'` and `'pixabay'`. Same encrypted-at-rest storage every other provider key uses.
+
+### 2. New B-Roll Library tabs: Clips · Fetch · Asset Log
+
+The pool view now has three tabs (the previous single-view became "Clips"):
+
+- **🎞 Clips** — existing pool grid + scan / normalize / autotag controls. Now every clip card shows a `pexels` / `pixabay` / `local` source pill with a "view source ↗" link and a hover tooltip carrying source · author · license · fetched-at · keywords.
+- **🔎 Fetch** — provider toggles (Pexels / Pixabay), search box, results grid. Type keywords, click Search. Results from each enabled+configured provider are pulled in parallel; partial failures (one provider down) still surface the working provider's results. Greyed-out clips are ones already in this pool (caught by the dedupe key: `provider + source_id`). Pick clips, choose quality (HD default — matches normalize target, no point downloading UHD just to scale to 1080p), click **Add N to pool** — each pick becomes a queued `broll_fetch` job. Per the v1.0.122 design call, **fetch does NOT auto-chain a normalize job** — you run ⚡ Normalize all when you're ready to spend the CPU.
+- **📋 Asset Log** — sortable table of every fetched clip: filename · source · author · fetched-at · keywords · license link · source link. Filter by free-text + by source. **Export CSV** for offline license audit. Hand-added clips have no provenance and don't appear here (they show up in Clips with a `local` pill).
+
+URL syncs via `?tab=clips|fetch|log` so deep links + back/forward navigation land on the right tab.
+
+### 3. Per-clip provenance sidecars
+
+Every fetched clip writes a JSON sidecar at `<pool-folder>/.broll-provenance/<filename>.json`:
+
+```json
+{
+  "schema_version": 1,
+  "filename": "pexels-1234567-ocean.mp4",
+  "source": "pexels",
+  "source_id": "1234567",
+  "source_url": "https://www.pexels.com/video/...",
+  "author": "Photographer Name",
+  "license": "Pexels License",
+  "license_url": "https://www.pexels.com/license/",
+  "fetched_at": "2026-05-21T22:00:00.000Z",
+  "search_keywords": ["ocean", "sunset"],
+  "downloaded_width": 1920,
+  "downloaded_height": 1080,
+  "source_width": 3840,
+  "source_height": 2160,
+  "duration": 14.3
+}
+```
+
+Why per-clip sidecars (not one pool-wide file):
+- Survives if the pool index gets corrupted (independent of `.story-studio-broll.json`).
+- No write-contention when two fetch jobs finish simultaneously.
+- Travels with the SSD across Macs.
+- Readable in Finder for hand-verification.
+
+The sidecar is what powers the hover tooltip + Asset Log + license-compliance audit trail. Hand-added clips never get one — `source: 'local'` is conveyed by the absence of a sidecar, never fabricated.
+
+### 4. Common fetcher interface (NASA-ready follow-up)
+
+The two adapters (`pexels.ts`, `pixabay.ts`) implement a shared interface (`broll-fetchers/types.ts`): `isConfigured()`, `search(query, opts)`, `download(result, destPath, opts)`. Adding NASA / Wikimedia / Internet Archive later is a one-file change — drop a new implementation into `services/broll-fetchers/`, add it to the `ADAPTERS` registry, the routes + UI pick it up automatically.
+
+### 5. New endpoints + job type
+
+Backend:
+- `GET /api/broll-fetch/providers` — which adapters are configured
+- `GET /api/broll-fetch/search?provider=&q=&pool_id=&per_page=&page=` — search a provider; results annotated with `already_have: boolean` against the target pool's sidecars
+- `GET /api/broll-pools/:id/provenance` — list all sidecars for a pool (drives the Asset Log)
+- `POST /api/broll-pools/:id/fetch` — queue `broll_fetch` jobs for an array of selected results
+
+New job type: `broll_fetch`. Same `_app_` slug + `episode_id = pool.id` convention as normalize/autotag. Dedupes on `provider + source_id` so re-clicking Add doesn't queue duplicates. Job log shows: provider, license, target filename, download progress, sidecar write, scan refresh.
+
+### Files touched
+
+- `electron/server/services/app-secrets-store.ts` — added `'pexels'`, `'pixabay'` to `SECRET_PROVIDERS`
+- `electron/server/services/broll-fetchers/types.ts` *(new)* — shared adapter interface + `pickFile()`
+- `electron/server/services/broll-fetchers/pexels.ts` *(new)* — Pexels Videos API
+- `electron/server/services/broll-fetchers/pixabay.ts` *(new)* — Pixabay Videos API
+- `electron/server/services/broll-fetchers/index.ts` *(new)* — registry
+- `electron/server/services/broll-provenance.ts` *(new)* — sidecar service
+- `electron/server/generators/broll-fetch.ts` *(new)* — `broll_fetch` executor
+- `electron/server/routes/broll-fetch.ts` *(new)* — providers / search / provenance list
+- `electron/server/routes/broll-pools.ts` — added `POST /broll-pools/:id/fetch` queue endpoint
+- `electron/server/routes/index.ts` — mount the new router
+- `electron/server/boot/executors.ts` — register `broll_fetch` executor
+- `electron/server/models/types.ts` — `JobType` extended with `'broll_fetch'`
+- `electron/server/services/job-queue.ts` — `broll_fetch` queue slot
+- `frontend/components/AppSettingsModal.vue` — Pexels + Pixabay rows in `PROVIDER_META`
+- `frontend/pages/broll-library.vue` — three tabs + Fetch panel + Asset Log + source pills + hover tooltips + URL sync + scoped styles
+
+### What's next
+
+NASA / Public Domain niches integration (already in scope per the user's pick) ships as a 1-file change in 1.0.123 — `broll-fetchers/nasa.ts` slotted into the adapter registry; UI auto-discovers it via `/broll-fetch/providers`.
+
+---
+
+## v1.0.121 — 2026-05-21
+
+**B-Roll Picker gets presets.**
+
+After v1.0.120 inlined the preset action buttons on every page that supported presets, the B-Roll Picker (`/projects/:slug/broll`) was conspicuously empty above the episode selector — it never had a preset row at all. That meant users tuning the picker for different channel feels ("calm beach scenes", "city timelapses with crossfade", "static-only manual sequences") had to re-tune every field every time they switched projects. Now it works the same way every other generator page does.
+
+### What gets snapshotted
+
+The preset captures the **tuning fields** in `form`:
+
+- `selection_mode` (random / tagged / themed / manual)
+- `tags` (when in tagged/themed mode)
+- `pacing_mode` + `segment_seconds` (timed segments vs. rotate-on-end)
+- `broll_volume` + `broll_lookback`
+- `motion_mode` + `motion_default` + `motion_pool` (v1.0.89+ motion catalogue)
+- `transition_id` + `transition_duration`
+
+Three things deliberately stay **outside** the snapshot:
+
+- `episode_id` — stripped by the composable's `DEFAULT_EXCLUDE_KEYS` so a preset saved on TN0042 doesn't drag that episode reference onto TN0043 when applied. (Same protection every other page enjoys.)
+- `subscribedPoolId` — pool subscription is a per-project setting persisted to `config.json` via `PUT /projects/:slug/settings/config`, not a preset concept. Loading a preset shouldn't repoint your project at a different SSD.
+- `manualSelection` — manual-mode picks are per-episode by definition; presets capture the tuning, not the curated sequence.
+
+### What changed in code
+
+- `frontend/composables/usePresets.ts` — added `'broll'` to the `PresetType` union so this preset pool is namespaced separately from script / introduction / art-style / prompt-style and doesn't leak into other pickers.
+- `frontend/pages/projects/[slug]/broll.vue` — new `brollPresets = usePresets({...})` declaration; `brollPresets.load()` called from `onMounted` after `loadConfig` so the active preset overlays the project-level defaults; passed `:presets="brollPresets"` plus the standard `@preset-applied / @preset-saved / @preset-deleted` toast handlers to `<TopActionBar>`.
+
+The preset row inherits the inline-button treatment from v1.0.120 — Apply / Save / Save as… / Delete are spread out as buttons next to the dropdown, no kebab menu. Cross-device toggle appears as a 5th button when relevant.
+
+### Coverage now
+
+Every TopActionBar-mounting page that has tunable form state supports presets:
+
+scripts • image-prompts • audio • audio-merge • video • video-assembly • metadata • images • **broll (new)**
+
+Only `pipeline.vue` stays preset-less by design — it's the multi-episode batch runner with no per-page form to snapshot.
+
+### Files touched
+
+- `frontend/composables/usePresets.ts` — `PresetType` union extended
+- `frontend/pages/projects/[slug]/broll.vue` — preset hookup + TopActionBar wiring
+
+No backend changes. `config.broll_presets` and `config.broll_last_preset_id` are written/read by the shared `/projects/:slug/settings/config` route the composable already uses for every other preset pool.
+
+---
+
+## v1.0.120 — 2026-05-21
+
+**Preset actions on the generator toolbar — buttons, not a hidden menu.**
+
+The `TopActionBar` shown above every generator page (Script / Image Prompts / Audio / Video / Metadata / Video Assembly) tucked four preset actions behind a `⋯` kebab next to the preset dropdown: **Apply**, **Overwrite**, **Save as…**, **Delete**. Clicking the kebab opened a popover; clicking again ran the action — two clicks for an operation done every session. Meanwhile the `PresetPicker` row on the Ideas page already spread its actions across the row as buttons. The toolbar was the odd one out.
+
+### What changed
+
+`frontend/components/TopActionBar.vue`:
+
+- Replaced `<OverflowMenu :items="presetMenuItems" />` with an inline `<div class="preset-actions">` holding four buttons:
+  - **Apply** — `btn-secondary`, disabled when no preset is active
+  - **Save** — `btn-secondary`, disabled when no preset is active (the former "Overwrite current preset")
+  - **Save as…** — `btn-secondary`, always enabled (it captures the current form, no active preset required)
+  - **Delete** — `btn-danger`, disabled when no preset is active
+- Cross-device toggle (📍 / 🌐) appears as a 5th `btn-ghost` only when there's actually at least one cross-device preset to toggle to (same gate the old menu used).
+- All hover tooltips carried over verbatim — disabled buttons still surface the same explanation as before.
+- Removed the now-dead `presetMenuItems` computed (~50 lines of `OverflowItem[]` setup), the `OverflowMenu` import, and the local `OverflowItem` type — no point keeping dead infrastructure when the consumer is gone.
+
+### Responsive behaviour
+
+`.preset-actions` flex-wraps under the preset dropdown on tight viewports so the right-side Generate button never gets pushed off-screen. The existing `@media (max-width: 720px)` rule still stacks the three regions vertically on phones; the wrap just smooths the transition between widths.
+
+### Files touched
+
+- `frontend/components/TopActionBar.vue` — template, script, scoped styles
+
+No backend changes. `components/OverflowMenu.vue` stays in the tree — TopActionBar was its only consumer, but future surfaces might still want a kebab pattern, and removing the file is independent of this fix.
+
+---
+
+## v1.0.119 — 2026-05-21
+
+**Folder pickers across Home + Project Settings now work over tailnet (server mode).**
+
+Two pages still had hand-rolled folder pickers that POSTed directly to `/api/system/pick-folder` instead of going through the shared `pickFolder()` helper from `~/composables/usePathPicker`. That helper has a branch for **server mode** (the app accessed from a remote browser over tailnet, where the native macOS dialog can't open on the host): instead of asking the OS for a folder, it opens the in-app `FileBrowserModal` mounted in `app.vue`. Direct POSTs skipped that branch — so on a remote browser the button would fail silently or hang waiting for a dialog that could never appear.
+
+### What changed
+
+All Browse / Choose Folder buttons on these pages now call the shared `pickFolder()`:
+
+- **`pages/index.vue`** — "Choose Folder…" in the new-project save-location step, "Browse" in the "Add existing project folder" dialog, and "Choose Folder…" in the project-import flow.
+- **`pages/projects/[slug]/settings.vue`** — destination picker in the "Move project" dialog, external final-video folder picker, the Move-projects-root + Use-existing-projects-root pickers (Storage tab), and the `${NAMED_ROOT}` picker.
+
+Same callsite, same UX in Electron desktop mode (still hits the native macOS folder dialog). In server mode the FileBrowserModal opens instead — picker state (`picking` refs, error toasts, dev-mode-503 help banners) is preserved exactly as before. The shared helper returns `string | null`; `null` means the user cancelled and is treated the same as the old `r.path === null` check.
+
+### Why this is a real bug, not a tidy-up
+
+The B-Roll Library page already had the consistency fix in v1.0.118. Until now the rest of the app didn't — so a user opening Story Studio on their laptop via tailnet would hit a working Browse button on `/broll-library` and a dead one on `/` or any project's Settings page. The "it works on one page but not another" failure mode is worse than a uniform missing feature; this lines them all up.
+
+### Files touched
+
+- `frontend/pages/index.vue` — 3 ad-hoc picker functions replaced (`pickFolder`, `browseLinkedFolder`, `pickImportFolder`), one shared import added
+- `frontend/pages/projects/[slug]/settings.vue` — 5 ad-hoc picker functions replaced (`browseMoveProjectDest`, `browseAndSetExternalRoot`, `browseAndMoveProjectsRoot`, `browseAndUseExistingProjectsRoot`, `pickRootFolder`), one shared import added
+
+No backend changes. The `/api/system/pick-folder` route still exists — the shared helper just gates it behind an `isServerMode()` check.
+
+---
+
+## v1.0.118 — 2026-05-21
+
+**B-Roll pool registration: native folder picker instead of hand-typed paths.**
+
+The "Register a B-Roll pool" modal had a plain text input for the folder path with a "tip" telling the user to *"open the folder in Finder, right-click → Get Info, copy the Where: value."* That's three steps and a context switch to do something the OS already has a one-click answer for.
+
+### What changed
+
+Added a 📁 **Browse…** button next to the Folder path input in `pages/broll-library.vue`'s Register pool modal. Clicking it opens:
+
+- **Electron desktop mode**: native macOS folder dialog (via the existing `/api/system/pick-folder` route).
+- **Server mode**: the in-app `FileBrowserModal` (mounted in `app.vue` for browser-tab usage on the tailnet device).
+
+Same callsite in both modes — uses the existing `pickFolder()` helper from `~/composables/usePathPicker`, which transparently branches. Pre-populates the dialog with whatever path is currently typed into the input (so re-clicking Browse after a typo starts from a sensible place).
+
+The text input remains — you can still paste a path or hand-type one. Browse is the convenience path, not a replacement. Loading state on the button (`📁 Opening…`) prevents double-clicks during the dialog roundtrip.
+
+### Files touched
+
+- `frontend/pages/broll-library.vue` — Browse… button + `picking` ref + `onBrowseFolder` handler + `.path-input-row` flex styles (the wrapper div was already in the markup waiting for a button — only needed wiring)
+
+No backend changes. No schema changes. No new endpoints — `/api/system/pick-folder` and the FileBrowserModal already existed for other pages (project root picker, asset migration, etc.); this just hooks the B-Roll modal into the same plumbing.
+
+---
+
+## v1.0.117 — 2026-05-21
+
+**Ideas + Scripts pages get tabs. Sidebar gets icons everywhere.**
+
+### 1. Ideas Generator — Workflow vs Manage tabs
+
+The page used to be one long scroll: a tall generator form on top, the search/filter/table for existing ideas beneath. Two problems with that layout:
+
+- Users *editing* the catalog (rename, dismiss, mark-done, accept, renumber) had to scroll past the entire generator every time.
+- Users *brainstorming* had a giant ideas table parked underneath the form they were trying to focus on.
+
+Now the page has two tabs that swap which mode owns the screen:
+
+| Tab | What's in it |
+|---|---|
+| **✨ Workflow** | Top-performers inspiration card, effective-state card, ideas preset, format indicator, generator form (genre / audience / theme / mood / keywords / niche / pattern / title-wrap), Generate / Randomize / Surprise Me / + Add Idea / 📋 Paste from LLM / 📂 Import Episode Folder |
+| **📋 Manage** | Search box, status filters (All / New / Accepted / Dismissed), source filters (All / Generated / Imported), bulk-mark banners, the full ideas table, pagination |
+
+URL is the source of truth — `?tab=workflow` (default) and `?tab=manage`. Deep links, refresh, and browser back/forward all land on the right tab. All modals (Accept, Renumber, Import, Paste, Edit, Format Override Drawer) remain outside the tabs so they're available from either view.
+
+### 2. Script Generator — Introduction / Outline / Script tabs
+
+Same complaint, bigger page. The script flow was one long scroll mixing intro settings, outline form, outline review, per-chapter regen, and previews. Splitting into three deliberate steps:
+
+| Tab | What's in it | Generation actions |
+|---|---|---|
+| **🎬 Introduction** | Intro section (host name, word target, opening line, beats), IntroductionPreview | "Generate Introduction" button (still gated on script chapters existing — same as before) |
+| **📑 Outline** | Episode title, pattern picker, character picker, normalize-legacy button, main settings (duration / model / narrator style), format context card, niche overlay, recency log, word-count section, outline mismatch banners, OutlineReviewPanel | TopActionBar's "Generate Outline" + per-row "Expand" / bulk "Expand all" inside OutlineReviewPanel |
+| **📝 Script** | ChapterListPanel (per-chapter regen), ScriptPreview | Per-chapter Regenerate buttons inside ChapterListPanel |
+
+Default tab is **Outline** — the natural starting point of a fresh episode. Introduction is leftmost (per the user's stated tab order) but lands on a "needs script first" gate when no chapters exist, so defaulting to it would have been a bad first impression. URL syncs via `?tab=introduction|outline|script`.
+
+The TopActionBar (episode picker + presets + "Generate Outline" button) stays on top of every tab — its "Generate Outline" is the headline action no matter which view you're on. The basics card (title / pattern / character / normalize) shows on Introduction + Outline so you always see what episode you're configuring, and hides on Script where the chapter list is the focus.
+
+### 3. Sidebar — every entry has a leading icon
+
+Ten generator/assembly entries were missing the leading icon span that every other sidebar item already had (Dashboard, Ideas, Pipeline, YouTube Upload, Characters, Jobs, etc.). Filled in:
+
+| Entry | Icon |
+|---|---|
+| Script Generator | 📝 |
+| Metadata Generator | 📋 |
+| Thumbnail Prompts | 💭 |
+| Scene Prompts | 💬 |
+| Thumbnail Generator | 🖼 |
+| Scene Generator | 🎨 |
+| Video Generator | 📹 |
+| Audio Generator | 🎙 |
+| Audio Assembly | 🔊 |
+| Video Assembly | 🎞 |
+
+No icon conflicts with the existing set (avoided 🎥 since it's already B-Roll Library, etc.). Encoded as HTML entities to match the existing style throughout `dashboard.vue`.
+
+### 4. Release guard for the "What's New" modal
+
+New: `scripts/check-changelog.mjs` and `npm run check:changelog`. It reads `package.json`'s version and fails if `CHANGELOG.md` has no matching `## vX.Y.Z` header. Wired into the front of `npm run build` and `npm run dist` so future version bumps can't ship without a matching entry — that's how v1.0.115 and v1.0.116 slipped through silent, surfacing the same v1.0.114 entry to the user as if "What's New" was broken.
+
+Emergency bypass for genuine one-offs:
+
+```bash
+STORY_STUDIO_SKIP_CHANGELOG_CHECK=1 npm run build
+```
+
+### Files touched
+
+- `frontend/pages/projects/[slug]/ideas.vue` — tab nav + `?tab=` sync, Workflow / Manage wrappers
+- `frontend/pages/projects/[slug]/scripts.vue` — tab nav + `?tab=` sync, Introduction / Outline / Script wrappers, blurb rewrite
+- `frontend/pages/projects/[slug]/image-prompts.vue` — removed now-duplicated `.form-tabs` scoped styles
+- `frontend/assets/css/main.css` — promoted `.form-tabs` / `.form-tab` to a shared rule (used by image-prompts, ideas, scripts)
+- `frontend/layouts/dashboard.vue` — 10 new sidebar icons
+- `scripts/check-changelog.mjs` *(new)* — release guard
+- `package.json` — `check:changelog` script wired into `build` + `dist`
+
+---
+
+## v1.0.116 — 2026-05-21
+
+**Per-episode in-flight indicators across the pipeline pages.**
+
+The global `*Generating` flags exposed by `useGenerating` stay true as long as ANY matching job is queued or running for the project — they don't know which episode the user is currently looking at. So switching episodes mid-job left the new episode's page showing status text like *"Generating prompts for [previous episode]…"* even though nothing was in flight for the one on screen.
+
+### What changed
+
+Every pipeline page now derives its in-flight signal from `useJobs()` filtered to the **currently-selected episode**, instead of relying on the project-wide `*Generating` flag for the visible status text:
+
+- `scripts.vue` — new `scriptJobActiveForEpisode` computed; watched script job types are `script-only`, `introduction-only`, `outline_only`, `expand_chapters`, `chapter-only`.
+- `image-prompts.vue` — defensive `generating = false` on episode swap (the local ref is normally cleared in `finally`, but episode-change races could leak it).
+- `audio.vue`, `audio-merge.vue`, `metadata.vue`, `video.vue`, `video-assembly.vue` — same pattern, each filtering to the job types they own.
+
+The episode-swap reset is symmetrical across all pages — `watch(() => form.episode_id, …)` clears `generating` / `submitting` locally so the TopActionBar can't briefly show stale "Generating … for [old ep]" copy between the swap and the next jobs-poll tick.
+
+No backend changes. No schema changes. No new endpoints.
+
+### Files touched
+
+- `frontend/pages/projects/[slug]/scripts.vue`
+- `frontend/pages/projects/[slug]/metadata.vue`
+- `frontend/pages/projects/[slug]/image-prompts.vue`
+- `frontend/pages/projects/[slug]/audio.vue`
+- `frontend/pages/projects/[slug]/audio-merge.vue`
+- `frontend/pages/projects/[slug]/video.vue`
+- `frontend/pages/projects/[slug]/video-assembly.vue`
+
+---
+
+## v1.0.115 — 2026-05-21
+
+**Two pipelines, one page. Plus disk-space prechecks before long FFmpeg runs.**
+
+### 1. Video Assembly: scene-based + B-Roll as tabs, not separate pages
+
+v1.0.114 patched the B-Roll dead-end with a friendly "wrong pipeline" banner that redirected B-Roll users off `/video-assembly` to `/broll`. It worked but it was one-way — the user couldn't see at a glance that two pipelines existed, and they couldn't flip back if they wanted to try the other approach.
+
+This release replaces the banner with a real tabbed nav (`frontend/components/VideoPipelineTabs.vue`) that renders on **both** `/projects/:slug/video-assembly` and `/projects/:slug/broll`. Tabs are always visible, the URL is the source of truth for which is active, and either page can switch to the other in one click:
+
+| Tab | Goes to |
+|---|---|
+| 🎞 Scenes | `/projects/:slug/video-assembly` |
+| 🎬 B-Roll | `/projects/:slug/broll` |
+
+Sidebar treatment also adjusted (`frontend/layouts/dashboard.vue`):
+- **Video Assembly** is now shown for ALL formats (was hidden for B-Roll in v1.0.114). The page itself picks the right tab.
+- **Video Generator** stays hidden for B-Roll formats — that pipeline generates AI video from scene images, which B-Roll projects don't have.
+
+### 2. Free-disk-space precheck before run-batch + per video_assembly job
+
+Audit finding M3 (`audit-reports/09-jobs.md`): a 20-episode 1080p/high batch averages 500 MB-1 GB per episode and hours of FFmpeg time. Running on a nearly-full disk fails halfway through and burns the encode cost on episodes that then can't write. The 5 GB-free rule lived in `docs/operations/qa-checklist.md` as manual operator discipline; it's now enforced in code.
+
+New helper: `electron/server/lib/disk.ts` exposes
+- `getFreeBytes(rootPath)` — `fs.statfs`-backed; returns 0 on error so callers soft-fail open
+- `estimateBytesForStep(step, inputs)` — pessimistic per-step estimate, parameterised on resolution / quality / clip count / narration length
+- `estimateRunBatchBytes(steps, episodes)` — sum across the planned batch with a safety margin
+
+Wired at two gates:
+- **`routes/pipeline.ts` → run-batch** — estimates the whole batch, checks against statfs on the projects root, blocks the batch with a typed error if free < estimate.
+- **`generators/video.ts` → video_assembly** — per-episode estimate before any FFmpeg spawn (two call sites — main encode + the post-effects pass). Skips the FFmpeg cost on the episode that wouldn't fit.
+
+### 3. `useConfirmation` composable extracted
+
+The CostConfirmationDialog's reactive state used to be inline in `CostConfirmationDialog.vue`. v1.0.115 promotes it into `frontend/composables/useConfirmation.ts` with `confirmGeneration()` + auto-confirm thresholds per cost unit (USD < $0.05 and credits < 10 skip the dialog to stop training the user to dismiss it). Page-level callers (`scripts.vue`, `useVideoAssemblyIo.ts`, etc.) now go through the composable instead of poking dialog state directly.
+
+### Files touched
+
+- `frontend/components/VideoPipelineTabs.vue` *(new)*
+- `frontend/pages/projects/[slug]/broll.vue` — mount the tabs
+- `frontend/pages/projects/[slug]/video-assembly.vue` — mount the tabs, remove the v1.0.114 wrong-pipeline banner
+- `frontend/pages/projects/[slug]/video.vue` — remove the v1.0.114 wrong-pipeline banner
+- `frontend/layouts/dashboard.vue` — re-enable Video Assembly for B-Roll, keep Video Generator scene-only
+- `frontend/composables/useConfirmation.ts` *(new)*
+- `electron/server/lib/disk.ts` *(new)*
+- `electron/server/generators/video.ts` — disk precheck before each video_assembly FFmpeg spawn
+- `electron/server/routes/pipeline.ts` — disk precheck on run-batch
+
+---
+
 ## v1.0.114 — 2026-05-21
 
 **Two unrelated UX fixes that bit the user in production this week.**

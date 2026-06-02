@@ -27,6 +27,12 @@ import { generateYoutubePlaylistUpdate } from '../generators/youtube-playlist-up
 import { normalizeBroll } from '../generators/broll-normalize.js'
 import { generateBrollAssemble } from '../generators/broll-assemble.js'
 import { generateBrollAutotag } from '../generators/broll-autotag.js'
+import { fetchBroll } from '../generators/broll-fetch.js'
+import { runResearchJob } from '../generators/research.js'
+import { runScenePlanJob } from '../generators/scene-plan.js'
+import { generateSceneImageJob } from '../generators/scene-image.js'
+import { runTimestampVideoAssemble } from '../generators/timestamp-video-assemble.js'
+import { runContinuityRenderJob } from '../generators/continuity-render.js'
 
 export function registerAllExecutors(): void {
   // Legacy `'script'` executor (the coupled generateEpisode) was removed
@@ -73,4 +79,18 @@ export function registerAllExecutors(): void {
   registerExecutor('broll_normalize', normalizeBroll)
   registerExecutor('broll_assemble', generateBrollAssemble)
   registerExecutor('broll_autotag', generateBrollAutotag)
+  // v1.0.122+: B-Roll Fetch — downloads one Pexels/Pixabay clip into a
+  // pool + writes the provenance sidecar. Search routes live in
+  // routes/broll-fetch.ts; the per-pool queue endpoint lives in
+  // routes/broll-pools.ts alongside normalize/autotag.
+  registerExecutor('broll_fetch', fetchBroll)
+  // v1.0.142+ — Research phase for the timestamp-driven pipeline.
+  registerExecutor('research_run', runResearchJob)
+  // v1.0.143+ — Scene planner for the timestamp-driven pipeline.
+  registerExecutor('scene_plan_run', runScenePlanJob)
+  // v1.0.144+ — Per-scene image generator (one job per scene).
+  registerExecutor('scene_image_generate', generateSceneImageJob)
+  registerExecutor('continuity_render', runContinuityRenderJob)
+  // v1.0.145+ — Final ffmpeg assembler for the timestamp-driven pipeline.
+  registerExecutor('timestamp_video_assemble', runTimestampVideoAssemble)
 }

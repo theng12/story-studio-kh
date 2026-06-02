@@ -47,7 +47,7 @@
       </template>
       <template v-else-if="hydrationError.kind === 'config-fetch'">
         <strong>⚠ Couldn't load project settings.</strong>
-        Pattern / theme / title-wrap preferences may be stale. {{ hydrationError.detail }}
+        Your saved topic and title branding may be out of date. {{ hydrationError.detail }}
         <button class="banner-link" @click="retryHydration">Retry</button>
       </template>
     </div>
@@ -55,6 +55,35 @@
       <strong>⚠ Couldn't load ideas:</strong> {{ ideasLoadError }}
       <button class="banner-link" @click="loadIdeas">Retry</button>
     </div>
+
+    <!-- v1.0.117+ — Workflow vs Manage tabs. The page used to be one long
+         scroll: generator card on top, then the search/filter/table for
+         existing ideas. Users editing the catalog had to scroll past the
+         entire generator form every time, and users brainstorming had a
+         giant table parked underneath. Splitting into two `v-show` panes
+         lets each mode get the screen alone. ?tab= keeps the URL honest
+         so deep links / back-forward / refresh land on the same view. -->
+    <div class="form-tabs mt-3">
+      <button
+        type="button"
+        :class="['form-tab', { active: ideasTab === 'workflow' }]"
+        @click="ideasTab = 'workflow'"
+      >
+        ✨ Workflow
+        <span class="text-muted text-xs ml-1">(generate · promote · import)</span>
+      </button>
+      <button
+        type="button"
+        :class="['form-tab', { active: ideasTab === 'manage' }]"
+        @click="ideasTab = 'manage'"
+      >
+        📋 Manage
+        <span class="text-muted text-xs ml-1">({{ allIdeas.length }})</span>
+      </button>
+    </div>
+
+    <!-- ── Workflow tab ────────────────────────────────────────────────── -->
+    <div v-show="ideasTab === 'workflow'">
 
     <!-- Channel "what worked" inspiration. Auto-included server-side in
          the LLM prompt; this card surfaces what's being injected so the
@@ -66,45 +95,89 @@
     <div class="generator-panel mt-3">
       <h3 class="generator-title">Generate New Ideas</h3>
 
-      <!-- v1.0.93+ Effective channel state.
-           Shows the THREE things that drive what the LLM will produce:
-           format (vocab + narrator voice), niche (subject domain),
-           title wrap (channel framing). Each one is a clickable jump
-           to the place it's edited. When something is "default / not
-           set", the badge goes red so the user sees the regression
-           before spending an API call. Replaces guesswork ("why are
-           my prayer ideas about mountains?") with visibility. -->
-      <div class="effective-state-card" :class="{ 'has-warning': hasEffectiveStateWarning }">
-        <div class="effective-row">
-          <span class="effective-label">Format</span>
-          <strong :class="['effective-value', { 'is-fallback': !formatId || formatId === 'sleep-story' && !projectHasExplicitFormat }]">
-            {{ formatDisplayName || formatId || 'unknown' }}
-          </strong>
-          <span v-if="!projectHasExplicitFormat" class="effective-fallback-tag">
-            ⚠ falling back — project meta has no format_id
+      <!-- v1.0.170 — Channel context strip. Replaces the two stacked config
+           cards (the old "Effective state" card + the "Format indicator"
+           card) that showed Format up to 3× before the form. One quiet line
+           summarises the three things that drive generation — Format · Topic
+           · Title shape — and an expandable "Change setup" panel holds the
+           detail + jump links the old cards carried. The strip turns into a
+           RED warning only when something is actually broken (no explicit
+           format on the project), preserving the "catch it before you spend
+           an API call" safety the old card had. -->
+      <!-- v1.0.183 — uses the shared ContextStrip; the summary chips +
+           detail panel are page-specific slots. -->
+      <ContextStrip
+        v-model:open="setupExpanded"
+        :has-warning="hasEffectiveStateWarning"
+        warn-label="⚠ check setup"
+        open-label="▾ Hide setup"
+        closed-label="⚙ Change setup"
+      >
+        <template #summary>
+          <span class="context-chip">
+            <span class="context-key">Format</span>
+            <strong :class="{ 'is-fallback': !projectHasExplicitFormat }">{{ formatDisplayName || formatId || 'unknown' }}</strong>
           </span>
-          <NuxtLink :to="`/projects/${slug}/settings#format`" class="effective-link">Change</NuxtLink>
-        </div>
-        <div class="effective-row">
-          <span class="effective-label">Niche</span>
-          <strong :class="['effective-value', { 'is-fallback': !form.niche_id }]">
-            {{ form.niche_id || '(none — format defaults only)' }}
-          </strong>
-          <span v-if="form.niche_id !== projectNicheId" class="effective-override-tag">
-            override (project saved: {{ projectNicheId || 'none' }})
+          <span class="context-dot" aria-hidden="true">·</span>
+          <span class="context-chip">
+            <span class="context-key">Topic</span>
+            <strong :class="{ 'is-fallback': !form.niche_id }">{{ form.niche_id || 'none' }}</strong>
+            <span v-if="form.niche_id !== projectNicheId" class="context-override">(override)</span>
           </span>
-          <NuxtLink :to="`/projects/${slug}/settings`" @click.prevent="goToNicheTab" class="effective-link">
-            Change project niche
-          </NuxtLink>
-        </div>
-        <div class="effective-row">
-          <span class="effective-label">Title wrap</span>
-          <strong v-if="titleConfig.prefix || titleConfig.suffix" class="effective-value">
-            "{{ titleConfig.prefix }}<em>{{ effectiveStateSampleTitle }}</em>{{ titleConfig.suffix }}"
-          </strong>
-          <span v-else class="effective-value is-fallback">(no wrap — titles emitted as-is)</span>
-        </div>
-      </div>
+          <span class="context-dot" aria-hidden="true">·</span>
+          <span class="context-chip">
+            <span class="context-key">Titles</span>
+            <strong v-if="titleConfig.prefix || titleConfig.suffix">"{{ titleConfig.prefix }}…{{ titleConfig.suffix }}"</strong>
+            <strong v-else class="is-fallback">as-is</strong>
+          </span>
+        </template>
+
+        <!-- Expandable detail — the content the two old cards carried. -->
+          <div class="context-detail-row">
+            <span class="context-detail-label">Format</span>
+            <strong class="context-detail-value" :class="{ 'is-fallback': !projectHasExplicitFormat }">
+              {{ formatDisplayName || formatId || 'unknown' }}
+            </strong>
+            <span
+              v-if="activeFormat"
+              class="context-badge"
+              :class="activeFormat.builtin ? 'badge-builtin' : 'badge-custom'"
+            >{{ activeFormat.builtin ? 'Built-in' : 'Custom' }}</span>
+            <span v-if="!projectHasExplicitFormat" class="context-fallback-tag">⚠ no format set — generation falls back to defaults</span>
+            <NuxtLink :to="`/projects/${slug}/settings#format`" class="effective-link">Switch format</NuxtLink>
+            <NuxtLink
+              :to="`/projects/${slug}/settings?newFormat=1#format`"
+              class="effective-link subtle"
+              title="Open Settings → Format and launch '+ Create from Sample'."
+            >+ New custom</NuxtLink>
+          </div>
+          <p v-if="activeFormat?.description" class="context-detail-desc">{{ activeFormat.description }}</p>
+          <p class="context-detail-hint text-muted text-sm">
+            All dropdowns + the LLM prompt below pull tone, vocab, and example ideas from this format.
+          </p>
+
+          <div class="context-detail-row">
+            <span class="context-detail-label">Topic</span>
+            <strong class="context-detail-value" :class="{ 'is-fallback': !form.niche_id }">
+              {{ form.niche_id || '(none — format defaults only)' }}
+            </strong>
+            <span v-if="form.niche_id !== projectNicheId" class="context-override-tag">
+              override for this batch (project saved: {{ projectNicheId || 'none' }})
+            </span>
+            <NuxtLink :to="`/projects/${slug}/settings`" @click.prevent="goToNicheTab" class="effective-link">
+              Change project topic
+            </NuxtLink>
+          </div>
+
+          <div class="context-detail-row">
+            <span class="context-detail-label">Titles</span>
+            <strong v-if="titleConfig.prefix || titleConfig.suffix" class="context-detail-value">
+              "{{ titleConfig.prefix }}<em>{{ effectiveStateSampleTitle }}</em>{{ titleConfig.suffix }}"
+            </strong>
+            <span v-else class="context-detail-value is-fallback">(no branding — titles emitted as-is)</span>
+            <span class="text-muted text-xs">Edit the prefix/suffix in the form below.</span>
+          </div>
+      </ContextStrip>
 
       <!-- v1.0.93+ Idea-generator preset.
            Captures the entire form (genre/theme/mood/keywords/count/model,
@@ -131,237 +204,208 @@
         @delete="ideasPresets.remove(); success('Preset deleted')"
       />
 
-      <!-- Format Indicator Card.
-           Surfaces which format is currently driving every dropdown
-           (genre, mood, theme, keywords, audience) + every prompt the
-           LLM receives. Without this, users on a non-default format
-           wonder why the suggestions feel off — they see sleep-story
-           vibes on a listicle channel and can't tell where to switch.
-           Right side: switch + create-custom CTAs that link straight
-           to Settings → Format. Built-in vs Custom badge so you know
-           whether you can edit the format file directly. -->
-      <div class="format-indicator-card">
-        <div class="format-indicator-main">
-          <div class="format-indicator-row">
-            <span class="format-indicator-label">Format</span>
-            <strong class="format-indicator-name">{{ formatDisplayName }}</strong>
-            <span
-              v-if="activeFormat"
-              class="format-indicator-badge"
-              :class="activeFormat.builtin ? 'badge-builtin' : 'badge-custom'"
-            >{{ activeFormat.builtin ? 'Built-in' : 'Custom' }}</span>
-            <span v-else-if="formatId" class="format-indicator-badge badge-warn" :title="`Format '${formatId}' isn't loaded — using fallback vocab.`">
-              ⚠ Unknown format
-            </span>
-          </div>
-          <p class="format-indicator-desc">
-            <span v-if="activeFormat?.description">{{ activeFormat.description }}</span>
-            <span v-else class="text-muted">No description for this format.</span>
-          </p>
-          <p class="format-indicator-hint text-muted text-sm">
-            All dropdowns + the LLM prompt below pull tone, vocab, and example ideas from this format.
-            Switch to change the whole flavour, or override individual fields per-project from Settings → Format.
-          </p>
-        </div>
-        <div class="format-indicator-actions">
-          <NuxtLink :to="`/projects/${slug}/settings#format`" class="btn btn-secondary btn-sm">
-            ⇄ Switch format
-          </NuxtLink>
-          <NuxtLink
-            :to="`/projects/${slug}/settings?newFormat=1#format`"
-            class="btn btn-ghost btn-sm"
-            title="Open Settings → Format and auto-launch '+ Create from Sample' so you can build a custom format from one of your scripts."
-          >
-            + New custom format
-          </NuxtLink>
-        </div>
-      </div>
+      <!-- v1.0.170 — the standalone "Format Indicator" card was merged into
+           the Channel context strip above (Format chip + the expandable
+           "Change setup" panel carry its name/badge/description/switch +
+           create-custom links). Removing it ends the "Format shown 3×"
+           clutter that opened the page. -->
 
       <p class="text-muted text-sm generator-blurb">
-        Pick the audience and a few flavour fields, hit <strong>Generate Ideas</strong>, and the LLM returns a short list of episode candidates.
-        Use <strong>🎲 Randomize</strong> to fill the form from your existing pools, or <strong>📋 Paste from LLM</strong> if you already prompted one elsewhere.
+        Pick an audience and a few descriptive fields, then click <strong>Generate Ideas</strong> — you'll get a short list of episode titles to accept or dismiss.
+        Not sure where to start? <strong>🎲 Randomize</strong> fills the form for you (no cost until you Generate), or <strong>✨ Surprise Me</strong> does both at once.
       </p>
       <div class="generator-body">
-        <div class="grid-2">
-          <div class="form-group">
-            <label>
-              Genre
-              <span class="vocab-source-tag" :title="vocabSourceTooltip('genre')">
-                · {{ vocabSourceLabel('genre') }}
-              </span>
-            </label>
-            <ComboInput v-model="form.genre" :options="allGenres" placeholder="Pick or add a genre" searchable allow-custom @add-custom="onAddGenre" />
-          </div>
-          <div class="form-group">
-            <label>
-              Audience
-              <span v-if="audienceFromFormat" class="vocab-source-tag" :title="`Pulled from ${formatDisplayName} format`">
-                · {{ formatDisplayName }}
-              </span>
-            </label>
-            <ComboInput
-              v-model="form.audience"
-              :options="audienceOptions"
-              placeholder="Pick or type an audience…"
-              searchable
-              allow-custom
-            />
-          </div>
-          <div class="form-group">
-            <label>
-              Theme (optional)
-              <span class="vocab-source-tag" :title="vocabSourceTooltip('theme')">
-                · {{ vocabSourceLabel('theme') }}
-              </span>
-            </label>
-            <ComboInput v-model="form.theme" :options="allThemes" placeholder="Pick or add a theme" searchable allow-custom @add-custom="onAddTheme" />
-          </div>
-          <div class="form-group">
-            <label>
-              Mood
-              <span class="vocab-source-tag" :title="vocabSourceTooltip('mood')">
-                · {{ vocabSourceLabel('mood') }}
-              </span>
-            </label>
-            <ComboInput v-model="form.mood" :options="allMoods" placeholder="Pick or add a mood" searchable allow-custom @add-custom="onAddMood" />
-          </div>
-        </div>
-        <div class="grid-3">
-          <div class="form-group col-span-2">
-            <label>
-              Keywords
-              <span class="vocab-source-tag" :title="vocabSourceTooltip('keyword')">
-                · {{ vocabSourceLabel('keyword') }}
-              </span>
-            </label>
-            <ChipInput v-model="form.keywords" :suggestions="allKeywords" placeholder="Pick from common keywords or type to add…" allow-custom :max="12" @add-custom="onAddKeyword" />
-          </div>
-          <div class="form-group">
-            <label>Count
-              <span class="text-muted" style="font-size: 11px; font-weight: normal;">
-                — number of episode ideas to generate
-              </span>
-            </label>
-            <input v-model.number="form.count" class="input" type="number" min="1" max="15" />
-          </div>
-        </div>
-        <div class="grid-2">
-          <ModelSelector v-model="form.model" :project-slug="slug" />
+        <!-- v1.0.171 — the form is grouped into three labelled sections so
+             the long flat field list reads as distinct decisions:
+               1. What to make   — the creative inputs
+               2. Topic & titles — subject domain + title shaping/branding
+               3. Generation settings — model + per-idea item count
+             No fields were removed; everything that existed is still here,
+             just grouped + relabelled in plain language (UI text only). -->
 
-          <!-- v1.0.70: pinned chapter / item count per idea. Most useful
-               for listicle / explainer formats where the title encodes
-               the count ("10 mysteries explained"). Leave blank to let
-               the LLM pick per-idea within the format's range. When
-               pinned, the title's leading number AND suggested_chapters
-               will both equal this value, and the Scripts page chapter
-               field auto-fills to match. -->
+        <!-- ── 1. What to make ─────────────────────────────────────────── -->
+        <fieldset class="form-section">
+          <legend class="form-section-title">What to make</legend>
+          <div class="grid-2">
+            <div class="form-group">
+              <label>
+                Audience
+                <span v-if="audienceFromFormat" class="vocab-source-tag" :title="`Pulled from ${formatDisplayName} format`">
+                  · {{ formatDisplayName }}
+                </span>
+              </label>
+              <ComboInput
+                v-model="form.audience"
+                :options="audienceOptions"
+                placeholder="Pick or type an audience…"
+                searchable
+                allow-custom
+              />
+            </div>
+            <div class="form-group">
+              <label>
+                Genre
+                <span class="vocab-source-tag" :title="vocabSourceTooltip('genre')">
+                  · {{ vocabSourceLabel('genre') }}
+                </span>
+              </label>
+              <ComboInput v-model="form.genre" :options="allGenres" placeholder="Pick or add a genre" searchable allow-custom @add-custom="onAddGenre" />
+            </div>
+            <div class="form-group">
+              <label>
+                Theme (optional)
+                <span class="vocab-source-tag" :title="vocabSourceTooltip('theme')">
+                  · {{ vocabSourceLabel('theme') }}
+                </span>
+              </label>
+              <ComboInput v-model="form.theme" :options="allThemes" placeholder="Pick or add a theme" searchable allow-custom @add-custom="onAddTheme" />
+            </div>
+            <div class="form-group">
+              <label>
+                Mood
+                <span class="vocab-source-tag" :title="vocabSourceTooltip('mood')">
+                  · {{ vocabSourceLabel('mood') }}
+                </span>
+              </label>
+              <ComboInput v-model="form.mood" :options="allMoods" placeholder="Pick or add a mood" searchable allow-custom @add-custom="onAddMood" />
+            </div>
+          </div>
+          <div class="grid-3 mt-2">
+            <div class="form-group col-span-2">
+              <label>
+                Keywords
+                <span class="vocab-source-tag" :title="vocabSourceTooltip('keyword')">
+                  · {{ vocabSourceLabel('keyword') }}
+                </span>
+              </label>
+              <ChipInput v-model="form.keywords" :suggestions="allKeywords" placeholder="Pick from common keywords or type to add…" allow-custom :max="12" @add-custom="onAddKeyword" />
+            </div>
+            <div class="form-group">
+              <label>How many ideas
+                <span class="text-muted" style="font-size: 11px; font-weight: normal;">
+                  — episode candidates per click
+                </span>
+              </label>
+              <input v-model.number="form.count" class="input" type="number" min="1" max="15" />
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- ── 2. Topic & titles ───────────────────────────────────────── -->
+        <fieldset class="form-section">
+          <legend class="form-section-title">Topic &amp; titles</legend>
+
+          <!-- Topic (a.k.a. niche) override (optional). The Ideas Generator
+               runs through getEffectiveFormat({ nicheIdOverride }), so this
+               dropdown swaps subject vocab + audience hint for THIS batch
+               only — the project's saved topic under Settings is untouched.
+               (Field/config key is still niche_id; UI label says "Topic".) -->
           <div class="form-group">
-            <label>
-              Items per listicle / chapters per idea
-              <span class="text-muted" style="font-size: 11px; font-weight: normal;">
-                — pin to force "{{ form.items_per_listicle || 'N' }} {{ formatId === 'listicle' ? 'mysteries / paradoxes / cases' : 'chapters' }}…" in every title. Leave blank for auto.
+            <label>Topic <span class="text-muted" style="font-size:11px;font-weight:normal;">— subject domain for this batch</span></label>
+            <NichePicker v-model="form.niche_id" />
+            <div v-if="form.niche_id !== projectNicheId" class="niche-override-banner">
+              <span class="banner-icon">↪</span>
+              <span class="banner-text">
+                <strong>Overriding</strong> the project's saved topic
+                <span v-if="projectNicheId">(<code>{{ projectNicheId }}</code>)</span>
+                <span v-else>(none)</span>
+                for this generation only.
+                <a class="banner-link" @click.prevent="form.niche_id = projectNicheId">
+                  Reset to project default
+                </a>
               </span>
+            </div>
+          </div>
+
+          <!-- Title template (optional). When set, every generated idea's
+               title is shaped to this template — the literal {X} placeholder
+               is replaced by each idea's own subject. Blank = default LLM
+               titling. Persisted per project. -->
+          <div class="ideas-title-template-block mt-2">
+            <label class="ideas-title-template-label">
+              Title shape <span class="text-muted">(optional template)</span>
             </label>
             <input
-              v-model.number="form.items_per_listicle"
-              class="input"
-              type="number"
-              min="1"
-              max="100"
-              :placeholder="formatId === 'listicle' ? 'e.g. 10' : 'auto (let LLM pick)'"
+              v-model="form.title_template"
+              type="text"
+              class="input input-sm"
+              placeholder="e.g. Fall asleep to {X}   ·   leave blank for free-form titles"
+              spellcheck="false"
             />
+            <p class="ideas-title-template-hint text-muted">
+              Use <code>{X}</code> as the subject placeholder. Each generated
+              idea fills it with its own subject — so 10 ideas with template
+              <code>"Fall asleep to {X}"</code> become 10 different
+              "Fall asleep to …" titles. Blank = the LLM titles freely.
+            </p>
           </div>
-        </div>
 
-        <!-- v1.0.96+ Layer-2 (Niche) comes BEFORE Layer-3 (Pattern) so the
-             form reads top-to-bottom in the hierarchy that actually drives
-             the prompt:
-               Layer 1  Format        (the indicator card above)
-               Layer 2  Niche         (subject domain — this block)
-               Layer 3  Pattern       (title template — block below)
-             Previous order had Pattern first which fought the mental model
-             ("why does my pattern care about the niche?"). -->
-
-        <!-- v1.0.92+ Niche override (optional). The Ideas Generator runs
-             through `getEffectiveFormat({ nicheIdOverride })`, so changing
-             this dropdown swaps niche vocab + audience hint for THIS batch
-             only — the project's saved niche under Settings → Niche is
-             not touched. Defaults to the project's saved niche so the
-             picker reflects the current effective state out of the box. -->
-        <div class="ideas-niche-block">
-          <NichePicker v-model="form.niche_id" />
-          <div v-if="form.niche_id !== projectNicheId" class="niche-override-banner">
-            <span class="banner-icon">↪</span>
-            <span class="banner-text">
-              <strong>Overriding</strong> the project's saved niche
-              <span v-if="projectNicheId">
-                (<code>{{ projectNicheId }}</code>)
+          <!-- Channel branding (prefix/suffix). Same project-config keys as
+               the Metadata Generator (broll_channel_title_prefix/suffix), so
+               editing here also updates the final YouTube title wrap. -->
+          <div class="ideas-title-wrap-block mt-2">
+            <div class="title-wrap-header">
+              <strong>Channel branding on titles</strong>
+              <span class="text-muted text-xs">
+                · added to the front/back of every generated title. Synced with the Metadata Generator.
               </span>
-              <span v-else>
-                (none)
-              </span>
-              for this generation only.
-              <a class="banner-link" @click.prevent="form.niche_id = projectNicheId">
-                Reset to project default
-              </a>
-            </span>
-          </div>
-        </div>
-
-        <!-- Pattern picker (optional). When set, generated ideas follow
-             the pattern's titleTemplate (e.g. "Fall asleep to {X}") +
-             tone hints. Skip for default LLM titling. Persisted per
-             project so the user's choice sticks across reloads. -->
-        <div class="ideas-pattern-block">
-          <PatternPicker
-            v-model="form.pattern_id"
-            v-model:subject="form.pattern_subject"
-            :format-id="formatId"
-          />
-        </div>
-
-        <!-- v1.0.93+ Channel title prefix/suffix.
-             Same project-config keys as the Metadata Generator
-             (broll_channel_title_prefix / broll_channel_title_suffix), so
-             editing here also updates the wrapping on the final YouTube
-             title. Saves typing "Morning Prayer:" on every idea AND every
-             metadata pass — one source of truth. Live preview line below
-             so the user sees what a generated title will look like before
-             clicking Generate. -->
-        <div class="ideas-title-wrap-block">
-          <div class="title-wrap-header">
-            <strong>Channel title wrap</strong>
-            <span class="text-muted text-xs">
-              · prepended/appended to every generated idea title. Synced with the Metadata Generator.
-            </span>
-          </div>
-          <div class="grid-2 mt-1">
-            <div class="form-group">
-              <label>Title prefix</label>
-              <input
-                v-model="titleConfig.prefix"
-                type="text"
-                class="input"
-                placeholder="e.g. Morning Prayer: "
-              />
-              <span class="text-muted text-xs">Trailing space / punctuation included verbatim.</span>
             </div>
+            <div class="grid-2 mt-1">
+              <div class="form-group">
+                <label>Before the title</label>
+                <input
+                  v-model="titleConfig.prefix"
+                  type="text"
+                  class="input"
+                  placeholder="e.g. Morning Prayer: "
+                />
+                <span class="text-muted text-xs">Trailing space / punctuation included verbatim.</span>
+              </div>
+              <div class="form-group">
+                <label>After the title</label>
+                <input
+                  v-model="titleConfig.suffix"
+                  type="text"
+                  class="input"
+                  placeholder="e.g.  | Daily Prayer Channel"
+                />
+                <span class="text-muted text-xs">Leading space included verbatim if you want a gap.</span>
+              </div>
+            </div>
+            <p v-if="titleConfig.prefix || titleConfig.suffix" class="text-muted text-xs mt-1 hint-line">
+              Preview:
+              <code>{{ titlePreviewText }}</code>
+            </p>
+          </div>
+        </fieldset>
+
+        <!-- ── 3. Generation settings ──────────────────────────────────── -->
+        <fieldset class="form-section">
+          <legend class="form-section-title">Generation settings</legend>
+          <div class="grid-2">
+            <ModelSelector v-model="form.model" :project-slug="slug" />
+
+            <!-- Pinned per-idea item/chapter count. Most useful for listicle
+                 / explainer formats where the title encodes the count
+                 ("10 mysteries explained"). Blank = LLM picks per-idea. -->
             <div class="form-group">
-              <label>Title suffix</label>
+              <label>
+                How many items per video
+                <span class="text-muted" style="font-size: 11px; font-weight: normal;">
+                  — pin to force "{{ form.items_per_listicle || 'N' }} {{ formatId === 'listicle' ? 'mysteries / paradoxes / cases' : 'chapters' }}…" in every title. Leave blank for auto.
+                </span>
+              </label>
               <input
-                v-model="titleConfig.suffix"
-                type="text"
+                v-model.number="form.items_per_listicle"
                 class="input"
-                placeholder="e.g.  | Daily Prayer Channel"
+                type="number"
+                min="1"
+                max="100"
+                :placeholder="formatId === 'listicle' ? 'e.g. 10' : 'auto (let LLM pick)'"
               />
-              <span class="text-muted text-xs">Leading space included verbatim if you want a gap.</span>
             </div>
           </div>
-          <p v-if="titleConfig.prefix || titleConfig.suffix" class="text-muted text-xs mt-1 hint-line">
-            Preview:
-            <code>{{ titlePreviewText }}</code>
-          </p>
-        </div>
+        </fieldset>
       </div>
 
       <!-- Action cluster lives in its own blocked region so the progress -->
@@ -391,13 +435,31 @@
             <template v-else>✨ Surprise Me</template>
           </button>
         </div>
+        <!-- v1.0.171 — the three "other ways to add" buttons (rare power
+             ops) collapse behind one disclosure so they no longer sit at the
+             same visual weight as Generate. Click to reveal. -->
         <div class="generator-actions-secondary">
-          <button class="btn btn-secondary btn-sm" @click="openAddIdea">+ Add Idea Manually</button>
-          <button class="btn btn-secondary btn-sm" @click="openPasteIdeas">📋 Paste Ideas from LLM</button>
-          <button class="btn btn-secondary btn-sm" @click="openImportFolder">📂 Import Episode Folder</button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm other-ways-toggle"
+            :aria-expanded="otherWaysOpen"
+            @click="otherWaysOpen = !otherWaysOpen"
+          >
+            {{ otherWaysOpen ? '▾' : '▸' }} Other ways to add
+          </button>
+          <template v-if="otherWaysOpen">
+            <button class="btn btn-secondary btn-sm" @click="openAddIdea">+ Add idea manually</button>
+            <button class="btn btn-secondary btn-sm" @click="openPasteIdeas">📋 Paste from an LLM</button>
+            <button class="btn btn-secondary btn-sm" @click="openImportFolder">📂 Import episode folder</button>
+          </template>
         </div>
       </div>
     </div>
+
+    </div><!-- /Workflow tab -->
+
+    <!-- ── Manage tab ──────────────────────────────────────────────────── -->
+    <div v-show="ideasTab === 'manage'">
 
     <!-- Search + Filter -->
     <div v-if="allIdeas.length > 0" class="toolbar mt-3">
@@ -588,6 +650,8 @@
     <div v-if="pageIdeas.length > 0 && generating" class="mt-2 generating-inline">
       <LoadingSpinner size="sm" label="Generating more ideas…" show-label />
     </div>
+
+    </div><!-- /Manage tab -->
 
     <!-- Accept dialog -->
     <Modal
@@ -951,31 +1015,17 @@
               title="Override this format's idea-generation rules, guidance text, and other fields for this project only — without leaving the page."
               @click="openFormatOverrideEditor"
             >Customize prompt</button>
-            <span v-if="form.pattern_id" class="paste-prompt-source-chip" title="A Pattern preset is folded into the prompt — title template + opening device. Change or clear it via the Pattern picker above.">
-              Pattern: <strong>{{ form.pattern_id }}</strong>
+            <span v-if="form.title_template" class="paste-prompt-source-chip" title="A title template is folded into the prompt — every generated title is shaped to it, with {X} replaced by each idea's subject. Clear it via the Title template field above.">
+              Title: <strong>{{ form.title_template }}</strong>
               <button
                 type="button"
                 class="paste-prompt-source-clear"
-                title="Clear the Pattern — prompt falls back to format defaults."
-                aria-label="Clear pattern"
-                @click="form.pattern_id = ''; form.pattern_subject = ''"
+                title="Clear the title template — the LLM titles freely."
+                aria-label="Clear title template"
+                @click="form.title_template = ''"
               >✕</button>
             </span>
-            <button
-              v-if="activePattern && !activePattern.builtin"
-              type="button"
-              class="paste-prompt-source-link"
-              title="Edit this custom pattern — title template, opening/closing devices, body structure."
-              @click="openEditPatternForActive"
-            >Edit pattern</button>
-            <button
-              v-else-if="activePattern && activePattern.builtin"
-              type="button"
-              class="paste-prompt-source-link"
-              title="Built-in patterns are read-only. This makes a custom copy you can edit freely (e.g. to make a 'mythologies' variant)."
-              @click="copyActivePatternAsNew"
-            >Copy as new</button>
-            <span v-if="!form.pattern_id" class="paste-prompt-source-hint">No Pattern selected — pick one above to fold a title template into the prompt.</span>
+            <span v-else class="paste-prompt-source-hint">No title template — the LLM titles freely. Set one in the field above to fold a shape into the prompt.</span>
           </div>
           <pre class="paste-prompt-box">{{ pastePrompt || 'Loading…' }}</pre>
         </div>
@@ -1085,16 +1135,9 @@
       </div>
     </div>
 
-    <!-- Pattern editor modal — re-mounted here so the user can edit the
-         active custom pattern (or copy a built-in as a new custom)
-         without leaving the Paste Ideas modal. Same component the
-         Settings page uses; saves via usePatterns CRUD. -->
-    <PatternEditorModal
-      :open="patternEditorOpen"
-      :pattern="patternEditorTarget"
-      @close="patternEditorOpen = false"
-      @saved="onPatternSavedFromIdeas"
-    />
+    <!-- v1.0.165 — Pattern editor modal removed with the rest of the
+         Pattern system. The title-template field above covers the one
+         capability the user actually used. -->
 
     <!-- Add/Edit idea modal -->
     <div v-if="editorOpen" class="modal-overlay" @click.self="editorOpen = false">
@@ -1233,24 +1276,35 @@
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Ideas')
 const route = useRoute()
+const _router = useRouter()
 const slug = computed(() => route.params.slug as string)
 const { get, post, del, patch } = useApi()
 const { success, error: showError, successUndoable } = useToast()
+
+// v1.0.117+ — Page tabs: Workflow (generator) vs Manage (catalog).
+// Same ?tab= sync pattern as image-prompts.vue (v1.0.88). Defaults to
+// 'workflow' on first visit so a fresh project's empty-state lands on
+// the generator instead of an empty table. The query param is the
+// source of truth — back/forward + refresh keep the tab consistent.
+const ideasTab = ref<'workflow' | 'manage'>(
+  route.query.tab === 'manage' ? 'manage' : 'workflow',
+)
+watch(() => route.query.tab, (v) => {
+  const next = v === 'manage' ? 'manage' : 'workflow'
+  if (next !== ideasTab.value) ideasTab.value = next
+})
+watch(ideasTab, (v) => {
+  const cur = String(route.query.tab || 'workflow')
+  if (cur === v) return
+  _router.replace({ query: { ...route.query, tab: v } })
+})
 const { ask } = useConfirm()
 const { project } = useProject()
-// v1.0.71: pattern lookup for the X-Pattern-Warning toast — resolves
-// pattern_id slugs to friendly names ("history-of-X" → "History of X").
-// Same composable PatternPicker uses internally; we just need find()
-// to map the slug emitted in the warning header to a human name.
-// `refresh` + `patterns` ref are also needed for the in-modal pattern
-// editor — after saving a custom pattern we refresh the list so the
-// chip's `builtin` flag (and the picker) sees the new pattern.
-import type { Pattern } from '~/composables/usePatterns'
-const {
-  find: findPattern,
-  patterns: allPatterns,
-  refresh: refreshPatterns,
-} = usePatterns()
+// v1.0.165 — the Pattern customization system was removed; its one
+// piece of value (the {X} title shape) is now a plain `title_template`
+// string field on the Ideas form. The pattern lookup composable,
+// PatternPicker / PatternEditorModal components, and per-pattern
+// warning-header plumbing all went with it.
 // Full Format objects (with script/idea/imagePrompts/metadata blocks) —
 // the lite `formatsById` map above only carries the idea block, but
 // FormatOverrideEditor needs the full base-format. useFormats() also
@@ -1344,10 +1398,11 @@ const form = reactive({
   keywords: [] as string[],
   count: 5,
   model: 'gpt-4o',
-  // Pattern preset (optional). Empty = LLM uses default freeform titling.
-  // Both fields persist per-project so the user's pick survives reloads.
-  pattern_id: '',
-  pattern_subject: '',
+  // v1.0.165+ — optional title template. Empty = LLM titles freely.
+  // When set (e.g. "Fall asleep to {X}"), the backend instructs the
+  // LLM to shape every generated title to it, substituting {X} with
+  // each idea's own subject. Persists per-project across reloads.
+  title_template: '',
   // v1.0.70: pinned chapter / item count per idea. Empty / 0 / null =
   // let the LLM pick per-idea. When set, every generated idea's title
   // and suggested_chapters will equal this value (see backend
@@ -1364,6 +1419,15 @@ const form = reactive({
 // "Overriding saved niche '<name>'" when the picker doesn't match.
 // Empty string = project has no saved niche.
 const projectNicheId = ref<string>('')
+
+// v1.0.170 — Channel context strip disclosure. Collapsed by default so the
+// page opens straight onto the generator; the strip's one-line summary
+// (Format · Topic · Titles) is always visible, and clicking it reveals the
+// detail panel that the old config cards used to show inline.
+const setupExpanded = ref(false)
+// v1.0.171 — "Other ways to add" (manual / paste / import) collapsed by
+// default so these rare power ops don't compete with the Generate button.
+const otherWaysOpen = ref(false)
 
 // v1.0.93+ — channel-level title prefix/suffix. Reads from + writes to
 // the SAME project-config keys the Metadata Generator uses (broll_channel_
@@ -1413,8 +1477,7 @@ const ideasPresets = usePresets<any>({
     keywords: [...form.keywords],
     count: form.count,
     model: form.model,
-    pattern_id: form.pattern_id,
-    pattern_subject: form.pattern_subject,
+    title_template: form.title_template,
     items_per_listicle: form.items_per_listicle,
     niche_id: form.niche_id,
     title_prefix: titleConfig.prefix,
@@ -1429,8 +1492,7 @@ const ideasPresets = usePresets<any>({
     if (Array.isArray(data.keywords)) form.keywords = [...data.keywords]
     if (typeof data.count === 'number') form.count = data.count
     if (typeof data.model === 'string') form.model = data.model
-    if (typeof data.pattern_id === 'string') form.pattern_id = data.pattern_id
-    if (typeof data.pattern_subject === 'string') form.pattern_subject = data.pattern_subject
+    if (typeof data.title_template === 'string') form.title_template = data.title_template
     if (data.items_per_listicle === null || typeof data.items_per_listicle === 'number') {
       form.items_per_listicle = data.items_per_listicle
     }
@@ -1453,7 +1515,7 @@ function onIdeasPresetApplied() {
 // used pattern + subject are persisted in the same config under
 // `idea_generator_last_pattern` / `idea_generator_last_subject` —
 // matches the *_last_* convention used by other generator pages.
-const formatId = ref<string>('sleep-story')
+const formatId = ref<string>('narrative')
 // v1.0.83+: reactive section-label vocabulary for the active format
 // ("Chapter" for sleep-story, "Reason" for bound-explainer, "Topic" for
 // listicle). Used in form labels, table column headers, and inline copy
@@ -1465,12 +1527,14 @@ const sectionLabel = useSectionLabel(formatId)
 // fetch fails we fall back to displaying the id.
 const formatNamesById = ref<Record<string, string>>({})
 const formatDisplayName = computed(() => formatNamesById.value[formatId.value] || formatId.value)
-const LAST_PATTERN_KEY = 'idea_generator_last_pattern'
-const LAST_SUBJECT_KEY = 'idea_generator_last_subject'
+// v1.0.165 — replaced the LAST_PATTERN_KEY / LAST_SUBJECT_KEY pair with
+// a single title-template key. The old pattern preset persistence went
+// with the Pattern system removal.
+const LAST_TITLE_TEMPLATE_KEY = 'idea_generator_last_title_template'
 // v1.0.71: also persist the last-used theme + items_per_listicle so a
 // user who runs "10 mysteries" once doesn't have to retype it every
 // generation. Sticks per-project (lives in settings/config alongside
-// the pattern keys), so each project keeps its own most-recent picks.
+// the title-template key), so each project keeps its own recent picks.
 const LAST_THEME_KEY = 'idea_generator_last_theme'
 const LAST_ITEMS_KEY = 'idea_generator_last_items_per_listicle'
 // v1.0.92+ — remember the most recent niche override per project. Resets
@@ -1576,7 +1640,7 @@ async function loadPatternPreferences(): Promise<boolean> {
   // The project's chosen format lives on the project META, not on
   // /settings/config. settings.vue + scripts.vue both read meta.format_id;
   // ideas.vue used to read /settings/config.format_id which is always
-  // undefined → formatId stayed at the 'sleep-story' default and BrainWise
+  // undefined → formatId stayed at the 'narrative' default and BrainWise
   // (listicle) projects saw lantern/observatory/coming-of-age vocab. Fix:
   // hit project meta for format_id, settings/config for the *_last_*
   // pattern/subject memory.
@@ -1613,8 +1677,7 @@ async function loadPatternPreferences(): Promise<boolean> {
   }
   try {
     const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
-    if (typeof cfg?.[LAST_PATTERN_KEY] === 'string') form.pattern_id = cfg[LAST_PATTERN_KEY]
-    if (typeof cfg?.[LAST_SUBJECT_KEY] === 'string') form.pattern_subject = cfg[LAST_SUBJECT_KEY]
+    if (typeof cfg?.[LAST_TITLE_TEMPLATE_KEY] === 'string') form.title_template = cfg[LAST_TITLE_TEMPLATE_KEY]
     if (typeof cfg?.[LAST_THEME_KEY] === 'string') form.theme = cfg[LAST_THEME_KEY]
     if (typeof cfg?.[LAST_ITEMS_KEY] === 'number' && cfg[LAST_ITEMS_KEY] > 0) {
       form.items_per_listicle = cfg[LAST_ITEMS_KEY]
@@ -1642,7 +1705,10 @@ async function loadPatternPreferences(): Promise<boolean> {
   return true
 }
 
-async function savePatternPreferences() {
+// Persists the per-project Ideas-form preferences (title template, theme,
+// listicle count, niche override, channel title wrap). Named for history;
+// v1.0.165 swapped the pattern fields for the title template.
+async function saveIdeaPreferences() {
   // Skip the initial hydration round-trip — only fire on user-initiated
   // changes. Without this guard, the watch fires once when load sets the
   // initial value, writing the same value straight back.
@@ -1650,8 +1716,7 @@ async function savePatternPreferences() {
   try {
     const { put } = useApi()
     await put(`/projects/${slug.value}/settings/config`, {
-      [LAST_PATTERN_KEY]: form.pattern_id,
-      [LAST_SUBJECT_KEY]: form.pattern_subject,
+      [LAST_TITLE_TEMPLATE_KEY]: form.title_template,
       [LAST_THEME_KEY]: form.theme,
       [LAST_ITEMS_KEY]: form.items_per_listicle,
       [LAST_NICHE_KEY]: form.niche_id,
@@ -1663,13 +1728,12 @@ async function savePatternPreferences() {
   } catch { /* non-fatal — selection still works in-session */ }
 }
 
-watch(() => form.pattern_id, savePatternPreferences)
-watch(() => form.pattern_subject, savePatternPreferences)
-watch(() => form.theme, savePatternPreferences)
-watch(() => form.items_per_listicle, savePatternPreferences)
-watch(() => form.niche_id, savePatternPreferences)
-watch(() => titleConfig.prefix, savePatternPreferences)
-watch(() => titleConfig.suffix, savePatternPreferences)
+watch(() => form.title_template, saveIdeaPreferences)
+watch(() => form.theme, saveIdeaPreferences)
+watch(() => form.items_per_listicle, saveIdeaPreferences)
+watch(() => form.niche_id, saveIdeaPreferences)
+watch(() => titleConfig.prefix, saveIdeaPreferences)
+watch(() => titleConfig.suffix, saveIdeaPreferences)
 // v1.0.93+ — five separate onMounted() calls used to race each other,
 // and the worst offender was usePresets() auto-applying an active preset
 // AFTER loadPatternPreferences() had populated the project niche →
@@ -1823,20 +1887,21 @@ function vocabSourceLabel(field: 'genre' | 'mood' | 'theme' | 'keyword'): string
   return 'Generic'
 }
 
-/** Tooltip explaining where the pool comes from. */
+/** Tooltip explaining where the dropdown's suggestions come from. Plain
+ *  language ("topic" rather than the internal "niche"). */
 function vocabSourceTooltip(field: 'genre' | 'mood' | 'theme' | 'keyword'): string {
   const fromFmt = vocabFromFormat(field)
   const fromNiche = vocabFromNiche(field)
   if (fromFmt && fromNiche) {
-    return `Suggestions merged from the ${formatDisplayName.value} format pool + the ${activeNiche.value!.name} niche pool. Both contribute; duplicates are de-duped.`
+    return `These suggestions come from the ${formatDisplayName.value} format and the ${activeNiche.value!.name} topic combined.`
   }
   if (fromFmt) {
-    return `These suggestions are from the ${formatDisplayName.value} format. Pick a niche to layer in additional subject-domain vocab.`
+    return `These suggestions come from the ${formatDisplayName.value} format. Pick a Topic to add more subject-specific suggestions.`
   }
   if (fromNiche) {
-    return `These suggestions are from the ${activeNiche.value!.name} niche. The current format doesn't ship its own ${field} vocabulary.`
+    return `These suggestions come from the ${activeNiche.value!.name} topic. The current format doesn't add its own ${field} suggestions.`
   }
-  return `Neither the ${formatDisplayName.value} format nor the active niche ships a ${field} vocabulary, so we're showing a generic fallback. You can override per-project from Settings → Format.`
+  return `Neither the ${formatDisplayName.value} format nor the chosen Topic adds ${field} suggestions, so these are generic. You can type your own anytime.`
 }
 
 const allGenres = computed(() => Array.from(new Set([...vocabFor('genre'), ...customGenres.value])).sort())
@@ -2275,72 +2340,15 @@ async function onAssetsMapped(_summary: any) {
 }
 
 // ── In-modal preset editors ──────────────────────────────────────────────
-// The Paste Ideas modal used to be read-only: users had to leave for
-// Settings → Format to override the format's prompt fields, and there
-// was no way to edit/copy the active Pattern from here at all. These
-// helpers wire FormatOverrideEditor + PatternEditorModal directly into
-// the chip strip above the prompt so customisation never requires a
-// round-trip. After save, refetchPastePrompt() refreshes the visible
-// prompt so the user sees their changes immediately.
-
-// Pattern object resolved from the active form.pattern_id (or null when
-// no pattern is selected). Drives the chip's Edit-vs-Copy-as-new branch
-// and prefills the editor target.
-const activePattern = computed<Pattern | null>(() => {
-  if (!form.pattern_id) return null
-  return findPattern(form.pattern_id) || null
-})
-
-const patternEditorOpen = ref(false)
-const patternEditorTarget = ref<Pattern | null>(null)
-
-function openEditPatternForActive() {
-  const p = activePattern.value
-  if (!p || p.builtin) return
-  patternEditorTarget.value = p
-  patternEditorOpen.value = true
-}
-
-/** Built-ins are read-only — the user gets a custom copy with a derived
- *  unique id (e.g. "day-in-the-life-X-copy") that they can rename and
- *  edit freely. Same flow Settings → Patterns uses. */
-function copyActivePatternAsNew() {
-  const p = activePattern.value
-  if (!p) return
-  const base = `${p.id}-copy`
-  let copyId = base
-  if (allPatterns.value.some(x => x.id === copyId)) {
-    for (let i = 2; i < 100; i++) {
-      const candidate = `${base}-${i}`
-      if (!allPatterns.value.some(x => x.id === candidate)) { copyId = candidate; break }
-    }
-  }
-  patternEditorTarget.value = {
-    ...p,
-    id: copyId,
-    name: p.name.endsWith('(copy)') ? p.name : `${p.name} (copy)`,
-    builtin: false,
-    schemaVersion: 1,
-  } as Pattern
-  patternEditorOpen.value = true
-}
-
-async function onPatternSavedFromIdeas(savedId: string) {
-  patternEditorOpen.value = false
-  // Pull the fresh pattern list so activePattern recomputes (in case the
-  // user just created a custom shadowing a built-in, the chip should
-  // flip from "Copy as new" to "Edit").
-  await refreshPatterns().catch(() => {})
-  // If the user just created a NEW pattern (copy-as-new path), point the
-  // active selection at it so they can immediately use it without going
-  // back to the picker. For pure edits the id is unchanged so this is a
-  // no-op.
-  if (savedId && savedId !== form.pattern_id) {
-    form.pattern_id = savedId
-  }
-  // Refetch the displayed prompt with the latest pattern content.
-  if (pasteOpen.value) await refetchPastePrompt()
-}
+// The Paste Ideas modal exposes a chip strip above the prompt so the
+// user can override the format's prompt fields without leaving for
+// Settings → Format. After save, refetchPastePrompt() refreshes the
+// visible prompt so the user sees their changes immediately.
+//
+// v1.0.165 — the in-modal Pattern edit/copy helpers (activePattern,
+// patternEditorOpen, openEditPatternForActive, copyActivePatternAsNew,
+// onPatternSavedFromIdeas) were removed with the Pattern system. The
+// title-template field handles the one capability that mattered.
 
 // Format override drawer state — separate from the Settings page's
 // version because we want a self-contained save/cancel flow that
@@ -2431,13 +2439,13 @@ async function openPasteIdeas() {
   await refetchPastePrompt()
 }
 
-// Re-fetched whenever the format or pattern changes so the copied prompt
-// always reflects the user's current selection. Query-params follow the
-// same shape the in-app generate flow uses (pattern_id + pattern_subject).
+// Re-fetched whenever the format or title template changes so the copied
+// prompt always reflects the user's current selection. v1.0.165 — the
+// pattern_id / pattern_subject query params were replaced by a single
+// title_template param.
 async function refetchPastePrompt() {
   const qs = new URLSearchParams()
-  if (form.pattern_id) qs.set('pattern_id', form.pattern_id)
-  if (form.pattern_subject) qs.set('pattern_subject', form.pattern_subject)
+  if (form.title_template) qs.set('title_template', form.title_template)
   const url = `/projects/${slug.value}/ideas/paste-prompt${qs.toString() ? `?${qs}` : ''}`
   try {
     pastePrompt.value = await get<string>(url)
@@ -2449,11 +2457,10 @@ async function refetchPastePrompt() {
   pastePromptCopied.value = false
 }
 
-// Live-refresh the prompt when the user changes pattern WHILE the modal
-// is open. Skipped when the modal is closed (no DOM to update; the
-// next open will refetch anyway).
+// Live-refresh the prompt when the user changes the title template WHILE
+// the modal is open. Skipped when closed (the next open refetches anyway).
 watch(
-  [() => form.pattern_id, () => form.pattern_subject],
+  () => form.title_template,
   () => { if (pasteOpen.value) refetchPastePrompt() },
 )
 
@@ -2631,12 +2638,6 @@ const ideasLoadError = ref('')
 async function generate() {
   generating.value = true
   try {
-    // Use $fetch.raw so we can read the X-Pattern-Warning response
-    // header (v1.0.69+ — backend sets it when pattern_id was supplied
-    // but the JSON couldn't be loaded). Falls back silently if the
-    // header is absent — the post() helper would also work, but we'd
-    // lose the header and the user would never know their selected
-    // pattern was silently dropped from the prompt.
     // Drop items_per_listicle when blank so the backend treats it as
     // unset (LLM picks within format range). Sending 0 / null would
     // get coerced to NaN by some validators; cleaner to omit.
@@ -2660,28 +2661,11 @@ async function generate() {
     // generated. Backend treats both empty strings as "no wrapping".
     body.title_prefix = titleConfig.prefix
     body.title_suffix = titleConfig.suffix
-    const res = await $fetch.raw(`/api/projects/${slug.value}/generate/ideas`, {
-      method: 'POST',
-      body,
-      headers: { 'Content-Type': 'application/json' },
-    })
-    const warningHeader = res.headers.get('x-pattern-warning')
-    if (warningHeader) {
-      // Resolve the pattern slug in the warning message to its friendly
-      // name (v1.0.71+) so users see "Pattern 'History of X' …" instead
-      // of "Pattern 'history-of-X' …". The picker already has the list;
-      // we look up by id and fall back to the slug when the pattern was
-      // truly deleted (find() returns undefined).
-      let msg = warningHeader
-      try { msg = decodeURIComponent(warningHeader) } catch { /* keep raw */ }
-      if (form.pattern_id) {
-        const friendly = findPattern(form.pattern_id)?.name
-        if (friendly && msg.includes(`"${form.pattern_id}"`)) {
-          msg = msg.replace(`"${form.pattern_id}"`, `"${friendly}"`)
-        }
-      }
-      showError(msg)
-    }
+    // v1.0.165 — the X-Pattern-Warning header path was removed with the
+    // Pattern system. The title template is a plain string that can't
+    // "fail to load", so there's nothing to warn about; a normal POST
+    // is enough.
+    await post(`/projects/${slug.value}/generate/ideas`, body)
     await loadIdeas()
     page.value = 1; sortField.value = 'generated_at'; sortDir.value = 'desc'
     success('Ideas generated!')
@@ -3033,10 +3017,30 @@ async function confirmCompact() {
 .generator-panel { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px 20px; }
 .generator-title { margin: 0 0 4px; }
 .generator-blurb { margin: 0 0 12px; }
-.generator-body { display: flex; flex-direction: column; gap: 12px; }
+.generator-body { display: flex; flex-direction: column; gap: 14px; }
 .generator-actions { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 10px; }
 .generator-actions-primary { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .generator-actions-secondary { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.other-ways-toggle { color: var(--text-muted); }
+
+/* v1.0.171 — grouped form sections. Each fieldset is a labelled box so the
+   long field list reads as three distinct decisions instead of one wall. */
+.form-section {
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: var(--radius-sm, 6px);
+  padding: 12px 14px 14px;
+  margin: 0;
+  min-width: 0;   /* let grid children shrink inside the fieldset */
+}
+.form-section-title {
+  padding: 0 6px;
+  margin-left: -2px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #9a9a9a);
+}
 
 /* Format Indicator Card — sits between the title and the form. Visual
    anchor that tells the user which format flavours every dropdown +
@@ -3158,17 +3162,29 @@ async function confirmCompact() {
   margin: 0; font-size: 12px; color: var(--text-secondary);
 }
 
-/* Pattern picker on the Ideas page sits between the model row and the
-   action buttons. Pad it so it doesn't run flush into either. */
-.ideas-pattern-block {
+/* v1.0.165+ — Title-template block on the Ideas page (replaced the
+   Pattern picker). Sits between the niche row and the action buttons;
+   dashed top divider + breathing room so it doesn't run flush. */
+.ideas-title-template-block {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px dashed var(--border);
 }
+.ideas-title-template-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.ideas-title-template-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
 
 /* v1.0.92+ — Niche picker block on the Ideas page. Same visual rhythm as
-   the pattern block above it (dashed top divider + breathing room) so
-   the two optional layers feel paired without crowding the form. */
+   the title-template block above it (dashed top divider + breathing room)
+   so the two optional layers feel paired without crowding the form. */
 .ideas-niche-block {
   margin-top: 12px;
   padding-top: 12px;
@@ -3840,4 +3856,64 @@ async function confirmCompact() {
   color: var(--accent, #6c8fff);
   text-decoration: underline;
 }
+
+/* v1.0.183 — the strip chrome (.context-strip / .context-summary /
+   .context-detail / .context-warn / .context-toggle) now lives in the shared
+   ContextStrip component. Only the slot-content styles below remain — they
+   style the chips + detail rows this page passes into the component's slots.
+   (.context-chip / .context-key / .is-fallback / .context-dot /
+   .context-override are also re-declared :slotted in the component, but
+   keeping them here is harmless and covers the detail panel too.) */
+.context-chip { display: inline-flex; align-items: baseline; gap: 6px; }
+.context-key {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.context-chip strong { font-weight: 600; }
+.context-chip strong.is-fallback { color: var(--text-muted); font-weight: normal; font-style: italic; }
+.context-override { color: var(--accent, #6c8fff); font-size: 11px; }
+.context-dot { color: var(--border, #3a3a3a); }
+.context-detail-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+  margin-top: 6px;
+}
+.context-detail-label {
+  display: inline-block;
+  width: 64px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.context-detail-value { color: var(--text-primary); font-weight: 500; }
+.context-detail-value.is-fallback { color: var(--text-muted); font-style: italic; font-weight: normal; }
+.context-detail-value em { font-style: italic; color: var(--accent, #6c8fff); }
+.context-detail-desc { margin: 0 0 0 74px; font-size: 13px; color: var(--text-primary); line-height: 1.45; }
+.context-detail-hint { margin: 0 0 0 74px; line-height: 1.4; }
+.context-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.context-badge.badge-builtin { background: var(--bg-tertiary); color: var(--text-muted); border: 1px solid var(--border); }
+.context-badge.badge-custom  { background: var(--accent); color: var(--bg-primary); border: 1px solid var(--accent); }
+.context-fallback-tag,
+.context-override-tag {
+  font-size: 11px;
+  color: rgba(240, 198, 116, 0.95);
+  padding: 1px 8px;
+  background: rgba(240, 198, 116, 0.10);
+  border-radius: 999px;
+}
+.context-override-tag { color: var(--accent, #6c8fff); background: rgba(108, 143, 255, 0.10); }
+.effective-link.subtle { margin-left: 0; opacity: 0.85; }
 </style>

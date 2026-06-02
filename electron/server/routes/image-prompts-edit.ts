@@ -20,6 +20,7 @@ import { validateBody } from '../lib/validate.js'
 import { callAi } from '../lib/ai-client.js'
 import * as pm from '../services/project-manager.js'
 import { resolveEpisodePaths } from '../services/utils.js'
+import { resolveReadPath, toMdPath } from '../lib/episode-artifacts.js'
 import { parseImagePromptsDocx, _clearImagePromptsParseCache } from '../lib/docx-parser.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 
@@ -44,7 +45,7 @@ router.post(
     const { slug, episodeId } = req.params
     const { kind, number } = req.body as { kind: 'scene' | 'thumbnail'; number: number }
     const titleParam = (req.body.title as string | undefined) || (req.query.title as string) || ''
-    const model = (req.body.model as string | undefined) || 'gpt-4o'
+    const model = (req.body.model as string | undefined) || 'deepseek-v4-flash'
 
     try {
       const project = await pm.getProject(slug)
@@ -53,22 +54,26 @@ router.post(
       if (!config) return res.status(404).json({ detail: 'Project config not found' })
 
       const paths = await resolveEpisodePaths(slug, episodeId, titleParam)
-      const docxPath = kind === 'scene' ? paths.scene_prompts_docx : paths.thumb_prompts_docx
-      if (!docxPath || !existsSync(docxPath)) {
+      const promptsConstant = kind === 'scene' ? paths.scene_prompts_docx : paths.thumb_prompts_docx
+      // Read the existing file (prefer .md, accept a legacy .docx); always
+      // WRITE back as .md so editing a legacy episode upgrades it.
+      const readPath = promptsConstant ? resolveReadPath(promptsConstant) : ''
+      if (!readPath || !existsSync(readPath)) {
         return res.status(404).json({
           detail: `No ${kind} prompts on disk. Generate them on the Image Prompts page first.`,
         })
       }
+      const writePath = toMdPath(promptsConstant)
 
       // Parse the full prompt set so we can (a) find the target entry,
       // (b) thread surrounding prompts as context for cohesion, (c)
-      // re-write the docx with the regenerated entry replacing the old.
-      const parsed = await parseImagePromptsDocx(docxPath)
+      // re-write the file with the regenerated entry replacing the old.
+      const parsed = await parseImagePromptsDocx(readPath)
       const list = kind === 'scene' ? parsed.scenes : parsed.thumbnails
       const targetIdx = list.findIndex(p => p.number === number)
       if (targetIdx < 0) {
         return res.status(404).json({
-          detail: `${kind} ${number} not found in ${path.basename(docxPath)}`,
+          detail: `${kind} ${number} not found in ${path.basename(readPath)}`,
         })
       }
       const target = list[targetIdx]!
@@ -110,9 +115,10 @@ router.post(
         : p
       ))
 
-      // Re-serialise to the same docx format the bulk generator uses.
+      // Re-serialise to the same markdown format the bulk generator uses,
+      // writing as .md (upgrades a legacy .docx-only episode on save).
       const serialised = serialiseList(kind, updatedList)
-      await buildImagePromptsDocx(serialised, episodeId, project.name || episodeId, docxPath)
+      await buildImagePromptsDocx(serialised, episodeId, project.name || episodeId, writePath)
       _clearImagePromptsParseCache()
 
       res.json({

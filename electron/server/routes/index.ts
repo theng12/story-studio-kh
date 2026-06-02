@@ -43,6 +43,11 @@ import { router as imageReferencesRouter } from './image-references.js'
 import { router as changelogRouter } from './changelog.js'
 import { router as brollPoolsRouter } from './broll-pools.js'
 import { router as brollProjectRouter } from './broll-project.js'
+import { router as brollFetchRouter } from './broll-fetch.js'
+import { router as researchRouter } from './research.js'
+import { router as scenePlanRouter } from './scene-plan.js'
+import { router as sceneReviewRouter } from './scene-review.js'
+import { router as continuityRouter } from './continuity.js'
 
 export function mountRoutes(app: Express): void {
   app.use('/api', projectsRouter)
@@ -82,4 +87,9 @@ export function mountRoutes(app: Express): void {
   app.use('/api', changelogRouter)
   app.use('/api', brollPoolsRouter)
   app.use('/api', brollProjectRouter)
+  app.use('/api', brollFetchRouter)
+  app.use('/api', researchRouter)
+  app.use('/api', scenePlanRouter)
+  app.use('/api', sceneReviewRouter)
+  app.use('/api', continuityRouter)
 }

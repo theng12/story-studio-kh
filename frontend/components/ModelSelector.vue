@@ -37,6 +37,10 @@ interface LlmModelRow {
   // can't be used (e.g. account tier doesn't include GPT-5). null/undefined
   // means no extra restriction beyond the api-key check.
   disabled_reason?: string | null
+  // Curated per-model hint, surfaced in the dropdown tooltip when the model
+  // is available. Other tooltip states (disabled reason, no key) take
+  // precedence — those are gating; the hint is optional context.
+  hint?: string | null
 }
 
 const props = defineProps<{
@@ -68,6 +72,7 @@ function suffixFor(m: LlmModelRow) {
 function tooltipFor(m: LlmModelRow) {
   if (m.disabled_reason) return m.disabled_reason
   if (!m.available) return 'No API key configured for this provider'
+  if (m.hint) return m.hint
   return ''
 }
 
@@ -110,7 +115,7 @@ option:disabled {
 
 /* v1.0.48 — loading-state hint next to the label. Same spinner pattern
    as EpisodeSelector so the two dropdowns feel consistent during a
-   slow first-fetch (TerraNash + iCloud-synced storage). */
+   slow first-fetch (large iCloud-synced project storage). */
 .ms-loading-inline {
   display: inline-flex;
   align-items: center;

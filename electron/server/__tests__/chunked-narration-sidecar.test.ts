@@ -61,8 +61,6 @@ describe('chunked-narration sidecar JSON shape', () => {
         length: 30,
         total_words: 7500,
         words_per_chapter: 250,
-        pattern_id: 'pat-true-crime',
-        pattern_subject: 'Lighthouse keepers',
         character_ids: ['char-narrator'],
       },
       chapters_done: [1, 2, 3, 4, 5],

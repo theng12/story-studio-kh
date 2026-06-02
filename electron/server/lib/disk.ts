@@ -4,7 +4,7 @@
  * Audit finding M3 (audit-reports/09-jobs.md): a 20-episode 1080p/high
  * batch averages 500 MB-1 GB per episode and hours of FFmpeg time. Running
  * on a nearly-full disk fails halfway through and burns the encode cost
- * on episodes that then can't write. QA_CHECKLIST.md:12 documents the
+ * on episodes that then can't write. docs/operations/qa-checklist.md:12 documents the
  * 5 GB-free rule as manual operator discipline; these helpers move it
  * into code at two gates — the run-batch route (whole batch up front) and
  * each video_assembly job (per-episode, before any FFmpeg spawns).

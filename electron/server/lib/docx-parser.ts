@@ -1,10 +1,53 @@
 /**
- * Read .docx files and extract structured data.
- * Uses mammoth to convert to HTML, then parses headings/paragraphs.
+ * Read pipeline text artifacts and extract structured data.
+ *
+ * v1.0.228+: artifacts are Markdown (`.md`). Legacy projects still have Word
+ * (`.docx`) — those are read via `mammoth` as a fallback. Both paths converge
+ * on the same `StructuredLine[]` (see `readStructuredLines`), so the three
+ * parsers below — and every consumer of them — are format-agnostic and
+ * unchanged. New files are always written as `.md` (see lib/docx-builder.ts).
  */
 
 import mammoth from 'mammoth'
 import fs from 'fs/promises'
+
+// ── Source readers (Markdown preferred, legacy .docx via mammoth) ───────────
+
+/**
+ * Parse Markdown source into the SAME StructuredLine[] shape that htmlToLines
+ * produces from a .docx, so the downstream parsers don't care which format
+ * the file was: `# ` → level 1, `## ` → level 2, a whole-line `**…**` → bold,
+ * everything else → level 0. Blank lines are dropped to match htmlToLines.
+ */
+function markdownToLines(md: string): StructuredLine[] {
+  const lines: StructuredLine[] = []
+  for (const raw of md.split('\n')) {
+    const t = raw.trim()
+    if (!t) continue
+    if (t.startsWith('## ')) lines.push({ text: t.slice(3).trim(), level: 2, bold: false })
+    else if (t.startsWith('# ')) lines.push({ text: t.slice(2).trim(), level: 1, bold: false })
+    else {
+      const m = t.match(/^\*\*(.+)\*\*$/)
+      if (m) lines.push({ text: m[1]!.trim(), level: 0, bold: true })
+      else lines.push({ text: t, level: 0, bold: false })
+    }
+  }
+  return lines
+}
+
+/**
+ * Read an artifact into StructuredLine[], auto-detecting the format by
+ * extension: `.md`/`.txt` are read directly + parsed as Markdown; a legacy
+ * `.docx` goes through mammoth → HTML → htmlToLines.
+ */
+async function readStructuredLines(filePath: string): Promise<StructuredLine[]> {
+  if (/\.(?:md|txt)$/i.test(filePath)) {
+    const text = await fs.readFile(filePath, 'utf8')
+    return markdownToLines(text)
+  }
+  const result = await mammoth.convertToHtml({ path: filePath })
+  return htmlToLines(result.value)
+}
 
 // ── Image Prompts Parser ────────────────────────────────────────────────────
 
@@ -71,11 +114,8 @@ export async function parseImagePromptsDocx(docxPath: string): Promise<ParsedPro
     if (hit) return hit
   }
 
-  const result = await mammoth.convertToHtml({ path: docxPath })
-  const html = result.value
-
-  // Convert HTML to structured text lines with heading markers
-  const lines = htmlToLines(html)
+  // Markdown (.md) preferred; legacy .docx falls back to mammoth.
+  const lines = await readStructuredLines(docxPath)
 
   const parsed: ParsedPrompts = {
     character_reference: '',
@@ -164,8 +204,7 @@ export interface NarrationSection {
 }
 
 export async function parseNarrationDocx(docxPath: string): Promise<NarrationSection[]> {
-  const result = await mammoth.convertToHtml({ path: docxPath })
-  const lines = htmlToLines(result.value)
+  const lines = await readStructuredLines(docxPath)
 
   const sections: NarrationSection[] = []
   let currentLabel: string | null = null
@@ -270,8 +309,7 @@ export async function parseNarrationDocx(docxPath: string): Promise<NarrationSec
  * structural skeleton even if the doc gets re-rendered.
  */
 export async function narrationDocxToMarkdown(docxPath: string): Promise<string> {
-  const result = await mammoth.convertToHtml({ path: docxPath })
-  const lines = htmlToLines(result.value)
+  const lines = await readStructuredLines(docxPath)
   const out: string[] = []
   for (const line of lines) {
     if (line.level === 1) out.push(`# ${line.text}`)

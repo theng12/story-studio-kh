@@ -237,7 +237,16 @@ router.post('/projects/:slug/broll/assemble', async (req, res) => {
   const { slug } = req.params
   try {
     if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-    const { episode_id, broll_volume = 0 } = req.body || {}
+    // v1.0.127+ — subtitles_enabled + subtitles_style flow through to the
+    // executor's job params. Both optional; missing → defaults applied
+    // inside broll-assemble (enabled=true preserves legacy behaviour for
+    // any caller that didn't update; style absent → no force_style).
+    const {
+      episode_id,
+      broll_volume = 0,
+      subtitles_enabled,
+      subtitles_style,
+    } = req.body || {}
     if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
 
     const title = await resolveTitle(slug, episode_id)
@@ -255,7 +264,15 @@ router.post('/projects/:slug/broll/assemble', async (req, res) => {
       type: 'broll_assemble' as JobType,
       episode_id,
       title: `Assemble B-Roll Video — ${episode_id}`,
-      params: { episode_id, title, broll_volume },
+      params: {
+        episode_id,
+        title,
+        broll_volume,
+        // Forward optional subtitle controls; broll-assemble defaults to
+        // enabled=true + no style override when these are absent.
+        ...(typeof subtitles_enabled === 'boolean' ? { subtitles_enabled } : {}),
+        ...(subtitles_style ? { subtitles_style } : {}),
+      },
     })
     res.status(201).json(job)
   } catch (e: any) {

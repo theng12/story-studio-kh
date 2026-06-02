@@ -25,6 +25,22 @@
       </div>
     </div>
 
+    <!-- v1.0.190 — paused-queue banner. The queue only pauses when the local
+         job engine is unreachable; without this, a parked "Queued" job looks
+         broken with no explanation. Offers a one-click Resume + re-probe. -->
+    <div v-if="queuePaused" class="queue-paused-banner">
+      <span class="qpb-icon" aria-hidden="true">⏸</span>
+      <span class="qpb-text">
+        <strong>Job queue is paused — new jobs are waiting.</strong>
+        This happens when the app engine isn't reachable. {{ stats.queued }}
+        job{{ stats.queued === 1 ? '' : 's' }} queued. If you're connected,
+        click Resume to start them.
+      </span>
+      <button class="btn btn-xs btn-primary" :disabled="resumingQueue" @click="resumeQueue">
+        {{ resumingQueue ? 'Resuming…' : 'Resume now' }}
+      </button>
+    </div>
+
     <!-- Restart-recovery banner: surfaces when one or more jobs got
          marked as "Interrupted by app restart" (job-queue.ts boots running
          jobs into 'error' state with that exact message). v1.0.114 — this
@@ -501,7 +517,7 @@ definePageMeta({ layout: 'dashboard' })
 useAppTitle('Jobs')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const { del, post } = useApi()
+const { get, del, post } = useApi()
 const { jobs, stats } = useJobs()
 const { success, error: showError, info } = useToast()
 
@@ -522,8 +538,44 @@ const errorExpanded = ref<string | null>(null)
 const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
 
-onMounted(() => { timer = setInterval(() => now.value = Date.now(), 1000) })
-onUnmounted(() => { if (timer) clearInterval(timer) })
+// v1.0.190 — surface a paused job queue so a stuck "Queued" job is never a
+// mystery again. The queue pauses only when the local job engine is
+// unreachable; the banner this drives offers a manual Resume + a re-probe.
+const net = useNetworkStatus()
+const queuePaused = ref(false)
+const resumingQueue = ref(false)
+let queueTimer: ReturnType<typeof setInterval> | null = null
+
+async function checkQueuePaused(): Promise<void> {
+  try {
+    const r = await get<{ paused: boolean }>('/system/queue/status')
+    queuePaused.value = !!r.paused
+  } catch { /* backend unreachable — leave the last-known value */ }
+}
+
+async function resumeQueue(): Promise<void> {
+  resumingQueue.value = true
+  try {
+    await post('/system/queue/resume', {})
+    await net.refresh()        // re-probe so the indicator + sync state agree
+    await checkQueuePaused()
+    if (!queuePaused.value) success('Job queue resumed')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to resume the queue')
+  } finally {
+    resumingQueue.value = false
+  }
+}
+
+onMounted(() => {
+  timer = setInterval(() => now.value = Date.now(), 1000)
+  void checkQueuePaused()
+  queueTimer = setInterval(checkQueuePaused, 5000)
+})
+onUnmounted(() => {
+  if (timer) clearInterval(timer)
+  if (queueTimer) clearInterval(queueTimer)
+})
 
 // Post-bulk banner: show when a pipeline batch has completed (all its
 // jobs settled into done/error/cancelled) and there are no more pipeline
@@ -1235,6 +1287,23 @@ async function clearFinished() {
   font-size: 12.5px;
   color: var(--text-secondary);
 }
+/* v1.0.190 — paused-queue banner (amber: an attention state the user can act on). */
+.queue-paused-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 4px;
+  padding: 10px 14px;
+  background: rgba(212, 160, 23, 0.10);
+  border: 1px solid rgba(212, 160, 23, 0.30);
+  border-left: 3px solid rgb(212, 160, 23);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.qpb-icon { font-size: 16px; line-height: 1; flex-shrink: 0; }
+.qpb-text { flex: 1; line-height: 1.45; }
+.qpb-text strong { color: var(--text-primary); }
 .rrb-icon {
   font-size: 16px;
   line-height: 1;

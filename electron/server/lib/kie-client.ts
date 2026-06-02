@@ -360,6 +360,21 @@ export async function downloadImage(
   onProgress?: (bytesReceived: number, totalBytes?: number) => void,
 ): Promise<void> {
   await fs.mkdir(path.dirname(savePath), { recursive: true })
+
+  // v1.0.234 — some providers (OpenAI's Images API) return the bytes inline as
+  // base64 rather than a fetchable URL. Node's fetch can't open `data:` URLs,
+  // so decode + write them directly here. Lets any provider hand back a
+  // `data:image/...;base64,...` "url" and have the normal pipeline persist it.
+  if (url.startsWith('data:')) {
+    const comma = url.indexOf(',')
+    const b64 = comma >= 0 ? url.slice(comma + 1) : ''
+    const buf = Buffer.from(b64, 'base64')
+    if (!buf.length) throw new Error('Download failed: empty data: URL')
+    await fs.writeFile(savePath, buf)
+    try { onProgress?.(buf.length, buf.length) } catch { /* ignore UI plumbing */ }
+    return
+  }
+
   const resp = await fetch(url, { signal: AbortSignal.timeout(120000) })
   if (!resp.ok || !resp.body) throw new Error(`Download failed: ${resp.status}`)
   const cl = resp.headers.get('content-length')

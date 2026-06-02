@@ -20,6 +20,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
 import { chunkText } from '../lib/text-chunker.js'
+import { normalizeForTts } from '../lib/tts-text.js'
 import { listAllLabsTasks, getTaskById, type LabsTask } from '../lib/genaipro-client.js'
 import { downloadAudio } from '../lib/fal-client.js'
 import { findNarrationFile, resolveAudioDir } from '../generators/audio.js'
@@ -72,10 +73,39 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
   const sections = await parseNarrationDocx(narrationPath)
   const code = episodeId.toUpperCase()
 
+  // Resolve the SAME per-model TTS chunk cap the generator used, so our
+  // expected chunk split matches the files actually on disk. The generator
+  // splits at AudioModelConfig.tts_soft_max_chars (e.g. Voice Studio Kokoro =
+  // 2000); using the chunker's 4800 default here under-counts chunks for local
+  // models, so a fully-generated multi-part section (…_part1/_part2) looked
+  // "missing" because we only expected a single …{slug}.mp3. Mirror
+  // generators/audio.ts: read the cap off the episode's most recent audio
+  // job's model. Dynamic imports avoid an import cycle (this module is a
+  // static dep of the job-queue's executor graph). Fail-quiet → chunker default.
+  let ttsChunkCap: number | undefined
+  try {
+    const { getJobs } = await import('./job-queue.js')
+    const jobs = await getJobs(slug)
+    const lastAudio = jobs
+      .filter(j => j.type === 'audio' && (j.episode_id || '').toUpperCase() === code)
+      .sort((a, b) => String(b.finished_at || b.created_at || '').localeCompare(String(a.finished_at || a.created_at || '')))[0]
+    const model = (lastAudio?.params as any)?.model
+    if (model) {
+      const pm = await import('./project-manager.js')
+      const config = await pm.getConfig(slug)
+      const cap = (config as any)?.audio_models?.[model]?.tts_soft_max_chars
+      if (typeof cap === 'number' && cap > 0) ttsChunkCap = cap
+    }
+  } catch { /* fall back to the chunker's default cap */ }
+
   const expected: ExpectedChunk[] = []
   for (const section of sections) {
     const base = `${code}_${section.slug}.mp3`
-    const chunks = chunkText(section.text)
+    // Mirror the generator's pre-TTS normalization (v1.0.215+) BEFORE chunking
+    // so chunk boundaries — and thus the predicted filenames + per-chunk text
+    // used for recovery matching — match what the generator actually produced.
+    const sectionText = normalizeForTts(section.text).text
+    const chunks = chunkText(sectionText, ttsChunkCap)
     for (let i = 0; i < chunks.length; i++) {
       const filename = chunks.length > 1
         ? base.replace('.mp3', `_part${i + 1}.mp3`)

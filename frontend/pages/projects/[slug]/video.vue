@@ -36,7 +36,7 @@
       loading-label="Queuing…"
       :generate-loading="submitting"
       :generate-disabled="!canSubmit"
-      :generate-status="videoGenerating ? `Generating video for ${episodeId}…` : ''"
+      :generate-status="videoJobActiveForEpisode ? `Generating video for ${episodeId}…` : ''"
       @generate="submitVideo"
       @episode-selected="onEpisodeSelected"
       @preset-applied="success('Preset applied')"
@@ -278,10 +278,34 @@ const { get, post } = useApi()
 const { success, error: showError } = useToast()
 const { config } = useProject()
 const { videoGenerating } = useGenerating()
+const { jobs } = useJobs()
 
 const episodeId = ref('')
 const submitting = ref(false)
 const generatingPrompts = ref(false)
+
+// v1.0.115+ — per-episode "is a video job in flight" computed. The
+// global `videoGenerating` (from useGenerating) stays true as long as
+// ANY video job is queued/running in the app, so it was leaking the
+// "Generating video for [current ep]…" status into pages where the
+// current episode wasn't the one actually generating. This narrows it
+// to the episode currently selected on THIS page.
+const videoJobActiveForEpisode = computed(() => {
+  if (!episodeId.value) return false
+  return jobs.value.some((j: any) =>
+    j.episode_id === episodeId.value &&
+    j.project_slug === slug.value &&
+    j.type === 'video' &&
+    (j.status === 'queued' || j.status === 'running'),
+  )
+})
+
+// Defensive — clear `submitting` if the user swaps episodes while a POST
+// is still in flight (rare; the POST is fast). Matches the symmetrical
+// reset in video-assembly.vue / audio-merge.vue / image-prompts.vue.
+watch(episodeId, (newEp, oldEp) => {
+  if (newEp !== oldEp) submitting.value = false
+})
 const manualPromptsText = ref('')
 const generatedPrompts = ref<Array<{ number: number; title: string; prompt: string }>>([])
 

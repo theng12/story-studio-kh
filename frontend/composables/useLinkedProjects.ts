@@ -6,10 +6,10 @@
  *
  * The registry is per-Mac (stored in app-settings.json on the backend).
  * That means different Macs can each link a different subset of project
- * folders — Mac A can link only TerraNash from iCloud while Mac B links
- * both TerraNash and Dozing Knight. This composable just shows what
- * the current Mac knows about; cross-Mac discovery happens via the
- * "Add existing project folder…" picker.
+ * folders — Mac A can link only one channel from iCloud while Mac B
+ * links several. This composable just shows what the current Mac knows
+ * about; cross-Mac discovery happens via the "Add existing project
+ * folder…" picker.
  */
 
 import { ref } from 'vue'

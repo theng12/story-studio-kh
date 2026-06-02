@@ -13,8 +13,6 @@
  * higher-res inputs mostly raise cost without meaningful accuracy gain.
  */
 import { existsSync } from 'fs'
-import fs from 'fs/promises'
-import path from 'path'
 import sharp from 'sharp'
 
 // Vision-capable model ids we've actually tested with the style-analysis
@@ -99,8 +97,14 @@ If you cannot clearly identify a single subject (empty scene, ambiguous composit
 
 export interface AnalyzeStyleInput {
   imagePath: string
-  model: string
-  apiKey: string
+  /** v1.0.235+ — model + apiKey are resolved internally by `analyzeStyle`
+   *  (kie.ai Claude → GPT-4o fallback). Left optional for the private
+   *  `callAnthropic`/`callOpenAi` helpers and back-compat callers/tests. */
+  model?: string
+  apiKey?: string
+  /** SDK base-URL override — used to point the Anthropic SDK at kie.ai's
+   *  `/claude` endpoint for vision (vs Anthropic direct, now retired). */
+  baseURL?: string
   /** Optional extra hint: "illustration" biases the prompt toward illustration-specific vocabulary. */
   focus?: string | null
   /** What to extract:
@@ -137,14 +141,17 @@ async function downscaleToBuffer(imagePath: string, maxSide = 1024): Promise<{ b
 
 async function callAnthropic(input: AnalyzeStyleInput, imageBuffer: Buffer, mime: string): Promise<string> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk')
-  const client = new Anthropic({ apiKey: input.apiKey })
+  const client = new Anthropic({
+    apiKey: input.apiKey,
+    ...(input.baseURL ? { baseURL: input.baseURL } : {}),
+  })
   const basePrompt =
     input.mode === 'character' ? CHARACTER_PROMPT :
     input.mode === 'tags'      ? TAGS_PROMPT      :
     STYLE_PROMPT
   const userPrompt = input.focus ? `${basePrompt}\n\nFocus hint: ${input.focus}` : basePrompt
   const resp = await client.messages.create({
-    model: input.model,
+    model: input.model!,
     max_tokens: 400,
     messages: [{
       role: 'user',
@@ -171,11 +178,11 @@ async function callOpenAi(input: AnalyzeStyleInput, imageBuffer: Buffer, mime: s
   const userPrompt = input.focus ? `${basePrompt}\n\nFocus hint: ${input.focus}` : basePrompt
   // gpt-5 + reasoning models reject `max_tokens` and require the newer
   // `max_completion_tokens` field. Pick the right one per model family.
-  const tokenField = isCompletionTokensModel(input.model)
+  const tokenField = isCompletionTokensModel(input.model!)
     ? { max_completion_tokens: 400 }
     : { max_tokens: 400 }
   const resp = await client.chat.completions.create({
-    model: input.model,
+    model: input.model!,
     ...tokenField,
     messages: [{
       role: 'user',
@@ -190,23 +197,75 @@ async function callOpenAi(input: AnalyzeStyleInput, imageBuffer: Buffer, mime: s
   return text.trim()
 }
 
+/** Vision routes through kie.ai's Claude (Sonnet — cheaper than Opus for
+ *  tagging). kie's `/claude/v1/messages` is Anthropic-shaped; image support is
+ *  not documented, so GPT-4o is the reliable fallback. */
+const KIE_VISION_SLUG = 'claude-sonnet-4-6'
+const KIE_CLAUDE_BASE_URL = 'https://api.kie.ai/claude'
+
+/** kie's Claude may silently drop the image (returning a blind/refusal reply
+ *  rather than erroring). Treat empty or "I can't see an image" text as a miss
+ *  so we fall through to GPT-4o. `NO_CLEAR_SUBJECT` is a deliberate sentinel
+ *  (the model DID see the image) → treated as usable upstream. */
+function isUsableVisionText(t: string): boolean {
+  const s = (t || '').trim()
+  if (!s) return false
+  if (/\b(can'?t|cannot|unable to|don'?t)\b[^.]{0,24}\b(see|view|access|display|process)\b/i.test(s)) return false
+  if (/\bno image\b/i.test(s)) return false
+  return true
+}
+
+/** True when a vision-capable key (kie.ai or OpenAI) exists at the app level. */
+export async function visionKeyAvailable(): Promise<boolean> {
+  const { getApiKey } = await import('../services/app-secrets-store.js')
+  const [kie, openai] = await Promise.all([
+    getApiKey('kie').catch(() => ''),
+    getApiKey('openai').catch(() => ''),
+  ])
+  return !!(kie || openai)
+}
+
+/**
+ * Analyse a reference image. Resolves keys + model internally (callers no
+ * longer pass them): tries kie.ai Claude first, falls back to GPT-4o vision
+ * if kie has no key, errors, or returns an image-blind reply.
+ */
 export async function analyzeStyle(input: AnalyzeStyleInput): Promise<AnalyzeStyleResult> {
-  if (!input.apiKey) throw new Error('API key required to analyse reference image')
   if (!input.imagePath || !existsSync(input.imagePath)) {
     throw new Error(`Reference image not found: ${input.imagePath}`)
   }
-  const model = resolveVisionModel(input.model)
+  const { getApiKey } = await import('../services/app-secrets-store.js')
+  const [kieKey, openaiKey] = await Promise.all([
+    getApiKey('kie').catch(() => ''),
+    getApiKey('openai').catch(() => ''),
+  ])
+  if (!kieKey && !openaiKey) {
+    throw new Error('No vision-capable API key configured. Add a kie.ai OR OpenAI key in Settings → API Keys.')
+  }
 
   const { buffer, mime } = await downscaleToBuffer(input.imagePath)
 
-  let style_text: string
-  if (model.startsWith('claude')) {
-    style_text = await callAnthropic({ ...input, model }, buffer, mime)
-  } else if (model.startsWith('gpt')) {
-    style_text = await callOpenAi({ ...input, model }, buffer, mime)
-  } else {
-    throw new Error(`Model ${model} is not vision-capable`)
+  // 1) Preferred: kie.ai Claude (Anthropic Messages shape via kie base URL).
+  if (kieKey) {
+    try {
+      const text = await callAnthropic(
+        { ...input, model: KIE_VISION_SLUG, apiKey: kieKey, baseURL: KIE_CLAUDE_BASE_URL },
+        buffer, mime,
+      )
+      if (text === 'NO_CLEAR_SUBJECT' || isUsableVisionText(text)) {
+        return { style_text: text, model_used: `${KIE_VISION_SLUG} [kie.ai]` }
+      }
+    } catch { /* fall through to GPT-4o */ }
   }
 
-  return { style_text, model_used: model }
+  // 2) Fallback: GPT-4o vision (documented image support).
+  if (openaiKey) {
+    const text = await callOpenAi({ ...input, model: 'gpt-4o', apiKey: openaiKey }, buffer, mime)
+    return { style_text: text, model_used: 'gpt-4o' }
+  }
+
+  throw new Error(
+    'kie.ai vision did not return a usable result and no OpenAI key is configured for fallback. ' +
+    'Add an OpenAI key in Settings → API Keys.',
+  )
 }

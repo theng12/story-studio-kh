@@ -20,11 +20,17 @@
   <div class="broll-page">
     <div class="page-header">
       <Breadcrumb />
-      <h1 class="page-title">🎬 B-Roll Picker</h1>
+      <h1 class="page-title">Video Assembly</h1>
     </div>
+
+    <!-- v1.0.115+ — tabbed pipeline switcher (same component on
+         /video-assembly). Lets the user flip between scene-based and
+         B-Roll pipelines regardless of project format. -->
+    <VideoPipelineTabs />
 
     <TopActionBar
       :project-slug="slug"
+      :presets="brollPresets"
       v-model:episode-id="form.episode_id"
       filter-field="video"
       generate-label="Pick B-Roll for this episode"
@@ -32,6 +38,9 @@
       :generate-disabled="!subscribedPool || !form.episode_id || picking"
       :generate-status="picking ? `Selecting clips for ${form.episode_id}…` : ''"
       @generate="pickClips"
+      @preset-applied="success('Preset applied')"
+      @preset-saved="success('Preset saved')"
+      @preset-deleted="success('Preset deleted')"
     />
 
     <p class="text-muted text-sm mt-2">
@@ -323,6 +332,258 @@
       </div>
     </section>
 
+    <!-- ── Subtitles (optional) ────────────────────────────────────
+         v1.0.126+ — Mirrors the scene-based Video Assembly page's
+         subtitle UI in a simplified form. Backend already burns any
+         .srt/.ass/.vtt found in the episode's subtitles_dir during
+         broll-assemble (see broll-assemble.ts:144-302), so this UI
+         just needs to put a file there. Three sources: derive one cue
+         per chapter from chapter audio, import an existing file from
+         disk, or transcribe the merged audio via Whisper. The endpoints
+         under /projects/:slug/video-editor/subtitles/* are pipeline-
+         agnostic — the same routes that power the scene-based UI work
+         here verbatim.
+    -->
+    <section v-if="subscribedPool && form.episode_id" class="card mt-3">
+      <h3>4. Subtitles (optional)</h3>
+      <p class="text-muted mt-1">
+        Generate or import a subtitle file for this episode. The
+        <strong>Enable subtitles</strong> toggle controls whether the file
+        gets burned in on the next assembly — leave it off to render
+        without subtitles even if a file exists.
+      </p>
+
+      <!-- v1.0.127+ — Enable toggle. Replaces the v1.0.126 "delete the
+           SRT to skip burn-in" workaround. State is persisted to
+           config.broll_subtitles via useAutoSave. -->
+      <div class="settings-section mt-2">
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="brollSubtitles.enabled" />
+          <span class="ml-1-tight">Enable subtitles</span>
+        </label>
+        <span class="text-muted text-xs hint-line">
+          When on, the first matching file in <code>subtitles/</code> (priority: .srt → .ass → .vtt) is burned into the final video. Off skips the burn entirely.
+        </span>
+      </div>
+
+      <p
+        v-if="subtitlesStatus && subtitlesStatus.has_libass === false && brollSubtitles.enabled"
+        class="validation-msg text-sm mt-1"
+      >
+        ⚠ This FFmpeg build doesn't include libass — subtitles can't be burned in.
+        Reinstall the app's bundled ffmpeg or install a libass-enabled build
+        (e.g. <code>brew install ffmpeg</code> with freetype + libass).
+      </p>
+
+      <!-- Source picker -->
+      <div class="flex gap-2 mt-2 flex-wrap">
+        <button
+          :class="['btn btn-sm', subtitlesSource === 'chapters' ? 'btn-primary' : 'btn-secondary']"
+          @click="subtitlesSource = 'chapters'"
+        >📑 Auto from chapters</button>
+        <button
+          :class="['btn btn-sm', subtitlesSource === 'upload' ? 'btn-primary' : 'btn-secondary']"
+          @click="subtitlesSource = 'upload'"
+        >📂 Import .srt / .vtt</button>
+        <button
+          :class="['btn btn-sm', subtitlesSource === 'whisper' ? 'btn-primary' : 'btn-secondary']"
+          @click="subtitlesSource = 'whisper'"
+        >🎙 Transcribe (Whisper)</button>
+      </div>
+
+      <!-- Chapters -->
+      <div v-if="subtitlesSource === 'chapters'" class="mt-2">
+        <p class="text-muted text-sm">
+          Derives one cue per chapter from the individual chapter audio files —
+          fast, free, chapter-level granularity (one line per chapter).
+        </p>
+        <p
+          v-if="subtitlesStatus && !subtitlesStatus.has_chapter_audio"
+          class="validation-msg text-sm"
+        >
+          No chapter audio files found. Run the Audio Generator for this
+          episode first, or pick a different source.
+        </p>
+        <!-- v1.0.127+ — Gap input. Audio Assembly inserts silence between
+             chapters (default 5s, format-overridable via the format's
+             audioMergeDefaults.gapDurationSec). The subtitle generator
+             needs to use the SAME gap or cues drift forward through the
+             episode. Default is seeded from the format on mount; the user
+             can override here per-episode. -->
+        <div class="flex items-center gap-2 mt-2 flex-wrap">
+          <label class="text-sm text-muted" style="white-space: nowrap">Gap between chapters (sec)</label>
+          <input
+            v-model.number="brollSubtitles.gap_sec"
+            type="number"
+            min="0"
+            max="30"
+            step="0.5"
+            class="input input-sm"
+            style="width: 90px"
+          />
+          <span class="text-xs text-muted" v-if="brollFormatGapDefault !== null && brollSubtitles.gap_sec !== brollFormatGapDefault">
+            format default: {{ brollFormatGapDefault }}s — restore?
+            <button class="btn-icon" title="Restore format default" @click="brollSubtitles.gap_sec = brollFormatGapDefault ?? 5">↺</button>
+          </span>
+          <span class="text-xs text-muted" v-else-if="brollFormatGapDefault !== null">
+            format default (audioMergeDefaults.gapDurationSec)
+          </span>
+          <span class="text-xs text-muted" v-else>
+            should match the silence your Audio Assembly inserts between chapters
+          </span>
+        </div>
+        <button
+          class="btn btn-sm btn-secondary mt-2"
+          :disabled="subtitlesGenerating || !form.episode_id || !subtitlesStatus?.has_chapter_audio"
+          @click="generateBrollSubtitlesFromChapters"
+        >
+          {{ subtitlesGenerating ? 'Generating…' : `Generate SRT from chapters (gap: ${brollSubtitles.gap_sec}s)` }}
+        </button>
+      </div>
+
+      <!-- Upload -->
+      <div v-if="subtitlesSource === 'upload'" class="mt-2">
+        <p class="text-muted text-sm">
+          Pick a subtitle file from disk — Story Studio copies it into this
+          episode's <code>subtitles/</code> folder and normalises line endings.
+        </p>
+        <div class="flex gap-2 mt-1 items-center" style="flex-wrap: wrap">
+          <FilePicker
+            v-model="brollSubtitleUploadPath"
+            placeholder="/path/to/subtitles.srt"
+            :filters="[{ name: 'Subtitles', extensions: ['srt', 'vtt'] }]"
+            title="Choose a subtitle file"
+            clearable
+          />
+          <button
+            class="btn btn-sm btn-primary"
+            :disabled="subtitlesGenerating || !brollSubtitleUploadPath || !form.episode_id"
+            @click="importBrollSubtitles"
+          >
+            {{ subtitlesGenerating ? 'Importing…' : 'Import' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Whisper -->
+      <div v-if="subtitlesSource === 'whisper'" class="mt-2">
+        <p class="text-muted text-sm">
+          Transcribes the merged audio via the <strong>OpenAI Whisper API</strong>
+          directly — uses the OpenAI key configured in <strong>App Settings →
+          API Keys</strong> (not kie.ai, not fal.ai). Produces word-level cues.
+          Costs ~$0.006/min on the <code>whisper-1</code> model; OpenAI
+          handles billing on your account.
+        </p>
+        <p
+          v-if="subtitlesStatus && !subtitlesStatus.has_openai_key"
+          class="validation-msg text-sm"
+        >
+          OpenAI API key not set. Add one under App Settings → API Keys.
+        </p>
+        <p
+          v-if="subtitlesStatus && !subtitlesStatus.has_merged_audio"
+          class="validation-msg text-sm"
+        >
+          No merged audio file found. Run Audio Assembly for this episode first.
+        </p>
+        <p v-if="brollHasExistingWhisperSrt" class="text-muted text-sm">
+          <strong>{{ brollExistingWhisperSrtName }}</strong> already exists — the
+          job will skip the (paid) Whisper API and reuse it. Tick below to
+          re-run with a fresh charge.
+        </p>
+        <label
+          v-if="brollHasExistingWhisperSrt"
+          class="flex items-center gap-1 mt-1 text-sm"
+        >
+          <input type="checkbox" v-model="brollWhisperForce" />
+          Re-run transcription (charges Whisper API again)
+        </label>
+        <button
+          class="btn btn-sm btn-secondary mt-1"
+          :disabled="subtitlesGenerating || !form.episode_id || !subtitlesStatus?.has_merged_audio || !subtitlesStatus?.has_openai_key"
+          @click="transcribeBrollWithWhisper"
+        >
+          {{ subtitlesGenerating ? 'Queuing…' : (brollHasExistingWhisperSrt && !brollWhisperForce ? 'Reuse existing transcript' : 'Transcribe now') }}
+        </button>
+      </div>
+
+      <!-- Existing subtitle files for this episode -->
+      <div
+        v-if="subtitlesStatus?.existing_srts?.length"
+        class="text-sm mt-3"
+      >
+        <label class="text-muted">Subtitle files on disk for this episode</label>
+        <ul class="broll-srt-list">
+          <li v-for="srt in subtitlesStatus.existing_srts" :key="srt.path">
+            <code>{{ srt.filename }}</code>
+            <span class="text-muted">
+              <template v-if="brollSubtitles.enabled">
+                — first match by priority (.srt → .ass → .vtt) gets burned on the next assembly
+              </template>
+              <template v-else>
+                — currently disabled by the toggle above; will be burned when re-enabled
+              </template>
+            </span>
+            <!-- v1.0.140+ — Drift warning. Surfaces when this SRT was
+                 derived against a different merge gap than the audio
+                 was actually merged with — re-deriving fixes the
+                 progressive drift the user would otherwise see in the
+                 burned-in subtitles. -->
+            <span
+              v-if="srt.drifts_from_current_merge"
+              class="broll-srt-drift"
+              :title="srt.drift_note || 'Gap mismatch — re-derive to fix drift.'"
+            >
+              ⚠ drift {{ srt.generated_with_gap_s != null
+                ? `(was ${srt.generated_with_gap_s}s, now ${subtitlesStatus?.current_merge_gap_s}s)`
+                : '' }}
+            </span>
+            <!-- v1.0.135+ — In-app delete. Removes the file from
+                 subtitles_dir so the broll-assemble findSubtitlePath
+                 walk won't pick it up. Confirms first because deletes
+                 are not undoable from inside the app. -->
+            <button
+              type="button"
+              class="btn-icon broll-srt-del"
+              :disabled="brollSubtitlesDeletingFilename === srt.filename"
+              :title="`Delete ${srt.filename} from this episode's subtitles folder`"
+              aria-label="Delete subtitle file"
+              @click="deleteBrollSubtitle(srt.filename)"
+            >
+              {{ brollSubtitlesDeletingFilename === srt.filename ? '⏳' : '✕' }}
+            </button>
+          </li>
+        </ul>
+      </div>
+      <div v-else class="text-muted text-sm mt-3">
+        No subtitle files for this episode yet. Pick a source above to
+        generate or import one.
+      </div>
+
+      <!-- v1.0.127+ — Style picker. Reuses the same SubtitleStylePicker
+           component the scene-based Video Assembly uses, so the visual
+           language is identical across both pipelines. Style is persisted
+           to config.broll_subtitles.style and sent to broll-assemble as
+           force_style= on the ffmpeg subtitles filter. Only renders when
+           subtitles are enabled — keeps the section quiet for users who
+           leave the toggle off. -->
+      <div v-if="brollSubtitles.enabled" class="settings-section mt-3">
+        <h4>Style</h4>
+        <p class="text-muted text-xs hint-line">
+          Controls font, size, colour, outline, position, and background — applied via
+          libass <code>force_style</code> at burn time. Style choices are saved per project
+          so they survive reload + apply to every B-Roll assembly going forward.
+        </p>
+        <SubtitleStylePicker
+          :slug="slug"
+          :episode-id="form.episode_id"
+          :style="brollSubtitles.style"
+          :sample-text="'The forest whispered secrets older than memory.'"
+          @update:style="(s) => Object.assign(brollSubtitles.style, s)"
+        />
+      </div>
+    </section>
+
     <!-- ── Selected sequence preview ──────────────────────────────── -->
     <section v-if="selection.length" class="card mt-3">
       <h3>3. Selected sequence ({{ selection.length }} clips · {{ formatDuration(selectionDuration) }})</h3>
@@ -358,8 +619,12 @@ useAppTitle('B-Roll Picker')
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const { get, post, put } = useApi()
+const { get, post, put, del } = useApi()
 const { success, error: showError } = useToast()
+// v1.0.135+ — useConfirm composable for the in-app subtitle-delete
+// confirmation dialog (subtitle deletes are not undoable from inside
+// the app, so we ask once).
+const { ask } = useConfirm()
 const broll = useBrollPools()
 
 const pools = broll.pools
@@ -385,6 +650,277 @@ const form = reactive({
   motion_pool: ['static', 'zoom-in', 'pan-right'] as string[],
   transition_id: 'crossfade' as string,
   transition_duration: 0.5,
+})
+
+// v1.0.121+ — Preset hookup. Mirrors the pattern used by every other
+// generator page (scripts, audio, image-prompts, etc.). The composable
+// strips `episode_id` automatically (it's in DEFAULT_EXCLUDE_KEYS) so a
+// preset saved on TN0042 doesn't drag that episode reference onto TN0043
+// when applied. `subscribedPoolId` and `manualSelection` deliberately
+// stay OUTSIDE the snapshot — pool subscription is a per-project setting
+// stored in config.json (not a preset concept), and manual-mode picks
+// are per-episode by definition. Presets here capture the *tuning*
+// (selection mode, tags, pacing, motion, transitions, volume, lookback)
+// that a user wants to reuse across episodes or channels.
+const brollPresets = usePresets<any>({
+  slug: slug.value,
+  configKey: 'broll',
+  presetType: 'broll',
+  snapshot: () => ({ form: { ...form } }),
+  apply: (data) => {
+    if (data?.form) Object.assign(form, data.form)
+  },
+})
+
+// v1.0.126+ — Subtitle state. v1.0.127+ — Full feature set:
+//   - Enable toggle (replaces "must delete file to skip burn-in")
+//   - Style picker (force_style passthrough to ffmpeg's subtitles filter)
+//   - Format-aware gap default (read from audioMergeDefaults.gapDurationSec)
+//   - Persisted to config.broll_subtitles via useAutoSave debounce
+//
+// `brollSubtitles` is the persistent state — survives navigation,
+// flows into the assemble request. `subtitlesSource` is transient
+// (which generator-tab is showing right now).
+const subtitlesSource = ref<'chapters' | 'upload' | 'whisper'>('chapters')
+const subtitlesGenerating = ref(false)
+const subtitlesStatus = ref<{
+  has_libass: boolean
+  has_merged_audio: boolean
+  has_chapter_audio: boolean
+  has_openai_key: boolean
+  existing_srts: Array<{
+    path: string
+    filename: string
+    mtime: number
+    // v1.0.140+ — Drift-detection fields populated by the backend when
+    // a parallel `.srt.json` metadata sidecar exists. Missing on
+    // pre-1.0.140 SRTs (hand-imported, Whisper-transcribed, etc.) and
+    // ignored by the frontend in that case.
+    generated_with_gap_s?: number | null
+    drifts_from_current_merge?: boolean
+    drift_note?: string
+  }>
+  subtitles_dir: string
+  /** v1.0.140+ — The gap_duration the most recent audio-merge job
+   *  used, read from the audio_chapters.json sidecar. null when no
+   *  merge has run on 1.0.140+ yet. */
+  current_merge_gap_s?: number | null
+} | null>(null)
+const brollSubtitleUploadPath = ref('')
+const brollWhisperForce = ref(false)
+
+// Persistent subtitle config — saved to config.broll_subtitles. Default
+// shape matches what broll-assemble.ts expects on the wire + the
+// VideoSubtitleStyle interface. `gap_sec` controls subtitle cue
+// timestamps in the chapters-source generator; the default is replaced
+// by the format's audioMergeDefaults.gapDurationSec on mount if the
+// project's effective format declares one.
+const brollSubtitles = reactive({
+  enabled: false,
+  gap_sec: 5,
+  style: {
+    font_family: 'Helvetica',
+    font_size_px: 28,
+    color_hex: '#FFFFFF',
+    outline_color_hex: '#000000',
+    outline_px: 2,
+    background: 'none' as 'none' | 'semi' | 'full',
+    position: 'bottom' as 'top' | 'center' | 'bottom',
+    align: 'center' as 'left' | 'center' | 'right',
+    max_chars_per_line: 42,
+    max_lines: 2,
+  },
+})
+
+// v1.0.127+ — Format-driven default for the inter-chapter silence gap.
+// audio-merge.ts uses `req.body.gap_duration ?? fmtMerge?.gapDurationSec ?? 5`
+// when concatenating the chapter MP3s. Subtitle from-chapters needs to
+// use the SAME value or its cues drift over the episode. We fetch the
+// format on mount and seed `brollSubtitles.gap_sec` from it (unless the
+// user already saved a different value to config).
+const brollFormatGapDefault = ref<number | null>(null)
+async function loadBrollFormatGapDefault(): Promise<void> {
+  try {
+    const f = await get<{ script?: { audioMergeDefaults?: { gapDurationSec?: number } } }>(
+      `/projects/${slug.value}/effective-format`,
+    )
+    const fg = f?.script?.audioMergeDefaults?.gapDurationSec
+    if (typeof fg === 'number' && fg >= 0) brollFormatGapDefault.value = fg
+  } catch { /* tolerate — fallback default (5) stays in place */ }
+}
+
+// v1.0.127+ — Persist brollSubtitles to config.broll_subtitles whenever it
+// changes. Debounced 800ms via useAutoSave so a series of rapid edits
+// (slider drag in the style picker, gap arrow-key bumps) collapse into
+// one PUT. Auto-flush on unmount/unload keeps the last change durable
+// even if the user navigates away inside the debounce window.
+const brollSubsAutoSave = useAutoSave({
+  debounceMs: 800,
+  save: async () => {
+    if (!slug.value) return
+    await put(`/projects/${slug.value}/settings/config`, {
+      broll_subtitles: {
+        enabled: brollSubtitles.enabled,
+        gap_sec: brollSubtitles.gap_sec,
+        style: { ...brollSubtitles.style },
+      },
+    })
+  },
+})
+// Trigger save on any field change. Deep watch the reactive object so
+// nested style edits also schedule a save.
+watch(
+  () => ({
+    enabled: brollSubtitles.enabled,
+    gap_sec: brollSubtitles.gap_sec,
+    style: { ...brollSubtitles.style },
+  }),
+  () => { brollSubsAutoSave.scheduleSave() },
+  { deep: true },
+)
+
+const brollHasExistingWhisperSrt = computed(() => {
+  const list = subtitlesStatus.value?.existing_srts || []
+  return list.some(s => /_whisper\.srt$/i.test(s.filename))
+})
+const brollExistingWhisperSrtName = computed(() => {
+  const list = subtitlesStatus.value?.existing_srts || []
+  const found = list.find(s => /_whisper\.srt$/i.test(s.filename))
+  return found?.filename || ''
+})
+
+async function loadBrollSubtitlesStatus(): Promise<void> {
+  if (!form.episode_id) {
+    subtitlesStatus.value = null
+    return
+  }
+  try {
+    subtitlesStatus.value = await get(
+      `/projects/${slug.value}/video-editor/subtitles/status/${form.episode_id}`,
+    )
+  } catch {
+    // Non-fatal — leave previous value or null; the UI just hides the
+    // condition-gated warnings.
+  }
+}
+
+async function generateBrollSubtitlesFromChapters(): Promise<void> {
+  if (!form.episode_id) return
+  subtitlesGenerating.value = true
+  try {
+    const r = await post<{ srt_path: string; cues: number }>(
+      `/projects/${slug.value}/video-editor/subtitles/from-chapters/${form.episode_id}`,
+      // v1.0.127+ — use the configured gap (format-aware default seeded
+      // on mount; user can override). Hardcoded 5 in v1.0.126 made cues
+      // drift for projects whose audio_merge used a non-5 gap_duration.
+      { gap_sec: brollSubtitles.gap_sec },
+    )
+    success(`Generated ${r.cues} chapter cues at ${brollSubtitles.gap_sec}s inter-chapter gap`)
+    await loadBrollSubtitlesStatus()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Chapter subtitles failed')
+  } finally {
+    subtitlesGenerating.value = false
+  }
+}
+
+async function importBrollSubtitles(): Promise<void> {
+  if (!form.episode_id || !brollSubtitleUploadPath.value) return
+  subtitlesGenerating.value = true
+  try {
+    const r = await post<{ srt_path: string; cues: number; warnings: string[] }>(
+      `/projects/${slug.value}/video-editor/subtitles/import/${form.episode_id}`,
+      { source_path: brollSubtitleUploadPath.value },
+    )
+    success(`Imported ${r.cues} cues${r.warnings?.length ? ` (${r.warnings.length} warnings)` : ''}`)
+    brollSubtitleUploadPath.value = ''
+    await loadBrollSubtitlesStatus()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Import failed')
+  } finally {
+    subtitlesGenerating.value = false
+  }
+}
+
+async function transcribeBrollWithWhisper(): Promise<void> {
+  if (!form.episode_id) return
+  subtitlesGenerating.value = true
+  try {
+    await post(
+      `/projects/${slug.value}/video-editor/subtitles/transcribe/${form.episode_id}`,
+      { language: 'en', force: brollWhisperForce.value },
+    )
+    success(
+      brollHasExistingWhisperSrt.value && !brollWhisperForce.value
+        ? 'Existing transcript will be reused — no Whisper charge'
+        : 'Whisper transcription queued — check Jobs panel for progress',
+    )
+    // No immediate srt_path set — the transcribe job is async. The user
+    // pops back here later (or the status refreshes after the job 'done'
+    // event) and the new SRT shows up in the existing-srts list.
+    await loadBrollSubtitlesStatus()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to queue transcription')
+  } finally {
+    subtitlesGenerating.value = false
+  }
+}
+
+// v1.0.135+ — In-app subtitle delete. Replaces the "delete from Finder"
+// fallback in the original v1.0.126 Subtitles section. Confirms first
+// because the delete is not undoable from inside the app. Per-filename
+// in-flight indicator so multiple deletes can't race (only one button
+// shows the spinner at a time; others stay clickable until clicked).
+const brollSubtitlesDeletingFilename = ref<string | null>(null)
+async function deleteBrollSubtitle(filename: string): Promise<void> {
+  if (!form.episode_id || !filename) return
+  if (brollSubtitlesDeletingFilename.value) return  // single-flight gate
+  const ok = await ask({
+    title: `Delete ${filename}?`,
+    message: `This removes the file from the episode's subtitles/ folder. ` +
+             `If this was the file your next assembly would have burned in, ` +
+             `the render will go out with no subtitles until you generate / import another.`,
+    confirmLabel: 'Delete',
+    danger: true,
+  })
+  if (!ok) return
+  brollSubtitlesDeletingFilename.value = filename
+  try {
+    // Backend returns the fresh existing_srts list so we can swap state
+    // in-place without a second GET. Fall back to a full status reload
+    // if the response shape ever drifts.
+    const r = await del<{ existing_srts: Array<{
+      path: string; filename: string; mtime: number
+      generated_with_gap_s?: number | null
+      drifts_from_current_merge?: boolean
+      drift_note?: string
+    }>; deleted: string }>(
+      `/projects/${slug.value}/video-editor/subtitles/${form.episode_id}/${encodeURIComponent(filename)}`,
+    )
+    if (subtitlesStatus.value && Array.isArray(r?.existing_srts)) {
+      subtitlesStatus.value = { ...subtitlesStatus.value, existing_srts: r.existing_srts }
+    } else {
+      await loadBrollSubtitlesStatus()
+    }
+    success(`Deleted ${filename}`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || `Failed to delete ${filename}`)
+  } finally {
+    brollSubtitlesDeletingFilename.value = null
+  }
+}
+
+// Refresh status on episode change so the existing-SRT list + condition
+// gates (has_chapter_audio / has_merged_audio / has_openai_key) all
+// reflect the currently-selected episode.
+watch(() => form.episode_id, (newEp, oldEp) => {
+  if (newEp !== oldEp) {
+    void loadBrollSubtitlesStatus()
+    // Clear in-flight + per-episode upload state so a stale path doesn't
+    // import into the new episode if the user was mid-flow.
+    brollSubtitleUploadPath.value = ''
+    brollWhisperForce.value = false
+  }
 })
 
 // Motion catalogue (UI source — mirrors lib/broll-motion.ts BROLL_MOTIONS).
@@ -477,6 +1013,14 @@ async function loadConfig(): Promise<void> {
     const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
     subscribedPoolId.value = cfg?.broll_pool_id || ''
     form.broll_lookback = cfg?.broll_lookback ?? 10
+    // v1.0.127+ — Hydrate persistent subtitle config. Defensive Object.assign
+    // so a partial config (missing style or gap_sec) keeps the defaults.
+    const saved = cfg?.broll_subtitles
+    if (saved && typeof saved === 'object') {
+      if (typeof saved.enabled === 'boolean') brollSubtitles.enabled = saved.enabled
+      if (typeof saved.gap_sec === 'number' && saved.gap_sec >= 0) brollSubtitles.gap_sec = saved.gap_sec
+      if (saved.style && typeof saved.style === 'object') Object.assign(brollSubtitles.style, saved.style)
+    }
   } catch { /* tolerate */ }
 }
 
@@ -504,6 +1048,24 @@ onMounted(async () => {
   await broll.loadPools()
   await loadConfig()
   await loadPoolClips()
+  // v1.0.121+ — Hydrate presets AFTER loadConfig so an active preset's
+  // values overlay the project-level defaults (matches how every other
+  // generator page sequences these two). `load()` auto-applies the active
+  // preset on mount per the composable's default — see usePresets opts.
+  await brollPresets.load()
+  // v1.0.126+ — Status drives the libass / chapter-audio / merged-audio /
+  // openai-key gates in the new Subtitles section. Loaded after presets
+  // so applying a preset doesn't race with the status fetch.
+  await loadBrollSubtitlesStatus()
+  // v1.0.127+ — Format-aware gap default. If the user has never saved a
+  // broll_subtitles.gap_sec (i.e. it's still the hardcoded 5), seed it
+  // from the format's audioMergeDefaults.gapDurationSec so the first
+  // "Generate SRT from chapters" run produces cues that line up with
+  // what audio-merge actually wrote between chapters.
+  await loadBrollFormatGapDefault()
+  if (brollFormatGapDefault.value !== null && brollSubtitles.gap_sec === 5) {
+    brollSubtitles.gap_sec = brollFormatGapDefault.value
+  }
 })
 
 // ── Pool subscription ──────────────────────────────────────────────────
@@ -573,6 +1135,12 @@ async function assembleVideo(): Promise<void> {
       episode_id: form.episode_id,
       pool_id: subscribedPoolId.value,
       broll_volume: form.broll_volume,
+      // v1.0.127+ — Subtitle controls. Backend defaults missing fields
+      // to enabled=true + no style override (legacy behaviour), so we
+      // only need to send what's actually configured. Sending style
+      // only when subtitles are enabled keeps the wire payload clean.
+      subtitles_enabled: brollSubtitles.enabled,
+      ...(brollSubtitles.enabled ? { subtitles_style: brollSubtitles.style } : {}),
     })
     success(`Queued — job ${job.job_id}. Watch progress in the Jobs panel.`)
   } catch (e: any) {
@@ -757,4 +1325,66 @@ function formatDuration(sec: number): string {
 .motion-pool-chip input { margin: 0; }
 
 .select-sm { font-size: 12px; padding: 3px 6px; }
+
+/* v1.0.126+ — Subtitle file list inside the new Subtitles section.
+   Tight spacing so multiple files don't dominate the section. The
+   filename is monospace so SRT/ASS/VTT extensions read clearly. */
+.broll-srt-list {
+  margin: 6px 0 8px;
+  padding-left: 18px;
+  list-style: disc;
+}
+.broll-srt-list li {
+  margin: 2px 0;
+  line-height: 1.45;
+}
+.broll-srt-list code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+/* v1.0.135+ — In-line delete button on each subtitle row. Sized to
+   match the surrounding text + spinner so the row doesn't jump when
+   the click flips it to ⏳. The danger hover is opt-in (not the
+   default state) so the row reads as informational. */
+.broll-srt-del {
+  margin-left: 8px;
+  padding: 0 6px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.broll-srt-del:hover:not(:disabled) {
+  color: #e25c5c;
+  border-color: rgba(226, 92, 92, 0.4);
+  background: rgba(226, 92, 92, 0.08);
+}
+.broll-srt-del:disabled { opacity: 0.6; cursor: default; }
+
+/* v1.0.140+ — Drift warning chip on subtitle rows where the SRT was
+   derived against a different audio-merge gap than the current one.
+   Yellow-tinted so it reads as "needs attention" without being a
+   hard error — the SRT still burns; it just drifts visibly. Hover
+   shows the full explanation from drift_note. */
+.broll-srt-drift {
+  margin-left: 8px;
+  padding: 0 6px;
+  font-size: 11px;
+  color: #d4a017;
+  background: rgba(212, 160, 23, 0.10);
+  border: 1px solid rgba(212, 160, 23, 0.35);
+  border-radius: 3px;
+  cursor: help;
+}
+.validation-msg {
+  color: #c97a4a;
+  background: rgba(201, 122, 74, 0.08);
+  border: 1px solid rgba(201, 122, 74, 0.25);
+  border-radius: 4px;
+  padding: 6px 10px;
+}
 </style>

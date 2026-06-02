@@ -23,6 +23,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import { buildNarrationDocx } from './docx-builder.js'
 import { narrationDocxToMarkdown } from './docx-parser.js'
+import { matchChapterFile, resolveArtifact, resolveReadPath } from './episode-artifacts.js'
 
 export interface NarrationParts {
   intro?: { text: string }
@@ -132,11 +133,11 @@ export function splitNarrationIntoChapters(narrationText: string): NarrationPart
  * future rename only touches this module.
  */
 export function chapterFilename(code: string, chapterNumber: number): string {
-  return `${code}_Chapter_${chapterNumber.toString().padStart(2, '0')}.docx`
+  return `${code}_Chapter_${chapterNumber.toString().padStart(2, '0')}.md`
 }
 
 export function introductionFilename(code: string): string {
-  return `${code}_Introduction.docx`
+  return `${code}_Introduction.md`
 }
 
 export function chapterFilePath(scriptDir: string, code: string, chapterNumber: number): string {
@@ -206,18 +207,20 @@ export async function assembleUnifiedNarration(
   code: string,
   episodeTitle: string,
 ): Promise<{ chapter_numbers: number[]; introduction_present: boolean }> {
-  const introPath = introductionFilePath(scriptDir, code)
+  // resolveReadPath so a legacy `_Introduction.docx` is still found.
+  const introPath = resolveReadPath(introductionFilePath(scriptDir, code))
   const introductionPresent = existsSync(introPath)
 
   // Discover chapter files: scan the directory for files matching the
   // exact pattern. Avoids assuming a chapter count from the form.
   let entries: string[] = []
   try { entries = await fs.readdir(scriptDir) } catch { /* dir missing → empty */ }
-  const chapterRe = new RegExp(`^${escapeRegex(code)}_Chapter_(\\d+)\\.docx$`)
+  // Match .md (new) AND legacy .docx so a partially-regenerated legacy
+  // episode (mixed extensions) still assembles every chapter.
   const chapterNumbers: number[] = []
   for (const name of entries) {
-    const m = name.match(chapterRe)
-    if (m) chapterNumbers.push(parseInt(m[1], 10))
+    const n = matchChapterFile(name, code)
+    if (n !== null) chapterNumbers.push(n)
   }
   chapterNumbers.sort((a, b) => a - b)
 
@@ -240,13 +243,15 @@ export async function assembleUnifiedNarration(
     // so the layout matches the legacy format byte-for-byte.
     sections.push(`# ${episodeTitle} — Narration`)
     for (const num of chapterNumbers) {
-      const md = await narrationDocxToMarkdown(chapterFilePath(scriptDir, code, num))
+      // resolveReadPath: a legacy episode may still have a .docx chapter
+      // sitting next to freshly-regenerated .md siblings.
+      const md = await narrationDocxToMarkdown(resolveReadPath(chapterFilePath(scriptDir, code, num)))
       sections.push(md.trim())
     }
   }
 
   const unified = sections.join('\n\n')
-  const unifiedPath = path.join(scriptDir, `${code}_Script_Narration.docx`)
+  const unifiedPath = path.join(scriptDir, `${code}_Script_Narration.md`)
   await buildNarrationDocx(unified, code, episodeTitle, unifiedPath)
 
   return { chapter_numbers: chapterNumbers, introduction_present: introductionPresent }
@@ -272,12 +277,12 @@ export async function ensureChapterFilesMigrated(
 ): Promise<boolean> {
   let entries: string[] = []
   try { entries = await fs.readdir(scriptDir) } catch { return false }
-  const chapterRe = new RegExp(`^${escapeRegex(code)}_Chapter_\\d+\\.docx$`)
-  const hasAnyChapterFile = entries.some(n => chapterRe.test(n))
+  const hasAnyChapterFile = entries.some(n => matchChapterFile(n, code) !== null)
   if (hasAnyChapterFile) return false
 
-  const unifiedPath = path.join(scriptDir, `${code}_Script_Narration.docx`)
-  if (!existsSync(unifiedPath)) return false
+  // Source unified narration may be legacy .docx or new .md.
+  const unifiedPath = resolveArtifact(scriptDir, `${code}_Script_Narration`)
+  if (!unifiedPath) return false
 
   // Capture the original unified narration's mtime BEFORE we overwrite
   // it via re-assembly. Used to preserve mtimes on every materialised
@@ -346,10 +351,4 @@ export async function ensureChapterFilesMigrated(
   }
 
   return true
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
