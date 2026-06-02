@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.243 — 2026-06-03
+
+### Added — Render-time Style Bible, character text descriptors, and negative prompts (continuity render)
+The continuity renderer used to send each scene's `visual_prompt` to the image model **verbatim** — identity came only from the character-sheet/style **images**, and the character `description` text was thrown away. This adds a render-time prompt layer so the final prompt is structured as **[scene action + setting (from the planner)] + [anchor character descriptors] + [Style Bible]**, with the reference images still riding alongside:
+
+- **Style Bible** — a persistent style description (medium, art style, lighting, palette, grain…) appended to *every* scene's prompt **at render time**. Unlike the planner's plan-time style, editing this and re-rendering needs **no re-plan**, and it reinforces the look in text for prompt-weighted models (OpenRouter/Gemini) alongside the `style.png` image reference.
+- **Character text descriptors** — each anchor character's stored `description` is now injected into the prompt next to its image reference, reinforcing identity in text + image (and carrying through even on the text-only fallback).
+- **Negative prompt** — forwarded to providers that support it (local Image Studio today; kie.ai / OpenAI / OpenRouter ignore it for now).
+- **Savable Style presets** — since the Style Bible is usually the same across a channel's episodes, the Character Sheet page now has a device-aware **Style preset** picker. Save the Style Bible + negative prompt once, then Apply on any episode instead of retyping (stored under `config.continuity_style_presets`). Apply fills the fields; Save continuity settings persists them to that episode.
+
+All three are set per-episode on the **Character Sheet → Continuity settings** page and stored in `continuity.json`. Projects that leave them blank render exactly the bare `visual_prompt` as before — fully backward-compatible. The "Now rendering" panel and Jobs log show the composed prompt.
+
+### Files
+- `electron/server/generators/continuity-render.ts` (compose prompt: style bible + character text; forward negative prompt)
+- `electron/server/routes/continuity.ts` · `electron/server/models/types.ts` (persist + type `style_bible` / `negative_prompt`)
+- `frontend/pages/projects/[slug]/character-sheet.vue` (Style Bible + Negative prompt fields + Style preset picker)
+- `frontend/composables/usePresets.ts` (`style-bible` preset type)
+
+---
+
 ## v1.0.242 — 2026-06-03
 
 ### Added — Scene-planner detail control, style prompt, custom instructions + savable presets

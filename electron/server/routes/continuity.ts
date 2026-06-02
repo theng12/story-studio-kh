@@ -36,6 +36,8 @@ export function defaultContinuityConfig(): ContinuityConfig {
     pacing: { min_sec: 2, max_sec: 8 },
     references: { prev_render: true, sheet: true, characters: true, style: false },
     denoise_strength: 0.5,
+    style_bible: '',
+    negative_prompt: '',
     updated_at: '',
   }
 }
@@ -89,6 +91,10 @@ router.put('/projects/:slug/continuity/:episodeId', async (req, res) => {
       style: body.references?.style === true,
     },
     denoise_strength: Number.isFinite(denoise) ? denoise : 0.5,
+    // v1.0.243 — render-time Style Bible + negative prompt. Trimmed; capped so
+    // a malformed client can't write an unbounded blob into the prompt.
+    style_bible: typeof body.style_bible === 'string' ? body.style_bible.trim().slice(0, 2000) : '',
+    negative_prompt: typeof body.negative_prompt === 'string' ? body.negative_prompt.trim().slice(0, 1000) : '',
     updated_at: new Date().toISOString(),
   }
 

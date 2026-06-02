@@ -201,6 +201,61 @@
               risks drift). ~0.4–0.6 is a good start.
             </span>
           </div>
+
+          <!-- v1.0.243 — Style Bible presets. Save the style text once and
+               Apply it on any episode instead of retyping. Apply fills the
+               fields below; click "Save continuity settings" to persist into
+               this episode. -->
+          <PresetPicker
+            label="Style preset"
+            hint="Saves the Style Bible + negative prompt so you can reuse them across episodes. Apply fills the fields below, then Save continuity settings to persist them to this episode."
+            :presets="stylePresets.presets.value"
+            :active-id="stylePresets.activeId.value"
+            :current-machine-label="stylePresets.machineLabel.value"
+            :show-all-devices="stylePresets.showAllDevices.value"
+            :cross-device-count="stylePresets.crossDeviceCount.value"
+            :active-preset-is-cross-device="stylePresets.activePresetIsCrossDevice.value"
+            :active-preset-machine-label="stylePresets.activePresetMachineLabel.value"
+            @update:active-id="stylePresets.setActive"
+            @update:show-all-devices="(v) => stylePresets.showAllDevices.value = v"
+            @apply="stylePresets.applyActive(); success('Style preset applied — Save continuity settings to keep it')"
+            @overwrite="stylePresets.overwrite(); success('Style preset saved')"
+            @save-as="(n) => stylePresets.saveAs(n).then(() => success(`Saved: ${n}`))"
+            @delete="stylePresets.remove(); success('Style preset deleted')"
+          />
+
+          <!-- v1.0.243 — render-time Style Bible. Appended to every scene's
+               prompt when rendering, so editing it + re-rendering needs no
+               re-plan. Complements the style.png image reference above. -->
+          <div class="form-group">
+            <label>Style Bible <span class="text-muted text-xs">— text style added to every scene at render</span></label>
+            <textarea
+              v-model="config.style_bible"
+              class="textarea"
+              rows="3"
+              placeholder="e.g. cinematic photoreal, soft golden-hour key light, shallow depth of field, muted earthy palette, fine 35mm film grain, painterly atmosphere"
+            />
+            <span class="text-muted text-xs">
+              This rides alongside the <code>style.png</code> reference and reinforces the look in text —
+              especially helpful for models that weight the prompt heavily. Change it and just re-render; no re-plan needed.
+            </span>
+          </div>
+
+          <!-- v1.0.243 — negative prompt. Forwarded where the provider supports
+               it (local Image Studio); cloud providers currently ignore it. -->
+          <div class="form-group">
+            <label>Negative prompt <span class="text-muted text-xs">— things to avoid</span></label>
+            <textarea
+              v-model="config.negative_prompt"
+              class="textarea"
+              rows="2"
+              placeholder="e.g. text, watermark, extra fingers, deformed hands, lowres, blurry, oversaturated"
+            />
+            <span class="text-muted text-xs">
+              Applied by the local Image Studio model. Cloud models (kie.ai, OpenAI, OpenRouter) don't accept a
+              negative prompt yet and will ignore it.
+            </span>
+          </div>
         </div>
       </section>
     </template>
@@ -229,6 +284,8 @@ interface ContinuityConfig {
   pacing: { min_sec: number; max_sec: number }
   references: { prev_render: boolean; sheet: boolean; characters: boolean; style: boolean }
   denoise_strength: number
+  style_bible?: string
+  negative_prompt?: string
   updated_at?: string
 }
 function defaults(): ContinuityConfig {
@@ -239,10 +296,34 @@ function defaults(): ContinuityConfig {
     pacing: { min_sec: 2, max_sec: 8 },
     references: { prev_render: true, sheet: true, characters: true, style: false },
     denoise_strength: 0.5,
+    style_bible: '',
+    negative_prompt: '',
   }
 }
 
 const config = ref<ContinuityConfig>(defaults())
+
+// v1.0.243 — savable Style Bible presets. The Style Bible (+ negative prompt)
+// is usually the same across episodes of a channel, so let the user save it
+// once and Apply it instead of retyping. autoApplyOnLoad is OFF: the episode's
+// own continuity.json drives the fields on load; the preset is applied only
+// when the user explicitly clicks Apply (then Save continuity settings to
+// persist it into this episode).
+const stylePresets = usePresets<{ style_bible: string; negative_prompt: string }>({
+  slug: slug.value,
+  configKey: 'continuity_style',
+  presetType: 'style-bible',
+  autoApplyOnLoad: false,
+  snapshot: () => ({
+    style_bible: config.value.style_bible || '',
+    negative_prompt: config.value.negative_prompt || '',
+  }),
+  apply: (data) => {
+    config.value.style_bible = data.style_bible || ''
+    config.value.negative_prompt = data.negative_prompt || ''
+  },
+})
+
 const characters = ref<Character[]>([])
 const charsLoading = ref(false)
 const saving = ref(false)
@@ -428,6 +509,7 @@ watch(episodeId, () => {
   void loadCharacters()
   void loadConfig()
   void loadRefs()
+  void stylePresets.load()
 }, { immediate: true })
 </script>
 

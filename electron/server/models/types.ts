@@ -2882,6 +2882,16 @@ export interface ContinuityConfig {
   /** img2img denoise / strength (0..1). Lower = closer to the references
    *  (more consistent, risks near-identical frames); higher = more variation. */
   denoise_strength: number
+  /** v1.0.243 — "Style Bible": a persistent style description appended to
+   *  EVERY scene's prompt at RENDER time (medium, art style, rendering,
+   *  lighting feel, colour grade). Unlike the planner's plan-time style, this
+   *  is applied at render, so editing it + re-rendering needs no re-plan, and
+   *  it also reinforces style for text-weighted providers alongside style.png. */
+  style_bible?: string
+  /** v1.0.243 — negative prompt appended at render time where the provider
+   *  supports it (local ImageStudio today; cloud providers currently ignore
+   *  it). Things to avoid: extra fingers, text/watermarks, etc. */
+  negative_prompt?: string
   /** ISO8601 of the last save. */
   updated_at: string
 }

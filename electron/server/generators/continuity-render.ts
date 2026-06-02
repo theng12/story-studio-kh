@@ -65,6 +65,10 @@ interface ContinuityCfg {
   use_episode_sheet: boolean
   references: { prev_render: boolean; sheet: boolean; characters: boolean; style: boolean }
   denoise_strength: number
+  /** v1.0.243 — render-time style text appended to every scene's prompt. */
+  style_bible: string
+  /** v1.0.243 — negative prompt forwarded where the provider supports it. */
+  negative_prompt: string
 }
 function defaultCfg(): ContinuityCfg {
   return {
@@ -72,6 +76,8 @@ function defaultCfg(): ContinuityCfg {
     use_episode_sheet: false,
     references: { prev_render: true, sheet: true, characters: true, style: false },
     denoise_strength: 0.5,
+    style_bible: '',
+    negative_prompt: '',
   }
 }
 
@@ -112,6 +118,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           style: raw?.references?.style === true,
         },
         denoise_strength: Number.isFinite(Number(raw?.denoise_strength)) ? Number(raw.denoise_strength) : 0.5,
+        style_bible: typeof raw?.style_bible === 'string' ? raw.style_bible.trim() : '',
+        negative_prompt: typeof raw?.negative_prompt === 'string' ? raw.negative_prompt.trim() : '',
       }
     } catch { /* keep defaults */ }
   }
@@ -145,6 +153,9 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // most current providers don't expose an explicit img2img strength, so the
   // continuity itself comes from the reference images, not this value).
   ;(providerParams as any).denoise_strength = cfg.denoise_strength
+  // v1.0.243 — forward the negative prompt. Providers that support it (local
+  // ImageStudio) read providerParams.negative_prompt; cloud providers ignore it.
+  if (cfg.negative_prompt) (providerParams as any).negative_prompt = cfg.negative_prompt
 
   const apiKey = await resolveApiKeyForProvider(job.project_slug, imageProvider.meta, { model, jobId: job.job_id })
   if (!apiKey && providerId !== 'imagestudio') {
@@ -174,11 +185,17 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   const useStyle = cfg.references.style && existsSync(stylePath)
 
   const characterRefs: Array<{ abs: string; url: string; label: string }> = []
+  // v1.0.243 — anchor character TEXT descriptors, gathered alongside the image
+  // references. Reinforces identity in the prompt (helps text-weighted models
+  // and the no-reference text2img fallback), not just via the image.
+  const characterDescs: Array<{ name: string; description: string }> = []
   if (cfg.references.characters) {
     for (const id of cfg.anchor_character_ids) {
       try {
         const ch = await getCharacter(job.project_slug, id)
         const name = (ch as any)?.name || id
+        const desc = typeof (ch as any)?.description === 'string' ? (ch as any).description.trim() : ''
+        if (desc) characterDescs.push({ name, description: desc })
         for (const fn of ch?.references?.images || []) {
           const abs = referenceImagePath(job.project_slug, id, fn)
           if (existsSync(abs)) characterRefs.push({ abs, url: charRefUrl(id, fn), label: `Character: ${name}` })
@@ -187,6 +204,26 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     }
   }
   const characterRefPaths = characterRefs.map(c => c.abs)
+
+  // v1.0.243 — compose the final render prompt: [scene action/setting from the
+  // planner] + [anchor character descriptors] + [Style Bible]. Sections are
+  // omitted when empty, so a project with none of the extras renders exactly
+  // the bare visual_prompt as before.
+  const charText = characterDescs.length
+    ? characterDescs.map(c => `${c.name}: ${c.description}`).join('; ')
+    : ''
+  const styleBible = cfg.style_bible?.trim() || ''
+  const composePrompt = (visualPrompt: string): string => {
+    const parts = [visualPrompt.trim()]
+    if (charText) parts.push(`Character details — ${charText}.`)
+    if (styleBible) parts.push(`Style: ${styleBible}`)
+    return parts.join('\n\n')
+  }
+  if (charText || styleBible || cfg.negative_prompt) {
+    job.output_lines.push(
+      `Prompt layer: ${[charText && 'character text', styleBible && 'style bible', cfg.negative_prompt && 'negative prompt'].filter(Boolean).join(' + ')}.`,
+    )
+  }
 
   const outDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
   await fs.mkdir(outDir, { recursive: true })
@@ -314,7 +351,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           await pushStatus()
           try {
             const result = await imageProvider.generateImage({
-              prompt: scene.visual_prompt,
+              prompt: composePrompt(scene.visual_prompt),
               apiKey,
               aspectRatio,
               modelId: model,
@@ -428,13 +465,13 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       scene_index: scene.scene_index,
       total: scenes.length,
       rendered_so_far: rendered,
-      prompt: scene.visual_prompt,
+      prompt: composePrompt(scene.visual_prompt),
       references: refDescs,
       updated_at: new Date().toISOString(),
     })
 
     const result = await imageProvider.generateImage({
-      prompt: scene.visual_prompt,
+      prompt: composePrompt(scene.visual_prompt),
       apiKey,
       aspectRatio,
       modelId: model,
