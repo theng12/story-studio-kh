@@ -13,7 +13,8 @@ import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { resolveApiKeyForProviderId } from '../providers/registry.js'
-import { resolveSubfolderNames } from '../services/utils.js'
+import { resolveSubfolderNames, resolveEpisodePathsByCode } from '../services/utils.js'
+import { stitchSubtitles } from '../services/subtitle-stitcher.js'
 import { scanEpisodeAssets } from './video.js'
 import { transcribeToSrt } from '../lib/whisper-client.js'
 import { normalizeSrtOrVtt } from '../lib/subtitle-builder.js'
@@ -317,6 +318,28 @@ async function transcribePerChapter(
     `Per-chapter transcription complete: ${sections.length} chapter(s), ${totalCues} cues total → ${outDir}`,
   )
   ;(job as any).result = { subtitles_dir: outDir, chapters: sections.length, cues: totalCues }
+
+  // v1.0.251 — auto-stitch cascade. Scene Plan reads the STITCHED SRT, and
+  // users kept forgetting to re-stitch after a (re-)transcribe — leaving the
+  // planner on a stale timeline. Roll the fresh per-chapter SRTs up into
+  // {CODE}_stitched.srt right here. Best-effort: a missing prerequisite (e.g.
+  // audio not merged yet) logs a note but never fails the transcribe job.
+  try {
+    const epaths = await resolveEpisodePathsByCode(projectSlug, episodeId)
+    const r = await stitchSubtitles({
+      episode_dir: epaths.episode_dir,
+      subtitles_dir: outDir,
+      episode_code: code,
+    })
+    job.output_lines.push(
+      `✓ Auto-stitched ${r.total_cues} cue(s) (${r.total_duration_sec.toFixed(1)}s) → ${path.basename(r.output_path)}. ` +
+      `Re-run Scene Plan to pick up the new timeline.`,
+    )
+  } catch (e: any) {
+    const msg = (e as Error)?.message || String(e)
+    const hint = msg.includes('audio_chapters.json not found') ? 'run Audio Assembly first' : msg
+    job.output_lines.push(`ℹ Auto-stitch skipped (${hint}). You can stitch manually in the Subtitles workspace.`)
+  }
 }
 
 /**

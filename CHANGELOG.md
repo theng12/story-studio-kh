@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.251 — 2026-06-03
+
+### Added — Auto-stitch cascade: (re-)transcribing subtitles now rebuilds the stitched SRT automatically
+The per-chapter subtitle transcribe didn't touch the stitched SRT, so after a re-transcribe you had to remember to re-stitch — and forgetting left Scene Plan reading the old timeline (the trap behind v1.0.250's guardrails). Now the per-chapter transcribe job, after writing the fresh `{CODE}_Chapter_NN.srt` files, **automatically runs the stitcher** to rebuild `{CODE}_stitched.srt`. It calls the same `stitchSubtitles` the manual stitch button uses, and it's best-effort: if a prerequisite is missing (e.g. audio not merged yet), it logs a note and never fails the transcribe job. You still re-run Scene Plan yourself afterward (planning costs an LLM call), but the v1.0.250 "plan is older than the stitched SRT" banner now flags exactly when to do that.
+
+### Files
+- `electron/server/generators/subtitles.ts` (auto-stitch at the end of the per-chapter transcribe)
+
+---
+
 ## v1.0.250 — 2026-06-03
 
 ### Added — Scene Plan staleness guardrails (catches "I changed the audio but the plan won't update")
