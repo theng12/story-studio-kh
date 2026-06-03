@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.258 — 2026-06-03
+
+### Fixed — "Unknown image model" when rendering scenes with a LOCAL Image Studio model
+Scene Review's continuity render (and the per-scene generator) failed immediately with `Unknown image model: imagestudio:<repo>` whenever a **local Image Studio** model was selected. Cause: those generators looked the model up only in the persisted `config.image_models` catalog, but local models are surfaced **dynamically from the modal's live catalog** (`imagestudio:<repo>`) and aren't stored there — so the lookup threw. (Surfaced now that kie text removal pushed everyone toward local models for scenes.) The bulk image generator already synthesized a config for these; continuity-render + scene-image now do the same, so local models render in every path (refs and prompt-only).
+
+### Files
+- `electron/server/generators/continuity-render.ts` · `electron/server/generators/scene-image.ts` (synthesize an Image Studio model config when not in `config.image_models`)
+
+---
+
 ## v1.0.257 — 2026-06-03
 
 ### Added — "+ Add endpoint" row editor for Image / Voice Studio (clean modular UX)

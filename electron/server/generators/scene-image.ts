@@ -72,7 +72,21 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   // Resolve the configured image model + its provider.
   const config = await pm.getConfig(job.project_slug)
   if (!config) throw new Error('Project config not found')
-  const modelConfig: ImageModelConfig | undefined = config.image_models?.[model]
+  let modelConfig: ImageModelConfig | undefined = config.image_models?.[model]
+  if (!modelConfig) {
+    // v1.0.258 — local Image Studio models (`imagestudio:<repo>`) are dynamic
+    // and not in config.image_models; synthesize a minimal config (mirrors
+    // images.ts / continuity-render) so per-scene text2img works locally too.
+    const { repoForModelId } = await import('../lib/imagestudio-client.js')
+    const repo = repoForModelId(model)
+    if (repo) {
+      modelConfig = {
+        label: repo, credits_per_image: 0, prompt_char_cap: 1000,
+        endpoint: '', poll: '', type: 'local', api_model: repo,
+        provider: 'imagestudio', supports_reference_images: true,
+      } as any
+    }
+  }
   if (!modelConfig) throw new Error(`Unknown image model: ${model}`)
 
   const providerId = (modelConfig as any).provider || 'kie'
