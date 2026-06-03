@@ -58,7 +58,7 @@ interface ContinuityRenderParams {
    *  sequential chain remains the default. */
   independent?: boolean
   /** Max concurrent provider calls in independent mode (clamped 1–8, default 3). */
-  concurrency?: number
+  concurrency?: number | 'auto'
   /** v1.0.254 — PROMPT-ONLY (text-to-image): send NO reference images at all
    *  (no sheet / style / characters / prev-render), rendering each scene from
    *  its composed text prompt alone. Cheaper + faster (no img2img), and lets
@@ -265,7 +265,14 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // v1.0.241 — independent / parallel mode: drop the prev-render reference so
   // scenes are mutually independent and can render concurrently.
   const independent = params.independent === true
-  const concurrency = Math.max(1, Math.min(8, Math.floor(Number(params.concurrency) || 3)))
+  // v1.0.256 — 'auto' concurrency matches the number of ONLINE endpoints (one
+  // worker per Mac); falls back to 1 for a single local modal, 3 for cloud.
+  const concurrency = params.concurrency === 'auto'
+    ? Math.max(1, Math.min(8, dispatcher ? dispatcher.liveCount() : (providerId === 'imagestudio' ? 1 : 3)))
+    : Math.max(1, Math.min(8, Math.floor(Number(params.concurrency) || 3)))
+  if (params.concurrency === 'auto') {
+    job.output_lines.push(`Auto concurrency → ×${concurrency} (matched to online server${concurrency === 1 ? '' : 's'}).`)
+  }
   // Re-render from a given scene onward (a single-scene re-roll re-chains the
   // downstream scenes that referenced the old render). 0 = not a from-render.
   let fromIndex = 0

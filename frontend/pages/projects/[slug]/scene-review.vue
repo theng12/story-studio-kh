@@ -66,14 +66,15 @@
           </div>
           <!-- v1.0.241 — parallel-mode pool size. Only relevant to "⚡ Render in
                parallel"; sequential mode ignores it. -->
-          <div v-if="isContinuity" class="sr-ratio-pick" title="How many scenes the parallel (⚡) render works on at once. Higher = faster but more provider load; local modals may prefer 2–3.">
+          <div v-if="isContinuity" class="sr-ratio-pick" title="How many scenes the parallel (⚡) render works on at once. Auto = match the number of online Image Studio servers (1 Mac → ×1, 3 Macs → ×3). Or pick a fixed count; local modals may prefer 2–3 per Mac.">
             <label class="sr-ratio-label" for="sr-concurrency">Parallel</label>
-            <select id="sr-concurrency" v-model.number="form.concurrency" class="select sr-ratio-select sr-conc-select">
-              <option :value="2">×2</option>
-              <option :value="3">×3</option>
-              <option :value="4">×4</option>
-              <option :value="6">×6</option>
-              <option :value="8">×8</option>
+            <select id="sr-concurrency" v-model="form.concurrency" class="select sr-ratio-select sr-conc-select">
+              <option value="auto">Auto</option>
+              <option value="2">×2</option>
+              <option value="3">×3</option>
+              <option value="4">×4</option>
+              <option value="6">×6</option>
+              <option value="8">×8</option>
             </select>
           </div>
           <!-- v1.0.254 — render mode for continuity projects: img2img (references)
@@ -503,7 +504,9 @@ watch(showLivePreview, (v) => {
 const form = ref({
   model: '',  // ModelSelector auto-picks first usable
   aspect_ratio: '16:9',
-  concurrency: 3,  // parallel-mode pool size (v1.0.241)
+  // v1.0.256 — parallel pool size as a string: 'auto' matches the number of
+  // online servers, or '2'..'8' for a fixed count. Auto is the smart default.
+  concurrency: 'auto' as string,
   // v1.0.254 — render mode for continuity projects. 'refs' = img2img (sheet +
   // style + characters); 'prompt' = text2img (no references, prompt only —
   // cheaper/faster on local Image Studio, any text2img model).
@@ -813,7 +816,7 @@ async function renderContinuity(opts: { force?: boolean; fromSceneId?: string; i
       prompt_only: promptOnly.value,
     })
     success(opts.independent
-      ? `Parallel render queued (×${form.value.concurrency})${promptOnly.value ? ', prompt only (text2img)' : ' — using style + character sheet'}. Watch the Jobs panel; images land as each finishes.`
+      ? `Parallel render queued (${form.value.concurrency === 'auto' ? 'auto — matches online servers' : '×' + form.value.concurrency})${promptOnly.value ? ', prompt only (text2img)' : ' — using style + character sheet'}. Watch the Jobs panel; images land as each finishes.`
       : opts.fromSceneId
         ? 'Re-rendering from this scene onward — watch the Jobs panel.'
         : 'Continuity render queued — watch the Jobs panel. It renders scene-by-scene and can take a while.')

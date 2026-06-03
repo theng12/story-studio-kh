@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.256 — 2026-06-03
+
+### Added — "Auto" parallel concurrency (match online servers) in Scene Review
+The ⚡ parallel-render **Parallel** dropdown gains an **Auto** option (now the default) alongside ×2…×8. Auto sets the worker count to the **number of Image Studio servers that are actually online** at render time — 1 Mac → ×1, 3 Macs → ×3, a Mac powered off → it drops out automatically. So you don't have to hand-tune the count as you turn machines on/off. Falls back to ×1 for a single local modal, ×3 for cloud models. (Builds on the v1.0.255 health-checked pool — Auto just reads its live online count.)
+
+### Files
+- `electron/server/generators/continuity-render.ts` (resolve `'auto'` → live endpoint count) · `electron/server/routes/scene-review.ts` (pass `'auto'` through)
+- `frontend/pages/projects/[slug]/scene-review.vue` (Auto option, default)
+
+---
+
 ## v1.0.255 — 2026-06-03
 
 ### Added — Modular multi-Mac pool for local Image + Voice Studio (health-aware, least-busy, failover)

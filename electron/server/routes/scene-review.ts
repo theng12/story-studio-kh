@@ -266,7 +266,9 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
         single_scene_id: singleSceneId,
         // v1.0.241 — independent/parallel mode (no prev-render reference).
         independent: body.independent === true,
-        concurrency: Number.isFinite(Number(body.concurrency)) ? Number(body.concurrency) : undefined,
+        concurrency: body.concurrency === 'auto'
+          ? 'auto'
+          : (Number.isFinite(Number(body.concurrency)) ? Number(body.concurrency) : undefined),
         // v1.0.254 — prompt-only (text2img): send no reference images at all.
         prompt_only: body.prompt_only === true,
       },
