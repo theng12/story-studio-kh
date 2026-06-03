@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.252 — 2026-06-03
+
+### Fixed — Scene transcripts now follow the voiceover, and over-long scenes are split at the source
+Two planner bugs that made scenes "not follow the voiceover" and made Re-plan look broken:
+
+- **`transcript_segment` was the LLM's copy of the SRT, not the SRT itself** — and the model drifts (paraphrases / shifts a cue or two), so the transcript shown under a scene didn't match what's actually spoken there. Now the transcript is **derived mechanically from the stitched SRT cues by time** for every scene (full plan and per-scene Re-plan), so it always matches the voiceover. The LLM still decides boundaries + visual prompts; only the transcript is taken from the cues.
+- **Over-long "blob" scenes** (e.g. a 90s or 22s scene) came from the contiguity step stretching an under-covered window's last scene to the window end without re-capping to max length. Now any scene longer than the max is **split into cue-aligned ≤max-length sub-scenes** (each inheriting the visual prompt + its own SRT transcript). This is also why Re-plan sometimes didn't subdivide — fixed.
+
+Verified: re-planning a real 22.5s scene now yields 4 scenes (4.6–6.9s) whose transcripts match the subtitles exactly. Existing plans aren't retroactively fixed — re-run Scene Plan (or Re-plan the flagged scenes) to apply.
+
+### Files
+- `electron/server/services/scene-planner.ts` (`transcriptForRange` + `splitLongScene` finalize pass)
+
+---
+
 ## v1.0.251 — 2026-06-03
 
 ### Added — Auto-stitch cascade: (re-)transcribing subtitles now rebuilds the stitched SRT automatically

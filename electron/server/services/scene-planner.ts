@@ -386,6 +386,58 @@ function subdivideWindow(
   return out
 }
 
+/**
+ * v1.0.252 — the ACTUAL spoken text for a scene's [start, end], assembled from
+ * the SRT cues by time. We override the LLM's `transcript_segment` with this:
+ * the model was asked to copy the SRT verbatim but reliably drifts (paraphrases
+ * / shifts by a cue or two), which made Scene Review's transcript "not follow
+ * the voiceover". The cues are the ground truth, so derive it mechanically.
+ */
+function transcriptForRange(cues: SrtCue[], start: number, end: number): string {
+  return cues
+    .filter(c => c.end_sec > start + 0.05 && c.start_sec < end - 0.05)
+    .map(c => c.text.trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+}
+
+/**
+ * v1.0.252 — split a scene that runs longer than `maxSec` into cue-aligned
+ * sub-scenes (each ≤ maxSec), every part inheriting the parent's visual_prompt
+ * and getting its own SRT-derived transcript. Over-long scenes come from the
+ * contiguity step stretching an under-covered window's last scene to the window
+ * end without re-capping — that produced the 90s / 22s blobs. If the span has
+ * ≤1 cue (genuinely one long subtitle) it can't be split and is returned as-is.
+ */
+function splitLongScene(scene: ScenePlanEntry, cues: SrtCue[], maxSec: number): ScenePlanEntry[] {
+  const inner = cues.filter(c => c.end_sec > scene.start_sec + 0.05 && c.start_sec < scene.end_sec - 0.05)
+  if (inner.length <= 1) return [scene]
+  const out: ScenePlanEntry[] = []
+  let segStart = scene.start_sec
+  let segCues: SrtCue[] = []
+  const flush = (end: number): void => {
+    if (end <= segStart || !segCues.length) return
+    out.push({
+      ...scene,
+      id: freshId(),
+      start_sec: segStart,
+      end_sec: end,
+      transcript_segment: segCues.map(c => c.text.trim()).filter(Boolean).join(' ').trim(),
+    })
+    segStart = end
+    segCues = []
+  }
+  for (const c of inner) {
+    // Cut before this cue when adding it would exceed maxSec (and we already
+    // have content) — keeps every part ≤ maxSec, aligned to a cue boundary.
+    if (segCues.length && c.end_sec - segStart > maxSec) flush(c.start_sec)
+    segCues.push(c)
+  }
+  flush(scene.end_sec)
+  return out.length ? out : [scene]
+}
+
 /** Serialize a cue list back into SRT text (global timestamps preserved). */
 function cuesToSrt(cues: SrtCue[]): string {
   const lines: string[] = []
@@ -608,8 +660,25 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
     )
   }
 
+  // v1.0.252 — finalize pass over every scene (full plan AND range re-plan):
+  //   1. Override transcript_segment with the SRT text by time, so the
+  //      displayed transcript always matches the voiceover (the LLM's copy
+  //      drifts). Falls back to the LLM's text only if no cue overlaps (rare
+  //      silence gap).
+  //   2. Split any scene longer than maxSec into cue-aligned ≤maxSec parts
+  //      (inheriting the visual prompt) — kills the over-long "blob" scenes
+  //      from contiguity over-extension at the source.
+  const finalScenes: ScenePlanEntry[] = []
+  for (const s of allScenes) {
+    s.transcript_segment = transcriptForRange(cues, s.start_sec, s.end_sec) || s.transcript_segment
+    if (s.end_sec - s.start_sec > maxSec + 0.5) {
+      finalScenes.push(...splitLongScene(s, cues, maxSec))
+    } else {
+      finalScenes.push(s)
+    }
+  }
   // Re-index into a single ordered list.
-  allScenes.forEach((s, i) => { s.scene_index = i + 1 })
+  finalScenes.forEach((s, i) => { s.scene_index = i + 1 })
 
   return {
     schema_version: 1,
@@ -618,7 +687,7 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
     source_stitched_srt: opts.stitched_srt_path.split('/').pop(),
     total_duration_sec: totalDuration,
     research_used: !!research,
-    scenes: allScenes,
+    scenes: finalScenes,
     planned_in_windows: windows.length,
   }
 }
