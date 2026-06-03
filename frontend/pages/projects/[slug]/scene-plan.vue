@@ -85,6 +85,13 @@
           <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">re-stitch in Subtitles</NuxtLink>
           to fix scene-timing drift.
         </div>
+        <!-- v1.0.250 — content staleness: subtitles re-transcribed after the
+             last stitch. Planning now would reuse the OLD timeline. -->
+        <div v-else-if="status.stitched_srt?.stale_vs_subtitles" class="validation-msg text-sm mt-2">
+          ⚠ Your subtitles were re-transcribed <strong>after</strong> the last stitch — the stitched SRT (and any plan built from it) is out of date.
+          <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">re-stitch in Subtitles</NuxtLink>,
+          then re-run the plan so it picks up the new audio.
+        </div>
       </div>
     </section>
 
@@ -206,6 +213,13 @@
 
     <!-- Step 3: Plan + edit -->
     <section v-if="status?.scene_plan || planning" class="card mt-3">
+      <!-- v1.0.250 — the plan predates the current stitched SRT (you changed
+           audio / re-stitched after this plan was generated). Re-run so it
+           matches the new timeline. -->
+      <div v-if="status?.plan_stale_vs_stitched && !planning" class="validation-msg text-sm mb-2">
+        ⚠ This plan is <strong>older than the current stitched subtitles</strong> — it was built from a previous audio/timeline.
+        Re-run <strong>Plan scenes</strong> (action bar) so it matches the latest stitch.
+      </div>
       <div class="flex justify-between items-center">
         <h3>3. Scenes</h3>
         <div v-if="plan" class="flex gap-2 items-center">
@@ -357,8 +371,10 @@ interface ScenePlanStatus {
       sections?: Array<{ slug: string; source_srt?: string; cues_added: number }>
     } | null
     drifts_from_current_merge: boolean
+    stale_vs_subtitles?: boolean
   } | null
   scene_plan: ScenePlan | null
+  plan_stale_vs_stitched?: boolean
   audio_merged: boolean
   audio_merge_gap_s: number | null
   research_available: boolean

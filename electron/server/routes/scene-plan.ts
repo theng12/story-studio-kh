@@ -166,12 +166,46 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
       if (stitchedMeta.gap_duration_s !== audioMergeGap) stitchedDrift = true
     }
 
+    // v1.0.250 — content staleness by mtime. The gap check above only catches a
+    // CHANGED merge gap. If you re-transcribe (fresh per-chapter SRTs) without
+    // re-stitching, the gap is unchanged but the stitched SRT is out of date —
+    // and the planner reads that stale timeline (the exact "old plan won't
+    // update" trap). Flag when any per-chapter subtitle SRT is newer than the
+    // stitched SRT (2s tolerance so same-batch writes don't false-positive).
+    let stitchedStaleVsSubs = false
+    if (existsSync(stitchedSrtPath)) {
+      try {
+        const stitchedMs = (await fs.stat(stitchedSrtPath)).mtimeMs
+        const chapRe = new RegExp(`^${episodeId.toUpperCase()}_Chapter_\\d+\\.srt$`, 'i')
+        const entries = await fs.readdir(paths.subtitles_dir)
+        for (const n of entries) {
+          if (!chapRe.test(n)) continue
+          const ms = (await fs.stat(path.join(paths.subtitles_dir, n))).mtimeMs
+          if (ms > stitchedMs + 2000) { stitchedStaleVsSubs = true; break }
+        }
+      } catch { /* best-effort — no subtitles dir / unreadable */ }
+    }
+
+    // v1.0.250 — second staleness link: the scene plan is OLDER than the
+    // stitched SRT it should be built from (you re-stitched but didn't re-run
+    // the plan). This is the other half of "my old plan won't update".
+    let planStaleVsStitched = false
+    if (existsSync(scenePlanPath) && existsSync(stitchedSrtPath)) {
+      try {
+        const planMs = (await fs.stat(scenePlanPath)).mtimeMs
+        const stitchedMs = (await fs.stat(stitchedSrtPath)).mtimeMs
+        if (stitchedMs > planMs + 2000) planStaleVsStitched = true
+      } catch { /* best-effort */ }
+    }
+
     res.json({
       stitched_srt: existsSync(stitchedSrtPath) ? {
         path: stitchedSrtPath,
         meta: stitchedMeta,
         drifts_from_current_merge: stitchedDrift,
+        stale_vs_subtitles: stitchedStaleVsSubs,
       } : null,
+      plan_stale_vs_stitched: planStaleVsStitched,
       scene_plan: scenePlan,
       audio_merged: existsSync(audioChaptersPath),
       audio_merge_gap_s: audioMergeGap,

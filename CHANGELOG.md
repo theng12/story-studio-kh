@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.250 — 2026-06-03
+
+### Added — Scene Plan staleness guardrails (catches "I changed the audio but the plan won't update")
+The scene planner reads the stitched SRT, which is built from the per-chapter subtitles, which come from the merged audio. If any upstream step is re-run without re-running the ones after it, the plan silently reflects the OLD timeline. The only existing drift check compared the merge **gap** value — so re-transcribing (gap unchanged) slipped through, and a re-stitch-without-re-plan wasn't caught at all. Two mtime-based checks added to the Scene Plan page:
+
+- **Subtitles re-transcribed after the last stitch** — flags when any `*_Chapter_NN.srt` is newer than the stitched SRT. ("Re-stitch in Subtitles, then re-run the plan.")
+- **Plan older than the stitched SRT** — flags when `scene_plan.json` predates the stitched SRT it should be built from. ("Re-run Plan scenes so it matches the latest stitch.")
+
+Together these cover the whole audio → subtitles → stitch → plan chain, so a stale plan is surfaced instead of silently shipping the wrong timeline. (Diagnosed from a real case: re-transcribe ran but re-stitch didn't, so the planner used an 1091s timeline against a new 1163s audio.)
+
+### Files
+- `electron/server/routes/scene-plan.ts` (mtime staleness: `stale_vs_subtitles` + `plan_stale_vs_stitched`)
+- `frontend/pages/projects/[slug]/scene-plan.vue` (two distinct re-stitch / re-plan warnings)
+
+---
+
 ## v1.0.249 — 2026-06-03
 
 ### Fixed — Script chapter list + inline Preview now handle the new .md format (with .docx fallback)
