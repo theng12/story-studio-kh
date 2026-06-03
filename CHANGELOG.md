@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.253 — 2026-06-03
+
+### Changed — New app icon (rebrand from sleep-stories to Story Studio)
+Replaced the old sleep-stories crescent-moon icon with a **clapperboard + script-lines** mark — "script → film studio" — reflecting that this is now a general story/video production app, not just sleep stories. Kept the premium navy + gold palette for brand continuity; dropped the "KH" text from the icon itself (icons read best as a pure symbol). Regenerated `icon.icns` / `icon.png`.
+
+### Files
+- `build/icon.svg` (clapperboard design) · `build/icon.icns` + `build/icon.png` (regenerated)
+
+---
+
 ## v1.0.252 — 2026-06-03
 
 ### Fixed — Scene transcripts now follow the voiceover, and over-long scenes are split at the source

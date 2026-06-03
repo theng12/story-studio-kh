@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <!-- Rounded square background with dark gradient -->
+  <!-- Story Studio KH — v1.0.253 rebrand: clapperboard + script lines.
+       Says "script -> film studio", keeps the premium navy + gold palette
+       (replaces the old sleep-stories crescent moon). -->
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#1a1d27"/>
@@ -10,42 +12,32 @@
       <stop offset="0%" stop-color="#f0c674"/>
       <stop offset="100%" stop-color="#c99b4a"/>
     </linearGradient>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
-      <feMerge>
-        <feMergeNode in="coloredBlur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
   </defs>
 
   <!-- Background -->
   <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+  <!-- Subtle warm glow for depth -->
+  <circle cx="512" cy="470" r="360" fill="url(#gold)" opacity="0.05"/>
 
-  <!-- Subtle inner glow -->
-  <circle cx="512" cy="400" r="380" fill="url(#gold)" opacity="0.05"/>
-
-  <!-- Crescent moon -->
-  <g transform="translate(512, 420)" filter="url(#glow)">
-    <circle cx="0" cy="0" r="200" fill="url(#gold)" opacity="0.95"/>
-    <circle cx="60" cy="-30" r="180" fill="#0f1117"/>
+  <!-- Clapper top stick (hinged bar), slightly raised on the left -->
+  <g>
+    <path d="M206 372 L806 300 L820 398 L220 470 Z" fill="url(#gold)"/>
+    <!-- diagonal teeth cut out of the stick -->
+    <g fill="#12141c">
+      <path d="M300 384 L260 437 L324 429 L364 376 Z"/>
+      <path d="M432 368 L392 421 L456 413 L496 360 Z"/>
+      <path d="M564 352 L524 405 L588 397 L628 344 Z"/>
+      <path d="M696 336 L656 389 L720 381 L760 328 Z"/>
+    </g>
   </g>
 
-  <!-- Stars -->
-  <circle cx="300" cy="250" r="4" fill="url(#gold)" opacity="0.8"/>
-  <circle cx="740" cy="200" r="5" fill="url(#gold)" opacity="0.7"/>
-  <circle cx="200" cy="380" r="3" fill="url(#gold)" opacity="0.6"/>
-  <circle cx="820" cy="360" r="4" fill="url(#gold)" opacity="0.8"/>
+  <!-- Board body -->
+  <rect x="214" y="474" width="596" height="372" rx="48" fill="none" stroke="url(#gold)" stroke-width="22"/>
 
-  <!-- "KH" text at the bottom -->
-  <text x="512" y="830"
-        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-        font-size="180"
-        font-weight="700"
-        fill="url(#gold)"
-        text-anchor="middle"
-        letter-spacing="12">KH</text>
-
-  <!-- Accent line under KH -->
-  <rect x="412" y="860" width="200" height="4" rx="2" fill="url(#gold)" opacity="0.6"/>
+  <!-- Script lines (the "story" inside the studio) -->
+  <g fill="url(#gold)">
+    <rect x="288" y="566" width="430" height="32" rx="16"/>
+    <rect x="288" y="650" width="466" height="32" rx="16"/>
+    <rect x="288" y="734" width="322" height="32" rx="16" opacity="0.85"/>
+  </g>
 </svg>
