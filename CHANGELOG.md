@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.257 — 2026-06-03
+
+### Added — "+ Add endpoint" row editor for Image / Voice Studio (clean modular UX)
+Replaced the single comma-URL text box with a proper **endpoint list editor** (new reusable `EndpointListEditor.vue`) on both the Image Studio and Voice Studio settings:
+
+- **One row per Mac.** "＋ Add endpoint" to add, ✕ to remove. Add your friend's Mac when he visits, delete it when he leaves.
+- **Per-row Test** with a live **● online / ○ offline** dot + a one-line capability summary (version · models/voices · device/engines), plus a **Test all** button.
+- **Save** writes the list (comma-joined under the hood) to the same `base-url` route, which validates each URL and returns the cleaned set.
+
+Purely the entry UX on top of the v1.0.255 health-aware least-busy pool + v1.0.256 Auto concurrency — the routing engine is unchanged. The old single-URL drafts + save/test handlers were removed (the component owns it all), so the Settings page is tidier too.
+
+### Files
+- `frontend/components/EndpointListEditor.vue` (new) · `frontend/pages/projects/[slug]/settings.vue` (wired both providers, removed dead handlers)
+
+---
+
 ## v1.0.256 — 2026-06-03
 
 ### Added — "Auto" parallel concurrency (match online servers) in Scene Review

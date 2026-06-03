@@ -1441,53 +1441,13 @@
 
       <div class="local-tts-row mt-3">
         <label class="local-tts-label">Modal URL (per machine)</label>
-        <div class="local-tts-url-row">
-          <input
-            v-model="voicestudioBaseUrlDraft"
-            type="text"
-            class="input input-sm"
-            :placeholder="voicestudioUrlExample"
-            spellcheck="false"
-          />
-          <button
-            class="btn btn-sm btn-secondary"
-            :disabled="voicestudioBaseUrlSaving"
-            @click="saveVoicestudioBaseUrl"
-          >
-            {{ voicestudioBaseUrlSaving ? 'Saving…' : 'Save URL' }}
-          </button>
-          <button
-            class="btn btn-sm btn-secondary"
-            :disabled="voicestudioTesting"
-            @click="testVoicestudioConnection"
-          >
-            {{ voicestudioTesting ? 'Testing…' : 'Test connection' }}
-          </button>
-        </div>
+        <!-- v1.0.257 — modular endpoint list (one row per Mac). -->
+        <EndpointListEditor route-prefix="/voicestudio" placeholder="http://mac1.local:47870" />
         <p class="text-muted mt-1" style="font-size: 11px;">
-          e.g. <code>http://your-mac.local:47870</code> (Bonjour),
-          <code>http://192.168.1.50:47870</code> (LAN IP), or your Tailscale
-          IP for remote access. Port <code>47870</code> is fixed; the host is
-          yours. If a job starts failing with "connection refused", re-open
-          the modal in Pinokio and re-test.
+          One row per Mac — e.g. <code>http://your-mac.local:47870</code> (Bonjour),
+          <code>http://192.168.1.50:47870</code> (LAN), or a Tailscale IP. Port <code>47870</code> is fixed.
+          TTS chunks distribute least-busy across whatever's online; offline rows are skipped. Re-test after relaunching the modal in Pinokio.
         </p>
-        <div v-if="voicestudioTestResult" class="local-tts-pill mt-2" :class="{ ok: voicestudioTestResult.ok, err: !voicestudioTestResult.ok }">
-          <span v-if="voicestudioTestResult.ok">
-            ✓ Connected
-            <span v-if="voicestudioTestResult.appVersion"> · Voice Studio v{{ voicestudioTestResult.appVersion }}</span>
-            <span v-if="voicestudioTestResult.device"> · device {{ voicestudioTestResult.device }}</span>
-            <span v-if="voicestudioTestResult.loadedFamilies?.length">
-              · loaded: {{ voicestudioTestResult.loadedFamilies.join(', ') }}
-            </span>
-            <span v-else-if="voicestudioTestResult.loadedFamilies"> · no engine loaded</span>
-            <span v-if="typeof voicestudioTestResult.voiceLibraryCount === 'number'">
-              · {{ voicestudioTestResult.voiceLibraryCount }} saved voice{{ voicestudioTestResult.voiceLibraryCount === 1 ? '' : 's' }}
-            </span>
-          </span>
-          <span v-else>
-            ✗ {{ voicestudioTestResult.error || 'Unreachable' }}
-          </span>
-        </div>
       </div>
 
       <p class="text-muted mt-3" style="font-size: 11px;">
@@ -1523,54 +1483,14 @@
 
       <div class="local-tts-row mt-3">
         <label class="local-tts-label">Modal URL (per machine)</label>
-        <div class="local-tts-url-row">
-          <input
-            v-model="imagestudioBaseUrlDraft"
-            type="text"
-            class="input input-sm"
-            :placeholder="imagestudioUrlExample"
-            spellcheck="false"
-          />
-          <button
-            class="btn btn-sm btn-secondary"
-            :disabled="imagestudioBaseUrlSaving"
-            @click="saveImagestudioBaseUrl"
-          >
-            {{ imagestudioBaseUrlSaving ? 'Saving…' : 'Save URL' }}
-          </button>
-          <button
-            class="btn btn-sm btn-secondary"
-            :disabled="imagestudioTesting"
-            @click="testImagestudioConnection"
-          >
-            {{ imagestudioTesting ? 'Testing…' : 'Test connection' }}
-          </button>
-        </div>
+        <!-- v1.0.257 — modular endpoint list (one row per Mac). -->
+        <EndpointListEditor route-prefix="/imagestudio" placeholder="http://mac1.local:47868" />
         <p class="text-muted mt-1" style="font-size: 11px;">
-          e.g. <code>http://your-mac.local:47868</code> (Bonjour),
-          <code>http://192.168.1.50:47868</code> (LAN IP), or your Tailscale
-          IP. Port <code>47868</code> is fixed (distinct from Voice Studio's
-          <code>47870</code>); the host is yours. Re-test after relaunching
-          the modal in Pinokio.
+          One row per Mac — e.g. <code>http://your-mac.local:47868</code> (Bonjour),
+          <code>http://192.168.1.50:47868</code> (LAN), or a Tailscale IP. Port <code>47868</code> is fixed
+          (distinct from Voice Studio's <code>47870</code>). Render distributes least-busy across whatever's
+          online; offline rows are skipped. Re-test after relaunching the modal in Pinokio.
         </p>
-        <div v-if="imagestudioTestResult" class="local-tts-pill mt-2" :class="{ ok: imagestudioTestResult.ok, err: !imagestudioTestResult.ok }">
-          <span v-if="imagestudioTestResult.ok">
-            ✓ Connected
-            <span v-if="imagestudioTestResult.appVersion"> · Image Studio v{{ imagestudioTestResult.appVersion }}</span>
-            <span v-if="typeof imagestudioTestResult.modelCount === 'number'">
-              · {{ imagestudioTestResult.modelCount }} model{{ imagestudioTestResult.modelCount === 1 ? '' : 's' }} in catalog
-            </span>
-            <span v-if="typeof imagestudioTestResult.familyCount === 'number'">
-              · {{ imagestudioTestResult.familyCount }} engine famil{{ imagestudioTestResult.familyCount === 1 ? 'y' : 'ies' }}
-            </span>
-            <span v-if="typeof imagestudioTestResult.loraCount === 'number'">
-              · {{ imagestudioTestResult.loraCount }} LoRA{{ imagestudioTestResult.loraCount === 1 ? '' : 's' }}
-            </span>
-          </span>
-          <span v-else>
-            ✗ {{ imagestudioTestResult.error || 'Unreachable' }}
-          </span>
-        </div>
       </div>
 
       <p class="text-muted mt-3" style="font-size: 11px;">
@@ -3884,141 +3804,9 @@ async function resetProjectsRoot() {
 // version, MPS/CUDA/CPU device, which engine families are loaded right
 // now, and how many voices are in the user's library. The Settings UI
 // renders all of that into the "✓ Connected" pill.
-interface VoiceStudioTestResult {
-  ok: boolean
-  baseUrl?: string
-  appVersion?: string
-  apiVersion?: string
-  device?: string
-  loadedFamilies?: string[]
-  wiredFamilies?: string[]
-  voiceLibraryCount?: number
-  error?: string
-}
-// v1.0.158 — was the Tailscale IP. Switched to Bonjour `.local`
-// hostname for stability (user reported the tailnet IP changing across
-// reconnects).
-// v1.0.159 — moved from M1 to M4 hostname after the user added a
-// second Mac mini. M1 dedicated to Image Studio (8GB fits TTI but not
-// VoxCPM2); M4 hosts Voice Studio.
-// The frontend ref is just the placeholder shown before
-// /voicestudio/base-url resolves with the authoritative default from
-// the backend's lib constant.
-// v1.0.207 — no hardcoded default host (it was the author's own Mac). The
-// field is empty until the user enters their own URL; this string is shown
-// only as a greyed-out placeholder example.
-const voicestudioUrlExample = 'http://your-mac.local:47870'
-const voicestudioBaseUrlDraft = ref('')
-const voicestudioBaseUrlSaving = ref(false)
-const voicestudioTesting = ref(false)
-const voicestudioTestResult = ref<VoiceStudioTestResult | null>(null)
-
-async function loadVoicestudioBaseUrl() {
-  try {
-    const r = await get<{ baseUrl: string }>('/voicestudio/base-url')
-    voicestudioBaseUrlDraft.value = r.baseUrl || ''
-  } catch {
-    voicestudioBaseUrlDraft.value = ''
-  }
-}
-
-async function saveVoicestudioBaseUrl() {
-  const url = voicestudioBaseUrlDraft.value.trim()
-  if (!url) {
-    showError('Modal URL is required.')
-    return
-  }
-  voicestudioBaseUrlSaving.value = true
-  try {
-    await put('/voicestudio/base-url', { baseUrl: url })
-    success('Voice Studio URL saved.')
-    voicestudioTestResult.value = null
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to save URL')
-  } finally {
-    voicestudioBaseUrlSaving.value = false
-  }
-}
-
-async function testVoicestudioConnection() {
-  voicestudioTesting.value = true
-  voicestudioTestResult.value = null
-  try {
-    voicestudioTestResult.value = await post<VoiceStudioTestResult>(
-      '/voicestudio/test',
-      { baseUrl: voicestudioBaseUrlDraft.value.trim() },
-    )
-  } catch (e: any) {
-    voicestudioTestResult.value = { ok: false, error: e?.data?.detail || e?.message || 'Test failed' }
-  } finally {
-    voicestudioTesting.value = false
-  }
-}
-
-// ── Image Studio KH (v1.0.151+) ────────────────────────────────────────
-// Sibling of Voice Studio: Pinokio FastAPI wrapper hosting FLUX / Qwen /
-// FIBO / Z-Image families on Apple Silicon MLX. Same URL-as-secret
-// pattern (per-machine via app-secrets, no real key — Tailscale at
-// transport layer). Distinct port from Voice Studio because Pinokio
-// assigns each modal its own.
-interface ImageStudioTestResult {
-  ok: boolean
-  baseUrl?: string
-  appVersion?: string
-  apiVersion?: string
-  familyCount?: number
-  modelCount?: number
-  loraCount?: number
-  error?: string
-}
-// v1.0.207 — see voicestudioUrlExample above; empty until the user sets it.
-const imagestudioUrlExample = 'http://mac1.local:47868, http://mac2.local:47868'
-const imagestudioBaseUrlDraft = ref('')
-const imagestudioBaseUrlSaving = ref(false)
-const imagestudioTesting = ref(false)
-const imagestudioTestResult = ref<ImageStudioTestResult | null>(null)
-
-async function loadImagestudioBaseUrl() {
-  try {
-    const r = await get<{ baseUrl: string }>('/imagestudio/base-url')
-    imagestudioBaseUrlDraft.value = r.baseUrl || ''
-  } catch {
-    imagestudioBaseUrlDraft.value = ''
-  }
-}
-
-async function saveImagestudioBaseUrl() {
-  const url = imagestudioBaseUrlDraft.value.trim()
-  if (!url) {
-    showError('Modal URL is required.')
-    return
-  }
-  imagestudioBaseUrlSaving.value = true
-  try {
-    await put('/imagestudio/base-url', { baseUrl: url })
-    success('Image Studio URL saved.')
-    imagestudioTestResult.value = null
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to save URL')
-  } finally {
-    imagestudioBaseUrlSaving.value = false
-  }
-}
-
-async function testImagestudioConnection() {
-  imagestudioTesting.value = true
-  imagestudioTestResult.value = null
-  try {
-    imagestudioTestResult.value = await post<ImageStudioTestResult>(
-      '/imagestudio/test',
-      { baseUrl: imagestudioBaseUrlDraft.value.trim() },
-    )
-  } catch (e: any) {
-    imagestudioTestResult.value = { ok: false, error: e?.data?.detail || e?.message || 'Test failed' }
-  } finally {
-    imagestudioTesting.value = false
-  }
-}
+// v1.0.257 — the Image/Voice Studio single-URL drafts + save/test/load
+// handlers were removed; <EndpointListEditor> now owns the endpoint list
+// (load, add/remove rows, per-row test, save) end to end.
 
 // v1.0.150 — onChatterboxReferenceFile + the config watcher hydrating
 // chatterbox_enabled / chatterbox_reference_id were deleted together with
@@ -4027,17 +3815,9 @@ async function testImagestudioConnection() {
 // in the frontend reads them.
 
 watch(activeTab, (t) => {
-  // v1.0.149+ — lazy-load the Voice Studio URL when the user enters the
-  // Local Models tab so we pay the round-trip exactly once per session.
-  if (t === 'local-tts' && !voicestudioBaseUrlDraft.value) {
-    void loadVoicestudioBaseUrl()
-  }
-  // v1.0.151+ — same lazy-load for the Image Studio URL. Independent of
-  // Voice Studio so each round-trip is paid only when the user opens
-  // the section that needs it.
-  if (t === 'local-tts' && !imagestudioBaseUrlDraft.value) {
-    void loadImagestudioBaseUrl()
-  }
+  // v1.0.257 — Local Models tab: the Image/Voice Studio endpoint lists are now
+  // owned by <EndpointListEditor>, which loads its own rows on mount. (The old
+  // per-draft lazy-load lived here.)
   // Item J — lazy-load the YouTube category list when the user enters
   // the Project tab so the dropdown is populated without a click. Cached
   // 7d on the backend, so the cost is one extra fetch per session at
