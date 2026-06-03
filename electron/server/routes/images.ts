@@ -373,6 +373,16 @@ function versionOf(filename: string): number {
 // Settings UI renders "✓ Connected · Image Studio v1.3.2 · N models ·
 // 0 LoRAs" in one round-trip.
 
+// v1.0.254 — the Image Studio URL setting may hold SEVERAL endpoints (one per
+// Mac) for the render pool, separated by commas / whitespace. Render spreads
+// across all of them; single-endpoint ops (health/catalog/models) use the first.
+function imagestudioEndpoints(stored: string | undefined | null): string[] {
+  return (stored || '').split(/[\s,]+/).map(u => u.trim()).filter(Boolean)
+}
+function firstEndpoint(stored: string | undefined | null): string {
+  return imagestudioEndpoints(stored)[0] || ''
+}
+
 router.get('/imagestudio/base-url', async (_req, res) => {
   try {
     const { getApiKey } = await import('../services/app-secrets-store.js')
@@ -386,14 +396,21 @@ router.get('/imagestudio/base-url', async (_req, res) => {
 
 router.put('/imagestudio/base-url', async (req, res) => {
   try {
-    const baseUrl = typeof req.body?.baseUrl === 'string' ? req.body.baseUrl.trim() : ''
-    if (!baseUrl) return res.status(400).json({ detail: 'baseUrl is required' })
-    if (!/^https?:\/\//i.test(baseUrl)) {
-      return res.status(400).json({ detail: 'baseUrl must start with http:// or https://' })
+    const raw = typeof req.body?.baseUrl === 'string' ? req.body.baseUrl.trim() : ''
+    if (!raw) return res.status(400).json({ detail: 'baseUrl is required' })
+    // v1.0.254 — accept ONE OR MORE endpoints (comma/space separated) for the
+    // multi-Mac render pool. Validate + clean each, store comma-joined.
+    const urls = imagestudioEndpoints(raw)
+    if (!urls.length) return res.status(400).json({ detail: 'baseUrl is required' })
+    for (const u of urls) {
+      if (!/^https?:\/\//i.test(u)) {
+        return res.status(400).json({ detail: `Each URL must start with http:// or https:// — got "${u}"` })
+      }
     }
+    const cleaned = urls.map(u => u.replace(/\/+$/, '')).join(', ')
     const { setApiKey } = await import('../services/app-secrets-store.js')
-    await setApiKey('imagestudio', baseUrl.replace(/\/+$/, ''))
-    res.json({ ok: true, baseUrl })
+    await setApiKey('imagestudio', cleaned)
+    res.json({ ok: true, baseUrl: cleaned })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not save Image Studio base URL'))
   }
@@ -407,7 +424,7 @@ router.post('/imagestudio/test', async (req, res) => {
     } = await import('../lib/imagestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const incoming = typeof req.body?.baseUrl === 'string' ? req.body.baseUrl.trim() : ''
-    const baseUrl = incoming || (await getApiKey('imagestudio')) || DEFAULT_IMAGESTUDIO_BASE_URL
+    const baseUrl = firstEndpoint(incoming) || firstEndpoint(await getApiKey('imagestudio')) || DEFAULT_IMAGESTUDIO_BASE_URL
     if (!baseUrl) {
       return res.json({ ok: false, error: 'No Image Studio URL set. Enter your modal URL above and Save, then Test.' })
     }
@@ -437,7 +454,7 @@ router.get('/imagestudio/catalog', async (_req, res) => {
   try {
     const { catalog: isCatalog, DEFAULT_IMAGESTUDIO_BASE_URL } = await import('../lib/imagestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
-    const baseUrl = (await getApiKey('imagestudio')) || DEFAULT_IMAGESTUDIO_BASE_URL
+    const baseUrl = firstEndpoint(await getApiKey('imagestudio')) || DEFAULT_IMAGESTUDIO_BASE_URL
     if (!baseUrl) { res.json({ baseUrl: '', families: {}, models: [] }); return }
     const cat = await isCatalog(baseUrl)
     res.json({ baseUrl, ...cat })
@@ -457,7 +474,7 @@ router.get('/imagestudio/models', async (_req, res) => {
     const { listAvailableModels, DEFAULT_IMAGESTUDIO_BASE_URL } = await import('../lib/imagestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const stored = await getApiKey('imagestudio')
-    const baseUrl = stored || DEFAULT_IMAGESTUDIO_BASE_URL
+    const baseUrl = firstEndpoint(stored) || DEFAULT_IMAGESTUDIO_BASE_URL
     if (!baseUrl) { res.json({ ok: false, configured: false, models: [], baseUrl: '' }); return }
     const result = await listAvailableModels(baseUrl)
     res.json({ ...result, configured: !!stored, baseUrl })

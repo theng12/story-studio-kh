@@ -76,12 +76,21 @@
               <option :value="8">×8</option>
             </select>
           </div>
+          <!-- v1.0.254 — render mode for continuity projects: img2img (references)
+               vs text2img (prompt only, no references). -->
+          <div v-if="isContinuity" class="sr-ratio-pick" title="References = img2img (character sheet + style + characters anchor every scene). Prompt only = text2img: no references sent, each scene rendered from its text prompt alone — cheaper/faster on local, but consistency rides entirely on the prompt + Style Bible.">
+            <label class="sr-ratio-label" for="sr-mode">Mode</label>
+            <select id="sr-mode" v-model="form.render_mode" class="select sr-ratio-select">
+              <option value="refs">References (img2img)</option>
+              <option value="prompt">Prompt only (text2img)</option>
+            </select>
+          </div>
           <div class="sr-model-pick">
             <ImageModelPicker
               v-model="form.model"
               :project-slug="slug"
               :image-models="config?.image_models || {}"
-              :image-mode="isContinuity ? 'img2img' : 'text2img'"
+              :image-mode="promptOnly ? 'text2img' : (isContinuity ? 'img2img' : 'text2img')"
               default-label="Pick an image model…"
             />
           </div>
@@ -495,7 +504,12 @@ const form = ref({
   model: '',  // ModelSelector auto-picks first usable
   aspect_ratio: '16:9',
   concurrency: 3,  // parallel-mode pool size (v1.0.241)
+  // v1.0.254 — render mode for continuity projects. 'refs' = img2img (sheet +
+  // style + characters); 'prompt' = text2img (no references, prompt only —
+  // cheaper/faster on local Image Studio, any text2img model).
+  render_mode: 'refs' as 'refs' | 'prompt',
 })
+const promptOnly = computed(() => isContinuity.value && form.value.render_mode === 'prompt')
 
 // v1.0.244 — Scene Review render presets. Saves the model + aspect ratio +
 // parallel pool size and AUTO-APPLIES the last-used preset on load (default
@@ -509,6 +523,7 @@ const srPresets = usePresets<{ model: string; aspect_ratio: string; concurrency:
     model: form.value.model,
     aspect_ratio: form.value.aspect_ratio,
     concurrency: form.value.concurrency,
+    render_mode: form.value.render_mode,
   }),
   apply: (data) => { Object.assign(form.value, data) },
 })
@@ -688,8 +703,9 @@ async function generateOne(scene: ReviewScene): Promise<void> {
         model: form.value.model,
         aspect_ratio: form.value.aspect_ratio,
         single_scene_id: scene.id,
+        prompt_only: promptOnly.value,
       })
-      success(`Rendering scene ${scene.scene_index} with its references — it'll update above.`)
+      success(`Rendering scene ${scene.scene_index} ${promptOnly.value ? '(prompt only)' : 'with its references'} — it'll update above.`)
       // The active-render auto-refresh picks it up + shows the spinner.
     } else {
       await post(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-image`, {
@@ -794,9 +810,10 @@ async function renderContinuity(opts: { force?: boolean; fromSceneId?: string; i
       from_scene_id: opts.fromSceneId,
       independent: !!opts.independent,
       concurrency: opts.independent ? form.value.concurrency : undefined,
+      prompt_only: promptOnly.value,
     })
     success(opts.independent
-      ? `Parallel render queued (×${form.value.concurrency}) — scenes render concurrently using the style + character sheet. Watch the Jobs panel; images land as each finishes.`
+      ? `Parallel render queued (×${form.value.concurrency})${promptOnly.value ? ', prompt only (text2img)' : ' — using style + character sheet'}. Watch the Jobs panel; images land as each finishes.`
       : opts.fromSceneId
         ? 'Re-rendering from this scene onward — watch the Jobs panel.'
         : 'Continuity render queued — watch the Jobs panel. It renders scene-by-scene and can take a while.')

@@ -58,6 +58,13 @@ interface ContinuityRenderParams {
   independent?: boolean
   /** Max concurrent provider calls in independent mode (clamped 1–8, default 3). */
   concurrency?: number
+  /** v1.0.254 — PROMPT-ONLY (text-to-image): send NO reference images at all
+   *  (no sheet / style / characters / prev-render), rendering each scene from
+   *  its composed text prompt alone. Cheaper + faster (no img2img), and lets
+   *  any text2img model render a continuity-chain episode. Consistency then
+   *  rides entirely on the prompt (detail level + Style Bible + character
+   *  text), so dial those in. */
+  prompt_only?: boolean
 }
 
 interface ContinuityCfg {
@@ -161,6 +168,25 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   if (!apiKey && providerId !== 'imagestudio') {
     throw new Error(`No API key configured for ${imageProvider.meta.name}. Add one in Settings → This Mac → API Keys.`)
   }
+
+  // v1.0.254 — multi-endpoint pool for local Image Studio (run images across
+  // several Macs). The `imagestudio_base_url` may hold several URLs separated
+  // by commas / whitespace / newlines; we round-robin requests across them so
+  // the parallel renderer spreads load over every server. Cloud providers keep
+  // their single real key. `nextEndpoint()` is the per-call api key.
+  const endpointPool = providerId === 'imagestudio'
+    ? (apiKey || '').split(/[\s,]+/).map(u => u.trim()).filter(Boolean)
+    : [apiKey]
+  const pool = endpointPool.length ? endpointPool : [apiKey]
+  let rrCounter = 0
+  const nextEndpoint = (): string => pool[(rrCounter++) % pool.length]!
+  if (providerId === 'imagestudio' && pool.length > 1) {
+    job.output_lines.push(`Distributing across ${pool.length} Image Studio endpoints (round-robin).`)
+  }
+
+  // v1.0.254 — prompt-only (text2img): drop ALL reference images.
+  const promptOnly = params.prompt_only === true
+  if (promptOnly) job.output_lines.push('Prompt-only mode — no reference images sent (text-to-image).')
   if ((providerParams as any).supports_reference_images !== true) {
     job.output_lines.push(
       `⚠ Model "${model}" doesn't declare reference-image support — scenes will render prompt-only and won't visually chain. Pick a reference-capable model (e.g. Flux Kontext, Nano Banana) for true continuity.`,
@@ -298,7 +324,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       for (const c of characterRefs) { sharedRefs.push(c.abs); sharedRefDescs.push({ kind: 'character', label: c.label, url: c.url }) }
     }
     if (useStyle) { sharedRefs.push(stylePath); sharedRefDescs.push({ kind: 'style', label: 'Style reference', url: styleUrl }) }
-    const sharedRefPaths = Array.from(new Set(sharedRefs))
+    // v1.0.254 — prompt-only drops every reference image (pure text2img).
+    const sharedRefPaths = promptOnly ? [] : Array.from(new Set(sharedRefs))
     const endpoint = (sharedRefPaths.length && (providerParams as any).supports_reference_images === true)
       ? 'image-to-image' : 'text-to-image'
 
@@ -352,7 +379,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           try {
             const result = await imageProvider.generateImage({
               prompt: composePrompt(scene.visual_prompt),
-              apiKey,
+              apiKey: nextEndpoint(),
               aspectRatio,
               modelId: model,
               providerParams,
@@ -441,7 +468,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       refDescs.push({ kind: 'prev', label: `Previous render (scene ${prevIndex})`, url: sceneImgUrl(prevSceneId) })
     }
     if (useStyle) { refs.push(stylePath); refDescs.push({ kind: 'style', label: 'Style reference', url: styleUrl }) }
-    const referenceImagePaths = Array.from(new Set(refs))
+    // v1.0.254 — prompt-only drops every reference image (pure text2img).
+    const referenceImagePaths = promptOnly ? [] : Array.from(new Set(refs))
 
     job.output_lines.push(
       `Scene ${scene.scene_index}/${scenes.length} (${scene.id}) — ${referenceImagePaths.length} ref(s)` +
@@ -472,7 +500,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
 
     const result = await imageProvider.generateImage({
       prompt: composePrompt(scene.visual_prompt),
-      apiKey,
+      apiKey: nextEndpoint(),
       aspectRatio,
       modelId: model,
       providerParams,

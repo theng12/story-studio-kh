@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.254 — 2026-06-03
+
+### Added — Multi-Mac image rendering + prompt-only (text2img) mode in Scene Review
+Two throughput/cost levers for local Image Studio rendering:
+
+- **Multiple Image Studio endpoints (run 3 Macs at once).** The Image Studio URL setting now accepts **several URLs** (comma/space separated). The ⚡ parallel renderer **round-robins each request across all of them**, so N always-on Macs give ~N× throughput (a 2m13s/image render amortizes to ~44s across 3 servers). Single-endpoint operations (health/catalog/model list) use the first URL. Each URL is validated + cleaned on save.
+- **Prompt-only (text2img) mode on Scene Review.** A new **Mode** dropdown — "References (img2img)" vs "Prompt only (text2img)". In prompt-only, scenes render from their **text prompt alone** (no character sheet / style / characters / prev-render references), so any text2img model works and local renders are cheaper + faster. The composed prompt (visual prompt + character text + Style Bible) still applies, so consistency rides on the prompt — lean on the detail slider + Style Bible. Saved in the Scene Review render preset.
+
+### Files
+- `electron/server/generators/continuity-render.ts` (endpoint pool round-robin + `prompt_only`)
+- `electron/server/routes/scene-review.ts` (`prompt_only` param) · `electron/server/routes/images.ts` (multi-URL parse/validate + first-endpoint reads)
+- `frontend/pages/projects/[slug]/scene-review.vue` (Mode toggle) · `frontend/pages/projects/[slug]/settings.vue` (multi-URL hint)
+
+---
+
 ## v1.0.253 — 2026-06-03
 
 ### Changed — New app icon (rebrand from sleep-stories to Story Studio)

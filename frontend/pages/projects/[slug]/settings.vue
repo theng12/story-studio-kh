@@ -1513,6 +1513,9 @@
         surfaces your modal's live catalog and only enables the models your
         Mac's memory can actually run. No per-image cost. The URL is
         per-machine — every project on this Mac shares it.
+        <br/><strong>Multiple Macs:</strong> enter several URLs separated by commas to render
+        across all of them — the parallel renderer (⚡) spreads scenes over every endpoint
+        (the catalog/test use the first).
       </p>
 
       <div class="local-tts-row mt-3">
@@ -3966,7 +3969,7 @@ interface ImageStudioTestResult {
   error?: string
 }
 // v1.0.207 — see voicestudioUrlExample above; empty until the user sets it.
-const imagestudioUrlExample = 'http://your-mac.local:47868'
+const imagestudioUrlExample = 'http://mac1.local:47868, http://mac2.local:47868'
 const imagestudioBaseUrlDraft = ref('')
 const imagestudioBaseUrlSaving = ref(false)
 const imagestudioTesting = ref(false)
