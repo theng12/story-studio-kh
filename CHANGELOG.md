@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.249 — 2026-06-03
+
+### Fixed — Script chapter list + inline Preview now handle the new .md format (with .docx fallback)
+After chapters moved from `.docx` to `.md`, the Script Generator's **Chapters** panel showed "No chapters yet" for new-format episodes, and the per-chapter **Preview** 404'd — both still keyed off `.docx`. Now both default to the new `.md` and fall back to legacy `.docx`:
+
+- The chapter-list enumeration used a `.docx`-only regex → new `.md` chapters were invisible. Switched to `matchChapterFile` (matches `.md` **and** `.docx`, de-duped).
+- The chapter-list and the inline-preview content route built a `.md`-only path → 404 on whichever format the episode didn't have. Both now use `resolveArtifact` (prefers `.md`, falls back `.docx`). The parser (`parseNarrationDocx`) already reads either format, so legacy episodes keep working as a safety net.
+
+### Files
+- `electron/server/routes/scripts.ts` (chapter-list + per-chapter content routes → dual-format resolution)
+
+---
+
 ## v1.0.248 — 2026-06-03
 
 ### Removed — kie.ai as a text/LLM provider (kept image + video)

@@ -9,7 +9,7 @@ import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import { callAi, hasAnyTextProviderKey } from '../lib/ai-client.js'
 import { SUPPORTED_MODELS } from '../models/types.js'
 import { resolveEpisodePaths } from '../services/utils.js'
-import { resolveReadPath, readArtifactRawText } from '../lib/episode-artifacts.js'
+import { resolveReadPath, readArtifactRawText, resolveArtifact, matchChapterFile } from '../lib/episode-artifacts.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { resolveSubfolderNames } from '../services/utils.js'
@@ -439,19 +439,22 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
   try {
     const paths = await resolveEpisodePaths(slug, episodeId, titleQuery)
 
-    const { ensureChapterFilesMigrated, chapterFilePath } =
+    const { ensureChapterFilesMigrated } =
       await import('../lib/narration-assembly.js')
     await ensureChapterFilesMigrated(paths.script_dir, episodeId, titleQuery)
 
     let entries: string[] = []
     try { entries = await fs.readdir(paths.script_dir) } catch { /* missing dir */ }
 
-    const chapterRe = new RegExp(`^${episodeId}_Chapter_(\\d+)\\.docx$`)
-    const numbers = entries
-      .map(n => n.match(chapterRe))
-      .filter((m): m is RegExpMatchArray => !!m)
-      .map(m => parseInt(m[1], 10))
-      .sort((a, b) => a - b)
+    // v1.0.249 — enumerate BOTH new `.md` and legacy `.docx` chapter files
+    // (matchChapterFile accepts either). The old regex was `.docx`-only, so
+    // new-format episodes showed "No chapters yet". De-dupe in case a partially
+    // migrated dir has both extensions for the same chapter number.
+    const numbers = Array.from(new Set(
+      entries
+        .map(n => matchChapterFile(n, episodeId))
+        .filter((x): x is number => x !== null),
+    )).sort((a, b) => a - b)
 
     // Audio chunk presence is per-section. The reconciler builds chunk
     // filenames as `{CODE}_Chapter_NN.mp3` (single chunk) or
@@ -476,12 +479,14 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
       audio_stale: boolean
     }> = []
     for (const num of numbers) {
-      const filePath = chapterFilePath(paths.script_dir, episodeId, num)
+      // Prefer the new `.md`, fall back to legacy `.docx`.
+      const filePath = resolveArtifact(paths.script_dir, `${episodeId}_Chapter_${String(num).padStart(2, '0')}`)
       let title = `Chapter ${String(num).padStart(2, '0')}`
       let wordCount = 0
       let characterCount = 0
       let modifiedAt: string | null = null
       try {
+        if (!filePath) throw new Error('chapter file not found')
         const stat = await fs.stat(filePath)
         modifiedAt = stat.mtime.toISOString()
         // Single mammoth parse per chapter — parseNarrationDocx now exposes
@@ -557,9 +562,11 @@ router.get('/projects/:slug/episodes/:episodeId/chapters/:chapterNumber/content'
   }
   try {
     const paths = await resolveEpisodePaths(slug, episodeId, titleQuery)
-    const { chapterFilePath } = await import('../lib/narration-assembly.js')
-    const filePath = chapterFilePath(paths.script_dir, episodeId, n)
-    if (!existsSync(filePath)) {
+    // v1.0.249 — resolve the chapter file in either format: new `.md` first,
+    // legacy `.docx` fallback. Previously this only looked for `.md`, so the
+    // inline preview 404'd on whichever format the episode didn't have.
+    const filePath = resolveArtifact(paths.script_dir, `${episodeId}_Chapter_${String(n).padStart(2, '0')}`)
+    if (!filePath) {
       return res.status(404).json({
         detail: `Chapter ${n} is not on disk yet. Expand it from the outline panel first.`,
       })
