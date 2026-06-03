@@ -31,6 +31,11 @@ interface ScenePlanRunParams {
   style_prompt?: string
   /** v1.0.242 — extra free-text planner instructions for all scenes. */
   custom_instructions?: string
+  /** v1.0.245 — when set, RE-PLAN just this scene's time range (fixing an
+   *  over-long / auto-filled segment): the planner runs on that scene's
+   *  [start, end] only and the result is spliced back in place of it. Every
+   *  other scene — and its rendered image — is left untouched. */
+  replan_scene_id?: string
 }
 
 export const SCENE_PLAN_FILENAME = 'scene_plan.json'
@@ -81,6 +86,48 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   if (params.custom_instructions) job.output_lines.push(`Custom instructions: ${params.custom_instructions.slice(0, 120)}${params.custom_instructions.length > 120 ? '…' : ''}`)
   job.progress = 10
 
+  const outPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
+
+  // ── v1.0.245 — targeted RE-PLAN of one scene's range ────────────────────
+  // Fixes an over-long / auto-filled blob without touching the rest of the
+  // plan (or any already-rendered images). Plans only that scene's [start,end]
+  // and splices the result in place of it.
+  if (params.replan_scene_id) {
+    if (!existsSync(outPath)) throw new Error('No scene_plan.json to re-plan — run the full planner first.')
+    const existing = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+    const targetIdx = existing.scenes.findIndex(s => s.id === params.replan_scene_id)
+    if (targetIdx < 0) throw new Error(`Scene ${params.replan_scene_id} not found in scene_plan.json`)
+    const target = existing.scenes[targetIdx]!
+    job.output_lines.push(
+      `Re-planning scene #${target.scene_index} (${target.start_sec.toFixed(1)}–${target.end_sec.toFixed(1)}s, ` +
+      `${(target.end_sec - target.start_sec).toFixed(1)}s) — other scenes + their images are untouched.`,
+    )
+    const replanned = await planScenes({
+      stitched_srt_path: stitchedSrt,
+      research_path: useResearch ? researchPath : undefined,
+      narration_docx_path: resolveReadPath(paths.narration_docx),
+      model,
+      detail_level: params.detail_level,
+      style_prompt: params.style_prompt,
+      custom_instructions: params.custom_instructions,
+      pacing,
+      range: { start_sec: target.start_sec, end_sec: target.end_sec },
+      onWarn: (m) => job.output_lines.push(m),
+    })
+    const newScenes = replanned.scenes
+    if (!newScenes.length) throw new Error('Re-plan produced no scenes for that range.')
+    // Splice in place of the target; renumber; everything else (incl image_path) is preserved.
+    existing.scenes.splice(targetIdx, 1, ...newScenes)
+    existing.scenes.forEach((s, i) => { s.scene_index = i + 1 })
+    existing.generated_at = new Date().toISOString()
+    await fs.mkdir(paths.episode_dir, { recursive: true })
+    await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
+    job.output_dir = paths.episode_dir
+    job.progress = 100
+    job.output_lines.push(`Replaced 1 scene with ${newScenes.length} — total now ${existing.scenes.length} scene(s). Done.`)
+    return
+  }
+
   const plan: ScenePlan = await planScenes({
     stitched_srt_path: stitchedSrt,
     research_path: useResearch ? researchPath : undefined,
@@ -91,6 +138,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     style_prompt: params.style_prompt,
     custom_instructions: params.custom_instructions,
     pacing,
+    onWarn: (m) => job.output_lines.push(m),
     // v1.0.226 — chunked planner: it plans the episode in time-windows so the
     // model's output never truncates regardless of length. Surface progress.
     onProgress: (done, totalWindows, scenesSoFar) => {
@@ -121,7 +169,6 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   }
 
   await fs.mkdir(paths.episode_dir, { recursive: true })
-  const outPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
   await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
 
   job.output_dir = paths.episode_dir

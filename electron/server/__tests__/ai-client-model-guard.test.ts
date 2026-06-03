@@ -19,11 +19,11 @@ import { callAi } from '../lib/ai-client.js'
 import { registry } from '../providers/registry.js'
 import { LEGACY_MODEL_ALIASES } from '../models/types.js'
 
-// Register the kie text provider so the alias-routing test below resolves a
-// real provider (self-registration on import). The guard tests don't need it,
-// but importing here keeps this file self-sufficient regardless of run order.
+// Register the DeepSeek text provider so the alias-routing test below resolves
+// a real provider (self-registration on import). v1.0.248 — kie text was
+// removed, and the retired Claude aliases now point at DeepSeek.
 before(async () => {
-  await import('../providers/text/kie-text.js')
+  await import('../providers/text/deepseek.js')
 })
 
 describe('callAi — model guard', () => {
@@ -57,17 +57,20 @@ describe('callAi — model guard', () => {
     )
   })
 
-  // v1.0.235 — retired ids (direct Anthropic, kie DeepSeek) are remapped via
-  // LEGACY_MODEL_ALIASES before dispatch so saved projects keep working. This
-  // pins the mechanism deterministically (no network / key dependence): the
-  // retired id has no provider of its own, but its alias target resolves to a
-  // live, registered provider — which is exactly what callAi normalises to.
-  test('retired model ids alias to a live, registered provider', () => {
+  // Retired/removed ids are remapped via LEGACY_MODEL_ALIASES before dispatch
+  // so saved projects keep working. v1.0.248 — kie text was removed, so the old
+  // Claude-via-kie ids now alias to the DeepSeek default. This pins the
+  // mechanism deterministically (no network / key dependence): the retired id
+  // has no provider of its own, but its alias target resolves to a live,
+  // registered provider — which is exactly what callAi normalises to.
+  test('retired/removed model ids alias to a live, registered provider', () => {
     const target = LEGACY_MODEL_ALIASES['claude-opus-4-6']
-    assert.equal(target, 'claude-opus-4-8-kie')
+    assert.equal(target, 'deepseek-v4-flash')
     assert.equal(registry.findTextProviderForModel('claude-opus-4-6'), undefined,
       'the raw retired id must NOT resolve — proving the alias is required')
-    assert.equal(registry.findTextProviderForModel(target)?.meta.id, 'kie',
-      'the alias target must resolve to the kie provider')
+    assert.equal(registry.findTextProviderForModel(target)?.meta.id, 'deepseek',
+      'the alias target must resolve to the DeepSeek provider')
+    // A former kie chat id also degrades to the working DeepSeek default.
+    assert.equal(LEGACY_MODEL_ALIASES['claude-sonnet-4-5-kie'], 'deepseek-v4-flash')
   })
 })

@@ -1045,6 +1045,7 @@ router.get('/projects/:slug/episodes', async (req, res) => {
     // mtimes are unchanged (the common case during navigation).
     const status = await episodeStatusCache.get(slug, code, ideas)
     const {
+      research: researchDone,
       script: scriptDone,
       introduction: introductionDone,
       scene_prompts: scenePromptsDone,
@@ -1107,6 +1108,11 @@ router.get('/projects/:slug/episodes', async (req, res) => {
       //   metadata       — at least one metadata file (.txt/.json/.md) in the metadata folder.
       //   all_done       — every primary asset present (output, not inputs).
       status: {
+        // v1.0.246 — research was computed upstream (asset-status) but dropped
+        // by this destructure/re-assembly, so the Research page's "Pending
+        // only" filter (filter-field="research") read undefined and never
+        // excluded finished episodes. Surfaced now.
+        research: researchDone,
         script: scriptDone,
         introduction: introductionDone,
         prompts: scenePromptsDone,           // backward compat

@@ -197,75 +197,31 @@ async function callOpenAi(input: AnalyzeStyleInput, imageBuffer: Buffer, mime: s
   return text.trim()
 }
 
-/** Vision routes through kie.ai's Claude (Sonnet — cheaper than Opus for
- *  tagging). kie's `/claude/v1/messages` is Anthropic-shaped; image support is
- *  not documented, so GPT-4o is the reliable fallback. */
-const KIE_VISION_SLUG = 'claude-sonnet-4-6'
-const KIE_CLAUDE_BASE_URL = 'https://api.kie.ai/claude'
-
-/** kie's Claude may silently drop the image (returning a blind/refusal reply
- *  rather than erroring). Treat empty or "I can't see an image" text as a miss
- *  so we fall through to GPT-4o. `NO_CLEAR_SUBJECT` is a deliberate sentinel
- *  (the model DID see the image) → treated as usable upstream. */
-function isUsableVisionText(t: string): boolean {
-  const s = (t || '').trim()
-  if (!s) return false
-  if (/\b(can'?t|cannot|unable to|don'?t)\b[^.]{0,24}\b(see|view|access|display|process)\b/i.test(s)) return false
-  if (/\bno image\b/i.test(s)) return false
-  return true
-}
-
-/** True when a vision-capable key (kie.ai or OpenAI) exists at the app level. */
+/** True when a vision-capable key exists at the app level. v1.0.248 — kie.ai
+ *  was removed as a text/vision provider (its Claude endpoint was blocked);
+ *  vision now uses OpenAI GPT-4o (documented image support). */
 export async function visionKeyAvailable(): Promise<boolean> {
   const { getApiKey } = await import('../services/app-secrets-store.js')
-  const [kie, openai] = await Promise.all([
-    getApiKey('kie').catch(() => ''),
-    getApiKey('openai').catch(() => ''),
-  ])
-  return !!(kie || openai)
+  const openai = await getApiKey('openai').catch(() => '')
+  return !!openai
 }
 
 /**
- * Analyse a reference image. Resolves keys + model internally (callers no
- * longer pass them): tries kie.ai Claude first, falls back to GPT-4o vision
- * if kie has no key, errors, or returns an image-blind reply.
+ * Analyse a reference image with GPT-4o vision. (v1.0.248 dropped the kie.ai
+ * Claude vision path — kie's chat/vision endpoint was Cloudflare-blocked and
+ * its image support was never documented; GPT-4o is the reliable route.)
  */
 export async function analyzeStyle(input: AnalyzeStyleInput): Promise<AnalyzeStyleResult> {
   if (!input.imagePath || !existsSync(input.imagePath)) {
     throw new Error(`Reference image not found: ${input.imagePath}`)
   }
   const { getApiKey } = await import('../services/app-secrets-store.js')
-  const [kieKey, openaiKey] = await Promise.all([
-    getApiKey('kie').catch(() => ''),
-    getApiKey('openai').catch(() => ''),
-  ])
-  if (!kieKey && !openaiKey) {
-    throw new Error('No vision-capable API key configured. Add a kie.ai OR OpenAI key in Settings → API Keys.')
+  const openaiKey = await getApiKey('openai').catch(() => '')
+  if (!openaiKey) {
+    throw new Error('No vision-capable API key configured. Add an OpenAI key in Settings → API Keys.')
   }
 
   const { buffer, mime } = await downscaleToBuffer(input.imagePath)
-
-  // 1) Preferred: kie.ai Claude (Anthropic Messages shape via kie base URL).
-  if (kieKey) {
-    try {
-      const text = await callAnthropic(
-        { ...input, model: KIE_VISION_SLUG, apiKey: kieKey, baseURL: KIE_CLAUDE_BASE_URL },
-        buffer, mime,
-      )
-      if (text === 'NO_CLEAR_SUBJECT' || isUsableVisionText(text)) {
-        return { style_text: text, model_used: `${KIE_VISION_SLUG} [kie.ai]` }
-      }
-    } catch { /* fall through to GPT-4o */ }
-  }
-
-  // 2) Fallback: GPT-4o vision (documented image support).
-  if (openaiKey) {
-    const text = await callOpenAi({ ...input, model: 'gpt-4o', apiKey: openaiKey }, buffer, mime)
-    return { style_text: text, model_used: 'gpt-4o' }
-  }
-
-  throw new Error(
-    'kie.ai vision did not return a usable result and no OpenAI key is configured for fallback. ' +
-    'Add an OpenAI key in Settings → API Keys.',
-  )
+  const text = await callOpenAi({ ...input, model: 'gpt-4o', apiKey: openaiKey }, buffer, mime)
+  return { style_text: text, model_used: 'gpt-4o' }
 }

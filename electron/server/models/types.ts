@@ -2658,22 +2658,9 @@ export const SUPPORTED_MODELS: Record<string, AiProvider> = {
   'deepseek-v4-pro': 'deepseek',
   // OpenRouter (curated)
   'deepseek-v4-flash-openrouter': 'openrouter',
-  // kie.ai chat catalog (routed per-family by providers/text/kie-text.ts).
-  'claude-opus-4-8-kie': 'kie',
-  'claude-opus-4-7-kie': 'kie',
-  'claude-opus-4-6-kie': 'kie',
-  'claude-opus-4-5-kie': 'kie',
-  'claude-sonnet-4-6-kie': 'kie',
-  'claude-sonnet-4-5-kie': 'kie',
-  'claude-haiku-4-5-kie': 'kie',
-  'gpt-5-2-kie': 'kie',
-  'gpt-5-4-kie': 'kie',
-  'gpt-5-5-kie': 'kie',
-  'gemini-3-pro-kie': 'kie',
-  'gemini-3-flash-kie': 'kie',
-  'gemini-3.1-pro-kie': 'kie',
-  'gemini-2-5-pro-kie': 'kie',
-  'gemini-2.5-flash-kie': 'kie',
+  // v1.0.248 — kie.ai was removed as a TEXT/LLM provider (its chat endpoint
+  // was Cloudflare-blocked / throttled and unreliable). Use DeepSeek-direct or
+  // OpenRouter for text. kie.ai IMAGE + VIDEO generation are unaffected.
 }
 
 /** Display labels for the frontend model selectors */
@@ -2693,22 +2680,7 @@ export const MODEL_LABELS: Record<string, string> = {
   'o3':                'o3 [OpenAI reasoning]',
   'o3-mini':           'o3 Mini [OpenAI reasoning]',
   'o4-mini':           'o4 Mini [OpenAI reasoning]',
-  // kie.ai chat catalog — same model names, billed through your kie.ai key.
-  'claude-opus-4-8-kie':   'Claude Opus 4.8 [kie.ai]',
-  'claude-opus-4-7-kie':   'Claude Opus 4.7 [kie.ai]',
-  'claude-opus-4-6-kie':   'Claude Opus 4.6 [kie.ai]',
-  'claude-opus-4-5-kie':   'Claude Opus 4.5 [kie.ai]',
-  'claude-sonnet-4-6-kie': 'Claude Sonnet 4.6 [kie.ai]',
-  'claude-sonnet-4-5-kie': 'Claude Sonnet 4.5 [kie.ai]',
-  'claude-haiku-4-5-kie':  'Claude Haiku 4.5 [kie.ai]',
-  'gpt-5-2-kie':           'GPT-5.2 [kie.ai]',
-  'gpt-5-4-kie':           'GPT-5.4 [kie.ai]',
-  'gpt-5-5-kie':           'GPT-5.5 [kie.ai]',
-  'gemini-3-pro-kie':      'Gemini 3 Pro [kie.ai]',
-  'gemini-3-flash-kie':    'Gemini 3 Flash [kie.ai]',
-  'gemini-3.1-pro-kie':    'Gemini 3.1 Pro [kie.ai]',
-  'gemini-2-5-pro-kie':    'Gemini 2.5 Pro [kie.ai]',
-  'gemini-2.5-flash-kie':  'Gemini 2.5 Flash [kie.ai]',
+  // (kie.ai chat catalog removed in v1.0.248 — kie is image/video only now.)
 }
 
 /**
@@ -2720,10 +2692,29 @@ export const MODEL_LABELS: Record<string, string> = {
  * first available model), so this only matters for headless/pipeline paths.
  */
 export const LEGACY_MODEL_ALIASES: Record<string, string> = {
-  // Direct Anthropic → closest kie.ai Claude.
-  'claude-opus-4-6':   'claude-opus-4-8-kie',
-  'claude-sonnet-4-6': 'claude-sonnet-4-6-kie',
-  'claude-haiku-4-5':  'claude-haiku-4-5-kie',
+  // v1.0.248 — kie.ai text was removed. Any persisted kie chat id (direct
+  // Anthropic ids that used to alias to kie Claude, plus the kie chat ids
+  // themselves) now degrades to the project-default DeepSeek model so saved
+  // selections / pipelines keep running on a working provider instead of
+  // hard-erroring with "Unsupported model".
+  'claude-opus-4-6':   'deepseek-v4-flash',
+  'claude-sonnet-4-6': 'deepseek-v4-flash',
+  'claude-haiku-4-5':  'deepseek-v4-flash',
+  'claude-opus-4-8-kie':   'deepseek-v4-flash',
+  'claude-opus-4-7-kie':   'deepseek-v4-flash',
+  'claude-opus-4-6-kie':   'deepseek-v4-flash',
+  'claude-opus-4-5-kie':   'deepseek-v4-flash',
+  'claude-sonnet-4-6-kie': 'deepseek-v4-flash',
+  'claude-sonnet-4-5-kie': 'deepseek-v4-flash',
+  'claude-haiku-4-5-kie':  'deepseek-v4-flash',
+  'gpt-5-2-kie':           'deepseek-v4-flash',
+  'gpt-5-4-kie':           'deepseek-v4-flash',
+  'gpt-5-5-kie':           'deepseek-v4-flash',
+  'gemini-3-pro-kie':      'deepseek-v4-flash',
+  'gemini-3-flash-kie':    'deepseek-v4-flash',
+  'gemini-3.1-pro-kie':    'deepseek-v4-flash',
+  'gemini-2-5-pro-kie':    'deepseek-v4-flash',
+  'gemini-2.5-flash-kie':  'deepseek-v4-flash',
   // Retired kie.ai DeepSeek → official DeepSeek.
   'deepseek-v3-kie':   'deepseek-v4-flash',
   'deepseek-r1-kie':   'deepseek-v4-pro',
@@ -2989,4 +2980,13 @@ export interface ScenePlanRunOptions {
    *  time-window as its scenes come back (done, total windows, cumulative
    *  scene count). Lets the generator surface live progress + per-window logs. */
   onProgress?: (done: number, total: number, scenesSoFar: number) => void
+  /** v1.0.245 — plan ONLY this time range (used by per-scene "Re-plan this
+   *  scene" to fix an over-long / auto-filled segment). When set, only cues
+   *  overlapping [start_sec, end_sec] are planned and the returned scenes cover
+   *  exactly that span; the caller splices them back into the existing plan. */
+  range?: { start_sec: number; end_sec: number }
+  /** v1.0.245 — non-fatal warning callback (e.g. "window 3 failed twice — split
+   *  into N cue-aligned scenes with empty prompts"). The generator surfaces
+   *  these in the Jobs log so a degraded window is never silent. */
+  onWarn?: (message: string) => void
 }

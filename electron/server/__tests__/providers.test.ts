@@ -15,7 +15,6 @@ before(async () => {
   await import('../providers/image/openai-image.js')
   await import('../providers/audio/fal.js')
   await import('../providers/text/openai.js')
-  await import('../providers/text/kie-text.js')
   await import('../providers/text/deepseek.js')
   await import('../providers/text/openrouter.js')
 })
@@ -35,9 +34,9 @@ describe('Registry registration', () => {
     assert.equal(p?.meta.apiKeyField, 'fal_api_key')
   })
 
-  test('has openai, kie text providers registered', () => {
+  test('has openai text provider registered (kie text removed in v1.0.248)', () => {
     assert.ok(registry.getTextProvider('openai'))
-    assert.ok(registry.getTextProvider('kie'))
+    assert.equal(registry.getTextProvider('kie'), undefined, 'kie text provider should no longer be registered')
   })
 
   test('has openai-image (OpenAI direct) image provider registered', () => {
@@ -68,18 +67,6 @@ describe('Text provider supportsModel()', () => {
     assert.equal(p.supportsModel('gpt-5-2-kie'), false)
   })
 
-  test('kie text claims its chat-catalog ids (exact match)', () => {
-    const p = registry.getTextProvider('kie')!
-    // The kie chat catalog (Claude / GPT / Gemini routed through kie.ai).
-    assert.equal(p.supportsModel('claude-opus-4-8-kie'), true)
-    assert.equal(p.supportsModel('gpt-5-2-kie'), true)
-    assert.equal(p.supportsModel('gemini-3-pro-kie'), true)
-    assert.equal(p.supportsModel('gemini-2.5-flash-kie'), true)
-    assert.equal(p.supportsModel('gpt-4o'), false)
-    // Retired in v1.0.235 — kie no longer claims the old DeepSeek ids.
-    assert.equal(p.supportsModel('deepseek-v3-kie'), false)
-  })
-
   test('deepseek + openrouter claim their exact ids only (no cross-claim)', () => {
     const ds = registry.getTextProvider('deepseek')!
     const or = registry.getTextProvider('openrouter')!
@@ -103,22 +90,16 @@ describe('findTextProviderForModel dispatch', () => {
     assert.equal(registry.findTextProviderForModel('deepseek-v4-flash-openrouter')?.meta.id, 'openrouter')
   })
 
-  test('routes kie-routed Claude/GPT to kie, not their direct provider', () => {
-    // Guards the prefix collision: `claude-…-kie` startsWith `claude-` and
-    // `gpt-…-kie` startsWith `gpt-`, so without the `-kie` guard these would
-    // be claimed by openai first (boot registers it earlier).
-    assert.equal(registry.findTextProviderForModel('claude-opus-4-8-kie')?.meta.id, 'kie')
-    assert.equal(registry.findTextProviderForModel('gpt-5-2-kie')?.meta.id, 'kie')
-    assert.equal(registry.findTextProviderForModel('gpt-5-5-kie')?.meta.id, 'kie')
-    assert.equal(registry.findTextProviderForModel('gemini-3.1-pro-kie')?.meta.id, 'kie')
-  })
-
-  test('returns undefined for unknown / retired model', () => {
+  test('returns undefined for unknown / retired / removed-kie model', () => {
     assert.equal(registry.findTextProviderForModel('unknown-model-xyz-123'), undefined)
-    // Direct Anthropic + kie DeepSeek were retired — no provider claims them
-    // (callAi remaps these via LEGACY_MODEL_ALIASES before dispatch).
+    // Direct Anthropic + kie DeepSeek were retired, and kie text was removed in
+    // v1.0.248 — no provider claims any of them (callAi remaps via
+    // LEGACY_MODEL_ALIASES before dispatch).
     assert.equal(registry.findTextProviderForModel('claude-opus-4-6'), undefined)
     assert.equal(registry.findTextProviderForModel('deepseek-v3-kie'), undefined)
+    assert.equal(registry.findTextProviderForModel('claude-opus-4-8-kie'), undefined)
+    assert.equal(registry.findTextProviderForModel('gpt-5-2-kie'), undefined)
+    assert.equal(registry.findTextProviderForModel('gemini-2.5-flash-kie'), undefined)
   })
 })
 
@@ -179,14 +160,6 @@ describe('Text providers error handling', () => {
     await assert.rejects(() =>
       p.callText({ model: 'gpt-4o-mini', system: 's', userMessage: 'u', apiKey: '' }),
       /No OpenAI API key configured/i,
-    )
-  })
-
-  test('kie text throws without API key', async () => {
-    const p = registry.getTextProvider('kie')!
-    await assert.rejects(() =>
-      p.callText({ model: 'claude-opus-4-8-kie', system: 's', userMessage: 'u', apiKey: '' }),
-      /No kie\.ai API key configured/i,
     )
   })
 })

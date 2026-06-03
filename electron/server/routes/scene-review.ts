@@ -226,29 +226,61 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
 
-  // One continuity render per episode at a time — it's a long serial job.
-  if (jq.isDuplicate(slug, episodeId, 'continuity_render' as JobType)) {
-    return res.status(409).json({ detail: `Continuity render already running for ${episodeId}` })
+  const singleSceneId = typeof body.single_scene_id === 'string' ? body.single_scene_id : undefined
+  // v1.0.244 — scene-aware dedupe. The queue runs ONE continuity_render at a
+  // time, so multiple jobs just queue and run back-to-back. A per-scene render
+  // (the "Generate (refs)" button → single_scene_id) should therefore only
+  // conflict with another render of the SAME scene — different scenes can be
+  // fired off in sequence and will queue. A full/parallel render (no
+  // single_scene_id) still dedupes against another full render. The old guard
+  // blocked ANY second render per episode, which 409'd the per-scene workflow.
+  const dedupeParams = singleSceneId
+    ? (p: any) => p.single_scene_id === singleSceneId
+    : (p: any) => !p.single_scene_id
+  if (jq.isDuplicate(slug, episodeId, 'continuity_render' as JobType, dedupeParams)) {
+    return res.status(409).json({
+      detail: singleSceneId
+        ? `That scene is already queued/rendering for ${episodeId}.`
+        : `A full render is already running for ${episodeId}.`,
+    })
   }
 
-  const job = jq.enqueue({
-    project_slug: slug,
-    type: 'continuity_render' as JobType,
-    episode_id: episodeId,
-    title: `Continuity render — ${episodeId}`,
-    params: {
+  let job
+  try {
+    job = jq.enqueue({
+      project_slug: slug,
+      type: 'continuity_render' as JobType,
       episode_id: episodeId,
-      title: typeof body.title === 'string' ? body.title : '',
-      model,
-      aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
-      force: body.force === true,
-      from_scene_id: typeof body.from_scene_id === 'string' ? body.from_scene_id : undefined,
-      single_scene_id: typeof body.single_scene_id === 'string' ? body.single_scene_id : undefined,
-      // v1.0.241 — independent/parallel mode (no prev-render reference).
-      independent: body.independent === true,
-      concurrency: Number.isFinite(Number(body.concurrency)) ? Number(body.concurrency) : undefined,
-    },
-  })
+      title: singleSceneId ? `Render scene — ${episodeId}` : `Continuity render — ${episodeId}`,
+      // Atomic backstop for the pre-check above (the queue's single
+      // serialisation point): same scene-aware predicate so concurrent route
+      // hits can't both enqueue the same scene.
+      dedupeParams,
+      params: {
+        episode_id: episodeId,
+        title: typeof body.title === 'string' ? body.title : '',
+        model,
+        aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+        force: body.force === true,
+        from_scene_id: typeof body.from_scene_id === 'string' ? body.from_scene_id : undefined,
+        single_scene_id: singleSceneId,
+        // v1.0.241 — independent/parallel mode (no prev-render reference).
+        independent: body.independent === true,
+        concurrency: Number.isFinite(Number(body.concurrency)) ? Number(body.concurrency) : undefined,
+      },
+    })
+  } catch (e: any) {
+    // Lost the atomic dedupe race — surface as a clean 409 (no async error
+    // boundary in this app, so an unhandled throw would hang the request).
+    if (e instanceof jq.DuplicateJobError) {
+      return res.status(409).json({
+        detail: singleSceneId
+          ? `That scene is already queued/rendering for ${episodeId}.`
+          : `A full render is already running for ${episodeId}.`,
+      })
+    }
+    throw e
+  }
   res.status(201).json(job)
 })
 

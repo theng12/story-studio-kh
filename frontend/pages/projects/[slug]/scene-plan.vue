@@ -234,11 +234,37 @@
       </div>
 
       <template v-else-if="plan">
+        <!-- v1.0.245 — Plan-health banner. Surfaces scenes that look broken
+             (no prompt, over-long, or a planner fallback) so you don't have to
+             scroll hundreds of scenes to find them. Click to jump. -->
+        <div v-if="problemScenes.length" class="plan-health mt-2">
+          <div class="plan-health-head">
+            ⚠ {{ problemScenes.length }} scene{{ problemScenes.length === 1 ? '' : 's' }} need attention
+            <span class="text-muted text-xs">— no prompt, over-long, or planner fallback</span>
+          </div>
+          <div class="plan-health-list">
+            <button
+              v-for="p in problemScenes"
+              :key="p.scene.id"
+              class="plan-health-chip"
+              :title="`Jump to scene #${p.index} — ${p.reasons.join(', ')}`"
+              @click="jumpToScene(p.scene.id)"
+            >
+              #{{ p.index }} <span class="plan-health-why">{{ p.reasons.join(' · ') }}</span>
+            </button>
+          </div>
+          <p class="text-muted text-xs mt-1">
+            Tip: pick a model above, then click <strong>🪄 Re-plan</strong> on a scene to regenerate just that range (other scenes + their images are kept).
+          </p>
+        </div>
+
         <ul class="scene-list mt-2">
           <li
             v-for="(scene, i) in plan.scenes"
+            :id="`splan-scene-${scene.id}`"
             :key="scene.id"
             class="scene-row"
+            :class="{ 'scene-row-problem': problemIds.has(scene.id) }"
           >
             <div class="scene-row-head">
               <strong>#{{ i + 1 }}</strong>
@@ -267,6 +293,13 @@
               />
             </div>
             <div class="scene-row-actions mt-1">
+              <!-- v1.0.245 — re-plan just this scene's time range via the LLM. -->
+              <button
+                class="btn-icon"
+                :disabled="!form.model || replanningId === scene.id || planning"
+                :title="!form.model ? 'Pick a model above first' : 'Re-plan this time range with the LLM — replaces it with proper sub-scenes (other scenes + images untouched)'"
+                @click="replanScene(scene)"
+              >{{ replanningId === scene.id ? '⏳ Re-planning…' : '🪄 Re-plan' }}</button>
               <button
                 class="btn-icon"
                 :disabled="i === 0"
@@ -473,6 +506,63 @@ async function pollUntilPlanLanded(): Promise<void> {
   showError('Scene planner taking longer than 120s — check the Jobs panel.')
 }
 
+// ── v1.0.245 — Plan health + per-scene re-plan ──────────────────────────
+// Flag scenes that look broken so they're findable without scrolling: no
+// visual prompt, suspiciously long (normal scenes are ≤8–12s), or a planner
+// fallback boundary_reason. 20s is well above any normal scene length.
+const OVERLONG_SEC = 20
+const problemScenes = computed(() => {
+  const list: Array<{ scene: ScenePlanEntry; index: number; reasons: string[] }> = []
+  ;(plan.value?.scenes || []).forEach((s, i) => {
+    const reasons: string[] = []
+    const dur = s.end_sec - s.start_sec
+    if (!s.visual_prompt || !s.visual_prompt.trim()) reasons.push('no prompt')
+    if (dur > OVERLONG_SEC) reasons.push(`${dur.toFixed(0)}s long`)
+    if (s.boundary_reason && /^auto-(filled|split)/.test(s.boundary_reason)) reasons.push('planner fallback')
+    if (reasons.length) list.push({ scene: s, index: i + 1, reasons })
+  })
+  return list
+})
+const problemIds = computed(() => new Set(problemScenes.value.map(p => p.scene.id)))
+
+function jumpToScene(id: string): void {
+  if (typeof document === 'undefined') return
+  const el = document.getElementById(`splan-scene-${id}`)
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('scene-row-flash')
+    setTimeout(() => el.classList.remove('scene-row-flash'), 1500)
+  }
+}
+
+const replanningId = ref<string | null>(null)
+async function replanScene(scene: ScenePlanEntry): Promise<void> {
+  if (!form.value.model) { showError('Pick a model above first'); return }
+  const dur = (scene.end_sec - scene.start_sec).toFixed(0)
+  const ok = await ask({
+    title: `Re-plan scene #${scene.scene_index}?`,
+    message: `Re-runs the planner on just this ${dur}s range (${scene.start_sec.toFixed(1)}–${scene.end_sec.toFixed(1)}s) and replaces it with proper sub-scenes. Every other scene and its generated image is kept.${dirty.value ? ' Your unsaved edits to the plan will be discarded first.' : ''}`,
+    confirmLabel: 'Re-plan scene',
+  })
+  if (!ok) return
+  replanningId.value = scene.id
+  try {
+    await post(`/projects/${slug.value}/scene-plan/${episodeId.value}/replan-scene`, {
+      scene_id: scene.id,
+      model: form.value.model,
+      detail_level: form.value.detail_level,
+      style_prompt: form.value.style_prompt.trim() || undefined,
+      custom_instructions: form.value.custom_instructions.trim() || undefined,
+    })
+    success('Re-plan queued — watch the Jobs panel; the scene list updates when it lands.')
+    await pollUntilPlanLanded()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to start re-plan')
+  } finally {
+    replanningId.value = null
+  }
+}
+
 async function savePlan(): Promise<void> {
   if (!plan.value || !episodeId.value) return
   // Recompute scene_index from current order before save.
@@ -636,6 +726,33 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
   border-radius: 6px;
   background: var(--bg-secondary);
 }
+.scene-row-problem { border-left: 3px solid #e0a23a; }
+.scene-row-flash { animation: scene-flash 1.4s ease; }
+@keyframes scene-flash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(240, 180, 41, 0); }
+  20% { box-shadow: 0 0 0 3px rgba(240, 180, 41, 0.55); }
+}
+/* v1.0.245 — Plan-health banner. */
+.plan-health {
+  padding: 10px 12px;
+  border: 1px solid rgba(224, 162, 58, 0.4);
+  border-left: 3px solid #e0a23a;
+  background: rgba(224, 162, 58, 0.08);
+  border-radius: 8px;
+}
+.plan-health-head { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.plan-health-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.plan-health-chip {
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(224, 162, 58, 0.45);
+  background: rgba(224, 162, 58, 0.1);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.plan-health-chip:hover { border-color: #e0a23a; background: rgba(224, 162, 58, 0.2); }
+.plan-health-why { color: var(--text-muted); }
 .scene-row-head { display: flex; gap: 8px; align-items: baseline; }
 .scene-boundary-reason { font-style: italic; }
 .scene-textarea {

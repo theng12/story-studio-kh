@@ -144,6 +144,28 @@
       </div>
     </section>
 
+    <!-- v1.0.244 — Scene Review render preset. Remembers the image model +
+         aspect ratio + parallel pool size and auto-applies them on load, so you
+         don't re-pick the model every visit. -->
+    <PresetPicker
+      v-if="stats"
+      label="Render preset"
+      hint="Saves the image model, aspect ratio, and parallel pool size. Auto-applies your last preset on load; Save as… to capture the current pick."
+      :presets="srPresets.presets.value"
+      :active-id="srPresets.activeId.value"
+      :current-machine-label="srPresets.machineLabel.value"
+      :show-all-devices="srPresets.showAllDevices.value"
+      :cross-device-count="srPresets.crossDeviceCount.value"
+      :active-preset-is-cross-device="srPresets.activePresetIsCrossDevice.value"
+      :active-preset-machine-label="srPresets.activePresetMachineLabel.value"
+      @update:active-id="srPresets.setActive"
+      @update:show-all-devices="(v) => srPresets.showAllDevices.value = v"
+      @apply="srPresets.applyActive(); success('Render preset applied')"
+      @overwrite="srPresets.overwrite(); success('Render preset saved')"
+      @save-as="(n) => srPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
+      @delete="srPresets.remove(); success('Render preset deleted')"
+    />
+
     <section v-else-if="!plan && !loading" class="card mt-3">
       <p class="text-muted text-sm">
         <strong>No scene plan yet.</strong>
@@ -225,14 +247,38 @@
         </div>
       </div>
 
+      <!-- v1.0.245 — Plan-health banner. Flags broken scenes (no prompt,
+           over-long, planner fallback) so you don't scroll hundreds to find
+           them. Click to jump; fixing happens on the Scene Plan page (re-plan
+           needs an LLM model, which lives there). -->
+      <div v-if="problemScenes.length" class="sr-health mt-2">
+        <div class="sr-health-head">
+          ⚠ {{ problemScenes.length }} scene{{ problemScenes.length === 1 ? '' : 's' }} need attention
+          <NuxtLink :to="`/projects/${slug}/scene-plan`" class="sr-health-link">Fix on Scene Plan →</NuxtLink>
+        </div>
+        <div class="sr-health-list">
+          <button
+            v-for="p in problemScenes"
+            :key="p.scene.id"
+            class="sr-health-chip"
+            :title="`Jump to scene #${p.index} — ${p.reasons.join(', ')}`"
+            @click="jumpToScene(p.scene.id)"
+          >
+            #{{ p.index }} <span class="sr-health-why">{{ p.reasons.join(' · ') }}</span>
+          </button>
+        </div>
+      </div>
+
       <ul class="review-scene-list mt-2">
         <li
           v-for="scene in scenes"
+          :id="`sr-scene-${scene.id}`"
           :key="scene.id"
           :class="['review-scene-row', {
             'is-approved': scene.approved,
             'is-current': scene.id === currentSceneId,
             'is-missing': !scene.image_filename,
+            'sr-row-problem': problemIds.has(scene.id),
           }]"
         >
           <div class="review-thumb-cell">
@@ -451,6 +497,22 @@ const form = ref({
   concurrency: 3,  // parallel-mode pool size (v1.0.241)
 })
 
+// v1.0.244 — Scene Review render presets. Saves the model + aspect ratio +
+// parallel pool size and AUTO-APPLIES the last-used preset on load (default
+// autoApplyOnLoad), so the chosen model is restored instead of re-picked each
+// visit. Device-aware, same PresetPicker pattern as the Scene Plan page.
+const srPresets = usePresets<{ model: string; aspect_ratio: string; concurrency: number }>({
+  slug: slug.value,
+  configKey: 'scene_review',
+  presetType: 'scene-review',
+  snapshot: () => ({
+    model: form.value.model,
+    aspect_ratio: form.value.aspect_ratio,
+    concurrency: form.value.concurrency,
+  }),
+  apply: (data) => { Object.assign(form.value, data) },
+})
+
 // Aspect-ratio choices for scene renders. 16:9 is the default video frame;
 // the rest are offered for non-standard cuts. The picked value is sent to
 // every generate/continuity endpoint and drives the live thumbnail shape.
@@ -482,6 +544,33 @@ const currentSceneId = computed(() => {
   const t = currentTime.value
   return scenes.value.find(s => t >= s.start_sec && t < s.end_sec)?.id ?? null
 })
+
+// ── v1.0.245 — Plan health detection (same rules as the Scene Plan page) ──
+// Surface broken scenes so they're findable without scrolling: no visual
+// prompt, suspiciously long (normal scenes are ≤8–12s), or a planner fallback.
+const OVERLONG_SEC = 20
+const problemScenes = computed(() => {
+  const list: Array<{ scene: ReviewScene; index: number; reasons: string[] }> = []
+  scenes.value.forEach((s, i) => {
+    const reasons: string[] = []
+    const dur = s.end_sec - s.start_sec
+    if (!s.visual_prompt || !s.visual_prompt.trim()) reasons.push('no prompt')
+    if (dur > OVERLONG_SEC) reasons.push(`${dur.toFixed(0)}s long`)
+    if (s.boundary_reason && /^auto-(filled|split)/.test(s.boundary_reason)) reasons.push('planner fallback')
+    if (reasons.length) list.push({ scene: s, index: s.scene_index ?? i + 1, reasons })
+  })
+  return list
+})
+const problemIds = computed(() => new Set(problemScenes.value.map(p => p.scene.id)))
+function jumpToScene(id: string): void {
+  if (typeof document === 'undefined') return
+  const el = document.getElementById(`sr-scene-${id}`)
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('sr-row-flash')
+    setTimeout(() => el.classList.remove('sr-row-flash'), 1500)
+  }
+}
 const canBulkGenerate = computed(() => {
   if (!episodeId.value) return false
   if (!form.value.model) return false
@@ -842,6 +931,7 @@ async function approveAll(approved: boolean): Promise<void> {
 onMounted(() => {
   void loadReview()
   void loadContinuityFlag()
+  void srPresets.load()   // auto-applies the last render preset (model, aspect, pool)
   if (typeof window !== 'undefined') window.addEventListener('keydown', onPreviewKey)
 })
 onBeforeUnmount(() => {
@@ -987,6 +1077,32 @@ watch(episodeId, () => { void loadReview() })
   border: 1px dashed rgba(240, 180, 41, 0.6); background: rgba(240, 180, 41, 0.08);
 }
 .review-live-out small { font-size: 10px; color: var(--text-secondary); }
+
+/* v1.0.245 — Plan-health banner + flagged rows. */
+.sr-health {
+  padding: 10px 12px;
+  border: 1px solid rgba(224, 162, 58, 0.4);
+  border-left: 3px solid #e0a23a;
+  background: rgba(224, 162, 58, 0.08);
+  border-radius: 8px;
+}
+.sr-health-head { font-size: 13px; font-weight: 600; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.sr-health-link { color: var(--accent); text-decoration: none; font-weight: 500; font-size: 12px; }
+.sr-health-link:hover { text-decoration: underline; }
+.sr-health-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.sr-health-chip {
+  font-size: 11.5px; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid rgba(224, 162, 58, 0.45); background: rgba(224, 162, 58, 0.1);
+  color: var(--text-primary); cursor: pointer;
+}
+.sr-health-chip:hover { border-color: #e0a23a; background: rgba(224, 162, 58, 0.2); }
+.sr-health-why { color: var(--text-muted); }
+.sr-row-problem { border-left: 3px solid #e0a23a; }
+.sr-row-flash { animation: sr-row-flash-kf 1.4s ease; }
+@keyframes sr-row-flash-kf {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(240, 180, 41, 0); }
+  20% { box-shadow: 0 0 0 3px rgba(240, 180, 41, 0.55); }
+}
 
 .is-greenlit {
   border: 2px solid #5bb37c;

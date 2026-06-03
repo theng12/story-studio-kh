@@ -4,6 +4,78 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.248 — 2026-06-03
+
+### Removed — kie.ai as a text/LLM provider (kept image + video)
+kie.ai's chat endpoint proved unreliable (Cloudflare-blocked / throttled), so it's been removed as a TEXT/LLM provider entirely — use **DeepSeek-direct** or **OpenRouter** for text (both working well). This supersedes the v1.0.247 kie-chat fixes. **kie.ai image and video generation are unaffected and fully intact.**
+
+- Deleted the kie text provider (`providers/text/kie-text.ts`) and its boot registration; removed all 15 kie chat models (Claude/GPT/Gemini `*-kie`) from `SUPPORTED_MODELS` + `MODEL_LABELS`, so they no longer appear in any model dropdown.
+- **Graceful migration:** any persisted kie chat id (and the retired direct-Anthropic aliases that used to point at kie Claude) now remaps to the `deepseek-v4-flash` default via `LEGACY_MODEL_ALIASES`, so saved presets/pipelines keep running on a working provider instead of erroring.
+- **Vision** (style analysis / character tagging) dropped its kie-Claude path and now uses **GPT-4o** directly (its image support is documented; the kie vision path was the same blocked endpoint).
+- Updated provider/alias tests accordingly (kie image-provider tests retained and passing).
+
+### Files
+- removed `electron/server/providers/text/kie-text.ts` · `electron/server/boot/providers.ts`
+- `electron/server/models/types.ts` (catalog + aliases) · `electron/server/lib/vision-client.ts` (GPT-4o-only vision)
+- `electron/server/__tests__/providers.test.ts` · `electron/server/__tests__/ai-client-model-guard.test.ts`
+
+---
+
+## v1.0.247 — 2026-06-03
+
+### Fixed — kie.ai LLM calls all failing with "403 Your request was blocked"
+Every kie.ai chat model (Claude / GPT / Gemini) failed research/planner runs with `kie.ai API error: 403 Your request was blocked`. Root cause was NOT the model id (the `-kie` suffix is correctly stripped to the bare slug before sending — verified). It was the **request shape**: kie.ai sits behind Cloudflare, and the OpenAI/Anthropic SDKs attach a distinctive `User-Agent` + `x-stainless-*` telemetry headers that Cloudflare blocked — while the app's raw-fetch image client (minimal headers) passes fine on the same host. Two fixes:
+
+- **Strip the SDK telemetry headers** (`x-stainless-*`) and send a plain `User-Agent` on all kie chat clients, so the request looks like the working image request and clears Cloudflare. (Verified: a Gemini-kie call went from 403 → a full valid response after this.)
+- **Claude (Anthropic shape) also needed `Authorization: Bearer`** — kie's gateway authenticates with Bearer, but the Anthropic SDK only sends `x-api-key`, so kie replied `{code:401,"…check your Authorization headers…"}`. Added the Bearer header explicitly (the OpenAI-shape GPT/Gemini calls already send Bearer via the SDK).
+- **Hardened response parsing** — when kie returns a 200 carrying an error *envelope* (`{code,msg}`) instead of the model's native shape, surface kie's actual message instead of crashing on `undefined[0]`.
+
+### Files
+- `electron/server/providers/text/kie-text.ts` (header strip, Claude Bearer auth, envelope-safe parsing)
+
+---
+
+## v1.0.246 — 2026-06-03
+
+### Fixed — Research "Pending only" filter never excluded finished episodes
+The Research page's episode picker (filter-field `research`) reads `episode.status.research`, but the episode-list builder in `ideas.ts` re-assembles its own status object and **dropped `research`** — it was computed upstream (asset-status / the status cache) but never destructured or re-emitted, so the field arrived as `undefined`. The filter saw every episode as "not done" and excluded nothing, so episodes with finished research (e.g. EP0001–EP0006) still showed under "Pending only". Surfaced the already-computed flag (same class of bug as the `video_assembly` drop fixed in 2026-04). Now finished-research episodes correctly drop out of the pending list.
+
+### Files
+- `electron/server/routes/ideas.ts` (destructure + emit `research` in the episode-list status)
+
+---
+
+## v1.0.245 — 2026-06-03
+
+### Fixed/Added — Oversized "auto-filled" scenes: per-scene re-plan, a planner guardrail, and a Plan-health check
+When a ~150s scene-planner *window* failed (LLM timeout / malformed JSON), the planner used to drop in **one giant filler scene** spanning the whole window — an empty-prompt blob 150s+ long (e.g. scene #31 at 152.5s, "auto-filled (planner returned nothing for this segment)") sitting in an otherwise-fine plan. Three changes:
+
+- **Fix it (Re-plan this scene).** The Scene Plan page now has a per-scene **🪄 Re-plan** button that re-runs the LLM on *just that scene's time range* and splices proper, prompt-filled sub-scenes in its place. Every other scene — and its already-rendered image — is preserved (kept scenes keep their IDs, so their PNGs still match). No "pushing scenes forward" needed: the gap's end is fixed at the next scene's start, so it's subdivided in place.
+- **Guardrail.** A failed window now **retries** before giving up, and if it still fails it **subdivides into cue-aligned ≤max-length scenes** (empty prompts, flagged) instead of one huge blob — and the failure is logged loudly in the Jobs panel. A window failure can no longer silently produce a 150s scene.
+- **Detection (Plan-health banner).** Scene Plan *and* Scene Review now show a banner listing scenes that need attention — **no visual prompt, over-long (>20s), or a planner fallback** — as clickable chips that jump straight to the scene (with a flash). No more scrolling 200–300 scenes to find the one bad one. (Re-plan lives on Scene Plan, since it needs an LLM model; Scene Review's banner links there.)
+
+### Files
+- `electron/server/services/scene-planner.ts` (window retry + `subdivideWindow` fallback + `range` re-plan support + `onWarn`)
+- `electron/server/generators/scene-plan.ts` · `electron/server/routes/scene-plan.ts` (re-plan job branch + `/replan-scene` route)
+- `electron/server/models/types.ts` (`range` / `onWarn` planner options)
+- `frontend/pages/projects/[slug]/scene-plan.vue` (Plan-health banner + per-scene Re-plan)
+- `frontend/pages/projects/[slug]/scene-review.vue` (Plan-health banner + jump)
+
+---
+
+## v1.0.244 — 2026-06-03
+
+### Added — Scene Review render presets · Fixed — per-scene "Generate (refs)" no longer blocks the next scene
+- **Render presets on Scene Review.** The Greenlight panel now has a device-aware **Render preset** picker that saves the image model, aspect ratio, and parallel pool size, and **auto-applies your last preset on load** — so the model is picked for you instead of re-selecting it every visit. Stored under `config.scene_review_presets`.
+- **Per-scene renders now queue instead of 409'ing.** The continuity-render duplicate guard was "one render per episode", written for the original scene-to-scene chain. With both render paths now available (sequential chain *and* independent/parallel), clicking **🎬 Generate (refs)** on one scene then another rejected the second with "already running". The guard is now **scene-aware**: a per-scene render (`single_scene_id`) only conflicts with another render of the *same* scene — different scenes queue up and run back-to-back (the queue runs one continuity_render at a time). A full/parallel render still dedupes against another full render. Added a clean 409 around the queue's atomic dedupe backstop too (this app has no async error boundary).
+
+### Files
+- `electron/server/routes/scene-review.ts` (scene-aware continuity-render dedupe + DuplicateJobError guard)
+- `frontend/pages/projects/[slug]/scene-review.vue` (Render preset picker, auto-applied)
+- `frontend/composables/usePresets.ts` (`scene-review` preset type)
+
+---
+
 ## v1.0.243 — 2026-06-03
 
 ### Added — Render-time Style Bible, character text descriptors, and negative prompts (continuity render)

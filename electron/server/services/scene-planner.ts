@@ -345,6 +345,47 @@ function normalizeScenes(
   return out
 }
 
+/**
+ * v1.0.245 — graceful fallback when a window's LLM call fails repeatedly.
+ * Instead of ONE giant filler scene spanning the whole window (the old
+ * behaviour that produced 150s+ scenes), slice the span into cue-aligned
+ * chunks no longer than `maxSec`, each carrying its cues' text as the
+ * transcript and an EMPTY visual_prompt. The empty prompt + boundary_reason
+ * make these easy to flag in the Plan-health check, and the user can re-plan
+ * or fill them — but the timeline is never blocked by a single huge scene.
+ */
+function subdivideWindow(
+  cues: SrtCue[],
+  startSec: number,
+  endSec: number,
+  maxSec: number,
+): ScenePlanEntry[] {
+  const out: ScenePlanEntry[] = []
+  let chunkStart = startSec
+  let chunkCues: SrtCue[] = []
+  const flush = (end: number): void => {
+    if (end <= chunkStart) return
+    out.push({
+      id: freshId(),
+      scene_index: 0,
+      start_sec: chunkStart,
+      end_sec: end,
+      transcript_segment: chunkCues.map(c => c.text).join(' ').slice(0, 2000),
+      visual_prompt: '',
+      boundary_reason: 'auto-split (planner failed here — re-plan this scene or write a prompt)',
+      approved: false,
+    })
+    chunkStart = end
+    chunkCues = []
+  }
+  for (const c of cues) {
+    chunkCues.push(c)
+    if (c.end_sec - chunkStart >= maxSec) flush(c.end_sec)
+  }
+  flush(endSec)
+  return out
+}
+
 /** Serialize a cue list back into SRT text (global timestamps preserved). */
 function cuesToSrt(cues: SrtCue[]): string {
   const lines: string[] = []
@@ -462,7 +503,17 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
   const avgSceneSec = (minSec + maxSec) / 2
   const TARGET_SCENES_PER_WINDOW = 30
   const windowSec = Math.max(60, Math.min(300, Math.round(TARGET_SCENES_PER_WINDOW * avgSceneSec)))
-  const windows = buildWindows(cues, windowSec)
+
+  // v1.0.245 — range re-plan: plan ONLY the cues overlapping [start, end], seed
+  // the chain at range.start, and clamp coverage to range.end. The full-episode
+  // path leaves these at their defaults (all cues, start 0, total duration).
+  const range = opts.range
+  const planCues = range
+    ? cues.filter(c => c.end_sec > range.start_sec + 0.001 && c.start_sec < range.end_sec - 0.001)
+    : cues
+  const initialPrevEnd = range ? range.start_sec : 0
+  const coverEnd = range ? range.end_sec : totalDuration
+  const windows = buildWindows(planCues, windowSec)
 
   // Pull candidate keys once; callAi picks the right one per call.
   const [anthropic_api_key, openai_api_key, kie_api_key] = await Promise.all([
@@ -473,7 +524,7 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
   const apiKeys = { anthropic_api_key, openai_api_key, kie_api_key }
 
   const allScenes: ScenePlanEntry[] = []
-  let prevEnd = 0
+  let prevEnd = initialPrevEnd
   let lastError: Error | null = null
 
   for (let w = 0; w < windows.length; w++) {
@@ -499,39 +550,55 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
       },
     })
 
+    // v1.0.245 — guardrail: retry a window before giving up. A single
+    // transient LLM failure (timeout, malformed JSON) used to collapse the
+    // whole window into one giant filler scene.
     let winScenes: ScenePlanEntry[] = []
-    try {
-      const raw = await callAi(opts.model, system, user, apiKeys, false, { maxTokens: 16000 })
-      const parsed = parsePlannerJson(raw)
-      // Clamp this window's scenes to [prevEnd, win.end] so they stay in-segment
-      // and don't overlap the next window; seed prevEnd for cross-window order.
-      winScenes = normalizeScenes(parsed.scenes || [], dedupedBoundaries, win.end, minSec, maxSec, prevEnd)
-    } catch (e: any) {
-      lastError = e instanceof Error ? e : new Error(String(e))
+    const MAX_ATTEMPTS = 2
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS && winScenes.length === 0; attempt++) {
+      try {
+        const raw = await callAi(opts.model, system, user, apiKeys, false, { maxTokens: 16000 })
+        const parsed = parsePlannerJson(raw)
+        // Clamp this window's scenes to [prevEnd, win.end] so they stay in-segment
+        // and don't overlap the next window; seed prevEnd for cross-window order.
+        winScenes = normalizeScenes(parsed.scenes || [], dedupedBoundaries, win.end, minSec, maxSec, prevEnd)
+        if (winScenes.length === 0 && attempt < MAX_ATTEMPTS) {
+          opts.onWarn?.(`Segment ${w + 1}/${windows.length} (${win.start.toFixed(0)}–${win.end.toFixed(0)}s) returned no usable scenes — retrying…`)
+        }
+      } catch (e: any) {
+        lastError = e instanceof Error ? e : new Error(String(e))
+        if (attempt < MAX_ATTEMPTS) {
+          opts.onWarn?.(`Segment ${w + 1}/${windows.length} failed (${lastError.message}) — retrying…`)
+        }
+      }
     }
 
     // Contiguity: a window must fully cover [prevEnd, win.end] so the video
-    // never has a gap with no image. Extend the last scene to the window end;
-    // if a window produced nothing, drop in one filler scene spanning it.
+    // never has a gap with no image. Extend the last scene to the window end.
+    // If the window failed every attempt, SUBDIVIDE it into cue-aligned
+    // ≤maxSec scenes (empty prompts, flagged) rather than one giant blob —
+    // so a failed window degrades gracefully and is easy to spot + fix.
     if (winScenes.length) {
       const last = winScenes[winScenes.length - 1]!
       if (last.end_sec < win.end) last.end_sec = win.end
     } else if (win.end > prevEnd) {
-      winScenes = [{
-        id: freshId(),
-        scene_index: 0,
-        start_sec: prevEnd,
-        end_sec: win.end,
-        transcript_segment: win.cues.map(c => c.text).join(' ').slice(0, 2000),
-        visual_prompt: '',
-        boundary_reason: 'auto-filled (planner returned nothing for this segment)',
-        approved: false,
-      }]
+      winScenes = subdivideWindow(win.cues, prevEnd, win.end, maxSec)
+      opts.onWarn?.(
+        `⚠ Segment ${w + 1}/${windows.length} (${win.start.toFixed(0)}–${win.end.toFixed(0)}s) failed after ${MAX_ATTEMPTS} tries — ` +
+        `split into ${winScenes.length} placeholder scene(s) with empty prompts. Use "Re-plan this scene" or write prompts for them.`,
+      )
     }
 
     allScenes.push(...winScenes)
     prevEnd = win.end
     opts.onProgress?.(w + 1, windows.length, allScenes.length)
+  }
+
+  // v1.0.245 — range re-plan must fully cover [range.start, range.end] so the
+  // spliced result leaves no gap before the next (untouched) scene.
+  if (range && allScenes.length) {
+    const last = allScenes[allScenes.length - 1]!
+    if (last.end_sec < coverEnd) last.end_sec = coverEnd
   }
 
   if (allScenes.length === 0) {
