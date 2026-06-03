@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.255 — 2026-06-03
+
+### Added — Modular multi-Mac pool for local Image + Voice Studio (health-aware, least-busy, failover)
+Upgrades v1.0.254's naive comma-URL round-robin into a proper endpoint pool, shared by image rendering AND audio (TTS):
+
+- **Health-checked.** Before a batch, every configured endpoint's `/health` is probed; only the **online** ones are used — a powered-off / unreachable Mac is skipped, never sent work. The Jobs log reports `N/M online`.
+- **Least-busy dispatch.** Each free worker grabs the endpoint with the **fewest in-flight jobs**, so a faster Mac naturally takes more (better than blind round-robin for mixed hardware).
+- **Mid-batch failover.** If an endpoint throws a connection-level error, it's marked down and the task **retries on another** — one Mac dropping off won't fail the run. Content errors don't trigger failover.
+- **Audio too.** Voice Studio used to clamp local concurrency to 1 (single MLX modal is serial). With multiple endpoints it now parallelises **across Macs** — one TTS chunk per Mac, same health/least-busy/failover. The URL setting + catalog/test/voices routes accept multiple endpoints (first used for single-endpoint probes).
+
+Enter several URLs comma-separated in Settings → Image Studio / Voice Studio. (A dedicated +Add-row editor is a follow-up; the comma list is fully functional.) New shared module: `lib/endpoint-pool.ts`.
+
+### Files
+- `electron/server/lib/endpoint-pool.ts` (new — parse, health, least-busy dispatcher, `runOnPool` failover)
+- `electron/server/generators/continuity-render.ts` (image pool) · `electron/server/generators/audio.ts` (TTS pool + un-clamp)
+- `electron/server/routes/images.ts` · `electron/server/routes/audio.ts` (multi-URL save/validate + first-endpoint reads)
+- `frontend/pages/projects/[slug]/settings.vue` (multi-URL hints)
+
+---
+
 ## v1.0.254 — 2026-06-03
 
 ### Added — Multi-Mac image rendering + prompt-only (text2img) mode in Scene Review

@@ -1434,6 +1434,9 @@
         audio model dropdown surfaces whichever engines your modal reports
         as ready. No per-character cost, no upstream rate limits. The URL is
         per-machine — every project on this Mac shares it.
+        <br/><strong>Multiple Macs:</strong> enter several URLs separated by commas to render
+        TTS across all of them — chunks distribute least-busy over every online endpoint
+        (the catalog/test use the first).
       </p>
 
       <div class="local-tts-row mt-3">

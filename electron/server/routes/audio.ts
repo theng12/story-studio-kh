@@ -7,10 +7,16 @@ import { validateBody } from '../lib/validate.js'
 import { GenerateAudioSchema } from '../schemas/index.js'
 import { generateTtsBuffer } from '../lib/elevenlabs-client.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { parseEndpoints } from '../lib/endpoint-pool.js'
 import { getAudioStatus, reconcileAudioViaGenaipro } from '../services/audio-reconciler.js'
 import type { AudioModelConfig } from '../models/types.js'
 
 export const router = Router()
+
+// v1.0.255 — the Voice Studio URL setting may hold several endpoints (one per
+// Mac) for the TTS pool; single-endpoint ops (health/voices/availability) use
+// the first. Render distribution happens in generators/audio.ts.
+const vsFirst = (stored: string | null | undefined): string => parseEndpoints(stored)[0] || ''
 
 /** Pick the TTS provider for a model id, mirroring generators/audio.ts. */
 function resolveAudioProvider(
@@ -87,7 +93,7 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
     // v1.0.149+ — Voice Studio KH preview. "apiKey" carries the modal URL.
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const { DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
-    apiKey = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+    apiKey = vsFirst(await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
   } else {
     apiKey = providerId === 'elevenlabs' ? ((config as any).elevenlabs_api_key || '')
       : providerId === 'genaipro' ? ((config as any).genaipro_api_key || '')
@@ -381,14 +387,21 @@ router.get('/voicestudio/base-url', async (_req, res) => {
 
 router.put('/voicestudio/base-url', async (req, res) => {
   try {
-    const baseUrl = typeof req.body?.baseUrl === 'string' ? req.body.baseUrl.trim() : ''
-    if (!baseUrl) return res.status(400).json({ detail: 'baseUrl is required' })
-    if (!/^https?:\/\//i.test(baseUrl)) {
-      return res.status(400).json({ detail: 'baseUrl must start with http:// or https://' })
+    const raw = typeof req.body?.baseUrl === 'string' ? req.body.baseUrl.trim() : ''
+    if (!raw) return res.status(400).json({ detail: 'baseUrl is required' })
+    // v1.0.255 — accept one OR more endpoints (comma/space separated) for the
+    // multi-Mac TTS pool. Validate + clean each, store comma-joined.
+    const urls = parseEndpoints(raw)
+    if (!urls.length) return res.status(400).json({ detail: 'baseUrl is required' })
+    for (const u of urls) {
+      if (!/^https?:\/\//i.test(u)) {
+        return res.status(400).json({ detail: `Each URL must start with http:// or https:// — got "${u}"` })
+      }
     }
+    const cleaned = urls.join(', ')
     const { setApiKey } = await import('../services/app-secrets-store.js')
-    await setApiKey('voicestudio', baseUrl.replace(/\/+$/, ''))
-    res.json({ ok: true, baseUrl })
+    await setApiKey('voicestudio', cleaned)
+    res.json({ ok: true, baseUrl: cleaned })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not save Voice Studio base URL'))
   }
@@ -402,7 +415,7 @@ router.post('/voicestudio/test', async (req, res) => {
     } = await import('../lib/voicestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const incoming = typeof req.body?.baseUrl === 'string' ? req.body.baseUrl.trim() : ''
-    const baseUrl = incoming || (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+    const baseUrl = incoming || vsFirst(await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
     if (!baseUrl) {
       return res.json({ ok: false, error: 'No Voice Studio URL set. Enter your modal URL above and Save, then Test.' })
     }
@@ -449,7 +462,7 @@ router.get('/voicestudio/voices', async (req, res) => {
       familyForModelId, DEFAULT_VOICESTUDIO_BASE_URL,
     } = await import('../lib/voicestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
-    const baseUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+    const baseUrl = vsFirst(await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
     if (!baseUrl) { res.json({ voices: [], baseUrl: '', source: 'library' }); return }
     const modelId = typeof req.query.model === 'string' ? req.query.model : ''
     const family = familyForModelId(modelId)
@@ -476,7 +489,7 @@ router.get('/voicestudio/models', async (_req, res) => {
     const { listAvailableEngines, DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const stored = await getApiKey('voicestudio')
-    const baseUrl = stored || DEFAULT_VOICESTUDIO_BASE_URL
+    const baseUrl = vsFirst(stored) || DEFAULT_VOICESTUDIO_BASE_URL
     if (!baseUrl) { res.json({ ok: false, configured: false, models: [], baseUrl: '' }); return }
     const result = await listAvailableEngines(baseUrl)
     res.json({ ...result, configured: !!stored, baseUrl })
@@ -494,7 +507,7 @@ router.get('/voicestudio/transcribe-availability', async (_req, res) => {
   try {
     const { transcribeAvailability, DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
-    const baseUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+    const baseUrl = vsFirst(await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
     if (!baseUrl) { res.json({ available: false, configured: false, models: [] }); return }
     const avail = await transcribeAvailability(baseUrl)
     res.json({ ...avail, configured: true })
@@ -512,7 +525,7 @@ router.post('/voicestudio/download-model', async (req, res) => {
     if (!repo) return res.status(400).json({ detail: 'repo is required' })
     const { downloadTranscribeModel, DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
-    const baseUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+    const baseUrl = vsFirst(await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
     if (!baseUrl) return res.status(400).json({ detail: 'Voice Studio URL not set — add it in Settings → This Mac → Local Models.' })
     const r = await downloadTranscribeModel(baseUrl, repo)
     res.json({ ok: true, ...r })

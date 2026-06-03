@@ -25,6 +25,7 @@ import path from 'path'
 import { registry } from '../providers/registry.js'
 import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
+import { parseEndpoints, healthyEndpoints, createDispatcher, runOnPool, type Dispatcher } from '../lib/endpoint-pool.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -169,19 +170,24 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     throw new Error(`No API key configured for ${imageProvider.meta.name}. Add one in Settings → This Mac → API Keys.`)
   }
 
-  // v1.0.254 — multi-endpoint pool for local Image Studio (run images across
-  // several Macs). The `imagestudio_base_url` may hold several URLs separated
-  // by commas / whitespace / newlines; we round-robin requests across them so
-  // the parallel renderer spreads load over every server. Cloud providers keep
-  // their single real key. `nextEndpoint()` is the per-call api key.
-  const endpointPool = providerId === 'imagestudio'
-    ? (apiKey || '').split(/[\s,]+/).map(u => u.trim()).filter(Boolean)
-    : [apiKey]
-  const pool = endpointPool.length ? endpointPool : [apiKey]
-  let rrCounter = 0
-  const nextEndpoint = (): string => pool[(rrCounter++) % pool.length]!
-  if (providerId === 'imagestudio' && pool.length > 1) {
-    job.output_lines.push(`Distributing across ${pool.length} Image Studio endpoints (round-robin).`)
+  // v1.0.255 — health-checked multi-endpoint pool for local Image Studio (run
+  // images across several Macs). Build a least-busy dispatcher over the ONLINE
+  // endpoints; an offline Mac is skipped, one that drops mid-batch fails over.
+  // Cloud providers keep their single real key (no pool).
+  let dispatcher: Dispatcher | null = null
+  if (providerId === 'imagestudio') {
+    const eps = parseEndpoints(apiKey)
+    if (eps.length > 1) {
+      const { health: imgHealth } = await import('../lib/imagestudio-client.js')
+      const { healthy, offline } = await healthyEndpoints(eps, async (u) => (await imgHealth(u)).ok)
+      const usable = healthy.length ? healthy : eps
+      dispatcher = createDispatcher(usable)
+      job.output_lines.push(
+        `Image Studio pool: ${healthy.length}/${eps.length} online` +
+        (offline.length ? ` (offline: ${offline.join(', ')})` : '') +
+        ` — distributing least-busy across ${usable.length} endpoint(s).`,
+      )
+    }
   }
 
   // v1.0.254 — prompt-only (text2img): drop ALL reference images.
@@ -377,15 +383,15 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           inFlight.add(scene.scene_index)
           await pushStatus()
           try {
-            const result = await imageProvider.generateImage({
+            const result = await runOnPool(dispatcher, apiKey, (ep) => imageProvider.generateImage({
               prompt: composePrompt(scene.visual_prompt),
-              apiKey: nextEndpoint(),
+              apiKey: ep,
               aspectRatio,
               modelId: model,
               providerParams,
               referenceImagePaths: sharedRefPaths.length ? sharedRefPaths : undefined,
               isCancelled: () => jq.isCancelled(job.job_id),
-            })
+            }))
             if (!result.urls.length) throw new Error('provider returned no image')
             await downloadImage(result.urls[0]!, outPath)
             await persistImagePath(scene.id, outPath)
@@ -498,15 +504,15 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       updated_at: new Date().toISOString(),
     })
 
-    const result = await imageProvider.generateImage({
+    const result = await runOnPool(dispatcher, apiKey, (ep) => imageProvider.generateImage({
       prompt: composePrompt(scene.visual_prompt),
-      apiKey: nextEndpoint(),
+      apiKey: ep,
       aspectRatio,
       modelId: model,
       providerParams,
       referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
       isCancelled: () => jq.isCancelled(job.job_id),
-    })
+    }))
     if (!result.urls.length) {
       throw new Error(`${imageProvider.meta.name} returned no image for scene ${scene.scene_index} (${scene.id}).`)
     }

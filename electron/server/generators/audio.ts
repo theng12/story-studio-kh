@@ -22,6 +22,7 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { resolveApiKeyForProviderId } from '../providers/registry.js'
+import { parseEndpoints, healthyEndpoints, createDispatcher, runOnPool, type Dispatcher } from '../lib/endpoint-pool.js'
 import { assertBalanceAvailable } from '../services/utils.js'
 import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
 import { recordTask, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
@@ -541,18 +542,40 @@ export async function generateAudio(job: Job): Promise<void> {
 
   // ── Concurrency pool ───────────────────────────────────────────────────
   const rawConcurrency = Number((config as any).audio_concurrency) || 0
-  // v1.0.154+ — Voice Studio runs on Apple Silicon MLX; multiple TTS
-  // submits to the same modal serialise anyway. Clamp local-modal
-  // concurrency to 1 so we don't burn parallel poll loops on jobs the
-  // modal has just queued behind each other. Cloud providers keep
-  // their tier-tuned default (3 is the ElevenLabs Starter-safe cap).
   const baseAudioConcurrency = Math.max(1, Math.min(15, rawConcurrency || 3))
   const isLocalAudioProvider = providerId === 'voicestudio'
-  const concurrency = isLocalAudioProvider ? 1 : baseAudioConcurrency
-  if (isLocalAudioProvider && baseAudioConcurrency !== 1) {
+
+  // v1.0.255 — Voice Studio multi-endpoint pool (run TTS across several Macs).
+  // A single MLX modal serialises submits, so local concurrency was clamped to
+  // 1. With multiple endpoints we parallelise ACROSS Macs (one chunk per Mac),
+  // health-checking + least-busy + failover, same as the image renderer.
+  let audioDispatcher: Dispatcher | null = null
+  let voicePoolSize = 1
+  if (isLocalAudioProvider) {
+    const eps = parseEndpoints(apiKey)
+    if (eps.length > 1) {
+      const { health: voiceHealth } = await import('../lib/voicestudio-client.js')
+      const { healthy, offline } = await healthyEndpoints(eps, async (u) => (await voiceHealth(u)).ok)
+      const usable = healthy.length ? healthy : eps
+      audioDispatcher = createDispatcher(usable)
+      voicePoolSize = usable.length
+      job.output_lines.push(
+        `Voice Studio pool: ${healthy.length}/${eps.length} online` +
+        (offline.length ? ` (offline: ${offline.join(', ')})` : '') +
+        ` — distributing least-busy across ${usable.length} endpoint(s).`,
+      )
+    }
+  }
+
+  // Local: serial per Mac (MLX is serial), but parallelise across the pool.
+  // Cloud providers keep their tier-tuned default (3 = ElevenLabs Starter-safe).
+  const concurrency = isLocalAudioProvider
+    ? Math.max(1, Math.min(baseAudioConcurrency, voicePoolSize))
+    : baseAudioConcurrency
+  if (isLocalAudioProvider && voicePoolSize === 1 && baseAudioConcurrency !== 1) {
     job.output_lines.push(
-      `Local modal (${providerId}): clamped concurrency from ${baseAudioConcurrency} → 1 ` +
-      `(Apple Silicon MLX inference is serial). Per-job poll budget is 24h.`,
+      `Local modal (${providerId}): concurrency 1 ` +
+      `(single Apple Silicon MLX endpoint is serial — add more Image/Voice Studio URLs to parallelise across Macs).`,
     )
   }
 
@@ -608,9 +631,11 @@ export async function generateAudio(job: Job): Promise<void> {
         // The "apiKey" we resolved is the modal's base URL. `voiceId`
         // (when set) maps to `voice_library_id` for zero-shot cloning
         // against one of the user's saved reference clips.
-        await generateTtsVoiceStudio(apiKey, task.outputPath, {
+        // v1.0.255 — route this chunk to a least-busy healthy endpoint (the
+        // picked URL is both the base URL arg and the request.apiKey).
+        await runOnPool(audioDispatcher, apiKey, (ep) => generateTtsVoiceStudio(ep, task.outputPath, {
           text: task.chunkText,
-          apiKey, // ignored by the helper but required by the AudioGenerationRequest type
+          apiKey: ep, // ignored by the helper but required by the AudioGenerationRequest type
           modelId: req.model,
           voiceId: effectiveVoice,
           speed: req.speed,
@@ -618,7 +643,7 @@ export async function generateAudio(job: Job): Promise<void> {
           signal: controller.signal,
           isCancelled,
           onProgress: makeChunkCb(),
-        })
+        }))
       } else {
         const chunkFilename = path.basename(task.outputPath)
         // User-configurable TTS timeout (minutes → ms). Undefined means use
