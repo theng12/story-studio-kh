@@ -437,6 +437,9 @@ const form = ref({
   style_prompt: '',
   custom_instructions: '',
 })
+// v1.0.259 — remember plan settings per-Mac across reloads (an active plan
+// preset still auto-applies on top).
+useRememberedForm('scene-plan', slug, form)
 
 // v1.0.242 — labels for the detail slider stops.
 const DETAIL_LEVELS = [

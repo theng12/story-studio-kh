@@ -927,6 +927,14 @@ const form = reactive({
   character_ids: [] as string[],
 })
 
+// v1.0.259 — remember the generation "how" across reloads. Allowlist ONLY the
+// global knobs: length / chapters / total_words / words_per_chapter come from
+// the idea per-episode (route query), and character_ids / force are per-run, so
+// none of those are persisted.
+useRememberedForm('scripts', slug, form, {
+  include: ['model', 'style', 'perspective', 'generate_image_prompts', 'generate_youtube_desc'],
+})
+
 // v1.0.176 — character references are opt-in. Default OFF; the toggle reveals
 // the picker. Turning it off clears any selection so an outdated cast can't
 // leak into a run the user thinks is cast-free. Auto-enables when a loaded

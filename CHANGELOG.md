@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.259 — 2026-06-03
+
+### Added — generator pages remember your settings (per-Mac)
+Picked model, aspect ratio, render mode, voice, detail level, style — every generator page now **remembers your last-used settings** instead of resetting on each visit/reload. Stored per-Mac (localStorage), scoped per-project + per-page, so each project keeps its own "how." Episode content is never remembered (topic, manual titles, per-episode lengths/chapters/sections) — only the reusable *settings*. A remembered value that's no longer valid (e.g. a removed model) self-heals via each picker's first-usable fallback, and a saved named preset still takes precedence on load.
+
+Wired pages: Research (source + breadth), Scripts (model/style/perspective/toggles), Audio (voice + tuning), Image Prompts (per-tab prompt settings), Images (per-tab render settings), Metadata (title settings + LLM model), Scene Plan, Scene Review.
+
+### Files
+- `frontend/composables/useRememberedForm.ts` (NEW — per-Mac, per-project/page form memory; allowlist/exclude + one-level deep-merge so new default fields survive)
+- `frontend/pages/projects/[slug]/{research,scripts,audio,image-prompts,images,metadata,scene-plan,scene-review}.vue` (wired with per-page allowlists)
+
+---
+
 ## v1.0.258 — 2026-06-03
 
 ### Fixed — "Unknown image model" when rendering scenes with a LOCAL Image Studio model

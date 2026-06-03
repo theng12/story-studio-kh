@@ -999,6 +999,14 @@ const form = reactive({
   } as SceneForm,
 })
 
+// v1.0.259 — remember each tab's prompt settings (model / style / aspect /
+// art-direction / cast) across reloads. `force` is a per-run regenerate flag,
+// so reset it to false after the restore so a remembered run can't silently
+// re-overwrite on the next visit.
+useRememberedForm('image-prompts', slug, form, { include: ['thumbnail', 'scene'] })
+form.thumbnail.force = false
+form.scene.force = false
+
 // v1.0.115+ — clear the in-flight indicator on episode swap. The local
 // `generating` ref is normally true only during the POST window (reset
 // in the submit handler's `finally`), but defensively clearing it on

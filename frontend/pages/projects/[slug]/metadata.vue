@@ -722,6 +722,21 @@ const titleConfig = reactive({
 const descConfig = reactive({ maxChars: 5000 })
 const tagConfig = reactive({ count: 15 })
 
+// v1.0.259 — remember the title settings across reloads. prefix / suffix /
+// manualTitle are excluded: prefix+suffix already persist on the project config
+// (channel-level), and manualTitle is per-episode content.
+useRememberedForm('metadata', slug, titleConfig, {
+  include: ['preset', 'maxLength', 'count', 'includeScriptContext', 'mode'],
+})
+// `model` is a standalone ref bound to <ModelSelector v-model="model">. Bridge
+// it through a 1-field reactive so the picked LLM is remembered too; on load we
+// push the restored value into the ref once, then mirror ref→memo so later
+// picks persist. An invalid restored model self-heals via ModelSelector.
+const modelMemo = reactive({ model: model.value })
+useRememberedForm('metadata-model', slug, modelMemo, { include: ['model'] })
+if (modelMemo.model) model.value = modelMemo.model
+watch(model, (m) => { modelMemo.model = m })
+
 // Results / preview
 const titleOptions = ref<string[]>([])
 const preview = reactive({

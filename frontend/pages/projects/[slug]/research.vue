@@ -345,6 +345,10 @@ const form = ref<ResearchForm>({
   max_sources: 8,
   source_model: (typeof localStorage !== 'undefined' && localStorage.getItem(RESEARCH_MODEL_KEY)) || '',
 })
+// v1.0.259 — remember the source + breadth across reloads (NOT topic /
+// specific_questions — those are episode content). source_model already has
+// its own per-project key (above), so it's left out of the allowlist.
+useRememberedForm('research', slug, form, { include: ['source_provider', 'max_sources'] })
 // Persist the model choice whenever it changes.
 watch(() => form.value.source_model, (m) => {
   if (typeof localStorage !== 'undefined') {

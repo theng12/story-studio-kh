@@ -730,6 +730,12 @@ const form = reactive({
   scene: defaultSubForm(),
 })
 
+// v1.0.259 — remember each tab's render settings (model / aspect / tier /
+// image_mode / reference_sources) across reloads. `mode` is deliberately NOT
+// remembered: it comes from the sidebar's ?tab= so the split Thumbnail/Scene
+// entries always land on the right tab.
+useRememberedForm('images', slug, form, { include: ['thumbnail', 'scene'] })
+
 // Active sub-form. Switches between thumbnail/scene based on mode.
 // Template auto-unwraps computed refs — `activeForm.model` Just Works
 // there; script uses `activeForm.value.model`.

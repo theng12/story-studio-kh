@@ -317,6 +317,14 @@ const form = reactive({
   generation_mode: 'skip' as 'skip' | 'regenerate' | 'new_version',
 })
 
+// v1.0.259 — remember the voice + tuning across reloads. `sections` is
+// episode-specific (auto-filled with that episode's missing sections), so it's
+// left out of the allowlist. A restored voice that's incompatible with the
+// restored model is reconciled by VoicePicker on load.
+useRememberedForm('audio', slug, form, {
+  include: ['model', 'voice', 'speed', 'stability', 'similarity', 'generation_mode'],
+})
+
 // v1.0.150+ — resolve the provider of the currently-picked audio model so
 // the VoicePicker can surface the right voice section. Cloud providers
 // (elevenlabs / fal / genaipro) all share the ElevenLabs voice id space;

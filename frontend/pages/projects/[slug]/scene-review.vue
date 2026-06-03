@@ -512,6 +512,10 @@ const form = ref({
   // cheaper/faster on local Image Studio, any text2img model).
   render_mode: 'refs' as 'refs' | 'prompt',
 })
+// v1.0.259 — remember the render settings per-Mac across reloads (an active
+// render preset still auto-applies on top; the model picker self-heals a
+// removed model).
+useRememberedForm('scene-review', slug, form)
 const promptOnly = computed(() => isContinuity.value && form.value.render_mode === 'prompt')
 
 // v1.0.244 — Scene Review render presets. Saves the model + aspect ratio +
