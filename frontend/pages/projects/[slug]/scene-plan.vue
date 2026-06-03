@@ -248,6 +248,35 @@
       </div>
 
       <template v-else-if="plan">
+        <!-- v1.0.260 — Visual Recipe bar: rewrite every scene into the explainer
+             composition (guide-at-side + framed subject), or revert. -->
+        <div v-if="recipeEnabled" class="recipe-bar mt-2">
+          <div class="recipe-bar-main">
+            <strong>🎬 Visual Recipe</strong>
+            <span class="text-muted text-xs">
+              {{ recipeComposedCount }}/{{ plan.scenes.length }} scene{{ plan.scenes.length === 1 ? '' : 's' }} composed into the explainer layout
+            </span>
+          </div>
+          <div class="recipe-bar-actions">
+            <button
+              class="btn btn-sm btn-primary"
+              :disabled="applyingRecipe || !form.model || planning || revertingRecipe"
+              :title="!form.model ? 'Pick a model above first' : 'Rewrite every scene into the guide-at-side + framed-subject composition'"
+              @click="applyRecipe"
+            >
+              {{ applyingRecipe ? 'Composing…' : (recipeComposedCount ? '↻ Re-apply recipe' : '🎬 Apply Visual Recipe') }}
+            </button>
+            <button
+              v-if="recipeComposedCount"
+              class="btn btn-sm btn-ghost"
+              :disabled="revertingRecipe || applyingRecipe"
+              @click="revertRecipe"
+            >
+              {{ revertingRecipe ? 'Reverting…' : 'Revert to planner prompts' }}
+            </button>
+          </div>
+        </div>
+
         <!-- v1.0.245 — Plan-health banner. Surfaces scenes that look broken
              (no prompt, over-long, or a planner fallback) so you don't have to
              scroll hundreds of scenes to find them. Click to jump. -->
@@ -299,12 +328,34 @@
               />
             </div>
             <div class="form-group mt-1">
-              <label class="text-xs text-muted">Visual prompt (sent to the image generator)</label>
+              <label class="text-xs text-muted">
+                {{ scene.visual_prompt_raw ? 'Composed prompt (explainer layout — sent to the image generator)' : 'Visual prompt (sent to the image generator)' }}
+              </label>
               <textarea
                 v-model="scene.visual_prompt"
                 class="textarea scene-textarea"
                 rows="2"
               />
+            </div>
+            <!-- v1.0.260 — when the recipe composed this scene, show the planner's
+                 original as the source + an overridable guide emotion. -->
+            <div v-if="scene.visual_prompt_raw" class="scene-raw mt-1">
+              <span class="text-xs text-muted">Planner original:</span>
+              <span class="scene-raw-text">{{ scene.visual_prompt_raw }}</span>
+            </div>
+            <div v-if="recipeEnabled" class="scene-emotion mt-1">
+              <label class="text-xs text-muted">Guide emotion</label>
+              <input
+                v-model="scene.emotion"
+                class="input input-sm input-inline"
+                placeholder="auto"
+                @input="markEmotionEdited(scene)"
+              />
+              <button
+                class="btn-icon"
+                :title="scene.emotion_locked ? 'Locked — kept on re-apply. Click to unlock (auto re-derive).' : 'Auto — re-derived on apply. Click to lock this value.'"
+                @click="toggleEmotionLock(scene)"
+              >{{ scene.emotion_locked ? '🔒 locked' : '🔓 auto' }}</button>
             </div>
             <div class="scene-row-actions mt-1">
               <!-- v1.0.245 — re-plan just this scene's time range via the LLM. -->
@@ -389,6 +440,10 @@ interface ScenePlanEntry {
   approved?: boolean
   image_path?: string
   boundary_reason?: string
+  // v1.0.260 — Visual Recipe fields.
+  visual_prompt_raw?: string
+  emotion?: string
+  emotion_locked?: boolean
 }
 interface ScenePlan {
   schema_version: 1
@@ -411,18 +466,93 @@ const deleting = ref(false)
 // continuity-chain, surface the active scene-length band (set on the Character
 // Sheet page) so the user knows the planner paces for a "live" feel.
 const continuityPacing = ref<{ min_sec: number; max_sec: number } | null>(null)
+// v1.0.260 — whether the explainer Visual Recipe is enabled for this episode
+// (set on the Character Sheet). Gates the Apply/Revert controls below.
+const recipeEnabled = ref(false)
 
 async function loadContinuity(): Promise<void> {
   continuityPacing.value = null
+  recipeEnabled.value = false
   if (!episodeId.value) return
   try {
     const fmt = await get<{ visualSource?: string }>(`/projects/${slug.value}/effective-format`)
     if (fmt?.visualSource !== 'continuity-chain') return
-    const r = await get<{ exists: boolean; config: { pacing?: { min_sec: number; max_sec: number } } }>(
+    const r = await get<{ exists: boolean; config: { pacing?: { min_sec: number; max_sec: number }; recipe?: { enabled?: boolean } } }>(
       `/projects/${slug.value}/continuity/${episodeId.value}`,
     )
     continuityPacing.value = r.config?.pacing || { min_sec: 2, max_sec: 8 }
+    recipeEnabled.value = r.config?.recipe?.enabled === true
   } catch { /* non-continuity project or fetch failed — no chip */ }
+}
+
+// ── v1.0.260 — Visual Recipe (Prompt Director) apply / revert ───────────
+const applyingRecipe = ref(false)
+const revertingRecipe = ref(false)
+const recipeComposedCount = computed(() =>
+  (plan.value?.scenes || []).filter(s => s.visual_prompt_raw && s.visual_prompt_raw.length).length,
+)
+
+async function applyRecipe(): Promise<void> {
+  if (!form.value.model) { showError('Pick a model above first'); return }
+  if (dirty.value) {
+    const ok = await ask({
+      title: 'Apply Visual Recipe?',
+      message: 'This rewrites every scene\'s prompt into the explainer composition (guide-at-side + framed subject). Your unsaved plan edits will be discarded first. The planner\'s original prompts are preserved, so you can revert.',
+      confirmLabel: 'Apply recipe',
+    })
+    if (!ok) return
+  }
+  applyingRecipe.value = true
+  try {
+    await post(`/projects/${slug.value}/continuity/${episodeId.value}/apply-recipe`, { model: form.value.model })
+    success('Composing scene prompts — watch the Jobs panel; the list updates when it lands.')
+    await pollUntilRecomposed()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to apply Visual Recipe')
+  } finally {
+    applyingRecipe.value = false
+  }
+}
+
+async function revertRecipe(): Promise<void> {
+  const ok = await ask({
+    title: 'Revert to planner prompts?',
+    message: 'Restores each scene\'s original planner prompt and clears the recipe\'s emotion data. The composition template + recipe settings are kept — you can re-apply anytime.',
+    confirmLabel: 'Revert',
+  })
+  if (!ok) return
+  revertingRecipe.value = true
+  try {
+    await post(`/projects/${slug.value}/continuity/${episodeId.value}/revert-recipe`, {})
+    await loadStatus()
+    success('Reverted to planner prompts')
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to revert')
+  } finally {
+    revertingRecipe.value = false
+  }
+}
+
+/** Poll the plan until the Director's recompose lands (a scene gains a
+ *  visual_prompt_raw) or we time out. */
+async function pollUntilRecomposed(): Promise<void> {
+  const start = Date.now()
+  const before = recipeComposedCount.value
+  const timeoutMs = 180_000
+  while (Date.now() - start < timeoutMs) {
+    await new Promise(r => setTimeout(r, 3000))
+    await loadStatus()
+    if (recipeComposedCount.value > before || recipeComposedCount.value > 0 && before === 0) return
+  }
+  showError('Recipe taking longer than expected — check the Jobs panel, then refresh.')
+}
+
+/** A hand-edit to a scene's emotion locks it so the next apply keeps it. */
+function markEmotionEdited(scene: ScenePlanEntry): void {
+  scene.emotion_locked = true
+}
+function toggleEmotionLock(scene: ScenePlanEntry): void {
+  scene.emotion_locked = !scene.emotion_locked
 }
 
 const form = ref({
@@ -690,6 +820,25 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
 </script>
 
 <style scoped>
+/* v1.0.260 — Visual Recipe bar + per-scene recipe affordances. */
+.recipe-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px; border-radius: 8px;
+  background: rgba(240, 198, 116, 0.08);
+  border: 1px solid rgba(240, 198, 116, 0.25);
+}
+.recipe-bar-main { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.recipe-bar-actions { display: flex; align-items: center; gap: 8px; }
+.scene-raw {
+  display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap;
+  padding: 4px 8px; border-left: 2px solid var(--border);
+  background: var(--bg-tertiary); border-radius: 4px;
+}
+.scene-raw-text { font-size: 12px; color: var(--text-secondary, #888); font-style: italic; }
+.scene-emotion { display: flex; align-items: center; gap: 8px; }
+.scene-emotion .input-inline { width: 160px; }
+
 /* v1.0.242 — visual-detail slider. */
 .detail-pill {
   display: inline-block;

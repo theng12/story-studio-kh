@@ -258,6 +258,138 @@
           </div>
         </div>
       </section>
+
+      <!-- 5. Visual Recipe (explainer composition) -->
+      <section class="card mt-3">
+        <h3>
+          5. Visual Recipe
+          <span class="text-muted" style="font-weight:400">— explainer composition (optional)</span>
+        </h3>
+        <p class="text-muted text-sm mt-1">
+          Reframes every scene as an <strong>explainer</strong>: the thing being narrated becomes the
+          framed centrepiece, and your guide character stands at the side pointing at it, expression
+          matched to the moment. Define it here, then <strong>Apply</strong> it on the
+          <NuxtLink :to="`/projects/${slug}/scene-plan?episode_id=${episodeId}`" class="cs-link">Scene Plan</NuxtLink> page.
+        </p>
+
+        <div class="cs-settings mt-2">
+          <label class="cs-checkbox">
+            <input type="checkbox" v-model="config.recipe.enabled" />
+            Use the explainer composition for this episode
+          </label>
+
+          <div class="form-group">
+            <label>Composition directive <span class="text-muted text-xs">— natural language; how the frame is laid out</span></label>
+            <textarea
+              v-model="config.recipe.directive"
+              class="textarea"
+              rows="3"
+              placeholder="e.g. the subject sits inside an ornate vine-and-cave frame with clean white edges; the guide stands at the right edge, pointing at the framed scene; flat storybook illustration"
+            />
+          </div>
+
+          <div class="form-group">
+            <label>Guide character <span class="text-muted text-xs">— who points at the subject</span></label>
+            <select v-model="config.recipe.guide_character_id" class="input input-sm">
+              <option value="">First anchor character</option>
+              <option v-for="c in characters" :key="c.id" :value="c.id">{{ c.name }}</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Guide emotion</label>
+            <label class="cs-checkbox">
+              <input type="radio" value="auto" v-model="config.recipe.emotion_mode" />
+              Auto — match each scene's narration <span class="text-muted text-xs">(overridable per scene)</span>
+            </label>
+            <label class="cs-checkbox">
+              <input type="radio" value="fixed" v-model="config.recipe.emotion_mode" />
+              One fixed emotion
+            </label>
+            <input
+              v-if="config.recipe.emotion_mode === 'fixed'"
+              v-model="config.recipe.fixed_emotion"
+              class="input input-sm mt-1"
+              placeholder="e.g. warm curiosity"
+            />
+          </div>
+
+          <!-- Composition template image -->
+          <div class="form-group">
+            <label>
+              Composition template
+              <span v-if="compositionExists" class="cs-saved-badge">✓ Saved</span>
+            </label>
+            <p class="text-muted text-xs">
+              One layout image — the guide at the side + an empty framed window where each scene's
+              subject goes. Every scene is img2img-structured against it so the layout stays consistent.
+              Upload your own, or generate one. Saved as <code>composition.png</code>.
+            </p>
+            <div class="cs-sheet-row mt-2">
+              <div v-if="compositionExists" class="cs-sheet-preview">
+                <img :src="compositionUrl" alt="Composition template" />
+              </div>
+              <div class="cs-sheet-main">
+                <ReferenceDropzone :busy="uploadingComposition" @files="onCompositionFiles">
+                  <template #title>{{ compositionExists ? 'Replace the template' : 'Drop a composition template here' }}</template>
+                  <template #hint>— or paste, or click to browse (one image)</template>
+                </ReferenceDropzone>
+
+                <div class="cs-gen-box mt-2">
+                  <label class="text-xs text-muted">Or generate one from a prompt</label>
+                  <ImageModelPicker
+                    v-model="compositionModel"
+                    :project-slug="slug"
+                    :image-models="projectConfig?.image_models || {}"
+                  />
+                  <textarea
+                    v-model="compositionPrompt"
+                    class="textarea mt-1"
+                    rows="2"
+                    placeholder="Describe the template: e.g. a friendly guide character standing at the right gesturing toward a large empty ornate frame on the left, clean white background, flat storybook style"
+                  />
+                  <button
+                    class="btn btn-secondary btn-sm mt-1"
+                    :disabled="generatingComposition || !compositionModel || !compositionPrompt.trim()"
+                    @click="generateComposition"
+                  >
+                    {{ generatingComposition ? 'Generating…' : 'Generate template' }}
+                  </button>
+                </div>
+
+                <div class="cs-sheet-actions">
+                  <label class="cs-checkbox">
+                    <input type="checkbox" v-model="config.references.composition" :disabled="!compositionExists" />
+                    Use this layout on every scene
+                  </label>
+                  <button v-if="compositionExists" class="btn btn-ghost btn-sm" :disabled="uploadingComposition" @click="removeComposition">
+                    Remove template
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recipe presets -->
+          <PresetPicker
+            label="Recipe preset"
+            hint="Saves the composition directive + guide + emotion mode so you can reuse the explainer look across episodes. Apply fills the fields, then Save continuity settings to keep it on this episode."
+            :presets="recipePresets.presets.value"
+            :active-id="recipePresets.activeId.value"
+            :current-machine-label="recipePresets.machineLabel.value"
+            :show-all-devices="recipePresets.showAllDevices.value"
+            :cross-device-count="recipePresets.crossDeviceCount.value"
+            :active-preset-is-cross-device="recipePresets.activePresetIsCrossDevice.value"
+            :active-preset-machine-label="recipePresets.activePresetMachineLabel.value"
+            @update:active-id="recipePresets.setActive"
+            @update:show-all-devices="(v) => recipePresets.showAllDevices.value = v"
+            @apply="recipePresets.applyActive(); success('Recipe applied — Save continuity settings to keep it')"
+            @overwrite="recipePresets.overwrite(); success('Recipe preset saved')"
+            @save-as="(n) => recipePresets.saveAs(n).then(() => success(`Saved: ${n}`))"
+            @delete="recipePresets.remove(); success('Recipe preset deleted')"
+          />
+        </div>
+      </section>
     </template>
   </div>
 </template>
@@ -277,16 +409,27 @@ const cm = useCharacters(slug)
 
 const episodeId = ref('')
 
+interface VisualRecipe {
+  enabled: boolean
+  directive: string
+  guide_character_id: string
+  emotion_mode: 'auto' | 'fixed'
+  fixed_emotion: string
+}
 interface ContinuityConfig {
   schema_version: 1
   anchor_character_ids: string[]
   use_episode_sheet: boolean
   pacing: { min_sec: number; max_sec: number }
-  references: { prev_render: boolean; sheet: boolean; characters: boolean; style: boolean }
+  references: { prev_render: boolean; sheet: boolean; characters: boolean; style: boolean; composition: boolean }
   denoise_strength: number
   style_bible?: string
   negative_prompt?: string
+  recipe: VisualRecipe
   updated_at?: string
+}
+function defaultRecipe(): VisualRecipe {
+  return { enabled: false, directive: '', guide_character_id: '', emotion_mode: 'auto', fixed_emotion: '' }
 }
 function defaults(): ContinuityConfig {
   return {
@@ -294,10 +437,11 @@ function defaults(): ContinuityConfig {
     anchor_character_ids: [],
     use_episode_sheet: false,
     pacing: { min_sec: 2, max_sec: 8 },
-    references: { prev_render: true, sheet: true, characters: true, style: false },
+    references: { prev_render: true, sheet: true, characters: true, style: false, composition: false },
     denoise_strength: 0.5,
     style_bible: '',
     negative_prompt: '',
+    recipe: defaultRecipe(),
   }
 }
 
@@ -324,9 +468,38 @@ const stylePresets = usePresets<{ style_bible: string; negative_prompt: string }
   },
 })
 
+// v1.0.260 — savable Visual Recipe presets (directive + guide + emotion mode).
+// The composition is usually the same across a channel's episodes, so save it
+// once and Apply it. autoApplyOnLoad OFF — the episode's continuity.json drives
+// the fields; the preset is applied only on explicit Apply (then Save).
+const recipePresets = usePresets<VisualRecipe>({
+  slug: slug.value,
+  configKey: 'continuity_recipe',
+  presetType: 'visual-recipe',
+  autoApplyOnLoad: false,
+  snapshot: () => ({ ...defaultRecipe(), ...config.value.recipe }),
+  apply: (data) => {
+    config.value.recipe = { ...defaultRecipe(), ...data }
+  },
+})
+
+// v1.0.260 — project config (image_models) for the template generator's picker.
+const { config: projectConfig } = useProject()
+
 const characters = ref<Character[]>([])
 const charsLoading = ref(false)
 const saving = ref(false)
+
+// ── Composition template (v1.0.260 — composition.png) ────────────────
+const compositionExists = ref<boolean | null>(null)
+const compositionVersion = ref(0)
+const uploadingComposition = ref(false)
+const compositionUrl = computed(() =>
+  `/api/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/file/composition.png?v=${compositionVersion.value}`,
+)
+const compositionModel = ref('')
+const compositionPrompt = ref('')
+const generatingComposition = ref(false)
 
 // ── Episode sheet (master img2img reference) ─────────────────────────
 const masterExists = ref<boolean | null>(null)
@@ -382,7 +555,12 @@ async function loadConfig(): Promise<void> {
     const r = await get<{ exists: boolean; config: ContinuityConfig }>(
       `/projects/${slug.value}/continuity/${episodeId.value}`,
     )
-    config.value = { ...defaults(), ...r.config, pacing: { ...defaults().pacing, ...r.config?.pacing }, references: { ...defaults().references, ...r.config?.references } }
+    config.value = {
+      ...defaults(), ...r.config,
+      pacing: { ...defaults().pacing, ...r.config?.pacing },
+      references: { ...defaults().references, ...r.config?.references },
+      recipe: { ...defaultRecipe(), ...(r.config as any)?.recipe },
+    }
   } catch (e: any) {
     if (!e?.__slugRace) config.value = defaults()
   }
@@ -483,6 +661,78 @@ async function removeStyle(): Promise<void> {
   }
 }
 
+// ── Composition template (upload / generate / remove) ────────────────
+async function onCompositionFiles(files: File[]): Promise<void> {
+  const file = files[0]
+  if (!file) return
+  uploadingComposition.value = true
+  try {
+    const data_base64 = await fileToBase64(file)
+    await post(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/composition`, {
+      filename: file.name,
+      data_base64,
+    })
+    compositionVersion.value++
+    compositionExists.value = true
+    config.value.references.composition = true  // auto-enable once a template exists
+    success('Composition template uploaded')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to upload composition template')
+  } finally {
+    uploadingComposition.value = false
+  }
+}
+
+async function removeComposition(): Promise<void> {
+  if (!episodeId.value) return
+  try {
+    await del(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/composition`)
+    compositionExists.value = false
+    compositionVersion.value++
+    config.value.references.composition = false
+    success('Composition template removed')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to remove composition template')
+  }
+}
+
+async function generateComposition(): Promise<void> {
+  if (!episodeId.value || !compositionModel.value || !compositionPrompt.value.trim()) return
+  generatingComposition.value = true
+  try {
+    await post(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/composition/generate`, {
+      model: compositionModel.value,
+      prompt: compositionPrompt.value.trim(),
+      aspect_ratio: '16:9',
+    })
+    success('Generating composition template… this can take up to a minute.')
+    // Poll the references listing until the file appears (the job runs in the
+    // background; we just wait for composition.png to land, then refresh).
+    const started = Date.now()
+    const poll = async (): Promise<void> => {
+      if (Date.now() - started > 120_000) { generatingComposition.value = false; return }
+      try {
+        const r = await get<{ composition?: { url: string } }>(
+          `/projects/${slug.value}/episodes/${episodeId.value}/img2img-references`,
+        )
+        if (r.composition) {
+          compositionVersion.value++
+          compositionExists.value = true
+          config.value.references.composition = true
+          generatingComposition.value = false
+          success('Composition template generated')
+          return
+        }
+      } catch { /* keep polling */ }
+      setTimeout(() => { void poll() }, 2500)
+    }
+    setTimeout(() => { void poll() }, 2500)
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to start template generation')
+    generatingComposition.value = false
+  }
+}
+
 // v1.0.231 — authoritative existence check for the reference images. The old
 // hidden-<img> probe could flip "exists" back to false on a transient load
 // error right after an upload (so the user saw no confirmation). This reads
@@ -490,13 +740,14 @@ async function removeStyle(): Promise<void> {
 async function loadRefs(): Promise<void> {
   if (!episodeId.value) { masterExists.value = false; styleExists.value = false; return }
   try {
-    const r = await get<{ master?: { url: string }; style?: { url: string } }>(
+    const r = await get<{ master?: { url: string }; style?: { url: string }; composition?: { url: string } }>(
       `/projects/${slug.value}/episodes/${episodeId.value}/img2img-references`,
     )
     masterExists.value = !!r.master
     styleExists.value = !!r.style
+    compositionExists.value = !!r.composition
   } catch (e: any) {
-    if (!e?.__slugRace) { masterExists.value = false; styleExists.value = false }
+    if (!e?.__slugRace) { masterExists.value = false; styleExists.value = false; compositionExists.value = false }
   }
 }
 
@@ -504,12 +755,15 @@ async function loadRefs(): Promise<void> {
 watch(episodeId, () => {
   masterExists.value = null
   styleExists.value = null
+  compositionExists.value = null
   masterVersion.value++
   styleVersion.value++
+  compositionVersion.value++
   void loadCharacters()
   void loadConfig()
   void loadRefs()
   void stylePresets.load()
+  void recipePresets.load()
 }, { immediate: true })
 </script>
 
@@ -541,6 +795,11 @@ watch(episodeId, () => {
 }
 .cs-sheet-preview img { width: 100%; height: 100%; object-fit: cover; }
 .cs-sheet-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.cs-gen-box {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px; border: 1px dashed var(--border); border-radius: 8px;
+  background: var(--bg-tertiary);
+}
 
 .cs-settings { display: flex; flex-direction: column; gap: 18px; }
 .cs-checkbox { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 4px; cursor: pointer; }

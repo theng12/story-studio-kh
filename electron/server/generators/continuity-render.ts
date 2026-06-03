@@ -71,7 +71,7 @@ interface ContinuityRenderParams {
 interface ContinuityCfg {
   anchor_character_ids: string[]
   use_episode_sheet: boolean
-  references: { prev_render: boolean; sheet: boolean; characters: boolean; style: boolean }
+  references: { prev_render: boolean; sheet: boolean; characters: boolean; style: boolean; composition: boolean }
   denoise_strength: number
   /** v1.0.243 — render-time style text appended to every scene's prompt. */
   style_bible: string
@@ -82,7 +82,7 @@ function defaultCfg(): ContinuityCfg {
   return {
     anchor_character_ids: [],
     use_episode_sheet: false,
-    references: { prev_render: true, sheet: true, characters: true, style: false },
+    references: { prev_render: true, sheet: true, characters: true, style: false, composition: false },
     denoise_strength: 0.5,
     style_bible: '',
     negative_prompt: '',
@@ -124,6 +124,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           sheet: raw?.references?.sheet !== false,
           characters: raw?.references?.characters !== false,
           style: raw?.references?.style === true,
+          composition: raw?.references?.composition === true,
         },
         denoise_strength: Number.isFinite(Number(raw?.denoise_strength)) ? Number(raw.denoise_strength) : 0.5,
         style_bible: typeof raw?.style_bible === 'string' ? raw.style_bible.trim() : '',
@@ -220,6 +221,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   const slug = job.project_slug
   const sheetUrl = `/api/projects/${slug}/episodes/${episode_id}/img2img-references/file/master.png`
   const styleUrl = `/api/projects/${slug}/episodes/${episode_id}/img2img-references/file/style.png`
+  const compositionUrl = `/api/projects/${slug}/episodes/${episode_id}/img2img-references/file/composition.png`
   const charRefUrl = (id: string, fn: string) =>
     `/api/projects/${slug}/characters/${id}/reference-image/${encodeURIComponent(fn)}`
   const sceneImgUrl = (sceneId: string) =>
@@ -231,6 +233,11 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // v1.0.229 — optional style reference: the look/palette every scene matches.
   const stylePath = path.join(paths.episode_dir, 'img2img-references', 'style.png')
   const useStyle = cfg.references.style && existsSync(stylePath)
+  // v1.0.260 — optional composition template: the explainer LAYOUT (subject
+  // framed centrepiece + guide character at the side) every scene is structured
+  // against. Pushed FIRST in the reference stack so it dominates the layout.
+  const compositionPath = path.join(paths.episode_dir, 'img2img-references', 'composition.png')
+  const useComposition = cfg.references.composition && existsSync(compositionPath)
 
   const characterRefs: Array<{ abs: string; url: string; label: string }> = []
   // v1.0.243 — anchor character TEXT descriptors, gathered alongside the image
@@ -348,6 +355,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     // The shared reference stack — identical for every scene (no prev_render).
     const sharedRefs: string[] = []
     const sharedRefDescs: Array<{ kind: string; label: string; url: string }> = []
+    if (useComposition) { sharedRefs.push(compositionPath); sharedRefDescs.push({ kind: 'composition', label: 'Composition template', url: compositionUrl }) }
     if (useSheet) { sharedRefs.push(sheetPath); sharedRefDescs.push({ kind: 'sheet', label: 'Character sheet', url: sheetUrl }) }
     if (cfg.references.characters) {
       for (const c of characterRefs) { sharedRefs.push(c.abs); sharedRefDescs.push({ kind: 'character', label: c.label, url: c.url }) }
@@ -488,6 +496,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     // descriptor list (kind + label + frontend URL) for the live panel.
     const refs: string[] = []
     const refDescs: Array<{ kind: string; label: string; url: string }> = []
+    if (useComposition) { refs.push(compositionPath); refDescs.push({ kind: 'composition', label: 'Composition template', url: compositionUrl }) }
     if (useSheet) { refs.push(sheetPath); refDescs.push({ kind: 'sheet', label: 'Character sheet', url: sheetUrl }) }
     if (cfg.references.characters) {
       for (const c of characterRefs) { refs.push(c.abs); refDescs.push({ kind: 'character', label: c.label, url: c.url }) }

@@ -24,14 +24,17 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import { Router } from 'express'
 import * as pm from '../services/project-manager.js'
+import * as jq from '../services/job-queue.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { resolveEpisodeDir } from '../lib/folder-resolver.js'
+import type { JobType } from '../models/types.js'
 
 export const router = Router()
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024 // 10 MB — img2img refs can be larger than char portraits.
 const MASTER_FILENAME = 'master.png'
 const STYLE_FILENAME = 'style.png'  // v1.0.229 — continuity style reference
+const COMPOSITION_FILENAME = 'composition.png'  // v1.0.260 — explainer layout template
 
 /**
  * Resolve the per-episode references directory.
@@ -120,6 +123,26 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/style', asyn
   }
 })
 
+// ── POST composition template ────────────────────────────────────────────
+// v1.0.260 — explainer composition template (saved as composition.png). The
+// LAYOUT every scene is img2img-structured against when references.composition
+// is on: subject framed as the centrepiece, guide character at the side.
+router.post('/projects/:slug/episodes/:episodeId/img2img-references/composition', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const titleParam = (req.body?.title as string | undefined) || (req.query.title as string) || ''
+  try {
+    const project = await pm.getProject(slug)
+    if (!project) return res.status(404).json({ detail: 'Project not found' })
+    const buf = decodeUploadBuffer(req.body)
+    if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
+    const dir = await refsDir(slug, episodeId, titleParam, { create: true })
+    await fs.writeFile(path.join(dir, COMPOSITION_FILENAME), buf.data)
+    res.json({ ok: true, url: fileUrl(slug, episodeId, COMPOSITION_FILENAME), size_bytes: buf.data.length })
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to save composition template' })
+  }
+})
+
 // ── POST per-scene ───────────────────────────────────────────────────────
 router.post('/projects/:slug/episodes/:episodeId/img2img-references/scene/:n', async (req, res) => {
   const { slug, episodeId } = req.params
@@ -175,6 +198,46 @@ router.delete('/projects/:slug/episodes/:episodeId/img2img-references/style', as
   }
 })
 
+// ── POST composition template — GENERATE from prompt ─────────────────────
+// v1.0.260 — render the layout template with an image model instead of
+// uploading one. Enqueues a job that saves the result to composition.png.
+router.post('/projects/:slug/episodes/:episodeId/img2img-references/composition/generate', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : ''
+  const model = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
+  const aspectRatio = typeof req.body?.aspect_ratio === 'string' ? req.body.aspect_ratio.trim() : '16:9'
+  const title = typeof req.body?.title === 'string' ? req.body.title : ''
+  if (!prompt) return res.status(400).json({ detail: 'prompt is required' })
+  if (!model) return res.status(400).json({ detail: 'model is required' })
+
+  if (jq.isDuplicate(slug, episodeId, 'composition_generate' as JobType)) {
+    return res.status(409).json({ detail: `A composition template is already being generated for ${episodeId}` })
+  }
+  const job = jq.enqueue({
+    project_slug: slug,
+    type: 'composition_generate' as JobType,
+    episode_id: episodeId,
+    title: `Composition template — ${episodeId}`,
+    params: { episode_id: episodeId, title, prompt, model, aspect_ratio: aspectRatio },
+  })
+  res.status(201).json(job)
+})
+
+// ── DELETE composition template ──────────────────────────────────────────
+router.delete('/projects/:slug/episodes/:episodeId/img2img-references/composition', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const titleParam = (req.query.title as string) || ''
+  try {
+    const dir = await refsDir(slug, episodeId, titleParam)
+    const target = path.join(dir, COMPOSITION_FILENAME)
+    if (existsSync(target)) await fs.rm(target)
+    res.json({ ok: true })
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to delete composition template' })
+  }
+})
+
 // ── DELETE per-scene ─────────────────────────────────────────────────────
 router.delete('/projects/:slug/episodes/:episodeId/img2img-references/scene/:n', async (req, res) => {
   const { slug, episodeId } = req.params
@@ -204,6 +267,7 @@ router.get('/projects/:slug/episodes/:episodeId/img2img-references', async (req,
     const out: {
       master?: { url: string; size_bytes: number }
       style?: { url: string; size_bytes: number }
+      composition?: { url: string; size_bytes: number }
       scenes: { number: number; url: string; size_bytes: number }[]
     } = { scenes: [] }
     for (const name of entries) {
@@ -214,6 +278,8 @@ router.get('/projects/:slug/episodes/:episodeId/img2img-references', async (req,
         out.master = { url: fileUrl(slug, episodeId, name), size_bytes: size }
       } else if (name === STYLE_FILENAME) {
         out.style = { url: fileUrl(slug, episodeId, name), size_bytes: size }
+      } else if (name === COMPOSITION_FILENAME) {
+        out.composition = { url: fileUrl(slug, episodeId, name), size_bytes: size }
       } else {
         const m = name.match(/^scene-(\d+)\.png$/)
         if (m) {
@@ -238,7 +304,7 @@ router.get('/projects/:slug/episodes/:episodeId/img2img-references/file/:filenam
   // Restrict to known filename shapes to block path traversal.
   // v1.0.237 — include style.png (was missing, so the style-reference preview
   // 400'd and showed a broken image even though the file exists + renders).
-  if (filename !== MASTER_FILENAME && filename !== STYLE_FILENAME && !/^scene-\d+\.png$/.test(filename)) {
+  if (filename !== MASTER_FILENAME && filename !== STYLE_FILENAME && filename !== COMPOSITION_FILENAME && !/^scene-\d+\.png$/.test(filename)) {
     return res.status(400).json({ detail: 'Invalid reference filename' })
   }
   const titleParam = (req.query.title as string) || ''

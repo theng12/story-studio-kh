@@ -33,6 +33,8 @@ import { runScenePlanJob } from '../generators/scene-plan.js'
 import { generateSceneImageJob } from '../generators/scene-image.js'
 import { runTimestampVideoAssemble } from '../generators/timestamp-video-assemble.js'
 import { runContinuityRenderJob } from '../generators/continuity-render.js'
+import { runPromptDirectorJob } from '../generators/prompt-director.js'
+import { generateCompositionTemplateJob } from '../generators/composition-template.js'
 
 export function registerAllExecutors(): void {
   // Legacy `'script'` executor (the coupled generateEpisode) was removed
@@ -91,6 +93,11 @@ export function registerAllExecutors(): void {
   // v1.0.144+ — Per-scene image generator (one job per scene).
   registerExecutor('scene_image_generate', generateSceneImageJob)
   registerExecutor('continuity_render', runContinuityRenderJob)
+  // v1.0.260 — Prompt Director: rewrites scene prompts into the explainer
+  // composition (guide-at-side + framed subject) per the Visual Recipe.
+  registerExecutor('prompt_director', runPromptDirectorJob)
+  // v1.0.260 — generate the composition LAYOUT template image from a prompt.
+  registerExecutor('composition_generate', generateCompositionTemplateJob)
   // v1.0.145+ — Final ffmpeg assembler for the timestamp-driven pipeline.
   registerExecutor('timestamp_video_assemble', runTimestampVideoAssemble)
 }

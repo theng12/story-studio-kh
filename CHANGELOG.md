@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.260 — 2026-06-04
+
+### Added — Visual Recipe + Prompt Director (explainer composition for continuity videos)
+Continuity-chain POV videos no longer have to make the character *the whole scene*. A new **Visual Recipe** reframes every scene as an **explainer**: the thing being narrated becomes the framed centrepiece, with the guide character standing at the side pointing at it, expression matched to the moment — so visuals finally include the objects, places, creatures and ideas being talked about, not just "the character again".
+
+How it works (a decoupled layer on top of the existing planner → render flow, so nothing about plain rendering changes when it's off):
+- **Character Sheet → Visual Recipe panel**: define the composition in natural language, pick the guide character, choose auto-emotion (matched per scene) or a fixed mood, and set a **composition template image** — upload your own *or* generate one from a prompt with any image model. Savable as a **preset** for reuse across episodes.
+- **Scene Plan → Apply Visual Recipe**: the **Prompt Director** rewrites every scene's prompt into the explainer layout in one pass, auto-deriving each scene's guide emotion from the narration beat. Non-destructive + idempotent — the planner's original prompt is preserved (`visual_prompt_raw`), shown beneath each composed prompt, so you can tweak the recipe and re-apply, override any scene's emotion (🔒 to lock it), or **Revert to planner prompts** anytime.
+- **Render**: when the composition template is on, it's fed as the dominant img2img structure reference on every scene (alongside character/style refs), anchoring a consistent recurring layout across the whole episode.
+
+### Files
+- `electron/server/generators/prompt-director.ts` (NEW — windowed LLM recompose, idempotent from `visual_prompt_raw`, auto/fixed/locked emotion)
+- `electron/server/generators/composition-template.ts` (NEW — generate the layout template image from a prompt)
+- `electron/server/models/types.ts` (`VisualRecipe`, `ScenePlanEntry.visual_prompt_raw|emotion|emotion_locked`, `references.composition`, new job types)
+- `electron/server/routes/continuity.ts` (recipe in config + `apply-recipe` / `revert-recipe`) · `electron/server/routes/image-references.ts` (composition.png upload/serve/generate)
+- `electron/server/generators/continuity-render.ts` (composition reference wired into both render paths) · `boot/executors.ts` · `services/job-queue.ts`
+- `frontend/pages/projects/[slug]/character-sheet.vue` (Visual Recipe panel + template upload/generate + presets) · `frontend/pages/projects/[slug]/scene-plan.vue` (Apply/Revert + per-scene emotion + raw-prompt display)
+
+---
+
 ## v1.0.259 — 2026-06-03
 
 ### Added — generator pages remember your settings (per-Mac)
