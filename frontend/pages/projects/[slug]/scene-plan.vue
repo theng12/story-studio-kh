@@ -458,7 +458,12 @@ interface ScenePlan {
 const status = ref<ScenePlanStatus | null>(null)
 const plan = ref<ScenePlan | null>(null)
 const serverPlan = ref<string>('')  // snapshot for dirty check
-const planning = ref(false)
+// v1.0.272 — per-episode in-flight flags. A plan/recipe run holds its flag
+// through a long poll; keying it to the episode means switching episodes
+// mid-job doesn't disable the newly-selected episode's buttons. (See
+// auto-memory: per-episode-inflight-gating.md.)
+const planningEpisode = ref<string | null>(null)
+const planning = computed(() => planningEpisode.value === episodeId.value)
 const saving = ref(false)
 const deleting = ref(false)
 
@@ -491,8 +496,10 @@ async function loadContinuity(): Promise<void> {
 }
 
 // ── v1.0.260 — Visual Recipe (Prompt Director) apply / revert ───────────
-const applyingRecipe = ref(false)
-const revertingRecipe = ref(false)
+const applyingEpisode = ref<string | null>(null)
+const revertingEpisode = ref<string | null>(null)
+const applyingRecipe = computed(() => applyingEpisode.value === episodeId.value)
+const revertingRecipe = computed(() => revertingEpisode.value === episodeId.value)
 const recipeComposedCount = computed(() =>
   (plan.value?.scenes || []).filter(s => s.visual_prompt_raw && s.visual_prompt_raw.length).length,
 )
@@ -507,19 +514,20 @@ async function applyRecipe(): Promise<void> {
     })
     if (!ok) return
   }
-  applyingRecipe.value = true
+  const ep = episodeId.value
+  applyingEpisode.value = ep
   // Signature of the current composed prompts — the poll waits for THIS to
   // change, which works for both first-apply and re-apply (where the raw-count
   // is already non-zero and wouldn't move).
   const beforeSig = promptsSignature()
   try {
-    await post(`/projects/${slug.value}/continuity/${episodeId.value}/apply-recipe`, { model: form.value.model })
+    await post(`/projects/${slug.value}/continuity/${ep}/apply-recipe`, { model: form.value.model })
     success('Composing scene prompts — watch the Jobs panel; the list updates when it lands.')
-    await pollUntilRecomposed(beforeSig)
+    await pollUntilRecomposed(beforeSig, ep)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to apply Visual Recipe')
   } finally {
-    applyingRecipe.value = false
+    if (applyingEpisode.value === ep) applyingEpisode.value = null
   }
 }
 
@@ -530,15 +538,16 @@ async function revertRecipe(): Promise<void> {
     confirmLabel: 'Revert',
   })
   if (!ok) return
-  revertingRecipe.value = true
+  const ep = episodeId.value
+  revertingEpisode.value = ep
   try {
-    await post(`/projects/${slug.value}/continuity/${episodeId.value}/revert-recipe`, {})
-    await loadStatus()
+    await post(`/projects/${slug.value}/continuity/${ep}/revert-recipe`, {})
+    if (episodeId.value === ep) await loadStatus()
     success('Reverted to planner prompts')
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to revert')
   } finally {
-    revertingRecipe.value = false
+    if (revertingEpisode.value === ep) revertingEpisode.value = null
   }
 }
 
@@ -550,15 +559,16 @@ function promptsSignature(): string {
 
 /** Poll the plan until the Director's recompose lands (the composed prompts
  *  change vs the pre-apply signature) or we time out. */
-async function pollUntilRecomposed(beforeSig: string): Promise<void> {
+async function pollUntilRecomposed(beforeSig: string, ep: string): Promise<void> {
   const start = Date.now()
   const timeoutMs = 180_000
   while (Date.now() - start < timeoutMs) {
     await new Promise(r => setTimeout(r, 3000))
+    if (episodeId.value !== ep) return  // switched away — stop; don't touch the new episode
     await loadStatus()
     if (promptsSignature() !== beforeSig) return
   }
-  showError('Recipe taking longer than expected — check the Jobs panel, then refresh.')
+  if (episodeId.value === ep) showError('Recipe taking longer than expected — check the Jobs panel, then refresh.')
 }
 
 /** A hand-edit to a scene's emotion locks it so the next apply keeps it. */
@@ -636,9 +646,10 @@ async function loadStatus(): Promise<void> {
 
 async function planScenes(): Promise<void> {
   if (!canPlan.value) return
-  planning.value = true
+  const ep = episodeId.value
+  planningEpisode.value = ep
   try {
-    await post(`/projects/${slug.value}/scene-plan/${episodeId.value}/run`, {
+    await post(`/projects/${slug.value}/scene-plan/${ep}/run`, {
       model: form.value.model,
       target_scene_count: form.value.target_scene_count || undefined,
       use_research: form.value.use_research,
@@ -647,26 +658,27 @@ async function planScenes(): Promise<void> {
       custom_instructions: form.value.custom_instructions.trim() || undefined,
     })
     success('Scene planner queued — watch the Jobs panel')
-    await pollUntilPlanLanded()
+    await pollUntilPlanLanded(ep)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to start planner')
   } finally {
-    planning.value = false
+    if (planningEpisode.value === ep) planningEpisode.value = null
   }
 }
 
-async function pollUntilPlanLanded(): Promise<void> {
+async function pollUntilPlanLanded(ep: string): Promise<void> {
   const start = Date.now()
   const timeoutMs = 120_000
   while (Date.now() - start < timeoutMs) {
     await new Promise(r => setTimeout(r, 3000))
+    if (episodeId.value !== ep) return  // switched away — stop; the new episode's own load owns its state
     await loadStatus()
     if (plan.value && plan.value.generated_at) {
       const generated = new Date(plan.value.generated_at).getTime()
       if (Date.now() - generated < timeoutMs) return
     }
   }
-  showError('Scene planner taking longer than 120s — check the Jobs panel.')
+  if (episodeId.value === ep) showError('Scene planner taking longer than 120s — check the Jobs panel.')
 }
 
 // ── v1.0.245 — Plan health + per-scene re-plan ──────────────────────────
@@ -708,9 +720,10 @@ async function replanScene(scene: ScenePlanEntry): Promise<void> {
     confirmLabel: 'Re-plan scene',
   })
   if (!ok) return
+  const ep = episodeId.value
   replanningId.value = scene.id
   try {
-    await post(`/projects/${slug.value}/scene-plan/${episodeId.value}/replan-scene`, {
+    await post(`/projects/${slug.value}/scene-plan/${ep}/replan-scene`, {
       scene_id: scene.id,
       model: form.value.model,
       detail_level: form.value.detail_level,
@@ -718,7 +731,7 @@ async function replanScene(scene: ScenePlanEntry): Promise<void> {
       custom_instructions: form.value.custom_instructions.trim() || undefined,
     })
     success('Re-plan queued — watch the Jobs panel; the scene list updates when it lands.')
-    await pollUntilPlanLanded()
+    await pollUntilPlanLanded(ep)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to start re-plan')
   } finally {

@@ -604,7 +604,12 @@ const cacheBuster = ref(Date.now())
 const regeneratingId = ref<string | null>(null)
 const approvingId = ref<string | null>(null)
 const approvingAll = ref(false)
-const bulkQueuing = ref(false)
+// v1.0.272 — per-episode in-flight flags: a bulk-gen / render holds its flag
+// through a long poll, so key it to the episode it started for — switching
+// episodes mid-job then frees the new episode's buttons instead of leaving them
+// disabled. (See auto-memory: per-episode-inflight-gating.md.)
+const bulkQueuingEpisode = ref<string | null>(null)
+const bulkQueuing = computed(() => bulkQueuingEpisode.value === episodeId.value)
 
 // ── Computeds ───────────────────────────────────────────────────────
 const audioUrl = computed(() => {
@@ -749,6 +754,7 @@ async function generateOne(scene: ReviewScene): Promise<void> {
     showError('Pick a model in the Greenlight panel before regenerating')
     return
   }
+  const ep = episodeId.value
   regeneratingId.value = scene.id
   try {
     if (isContinuity.value) {
@@ -772,7 +778,7 @@ async function generateOne(scene: ReviewScene): Promise<void> {
         ...localSizeBody.value,
       })
       success(`Queued scene ${scene.scene_index} — watch the Jobs panel`)
-      await pollUntilImageReady(scene.id)
+      await pollUntilImageReady(scene.id, ep)
     }
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to queue scene image')
@@ -823,26 +829,28 @@ async function uploadOne(scene: ReviewScene): Promise<void> {
 
 async function generateAllMissing(): Promise<void> {
   if (!canBulkGenerate.value) return
-  bulkQueuing.value = true
+  const ep = episodeId.value
+  bulkQueuingEpisode.value = ep
   try {
     const r = await post<{ queued: number; skipped: number }>(
-      `/projects/${slug.value}/scene-review/${episodeId.value}/generate-missing`,
+      `/projects/${slug.value}/scene-review/${ep}/generate-missing`,
       { model: form.value.model, aspect_ratio: form.value.aspect_ratio, ...localSizeBody.value },
     )
     success(`Queued ${r.queued} job${r.queued === 1 ? '' : 's'} (${r.skipped} skipped)`)
     // Re-load every 4s while images are landing.
-    await pollUntilAllPresent()
+    await pollUntilAllPresent(ep)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to queue bulk gen')
   } finally {
-    bulkQueuing.value = false
+    if (bulkQueuingEpisode.value === ep) bulkQueuingEpisode.value = null
   }
 }
 
 // v1.0.194 — continuity-chain sequential render. The "Render sequentially"
 // button only shows for continuity-chain projects.
 const isContinuity = ref(false)
-const continuityRendering = ref(false)
+const renderingEpisode = ref<string | null>(null)
+const continuityRendering = computed(() => renderingEpisode.value === episodeId.value)
 
 async function loadContinuityFlag(): Promise<void> {
   try {
@@ -859,9 +867,10 @@ async function renderContinuity(opts: { force?: boolean; fromSceneId?: string; i
       : 'Re-render EVERY scene from scratch? This discards the current renders and runs the full sequential chain again.'
     if (!confirm(msg)) return
   }
-  continuityRendering.value = true
+  const ep = episodeId.value
+  renderingEpisode.value = ep
   try {
-    await post(`/projects/${slug.value}/scene-review/${episodeId.value}/continuity-render`, {
+    await post(`/projects/${slug.value}/scene-review/${ep}/continuity-render`, {
       model: form.value.model,
       aspect_ratio: form.value.aspect_ratio,
       force: !!opts.force,
@@ -879,7 +888,7 @@ async function renderContinuity(opts: { force?: boolean; fromSceneId?: string; i
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to start render')
   } finally {
-    continuityRendering.value = false
+    if (renderingEpisode.value === ep) renderingEpisode.value = null
   }
 }
 
@@ -949,11 +958,12 @@ watch(isRendering, (active) => {
 }, { immediate: true })
 onBeforeUnmount(() => { if (renderPollTimer) clearInterval(renderPollTimer) })
 
-async function pollUntilImageReady(sceneId: string): Promise<void> {
+async function pollUntilImageReady(sceneId: string, ep: string): Promise<void> {
   const start = Date.now()
   const timeoutMs = 120_000
   while (Date.now() - start < timeoutMs) {
     await new Promise(r => setTimeout(r, 3000))
+    if (episodeId.value !== ep) return  // switched away — stop; don't reload another episode
     await loadReview()
     const found = scenes.value.find(s => s.id === sceneId)
     if (found?.image_filename) {
@@ -962,11 +972,12 @@ async function pollUntilImageReady(sceneId: string): Promise<void> {
     }
   }
 }
-async function pollUntilAllPresent(): Promise<void> {
+async function pollUntilAllPresent(ep: string): Promise<void> {
   const start = Date.now()
   const timeoutMs = 300_000  // 5 min for bulk
   while (Date.now() - start < timeoutMs) {
     await new Promise(r => setTimeout(r, 4000))
+    if (episodeId.value !== ep) return  // switched away — stop
     await loadReview()
     cacheBuster.value = Date.now()
     if (stats.value && stats.value.with_image >= stats.value.total_scenes) return

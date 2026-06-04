@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.272 — 2026-06-04
+
+### Fixed — Scene Plan + Scene Review buttons stuck after switching episodes mid-job
+Same recurring class as the v1.0.268 Research fix: a long-running action (plan, apply/revert recipe, bulk-generate, render) held a **page-level** in-flight flag through its completion poll, so switching to another episode left that episode's buttons disabled/mislabeled. All of these are now **keyed to the episode they started for**, and their completion polls **stop if you switch away** (so they can't overwrite the newly-selected episode's data):
+- **Scene Plan** — Plan scenes, Apply/Revert Visual Recipe (+ the per-scene re-plan poll).
+- **Scene Review** — Generate all missing, continuity render, per-scene regenerate poll.
+
+Switching episodes now immediately frees the new episode's controls while the original job keeps running in the background (and re-shows as in-flight if you switch back). Pattern + checklist live in project memory (`per-episode-inflight-gating.md`).
+
+### Files
+- `frontend/pages/projects/[slug]/scene-plan.vue` · `frontend/pages/projects/[slug]/scene-review.vue`
+
+---
+
 ## v1.0.271 — 2026-06-04
 
 ### Added — Conversational Co-writer
