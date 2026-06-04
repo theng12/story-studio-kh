@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.264 — 2026-06-04
+
+### Fixed — Timestamp video export failing (ffmpeg exit 254)
+Two separate causes, both fixed:
+- **Dead output path.** The export wrote to the configured *external final-video root* even when that folder doesn't exist on this machine — e.g. a path under a previous Mac's home (`/Users/<old-user>/…`) after a machine migration — so ffmpeg failed with "No such file or directory". The assembler now checks the external root actually exists here first; if not, it **falls back to the in-project video folder** and says so in the job log (and falls back again if the target dir can't be created).
+- **Subtitle path with special characters.** ffmpeg's `subtitles` filter choked on the SRT path when the episode title contained an apostrophe (e.g. "…Shackleton's Crew…"), spaces, or parentheses → "Error initializing filters". The stitched SRT is now copied to a clean temp file before burn-in, sidestepping all path-escaping issues regardless of the project's folder name.
+
+### Files
+- `electron/server/generators/timestamp-video-assemble.ts` (reachable-root check + dir-create fallback; temp-copy SRT for the subtitles filter)
+
+---
+
 ## v1.0.263 — 2026-06-04
 
 ### Added — "Scene-accurate" Visual Recipe mode (no recurring character)

@@ -23,6 +23,7 @@
 
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
+import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
@@ -105,16 +106,36 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   const outFilename = `${episode_id.toUpperCase()}_timestamp.mp4`
   let finalDir = paths.video_dir
   try {
-    const { ensureExternalFinalVideoDir } = await import('../services/external-video-store.js')
-    const externalDir = await ensureExternalFinalVideoDir(job.project_slug, episode_id, params.title || '')
-    if (externalDir) {
-      finalDir = externalDir
-      job.output_lines.push(`External final-video root configured → ${finalDir}`)
+    const { ensureExternalFinalVideoDir, externalRootIsReachable } = await import('../services/external-video-store.js')
+    // v1.0.264 — only use the external root when it ACTUALLY EXISTS on THIS
+    // machine. A root configured on another Mac (e.g. /Users/<old-user>/…) is a
+    // dead path here — using it makes ffmpeg fail with "No such file or
+    // directory". Fall back to the in-project video folder + warn instead.
+    const reach = await externalRootIsReachable()
+    if (reach.ok) {
+      const externalDir = await ensureExternalFinalVideoDir(job.project_slug, episode_id, params.title || '')
+      if (externalDir) {
+        finalDir = externalDir
+        job.output_lines.push(`External final-video root → ${finalDir}`)
+      }
+    } else if (reach.root) {
+      job.output_lines.push(
+        `⚠ External final-video root not found on this machine (${reach.root}) — saving to the project folder instead. ` +
+        `Update it in Settings → Storage if you want an external location.`,
+      )
     }
   } catch (e: any) {
     job.output_lines.push(`External path resolve failed (${e?.message || e}); using project tree`)
   }
-  await fs.mkdir(finalDir, { recursive: true })
+  // Create the target dir; if that fails (permissions / unmounted drive), fall
+  // back to the in-project video folder so the export still completes.
+  try {
+    await fs.mkdir(finalDir, { recursive: true })
+  } catch (e: any) {
+    job.output_lines.push(`⚠ Couldn't create ${finalDir} (${e?.message || e}); falling back to the project folder.`)
+    finalDir = paths.video_dir
+    await fs.mkdir(finalDir, { recursive: true })
+  }
   const outPath = path.join(finalDir, outFilename)
   const tempPath = path.join(finalDir, `.tmp-${Date.now()}-${outFilename}`)
 
@@ -172,8 +193,16 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
     'pad=1920:1080:(ow-iw)/2:(oh-ih)/2',
     'setsar=1',
   ]
+  // v1.0.264 — the subtitles filter is brutal about special characters in the
+  // path (spaces, parentheses, and especially apostrophes — e.g. an episode
+  // titled "…Shackleton's Crew…"). Rather than escape the project path, copy the
+  // SRT to a clean temp file (ASCII, no spaces/quotes) and burn THAT in. Avoids
+  // the whole filtergraph-init class of failures regardless of the project path.
+  let subsTempPath = ''
   if (hasSubtitles) {
-    vfilters.push(`subtitles='${escapeForSubtitlesFilter(stitchedSrt)}'`)
+    subsTempPath = path.join(os.tmpdir(), `ssk-subs-${Date.now()}.srt`)
+    await fs.copyFile(stitchedSrt, subsTempPath)
+    vfilters.push(`subtitles='${escapeForSubtitlesFilter(subsTempPath)}'`)
   }
   const args = [
     '-y',
@@ -223,12 +252,14 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
     // Error-path cleanup (1.0.130 pattern).
     await fs.rm(tempPath, { force: true }).catch(() => {})
     await fs.rm(concatListPath, { force: true }).catch(() => {})
+    if (subsTempPath) await fs.rm(subsTempPath, { force: true }).catch(() => {})
     throw err
   }
 
   // Atomic rename + concat-list cleanup on success.
   await fs.rename(tempPath, outPath)
   await fs.rm(concatListPath, { force: true }).catch(() => {})
+  if (subsTempPath) await fs.rm(subsTempPath, { force: true }).catch(() => {})
   const stat = await fs.stat(outPath)
   job.output_lines.push(`Done → ${outFilename} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`)
   job.output_dir = finalDir
