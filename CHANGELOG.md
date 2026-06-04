@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.270 — 2026-06-04
+
+### Added — "Freeform" content mode (video format = visuals only)
+New per-project **Content mode** (Settings → Format): 
+- **Format-shaped** (default, unchanged) — the format shapes your ideas, titles, and script voice/structure, plus the visuals.
+- **Freeform** — the format drives **only the visual pipeline**. Idea + Script generation switch to neutral prompts, so you're no longer boxed into the format's narrative recipe. Narrator styles, chapter counts, and pacing still apply; `imagePrompts`/`visualSource`/style are untouched.
+
+Implemented at a single choke point: `getEffectiveFormatFor` neutralises the format's narrative fields (idea persona, title/logline/theme rules, example ideas, structural-variety, script persona, additional rules) when the project is freeform — so **every** content consumer (Ideas, Script, Outline) gets the neutral version automatically, while visuals + structure stay intact. The idea/script prompt builders already fall back to lenient defaults when those fields are empty, so no per-generator branching was needed. Validated: freeform swaps the idea/script roles + drops the shape rules, and keeps visualSource, narrator styles, and chapter ranges.
+
+This is step 2 of "video format = visual only" (after v1.0.269's bring-your-own). The conversational co-writer is the remaining piece.
+
+### Files
+- `electron/server/services/format-loader.ts` (`neutralizeFormatNarrative` + freeform branch in `getEffectiveFormatFor`)
+- `electron/server/models/types.ts` (`content_mode` on ProjectMeta + UpdateProjectRequest) · `contracts/index.ts` (schema)
+- `frontend/pages/projects/[slug]/settings.vue` (Content mode toggle in the Format tab)
+
+---
+
 ## v1.0.269 — 2026-06-04
 
 ### Added — Bring your own content (inject a script or outline into the flow)

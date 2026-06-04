@@ -352,7 +352,52 @@ export async function getEffectiveFormatFor(
       console.warn(`[format-loader] failed applying niche '${effectiveNicheId}' for project '${project.slug}': ${e.message}`)
     }
   }
+  // v1.0.270 — freeform content mode: strip the format's (and niche's) NARRATIVE
+  // shaping so ideation + script aren't boxed by the video format. Done here, as
+  // the last step, so every consumer of the effective format (ideas/script/
+  // outline) sees the neutralised narrative while the VISUAL fields
+  // (imagePrompts/visualSource/style) — and structural fields (chapter counts,
+  // narrator styles, pacing) — stay exactly as the format/niche define them.
+  if (project.content_mode === 'freeform') {
+    base = neutralizeFormatNarrative(base)
+  }
   return base
+}
+
+/** Neutral idea/script roles used in freeform mode. */
+const FREEFORM_IDEA_ROLE =
+  'You are a versatile video-idea generator. Produce strong, varied, audience-ready ideas for the given niche, topic, and keywords. Do not impose a fixed genre, tone, or title template — follow the user\'s inputs and instructions.'
+const FREEFORM_SCRIPT_ROLE =
+  'You are a skilled scriptwriter. Write a clear, engaging spoken-narration script in a natural voice suited to the topic, niche, and the requested length + structure. Do not impose a fixed persona, genre, or formula beyond what the user specifies.'
+
+/**
+ * v1.0.270 — return a copy of `format` with its NARRATIVE-shaping fields
+ * neutralised (idea persona + title/logline/theme rules + example ideas +
+ * structural-variety + script persona + additional rules). Everything else —
+ * imagePrompts, visualSource, metadata, narratorStyles, pacing, chapter/length
+ * ranges, vocabularies — is left untouched, so the format still fully controls
+ * visuals + structure. buildPrompt()/systemPrompt() already fall back to lenient
+ * defaults when these fields are empty/undefined.
+ */
+function neutralizeFormatNarrative(format: Format): Format {
+  return {
+    ...format,
+    idea: {
+      ...format.idea,
+      systemPromptRole: FREEFORM_IDEA_ROLE,
+      guidanceText: '',
+      titleShapeRules: undefined,
+      loglineShapeRules: undefined,
+      themeShapeRules: undefined,
+      structuralVariety: 'free',
+      exampleIdeas: undefined,
+    },
+    script: {
+      ...format.script,
+      systemPromptRole: FREEFORM_SCRIPT_ROLE,
+      additionalRules: [],
+    },
+  }
 }
 
 // ── Niche-onto-format layering ─────────────────────────────────────────────

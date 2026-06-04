@@ -120,6 +120,17 @@ export interface ProjectMeta {
    */
   niche_id?: string
   niche_overrides?: DeepPartial<Niche>
+
+  /**
+   * v1.0.270 — content mode. 'format' (default) = the video format shapes
+   * ideation + script (systemPromptRole, title/logline/theme rules, example
+   * ideas, additionalRules). 'freeform' = the format drives ONLY the visual
+   * pipeline; idea + script generation use neutral prompts so you're not boxed
+   * into the format's narrative recipe. Applied centrally in format-loader's
+   * getEffectiveFormatFor, so every content consumer (ideas/script/outline)
+   * sees the neutralised narrative while visuals stay intact.
+   */
+  content_mode?: 'format' | 'freeform'
 }
 
 // ── Format primitive (Phase 1 of format/character/pattern system) ──────────
@@ -1294,6 +1305,7 @@ export interface UpdateProjectRequest {
   format_id?: string
   format_overrides?: DeepPartial<Format>
   brand_id?: string
+  content_mode?: 'format' | 'freeform'
 }
 
 /**

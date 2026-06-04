@@ -295,6 +295,28 @@
 
       <FormatPicker v-model="formatId" @change="onFormatChanged" />
 
+      <!-- v1.0.270 — content mode: does the format shape the IDEAS + SCRIPT, or
+           only the visuals? -->
+      <div class="cm-box mt-3">
+        <label class="cm-label">Content mode</label>
+        <div class="cm-options">
+          <label class="cm-opt" :class="{ active: contentMode === 'format' }">
+            <input type="radio" value="format" v-model="contentMode" />
+            <div>
+              <strong>Format-shaped</strong> <span class="text-muted text-xs">(default)</span>
+              <div class="text-muted text-xs">The format shapes ideas, titles, and script voice/structure — and the visuals.</div>
+            </div>
+          </label>
+          <label class="cm-opt" :class="{ active: contentMode === 'freeform' }">
+            <input type="radio" value="freeform" v-model="contentMode" />
+            <div>
+              <strong>Freeform</strong>
+              <div class="text-muted text-xs">The format drives <em>visuals only</em>. Ideas + script use neutral prompts, so you're not boxed into the format's narrative recipe. (Narrator styles, chapter counts, and pacing still apply.)</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
       <div class="mt-3">
         <FormatOverrideEditor
           v-model="formatOverrides"
@@ -2882,10 +2904,14 @@ const formatSaveError = ref('')
 // the cheapest correctness check (deep equality across nested objects).
 const formatBaselineJson = ref<string>('null')
 const formatIdBaseline = ref<string>('narrative')
+// v1.0.270 — content mode (format-shaped vs freeform).
+const contentMode = ref<'format' | 'freeform'>('format')
+const contentModeBaseline = ref<'format' | 'freeform'>('format')
 
 const selectedBaseFormat = computed(() => findFormat(formatId.value) || null)
 const formatDirty = computed(() => {
   if (formatId.value !== formatIdBaseline.value) return true
+  if (contentMode.value !== contentModeBaseline.value) return true
   return JSON.stringify(formatOverrides.value || null) !== formatBaselineJson.value
 })
 
@@ -2894,8 +2920,10 @@ function syncFormatFromProject() {
   if (!m) return
   formatId.value = m.format_id || 'narrative'
   formatOverrides.value = m.format_overrides || null
+  contentMode.value = m.content_mode === 'freeform' ? 'freeform' : 'format'
   formatIdBaseline.value = formatId.value
   formatBaselineJson.value = JSON.stringify(formatOverrides.value || null)
+  contentModeBaseline.value = contentMode.value
 }
 
 // Hydrate when project meta arrives + on slug change.
@@ -2915,10 +2943,12 @@ async function saveFormatSettings() {
     const body: any = {
       format_id: formatId.value,
       format_overrides: formatOverrides.value || undefined,
+      content_mode: contentMode.value,
     }
     await put(`/projects/${slug.value}`, body)
     formatIdBaseline.value = formatId.value
     formatBaselineJson.value = JSON.stringify(formatOverrides.value || null)
+    contentModeBaseline.value = contentMode.value
     stampSaved('format')
     success('Format settings saved')
     await loadProject(slug.value)
@@ -5481,6 +5511,18 @@ async function deleteProject() {
 </script>
 
 <style scoped>
+/* v1.0.270 — content mode toggle (Format tab) */
+.cm-box { border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.cm-label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 8px; }
+.cm-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 720px) { .cm-options { grid-template-columns: 1fr; } }
+.cm-opt {
+  display: flex; gap: 10px; align-items: flex-start; cursor: pointer;
+  padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary);
+}
+.cm-opt.active { border-color: var(--accent); background: rgba(108, 143, 255, 0.06); }
+.cm-opt input { margin-top: 3px; }
+
 /* ── Brand picker (Project tab) ────────────────────────────────────────── */
 .brand-picker {
   display: flex;

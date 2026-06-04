@@ -83,6 +83,9 @@ export const UpdateProjectSchema = z.object({
   // Brand primitive — channel-level identity layer above Format. Empty
   // string clears back to "no brand" (generator literal defaults).
   brand_id: z.string().max(80).optional(),
+  // v1.0.270 — 'freeform' makes the format drive visuals only; idea + script
+  // use neutral prompts. Empty/absent = 'format' (current behavior).
+  content_mode: z.enum(['format', 'freeform']).optional(),
 }).strict()
 export type UpdateProjectBody = z.infer<typeof UpdateProjectSchema>
 
