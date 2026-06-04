@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.275 — 2026-06-05
+
+### Fixed — local TTS (Voice Studio) models disappearing from the Audio dropdown
+The Audio page only shows Voice Studio engines the live modal reports as "ready", and fell back to showing all of them only when the modal was **offline**. But a modal that's **reachable yet reports zero ready engines** (engines not wired/downloaded, or a readiness-probe shape change) made the dropdown hide the **entire** local-TTS provider — so your local TTS looked gone. It now also falls back to showing every registered Voice Studio engine when the probe returns an empty ready-set; it only narrows the list when the modal positively reports a non-empty set.
+
+If local TTS is still missing after this: check the Voice Studio modal is running with at least one engine downloaded, and that its URL is set in App Settings → Local Models (Voice Studio). A wrong/stale URL that happens to respond can report an empty engine set.
+
+### Files
+- `frontend/pages/projects/[slug]/audio.vue` (`visibleAudioModels` — never hide the whole provider on an empty probe)
+
+---
+
 ## v1.0.274 — 2026-06-05
 
 ### Fixed — Scene Review "Pending only" treated un-reviewed episodes as done

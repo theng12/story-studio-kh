@@ -268,7 +268,13 @@ async function loadVoicestudioModels() {
 const visibleAudioModels = computed<Record<string, any>>(() => {
   const all = (config.value?.audio_models || {}) as Record<string, any>
   const probe = vsAvailable.value
-  if (!probe || !probe.ok) return all
+  // Show everything when the probe isn't definitive (not run / modal offline)
+  // OR when it reports ZERO ready engines. v1.0.275 — the empty case used to
+  // hide the WHOLE Voice Studio provider (a reachable modal that reports no
+  // engine "ready" → local TTS vanished from the dropdown). Hiding the entire
+  // provider never helps; only narrow down when the modal positively lists a
+  // non-empty ready set (then trust it and hide the rest).
+  if (!probe || !probe.ok || probe.ids.size === 0) return all
   const out: Record<string, any> = {}
   for (const [id, m] of Object.entries(all)) {
     const isVoiceStudio = resolveAudioProvider(id, m) === 'voicestudio'
