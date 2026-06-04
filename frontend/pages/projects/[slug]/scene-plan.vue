@@ -22,7 +22,7 @@
     <TopActionBar
       :project-slug="slug"
       v-model:episode-id="episodeId"
-      filter-field="script"
+      filter-field="scene_plan"
       generate-label="Plan scenes"
       loading-label="Planning…"
       :generate-loading="planning"

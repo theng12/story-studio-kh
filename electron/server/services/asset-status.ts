@@ -651,6 +651,13 @@ export interface EpisodeStatus {
   // episode list by, so a finished research run drops out of pending.
   // NOT folded into all_done — research is optional for most formats.
   research: boolean
+  // v1.0.273 — timestamp/continuity scene plan (`scene_plan.json` at the
+  // episode_dir root). This is what the Scene Plan page filters its "pending"
+  // list by — distinct from `scene_prompts` (the legacy image-prompts docx) and
+  // from `script` (an episode can have a full script + subtitles but no scene
+  // plan yet). NOT folded into all_done — only the timestamp/continuity
+  // pipelines produce it.
+  scene_plan: boolean
   script: boolean
   introduction: boolean
   scene_prompts: boolean
@@ -690,6 +697,7 @@ export interface EpisodeStatus {
 function emptyStatus(): EpisodeStatus {
   return {
     research: false,
+    scene_plan: false,
     script: false, introduction: false,
     scene_prompts: false, thumb_prompts: false,
     metadata: false,
@@ -887,6 +895,11 @@ export async function computeEpisodeStatus(
     // is a watched folder for the cache, so a freshly written research file
     // advances its mtime and invalidates the entry.
     status.research = await fileHasContent((await resolveResearchPaths(paths.episode_dir, code)).jsonPath)
+
+    // v1.0.273 — scene plan sidecar (`scene_plan.json` at the episode_dir root).
+    // Drives the Scene Plan page's "pending only" filter so an episode drops out
+    // of pending once it HAS a plan (not once it has a script).
+    status.scene_plan = await fileHasContent(path.join(paths.episode_dir, 'scene_plan.json'))
 
     // If ANY of the four primary readdirs errored, mark the entire status
     // unreliable. The cache will skip persistence and the next read will
@@ -1152,6 +1165,7 @@ export async function computeEpisodeStatus(
 function allDoneStatus(): EpisodeStatus {
   return {
     research: true,
+    scene_plan: true,
     script: true, introduction: true,
     scene_prompts: true, thumb_prompts: true,
     metadata: true,

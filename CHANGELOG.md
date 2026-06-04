@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.273 — 2026-06-05
+
+### Fixed — Scene Plan "Pending only" treated un-planned episodes as done
+The Scene Plan page's episode filter was keyed to **script** status, so any episode that had a script (i.e. anything you'd stitched subtitles for) was considered "done" and dropped out of "Pending only" — even though it had **no scene plan yet**. It now keys off an actual **`scene_plan`** status (true only when `scene_plan.json` exists), so "Pending only" correctly shows episodes still needing a plan, and an episode leaves the pending list the moment its plan is generated (not when its script is).
+
+Also bundles the v1.0.272 fix so switching episodes mid-job no longer blocks the new episode's buttons on Scene Plan / Scene Review — install this build and both are covered.
+
+### Files
+- `electron/server/services/asset-status.ts` (new `scene_plan` status from `scene_plan.json`)
+- `frontend/pages/projects/[slug]/scene-plan.vue` (`filter-field` → `scene_plan`)
+
+---
+
 ## v1.0.272 — 2026-06-04
 
 ### Fixed — Scene Plan + Scene Review buttons stuck after switching episodes mid-job
