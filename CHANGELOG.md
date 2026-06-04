@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.268 — 2026-06-04
+
+### Fixed — Research "Run" stayed disabled after switching episodes mid-job
+If a research job was still running (the page polls for up to 90s) and you switched to a different episode, the **Run research** button stayed disabled and the status still referenced the old episode — the new episode looked stuck. Cause: the in-flight flag was a single page-level boolean, not tied to the episode it belonged to. It's now keyed to the episode, so "researching" only gates the episode actually running; switching episodes frees the new one immediately. The completion poll also stops if you switch away, so it can't overwrite the new episode's state.
+
+This is a recurring class of bug (first fixed for Audio in v1.0.115). Documented the pattern + a prevention checklist in the project memory so other modules don't repeat it — `scene-plan` and `scene-review` use the same poll shape and are flagged there to audit next.
+
+### Files
+- `frontend/pages/projects/[slug]/research.vue` (per-episode in-flight flag + poll bails on episode switch)
+
+---
+
 ## v1.0.267 — 2026-06-04
 
 ### Fixed — scene transitions failed to export on long episodes (ffmpeg exit 187)

@@ -401,7 +401,14 @@ interface ResearchOutput {
 
 const result = ref<ResearchOutput | null>(null)
 const serverResult = ref<string>('')  // JSON snapshot of last save for diff
-const researching = ref(false)
+// v1.0.268 — track WHICH episode is researching, not just a global boolean.
+// A research run holds its flag through pollUntilLoaded (up to 90s); a plain
+// page-level boolean would keep the Run button disabled (generateLoading) for a
+// DIFFERENT episode the user switches to mid-job. Keying it to the episode makes
+// `researching` true only when the in-flight episode is the one on screen.
+// (See auto-memory: per-episode-inflight-gating.md — recurring pattern.)
+const researchingEpisode = ref<string | null>(null)
+const researching = computed(() => researchingEpisode.value === episodeId.value)
 const saving = ref(false)
 const deleting = ref(false)
 
@@ -488,9 +495,10 @@ async function loadExisting(): Promise<void> {
 
 async function runResearch(): Promise<void> {
   if (!canRun.value) return
-  researching.value = true
+  const ep = episodeId.value          // pin the episode this run belongs to
+  researchingEpisode.value = ep
   try {
-    await post<{ job_id: string }>(`/projects/${slug.value}/research/${episodeId.value}/run`, {
+    await post<{ job_id: string }>(`/projects/${slug.value}/research/${ep}/run`, {
       source_provider: form.value.source_provider,
       topic: form.value.topic.trim(),
       specific_questions: form.value.specific_questions.trim() || undefined,
@@ -504,23 +512,27 @@ async function runResearch(): Promise<void> {
     success('Research job queued — watch the Jobs panel for progress')
     // The job runs async; poll for completion by re-loading every 3s
     // until research.json shows up + matches the topic we just sent.
-    await pollUntilLoaded(form.value.topic.trim())
+    await pollUntilLoaded(form.value.topic.trim(), ep)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to start research')
   } finally {
-    researching.value = false
+    // Only clear if a LATER run for another episode hasn't taken over.
+    if (researchingEpisode.value === ep) researchingEpisode.value = null
   }
 }
 
-async function pollUntilLoaded(expectedTopic: string): Promise<void> {
+async function pollUntilLoaded(expectedTopic: string, ep: string): Promise<void> {
   const start = Date.now()
   const timeoutMs = 90_000
   while (Date.now() - start < timeoutMs) {
     await new Promise(r => setTimeout(r, 3000))
+    // User switched episodes — stop polling; that episode's own loader owns its
+    // state now, and this poll must not overwrite it via loadExisting().
+    if (episodeId.value !== ep) return
     await loadExisting()
     if (result.value && result.value.topic === expectedTopic) return
   }
-  showError('Research job is taking longer than 90s — check the Jobs panel for details.')
+  if (episodeId.value === ep) showError('Research job is taking longer than 90s — check the Jobs panel for details.')
 }
 
 async function saveResearch(): Promise<void> {
