@@ -311,6 +311,111 @@ router.put('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
   }
 })
 
+// ── Bring-your-own content (v1.0.269) ───────────────────────────────────
+// Inject a user-supplied full script or outline into an existing episode so
+// the rest of the pipeline (Audio → Subtitles → Scene Plan, or Expand Chapters)
+// runs on it without going through format-shaped generation.
+
+/** Parse a pasted plain-text outline (one chapter per line) into entries.
+ *  Strips common leading markers and splits an optional synopsis after a
+ *  dash/colon. */
+function parseOutlineText(text: string): Array<{ title: string; synopsis?: string }> {
+  return text.split('\n').map(l => l.trim()).filter(Boolean).map((line) => {
+    const s = line
+      .replace(/^#{1,6}\s*/, '')
+      .replace(/^(?:chapter|part|section|topic|reason|lesson|bit|beat)\s+\d+\s*[:\-–—.]\s*/i, '')
+      .replace(/^\d+\s*[.)\-–—:]\s*/, '')
+      .replace(/^[-*•]\s*/, '')
+      .trim()
+    const m = s.match(/^(.+?)\s*(?:—|–|\s-\s|:)\s+(.+)$/)
+    return m ? { title: m[1]!.trim(), synopsis: m[2]!.trim() } : { title: s }
+  }).filter(o => o.title)
+}
+
+// POST import-script — paste a finished script; written as per-chapter files +
+// the unified narration so Audio/Subtitles/Scene Plan run on it directly.
+router.post('/projects/:slug/episodes/:episodeId/import-script', async (req, res) => {
+  const { slug, episodeId } = req.params
+  try {
+    const project = await pm.getProject(slug)
+    if (!project) return res.status(404).json({ detail: 'Project not found' })
+    const text = typeof req.body?.text === 'string' ? req.body.text : ''
+    const title = typeof req.body?.title === 'string' ? req.body.title : ''
+    if (!text.trim()) return res.status(400).json({ detail: 'Paste your script in `text`.' })
+
+    const paths = await resolveEpisodePaths(slug, episodeId, title)
+    const scriptDir = paths.script_dir
+    await fs.mkdir(scriptDir, { recursive: true })
+
+    const { splitNarrationIntoChapters, writeChapterFiles, assembleUnifiedNarration } =
+      await import('../lib/narration-assembly.js')
+    let parts = splitNarrationIntoChapters(text)
+    if (!parts.chapters.length) {
+      // No `## Chapter N:` headings → import the whole thing as one chapter.
+      parts = { chapters: [{ number: 1, title: title || 'Script', text: text.trim() }], ...(parts.intro ? { intro: parts.intro } : {}) }
+    }
+
+    // Clear prior script artifacts for this episode so a re-import is clean.
+    const entries = await fs.readdir(scriptDir).catch(() => [] as string[])
+    for (const f of entries) {
+      if (
+        new RegExp(`^${episodeId}_Chapter_\\d+\\.(md|docx)$`).test(f) ||
+        new RegExp(`^${episodeId}_Introduction\\.(md|docx)$`).test(f) ||
+        new RegExp(`^${episodeId}_Script_Narration\\.(md|docx)$`).test(f) ||
+        f === `${episodeId}_Script_Narration.intro.json` ||
+        f === `${episodeId}_chunked-progress.json`
+      ) {
+        await fs.rm(pathMod.join(scriptDir, f), { force: true }).catch(() => {})
+      }
+    }
+
+    await writeChapterFiles(scriptDir, episodeId, title || episodeId, parts)
+    const asm = await assembleUnifiedNarration(scriptDir, episodeId, title || episodeId)
+    if (asm.introduction_present) {
+      await writeJsonAtomic(pathMod.join(scriptDir, `${episodeId}_Script_Narration.intro.json`), { imported_at: new Date().toISOString() })
+    }
+
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    episodeStatusCache.invalidate(slug, episodeId)
+    res.json({ ok: true, chapters: asm.chapter_numbers.length, introduction: asm.introduction_present })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to import script'))
+  }
+})
+
+// POST import-outline — paste an outline (structured or one chapter per line);
+// written as an APPROVED sidecar so "Expand Chapters" runs on it.
+router.post('/projects/:slug/episodes/:episodeId/import-outline', async (req, res) => {
+  const { slug, episodeId } = req.params
+  try {
+    const project = await pm.getProject(slug)
+    if (!project) return res.status(404).json({ detail: 'Project not found' })
+    const title = typeof req.body?.title === 'string' ? req.body.title : ''
+    let outline: Array<{ title: string; synopsis?: string }> = []
+    if (Array.isArray(req.body?.outline)) {
+      outline = req.body.outline
+        .map((o: any) => ({ title: String(o?.title || '').trim(), synopsis: o?.synopsis ? String(o.synopsis).trim() : undefined }))
+        .filter((o: any) => o.title)
+    } else if (typeof req.body?.text === 'string') {
+      outline = parseOutlineText(req.body.text)
+    }
+    if (!outline.length) return res.status(400).json({ detail: 'Provide `outline[]` or `text` (one chapter per line).' })
+
+    const paths = await resolveEpisodePaths(slug, episodeId, title)
+    await fs.mkdir(paths.script_dir, { recursive: true })
+    const fmt = await getEffectiveFormat(slug).catch(() => null as any)
+    const mode = fmt?.id === 'listicle' ? 'listicle' : 'narrative'
+    const { writeImportedOutline } = await import('../lib/chunked-narration.js')
+    const sidecar = await writeImportedOutline(paths.script_dir, episodeId, outline, { mode })
+
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    episodeStatusCache.invalidate(slug, episodeId)
+    res.json({ ok: true, chapters: sidecar.total_chapters })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to import outline'))
+  }
+})
+
 // Regenerate ONE chapter (per-chapter refactor). Requires existing
 // chapter source files OR a legacy unified narration we can migrate
 // from on first use. Other chapters on disk are preserved; the unified

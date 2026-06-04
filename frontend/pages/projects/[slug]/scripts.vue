@@ -28,6 +28,40 @@
       The <strong>Introduction</strong> tab writes the opening once the chapters are on disk — the introduction needs the chapters as context.
     </p>
 
+    <!-- v1.0.269 — Bring your own: paste a finished script or an outline and
+         inject it into this episode, skipping format-shaped generation. -->
+    <section v-if="form.episode_id" class="card mt-2 byo-card">
+      <button class="byo-head" @click="byoOpen = !byoOpen">
+        <span><strong>{{ byoOpen ? '▾' : '▸' }} ✍️ Bring your own</strong> — paste a script or outline</span>
+        <span class="text-muted text-xs">skip generation; inject directly into the flow</span>
+      </button>
+      <div v-if="byoOpen" class="byo-body mt-2">
+        <div class="form-group">
+          <label class="byo-radio"><input type="radio" value="script" v-model="byoMode" /> <strong>Full script</strong> <span class="text-muted text-xs">→ ready for Audio → Subtitles → Scene Plan</span></label>
+          <label class="byo-radio"><input type="radio" value="outline" v-model="byoMode" /> <strong>Outline only</strong> <span class="text-muted text-xs">→ then Expand Chapters writes the script</span></label>
+        </div>
+        <div class="form-group">
+          <label>{{ byoMode === 'script' ? 'Script text' : 'Outline — one chapter per line' }}</label>
+          <textarea
+            v-model="byoText"
+            class="textarea"
+            rows="10"
+            :placeholder="byoMode === 'script'
+              ? 'Paste your full script. Use \'## Chapter 1: Title\' headings to split into chapters (and \'# Introduction\' for the intro); with no headings it imports as a single chapter.'
+              : 'One chapter per line, e.g.\nChapter 1: The Discovery — they find the cave\nChapter 2: The Descent — climbing down into the dark'"
+          />
+          <span class="text-muted text-xs">
+            {{ byoMode === 'script'
+              ? 'Imported as this episode\'s script — overwrites any existing script for it.'
+              : 'Imported as an approved outline — overwrites any existing outline. Then use Expand Chapters (Outline tab).' }}
+          </span>
+        </div>
+        <button class="btn btn-primary btn-sm" :disabled="byoImporting || !byoText.trim()" @click="importContent">
+          {{ byoImporting ? 'Importing…' : (byoMode === 'script' ? 'Import script' : 'Import outline') }}
+        </button>
+      </div>
+    </section>
+
     <!-- v1.0.117+ — Three tabs split out from the one long page that
          previously stacked outline form, intro section, and chapter
          list one above the other. ?tab= keeps the URL honest so deep
@@ -772,6 +806,42 @@ const previewRefreshKey = ref(0)
 // watcher also reloads on terminal status, this is a manual nudge for
 // non-job triggers like episode switch).
 const outlineRefreshKey = ref(0)
+
+// v1.0.269 — Bring-your-own content import (full script or outline).
+const byoOpen = ref(false)
+const byoMode = ref<'script' | 'outline'>('script')
+const byoText = ref('')
+const byoImporting = ref(false)
+async function importContent(): Promise<void> {
+  if (!form.episode_id || !byoText.value.trim()) return
+  byoImporting.value = true
+  try {
+    const ep = form.episode_id
+    if (byoMode.value === 'script') {
+      const r = await post<{ chapters: number; introduction: boolean }>(
+        `/projects/${slug.value}/episodes/${ep}/import-script`,
+        { title: form.title, text: byoText.value },
+      )
+      success(`Imported script — ${r.chapters} chapter(s)${r.introduction ? ' + intro' : ''}. Ready for Audio → Subtitles → Scene Plan.`)
+      previewRefreshKey.value++   // refresh Chapter list + Script preview
+    } else {
+      const r = await post<{ chapters: number }>(
+        `/projects/${slug.value}/episodes/${ep}/import-outline`,
+        { title: form.title, text: byoText.value },
+      )
+      success(`Imported outline — ${r.chapters} chapter(s). Use Expand Chapters on the Outline tab.`)
+      outlineRefreshKey.value++   // refresh the outline review panel
+      scriptsTab.value = 'outline'
+    }
+    byoText.value = ''
+    byoOpen.value = false
+    refetchEpisodeStatus()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Import failed')
+  } finally {
+    byoImporting.value = false
+  }
+}
 
 function onExpansionQueued(_payload: { jobId: string; chapters: number[] | null }) {
   // ChapterListPanel listens to its own job stream and refreshes when
@@ -2042,6 +2112,16 @@ async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true 
 </script>
 
 <style scoped>
+/* v1.0.269 — bring-your-own import panel */
+.byo-card { border: 1px dashed var(--border); }
+.byo-head {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; background: none; border: none; cursor: pointer; text-align: left;
+  color: var(--text-primary); font-size: 14px; padding: 2px 0;
+}
+.byo-radio { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.byo-body .form-group { margin-top: 10px; }
+
 /* Form-field width tokens used across the page. */
 .field-medium { max-width: 520px; }
 .field-wide   { max-width: 720px; }

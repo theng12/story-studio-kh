@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.269 — 2026-06-04
+
+### Added — Bring your own content (inject a script or outline into the flow)
+You're no longer forced through format-shaped generation. The Script Generator has a new **"✍️ Bring your own"** panel where you can paste:
+- **A full script** → it's written as the episode's per-chapter files + unified narration, so **Audio → Subtitles → Scene Plan run on it directly** (no script generation). Use `## Chapter 1: Title` headings to split chapters (and `# Introduction` for the intro); with no headings it imports as a single chapter.
+- **An outline** (one chapter per line) → written as an **approved outline**, ready for **Expand Chapters** to write the script.
+
+Both overwrite any existing script/outline for the selected episode and refresh the panels in place. (The third entry point — **idea/title only** — already exists as "+ Add idea manually" on the Ideas page.) Validated the script path end-to-end: pasted text → chapter files → unified narration → re-parsed back to the same chapters + intro, so the audio stage reads it identically to a generated script.
+
+This is the first step of the larger "video format = visual only" direction; decoupling format from ideation + a conversational co-writer are the planned follow-ons.
+
+### Files
+- `electron/server/lib/chunked-narration.ts` (`writeImportedOutline` — approved sidecar from a user outline)
+- `electron/server/routes/scripts.ts` (`POST …/import-script`, `POST …/import-outline`; reuses the generator's own narration writers so the artifacts are byte-compatible)
+- `frontend/pages/projects/[slug]/scripts.vue` (Bring-your-own panel)
+
+---
+
 ## v1.0.268 — 2026-06-04
 
 ### Fixed — Research "Run" stayed disabled after switching episodes mid-job

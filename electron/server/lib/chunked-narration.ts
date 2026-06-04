@@ -1126,6 +1126,43 @@ async function writeSidecar(scriptDir: string, sidecar: ChunkedSidecar): Promise
   }
 }
 
+/**
+ * v1.0.269 — bring-your-own outline. Write an APPROVED v3 sidecar from a
+ * user-supplied chapter list (no LLM, no prior sidecar required), so the user
+ * can paste an outline and run Expand Chapters straight away. `generation_params`
+ * is left null on purpose — the expand-chapters executor then uses the model /
+ * words from its own request body.
+ */
+export async function writeImportedOutline(
+  scriptDir: string,
+  episode_id: string,
+  outline: Array<{ title: string; synopsis?: string }>,
+  opts: { mode?: ChunkedMode } = {},
+): Promise<ChunkedSidecar> {
+  const now = new Date().toISOString()
+  const entries: OutlineEntry[] = outline.map((o, i) => ({
+    n: i + 1,
+    title: (o.title || `Chapter ${i + 1}`).trim(),
+    ...(o.synopsis?.trim() ? { synopsis: o.synopsis.trim() } : {}),
+  }))
+  const sidecar: ChunkedSidecar = {
+    schema_version: 3,
+    episode_id,
+    mode: opts.mode || 'narrative',
+    total_chapters: entries.length,
+    outline: entries,
+    outline_completed_at: now,
+    outline_approved_at: now,   // imported outlines are pre-approved
+    outline_edited_at: now,
+    generation_params: null,
+    chapters_done: [],
+    params_hash: '',
+    last_updated: now,
+  }
+  await writeSidecar(scriptDir, sidecar)
+  return sidecar
+}
+
 function markDone(sidecar: ChunkedSidecar, chapters: number[]): ChunkedSidecar {
   const merged = new Set([...sidecar.chapters_done, ...chapters])
   return {
