@@ -86,6 +86,17 @@
               <option value="prompt">Prompt only (text2img)</option>
             </select>
           </div>
+          <!-- v1.0.261 — render-size tier for LOCAL Image Studio models. Smaller
+               = far less GPU memory (fewer OOM crashes), faster, smaller files.
+               Hidden for cloud models (they use the aspect string, not pixels). -->
+          <div v-if="isLocalModel" class="sr-ratio-pick" title="Output resolution for the local model. Smaller cuts GPU/VAE memory (fewer out-of-memory crashes), renders faster, and writes smaller files. Cloud models ignore this and use the aspect ratio. Shows the exact pixels sent.">
+            <label class="sr-ratio-label" for="sr-size">Size</label>
+            <select id="sr-size" v-model.number="form.render_scale" class="select sr-ratio-select sr-size-select">
+              <option v-for="rs in renderSizes" :key="rs.value" :value="rs.value">
+                {{ rs.label }} — {{ dimsLabel(rs.value) }}
+              </option>
+            </select>
+          </div>
           <div class="sr-model-pick">
             <ImageModelPicker
               v-model="form.model"
@@ -511,6 +522,11 @@ const form = ref({
   // style + characters); 'prompt' = text2img (no references, prompt only —
   // cheaper/faster on local Image Studio, any text2img model).
   render_mode: 'refs' as 'refs' | 'prompt',
+  // v1.0.261 — output-size tier for LOCAL Image Studio models (% of the aspect
+  // preset). Smaller = far less GPU/VAE memory (fewer OOM crashes), faster,
+  // smaller files. Cloud models ignore it (they use the aspect string). 100 =
+  // the historical full size, so existing behaviour is unchanged by default.
+  render_scale: 100 as number,
 })
 // v1.0.259 — remember the render settings per-Mac across reloads (an active
 // render preset still auto-applies on top; the model picker self-heals a
@@ -531,6 +547,7 @@ const srPresets = usePresets<{ model: string; aspect_ratio: string; concurrency:
     aspect_ratio: form.value.aspect_ratio,
     concurrency: form.value.concurrency,
     render_mode: form.value.render_mode,
+    render_scale: form.value.render_scale,
   }),
   apply: (data) => { Object.assign(form.value, data) },
 })
@@ -548,6 +565,38 @@ const aspectRatios = [
 // CSS aspect-ratio string ("16:9" → "16 / 9") so the thumbnail boxes re-shape
 // to whatever ratio is selected — making the enforced frame visible.
 const thumbAspect = computed(() => form.value.aspect_ratio.replace(':', ' / '))
+
+// ── v1.0.261 — render-size tier (LOCAL Image Studio models only) ─────────
+// A local model id is `imagestudio:<repo>`. Cloud models take an aspect string,
+// not pixels, so the Size control is hidden + not sent for them.
+const isLocalModel = computed(() => form.value.model.startsWith('imagestudio:'))
+// Mirror of the provider's ASPECT_PRESETS (electron/.../providers/image/
+// imagestudio.ts). The selected tier scales these; result is rounded to /16.
+const LOCAL_ASPECT_PRESETS: Record<string, [number, number]> = {
+  '1:1': [1024, 1024], '16:9': [1344, 768], '9:16': [768, 1344],
+  '4:3': [1152, 864], '3:4': [864, 1152], '21:9': [1536, 640],
+  '3:2': [1216, 832], '2:3': [832, 1216],
+}
+const round16 = (n: number) => Math.max(256, Math.round(n / 16) * 16)
+function dimsForScale(scale: number): { width: number; height: number } {
+  const base = LOCAL_ASPECT_PRESETS[form.value.aspect_ratio] || LOCAL_ASPECT_PRESETS['1:1']
+  const s = (scale || 100) / 100
+  return { width: round16(base[0]! * s), height: round16(base[1]! * s) }
+}
+function dimsLabel(scale: number): string {
+  const d = dimsForScale(scale)
+  return `${d.width}×${d.height}`
+}
+const renderSizes = [
+  { value: 100, label: 'Full' },
+  { value: 75, label: 'Balanced' },
+  { value: 50, label: 'Light' },
+]
+const renderDims = computed(() => dimsForScale(form.value.render_scale))
+// Spread into every local render request so the size is explicit ("what you see
+// is what's sent"); empty for cloud models so they fall back to the aspect.
+const localSizeBody = computed(() =>
+  isLocalModel.value ? { width: renderDims.value.width, height: renderDims.value.height } : {})
 
 const audioEl = ref<HTMLAudioElement | null>(null)
 const currentTime = ref(0)
@@ -711,6 +760,7 @@ async function generateOne(scene: ReviewScene): Promise<void> {
         aspect_ratio: form.value.aspect_ratio,
         single_scene_id: scene.id,
         prompt_only: promptOnly.value,
+        ...localSizeBody.value,
       })
       success(`Rendering scene ${scene.scene_index} ${promptOnly.value ? '(prompt only)' : 'with its references'} — it'll update above.`)
       // The active-render auto-refresh picks it up + shows the spinner.
@@ -719,6 +769,7 @@ async function generateOne(scene: ReviewScene): Promise<void> {
         scene_id: scene.id,
         model: form.value.model,
         aspect_ratio: form.value.aspect_ratio,
+        ...localSizeBody.value,
       })
       success(`Queued scene ${scene.scene_index} — watch the Jobs panel`)
       await pollUntilImageReady(scene.id)
@@ -776,7 +827,7 @@ async function generateAllMissing(): Promise<void> {
   try {
     const r = await post<{ queued: number; skipped: number }>(
       `/projects/${slug.value}/scene-review/${episodeId.value}/generate-missing`,
-      { model: form.value.model, aspect_ratio: form.value.aspect_ratio },
+      { model: form.value.model, aspect_ratio: form.value.aspect_ratio, ...localSizeBody.value },
     )
     success(`Queued ${r.queued} job${r.queued === 1 ? '' : 's'} (${r.skipped} skipped)`)
     // Re-load every 4s while images are landing.
@@ -818,6 +869,7 @@ async function renderContinuity(opts: { force?: boolean; fromSceneId?: string; i
       independent: !!opts.independent,
       concurrency: opts.independent ? form.value.concurrency : undefined,
       prompt_only: promptOnly.value,
+      ...localSizeBody.value,
     })
     success(opts.independent
       ? `Parallel render queued (${form.value.concurrency === 'auto' ? 'auto — matches online servers' : '×' + form.value.concurrency})${promptOnly.value ? ', prompt only (text2img)' : ' — using style + character sheet'}. Watch the Jobs panel; images land as each finishes.`
@@ -977,6 +1029,7 @@ watch(episodeId, () => { void loadReview() })
 }
 .sr-ratio-select { width: auto; min-width: 150px; }
 .sr-conc-select { min-width: 64px; }
+.sr-size-select { min-width: 170px; }
 
 /* ── Click-to-preview lightbox (v1.0.241) ──────────────────────────── */
 .sr-lightbox {

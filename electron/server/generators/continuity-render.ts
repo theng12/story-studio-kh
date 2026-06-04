@@ -66,6 +66,12 @@ interface ContinuityRenderParams {
    *  rides entirely on the prompt (detail level + Style Bible + character
    *  text), so dial those in. */
   prompt_only?: boolean
+  /** v1.0.261 — explicit output pixel size (local Image Studio models only).
+   *  When set, overrides the aspect-ratio preset so the user can render at a
+   *  smaller resolution — far less VAE/GPU memory (fewer OOM crashes) + faster.
+   *  Cloud providers ignore these. */
+  width?: number
+  height?: number
 }
 
 interface ContinuityCfg {
@@ -284,6 +290,14 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   await fs.mkdir(outDir, { recursive: true })
 
   const aspectRatio = params.aspect_ratio || '16:9'
+  // v1.0.261 — explicit render size (local Image Studio only). When provided,
+  // the imagestudio provider renders at this resolution instead of the aspect
+  // preset; cloud providers ignore it. Smaller = far less GPU memory + faster.
+  const renderWidth = typeof params.width === 'number' && params.width > 0 ? params.width : undefined
+  const renderHeight = typeof params.height === 'number' && params.height > 0 ? params.height : undefined
+  if (renderWidth && renderHeight) {
+    job.output_lines.push(`Render size: ${renderWidth}×${renderHeight} (local models; cloud uses ${aspectRatio}).`)
+  }
   const force = params.force === true
   // v1.0.241 — independent / parallel mode: drop the prev-render reference so
   // scenes are mutually independent and can render concurrently.
@@ -420,6 +434,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
               aspectRatio,
               modelId: model,
               providerParams,
+              width: renderWidth,
+              height: renderHeight,
               referenceImagePaths: sharedRefPaths.length ? sharedRefPaths : undefined,
               isCancelled: () => jq.isCancelled(job.job_id),
             }))
@@ -542,6 +558,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       aspectRatio,
       modelId: model,
       providerParams,
+      width: renderWidth,
+      height: renderHeight,
       referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
       isCancelled: () => jq.isCancelled(job.job_id),
     }))

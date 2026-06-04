@@ -136,7 +136,13 @@ const imagestudioImageProvider: ImageProvider = {
 
     const repo = repoForModelId(request.modelId)
     if (!repo) throw new Error(`Image Studio provider received unknown model id '${request.modelId}'.`)
-    const dims = resolveDimensions(request.aspectRatio)
+    // v1.0.261 — honour an explicit pixel size when the caller sends one (Scene
+    // Review's "render size" tier); else fall back to the aspect preset. Clamp
+    // to sane bounds and round to /16 (FLUX/MLX engines require it).
+    const round16 = (n: number) => Math.max(256, Math.min(2048, Math.round(n / 16) * 16))
+    const dims = (typeof request.width === 'number' && typeof request.height === 'number')
+      ? { width: round16(request.width), height: round16(request.height) }
+      : resolveDimensions(request.aspectRatio)
     const o = commonOverrides(request)
     const refs = request.referenceImagePaths
     const sourceImage = Array.isArray(refs) && refs.length ? refs[0] : undefined

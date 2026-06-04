@@ -46,6 +46,11 @@ interface SceneImageGenerateParams {
   /** Aspect ratio for the image generation. Defaults to 16:9 for the
    *  timestamp-driven pipeline (videos are always landscape). */
   aspect_ratio?: string
+  /** v1.0.261 — explicit output pixel size (local Image Studio only). When set,
+   *  overrides the aspect preset so a single re-roll matches the batch's render
+   *  size. Cloud providers ignore these. */
+  width?: number
+  height?: number
 }
 
 export async function generateSceneImageJob(job: Job): Promise<void> {
@@ -119,12 +124,19 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   job.progress = 10
 
   const aspectRatio = params.aspect_ratio || '16:9'
+  const renderWidth = typeof params.width === 'number' && params.width > 0 ? params.width : undefined
+  const renderHeight = typeof params.height === 'number' && params.height > 0 ? params.height : undefined
+  if (renderWidth && renderHeight) {
+    job.output_lines.push(`Render size: ${renderWidth}×${renderHeight} (local models).`)
+  }
   const result = await imageProvider.generateImage({
     prompt: scene.visual_prompt,
     apiKey,
     aspectRatio,
     modelId: model,
     providerParams,
+    width: renderWidth,
+    height: renderHeight,
   })
 
   job.progress = 70

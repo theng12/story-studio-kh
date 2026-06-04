@@ -64,6 +64,15 @@ export interface ImageGenerationRequest {
    * providerParams (e.g. `supports_reference_images: true`).
    */
   referenceImagePaths?: string[]
+  /**
+   * v1.0.261 — explicit output pixel dimensions. When BOTH are set, a provider
+   * that renders at a chosen resolution (local Image Studio) uses these instead
+   * of deriving size from `aspectRatio`. Cloud providers that only accept an
+   * aspect string (kie, OpenAI, OpenRouter) MUST ignore these. Used by the
+   * Scene Review "render size" tier to cut VAE/GPU memory on local MLX models.
+   */
+  width?: number
+  height?: number
   /** Probe for user cancel — provider should honour it in poll loops so an
    *  aborted batch stops burning provider calls per in-flight request. */
   isCancelled?: () => boolean

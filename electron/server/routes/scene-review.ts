@@ -155,6 +155,8 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
       scene_id: sceneId,
       model,
       aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+      width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
+      height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
     },
   })
   res.status(201).json(job)
@@ -198,6 +200,8 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
           scene_id: s.id,
           model,
           aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+          width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
+          height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
         },
       })
       queued++
@@ -261,6 +265,9 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
         title: typeof body.title === 'string' ? body.title : '',
         model,
         aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+        // v1.0.261 — explicit render size (local Image Studio models only).
+        width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
+        height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
         force: body.force === true,
         from_scene_id: typeof body.from_scene_id === 'string' ? body.from_scene_id : undefined,
         single_scene_id: singleSceneId,

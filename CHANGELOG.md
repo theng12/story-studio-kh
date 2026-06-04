@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.261 — 2026-06-04
+
+### Added — render-size control for local Image Studio models (Scene Review)
+Scene Review now has a **Size** selector (shown only when a local Image Studio model is picked) that renders at a smaller resolution to dodge the Metal/MLX out-of-memory crashes that hit after a long batch. It scales the aspect preset — **Full** (16:9 → 1344×768), **Balanced** (1008×576), **Light** (672×384) — and shows the **exact W×H** right in the dropdown, so you can see precisely what's being sent. The chosen size goes into every local render path (full/parallel render, per-scene re-roll, generate-missing) and is logged in the job output.
+
+Why it matters: the OOM happens in the VAE decode, which scales with output pixels — dropping from ~1.0 MP to ~0.59 MP cuts decode memory ~43%, so the worker runs far longer before you need to restart it, renders faster (smaller latent + decode), and writes smaller files. For pixel-art / hand-drawn styles the resolution drop is visually negligible. Cloud models (kie / OpenAI / OpenRouter) ignore the control and keep using the aspect string.
+
+### Files
+- `electron/server/providers/types.ts` (`ImageGenerationRequest.width|height`) · `providers/image/imagestudio.ts` (honour explicit dims, round to /16)
+- `electron/server/generators/continuity-render.ts` · `scene-image.ts` (thread + log render size) · `routes/scene-review.ts` (accept width/height on all three render endpoints)
+- `frontend/pages/projects/[slug]/scene-review.vue` (local-only Size tier with live W×H; persisted + in render presets)
+
+---
+
 ## v1.0.260 — 2026-06-04
 
 ### Added — Visual Recipe + Prompt Director (explainer composition for continuity videos)
