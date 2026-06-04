@@ -658,11 +658,13 @@ export interface EpisodeStatus {
   // plan yet). NOT folded into all_done — only the timestamp/continuity
   // pipelines produce it.
   scene_plan: boolean
-  // v1.0.274 — Scene Review "done" for the timestamp/continuity pipeline: the
-  // scene plan exists AND every scene is approved (the greenlight that gates
-  // assembly). Distinct from `images` (legacy naming, unreliable for the
-  // per-scene scene_images/<id>.png layout). Drives the Scene Review page's
-  // "pending" filter. NOT folded into all_done.
+  // v1.0.276 — Scene Review "done" for the timestamp/continuity pipeline: the
+  // scene plan exists AND every scene has a generated image (image_path set in
+  // the plan). Matches "I've generated all the scene images" — approval/
+  // greenlight is a separate gate handled on the Video Assembly page. Distinct
+  // from `images` (legacy naming, unreliable for the per-scene
+  // scene_images/<id>.png layout). Drives the Scene Review "pending" filter.
+  // NOT folded into all_done.
   scene_review: boolean
   script: boolean
   introduction: boolean
@@ -907,13 +909,14 @@ export async function computeEpisodeStatus(
     // of pending once it HAS a plan (not once it has a script).
     status.scene_plan = await fileHasContent(path.join(paths.episode_dir, 'scene_plan.json'))
 
-    // v1.0.274 — Scene Review done = plan exists AND every scene approved
-    // (greenlit). Only parse when the plan file is present.
+    // v1.0.276 — Scene Review done = plan exists AND every scene has a generated
+    // image (image_path set in the plan). Only parse when the plan is present.
     if (status.scene_plan) {
       try {
         const plan = JSON.parse(await fs.readFile(path.join(paths.episode_dir, 'scene_plan.json'), 'utf-8'))
         const scenes = Array.isArray(plan?.scenes) ? plan.scenes : []
-        status.scene_review = scenes.length > 0 && scenes.every((s: any) => s?.approved === true)
+        status.scene_review = scenes.length > 0
+          && scenes.every((s: any) => typeof s?.image_path === 'string' && s.image_path.length > 0)
       } catch { /* unreadable/partial plan → leave false */ }
     }
 

@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.276 — 2026-06-05
+
+### Fixed — Scene Plan / Scene Review stayed "pending" even after the work was done
+Two causes behind the new `scene_plan` / `scene_review` statuses not flipping to done:
+1. **Stale status cache.** The episode-status cache invalidates on watched-folder mtimes, but `scene_plan.json` is **rewritten in place** (approvals, image paths — changes the file's mtime, not the folder's) and scene images land in a `scene_images/` **subfolder** — neither was watched. So after the first plan was created, the status never refreshed. Now the cache also watches `scene_plan.json` (the file) and `scene_images/`, so generating a plan, generating images, or approving scenes all invalidate it.
+2. **Too-strict "done".** Scene Review "done" required every scene to be *approved* (v1.0.274). It now means every scene has a **generated image** — matching "I've generated the scene images." Approval/greenlight remains the separate gate on the Video Assembly page.
+
+### Files
+- `electron/server/services/episode-status-cache.ts` (watch `scene_plan.json` + `scene_images/`)
+- `electron/server/services/asset-status.ts` (`scene_review` = all scenes have an image)
+
+---
+
 ## v1.0.275 — 2026-06-05
 
 ### Fixed — local TTS (Voice Studio) models disappearing from the Audio dropdown

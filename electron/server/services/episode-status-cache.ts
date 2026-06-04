@@ -140,9 +140,17 @@ async function resolveWatchedFolders(slug: string, code: string, ideas?: Awaited
     return []
   }
 
-  // All folders that could affect any status field.
+  // All folders (and a couple of files) whose changes could affect any status
+  // field. NOTE: stat works on files too — we watch scene_plan.json directly
+  // because the planner/renderer/approval flow REWRITES it IN PLACE (which
+  // changes the file's mtime but NOT the episode_dir's), and scene images land
+  // in a scene_images/ subfolder (episode_dir's mtime doesn't move for writes
+  // inside a sibling). Without these two, scene_plan / scene_review never
+  // refresh after the first plan was created. (v1.0.276)
   return [
     paths.episode_dir,        // sibling-folder detection for video_assembly
+    path.join(paths.episode_dir, 'scene_plan.json'),  // scene_plan + scene_review (in-place rewrites)
+    path.join(paths.episode_dir, 'scene_images'),     // scene_review (per-scene images)
     paths.script_dir,         // script + introduction
     paths.scene_prompts_dir,  // scene_prompts (and bg_dir image counts via docx mtime)
     paths.thumb_prompts_dir,  // thumb_prompts
