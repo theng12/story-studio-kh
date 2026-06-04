@@ -50,6 +50,7 @@ export function defaultContinuityConfig(): ContinuityConfig {
 export function defaultVisualRecipe(): VisualRecipe {
   return {
     enabled: false,
+    mode: 'guide',
     directive: '',
     guide_character_id: '',
     emotion_mode: 'auto',
@@ -62,6 +63,7 @@ function sanitizeRecipe(raw: any): VisualRecipe {
   const r = (raw && typeof raw === 'object') ? raw : {}
   return {
     enabled: r.enabled === true,
+    mode: r.mode === 'scene' ? 'scene' : 'guide',
     directive: typeof r.directive === 'string' ? r.directive.trim().slice(0, 2000) : '',
     guide_character_id: typeof r.guide_character_id === 'string' ? r.guide_character_id.trim().slice(0, 200) : '',
     emotion_mode: r.emotion_mode === 'fixed' ? 'fixed' : 'auto',

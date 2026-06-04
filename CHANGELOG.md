@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.263 — 2026-06-04
+
+### Added — "Scene-accurate" Visual Recipe mode (no recurring character)
+The Visual Recipe now has a **Composition style** choice:
+- **Explainer with a guide** (the original): subject framed, your recurring character stands at the side pointing at it, emotion per scene.
+- **Scene-accurate, no character** (new): each scene depicts its **real subject** in your art style; **generic anonymous figures appear only when the narration involves a person**, otherwise none; **no recurring/named character at all**. Put your white-border + art-style instructions in the directive and Apply — every scene's prompt is rewritten to match.
+
+The guide-character + emotion controls hide in scene mode (there's no character to emote), and the per-scene emotion column on Scene Plan hides too. Everything else is the same: non-destructive, idempotent, revertible, and the composition template still anchors the framing at render time.
+
+### Files
+- `electron/server/models/types.ts` (`VisualRecipe.mode`) · `routes/continuity.ts` (default + sanitize) · `generators/prompt-director.ts` (scene-mode system prompt, no guide/emotion)
+- `frontend/pages/projects/[slug]/character-sheet.vue` (mode toggle; guide/emotion conditional) · `scene-plan.vue` (hide emotion column in scene mode)
+
+---
+
 ## v1.0.262 — 2026-06-04
 
 ### Fixed — Scene Review toolbar overflowing off the panel

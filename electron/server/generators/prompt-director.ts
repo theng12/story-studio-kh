@@ -48,7 +48,7 @@ function parseDirectorJson(raw: string): { scenes: Array<{ id: string; prompt?: 
   return { scenes }
 }
 
-function buildSystem(recipe: VisualRecipe, guideName: string): string {
+function buildSystemGuide(recipe: VisualRecipe, guideName: string): string {
   const directive = recipe.directive?.trim()
     || 'The subject sits inside a clean framed window (white/clean edges); the guide stands at the side and points toward it.'
   return `You are a visual-prompt compositor for an explainer-style video. The on-screen host is a recurring guide character named "${guideName}". You receive a list of scenes; each has a SUBJECT (what the image should depict) and the NARRATION it accompanies. Rewrite each scene's SUBJECT into ONE image-generation prompt that follows this composition recipe:
@@ -66,6 +66,25 @@ For each scene, also report the single short emotion word you used for ${guideNa
 
 Return ONLY a JSON object, no prose or markdown:
 {"scenes":[{"id":"<scene id>","prompt":"<rewritten prompt>","emotion":"<emotion>"}]}`
+}
+
+function buildSystemScene(recipe: VisualRecipe): string {
+  const directive = recipe.directive?.trim()
+    || 'Frame each image with a clean white border. Render the scene\'s real subject in a consistent illustration style.'
+  return `You are a visual-prompt compositor for an illustrated video. You receive a list of scenes; each has a SUBJECT (what the image should depict) and the NARRATION it accompanies. Rewrite each scene's SUBJECT into ONE image-generation prompt that follows this composition recipe:
+
+${directive}
+
+Hard requirements for every rewritten prompt:
+- Depict the scene's REAL subject faithfully — the actual objects, animals, places, or actions the narration is about. Keep it faithful to the given SUBJECT; do NOT invent a different subject or drop it.
+- Do NOT include any recurring, named, or consistent main character. There is no host or guide.
+- Only include a person when the narration genuinely involves one — and then only as a PLAIN, ANONYMOUS, generic figure enacting the action (no name, no fixed identity). When the narration does not involve a person, include NO people at all — show only the relevant subject/environment.
+- Apply the framing/border and art style from the recipe to every image.
+- Concrete and descriptive — no vague filler like "an interesting image".
+- Do not describe video transitions, multiple panels, or text overlays.
+
+Return ONLY a JSON object, no prose or markdown:
+{"scenes":[{"id":"<scene id>","prompt":"<rewritten prompt>"}]}`
 }
 
 function buildUser(batch: Array<{ id: string; subject: string; narration: string; use_emotion?: string }>): string {
@@ -103,14 +122,22 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
     throw new Error('Visual Recipe has no directive. Describe the composition in the Character Sheet → Visual Recipe panel first.')
   }
 
+  // v1.0.263 — two composition modes. 'scene' = no recurring character at all
+  // (generic figures only when the narration has a person); 'guide' = the
+  // explainer with a recurring side guide.
+  const sceneMode = recipe.mode === 'scene'
+
   // Resolve the guide character's name (recipe pick → first anchor → fallback).
-  const guideId = recipe.guide_character_id?.trim() || anchorIds[0] || ''
+  // Only relevant in 'guide' mode.
   let guideName = 'the guide'
-  if (guideId) {
-    try {
-      const ch = await getCharacter(job.project_slug, guideId)
-      if ((ch as any)?.name) guideName = (ch as any).name
-    } catch { /* keep fallback */ }
+  if (!sceneMode) {
+    const guideId = recipe.guide_character_id?.trim() || anchorIds[0] || ''
+    if (guideId) {
+      try {
+        const ch = await getCharacter(job.project_slug, guideId)
+        if ((ch as any)?.name) guideName = (ch as any).name
+      } catch { /* keep fallback */ }
+    }
   }
 
   // Pull candidate keys once; callAi picks the right one per call.
@@ -121,14 +148,16 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
   ])
   const apiKeys = { anthropic_api_key, openai_api_key, kie_api_key }
 
-  const system = buildSystem(recipe, guideName)
+  const system = sceneMode ? buildSystemScene(recipe) : buildSystemGuide(recipe, guideName)
 
   // Work only on scenes with a real source prompt; placeholder/empty scenes are
   // left untouched. Source = visual_prompt_raw (preserved) ?? visual_prompt.
   const workable = plan.scenes.filter(s => (s.visual_prompt_raw ?? s.visual_prompt)?.trim())
   if (!workable.length) throw new Error('No scenes with prompts to compose.')
 
-  job.output_lines.push(`Applying Visual Recipe to ${workable.length} scene(s) — guide: ${guideName}, emotion: ${recipe.emotion_mode}.`)
+  job.output_lines.push(sceneMode
+    ? `Applying Visual Recipe to ${workable.length} scene(s) — scene-accurate mode (no recurring character).`
+    : `Applying Visual Recipe to ${workable.length} scene(s) — guide: ${guideName}, emotion: ${recipe.emotion_mode}.`)
 
   const byId = new Map<string, ScenePlanEntry>(plan.scenes.map(s => [s.id, s]))
   let composed = 0
@@ -140,9 +169,11 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
     // Decide the forced emotion (if any) per scene: a user-locked emotion wins,
     // then a recipe-level fixed emotion; otherwise the LLM chooses (auto).
     const batch = slice.map(s => {
-      const forced = (s.emotion_locked && s.emotion?.trim())
-        ? s.emotion.trim()
-        : (recipe!.emotion_mode === 'fixed' && recipe!.fixed_emotion.trim() ? recipe!.fixed_emotion.trim() : undefined)
+      const forced = sceneMode
+        ? undefined
+        : (s.emotion_locked && s.emotion?.trim())
+          ? s.emotion.trim()
+          : (recipe!.emotion_mode === 'fixed' && recipe!.fixed_emotion.trim() ? recipe!.fixed_emotion.trim() : undefined)
       return {
         id: s.id,
         subject: (s.visual_prompt_raw ?? s.visual_prompt).trim(),
@@ -176,9 +207,9 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
         // Preserve the planner's original as the raw source on first run.
         if (!target.visual_prompt_raw) target.visual_prompt_raw = target.visual_prompt
         target.visual_prompt = r.prompt.trim()
-        // Locked emotion stays; fixed mode forces the recipe emotion; else take
-        // the LLM's choice (or the forced value if it echoed one).
-        if (!(target.emotion_locked && target.emotion?.trim())) {
+        // Scene mode has no character → no emotion. Guide mode: locked emotion
+        // stays; fixed mode forces the recipe emotion; else take the LLM's choice.
+        if (!sceneMode && !(target.emotion_locked && target.emotion?.trim())) {
           if (recipe!.emotion_mode === 'fixed' && recipe!.fixed_emotion.trim()) {
             target.emotion = recipe!.fixed_emotion.trim()
           } else if (r.emotion?.trim()) {

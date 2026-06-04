@@ -266,29 +266,44 @@
           <span class="text-muted" style="font-weight:400">— explainer composition (optional)</span>
         </h3>
         <p class="text-muted text-sm mt-1">
-          Reframes every scene as an <strong>explainer</strong>: the thing being narrated becomes the
-          framed centrepiece, and your guide character stands at the side pointing at it, expression
-          matched to the moment. Define it here, then <strong>Apply</strong> it on the
+          Rewrites every scene's image prompt before rendering. Two styles:
+          <strong>Explainer with a guide</strong> (subject framed, your character points at it) or
+          <strong>Scene-accurate, no character</strong> (each scene shows its real subject; generic
+          figures only when a person is involved). Define it here, then <strong>Apply</strong> it on the
           <NuxtLink :to="`/projects/${slug}/scene-plan?episode_id=${episodeId}`" class="cs-link">Scene Plan</NuxtLink> page.
         </p>
 
         <div class="cs-settings mt-2">
           <label class="cs-checkbox">
             <input type="checkbox" v-model="config.recipe.enabled" />
-            Use the explainer composition for this episode
+            Use a Visual Recipe to rewrite every scene's prompt for this episode
           </label>
 
           <div class="form-group">
-            <label>Composition directive <span class="text-muted text-xs">— natural language; how the frame is laid out</span></label>
+            <label>Composition style</label>
+            <label class="cs-checkbox">
+              <input type="radio" value="guide" v-model="config.recipe.mode" />
+              <strong>Explainer with a guide</strong> <span class="text-muted text-xs">— subject framed; a recurring character stands at the side pointing at it, emotion per scene</span>
+            </label>
+            <label class="cs-checkbox">
+              <input type="radio" value="scene" v-model="config.recipe.mode" />
+              <strong>Scene-accurate, no character</strong> <span class="text-muted text-xs">— each scene shows its real subject; generic figures only when a person is involved; no recurring character</span>
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label>Composition directive <span class="text-muted text-xs">— natural language; framing, border + art style</span></label>
             <textarea
               v-model="config.recipe.directive"
               class="textarea"
               rows="3"
-              placeholder="e.g. the subject sits inside an ornate vine-and-cave frame with clean white edges; the guide stands at the right edge, pointing at the framed scene; flat storybook illustration"
+              :placeholder="config.recipe.mode === 'scene'
+                ? 'e.g. frame every image with a clean white border; storybook stick-figure art, soft watercolour, warm earthy palette; show the actual objects/animals/place the narration describes'
+                : 'e.g. the subject sits inside an ornate vine-and-cave frame with clean white edges; the guide stands at the right edge, pointing at the framed scene; flat storybook illustration'"
             />
           </div>
 
-          <div class="form-group">
+          <div v-if="config.recipe.mode === 'guide'" class="form-group">
             <label>Guide character <span class="text-muted text-xs">— who points at the subject</span></label>
             <select v-model="config.recipe.guide_character_id" class="input input-sm">
               <option value="">First anchor character</option>
@@ -296,7 +311,7 @@
             </select>
           </div>
 
-          <div class="form-group">
+          <div v-if="config.recipe.mode === 'guide'" class="form-group">
             <label>Guide emotion</label>
             <label class="cs-checkbox">
               <input type="radio" value="auto" v-model="config.recipe.emotion_mode" />
@@ -321,9 +336,10 @@
               <span v-if="compositionExists" class="cs-saved-badge">✓ Saved</span>
             </label>
             <p class="text-muted text-xs">
-              One layout image — the guide at the side + an empty framed window where each scene's
-              subject goes. Every scene is img2img-structured against it so the layout stays consistent.
-              Upload your own, or generate one. Saved as <code>composition.png</code>.
+              One layout image the renders are structured against (img2img) so the framing stays
+              consistent — e.g. an empty framed window / clean white border (plus, for the guide style,
+              the guide standing at the side). Upload your own, or generate one. Saved as
+              <code>composition.png</code>.
             </p>
             <div class="cs-sheet-row mt-2">
               <div v-if="compositionExists" class="cs-sheet-preview">
@@ -411,6 +427,7 @@ const episodeId = ref('')
 
 interface VisualRecipe {
   enabled: boolean
+  mode: 'guide' | 'scene'
   directive: string
   guide_character_id: string
   emotion_mode: 'auto' | 'fixed'
@@ -429,7 +446,7 @@ interface ContinuityConfig {
   updated_at?: string
 }
 function defaultRecipe(): VisualRecipe {
-  return { enabled: false, directive: '', guide_character_id: '', emotion_mode: 'auto', fixed_emotion: '' }
+  return { enabled: false, mode: 'guide', directive: '', guide_character_id: '', emotion_mode: 'auto', fixed_emotion: '' }
 }
 function defaults(): ContinuityConfig {
   return {

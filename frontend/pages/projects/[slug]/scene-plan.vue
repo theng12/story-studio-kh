@@ -343,7 +343,7 @@
               <span class="text-xs text-muted">Planner original:</span>
               <span class="scene-raw-text">{{ scene.visual_prompt_raw }}</span>
             </div>
-            <div v-if="recipeEnabled" class="scene-emotion mt-1">
+            <div v-if="recipeEnabled && recipeMode === 'guide'" class="scene-emotion mt-1">
               <label class="text-xs text-muted">Guide emotion</label>
               <input
                 v-model="scene.emotion"
@@ -469,19 +469,24 @@ const continuityPacing = ref<{ min_sec: number; max_sec: number } | null>(null)
 // v1.0.260 — whether the explainer Visual Recipe is enabled for this episode
 // (set on the Character Sheet). Gates the Apply/Revert controls below.
 const recipeEnabled = ref(false)
+// v1.0.263 — recipe composition mode. 'guide' shows per-scene emotion controls;
+// 'scene' (no recurring character) hides them since there's no character to emote.
+const recipeMode = ref<'guide' | 'scene'>('guide')
 
 async function loadContinuity(): Promise<void> {
   continuityPacing.value = null
   recipeEnabled.value = false
+  recipeMode.value = 'guide'
   if (!episodeId.value) return
   try {
     const fmt = await get<{ visualSource?: string }>(`/projects/${slug.value}/effective-format`)
     if (fmt?.visualSource !== 'continuity-chain') return
-    const r = await get<{ exists: boolean; config: { pacing?: { min_sec: number; max_sec: number }; recipe?: { enabled?: boolean } } }>(
+    const r = await get<{ exists: boolean; config: { pacing?: { min_sec: number; max_sec: number }; recipe?: { enabled?: boolean; mode?: 'guide' | 'scene' } } }>(
       `/projects/${slug.value}/continuity/${episodeId.value}`,
     )
     continuityPacing.value = r.config?.pacing || { min_sec: 2, max_sec: 8 }
     recipeEnabled.value = r.config?.recipe?.enabled === true
+    recipeMode.value = r.config?.recipe?.mode === 'scene' ? 'scene' : 'guide'
   } catch { /* non-continuity project or fetch failed — no chip */ }
 }
 

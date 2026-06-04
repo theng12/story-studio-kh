@@ -2855,11 +2855,19 @@ export interface VisualRecipe {
   /** Master switch — when off, the Director is a no-op and scenes render from
    *  the planner's prompt as before. */
   enabled: boolean
+  /** v1.0.263 — composition style:
+   *   'guide' — explainer: the subject is framed and a recurring GUIDE character
+   *             stands at the side pointing at it, expression per beat.
+   *   'scene' — scene-accurate: NO recurring character. Each scene depicts its
+   *             real subject; generic anonymous figures appear only when the
+   *             narration involves a person, otherwise none. (guide_character_id
+   *             + emotion fields are ignored in this mode.) */
+  mode: 'guide' | 'scene'
   /** Natural-language composition directive (the framing, where the guide
    *  stands, the look). Woven into every rewritten prompt. */
   directive: string
   /** Which anchor character plays the side "guide / explainer". Empty = first
-   *  anchor character. */
+   *  anchor character. Ignored when mode is 'scene'. */
   guide_character_id: string
   /** 'auto' — the Director derives each scene's emotion from the narration
    *  beat; 'fixed' — every scene uses `fixed_emotion`. Per-scene overrides
