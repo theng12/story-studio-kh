@@ -10,6 +10,7 @@ import { router as projectsRouter } from './projects.js'
 import { router as settingsRouter } from './settings.js'
 import { router as jobsRouter } from './jobs.js'
 import { router as scriptsRouter } from './scripts.js'
+import { router as cowriterRouter } from './cowriter.js'
 import { router as imagesRouter } from './images.js'
 import { router as audioRouter } from './audio.js'
 import { router as videoAssemblyRouter } from './video.js'
@@ -56,6 +57,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', lastSessionRouter)
   app.use('/api', jobsRouter)
   app.use('/api', scriptsRouter)
+  app.use('/api', cowriterRouter)
   app.use('/api', imagesRouter)
   app.use('/api', audioRouter)
   app.use('/api', videoAssemblyRouter)

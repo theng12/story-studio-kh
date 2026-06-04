@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.271 — 2026-06-04
+
+### Added — Conversational Co-writer
+A new **Co-writer** page (sidebar, in Generators) where you chat with the app's LLM to develop an **idea, outline, or full script**, then **send it straight into the pipeline** — no format constraints, write whatever you want.
+
+- **Chat**: pick a model, talk it through (brainstorm, draft, iterate). ⌘/Ctrl+Enter to send; starter suggestions on an empty thread.
+- **Send to pipeline**: choose Idea / Outline / Full script → **Prepare draft** extracts a clean artifact from the conversation (you can edit it) → **Send**:
+  - *Idea* → added to your Ideas list (title + logline + themes).
+  - *Outline* → written as an approved outline on the chosen episode (then Expand Chapters).
+  - *Full script* → written as the chosen episode's script, ready for Audio → Subtitles → Scene Plan.
+
+It reuses the v1.0.269 bring-your-own import endpoints + the existing add-idea endpoint, so the "commit" path is already battle-tested. This completes the "video format = visual only" arc (bring-your-own → freeform content mode → co-writer).
+
+### Files
+- `electron/server/routes/cowriter.ts` (NEW — `/cowriter/chat` + `/cowriter/finalize`, stateless multi-turn via callAi) · `routes/index.ts` (mount)
+- `frontend/pages/projects/[slug]/cowriter.vue` (NEW — chat + send-to-pipeline) · `layouts/dashboard.vue` (sidebar entry)
+
+---
+
 ## v1.0.270 — 2026-06-04
 
 ### Added — "Freeform" content mode (video format = visuals only)
