@@ -443,6 +443,9 @@ router.post('/projects/:slug/scene-review/:episodeId/assemble', async (req, res)
   }
 
   const body = req.body || {}
+  // v1.0.265 — optional A/V controls. Passed through verbatim; the generator
+  // validates + clamps each (and ignores absent ones, preserving prior output).
+  const obj = (v: any) => (v && typeof v === 'object' ? v : undefined)
   const job = jq.enqueue({
     project_slug: slug,
     type: 'timestamp_video_assemble' as JobType,
@@ -451,6 +454,11 @@ router.post('/projects/:slug/scene-review/:episodeId/assemble', async (req, res)
     params: {
       episode_id: episodeId,
       title: typeof body.title === 'string' ? body.title : '',
+      music: obj(body.music),
+      ambient: obj(body.ambient),
+      subtitles: obj(body.subtitles),
+      export_settings: obj(body.export_settings),
+      transition: obj(body.transition),
     },
   })
   res.status(201).json(job)

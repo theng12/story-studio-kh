@@ -36,9 +36,39 @@ import type { Job, ScenePlan } from '../models/types.js'
 interface TimestampAssembleParams {
   episode_id: string
   title?: string
+  /** v1.0.265 — optional A/V controls (all additive; absent = current behavior). */
+  music?: { path?: string; volume?: number; fade?: number }
+  ambient?: { path?: string; volume?: number; fade?: number }
+  subtitles?: { enabled?: boolean; position?: 'bottom' | 'center' | 'top'; font_size?: number; color?: string; outline?: number }
+  export_settings?: { resolution?: '720p' | '1080p' | '1440p' | '4k'; fps?: number; crf?: number }
+  transition?: { type?: 'none' | 'crossfade' | 'fadeblack' | 'dissolve'; duration?: number }
 }
 
 const MIN_SCENE_DURATION_SEC = 0.5
+
+// v1.0.265 — export resolution presets (w, h). Default 1080p matches the prior
+// hardcoded 1920×1080.
+const RES_PRESETS: Record<string, [number, number]> = {
+  '720p': [1280, 720], '1080p': [1920, 1080], '1440p': [2560, 1440], '4k': [3840, 2160],
+}
+// Map a UI transition type → xfade keyword. 'crossfade' = a straight dissolve.
+const XFADE_KEYWORD: Record<string, string> = {
+  crossfade: 'fade', fadeblack: 'fadeblack', dissolve: 'dissolve',
+}
+
+/** SRT/ASS force_style alignment (libass legacy SSA numbering). */
+function alignmentFor(pos: string): number {
+  if (pos === 'top') return 6
+  if (pos === 'center') return 10
+  return 2 // bottom-center (default)
+}
+/** #RRGGBB → ASS &HAABBGGRR (opaque). Falls back to white on bad input. */
+function hexToAssColor(hex: string): string {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex || '')
+  if (!m) return '&H00FFFFFF'
+  const rr = m[1]!.slice(0, 2), gg = m[1]!.slice(2, 4), bb = m[1]!.slice(4, 6)
+  return `&H00${bb}${gg}${rr}`.toUpperCase()
+}
 
 export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   const params = job.params as TimestampAssembleParams
@@ -151,77 +181,165 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
     }
   } catch { /* swallow */ }
 
-  // ── Build concat-demuxer list ─────────────────────────────────────
-  // The concat demuxer wants:
-  //   file '/abs/path/image.png'
-  //   duration 4.500
-  //   ...
-  //   file '/abs/path/last_image.png'    ← repeated, ffmpeg quirk
-  //
-  // Each scene's duration is the SRT-snapped end - start window.
-  const concatLines: string[] = []
-  for (const s of plan.scenes) {
-    const imgPath = path.join(imageDir, `${s.id}.png`)
-    const duration = Math.max(MIN_SCENE_DURATION_SEC, s.end_sec - s.start_sec)
-    concatLines.push(`file '${imgPath.replace(/'/g, `'\\''`)}'`)
-    concatLines.push(`duration ${duration.toFixed(3)}`)
-  }
-  // Final scene needs its file line repeated without a duration so the
-  // concat demuxer doesn't truncate it.
-  const last = plan.scenes[plan.scenes.length - 1]!
-  concatLines.push(`file '${path.join(imageDir, `${last.id}.png`).replace(/'/g, `'\\''`)}'`)
-  const concatListPath = path.join(finalDir, `.tmp-${Date.now()}-concat-list.txt`)
-  await fs.writeFile(concatListPath, concatLines.join('\n') + '\n', 'utf-8')
-  job.output_lines.push(`Built concat list with ${plan.scenes.length} scene(s)`)
-
-  // ── ffmpeg invocation ─────────────────────────────────────────────
-  // Args:
-  //   -f concat -safe 0 -i concat-list.txt          (video from images)
-  //   -i merged.mp3                                  (audio)
-  //   -vf [scale + optional subtitles burn]
-  //   -c:v libx264 -pix_fmt yuv420p -r 30
-  //   -c:a aac -b:a 192k
-  //   -shortest                                       (stop at audio end)
-  //   -movflags +faststart
-  //   tempPath
   const ffmpeg = await getFFmpegPath()
   function escapeForSubtitlesFilter(p: string): string {
     return p.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'")
   }
-  const vfilters: string[] = [
-    'scale=1920:1080:force_original_aspect_ratio=decrease',
-    'pad=1920:1080:(ow-iw)/2:(oh-ih)/2',
-    'setsar=1',
-  ]
-  // v1.0.264 — the subtitles filter is brutal about special characters in the
-  // path (spaces, parentheses, and especially apostrophes — e.g. an episode
-  // titled "…Shackleton's Crew…"). Rather than escape the project path, copy the
-  // SRT to a clean temp file (ASCII, no spaces/quotes) and burn THAT in. Avoids
-  // the whole filtergraph-init class of failures regardless of the project path.
+  const clamp = (v: any, lo: number, hi: number, dflt: number): number => {
+    const n = Number(v)
+    return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : dflt
+  }
+
+  // ── Resolve A/V controls (v1.0.265 — all opt-in; absent = prior behavior) ──
+  const [W, H] = RES_PRESETS[params.export_settings?.resolution || '1080p'] || RES_PRESETS['1080p']!
+  const fps = Math.round(clamp(params.export_settings?.fps, 1, 60, 30))
+  const crf = Math.round(clamp(params.export_settings?.crf, 0, 51, 20))
+
+  const subsOn = hasSubtitles && params.subtitles?.enabled !== false
+  const musicPath = params.music?.path && existsSync(params.music.path) ? params.music.path : ''
+  if (params.music?.path && !musicPath) job.output_lines.push(`⚠ Music file not found: ${params.music.path} — skipping.`)
+  const ambientPath = params.ambient?.path && existsSync(params.ambient.path) ? params.ambient.path : ''
+  if (params.ambient?.path && !ambientPath) job.output_lines.push(`⚠ Ambient file not found: ${params.ambient.path} — skipping.`)
+  const musicVol = clamp(params.music?.volume, 0, 2, 0.15)
+  const ambientVol = clamp(params.ambient?.volume, 0, 2, 0.12)
+  const musicFade = clamp(params.music?.fade, 0, 15, 2)
+  const ambientFade = clamp(params.ambient?.fade, 0, 15, 2)
+  const hasBeds = !!(musicPath || ambientPath)
+
+  const durOf = (s: ScenePlan['scenes'][number]) => Math.max(MIN_SCENE_DURATION_SEC, s.end_sec - s.start_sec)
+  const totalDur = Math.max(1, plan.scenes.reduce((a, s) => a + durOf(s), 0))
+
+  const transType = params.transition?.type && params.transition.type !== 'none' ? params.transition.type : 'none'
+  const xfadeKw = XFADE_KEYWORD[transType]
+  const transDur = clamp(params.transition?.duration, 0.1, 3, 0.5)
+  // xfade needs ≥2 scenes; otherwise fall back to the (faster) concat path.
+  const useXfade = !!xfadeKw && plan.scenes.length >= 2
+  if (useXfade && plan.scenes.length > 60) {
+    job.output_lines.push(`Note: transitions re-encode ${plan.scenes.length} image inputs with overlaps — this is slower + heavier than hard cuts.`)
+  }
+
+  // Subtitle burn fragment (copy SRT to a clean temp path; force_style for
+  // placement/size/colour). v1.0.264 temp-copy avoids path-escaping failures.
   let subsTempPath = ''
-  if (hasSubtitles) {
+  let subFragment = ''
+  if (subsOn) {
     subsTempPath = path.join(os.tmpdir(), `ssk-subs-${Date.now()}.srt`)
     await fs.copyFile(stitchedSrt, subsTempPath)
-    vfilters.push(`subtitles='${escapeForSubtitlesFilter(subsTempPath)}'`)
+    const sp = params.subtitles || {}
+    const style = [
+      `Alignment=${alignmentFor(sp.position || 'bottom')}`,
+      `FontSize=${Math.round(clamp(sp.font_size, 8, 96, 24))}`,
+      `PrimaryColour=${hexToAssColor(sp.color || '#FFFFFF')}`,
+      `Outline=${Math.round(clamp(sp.outline, 0, 6, 2))}`,
+    ].join(',')
+    subFragment = `subtitles='${escapeForSubtitlesFilter(subsTempPath)}':force_style='${style}'`
+    job.output_lines.push(`Subtitles: ${sp.position || 'bottom'}, size ${Math.round(clamp(sp.font_size, 8, 96, 24))}`)
   }
-  const args = [
-    '-y',
-    '-f', 'concat',
-    '-safe', '0',
-    '-i', concatListPath,
-    '-i', audioPath,
-    '-vf', vfilters.join(','),
-    '-c:v', 'libx264',
-    '-preset', 'medium',
-    '-crf', '20',
-    '-pix_fmt', 'yuv420p',
-    '-r', '30',
-    '-c:a', 'aac',
-    '-b:a', '192k',
-    '-shortest',
-    '-movflags', '+faststart',
-    tempPath,
-  ]
+
+  job.output_lines.push(`Export: ${W}×${H} @ ${fps}fps (crf ${crf})${useXfade ? ` · ${transType} ${transDur}s` : ''}${hasBeds ? ' · with audio bed(s)' : ''}`)
+
+  // ── Build the ffmpeg invocation ───────────────────────────────────
+  // Three shapes, picked by which controls are on:
+  //   simple    — concat demuxer + -vf (the proven default path)
+  //   beds only — concat demuxer video + -filter_complex audio mix
+  //   xfade     — per-image inputs + xfade chain (+ optional audio mix)
+  const vBase = `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1`
+
+  // Concat list (used by the non-xfade paths).
+  let concatListPath = ''
+  if (!useXfade) {
+    const concatLines: string[] = []
+    for (const s of plan.scenes) {
+      const imgPath = path.join(imageDir, `${s.id}.png`)
+      concatLines.push(`file '${imgPath.replace(/'/g, `'\\''`)}'`)
+      concatLines.push(`duration ${durOf(s).toFixed(3)}`)
+    }
+    const last = plan.scenes[plan.scenes.length - 1]!
+    concatLines.push(`file '${path.join(imageDir, `${last.id}.png`).replace(/'/g, `'\\''`)}'`)
+    concatListPath = path.join(finalDir, `.tmp-${Date.now()}-concat-list.txt`)
+    await fs.writeFile(concatListPath, concatLines.join('\n') + '\n', 'utf-8')
+    job.output_lines.push(`Built concat list with ${plan.scenes.length} scene(s)`)
+  }
+
+  // Audio-mix fragment + map target (shared by beds-enabled paths). narrIdx is
+  // the narration input's index; beds (music/ambient) follow it.
+  const narrIdx = useXfade ? plan.scenes.length : 1
+  function buildAudioMix(): { fc: string; map: string; extraInputs: string[] } {
+    if (!hasBeds) return { fc: '', map: `${narrIdx}:a`, extraInputs: [] }
+    const extraInputs: string[] = []
+    const parts: string[] = [`[${narrIdx}:a]aresample=async=1[a_narr]`]
+    const mixLabels = ['[a_narr]']
+    let idx = narrIdx + 1
+    if (musicPath) {
+      extraInputs.push('-i', musicPath)
+      parts.push(`[${idx}:a]aloop=loop=-1:size=2147483647,atrim=0:${totalDur.toFixed(3)},volume=${musicVol},afade=t=in:st=0:d=${musicFade},afade=t=out:st=${Math.max(0, totalDur - musicFade).toFixed(3)}:d=${musicFade}[a_mus]`)
+      mixLabels.push('[a_mus]'); idx++
+    }
+    if (ambientPath) {
+      extraInputs.push('-i', ambientPath)
+      parts.push(`[${idx}:a]aloop=loop=-1:size=2147483647,atrim=0:${totalDur.toFixed(3)},volume=${ambientVol},afade=t=in:st=0:d=${ambientFade},afade=t=out:st=${Math.max(0, totalDur - ambientFade).toFixed(3)}:d=${ambientFade}[a_amb]`)
+      mixLabels.push('[a_amb]'); idx++
+    }
+    parts.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:normalize=0:duration=first[aout]`)
+    return { fc: parts.join(';'), map: '[aout]', extraInputs }
+  }
+
+  const audio = buildAudioMix()
+  let args: string[]
+
+  if (!useXfade && !hasBeds) {
+    // SIMPLE — the proven default path (now parameterized for export + subs).
+    const vf = subFragment ? `${vBase},${subFragment}` : vBase
+    args = [
+      '-y', '-f', 'concat', '-safe', '0', '-i', concatListPath, '-i', audioPath,
+      '-vf', vf,
+      '-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-r', String(fps),
+      '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', tempPath,
+    ]
+  } else if (!useXfade) {
+    // CONCAT video + audio mix → filter_complex.
+    const vOut = subFragment ? `[0:v]${vBase},${subFragment}[vout]` : `[0:v]${vBase}[vout]`
+    const fc = [vOut, audio.fc].filter(Boolean).join(';')
+    args = [
+      '-y', '-f', 'concat', '-safe', '0', '-i', concatListPath, '-i', audioPath,
+      ...audio.extraInputs,
+      '-filter_complex', fc, '-map', '[vout]', '-map', audio.map,
+      '-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-r', String(fps),
+      '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', tempPath,
+    ]
+  } else {
+    // XFADE — per-image inputs + variable-offset crossfade chain. Each input is
+    // its window + the transition duration so the dissolve overlaps WITHOUT
+    // stealing time: xfade offset = the scene's cumulative window start, so each
+    // scene still begins on its timestamp. Total ≈ audio length (-shortest trims).
+    const imageInputs: string[] = []
+    const vParts: string[] = []
+    let cum = 0
+    const starts: number[] = []
+    for (let i = 0; i < plan.scenes.length; i++) {
+      const s = plan.scenes[i]!
+      starts.push(cum)
+      cum += durOf(s)
+      imageInputs.push('-loop', '1', '-t', (durOf(s) + transDur).toFixed(3), '-i', path.join(imageDir, `${s.id}.png`))
+      vParts.push(`[${i}:v]${vBase},fps=${fps},format=yuv420p,settb=AVTB[v${i}]`)
+    }
+    // Chain xfades; offset of the i-th boundary = start time of scene i+1.
+    let prev = 'v0'
+    for (let i = 0; i < plan.scenes.length - 1; i++) {
+      const isLast = i === plan.scenes.length - 2
+      const out = (isLast && !subFragment) ? 'vout' : `xf${i}`
+      vParts.push(`[${prev}][v${i + 1}]xfade=transition=${xfadeKw}:duration=${transDur}:offset=${starts[i + 1]!.toFixed(3)}[${out}]`)
+      prev = out
+    }
+    if (subFragment) vParts.push(`[${prev}]${subFragment}[vout]`)
+    const fc = [vParts.join(';'), audio.fc].filter(Boolean).join(';')
+    args = [
+      '-y', ...imageInputs, '-i', audioPath, ...audio.extraInputs,
+      '-filter_complex', fc, '-map', '[vout]', '-map', audio.map,
+      '-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-r', String(fps),
+      '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', tempPath,
+    ]
+  }
 
   job.output_lines.push('Encoding…')
   try {
@@ -251,14 +369,14 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   } catch (err) {
     // Error-path cleanup (1.0.130 pattern).
     await fs.rm(tempPath, { force: true }).catch(() => {})
-    await fs.rm(concatListPath, { force: true }).catch(() => {})
+    if (concatListPath) await fs.rm(concatListPath, { force: true }).catch(() => {})
     if (subsTempPath) await fs.rm(subsTempPath, { force: true }).catch(() => {})
     throw err
   }
 
-  // Atomic rename + concat-list cleanup on success.
+  // Atomic rename + temp cleanup on success.
   await fs.rename(tempPath, outPath)
-  await fs.rm(concatListPath, { force: true }).catch(() => {})
+  if (concatListPath) await fs.rm(concatListPath, { force: true }).catch(() => {})
   if (subsTempPath) await fs.rm(subsTempPath, { force: true }).catch(() => {})
   const stat = await fs.stat(outPath)
   job.output_lines.push(`Done → ${outFilename} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`)

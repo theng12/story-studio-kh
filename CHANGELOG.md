@@ -4,6 +4,27 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.265 — 2026-06-04
+
+### Added — assembly controls for the Timestamp (Video Assembly) pipeline
+The timestamp-driven Video Assembly now has real production controls, not just a one-click render. A new **Assembly settings** panel on that page:
+- **Export** — resolution (720p / 1080p / 1440p / 4K), frame rate, and quality (CRF). Previously hardcoded to 1920×1080 / 30fps.
+- **Subtitles** — placement (bottom / center / top), font size, colour, and outline (burned via `force_style`). Toggle burn-in on/off.
+- **Scene transitions** — crossfade / dissolve / fade-through-black between scene images (opt-in; default is hard cuts). Implemented as a variable-offset xfade chain so each scene still begins on its timestamp. Heavier to encode — there's an in-UI warning for many-scene episodes.
+- **Background music + ambient** — point at audio files; each is looped, faded, and mixed under the narration at a volume you set.
+
+All controls are **opt-in and remembered per-Mac**: leave them at defaults and the output is identical to before. Settings flow through `POST …/assemble`; the generator validates + clamps each and logs the chosen export/subs/transition in the job output.
+
+### Also
+- **Video pipeline tabs** now grey out + disable the tabs that don't apply to the project's pipeline (e.g. a timestamp project no longer invites you into the Scenes / B-Roll assemblers). The current tab and unknown-format cases stay enabled.
+
+### Files
+- `electron/server/generators/timestamp-video-assemble.ts` (export/subtitle/music/ambient/transition; simple path preserved as default, filter_complex only when beds/transitions are on)
+- `electron/server/routes/scene-review.ts` (assemble route threads the new opts)
+- `frontend/pages/projects/[slug]/timestamp-assemble.vue` (Assembly settings panel) · `frontend/components/VideoPipelineTabs.vue` (pipeline-aware tab greying)
+
+---
+
 ## v1.0.264 — 2026-06-04
 
 ### Fixed — Timestamp video export failing (ffmpeg exit 254)
