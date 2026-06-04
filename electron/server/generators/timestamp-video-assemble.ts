@@ -217,9 +217,6 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   const transDur = Math.min(clamp(params.transition?.duration, 0.1, 3, 0.5), Math.max(0.1, minWin - 0.1))
   // xfade needs ≥2 scenes; otherwise fall back to the (faster) concat path.
   const useXfade = !!xfadeKw && plan.scenes.length >= 2
-  if (useXfade && plan.scenes.length > 60) {
-    job.output_lines.push(`Note: transitions re-encode ${plan.scenes.length} image inputs with overlaps — this is slower + heavier than hard cuts.`)
-  }
 
   // Subtitle burn fragment (copy SRT to a clean temp path; force_style for
   // placement/size/colour). v1.0.264 temp-copy avoids path-escaping failures.
@@ -264,9 +261,11 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
     job.output_lines.push(`Built concat list with ${plan.scenes.length} scene(s)`)
   }
 
-  // Audio-mix fragment + map target (shared by beds-enabled paths). narrIdx is
-  // the narration input's index; beds (music/ambient) follow it.
-  const narrIdx = useXfade ? plan.scenes.length : 1
+  // Audio-mix fragment + map target (shared by beds-enabled paths). The final
+  // mux always has ONE video input (input 0) — images-concat for hard cuts, or
+  // the concatenated transition chunks — so narration is always input 1, and
+  // beds (music/ambient) follow it.
+  const narrIdx = 1
   function buildAudioMix(): { fc: string; map: string; extraInputs: string[] } {
     if (!hasBeds) return { fc: '', map: `${narrIdx}:a`, extraInputs: [] }
     const extraInputs: string[] = []
@@ -288,94 +287,112 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   }
 
   const audio = buildAudioMix()
-  let args: string[]
 
-  if (!useXfade && !hasBeds) {
-    // SIMPLE — the proven default path (now parameterized for export + subs).
-    const vf = subFragment ? `${vBase},${subFragment}` : vBase
-    args = [
-      '-y', '-f', 'concat', '-safe', '0', '-i', concatListPath, '-i', audioPath,
-      '-vf', vf,
-      '-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-r', String(fps),
-      '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', tempPath,
-    ]
-  } else if (!useXfade) {
-    // CONCAT video + audio mix → filter_complex.
-    const vOut = subFragment ? `[0:v]${vBase},${subFragment}[vout]` : `[0:v]${vBase}[vout]`
-    const fc = [vOut, audio.fc].filter(Boolean).join(';')
-    args = [
-      '-y', '-f', 'concat', '-safe', '0', '-i', concatListPath, '-i', audioPath,
-      ...audio.extraInputs,
-      '-filter_complex', fc, '-map', '[vout]', '-map', audio.map,
-      '-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-r', String(fps),
-      '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', tempPath,
-    ]
-  } else {
-    // XFADE — per-image inputs + variable-offset crossfade chain. Each input is
-    // its window + the transition duration. The i-th xfade's offset is the next
-    // scene's window start MINUS transDur, so the dissolve *completes* exactly at
-    // that scene's timestamp (each scene is fully visible across its window) and
-    // the composite length lands on the audio length exactly — no lag, no
-    // -shortest clipping of the final scene.
-    const imageInputs: string[] = []
-    const vParts: string[] = []
-    let cum = 0
-    const starts: number[] = []
-    for (let i = 0; i < plan.scenes.length; i++) {
-      const s = plan.scenes[i]!
-      starts.push(cum)
-      cum += durOf(s)
-      imageInputs.push('-loop', '1', '-t', (durOf(s) + transDur).toFixed(3), '-i', path.join(imageDir, `${s.id}.png`))
-      vParts.push(`[${i}:v]${vBase},fps=${fps},format=yuv420p,settb=AVTB[v${i}]`)
-    }
-    // Chain xfades; offset of the i-th boundary = scene[i+1] window start − transDur.
-    let prev = 'v0'
-    for (let i = 0; i < plan.scenes.length - 1; i++) {
-      const isLast = i === plan.scenes.length - 2
-      const out = (isLast && !subFragment) ? 'vout' : `xf${i}`
-      const offset = Math.max(0, starts[i + 1]! - transDur)
-      vParts.push(`[${prev}][v${i + 1}]xfade=transition=${xfadeKw}:duration=${transDur}:offset=${offset.toFixed(3)}[${out}]`)
-      prev = out
-    }
-    if (subFragment) vParts.push(`[${prev}]${subFragment}[vout]`)
-    const fc = [vParts.join(';'), audio.fc].filter(Boolean).join(';')
-    args = [
-      '-y', ...imageInputs, '-i', audioPath, ...audio.extraInputs,
-      '-filter_complex', fc, '-map', '[vout]', '-map', audio.map,
-      '-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-r', String(fps),
-      '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', tempPath,
-    ]
-  }
-
-  job.output_lines.push('Encoding…')
-  try {
+  // Reusable ffmpeg runner with live progress + cancel handling.
+  async function runFfmpeg(ffargs: string[], progressLabel = ''): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-      const proc = spawn(ffmpeg, args)
+      const proc = spawn(ffmpeg, ffargs)
       let stderr = ''
       proc.stderr.on('data', (d) => {
-        const s = String(d)
-        stderr += s
+        const s = String(d); stderr += s
         const tMatch = /time=([\d:.]+)/.exec(s)
         if (tMatch) {
+          const line = `  ${progressLabel}progress: ${tMatch[1]}`
           const last = job.output_lines[job.output_lines.length - 1] || ''
-          if (!last.startsWith('  progress:')) job.output_lines.push(`  progress: ${tMatch[1]}`)
-          else job.output_lines[job.output_lines.length - 1] = `  progress: ${tMatch[1]}`
+          if (!last.startsWith(`  ${progressLabel}progress:`)) job.output_lines.push(line)
+          else job.output_lines[job.output_lines.length - 1] = line
         }
       })
       proc.on('error', reject)
-      proc.on('close', (code) => {
-        if (code === 0) return resolve()
-        reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(-500)}`))
-      })
-      const cancelWatcher = setInterval(() => {
-        if (jq.isCancelled(job.job_id)) { proc.kill('SIGTERM'); clearInterval(cancelWatcher) }
-      }, 500)
-      proc.on('close', () => clearInterval(cancelWatcher))
+      proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(-500)}`)))
+      const cw = setInterval(() => { if (jq.isCancelled(job.job_id)) { proc.kill('SIGTERM'); clearInterval(cw) } }, 500)
+      proc.on('close', () => clearInterval(cw))
     })
+  }
+
+  const chunkFiles: string[] = []
+  let chunkListPath = ''
+  try {
+    // ── Transitions: render in CHUNKS (a single N-input xfade graph fails past
+    // ~200 inputs — confirmed on 277 scenes). Each chunk is its own xfade pass at
+    // the export size, encoded near-lossless (crf 18) as an intermediate; chunk
+    // seams are hard cuts. Skipped entirely when transitions are off.
+    if (useXfade) {
+      const CHUNK = 60
+      job.output_lines.push(`Transitions on (${transType} ${transDur}s) — rendering ${plan.scenes.length} scene(s) in chunks of ${CHUNK}.`)
+      const chunkCount = Math.ceil(plan.scenes.length / CHUNK)
+      for (let c = 0; c < chunkCount; c++) {
+        if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
+        const slice = plan.scenes.slice(c * CHUNK, c * CHUNK + CHUNK)
+        const chunkPath = path.join(finalDir, `.tmp-${Date.now()}-chunk-${c}.mp4`)
+        chunkFiles.push(chunkPath)
+        if (slice.length === 1) {
+          // Lone trailing scene — a still at the export size (no xfade possible).
+          await runFfmpeg([
+            '-y', '-loop', '1', '-t', durOf(slice[0]!).toFixed(3), '-i', path.join(imageDir, `${slice[0]!.id}.png`),
+            '-vf', `${vBase},fps=${fps},format=yuv420p`,
+            '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', String(fps), chunkPath,
+          ], `chunk ${c + 1}/${chunkCount} `)
+          continue
+        }
+        const inputs: string[] = []
+        const vp: string[] = []
+        let lcum = 0; const lstarts: number[] = []
+        for (let i = 0; i < slice.length; i++) {
+          lstarts.push(lcum); lcum += durOf(slice[i]!)
+          inputs.push('-loop', '1', '-t', (durOf(slice[i]!) + transDur).toFixed(3), '-i', path.join(imageDir, `${slice[i]!.id}.png`))
+          vp.push(`[${i}:v]${vBase},fps=${fps},format=yuv420p,settb=AVTB[v${i}]`)
+        }
+        // Variable-offset xfade chain (local to the chunk). offset of the i-th
+        // boundary = next scene's window start − transDur, so the dissolve
+        // completes on its timestamp and the chunk length == sum of its windows.
+        let prev = 'v0'
+        for (let i = 0; i < slice.length - 1; i++) {
+          const out = (i === slice.length - 2) ? 'vout' : `xf${i}`
+          const offset = Math.max(0, lstarts[i + 1]! - transDur)
+          vp.push(`[${prev}][v${i + 1}]xfade=transition=${xfadeKw}:duration=${transDur}:offset=${offset.toFixed(3)}[${out}]`)
+          prev = out
+        }
+        await runFfmpeg([
+          '-y', ...inputs, '-filter_complex', vp.join(';'), '-map', '[vout]',
+          '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', String(fps), chunkPath,
+        ], `chunk ${c + 1}/${chunkCount} `)
+      }
+      chunkListPath = path.join(finalDir, `.tmp-${Date.now()}-chunklist.txt`)
+      await fs.writeFile(chunkListPath, chunkFiles.map(f => `file '${f.replace(/'/g, `'\\''`)}'`).join('\n') + '\n', 'utf-8')
+    }
+
+    // ── Final mux: ONE video input (images-concat for hard cuts, or the
+    // transition chunks) + subtitles + narration/beds. The chunk videos are
+    // already scaled, so the video is stream-copied unless subtitles must be
+    // burned; images always need scale+encode.
+    job.output_lines.push('Encoding…')
+    const videoInput = useXfade
+      ? ['-f', 'concat', '-safe', '0', '-i', chunkListPath]
+      : ['-f', 'concat', '-safe', '0', '-i', concatListPath]
+    const needScale = !useXfade
+    const reencodeVideo = needScale || !!subFragment
+    const finalArgs: string[] = ['-y', ...videoInput, '-i', audioPath, ...audio.extraInputs]
+    if (reencodeVideo) {
+      const vchain = [needScale ? vBase : '', subFragment].filter(Boolean).join(',')
+      if (hasBeds) {
+        finalArgs.push('-filter_complex', [`[0:v]${vchain}[vout]`, audio.fc].join(';'), '-map', '[vout]', '-map', audio.map)
+      } else {
+        finalArgs.push('-vf', vchain) // 2 inputs → auto-maps video[0] + narration[1]
+      }
+      finalArgs.push('-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-r', String(fps))
+    } else {
+      // Transitions + no subtitles → copy the already-encoded chunk video.
+      if (hasBeds) finalArgs.push('-filter_complex', audio.fc, '-map', '0:v', '-map', audio.map)
+      finalArgs.push('-c:v', 'copy')
+    }
+    finalArgs.push('-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', tempPath)
+    await runFfmpeg(finalArgs)
   } catch (err) {
-    // Error-path cleanup (1.0.130 pattern).
     await fs.rm(tempPath, { force: true }).catch(() => {})
     if (concatListPath) await fs.rm(concatListPath, { force: true }).catch(() => {})
+    if (chunkListPath) await fs.rm(chunkListPath, { force: true }).catch(() => {})
+    for (const f of chunkFiles) await fs.rm(f, { force: true }).catch(() => {})
     if (subsTempPath) await fs.rm(subsTempPath, { force: true }).catch(() => {})
     throw err
   }
@@ -383,6 +400,8 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   // Atomic rename + temp cleanup on success.
   await fs.rename(tempPath, outPath)
   if (concatListPath) await fs.rm(concatListPath, { force: true }).catch(() => {})
+  if (chunkListPath) await fs.rm(chunkListPath, { force: true }).catch(() => {})
+  for (const f of chunkFiles) await fs.rm(f, { force: true }).catch(() => {})
   if (subsTempPath) await fs.rm(subsTempPath, { force: true }).catch(() => {})
   const stat = await fs.stat(outPath)
   job.output_lines.push(`Done → ${outFilename} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`)

@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.267 — 2026-06-04
+
+### Fixed — scene transitions failed to export on long episodes (ffmpeg exit 187)
+Enabling transitions on a long episode crashed the assembly with `ffmpeg exited 187 … Invalid argument … Nothing was written into output file`. Root cause (reproduced + confirmed against the bundled ffmpeg): the whole video was built as **one giant N-input xfade filtergraph**, which ffmpeg can't initialize past ~200 image inputs — so a 277-scene episode died at setup with zero frames.
+
+Transitions now render in **chunks of 60 scenes** (each its own xfade pass at the export resolution), then concatenate — verified working end-to-end at 277 scenes with subtitles + audio beds, total duration exact. Chunk seams are hard cuts (≈1 every 3 min); everything within a chunk crossfades as before. The video is stream-copied in the final mux when no subtitles are burned (faster, no quality loss), and the proven hard-cut path is unchanged.
+
+### Files
+- `electron/server/generators/timestamp-video-assemble.ts` (chunked xfade renderer + unified final mux; shared `runFfmpeg` helper with per-pass progress)
+
+---
+
 ## v1.0.266 — 2026-06-04
 
 ### Fixed — audit pass over v1.0.259–265 (four real bugs)
