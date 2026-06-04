@@ -211,7 +211,10 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
 
   const transType = params.transition?.type && params.transition.type !== 'none' ? params.transition.type : 'none'
   const xfadeKw = XFADE_KEYWORD[transType]
-  const transDur = clamp(params.transition?.duration, 0.1, 3, 0.5)
+  // Clamp the transition so it never meets/exceeds the shortest scene window —
+  // an overlap >= a window produces negative offsets / overlapping blends.
+  const minWin = plan.scenes.reduce((m, s) => Math.min(m, durOf(s)), Infinity)
+  const transDur = Math.min(clamp(params.transition?.duration, 0.1, 3, 0.5), Math.max(0.1, minWin - 0.1))
   // xfade needs ≥2 scenes; otherwise fall back to the (faster) concat path.
   const useXfade = !!xfadeKw && plan.scenes.length >= 2
   if (useXfade && plan.scenes.length > 60) {
@@ -309,9 +312,11 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
     ]
   } else {
     // XFADE — per-image inputs + variable-offset crossfade chain. Each input is
-    // its window + the transition duration so the dissolve overlaps WITHOUT
-    // stealing time: xfade offset = the scene's cumulative window start, so each
-    // scene still begins on its timestamp. Total ≈ audio length (-shortest trims).
+    // its window + the transition duration. The i-th xfade's offset is the next
+    // scene's window start MINUS transDur, so the dissolve *completes* exactly at
+    // that scene's timestamp (each scene is fully visible across its window) and
+    // the composite length lands on the audio length exactly — no lag, no
+    // -shortest clipping of the final scene.
     const imageInputs: string[] = []
     const vParts: string[] = []
     let cum = 0
@@ -323,12 +328,13 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
       imageInputs.push('-loop', '1', '-t', (durOf(s) + transDur).toFixed(3), '-i', path.join(imageDir, `${s.id}.png`))
       vParts.push(`[${i}:v]${vBase},fps=${fps},format=yuv420p,settb=AVTB[v${i}]`)
     }
-    // Chain xfades; offset of the i-th boundary = start time of scene i+1.
+    // Chain xfades; offset of the i-th boundary = scene[i+1] window start − transDur.
     let prev = 'v0'
     for (let i = 0; i < plan.scenes.length - 1; i++) {
       const isLast = i === plan.scenes.length - 2
       const out = (isLast && !subFragment) ? 'vout' : `xf${i}`
-      vParts.push(`[${prev}][v${i + 1}]xfade=transition=${xfadeKw}:duration=${transDur}:offset=${starts[i + 1]!.toFixed(3)}[${out}]`)
+      const offset = Math.max(0, starts[i + 1]! - transDur)
+      vParts.push(`[${prev}][v${i + 1}]xfade=transition=${xfadeKw}:duration=${transDur}:offset=${offset.toFixed(3)}[${out}]`)
       prev = out
     }
     if (subFragment) vParts.push(`[${prev}]${subFragment}[vout]`)

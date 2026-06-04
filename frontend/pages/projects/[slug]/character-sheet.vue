@@ -716,23 +716,35 @@ async function removeComposition(): Promise<void> {
 async function generateComposition(): Promise<void> {
   if (!episodeId.value || !compositionModel.value || !compositionPrompt.value.trim()) return
   generatingComposition.value = true
+  // Pin the episode this run is for + the current file size, so we (a) ignore
+  // results after the user switches episodes, and (b) detect a NEW render even
+  // when replacing an existing template (size changes).
+  const ep = episodeId.value
   try {
-    await post(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/composition/generate`, {
+    const pre = await get<{ composition?: { size_bytes: number } }>(
+      `/projects/${slug.value}/episodes/${ep}/img2img-references`,
+    ).catch(() => ({} as any))
+    const startSize = pre?.composition?.size_bytes ?? -1
+    await post(`/projects/${slug.value}/episodes/${ep}/img2img-references/composition/generate`, {
       model: compositionModel.value,
       prompt: compositionPrompt.value.trim(),
       aspect_ratio: '16:9',
     })
     success('Generating composition template… this can take up to a minute.')
-    // Poll the references listing until the file appears (the job runs in the
-    // background; we just wait for composition.png to land, then refresh).
     const started = Date.now()
     const poll = async (): Promise<void> => {
-      if (Date.now() - started > 120_000) { generatingComposition.value = false; return }
+      // User moved on — abandon this poll quietly.
+      if (episodeId.value !== ep) { generatingComposition.value = false; return }
+      if (Date.now() - started > 120_000) {
+        generatingComposition.value = false
+        showError('Template generation timed out — check the Jobs panel; it may have failed (e.g. the model ran out of memory).')
+        return
+      }
       try {
-        const r = await get<{ composition?: { url: string } }>(
-          `/projects/${slug.value}/episodes/${episodeId.value}/img2img-references`,
+        const r = await get<{ composition?: { size_bytes: number } }>(
+          `/projects/${slug.value}/episodes/${ep}/img2img-references`,
         )
-        if (r.composition) {
+        if (r.composition && r.composition.size_bytes !== startSize) {
           compositionVersion.value++
           compositionExists.value = true
           config.value.references.composition = true
@@ -740,7 +752,7 @@ async function generateComposition(): Promise<void> {
           success('Composition template generated')
           return
         }
-      } catch { /* keep polling */ }
+      } catch { /* transient — keep polling */ }
       setTimeout(() => { void poll() }, 2500)
     }
     setTimeout(() => { void poll() }, 2500)
@@ -773,6 +785,7 @@ watch(episodeId, () => {
   masterExists.value = null
   styleExists.value = null
   compositionExists.value = null
+  generatingComposition.value = false
   masterVersion.value++
   styleVersion.value++
   compositionVersion.value++

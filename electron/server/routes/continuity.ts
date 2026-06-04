@@ -176,13 +176,16 @@ router.post('/projects/:slug/continuity/:episodeId/revert-recipe', async (req, r
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
     let reverted = 0
     for (const s of plan.scenes) {
+      // Only undo scenes the recipe actually composed (those have a saved raw
+      // prompt). Leave never-composed scenes — and any emotion the user set on
+      // them — untouched, so revert can't wipe unrelated edits.
       if (typeof s.visual_prompt_raw === 'string' && s.visual_prompt_raw.length) {
         s.visual_prompt = s.visual_prompt_raw
+        delete s.visual_prompt_raw
+        delete s.emotion
+        delete s.emotion_locked
         reverted++
       }
-      delete s.visual_prompt_raw
-      delete s.emotion
-      delete s.emotion_locked
     }
     await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
     res.json({ ok: true, reverted })

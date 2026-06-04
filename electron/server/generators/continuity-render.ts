@@ -397,7 +397,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     job.output_lines.push(
       `Independent render (parallel ×${concurrency}) — ${imageProvider.meta.name} / ${model} · ` +
       `${toRender.length}/${scenes.length} scene(s) · refs: ` +
-      `${[useSheet && 'sheet', cfg.references.characters && characterRefPaths.length ? 'chars' : '', useStyle && 'style'].filter(Boolean).join('+') || 'none'}` +
+      `${[useComposition && 'composition', useSheet && 'sheet', cfg.references.characters && characterRefPaths.length ? 'chars' : '', useStyle && 'style'].filter(Boolean).join('+') || 'none'}` +
       ` · ${mode} · NO prev-render (scenes independent)`,
     )
 
@@ -468,7 +468,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
 
   job.output_lines.push(
     `Continuity render — ${imageProvider.meta.name} / ${model} · ${scenes.length} scene(s) · refs: ` +
-    `${[cfg.references.prev_render && 'prev', useSheet && 'sheet', cfg.references.characters && characterRefPaths.length ? 'chars' : '', useStyle && 'style'].filter(Boolean).join('+') || 'none'}` +
+    `${[useComposition && 'composition', cfg.references.prev_render && 'prev', useSheet && 'sheet', cfg.references.characters && characterRefPaths.length ? 'chars' : '', useStyle && 'style'].filter(Boolean).join('+') || 'none'}` +
     ` · ${mode}`,
   )
 

@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.266 — 2026-06-04
+
+### Fixed — audit pass over v1.0.259–265 (four real bugs)
+A review of this week's changes turned up four issues (the rest verified correct):
+- **Scene transitions were off-timing.** The xfade chain placed each scene's dissolve so scenes lagged their timestamp by up to the transition duration, and the final scene got clipped by `-shortest`. Fixed the offset (blend now *completes* on each scene's window start) so timing is exact and total length matches the audio. Also clamp the transition duration to the shortest scene so it can't overlap into chaos.
+- **Revert wiped unrelated emotions.** "Revert to planner prompts" cleared the guide-emotion on *every* scene, including ones the recipe never composed. Now it only undoes scenes it actually composed.
+- **"Re-apply recipe" showed a false timeout.** Re-applying a tweaked directive always ended with a spurious "taking longer than expected" error even on success (the poll watched a counter that doesn't move on re-apply). It now detects the actual prompt change.
+- **Composition-template generate could hang silently.** If the generate job failed (e.g. the model OOM'd), the spinner just spun for 2 min with no feedback, and a mid-generate episode switch could cross-wire state. Now it surfaces a timeout error and ignores results after you change episodes.
+
+### Files
+- `electron/server/generators/timestamp-video-assemble.ts` (xfade offset + duration clamp)
+- `electron/server/routes/continuity.ts` (revert only undoes composed scenes)
+- `frontend/pages/projects/[slug]/scene-plan.vue` (re-apply poll detects prompt change)
+- `frontend/pages/projects/[slug]/character-sheet.vue` (generate poll: timeout error + episode-switch guard)
+- `electron/server/generators/continuity-render.ts` (include composition in the render log summary)
+
+---
+
 ## v1.0.265 — 2026-06-04
 
 ### Added — assembly controls for the Timestamp (Video Assembly) pipeline

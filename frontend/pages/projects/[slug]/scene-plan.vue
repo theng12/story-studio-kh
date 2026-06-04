@@ -508,10 +508,14 @@ async function applyRecipe(): Promise<void> {
     if (!ok) return
   }
   applyingRecipe.value = true
+  // Signature of the current composed prompts — the poll waits for THIS to
+  // change, which works for both first-apply and re-apply (where the raw-count
+  // is already non-zero and wouldn't move).
+  const beforeSig = promptsSignature()
   try {
     await post(`/projects/${slug.value}/continuity/${episodeId.value}/apply-recipe`, { model: form.value.model })
     success('Composing scene prompts — watch the Jobs panel; the list updates when it lands.')
-    await pollUntilRecomposed()
+    await pollUntilRecomposed(beforeSig)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to apply Visual Recipe')
   } finally {
@@ -538,16 +542,21 @@ async function revertRecipe(): Promise<void> {
   }
 }
 
-/** Poll the plan until the Director's recompose lands (a scene gains a
- *  visual_prompt_raw) or we time out. */
-async function pollUntilRecomposed(): Promise<void> {
+/** Serialized composed prompts — used to detect when the Director's rewrite
+ *  has landed (changes on both first-apply and re-apply). */
+function promptsSignature(): string {
+  return (plan.value?.scenes || []).map(s => s.visual_prompt || '').join('')
+}
+
+/** Poll the plan until the Director's recompose lands (the composed prompts
+ *  change vs the pre-apply signature) or we time out. */
+async function pollUntilRecomposed(beforeSig: string): Promise<void> {
   const start = Date.now()
-  const before = recipeComposedCount.value
   const timeoutMs = 180_000
   while (Date.now() - start < timeoutMs) {
     await new Promise(r => setTimeout(r, 3000))
     await loadStatus()
-    if (recipeComposedCount.value > before || recipeComposedCount.value > 0 && before === 0) return
+    if (promptsSignature() !== beforeSig) return
   }
   showError('Recipe taking longer than expected — check the Jobs panel, then refresh.')
 }
