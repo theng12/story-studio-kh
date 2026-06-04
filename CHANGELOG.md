@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.277 — 2026-06-05
+
+### Fixed — done episodes still showing as "Pending" (stale status cache)
+The real reason Scene Plan / Scene Review kept showing planned/rendered episodes as pending: the per-machine status cache (`episode-status.json`) was written by a build from **before** the `scene_plan` / `scene_review` status fields existed (v1.0.273/274), and its schema version wasn't bumped — so the app kept serving cached statuses that had **no `scene_plan` field at all**. The filter then read `undefined` → "pending" for every episode, regardless of work done. (Verified on-disk: cache `schemaVersion: 1`, no `scene_plan`/`scene_review` keys.)
+
+Bumped the cache schema to **v2**, so every stale entry from an older build is discarded on launch and recomputed with the new fields. Installing this build fixes it automatically — no manual cache clearing. Includes the v1.0.276 cache-watching fix (watch `scene_plan.json` + `scene_images/`) so it also stays correct on future plans/renders/approvals.
+
+### Files
+- `electron/server/services/episode-status-cache.ts` (`SCHEMA_VERSION` 1 → 2)
+
+---
+
 ## v1.0.276 — 2026-06-05
 
 ### Fixed — Scene Plan / Scene Review stayed "pending" even after the work was done
