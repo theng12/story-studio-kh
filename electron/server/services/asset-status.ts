@@ -658,6 +658,12 @@ export interface EpisodeStatus {
   // plan yet). NOT folded into all_done — only the timestamp/continuity
   // pipelines produce it.
   scene_plan: boolean
+  // v1.0.274 — Scene Review "done" for the timestamp/continuity pipeline: the
+  // scene plan exists AND every scene is approved (the greenlight that gates
+  // assembly). Distinct from `images` (legacy naming, unreliable for the
+  // per-scene scene_images/<id>.png layout). Drives the Scene Review page's
+  // "pending" filter. NOT folded into all_done.
+  scene_review: boolean
   script: boolean
   introduction: boolean
   scene_prompts: boolean
@@ -697,7 +703,7 @@ export interface EpisodeStatus {
 function emptyStatus(): EpisodeStatus {
   return {
     research: false,
-    scene_plan: false,
+    scene_plan: false, scene_review: false,
     script: false, introduction: false,
     scene_prompts: false, thumb_prompts: false,
     metadata: false,
@@ -900,6 +906,16 @@ export async function computeEpisodeStatus(
     // Drives the Scene Plan page's "pending only" filter so an episode drops out
     // of pending once it HAS a plan (not once it has a script).
     status.scene_plan = await fileHasContent(path.join(paths.episode_dir, 'scene_plan.json'))
+
+    // v1.0.274 — Scene Review done = plan exists AND every scene approved
+    // (greenlit). Only parse when the plan file is present.
+    if (status.scene_plan) {
+      try {
+        const plan = JSON.parse(await fs.readFile(path.join(paths.episode_dir, 'scene_plan.json'), 'utf-8'))
+        const scenes = Array.isArray(plan?.scenes) ? plan.scenes : []
+        status.scene_review = scenes.length > 0 && scenes.every((s: any) => s?.approved === true)
+      } catch { /* unreadable/partial plan → leave false */ }
+    }
 
     // If ANY of the four primary readdirs errored, mark the entire status
     // unreliable. The cache will skip persistence and the next read will
@@ -1165,7 +1181,7 @@ export async function computeEpisodeStatus(
 function allDoneStatus(): EpisodeStatus {
   return {
     research: true,
-    scene_plan: true,
+    scene_plan: true, scene_review: true,
     script: true, introduction: true,
     scene_prompts: true, thumb_prompts: true,
     metadata: true,

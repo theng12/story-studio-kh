@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.274 — 2026-06-05
+
+### Fixed — Scene Review "Pending only" treated un-reviewed episodes as done
+Same root cause as v1.0.273's Scene Plan fix: Scene Review filtered its episode list by **script** status, so any episode with a script dropped out of "Pending only" before you'd generated or approved a single scene image. It now keys off a new **`scene_review`** status — true only when the scene plan exists **and every scene is approved** (the greenlight that gates assembly). So an episode stays in "Pending only" until it's fully reviewed, and the per-scene `scene_images/<id>.png` layout is judged by approvals rather than the legacy image-naming heuristic.
+
+### Files
+- `electron/server/services/asset-status.ts` (new `scene_review` status from the plan's per-scene `approved` flags)
+- `frontend/pages/projects/[slug]/scene-review.vue` (`filter-field` → `scene_review`)
+
+---
+
 ## v1.0.273 — 2026-06-05
 
 ### Fixed — Scene Plan "Pending only" treated un-planned episodes as done

@@ -24,7 +24,7 @@
     <TopActionBar
       :project-slug="slug"
       v-model:episode-id="episodeId"
-      filter-field="script"
+      filter-field="scene_review"
       generate-label="Generate all missing"
       loading-label="Queuing…"
       :generate-loading="bulkQueuing"
