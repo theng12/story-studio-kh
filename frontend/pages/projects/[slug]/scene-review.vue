@@ -42,7 +42,7 @@
 
     <!-- Greenlight panel -->
     <section v-if="stats" class="card mt-3" :class="{ 'is-greenlit': stats.all_approved }">
-      <div class="flex justify-between items-center">
+      <div class="flex justify-between items-center sr-greenlight-head">
         <div>
           <h3 v-if="stats.all_approved">✅ Greenlit — ready for Video Assembly</h3>
           <h3 v-else>{{ stats.approved }} / {{ stats.total_scenes }} approved
@@ -52,7 +52,7 @@
             </span>
           </h3>
         </div>
-        <div class="flex gap-2">
+        <div class="flex gap-2 sr-toolbar">
           <!-- v1.0.240 — aspect-ratio control. Scenes default to 16:9 (the video
                frame), but the box is now selectable + the thumbnails below
                re-shape live so you can see the ratio you're rendering at. -->
@@ -1030,6 +1030,12 @@ watch(episodeId, () => { void loadReview() })
 .sr-ratio-select { width: auto; min-width: 150px; }
 .sr-conc-select { min-width: 64px; }
 .sr-size-select { min-width: 170px; }
+/* v1.0.262 — let the greenlight toolbar wrap instead of overflowing the panel
+   when many controls are present (Aspect + Parallel + Mode + Size + model +
+   action buttons). The header wraps the controls block below the heading, and
+   the controls block wraps its own items, on narrow widths. */
+.sr-greenlight-head { flex-wrap: wrap; gap: 12px; }
+.sr-toolbar { flex-wrap: wrap; align-items: center; row-gap: 8px; justify-content: flex-end; }
 
 /* ── Click-to-preview lightbox (v1.0.241) ──────────────────────────── */
 .sr-lightbox {

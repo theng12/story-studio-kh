@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.262 — 2026-06-04
+
+### Fixed — Scene Review toolbar overflowing off the panel
+With a local model selected, the greenlight toolbar (Aspect + Parallel + Mode + Size + model picker + Approve all / Reset / Render) ran past the right edge of the panel and got clipped. The row is now allowed to wrap — the controls block drops below the heading and wraps its own items on narrower widths instead of overflowing.
+
+### Files
+- `frontend/pages/projects/[slug]/scene-review.vue` (`.sr-greenlight-head` + `.sr-toolbar` flex-wrap)
+
+---
+
 ## v1.0.261 — 2026-06-04
 
 ### Added — render-size control for local Image Studio models (Scene Review)
