@@ -17,6 +17,7 @@ before(async () => {
   await import('../providers/text/openai.js')
   await import('../providers/text/deepseek.js')
   await import('../providers/text/openrouter.js')
+  await import('../providers/text/lmstudio.js')
 })
 
 describe('Registry registration', () => {
@@ -65,6 +66,30 @@ describe('Text provider supportsModel()', () => {
     assert.equal(p.supportsModel('claude-opus-4-6'), false)
     // …but NOT the kie-routed GPT ids.
     assert.equal(p.supportsModel('gpt-5-2-kie'), false)
+  })
+
+  test('lmstudio claims only lmstudio: prefixed ids — no cloud cross-claim', () => {
+    const lm = registry.getTextProvider('lmstudio')!
+    assert.ok(lm, 'lmstudio text provider should be registered')
+    assert.equal(lm.meta.apiKeyField, 'lmstudio_base_url')
+    assert.equal(lm.supportsModel('lmstudio:google/gemma-3-4b-it'), true)
+    assert.equal(lm.supportsModel('lmstudio:gpt-oss-20b'), true)
+    // Must NOT claim bare cloud ids.
+    assert.equal(lm.supportsModel('gpt-4o'), false)
+    assert.equal(lm.supportsModel('deepseek-v4-flash'), false)
+    // The prefix exists precisely so OpenAI doesn't steal a local gpt-* model.
+    const openai = registry.getTextProvider('openai')!
+    assert.equal(openai.supportsModel('lmstudio:gpt-oss-20b'), false)
+    // Routing resolves a local id to the lmstudio provider.
+    assert.equal(registry.findTextProviderForModel('lmstudio:gpt-oss-20b')?.meta.id, 'lmstudio')
+  })
+
+  test('lmstudio throws a helpful error when no URL is configured', async () => {
+    const lm = registry.getTextProvider('lmstudio')!
+    await assert.rejects(
+      lm.callText({ model: 'lmstudio:gemma', system: 's', userMessage: 'u', apiKey: '' }),
+      /LM Studio URL/i,
+    )
   })
 
   test('deepseek + openrouter claim their exact ids only (no cross-claim)', () => {

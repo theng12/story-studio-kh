@@ -387,8 +387,10 @@ router.get('/imagestudio/base-url', async (_req, res) => {
   try {
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const { DEFAULT_IMAGESTUDIO_BASE_URL } = await import('../lib/imagestudio-client.js')
+    const { getEndpointLabels } = await import('../services/app-settings.js')
     const stored = await getApiKey('imagestudio')
-    res.json({ baseUrl: stored || '', defaultBaseUrl: DEFAULT_IMAGESTUDIO_BASE_URL })
+    const labels = await getEndpointLabels('imagestudio')
+    res.json({ baseUrl: stored || '', defaultBaseUrl: DEFAULT_IMAGESTUDIO_BASE_URL, labels })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not read Image Studio base URL'))
   }
@@ -407,10 +409,13 @@ router.put('/imagestudio/base-url', async (req, res) => {
         return res.status(400).json({ detail: `Each URL must start with http:// or https:// — got "${u}"` })
       }
     }
-    const cleaned = urls.map(u => u.replace(/\/+$/, '')).join(', ')
+    const cleanedUrls = urls.map(u => u.replace(/\/+$/, ''))
+    const cleaned = cleanedUrls.join(', ')
     const { setApiKey } = await import('../services/app-secrets-store.js')
+    const { setEndpointLabelsForUrls } = await import('../services/app-settings.js')
     await setApiKey('imagestudio', cleaned)
-    res.json({ ok: true, baseUrl: cleaned })
+    const labels = await setEndpointLabelsForUrls('imagestudio', cleanedUrls, req.body?.labels)
+    res.json({ ok: true, baseUrl: cleaned, labels })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not save Image Studio base URL'))
   }

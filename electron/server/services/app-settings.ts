@@ -416,6 +416,54 @@ export async function setLastSeenVersion(version: string): Promise<void> {
   await setAppSetting(LAST_SEEN_VERSION_KEY, version)
 }
 
+// ── Endpoint labels (v1.0.281) ──────────────────────────────────────────────
+//
+// Optional, user-given names for each local-modal endpoint (LM Studio /
+// Image Studio / Voice Studio servers) so a multi-server pool is easy to
+// identify in the Settings editor. Purely cosmetic metadata — kept SEPARATE
+// from the URL list (which stays a plain comma-joined string in app-secrets,
+// untouched by every pool/dispatcher/provider consumer). Schema:
+//   app-settings.json
+//     "endpoint_labels": { "lmstudio": { "http://host:1234": "M1 mini" }, ... }
+// Keyed by provider id → cleaned URL → name. A URL with no entry just shows
+// its derived default (host:port) in the UI.
+
+export const ENDPOINT_LABELS_KEY = 'endpoint_labels'
+type EndpointLabelStore = Record<string, Record<string, string>>
+
+export async function getEndpointLabels(providerId: string): Promise<Record<string, string>> {
+  const all = (await getAppSetting(ENDPOINT_LABELS_KEY)) as EndpointLabelStore | undefined
+  const forProvider = all && typeof all === 'object' ? all[providerId] : undefined
+  return forProvider && typeof forProvider === 'object' ? { ...forProvider } : {}
+}
+
+/**
+ * Persist names for a provider, scoped to the given (already-cleaned) URL set —
+ * stale entries for URLs no longer in the pool are dropped, empty names are
+ * skipped. Returns the saved map.
+ */
+export async function setEndpointLabelsForUrls(
+  providerId: string,
+  urls: string[],
+  incoming: Record<string, unknown> | null | undefined,
+): Promise<Record<string, string>> {
+  const filtered: Record<string, string> = {}
+  for (const u of urls) {
+    const raw = incoming && typeof incoming === 'object' ? incoming[u] : undefined
+    const name = typeof raw === 'string' ? raw.trim() : ''
+    if (name) filtered[u] = name.slice(0, 80)  // cap — it's a label, not prose
+  }
+  await withLock(APP_SETTINGS_PATH, async () => {
+    const settings = await readSettings()
+    const all = (settings[ENDPOINT_LABELS_KEY] as EndpointLabelStore) || {}
+    if (Object.keys(filtered).length) all[providerId] = filtered
+    else delete all[providerId]
+    settings[ENDPOINT_LABELS_KEY] = all
+    await writeSettings(settings)
+  })
+  return filtered
+}
+
 /**
  * Bootstrap helper: if server mode is enabled but no credentials exist,
  * AND `STORY_STUDIO_INITIAL_USERNAME` + `STORY_STUDIO_INITIAL_PASSWORD`

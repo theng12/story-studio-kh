@@ -4,6 +4,59 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.282 — 2026-06-06
+
+### Added — Co-writer chat history persists across tabs and reloads
+The **Co-writer** chat lost its conversation the moment you clicked away to another tab — the page held `messages` as a component-local ref, so navigation unmounted the component and the thread evaporated. You had to re-explain context every time you came back, defeating the "develop an idea over time" promise of the feature.
+
+Conversation history is now **persisted in localStorage**, keyed per-project. Switching tabs, reloading the page (⌘R), or quitting + relaunching the app all restore the thread exactly where you left it. The **model selection** persists too, so you don't have to re-pick your LLM every time. On restore, the chat auto-scrolls to the bottom so you see the most recent reply, not the conversation's start. "Clear chat" wipes both the in-memory state AND the persisted entry — otherwise cleared chats would resurrect on next mount.
+
+Per-project keying means projects don't bleed conversations into each other. The store caps at 200 messages (FIFO eviction) — ~40 KB max, well under localStorage's ~5 MB quota with headroom for thousands of conversations.
+
+**Per-machine only.** The thread doesn't sync across Macs (it's in this browser's localStorage). If you AirDrop the project to another machine, conversation history doesn't come with it. A backend sidecar upgrade path exists if cross-machine threads become valuable later.
+
+### Files
+- `frontend/composables/useCowriterHistory.ts` (NEW — per-slug localStorage thread store with deep-watch persistence, defensive load, size cap)
+- `frontend/pages/projects/[slug]/cowriter.vue` (uses the composable for `messages` + `model`; `clearChat` wipes localStorage; `onMounted` auto-scrolls when restoring a non-empty thread)
+
+---
+
+## v1.0.281 — 2026-06-05
+
+### Added — Name your local servers (Image Studio / Voice Studio / LM Studio)
+When you run several local-modal servers in a pool, a list of bare URLs is hard to keep straight. Each endpoint row in **Settings → Local Models** now has an **optional name field**. Type "M1 mini", "Studio Mac", whatever helps you identify it — it shows in the row, in the Test result line, and persists per-machine. Leave it blank and the row falls back to a sensible **default (the server's host)**, which you can overwrite anytime. Works for all three local pools: LM Studio, Image Studio, and Voice Studio.
+
+Names are stored as cosmetic metadata **separate from the URL list** — the render/TTS pool, failover, and every provider keep reading the exact same URL string as before, so nothing about how work is dispatched changes. Existing saved endpoints are untouched and simply show their host until you name them.
+
+### Files
+- `frontend/components/EndpointListEditor.vue` (optional per-row name field + host-derived default placeholder)
+- `electron/server/services/app-settings.ts` (new `endpoint_labels` store — `getEndpointLabels` / `setEndpointLabelsForUrls`)
+- `electron/server/routes/lmstudio.ts`, `routes/images.ts`, `routes/audio.ts` (base-url GET/PUT now carry the `labels` map)
+
+---
+
+## v1.0.280 — 2026-06-05
+
+### Added — Local LLM support (LM Studio / any OpenAI-compatible server)
+You could already run image generation (Image Studio) and voice (Voice Studio) on your own machine — now you can run the **LLM locally too**. Point the app at a local OpenAI-compatible server (LM Studio, Ollama's OpenAI shim, llama.cpp server — anything serving `/v1/chat/completions`) and use your own Gemma / Llama / Qwen / etc. for script, scene-plan, ideas and metadata generation. **Free, no rate limits, fully offline.** Wired exactly like the other two local providers:
+
+- **Settings → Local Models → "LM Studio (local LLM)"** — set the server URL (e.g. `http://localhost:1234`; the `/v1` path is added automatically). Per-machine, shared by every project, with the same multi-endpoint editor + **Test** button as Image/Voice Studio. No default host — it's your machine.
+- **Models surface dynamically.** Once the URL is set and the server is running, the app queries `/v1/models` live and lists whatever you currently have loaded under an **"LM Studio (local)"** group in the LLM model dropdown, tagged **[LM Studio · local]**. Load a different model in LM Studio and it shows up after a refresh — nothing hardcoded.
+- Clear errors when the server is off or a model isn't loaded, so you know exactly what to start.
+
+Model ids use an `lmstudio:` prefix so a locally-served `gpt-oss` (or any `gpt-…` model) routes to your machine instead of being mistaken for OpenAI's cloud API.
+
+### Files
+- `electron/server/providers/text/lmstudio.ts` (new — OpenAI-compatible local text provider)
+- `electron/server/lib/lmstudio-client.ts` (new — health + live `/v1/models` discovery)
+- `electron/server/routes/lmstudio.ts` (new — base-url / test / models routes; mounted in `routes/index.ts`)
+- `electron/server/routes/health.ts` (`/models` now appends live LM Studio models)
+- `electron/server/services/app-secrets-store.ts` (`lmstudio` secrets bucket), `electron/server/boot/providers.ts` (register)
+- `frontend/pages/projects/[slug]/settings.vue` (LM Studio Local-Models panel), `frontend/composables/useModelGroups.ts` (group label + ordering)
+- `electron/server/__tests__/providers.test.ts` (id-routing + no-URL-error coverage)
+
+---
+
 ## v1.0.279 — 2026-06-05
 
 ### Fixed — the ACTUAL cause of Scene Plan/Review showing done episodes as "Pending"

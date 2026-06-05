@@ -203,7 +203,10 @@ router.get('/models', async (req, res) => {
     openrouter: !!appOpenrouter,
   }
 
-  const models = Object.entries(MODEL_LABELS).map(([id, label]) => ({
+  const models: Array<{
+    id: string; label: string; provider: string; available: boolean;
+    disabled_reason: string | null; hint: string | null
+  }> = Object.entries(MODEL_LABELS).map(([id, label]) => ({
     id,
     label,
     provider: SUPPORTED_MODELS[id],
@@ -211,6 +214,31 @@ router.get('/models', async (req, res) => {
     disabled_reason: KNOWN_UNAVAILABLE_REASONS[id] ?? null,
     hint: null,
   }))
+
+  // v1.0.280+ — dynamically surface LOCAL LM Studio models. When the user has
+  // configured an LM Studio URL, query the running server's /v1/models and add
+  // one row per loaded model (id `lmstudio:<slug>`, provider 'lmstudio', free).
+  // Best-effort + short timeout — if the server is off, we simply add nothing
+  // (rather than blocking the whole picker). Mirrors the dynamic image/voice
+  // local-model surfacing.
+  try {
+    const lmBaseRaw = await getApiKey('lmstudio').catch(() => '')
+    if (lmBaseRaw) {
+      const { listModels, lmstudioFirst } = await import('../lib/lmstudio-client.js')
+      const ids = await listModels(lmstudioFirst(lmBaseRaw), 2000)
+      for (const slug of ids) {
+        models.push({
+          id: `lmstudio:${slug}`,
+          label: `${slug} [LM Studio · local]`,
+          provider: 'lmstudio',
+          available: true,
+          disabled_reason: null,
+          hint: 'Runs locally on your machine — free, no rate limits.',
+        })
+      }
+    }
+  } catch { /* server off / unreachable — surface nothing, don't block */ }
+
   res.json(models)
 })
 

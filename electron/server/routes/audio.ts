@@ -378,8 +378,10 @@ router.get('/voicestudio/base-url', async (_req, res) => {
   try {
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const { DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
+    const { getEndpointLabels } = await import('../services/app-settings.js')
     const stored = await getApiKey('voicestudio')
-    res.json({ baseUrl: stored || '', defaultBaseUrl: DEFAULT_VOICESTUDIO_BASE_URL })
+    const labels = await getEndpointLabels('voicestudio')
+    res.json({ baseUrl: stored || '', defaultBaseUrl: DEFAULT_VOICESTUDIO_BASE_URL, labels })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not read Voice Studio base URL'))
   }
@@ -400,8 +402,11 @@ router.put('/voicestudio/base-url', async (req, res) => {
     }
     const cleaned = urls.join(', ')
     const { setApiKey } = await import('../services/app-secrets-store.js')
+    const { setEndpointLabelsForUrls } = await import('../services/app-settings.js')
     await setApiKey('voicestudio', cleaned)
-    res.json({ ok: true, baseUrl: cleaned })
+    // parseEndpoints already stripped trailing slashes, so `urls` are the cleaned keys.
+    const labels = await setEndpointLabelsForUrls('voicestudio', urls, req.body?.labels)
+    res.json({ ok: true, baseUrl: cleaned, labels })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not save Voice Studio base URL'))
   }

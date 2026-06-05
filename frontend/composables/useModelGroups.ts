@@ -29,6 +29,8 @@ export const PROVIDER_DISPLAY: Record<string, string> = {
   deepseek: 'DeepSeek',
   openrouter: 'OpenRouter',
   openai: 'OpenAI',
+  // v1.0.280+ — LM Studio (local OpenAI-compatible LLM on the user's machine).
+  lmstudio: 'LM Studio (local)',
 }
 
 /**
@@ -44,8 +46,10 @@ const DEFAULT_ORDER = [
   // Image — kie.ai cloud first, then local Pinokio modal at the bottom.
   'kie', 'imagestudio',
   // LLM — DeepSeek first (cheapest, the project default), then OpenRouter,
-  // then OpenAI. (kie.ai's Claude/GPT/Gemini group sorts under 'kie' above.)
-  'deepseek', 'openrouter', 'openai',
+  // then OpenAI, then the local LM Studio group at the bottom (advanced;
+  // requires a running local server). (kie.ai's Claude/GPT/Gemini group sorts
+  // under 'kie' above.)
+  'deepseek', 'openrouter', 'openai', 'lmstudio',
 ]
 
 export interface ModelGroup<T> {

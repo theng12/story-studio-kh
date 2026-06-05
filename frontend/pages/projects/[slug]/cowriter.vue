@@ -122,7 +122,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, watch } from 'vue'
+import { ref, computed, nextTick, watch, onMounted } from 'vue'
+import { useCowriterHistory } from '~/composables/useCowriterHistory'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Co-writer')
@@ -132,10 +133,16 @@ const slug = computed(() => route.params.slug as string)
 const { post } = useApi()
 const { success, error: showError } = useToast()
 
-const model = ref('')
+// v1.0.282 — chat history + model selection now persist in localStorage,
+// keyed per-project. Tab switches and full page reloads no longer wipe
+// the conversation. The model ref is wired to the persisted store so
+// the user's last pick is restored on remount. See useCowriterHistory.
+const thread = useCowriterHistory(slug.value)
+const messages = thread.messages
+const model = thread.model
+
 const input = ref('')
 const sending = ref(false)
-const messages = ref<{ role: 'user' | 'assistant'; content: string }[]>([])
 const threadEl = ref<HTMLElement | null>(null)
 
 const target = ref<'idea' | 'outline' | 'script'>('script')
@@ -155,7 +162,19 @@ function scrollToBottom() {
   void nextTick(() => { if (threadEl.value) threadEl.value.scrollTop = threadEl.value.scrollHeight })
 }
 function useSuggestion(s: string) { input.value = s }
-function clearChat() { messages.value = []; prepared.value = false }
+function clearChat() {
+  // v1.0.282 — also clears the persisted localStorage entry, not just the
+  // in-memory ref. Otherwise the cleared chat would resurrect on next mount.
+  thread.clear()
+  prepared.value = false
+}
+
+// v1.0.282 — auto-scroll to the bottom on mount when restoring a non-empty
+// thread, so the user sees the most recent reply instead of the conversation
+// start. nextTick lets the v-for render before we measure scrollHeight.
+onMounted(() => {
+  if (messages.value.length > 0) scrollToBottom()
+})
 function onKeydown(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void send() }
 }

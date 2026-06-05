@@ -65,6 +65,11 @@ export const SECRET_PROVIDERS = [
   // slot carries the modal's Tailscale base URL (e.g.
   // http://100.120.246.10:47868), Tailscale handles transport auth.
   'imagestudio',
+  // v1.0.280+ — LM Studio (local OpenAI-compatible LLM server). Same
+  // "URL-as-secret" semantics as voicestudio/imagestudio — the apiKey slot
+  // carries the local server's base URL (e.g. http://localhost:1234), no real
+  // secret. Resolved by callAi tier-3 for `lmstudio:` model ids.
+  'lmstudio',
   // v1.0.122+ — Free / CC stock-footage providers for the B-Roll Fetch
   // feature. Both expose a simple JSON search API and free tier; keys
   // are personal (one per Mac) and never shipped with the binary.

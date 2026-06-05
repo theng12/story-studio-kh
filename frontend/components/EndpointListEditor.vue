@@ -16,6 +16,15 @@
         <template v-else>○</template>
       </span>
       <input
+        v-model="row.name"
+        type="text"
+        class="input input-sm ep-name"
+        :placeholder="derivedName(row.url) || 'Name (optional)'"
+        :title="'A name to identify this server (optional). Defaults to its host — type your own to override.'"
+        spellcheck="false"
+        maxlength="80"
+      />
+      <input
         v-model="row.url"
         type="text"
         class="input input-sm ep-input"
@@ -45,7 +54,7 @@
 </template>
 
 <script setup lang="ts">
-interface Row { url: string; status: 'idle' | 'testing' | 'online' | 'offline'; detail: string }
+interface Row { name: string; url: string; status: 'idle' | 'testing' | 'online' | 'offline'; detail: string }
 
 const props = defineProps<{ routePrefix: string; placeholder?: string }>()
 const emit = defineEmits<{ (e: 'saved', urls: string[]): void }>()
@@ -53,7 +62,7 @@ const emit = defineEmits<{ (e: 'saved', urls: string[]): void }>()
 const { get, put, post } = useApi()
 const { success, error: showError } = useToast()
 
-const rows = ref<Row[]>([{ url: '', status: 'idle', detail: '' }])
+const rows = ref<Row[]>([{ name: '', url: '', status: 'idle', detail: '' }])
 const saving = ref(false)
 const testingAll = ref(false)
 const savedMsg = ref('')
@@ -61,18 +70,37 @@ const lastDetail = ref('')
 
 const anyUrl = computed(() => rows.value.some(r => r.url.trim()))
 
+/** Strip trailing slashes — match how the backend cleans each URL so label
+ *  keys line up with the stored URL list. */
+function cleanUrl(u: string): string { return u.trim().replace(/\/+$/, '') }
+
+/** Default display name for a server: its host[:port] (no scheme/path). Shown
+ *  as the placeholder so an un-named row still reads sensibly; the user types
+ *  over it to set a custom name. */
+function derivedName(url: string): string {
+  const u = (url || '').trim()
+  if (!u) return ''
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(u) ? u : `http://${u}`)
+    return parsed.host || ''
+  } catch {
+    return u.replace(/^https?:\/\//i, '').replace(/\/.*$/, '')
+  }
+}
+
 onMounted(load)
 async function load(): Promise<void> {
   try {
-    const r = await get<{ baseUrl: string }>(`${props.routePrefix}/base-url`)
+    const r = await get<{ baseUrl: string; labels?: Record<string, string> }>(`${props.routePrefix}/base-url`)
+    const labels = r.labels || {}
     const urls = (r.baseUrl || '').split(/[\s,]+/).map(u => u.trim()).filter(Boolean)
     rows.value = urls.length
-      ? urls.map(u => ({ url: u, status: 'idle' as const, detail: '' }))
-      : [{ url: '', status: 'idle', detail: '' }]
+      ? urls.map(u => ({ name: labels[cleanUrl(u)] || '', url: u, status: 'idle' as const, detail: '' }))
+      : [{ name: '', url: '', status: 'idle', detail: '' }]
   } catch { /* keep the single empty row */ }
 }
 
-function addRow(): void { rows.value.push({ url: '', status: 'idle', detail: '' }) }
+function addRow(): void { rows.value.push({ name: '', url: '', status: 'idle', detail: '' }) }
 function removeRow(i: number): void {
   rows.value.splice(i, 1)
   if (!rows.value.length) addRow()
@@ -93,19 +121,20 @@ async function testRow(i: number): Promise<void> {
   const row = rows.value[i]
   const url = row.url.trim()
   if (!url) return
+  const who = row.name.trim() || derivedName(url) || url
   row.status = 'testing'; row.detail = ''
   try {
     const res: any = await post(`${props.routePrefix}/test`, { baseUrl: url })
     if (res.ok) {
       row.status = 'online'; row.detail = describe(res)
-      lastDetail.value = `${url} — online${row.detail ? ' · ' + row.detail : ''}`
+      lastDetail.value = `${who} — online${row.detail ? ' · ' + row.detail : ''}`
     } else {
       row.status = 'offline'; row.detail = res.error || 'unreachable'
-      lastDetail.value = `${url} — ${row.detail}`
+      lastDetail.value = `${who} — ${row.detail}`
     }
   } catch (e: any) {
     row.status = 'offline'; row.detail = e?.data?.detail || e?.message || 'test failed'
-    lastDetail.value = `${url} — ${row.detail}`
+    lastDetail.value = `${who} — ${row.detail}`
   }
 }
 
@@ -119,16 +148,33 @@ async function testAll(): Promise<void> {
 }
 
 async function save(): Promise<void> {
-  const urls = rows.value.map(r => r.url.trim()).filter(Boolean)
+  const kept = rows.value.filter(r => r.url.trim())
+  const urls = kept.map(r => r.url.trim())
   if (!urls.length) { showError('Add at least one endpoint URL.'); return }
+  // Names are keyed by the CLEANED url (matches the backend's stored list).
+  // Empty names are dropped server-side — the row just shows its derived host.
+  const labels: Record<string, string> = {}
+  for (const r of kept) {
+    const name = r.name.trim()
+    if (name) labels[cleanUrl(r.url)] = name
+  }
   saving.value = true
   try {
-    const r = await put<{ baseUrl: string }>(`${props.routePrefix}/base-url`, { baseUrl: urls.join(', ') })
-    // The server cleans/validates + returns the stored list — reflect it.
+    const r = await put<{ baseUrl: string; labels?: Record<string, string> }>(
+      `${props.routePrefix}/base-url`,
+      { baseUrl: urls.join(', '), labels },
+    )
+    // The server cleans/validates + returns the stored list + labels — reflect it.
     const cleaned = (r?.baseUrl || urls.join(', ')).split(/[\s,]+/).map(u => u.trim()).filter(Boolean)
+    const savedLabels = r?.labels || labels
     rows.value = cleaned.map(u => {
       const prev = rows.value.find(x => x.url.trim() === u)
-      return { url: u, status: prev?.status ?? 'idle', detail: prev?.detail ?? '' }
+      return {
+        name: savedLabels[cleanUrl(u)] || prev?.name || '',
+        url: u,
+        status: prev?.status ?? 'idle',
+        detail: prev?.detail ?? '',
+      }
     })
     savedMsg.value = `${cleaned.length} endpoint${cleaned.length === 1 ? '' : 's'}`
     success('Endpoints saved.')
@@ -143,6 +189,7 @@ async function save(): Promise<void> {
 <style scoped>
 .ep-editor { display: flex; flex-direction: column; gap: 6px; }
 .ep-row { display: flex; align-items: center; gap: 8px; }
+.ep-name { flex: 0 1 150px; min-width: 90px; font-size: 12px; }
 .ep-input { flex: 1 1 auto; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .ep-dot { width: 14px; text-align: center; flex: 0 0 auto; font-size: 12px; }
 .ep-dot.online { color: #5bb37c; }
