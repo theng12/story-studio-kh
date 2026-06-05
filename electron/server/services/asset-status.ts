@@ -18,7 +18,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
 import { unwrapICloudPlaceholderName } from '../lib/sync-safe.js'
-import { resolveEpisodePaths, resolveSubfolderNames } from './utils.js'
+import { resolveEpisodePaths, resolveEpisodePathsByCode, resolveSubfolderNames } from './utils.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
@@ -904,21 +904,24 @@ export async function computeEpisodeStatus(
     // advances its mtime and invalidates the entry.
     status.research = await fileHasContent((await resolveResearchPaths(paths.episode_dir, code)).jsonPath)
 
-    // v1.0.273 — scene plan sidecar (`scene_plan.json` at the episode_dir root).
-    // Drives the Scene Plan page's "pending only" filter so an episode drops out
-    // of pending once it HAS a plan (not once it has a script).
-    status.scene_plan = await fileHasContent(path.join(paths.episode_dir, 'scene_plan.json'))
-
-    // v1.0.276 — Scene Review done = plan exists AND every scene has a generated
-    // image (image_path set in the plan). Only parse when the plan is present.
-    if (status.scene_plan) {
-      try {
-        const plan = JSON.parse(await fs.readFile(path.join(paths.episode_dir, 'scene_plan.json'), 'utf-8'))
+    // v1.0.278 — scene_plan + scene_review resolve the REAL episode dir BY CODE
+    // (how the generators write these), not the title-template path
+    // resolveEpisodePaths builds. With the title path, a planned/rendered
+    // episode whose idea title doesn't exactly match its folder (rename,
+    // apostrophe/colon, empty title) resolved to a phantom dir → scene_plan.json
+    // never found → episode wrongly read as pending. By-code is rename-proof.
+    try {
+      const byCode = await resolveEpisodePathsByCode(slug, code)
+      const planPath = path.join(byCode.episode_dir, 'scene_plan.json')
+      status.scene_plan = await fileHasContent(planPath)
+      if (status.scene_plan) {
+        const plan = JSON.parse(await fs.readFile(planPath, 'utf-8'))
         const scenes = Array.isArray(plan?.scenes) ? plan.scenes : []
+        // Scene Review done = plan exists AND every scene has a generated image.
         status.scene_review = scenes.length > 0
           && scenes.every((s: any) => typeof s?.image_path === 'string' && s.image_path.length > 0)
-      } catch { /* unreadable/partial plan → leave false */ }
-    }
+      }
+    } catch { /* unresolved / unreadable plan → leave both false */ }
 
     // If ANY of the four primary readdirs errored, mark the entire status
     // unreliable. The cache will skip persistence and the next read will

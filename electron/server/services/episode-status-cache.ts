@@ -35,11 +35,11 @@ import * as im from './idea-manager.js'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
 import { bindInvalidator, ensureProjectWatcher } from './episode-folder-watcher.js'
 
-// v2 (v1.0.277) — added `scene_plan` + `scene_review` status fields + began
-// watching scene_plan.json / scene_images. Bumped so caches written by older
-// builds (which lack those fields → episodes wrongly read as pending/done) are
-// discarded on load and fully recomputed.
-export const SCHEMA_VERSION = 2 as const
+// v3 (v1.0.278) — scene_plan/scene_review now resolve the episode dir BY CODE
+// (title-based resolution missed renamed/special-char folders → false pending).
+// Bumped so v2 caches (which stored the wrong by-title values) are discarded +
+// recomputed. v2 (v1.0.277) introduced the scene_plan/scene_review fields.
+export const SCHEMA_VERSION = 3 as const
 const MAX_ENTRIES = 1000
 
 // Phase 3 — persistence

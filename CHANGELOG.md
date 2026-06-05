@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.278 — 2026-06-05
+
+### Fixed — Scene Plan/Review still "pending" when the folder title doesn't match the idea
+Even on v1.0.277, planned/rendered episodes could stay pending. Root cause: the `scene_plan` / `scene_review` status checks resolved the episode folder from the **idea title** (`resolveEpisodePaths`), but the generators write `scene_plan.json` **by code** (`resolveEpisodePathsByCode`). When the idea title doesn't exactly match the folder name — a rename, an apostrophe/colon, or an empty title — the title path points at a phantom folder, so `scene_plan.json` is never found and the episode reads as pending. These two checks now resolve **by code**, which is rename-proof. Cache schema bumped to v3 so the wrong by-title values cached by v1.0.277 are discarded and recomputed on launch.
+
+### Files
+- `electron/server/services/asset-status.ts` (`scene_plan`/`scene_review` resolve the episode dir by code)
+- `electron/server/services/episode-status-cache.ts` (`SCHEMA_VERSION` 2 → 3)
+
+---
+
 ## v1.0.277 — 2026-06-05
 
 ### Fixed — done episodes still showing as "Pending" (stale status cache)
