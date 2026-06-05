@@ -4,6 +4,52 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.283 — 2026-06-06
+
+### Added — Co-writer goes multimodal + gains a reusable artifacts panel
+Two big additions to Co-writer, both aimed at making it the actual creative workspace it was always meant to be:
+
+#### 1. Image input (vision)
+
+You can now **attach images to the chat** to get the LLM's analysis — style descriptions, composition critique, palette extraction, thumbnail iteration. Three ways to add: **drag-and-drop** anywhere on the input row, **paste** (⌘V on a copied image), or click **📎** to open the file picker. Each image is downscaled to 512×512 (long-edge) JPEG at 85% quality before sending — keeps vision cost predictable and localStorage tiny (~30-50 KB per image vs ~1.5 MB for unprocessed PNG). Up to 6 images per turn; remove any with the × button before sending.
+
+**Model gating:** the model picker now greys out **known text-only cloud models** (with a "(text-only)" suffix + tooltip) whenever images are attached. Local LM Studio models are assumed vision-capable — since we can't read capability from the model slug alone, a soft-warn appears below the picker when you attach an image to a local model: if the loaded model happens to be text-only, the LM Studio server returns a clear error which surfaces in the chat.
+
+**Cost surfacing:** the Send button shows an inline estimate when images are attached — e.g. `Send (2 img · ~$0.015)` for cloud Vision, `Send (3 img · local — free)` for LM Studio. Estimates use a hardcoded per-image table (gpt-4o ≈ $0.0077/image, gpt-4o-mini ≈ $0.0012/image, etc.) — approximate but right order-of-magnitude. **No silent cost surprises.**
+
+Images live in `localStorage["cowriter:<slug>:messages"]` alongside the text, capped per the existing 200-message FIFO. Per-machine only.
+
+#### 2. Reusable Artifacts panel
+
+A new card on the right side of the Co-writer page — below the existing "Send to pipeline" panel — for **descriptive, reusable items that accumulate across episodes**. Four artifact types, each with its own section:
+
+- **🖼️ Thumbnail Styles** — descriptions of thumbnail aesthetics (color, composition, mood, typography)
+- **🎨 Scene Styles** — descriptions of scene-image looks (art style, framing, palette)
+- **📝 Style Notes** — free-form notes that don't fit the other types
+- **👤 Character Descriptions** — recurring character profiles, with a **"Send to Character Library"** button that POSTs to the project's character library so generators can use them
+
+**Capture-from-reply** is the main flow: every assistant message gets a small **💾 Capture as artifact…** button. Click → pick type → name it → saved. Manual create is also available via the **+ New** button in each section header.
+
+**Reference in chat:** every artifact has a `@ Reference in chat` button that appends a clearly-marked reference block to the chat input (`--- Reference: Thumbnail Style "Calm Watercolor" --- … --- End reference ---`). The LLM sees the full body; you see exactly what was referenced.
+
+Artifacts persist in `localStorage["cowriter:<slug>:artifacts"]`, per-project, capped at 100 with FIFO eviction. Episode-specific commits (idea / outline / script) deliberately stay in the existing "Send to pipeline" panel — they're one-shot extractions, not reusable.
+
+**Per-machine only** — both chat history and artifacts. If cross-Mac sync becomes important later, the composables (`useCowriterHistory`, `useCowriterArtifacts`) are shaped so swapping in a backend sidecar is a 30-line change without touching the page.
+
+### Files
+- `electron/server/providers/types.ts` — `TextGenerationRequest.images?: string[]`
+- `electron/server/lib/ai-client.ts` — `CallAiContext.images?: string[]` threaded through to providers
+- `electron/server/providers/text/openai.ts` — multimodal content-array when images present (image_url parts)
+- `electron/server/providers/text/lmstudio.ts` — same shape (OpenAI-compatible local)
+- `electron/server/routes/cowriter.ts` — `chat` endpoint accepts + forwards images (`finalize` text-only, unchanged)
+- `electron/server/routes/health.ts` — `/models` response gains `supports_vision` flag (hardcoded vision-capable cloud patterns; LM Studio assumed true)
+- `frontend/components/ModelSelector.vue` — `require-vision` prop greys non-vision models
+- `frontend/composables/useCowriterHistory.ts` — `CowriterMessage.images?: string[]` persisted
+- `frontend/composables/useCowriterArtifacts.ts` (NEW) — per-project artifact store, 4 types, byType grouping, add/update/remove/get
+- `frontend/pages/projects/[slug]/cowriter.vue` — full rewrite: image attach (drag/paste/picker), capture-from-reply, artifacts panel, cost chip on Send, vision soft-warn for local models, image lightbox
+
+---
+
 ## v1.0.282 — 2026-06-06
 
 ### Added — Co-writer chat history persists across tabs and reloads

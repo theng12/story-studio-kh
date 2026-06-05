@@ -28,6 +28,14 @@ import { ref, watch, type Ref } from 'vue'
 export interface CowriterMessage {
   role: 'user' | 'assistant'
   content: string
+  /**
+   * v1.0.283 — optional image attachments. Each entry is a base64 data URL
+   * (e.g. `data:image/png;base64,…`). Only set on user turns — assistant
+   * replies are text-only. Frontend downscales each image to 512×512 long-
+   * edge before storage, keeping per-image size ~30-50KB; thread-wide cap
+   * (MAX_IMAGES below) prevents localStorage quota exhaustion.
+   */
+  images?: string[]
 }
 
 interface CowriterThreadState {
@@ -55,12 +63,22 @@ function safeLoadMessages(slug: string): CowriterMessage[] {
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     // Defensive shape-check — bad localStorage data shouldn't crash the page.
-    return parsed.filter(
-      (m): m is CowriterMessage =>
-        m && typeof m === 'object'
-        && (m.role === 'user' || m.role === 'assistant')
-        && typeof m.content === 'string',
-    )
+    // v1.0.283 — `images` field is optional; preserve if present + valid.
+    return parsed
+      .filter(
+        (m): m is CowriterMessage =>
+          m && typeof m === 'object'
+          && (m.role === 'user' || m.role === 'assistant')
+          && typeof m.content === 'string',
+      )
+      .map((m) => {
+        const images = Array.isArray(m.images)
+          ? m.images.filter((s: any) => typeof s === 'string' && s.startsWith('data:image/'))
+          : undefined
+        return images && images.length > 0
+          ? { role: m.role, content: m.content, images }
+          : { role: m.role, content: m.content }
+      })
   } catch {
     return []
   }

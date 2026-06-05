@@ -203,9 +203,35 @@ router.get('/models', async (req, res) => {
     openrouter: !!appOpenrouter,
   }
 
+  // v1.0.283 — vision-capable model detection. We can't query a "capabilities"
+  // endpoint generically — every provider does it differently — so we keep a
+  // hardcoded list of KNOWN vision-capable cloud model id patterns. The frontend
+  // uses `supports_vision` to gate the model picker when images are attached
+  // in the Co-writer chat.
+  //
+  // For LOCAL LM Studio models we set `supports_vision: true` unconditionally:
+  // we have no reliable way to detect capability from the model slug alone
+  // (`gemma-3-4b-it` could be the text-only variant or the vision variant),
+  // and the user (in the v1.0.283 design discussion) explicitly said most of
+  // their local models are vision-capable. If a non-vision local model gets
+  // an image, the LM Studio server returns a clear error which surfaces to
+  // the user — no silent failure.
+  function isVisionCapableCloud(id: string): boolean {
+    const m = id.toLowerCase()
+    if (m === 'gpt-4o' || m.startsWith('gpt-4o-')) return true
+    if (m === 'gpt-4-turbo' || m.startsWith('gpt-4-turbo-')) return true
+    if (m.startsWith('gpt-5')) return true     // GPT-5 family multimodal-by-default
+    if (m.startsWith('gpt-4.1')) return true   // GPT-4.1 family same
+    if (m.includes('vision')) return true       // gpt-4-vision-preview & friends
+    if (m.startsWith('claude-3') || m.startsWith('claude-sonnet') || m.startsWith('claude-opus')) return true
+    if (m.startsWith('gemini-')) return true
+    return false
+  }
+
   const models: Array<{
     id: string; label: string; provider: string; available: boolean;
-    disabled_reason: string | null; hint: string | null
+    disabled_reason: string | null; hint: string | null;
+    supports_vision: boolean
   }> = Object.entries(MODEL_LABELS).map(([id, label]) => ({
     id,
     label,
@@ -213,6 +239,7 @@ router.get('/models', async (req, res) => {
     available: hasKeys[SUPPORTED_MODELS[id]] ?? false,
     disabled_reason: KNOWN_UNAVAILABLE_REASONS[id] ?? null,
     hint: null,
+    supports_vision: isVisionCapableCloud(id),
   }))
 
   // v1.0.280+ — dynamically surface LOCAL LM Studio models. When the user has
@@ -234,6 +261,9 @@ router.get('/models', async (req, res) => {
           available: true,
           disabled_reason: null,
           hint: 'Runs locally on your machine — free, no rate limits.',
+          // v1.0.283 — see isVisionCapableCloud comment above; local models
+          // assumed vision-capable per user preference.
+          supports_vision: true,
         })
       }
     }

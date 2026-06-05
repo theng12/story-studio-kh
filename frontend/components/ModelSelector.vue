@@ -41,11 +41,23 @@ interface LlmModelRow {
   // is available. Other tooltip states (disabled reason, no key) take
   // precedence — those are gating; the hint is optional context.
   hint?: string | null
+  // v1.0.283 — true when the model accepts image input. Used by callers
+  // that pass `require-vision` to grey out text-only models (e.g. Co-writer
+  // when the user has attached an image). Local LM Studio models claim true
+  // unconditionally — see the comment in routes/health.ts.
+  supports_vision?: boolean
 }
 
 const props = defineProps<{
   modelValue: string
   projectSlug: string
+  /**
+   * v1.0.283 — when true, models that don't `supports_vision` are shown but
+   * disabled with a "Text-only model" tooltip. Used by Co-writer when the
+   * user has attached an image to the chat. Default false preserves the
+   * existing behaviour for every other ModelSelector caller.
+   */
+  requireVision?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -62,16 +74,22 @@ const allModels = ref<LlmModelRow[]>([])
 const loading = ref(false)
 
 function isDisabled(m: LlmModelRow) {
-  return !m.available || !!m.disabled_reason
+  if (!m.available || !!m.disabled_reason) return true
+  if (props.requireVision && m.supports_vision === false) return true
+  return false
 }
 function suffixFor(m: LlmModelRow) {
   if (m.disabled_reason) return ' (unavailable)'
   if (!m.available) return ' (no key)'
+  if (props.requireVision && m.supports_vision === false) return ' (text-only)'
   return ''
 }
 function tooltipFor(m: LlmModelRow) {
   if (m.disabled_reason) return m.disabled_reason
   if (!m.available) return 'No API key configured for this provider'
+  if (props.requireVision && m.supports_vision === false) {
+    return 'This model is text-only. Detach the image or pick a vision-capable model.'
+  }
   if (m.hint) return m.hint
   return ''
 }

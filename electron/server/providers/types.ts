@@ -172,6 +172,17 @@ export interface TextGenerationRequest {
    *  the fetch on abort, so a user-cancelled job stops paying for a long
    *  completion that would otherwise run to max_tokens. */
   signal?: AbortSignal
+  /**
+   * v1.0.283 — optional image attachments for multimodal (vision-capable)
+   * requests. Each entry is a base64 data URL (e.g. `data:image/png;base64,
+   * iVBORw0K…`). Providers that support vision (currently OpenAI's gpt-4o
+   * family + LM Studio when a vision-capable local model is loaded) repackage
+   * `userMessage` + these images into the SDK's multimodal content-array
+   * format. Providers that don't support vision IGNORE this field and behave
+   * as text-only — callers gate the UI to vision-capable models so we never
+   * silently drop images. Empty array == undefined == "no images".
+   */
+  images?: string[]
 }
 
 export interface TextProvider {

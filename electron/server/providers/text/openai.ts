@@ -50,7 +50,7 @@ const openaiProvider: TextProvider = {
   },
 
   async callText(request: TextGenerationRequest): Promise<string> {
-    const { model, system, userMessage, apiKey, stream, maxTokens, signal } = request
+    const { model, system, userMessage, apiKey, stream, maxTokens, signal, images } = request
 
     if (!apiKey) {
       throw new Error('No OpenAI API key configured. Add one in Settings → API Keys.')
@@ -74,6 +74,19 @@ const openaiProvider: TextProvider = {
       ? { max_completion_tokens: tokenCap }
       : { max_tokens: tokenCap }
 
+    // v1.0.283 — multimodal content. When images are attached, the user
+    // message becomes a content-array with text + image_url parts. The
+    // gpt-4o family consumes this format natively; text-only models reject
+    // it with a clear error. Frontend gates the model picker so we don't
+    // expect a non-vision call to reach here with images, but if it did,
+    // OpenAI's API error surfaces to the user uncrowded.
+    const userContent: any = images && images.length > 0
+      ? [
+        { type: 'text', text: userMessage },
+        ...images.map((dataUrl: string) => ({ type: 'image_url', image_url: { url: dataUrl } })),
+      ]
+      : userMessage
+
     try {
       if (stream) {
         const collected: string[] = []
@@ -82,7 +95,7 @@ const openaiProvider: TextProvider = {
           ...tokenField,
           messages: [
             { role: 'system', content: system },
-            { role: 'user', content: userMessage },
+            { role: 'user', content: userContent },
           ],
           stream: true,
         }, reqOpts)
@@ -97,7 +110,7 @@ const openaiProvider: TextProvider = {
           ...tokenField,
           messages: [
             { role: 'system', content: system },
-            { role: 'user', content: userMessage },
+            { role: 'user', content: userContent },
           ],
         }, reqOpts)
         return response.choices[0]?.message?.content || ''

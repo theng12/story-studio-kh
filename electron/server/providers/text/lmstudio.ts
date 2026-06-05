@@ -39,7 +39,7 @@ const lmstudioProvider: TextProvider = {
   },
 
   async callText(request: TextGenerationRequest): Promise<string> {
-    const { model, system, userMessage, apiKey, stream, maxTokens, signal } = request
+    const { model, system, userMessage, apiKey, stream, maxTokens, signal, images } = request
 
     // `apiKey` actually carries the stored base URL (possibly a comma list of
     // endpoints — use the first; one local LLM at a time for chat).
@@ -60,9 +60,21 @@ const lmstudioProvider: TextProvider = {
     // a non-empty apiKey — pass a placeholder.
     const client = new OpenAI({ apiKey: 'lm-studio', baseURL: baseUrl })
     const reqOpts = signal ? { signal } : undefined
+    // v1.0.283 — multimodal content. Vision-capable local models (Llava,
+    // Qwen-VL, Llama-3.2-Vision, etc.) consume the same OpenAI-format
+    // image_url content-array as cloud GPT-4o. Text-only local models will
+    // return an error from the server, which surfaces cleanly. The Co-writer
+    // UI soft-warns for local models when images are attached, since we
+    // can't know capability from the model slug alone.
+    const userContent: any = images && images.length > 0
+      ? [
+        { type: 'text', text: userMessage },
+        ...images.map((dataUrl: string) => ({ type: 'image_url', image_url: { url: dataUrl } })),
+      ]
+      : userMessage
     const messages = [
       { role: 'system' as const, content: system },
-      { role: 'user' as const, content: userMessage },
+      { role: 'user' as const, content: userContent },
     ]
 
     try {

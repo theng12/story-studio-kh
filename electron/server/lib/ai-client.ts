@@ -36,6 +36,16 @@ export interface CallAiContext {
    *  emit large structured output (e.g. the scene planner's full-episode
    *  JSON) which would otherwise truncate at the conservative default. */
   maxTokens?: number
+  /**
+   * v1.0.283 — optional image attachments for vision-capable models. Each
+   * entry is a base64 data URL. Forwarded to the provider's `callText`
+   * (which repackages into the SDK's multimodal content-array). Only
+   * meaningful for OpenAI's gpt-4o family + LM Studio when a vision model
+   * is loaded; non-vision providers silently ignore. Used by the Co-writer
+   * (frontend gates the model picker to vision-capable models when images
+   * are attached, so we never reach a non-vision provider with images set).
+   */
+  images?: string[]
 }
 
 export async function callAi(
@@ -126,6 +136,7 @@ export async function callAi(
     stream,
     signal: ctx.signal,
     maxTokens: ctx.maxTokens,
+    images: ctx.images,
   })
 
   // Track usage
