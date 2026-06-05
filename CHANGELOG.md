@@ -4,6 +4,48 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.286 — 2026-06-06
+
+### Added — Scene Plan: "Re-plan all N empty" bulk button + Back-to-top floating button
+Two UX fixes for the long-scroll planner page.
+
+#### 1. Bulk re-plan for empty-prompt scenes
+When the scene planner falls back (local-model JSON failure, truncation, etc.) it produces placeholder scenes with empty `visual_prompt` strings. Previously you had to click 🪄 Re-plan on each one individually — a punishing chore on a 50-scene plan with 12 empties.
+
+The plan-health banner now has a **"🪄 Re-plan all N empty"** button that walks every empty-prompt scene one at a time, polling for each re-plan job to complete before moving to the next (the backend's `isDuplicate` guard only allows one `scene_plan_run` per episode, so this MUST be sequential). A live progress strip shows the current scene number, completed/total count, and a **"Cancel after this scene"** link to bail out cleanly between iterations.
+
+Robustness:
+- Scene-id-based loop, not snapshot-based — survives the scene_index renumbering that happens after each splice
+- Per-scene try/catch — one scene's failure doesn't abort the whole run
+- Scenes that fail to produce a prompt twice get marked `"[re-plan failed — fill in manually]"` so the loop doesn't re-attempt them forever
+- 200-iteration safety cap on the loop (more than any realistic plan)
+- Episode-switch guard — switching episodes mid-bulk-replan stops the loop instead of overwriting the new episode
+
+Only the EMPTY-prompt subset is bulk-replannable — over-long scenes and other "needs attention" reasons stay on the per-row button because they're judgement calls, not pure failures.
+
+#### 2. Back-to-top floating button
+The Scene Plan page can run 100+ scenes (~5000+ px tall). The 🪄 Re-plan and ⏎ Save buttons live at the top; the scene rows below force constant scroll-up-scroll-down trips. A floating **↑** button now appears in the bottom-right after you've scrolled past ~800 px, scrolls back to the top with smooth behavior on click, and hides again at the top.
+
+Scoped to the Scene Plan page for now — if useful, easy to lift to a shared component for other long-scroll pages.
+
+### Files
+- `frontend/pages/projects/[slug]/scene-plan.vue` —
+  - new `bulkReplan` state + `replanAllEmpty()` + `cancelBulkReplan()` functions
+  - new `emptyPromptCount` computed driving the bulk button's visibility/label
+  - new `showBackToTop` state + `scrollToTop()` + scroll listener on `.page-content`
+  - template: bulk re-plan button + progress strip in the plan-health banner; back-to-top button after the empty-state section
+  - styles: `.bulk-progress` strip, `.back-to-top` floating circle, `.plan-health-head` becomes flex to fit the new button
+
+No backend changes — the bulk loop just calls the existing `POST /scene-plan/:ep/replan-scene` endpoint repeatedly.
+
+### Known limitation (for context, not a bug)
+If you're testing with `gemma-4-e4b` or a similarly small local model, the bulk re-plan will still fail on most of the same scenes the initial plan failed on — because the model fundamentally struggles with strict JSON output. Bulk re-plan automates the clicking; it doesn't make the LLM smarter. If "Re-plan failed" markers pile up after bulk completes, the next move is either:
+- Switch to a better local model (qwen3-coder, gemma-3-12b, or a model fine-tuned for JSON output), OR
+- Use a cloud model just for scene planning, OR
+- Build the deterministic split + per-scene LLM call architecture (Option C from the earlier discussion)
+
+---
+
 ## v1.0.285 — 2026-06-06
 
 ### Added — Scene planner: "Scenes per LLM call" control for local-model reliability

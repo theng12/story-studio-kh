@@ -301,12 +301,46 @@
 
         <!-- v1.0.245 — Plan-health banner. Surfaces scenes that look broken
              (no prompt, over-long, or a planner fallback) so you don't have to
-             scroll hundreds of scenes to find them. Click to jump. -->
+             scroll hundreds of scenes to find them. Click to jump.
+             v1.0.286 — bulk re-plan button for the empty-prompt subset. -->
         <div v-if="problemScenes.length" class="plan-health mt-2">
           <div class="plan-health-head">
-            ⚠ {{ problemScenes.length }} scene{{ problemScenes.length === 1 ? '' : 's' }} need attention
-            <span class="text-muted text-xs">— no prompt, over-long, or planner fallback</span>
+            <span>
+              ⚠ {{ problemScenes.length }} scene{{ problemScenes.length === 1 ? '' : 's' }} need attention
+              <span class="text-muted text-xs">— no prompt, over-long, or planner fallback</span>
+            </span>
+            <!-- Bulk re-plan: only offers to re-plan empty-prompt scenes (the
+                 planner-failure class). Over-long / boundary-reason scenes
+                 stay on the per-row Re-plan button because they're judgement
+                 calls, not pure failures. -->
+            <button
+              v-if="emptyPromptCount > 0"
+              class="btn btn-sm btn-secondary"
+              :disabled="!form.model || planning || bulkReplan.active"
+              :title="!form.model
+                ? 'Pick a model above first'
+                : `Re-plan ${emptyPromptCount} scene(s) with empty visual prompts, one at a time.`"
+              @click="replanAllEmpty"
+            >
+              🪄 Re-plan all {{ emptyPromptCount }} empty
+            </button>
           </div>
+
+          <!-- Bulk progress strip — visible while the loop is running. -->
+          <div v-if="bulkReplan.active" class="bulk-progress">
+            <div class="bulk-progress-bar">
+              <div
+                class="bulk-progress-fill"
+                :style="`width: ${bulkReplan.total > 0 ? Math.round((bulkReplan.completed / bulkReplan.total) * 100) : 0}%`"
+              ></div>
+            </div>
+            <div class="bulk-progress-text">
+              Re-planning scene #{{ bulkReplan.currentSceneIndex ?? '?' }} ·
+              {{ bulkReplan.completed }}/{{ bulkReplan.total }} done
+              <button class="link-btn-danger" @click="cancelBulkReplan">Cancel after this scene</button>
+            </div>
+          </div>
+
           <div class="plan-health-list">
             <button
               v-for="p in problemScenes"
@@ -416,11 +450,24 @@
         <span v-else>No plan yet. Pick a model + click <strong>Plan scenes</strong> in the action bar to start.</span>
       </p>
     </section>
+
+    <!-- v1.0.286 — back-to-top floating button. Appears after the scrollable
+         page-content has been pushed past ~800px so users on long plans
+         (50+ scenes, easily 5000+ px tall) don't have to grind back up. -->
+    <button
+      v-if="showBackToTop"
+      class="back-to-top"
+      title="Back to top"
+      aria-label="Scroll to top of page"
+      @click="scrollToTop"
+    >
+      ↑
+    </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Scene Plan')
@@ -737,6 +784,16 @@ const problemScenes = computed(() => {
 })
 const problemIds = computed(() => new Set(problemScenes.value.map(p => p.scene.id)))
 
+// v1.0.286 — subset count for the bulk re-plan button: only the
+// empty-visual-prompt scenes (the planner-failure class). Over-long /
+// boundary-reason problems aren't bulk-replannable because the user
+// needs to judge each case.
+const emptyPromptCount = computed(() => {
+  return (plan.value?.scenes || []).filter(
+    s => !s.visual_prompt || !s.visual_prompt.trim(),
+  ).length
+})
+
 function jumpToScene(id: string): void {
   if (typeof document === 'undefined') return
   const el = document.getElementById(`splan-scene-${id}`)
@@ -748,6 +805,153 @@ function jumpToScene(id: string): void {
 }
 
 const replanningId = ref<string | null>(null)
+
+// v1.0.286 — bulk re-plan state. Holds the in-progress loop so the UI can
+// surface "Re-planning N of M…" and disable other actions. `cancelRequested`
+// lets the user bail out between scenes (we don't tear down the active LLM
+// call mid-stream — the current scene finishes, then the loop exits).
+const bulkReplan = ref<{
+  active: boolean
+  completed: number
+  total: number
+  currentSceneIndex: number | null
+  cancelRequested: boolean
+}>({ active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false })
+
+/**
+ * v1.0.286 — bulk re-plan every scene with an empty visual prompt. Walks
+ * the plan one scene at a time (the backend's isDuplicate guard only allows
+ * one scene_plan_run per episode at a time, so this MUST be sequential).
+ *
+ * The loop is robust to scene-id shifts: after each re-plan the generator
+ * splices new scenes in place of the target and renumbers scene_index, but
+ * IDs of UNRELATED scenes stay stable. We re-read `plan.value` each
+ * iteration to find the next still-empty scene rather than trusting a
+ * snapshot taken before the first re-plan.
+ *
+ * Cap of 200 iterations is a safety guard — even a totally broken plan
+ * shouldn't have more empty scenes than that, and if every re-plan
+ * paradoxically produced MORE empty scenes we'd notice in the progress
+ * count and the cancel button is one click away.
+ */
+async function replanAllEmpty(): Promise<void> {
+  if (!form.value.model) { showError('Pick a model above first'); return }
+  if (bulkReplan.value.active) return
+  const empty = (plan.value?.scenes || []).filter(
+    s => !s.visual_prompt || !s.visual_prompt.trim(),
+  )
+  if (!empty.length) {
+    success('No placeholder scenes to re-plan — every scene already has a visual prompt.')
+    return
+  }
+  const ep = episodeId.value
+  const ok = await ask({
+    title: `Re-plan ${empty.length} placeholder scene${empty.length === 1 ? '' : 's'}?`,
+    message:
+      `These scenes have empty visual prompts (the planner couldn't generate one — usually a local-model JSON failure). `
+      + `Re-runs the planner on each one's time range, one at a time. `
+      + `Estimated ~${Math.ceil(empty.length * 0.5)}-${empty.length}min depending on your model. `
+      + `You can cancel between scenes.${dirty.value ? ' Unsaved edits to the plan will be discarded first.' : ''}`,
+    confirmLabel: `Re-plan all ${empty.length}`,
+  })
+  if (!ok) return
+
+  bulkReplan.value = {
+    active: true, completed: 0, total: empty.length,
+    currentSceneIndex: null, cancelRequested: false,
+  }
+
+  let safetyCap = 200
+  let succeeded = 0
+  let failed = 0
+  while (safetyCap-- > 0 && !bulkReplan.value.cancelRequested) {
+    if (episodeId.value !== ep) break // user switched episodes — stop
+    const next = (plan.value?.scenes || []).find(
+      s => !s.visual_prompt || !s.visual_prompt.trim(),
+    )
+    if (!next) break
+    bulkReplan.value.currentSceneIndex = next.scene_index
+    try {
+      await post(`/projects/${slug.value}/scene-plan/${ep}/replan-scene`, {
+        scene_id: next.id,
+        model: form.value.model,
+        detail_level: form.value.detail_level,
+        style_prompt: form.value.style_prompt.trim() || undefined,
+        custom_instructions: form.value.custom_instructions.trim() || undefined,
+        window_size: form.value.window_size === 'auto' ? undefined : form.value.window_size,
+      })
+      await pollUntilPlanLanded(ep)
+      // Loop re-reads plan.value next iteration — if THIS scene now has a
+      // prompt, the .find() above won't return it again. If it's still
+      // empty (re-plan failed to produce a prompt too), the loop hits it
+      // again and we'd be stuck — bail to avoid an infinite re-plan storm
+      // on the same scene.
+      const stillEmpty = (plan.value?.scenes || []).some(s => s.id === next.id && (!s.visual_prompt || !s.visual_prompt.trim()))
+      if (stillEmpty) {
+        failed++
+        // Move past this scene by writing a temporary marker so subsequent
+        // .find() calls skip it. The user can manually re-plan it later;
+        // we don't want to spam the LLM on a scene the model can't handle.
+        next.visual_prompt = '[re-plan failed — fill in manually]'
+      } else {
+        succeeded++
+      }
+    } catch (e: any) {
+      failed++
+      showError(`Scene #${next.scene_index} re-plan failed: ${e?.data?.detail || e?.message || 'unknown'}`)
+      // Mark to avoid retrying the same scene forever
+      next.visual_prompt = '[re-plan failed — fill in manually]'
+    }
+    bulkReplan.value.completed++
+  }
+
+  const wasCancelled = bulkReplan.value.cancelRequested
+  bulkReplan.value = { active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false }
+  if (wasCancelled) {
+    success(`Bulk re-plan cancelled. Re-planned ${succeeded}, ${failed} failed.`)
+  } else if (failed > 0) {
+    showError(`Bulk re-plan done. Succeeded: ${succeeded}. Failed: ${failed} (left as "[re-plan failed — fill in manually]").`)
+  } else {
+    success(`Re-planned ${succeeded} placeholder scene${succeeded === 1 ? '' : 's'}.`)
+  }
+}
+
+function cancelBulkReplan(): void {
+  if (bulkReplan.value.active) bulkReplan.value.cancelRequested = true
+}
+
+// v1.0.286 — Back-to-top floating button. Tracks scroll position on the
+// page's scrollable ancestor so the button only appears once the user is
+// far enough down to notice the scroll burden. The dashboard layout uses
+// .page-content as the scroll container (see layouts/dashboard.vue) — we
+// listen there rather than on window because the page itself doesn't scroll.
+const showBackToTop = ref(false)
+const SCROLL_THRESHOLD = 800   // px before the button surfaces
+
+function getScrollContainer(): HTMLElement | null {
+  if (typeof document === 'undefined') return null
+  return document.querySelector('.page-content') as HTMLElement | null
+}
+function onScroll(): void {
+  const el = getScrollContainer()
+  if (!el) return
+  showBackToTop.value = el.scrollTop > SCROLL_THRESHOLD
+}
+function scrollToTop(): void {
+  const el = getScrollContainer()
+  if (!el) return
+  el.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+onMounted(() => {
+  const el = getScrollContainer()
+  if (el) el.addEventListener('scroll', onScroll, { passive: true })
+})
+onUnmounted(() => {
+  const el = getScrollContainer()
+  if (el) el.removeEventListener('scroll', onScroll)
+})
+
 async function replanScene(scene: ScenePlanEntry): Promise<void> {
   if (!form.value.model) { showError('Pick a model above first'); return }
   const dur = (scene.end_sec - scene.start_sec).toFixed(0)
@@ -886,6 +1090,72 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
 </script>
 
 <style scoped>
+/* v1.0.286 — Plan-health head: room for the new bulk re-plan button next to
+   the heading. Was just a static line; now needs flex so the button hangs
+   on the right edge. */
+.plan-health-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* v1.0.286 — bulk re-plan progress strip. Subtle bar + status line, visible
+   only while the loop is active. The cancel button is a link-button (less
+   weight than a danger button) because it's "stop after this scene", not
+   "kill the running call". */
+.bulk-progress {
+  margin: 10px 0 6px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.bulk-progress-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.bulk-progress-fill {
+  height: 100%;
+  background: var(--accent, #6c8fff);
+  transition: width 0.3s ease;
+}
+.bulk-progress-text {
+  display: flex; justify-content: space-between; gap: 12px;
+  font-size: 12px; color: var(--text-secondary, #ccc);
+}
+.link-btn-danger {
+  background: none; border: none; color: #d4564a; cursor: pointer;
+  padding: 0; font-size: inherit;
+}
+.link-btn-danger:hover { text-decoration: underline; }
+
+/* v1.0.286 — back-to-top floating button. Sits above the dashboard's bottom
+   chrome (sidebar credits) and pulls to the right so it doesn't obscure
+   scene-row Re-plan buttons on hover. Subtle fade-in via a brief transform. */
+.back-to-top {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--border, #444);
+  background: var(--bg-secondary, #1c1c1f);
+  color: var(--text-primary, #eee);
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  z-index: 100;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.back-to-top:hover {
+  background: var(--accent, #6c8fff);
+  color: #0f1117;
+  transform: translateY(-2px);
+}
+
 /* v1.0.260 — Visual Recipe bar + per-scene recipe affordances. */
 .recipe-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
