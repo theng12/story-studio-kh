@@ -61,6 +61,11 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
     : undefined
   const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
   const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
+  // v1.0.285 — per-window scene count tuning. Validated against the three
+  // allowed enum values; anything else (including missing) falls back to
+  // 'auto' so the planner uses its model-aware default.
+  const windowSize: 'auto' | 'full' | 'small' =
+    body.window_size === 'full' || body.window_size === 'small' ? body.window_size : 'auto'
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `Scene plan already running for ${episodeId}` })
@@ -80,6 +85,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       detail_level: detailLevel,
       style_prompt: stylePrompt || undefined,
       custom_instructions: customInstructions || undefined,
+      window_size: windowSize,
     },
   })
   res.status(201).json(job)
@@ -104,6 +110,9 @@ router.post('/projects/:slug/scene-plan/:episodeId/replan-scene', async (req, re
     : undefined
   const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
   const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
+  // v1.0.285 — per-window scene count tuning (mirrors the full-plan route).
+  const windowSize: 'auto' | 'full' | 'small' =
+    body.window_size === 'full' || body.window_size === 'small' ? body.window_size : 'auto'
 
   // Shares the scene_plan_run lane, so it won't run alongside a full plan.
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
@@ -122,6 +131,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/replan-scene', async (req, re
       detail_level: detailLevel,
       style_prompt: stylePrompt || undefined,
       custom_instructions: customInstructions || undefined,
+      window_size: windowSize,
     },
   })
   res.status(201).json(job)

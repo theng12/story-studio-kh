@@ -36,6 +36,10 @@ interface ScenePlanRunParams {
    *  [start, end] only and the result is spliced back in place of it. Every
    *  other scene — and its rendered image — is left untouched. */
   replan_scene_id?: string
+  /** v1.0.285 — per-window scene count: 'auto' picks based on model (local
+   *  → small, cloud → full); 'full' = 30/window; 'small' = 10/window.
+   *  Passed straight to the planner — see ScenePlanRunOptions.window_size. */
+  window_size?: 'auto' | 'full' | 'small'
 }
 
 export const SCENE_PLAN_FILENAME = 'scene_plan.json'
@@ -82,6 +86,14 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   if (pacing) job.output_lines.push(`Continuity pacing: ${pacing.min_sec}–${pacing.max_sec}s (live, denser on busy passages)`)
   const DETAIL_LABELS: Record<number, string> = { 1: 'Concise', 2: 'Standard', 3: 'Detailed', 4: 'Cinematic' }
   job.output_lines.push(`Visual detail: ${DETAIL_LABELS[params.detail_level ?? 2] ?? 'Standard'} (level ${params.detail_level ?? 2})`)
+  // v1.0.285 — surface the chosen window size + the resolved count so the
+  // user can see whether 'auto' picked Full or Small for their model.
+  const wsMode = params.window_size || 'auto'
+  const wsIsLocal = model.startsWith('lmstudio:')
+  const wsCount = wsMode === 'small' ? 10 : wsMode === 'full' ? 30 : (wsIsLocal ? 10 : 30)
+  job.output_lines.push(
+    `Window size: ${wsMode}${wsMode === 'auto' ? ` → ${wsCount} scenes/call (${wsIsLocal ? 'local model' : 'cloud model'})` : ` (${wsCount} scenes/call)`}`,
+  )
   if (params.style_prompt) job.output_lines.push(`Style: ${params.style_prompt.slice(0, 120)}${params.style_prompt.length > 120 ? '…' : ''}`)
   if (params.custom_instructions) job.output_lines.push(`Custom instructions: ${params.custom_instructions.slice(0, 120)}${params.custom_instructions.length > 120 ? '…' : ''}`)
   job.progress = 10
@@ -112,6 +124,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       custom_instructions: params.custom_instructions,
       pacing,
       range: { start_sec: target.start_sec, end_sec: target.end_sec },
+      // v1.0.285 — re-plan honours the user's chosen window size too. For a
+      // single-scene range this rarely produces more than one window, but
+      // passing it keeps behaviour consistent with the full-plan path.
+      window_size: params.window_size,
       onWarn: (m) => job.output_lines.push(m),
     })
     const newScenes = replanned.scenes
@@ -138,6 +154,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     style_prompt: params.style_prompt,
     custom_instructions: params.custom_instructions,
     pacing,
+    // v1.0.285 — per-window scene count tuning (auto = local→small,
+    // cloud→full). See ScenePlanRunOptions.window_size for the rationale.
+    window_size: params.window_size,
     onWarn: (m) => job.output_lines.push(m),
     // v1.0.226 — chunked planner: it plans the episode in time-windows so the
     // model's output never truncates regardless of length. Surface progress.

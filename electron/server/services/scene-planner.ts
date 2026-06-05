@@ -545,16 +545,37 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
   const minSec = opts.pacing ? opts.pacing.min_sec : MIN_SCENE_SEC
   const maxSec = opts.pacing ? opts.pacing.max_sec : MAX_SCENE_SEC
 
-  // ── Chunked planning (v1.0.226) ─────────────────────────────────────────
+  // ── Chunked planning (v1.0.226; per-model tuning v1.0.285) ──────────────
   // Split the timeline into contiguous windows and plan each one in its own
   // LLM call. Input context (narration/research) is cheap and re-sent per
   // window; only the OUTPUT was ever the constraint, and each window's output
-  // is bounded — so episode length no longer causes truncation. Windows are
-  // sized so a typical window yields ~30 scenes (well under the token cap),
-  // and never split a cue.
+  // is bounded — so episode length no longer causes truncation. Windows never
+  // split a cue.
+  //
+  // v1.0.285 — window size is now tunable. The 'auto' default keeps the
+  // historical 30 scenes/window for cloud models (Claude/GPT/OpenRouter) and
+  // drops to 10 scenes/window for local LM Studio models (smaller JSON output
+  // → fewer truncation/parse failures → fewer empty visual_prompt fallbacks).
+  // Manual 'full' / 'small' override the auto choice for the rare case where
+  // the user wants the other behaviour (e.g. cloud with smaller windows to
+  // bound a single call's cost, or local with full windows on a beefy
+  // long-context model). See ScenePlanRunOptions.window_size for the
+  // user-facing description.
   const avgSceneSec = (minSec + maxSec) / 2
-  const TARGET_SCENES_PER_WINDOW = 30
-  const windowSec = Math.max(60, Math.min(300, Math.round(TARGET_SCENES_PER_WINDOW * avgSceneSec)))
+  const isLocalModel = typeof opts.model === 'string' && opts.model.startsWith('lmstudio:')
+  const sizeMode = opts.window_size || 'auto'
+  const TARGET_SCENES_PER_WINDOW =
+    sizeMode === 'small' ? 10
+      : sizeMode === 'full' ? 30
+        : (isLocalModel ? 10 : 30) // 'auto'
+  // Window-seconds bounds shrink in lockstep with the target count so a
+  // 10-scene window doesn't accidentally span 5 minutes of audio. The
+  // 60–300s clamp came from the historical 30-scene size; for 10-scene
+  // mode we drop the lower bound to 30s and the upper to 120s so the
+  // window naturally lands around 80–100s of audio.
+  const minWindow = TARGET_SCENES_PER_WINDOW <= 10 ? 30 : 60
+  const maxWindow = TARGET_SCENES_PER_WINDOW <= 10 ? 120 : 300
+  const windowSec = Math.max(minWindow, Math.min(maxWindow, Math.round(TARGET_SCENES_PER_WINDOW * avgSceneSec)))
 
   // v1.0.245 — range re-plan: plan ONLY the cues overlapping [start, end], seed
   // the chain at range.start, and clamp coverage to range.end. The full-episode

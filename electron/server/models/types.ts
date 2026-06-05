@@ -3056,4 +3056,25 @@ export interface ScenePlanRunOptions {
    *  into N cue-aligned scenes with empty prompts"). The generator surfaces
    *  these in the Jobs log so a degraded window is never silent. */
   onWarn?: (message: string) => void
+  /**
+   * v1.0.285 — per-window scene-count tuning for local-model reliability.
+   *
+   *   'auto'  (default) — picks based on the model: local `lmstudio:*`
+   *           models get small windows (10 scenes), cloud models get full
+   *           windows (30 scenes).
+   *   'full'  — always 30 scenes per window. Fewer LLM calls, richer
+   *           cross-scene cohesion, but larger JSON output that smaller
+   *           local models may truncate.
+   *   'small' — always 10 scenes per window. ~3× more LLM calls but each
+   *           output is ~3× smaller. Best for local models that hit
+   *           max-tokens truncation OR produce malformed JSON on big
+   *           outputs (the symptom: empty visual_prompts after the
+   *           fallback fires).
+   *
+   * Background: when a window's LLM call fails twice, the planner falls
+   * back to cue-aligned subdivision with EMPTY visual_prompts so the
+   * timeline is still complete and the user can re-plan individually.
+   * Small windows fail less often.
+   */
+  window_size?: 'auto' | 'full' | 'small'
 }

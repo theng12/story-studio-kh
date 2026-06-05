@@ -163,6 +163,27 @@
         <p class="text-muted text-xs mt-1">{{ detailMeta?.hint }}</p>
       </div>
 
+      <!-- v1.0.285 — per-window scene count control. Bigger windows = fewer
+           LLM calls + richer cross-scene cohesion, but larger JSON outputs
+           that flaky local models often truncate (the empty-visual_prompts
+           symptom). "Auto" picks based on the selected model. -->
+      <div class="form-group mt-3">
+        <label>
+          Scenes per LLM call
+          <span class="text-muted text-xs">— chunked planning window size</span>
+        </label>
+        <select v-model="form.window_size" class="select" style="max-width: 380px;">
+          <option value="auto">Auto — pick from model ({{ isLocalModel ? '10 (local)' : '30 (cloud)' }})</option>
+          <option value="full">Full — 30 scenes per call (fewer calls, richer cohesion)</option>
+          <option value="small">Small — 10 scenes per call (smaller JSON; safer for local LLMs)</option>
+        </select>
+        <p class="text-muted text-xs mt-1">
+          Switch to <strong>Small</strong> if your local model returns empty visual prompts after planning —
+          the planner fell back to cue-aligned splits because the JSON output failed to parse twice.
+          Smaller windows = smaller per-call output = less likely to hit truncation.
+        </p>
+      </div>
+
       <!-- v1.0.242 — global style + custom instructions woven into every scene. -->
       <div class="grid-2 mt-2">
         <div class="form-group">
@@ -591,6 +612,14 @@ const form = ref({
   // instructions. Both optional.
   style_prompt: '',
   custom_instructions: '',
+  // v1.0.285 — per-window scene count.
+  //   'auto'  — local model → 10 scenes/call; cloud → 30/call (default)
+  //   'full'  — always 30/call (fewer LLM calls, richer cross-scene cohesion)
+  //   'small' — always 10/call (smaller JSON; better for flaky local models)
+  // Surfaced as a dropdown so users with weak local LLMs can drop to 'small'
+  // when they hit the empty-visual_prompts fallback, without sacrificing
+  // the cloud's more efficient batched output.
+  window_size: 'auto' as 'auto' | 'full' | 'small',
 })
 // v1.0.259 — remember plan settings per-Mac across reloads (an active plan
 // preset still auto-applies on top).
@@ -604,6 +633,10 @@ const DETAIL_LEVELS = [
   { value: 4, label: 'Cinematic', hint: '4–5 vivid sentences (~110–150 words): full shot, lighting setup, palette, atmosphere.' },
 ]
 const detailMeta = computed(() => DETAIL_LEVELS.find(d => d.value === form.value.detail_level) ?? DETAIL_LEVELS[1])
+
+// v1.0.285 — flagged for the window-size "Auto" tooltip so the user sees which
+// branch will fire (10 scenes for local, 30 for cloud) before they hit Plan.
+const isLocalModel = computed(() => (form.value.model || '').startsWith('lmstudio:'))
 
 const canPlan = computed(() => {
   if (!episodeId.value) return false
@@ -657,6 +690,9 @@ async function planScenes(): Promise<void> {
       detail_level: form.value.detail_level,
       style_prompt: form.value.style_prompt.trim() || undefined,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
+      // v1.0.285 — only send when not 'auto'; the backend defaults to auto
+      // anyway, so omitting keeps the request payload tidy.
+      window_size: form.value.window_size === 'auto' ? undefined : form.value.window_size,
     })
     success('Scene planner queued — watch the Jobs panel')
     await pollUntilPlanLanded(ep)
@@ -730,6 +766,8 @@ async function replanScene(scene: ScenePlanEntry): Promise<void> {
       detail_level: form.value.detail_level,
       style_prompt: form.value.style_prompt.trim() || undefined,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
+      // v1.0.285 — keep behaviour consistent with the full-plan call.
+      window_size: form.value.window_size === 'auto' ? undefined : form.value.window_size,
     })
     success('Re-plan queued — watch the Jobs panel; the scene list updates when it lands.')
     await pollUntilPlanLanded(ep)

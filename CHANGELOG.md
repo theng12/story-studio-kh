@@ -4,6 +4,36 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.285 — 2026-06-06
+
+### Added — Scene planner: "Scenes per LLM call" control for local-model reliability
+The scene planner chunks the episode into time-windows and asks the LLM to produce ~30 scenes per window in one JSON response. On cloud models (Claude / GPT) this is efficient and produces strong cross-scene cohesion. **On local LM Studio models it often fails** — small/older local models truncate the long JSON output or produce malformed JSON, the parser gives up, and the planner falls back to cue-aligned subdivision with **empty `visual_prompt` strings** for every scene in that window. That's the "my local model just spits out empty visual prompts" symptom.
+
+Fix: every planner form now has a **"Scenes per LLM call"** dropdown with three modes:
+
+- **Auto** (default) — picks based on the model id. Local `lmstudio:*` models get **10 scenes per call**; cloud models keep the historical **30 per call**. The dropdown labels the resolved choice live so you see what Auto will pick before hitting Plan.
+- **Full — 30 scenes per call** — fewer LLM calls, richer cross-scene cohesion, larger JSON output. Best on cloud models. Mirrors pre-v1.0.285 behaviour.
+- **Small — 10 scenes per call** — ~3× more LLM calls, each output ~3× smaller, far less likely to hit truncation or malformed-JSON failures. Best for local LLMs that produce empty prompts after planning.
+
+When `window_size: 'small'` is in effect, the window-seconds clamp also tightens (30-120s vs 60-300s) so a 10-scene window doesn't accidentally span 5 minutes of audio.
+
+The job log now prints the resolved choice: `Window size: auto → 10 scenes/call (local model)`, so a degraded run is diagnosable without re-reading the source.
+
+### Why not a fully different two-pass architecture?
+
+The instinct ("split into segments deterministically with no LLM, then generate prompts one-by-one with tiny context") is technically valid but doubles request overhead 10-20× on cloud models for the same total tokens, and weakens cross-scene cohesion (the planner can no longer see all 30 scenes at once when judging continuity). The chunked-window approach with a smaller TARGET_SCENES_PER_WINDOW achieves most of the local-model-reliability win at a fraction of the architectural change, and keeps cloud workflows untouched.
+
+If "Small" still produces empty prompts on a specific local model, the next step is the per-scene path. Tell me and we'll cross that bridge.
+
+### Files
+- `electron/server/models/types.ts` — `ScenePlanRunOptions.window_size?: 'auto' | 'full' | 'small'`
+- `electron/server/services/scene-planner.ts` — derives `TARGET_SCENES_PER_WINDOW` from `window_size` + model-id detection; window-seconds clamp scales accordingly
+- `electron/server/generators/scene-plan.ts` — passes `window_size` through to the planner on both full-plan and per-scene-replan paths; logs the resolved choice to the Jobs panel
+- `electron/server/routes/scene-plan.ts` — accepts + validates `window_size` on `POST /scene-plan/:ep/run` and `POST /scene-plan/:ep/replan-scene`
+- `frontend/pages/projects/[slug]/scene-plan.vue` — new dropdown in the planner form; `isLocalModel` computed drives the live label inside the Auto option; payload omits the field when 'auto' is selected to keep the request tidy
+
+---
+
 ## v1.0.284 — 2026-06-06
 
 ### Added — Rename presets in place from the generator's preset picker
