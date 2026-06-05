@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.279 — 2026-06-05
+
+### Fixed — the ACTUAL cause of Scene Plan/Review showing done episodes as "Pending"
+Found it by running the dev servers and inspecting the live `/projects/:slug/episodes` response: the endpoint **re-assembles its own status object** from a hardcoded field list and was **dropping `scene_plan` / `scene_review`** — so no matter how correctly the backend computed them (v1.0.273–278), the frontend always received `undefined` and the "Pending only" filters never excluded finished episodes. (Same bug the code comments already flagged for `research` in v1.0.246.) Added both fields to the endpoint's response. Verified live: a planned+rendered EP0001 now returns `scene_plan: true, scene_review: true`.
+
+### Files
+- `electron/server/routes/ideas.ts` (episodes endpoint now surfaces `scene_plan` + `scene_review`)
+
+---
+
 ## v1.0.278 — 2026-06-05
 
 ### Fixed — Scene Plan/Review still "pending" when the folder title doesn't match the idea

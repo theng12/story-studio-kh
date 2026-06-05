@@ -1046,6 +1046,8 @@ router.get('/projects/:slug/episodes', async (req, res) => {
     const status = await episodeStatusCache.get(slug, code, ideas)
     const {
       research: researchDone,
+      scene_plan: scenePlanDone,
+      scene_review: sceneReviewDone,
       script: scriptDone,
       introduction: introductionDone,
       scene_prompts: scenePromptsDone,
@@ -1113,6 +1115,12 @@ router.get('/projects/:slug/episodes', async (req, res) => {
         // only" filter (filter-field="research") read undefined and never
         // excluded finished episodes. Surfaced now.
         research: researchDone,
+        // v1.0.279 — scene_plan / scene_review were computed upstream but
+        // dropped by this re-assembly (same class as the v1.0.246 research bug),
+        // so the Scene Plan / Scene Review "Pending only" filters read undefined
+        // and never excluded finished episodes. Surfaced now.
+        scene_plan: scenePlanDone,
+        scene_review: sceneReviewDone,
         script: scriptDone,
         introduction: introductionDone,
         prompts: scenePromptsDone,           // backward compat
