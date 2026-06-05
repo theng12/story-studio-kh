@@ -201,6 +201,7 @@
         @apply="onIdeasPresetApplied"
         @overwrite="ideasPresets.overwrite(); success('Preset saved')"
         @save-as="(n: string) => ideasPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
+        @rename="(n: string) => ideasPresets.rename(n).then(() => success(`Renamed to ${n}`))"
         @delete="ideasPresets.remove(); success('Preset deleted')"
       />
 

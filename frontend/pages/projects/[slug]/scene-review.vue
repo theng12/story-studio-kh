@@ -184,6 +184,7 @@
       @apply="srPresets.applyActive(); success('Render preset applied')"
       @overwrite="srPresets.overwrite(); success('Render preset saved')"
       @save-as="(n) => srPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
+      @rename="(n) => srPresets.rename(n).then(() => success(`Renamed to ${n}`))"
       @delete="srPresets.remove(); success('Render preset deleted')"
     />
 

@@ -28,6 +28,12 @@
       <button class="btn btn-sm btn-secondary" :disabled="!activeId" @click="$emit('apply')">Apply</button>
       <button class="btn btn-sm btn-secondary" :disabled="!activeId" @click="$emit('overwrite')">Save</button>
       <button class="btn btn-sm btn-secondary" @click="openSaveAs">Save as…</button>
+      <!-- v1.0.284 — rename the active preset in place. Same modal shape as
+           Save-as (single input + Enter to confirm), pre-filled with the
+           current name. Surfaces here because the management page (Presets
+           tab) is too far away when you just want to fix a typo without
+           leaving the generator you're working in. -->
+      <button class="btn btn-sm btn-secondary" :disabled="!activeId" @click="openRename">Rename</button>
 
       <!-- v1.0.93+ device-filter toggle.
            Only renders when there's actually something to toggle to (at
@@ -79,6 +85,34 @@
         <button class="btn btn-primary" :disabled="!newName.trim()" @click="confirmSaveAs">Save</button>
       </div>
     </Modal>
+
+    <!-- v1.0.284 — Rename modal. Same primitive as Save-as for visual
+         consistency; the only difference is the input pre-fills with the
+         current name so the user can edit (not retype) it. -->
+    <Modal
+      :visible="showRename"
+      size="sm"
+      labelledby="preset-rename-title"
+      @close="showRename = false"
+    >
+      <h3 id="preset-rename-title">Rename preset</h3>
+      <p class="text-muted mt-1 mb-2" style="font-size:12px">
+        Only the label changes — the preset's settings stay exactly the same. Other Macs
+        viewing this preset will see the new name next time they load.
+      </p>
+      <input
+        v-model="renameName"
+        ref="renameInput"
+        class="input"
+        placeholder="New name"
+        @keydown.enter="confirmRename"
+        @keydown.escape="showRename = false"
+      />
+      <div class="flex gap-2 mt-2" style="justify-content:flex-end">
+        <button class="btn btn-secondary" @click="showRename = false">Cancel</button>
+        <button class="btn btn-primary" :disabled="!renameName.trim() || renameName.trim() === currentName" @click="confirmRename">Rename</button>
+      </div>
+    </Modal>
   </div>
 </template>
 
@@ -121,6 +155,7 @@ const emit = defineEmits<{
   (e: 'apply'): void
   (e: 'overwrite'): void
   (e: 'save-as', name: string): void
+  (e: 'rename', name: string): void
   (e: 'delete'): void
 }>()
 
@@ -128,10 +163,17 @@ const showSaveAs = ref(false)
 const newName = ref('')
 const newNameInput = ref<HTMLInputElement | null>(null)
 
+// v1.0.284 — rename modal state. Kept separate from save-as so opening one
+// doesn't disturb the other's input value.
+const showRename = ref(false)
+const renameName = ref('')
+const renameInput = ref<HTMLInputElement | null>(null)
+
 const activePresetName = computed(() => {
   const p = props.presets.find(x => x.id === props.activeId)
   return p?.name || ''
 })
+const currentName = computed(() => activePresetName.value)
 
 // Only render the device toggle when there's actually something to toggle.
 // Calling out a feature that does nothing (zero cross-device presets) is
@@ -173,6 +215,26 @@ function confirmSaveAs() {
   if (!name) return
   emit('save-as', name)
   showSaveAs.value = false
+}
+
+// v1.0.284 — rename flow. Pre-fills the input with the current name (so
+// the user edits rather than retypes), focuses + selects on open. Confirm
+// only fires when the trimmed value differs from the current name — the
+// Rename button is disabled otherwise so a stray Enter doesn't no-op fire.
+function openRename() {
+  if (!props.activeId) return
+  renameName.value = currentName.value
+  showRename.value = true
+  nextTick(() => {
+    renameInput.value?.focus()
+    renameInput.value?.select()
+  })
+}
+function confirmRename() {
+  const name = renameName.value.trim()
+  if (!name || name === currentName.value) return
+  emit('rename', name)
+  showRename.value = false
 }
 
 async function confirmDelete() {

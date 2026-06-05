@@ -221,6 +221,7 @@
             @apply="stylePresets.applyActive(); success('Style preset applied — Save continuity settings to keep it')"
             @overwrite="stylePresets.overwrite(); success('Style preset saved')"
             @save-as="(n) => stylePresets.saveAs(n).then(() => success(`Saved: ${n}`))"
+            @rename="(n) => stylePresets.rename(n).then(() => success(`Renamed to ${n}`))"
             @delete="stylePresets.remove(); success('Style preset deleted')"
           />
 
@@ -402,6 +403,7 @@
             @apply="recipePresets.applyActive(); success('Recipe applied — Save continuity settings to keep it')"
             @overwrite="recipePresets.overwrite(); success('Recipe preset saved')"
             @save-as="(n) => recipePresets.saveAs(n).then(() => success(`Saved: ${n}`))"
+            @rename="(n) => recipePresets.rename(n).then(() => success(`Renamed to ${n}`))"
             @delete="recipePresets.remove(); success('Recipe preset deleted')"
           />
         </div>

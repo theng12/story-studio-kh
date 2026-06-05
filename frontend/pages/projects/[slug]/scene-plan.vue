@@ -207,6 +207,7 @@
         @apply="planPresets.applyActive(); success('Preset applied')"
         @overwrite="planPresets.overwrite(); success('Preset saved')"
         @save-as="(n) => planPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
+        @rename="(n) => planPresets.rename(n).then(() => success(`Renamed to ${n}`))"
         @delete="planPresets.remove(); success('Preset deleted')"
       />
     </section>

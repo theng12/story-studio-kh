@@ -252,6 +252,7 @@
         @apply="introPresets.applyActive(); success('Intro preset applied')"
         @overwrite="introPresets.overwrite(); success('Intro preset saved')"
         @save-as="(n) => introPresets.saveAs(n).then(() => success('Intro preset saved'))"
+        @rename="(n) => introPresets.rename(n).then(() => success(`Renamed to ${n}`))"
         @delete="introPresets.remove(); success('Intro preset deleted')"
       />
 
@@ -426,6 +427,7 @@
         @apply="timelinePresets.applyActive(); success('Timeline preset applied')"
         @overwrite="timelinePresets.overwrite(); success('Timeline preset saved')"
         @save-as="(n) => timelinePresets.saveAs(n).then(() => success('Timeline preset saved'))"
+        @rename="(n) => timelinePresets.rename(n).then(() => success(`Renamed to ${n}`))"
         @delete="timelinePresets.remove(); success('Timeline preset deleted')"
       />
 
@@ -586,6 +588,7 @@
               @apply="transitionPresets.applyActive(); success('Transition preset applied')"
               @overwrite="transitionPresets.overwrite(); success('Transition preset saved')"
               @save-as="(n) => transitionPresets.saveAs(n).then(() => success('Transition preset saved'))"
+              @rename="(n) => transitionPresets.rename(n).then(() => success(`Renamed to ${n}`))"
               @delete="transitionPresets.remove(); success('Transition preset deleted')"
             />
           </div>
@@ -624,6 +627,7 @@
             @apply="animationPresets.applyActive(); success('Animation preset applied')"
             @overwrite="animationPresets.overwrite(); success('Animation preset saved')"
             @save-as="(n) => animationPresets.saveAs(n).then(() => success('Animation preset saved'))"
+            @rename="(n) => animationPresets.rename(n).then(() => success(`Renamed to ${n}`))"
             @delete="animationPresets.remove(); success('Animation preset deleted')"
           />
         </div>
@@ -794,6 +798,7 @@
         @apply="effectsPresets.applyActive(); success('Effects preset applied')"
         @overwrite="effectsPresets.overwrite(); success('Effects preset saved')"
         @save-as="(n) => effectsPresets.saveAs(n).then(() => success('Effects preset saved'))"
+        @rename="(n) => effectsPresets.rename(n).then(() => success(`Renamed to ${n}`))"
         @delete="effectsPresets.remove(); success('Effects preset deleted')"
       />
 

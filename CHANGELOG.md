@@ -4,6 +4,30 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.284 — 2026-06-06
+
+### Added — Rename presets in place from the generator's preset picker
+Every generator that uses a preset picker (Ideas, Scripts, Scene Plan, Scene Review, Character Sheet, Video Assembly) now exposes a **Rename** button alongside the existing Apply / Save / Save as… / Delete buttons. Previously the only way to rename a preset was to leave the page you were working on, navigate to **Settings → Presets**, click the name inline to edit, then navigate back — pointless friction when you just want to fix a typo on the preset you're currently using.
+
+The Rename modal mirrors the Save-as modal's primitive (single input, ⌘/Ctrl+Enter to confirm, Escape to cancel) but pre-fills with the current name so you can edit rather than retype. The Rename button itself is disabled when no preset is active, and the Confirm button stays disabled until the trimmed input differs from the current name — a stray Enter can't no-op-fire.
+
+Only the label changes — the preset's stored settings, id, machine label, and active-pointer stay exactly the same. Other Macs viewing the project see the new name on their next load.
+
+**10 PresetPicker mount points now support Rename:**
+- Ideas preset
+- Scripts: Introduction preset
+- Scene Plan preset
+- Scene Review preset
+- Character Sheet: Style preset + Visual Recipe preset
+- Video Assembly: Intro + Timeline + Transition + Animation + Effects presets
+
+### Files
+- `frontend/composables/usePresets.ts` — new `rename(newName)` method on the composable: trims, no-ops on identical/empty, persists via the existing `PUT /settings/config` path (no new backend route required — preset names are mutable metadata in an array, same as the existing `overwrite()` shape)
+- `frontend/components/PresetPicker.vue` — new Rename button + dedicated rename Modal with pre-filled input, focus + select on open, disabled-while-unchanged confirm
+- `frontend/pages/projects/[slug]/{ideas,scripts,scene-plan,scene-review,character-sheet,video-assembly}.vue` — `@rename` handlers wired (inline for 5 pages, named `onRenameIntroPreset` on the scripts page mirroring its other handlers)
+
+---
+
 ## v1.0.283 — 2026-06-06
 
 ### Added — Co-writer goes multimodal + gains a reusable artifacts panel

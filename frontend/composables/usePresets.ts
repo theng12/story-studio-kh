@@ -299,6 +299,32 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     return p
   }
 
+  /**
+   * v1.0.284 — rename the currently-active preset in place. Same shape as
+   * overwrite/remove: operates on the active preset, no id argument needed.
+   * The new name is trimmed; an empty/whitespace-only string is a no-op so
+   * the rename modal can't accidentally blank the preset's label.
+   *
+   * The id is immutable — only the `name` metadata changes. Same persist
+   * path as every other mutation (PUT /settings/config with the full
+   * presets array), so cross-machine syncing and the active-id pointer
+   * stay correct without further plumbing.
+   *
+   * Originally requested when users found themselves rotating between the
+   * generator page (where the preset is in use) and the Presets management
+   * page (the only place rename existed) just to fix a typo in a preset name.
+   */
+  async function rename(newName: string) {
+    const trimmed = (newName || '').trim()
+    if (!trimmed) return null
+    const p = allPresets.value.find(x => x.id === activeId.value)
+    if (!p) return null
+    if (p.name === trimmed) return p   // no-op when the name didn't change
+    p.name = trimmed
+    await persist()
+    return p
+  }
+
   async function setActive(id: string) {
     activeId.value = id
     await persist()
@@ -307,7 +333,7 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   return {
     presets, activeId,
     load, persist,
-    applyActive, saveAs, overwrite, remove, setActive,
+    applyActive, saveAs, overwrite, remove, rename, setActive,
     // v1.0.93+ device-awareness surface. Pages pass these straight through
     // to PresetPicker (or render their own toggle); the composable owns
     // the filtering logic so every usePresets instance behaves identically.

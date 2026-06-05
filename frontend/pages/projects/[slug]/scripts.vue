@@ -169,6 +169,7 @@
             @apply="onApplyIntroPreset"
             @overwrite="onOverwriteIntroPreset"
             @save-as="onSaveAsIntroPreset"
+            @rename="onRenameIntroPreset"
             @delete="onDeleteIntroPreset"
           />
           <div class="grid-2">
@@ -2056,6 +2057,13 @@ async function onOverwriteIntroPreset() {
 async function onSaveAsIntroPreset(name: string) {
   await introPresets.saveAs(name)
   success(`Saved introduction preset "${name}"`)
+}
+// v1.0.284 — rename the active intro preset in place. The PresetPicker's
+// rename modal pre-validates that the new name differs from the current,
+// so this handler is a thin wrapper around the composable + a toast.
+async function onRenameIntroPreset(name: string) {
+  await introPresets.rename(name)
+  success(`Renamed introduction preset to "${name}"`)
 }
 async function onDeleteIntroPreset() {
   await introPresets.remove()
