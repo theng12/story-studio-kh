@@ -4,6 +4,29 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.287 — 2026-06-06
+
+### Fixed — Bulk Re-plan only processed the first scene (race condition in pollUntilPlanLanded)
+v1.0.286 shipped a "Re-plan all N empty" button that was supposed to walk every empty-prompt scene one at a time. In practice it only re-planned **one** scene — the rest of the iterations sailed through without queuing real backend jobs. The Job Queue would show a single `scene_plan_run` entry instead of N. Same symptom across all bulk runs.
+
+**Root cause:** the polling helper `pollUntilPlanLanded` checked "is `plan.generated_at` less than 120s old?" to decide a plan had landed. That works for a single re-plan, but the bulk loop calls it repeatedly back-to-back. On iteration 2, the PREVIOUS iteration's `generated_at` is still well under 120s old, so the polling helper returned **immediately** as a false positive — before the second iteration's backend job had even started running. The loop raced ahead, hit the next scene, POSTed it, got a `409 isDuplicate` (because the previous job was still in the queue), caught the error, marked the scene `[re-plan failed]` — but that marker lived only in memory and got wiped by the very next `loadStatus()` call. Net: one real re-plan, 76 silent races, zero output, no error toast loud enough to notice.
+
+### Fix
+
+- **`pollUntilPlanLanded` now accepts an optional `{ previousGeneratedAt }`.** When supplied, it waits for `generated_at` to CHANGE from the given value, not just to exist within a 120s window. The legacy any-recent behaviour is preserved for callers that don't opt in.
+- **The bulk loop now captures `plan.value.generated_at` BEFORE posting each re-plan**, so each iteration genuinely waits for its own job to finish.
+- **Failed-scene tracking moved from in-memory mutation to a `skipIds` Set**. The in-memory `next.visual_prompt = '[re-plan failed]'` trick was futile — `loadStatus()` fully replaces `plan.value` on every fetch, so the marker never survived. A client-side Set is stable across reloads and gets the same job done (loop never re-targets a scene the model has already failed on).
+- **Toast spam suppression** — after 3 individual failure toasts the loop shows one "suppressing further toasts" message and keeps the count for the final summary. Surviving the legit cases (model is bad) without burying the user.
+- **Better summary messages** — when bulk re-plan finishes with all failures and 0 successes, the toast now explicitly recommends switching to a stronger model (`qwen3-coder`, `claude-sonnet`, `gpt-4o`) rather than leaving the user guessing why nothing improved.
+
+### Files
+- `frontend/pages/projects/[slug]/scene-plan.vue` — `pollUntilPlanLanded` opt-in `previousGeneratedAt` param; bulk loop captures previous timestamp + uses skipIds Set + caps toast spam; smarter final summary based on success/fail mix
+
+### What was unaffected
+The single-scene "🪄 Re-plan" button always worked correctly — it only calls `pollUntilPlanLanded` once per click, so the false-positive never had a chance to fire. The bug was specific to back-to-back rapid calls in the bulk loop.
+
+---
+
 ## v1.0.286 — 2026-06-06
 
 ### Added — Scene Plan: "Re-plan all N empty" bulk button + Back-to-top floating button

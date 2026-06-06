@@ -750,16 +750,32 @@ async function planScenes(): Promise<void> {
   }
 }
 
-async function pollUntilPlanLanded(ep: string): Promise<void> {
+async function pollUntilPlanLanded(ep: string, opts?: { previousGeneratedAt?: string | null }): Promise<void> {
   const start = Date.now()
   const timeoutMs = 120_000
+  // v1.0.287 — `previousGeneratedAt` lets callers wait specifically for a
+  // NEW plan to land, not any-existing-recent plan. Bulk re-plan (v1.0.286)
+  // hit this: on iteration 2+, the previous replan's generated_at was still
+  // < 120s old, so the legacy "is generated_at recent?" check returned
+  // immediately — the second job hadn't even started running yet. The loop
+  // then raced ahead, hit isDuplicate 409s on every subsequent POST, and
+  // only ONE scene actually got re-planned out of (e.g.) 77 placeholders.
+  // Now: when previousGeneratedAt is supplied we keep polling until the
+  // server's generated_at differs from it. Legacy callers (no opts) keep
+  // the old "any-recent" behaviour for backwards compat.
+  const prev = opts?.previousGeneratedAt ?? null
   while (Date.now() - start < timeoutMs) {
     await new Promise(r => setTimeout(r, 3000))
     if (episodeId.value !== ep) return  // switched away — stop; the new episode's own load owns its state
     await loadStatus()
     if (plan.value && plan.value.generated_at) {
-      const generated = new Date(plan.value.generated_at).getTime()
-      if (Date.now() - generated < timeoutMs) return
+      if (prev !== null) {
+        // Wait specifically for generated_at to advance past `prev`.
+        if (plan.value.generated_at !== prev) return
+      } else {
+        const generated = new Date(plan.value.generated_at).getTime()
+        if (Date.now() - generated < timeoutMs) return
+      }
     }
   }
   if (episodeId.value === ep) showError('Scene planner taking longer than 120s — check the Jobs panel.')
@@ -864,13 +880,24 @@ async function replanAllEmpty(): Promise<void> {
   let safetyCap = 200
   let succeeded = 0
   let failed = 0
+  // v1.0.287 — tracks scene IDs we've already marked as "failed" so the
+  // .find() doesn't pick them up again after the marker gets wiped by the
+  // next loadStatus() (plan.value is fully replaced on each fetch, so
+  // in-memory mutations don't persist). Skip-set is the only reliable way
+  // to avoid retrying the same hopeless scene.
+  const skipIds = new Set<string>()
   while (safetyCap-- > 0 && !bulkReplan.value.cancelRequested) {
     if (episodeId.value !== ep) break // user switched episodes — stop
     const next = (plan.value?.scenes || []).find(
-      s => !s.visual_prompt || !s.visual_prompt.trim(),
+      s => !skipIds.has(s.id) && (!s.visual_prompt || !s.visual_prompt.trim()),
     )
     if (!next) break
     bulkReplan.value.currentSceneIndex = next.scene_index
+    // v1.0.287 — capture the plan's CURRENT generated_at BEFORE posting,
+    // so pollUntilPlanLanded waits specifically for THIS new re-plan to
+    // land (not the previous iteration's, which would still be < 120s old
+    // and falsely satisfy the legacy "any recent" check).
+    const previousGeneratedAt = plan.value?.generated_at || null
     try {
       await post(`/projects/${slug.value}/scene-plan/${ep}/replan-scene`, {
         scene_id: next.id,
@@ -880,27 +907,30 @@ async function replanAllEmpty(): Promise<void> {
         custom_instructions: form.value.custom_instructions.trim() || undefined,
         window_size: form.value.window_size === 'auto' ? undefined : form.value.window_size,
       })
-      await pollUntilPlanLanded(ep)
-      // Loop re-reads plan.value next iteration — if THIS scene now has a
-      // prompt, the .find() above won't return it again. If it's still
-      // empty (re-plan failed to produce a prompt too), the loop hits it
-      // again and we'd be stuck — bail to avoid an infinite re-plan storm
-      // on the same scene.
-      const stillEmpty = (plan.value?.scenes || []).some(s => s.id === next.id && (!s.visual_prompt || !s.visual_prompt.trim()))
-      if (stillEmpty) {
+      await pollUntilPlanLanded(ep, { previousGeneratedAt })
+      // After the splice, the original `next.id` is GONE from the plan (it
+      // got replaced by 1-N new scenes). If we can't find it anymore, the
+      // re-plan succeeded. If we CAN still find it AND it's still empty,
+      // the re-plan produced no prompts (model failure) — skip it forever.
+      const stillThereAndEmpty = (plan.value?.scenes || []).some(
+        s => s.id === next.id && (!s.visual_prompt || !s.visual_prompt.trim()),
+      )
+      if (stillThereAndEmpty) {
         failed++
-        // Move past this scene by writing a temporary marker so subsequent
-        // .find() calls skip it. The user can manually re-plan it later;
-        // we don't want to spam the LLM on a scene the model can't handle.
-        next.visual_prompt = '[re-plan failed — fill in manually]'
+        skipIds.add(next.id)
       } else {
         succeeded++
       }
     } catch (e: any) {
       failed++
-      showError(`Scene #${next.scene_index} re-plan failed: ${e?.data?.detail || e?.message || 'unknown'}`)
-      // Mark to avoid retrying the same scene forever
-      next.visual_prompt = '[re-plan failed — fill in manually]'
+      skipIds.add(next.id)
+      // Only show the first few errors — a 50-scene cascade of toasts is
+      // worse than a silent failure-counter in the progress strip.
+      if (failed <= 3) {
+        showError(`Scene #${next.scene_index} re-plan failed: ${e?.data?.detail || e?.message || 'unknown'}`)
+      } else if (failed === 4) {
+        showError(`Multiple re-plans failing — suppressing further toasts. See the final summary for counts.`)
+      }
     }
     bulkReplan.value.completed++
   }
@@ -908,9 +938,14 @@ async function replanAllEmpty(): Promise<void> {
   const wasCancelled = bulkReplan.value.cancelRequested
   bulkReplan.value = { active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false }
   if (wasCancelled) {
-    success(`Bulk re-plan cancelled. Re-planned ${succeeded}, ${failed} failed.`)
-  } else if (failed > 0) {
-    showError(`Bulk re-plan done. Succeeded: ${succeeded}. Failed: ${failed} (left as "[re-plan failed — fill in manually]").`)
+    success(`Bulk re-plan cancelled. Re-planned ${succeeded}, ${failed} skipped (model couldn't produce a prompt).`)
+  } else if (failed > 0 && succeeded > 0) {
+    // Partial success — common with smaller local models that succeed
+    // sporadically. Surface both numbers so the user knows their next move.
+    success(`Bulk re-plan finished. Succeeded: ${succeeded}. Skipped (model failure): ${failed}. Re-run the bulk button to retry the skipped ones, or fill them in manually.`)
+  } else if (failed > 0 && succeeded === 0) {
+    // The model literally can't do any of these — escalate.
+    showError(`Bulk re-plan finished with ${failed} failure${failed === 1 ? '' : 's'} and 0 successes. Your selected model can't produce valid prompts for these scenes. Try a stronger model (e.g. qwen3-coder, claude-sonnet, gpt-4o) or fill the prompts in by hand.`)
   } else {
     success(`Re-planned ${succeeded} placeholder scene${succeeded === 1 ? '' : 's'}.`)
   }
