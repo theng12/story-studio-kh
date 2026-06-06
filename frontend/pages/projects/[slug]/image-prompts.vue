@@ -13,12 +13,32 @@
       loading-label="Generating…"
       :generate-loading="generating"
       :generate-disabled="!form.episode_id || !scriptReady"
-      :generate-status="generating ? `Generating prompts for ${form.episode_id}…` : (form.episode_id && !scriptReady ? noScriptTooltip : '')"
+      :generate-status="generating ? `Generating prompts for ${form.episode_id}…` : scriptGateReason"
       @generate="generate"
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
       @preset-deleted="success('Preset deleted')"
     />
+
+    <!-- v1.0.296 — inline rescan-from-disk affordance, parity with audio.vue.
+         Surfaces only once we KNOW the script is missing (statusKnown && !scriptReady),
+         NOT during the loading window — so a script that's actually on disk but
+         cached stale gets a one-click re-check instead of a dead end. -->
+    <div v-if="form.episode_id && statusKnown && !scriptReady" class="rescan-hint mt-1">
+      <span class="text-muted text-xs">
+        No script detected for <strong>{{ form.episode_id }}</strong> —
+        if it's actually on disk (e.g. just generated, or delivered by iCloud), force a re-check:
+      </span>
+      <button
+        type="button"
+        class="btn btn-link btn-xs"
+        :disabled="rescanning"
+        title="Wipe this project's status cache and re-stat every episode folder. Fixes the case where a script on disk wasn't picked up by the cached status."
+        @click="onRescan"
+      >
+        {{ rescanning ? '↻ Rescanning…' : '↻ Rescan from disk' }}
+      </button>
+    </div>
 
     <p class="text-muted mt-1 mb-2">
       Image prompts are split into two pools — <strong>scenes</strong> (per-chapter visuals used in the final video)
@@ -351,7 +371,7 @@
         <button
           class="btn btn-sm btn-primary mt-2"
           :disabled="!form.episode_id || generating || !scriptReady"
-          :title="!scriptReady && form.episode_id ? noScriptTooltip : 'Only regenerates scene prompts — thumbnails on disk are left untouched.'"
+          :title="scriptGateReason || 'Only regenerates scene prompts — thumbnails on disk are left untouched.'"
           @click="generateScenes"
         >
           <LoadingSpinner v-if="generating" size="sm" />
@@ -487,7 +507,7 @@
             type="button"
             class="btn btn-secondary"
             :disabled="!form.episode_id || generating || !scriptReady"
-            :title="!scriptReady && form.episode_id ? noScriptTooltip : 'Randomize style + font, then generate thumbnails immediately.'"
+            :title="scriptGateReason || 'Randomize style + font, then generate thumbnails immediately.'"
             @click="surpriseMeThumb"
           >
             ✨ Surprise Me
@@ -497,7 +517,7 @@
         <button
           class="btn btn-sm btn-primary mt-2"
           :disabled="!form.episode_id || generating || !scriptReady"
-          :title="!scriptReady && form.episode_id ? noScriptTooltip : 'Only regenerates thumbnail prompts — scenes on disk are left untouched.'"
+          :title="scriptGateReason || 'Only regenerates thumbnail prompts — scenes on disk are left untouched.'"
           @click="generateThumbnails"
         >
           <LoadingSpinner v-if="generating" size="sm" />
@@ -711,7 +731,7 @@ useAppTitle('Image Prompts')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
-const { success, error: showError } = useToast()
+const { success, info: showInfo, error: showError } = useToast()
 
 const generating = ref(false)
 // Bumped after the bulk Generate completes so the per-prompt
@@ -1051,12 +1071,47 @@ async function surpriseMeThumb() {
 // Generate buttons below — image prompts read narration context from the
 // script docx, so generating without it would 500 on the backend. Refetch
 // when a script-only job lands so the gate enables itself live.
-const { selectedEpisode, scriptReady } = useEpisodeStatus(
+const { selectedEpisode, scriptReady, statusKnown, refetch: refetchEpisodeStatus } = useEpisodeStatus(
   computed(() => form.episode_id),
   slug,
   { refetchOnJobTypes: ['script-only'] },
 )
+// v1.0.296 — distinguish "still checking" from "confirmed no script". The
+// definitive message must only show once statusKnown is true; before that the
+// gate is locked but the copy says "Checking…" (see useEpisodeStatus header).
 const noScriptTooltip = 'Generate the script first to unlock this generator.'
+const checkingTooltip = 'Checking script status…'
+// The reason text the gated buttons show: nothing if ready, "checking" while
+// the status is still loading, the generate-first message once we KNOW it's
+// missing. Centralised so every gated button stays consistent.
+const scriptGateReason = computed(() => {
+  if (!form.episode_id || scriptReady.value) return ''
+  return statusKnown.value ? noScriptTooltip : checkingTooltip
+})
+
+// v1.0.296 — inline rescan-from-disk affordance, parity with audio.vue. Hits
+// /episodes?rescan=1 (wipes the project status cache + re-stats every folder),
+// then re-pulls this episode's status so the Generate buttons enable without
+// a page refresh. Covers the genuine stale-cache / iCloud-mtime case where the
+// script is on disk but the cached status says otherwise.
+const rescanning = ref(false)
+async function onRescan() {
+  if (rescanning.value || !form.episode_id) return
+  rescanning.value = true
+  try {
+    await get(`/projects/${slug.value}/episodes?rescan=1`)
+    await refetchEpisodeStatus()
+    if (scriptReady.value) {
+      success(`Script detected for ${form.episode_id} — you can generate prompts now.`)
+    } else {
+      showInfo(`Still no script for ${form.episode_id}. Generate it in the Scripts page first.`)
+    }
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Rescan failed')
+  } finally {
+    rescanning.value = false
+  }
+}
 
 // Authoritative chapter count for this episode comes from the chunked-progress
 // sidecar (set when outline_only / script-only built). The episode record's
@@ -1774,6 +1829,30 @@ async function saveToFile() {
 </script>
 
 <style scoped>
+/* v1.0.296 — inline rescan-from-disk hint (parity with audio.vue). */
+.rescan-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  font-size: 12px;
+}
+.rescan-hint .btn-link {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  text-decoration: none;
+}
+.rescan-hint .btn-link:hover { color: var(--accent-hover); text-decoration: underline; }
+.rescan-hint .btn-link:disabled { opacity: 0.6; cursor: not-allowed; }
+
 /* v1.0.201 — focused-view header (replaces the thumbnail/scene switcher). */
 .generator-mode-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .generator-mode-head strong { font-size: 15px; }

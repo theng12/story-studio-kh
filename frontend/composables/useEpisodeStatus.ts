@@ -18,13 +18,26 @@
  * the user having to re-pick the episode.
  *
  * Usage:
- *   const { selectedEpisode, scriptReady, refetch } = useEpisodeStatus(
+ *   const { selectedEpisode, scriptReady, statusKnown, refetch } = useEpisodeStatus(
  *     toRef(form, 'episode_id'),
  *     slug,
  *     { refetchOnJobTypes: ['script-only', 'introduction-only'] },
  *   )
  *
- *   <button :disabled="!scriptReady" :title="!scriptReady ? 'Generate the script first to unlock this generator.' : ''" />
+ *   <button :disabled="!scriptReady"
+ *           :title="!statusKnown ? 'Checking script status…'
+ *                   : !scriptReady ? 'Generate the script first to unlock this generator.' : ''" />
+ *
+ * IMPORTANT — `scriptReady` is false in TWO different situations the UI must
+ * NOT conflate: (a) status is loaded and the script is genuinely missing, and
+ * (b) status hasn't loaded yet (mount, episode just changed, or a transient
+ * `/episodes` error). Showing the definitive "Generate the script first"
+ * message during (b) is the v1.0.296-fixed bug: a heavy /episodes response on
+ * a large project (150+ episodes) left the gate flashing the alarming copy for
+ * seconds even though the script was on disk. Gate the COPY on `statusKnown`:
+ * only assert "no script" once `statusKnown` is true. Keep gating the button
+ * disabled on `!scriptReady` (we can't generate without a confirmed script),
+ * but say "Checking…" until we actually know.
  */
 
 import { ref, computed, watch, type Ref } from 'vue'
@@ -52,6 +65,15 @@ export function useEpisodeStatus(
   const { error: showError, humanizeError } = useToast()
   const selectedEpisode = ref<any>(null)
 
+  // `statusKnown` = "we have a confirmed status for the CURRENTLY-selected
+  // episode id". It starts false, flips true once a refetch successfully
+  // resolves the selected episode, and resets to false the instant the id
+  // changes (so the gate shows "Checking…" for the new episode rather than
+  // briefly asserting the previous episode's answer). It also stays false
+  // after a transient fetch error that we couldn't recover from — better to
+  // say "checking" than to falsely claim "no script". See the header note.
+  const statusKnown = ref(false)
+
   // Convenience: the most-asked-about flag is "does the script exist?",
   // because that's the universal upstream dependency. Other consumers
   // can read selectedEpisode.value?.status?.<field> directly.
@@ -76,21 +98,56 @@ export function useEpisodeStatus(
   async function refetch(quiet = false) {
     if (!episodeIdRef.value) {
       selectedEpisode.value = null
+      statusKnown.value = false
       return
     }
     const code = episodeIdRef.value
-    try {
-      const list = await get<any[]>(
-        `/projects/${slugRef.value}/episodes?invalidate=${encodeURIComponent(code)}`,
-      )
-      const fresh = (list || []).find(e => e.episode_code === code)
-      // Keep the previous episode rather than blanking on transient errors —
-      // the user shouldn't see the gating flash open mid-edit.
-      if (fresh) selectedEpisode.value = fresh
-    } catch (e: any) {
-      if (!quiet) {
-        const raw = e?.data?.detail || e?.message || 'Failed to load episode status'
-        showError(`Couldn't refresh episode "${code}": ${humanizeError(raw)}`)
+    // A change of episode means the previous episode's status no longer
+    // describes what's selected — drop to "unknown" so the gate shows
+    // "Checking…" rather than the old episode's (or null's) answer.
+    if (selectedEpisode.value?.episode_code !== code) {
+      statusKnown.value = false
+    }
+
+    // Bounded retry: the /episodes response is heavy on large projects and an
+    // occasional blip (iCloud stat churn, a busy event loop) shouldn't strand
+    // the gate in a state the user reads as "no script". Two quick retries
+    // with backoff, then give up and surface the error (non-quiet path only).
+    const maxAttempts = 3
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const list = await get<any[]>(
+          `/projects/${slugRef.value}/episodes?invalidate=${encodeURIComponent(code)}`,
+        )
+        // Race guard: if the user switched episodes while this request was in
+        // flight, discard the stale result — applying it would show episode
+        // A's status under episode B's selection.
+        if (episodeIdRef.value !== code) return
+        const fresh = (list || []).find(e => e.episode_code === code)
+        if (fresh) {
+          selectedEpisode.value = fresh
+          statusKnown.value = true   // confirmed: we now know this episode's status
+        } else {
+          // Fetch succeeded but the episode isn't in the list (not yet
+          // accepted, mid-rename, etc.). We can't assert "no script" from
+          // that — leave statusKnown false so the gate stays "Checking…"
+          // instead of flipping to the alarming definitive message.
+          statusKnown.value = false
+        }
+        return
+      } catch (e: any) {
+        if (episodeIdRef.value !== code) return  // superseded; stop retrying
+        if (attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, attempt * 400))
+          continue
+        }
+        // Exhausted retries. Keep the previous episode object (avoid blanking
+        // mid-edit) but leave statusKnown as-is: if we never knew, the gate
+        // stays "Checking…"; if we knew before, the last-known status holds.
+        if (!quiet) {
+          const raw = e?.data?.detail || e?.message || 'Failed to load episode status'
+          showError(`Couldn't refresh episode "${code}": ${humanizeError(raw)}`)
+        }
       }
     }
   }
@@ -128,5 +185,5 @@ export function useEpisodeStatus(
     })
   }
 
-  return { selectedEpisode, scriptReady, refetch }
+  return { selectedEpisode, scriptReady, statusKnown, refetch }
 }

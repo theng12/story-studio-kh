@@ -36,7 +36,7 @@
       loading-label="Queuing…"
       :generate-loading="submitting"
       :generate-disabled="!canSubmit"
-      :generate-status="videoJobActiveForEpisode ? `Generating video for ${episodeId}…` : ''"
+      :generate-status="videoJobActiveForEpisode ? `Generating video for ${episodeId}…` : scriptGateReason"
       @generate="submitVideo"
       @episode-selected="onEpisodeSelected"
       @preset-applied="success('Preset applied')"
@@ -416,10 +416,15 @@ watch(() => episodeId.value, loadSceneImages, { immediate: true })
 // for narrative context) AND can pull narration text directly when prompt
 // generation is run. Either way the script docx is the upstream
 // dependency, so source-of-truth gate via episode.status.script.
-const { selectedEpisode, scriptReady } = useEpisodeStatus(episodeId, slug, {
+const { selectedEpisode, scriptReady, statusKnown } = useEpisodeStatus(episodeId, slug, {
   refetchOnJobTypes: ['script-only'],
 })
 const noScriptTooltip = 'Generate the script first to unlock this generator.'
+// v1.0.296 — gate copy distinguishes "still checking" from "confirmed missing".
+const scriptGateReason = computed(() => {
+  if (!episodeId.value || scriptReady.value) return ''
+  return statusKnown.value ? noScriptTooltip : 'Checking script status…'
+})
 
 const canSubmit = computed(() => {
   if (!episodeId.value) return false

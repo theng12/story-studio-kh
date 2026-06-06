@@ -16,7 +16,7 @@
       loading-label="Queuing…"
       :generate-loading="submitting"
       :generate-disabled="!form.episode_id || !scriptReady || !form.voice"
-      :generate-status="audioJobActiveForEpisode ? `Generating audio for ${form.episode_id}…` : (form.episode_id && !scriptReady ? noScriptTooltip : (!form.voice ? 'Pick a voice first — there is no default.' : ''))"
+      :generate-status="audioJobActiveForEpisode ? `Generating audio for ${form.episode_id}…` : (scriptGateReason || (!form.voice ? 'Pick a voice first — there is no default.' : ''))"
       @generate="submit"
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
@@ -28,7 +28,7 @@
          which happens after iCloud delivers the script docx without the
          parent folder's mtime bumping (cache stays stale). One click fires
          a full project rescan and re-fetches the episode's status. -->
-    <div v-if="form.episode_id && !scriptReady" class="rescan-hint mt-1">
+    <div v-if="form.episode_id && statusKnown && !scriptReady" class="rescan-hint mt-1">
       <span class="text-muted text-xs">
         No script detected for <strong>{{ form.episode_id }}</strong> —
         if it's actually on disk (e.g. just delivered by iCloud), force a re-check:
@@ -425,11 +425,16 @@ watch(() => form.episode_id, (newEp, oldEp) => {
 // episode.status.script (refetched whenever a script-only job finishes).
 // v1.0.78 — pull `refetch` too so the inline "Rescan from disk" handler
 // can re-pull the episode's status after wiping the project cache.
-const { scriptReady, refetch: refetchEpisodeStatus } = useEpisodeStatus(
+const { scriptReady, statusKnown, refetch: refetchEpisodeStatus } = useEpisodeStatus(
   computed(() => form.episode_id),
   slug,
   { refetchOnJobTypes: ['script-only'] },
 )
+// v1.0.296 — gate copy distinguishes "still checking" from "confirmed missing".
+const scriptGateReason = computed(() => {
+  if (!form.episode_id || scriptReady.value) return ''
+  return statusKnown.value ? noScriptTooltip : 'Checking script status…'
+})
 
 // v1.0.78 — inline rescan-from-disk affordance. Hits the existing
 // /episodes?rescan=1 server-side path which calls

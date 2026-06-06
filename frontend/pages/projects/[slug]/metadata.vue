@@ -13,7 +13,7 @@
       loading-label="Generating…"
       :generate-loading="metadataJobActiveForEpisode"
       :generate-disabled="!episodeId || !scriptReady"
-      :generate-status="metadataJobActiveForEpisode ? `Generating metadata for ${episodeId}…` : (episodeId && !scriptReady ? noScriptTooltip : '')"
+      :generate-status="metadataJobActiveForEpisode ? `Generating metadata for ${episodeId}…` : scriptGateReason"
       @generate="generateAll"
       @episode-selected="onEpisodeSelected"
       @preset-applied="success('Preset applied')"
@@ -220,7 +220,7 @@
       <button
         class="btn btn-sm btn-primary mt-2"
         :disabled="!episodeId || genTitles || genAll || !scriptReady"
-        :title="!scriptReady && episodeId ? noScriptTooltip : 'Generate only the SEO title options — description and tags stay untouched.'"
+        :title="scriptGateReason || 'Generate only the SEO title options — description and tags stay untouched.'"
         @click="generateTitles"
       >
         <LoadingSpinner v-if="genTitles" size="sm" />
@@ -519,7 +519,7 @@
         <button
           class="btn btn-sm btn-primary"
           :disabled="!episodeId || genDesc || genAll || !scriptReady"
-          :title="!scriptReady && episodeId ? noScriptTooltip : 'Generate only the description — titles and tags stay untouched.'"
+          :title="scriptGateReason || 'Generate only the description — titles and tags stay untouched.'"
           @click="generateDescription"
         >
           <LoadingSpinner v-if="genDesc" size="sm" />
@@ -541,7 +541,7 @@
       <button
         class="btn btn-sm btn-primary mt-2"
         :disabled="!episodeId || genTags || genAll || !scriptReady"
-        :title="!scriptReady && episodeId ? noScriptTooltip : 'Generate only YouTube tags — titles and description stay untouched.'"
+        :title="scriptGateReason || 'Generate only YouTube tags — titles and description stay untouched.'"
         @click="generateTags"
       >
         <LoadingSpinner v-if="genTags" size="sm" />
@@ -656,10 +656,15 @@ const META_ADV_KEY = `metadata_advanced_open_${slug.value}`
 // we disable the buttons until episode.status.script flips true. Refetches
 // when a script-only job lands so the page enables itself live without a
 // reload.
-const { selectedEpisode, scriptReady } = useEpisodeStatus(episodeId, slug, {
+const { selectedEpisode, scriptReady, statusKnown } = useEpisodeStatus(episodeId, slug, {
   refetchOnJobTypes: ['script-only'],
 })
 const noScriptTooltip = 'Generate the script first to unlock this generator.'
+// v1.0.296 — gate copy distinguishes "still checking" from "confirmed missing".
+const scriptGateReason = computed(() => {
+  if (!episodeId.value || scriptReady.value) return ''
+  return statusKnown.value ? noScriptTooltip : 'Checking script status…'
+})
 
 // Generating flags (independent per section)
 const genTitles = ref(false)
