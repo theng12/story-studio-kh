@@ -95,6 +95,29 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
     const { DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
     apiKey = vsFirst(await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
   } else {
+    // (other providers handled below)
+  }
+  // v1.0.293 — for pooled clone voices the picker stores `vsname:<name>`
+  // instead of a raw UUID. Resolve the name to whichever endpoint has it,
+  // and pin the preview to that endpoint + use its UUID. We override the
+  // resolved apiKey + voice_id here so the rest of the function below
+  // works unchanged.
+  let resolvedVoiceId: string | undefined = typeof voice_id === 'string' ? voice_id : undefined
+  if (providerId === 'voicestudio' && resolvedVoiceId && resolvedVoiceId.startsWith('vsname:')) {
+    const name = resolvedVoiceId.slice('vsname:'.length)
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const { resolveVoicePool, pickEndpointForVoice } = await import('../services/voicestudio-voice-pool.js')
+    const pool = await resolveVoicePool(await getApiKey('voicestudio'))
+    const picked = pickEndpointForVoice(pool, name, apiKey)
+    if (!picked) {
+      return res.status(400).json({
+        detail: `Voice "${name}" not found on any reachable Voice Studio endpoint. Save it in Voice Studio → Voices and retry.`,
+      })
+    }
+    apiKey = picked.endpoint
+    resolvedVoiceId = picked.voiceId
+  }
+  if (providerId !== 'voicestudio') {
     apiKey = providerId === 'elevenlabs' ? ((config as any).elevenlabs_api_key || '')
       : providerId === 'genaipro' ? ((config as any).genaipro_api_key || '')
       : (config.fal_api_key || '')
@@ -122,7 +145,7 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
         text: sample,
         apiKey,
         modelId: model || 'voicestudio-voxcpm-mlx',
-        voiceId: voice_id || undefined,
+        voiceId: resolvedVoiceId || undefined,
         speed, stability, similarity,
       })
       const filePath = result.audioUrl.startsWith('file://')
@@ -138,7 +161,10 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
       // Direct API returns MP3 bytes inline — we can't get a hosted URL for
       // them, so encode as a data: URL the browser can play directly.
       const buf = await generateTtsBuffer(sample, apiKey, {
-        model, voiceId: voice_id || undefined, speed, stability, similarity,
+        model, voiceId: resolvedVoiceId || undefined, speed, stability, similarity,
+        // Note: ElevenLabs ignores the vsname: prefix because resolvedVoiceId
+        // only gets the prefix-strip treatment when providerId==='voicestudio'.
+        // For ElevenLabs voice_id is the raw catalogue id, unchanged.
       })
       const dataUrl = `data:audio/mpeg;base64,${buf.toString('base64')}`
       return res.json({ audio_url: dataUrl })
@@ -151,7 +177,7 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
       text: sample,
       apiKey,
       modelId: model || defaultModel,
-      voiceId: voice_id || undefined,
+      voiceId: resolvedVoiceId || undefined,
       speed, stability, similarity,
     })
     res.json({ audio_url: result.audioUrl })
@@ -463,21 +489,65 @@ router.post('/voicestudio/test', async (req, res) => {
 router.get('/voicestudio/voices', async (req, res) => {
   try {
     const {
-      listVoices, listPresetVoices, familyShipsVoicepack,
+      listPresetVoices, familyShipsVoicepack,
       familyForModelId, DEFAULT_VOICESTUDIO_BASE_URL,
     } = await import('../lib/voicestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
-    const baseUrl = vsFirst(await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+    const { resolveVoicePool } = await import('../services/voicestudio-voice-pool.js')
+    const stored = await getApiKey('voicestudio')
+    const baseUrl = vsFirst(stored) || DEFAULT_VOICESTUDIO_BASE_URL
     if (!baseUrl) { res.json({ voices: [], baseUrl: '', source: 'library' }); return }
     const modelId = typeof req.query.model === 'string' ? req.query.model : ''
     const family = familyForModelId(modelId)
+    // Voicepack engines (Kokoro / Qwen3 / Bark) ship preset speakers built
+    // into the model itself — they're identical across every Voice Studio
+    // instance. No pool resolution needed; one endpoint's preset list IS
+    // the authoritative answer.
     if (family && familyShipsVoicepack(family)) {
       const voices = await listPresetVoices(baseUrl, family)
       res.json({ voices, baseUrl, source: 'voicepack' })
       return
     }
-    const voices = await listVoices(baseUrl)
-    res.json({ voices, baseUrl, source: 'library' })
+    // v1.0.293 — Clone-engine voices (VoxCPM2 / Chatterbox) are user-
+    // uploaded references and live in each Voice Studio instance's
+    // independent library. Query ALL configured endpoints and aggregate
+    // so the picker can show one row per voice NAME with an availability
+    // badge (✓ on every Mac / ⚠ only on m1 — will run serially). The
+    // dispatcher reads the same pool to resolve names to per-endpoint
+    // UUIDs at TTS time.
+    const pool = await resolveVoicePool(stored)
+    // Massage into the existing picker shape with extra availability
+    // fields. `id` is now the NAME (the picker stores `vsname:<name>`
+    // in form.voice instead of a raw UUID) — see voicestudio-voice-pool
+    // module header for the rationale.
+    const voices = pool.voices.map(v => ({
+      id: v.name,                              // picker stores this; resolver re-maps to UUIDs per endpoint
+      name: v.name,
+      language: v.sample.language,
+      gender: v.sample.gender,
+      duration_seconds: v.sample.duration_seconds,
+      has_transcript: v.sample.has_transcript,
+      audio_url: v.sample.audio_url,
+      // v1.0.293 — multi-endpoint availability metadata. Picker uses these
+      // to render badges; legacy callers ignore them safely.
+      available_on: v.availableOn,
+      available_everywhere: v.availableEverywhere,
+      endpoint_count: pool.reachableEndpoints.length,
+      // Schema marker so the picker can detect "this is a pooled voice,
+      // store the name with the vsname: prefix" vs. the old "store the
+      // raw id directly" behaviour.
+      voice_kind: 'voicestudio-pooled' as const,
+    }))
+    res.json({
+      voices,
+      baseUrl,
+      source: 'library',
+      pool: {
+        endpoints: pool.endpoints,
+        reachable: pool.reachableEndpoints,
+        unreachable: pool.unreachableEndpoints,
+      },
+    })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load Voice Studio voice library'))
   }

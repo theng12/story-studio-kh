@@ -151,21 +151,44 @@
             v-for="v in filteredVoicestudioVoices"
             :key="'vs-' + v.id"
             class="vp-row"
-            :class="{ selected: modelValue === v.id }"
+            :class="{ selected: isSelectedVoicestudio(v) }"
           >
             <button type="button" class="vp-star" :class="{ favourited: isFavourite(v.id) }" @click.stop="toggleFavourite(v.id)" :title="isFavourite(v.id) ? 'Unfavourite' : 'Favourite this voice'">
               {{ isFavourite(v.id) ? '★' : '☆' }}
             </button>
-            <button type="button" class="vp-select" @click="select(v.id)">
+            <button type="button" class="vp-select" @click="selectVoicestudio(v)">
               <span class="vp-row-name">{{ v.name }}</span>
               <span class="vp-row-meta">
                 <span class="vp-chip vp-vs-chip">{{ scope === 'voicestudio-voicepack' ? 'built-in' : 'local clone' }}</span>
                 <span v-if="v.gender && v.gender !== 'unknown'" class="vp-chip">{{ v.gender }}</span>
                 <span v-if="v.language && v.language !== 'en'" class="vp-chip subtle">{{ v.language }}</span>
                 <span v-if="typeof v.duration_seconds === 'number'" class="vp-chip subtle">{{ Math.round(v.duration_seconds) }}s ref</span>
+                <!-- v1.0.293 — pool availability badge for clone voices.
+                     Shows ✓ on every Mac, or ⚠ when only on a subset (will
+                     run serially on those Macs only). Voicepack voices
+                     (kokoro/qwen3/bark) skip this — they're built into the
+                     model so identical across every Mac by definition. -->
+                <span
+                  v-if="v.voice_kind === 'voicestudio-pooled' && typeof v.endpoint_count === 'number' && v.endpoint_count > 0"
+                  class="vp-chip"
+                  :class="v.available_everywhere ? 'vp-chip-pool-ok' : 'vp-chip-pool-partial'"
+                  :title="v.available_everywhere
+                    ? `Available on all ${v.endpoint_count} Voice Studio endpoint(s) — will dispatch in parallel.`
+                    : `Available on ${(v.available_on || []).length} of ${v.endpoint_count} endpoint(s). Audio will route only to: ${(v.available_on || []).join(', ')}. Save this voice in Voice Studio on the other Mac(s) for full parallel speed.`"
+                >
+                  {{ v.available_everywhere
+                    ? `✓ on all ${v.endpoint_count}`
+                    : `⚠ ${(v.available_on || []).length} / ${v.endpoint_count} — serial` }}
+                </span>
               </span>
             </button>
-            <button type="button" class="vp-preview" title="Preview voice" @click.stop="$emit('preview', v.id)" aria-label="Preview">▶</button>
+            <button
+              type="button"
+              class="vp-preview"
+              title="Preview voice"
+              @click.stop="$emit('preview', encodeVoiceForStorage(v) || v.id)"
+              aria-label="Preview"
+            >▶</button>
           </div>
         </div>
 
@@ -303,6 +326,19 @@ interface VoiceStudioVoice {
   duration_seconds?: number
   has_transcript?: boolean
   created_at?: number
+  /**
+   * v1.0.293 — clone-engine voices (VoxCPM2 / Chatterbox) live in a
+   * per-Mac library with different UUIDs on each machine. The backend
+   * pool resolver aggregates them by name and reports which endpoints
+   * each voice exists on so the picker can show availability badges.
+   * The `id` field on a `voicestudio-pooled` voice is the NAME (not a
+   * UUID) — selecting it stores `vsname:<name>` in form.voice so the
+   * audio dispatcher knows to resolve per-endpoint UUIDs at call time.
+   */
+  available_on?: string[]
+  available_everywhere?: boolean
+  endpoint_count?: number
+  voice_kind?: 'voicestudio-pooled'
 }
 
 const props = withDefaults(defineProps<{
@@ -715,9 +751,44 @@ function clearIncompatible() {
 }
 
 // ── Actions ─────────────────────────────────────────────────────────────
+// v1.0.293 — Voice Studio cloning voices live in per-Mac libraries with
+// different UUIDs on each machine. The pool resolver aggregates them by
+// name, and we store `vsname:<name>` in form.voice so the audio dispatcher
+// can resolve to the right per-endpoint UUID at TTS call time. Voicepack
+// voices (Kokoro/Qwen3/Bark) are model-built-in presets — same id on every
+// machine — so they pass through unchanged.
+const VSNAME_PREFIX = 'vsname:'
+function encodeVoiceForStorage(v: VoiceStudioVoice | { id: string } | null): string | null {
+  if (!v) return null
+  if ((v as VoiceStudioVoice).voice_kind === 'voicestudio-pooled') {
+    // Pooled clone voice — store the NAME with prefix
+    return `${VSNAME_PREFIX}${(v as VoiceStudioVoice).name}`
+  }
+  return v.id
+}
+
 function select(voiceId: string | null) {
   emit('update:modelValue', voiceId)
   expanded.value = false
+}
+
+function selectVoicestudio(v: VoiceStudioVoice) {
+  emit('update:modelValue', encodeVoiceForStorage(v))
+  expanded.value = false
+}
+
+/**
+ * Selected-state matcher for the picker rows. The stored `modelValue` is
+ * either a raw id (legacy UUID, preset id, voicepack id) OR `vsname:<name>`
+ * for the new pooled voices. This helper resolves both formats so the
+ * "currently selected" row highlights correctly.
+ */
+function isSelectedVoicestudio(v: VoiceStudioVoice): boolean {
+  if (!props.modelValue) return false
+  if (v.voice_kind === 'voicestudio-pooled') {
+    return props.modelValue === `${VSNAME_PREFIX}${v.name}`
+  }
+  return props.modelValue === v.id
 }
 
 async function toggleFavourite(voiceId: string) {
@@ -908,6 +979,13 @@ watch(() => [props.audioModelId, props.audioModelProvider], () => {
 .vp-chip { padding: 1px 6px; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-secondary); text-transform: lowercase; }
 .vp-chip.subtle { background: transparent; border: 1px solid var(--border); }
 .vp-chip.warn { background: rgba(245,158,11,0.15); color: rgb(180,83,9); text-transform: none; }
+/* v1.0.293 — multi-endpoint availability badges for pooled clone voices.
+   Green = available on every reachable Voice Studio endpoint (full parallel
+   dispatch). Amber = available on a subset (chunks will route only to those
+   endpoints — serial when there's only one). The text-transform: none keeps
+   the count "2 / 3" readable; the rest of .vp-chip lowercases prose tags. */
+.vp-chip-pool-ok { background: rgba(34,197,94,0.15); color: rgb(22,163,74); text-transform: none; }
+.vp-chip-pool-partial { background: rgba(245,158,11,0.15); color: rgb(180,83,9); text-transform: none; }
 
 .vp-preview {
   background: none; border: 1px solid var(--border);

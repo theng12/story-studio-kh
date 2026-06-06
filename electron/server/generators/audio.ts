@@ -559,6 +559,70 @@ export async function generateAudio(job: Job): Promise<void> {
   const baseAudioConcurrency = Math.max(1, Math.min(15, rawConcurrency || 3))
   const isLocalAudioProvider = providerId === 'voicestudio'
 
+  // v1.0.293 — Voice Studio voice-pool resolution. Each Voice Studio
+  // instance has its OWN voice library with locally-unique UUIDs, so a
+  // voice saved on m1 isn't directly addressable on m4. The picker now
+  // stores voices by NAME (`vsname:Vincent`) and this module maps the
+  // name to the right UUID for each endpoint we dispatch to. Legacy
+  // projects with raw UUIDs in form.voice fall back to single-endpoint
+  // pinning (see the comment below).
+  let voicePool: import('../services/voicestudio-voice-pool.js').VoicePoolResult | null = null
+  let voiceFilteredEndpoints: string[] | null = null
+  let voiceJobName: string | null = null   // for per-chunk lookup in the lambda
+  if (isLocalAudioProvider && req.voice) {
+    const { resolveVoicePool, parseVoiceName } = await import('../services/voicestudio-voice-pool.js')
+    voicePool = await resolveVoicePool(apiKey)
+    voiceJobName = parseVoiceName(req.voice)
+    if (voiceJobName) {
+      // Name-keyed voice — filter the dispatcher to endpoints that have it.
+      const v = voicePool.voicesByName[voiceJobName]
+      if (!v) {
+        const reachable = voicePool.reachableEndpoints.length
+        const total = voicePool.endpoints.length
+        const hint = reachable < total
+          ? `(${reachable}/${total} endpoints responded; some may be offline)`
+          : `(${reachable} endpoint(s) queried)`
+        throw new Error(
+          `Voice "${voiceJobName}" not found in Voice Studio's voice library on any reachable endpoint ${hint}. `
+          + `Save it via Voice Studio → Voices on at least one Mac, then retry. `
+          + `For full parallel speed across your pool, save the same reference clip under the same name on every Mac.`,
+        )
+      }
+      voiceFilteredEndpoints = [...v.availableOn]
+      job.output_lines.push(
+        `Voice "${voiceJobName}" found on ${v.availableOn.length}/${voicePool.reachableEndpoints.length} endpoint(s).`
+        + (v.availableOn.length < voicePool.reachableEndpoints.length
+          ? ` Other endpoint(s) will be skipped for THIS job — save the voice there too for full parallel speed.`
+          : ''),
+      )
+    } else {
+      // Legacy UUID — find which endpoint has this UUID and pin to it.
+      // This keeps pre-v1.0.293 projects working without re-selecting the
+      // voice, at the cost of losing parallel dispatch (only one endpoint
+      // has this UUID, so we can only run on one Mac). The user can re-
+      // select the voice from the picker to upgrade to name-keyed.
+      const rawId = req.voice
+      let matchEndpoint: string | undefined
+      let matchName: string | undefined
+      outer: for (const v of Object.values(voicePool.voicesByName)) {
+        for (const [ep, id] of Object.entries(v.idByEndpoint)) {
+          if (id === rawId) { matchEndpoint = ep; matchName = v.name; break outer }
+        }
+      }
+      if (matchEndpoint && matchName) {
+        voiceFilteredEndpoints = [matchEndpoint]
+        job.output_lines.push(
+          `Legacy voice UUID "${rawId}" matches "${matchName}" on ${matchEndpoint} — pinning chunks here. `
+          + `Re-select this voice from the picker to enable name-keyed multi-endpoint dispatch.`,
+        )
+      }
+      // If no endpoint has this UUID at all, leave voiceFilteredEndpoints
+      // null → falls through to the unfiltered pool, and the eventual
+      // TTS call will fail with Voice Studio's own "voice not found"
+      // error. That's the right place to surface it — we don't pre-empt.
+    }
+  }
+
   // v1.0.255 — Voice Studio multi-endpoint pool (run TTS across several Macs).
   // A single MLX modal serialises submits, so local concurrency was clamped to
   // 1. With multiple endpoints we parallelise ACROSS Macs (one chunk per Mac),
@@ -570,13 +634,29 @@ export async function generateAudio(job: Job): Promise<void> {
     if (eps.length > 1) {
       const { health: voiceHealth } = await import('../lib/voicestudio-client.js')
       const { healthy, offline } = await healthyEndpoints(eps, async (u) => (await voiceHealth(u)).ok)
-      const usable = healthy.length ? healthy : eps
+      let usable = healthy.length ? healthy : eps
+      // v1.0.293 — further filter to endpoints that actually have the
+      // requested voice. Computed above when the voice is name-keyed
+      // or matches a known legacy UUID. Null = no voice-aware filter
+      // (cloud, or no voice selected, or unknown UUID).
+      if (voiceFilteredEndpoints && voiceFilteredEndpoints.length > 0) {
+        const filtered = usable.filter(u => voiceFilteredEndpoints!.includes(u))
+        if (filtered.length > 0) {
+          usable = filtered
+        }
+        // If filter wiped out usable, fall back to unfiltered (voice exists
+        // somewhere we couldn't health-check). The per-chunk lambda's
+        // resolver will still pick the right endpoint via pickEndpointForVoice.
+      }
       audioDispatcher = createDispatcher(usable)
       voicePoolSize = usable.length
+      const filterNote = voiceFilteredEndpoints && voiceFilteredEndpoints.length < eps.length
+        ? ` (filtered by voice availability — ${voiceFilteredEndpoints.length} endpoint(s) have the selected voice)`
+        : ''
       job.output_lines.push(
         `Voice Studio pool: ${healthy.length}/${eps.length} online` +
         (offline.length ? ` (offline: ${offline.join(', ')})` : '') +
-        ` — distributing least-busy across ${usable.length} endpoint(s).`,
+        ` — distributing least-busy across ${usable.length} endpoint(s)${filterNote}.`,
       )
     }
   }
@@ -642,22 +722,48 @@ export async function generateAudio(job: Job): Promise<void> {
       } else if (providerId === 'voicestudio') {
         // v1.0.149+ — Voice Studio KH writes the WAV straight to the
         // output path via its async job pipeline (POST → poll → download).
-        // The "apiKey" we resolved is the modal's base URL. `voiceId`
-        // (when set) maps to `voice_library_id` for zero-shot cloning
-        // against one of the user's saved reference clips.
-        // v1.0.255 — route this chunk to a least-busy healthy endpoint (the
-        // picked URL is both the base URL arg and the request.apiKey).
-        await runOnPool(audioDispatcher, apiKey, (ep) => generateTtsVoiceStudio(ep, task.outputPath, {
-          text: task.chunkText,
-          apiKey: ep, // ignored by the helper but required by the AudioGenerationRequest type
-          modelId: req.model,
-          voiceId: effectiveVoice,
-          speed: req.speed,
-        }, {
-          signal: controller.signal,
-          isCancelled,
-          onProgress: makeChunkCb(),
-        }))
+        // v1.0.255 — multi-endpoint pool: dispatch to a least-busy healthy mac.
+        // v1.0.293 — voice-name resolution: if `effectiveVoice` is in the
+        // `vsname:<name>` format (the new picker convention), resolve it
+        // to the per-endpoint UUID at call time. Per-task character-routed
+        // voice overrides go through the same path. Raw UUIDs (legacy
+        // projects) pass through unchanged — pre-filtered above to the
+        // single endpoint that has them.
+        await runOnPool(audioDispatcher, apiKey, async (ep) => {
+          let voiceIdForCall: string | undefined = effectiveVoice
+          if (effectiveVoice && voicePool) {
+            const { parseVoiceName, pickEndpointForVoice } = await import('../services/voicestudio-voice-pool.js')
+            const name = parseVoiceName(effectiveVoice)
+            if (name) {
+              const picked = pickEndpointForVoice(voicePool, name, ep)
+              if (!picked) {
+                throw new Error(
+                  `Voice "${name}" not found in Voice Studio library on any reachable endpoint. `
+                  + `Save it via Voice Studio → Voices and retry.`,
+                )
+              }
+              voiceIdForCall = picked.voiceId
+              if (picked.endpoint !== ep) {
+                // Dispatcher picked an endpoint that lacks this character-
+                // voice; route this single chunk to the endpoint that has
+                // it. The dispatcher's busy-counter is slightly off for
+                // this chunk, but it self-corrects on the next call.
+                ep = picked.endpoint
+              }
+            }
+          }
+          return generateTtsVoiceStudio(ep, task.outputPath, {
+            text: task.chunkText,
+            apiKey: ep, // ignored by the helper but required by the AudioGenerationRequest type
+            modelId: req.model,
+            voiceId: voiceIdForCall,
+            speed: req.speed,
+          }, {
+            signal: controller.signal,
+            isCancelled,
+            onProgress: makeChunkCb(),
+          })
+        })
       } else {
         const chunkFilename = path.basename(task.outputPath)
         // User-configurable TTS timeout (minutes → ms). Undefined means use

@@ -4,6 +4,71 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.293 — 2026-06-07
+
+### Added — Name-keyed Voice Studio voice resolution for multi-endpoint clone dispatch
+Voice cloning across multiple Voice Studio Macs was broken. The error:
+
+```
+ValueError: Voice 7626576fe87f not found in library
+```
+
+Root cause: each Voice Studio instance maintains its OWN voice library with locally-unique UUIDs. When you saved "Vincent" on mac-m1 it got UUID `7626576fe87f`. The picker fetched voices from m1 (first endpoint only) and stored that UUID in `form.voice`. The audio dispatcher then round-robined chunks across m1 + m4 — m1 succeeded, m4 failed because its library has Vincent under a totally different UUID. 4 of 5 chunks bricked the job.
+
+Voice Studio's API is **read-only** for voices — no upload, no sync — so we can't make the libraries identical from this side. But every voice has a user-controlled `name` field. If you save the same reference WAV under the same name on each Mac (one-time setup), we can use NAME as the cross-endpoint key and resolve to the right per-endpoint UUID at TTS call time.
+
+### How it works
+
+**Backend (new):**
+- `electron/server/services/voicestudio-voice-pool.ts` — new resolver service. Queries `/api/voices` on every configured endpoint in parallel, aggregates by name into `{name: {endpointUrl: voiceUuid, sample: {...}}, availableOn, availableEverywhere}`. 60s TTL cache so repeat calls during a multi-minute audio job don't re-probe every endpoint.
+- `electron/server/routes/audio.ts:/voicestudio/voices` — the picker route now uses the pool resolver instead of `vsFirst()`. Returns voices with `available_on`, `available_everywhere`, `endpoint_count`, and `voice_kind: 'voicestudio-pooled'` so the frontend can render availability badges.
+- `electron/server/generators/audio.ts` — when the job's voice is in the new `vsname:<name>` format, the dispatcher filters the endpoint pool to "endpoints that have this voice" BEFORE round-robin, so chunks only ever land on a Mac that has the voice. Per-chunk lambda resolves the name → per-endpoint UUID just before the TTS call.
+- **Backwards compat**: existing projects with a raw UUID in `form.voice` still work. The dispatcher finds which endpoint has that UUID and pins all chunks to it (effectively single-endpoint until the user re-selects the voice from the new picker).
+
+**Frontend (changed):**
+- `frontend/components/VoicePicker.vue` — clone-engine voice rows now show an availability badge:
+  - **✓ on all 2** (green) → voice exists on every reachable endpoint; full parallel dispatch
+  - **⚠ 1 / 2 — serial** (amber) → voice exists on a subset; dispatch will route only to those endpoints (no parallel speed boost, but works)
+- Hovering the badge shows a tooltip explaining the impact + which endpoints have the voice
+- When the user selects a pooled voice, `form.voice` is now stored as `vsname:<name>` (e.g. `vsname:Vincent`) instead of the raw m1-UUID. Old UUIDs continue to work for legacy projects via the backwards-compat path.
+- Preview button works the same way — backend resolves `vsname:` to the first available endpoint's UUID and previews from there.
+
+### Setup workflow (one-time, per Mac)
+
+For parallel multi-endpoint dispatch with cloned voices:
+
+1. In Voice Studio's web UI on **mac-m1**: upload your reference clip, save it as "Vincent"
+2. In Voice Studio's web UI on **mac-m4**: upload the SAME reference clip, save it as "Vincent" (same name)
+3. Refresh the Audio page in Story Studio — picker now shows **Vincent · ✓ on all 2** (green badge)
+4. Pick Vincent, hit Generate — chunks dispatch across BOTH Macs in parallel, each Mac uses its local UUID for Vincent
+
+If you only save Vincent on m1 you'll see **⚠ 1 / 2 — serial** instead. Audio still generates, but only m1 does the work. Saving on m4 too upgrades it to parallel automatically next time the picker refreshes.
+
+### Edge cases handled
+
+- **Endpoint offline during pool probe** → voice from that endpoint isn't included; the `availableEverywhere` flag is computed against REACHABLE endpoints, so a temporarily-offline Mac doesn't make every voice show ⚠. When it comes back online (next probe within 60s cache TTL), things normalize.
+- **Voice name conflict across endpoints with different audio** → both treated as the same voice. The output could sound subtly inconsistent across chunks. Future UI could surface duration / sample-rate mismatches; not enforced today.
+- **Per-character voice routing** (Phase 6 routed-segments) → same name-resolution applies per task. If a character voice exists on only one endpoint, that task falls back to that endpoint via `pickEndpointForVoice` regardless of which one the dispatcher initially picked.
+- **Legacy UUIDs in saved projects** → automatic pinning to the endpoint that has the UUID, with a log line nudging the user to re-select from the picker for full parallel dispatch.
+
+### Files
+- `electron/server/services/voicestudio-voice-pool.ts` (NEW) — pool resolver, cache, name-format helpers, `pickEndpointForVoice` dispatch picker
+- `electron/server/routes/audio.ts` — `/voicestudio/voices` uses resolver; `/preview-voice` handles `vsname:` prefix
+- `electron/server/generators/audio.ts` — voice-pool resolution at job start, endpoint filter on dispatcher, per-chunk name → UUID lookup
+- `frontend/components/VoicePicker.vue` — availability badges, `vsname:` encoding on select, dual-form selected-state matcher
+
+### What's unaffected
+- Cloud TTS (ElevenLabs / GenAIPro / fal) — voice IDs are global; no pooling needed
+- Voicepack engines (Kokoro / Qwen3 / Bark) — preset speakers ship with the model, identical across machines
+- Single-endpoint Voice Studio setups — the resolver still runs but the pool is trivially {one endpoint}; same behaviour as before
+
+### Followups not in this build
+- Endpoint-aware dispatcher load balancing (current pattern works but the busy-counter for character-routed fallback chunks is slightly off — soft optimization, not a correctness issue)
+- UI to surface voice library audio-mismatch warnings (same name, different duration / sample rate across endpoints)
+- One-click "copy this voice to mac-m4" from the picker — not possible until Voice Studio adds `POST /api/voices`
+
+---
+
 ## v1.0.292 — 2026-06-06
 
 ### Added — Per-job Max chunk size override for Voice Studio TTS + smaller VoxCPM2 default
