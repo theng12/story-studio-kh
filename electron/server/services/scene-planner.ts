@@ -502,6 +502,104 @@ export function buildStorySoFar(scenes: ScenePlanEntry[], live: boolean): string
 }
 
 /**
+ * v1.0.291 — deterministic scene split (no LLM). Walks the SRT cues left
+ * to right, groups them into scenes targeting `target_sec` seconds each,
+ * snaps boundaries to cue ends so we never mid-sentence-cut, and respects
+ * the user's `[min_sec, max_sec]` pacing band.
+ *
+ * Why this exists: the historical single-pass planner asked the LLM to
+ * produce both scene boundaries AND visual prompts as structured JSON.
+ * On smaller local models the JSON requirement fails routinely and the
+ * planner's fallback subdivides into empty-prompt placeholders. Two-pass
+ * mode (v1.0.291) decouples the two concerns — this function does the
+ * boundary work deterministically (always succeeds, zero LLM calls),
+ * then a second pass generates prompts as plain prose (one LLM call per
+ * scene, no JSON to fail at).
+ *
+ * Algorithm:
+ *   1. Iterate cues. Accumulate text + advance the candidate end_sec.
+ *   2. When duration >= target_sec, close the scene at the current cue's
+ *      end. The next scene starts where this one ends.
+ *   3. Enforce min/max: if the trailing scene would be < min_sec, merge
+ *      it backward into the previous one. If a scene would exceed max_sec
+ *      (single huge cue), accept it anyway — splitting mid-cue isn't safe.
+ *
+ * Returns scenes with empty `visual_prompt` strings — pass 2 fills those in.
+ */
+export function splitScenesDeterministically(opts: {
+  cues: SrtCue[]
+  /** Target scene duration (seconds). Used as the "close scene when we
+   *  hit this" trigger. Defaults to (min+max)/2 if not provided. */
+  target_sec?: number
+  /** Minimum scene duration. Tiny trailing scenes get merged backward. */
+  min_sec?: number
+  /** Maximum scene duration. Scenes that would exceed this are accepted
+   *  anyway (no mid-cue splitting), but we log the over-long case. */
+  max_sec?: number
+  /** First scene's `start_sec`. Defaults to the first cue's start, or 0. */
+  initial_start_sec?: number
+  /** Scene IDs are stable across re-plans; provide a generator. Defaults
+   *  to incrementing 'scene-1', 'scene-2', ... */
+  idGen?: (i: number) => string
+}): ScenePlanEntry[] {
+  if (!opts.cues.length) return []
+  const minSec = opts.min_sec ?? MIN_SCENE_SEC
+  const maxSec = opts.max_sec ?? MAX_SCENE_SEC
+  const targetSec = Math.max(minSec, Math.min(maxSec, opts.target_sec ?? (minSec + maxSec) / 2))
+  const idGen = opts.idGen || ((i: number) => `scene-${i + 1}`)
+
+  const scenes: ScenePlanEntry[] = []
+  let bucketStart = opts.initial_start_sec ?? opts.cues[0]!.start_sec
+  let bucketCues: SrtCue[] = []
+
+  function emitBucket() {
+    if (!bucketCues.length) return
+    const start = bucketStart
+    const end = bucketCues[bucketCues.length - 1]!.end_sec
+    const text = bucketCues.map(c => c.text.trim()).filter(Boolean).join(' ')
+    scenes.push({
+      id: idGen(scenes.length),
+      scene_index: scenes.length + 1,
+      start_sec: start,
+      end_sec: end,
+      transcript_segment: text,
+      visual_prompt: '',
+      boundary_reason: 'deterministic split (cue-aligned)',
+    })
+    bucketCues = []
+    bucketStart = end
+  }
+
+  for (const cue of opts.cues) {
+    bucketCues.push(cue)
+    const durSoFar = cue.end_sec - bucketStart
+    if (durSoFar >= targetSec) {
+      emitBucket()
+    }
+  }
+  // Tail bucket — emit if it has content.
+  if (bucketCues.length) emitBucket()
+
+  // Post-pass: tiny trailing scenes get merged backward into their
+  // predecessor. min_sec enforcement after the fact is cheaper than
+  // trying to predict during the walk.
+  for (let i = scenes.length - 1; i > 0; i--) {
+    const cur = scenes[i]!
+    if ((cur.end_sec - cur.start_sec) < minSec) {
+      const prev = scenes[i - 1]!
+      // Merge cur into prev — extend prev's end + concat transcript.
+      prev.end_sec = cur.end_sec
+      prev.transcript_segment = (prev.transcript_segment + ' ' + cur.transcript_segment).trim()
+      scenes.splice(i, 1)
+    }
+  }
+  // Renumber after any merges.
+  scenes.forEach((s, i) => { s.scene_index = i + 1 })
+
+  return scenes
+}
+
+/**
  * v1.0.288 — generate JUST the `visual_prompt` for a single scene, without
  * touching its time boundaries or transcript. Returns the prompt as a
  * plain string — no JSON, no structure.
@@ -528,6 +626,16 @@ export async function generateVisualPromptOnly(opts: {
   custom_instructions?: string
   apiKeys: { anthropic_api_key?: string; openai_api_key?: string; kie_api_key?: string }
   slug?: string
+  /**
+   * v1.0.291 — optional neighbor context for the two-pass planner. The
+   * model sees the previous N scenes' visual prompts (for continuity —
+   * "what should look the same?") and the next N scenes' transcript
+   * segments (for setup — "what's the upcoming beat I'm establishing?").
+   * Omitted entirely on per-scene Re-Plan calls from the v1.0.288 path
+   * (which kept zero neighbor context for simplicity).
+   */
+  prev_visual_prompts?: string[]
+  next_transcript_segments?: string[]
 }): Promise<string> {
   const detail = DETAIL_SPECS[opts.detail_level ?? 2] || DETAIL_SPECS[2]!
   const sysParts: string[] = [
@@ -542,8 +650,38 @@ export async function generateVisualPromptOnly(opts: {
   if (opts.custom_instructions && opts.custom_instructions.trim()) {
     sysParts.push(`Additional rules: ${opts.custom_instructions.trim()}`)
   }
+  // v1.0.291 — when neighbor context is provided, add a continuity
+  // instruction so the model knows to flow from what came before and set
+  // up what's next. Without this, the model treats each scene as fully
+  // standalone and visual style drifts across scenes.
+  const hasNeighbors = (opts.prev_visual_prompts && opts.prev_visual_prompts.length > 0)
+    || (opts.next_transcript_segments && opts.next_transcript_segments.length > 0)
+  if (hasNeighbors) {
+    sysParts.push(
+      'CONTINUITY: this scene is part of a longer video. Keep the recurring subject(s), '
+      + 'setting, and visual style consistent with the previous scene(s) shown below — '
+      + 'do not restyle, do not re-introduce characters from scratch. Frame this scene '
+      + 'as a natural beat between what just happened and what\'s coming.',
+    )
+  }
   const system = sysParts.join('\n\n')
-  const user = `Narration excerpt:\n${opts.transcript_segment.trim()}\n\nWrite the visual scene description (single paragraph, no quotes):`
+
+  // User-message sections: prev prompts → upcoming transcripts → THIS
+  // scene's transcript → instruction. Order matters: putting THIS scene
+  // last keeps it freshest in the model's attention while still giving
+  // the surrounding context to anchor against.
+  const userParts: string[] = []
+  if (opts.prev_visual_prompts && opts.prev_visual_prompts.length > 0) {
+    const lines = opts.prev_visual_prompts.map((p, i) => `  ${i + 1}. ${p.trim()}`).join('\n')
+    userParts.push(`Previous scene(s), most recent last:\n${lines}`)
+  }
+  if (opts.next_transcript_segments && opts.next_transcript_segments.length > 0) {
+    const lines = opts.next_transcript_segments.map((t, i) => `  ${i + 1}. ${t.trim()}`).join('\n')
+    userParts.push(`Upcoming scene transcript(s) (don't write for them — just so you know what's coming):\n${lines}`)
+  }
+  userParts.push(`Narration excerpt for THIS scene:\n${opts.transcript_segment.trim()}`)
+  userParts.push('Write the visual scene description (single paragraph, no quotes):')
+  const user = userParts.join('\n\n')
 
   const raw = await callAi(opts.model, system, user, opts.apiKeys, false, { slug: opts.slug })
   // Defensive clean-up: even with explicit instructions, models sometimes
@@ -557,6 +695,152 @@ export async function generateVisualPromptOnly(opts: {
   // Strip surrounding quotes (smart + straight)
   cleaned = cleaned.replace(/^["'`“‘]+|["'`”’]+$/g, '').trim()
   return cleaned
+}
+
+/**
+ * v1.0.291 — Two-pass scene planner. Built specifically for smaller local
+ * LLMs that fail the single-pass structured-JSON output.
+ *
+ * Pass 1: deterministic split. Walks SRT cues, groups to target duration,
+ *         snaps to cue boundaries. NO LLM. Always succeeds.
+ * Pass 2: per-scene prompt generation. One LLM call per scene, plain prose
+ *         output (no JSON), with configurable neighbor context for
+ *         cross-scene continuity. If a single call fails, only THAT
+ *         scene's prompt is empty — the rest of the plan stays intact.
+ *
+ * Trade-offs vs single-pass:
+ *   + Reliable on local models (no JSON to fail)
+ *   + Per-scene failure radius (not per-window)
+ *   + Each LLM call is small and parallelizable in the future
+ *   - More LLM calls total (~N for N scenes vs ~N/30 windowed)
+ *   - Weaker cross-scene cohesion (model sees neighbor_context_back/forward
+ *     scenes, not the full 30-scene window)
+ *
+ * Cohesion is mitigated by:
+ *   - Style prompt + custom instructions woven into every call
+ *   - Previous N visual_prompts as context for the "what should look the
+ *     same?" anchor
+ *   - Visual Recipe (v1.0.292+) baking composition into the per-scene prompt
+ *
+ * Pass 2 is currently SEQUENTIAL (concurrency=1). Parallel pass 2 + LM
+ * Studio multi-endpoint dispatcher will land as a follow-up — for now,
+ * one scene at a time keeps the local Mac from thrashing.
+ */
+export async function planScenesTwoPass(opts: ScenePlanRunOptions): Promise<ScenePlan> {
+  if (!existsSync(opts.stitched_srt_path)) {
+    throw new Error(`Stitched SRT not found at ${opts.stitched_srt_path}. Run "Stitch subtitles" first.`)
+  }
+  const stitchedRaw = await fs.readFile(opts.stitched_srt_path, 'utf-8')
+  const cues = parseSrt(stitchedRaw)
+  if (!cues.length) {
+    throw new Error('Stitched SRT has no cues — re-run "Stitch subtitles" and try again.')
+  }
+  const totalDuration = cues[cues.length - 1]!.end_sec
+
+  // Pacing band — same source as single-pass (continuity.json overrides the
+  // 3-12s default for the live continuity-chain format).
+  const minSec = opts.pacing ? opts.pacing.min_sec : MIN_SCENE_SEC
+  const maxSec = opts.pacing ? opts.pacing.max_sec : MAX_SCENE_SEC
+  const targetSec = (minSec + maxSec) / 2
+
+  // v1.0.245 — range plan only the cues overlapping [start, end] when
+  // requested. Same shape as single-pass.
+  const range = opts.range
+  const planCues = range
+    ? cues.filter(c => c.end_sec > range.start_sec + 0.001 && c.start_sec < range.end_sec - 0.001)
+    : cues
+  const initialStart = range ? range.start_sec : 0
+
+  // ── PASS 1: deterministic split ───────────────────────────────────────
+  const scenes = splitScenesDeterministically({
+    cues: planCues,
+    target_sec: targetSec,
+    min_sec: minSec,
+    max_sec: maxSec,
+    initial_start_sec: initialStart,
+    idGen: (i) => `scene-${Date.now()}-${i + 1}`,
+  })
+  if (!scenes.length) {
+    throw new Error('Deterministic split produced no scenes — SRT may be empty for the requested range.')
+  }
+  opts.onProgress?.(0, scenes.length, scenes.length)
+
+  // ── PASS 2: per-scene visual prompts ──────────────────────────────────
+  // Sequential for v1.0.291. The neighbor context window is configurable;
+  // defaults to 2 back / 1 forward (a good balance of cohesion + cost).
+  const back = Math.max(0, Math.min(10, opts.neighbor_context_back ?? 2))
+  const forward = Math.max(0, Math.min(10, opts.neighbor_context_forward ?? 1))
+
+  // Pull keys once; callAi picks the right one per call.
+  const [anthropic_api_key, openai_api_key, kie_api_key] = await Promise.all([
+    getApiKey('anthropic').catch(() => ''),
+    getApiKey('openai').catch(() => ''),
+    getApiKey('kie').catch(() => ''),
+  ])
+  const apiKeys = { anthropic_api_key, openai_api_key, kie_api_key }
+
+  let failed = 0
+  for (let i = 0; i < scenes.length; i++) {
+    const scene = scenes[i]!
+    // Build neighbor context from already-generated scenes (back) and
+    // upcoming scenes' transcripts (forward, no prompts yet).
+    const prevPrompts: string[] = []
+    for (let j = Math.max(0, i - back); j < i; j++) {
+      const p = scenes[j]?.visual_prompt
+      if (p && p.trim()) prevPrompts.push(p)
+    }
+    const nextTranscripts: string[] = []
+    for (let j = i + 1; j <= Math.min(scenes.length - 1, i + forward); j++) {
+      const t = scenes[j]?.transcript_segment
+      if (t && t.trim()) nextTranscripts.push(t)
+    }
+
+    try {
+      const prompt = await generateVisualPromptOnly({
+        transcript_segment: scene.transcript_segment,
+        model: opts.model,
+        detail_level: opts.detail_level,
+        style_prompt: opts.style_prompt,
+        custom_instructions: opts.custom_instructions,
+        apiKeys,
+        slug: undefined, // ctx.slug threading not exposed here yet — falls back to global keys
+        prev_visual_prompts: prevPrompts,
+        next_transcript_segments: nextTranscripts,
+      })
+      if (!prompt || !prompt.trim()) {
+        failed++
+        opts.onWarn?.(`Scene #${i + 1}: model returned empty prompt — left for manual fill / bulk regen`)
+      } else {
+        scene.visual_prompt = prompt
+      }
+    } catch (e: any) {
+      failed++
+      opts.onWarn?.(`Scene #${i + 1}: prompt LLM call failed (${e?.message || 'unknown'}) — left empty`)
+    }
+    opts.onProgress?.(i + 1, scenes.length, scenes.length)
+  }
+
+  if (failed > 0) {
+    opts.onWarn?.(
+      `Two-pass plan complete with ${failed} empty prompt(s) of ${scenes.length}. `
+      + `Use the "✨ Regen N empty prompts only" button to retry.`,
+    )
+  }
+
+  return {
+    schema_version: 1,
+    generated_at: new Date().toISOString(),
+    planner_model: opts.model,
+    source_stitched_srt: opts.stitched_srt_path,
+    total_duration_sec: totalDuration,
+    research_used: false,
+    scenes,
+    // v1.0.291 — two-pass uses N independent calls (one per scene), not
+    // windowed batches. Reusing the planned_in_windows field to surface
+    // this in the UI would be misleading (the page shows it as "Planned
+    // in N windows"). Leaving it undefined; the planning mode is logged
+    // separately in the Jobs panel and visible there.
+  }
 }
 
 /** Run the LLM planner. Returns a ScenePlan object ready to persist. */

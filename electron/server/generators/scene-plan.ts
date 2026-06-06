@@ -9,7 +9,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { planScenes, generateVisualPromptOnly } from '../services/scene-planner.js'
+import { planScenes, planScenesTwoPass, generateVisualPromptOnly } from '../services/scene-planner.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
@@ -47,6 +47,15 @@ interface ScenePlanRunParams {
    *  structured JSON output) — works reliably on smaller local models
    *  that fail full-planner JSON. Mutually exclusive with replan_scene_id. */
   regenerate_prompt_scene_id?: string
+  /** v1.0.291 — planning strategy. 'single-pass' (default) uses the
+   *  historical windowed LLM planner; 'two-pass' splits cues deterministic-
+   *  ally then generates prompts per-scene as plain prose. The two-pass
+   *  path is recommended for small local models that fail JSON output. */
+  planning_mode?: 'single-pass' | 'two-pass'
+  /** v1.0.291 — neighbor-context window for two-pass prompt generation.
+   *  See ScenePlanRunOptions.neighbor_context_{back,forward}. */
+  neighbor_context_back?: number
+  neighbor_context_forward?: number
 }
 
 export const SCENE_PLAN_FILENAME = 'scene_plan.json'
@@ -209,7 +218,22 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     return
   }
 
-  const plan: ScenePlan = await planScenes({
+  // v1.0.291 — branch on planning mode. 'two-pass' uses deterministic
+  // split + per-scene prompts (works on small local models); 'single-pass'
+  // (default) keeps the historical windowed LLM behaviour.
+  const planningMode = params.planning_mode === 'two-pass' ? 'two-pass' : 'single-pass'
+  const planner = planningMode === 'two-pass' ? planScenesTwoPass : planScenes
+  if (planningMode === 'two-pass') {
+    const back = params.neighbor_context_back ?? 2
+    const forward = params.neighbor_context_forward ?? 1
+    job.output_lines.push(
+      `Planning mode: two-pass (deterministic split + per-scene prompts, neighbor context ${back} back / ${forward} forward)`,
+    )
+  } else {
+    job.output_lines.push('Planning mode: single-pass (windowed LLM)')
+  }
+
+  const plan: ScenePlan = await planner({
     stitched_srt_path: stitchedSrt,
     research_path: useResearch ? researchPath : undefined,
     narration_docx_path: resolveReadPath(paths.narration_docx),
@@ -221,7 +245,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     pacing,
     // v1.0.285 — per-window scene count tuning (auto = local→small,
     // cloud→full). See ScenePlanRunOptions.window_size for the rationale.
+    // Ignored by planScenesTwoPass.
     window_size: params.window_size,
+    // v1.0.291 — two-pass-specific; ignored by planScenes (single-pass).
+    neighbor_context_back: params.neighbor_context_back,
+    neighbor_context_forward: params.neighbor_context_forward,
     onWarn: (m) => job.output_lines.push(m),
     // v1.0.226 — chunked planner: it plans the episode in time-windows so the
     // model's output never truncates regardless of length. Surface progress.

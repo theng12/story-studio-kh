@@ -66,6 +66,15 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   // 'auto' so the planner uses its model-aware default.
   const windowSize: 'auto' | 'full' | 'small' =
     body.window_size === 'full' || body.window_size === 'small' ? body.window_size : 'auto'
+  // v1.0.291 — planning mode + neighbor context for two-pass.
+  const planningMode: 'single-pass' | 'two-pass' =
+    body.planning_mode === 'two-pass' ? 'two-pass' : 'single-pass'
+  const ncBack = typeof body.neighbor_context_back === 'number'
+    ? Math.max(0, Math.min(10, Math.round(body.neighbor_context_back)))
+    : undefined
+  const ncForward = typeof body.neighbor_context_forward === 'number'
+    ? Math.max(0, Math.min(10, Math.round(body.neighbor_context_forward)))
+    : undefined
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `Scene plan already running for ${episodeId}` })
@@ -86,6 +95,9 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       style_prompt: stylePrompt || undefined,
       custom_instructions: customInstructions || undefined,
       window_size: windowSize,
+      planning_mode: planningMode,
+      neighbor_context_back: ncBack,
+      neighbor_context_forward: ncForward,
     },
   })
   res.status(201).json(job)

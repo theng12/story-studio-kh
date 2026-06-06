@@ -163,11 +163,41 @@
         <p class="text-muted text-xs mt-1">{{ detailMeta?.hint }}</p>
       </div>
 
-      <!-- v1.0.285 — per-window scene count control. Bigger windows = fewer
-           LLM calls + richer cross-scene cohesion, but larger JSON outputs
-           that flaky local models often truncate (the empty-visual_prompts
-           symptom). "Auto" picks based on the selected model. -->
+      <!-- v1.0.291 — planning mode. Two-pass is only meaningful for local
+           models (cloud LLMs handle structured JSON fine), so the
+           two-pass radio is only enabled when an lmstudio:* model is
+           selected. -->
       <div class="form-group mt-3">
+        <label>
+          Planning mode
+          <span class="text-muted text-xs">— how the LLM produces the plan</span>
+        </label>
+        <div class="planning-mode-radios">
+          <label class="planning-mode-radio" :class="{ active: form.planning_mode === 'single-pass' }">
+            <input type="radio" v-model="form.planning_mode" value="single-pass" />
+            <div>
+              <strong>Single-pass</strong> <span class="text-muted text-xs">(default — recommended for cloud)</span>
+              <p class="text-muted text-xs">One LLM call per ~10–30-scene window produces timing + transcript + visual prompts as structured JSON.</p>
+            </div>
+          </label>
+          <label
+            class="planning-mode-radio"
+            :class="{ active: form.planning_mode === 'two-pass', disabled: !isLocalModel }"
+            :title="isLocalModel ? '' : 'Only available for local LM Studio models. Pick a local model above to enable.'"
+          >
+            <input type="radio" v-model="form.planning_mode" value="two-pass" :disabled="!isLocalModel" />
+            <div>
+              <strong>Two-pass</strong> <span class="text-muted text-xs">(recommended for local models)</span>
+              <p class="text-muted text-xs">Pass 1: deterministic cue-walk produces scene timing instantly (no LLM). Pass 2: one prose LLM call per scene for the visual prompt. No structured JSON anywhere — works on small local models that fail single-pass.</p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- v1.0.285 — per-window scene count control. Only meaningful in
+           single-pass mode; hidden in two-pass since there are no JSON
+           windows to size. -->
+      <div v-if="form.planning_mode === 'single-pass'" class="form-group mt-3">
         <label>
           Scenes per LLM call
           <span class="text-muted text-xs">— chunked planning window size</span>
@@ -182,6 +212,20 @@
           the planner fell back to cue-aligned splits because the JSON output failed to parse twice.
           Smaller windows = smaller per-call output = less likely to hit truncation.
         </p>
+      </div>
+
+      <!-- v1.0.291 — neighbor-context dropdown for two-pass. Only shown when
+           two-pass is selected. Maps to {back, forward} numeric fields in
+           the POST body via NEIGHBOR_CONTEXT_PRESETS. -->
+      <div v-else class="form-group mt-3">
+        <label>
+          Neighbor context
+          <span class="text-muted text-xs">— how much surrounding context each prompt sees</span>
+        </label>
+        <select v-model="form.neighbor_context" class="select" style="max-width: 380px;">
+          <option v-for="(meta, key) in NEIGHBOR_CONTEXT_PRESETS" :key="key" :value="key">{{ meta.label }}</option>
+        </select>
+        <p class="text-muted text-xs mt-1">{{ neighborContextMeta.hint }}</p>
       </div>
 
       <!-- v1.0.242 — global style + custom instructions woven into every scene. -->
@@ -696,6 +740,17 @@ const form = ref({
   // when they hit the empty-visual_prompts fallback, without sacrificing
   // the cloud's more efficient batched output.
   window_size: 'auto' as 'auto' | 'full' | 'small',
+  // v1.0.291 — planning architecture toggle.
+  //   'single-pass' — historical windowed LLM (default; works great on cloud)
+  //   'two-pass'    — deterministic split + per-scene prompts (best for
+  //                   smaller local models that fail JSON output)
+  // UI only surfaces 'two-pass' when an lmstudio:* model is selected — cloud
+  // users have no reason to pay the per-scene request-overhead.
+  planning_mode: 'single-pass' as 'single-pass' | 'two-pass',
+  // v1.0.291 — neighbor-context window for two-pass prompt generation.
+  // The dropdown maps preset combinations: Minimal=0/0, Standard=2/1, Rich=3/2.
+  // Saved as a single label so it survives presets cleanly.
+  neighbor_context: 'standard' as 'minimal' | 'standard' | 'rich',
 })
 // v1.0.259 — remember plan settings per-Mac across reloads (an active plan
 // preset still auto-applies on top).
@@ -713,6 +768,24 @@ const detailMeta = computed(() => DETAIL_LEVELS.find(d => d.value === form.value
 // v1.0.285 — flagged for the window-size "Auto" tooltip so the user sees which
 // branch will fire (10 scenes for local, 30 for cloud) before they hit Plan.
 const isLocalModel = computed(() => (form.value.model || '').startsWith('lmstudio:'))
+
+// v1.0.291 — neighbor-context preset → {back, forward} mapping. Sent to the
+// backend as numeric fields; surfaced as a 3-option dropdown so the user
+// picks the "feel" rather than tuning two numbers independently.
+const NEIGHBOR_CONTEXT_PRESETS: Record<'minimal' | 'standard' | 'rich', { back: number; forward: number; label: string; hint: string }> = {
+  minimal: { back: 0, forward: 0, label: 'Minimal (independent scenes)', hint: 'Each scene gets prompted in isolation. Fastest + cheapest but visual style may drift across scenes.' },
+  standard: { back: 2, forward: 1, label: 'Standard (2 back · 1 forward)', hint: 'Each prompt sees the previous 2 visual prompts + the next 1 transcript. Good balance.' },
+  rich: { back: 3, forward: 2, label: 'Rich (3 back · 2 forward)', hint: 'Maximum continuity context. Slower + more tokens per call; best for visually-cohesive long episodes.' },
+}
+const neighborContextMeta = computed(() => NEIGHBOR_CONTEXT_PRESETS[form.value.neighbor_context])
+
+// v1.0.291 — when switching away from a local model, force back to single-pass
+// so cloud users don't accidentally trigger 100+ LLM calls for an episode.
+watch(isLocalModel, (nowLocal) => {
+  if (!nowLocal && form.value.planning_mode === 'two-pass') {
+    form.value.planning_mode = 'single-pass'
+  }
+})
 
 const canPlan = computed(() => {
   if (!episodeId.value) return false
@@ -759,6 +832,7 @@ async function planScenes(): Promise<void> {
   const ep = episodeId.value
   planningEpisode.value = ep
   try {
+    const ncPreset = NEIGHBOR_CONTEXT_PRESETS[form.value.neighbor_context]
     await post(`/projects/${slug.value}/scene-plan/${ep}/run`, {
       model: form.value.model,
       target_scene_count: form.value.target_scene_count || undefined,
@@ -769,6 +843,12 @@ async function planScenes(): Promise<void> {
       // v1.0.285 — only send when not 'auto'; the backend defaults to auto
       // anyway, so omitting keeps the request payload tidy.
       window_size: form.value.window_size === 'auto' ? undefined : form.value.window_size,
+      // v1.0.291 — planning mode + neighbor context. Only send when two-pass
+      // is explicitly selected; single-pass is the backend default and we'd
+      // rather omit the field than send a redundant value.
+      planning_mode: form.value.planning_mode === 'two-pass' ? 'two-pass' : undefined,
+      neighbor_context_back: form.value.planning_mode === 'two-pass' ? ncPreset.back : undefined,
+      neighbor_context_forward: form.value.planning_mode === 'two-pass' ? ncPreset.forward : undefined,
     })
     success('Scene planner queued — watch the Jobs panel')
     await pollUntilPlanLanded(ep)
@@ -1273,6 +1353,44 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
 </script>
 
 <style scoped>
+/* v1.0.291 — planning-mode radio group. Each radio card spans full width
+   with its description below so the user can scan both options at a glance. */
+.planning-mode-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+.planning-mode-radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  background: var(--bg-secondary, #1c1c1f);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.planning-mode-radio:hover:not(.disabled) {
+  border-color: var(--accent, #6c8fff);
+}
+.planning-mode-radio.active {
+  border-color: var(--accent, #6c8fff);
+  background: rgba(108, 143, 255, 0.06);
+}
+.planning-mode-radio.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.planning-mode-radio input[type="radio"] {
+  margin-top: 4px;
+}
+.planning-mode-radio p {
+  margin: 4px 0 0;
+  line-height: 1.45;
+}
+
 /* v1.0.288 — bulk-button group on the plan-health head. The two bulk
    options (✨ Regen prompts only / 🪄 Full re-plan) sit side-by-side. */
 .bulk-buttons {

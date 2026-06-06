@@ -3075,6 +3075,47 @@ export interface ScenePlanRunOptions {
    * back to cue-aligned subdivision with EMPTY visual_prompts so the
    * timeline is still complete and the user can re-plan individually.
    * Small windows fail less often.
+   *
+   * Ignored entirely when `planning_mode === 'two-pass'` — two-pass uses
+   * deterministic cue-walking for the split step, no LLM JSON output to size.
    */
   window_size?: 'auto' | 'full' | 'small'
+  /**
+   * v1.0.291 — planning architecture.
+   *
+   *   'single-pass' (default) — the historical flow: chunked LLM windows
+   *           produce {timing + transcript + visual_prompt} JSON in one
+   *           call per window. Works great on cloud models; on small local
+   *           models the JSON output requirement causes routine failures
+   *           (empty visual_prompts after the fallback path fires).
+   *
+   *   'two-pass' — deterministic cue-walking produces the scene split
+   *           (timing + transcript only, no LLM), then a separate per-scene
+   *           LLM call generates each visual_prompt as plain prose (with
+   *           configurable neighbor context for continuity). No structured
+   *           JSON output anywhere, so even small local models that can't
+   *           reliably emit JSON produce usable plans.
+   *
+   * Frontend exposes 'two-pass' only when an `lmstudio:*` model is
+   * selected — cloud users have no reason to take the per-scene
+   * request-overhead hit, and single-pass cross-scene cohesion is better
+   * with cloud-grade models that can hold all 30 scenes in context.
+   */
+  planning_mode?: 'single-pass' | 'two-pass'
+  /**
+   * v1.0.291 — when `planning_mode === 'two-pass'`, controls how many
+   * surrounding scenes feed into each per-scene prompt LLM call.
+   *
+   *   - `back` (default 2): how many previous-scene `visual_prompt`s the
+   *     model sees for continuity. The previous prompt is the strongest
+   *     signal for visual consistency (same character, same setting).
+   *   - `forward` (default 1): how many upcoming-scene `transcript_segment`s
+   *     the model sees so it can frame the current scene as a setup for
+   *     what's coming.
+   *
+   * Larger windows give better continuity at the cost of bigger per-call
+   * input. Frontend dropdown maps: Minimal=0/0, Standard=2/1, Rich=3/2.
+   */
+  neighbor_context_back?: number
+  neighbor_context_forward?: number
 }

@@ -4,6 +4,79 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.291 — 2026-06-06
+
+### Added — Two-pass scene planner: deterministic split + per-scene prompts (for local models)
+The single-pass scene planner asks the LLM to produce structured JSON with scene boundaries + transcript + visual prompts for 10–30 scenes per window. Cloud models handle that fine. Small local models (gemma-4-e4b and similar 4B-param models) routinely fail it — truncation, malformed JSON, prose where JSON was expected — and the planner's fallback subdivides into empty-`visual_prompt` placeholders.
+
+v1.0.291 introduces a new **Two-pass** planning mode that decouples the two concerns:
+
+#### Pass 1 — Deterministic split (no LLM)
+
+Walks the stitched SRT cues, groups them to a target duration, snaps boundaries to cue ends, and respects the user's `[min_sec, max_sec]` pacing band. **Zero LLM calls.** Always succeeds. Produces scenes with empty `visual_prompt` strings that pass 2 fills in.
+
+Algorithm (in `splitScenesDeterministically`):
+1. Iterate cues, accumulate into a bucket
+2. When the bucket spans `target_sec` (default `(min+max)/2`), close the scene at the current cue's end
+3. Post-pass: tiny trailing scenes (< `min_sec`) merge backward into their predecessor
+4. Renumber `scene_index` sequentially
+
+#### Pass 2 — Per-scene visual prompts (one LLM call per scene)
+
+For each scene, calls `generateVisualPromptOnly` (the v1.0.288 prose-output function) with **configurable neighbor context**:
+- **Back**: N previous scenes' `visual_prompt`s — the "what should look the same?" anchor for visual continuity
+- **Forward**: N upcoming scenes' `transcript_segment`s — so the model can frame THIS scene as a setup for what's coming
+
+The model sees a single user message: previous prompts → upcoming transcripts → THIS scene's transcript → "write the visual scene description (single paragraph, no quotes)". Output is plain prose, no JSON to fail at. Even gemma-4-e4b handles this reliably.
+
+#### UI
+
+The Scene Plan page has a new **Planning mode** radio above the existing Scenes-per-LLM-call dropdown:
+
+- **Single-pass** (default) — historical behaviour, recommended for cloud
+- **Two-pass** — recommended for local models; **only enabled when an `lmstudio:*` model is selected** (cloud users have no reason to take the per-scene request-overhead hit)
+
+When Two-pass is selected, a **Neighbor context** dropdown appears with three presets:
+- **Minimal** (0 back / 0 forward) — each scene fully independent, fastest, may drift visually
+- **Standard** (2 back / 1 forward) — default, good balance of cohesion + cost
+- **Rich** (3 back / 2 forward) — maximum continuity context
+
+Switching away from a local model auto-resets the planning mode back to single-pass — protects cloud users from accidentally triggering 100+ LLM calls.
+
+#### Trade-offs vs single-pass
+
+| Dimension | Single-pass | Two-pass |
+|---|---|---|
+| Total LLM calls per 100-scene episode | ~10 windowed | ~100 per-scene |
+| Reliability on 4B-param local models | Often fails JSON | Reliable (prose only) |
+| Cross-scene cohesion | Strong (30 scenes in context) | Limited to N-back/forward |
+| Failure radius | Whole window blanks out | One scene blanks out |
+| Resumability | Window-level | Scene-level (works with existing ✨ Regen bulk button) |
+| Parallelism (today) | N/A (single window at a time) | Sequential — parallel coming in v1.0.293+ |
+| Cost on cloud | Lower (batched) | Higher per-request overhead |
+
+### Deferred to follow-ups (called out so you can object)
+
+- **v1.0.292 — Visual Recipe baking** into the pass-2 system prompt, so composed prompts come out of pass 2 directly (no separate Apply step). Bigger UX refactor — the standalone "Apply Recipe" job stays for the single-pass flow.
+- **v1.0.293 — Pass 2 parallelism + LM Studio multi-endpoint dispatcher**. Matched pair; needed together to actually use multiple Macs in parallel. Currently sequential at concurrency=1.
+- **Optional LLM-assisted boundary refinement** after pass 1. The per-scene 🪄 Re-plan button already covers single-scene boundary fixes, so this is polish.
+
+### What's unchanged
+
+- Single-pass (the historical flow) is untouched — same code, same behaviour, same controls
+- Per-scene 🪄 Re-plan, ✨ Prompt only, ✕ Remove, Merge / Split — all still work the same
+- Bulk **✨ Regen N empty prompts only** + **🪄 Full re-plan** in the plan-health banner — same shape, work with either planning mode
+- Visual Recipe Apply (Character Sheet page) — same behaviour for now; will change when v1.0.292 ships
+
+### Files
+- `electron/server/models/types.ts` — `ScenePlanRunOptions.planning_mode` / `neighbor_context_back` / `neighbor_context_forward`
+- `electron/server/services/scene-planner.ts` — new `splitScenesDeterministically()` + new `planScenesTwoPass()` orchestrator; extended `generateVisualPromptOnly` to accept neighbor context (back/forward arrays)
+- `electron/server/generators/scene-plan.ts` — branch on `planning_mode` and pick `planScenesTwoPass` or `planScenes`; pass neighbor-context through
+- `electron/server/routes/scene-plan.ts` — accept + validate `planning_mode` + `neighbor_context_back/forward`
+- `frontend/pages/projects/[slug]/scene-plan.vue` — Planning Mode radio + Neighbor Context dropdown (only surfaces two-pass for local models); `NEIGHBOR_CONTEXT_PRESETS` map; auto-reset on model switch; new payload fields
+
+---
+
 ## v1.0.290 — 2026-06-06
 
 ### Changed — Subtitle transcription now uses the first AVAILABLE Voice Studio endpoint, not blindly the first listed
