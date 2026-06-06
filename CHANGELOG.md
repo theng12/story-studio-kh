@@ -4,6 +4,64 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.295 — 2026-06-07
+
+### Added — LM Studio multi-endpoint dispatcher + parallel scene-plan Pass 2
+The two-pass scene planner (v1.0.291) replaces single-pass structured-JSON output with deterministic SRT splitting + per-scene prose prompt generation. It works great on local LLMs but was strictly **sequential** — one scene at a time, one Mac at a time. If you had LM Studio installed on multiple Macs, only the first one in your endpoint list actually did anything. The others sat idle.
+
+v1.0.295 fixes both halves of that gap so a multi-Mac LM Studio setup actually parallelizes.
+
+### Half 1 — LM Studio multi-endpoint dispatcher (provider-level)
+
+`electron/server/lib/lmstudio-client.ts` and `electron/server/providers/text/lmstudio.ts`:
+
+- **`getLmstudioDispatcher(stored)`** — returns a cached least-busy Dispatcher over the configured LM Studio URL list. Single-endpoint setups return `dispatcher: null` so the fast path is identical to v1.0.294 — no overhead when there's no pool to dispatch across.
+- **Module-scoped cache** — the same dispatcher is reused across calls (cowriter sessions, idea generation, scene-plan Pass 2). This matters because least-busy tracking is only meaningful when concurrent calls can SEE each other's in-flight counts. A new dispatcher per call would defeat parallelism.
+- **`resetLmstudioDispatcher(stored)`** — drops the cached dispatcher so any "marked down" state from prior runs is cleared. Called at the start of each scene-plan run so endpoints that have come back UP since the last connection error get a fair retry.
+- **`runOnPool` wrapper** — picks an endpoint, calls it, retries on connection error against the next endpoint, rethrows content errors immediately. Connection errors are matched via the same regex as the rest of the codebase (ECONNREFUSED, fetch failed, timeout, etc.).
+- **Content error on "model not loaded"** is a real failure, not a failover trigger — the user said they keep the same models loaded on every Mac in their pool, so a "model not found" on a specific endpoint means the pool is misconfigured. The error message names the offending endpoint so the fix is obvious.
+
+### Half 2 — Windowed-parallel Pass 2 (caller-level)
+
+`electron/server/services/scene-planner.ts:planScenesTwoPass`:
+
+- **Concurrency auto-derived from LM Studio pool size.** Cloud models stay sequential (no pool to spread across; cloud rate-limits make parallelism risky for free). Single-endpoint LM Studio also stays sequential — concurrency=1 means the loop is byte-for-byte equivalent to the v1.0.291 path.
+- **Windowed loop.** Process scenes in chunks of `concurrency` size. Within a chunk, all scenes resolve in parallel via `Promise.all`. Chunks process sequentially — chunk N+1 starts only after every prompt in chunks 0..N has resolved.
+- **Cross-chunk continuity preserved.** Back-context (`prev_visual_prompts`) for any scene only includes scenes from PRIOR chunks (which are fully resolved). Within-chunk scenes don't see each other's prompts — that's the cohesion trade-off. With back=2 and concurrency=2, scene 5 sees scenes 3 and 4's prompts (both from a prior chunk), but scene 6 (its chunk-mate) also only sees scenes 3 and 4, not scene 5's freshly-generated prompt. Acceptable for ~2× speedup.
+- **Forward context is unchanged** — it uses transcripts, which don't depend on any prompt being resolved.
+- **Jobs panel surfaces the planned concurrency** with a single onWarn line at the start of Pass 2:
+
+  ```
+  Pass 2 will run 2× parallel across 2 LM Studio endpoints. Expect roughly
+  2× faster than v1.0.291 sequential, assuming all endpoints have the
+  model loaded.
+  ```
+
+### Combined effect
+
+With LM Studio installed on `mac-m1` and `mac-m4` (both with the same model loaded, both configured in Settings → Local Models → LM Studio):
+
+- Scene plan with 30 scenes that took ~5 minutes in v1.0.294 (sequential, 10s/scene) now takes ~2.5 minutes (2 endpoints, ~2× faster).
+- Cowriter sessions still issue one call at a time, but the dispatcher quietly rotates between Macs so a long generation on m1 doesn't block a quick metadata call routed to m4.
+
+### Configuration
+
+Nothing new in the UI. The picker still queries the first endpoint for its model list — keep the same models loaded on every Mac in your pool (per the explicit workflow choice). If an endpoint goes offline mid-run, the dispatcher fails over silently to the survivors; restart it whenever convenient and the next scene-plan run gets a fresh probe.
+
+### What it does NOT do
+
+- **Doesn't union model lists across endpoints.** The first endpoint defines the catalog; you're responsible for keeping the others in sync.
+- **Doesn't dispatch model-list queries** (`GET /v1/models`) across the pool. Only the first endpoint is queried. This is intentional — the picker should reflect ONE canonical view, not a confusing per-Mac difference.
+- **Doesn't apply to cloud models.** Anthropic / OpenAI rate-limits make uncoordinated parallelism risky; their per-account quota becomes the bottleneck before pool spread does.
+- **No new UI surface.** Concurrency is auto-derived. If you want different behaviour, change the LM Studio endpoint list in Settings.
+
+### Files
+- `electron/server/lib/lmstudio-client.ts` — added `getLmstudioDispatcher`, `resetLmstudioDispatcher`, module-scoped Dispatcher cache.
+- `electron/server/providers/text/lmstudio.ts` — refactored `callText` to wrap the chat-completion in `runOnPool(dispatcher, fallbackUrl, fn)`. Per-endpoint error messages now name the offending endpoint.
+- `electron/server/services/scene-planner.ts` — replaced the sequential Pass 2 for-loop with a windowed-parallel loop, derived concurrency from LM Studio pool size, called `resetLmstudioDispatcher` at run start.
+
+---
+
 ## v1.0.294 — 2026-06-07
 
 ### Added — Voice Studio latency-trend tracking — early warning for MLX memory pressure

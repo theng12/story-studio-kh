@@ -18,7 +18,7 @@
  * OpenAI SDK pointed at {base}/v1.
  */
 
-import { parseEndpoints } from './endpoint-pool.js'
+import { parseEndpoints, createDispatcher, type Dispatcher } from './endpoint-pool.js'
 
 /** No universal default — it's the user's own machine. Empty = unconfigured. */
 export const DEFAULT_LMSTUDIO_BASE_URL = ''
@@ -101,4 +101,68 @@ function extractModelIds(json: any): string[] {
 export async function listModels(baseUrl: string, timeoutMs = 2500): Promise<string[]> {
   const h = await health(baseUrl, timeoutMs)
   return h.ok && h.models ? h.models : []
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Multi-endpoint dispatcher (v1.0.295).
+//
+// Mirrors the pool pattern from Image Studio / Voice Studio: same module
+// owns the Dispatcher lifecycle so the text provider doesn't have to.
+// The cache is MODULE-SCOPED, not job-scoped, because LM Studio calls
+// happen across many independent code paths (cowriter sessions, idea
+// generation, two-pass scene planner) and we want least-busy tracking to
+// span all of them — if cowriter has a long stream in flight on m1 and
+// the user kicks off scene-plan Pass 2, those parallel calls should
+// notice and prefer m4.
+//
+// Down-state is sticky (a marked-down endpoint stays out of rotation)
+// because re-probing a known-bad endpoint on every call is wasteful and
+// the connection error gives an honest failover-immediately signal. The
+// trade-off is that an endpoint that came back UP after a transient
+// outage stays excluded until the cache is reset. The remedy is to call
+// `resetLmstudioDispatcher` at the start of a fresh long-running
+// workload (scene plan run, batch idea gen) so each one gets a clean
+// view of which endpoints are alive.
+// ─────────────────────────────────────────────────────────────────────────
+
+const dispatcherCache = new Map<string, Dispatcher>()
+
+/** Canonical key for the cache so trailing-slash / spacing variations
+ *  collapse to the same dispatcher. Sorting also makes ["a","b"] and
+ *  ["b","a"] share state — order in the stored setting is irrelevant. */
+function endpointsKey(eps: string[]): string {
+  return [...eps].sort().join(',')
+}
+
+/**
+ * Return the cached Dispatcher for this LM Studio endpoint list, plus the
+ * normalized endpoint list. Returns `dispatcher: null` for the single-
+ * endpoint case so the provider's fast path stays identical to v1.0.294
+ * (no pool overhead when there's nothing to dispatch).
+ */
+export function getLmstudioDispatcher(
+  stored: string | null | undefined,
+): { dispatcher: Dispatcher | null; endpoints: string[] } {
+  const eps = parseEndpoints(stored)
+  if (eps.length <= 1) return { dispatcher: null, endpoints: eps }
+  const key = endpointsKey(eps)
+  let d = dispatcherCache.get(key)
+  if (!d) {
+    d = createDispatcher(eps)
+    dispatcherCache.set(key, d)
+  }
+  return { dispatcher: d, endpoints: eps }
+}
+
+/**
+ * Drop the cached dispatcher for this endpoint list so any "marked down"
+ * state from prior runs is cleared. Call this at the START of a fresh
+ * long-running workload — scene plan Pass 2, batch idea generation — so
+ * endpoints that have come back up since the last connection error get
+ * a fair retry. Safe to call when no dispatcher exists (no-op).
+ */
+export function resetLmstudioDispatcher(stored: string | null | undefined): void {
+  const eps = parseEndpoints(stored)
+  if (eps.length === 0) return
+  dispatcherCache.delete(endpointsKey(eps))
 }

@@ -25,6 +25,9 @@ import { existsSync } from 'fs'
 import { callAi } from '../lib/ai-client.js'
 import { parseSrt, formatSrtTime, type SrtCue } from '../lib/subtitle-builder.js'
 import { getApiKey } from './app-secrets-store.js'
+import { parseEndpoints } from '../lib/endpoint-pool.js'
+import { resetLmstudioDispatcher } from '../lib/lmstudio-client.js'
+import { LMSTUDIO_MODEL_PREFIX } from '../providers/text/lmstudio.js'
 import type {
   ResearchOutput,
   ScenePlan,
@@ -722,9 +725,12 @@ export async function generateVisualPromptOnly(opts: {
  *     same?" anchor
  *   - Visual Recipe (v1.0.292+) baking composition into the per-scene prompt
  *
- * Pass 2 is currently SEQUENTIAL (concurrency=1). Parallel pass 2 + LM
- * Studio multi-endpoint dispatcher will land as a follow-up — for now,
- * one scene at a time keeps the local Mac from thrashing.
+ * v1.0.295 — Pass 2 is now WINDOWED-PARALLEL when the model is on LM Studio
+ * with multiple endpoints. Concurrency = pool size; scenes within a chunk
+ * resolve in parallel (sacrificing intra-chunk back-context), but cross-
+ * chunk continuity is preserved because each chunk sees fully-resolved
+ * prompts from all PRIOR chunks. Cloud models + single-endpoint LM Studio
+ * keep the previous strict-sequential behaviour (concurrency=1).
  */
 export async function planScenesTwoPass(opts: ScenePlanRunOptions): Promise<ScenePlan> {
   if (!existsSync(opts.stitched_srt_path)) {
@@ -766,8 +772,8 @@ export async function planScenesTwoPass(opts: ScenePlanRunOptions): Promise<Scen
   opts.onProgress?.(0, scenes.length, scenes.length)
 
   // ── PASS 2: per-scene visual prompts ──────────────────────────────────
-  // Sequential for v1.0.291. The neighbor context window is configurable;
-  // defaults to 2 back / 1 forward (a good balance of cohesion + cost).
+  // Neighbor context window — defaults to 2 back / 1 forward (a good
+  // balance of cohesion + cost).
   const back = Math.max(0, Math.min(10, opts.neighbor_context_back ?? 2))
   const forward = Math.max(0, Math.min(10, opts.neighbor_context_forward ?? 1))
 
@@ -779,45 +785,88 @@ export async function planScenesTwoPass(opts: ScenePlanRunOptions): Promise<Scen
   ])
   const apiKeys = { anthropic_api_key, openai_api_key, kie_api_key }
 
-  let failed = 0
-  for (let i = 0; i < scenes.length; i++) {
-    const scene = scenes[i]!
-    // Build neighbor context from already-generated scenes (back) and
-    // upcoming scenes' transcripts (forward, no prompts yet).
-    const prevPrompts: string[] = []
-    for (let j = Math.max(0, i - back); j < i; j++) {
-      const p = scenes[j]?.visual_prompt
-      if (p && p.trim()) prevPrompts.push(p)
+  // v1.0.295 — derive concurrency from the LM Studio pool size when the
+  // planner model is on LM Studio. Cloud models stay sequential (no pool
+  // to spread across; cloud rate-limits make parallelism risky for free).
+  // Single-endpoint LM Studio also stays sequential — concurrency=1 means
+  // the loop below is byte-for-byte equivalent to the v1.0.291 path.
+  let concurrency = 1
+  const isLmStudio = opts.model.startsWith(LMSTUDIO_MODEL_PREFIX)
+  if (isLmStudio) {
+    const lmsStored = await getApiKey('lmstudio').catch(() => '')
+    // Clear any stale "marked down" state from previous runs so endpoints
+    // that have come back UP since the last connection error get a fair
+    // retry at the start of this fresh workload.
+    resetLmstudioDispatcher(lmsStored)
+    concurrency = Math.max(1, parseEndpoints(lmsStored).length)
+    if (concurrency > 1) {
+      opts.onWarn?.(
+        `Pass 2 will run ${concurrency}× parallel across ${concurrency} LM Studio endpoints. `
+        + `Expect roughly ${concurrency}× faster than v1.0.291 sequential, assuming all endpoints `
+        + `have the model loaded.`,
+      )
     }
-    const nextTranscripts: string[] = []
-    for (let j = i + 1; j <= Math.min(scenes.length - 1, i + forward); j++) {
-      const t = scenes[j]?.transcript_segment
-      if (t && t.trim()) nextTranscripts.push(t)
-    }
+  }
 
-    try {
-      const prompt = await generateVisualPromptOnly({
-        transcript_segment: scene.transcript_segment,
-        model: opts.model,
-        detail_level: opts.detail_level,
-        style_prompt: opts.style_prompt,
-        custom_instructions: opts.custom_instructions,
-        apiKeys,
-        slug: undefined, // ctx.slug threading not exposed here yet — falls back to global keys
-        prev_visual_prompts: prevPrompts,
-        next_transcript_segments: nextTranscripts,
-      })
-      if (!prompt || !prompt.trim()) {
-        failed++
-        opts.onWarn?.(`Scene #${i + 1}: model returned empty prompt — left for manual fill / bulk regen`)
-      } else {
-        scene.visual_prompt = prompt
-      }
-    } catch (e: any) {
-      failed++
-      opts.onWarn?.(`Scene #${i + 1}: prompt LLM call failed (${e?.message || 'unknown'}) — left empty`)
+  let failed = 0
+  // Windowed parallel: process scenes in chunks of `concurrency`. Within a
+  // chunk, all scenes run in parallel (their back-context references prior
+  // chunks only — within-chunk scenes don't see each other's prompts, which
+  // is the cohesion trade-off). Chunks process sequentially, so by the time
+  // chunk N+1 starts, every prompt in chunks 0..N is resolved and available
+  // as back-context. With concurrency=1 the loop degrades to one scene per
+  // chunk — identical to the prior strict-sequential path.
+  for (let chunkStart = 0; chunkStart < scenes.length; chunkStart += concurrency) {
+    const chunkEnd = Math.min(scenes.length, chunkStart + concurrency)
+    const chunkTasks: Promise<void>[] = []
+    for (let i = chunkStart; i < chunkEnd; i++) {
+      chunkTasks.push((async () => {
+        const scene = scenes[i]!
+        // Build back-context from scenes BEFORE this chunk — they're all
+        // fully resolved by now. Scenes within the current chunk that
+        // would otherwise be in the back-window are excluded because they
+        // resolve concurrently and aren't visible to each other.
+        const prevPrompts: string[] = []
+        const backStart = Math.max(0, i - back)
+        const backEnd = chunkStart // exclusive — stop at the chunk boundary
+        for (let j = backStart; j < backEnd; j++) {
+          const p = scenes[j]?.visual_prompt
+          if (p && p.trim()) prevPrompts.push(p)
+        }
+        // Forward context uses transcripts (no dependency on prompts being
+        // resolved), so it's unchanged from the sequential path.
+        const nextTranscripts: string[] = []
+        for (let j = i + 1; j <= Math.min(scenes.length - 1, i + forward); j++) {
+          const t = scenes[j]?.transcript_segment
+          if (t && t.trim()) nextTranscripts.push(t)
+        }
+
+        try {
+          const prompt = await generateVisualPromptOnly({
+            transcript_segment: scene.transcript_segment,
+            model: opts.model,
+            detail_level: opts.detail_level,
+            style_prompt: opts.style_prompt,
+            custom_instructions: opts.custom_instructions,
+            apiKeys,
+            slug: undefined, // ctx.slug threading not exposed here yet — falls back to global keys
+            prev_visual_prompts: prevPrompts,
+            next_transcript_segments: nextTranscripts,
+          })
+          if (!prompt || !prompt.trim()) {
+            failed++
+            opts.onWarn?.(`Scene #${i + 1}: model returned empty prompt — left for manual fill / bulk regen`)
+          } else {
+            scene.visual_prompt = prompt
+          }
+        } catch (e: any) {
+          failed++
+          opts.onWarn?.(`Scene #${i + 1}: prompt LLM call failed (${e?.message || 'unknown'}) — left empty`)
+        }
+      })())
     }
-    opts.onProgress?.(i + 1, scenes.length, scenes.length)
+    await Promise.all(chunkTasks)
+    opts.onProgress?.(chunkEnd, scenes.length, scenes.length)
   }
 
   if (failed > 0) {
