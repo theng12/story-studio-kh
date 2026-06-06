@@ -4,6 +4,51 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.292 — 2026-06-06
+
+### Added — Per-job Max chunk size override for Voice Studio TTS + smaller VoxCPM2 default
+Autoregressive clone-style TTS models (VoxCPM2, Chatterbox) drift after a certain audio duration: the cloned voice's reference signal fades from the model's attention as more output is generated, and around 10–30 seconds in the voice starts shifting toward the model's generic distribution. Each TTS chunk is a SEPARATE API call with fresh reference injection, so smaller chunks = each chunk stays inside the model's coherence window = cloned voice stays tight end-to-end. The single lever to tune for this is `softMaxChars` (the per-engine character cap for a single submit).
+
+**Two changes shipped together:**
+
+#### 1. VoxCPM2 default `softMaxChars` lowered: 1000 → 500
+
+The previous default (~60–90s of audio per chunk) sat well outside VoxCPM2's ~10–30s clone coherence window. New default (~30s) keeps each chunk inside the safe band by default — no user action required. Users running long-form narration with cloned voices (sleep stories, devotionals) should hear noticeably more consistent voice quality across an episode.
+
+Other engines unchanged: Kokoro stays at 2000 (preset-voice, no clone drift), Qwen3-TTS at 2000, Chatterbox at 1000 (slightly more forgiving than VoxCPM2). If you find Chatterbox drifting on your reference voice, you can now tune it per-job (see below) without waiting for a default change.
+
+#### 2. Per-job Max chunk size override on the Audio page
+
+A new **"Max chunk size"** field appears under Speed/Stability/Similarity, **visible only when a Voice Studio model is selected** (cloud TTS providers have their own chunking and aren't affected by this knob). The field accepts a character count (50–3000) with a live "≈ Ns of audio" hint next to it so you can think in seconds without doing the conversion. When set, it overrides the engine default for THAT job only.
+
+Workflow:
+- Leave empty → uses the engine's `softMaxChars` (500 for VoxCPM2 in this build)
+- Set to 300 → ~20s per chunk
+- Set to 225 → ~15s per chunk
+- Set to 750 → ~50s per chunk (e.g. for engines that DON'T clone — wastes chunks otherwise)
+- "Reset to engine default" link clears it back to empty
+
+Value persists across reloads via `useRememberedForm`. The Jobs panel logs the effective value at the top of each generation:
+
+```
+Chunk cap for voicestudio-voxcpm-mlx: 300 chars per submit
+(per-job override from the Audio page; default would have been 500).
+```
+
+So you can confirm the override took effect before listening to the output.
+
+### Why this isn't a separate code path (vs. the scene planner two-pass)
+
+The scene planner split needed two distinct code paths because the OUTPUTS are structurally different (cloud produces JSON, local produces prose). TTS produces the same output (audio bytes) regardless of provider — the only variable is how aggressively to chunk the input text. A per-engine chunk-cap knob + a per-job override covers the local-model fragility without code duplication.
+
+### Files
+- `electron/server/lib/voicestudio-client.ts` — VoxCPM2 engine entry `softMaxChars: 1000 → 500`, with comment explaining the autoregressive-drift reasoning
+- `electron/server/contracts/index.ts` — `GenerateAudioSchema` now accepts optional `max_chunk_chars: number` (validated 50–3000)
+- `electron/server/generators/audio.ts` — reads `req.max_chunk_chars` and overrides the model-default `tts_soft_max_chars` per-job; logs which value won
+- `frontend/pages/projects/[slug]/audio.vue` — new Max-chunk-size form field (visible only when `currentAudioProvider === 'voicestudio'`); seconds-equivalent live hint; Reset-to-default link; payload-strip when null; added to `useRememberedForm` allowlist
+
+---
+
 ## v1.0.291 — 2026-06-06
 
 ### Added — Two-pass scene planner: deterministic split + per-scene prompts (for local models)

@@ -127,6 +127,45 @@
         </div>
       </div>
 
+      <!-- Per-job chunk-size override. Only meaningful for Voice Studio
+           local engines (voice cloning models drift after ~10-30s; smaller
+           chunks keep each TTS call inside the coherence window). Hidden
+           for cloud engines (ElevenLabs / GenAIPro) where the chunking
+           defaults already account for the providers' own quirks. -->
+      <div v-if="currentAudioProvider === 'voicestudio'" class="form-group mb-2">
+        <label>
+          Max chunk size <span class="field-hint">— characters per TTS call (Voice Studio only)</span>
+        </label>
+        <div class="chunk-row">
+          <input
+            type="number"
+            v-model.number="form.max_chunk_chars"
+            min="50"
+            max="3000"
+            step="50"
+            class="input"
+            style="max-width: 140px;"
+            placeholder="auto"
+          />
+          <span class="text-muted text-xs">
+            ≈ {{ form.max_chunk_chars ? Math.round((form.max_chunk_chars || 0) / 15) : '?' }}s of audio
+            (at ~15 chars/sec narration pace)
+          </span>
+          <button
+            v-if="form.max_chunk_chars"
+            class="link-btn"
+            type="button"
+            @click="form.max_chunk_chars = null"
+          >Reset to engine default</button>
+        </div>
+        <p class="text-muted text-xs hint-line">
+          VoxCPM2 + Chatterbox clone the reference voice each chunk. The cloned voice naturally drifts after
+          ~10–30s of continuous output, so smaller chunks = better fidelity. Engine defaults: VoxCPM2 500 (~30s),
+          Chatterbox 1000 (~60s). Leave empty to use the default. Try 300 (~20s) or 225 (~15s) if the voice
+          still degrades partway through long sections.
+        </p>
+      </div>
+
       <!-- Generation Mode (M6): single tri-state replaces the previous
            pair of `force` + `no_overwrite` checkboxes. The form still
            sends those booleans to the backend (translated at submit
@@ -317,6 +356,14 @@ const form = reactive({
   speed: 0.93,
   stability: 1.0,
   similarity: 1.0,
+  // Per-job override for the chunk-size cap (chars). Null = use the engine's
+  // default from AudioModelConfig.tts_soft_max_chars. Used primarily for
+  // Voice Studio voice-cloning engines (VoxCPM2, Chatterbox) where the
+  // cloned voice drifts after ~10-30s — smaller chunks keep each TTS call
+  // inside the model's coherence window (each chunk gets a fresh reference
+  // injection). Surfaced in the UI only when a local voicestudio engine is
+  // selected; cloud engines (ElevenLabs / GenAIPro) ignore this entirely.
+  max_chunk_chars: null as number | null,
   // Unified Generation Mode (M6). Submit translates this into the backend's
   // existing { force, no_overwrite } pair. Default 'skip' matches the old
   // default behaviour (force=false, no_overwrite=false).
@@ -328,7 +375,7 @@ const form = reactive({
 // left out of the allowlist. A restored voice that's incompatible with the
 // restored model is reconciled by VoicePicker on load.
 useRememberedForm('audio', slug, form, {
-  include: ['model', 'voice', 'speed', 'stability', 'similarity', 'generation_mode'],
+  include: ['model', 'voice', 'speed', 'stability', 'similarity', 'generation_mode', 'max_chunk_chars'],
 })
 
 // v1.0.150+ — resolve the provider of the currently-picked audio model so
@@ -628,7 +675,15 @@ async function submit() {
   const force = form.generation_mode !== 'skip'
   const no_overwrite = form.generation_mode === 'new_version'
   const { generation_mode: _gm, ...rest } = form
-  const payload = { ...rest, sections, force, no_overwrite }
+  // Strip max_chunk_chars from the payload when null/0/unset — the backend
+  // only overrides the engine default when the field is actually present
+  // with a positive number. Sending `null` would still pass the contract's
+  // .passthrough() but the generator's `> 0` check would reject it; cleaner
+  // to omit so the engine default kicks in unambiguously.
+  const payload: any = { ...rest, sections, force, no_overwrite }
+  if (!(typeof payload.max_chunk_chars === 'number' && payload.max_chunk_chars > 0)) {
+    delete payload.max_chunk_chars
+  }
 
   if (form.episode_id && effectiveSections.value.length === 0 && form.sections) {
     // User selected items but every one was filtered out as already-generated.
@@ -656,6 +711,17 @@ async function submit() {
 <style scoped>
 /* Helper line that hangs directly under an input. */
 .hint-line { margin-top: 4px; }
+
+/* v1.0.291 — Max-chunk-size row on the audio form. Input + secondary
+   hint + reset link all on one line so the user can scan the current
+   value, see what that means in seconds, and clear it back to the
+   engine default in one motion. */
+.chunk-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 
 /* v1.0.78 — inline "Rescan from disk" hint under the TopActionBar.
    Compact, low-contrast so it doesn't compete with the disabled button

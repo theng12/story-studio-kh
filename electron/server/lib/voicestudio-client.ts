@@ -153,7 +153,15 @@ export interface VoiceStudioEngine {
 }
 
 export const VOICESTUDIO_ENGINES: VoiceStudioEngine[] = [
-  { family: 'voxcpm-mlx',     modelId: 'voicestudio-voxcpm-mlx',     label: 'VoxCPM2 4-bit MLX', repo: 'mlx-community/VoxCPM2-4bit', softMaxChars: 1000, voiceField: 'voice_library_id',  availabilityKey: 'voxcpm' },
+  // VoxCPM2 default chunk cap dropped from 1000 → 500 (~30s of audio).
+  // VoxCPM2 is autoregressive-clone TTS; the cloned voice drifts toward the
+  // model's generic distribution after the reference signal fades from
+  // attention (~10-30s window depending on model + reference quality).
+  // Each chunk is a separate API call with fresh reference injection, so
+  // smaller chunks keep clone fidelity tight. User-tunable per-job via the
+  // Audio page's "Max chunk size" field — that override takes precedence
+  // over this default.
+  { family: 'voxcpm-mlx',     modelId: 'voicestudio-voxcpm-mlx',     label: 'VoxCPM2 4-bit MLX', repo: 'mlx-community/VoxCPM2-4bit', softMaxChars: 500,  voiceField: 'voice_library_id',  availabilityKey: 'voxcpm' },
   { family: 'kokoro',         modelId: 'voicestudio-kokoro',         label: 'Kokoro v1.0 82M',   repo: 'hexgrad/Kokoro-82M',        softMaxChars: 2000, voiceField: 'voice',            availabilityKey: 'kokoro' },
   // qwen3-tts: must pin to a CONCRETE catalog variant — bare 'Qwen/Qwen3-TTS'
   // is not in the modal's catalog and would hard-error (ValueError: repo not

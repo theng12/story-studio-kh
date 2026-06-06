@@ -441,6 +441,16 @@ export const GenerateAudioSchema = z.object({
   similarity: z.number().optional(),
   force: z.boolean().optional(),
   no_overwrite: z.boolean().optional(),
+  /**
+   * Per-job override for the chunk-size cap. When set, overrides the
+   * audio_models[model].tts_soft_max_chars default for THIS job only.
+   * Used primarily for Voice Studio voice-cloning engines (VoxCPM2,
+   * Chatterbox) where the cloned voice drifts after a certain audio
+   * duration — smaller chunks keep each TTS call within the model's
+   * coherence window because each chunk gets fresh reference injection.
+   * Bounds 50-3000 chars (~3-180 seconds at typical narration pace).
+   */
+  max_chunk_chars: z.number().int().min(50).max(3000).optional(),
 }).passthrough()
 export type GenerateAudioBody = z.infer<typeof GenerateAudioSchema>
 

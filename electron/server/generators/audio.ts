@@ -420,11 +420,25 @@ export async function generateAudio(job: Job): Promise<void> {
   // sections come out cleanly stitched at sentence boundaries instead
   // of mlx-audio's arbitrary internal cuts.
   const modelEntry = config.audio_models?.[req.model] as any
-  const ttsChunkCap: number | undefined =
+  const modelDefaultCap: number | undefined =
     typeof modelEntry?.tts_soft_max_chars === 'number' && modelEntry.tts_soft_max_chars > 0
       ? modelEntry.tts_soft_max_chars
       : undefined
-  if (ttsChunkCap) {
+  // Per-job override (Audio page form). Used primarily for voice-cloning
+  // engines like VoxCPM2 where the cloned voice drifts after a certain
+  // duration — smaller chunks keep each chunk within the model's coherence
+  // window. Validated 50-3000 at the contract layer.
+  const reqAny = req as any
+  const overrideCap: number | undefined = typeof reqAny.max_chunk_chars === 'number' && reqAny.max_chunk_chars > 0
+    ? reqAny.max_chunk_chars
+    : undefined
+  const ttsChunkCap: number | undefined = overrideCap ?? modelDefaultCap
+  if (overrideCap) {
+    job.output_lines.push(
+      `Chunk cap for ${req.model}: ${overrideCap} chars per submit ` +
+      `(per-job override from the Audio page; default would have been ${modelDefaultCap ?? 'unset'}).`,
+    )
+  } else if (ttsChunkCap) {
     job.output_lines.push(
       `Chunk cap for ${req.model}: ${ttsChunkCap} chars per submit ` +
       `(model-specific; see AudioModelConfig.tts_soft_max_chars).`,
