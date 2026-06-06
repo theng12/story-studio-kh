@@ -9,7 +9,8 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { planScenes } from '../services/scene-planner.js'
+import { planScenes, generateVisualPromptOnly } from '../services/scene-planner.js'
+import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
@@ -40,6 +41,12 @@ interface ScenePlanRunParams {
    *  → small, cloud → full); 'full' = 30/window; 'small' = 10/window.
    *  Passed straight to the planner — see ScenePlanRunOptions.window_size. */
   window_size?: 'auto' | 'full' | 'small'
+  /** v1.0.288 — when set, REGENERATE just this scene's visual_prompt
+   *  without touching its time range, transcript_segment, or any other
+   *  scene. Much cheaper than replan_scene_id (simple prose LLM call, no
+   *  structured JSON output) — works reliably on smaller local models
+   *  that fail full-planner JSON. Mutually exclusive with replan_scene_id. */
+  regenerate_prompt_scene_id?: string
 }
 
 export const SCENE_PLAN_FILENAME = 'scene_plan.json'
@@ -99,6 +106,64 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   job.progress = 10
 
   const outPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
+
+  // ── v1.0.288 — REGENERATE just the visual_prompt for one scene ──────────
+  // Keeps time range + transcript_segment + every other scene EXACTLY as-is.
+  // Only `scene.visual_prompt` changes. Much smaller LLM call than re-plan
+  // (single prose paragraph, no JSON structure), so it works reliably on
+  // smaller local models that fail the full planner's structured output.
+  // The salvage path for the original v1.0.286 bulk re-plan: when a local
+  // model can't produce JSON but CAN produce prose, this regenerates the
+  // empty prompts in place.
+  if (params.regenerate_prompt_scene_id) {
+    if (!existsSync(outPath)) throw new Error('No scene_plan.json to regenerate prompts for — run the full planner first.')
+    const existing = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+    const targetIdx = existing.scenes.findIndex(s => s.id === params.regenerate_prompt_scene_id)
+    if (targetIdx < 0) throw new Error(`Scene ${params.regenerate_prompt_scene_id} not found in scene_plan.json`)
+    const target = existing.scenes[targetIdx]!
+    if (!target.transcript_segment || !target.transcript_segment.trim()) {
+      throw new Error(`Scene #${target.scene_index} has no transcript_segment to base a prompt on. Edit it first or use Re-plan.`)
+    }
+    job.output_lines.push(
+      `Regenerating visual prompt for scene #${target.scene_index} `
+      + `(${target.start_sec.toFixed(1)}–${target.end_sec.toFixed(1)}s, ${(target.end_sec - target.start_sec).toFixed(1)}s) — `
+      + `time range and transcript unchanged, only the prompt is rewritten.`,
+    )
+    const [anthropic_api_key, openai_api_key, kie_api_key] = await Promise.all([
+      getApiKey('anthropic').catch(() => ''),
+      getApiKey('openai').catch(() => ''),
+      getApiKey('kie').catch(() => ''),
+    ])
+    const newPrompt = await generateVisualPromptOnly({
+      transcript_segment: target.transcript_segment,
+      model,
+      detail_level: params.detail_level,
+      style_prompt: params.style_prompt,
+      custom_instructions: params.custom_instructions,
+      apiKeys: { anthropic_api_key, openai_api_key, kie_api_key },
+      slug: job.project_slug,
+    })
+    if (!newPrompt || !newPrompt.trim()) {
+      throw new Error('Model returned an empty prompt. Try a stronger model or fill the prompt in manually.')
+    }
+    // v1.0.260 — if Visual Recipe has composed a prompt into `visual_prompt`,
+    // the raw planner output lives in `visual_prompt_raw`. Updating only
+    // `visual_prompt` here is the right move (the user is asking for a new
+    // prompt right now), but we also clear `visual_prompt_raw` so future
+    // recipe compositions see a fresh starting point — otherwise the recipe
+    // would re-compose from the old raw and overwrite the user's new prompt.
+    target.visual_prompt = newPrompt
+    if (target.visual_prompt_raw) {
+      target.visual_prompt_raw = newPrompt
+    }
+    existing.generated_at = new Date().toISOString()
+    await fs.mkdir(paths.episode_dir, { recursive: true })
+    await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
+    job.output_dir = paths.episode_dir
+    job.progress = 100
+    job.output_lines.push(`✓ Prompt regenerated (${newPrompt.length} chars). Other scenes untouched.`)
+    return
+  }
 
   // ── v1.0.245 — targeted RE-PLAN of one scene's range ────────────────────
   // Fixes an over-long / auto-filled blob without touching the rest of the

@@ -4,6 +4,44 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.288 — 2026-06-06
+
+### Added — "Prompt only" regeneration: keep the scene, just rewrite the visual prompt
+The existing **🪄 Re-plan** runs the full scene planner on a scene's time range — which means it can SPLIT the scene into multiple sub-scenes and CHANGE durations. For users who just want a new visual prompt without disturbing carefully-chosen scene boundaries, that's overkill (and on smaller local models, the JSON output requirement of the full planner is the same thing causing the empty-prompt failures in the first place).
+
+v1.0.288 adds **"✨ Prompt only"** — a separate operation that regenerates **only** `scene.visual_prompt`, leaving every other field (`start_sec`, `end_sec`, `transcript_segment`, `scene_index`, `id`, `boundary_reason`) **exactly as-is**.
+
+**Why this is a big deal for local models:** the full planner asks the LLM for structured JSON (boundaries + transcript + visual prompts for ~10-30 scenes at once). Smaller local models (gemma-4-e4b and similar 4B-param models) routinely fail that JSON output and the planner's salvage logic gives up with empty visual_prompts. The new prompt-only call asks for **a single paragraph of prose**. No JSON, no structure, no boundary timestamps. Even constrained local models handle this cleanly.
+
+#### Where it surfaces
+
+- **Per-scene** — every scene row now has a **✨ Prompt only** button next to 🪄 Re-plan. Disabled if the scene has no `transcript_segment` (nothing to base the prompt on).
+- **Bulk** — the plan-health banner's bulk action is now TWO buttons:
+  - **✨ Regen N prompts only** (primary — the default-looking button) — regenerates prompts in place; faster, more reliable, doesn't touch durations
+  - **🪄 Full re-plan N** (secondary) — the v1.0.286 behaviour; re-segments + re-prompts
+
+The prompt-only bulk is the right choice for the user's typical case (the planner already chose acceptable durations during auto-split; we just need to fill in the prompts). The full re-plan is there when the original durations are actually wrong and you want the planner to re-cut.
+
+#### Visual Recipe interaction
+
+If Visual Recipe has previously composed a prompt (the scene has a `visual_prompt_raw` value), prompt-only regen replaces BOTH `visual_prompt` and `visual_prompt_raw` with the new generation, so the next Apply Recipe pass starts from a fresh baseline. Otherwise the recipe would re-compose from the old raw and overwrite your new prompt.
+
+### Files
+- `electron/server/services/scene-planner.ts` — new `generateVisualPromptOnly(opts)` function. Simple prose LLM call, defensive output cleanup (strips quotes, code fences, "Description:" prefixes that models sometimes add)
+- `electron/server/generators/scene-plan.ts` — `params.regenerate_prompt_scene_id` branch added BEFORE the existing `replan_scene_id` branch. Loads plan, finds scene, calls the new service function, writes back only `visual_prompt` + `generated_at`
+- `electron/server/routes/scene-plan.ts` — new `POST /scene-plan/:ep/regenerate-prompt` route enqueuing the existing `scene_plan_run` job type with the new param
+- `frontend/pages/projects/[slug]/scene-plan.vue` —
+  - new ✨ Prompt only button per scene row + new bulk button next to Re-plan-all
+  - new `regenerateScenePrompt(scene)` + `regenAllEmptyPrompts()` functions (reuse `bulkReplan` state for the shared progress strip)
+  - both pass `previousGeneratedAt` to the v1.0.287 polling helper so iterations don't race
+
+### What's unchanged
+- 🪄 Re-plan and "Full re-plan all" still work exactly as before (segment-aware)
+- Per-scene Merge / Split / Remove buttons unchanged
+- Visual Recipe Apply still composes the latest visual_prompt (regenerated prompts compose just like planner-generated ones)
+
+---
+
 ## v1.0.287 — 2026-06-06
 
 ### Fixed — Bulk Re-plan only processed the first scene (race condition in pollUntilPlanLanded)

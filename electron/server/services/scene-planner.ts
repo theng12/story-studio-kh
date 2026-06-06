@@ -501,6 +501,64 @@ export function buildStorySoFar(scenes: ScenePlanEntry[], live: boolean): string
   ].join('\n')
 }
 
+/**
+ * v1.0.288 — generate JUST the `visual_prompt` for a single scene, without
+ * touching its time boundaries or transcript. Returns the prompt as a
+ * plain string — no JSON, no structure.
+ *
+ * Why this exists: the full `planScenes` call asks the LLM for structured
+ * JSON with scene boundaries + transcript_segment + visual_prompt per
+ * scene. Smaller local models (gemma-4-e4b and similar 4B-param models)
+ * routinely fail that JSON output — truncation, malformed escapes,
+ * prose-where-JSON-was-expected — and the user ends up with empty
+ * `visual_prompt` strings after the planner's salvage logic gives up.
+ *
+ * Prompt-only regeneration sidesteps the JSON problem entirely: the
+ * system prompt asks for a SINGLE prose description, and the model just
+ * has to write one paragraph. Even constrained local models do this
+ * reliably. The output replaces only `scene.visual_prompt`; every other
+ * field (start_sec, end_sec, transcript_segment, boundary_reason, id) is
+ * untouched.
+ */
+export async function generateVisualPromptOnly(opts: {
+  transcript_segment: string
+  model: string
+  detail_level?: number
+  style_prompt?: string
+  custom_instructions?: string
+  apiKeys: { anthropic_api_key?: string; openai_api_key?: string; kie_api_key?: string }
+  slug?: string
+}): Promise<string> {
+  const detail = DETAIL_SPECS[opts.detail_level ?? 2] || DETAIL_SPECS[2]!
+  const sysParts: string[] = [
+    'You write a single visual scene description for an AI image generator.',
+    'Output ONLY the description as natural prose. No JSON, no labels, no quotes, no preamble, no "Here is the description:" — just the description itself.',
+    `Length: ${detail.length}.`,
+    `Cover: ${detail.cover}.`,
+  ]
+  if (opts.style_prompt && opts.style_prompt.trim()) {
+    sysParts.push(`Visual style to apply: ${opts.style_prompt.trim()}`)
+  }
+  if (opts.custom_instructions && opts.custom_instructions.trim()) {
+    sysParts.push(`Additional rules: ${opts.custom_instructions.trim()}`)
+  }
+  const system = sysParts.join('\n\n')
+  const user = `Narration excerpt:\n${opts.transcript_segment.trim()}\n\nWrite the visual scene description (single paragraph, no quotes):`
+
+  const raw = await callAi(opts.model, system, user, opts.apiKeys, false, { slug: opts.slug })
+  // Defensive clean-up: even with explicit instructions, models sometimes
+  // wrap the output in quotes, code fences, or add a "Description:" prefix.
+  // Strip those so the user sees clean prose in the editor.
+  let cleaned = (raw || '').trim()
+  // Strip ```...``` fences
+  cleaned = cleaned.replace(/^```[a-z]*\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+  // Strip leading "Description:" / "Visual prompt:" labels
+  cleaned = cleaned.replace(/^(visual\s*prompt|visual\s*description|scene\s*description|description|prompt)\s*[:\-]\s*/i, '').trim()
+  // Strip surrounding quotes (smart + straight)
+  cleaned = cleaned.replace(/^["'`“‘]+|["'`”’]+$/g, '').trim()
+  return cleaned
+}
+
 /** Run the LLM planner. Returns a ScenePlan object ready to persist. */
 export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> {
   if (!existsSync(opts.stitched_srt_path)) {

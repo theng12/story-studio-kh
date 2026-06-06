@@ -137,6 +137,51 @@ router.post('/projects/:slug/scene-plan/:episodeId/replan-scene', async (req, re
   res.status(201).json(job)
 })
 
+// ── POST /scene-plan/:ep/regenerate-prompt ───────────────────────────
+// v1.0.288 — regenerate JUST the visual_prompt for ONE scene. Keeps the
+// scene's time boundaries, transcript_segment, scene_index, and id
+// untouched — only visual_prompt is rewritten. Vastly more reliable on
+// small local models than the full Re-plan because the output is plain
+// prose, not structured JSON.
+router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+  const body = req.body || {}
+  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  if (!model) return res.status(400).json({ detail: 'model is required' })
+  const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
+  if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
+
+  const detailLevel = typeof body.detail_level === 'number'
+    ? Math.min(4, Math.max(1, Math.round(body.detail_level)))
+    : undefined
+  const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
+  const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
+
+  // Shares the scene_plan_run lane — only one job per episode at a time.
+  // The frontend bulk-regen loop polls for completion before queuing the next.
+  if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
+    return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
+  }
+
+  const job = jq.enqueue({
+    project_slug: slug,
+    type: 'scene_plan_run' as JobType,
+    episode_id: episodeId,
+    title: `Regen prompt — ${episodeId}`,
+    params: {
+      episode_id: episodeId,
+      model,
+      regenerate_prompt_scene_id: sceneId,
+      detail_level: detailLevel,
+      style_prompt: stylePrompt || undefined,
+      custom_instructions: customInstructions || undefined,
+    },
+  })
+  res.status(201).json(job)
+})
+
 // ── GET /scene-plan/:ep ───────────────────────────────────────────────
 // Returns the existing plan + status flags so the page can render the
 // 3-step wizard correctly (stitch ready? plan ready? drift?).

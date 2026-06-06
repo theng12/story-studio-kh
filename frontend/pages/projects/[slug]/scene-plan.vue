@@ -313,17 +313,33 @@
                  planner-failure class). Over-long / boundary-reason scenes
                  stay on the per-row Re-plan button because they're judgement
                  calls, not pure failures. -->
-            <button
-              v-if="emptyPromptCount > 0"
-              class="btn btn-sm btn-secondary"
-              :disabled="!form.model || planning || bulkReplan.active"
-              :title="!form.model
-                ? 'Pick a model above first'
-                : `Re-plan ${emptyPromptCount} scene(s) with empty visual prompts, one at a time.`"
-              @click="replanAllEmpty"
-            >
-              🪄 Re-plan all {{ emptyPromptCount }} empty
-            </button>
+            <div class="bulk-buttons" v-if="emptyPromptCount > 0">
+              <!-- v1.0.288 — prompt-only bulk lives next to Re-plan-all. It's
+                   the better default for local models because each call is
+                   prose (no JSON), so failure rates are much lower. The
+                   heavier "🪄 Re-plan all" stays available for users who
+                   want the planner to also re-segment the empties. -->
+              <button
+                class="btn btn-sm btn-primary"
+                :disabled="!form.model || planning || bulkReplan.active"
+                :title="!form.model
+                  ? 'Pick a model above first'
+                  : `Regenerate ONLY the visual prompts for ${emptyPromptCount} scene(s). Time ranges + transcripts unchanged. Much more reliable on local models than full Re-plan.`"
+                @click="regenAllEmptyPrompts"
+              >
+                ✨ Regen {{ emptyPromptCount }} prompt{{ emptyPromptCount === 1 ? '' : 's' }} only
+              </button>
+              <button
+                class="btn btn-sm btn-secondary"
+                :disabled="!form.model || planning || bulkReplan.active"
+                :title="!form.model
+                  ? 'Pick a model above first'
+                  : `Full re-plan: each scene gets re-segmented + re-prompted (can change time ranges).`"
+                @click="replanAllEmpty"
+              >
+                🪄 Full re-plan {{ emptyPromptCount }}
+              </button>
+            </div>
           </div>
 
           <!-- Bulk progress strip — visible while the loop is running. -->
@@ -417,10 +433,23 @@
               <!-- v1.0.245 — re-plan just this scene's time range via the LLM. -->
               <button
                 class="btn-icon"
-                :disabled="!form.model || replanningId === scene.id || planning"
+                :disabled="!form.model || replanningId === scene.id || planning || bulkReplan.active || regenPromptId === scene.id"
                 :title="!form.model ? 'Pick a model above first' : 'Re-plan this time range with the LLM — replaces it with proper sub-scenes (other scenes + images untouched)'"
                 @click="replanScene(scene)"
               >{{ replanningId === scene.id ? '⏳ Re-planning…' : '🪄 Re-plan' }}</button>
+              <!-- v1.0.288 — prompt-only regeneration. Keeps the scene's time
+                   boundaries and transcript exactly as-is; only rewrites
+                   visual_prompt. Works on local models that fail full Re-plan. -->
+              <button
+                class="btn-icon"
+                :disabled="!form.model || regenPromptId === scene.id || planning || bulkReplan.active || replanningId === scene.id || !scene.transcript_segment?.trim()"
+                :title="!form.model
+                  ? 'Pick a model above first'
+                  : !scene.transcript_segment?.trim()
+                    ? 'Scene has no transcript_segment — fill that in first'
+                    : 'Regenerate ONLY the visual prompt — time range + transcript stay exactly the same. Works on local models that fail full Re-plan.'"
+                @click="regenerateScenePrompt(scene)"
+              >{{ regenPromptId === scene.id ? '⏳ Regenerating…' : '✨ Prompt only' }}</button>
               <button
                 class="btn-icon"
                 :disabled="i === 0"
@@ -822,6 +851,125 @@ function jumpToScene(id: string): void {
 
 const replanningId = ref<string | null>(null)
 
+// v1.0.288 — prompt-only regeneration. Distinct from re-plan because the
+// backend call is much smaller (prose, not JSON) and the user might want
+// to regenerate a prompt without altering the scene's time boundaries.
+const regenPromptId = ref<string | null>(null)
+async function regenerateScenePrompt(scene: ScenePlanEntry): Promise<void> {
+  if (!form.value.model) { showError('Pick a model above first'); return }
+  if (!scene.transcript_segment?.trim()) { showError('Scene has no transcript_segment to base a prompt on.'); return }
+  const ep = episodeId.value
+  regenPromptId.value = scene.id
+  const previousGeneratedAt = plan.value?.generated_at || null
+  try {
+    await post(`/projects/${slug.value}/scene-plan/${ep}/regenerate-prompt`, {
+      scene_id: scene.id,
+      model: form.value.model,
+      detail_level: form.value.detail_level,
+      style_prompt: form.value.style_prompt.trim() || undefined,
+      custom_instructions: form.value.custom_instructions.trim() || undefined,
+    })
+    success('Regen queued — watch the Jobs panel; the prompt updates when it lands.')
+    await pollUntilPlanLanded(ep, { previousGeneratedAt })
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to start prompt regen')
+  } finally {
+    regenPromptId.value = null
+  }
+}
+
+/**
+ * v1.0.288 — bulk regenerate prompts for every empty-prompt scene. Same
+ * shape as replanAllEmpty but calls the cheaper regenerate-prompt endpoint.
+ * Reuses the bulkReplan state object so the existing progress strip works
+ * for either bulk mode.
+ */
+async function regenAllEmptyPrompts(): Promise<void> {
+  if (!form.value.model) { showError('Pick a model above first'); return }
+  if (bulkReplan.value.active) return
+  const empty = (plan.value?.scenes || []).filter(
+    s => (!s.visual_prompt || !s.visual_prompt.trim()) && (s.transcript_segment && s.transcript_segment.trim()),
+  )
+  if (!empty.length) {
+    success('No regenerable scenes — either every scene already has a prompt, or empty scenes also have empty transcripts.')
+    return
+  }
+  const ep = episodeId.value
+  const ok = await ask({
+    title: `Regenerate ${empty.length} visual prompt${empty.length === 1 ? '' : 's'}?`,
+    message:
+      `Rewrites the visual_prompt for each empty-prompt scene, ONE AT A TIME. Time boundaries + transcript_segment stay exactly as-is. `
+      + `Each call is small (prose output, no JSON) so this is much more reliable on local models than full Re-plan. `
+      + `Estimated ~${Math.ceil(empty.length * 0.3)}-${Math.ceil(empty.length * 0.8)}min depending on your model. `
+      + `You can cancel between scenes.${dirty.value ? ' Unsaved edits to the plan will be discarded first.' : ''}`,
+    confirmLabel: `Regen all ${empty.length}`,
+  })
+  if (!ok) return
+
+  bulkReplan.value = {
+    active: true, completed: 0, total: empty.length,
+    currentSceneIndex: null, cancelRequested: false,
+  }
+
+  const skipIds = new Set<string>()
+  let safetyCap = 200
+  let succeeded = 0
+  let failed = 0
+  while (safetyCap-- > 0 && !bulkReplan.value.cancelRequested) {
+    if (episodeId.value !== ep) break
+    const next = (plan.value?.scenes || []).find(
+      s => !skipIds.has(s.id)
+        && (!s.visual_prompt || !s.visual_prompt.trim())
+        && (s.transcript_segment && s.transcript_segment.trim()),
+    )
+    if (!next) break
+    bulkReplan.value.currentSceneIndex = next.scene_index
+    const previousGeneratedAt = plan.value?.generated_at || null
+    try {
+      await post(`/projects/${slug.value}/scene-plan/${ep}/regenerate-prompt`, {
+        scene_id: next.id,
+        model: form.value.model,
+        detail_level: form.value.detail_level,
+        style_prompt: form.value.style_prompt.trim() || undefined,
+        custom_instructions: form.value.custom_instructions.trim() || undefined,
+      })
+      await pollUntilPlanLanded(ep, { previousGeneratedAt })
+      // Verify the prompt actually landed — model can still return empty
+      // on a truly degenerate input (e.g. transcript with no usable content).
+      const stillEmpty = (plan.value?.scenes || []).some(
+        s => s.id === next.id && (!s.visual_prompt || !s.visual_prompt.trim()),
+      )
+      if (stillEmpty) {
+        failed++
+        skipIds.add(next.id)
+      } else {
+        succeeded++
+      }
+    } catch (e: any) {
+      failed++
+      skipIds.add(next.id)
+      if (failed <= 3) {
+        showError(`Scene #${next.scene_index} regen failed: ${e?.data?.detail || e?.message || 'unknown'}`)
+      } else if (failed === 4) {
+        showError(`Multiple regens failing — suppressing further toasts. See the final summary for counts.`)
+      }
+    }
+    bulkReplan.value.completed++
+  }
+
+  const wasCancelled = bulkReplan.value.cancelRequested
+  bulkReplan.value = { active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false }
+  if (wasCancelled) {
+    success(`Bulk regen cancelled. Regenerated ${succeeded}, ${failed} skipped (model couldn't produce a prompt).`)
+  } else if (failed > 0 && succeeded > 0) {
+    success(`Bulk regen finished. Succeeded: ${succeeded}. Skipped: ${failed}. Re-run the button to retry, or fill the rest in manually.`)
+  } else if (failed > 0 && succeeded === 0) {
+    showError(`Bulk regen finished with ${failed} failure${failed === 1 ? '' : 's'} and 0 successes. Your selected model can't produce prompts even for the simpler regen call. Try a stronger model (qwen3-coder, claude-sonnet, gpt-4o) or fill the prompts in by hand.`)
+  } else {
+    success(`Regenerated ${succeeded} visual prompt${succeeded === 1 ? '' : 's'}.`)
+  }
+}
+
 // v1.0.286 — bulk re-plan state. Holds the in-progress loop so the UI can
 // surface "Re-planning N of M…" and disable other actions. `cancelRequested`
 // lets the user bail out between scenes (we don't tear down the active LLM
@@ -1125,6 +1273,14 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
 </script>
 
 <style scoped>
+/* v1.0.288 — bulk-button group on the plan-health head. The two bulk
+   options (✨ Regen prompts only / 🪄 Full re-plan) sit side-by-side. */
+.bulk-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* v1.0.286 — Plan-health head: room for the new bulk re-plan button next to
    the heading. Was just a static line; now needs flex so the button hangs
    on the right edge. */
