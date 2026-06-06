@@ -23,6 +23,7 @@ import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { resolveApiKeyForProviderId } from '../providers/registry.js'
 import { parseEndpoints, healthyEndpoints, createDispatcher, runOnPool, type Dispatcher } from '../lib/endpoint-pool.js'
+import { newLatencyStats, recordCall as recordLatency, summarize as summarizeLatency } from '../lib/endpoint-latency-stats.js'
 import { assertBalanceAvailable } from '../services/utils.js'
 import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
 import { recordTask, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
@@ -700,6 +701,16 @@ export async function generateAudio(job: Job): Promise<void> {
     if (isCancelled()) controller.abort()
   }, 500)
 
+  // v1.0.294 — per-endpoint latency tracking for Voice Studio pool.
+  // After the first N successful calls per endpoint, we lock in a
+  // "baseline avg seconds/chunk" and watch the rolling window. If the
+  // recent window's average exceeds 2× baseline, the modal is probably
+  // suffering from MLX memory pressure (KV cache fragmentation, VAE
+  // decode churn) and we surface a one-time "restart this Mac soon"
+  // hint to the Jobs panel. Single-job scoped — each new audio job
+  // starts with fresh baselines. Only meaningful when isLocalAudioProvider.
+  const latencyStats = isLocalAudioProvider ? newLatencyStats() : null
+
   async function processTask(task: ChunkTask): Promise<void> {
     if (isCancelled()) return
     // Phase 6: per-task voice override for routed sections. Falls back to
@@ -752,7 +763,14 @@ export async function generateAudio(job: Job): Promise<void> {
               }
             }
           }
-          return generateTtsVoiceStudio(ep, task.outputPath, {
+          // v1.0.294 — time each successful call so the latency tracker
+          // can detect MLX memory-pressure degradation. We start the
+          // timer just before the actual TTS submit (after name resolution
+          // overhead) and stop on success only — failures hand off to
+          // the dispatcher's failover path and don't say anything useful
+          // about model health.
+          const callStartMs = performance.now()
+          const callResult = await generateTtsVoiceStudio(ep, task.outputPath, {
             text: task.chunkText,
             apiKey: ep, // ignored by the helper but required by the AudioGenerationRequest type
             modelId: req.model,
@@ -763,6 +781,12 @@ export async function generateAudio(job: Job): Promise<void> {
             isCancelled,
             onProgress: makeChunkCb(),
           })
+          if (latencyStats) {
+            recordLatency(latencyStats, ep, performance.now() - callStartMs, {
+              onDegradation: (msg) => job.output_lines.push(msg),
+            })
+          }
+          return callResult
         })
       } else {
         const chunkFilename = path.basename(task.outputPath)
@@ -954,6 +978,18 @@ export async function generateAudio(job: Job): Promise<void> {
     )
   } finally {
     clearInterval(cancelWatcher)
+  }
+
+  // v1.0.294 — emit per-endpoint latency summary into the Jobs panel.
+  // Empty for cloud providers (latencyStats is null) and for single-call
+  // local jobs where the baseline never locked in. Lines look like:
+  //   Endpoint latency summary:
+  //     • http://mac-m1:47870: 50 calls · recent avg 14.2s/chunk · baseline 13.8s
+  //     • http://mac-m4:47870: 50 calls · recent avg 24.1s/chunk · baseline 12.0s · 2.0× slower · ⚠ degraded mid-job
+  if (latencyStats) {
+    for (const line of summarizeLatency(latencyStats)) {
+      job.output_lines.push(line)
+    }
   }
 
   // Phase 6: post-pool concat for routed sections. Each concatPlans entry

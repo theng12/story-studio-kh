@@ -4,6 +4,53 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.294 — 2026-06-07
+
+### Added — Voice Studio latency-trend tracking — early warning for MLX memory pressure
+MLX models on Apple Silicon (Voice Studio TTS, Image Studio diffusion, LM Studio LLM) accumulate state across requests — KV cache growth, Metal command buffer pressure, VAE decode memory churn. After enough sustained use this surfaces as **silent latency degradation**: the modal still responds, but each call takes 2-5× longer than it did when fresh. The user sees nothing wrong; the job just feels slow. Eventually it can OOM outright (v1.0.261 shipped the Size selector for Image Studio specifically to dodge this).
+
+Story Studio can't see the modal's internal memory state, but it CAN see how long each call takes. v1.0.294 adds **per-endpoint latency tracking** to every Voice Studio audio job:
+
+- Records the wall-clock duration of every **successful** TTS chunk per endpoint (failures don't count — they fail over to a different endpoint via the existing dispatcher pattern and don't say anything about model health)
+- Locks in a **baseline** from the first 5 successful calls per endpoint — represents "fresh-modal" performance
+- Watches a rolling window of the last 5 calls — represents "right now" performance
+- When the recent window average exceeds the baseline by 2× and the window is full, fires a **one-time warning** in the Jobs panel:
+
+  ```
+  ⚠ http://mac-m1:47870 latency degrading — last 5 calls avg 28.4s vs baseline 12.1s
+  (2.3× slower). The MLX modal may be running out of memory; consider restarting
+  Voice Studio on this Mac when convenient.
+  ```
+
+- At job end, emits a **per-endpoint summary** so a quick scan of the Jobs panel tells you how each Mac performed across the whole job:
+
+  ```
+  Endpoint latency summary:
+    • http://mac-m1:47870: 50 calls · recent avg 14.2s/chunk · baseline 13.8s
+    • http://mac-m4:47870: 50 calls · recent avg 24.1s/chunk · baseline 12.0s · 2.0× slower · ⚠ degraded mid-job
+  ```
+
+### Why baseline-from-first-N (not a rolling baseline)
+
+A rolling baseline would silently absorb the very degradation we're trying to catch — if the model gradually slows by 5% per call, the rolling average follows it and never triggers. The first-N baseline anchors against "how fast was this modal when I started?" so any sustained slowdown shows up against a stable reference.
+
+### Why 2× as the threshold
+
+Looser (3-5×) would let real OOM-on-the-horizon problems hide until they're severe. Tighter (1.5×) would false-positive on normal variation between Macs (your m4 might be 30% slower than m1 baseline-vs-baseline just because of thermal throttling on a busy afternoon). 2× is a defensible middle ground that fires on real memory pressure without crying wolf on day-to-day noise. Configurable in code if you find it wrong in practice.
+
+### What it does NOT do
+
+- **Auto-restart Voice Studio.** Can't safely do — would interrupt in-flight chunks, and Pinokio's restart pattern isn't exposed via API. The warning is advisory; you decide when to restart.
+- **Kill slow chunks.** A slow chunk is still a successful chunk; killing it loses real work. Just surfaces the signal and lets the user act.
+- **Cross-job persistence.** Each new audio job starts with fresh stats. Conflating sessions (Mac slept, modal restarted, etc.) would bias the baseline.
+- **Apply to cloud TTS or Image Studio.** Voice Studio first; the same `endpoint-latency-stats` module is generic and can be wired into the image renderer or other multi-endpoint paths later if useful — it's just one import + a per-call timer + an end-of-job summary call.
+
+### Files
+- `electron/server/lib/endpoint-latency-stats.ts` (NEW) — reusable per-endpoint latency tracker. `newLatencyStats()` + `recordCall(stats, ep, durationMs, opts)` + `summarize(stats)`. Configurable baseline/recent windows + degradation factor.
+- `electron/server/generators/audio.ts` — initialize stats Map at job start (Voice Studio only), wrap the Voice Studio TTS call with `performance.now()` timing, record on success, push degradation warning to `job.output_lines` via the callback, push end-of-job summary in the finally block.
+
+---
+
 ## v1.0.293 — 2026-06-07
 
 ### Added — Name-keyed Voice Studio voice resolution for multi-endpoint clone dispatch
