@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.290 — 2026-06-06
+
+### Changed — Subtitle transcription now uses the first AVAILABLE Voice Studio endpoint, not blindly the first listed
+v1.0.289 fixed the URL-parse crash for multi-endpoint Voice Studio users, but it still failed if endpoint #1 was offline — you had to manually reorder the URL list to put a reachable endpoint first. Now the subtitle generator probes each endpoint in order and uses the **first one that responds AND has STT loaded**. If the primary is asleep / unreachable, the next one takes over automatically and the Jobs log surfaces a one-liner: `Voice Studio: primary endpoint unreachable — using fallback http://mac2:47870`.
+
+The probe is the same `/api/transcribe/availability` call the generator was going to make next anyway, so this doesn't add a network roundtrip — it just folds the "which endpoint?" and "is it ready?" checks into one pass.
+
+### What it doesn't change
+- **Subtitle is still single-endpoint by design** (sequential STT, see v1.0.288 rationale). The failover picks ONE endpoint per job; it doesn't dispatch multiple chunks across endpoints.
+- **Audio TTS multi-endpoint dispatcher** unchanged — that path already does proper parallel + healthcheck via the `runOnPool` pattern.
+- **Image generation multi-endpoint dispatcher** unchanged for the same reason.
+- The Jobs log now shows the chosen endpoint URL alongside the model: `Engine: Voice Studio (local) · mlx-community/whisper-tiny · http://mac2:47870` — easier to confirm which Mac is doing the work.
+
+### Files
+- `electron/server/lib/voicestudio-client.ts` — new `pickFirstAvailableTranscribeEndpoint(stored)` helper that walks the URL list, probes each, returns the first reachable + STT-ready one (or throws an informative "no endpoint available" error if none match). Reusable for other single-endpoint Voice Studio consumers.
+- `electron/server/generators/subtitles.ts` — uses the new helper instead of the blind-first `voicestudioFirst` from v1.0.289. Falls through to the historical single-endpoint path on the no-endpoints edge case so error messages stay clear.
+
+---
+
 ## v1.0.289 — 2026-06-06
 
 ### Fixed — Subtitle transcription broken when multiple Voice Studio endpoints configured

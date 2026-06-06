@@ -881,6 +881,51 @@ export async function transcribeAvailability(baseUrl: string): Promise<VoiceStud
   return resp.json() as Promise<VoiceStudioTranscribeAvailability>
 }
 
+/**
+ * v1.0.290 — walk a stored comma/space-separated URL list and return the
+ * FIRST endpoint that responds to the transcribe-availability probe AND
+ * reports `available: true`. Returns null if none are reachable + ready.
+ *
+ * Used by the subtitle generator because the STT path is intentionally
+ * single-endpoint (parallel STT not worth the refactor — see v1.0.288
+ * changelog) BUT should gracefully fail over when the primary endpoint is
+ * offline. v1.0.289's `voicestudioFirst()` fixed the URL-parse crash but
+ * still failed if endpoint #1 was unreachable; this lifts that limitation
+ * by trying each endpoint in order.
+ *
+ * Probe timeout is per-endpoint (~15s via transcribeAvailability), so a
+ * full 3-endpoint walk worst-case takes ~45s before giving up. In practice
+ * unreachable endpoints fail much faster (TCP refused or DNS lookup error).
+ */
+export async function pickFirstAvailableTranscribeEndpoint(
+  stored: string | null | undefined,
+): Promise<{ baseUrl: string; avail: VoiceStudioTranscribeAvailability } | null> {
+  const endpoints = parseEndpoints(stored)
+  if (endpoints.length === 0) return null
+  let lastError: Error | null = null
+  for (const baseUrl of endpoints) {
+    try {
+      const avail = await transcribeAvailability(baseUrl)
+      if (avail.available) return { baseUrl, avail }
+      // Reachable but STT not loaded — keep walking. The modal may be on
+      // but its mlx-audio engine is missing/broken on this Mac.
+      lastError = new Error(`${baseUrl}: reachable but transcription unavailable (mlx-audio not importable)`)
+    } catch (e: any) {
+      // Unreachable — try the next one. Keep the most recent error so we
+      // can surface something useful if ALL endpoints fail.
+      lastError = e instanceof Error ? e : new Error(String(e))
+    }
+  }
+  // Attach lastError as a cause so the caller's "no endpoints available"
+  // message can point at WHICH thing went wrong last (network vs missing engine).
+  if (lastError) {
+    const e = new Error(`No Voice Studio endpoint available for transcription. Last error: ${lastError.message}`)
+    ;(e as any).cause = lastError
+    throw e
+  }
+  return null
+}
+
 /** Kick off a one-time Whisper model download on the modal (same generic
  *  /api/downloads endpoint the TTS models use). Returns the modal's response. */
 export async function downloadTranscribeModel(baseUrl: string, repo: string): Promise<any> {
