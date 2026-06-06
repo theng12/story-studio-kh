@@ -159,7 +159,7 @@ async function transcribePerChapter(
   // v1.0.217+ — resolve the chosen engine up front. 'voicestudio' uses the
   // local modal's free Whisper STT; 'openai' is the paid fallback.
   const engine = req.engine === 'voicestudio' ? 'voicestudio' : 'openai'
-  const { transcribeFile, transcribeAvailability, DEFAULT_VOICESTUDIO_BASE_URL } =
+  const { transcribeFile, transcribeAvailability, DEFAULT_VOICESTUDIO_BASE_URL, voicestudioFirst } =
     await import('../lib/voicestudio-client.js')
   let apiKey = ''            // OpenAI key (openai engine)
   let vsBaseUrl = ''         // Voice Studio modal URL (voicestudio engine)
@@ -167,7 +167,15 @@ async function transcribePerChapter(
 
   if (engine === 'voicestudio') {
     const { getApiKey } = await import('../services/app-secrets-store.js')
-    vsBaseUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+    // v1.0.289 — strip to the FIRST endpoint when the user has configured
+    // multiple Voice Studio URLs. Previously passed the raw comma list
+    // through, which fetch then tried to parse as one URL — bricked
+    // transcription for multi-endpoint users with "Failed to parse URL
+    // from http://mac1:47870, http://mac2:47870/api/transcribe/availability".
+    // The subtitle path is intentionally single-endpoint (parallel STT was
+    // deemed not worth the refactor — transcription is fast enough
+    // sequentially); this just picks the first cleanly.
+    vsBaseUrl = voicestudioFirst(await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
     if (!vsBaseUrl) {
       throw new Error('Voice Studio URL not set — add it in Settings → This Mac → Local Models.')
     }

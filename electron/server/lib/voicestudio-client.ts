@@ -34,6 +34,7 @@ import path from 'path'
 import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
 import { sleepCancellable } from './http-retry.js'
+import { parseEndpoints } from './endpoint-pool.js'
 
 /**
  * Voice Studio modal base URL default.
@@ -51,6 +52,22 @@ import { sleepCancellable } from './http-retry.js'
  * then `…-m4.local`. That leaked a machine-specific default to everyone.)
  */
 export const DEFAULT_VOICESTUDIO_BASE_URL = ''
+
+/**
+ * First endpoint of a (possibly comma/space-separated) stored URL list —
+ * mirrors `lmstudioFirst` in lmstudio-client.ts. Callers that don't use the
+ * full multi-endpoint dispatcher (e.g. the subtitle transcriber, the
+ * availability probe routes) MUST run the stored value through this before
+ * using it as a base URL — otherwise a 2+ endpoint user's stored value
+ * `http://mac1:47870, http://mac2:47870` gets treated as one giant URL and
+ * fetch fails with "Failed to parse URL …" (v1.0.289 bug fix).
+ *
+ * Returns '' when nothing is stored — the caller is expected to fall back
+ * to DEFAULT_VOICESTUDIO_BASE_URL or surface a "no URL configured" error.
+ */
+export function voicestudioFirst(stored: string | null | undefined): string {
+  return parseEndpoints(stored)[0] || ''
+}
 
 /**
  * The twelve engine families the Voice Studio KH wrapper exposes (from

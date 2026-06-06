@@ -4,6 +4,38 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.289 — 2026-06-06
+
+### Fixed — Subtitle transcription broken when multiple Voice Studio endpoints configured
+Adding a second Voice Studio URL in Settings → Local Models broke subtitle transcription with:
+
+```
+Failed to parse URL from http://theng-macmini-m1.tail4e72cf.ts.net:47870,
+http://theng-macmini-m4.tail4e72cf.ts.net:47870/api/transcribe/availability
+```
+
+Root cause: every other Voice Studio caller (the audio TTS path + audio routes) ran the stored URL through a `vsFirst` / `lmstudioFirst`-style helper that strips a comma-separated list down to the first entry. The subtitle generator forgot to do this — it grabbed the raw `(await getApiKey('voicestudio'))` value and passed it straight to `transcribeAvailability(baseUrl)` / `transcribeFile(baseUrl, ...)`. With one endpoint stored, the value was a valid URL and it worked. With two, the comma-joined string became `http://mac1:47870, http://mac2:47870`, fetch concatenated `/api/transcribe/availability` on the end, and URL parsing crashed before the first byte left the box.
+
+This is a strict regression from when the multi-endpoint editor (v1.0.255) shipped — the subtitle path never got updated to match. Easy to miss because subtitle is the only voicestudio-consuming surface that's intentionally single-endpoint (sequential STT design choice, see v1.0.288 changelog).
+
+### Fix
+
+- Added `voicestudioFirst()` to [`voicestudio-client.ts`](electron/server/lib/voicestudio-client.ts) mirroring the existing `lmstudioFirst()` in lmstudio-client.ts. Returns the first endpoint of a stored URL list (uses the shared `parseEndpoints()` helper). One place to fix; all single-endpoint Voice Studio callers should import and use it.
+- Subtitle generator now uses `voicestudioFirst(await getApiKey('voicestudio'))` instead of the raw value. Two-line change. Subtitle transcription works again whether you have 1 or 5 Voice Studio endpoints configured.
+- The route-level availability probe ([`routes/audio.ts:511`](electron/server/routes/audio.ts)) already had a local `vsFirst` helper doing the same thing — left as-is to keep this commit minimal. Could be consolidated to import the shared helper in a future cleanup pass.
+
+### What's unaffected
+- Audio TTS multi-endpoint dispatcher (works correctly — uses its own `runOnPool` path)
+- Image Studio dispatcher (works correctly — same pattern as audio)
+- LM Studio LLM single-endpoint behaviour (uses `lmstudioFirst`)
+- All routes under `/voicestudio/*` (already use the local `vsFirst`)
+
+### Files
+- `electron/server/lib/voicestudio-client.ts` — new exported `voicestudioFirst` helper
+- `electron/server/generators/subtitles.ts` — imports + uses `voicestudioFirst` at the resolve site
+
+---
+
 ## v1.0.288 — 2026-06-06
 
 ### Added — "Prompt only" regeneration: keep the scene, just rewrite the visual prompt
