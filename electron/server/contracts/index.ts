@@ -383,6 +383,10 @@ export const GenerateScriptOnlySchema = z.object({
   // Character primitive (Phase 5): optional cast list — the LLM uses
   // these names + descriptions instead of inventing characters.
   character_ids: z.array(z.string().min(1).max(120)).optional(),
+  // v1.0.297 — optional free-text producer guidance injected into the outline
+  // + chapter prompts (ad-hoc names, setting, names to avoid). Capped so a
+  // runaway paste can't blow the prompt budget.
+  manual_guidance: z.string().max(2000).optional(),
 }).passthrough()
 export type GenerateScriptOnlyBody = z.infer<typeof GenerateScriptOnlySchema>
 

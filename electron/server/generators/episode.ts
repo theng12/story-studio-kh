@@ -1109,6 +1109,13 @@ async function setupChunkedJobContext(
   const totalWords = snapshot?.total_words ?? req.total_words ?? (wordsPerChapter * chapters)
   const characterIds = snapshot?.character_ids ?? req.character_ids
   const customStyleText = snapshot?.custom_style_text ?? (req as any).custom_style_text
+  // v1.0.297 — optional free-text producer guidance. Prefer the sidecar
+  // snapshot on expand runs so chapter bodies get the SAME guidance the
+  // outline was built with (names/settings stay consistent into the body).
+  const manualGuidanceRaw = snapshot?.manual_guidance ?? (req as any).manual_guidance
+  const manualGuidance = typeof manualGuidanceRaw === 'string' && manualGuidanceRaw.trim()
+    ? manualGuidanceRaw.trim()
+    : undefined
 
   // v1.0.166 — Pattern fusion removed with the Pattern system.
 
@@ -1146,6 +1153,7 @@ async function setupChunkedJobContext(
     words_per_chapter: wordsPerChapter,
     character_ids: characterIds,
     custom_style_text: customStyleText,
+    manual_guidance: manualGuidance,
   }
 
   const params: ChunkedNarrationParams = {
@@ -1162,6 +1170,7 @@ async function setupChunkedJobContext(
     signal: controller.signal,
     isCancelled: () => jq.isCancelled(job.job_id),
     force: !!(job.params as any).force,
+    manualGuidance,
     generationParams,
   }
   const mode: ChunkedMode = format.script.chaptersIndependent ? 'listicle' : 'narrative'

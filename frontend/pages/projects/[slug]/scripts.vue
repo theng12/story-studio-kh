@@ -503,6 +503,43 @@
 
       </ContextStrip>
 
+      <!-- v1.0.297 — Story guidance: optional free-text direction injected into
+           the outline AND every chapter, on top of the format + niche. The lever
+           for ad-hoc character names, a setting, tone notes, or names to avoid —
+           and the fix for repetitive names across a long-running channel. -->
+      <div class="guidance-card">
+        <div class="guidance-head">
+          <label for="manual-guidance" class="guidance-label">
+            ✍️ Story guidance <span class="guidance-optional">optional</span>
+          </label>
+          <span class="guidance-count" :class="{ 'over': form.manual_guidance.length > MANUAL_GUIDANCE_MAX }">
+            {{ form.manual_guidance.length }}/{{ MANUAL_GUIDANCE_MAX }}
+          </span>
+        </div>
+        <p class="guidance-help text-muted text-xs">
+          Free-text direction sent to the model on top of the format + niche — shapes both the outline and
+          the chapter bodies. Pin specific names, a setting, a tone, or names to <strong>avoid</strong>.
+          Leave blank to let the model invent freely.
+        </p>
+        <textarea
+          id="manual-guidance"
+          v-model="form.manual_guidance"
+          class="input guidance-textarea"
+          rows="3"
+          :maxlength="MANUAL_GUIDANCE_MAX"
+          placeholder="e.g. Name the protagonist Sokha; set it in a quiet coastal Khmer village at dusk. Avoid the names Lyra and Elara — they've been used too many times."
+        ></textarea>
+        <div class="guidance-foot">
+          <button type="button" class="btn btn-sm btn-secondary" @click="addFreshNamesTip">
+            ✨ Vary the names
+          </button>
+          <span class="text-muted text-xs guidance-foot-hint">
+            Adds an editable "avoid repeated names" instruction + turns on Force regenerate, so re-running gives a fresh draft.
+            For a reusable cast across episodes, use <strong>Characters</strong> in the sidebar instead.
+          </span>
+        </div>
+      </div>
+
       <!-- Word count section — v1.0.168: TWO real inputs in order
            (1 chapters → 2 words/chapter). Total words + estimated duration
            are DERIVED and read-only. Editing chapters never rewrites your
@@ -787,7 +824,7 @@ watch(scriptsTab, (v) => {
 // on the next tick when navigation has fully settled.
 const panelsReady = ref(false)
 const { post, patch } = useApi()
-const { success, error: showError } = useToast()
+const { success, info: showInfo, error: showError } = useToast()
 // v1.0.72+: with chunked-always, every script flows through outline +
 // expansion regardless of size. This threshold no longer gates which
 // pipeline runs — it only gates the cost-preview confirmation dialog,
@@ -940,6 +977,24 @@ const scriptContextExpanded = ref(false)
 const scriptAdvancedExpanded = ref(false)
 const customStyles = ref<Array<{ id: string; name: string; description: string }>>([])
 
+// v1.0.297 — Story-guidance helpers.
+const MANUAL_GUIDANCE_MAX = 2000
+const FRESH_NAMES_TIP = 'Use fresh, varied character names that fit the setting — vary cultural origin and sound. Avoid the names this channel keeps reusing: Lyra, Elara, Aria, Kael, Elowen, Seraphina, Thorne.'
+// One click for the common "I don't like these names, reroll" case: seed an
+// editable avoid-instruction into the guidance, tick Force regenerate (so the
+// re-request actually rebuilds instead of serving the cached outline), and
+// reveal the Advanced panel so the user sees Force is on. Idempotent — won't
+// stack the tip if it's already present.
+function addFreshNamesTip(): void {
+  const cur = form.manual_guidance.trim()
+  if (!cur.includes('Avoid the names this channel keeps reusing')) {
+    form.manual_guidance = cur ? `${cur}\n${FRESH_NAMES_TIP}` : FRESH_NAMES_TIP
+  }
+  form.force = true
+  scriptAdvancedExpanded.value = true
+  showInfo('Added a "fresh names" instruction and turned on Force regenerate. Tweak the names if you like, then Generate Outline for a new draft.')
+}
+
 const STYLE_DESCRIPTIONS: Record<string, string> = {
   A: 'Warm and intimate. First-person narrator, very close to the character\'s inner world. Feels like a whispered confidence.',
   B: 'Gentle third-person observer. Lyrical, slightly poetic, like watching from a warm window.',
@@ -996,6 +1051,11 @@ const form = reactive({
   // Character primitive (Phase 5): optional cast — selected ids flow through
   // /generate/script-only so the LLM uses these names + descriptions.
   character_ids: [] as string[],
+  // v1.0.297 — optional free-text producer guidance. Injected into the outline
+  // + every chapter prompt: ad-hoc character names, a setting, tone notes, or
+  // names to AVOID. Spread into the outline-only request by submitOutline, so
+  // adding it here is all that's needed to send it.
+  manual_guidance: '',
 })
 
 // v1.0.259 — remember the generation "how" across reloads. Allowlist ONLY the
@@ -2173,6 +2233,41 @@ async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true 
   padding: 16px;
   margin-top: 8px;
 }
+
+/* v1.0.297 — Story guidance card. */
+.guidance-card {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-top: 8px;
+}
+.guidance-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.guidance-label { font-weight: 600; font-size: 14px; }
+.guidance-optional {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: 4px;
+}
+.guidance-count { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.guidance-count.over { color: var(--danger, #e06c75); font-weight: 600; }
+.guidance-help { margin: 4px 0 8px; line-height: 1.45; }
+.guidance-textarea { width: 100%; resize: vertical; min-height: 64px; font-family: inherit; }
+.guidance-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.guidance-foot-hint { flex: 1 1 240px; line-height: 1.4; }
 
 /* Format context — read-only "what kind of script is this" hint card.
    Sits above the word-count inputs so the user sees the format's typical

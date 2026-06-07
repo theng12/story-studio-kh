@@ -197,6 +197,11 @@ export interface GenerationParams {
   words_per_chapter: number
   character_ids?: string[]
   custom_style_text?: string
+  /** v1.0.297 — optional free-text producer guidance (character names,
+   *  setting, names to avoid, tone notes). Persisted to the sidecar so a
+   *  later expand-chapters run injects the SAME guidance the outline was
+   *  built with — keeps ad-hoc names/settings consistent into the body. */
+  manual_guidance?: string
 }
 
 export interface ChunkedSidecar {
@@ -256,6 +261,13 @@ export interface ChunkedNarrationParams {
   isCancelled?: () => boolean
   /** Force regenerate from scratch (ignores existing sidecar / chapter files). */
   force?: boolean
+  /** v1.0.297 — optional free-text producer guidance, injected verbatim
+   *  (high priority) into both the outline and the chapter-expansion
+   *  prompts. Lets the user inject ad-hoc direction — specific character
+   *  names, a setting, names to AVOID (e.g. "don't use Lyra or Elara") —
+   *  without creating formal Character records. Part of the params hash so
+   *  editing it busts the outline cache and re-requests fresh. */
+  manualGuidance?: string
   /** v3+: snapshot of the script-form fields that produced this run. When
    *  set on an outline-only call, gets written to the sidecar so a later
    *  expand-chapters run can re-derive the same params without depending
@@ -602,6 +614,23 @@ function sectionTerms(p: ChunkedNarrationParams): { Singular: string; Plural: st
   return { Singular, Plural, singular: Singular.toLowerCase(), plural: Plural.toLowerCase() }
 }
 
+/**
+ * v1.0.297 — render the optional producer-guidance block. Injected verbatim
+ * into both the outline and the chapter-expansion prompts so ad-hoc direction
+ * (character names, setting, names to avoid) shapes BOTH the structure and the
+ * body, not just the outline titles. Returns '' when no guidance is set, so
+ * existing behaviour is byte-for-byte unchanged for users who don't use it.
+ *
+ * Phrased as "binding, over generic defaults" because the whole point is to
+ * override the model's tendency to reach for the same handful of names/settings
+ * across a long-running channel.
+ */
+function producerNotesBlock(p: ChunkedNarrationParams): string {
+  const g = p.manualGuidance?.trim()
+  if (!g) return ''
+  return `\nPRODUCER NOTES (binding — follow these over any generic default. If they name specific characters, places, or names to AVOID, honour them exactly):\n${g}\n`
+}
+
 function narrativeOutlinePrompt(p: ChunkedNarrationParams, compact: boolean): string {
   const t = sectionTerms(p)
   const fieldHint = compact
@@ -613,7 +642,7 @@ Episode title: ${p.title}
 Format: ${p.format.name}
 Target ${t.plural}: ${p.totalChapters}
 Per-${t.singular.toLowerCase()} target: ~${p.wordsPerChapter} words
-
+${producerNotesBlock(p)}
 PACING ARC TO COVER (apply across the ${p.totalChapters} ${t.plural}):
 ${p.format.script.pacingArc.map((l, i) => `  ${i + 1}. ${l}`).join('\n')}
 
@@ -646,7 +675,7 @@ Episode title: ${p.title}
 Format: ${p.format.name}
 Target ${t.plural}: ${p.totalChapters}
 Per-${t.singular.toLowerCase()} target: ~${p.wordsPerChapter} words
-
+${producerNotesBlock(p)}
 ${fieldHint}
 
 Each ${t.singular.toLowerCase()} must be SELF-CONTAINED (a viewer dropping in mid-video must understand it without prior context). ${t.Plural} should be DISTINCT — different subjects, no overlap. Cover the breadth of the title's promise.
@@ -762,7 +791,7 @@ function narrativeBatchPrompt(
 Episode title: ${p.title}
 Format: ${p.format.name}
 ${targetLine}
-
+${producerNotesBlock(p)}
 ${outlineBlock}
 ${transitionBlock}
 SLOTS TO WRITE NOW:
@@ -955,7 +984,7 @@ WORD BUDGET (how to spend each slot's target inside one ${t.singular}):
 
 Episode title: ${p.title}
 Format: ${p.format.name}
-
+${producerNotesBlock(p)}
 ${lengthHeader}
 
 SLOTS TO WRITE:
@@ -1178,6 +1207,12 @@ function computeParamsHash(p: ChunkedNarrationParams): string {
     n: p.totalChapters,
     w: p.wordsPerChapter,
     chars: (p.characters || []).map(c => c.id).sort(),
+    // v1.0.297 — editing the producer guidance must bust the cached outline
+    // so "re-request with different names" actually regenerates. Added
+    // CONDITIONALLY (only when guidance is set) so episodes with no guidance
+    // hash byte-for-byte identically to pre-v1.0.297 — existing approved
+    // outlines stay cached and are NOT needlessly rebuilt on upgrade.
+    ...(p.manualGuidance?.trim() ? { g: p.manualGuidance.trim() } : {}),
   })
   return createHash('sha256').update(blob).digest('hex').slice(0, 16)
 }
