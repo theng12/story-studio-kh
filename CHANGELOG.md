@@ -4,6 +4,39 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.299 — 2026-06-07
+
+### Fixed — generator gates stuck on "Checking script status…" on large projects
+On the TerraNash channel (**384 episodes**), the Thumbnail Prompts and Scene Prompts pages (and every other script-gated generator) sat permanently on "Checking script status…" and never unlocked — even though the scripts for TN0161 / TN0162 were finished on disk.
+
+**Not a `.md` / `.docx` problem.** Direct measurement confirmed both episodes compute `script: true` correctly; the detection has handled `.md` since v1.0.228. The real cause was **scale**: the gate (`useEpisodeStatus`) fetched the *entire* `/episodes` list just to read **one** episode's status — and that list recomputes status for **every** accepted idea, each doing a recursive folder walk. Measured cost on this project: **~230 seconds** for a full recompute, tens of seconds even cache-warm. So the gate's status request never returned in a usable time and the button stayed locked.
+
+**Fix — a single-episode status endpoint (no database needed):**
+- New `GET /projects/:slug/episodes/:code/status` computes just the requested episode via the existing status cache. `?invalidate=1` drops that one episode's cache entry first (surgical refresh).
+- `useEpisodeStatus` now calls the per-episode endpoint instead of the whole list.
+- Measured: gate hydration **230,000ms → ~600ms cold / 0ms warm**. This fixes the gate for **every** generator page — Thumbnail/Scene Prompts, Audio, Metadata, Video, Images.
+
+The `/episodes` *list* route (used by the Pipeline + Ideas pages, which legitimately render all episodes) is still O(n) and slow at this scale — that's a separate, deliberate follow-up (a rebuildable index / cache-warming), not bundled here.
+
+### Changed — Thumbnail prompts no longer require a finished script
+Thumbnails are **cover art** — they key off the episode title and vibe, not the narration. Gating them behind "script exists" was an over-restriction (a holdover from when every image prompt was script-derived). The backend prompt builder already falls back to the title when no narration is present, so this was purely a frontend gate.
+
+- **Thumbnail Prompts page**: the Generate buttons no longer require the script. Generate cover-art prompts from the title/logline at any point in the workflow.
+- **Scene Prompts page**: unchanged — scene visuals genuinely read the narration, so they stay gated on the script (and the gate now resolves in ~600ms instead of hanging).
+
+### Coming next — continuity flow for sleep stories
+This release is the first, bounded step toward moving TerraNash to the transcript-driven **continuity flow** (Script → Audio → Transcribe → Scene Plan → Scene Prompts → Video Assembly) for proper visual coherence. That's a deliberate format/pipeline migration on a live 384-episode channel, so it's being scoped as its own focused effort rather than rushed — this release just unblocks the gate and frees thumbnails.
+
+### Files
+- `electron/server/routes/ideas.ts` — new `GET /projects/:slug/episodes/:code/status`.
+- `frontend/composables/useEpisodeStatus.ts` — refetch via the per-episode endpoint.
+- `frontend/pages/projects/[slug]/image-prompts.vue` — `scriptGateApplies` (false in thumbnail mode); header gate, rescan hint, and thumbnail buttons no longer require the script in thumbnail mode.
+
+### Verification
+electron `tsc` clean · image-prompts.vue + useEpisodeStatus parse/transpile clean · full backend suite **1030/1030** · single-episode timing probe 10–489ms cold / 0ms warm.
+
+---
+
 ## v1.0.298 — 2026-06-07
 
 ### Fixed — Metadata Generator gave no feedback while running or on completion

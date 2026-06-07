@@ -12,7 +12,7 @@
       :generate-label="generateLabel"
       loading-label="Generating…"
       :generate-loading="generating"
-      :generate-disabled="!form.episode_id || !scriptReady"
+      :generate-disabled="!form.episode_id || (scriptGateApplies && !scriptReady)"
       :generate-status="generating ? `Generating prompts for ${form.episode_id}…` : scriptGateReason"
       @generate="generate"
       @preset-applied="success('Preset applied')"
@@ -24,7 +24,7 @@
          Surfaces only once we KNOW the script is missing (statusKnown && !scriptReady),
          NOT during the loading window — so a script that's actually on disk but
          cached stale gets a one-click re-check instead of a dead end. -->
-    <div v-if="form.episode_id && statusKnown && !scriptReady" class="rescan-hint mt-1">
+    <div v-if="scriptGateApplies && form.episode_id && statusKnown && !scriptReady" class="rescan-hint mt-1">
       <span class="text-muted text-xs">
         No script detected for <strong>{{ form.episode_id }}</strong> —
         if it's actually on disk (e.g. just generated, or delivered by iCloud), force a re-check:
@@ -506,8 +506,8 @@
           <button
             type="button"
             class="btn btn-secondary"
-            :disabled="!form.episode_id || generating || !scriptReady"
-            :title="scriptGateReason || 'Randomize style + font, then generate thumbnails immediately.'"
+            :disabled="!form.episode_id || generating"
+            :title="'Randomize style + font, then generate thumbnails immediately.'"
             @click="surpriseMeThumb"
           >
             ✨ Surprise Me
@@ -516,8 +516,8 @@
 
         <button
           class="btn btn-sm btn-primary mt-2"
-          :disabled="!form.episode_id || generating || !scriptReady"
-          :title="scriptGateReason || 'Only regenerates thumbnail prompts — scenes on disk are left untouched.'"
+          :disabled="!form.episode_id || generating"
+          :title="'Only regenerates thumbnail prompts — scenes on disk are left untouched.'"
           @click="generateThumbnails"
         >
           <LoadingSpinner v-if="generating" size="sm" />
@@ -1085,9 +1085,16 @@ const checkingTooltip = 'Checking script status…'
 // the status is still loading, the generate-first message once we KNOW it's
 // missing. Centralised so every gated button stays consistent.
 const scriptGateReason = computed(() => {
+  // v1.0.299 — thumbnails are cover art (generated from the title/vibe; the
+  // backend already falls back to the title when no narration exists). They
+  // don't need the script, so there's no gate in thumbnail mode. Scene prompts
+  // DO read the narration, so they stay gated.
+  if (formTab.value === 'thumbnails') return ''
   if (!form.episode_id || scriptReady.value) return ''
   return statusKnown.value ? noScriptTooltip : checkingTooltip
 })
+// v1.0.299 — true when the script gate actually applies to the current mode.
+const scriptGateApplies = computed(() => formTab.value !== 'thumbnails')
 
 // v1.0.296 — inline rescan-from-disk affordance, parity with audio.vue. Hits
 // /episodes?rescan=1 (wipes the project status cache + re-stats every folder),
