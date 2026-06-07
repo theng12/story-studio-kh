@@ -124,6 +124,13 @@ const props = defineProps<{
   imageMode?: 'text2img' | 'img2img'
   tier?: string
   referenceSources?: Record<string, any>
+  /** v1.0.308 — explicit render dimensions for LOCAL models. Set by the parent
+   *  only when the model is an Image Studio model + a sub-Full size is picked;
+   *  undefined for cloud models (which render from the aspect string). Sent on
+   *  both per-row and bulk POST /generate/images so the panel's renders match
+   *  the Size the form shows. */
+  renderWidth?: number
+  renderHeight?: number
   /** Bumped by parent (e.g. on tab switch) to force a re-fetch of the
    *  prompt list + disk scan. */
   refreshKey?: number
@@ -296,6 +303,11 @@ function sharedJobParams() {
     tier: props.tier,
     image_mode: props.imageMode,
     reference_sources: props.referenceSources,
+    // v1.0.308 — local render size. Only included when the parent supplies both
+    // (local model + sub-Full tier); cloud models omit them and use the aspect.
+    ...(typeof props.renderWidth === 'number' && typeof props.renderHeight === 'number'
+      ? { width: props.renderWidth, height: props.renderHeight }
+      : {}),
     // For 'skip' generation_mode the executor honours its own skip
     // logic (don't overwrite existing files unless force). Per-row
     // calls always pass force=true regardless — clicking Regenerate

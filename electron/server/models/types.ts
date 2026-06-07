@@ -2072,6 +2072,16 @@ export interface GenerateImagesRequest {
   scene_number?: number
   thumb_number?: number
   force: boolean
+  /**
+   * Explicit render dimensions for LOCAL Image Studio models. When both are
+   * set the provider renders at exactly these pixels (rounded to /16) instead
+   * of deriving size from `aspect_ratio` — the Scene/Thumbnail Generator's
+   * Size control sends a downscaled width/height to cut local GPU/VAE memory
+   * and render time. Cloud providers ignore these (they use the aspect string)
+   * and the UI omits them for cloud models.
+   */
+  width?: number
+  height?: number
 }
 
 export interface GenerateAudioRequest {

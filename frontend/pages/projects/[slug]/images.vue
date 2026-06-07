@@ -141,6 +141,28 @@
             </option>
           </select>
         </div>
+        <!-- v1.0.308 — render-size tier for LOCAL Image Studio models. Hidden
+             for cloud models (they use the aspect string, not pixels). Lower
+             resolution = less GPU/VAE memory, faster renders, smaller files. -->
+        <div v-if="activeIsLocalModel" class="form-group">
+          <label>
+            Render Size
+            <span
+              class="text-muted text-xs"
+              title="Output resolution for the local Image Studio model. Smaller cuts GPU/VAE memory (fewer out-of-memory crashes), renders faster on your Macs, and writes smaller files. The exact pixels sent are shown in each option. Cloud models ignore this and use the aspect ratio."
+            >ⓘ</span>
+          </label>
+          <select v-model.number="activeForm.render_scale" class="select">
+            <option v-for="rs in renderSizes" :key="rs.value" :value="rs.value">
+              {{ rs.label }} — {{ activeDimsLabel(rs.value) }}
+            </option>
+          </select>
+          <p class="text-muted text-xs mt-1">
+            Lower = less GPU load + faster on local Macs.
+            <template v-if="activeForm.render_scale !== 100">Sending {{ activeDimsLabel(activeForm.render_scale) }} px.</template>
+            <template v-else>Full resolution.</template>
+          </p>
+        </div>
         <div class="form-group">
           <label>Specific # (optional)</label>
           <input
@@ -240,6 +262,8 @@
       :image-mode="form.thumbnail.image_mode"
       :tier="form.thumbnail.tier"
       :reference-sources="form.thumbnail.reference_sources"
+      :render-width="thumbnailRenderSize?.width"
+      :render-height="thumbnailRenderSize?.height"
       :refresh-key="igPanelRefreshKey"
       :prompt-char-cap="thumbnailModelInfo.cap"
       :model-label="thumbnailModelInfo.label"
@@ -258,6 +282,8 @@
       :image-mode="form.scene.image_mode"
       :tier="form.scene.tier"
       :reference-sources="form.scene.reference_sources"
+      :render-width="sceneRenderSize?.width"
+      :render-height="sceneRenderSize?.height"
       :refresh-key="igPanelRefreshKey"
       :prompt-char-cap="sceneModelInfo.cap"
       :model-label="sceneModelInfo.label"
@@ -681,6 +707,10 @@ type ImagesSubForm = {
   tier: string
   image_mode: ImageMode
   reference_sources: ReferenceSources
+  // v1.0.308 — render-size tier for LOCAL Image Studio models (100 = Full,
+  // 75 = Balanced, 50 = Light). Scales the aspect's base pixels; cloud models
+  // ignore it (they use the aspect string). Default 100 = no change.
+  render_scale: number
 }
 const defaultSubForm = (): ImagesSubForm => ({
   model: 'grok-imagine',
@@ -711,6 +741,8 @@ const defaultSubForm = (): ImagesSubForm => ({
     characters: true,
     chain: false,
   },
+  // Local render size: Full by default so existing behaviour is unchanged.
+  render_scale: 100,
 })
 const form = reactive({
   episode_id: '',
@@ -1110,6 +1142,49 @@ const specificPlaceholder = computed(() => {
   if (form.mode === 'thumbs') return 'All thumbnails'
   return 'All'
 })
+
+// ── v1.0.308 — render-size tier for LOCAL Image Studio models ─────────────
+// Mirrors the Scene Review page. A local model id is `imagestudio:<repo>`;
+// cloud models take an aspect string (not pixels), so the Size control is
+// hidden and width/height are not sent for them. The selected scale% multiplies
+// the aspect's base preset (which mirrors the provider's ASPECT_PRESETS in
+// electron/server/providers/image/imagestudio.ts), rounded to /16. Rendering
+// smaller cuts a local model's GPU/VAE memory, renders faster, and writes
+// smaller files — the whole point the user asked for.
+const LOCAL_ASPECT_PRESETS: Record<string, [number, number]> = {
+  '1:1': [1024, 1024], '16:9': [1344, 768], '9:16': [768, 1344],
+  '4:3': [1152, 864], '3:4': [864, 1152], '21:9': [1536, 640],
+  '3:2': [1216, 832], '2:3': [832, 1216],
+}
+const round16 = (n: number) => Math.max(256, Math.round(n / 16) * 16)
+const renderSizes = [
+  { value: 100, label: 'Full' },
+  { value: 75, label: 'Balanced' },
+  { value: 50, label: 'Light' },
+]
+function isLocalModelId(model: string | undefined): boolean {
+  return typeof model === 'string' && model.startsWith('imagestudio:')
+}
+function dimsFor(aspectRatio: string, scale: number): { width: number; height: number } {
+  const base = LOCAL_ASPECT_PRESETS[aspectRatio] || LOCAL_ASPECT_PRESETS['1:1']
+  const s = (scale || 100) / 100
+  return { width: round16(base[0]! * s), height: round16(base[1]! * s) }
+}
+// {width,height} for a subform when it targets a local model; null otherwise
+// (cloud → omit so the backend falls back to the aspect string).
+function sizeBodyFor(sf: ImagesSubForm): { width: number; height: number } | null {
+  return isLocalModelId(sf.model) ? dimsFor(sf.aspect_ratio, sf.render_scale) : null
+}
+// Active-tab helpers drive the Size <select> shown in the form.
+const activeIsLocalModel = computed(() => isLocalModelId(activeForm.value.model))
+function activeDimsLabel(scale: number): string {
+  const d = dimsFor(activeForm.value.aspect_ratio, scale)
+  return `${d.width}×${d.height}`
+}
+// Per-kind sizes passed down to each ImageGeneratorPanel so its bulk + per-row
+// renders carry the same pixels the form shows.
+const sceneRenderSize = computed(() => sizeBodyFor(form.scene))
+const thumbnailRenderSize = computed(() => sizeBodyFor(form.thumbnail))
 
 const generateButtonLabel = computed(() => {
   if (form.mode === 'scenes') return 'Generate Scene Images'
@@ -1567,6 +1642,11 @@ async function submit() {
   // ignore the field server-side, but sending it would clutter the request
   // log + the cost-confirmation receipt with a meaningless ' · ' suffix.
   if (activeForm.value.tier) params.tier = activeForm.value.tier
+
+  // v1.0.308 — explicit render dimensions for local models. sizeBodyFor returns
+  // null for cloud models, so width/height are only sent for Image Studio.
+  const sz = sizeBodyFor(activeForm.value)
+  if (sz) { params.width = sz.width; params.height = sz.height }
 
   // Image-to-image plumbing. Default text2img mode sends nothing extra —
   // the backend's resolveSceneReferenceImages then operates as it has

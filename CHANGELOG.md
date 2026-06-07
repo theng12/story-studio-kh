@@ -4,6 +4,32 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.308 — 2026-06-08
+
+### Added — Render Size control for local image models (Scene & Thumbnail Generator)
+
+The Scene Review page already let you render local Image Studio images at a lower resolution to save GPU memory and time. That control is now on the main **Scene Generator** and **Thumbnail Generator** too.
+
+Pick a **Render Size** next to Aspect Ratio (only shown when the model is a local Image Studio model):
+
+- **Full** — the model's native resolution (e.g. 1344×768 for 16:9). Default — unchanged from before.
+- **Balanced** — 75% (≈1008×576).
+- **Light** — 50% (≈672×384).
+
+Lower resolution means **far less GPU/VAE memory** (fewer out-of-memory crashes), **faster renders**, and smaller files — exactly the knob to turn when you're batching a lot of scenes on your Macs. The exact pixels sent are shown in each option and under the control, so there's no guessing. **Cloud models ignore it** (they render from the aspect ratio) and the control hides itself for them.
+
+The size flows through every render path on the page — the top *Generate* button, the in-page *Generate All N* button, and per-row *Regenerate* — so whatever you pick is what's sent. Scene and Thumbnail keep their own independent size.
+
+### Files
+- `frontend/pages/projects/[slug]/images.vue` + `frontend/components/ImageGeneratorPanel.vue` — the Render Size picker (mirrors Scene Review), per-kind dims passed into the bulk + per-row requests.
+- `electron/server/generators/images.ts` — the bulk image job now forwards `width`/`height` to the provider (it previously only sent the aspect ratio); the Image Studio provider rounds them to /16 and renders at exactly those pixels.
+- `electron/server/models/types.ts` — `width`/`height` added to the image-generation request.
+
+### Verification
+- Backend `tsc` clean; images page SSR-renders cleanly; provider already honored explicit `width`/`height` (verified in `imagestudio.ts`), the bulk generator just wasn't sending them. Cloud-model gating verified (dims sent only for `imagestudio:` models).
+
+---
+
 ## v1.0.307 — 2026-06-08
 
 ### Fixed — Generate buttons now grey out while a job is running

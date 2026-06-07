@@ -427,6 +427,14 @@ export async function generateImages(job: Job): Promise<void> {
   }
 
   const aspectRatio = req.aspect_ratio || '16:9'
+  // v1.0.308 — explicit render dimensions for LOCAL models (Image Studio). The
+  // Scene/Thumbnail Generator's Size control sends a downscaled width/height to
+  // cut a local model's GPU/VAE memory + render time at lower resolution. The
+  // imagestudio provider rounds these to /16 and uses them in place of the
+  // aspect preset; cloud providers don't receive them (the UI omits them) and
+  // fall back to the aspect string. Mirrors generators/scene-image.ts.
+  const renderWidth = typeof req.width === 'number' && req.width > 0 ? req.width : undefined
+  const renderHeight = typeof req.height === 'number' && req.height > 0 ? req.height : undefined
   const force = req.force || false
   const errors: string[] = []
   // Concurrency: project config → request override → default 5. Clamp 1..10.
@@ -542,6 +550,7 @@ export async function generateImages(job: Job): Promise<void> {
       const finalPrompt = applyStyleKeywords(scene.prompt, styleKeywords)
       const result = await imageProvider!.generateImage({
         prompt: finalPrompt, apiKey, aspectRatio, modelId: modelName, providerParams,
+        width: renderWidth, height: renderHeight,
         referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
         isCancelled: () => jq.isCancelled(job.job_id),
       })
@@ -623,6 +632,7 @@ export async function generateImages(job: Job): Promise<void> {
       const finalPrompt = applyStyleKeywords(thumb.prompt, styleKeywords)
       const result = await imageProvider!.generateImage({
         prompt: finalPrompt, apiKey, aspectRatio, modelId: modelName, providerParams,
+        width: renderWidth, height: renderHeight,
         referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
         isCancelled: () => jq.isCancelled(job.job_id),
       })
