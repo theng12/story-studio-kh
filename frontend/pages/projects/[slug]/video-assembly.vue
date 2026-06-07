@@ -17,9 +17,9 @@
       filter-field="video_assembly"
       generate-label="Generate Video"
       loading-label="Rendering…"
-      :generate-loading="generating"
+      :generate-loading="generating || assemblyJobActiveForEpisode"
       :generate-disabled="!episodeId"
-      :generate-status="generating ? `Rendering video for ${selectedEpisode?.title || episodeId}…${activeJobProgress > 0 ? ` (${activeJobProgress}%)` : ''}` : ''"
+      :generate-status="(generating || assemblyJobActiveForEpisode) ? `Rendering video for ${selectedEpisode?.title || episodeId}…${activeJobProgress > 0 ? ` (${activeJobProgress}%)` : ''}` : ''"
       @generate="generateVideo"
       @episode-selected="onEpisodeSelected"
       @preset-applied="onBundleApplied"
@@ -2353,7 +2353,7 @@ const sectionLabel = useSectionLabel(vaFormatId)
 // Shared job-queue state. The dashboard layout already starts the SSE
 // stream; we reuse the same module-singleton refs here so the wizard's
 // in-flight panel is driven by the same source of truth as the Jobs page.
-const { jobs: allJobs } = useJobs()
+const { jobs: allJobs, isJobActiveFor } = useJobs()
 
 // --------------- Step Navigation ---------------
 const stepLabels = ['Assets', 'Intro', 'Timeline', 'Effects', 'Subtitles', 'Export']
@@ -2363,6 +2363,10 @@ const maxStepReached = ref(1)
 // --------------- Step 1: Assets ---------------
 const episodeId = ref('')
 const selectedEpisode = ref<any>(null)
+
+// v1.0.307 — keep Generate disabled for the WHOLE queued render, not just the
+// brief enqueue POST that flips `generating` (see useJobs.isJobActiveFor).
+const assemblyJobActiveForEpisode = computed(() => isJobActiveFor(episodeId.value, ['video_assembly']))
 const ffmpegStatus = ref<{ installed: boolean; version?: string; has_drawtext?: boolean; has_libass?: boolean; check_error?: string } | null>(null)
 const scannedAssets = ref<any>(null)
 const scanning = ref(false)

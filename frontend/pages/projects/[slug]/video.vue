@@ -34,7 +34,7 @@
       filter-field="video"
       generate-label="Generate Videos"
       loading-label="Queuing…"
-      :generate-loading="submitting"
+      :generate-loading="submitting || videoJobActiveForEpisode"
       :generate-disabled="!canSubmit"
       :generate-status="videoJobActiveForEpisode ? `Generating video for ${episodeId}…` : scriptGateReason"
       @generate="submitVideo"

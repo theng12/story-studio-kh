@@ -27,7 +27,7 @@
       filter-field="scene_review"
       generate-label="Generate all missing"
       loading-label="Queuing…"
-      :generate-loading="bulkQueuing"
+      :generate-loading="bulkQueuing || reviewJobActive"
       :generate-disabled="!canBulkGenerate"
       :generate-status="bulkStatus"
       @generate="generateAllMissing"
@@ -897,7 +897,11 @@ async function renderContinuity(opts: { force?: boolean; fromSceneId?: string; i
 // Detect the active render job for THIS episode, figure out which scene it's
 // on (from its "Scene N/M" log line, falling back to the first image-less
 // scene), and auto-refresh the review so finished images appear live.
-const { jobs } = useJobs()
+const { jobs, isJobActiveFor } = useJobs()
+// v1.0.307 — also reflect scene_image_generate jobs still queued/running for
+// this episode, so the bulk button stays greyed even after a reload (the local
+// `bulkQueuing` ref doesn't survive one). See useJobs.isJobActiveFor.
+const reviewJobActive = computed(() => isJobActiveFor(episodeId.value, ['scene_image_generate']))
 const activeRenderJob = computed(() => {
   const code = episodeId.value
   if (!code) return null

@@ -11,7 +11,7 @@
       filter-field="script"
       generate-label="Generate Outline"
       loading-label="Queuing…"
-      :generate-loading="submitting"
+      :generate-loading="submitting || scriptJobActiveForEpisode"
       :generate-disabled="!canSubmit"
       :generate-status="scriptJobActiveForEpisode ? `Building outline for ${form.episode_id}…` : ''"
       @generate="submitOutline"

@@ -23,7 +23,7 @@
       filter-field="video"
       generate-label="🎞 Assemble video"
       loading-label="Queuing…"
-      :generate-loading="assembling"
+      :generate-loading="assembling || assembleJobActive"
       :generate-disabled="!canAssemble"
       :generate-status="assembleStatusText"
       @generate="assembleVideo"
@@ -214,6 +214,12 @@ interface ReviewStats {
 const stats = ref<ReviewStats | null>(null)
 const loading = ref(false)
 const assembling = ref(false)
+
+// v1.0.307 — keep Assemble disabled for the WHOLE queued render, not just the
+// brief enqueue POST that flips `assembling` (it resets the instant the POST
+// returns). See useJobs.isJobActiveFor — survives reloads too.
+const { isJobActiveFor } = useJobs()
+const assembleJobActive = computed(() => isJobActiveFor(episodeId.value, ['timestamp_video_assemble']))
 
 // v1.0.265 — assembly controls (music/ambient beds, subtitle placement, export,
 // transitions). Remembered per-Mac across reloads. Defaults reproduce the prior

@@ -35,15 +35,15 @@
       <button
         type="button"
         class="btn btn-sm btn-primary"
-        :disabled="bulkBusy || !prompts.length"
-        :title="bulkBusy
-          ? `Bulk render in flight — wait for it to finish or cancel via the Jobs panel`
+        :disabled="bulkDisabled || !prompts.length"
+        :title="bulkDisabled
+          ? `Render in flight — wait for it to finish or cancel via the Jobs panel`
           : `Render every ${kindLabelLower}. Skips already-rendered ones unless Force is on.`"
         @click="runBulk"
       >
-        <LoadingSpinner v-if="bulkBusy" size="sm" />
+        <LoadingSpinner v-if="bulkDisabled" size="sm" />
         <span v-else aria-hidden="true">✨</span>
-        {{ bulkBusy ? 'Bulk rendering…' : `Generate All ${prompts.length} ${kindLabelLower}${prompts.length === 1 ? '' : 's'}` }}
+        {{ bulkDisabled ? 'Bulk rendering…' : `Generate All ${prompts.length} ${kindLabelLower}${prompts.length === 1 ? '' : 's'}` }}
       </button>
     </div>
 
@@ -260,6 +260,21 @@ const busy = ref<Set<number>>(new Set())
 const errors = ref<Record<number, string>>({})
 const bulkBusy = ref(false)
 
+// v1.0.307 — also reflect a render already in flight for this episode (e.g.
+// launched from the page's TopActionBar Generate button, or surviving a page
+// reload) so the bulk button greys out consistently — not only during this
+// panel's own runBulk poll. Scene vs thumbnail are independent pools, so we
+// only watch the kind this panel owns (legacy unified `images` jobs cover
+// both, so they're always included).
+const { isJobActiveFor } = useJobs()
+const jobActiveForEpisode = computed(() =>
+  isJobActiveFor(
+    props.episodeId,
+    props.kind === 'thumbnail' ? ['thumb_images', 'images'] : ['scene_images', 'images'],
+  ),
+)
+const bulkDisabled = computed(() => bulkBusy.value || jobActiveForEpisode.value)
+
 async function waitForJob(jobId: string): Promise<any> {
   while (true) {
     const job: any = await get(`/projects/${props.projectSlug}/jobs/${jobId}`)
@@ -331,7 +346,10 @@ async function runOne(number: number): Promise<void> {
 }
 
 async function runBulk(): Promise<void> {
-  if (bulkBusy.value || !prompts.value.length) return
+  // Guard against a double-fire: bulkBusy covers this panel's own run, and
+  // jobActiveForEpisode covers a render queued from elsewhere (TopActionBar,
+  // reload). The button is disabled in both cases — this is belt-and-braces.
+  if (bulkBusy.value || jobActiveForEpisode.value || !prompts.value.length) return
   bulkBusy.value = true
   try {
     const job: any = await post(`/projects/${props.projectSlug}/generate/images`, {

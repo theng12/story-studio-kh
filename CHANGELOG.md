@@ -4,6 +4,31 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.307 — 2026-06-08
+
+### Fixed — Generate buttons now grey out while a job is running
+
+Once you kicked off a render, the **Generate** button went live again the instant the job was *queued* — not when it actually *finished*. So a long scene-image or audio run looked idle, and it was easy to click Generate again (and again) thinking nothing had happened, stacking up duplicate jobs.
+
+Every generator's Generate button now stays **disabled with a spinner** for the whole job — start to finish — and re-enables only when the queue is actually clear for that episode. This now reads straight from the job queue, so it's correct even if you **reload the page** mid-render or launched the job from a different button.
+
+Fixed across the board so it behaves the same everywhere:
+
+- **Scene & Thumbnail Generator** — both the top *Generate* button and the in-page *Generate All N* button (scene and thumbnail stay independent — you can still queue thumbnails while scenes render).
+- **Image Prompts, Script, Audio, Audio Merge, Video, Video Assembly** generators.
+- **Research, Scene Plan, Scene Review, Timestamp Assemble**, and B-roll *Assemble video*.
+
+(Metadata and Subtitles already behaved this way. Pipeline is unchanged — it's a multi-episode batch behind a confirm dialog, so re-running queues a fresh batch on purpose.)
+
+### Files
+- `frontend/composables/useJobs.ts` — new shared `isJobActiveFor(episodeId, types)` helper: the one authoritative "is a job in-flight for this episode?" check.
+- `frontend/pages/projects/[slug]/{images,image-prompts,audio,audio-merge,scripts,video,video-assembly,broll,research,scene-plan,scene-review,timestamp-assemble}.vue` + `frontend/components/ImageGeneratorPanel.vue` — every Generate button now reflects the live job.
+
+### Verification
+- All 12 edited pages SSR-render cleanly (full `setup()` + computed evaluation, no TDZ/reference errors); dev log clean. The new helper generalizes the existing per-page checks that already shipped working on Metadata/Subtitles.
+
+---
+
 ## v1.0.306 — 2026-06-08
 
 ### Fixed — local image generation now uses your whole fleet of Macs

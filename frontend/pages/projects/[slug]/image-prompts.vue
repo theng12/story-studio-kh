@@ -11,9 +11,9 @@
       :filter-field="promptFilterField"
       :generate-label="generateLabel"
       loading-label="Generating…"
-      :generate-loading="generating"
+      :generate-loading="generating || promptsJobActiveForEpisode"
       :generate-disabled="!form.episode_id || (scriptGateApplies && !scriptReady)"
-      :generate-status="generating ? `Generating prompts for ${form.episode_id}…` : scriptGateReason"
+      :generate-status="(generating || promptsJobActiveForEpisode) ? `Generating prompts for ${form.episode_id}…` : scriptGateReason"
       @generate="generate"
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
@@ -1102,6 +1102,12 @@ const scriptGateReason = computed(() => {
 })
 // v1.0.299 — true when the script gate actually applies to the current mode.
 const scriptGateApplies = computed(() => formTab.value !== 'thumbnails')
+
+// v1.0.307 — keep Generate disabled for the WHOLE queued job, not just the
+// brief enqueue POST that flips `generating` (see useJobs.isJobActiveFor).
+// The `image_prompts` job type covers both scene and thumbnail prompt runs.
+const { isJobActiveFor } = useJobs()
+const promptsJobActiveForEpisode = computed(() => isJobActiveFor(form.episode_id, ['image_prompts']))
 
 // v1.0.296 — inline rescan-from-disk affordance, parity with audio.vue. Hits
 // /episodes?rescan=1 (wipes the project status cache + re-stats every folder),

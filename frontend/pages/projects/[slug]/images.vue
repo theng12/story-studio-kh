@@ -15,9 +15,9 @@
       :filter-field="form.mode === 'thumbs' ? 'thumbnails' : 'images'"
       :generate-label="generateButtonLabel"
       loading-label="Queuing…"
-      :generate-loading="submitting"
+      :generate-loading="submitting || imageJobActiveForEpisode"
       :generate-disabled="!form.episode_id"
-      :generate-status="generating ? `${generatingLabel} for ${form.episode_id}…` : ''"
+      :generate-status="(generating || imageJobActiveForEpisode) ? `${generatingLabel} for ${form.episode_id}…` : ''"
       @generate="submit"
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
@@ -651,6 +651,7 @@ const currentModelSupportsRefs = computed(() => {
 const { success, error: showError } = useToast()
 const { imageGenerating, thumbImageGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
+const { isJobActiveFor } = useJobs()
 
 const submitting = ref(false)
 const specificNum = ref<number | null>(null)
@@ -1127,6 +1128,21 @@ const generating = computed(() => {
   if (form.mode === 'thumbs') return thumbImageGenerating.value
   return imageGenerating.value || thumbImageGenerating.value
 })
+
+// v1.0.307 — keep the Generate button disabled for the WHOLE job, not just
+// the brief enqueue POST. `submitting` flips false the instant the job is
+// queued, which let the user re-click and double-queue. This reads the
+// authoritative job queue (per-episode, per-kind) so the button stays greyed
+// until the running render actually finishes — and survives a page reload or
+// a job launched from the in-page panel. Scene vs thumbnail are independent
+// pools, so we only watch the kind matching the active tab (legacy unified
+// `images` jobs cover both, so they're always included).
+const imageJobActiveForEpisode = computed(() =>
+  isJobActiveFor(
+    form.episode_id,
+    form.mode === 'thumbs' ? ['thumb_images', 'images'] : ['scene_images', 'images'],
+  ),
+)
 
 function selectMode(m: Mode) {
   form.mode = m

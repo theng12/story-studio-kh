@@ -26,9 +26,9 @@
       filter-field="research"
       generate-label="Run research"
       loading-label="Researching…"
-      :generate-loading="researching"
+      :generate-loading="researching || researchJobActive"
       :generate-disabled="!canRun"
-      :generate-status="researching ? `Researching for ${episodeId}…` : (canRun ? '' : runDisabledReason)"
+      :generate-status="(researching || researchJobActive) ? `Researching for ${episodeId}…` : (canRun ? '' : runDisabledReason)"
       @generate="runResearch"
     />
 
@@ -409,6 +409,12 @@ const serverResult = ref<string>('')  // JSON snapshot of last save for diff
 // (See auto-memory: per-episode-inflight-gating.md — recurring pattern.)
 const researchingEpisode = ref<string | null>(null)
 const researching = computed(() => researchingEpisode.value === episodeId.value)
+// v1.0.307 — also reflect a research_run already queued/running for this
+// episode. `researching` only covers the brief enqueue window (it resets when
+// the POST returns), so without this the button re-enabled while the job ran.
+// See useJobs.isJobActiveFor — survives reloads too.
+const { isJobActiveFor } = useJobs()
+const researchJobActive = computed(() => isJobActiveFor(episodeId.value, ['research_run']))
 const saving = ref(false)
 const deleting = ref(false)
 

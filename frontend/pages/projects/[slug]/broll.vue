@@ -597,11 +597,11 @@
       <div class="seq-actions mt-2">
         <button
           class="btn btn-primary"
-          :disabled="!form.episode_id || assembling"
+          :disabled="!form.episode_id || assembling || assembleJobActive"
           @click="assembleVideo"
         >
-          <LoadingSpinner v-if="assembling" size="sm" />
-          🎞 Assemble video
+          <LoadingSpinner v-if="assembling || assembleJobActive" size="sm" />
+          {{ (assembling || assembleJobActive) ? 'Assembling…' : '🎞 Assemble video' }}
         </button>
         <button class="btn btn-ghost" @click="pickClips" :disabled="picking">
           ↻ Re-pick (different shuffle)
@@ -1005,6 +1005,12 @@ const selectionDuration = computed(() => selection.value.reduce((s, c) => s + c.
 
 const picking = ref(false)
 const assembling = ref(false)
+
+// v1.0.307 — keep Assemble disabled for the WHOLE queued render, not just the
+// brief enqueue POST that flips `assembling` (see useJobs.isJobActiveFor). The
+// /broll/assemble route fires the shared video_assembly job.
+const { isJobActiveFor } = useJobs()
+const assembleJobActive = computed(() => isJobActiveFor(form.episode_id, ['video_assembly', 'broll_assemble']))
 
 // ── Init ───────────────────────────────────────────────────────────────
 

@@ -11,9 +11,9 @@
       filter-field="merged_audio"
       :generate-label="generateLabel"
       loading-label="Merging…"
-      :generate-loading="generating"
+      :generate-loading="generating || mergeJobActiveForEpisode"
       :generate-disabled="!chapters.length"
-      :generate-status="generating ? `Merging audio for ${selectedEpisode?.title || episodeId}…` : ''"
+      :generate-status="(generating || mergeJobActiveForEpisode) ? `Merging audio for ${selectedEpisode?.title || episodeId}…` : ''"
       @generate="onGenerateClick"
       @episode-selected="onEpisodeSelected"
       @preset-applied="onPresetApplied"
@@ -656,6 +656,11 @@ const ffmpegStatus = ref<{ installed: boolean; version?: string } | null>(null)
 const scannedAssets = ref<any>(null)
 const scanning = ref(false)
 const generating = ref(false)
+
+// v1.0.307 — keep Generate disabled for the WHOLE queued merge job, not just
+// the brief enqueue POST that flips `generating` (see useJobs.isJobActiveFor).
+const { isJobActiveFor } = useJobs()
+const mergeJobActiveForEpisode = computed(() => isJobActiveFor(episodeId.value, ['audio_merge']))
 
 // v1.0.182 — Phase-2 scaffold. The five layering cards (intro clip, volume
 // normalization, background music, ambience, ambient layers) collapse behind

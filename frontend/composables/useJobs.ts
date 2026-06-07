@@ -257,6 +257,32 @@ function stopTransport() {
   streamFailures = 0
 }
 
+/**
+ * Is there an in-flight (queued or running) job for this episode?
+ *
+ * Pass `types` to narrow to specific JobType values (e.g. ['scene_images']);
+ * omit to match ANY job type. The `jobs` ref only ever holds the CURRENT
+ * project's jobs (the SSE snapshot + stream are per-slug), so no project
+ * filter is needed here.
+ *
+ * This is the canonical "should the Generate button be disabled?" signal.
+ * Unlike a page's local `submitting`/`generating` ref — which flips false the
+ * instant the enqueue POST returns, while the queued job keeps running in the
+ * background — this stays true for the job's whole lifetime, survives page
+ * reloads, and reads the same no matter which entry point launched the job.
+ * Call it inside a computed or template binding so the caller stays reactive
+ * to queue changes (it reads the reactive `jobs` ref).
+ */
+function isJobActiveFor(episodeId: string | null | undefined, types?: readonly string[]): boolean {
+  if (!episodeId) return false
+  const typeSet = types && types.length ? new Set(types) : null
+  return jobs.value.some(j =>
+    j.episode_id === episodeId &&
+    (j.status === 'queued' || j.status === 'running') &&
+    (!typeSet || typeSet.has(j.type)),
+  )
+}
+
 export function useJobs() {
   async function fetchJobs(slug: string) {
     await refreshFull(slug)
@@ -284,6 +310,7 @@ export function useJobs() {
     stats: readonly(stats),
     jobsStale,
     lastRefreshError: readonly(lastRefreshError),
+    isJobActiveFor,
     fetchJobs,
     startPolling,
     stopPolling,

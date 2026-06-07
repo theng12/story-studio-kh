@@ -25,9 +25,9 @@
       filter-field="scene_plan"
       generate-label="Plan scenes"
       loading-label="Planning…"
-      :generate-loading="planning"
+      :generate-loading="planning || planJobActive"
       :generate-disabled="!canPlan"
-      :generate-status="planning ? `Planning scenes for ${episodeId}…` : (canPlan ? '' : planDisabledReason)"
+      :generate-status="(planning || planJobActive) ? `Planning scenes for ${episodeId}…` : (canPlan ? '' : planDisabledReason)"
       @generate="planScenes"
     />
 
@@ -606,6 +606,11 @@ const serverPlan = ref<string>('')  // snapshot for dirty check
 // auto-memory: per-episode-inflight-gating.md.)
 const planningEpisode = ref<string | null>(null)
 const planning = computed(() => planningEpisode.value === episodeId.value)
+// v1.0.307 — also reflect a scene_plan_run already queued/running for this
+// episode, so the button stays greyed even after a page reload (the local
+// `planning` ref doesn't survive one). See useJobs.isJobActiveFor.
+const { isJobActiveFor } = useJobs()
+const planJobActive = computed(() => isJobActiveFor(episodeId.value, ['scene_plan_run']))
 const saving = ref(false)
 const deleting = ref(false)
 

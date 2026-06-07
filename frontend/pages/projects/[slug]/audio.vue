@@ -14,7 +14,7 @@
       filter-field="audio"
       generate-label="Generate Audio"
       loading-label="Queuing…"
-      :generate-loading="submitting"
+      :generate-loading="submitting || audioJobActiveForEpisode"
       :generate-disabled="!form.episode_id || !scriptReady || !form.voice"
       :generate-status="audioJobActiveForEpisode ? `Generating audio for ${form.episode_id}…` : (scriptGateReason || (!form.voice ? 'Pick a voice first — there is no default.' : ''))"
       @generate="submit"
