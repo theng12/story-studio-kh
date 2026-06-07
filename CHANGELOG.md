@@ -4,6 +4,41 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.296 — 2026-06-07
+
+### Fixed — generator pages falsely showing "Generate the script first" while status loads
+Reported on TN0161 (Thumbnail Prompts page): the script was complete on disk — 10 chapters + the unified narration .md, all present — but the Generate button stayed locked with "Generate the script first to unlock this generator." The Script Generator page, meanwhile, showed every chapter as "on disk." Same episode, two pages disagreeing.
+
+**Root cause — not a disk/detection bug.** Tracing it end to end: the backend computed `script: true` correctly, and the on-disk status cache had `script: true`. The gate was stale only on the *read side*, during the moment the page was still fetching status. The shared `useEpisodeStatus` composable exposed a single `scriptReady` flag that is `false` in **two situations the UI couldn't tell apart**:
+
+1. Status is loaded and the script is genuinely missing → "Generate the script first" is the correct, helpful message.
+2. Status hasn't loaded yet (page just mounted, episode just changed, or a transient `/episodes` hiccup) → `scriptReady` is *also* false, so the page showed the **same alarming message** even though it simply didn't know yet.
+
+On a large channel (TerraNash has 150+ episodes) the `/episodes` response is heavy, which stretches situation (2) from milliseconds into seconds — long enough to screenshot. Worse, the composable's error path kept the previous value (`null`) on a failed fetch, so a single network blip could **strand** the gate in the false-negative state until something else triggered a refetch. The screenshot caught the page mid-load ("Loading models…"), which is exactly this window.
+
+### The fix
+**`useEpisodeStatus` (shared composable):**
+- **New `statusKnown` flag** — `true` only once a fetch has actually resolved the *currently-selected* episode's status. Resets to `false` the instant the episode id changes, so the gate never briefly asserts the previous episode's answer for the new one.
+- **Bounded retry** — a transient `/episodes` failure now retries up to 3× with backoff (400ms, 800ms) before giving up, so one blip no longer strands the gate.
+- **Race guard** — if you switch episodes while a status request is in flight, the stale response is discarded instead of landing under the new episode's selection.
+
+**Gated generator pages (Image/Scene/Thumbnail Prompts, Audio, Metadata, Video):**
+- New `scriptGateReason`: shows **"Checking script status…"** while `statusKnown` is false, and the definitive **"Generate the script first…"** only once we actually know the script is missing. The button stays disabled during the check (you can't generate without a confirmed script) — but the copy is no longer a false alarm.
+- **Image/Thumbnail Prompts page** gains the **"↻ Rescan from disk"** escape hatch that Audio already had (since v1.0.78). It appears only once we've confirmed no script (`statusKnown && !scriptReady`), never during the loading window. One click wipes the project status cache and re-stats every folder — the guaranteed override if a script ever genuinely is on disk but cached stale (e.g. iCloud delivered a file without bumping the parent folder's mtime).
+- **Video page** now surfaces the gate reason in its header (previously the button just went dead silently when the script was missing).
+
+### Why this is the right fix and not a cache patch
+The cache and detection were already correct — verified by direct compute (`script: true`) and by inspecting the live on-disk cache (`script: true`, written minutes after the screenshots as it self-healed). Patching the cache would have fixed nothing. The actual defect was UI honesty: a loading state masquerading as a definitive negative. The fix makes the three states (checking / ready / confirmed-missing) distinct everywhere, and the Rescan button is the deterministic backstop for the rare genuine-stale case.
+
+### Files
+- `frontend/composables/useEpisodeStatus.ts` — `statusKnown`, bounded retry, race guard; returns `statusKnown`.
+- `frontend/pages/projects/[slug]/image-prompts.vue` — `scriptGateReason`, checking-aware button copy, Rescan-from-disk affordance + styles.
+- `frontend/pages/projects/[slug]/audio.vue` — `scriptGateReason`; rescan hint now gated on `statusKnown`.
+- `frontend/pages/projects/[slug]/metadata.vue` — `scriptGateReason` across the four generate buttons.
+- `frontend/pages/projects/[slug]/video.vue` — `scriptGateReason`; gate reason surfaced in the header.
+
+---
+
 ## v1.0.295 — 2026-06-07
 
 ### Added — LM Studio multi-endpoint dispatcher + parallel scene-plan Pass 2
