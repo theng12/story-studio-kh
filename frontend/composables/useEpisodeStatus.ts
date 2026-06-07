@@ -109,29 +109,32 @@ export function useEpisodeStatus(
       statusKnown.value = false
     }
 
-    // Bounded retry: the /episodes response is heavy on large projects and an
-    // occasional blip (iCloud stat churn, a busy event loop) shouldn't strand
-    // the gate in a state the user reads as "no script". Two quick retries
-    // with backoff, then give up and surface the error (non-quiet path only).
+    // Bounded retry: an occasional blip (iCloud stat churn, a busy event loop)
+    // shouldn't strand the gate in a state the user reads as "no script". Two
+    // quick retries with backoff, then give up and surface the error
+    // (non-quiet path only).
+    //
+    // v1.0.299 — hit the SINGLE-episode status endpoint, NOT the whole
+    // /episodes list. The list recomputes status for every accepted idea
+    // (~230s on a 384-episode project), which left this gate stuck on
+    // "Checking…" forever. The per-episode endpoint is ~600ms cold.
     const maxAttempts = 3
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const list = await get<any[]>(
-          `/projects/${slugRef.value}/episodes?invalidate=${encodeURIComponent(code)}`,
+        const data = await get<any>(
+          `/projects/${slugRef.value}/episodes/${encodeURIComponent(code)}/status?invalidate=1`,
         )
         // Race guard: if the user switched episodes while this request was in
         // flight, discard the stale result — applying it would show episode
         // A's status under episode B's selection.
         if (episodeIdRef.value !== code) return
-        const fresh = (list || []).find(e => e.episode_code === code)
-        if (fresh) {
-          selectedEpisode.value = fresh
+        if (data && data.episode_code) {
+          selectedEpisode.value = data
           statusKnown.value = true   // confirmed: we now know this episode's status
         } else {
-          // Fetch succeeded but the episode isn't in the list (not yet
-          // accepted, mid-rename, etc.). We can't assert "no script" from
-          // that — leave statusKnown false so the gate stays "Checking…"
-          // instead of flipping to the alarming definitive message.
+          // Shouldn't happen (endpoint always echoes the code), but guard:
+          // leave statusKnown false so the gate stays "Checking…" rather than
+          // flipping to the alarming definitive "no script" message.
           statusKnown.value = false
         }
         return

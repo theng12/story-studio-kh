@@ -1163,6 +1163,43 @@ router.get('/projects/:slug/episodes', async (req, res) => {
   res.json(results.filter(Boolean))
 })
 
+// ── Single-episode status (v1.0.299) ────────────────────────────────────────
+// The generator-page gates (useEpisodeStatus) only ever need ONE episode's
+// status, but were fetching the WHOLE /episodes list above — which recomputes
+// status for every accepted idea. On a 384-episode project that's tens of
+// seconds cache-warm (each row does a recursive folder walk) and minutes cold,
+// so the gate sat stuck on "Checking script status…" indefinitely and the
+// Generate buttons never unlocked. This computes JUST the requested episode
+// (~600ms cold, far less warm). `?invalidate=1` drops that one episode's cache
+// entry first — the same surgical refresh the list route's `?invalidate=CODE`
+// did, scoped to a single episode.
+router.get('/projects/:slug/episodes/:code/status', async (req, res) => {
+  const { slug, code } = req.params
+  try {
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    if (req.query.invalidate === '1' || req.query.invalidate === 'true') {
+      episodeStatusCache.invalidate(slug, code)
+    }
+    // Load accepted ideas once (cheap — ~100ms) so we can (a) return the
+    // canonical title the gate displays and (b) hand the array to the cache
+    // so it skips its own internal ideas.json read.
+    const ideas = await im.getIdeas(slug, 'accepted')
+    const idea = ideas.find(i => (i.episode_code || '').toUpperCase() === code.toUpperCase())
+    const status = await episodeStatusCache.get(slug, code, ideas)
+    res.json({
+      episode_code: code,
+      title: idea?.title || '',
+      idea_id: idea?.id,
+      // Raw EpisodeStatus (script/scene_prompts/thumb_prompts/metadata/…) plus
+      // the `prompts` back-compat alias the list route exposes, so consumers
+      // reading either name keep working.
+      status: { ...status, prompts: (status as any).scene_prompts },
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, `Could not load status for ${code}`))
+  }
+})
+
 // ── Accept idea (create folders) ────────────────────────────────────────────
 
 router.post('/projects/:slug/ideas/:ideaId/accept', async (req, res) => {
