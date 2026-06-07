@@ -46,7 +46,7 @@
              scene-images / broll pipelines (those don't have a
              research phase today). Real content lands in 1.0.142. -->
         <NuxtLink
-          v-if="isTimestampDriven || isContinuityChain"
+          v-if="isTimestampDriven || isContinuityChain || isNarratedScenes"
           :to="`/projects/${slug}/research`"
           class="nav-item"
           active-class="active"
@@ -129,12 +129,12 @@
         <NuxtLink :to="`/projects/${slug}/subtitles`" class="nav-item" active-class="active" title="Create the episode's subtitles (per-chapter Whisper, from chapters, or import). Built from chapter audio; consumed by Scene Plan + Video Assembly.">
           <span class="nav-icon">&#128292;</span> Subtitles
         </NuxtLink>
-        <!-- v1.0.187+ — Character Sheet: continuity-chain only. Drop in the
-             anchor image (+ optional Characters) before planning/rendering
-             scenes; every scene is rendered against it for a consistent
-             on-screen character. -->
+        <!-- v1.0.187+ — Character Sheet: continuity-chain (hard img2img lock)
+             and (v1.0.301) narrated-scenes (OPTIONAL — guidance + prompt /
+             negative-prompt control, not a hard lock). Drop in the anchor
+             image (+ optional Characters) before planning/rendering scenes. -->
         <NuxtLink
-          v-if="isContinuityChain"
+          v-if="isContinuityChain || isNarratedScenes"
           :to="`/projects/${slug}/character-sheet`"
           class="nav-item"
           active-class="active"

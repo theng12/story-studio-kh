@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.301 — 2026-06-07
+
+### Changed — Narrated Scenes now exposes Research + Character Sheet as OPTIONAL steps
+v1.0.300 deliberately stripped Research and the Character Sheet from the narrated-scenes flow. On reflection that was too aggressive: both are **non-blocking, optional** nodes, and having them available costs nothing — you decide per-episode whether to use them. In particular the **Character Sheet gives prompt / negative-prompt control** over recurring subjects, which is handy for a story even when you don't want strict locking, and Research can seed factual grounding when a story calls for it.
+
+So the narrated-scenes flow now shows **Research** and **Character Sheet** (in the pipeline chain, the flow ribbon, and the sidebar) — exactly like continuity-chain. The one thing that stays different is the **render**: narrated-scenes does **not** hard-lock scenes to the character sheet via img2img (each scene renders independently), and pacing still defaults to the natural-beat band rather than continuity's live density pacing. So the Character Sheet here is **guidance, not a leash** — use it for consistency hints, skip it freely.
+
+> Note: the nodes are surfaced now; deeper wiring of the Character Sheet's prompt/negative-prompt controls into narrated-scenes scene rendering is part of the Phase 2 assembly work.
+
+### Files
+- `electron/server/formats/narrated-scenes.json` — description updated (Research + Character Sheet optional, not absent).
+- `frontend/pages/projects/[slug]/pipeline.vue` — `CHAIN_NARRATED_SCENES` now includes the Research + Character Sheet nodes.
+- `frontend/composables/useProjectFlow.ts` — `FLOW_NARRATED_SCENES` includes both steps.
+- `frontend/layouts/dashboard.vue` — Research + Character Sheet sidebar links show for narrated-scenes.
+
+### Verification
+electron `tsc` clean · format JSON validates · pipeline + dashboard SFCs compile · useProjectFlow transpiles.
+
+---
+
 ## v1.0.300 — 2026-06-07
 
 ### Added — "Narrated Scenes" format (Phase 1 of the sleep-story continuity flow)

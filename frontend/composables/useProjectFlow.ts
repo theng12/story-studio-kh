@@ -90,13 +90,15 @@ const FLOW_CONTINUITY: FlowStep[] = [
   STEP.audio, STEP.audioMerge, STEP.subtitles,
   STEP.characterSheet, STEP.scenePlan, STEP.sceneReview, STEP.timestampAssemble,
 ]
-// v1.0.300 — narrated-scenes: story/fiction on the audio-paced flow. Like
-// timestamp WITHOUT Research (fiction) and WITHOUT a Character Sheet.
+// v1.0.300 — narrated-scenes: story/fiction on the audio-paced flow.
+// v1.0.301 — Research + Character Sheet exposed as OPTIONAL steps (non-
+// blocking; use or skip). Differs from continuity only in the render (no
+// img2img character-lock) + default pacing.
 const FLOW_NARRATED_SCENES: FlowStep[] = [
-  STEP.ideas, STEP.script, STEP.metadata,
+  STEP.ideas, STEP.research, STEP.script, STEP.metadata,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
-  STEP.scenePlan, STEP.sceneReview, STEP.timestampAssemble,
+  STEP.characterSheet, STEP.scenePlan, STEP.sceneReview, STEP.timestampAssemble,
 ]
 
 export function flowForVisualSource(vs: VisualSource): FlowStep[] {

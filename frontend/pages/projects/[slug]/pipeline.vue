@@ -689,13 +689,18 @@ const CHAIN_CONTINUITY: ChainSpec = [
   { external: 'scene_plan' }, { external: 'scene_review' }, { external: 'timestamp_assemble' },
 ]
 // Narrated-scenes (v1.0.300) — the timestamp chain for STORY/fiction. Same
-// audio-paced scene planning, but NO Research node (fiction has nothing to
-// fact-check) and NO Character Sheet (no img2img lock). Scenes are placed on
-// the Scene Review page, so no batchable scene/image step here.
+// audio-paced scene planning as continuity, and (v1.0.301) Research +
+// Character Sheet are exposed as OPTIONAL nodes — they're non-blocking, so
+// you can use them when a story benefits or skip them entirely. The key
+// difference from continuity-chain is the RENDER: scenes are NOT hard-locked
+// to the sheet via img2img (each renders independently), and pacing defaults
+// to the natural-beat band rather than continuity's live density pacing.
 const CHAIN_NARRATED_SCENES: ChainSpec = [
+  { external: 'research' },
   'script-only', 'introduction-only', 'metadata',
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge',
+  { external: 'character_sheet' },
   { external: 'scene_plan' }, { external: 'scene_review' }, { external: 'timestamp_assemble' },
 ]
 
