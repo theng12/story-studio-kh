@@ -71,6 +71,32 @@ interface ImagePromptsParams {
    * inline per scene. Empty / missing → today's "no cast" path.
    */
   character_ids?: string[]
+  /**
+   * v1.0.308 — fill-gaps (smart Retry). When true, load the scene/thumbnail
+   * prompts already on disk and generate ONLY the scenes that are missing,
+   * then merge — instead of regenerating all `sceneCount` from scratch and
+   * overwriting the file. The Jobs-page Retry sends this so a partial failure
+   * ("10 scenes missing: 11-20") is repaired cheaply, preserving the prompts
+   * that already succeeded. Absent/false → full regeneration (the page's
+   * Generate button path, unchanged).
+   */
+  fill_gaps?: boolean
+}
+
+/** Compact a sorted list of ints into "1-3, 7, 11-20" for log/error output. */
+function compactRanges(nums: number[]): string {
+  if (!nums.length) return ''
+  const sorted = [...nums].sort((a, b) => a - b)
+  const parts: string[] = []
+  let start = sorted[0]!
+  let prev = sorted[0]!
+  for (let i = 1; i <= sorted.length; i++) {
+    const n = sorted[i]
+    if (n === prev + 1) { prev = n; continue }
+    parts.push(start === prev ? `${start}` : `${start}-${prev}`)
+    if (n !== undefined) { start = n; prev = n }
+  }
+  return parts.join(', ')
 }
 
 function checkProvider(model: string, config: any): string | null {
@@ -369,6 +395,46 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     (thumbs > 0 ? ` + ${thumbs} thumbnail(s)` : ''),
   )
 
+  // v1.0.308 — fill-gaps (smart Retry). Read the prompts already on disk so we
+  // can generate ONLY the missing scenes below and merge, instead of redoing
+  // all of them and overwriting the file. Read from the same files the save
+  // step writes. On any read problem we leave the maps empty and fall back to
+  // full regeneration (safe — never worse than today).
+  const fillGaps = req.fill_gaps === true
+  const existingSceneMap = new Map<number, any>()
+  let existingThumbs: any[] = []
+  if (fillGaps) {
+    try {
+      const { parseImagePromptsDocx } = await import('../lib/docx-parser.js')
+      const { existsSync } = await import('fs')
+      const paths0 = await resolveEpisodePaths(project_slug, episode_id, title)
+      let episodeDir0 = paths0.episode_dir.replace(/\/$/, '')
+      const actualDir0 = await resolveEpisodeDir(path.dirname(episodeDir0), episode_id)
+      if (actualDir0) episodeDir0 = actualDir0
+      const names0 = await resolveSubfolderNames(project_slug, episode_id)
+      const sceneDir0 = await resolveSubfolder(episodeDir0, names0.scene_prompts)
+      const thumbDir0 = await resolveSubfolder(episodeDir0, names0.thumb_prompts)
+      const sceneFile0 = sceneDir0 ? path.join(sceneDir0, `${episode_id}_Scene_Prompts.md`) : ''
+      const thumbFile0 = thumbDir0 ? path.join(thumbDir0, `${episode_id}_Thumbnail_Prompts.md`) : ''
+      if (sceneFile0 && existsSync(sceneFile0)) {
+        const parsed = await parseImagePromptsDocx(sceneFile0)
+        for (const s of (parsed.scenes || [])) {
+          const n = Number(s.number)
+          if (Number.isFinite(n) && n > 0) existingSceneMap.set(n, s)
+        }
+      }
+      if (thumbFile0 && existsSync(thumbFile0)) {
+        const parsed = await parseImagePromptsDocx(thumbFile0)
+        existingThumbs = parsed.thumbnails || []
+      }
+      job.output_lines.push(
+        `[fill-gaps] ${existingSceneMap.size} scene + ${existingThumbs.length} thumbnail prompt(s) already on disk — only missing ones will be generated.`,
+      )
+    } catch (e: any) {
+      job.output_lines.push(`⚠ [fill-gaps] couldn't read existing prompts (${e?.message || e}); generating all.`)
+    }
+  }
+
   job.output_lines.push(`Reading narration for story context…`)
   const storyContext = await readStoryContext(project_slug, episode_id, title)
 
@@ -475,7 +541,26 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   const SCENE_CHUNK_THRESHOLD = 50
   const SCENE_BATCH_SIZE = 10
   const SCENE_CONCURRENCY = 4
-  const useChunkedScenes = sceneCount > SCENE_CHUNK_THRESHOLD
+  // Which scene numbers still need generating. In fill-gaps mode that's only
+  // the ones not already on disk; otherwise it's all of them.
+  const allSceneNumbers = Array.from({ length: sceneCount }, (_, i) => i + 1)
+  const missingSceneNumbers = fillGaps
+    ? allSceneNumbers.filter(n => !existingSceneMap.has(n))
+    : allSceneNumbers
+  const thumbsNeeded = fillGaps ? existingThumbs.length < thumbs : thumbs > 0
+  if (fillGaps) {
+    job.output_lines.push(
+      missingSceneNumbers.length
+        ? `[fill-gaps] generating ${missingSceneNumbers.length} missing scene(s): ${compactRanges(missingSceneNumbers)}` +
+          (thumbsNeeded ? ' + thumbnails.' : ' (thumbnails already present — kept).')
+        : `[fill-gaps] all ${sceneCount} scene(s) already present` +
+          (thumbsNeeded ? '; generating thumbnails only.' : ' and thumbnails present — nothing to regenerate.'),
+    )
+  }
+  // fill-gaps always uses the chunked/batch path so the per-batch filter + merge
+  // apply regardless of total count (and the small-count single-call path can't
+  // do a partial run).
+  const useChunkedScenes = sceneCount > SCENE_CHUNK_THRESHOLD || fillGaps
 
   const controller = new AbortController()
   const cancelWatcher = setInterval(() => {
@@ -491,15 +576,33 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   try {
     if (useChunkedScenes) {
       job.output_lines.push(
-        `[chunked] ${sceneCount} scenes > ${SCENE_CHUNK_THRESHOLD} threshold — splitting into parallel batches of ${SCENE_BATCH_SIZE} (concurrency ${SCENE_CONCURRENCY}).`,
+        fillGaps
+          ? `[fill-gaps] generating missing scenes in parallel batches of ${SCENE_BATCH_SIZE} (concurrency ${SCENE_CONCURRENCY}).`
+          : `[chunked] ${sceneCount} scenes > ${SCENE_CHUNK_THRESHOLD} threshold — splitting into parallel batches of ${SCENE_BATCH_SIZE} (concurrency ${SCENE_CONCURRENCY}).`,
       )
       // Build batch ranges [1..10], [11..20], …, plus thumbnails as a
       // separate single call. Each scene batch reuses the same buildPrompt
       // shape but pinned to "scenes numbered K to K+N-1 (do NOT generate
       // others)".
-      const batches: Array<{ from: number; to: number }> = []
+      const allBatches: Array<{ from: number; to: number }> = []
       for (let from = 1; from <= sceneCount; from += SCENE_BATCH_SIZE) {
-        batches.push({ from, to: Math.min(from + SCENE_BATCH_SIZE - 1, sceneCount) })
+        allBatches.push({ from, to: Math.min(from + SCENE_BATCH_SIZE - 1, sceneCount) })
+      }
+      // In fill-gaps mode run only the batches that contain a missing scene; a
+      // batch with any gap is regenerated whole (keeps the range complete and
+      // batch-aligned for the LLM). Fully-present batches are skipped, so a
+      // "10 scenes missing: 11-20" failure costs exactly one batch, not 100.
+      const missingSet = new Set(missingSceneNumbers)
+      const batches = fillGaps
+        ? allBatches.filter((b) => {
+          for (let n = b.from; n <= b.to; n++) if (missingSet.has(n)) return true
+          return false
+        })
+        : allBatches
+      if (fillGaps) {
+        job.output_lines.push(
+          `[fill-gaps] ${batches.length} batch(es) to run; ${allBatches.length - batches.length} already-complete batch(es) skipped.`,
+        )
       }
 
       let cursor = 0
@@ -581,11 +684,24 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       if (aborted) throw new Error('Cancelled by user')
       failedSceneBatches = failed.sort((a, b) => a.from - b.from)
       // Sort by number so the docx output is in deterministic order
-      // regardless of which worker finished a given batch first.
-      scenes = collected.sort((a, b) => Number(a.number) - Number(b.number))
+      // regardless of which worker finished a given batch first. In fill-gaps
+      // mode, merge: keep the existing scenes from skipped batches and overlay
+      // the freshly-regenerated ones (same number → regenerated wins).
+      if (fillGaps && existingSceneMap.size > 0) {
+        const merged = new Map<number, any>(existingSceneMap)
+        for (const s of collected) {
+          const n = Number(s.number)
+          if (Number.isFinite(n)) merged.set(n, s)
+        }
+        scenes = [...merged.values()].sort((a, b) => Number(a.number) - Number(b.number))
+      } else {
+        scenes = collected.sort((a, b) => Number(a.number) - Number(b.number))
+      }
 
-      // Thumbnails: single call (typical thumbs <= 10, fits easily).
-      if (thumbs > 0) {
+      // Thumbnails: single call (typical thumbs <= 10, fits easily). In fill-
+      // gaps mode only regenerate when some are missing; otherwise `thumbnails`
+      // stays [] and the save step leaves the existing thumbnail file untouched.
+      if (thumbsNeeded) {
         const thumbsOnlyPrompt = prompt
           .replace(/Generate exactly \d+ scene prompts\./, '')
           + `\n\nIMPORTANT: This response must contain ONLY thumbnails (the "scenes" array MUST be empty).`
@@ -668,7 +784,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       `Generated ${scenes.length} of ${sceneCount} scene prompts — ` +
       `${failedSceneBatches.length} batch(es) failed after ${3} attempts (${missing} scenes missing: ${ranges}). ` +
       `Likely an unreachable local endpoint. The ${scenes.length} generated scene(s) were saved; ` +
-      `re-run Scene Prompts once the endpoint is back to fill the gaps.`,
+      `click Retry on this job once the endpoint is back — it regenerates only the ${missing} missing scene(s) and keeps the rest.`,
     )
   }
   job.output_lines.push(`Done.`)

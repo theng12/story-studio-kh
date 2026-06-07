@@ -261,7 +261,7 @@
               v-if="job.status === 'error' || job.status === 'cancelled'"
               class="btn btn-xs btn-secondary"
               @click="retryJob(job)"
-              title="CHARGES MAY APPLY — Deletes this failed job and re-submits a fresh generation request to the provider. Use only when Repair couldn't recover everything OR when the original submit truly failed. The generator skips chunks already on disk, so running Repair first means Retry only re-submits genuinely-missing chunks."
+              :title="retryTooltip(job.type)"
             >
               Retry
             </button>
@@ -1067,6 +1067,19 @@ function jobCanBeRepaired(jobType: string): boolean {
   return jobType in REPAIR_ENDPOINTS
 }
 
+// v1.0.308 — type-aware Retry tooltip so the cost/behaviour is honest per job
+// type. image_prompts now does a smart gap-fill; image/audio/video have a free
+// Repair to click first; everything else re-runs whole.
+function retryTooltip(jobType: string): string {
+  if (jobType === 'image_prompts') {
+    return 'SMART RETRY — Regenerates ONLY the missing scene prompts and merges them into the existing file, keeping the prompts that already succeeded. Local models: free. Cloud models: charges only for the missing scenes, not all of them.'
+  }
+  if (jobCanBeRepaired(jobType)) {
+    return 'CHARGES MAY APPLY — Deletes this failed job and re-submits a fresh request. Click Repair FIRST (free — recovers in-flight provider work). The generator skips assets already on disk, so after Repair, Retry only re-submits genuinely-missing items.'
+  }
+  return 'CHARGES MAY APPLY — Deletes this failed job and re-submits it. Re-runs the whole step (this job type has no partial/repair path).'
+}
+
 /**
  * v1.0.114 — Repair-only handler for the Jobs page.
  *
@@ -1159,6 +1172,12 @@ async function retryJob(job: RJob) {
     'script-only':       { url: `/projects/${slug.value}/generate/script-only`,       params: job.params },
     'introduction-only': { url: `/projects/${slug.value}/generate/introduction-only`, params: job.params },
     'chapter-only':      { url: `/projects/${slug.value}/generate/chapter-only`,      params: job.params },
+    // v1.0.308 — image_prompts Retry is now SMART: it routes to the dedicated
+    // /generate/image-prompts route with fill_gaps=true, so the generator
+    // regenerates ONLY the missing scenes and merges them into the existing
+    // file (preserving the ones that already succeeded). Previously this went
+    // through pipeline/run-batch which regenerated all N from scratch.
+    image_prompts:   { url: `/projects/${slug.value}/generate/image-prompts`, params: { ...job.params, fill_gaps: true } },
     scene_images:    { url: `/projects/${slug.value}/generate/images`,  params: { ...job.params, mode: 'scenes' } },
     thumb_images:    { url: `/projects/${slug.value}/generate/images`,  params: { ...job.params, mode: 'thumbs' } },
     images:          { url: `/projects/${slug.value}/generate/images`,  params: job.params },
@@ -1183,7 +1202,10 @@ async function retryJob(job: RJob) {
   // step out (the user clicked retry because they want it to run again),
   // and run-batch's preset resolution picks up any preset edits the user
   // made between the failure and the retry.
-  const BATCH_ONLY_TYPES = new Set<string>(['metadata', 'image_prompts'])
+  // metadata stays batch-only (no partial concept — it's one document, and it
+  // has no dedicated /generate route on the retry path). image_prompts moved to
+  // the endpointMap above so its Retry can pass fill_gaps=true (see v1.0.308).
+  const BATCH_ONLY_TYPES = new Set<string>(['metadata'])
   if (BATCH_ONLY_TYPES.has(job.type)) {
     try {
       const resp = await post<{ jobs: Array<{ job_id: string }>; skipped?: Array<{ reason: string }> }>(

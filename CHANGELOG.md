@@ -4,6 +4,31 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.309 — 2026-06-08
+
+### Fixed — Retry on Image Prompts now fills only the gaps (instead of redoing all of them)
+
+When an Image Prompts job partially failed — e.g. *"Generated 90 of 100 scene prompts — 10 scenes missing: 11-20"* — clicking **Retry** used to regenerate **all 100 from scratch** and overwrite the file, despite the message saying "fill the gaps." That wasted time (and money, on cloud models), and replaced the prompts you already had with different ones — which would then no longer match any scene images you'd made from them.
+
+**Retry is now smart.** It reads the prompts already on disk, regenerates **only the missing scenes** (e.g. just batch 11–20), and **merges** them back in — keeping the ones that already succeeded. Thumbnails are left untouched if they're already there. So a 10-scene gap costs one ~30-second batch, not a full 100-scene re-run. It works across a page reload too, since it reads from disk rather than job memory.
+
+This was the one job type that didn't already do the right thing. For reference, here's how each Retry behaves:
+
+- **Images / Audio / AI Video** — already smart: a free **Repair** button recovers in-flight work from the provider, and Retry skips anything already on disk (only re-renders what's missing). Unchanged.
+- **Image Prompts** — now fills only the missing scenes (this fix).
+- **Metadata / Scripts / Merge / Assembly / Subtitles** — single-artifact steps; Retry re-runs the whole thing (no partial concept).
+
+The **Retry** button's tooltip is now honest per job type (e.g. Image Prompts reads "SMART RETRY — regenerates only the missing scenes… cloud models charge only for the missing ones").
+
+### Files
+- `electron/server/generators/image-prompts.ts` — `fill_gaps` mode: load existing prompts, run only the batches with a missing scene, merge + preserve the rest. Full regeneration (the page's Generate button) is unchanged.
+- `frontend/pages/projects/[slug]/jobs.vue` — Image Prompts Retry routes to `/generate/image-prompts` with `fill_gaps=true`; type-aware Retry tooltip.
+
+### Verification
+- Backend `tsc` clean; all 1049 backend tests pass; jobs page SSR-renders clean. Verified the prompt parser + path resolution against the real on-disk TN0161 file (reads scenes back correctly), and that retried jobs carry the episode title needed to find the file. Full-regeneration path is byte-for-byte unchanged when `fill_gaps` is absent.
+
+---
+
 ## v1.0.308 — 2026-06-08
 
 ### Added — Render Size control for local image models (Scene & Thumbnail Generator)
