@@ -27,14 +27,41 @@ import type { JobEnqueuedResponse, JobListResponse, JobStreamEvent } from '@shar
 export type Job = JobEnqueuedResponse
 export type JobStats = JobListResponse['stats']
 
+// v1.0.298 — keep this in sync with the JobType union (models/types.ts). A
+// missing entry falls back to the raw type string (e.g. "metadata"), which is
+// what made the Jobs panel + completion toasts read like internal slugs. Every
+// user-facing job type now has a human label.
 const JOB_TYPE_LABELS: Record<string, string> = {
   'script-only': 'Script (chapters)',
   'introduction-only': 'Introduction',
   'chapter-only': 'Chapter regen',
+  outline_only: 'Outline',
+  expand_chapters: 'Chapter expansion',
+  image_prompts: 'Image prompts',
   images: 'Images',
   scene_images: 'Scene Images',
   thumb_images: 'Thumbnail Images',
+  images_repair: 'Image repair',
   audio: 'Audio',
+  audio_merge: 'Audio merge',
+  metadata: 'Metadata',
+  video: 'Video (AI scenes)',
+  video_repair: 'Video repair',
+  video_assembly: 'Video assembly',
+  subtitles_transcribe: 'Subtitles',
+  youtube_upload: 'YouTube upload',
+  youtube_playlist_update: 'YouTube playlist',
+  broll_normalize: 'B-roll normalize',
+  broll_assemble: 'B-roll assembly',
+  broll_autotag: 'B-roll auto-tag',
+  broll_fetch: 'B-roll fetch',
+  research_run: 'Research',
+  scene_plan_run: 'Scene plan',
+  scene_image_generate: 'Scene image',
+  continuity_render: 'Continuity render',
+  prompt_director: 'Prompt director',
+  composition_generate: 'Composition',
+  timestamp_video_assemble: 'Timestamp assembly',
 }
 
 const EMPTY_STATS: JobStats = { running: 0, queued: 0, done: 0, error: 0, total: 0 }

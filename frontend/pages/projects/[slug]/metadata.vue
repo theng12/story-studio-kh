@@ -11,15 +11,33 @@
       filter-field="metadata"
       generate-label="Generate Metadata"
       loading-label="Generating…"
-      :generate-loading="metadataJobActiveForEpisode"
+      :generate-loading="metadataBusy"
       :generate-disabled="!episodeId || !scriptReady"
-      :generate-status="metadataJobActiveForEpisode ? `Generating metadata for ${episodeId}…` : scriptGateReason"
+      :generate-status="metadataBusy ? `Generating metadata for ${episodeId}…` : scriptGateReason"
       @generate="generateAll"
       @episode-selected="onEpisodeSelected"
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
       @preset-deleted="success('Preset deleted')"
     />
+
+    <!-- v1.0.298 — persistent generation feedback. The button spinner covers
+         "is it running"; this row covers "is it done, and did it work" AFTER
+         the spinner clears + the transient toast fades. Running → live status;
+         done → success/error/cancelled that stays put until the next run or an
+         episode switch. -->
+    <div v-if="metadataBusy" class="meta-result meta-result-running">
+      <LoadingSpinner size="sm" />
+      <span>Generating metadata for <strong>{{ episodeId }}</strong>… you can switch episodes; it keeps running in the background.</span>
+    </div>
+    <div
+      v-else-if="lastGenResult"
+      :class="['meta-result', `meta-result-${lastGenResult.kind}`]"
+    >
+      <span class="meta-result-icon" aria-hidden="true">{{ lastGenResult.kind === 'success' ? '✓' : lastGenResult.kind === 'cancelled' ? '⊘' : '✗' }}</span>
+      <span>{{ lastGenResult.message }}</span>
+      <button type="button" class="btn btn-link btn-xs meta-result-dismiss" @click="lastGenResult = null">Dismiss</button>
+    </div>
 
     <p class="text-muted mt-1 mb-2">
       SEO title, description, and tags — all saved as a single metadata file per episode.
@@ -690,11 +708,27 @@ const metadataJobActiveForEpisode = computed(() => {
   )
 })
 
+// v1.0.298 — the button + status must reflect the user's OWN in-flight click
+// IMMEDIATELY, not wait for the job to propagate through the SSE/poll stream.
+// `genAll` flips true synchronously on click; `metadataJobActiveForEpisode`
+// (jobs-derived) covers the "switched away and came back" case. OR them so
+// there's never a dead window where a generation is running but nothing shows.
+const metadataBusy = computed(() => genAll.value || metadataJobActiveForEpisode.value)
+
+// v1.0.298 — persistent outcome of the last "Generate Metadata" run. The
+// transient toast fades in 5s; this stays until the next run or an episode
+// switch, so the user always has a durable "did it work?" signal.
+const lastGenResult = ref<null | { kind: 'success' | 'error' | 'cancelled'; message: string }>(null)
+
 // Defensive — clear genAll on episode swap. The original waitForJob
 // is still tracking the OLD episode's job in the background; this just
-// stops it from gating the new episode's UI.
+// stops it from gating the new episode's UI. Also clear the stale result
+// banner — it belonged to the episode we just left.
 watch(episodeId, (newEp, oldEp) => {
-  if (newEp !== oldEp) genAll.value = false
+  if (newEp !== oldEp) {
+    genAll.value = false
+    lastGenResult.value = null
+  }
 })
 
 // Section configs
@@ -1402,6 +1436,7 @@ async function generateAll() {
   const startedTitle = selectedEpisode.value?.title || ''
   genAll.value = true
   metaGenerating.value = true
+  lastGenResult.value = null   // clear any prior outcome while this run is live
   try {
     // Queue via the job queue (parallel to /generate/script-only,
     // /generate/audio, etc.) so navigating away no longer cancels the
@@ -1428,6 +1463,7 @@ async function generateAll() {
     success(`Queued — job ${job.job_id}. You can switch episodes; we'll keep generating in the background.`)
     const completed = await waitForJob(job.job_id)
     if (completed.status === 'cancelled') {
+      lastGenResult.value = { kind: 'cancelled', message: `Metadata generation cancelled for ${startedEpisodeId}.` }
       showError('Metadata generation cancelled')
       return
     }
@@ -1441,13 +1477,17 @@ async function generateAll() {
     if (episodeId.value === startedEpisodeId) {
       sessionVersion.value = null
       await suppressAutoSaveDuring(() => loadExistingMetadata())
+      lastGenResult.value = { kind: 'success', message: `Metadata generated for ${startedEpisodeId} — latest version applied below.` }
       success('All metadata generated — latest version applied.')
     } else {
+      lastGenResult.value = { kind: 'success', message: `Metadata generated for ${startedEpisodeId} — switch back to that episode to view it.` }
       success(`Metadata for ${startedEpisodeId} generated — switch back to view.`)
     }
   } catch (e: any) {
     console.error('[metadata] generate all failed:', e)
-    showError(e.data?.detail || e?.message || `Failed to generate metadata (model=${model.value}). Check the Jobs panel for details.`)
+    const msg = e.data?.detail || e?.message || `Failed to generate metadata (model=${model.value}). Check the Jobs panel for details.`
+    lastGenResult.value = { kind: 'error', message: msg }
+    showError(msg)
   } finally {
     genAll.value = false
     metaGenerating.value = false
@@ -1802,6 +1842,28 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* v1.0.298 — generation feedback row (running / success / error / cancelled). */
+.meta-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md, 6px);
+  font-size: 13px;
+  border-left: 3px solid var(--border, #444);
+  background: var(--bg-tertiary);
+}
+.meta-result-icon { font-weight: 700; }
+.meta-result-running { border-left-color: var(--accent); }
+.meta-result-success { border-left-color: var(--success, #5fb37a); }
+.meta-result-success .meta-result-icon { color: var(--success, #5fb37a); }
+.meta-result-error { border-left-color: var(--danger, #e06c75); }
+.meta-result-error .meta-result-icon { color: var(--danger, #e06c75); }
+.meta-result-cancelled { border-left-color: var(--warning, #f0c674); }
+.meta-result-cancelled .meta-result-icon { color: var(--warning, #f0c674); }
+.meta-result-dismiss { margin-left: auto; flex: 0 0 auto; }
+
 .combined-card {
   background: linear-gradient(135deg, rgba(96,165,250,0.08), rgba(167,139,250,0.08));
   border: 1px solid rgba(96,165,250,0.2);
