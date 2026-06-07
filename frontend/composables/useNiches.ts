@@ -42,6 +42,11 @@ export interface Niche {
   youtubeTagsHint?: string[]
   audienceHint?: string
   scriptContext?: string
+  /** v1.0.280+ — content-ownership fields. After the format↔niche split, the
+   *  niche owns the voice; these let the picker show what it controls. */
+  scriptSystemPromptRole?: string
+  titleShapeRules?: string[]
+  narratorStyles?: Array<{ id: string; label: string; description?: string }>
   /** Server-attached count of projects referencing this niche. Present on
    *  list responses, absent on single-niche reads. */
   project_count?: number

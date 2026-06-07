@@ -1083,7 +1083,7 @@ watch(() => form.character_ids.length, (n) => {
 // vocabulary (Chapter / Topic / Section) resolves correctly. Loads
 // once on mount + when slug changes; project-meta arrival triggers the
 // watcher that hydrates formatId.
-const projectFormatId = ref('narrative')
+const projectFormatId = ref('scenes')
 const { project } = useProject()
 watch(project, (p) => {
   if (!p) return
@@ -1095,7 +1095,7 @@ watch(project, (p) => {
     // this branch only fires on data-corruption / partial-write edge
     // cases. Section labels fall back to the narrative default.
     console.warn('[scripts.vue] project.format_id missing — falling back to narrative for section labels. Set a format in Settings → Format if this is unexpected.')
-    projectFormatId.value = 'narrative'
+    projectFormatId.value = 'scenes'
   }
 }, { immediate: true })
 

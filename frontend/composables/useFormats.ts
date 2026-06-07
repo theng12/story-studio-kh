@@ -24,6 +24,10 @@ export interface Format {
   description: string
   builtin: boolean
   schemaVersion: 1
+  /** v1.0.280+ — presentation mechanism. Drives the "how it's built" line. */
+  visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
+  /** v1.0.280+ — scene→script pairing for the unified scenes format. */
+  sceneAlignment?: 'chapter' | 'sentence'
   idea: {
     systemPromptRole: string
     audienceDefault: string
@@ -50,6 +54,8 @@ export interface Format {
     lengthMinutesRange: [number, number]
     narratorStyles: NarratorStyle[]
     defaultNarratorStyleId: string
+    /** v1.0.71+: chapters expand in parallel (listicle) vs sequentially. */
+    chaptersIndependent?: boolean
     /** v1.0.82+: user-facing label for the format's primary content unit.
      *  Sleep-story → Chapter, bound-explainer → Reason, listicle → Topic.
      *  Missing on older formats — UI consumers default to "Chapter". */
@@ -85,6 +91,37 @@ export interface Format {
     }
   }
   productionStandardsAddendum?: string
+}
+
+/**
+ * v1.0.280+ — a short, user-facing "how it's built" line derived from a
+ * format's PRESENTATION fields (visualSource + sceneAlignment + chapters
+ * independence). Format answers HOW the video is assembled; the niche answers
+ * WHAT it says. Used by the format pickers so users choose a production
+ * pipeline, not a voice. Pure function — accepts the minimal shape so both the
+ * full Format and the lighter picker DTO can call it.
+ */
+export function formatBuildLine(f: {
+  visualSource?: string | null
+  sceneAlignment?: string | null
+  script?: { chaptersIndependent?: boolean }
+}): string {
+  const vs = f.visualSource || 'scene-images'
+  if (vs === 'broll') {
+    return 'Continuous narration over your B-Roll library — no AI scene images.'
+  }
+  if (vs === 'continuity-chain') {
+    return 'One locked character rendered scene-by-scene (img2img), timed to the narration.'
+  }
+  // scene-images family (incl. legacy timestamp-driven / narrated-scenes).
+  const sentence = vs === 'timestamp-driven' || vs === 'narrated-scenes' || f.sceneAlignment === 'sentence'
+  if (sentence) {
+    return 'AI-generated scenes timed to the narration transcript (sentence-paced cuts).'
+  }
+  if (f.script?.chaptersIndependent) {
+    return 'AI-generated badge scenes — one per independent topic, built in parallel.'
+  }
+  return 'AI-generated scenes distributed evenly across the video.'
 }
 
 // ── Module-level shared cache ───────────────────────────────────────────────

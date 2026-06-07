@@ -35,6 +35,42 @@ import { useRoute } from 'vue-router'
  */
 export type VisualSource = 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
 
+export type SceneAlignment = 'chapter' | 'sentence'
+
+/**
+ * v1.0.280 (format↔niche refactor) — normalize the unified `scenes` format
+ * onto the pipeline's existing VisualSource vocabulary.
+ *
+ * The `scenes` format reports `visualSource: 'scene-images'` and decides its
+ * pacing via `sceneAlignment`:
+ *   - 'chapter'  → classic even-distribution scene-images chain
+ *   - 'sentence' → audio-paced transcript flow (Scene Plan / Review / Timestamp
+ *                  Assemble), with Research + Character Sheet as OPTIONAL steps
+ *                  — i.e. the existing 'narrated-scenes' flow.
+ *
+ * Legacy / explicit visualSource values (broll, continuity-chain, and any
+ * custom user format still declaring timestamp-driven / narrated-scenes
+ * directly) pass through unchanged. This lets every downstream `isBroll` /
+ * `isTimestampDriven` / flow-ribbon check stay exactly as-is — they just
+ * consume the normalized value.
+ */
+export function normalizeVisualSource(
+  visualSource: string | undefined | null,
+  sceneAlignment?: SceneAlignment | string | null,
+): VisualSource {
+  switch (visualSource) {
+    case 'broll': return 'broll'
+    case 'continuity-chain': return 'continuity-chain'
+    case 'timestamp-driven': return 'timestamp-driven'
+    case 'narrated-scenes': return 'narrated-scenes'
+    case 'scene-images':
+    default:
+      // Unified scenes format (or unknown) — sentence alignment routes to the
+      // audio-paced flow; chapter (or unset) stays on the classic chain.
+      return sceneAlignment === 'sentence' ? 'narrated-scenes' : 'scene-images'
+  }
+}
+
 export interface FlowStep {
   /** Stable key for v-for + current-step matching. */
   key: string

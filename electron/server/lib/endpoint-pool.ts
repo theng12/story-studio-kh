@@ -37,14 +37,27 @@ export async function healthyEndpoints(
   }
 }
 
+/**
+ * v1.0.304 — how long a marked-down endpoint stays out of rotation before it
+ * becomes eligible again. The dispatcher is module-scoped and long-lived for
+ * LM Studio (see lmstudio-client.ts), so a PERMANENT down-state meant a Mac
+ * that recovered after a transient blip (Wi-Fi drop, sleep/wake) stayed
+ * excluded forever — the pool only ever shrank. With a TTL, a recovered
+ * endpoint rejoins automatically; if it's still down, the next pick's
+ * connection error (or pre-flight probe) re-marks it within seconds. 30s is
+ * long enough to avoid hammering a genuinely-down Mac, short enough that a
+ * recovered one comes back inside a single batch run.
+ */
+export const ENDPOINT_DOWN_TTL_MS = 30_000
+
 export interface Dispatcher {
   /** Least-busy live endpoint (in-flight++), or null if all are down. */
   pick(): string | null
   /** Mark a previously picked endpoint as finished (in-flight--). */
   release(url: string): void
-  /** Take an endpoint out of rotation for the rest of the batch. */
+  /** Take an endpoint out of rotation for ENDPOINT_DOWN_TTL_MS (self-healing). */
   markDown(url: string): void
-  /** Endpoints still in rotation. */
+  /** Endpoints currently in rotation (down-state TTL respected). */
   liveCount(): number
   /** Total endpoints. */
   size: number
@@ -53,9 +66,15 @@ export interface Dispatcher {
 /** Build a least-busy dispatcher over a fixed set of endpoints. */
 export function createDispatcher(urls: string[]): Dispatcher {
   const inflight = new Map<string, number>()
-  const down = new Set<string>()
+  // downUntil: epoch-ms after which the endpoint is eligible again. Absent =
+  // never marked down. A self-healing TTL replaces the old permanent Set.
+  const downUntil = new Map<string, number>()
   for (const u of urls) inflight.set(u, 0)
-  const live = () => urls.filter(u => !down.has(u))
+  const isDown = (u: string) => {
+    const until = downUntil.get(u)
+    return until !== undefined && until > Date.now()
+  }
+  const live = () => urls.filter(u => !isDown(u))
   return {
     size: urls.length,
     pick() {
@@ -67,7 +86,7 @@ export function createDispatcher(urls: string[]): Dispatcher {
       return u
     },
     release(u) { inflight.set(u, Math.max(0, (inflight.get(u) || 0) - 1)) },
-    markDown(u) { down.add(u) },
+    markDown(u) { downUntil.set(u, Date.now() + ENDPOINT_DOWN_TTL_MS) },
     liveCount() { return live().length },
   }
 }
@@ -76,7 +95,13 @@ export function createDispatcher(urls: string[]): Dispatcher {
  *  content error (same prompt would fail anywhere — don't waste the pool). */
 export function isConnectionError(e: any): boolean {
   const m = String(e?.message || e).toLowerCase()
-  return /econnrefused|econnreset|enotfound|fetch failed|network|socket hang up|timed? ?out|timeout|502|503|504|refused|unreachable/.test(m)
+  // Kept in sync with the providers' own connection-error detection AND the
+  // phrases they wrap failures in ("Can't reach …", "Connection error — failing
+  // over …", "… is unreachable"). v1.0.304: added ehostunreach / etimedout /
+  // eai_again / econnaborted + the wrapper phrases — previously EHOSTUNREACH
+  // (a sleeping Tailscale Mac) got wrapped by the provider but slipped past this
+  // matcher, so runOnPool never failed over.
+  return /econnrefused|econnreset|econnaborted|enotfound|ehostunreach|etimedout|eai_again|fetch failed|network|socket hang up|timed? ?out|timeout|502|503|504|refused|unreachable|can'?t reach|cannot reach|connection error/.test(m)
 }
 
 /**

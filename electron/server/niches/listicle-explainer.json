@@ -1,0 +1,139 @@
+{
+  "id": "listicle-explainer",
+  "name": "Explainer / Listicle Voice",
+  "description": "The QI / Veritasium / RealLifeLore voice for multi-topic explainer and 'Top N' videos: confident, evidence-based, occasionally wry, never preachy. Each topic is an independent hook → explanation → micro-payoff. Use this on the Listicle format for general trivia, mysteries, paradoxes, and science/history countdowns. Layer it when the channel's signature IS the curious-explainer tone rather than a single subject domain.",
+  "tagline": "A smart friend explaining the weird stuff over coffee.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "exampleTopics": [
+    "10 Sleep Mysteries Explained",
+    "7 Plane Crashes That Changed Aviation Forever",
+    "12 Paradoxes That Still Have No Answer",
+    "15 Optical Illusions You Won't Believe",
+    "10 Bizarre Deep-Sea Creatures",
+    "8 Ancient Inventions Ahead of Their Time",
+    "9 Untranslatable Words From Around the World",
+    "11 Engineering Disasters and What We Learned",
+    "10 Cold Cases Solved Decades Later",
+    "6 Maths Problems Nobody Can Solve"
+  ],
+
+  "vocabulary": {
+    "mood": [
+      "curious", "punchy", "accessible", "intriguing", "playful",
+      "informative", "matter-of-fact", "surprising", "evidence-based", "wry"
+    ],
+    "theme": [
+      "paradoxes", "mysteries", "unsolved cases", "scientific oddities",
+      "historical events", "everyday phenomena", "psychology", "biology",
+      "physics", "engineering failures", "linguistic curiosities",
+      "conspiracy debunks"
+    ],
+    "genre": [
+      "explainer", "facts", "mysteries", "paradoxes", "history", "science",
+      "engineering", "psychology", "documentary", "trivia", "case studies",
+      "deep-dive", "phenomena", "anomalies"
+    ],
+    "keyword": [
+      "psychology", "neuroscience", "evolutionary biology", "physics",
+      "chemistry", "astronomy", "ancient history", "modern history",
+      "engineering", "aviation", "medicine", "linguistics", "anthropology",
+      "philosophy", "mathematics", "ecology", "technology", "human behavior",
+      "perception", "memory", "sleep", "dreams", "consciousness", "evolution",
+      "extinction", "disasters", "cold cases", "lost civilizations",
+      "optical illusions", "cognitive biases", "logical fallacies",
+      "famous paradoxes", "thought experiments", "quantum mysteries",
+      "deep-sea creatures", "extinct creatures", "fossil mysteries",
+      "ancient inventions", "lost technologies", "engineering disasters",
+      "aviation incidents", "maritime disasters", "spaceflight mishaps",
+      "untranslatable words", "etymological surprises", "place-name origins",
+      "scientific accidents", "lucky discoveries", "human-body oddities",
+      "rare conditions", "savant abilities", "synaesthesia", "déjà vu",
+      "famous heists", "famous forgeries", "lost media", "abandoned places",
+      "ghost towns", "unfinished megaprojects", "patent oddities",
+      "uncontacted tribes", "wrongful convictions overturned"
+    ]
+  },
+
+  "youtubeTagsHint": [
+    "explained", "top 10", "mysteries", "facts", "documentary",
+    "things you didn't know", "paradoxes", "science facts", "history facts"
+  ],
+
+  "audienceHint": "Curious adults who enjoy fact-dense countdowns — overlaps with QI, Veritasium, RealLifeLore, Half as Interesting audiences.",
+
+  "ideaSystemPromptRole": "You generate ideas for a multi-topic explainer / listicle channel. Each episode bundles several short, independent topics around a unifying theme into a single 'Top N' video. The voice is the curious, evidence-based explainer — surprising, fact-checkable, occasionally wry. Pitch unifying themes that yield 5-15 self-contained, fact-checkable topics, never a single-topic deep-dive.",
+
+  "ideaGuidanceText": "Episode ideas are a UNIFYING theme covering several short independent topics (e.g. '10 paradoxes explained', '7 plane crashes that changed aviation'). Each topic must be self-contained, fact-checkable, and 2-5 minutes when narrated. The leading number in the title must equal the number of topics.",
+
+  "scriptContext": "Each section is an independent topic. Open with a hook, explain with evidence, land a memorable micro-payoff, then hard-cut to the next topic. Confident and curious, never preachy or hype.",
+
+  "scriptSystemPromptRole": "You are a clear, curious explainer-channel writer in the QI / Veritasium / RealLifeLore tradition. You don't tell stories — you bundle short, independent topics around a unifying theme, each with a hook, an evidence-based explanation, and a memorable micro-payoff. Confident, occasionally wry, never preachy, never hype.",
+
+  "scriptStructure": {
+    "pacingArc": [
+      "Topic 1: Strongest hook — the topic that earns the click from the thumbnail.",
+      "Topics 2-{lastButOne}: Mix surprising / counter-intuitive / evidence-rich topics, varying tone slightly so it never feels monotone.",
+      "Topic {last}: Save a satisfying, punchy topic for last so the video ends strong."
+    ],
+    "additionalRules": [
+      "Open each topic with a HOOK question or counter-intuitive claim in the first 1-2 sentences ('Why don't humans hibernate?', 'A single sneeze travels at 30 mph.').",
+      "Explain each topic with ~2-4 supporting beats — cite mechanism, evidence, history, or a notable example. Don't just assert.",
+      "End each topic with a 1-2 sentence MICRO-PAYOFF: a memorable summary line, an open question, or a wry observation. Avoid textbook closers ('and so we see…').",
+      "Conversational but precise. No marketing speak, no hype adjectives, no 'mind-blowing', no 'this will change your life'.",
+      "The chapter title doubles as the on-screen text during that topic — write it as a question or bold claim, not a bare noun phrase."
+    ]
+  },
+
+  "scriptClosingHint": "Each topic must stand alone — a viewer dropping in mid-video should still get a complete topic.",
+
+  "narratorStyles": [
+    { "id": "A", "label": "Curious explainer",      "description": "Like a smart friend explaining over coffee. Confident but never condescending. Veritasium-adjacent." },
+    { "id": "B", "label": "QI-style wry",           "description": "Slightly arch, finds humour in the absurd. Lets factual surprise carry the laugh; never punches the joke." },
+    { "id": "C", "label": "Documentary deadpan",    "description": "Matter-of-fact, evidence-forward, quiet authority. RealLifeLore in narration mode." },
+    { "id": "D", "label": "Energetic listicle host","description": "Punchy, paced, conversational. Closer to a long-form podcast host than a documentary narrator." },
+    { "id": "E", "label": "Educational calm",       "description": "Patient, clear, slightly schoolteacher — but the cool kind who made the subject feel alive." }
+  ],
+  "defaultNarratorStyleId": "A",
+
+  "titleShapeRules": [
+    "Titles MUST lead with a NUMBER (the topic count) followed by a plural subject and a verb/qualifier.",
+    "Established shapes (vary the subject/verb across the batch):",
+    "  - '{N} {Plural Subject} Explained'      (e.g. '10 Sleep Mysteries Explained')",
+    "  - '{N} {Plural Subject} That {Did X}'    (e.g. '7 Plane Crashes That Changed Aviation Forever')",
+    "  - '{N} {Plural Subject} You {Verb}'      (e.g. '15 Optical Illusions You Won't Believe')",
+    "  - '{N} {Adjective} {Plural Subject}'     (e.g. '10 Bizarre Deep-Sea Creatures')",
+    "REQUIRED: the leading number MUST equal suggested_chapters EXACTLY.",
+    "FORBIDDEN: titles without a leading number (those are deep-dive shapes); clickbait punctuation ('!!', all-caps, fire emoji).",
+    "Subject must be PLURAL (mysteries, crashes, paradoxes, illusions, creatures) — singular is the wrong shape."
+  ],
+  "titleLengthRange": [4, 10],
+  "loglineShapeRules": [
+    "1-2 sentences describing the unifying angle plus a hint at the most striking 1-2 items in the list.",
+    "Concrete — name specific examples, not 'various interesting cases'.",
+    "Evidence-based voice: research / data / documented incidents, not speculation."
+  ],
+  "loglineSentenceRange": [1, 2],
+  "themeShapeRules": [
+    "Pick 2-4 SUBJECT-AREA keywords (the domain the listicle covers, not emotional themes).",
+    "Examples: sleep / psychology / biology for sleep mysteries; aviation / safety / engineering for plane crashes."
+  ],
+  "themeCountRange": [2, 4],
+  "structuralVariety": "vary-all",
+
+  "visualStyleHint": "clean, bold, single-concept visuals per topic — evidence-forward, not decorative",
+
+  "metadataTitleStyleHint": "punchy number-led explainer title — hook-first, optimised for YouTube CTR without clickbait",
+  "metadataTitleHookRules": [
+    "Lead with a number ('10 Sleep Mysteries Explained', '7 Plane Crashes…').",
+    "Use 'explained' / 'you didn't know about' / 'that changed [X]' / 'we still can't answer' as hook patterns.",
+    "Include the unifying theme keyword early so search picks it up.",
+    "Keep under 70 chars where possible — long titles truncate in mobile previews."
+  ],
+  "metadataTagsHookRules": [
+    "Mix broad theme keywords (mysteries, paradoxes, plane crashes) with per-topic keywords pulled from each chapter.",
+    "Include 'explained' and 'top N' style tags — those drive listicle discovery.",
+    "Each tag 1-4 words, no '#' prefix."
+  ]
+}

@@ -2947,14 +2947,14 @@ const formatWizardOpen = ref(false)
 // load syncs from project.value once useProject hydrates; the watcher below
 // handles slug changes (project switcher in the sidebar).
 const { formats: allFormats, find: findFormat, refresh: refreshFormats } = useFormats()
-const formatId = ref<string>('narrative')
+const formatId = ref<string>('scenes')
 const formatOverrides = ref<Record<string, any> | null>(null)
 const formatSaving = ref(false)
 const formatSaveError = ref('')
 // Track baseline values to compute "dirty" — comparing JSON for overrides is
 // the cheapest correctness check (deep equality across nested objects).
 const formatBaselineJson = ref<string>('null')
-const formatIdBaseline = ref<string>('narrative')
+const formatIdBaseline = ref<string>('scenes')
 // v1.0.270 — content mode (format-shaped vs freeform).
 const contentMode = ref<'format' | 'freeform'>('format')
 const contentModeBaseline = ref<'format' | 'freeform'>('format')
@@ -2969,7 +2969,7 @@ const formatDirty = computed(() => {
 function syncFormatFromProject() {
   const m = project.value as any
   if (!m) return
-  formatId.value = m.format_id || 'narrative'
+  formatId.value = m.format_id || 'scenes'
   formatOverrides.value = m.format_overrides || null
   contentMode.value = m.content_mode === 'freeform' ? 'freeform' : 'format'
   formatIdBaseline.value = formatId.value

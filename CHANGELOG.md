@@ -4,6 +4,95 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.305 — 2026-06-07
+
+### Fixed — local LLM generation no longer freezes when a Mac is asleep
+
+When one of your LM Studio endpoints was unreachable (a Mac asleep or off Tailscale), generation could **freeze for ~5 minutes** and cancelling did nothing, because a sleeping Mac *hangs* the connection instead of refusing it — and the request had no timeout (10-minute default × 3 silent retries). This release makes the whole local-LLM path resilient:
+
+- **Fast fail-fast + failover.** Every LM Studio request now does a quick reachability check first; an unreachable endpoint is detected in seconds and the work **fails over to a healthy Mac** instead of hanging. Requests are now bounded by a real timeout with no silent retries, so cancel is instant again.
+- **Self-healing endpoint pool.** A Mac marked "down" after a blip now **rejoins automatically** after 30s (it used to stay excluded until restart). And `EHOSTUNREACH` — the exact error a sleeping Mac throws — now correctly triggers failover (it was slipping through before).
+- **Scene-prompt batches retry and report honestly.** A failed batch now **retries up to 3×** (routing to a healthy endpoint). And a partial run no longer lies: instead of printing "Done." with 30 of 100 scenes, the job reports the exact shortfall (which batches failed, how many scenes are missing) — your generated scenes are saved, and you can re-run to fill only the gaps.
+- **Model dropdown no longer empties.** The local-model list now unions models across **all** your endpoints, so a single sleeping Mac doesn't make every local model vanish from the picker.
+
+### Files
+- `electron/server/providers/text/lmstudio.ts` — pre-flight probe + request timeout + `maxRetries: 0`.
+- `electron/server/lib/endpoint-pool.ts` — self-healing down-state TTL; `isConnectionError` aligned (incl. `EHOSTUNREACH`).
+- `electron/server/lib/lmstudio-client.ts` + `routes/health.ts` + `routes/lmstudio.ts` — pooled model list across all endpoints.
+- `electron/server/generators/image-prompts.ts` — per-batch retry + honest partial-completion reporting.
+
+### Verification
+- New `endpoint-pool.test.ts` (8/8): failover on connection error, no-failover on content error, `EHOSTUNREACH` matching, least-busy pick. Providers 18/18, `tsc` clean, backend boots.
+
+---
+
+## v1.0.304 — 2026-06-07
+
+### Fixed — Image Prompts: the scene/thumbnail split is now clean
+
+Three issues on the Image Prompts page, all from the scenes-vs-thumbnails split not being fully separated:
+
+- **"Pending only" now tracks the right pool.** On the **Thumbnail Prompts** tab, the episode picker's "Pending only" filter was checking *scene*-prompt status, not thumbnail status. So an episode with its thumbnails generated (but no scene prompts yet) still showed up as "pending" — e.g. TN0161 had all 5 thumbnails but stayed in the pending list. Each tab now filters by its own pool (`thumb_prompts` on the Thumbnail tab, `scene_prompts` on the Scene tab), so a finished pool drops out of "pending" as expected.
+- **The generating indicator now pulses the correct sidebar entry.** Generating thumbnail prompts lit the *Scene Prompts* nav pulse instead of *Thumbnail Prompts*. Each pool now pulses its own entry.
+- **Removed the redundant "Generate … Prompts Only" buttons.** Leftovers from before the page was split into Scene / Thumbnail tabs — the top action bar already generates only the active tab's pool, so the inline duplicates were removed from both tabs.
+
+### Fixed — Image Prompts page crash hardening
+
+Moved a `watch()` that referenced the `activeForm` computed before it was declared — it threw *"Cannot access 'activeForm' before initialization"* under server-side rendering. The watch now runs after the value exists.
+
+### Files
+- `frontend/pages/projects/[slug]/image-prompts.vue` — tab-aware `filter-field`; per-pool generating pulse (`setPromptPulse`); removed legacy inline generate buttons; moved the character-refs watches below `activeForm`.
+
+### Verification
+- Confirmed against real data (TN0161: `thumb_prompts` done, `scene_prompts` not) — excluded from "Pending only" on the Thumbnail tab, still listed on the Scene tab.
+- Page compiles + renders clean (0 console errors).
+
+---
+
+## v1.0.303 — 2026-06-07
+
+### The big one — Format and Niche are now cleanly separated
+
+Until now, a **format** carried both *how a video is built* (the pipeline) **and** *what it says* (voice, vocabulary, title style). That conflation is why the format list had three near-identical "narration" entries and why picking a format quietly decided your channel's whole voice. This release splits the two axes properly:
+
+- **Format = how it's built.** Pure presentation: which pipeline generates and assembles the scenes. Four formats, each a clear production choice:
+  - **Scenes** — AI-generated stills (evenly distributed, or sentence-timed to the transcript). Absorbs the old *Narrative*, *Narrated Scenes*, and *Narration-synced* formats.
+  - **Listicle** — independent numbered topics, badge visuals, built in parallel.
+  - **Continuity** — one character locked across scenes via img2img, timed to the audio.
+  - **Stock Footage** — continuous narration over your B-Roll library.
+- **Niche = what it says and how it feels.** The niche is now your channel's **voice**: vocabulary, title style, narrator personas, emotional tone, and visual mood. It's the main creative choice — and any niche pairs with any format.
+
+### Added — a complete niche library (15 niches)
+
+Every niche is now a self-contained voice profile (its own idea + script persona, narrator-voice picker, title rules, vocabulary, and metadata voice):
+
+- **New:** **Sleep Stories** (literary, lulling bedtime narratives — 10 narrator voices), **Explainer / Listicle Voice** (QI / Veritasium tone, number-led titles), **POV / Hustle** (first-person "If I had X…" walkthroughs).
+- **Upgraded to full voice profiles:** Prayer, Devotional, Preaching, History Narration, Mindfulness, Motivation, Animals, Plants, Fungi, Insects, Philosophy, Psychology. The four nature niches regained their "Why It Sucks To Be Born As X" title style.
+
+### Added — clearer pickers + a "needs a niche" prompt
+
+- The **format picker** now shows a plain "how it's built" line on every card and is framed as a production choice, not a vibe.
+- The **niche picker** is promoted to the primary content choice in the New Project wizard (it now comes first), with an inline warning when none is selected and a preview that shows the voice it provides.
+- Any project **without a niche** now shows a clear banner ("This project has no niche — generation will use a generic voice") instead of silently producing bland output.
+
+### Changed — your existing projects were migrated
+
+Stale format ids on your projects were rewritten to the new set automatically (a `.pre-niche-refactor.bak` backup sits next to each changed `project.json`): *narrated-scenes / sleep-story / narrative →* **Scenes**, *broll-narration →* **Stock Footage** (so prayer/devotional projects keep their B-Roll pipeline), *narration-synced →* **Scenes (sentence-timed)**. Projects already on a valid format were left untouched. Niches are **not** auto-assigned — the new banner walks you through picking the right one per channel.
+
+### Files
+- `electron/server/models/types.ts` — `Format.sceneAlignment`; niche content-ownership fields (idea/script personas, narrator picker, metadata voice).
+- `electron/server/formats/*.json` — 4 presentation shells; `scenes.json` added; narrative / narrated-scenes / narration-synced removed.
+- `electron/server/niches/*.json` — 3 new niches + 12 upgraded to complete profiles.
+- `electron/server/services/format-loader.ts` — niche-provides-content polarity flip; legacy-id remap (incl. broll-narration → stock-footage).
+- `frontend/` — format/niche picker reframing, wizard reorder, `NicheMissingBanner`, `formatBuildLine` helper.
+
+### Verification
+- Backend: `tsc` clean; format-loader suite **30/30** (merge polarity, neutral fallback, legacy remaps, complete-niche profiles). All 15 niches load with 0 incomplete profiles.
+- Frontend: all changed routes compile clean; New Project wizard + niche banner verified in-browser (0 console errors).
+- Migration: 5 of 7 real projects rewritten to valid formats; backups written.
+
+---
+
 ## v1.0.302 — 2026-06-07
 
 ### Added — format badge on project cards

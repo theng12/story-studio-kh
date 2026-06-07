@@ -103,6 +103,33 @@ export async function listModels(baseUrl: string, timeoutMs = 2500): Promise<str
   return h.ok && h.models ? h.models : []
 }
 
+/**
+ * v1.0.304 — list models across the WHOLE endpoint pool, not just the first.
+ * The model picker used to probe only `lmstudioFirst()` (endpoints[0]); if that
+ * one Mac was asleep, every LM Studio model vanished from the dropdown even
+ * though the other 13 endpoints were up ("all the models froze"). This probes
+ * every endpoint concurrently (best-effort, short timeout — a dead one
+ * contributes nothing and never blocks) and returns the UNION of loaded model
+ * ids, first endpoint's order preserved.
+ */
+export async function listModelsPooled(
+  stored: string | null | undefined,
+  timeoutMs = 2500,
+): Promise<string[]> {
+  const eps = parseEndpoints(stored)
+  if (eps.length === 0) return []
+  if (eps.length === 1) return listModels(eps[0]!, timeoutMs)
+  const lists = await Promise.all(eps.map(u => listModels(u, timeoutMs).catch(() => [])))
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const list of lists) {
+    for (const id of list) {
+      if (!seen.has(id)) { seen.add(id); out.push(id) }
+    }
+  }
+  return out
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Multi-endpoint dispatcher (v1.0.295).
 //

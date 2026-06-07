@@ -490,6 +490,8 @@
 </template>
 
 <script setup lang="ts">
+import { normalizeVisualSource, type VisualSource } from '~/composables/useProjectFlow'
+
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Pipeline')
 
@@ -515,17 +517,17 @@ const { config, refreshConfig } = useProject()
 //     gate by design), so they appear as "Open page →" nodes too.
 // External (non-batchable) nodes are display-only: they document the real
 // chain order but are never enqueued by Run Batch.
-type VS = 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
+// v1.0.280+ — the unified `scenes` format reports visualSource 'scene-images'
+// and selects its pacing via `sceneAlignment` ('sentence' → audio-paced flow).
+// normalizeVisualSource() collapses both onto the existing VS vocabulary so
+// every isX flag below stays unchanged.
+type VS = VisualSource
 const visualSource = ref<VS>('scene-images')
 async function loadVisualSource(): Promise<void> {
   if (!slug.value) return
   try {
-    const f = await get<{ visualSource?: VS }>(`/projects/${slug.value}/effective-format`)
-    if (f?.visualSource === 'broll') visualSource.value = 'broll'
-    else if (f?.visualSource === 'timestamp-driven') visualSource.value = 'timestamp-driven'
-    else if (f?.visualSource === 'continuity-chain') visualSource.value = 'continuity-chain'
-    else if (f?.visualSource === 'narrated-scenes') visualSource.value = 'narrated-scenes'
-    else visualSource.value = 'scene-images'
+    const f = await get<{ visualSource?: string; sceneAlignment?: string }>(`/projects/${slug.value}/effective-format`)
+    visualSource.value = normalizeVisualSource(f?.visualSource, f?.sceneAlignment)
   } catch { /* leave as default — scene-images is the safe superset */ }
 }
 const isBroll = computed(() => visualSource.value === 'broll')
@@ -738,11 +740,11 @@ const visibleSteps = computed<StepMeta[]>(() =>
 // actually need) is produced either way.
 
 const chainLabel = computed(() => {
-  if (isBroll.value) return 'B-Roll (stock footage)'
-  if (isTimestampDriven.value) return 'narration-synced (timestamp-driven)'
-  if (isContinuityChain.value) return 'continuity-chain (character-locked, live-paced)'
-  if (isNarratedScenes.value) return 'narrated-scenes (story, transcript-driven)'
-  return 'scene-images'
+  if (isBroll.value) return 'Voice over Stock Footage (B-Roll)'
+  if (isTimestampDriven.value) return 'Scenes — sentence-timed (transcript-driven)'
+  if (isContinuityChain.value) return 'Continuity (character-locked, live-paced)'
+  if (isNarratedScenes.value) return 'Scenes — sentence-timed (audio-paced)'
+  return 'Scenes — chapter-distributed'
 })
 const hasExternalNodes = computed(() => chainEntries.value.some(e => e.kind === 'external'))
 // Human-readable chain order for the page header — built from the active

@@ -400,6 +400,10 @@
            user always sees where they are + what's next. Only shows on
            project pages (slug present). -->
       <FlowRibbon v-if="slug" :slug="slug" :visual-source="visualSource" />
+      <!-- v1.0.280+ — surface a clear prompt when a project has no niche, so
+           the user doesn't get silently-generic output. Niche is now the
+           primary content/voice layer. -->
+      <NicheMissingBanner v-if="slug" :slug="slug" :niche-id="project?.niche_id" />
       <slot />
     </main>
     </div><!-- /.layout-body -->
@@ -407,6 +411,8 @@
 </template>
 
 <script setup lang="ts">
+import { normalizeVisualSource, type VisualSource } from '~/composables/useProjectFlow'
+
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 
@@ -452,17 +458,17 @@ const { refreshReadiness } = useNotifications()
 // when visuals are placed against the audio timeline rather than
 // pre-planned). isBroll + isTimestampDriven are mutually exclusive
 // flags driven off the same source so templates can branch cleanly.
-type VS = 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
+// v1.0.280+ — the unified `scenes` format reports visualSource 'scene-images'
+// and chooses its pacing via `sceneAlignment` ('sentence' → audio-paced flow).
+// normalizeVisualSource() collapses (visualSource, sceneAlignment) onto the
+// existing VS vocabulary so every isX flag below stays unchanged.
+type VS = VisualSource
 const visualSource = ref<VS>('scene-images')
 async function loadVisualSource(): Promise<void> {
   if (!slug.value) return
   try {
-    const f = await apiGet<{ visualSource?: VS }>(`/projects/${slug.value}/effective-format`)
-    if (f?.visualSource === 'broll') visualSource.value = 'broll'
-    else if (f?.visualSource === 'timestamp-driven') visualSource.value = 'timestamp-driven'
-    else if (f?.visualSource === 'continuity-chain') visualSource.value = 'continuity-chain'
-    else if (f?.visualSource === 'narrated-scenes') visualSource.value = 'narrated-scenes'
-    else visualSource.value = 'scene-images'
+    const f = await apiGet<{ visualSource?: string; sceneAlignment?: string }>(`/projects/${slug.value}/effective-format`)
+    visualSource.value = normalizeVisualSource(f?.visualSource, f?.sceneAlignment)
   } catch { /* leave as default */ }
 }
 const isBroll = computed(() => visualSource.value === 'broll')

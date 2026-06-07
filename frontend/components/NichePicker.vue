@@ -1,8 +1,8 @@
 <template>
   <div class="niche-picker">
     <label class="picker-label">
-      <span>Niche</span>
-      <span class="hint">Subject-domain layer — gives the channel its topic-area vocabulary, visual style sheet, reference images, and YouTube tag hints. Orthogonal to Format: any format can pair with any niche.</span>
+      <span>Niche — your channel's content &amp; voice</span>
+      <span class="hint">The main creative choice: it decides what your videos say and how they feel — vocabulary, title style, narrator voice, emotional tone, and visual mood. Any niche pairs with any format.</span>
     </label>
 
     <select
@@ -11,7 +11,7 @@
       :disabled="isLoading || disabled"
       @change="onSelect(($event.target as HTMLSelectElement).value)"
     >
-      <option value="">— No niche (format defaults only) —</option>
+      <option value="">— No niche (generic voice — not recommended) —</option>
       <option
         v-for="n in niches"
         :key="n.id"
@@ -21,6 +21,10 @@
         {{ n.name }}{{ n.builtin ? '' : ' (custom)' }}
       </option>
     </select>
+
+    <p v-if="!modelValue" class="niche-empty-note">
+      Without a niche, every video uses a generic voice — no distinct vocabulary, title style, or narrator. Pick a niche to give your channel its identity.
+    </p>
 
     <div v-if="selected" class="niche-card">
       <div class="niche-card-header">
@@ -34,9 +38,15 @@
         <span v-if="selected.vocabulary?.keyword">
           <strong>{{ selected.vocabulary.keyword.length }}</strong> niche keywords
         </span>
+        <span v-if="selected.narratorStyles?.length">
+          <strong>{{ selected.narratorStyles.length }}</strong> narrator voices
+        </span>
         <span v-if="selected.referenceImages?.length">
           <strong>{{ selected.referenceImages.length }}</strong> references
         </span>
+      </div>
+      <div v-if="ownsVoice" class="niche-owns" title="This niche provides its own complete voice, independent of the format.">
+        ✓ Owns its own voice<span v-if="selected.titleShapeRules?.length"> · title style</span><span v-if="selected.narratorStyles?.length"> · narrator picker</span>
       </div>
       <details class="niche-preview">
         <summary>Preview niche context</summary>
@@ -85,6 +95,7 @@ const emit = defineEmits<{
 const { niches, isLoading, error, find } = useNiches()
 
 const selected = computed<Niche | undefined>(() => find(props.modelValue))
+const ownsVoice = computed(() => !!selected.value?.scriptSystemPromptRole)
 
 function onSelect(id: string) {
   emit('update:modelValue', id)
@@ -168,6 +179,22 @@ function formatErr(e: any): string {
   gap: 14px;
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.niche-owns {
+  font-size: 11px;
+  color: var(--success, #4caf7d);
+  font-weight: 500;
+}
+
+.niche-empty-note {
+  margin: 2px 0 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  background: var(--warning-dim, rgba(220, 160, 60, 0.1));
+  border-radius: 4px;
 }
 
 .niche-preview summary {

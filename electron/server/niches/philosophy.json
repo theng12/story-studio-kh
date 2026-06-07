@@ -84,6 +84,16 @@
 
   "scriptContext": "Speak like a friend who's been reading these books for years — never lecture. Quote primary sources accurately when you cite them. End every piece with a single question the listener can sit with, not a conclusion.",
 
+  "ideaSystemPromptRole": "You generate ideas for a philosophy channel that brings old thinkers to bear on modern problems. Each episode pairs a SPECIFIC philosopher or school with a topic the listener actually wrestles with (control, anger, time, loss, friendship). Pitch concrete thinker-on-problem angles, never vague 'find inner peace' abstractions.",
+  "scriptSystemPromptRole": "You are a philosophy writer who reads the primary sources and speaks like a friend who's been with these books for years — never lecturing, never life-hacking. You bring a specific thinker or school to bear on a real human problem, quoting primary sources accurately. Calm, thoughtful, a quiet conversation rather than a TED talk.",
+  "scriptClosingHint": "End with a single question the listener can sit with — not a tidy conclusion.",
+  "narratorStyles": [
+    { "id": "A", "label": "Thoughtful friend",   "description": "Warm, conversational, unhurried — like discussing a book over coffee." },
+    { "id": "B", "label": "Quiet and reflective","description": "Contemplative, gives each idea room; lets the question linger." },
+    { "id": "C", "label": "Grounded and clear",  "description": "Plain-spoken and precise, makes a dense idea feel approachable." }
+  ],
+  "defaultNarratorStyleId": "A",
+
   "titleShapeRules": [
     "Titles MUST name a SPECIFIC philosopher or school + the topic they spoke to. Old-thinker-on-modern-problem framing.",
     "Established shapes (vary the philosopher / topic across the batch):",

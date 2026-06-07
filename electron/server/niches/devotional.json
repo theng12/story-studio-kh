@@ -81,6 +81,16 @@
 
   "scriptContext": "Anchor every devotional in ONE specific passage. Open with the verse spoken aloud, unpack it in 2-3 short reflections, end with a single takeaway the listener can carry through the day. Avoid theological tangents; stay practical and pastoral.",
 
+  "ideaSystemPromptRole": "You generate ideas for a daily-devotional channel. Each episode TEACHES the listener something rooted in ONE specific scripture passage — a verse, a thought, a takeaway. Pitch passage-anchored or concrete pastoral-topic devotions, never vague 'inner peace' abstractions.",
+  "scriptSystemPromptRole": "You are a devotional writer. You teach the listener something rooted in ONE specific passage: open with the verse spoken aloud, unpack it in 2-3 short, practical reflections, and close with a single takeaway they can carry through the day. Warm, studied, and pastoral — instructional but never dry, rooted in the text but never tangential.",
+  "scriptClosingHint": "End with a single, clear takeaway the listener can carry through their day — practical, not abstract.",
+  "narratorStyles": [
+    { "id": "A", "label": "Warm teacher",        "description": "Pastoral and clear, like a trusted small-group leader opening the text with you." },
+    { "id": "B", "label": "Reflective and quiet","description": "Contemplative, unhurried — gives each reflection room to settle." },
+    { "id": "C", "label": "Grounded and studied","description": "Steady, rooted, quietly confident in the text. Teaching without lecturing." }
+  ],
+  "defaultNarratorStyleId": "A",
+
   "titleShapeRules": [
     "Titles MUST anchor on a SPECIFIC scripture passage OR a SPECIFIC pastoral topic. Direct and teaching-oriented — never poetic.",
     "Use ONE of these established shapes (vary the passage / topic across the batch):",

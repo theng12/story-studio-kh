@@ -89,6 +89,16 @@
 
   "scriptContext": "Lead with the observable behavior, not the diagnosis. Cite real research mechanisms (amygdala / dopamine / attachment theory / CBT loops) but stay accessible — never use jargon without unpacking it. End with one practical move the listener can try this week.",
 
+  "ideaSystemPromptRole": "You generate ideas for a therapy-adjacent psychology channel. Each episode explains a SPECIFIC mental pattern or behavior the listener recognises in themselves (procrastination, comparison, burnout, doom-scrolling). Pitch concrete, relatable behavior hooks grounded in real research — never clinical jargon or diagnostic clickbait.",
+  "scriptSystemPromptRole": "You are a psychology writer in the therapy-adjacent, evidence-grounded register. Lead with the observable behavior, not the diagnosis. Explain the real mechanism (amygdala, dopamine, attachment theory, CBT loops) but stay accessible — never use jargon without unpacking it. Curious and warm, never sensational, never diagnosing the viewer.",
+  "scriptClosingHint": "End with one concrete, practical move the listener can try this week.",
+  "narratorStyles": [
+    { "id": "A", "label": "Warm and curious",    "description": "Therapy-adjacent, approachable, genuinely interested in why we do what we do." },
+    { "id": "B", "label": "Calm and clear",      "description": "Measured, unpacks mechanisms plainly; reassuring without being soft." },
+    { "id": "C", "label": "Grounded explainer",  "description": "Evidence-forward and steady, makes the research feel personal and useful." }
+  ],
+  "defaultNarratorStyleId": "A",
+
   "titleShapeRules": [
     "Titles describe a SPECIFIC mental pattern or behavior the listener recognises in themselves.",
     "Established shapes (vary X across the batch):",

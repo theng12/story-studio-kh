@@ -581,6 +581,36 @@ export interface Format {
    *     niche is factual).
    */
   visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
+
+  /**
+   * v1.0.280+ (format-niche refactor, Phase A) — top-level presentation switch
+   * for the unified `scenes` format. Decides how scenes pair to the script
+   * across the WHOLE pipeline (sidebar chain, generator picks, video assembly),
+   * not just the image-prompt assembler.
+   *
+   *   'chapter'  — scenes distribute evenly across chapters (the historical
+   *                'narrative' / 'narrated-scenes' behaviour). One scene per
+   *                LLM-decided beat per chapter; per-scene duration uniform.
+   *   'sentence' — scenes time to the actual audio (the historical
+   *                'narration-synced' / timestamp-driven behaviour). Each
+   *                scene spans the sentence window it covers; cut density
+   *                tracks the narration cadence.
+   *
+   * Independent of `visualSource`:
+   *   - scenes format + sceneAlignment 'chapter'  → even-distribution stills
+   *   - scenes format + sceneAlignment 'sentence' → timestamp-aligned stills
+   *   - continuity-chain format + sceneAlignment 'sentence' (only useful pair) →
+   *     sequential img2img chained to the timed plan
+   *
+   * Relationship to `imagePrompts.alignment` (the older field): the existing
+   * field continues to drive the Compilation step's scene→sentence pairing
+   * math; the new top-level field is the pipeline switch that decides which
+   * sidebar/generator chain runs in the first place. New format JSONs should
+   * set this field; legacy formats without it fall through to the value
+   * inferred from `visualSource` ('timestamp-driven'/'continuity-chain' ⇒
+   * 'sentence'; everything else ⇒ 'chapter').
+   */
+  sceneAlignment?: 'chapter' | 'sentence'
 }
 
 // ── Niche primitive (subject-domain layer, orthogonal to Format) ───────────
@@ -682,6 +712,57 @@ export interface Niche {
    *  system prompt: "This is a video about {niche.name}. {scriptContext}".
    *  Optional — when absent, generators just use the niche name + description. */
   scriptContext?: string
+
+  // ── v1.0.280+ Content-ownership fields (format↔niche refactor, Phase A) ──
+  //
+  // After the polarity flip, FORMAT is presentation-only and the NICHE owns
+  // ALL content (voice, persona, vocabulary, rules). These fields let a niche
+  // fully OWN the idea/script/metadata persona that previously lived on the
+  // format. Each is OPTIONAL and falls back to the format shell's neutral
+  // value when unset, so:
+  //   - a niche that sets them → its voice fully replaces the shell's generic
+  //   - a niche that leaves them unset → composes scriptContext over the shell
+  //     role (interim behaviour; Phase B authors the explicit personas)
+  //   - no niche at all → the shell's neutral role IS the fallback
+  //
+  // applyNicheToFormat() reads these with shell fallback. See format-loader.ts.
+
+  /** Full idea-generator system-prompt role. When set, REPLACES the format
+   *  shell's generic idea role (not appended). The niche's complete voice for
+   *  ideation. When unset, applyNicheToFormat composes scriptContext over the
+   *  shell role. */
+  ideaSystemPromptRole?: string
+  /** Free-form idea guidance block (sleep-friendliness rules, do/don't list).
+   *  When set, REPLACES the composed lead+format guidance. */
+  ideaGuidanceText?: string
+  /** Full script-writer system-prompt role / persona. When set, REPLACES the
+   *  shell's generic script role (not appended). When unset, applyNicheToFormat
+   *  appends scriptContext to the shell role (interim). */
+  scriptSystemPromptRole?: string
+  /** One-line closing instruction for the script (before the final-check
+   *  block). Replaces the shell's neutral closingHint when set. */
+  scriptClosingHint?: string
+  /** Metadata title tone hint (replaces format.metadata.titleStyleHint). */
+  metadataTitleStyleHint?: string
+  /** Metadata title hook rules (replaces format.metadata.titleHookRules). */
+  metadataTitleHookRules?: string[]
+  /** Metadata tag hook rules (replaces format.metadata.tagsHookRules). */
+  metadataTagsHookRules?: string[]
+  /** Human-facing one-line visual style hint shown in the picker / override
+   *  editor (replaces format.imagePrompts.visualStyleHint). The longer
+   *  `visualStyleSheet` continues to feed the baked-in defaultStyleTag. */
+  visualStyleHint?: string
+  /** Narrator-voice picker for this niche. When set (non-empty), REPLACES the
+   *  format shell's narrator styles so the Script page's "Narrator style"
+   *  picker offers the niche's own personas (sleep: 10 literary voices;
+   *  listicle-explainer: QI / documentary deadpan; prayer: pastoral). The
+   *  frontend picker reads the niche-merged effective format, so it benefits
+   *  with no frontend change. Resolution: niche.narratorStyles (if any) →
+   *  format.script.narratorStyles (the shell's single neutral default). */
+  narratorStyles?: NarratorStyle[]
+  /** Default narrator style id, paired with narratorStyles. Must match one of
+   *  the ids in narratorStyles when both are set. */
+  defaultNarratorStyleId?: string
 
   // ── v1.0.95+ IdeaPromptShape — niche-level overrides ────────────────
   //

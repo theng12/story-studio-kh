@@ -41,14 +41,18 @@ const require = createRequire(import.meta.url)
  *
  * History: was 'sleep-story' through v1.0.161. v1.0.162 consolidated the
  * 11 formats down to 4 (narrative / listicle / stock-footage / narration-
- * synced) and made 'narrative' the new default. Old projects that had
- * format_id of 'true-crime' / 'comedy' / 'kids-fairytale' / 'sleep-story'
- * etc. now fall back to 'narrative' on the next config read — they all
- * used the scene-images pipeline anyway, so the production behaviour
- * is unchanged. Niches (mindfulness, prayer, history-narration, etc.)
- * still do the content tuning on top.
+ * synced). v1.0.280 (format↔niche refactor) flipped FORMAT to presentation-
+ * only and split the content out into niches: 'narrative', 'narrated-scenes',
+ * and 'narration-synced' all collapsed into the unified 'scenes' format (the
+ * `sceneAlignment` field — 'chapter' vs 'sentence' — replaces the implicit
+ * even-distribution vs transcript-timed split). 'scenes' is the new default.
+ * Old projects whose format_id was any of the deleted ids (narrative /
+ * narrated-scenes / narration-synced / true-crime / sleep-story / …) fall
+ * back to 'scenes' on the next config read — they all used the scene-images
+ * pipeline anyway, so the production SHAPE is unchanged. The niche layer now
+ * carries ALL content/voice tuning on top (mindfulness, prayer, etc.).
  */
-export const DEFAULT_FORMAT_ID = 'narrative'
+export const DEFAULT_FORMAT_ID = 'scenes'
 
 // ── Built-in directory resolution ──────────────────────────────────────────
 //
@@ -289,12 +293,41 @@ export interface EffectiveFormatOpts {
   nicheIdOverride?: string | null
 }
 
+/**
+ * v1.0.280 — legacy format-id remap. Many older format ids collapsed into the
+ * 4 presentation shells. An existing project whose format_id is one of these
+ * is transparently mapped to the shell that preserves its original pipeline
+ * SHAPE (and, for the scenes family, the scene→script alignment):
+ *   - narrative / narrated-scenes / sleep-story → scenes 'chapter' (even dist.)
+ *   - narration-synced / timestamp-driven       → scenes 'sentence' (timed)
+ *   - broll-narration / broll                   → stock-footage (B-roll, no AI)
+ * Without this, e.g. a narration-synced project would silently flip from the
+ * timestamp-driven chain to chapter-distributed scenes, and a broll-narration
+ * project would silently flip from B-roll to AI scene images — both wrong.
+ * (D.2 also rewrites these ids on disk; this remap is the safety net for any
+ * project not yet migrated, e.g. one re-imported from an old backup.)
+ */
+const LEGACY_FORMAT_REMAP: Record<string, { id: string; sceneAlignment?: 'chapter' | 'sentence' }> = {
+  'narrative': { id: 'scenes', sceneAlignment: 'chapter' },
+  'narrated-scenes': { id: 'scenes', sceneAlignment: 'chapter' },
+  'sleep-story': { id: 'scenes', sceneAlignment: 'chapter' },
+  'narration-synced': { id: 'scenes', sceneAlignment: 'sentence' },
+  'timestamp-driven': { id: 'scenes', sceneAlignment: 'sentence' },
+  'broll-narration': { id: 'stock-footage' },
+  'broll': { id: 'stock-footage' },
+}
+
 /** Same as getEffectiveFormat() but takes the ProjectMeta directly. */
 export async function getEffectiveFormatFor(
   project: ProjectMeta,
   opts?: EffectiveFormatOpts,
 ): Promise<Format> {
-  const id = project.format_id || DEFAULT_FORMAT_ID
+  let id = project.format_id || DEFAULT_FORMAT_ID
+  // Transparently remap a deleted legacy id onto 'scenes' + the alignment that
+  // preserves its original pipeline shape.
+  const legacy = LEGACY_FORMAT_REMAP[id]
+  const legacyAlignment = legacy?.sceneAlignment
+  if (legacy) id = legacy.id
   let base: Format | null = null
   try {
     base = await loadFormat(id)
@@ -306,6 +339,11 @@ export async function getEffectiveFormatFor(
       console.warn(`[format-loader] format '${id}' not found, falling back to '${DEFAULT_FORMAT_ID}'`)
     }
     base = await ensureLoaded(DEFAULT_FORMAT_ID)
+  }
+  // Apply the legacy alignment override (e.g. narration-synced → sentence) so
+  // remapped projects keep their original scene-timing behaviour.
+  if (legacyAlignment && base.sceneAlignment !== legacyAlignment) {
+    base = { ...base, sceneAlignment: legacyAlignment }
   }
   // Apply the brand's format_overrides BEFORE the project's, so project
   // overrides win on conflict. The brand layer is where channel-wide
@@ -323,11 +361,14 @@ export async function getEffectiveFormatFor(
     }
   }
   base = mergeFormatOverrides(base, project.format_overrides)
-  // Niche layer (subject-domain context). Applied LAST so niche-merged
-  // fields win over format defaults but lose to explicit project format_-
-  // overrides. Niche layering only touches generator-relevant fields
-  // (idea vocab, image-prompt style, metadata tags, script context) —
-  // narrator pools, pacing arcs, and chapter counts stay format-owned.
+  // Niche layer — the CONTENT layer (v1.0.280+ polarity). The format is a
+  // presentation shell carrying neutral fallback content; the niche provides
+  // the actual voice/vocab/persona/rules. Applied LAST so niche content wins
+  // over the shell's neutral defaults but still loses to explicit project
+  // format_overrides (the per-project escape hatch). When NO niche is set, the
+  // shell's own neutral content IS the fallback — a format-only project still
+  // produces sane generic output (the prompt builders fall back leniently for
+  // any empty content field).
   // Resolve which niche (if any) to layer on. Per-call override wins when
   // provided — empty string / null means "force no niche for this call" so
   // a user with a saved project niche can still ask the Ideas Generator
@@ -426,6 +467,13 @@ function uniqueAppend(a: string[] | undefined, b: string[] | undefined): string[
 }
 
 export function applyNicheToFormat(format: Format, niche: Niche): Format {
+  // ── Polarity (v1.0.280+, format↔niche refactor) ─────────────────────────
+  // FORMAT is a presentation-only shell; its content fields hold NEUTRAL
+  // generic defaults (the fallback). NICHE provides the actual content.
+  // This function overlays niche content onto the shell: every niche-owned
+  // field wins when the niche sets it, and falls back to the shell's neutral
+  // value (or the prompt builder's lenient default) when the niche is silent.
+  //
   // Build new sub-objects rather than mutating the input — Format objects
   // can be cached by loadFormat() across requests; mutating would leak
   // niche state into later format-only consumers.
@@ -464,15 +512,24 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
   // type compromises. Now the niche scriptContext + audienceHint appear
   // FIRST in the prompt so the LLM anchors on the niche voice before it
   // reads format guidance.
-  const ideaSystemPromptRole = niche.scriptContext
-    ? `NICHE CONTEXT — this is the dominant voice for the channel:\n${niche.scriptContext}\n\nFORMAT ROLE (structural backbone — niche always wins on conflict):\n${format.idea.systemPromptRole}`
-    : format.idea.systemPromptRole
+  // v1.0.280+ — niche can fully OWN the idea role via `ideaSystemPromptRole`.
+  // When it does, the niche persona REPLACES the shell role outright. When it
+  // doesn't, we compose the niche's scriptContext over the shell's generic
+  // role (interim behaviour until Phase B authors explicit personas).
+  const ideaSystemPromptRole = niche.ideaSystemPromptRole
+    ? niche.ideaSystemPromptRole
+    : niche.scriptContext
+      ? `NICHE CONTEXT — this is the dominant voice for the channel:\n${niche.scriptContext}\n\nFORMAT ROLE (structural backbone — niche always wins on conflict):\n${format.idea.systemPromptRole}`
+      : format.idea.systemPromptRole
 
-  // Guidance text: niche voice cue at the top, format guidance underneath.
+  // Guidance text: niche-owned when provided, else niche voice cue at the top
+  // with the format shell's (neutral) guidance underneath.
   const nicheGuidanceLead = niche.scriptContext || niche.description
     ? `Channel voice for this generation: ${niche.scriptContext || niche.description}\n\n`
     : ''
-  const ideaGuidanceText = `${nicheGuidanceLead}${format.idea.guidanceText}`
+  const ideaGuidanceText = niche.ideaGuidanceText
+    ? niche.ideaGuidanceText
+    : `${nicheGuidanceLead}${format.idea.guidanceText}`
 
   const idea = {
     ...format.idea,
@@ -518,12 +575,33 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
   // Blessing) that don't match the format's default shape. Each field
   // is optional; unset falls through to format.script.
   const niche_structure = niche.scriptStructure
-  const baseScript: Format['script'] = niche.scriptContext
-    ? {
-        ...format.script,
-        systemPromptRole: `${format.script.systemPromptRole}\n\nSubject-domain context: ${niche.scriptContext}`,
-      }
-    : { ...format.script }
+  // v1.0.280+ — niche can fully OWN the script persona via
+  // `scriptSystemPromptRole` (replaces the shell role). Otherwise it appends
+  // scriptContext to the shell role (interim). closingHint is niche-owned too.
+  const scriptSystemPromptRole = niche.scriptSystemPromptRole
+    ? niche.scriptSystemPromptRole
+    : niche.scriptContext
+      ? `${format.script.systemPromptRole}\n\nSubject-domain context: ${niche.scriptContext}`
+      : format.script.systemPromptRole
+  // v1.0.280+ — niche can own the narrator-voice picker. When it ships its
+  // own styles, they REPLACE the shell's single neutral default and the
+  // niche's defaultNarratorStyleId is honoured (falling back to the first id
+  // if the niche omits it or names a non-existent one).
+  const nicheNarrators = Array.isArray(niche.narratorStyles) && niche.narratorStyles.length > 0
+    ? niche.narratorStyles
+    : null
+  const nicheDefaultNarratorId = nicheNarrators
+    ? (nicheNarrators.some(s => s.id === niche.defaultNarratorStyleId)
+        ? niche.defaultNarratorStyleId!
+        : nicheNarrators[0].id)
+    : format.script.defaultNarratorStyleId
+  const baseScript: Format['script'] = {
+    ...format.script,
+    systemPromptRole: scriptSystemPromptRole,
+    closingHint: niche.scriptClosingHint || format.script.closingHint,
+    narratorStyles: nicheNarrators ? nicheNarrators.slice() : format.script.narratorStyles,
+    defaultNarratorStyleId: nicheDefaultNarratorId,
+  }
 
   if (niche_structure) {
     if (typeof niche_structure.defaultChapterCount === 'number' && niche_structure.defaultChapterCount > 0) {
@@ -568,6 +646,8 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
   const imagePrompts = {
     ...format.imagePrompts,
     defaultStyleTag: stylePieces.join('\n\n'),
+    // v1.0.280+ — niche owns the human-facing one-liner too when it sets it.
+    visualStyleHint: niche.visualStyleHint || format.imagePrompts.visualStyleHint,
   }
 
   // Metadata layer — niche tags merged into broadKeywords pool.
@@ -578,6 +658,14 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
   // format object, consistent with the rest of the merge).
   const metadata = {
     ...format.metadata,
+    // v1.0.280+ — niche owns title/tag tone + hook rules when it sets them.
+    titleStyleHint: niche.metadataTitleStyleHint || format.metadata.titleStyleHint,
+    titleHookRules: niche.metadataTitleHookRules?.length
+      ? niche.metadataTitleHookRules
+      : format.metadata.titleHookRules,
+    tagsHookRules: niche.metadataTagsHookRules?.length
+      ? niche.metadataTagsHookRules
+      : format.metadata.tagsHookRules,
     broadKeywords: uniqueAppend(format.metadata.broadKeywords, niche.youtubeTagsHint),
     descriptionShape: niche.metadataDescription
       ? { ...niche.metadataDescription }

@@ -251,8 +251,10 @@ router.get('/models', async (req, res) => {
   try {
     const lmBaseRaw = await getApiKey('lmstudio').catch(() => '')
     if (lmBaseRaw) {
-      const { listModels, lmstudioFirst } = await import('../lib/lmstudio-client.js')
-      const ids = await listModels(lmstudioFirst(lmBaseRaw), 2000)
+      // v1.0.304 — union models across ALL configured endpoints, not just the
+      // first, so a sleeping endpoints[0] no longer empties the dropdown.
+      const { listModelsPooled } = await import('../lib/lmstudio-client.js')
+      const ids = await listModelsPooled(lmBaseRaw, 2000)
       for (const slug of ids) {
         models.push({
           id: `lmstudio:${slug}`,

@@ -86,11 +86,13 @@ router.post('/lmstudio/test', async (req, res) => {
 
 router.get('/lmstudio/models', async (_req, res) => {
   try {
-    const { listModels } = await import('../lib/lmstudio-client.js')
+    // v1.0.304 — union across ALL endpoints (not just the first) so a sleeping
+    // endpoints[0] doesn't make the model list look empty.
+    const { listModelsPooled } = await import('../lib/lmstudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
-    const baseUrl = lmFirst(await getApiKey('lmstudio'))
-    if (!baseUrl) return res.json({ models: [] })
-    const models = await listModels(baseUrl)
+    const stored = await getApiKey('lmstudio')
+    if (!stored) return res.json({ models: [] })
+    const models = await listModelsPooled(stored)
     res.json({ models })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not list LM Studio models'))

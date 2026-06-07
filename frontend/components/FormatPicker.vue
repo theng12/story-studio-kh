@@ -1,8 +1,8 @@
 <template>
   <div class="format-picker">
     <label class="picker-label">
-      <span>Format</span>
-      <span class="hint">Channel-level vibe — sets the system prompt, narrator-style pool, pacing arc, image style, and metadata keywords. Switching formats changes how every new episode is generated.</span>
+      <span>Format — how it's built</span>
+      <span class="hint">The production pipeline: how scenes are generated and assembled. The <strong>niche</strong> decides what the video says and how it sounds — format only decides how it's built.</span>
     </label>
 
     <select
@@ -27,37 +27,16 @@
         <strong>{{ selected.name }}</strong>
         <span v-if="!selected.builtin" class="custom-badge">custom</span>
       </div>
+      <p class="format-buildline">🛠 {{ buildLine }}</p>
       <p class="format-description">{{ selected.description }}</p>
       <div class="format-stats">
-        <span><strong>{{ selected.script.narratorStyles.length }}</strong> narrators</span>
-        <span><strong>{{ selected.script.defaultChapterCount }}</strong> chapters / <strong>{{ selected.script.defaultLengthMinutes }}</strong> min default</span>
+        <span><strong>{{ selected.script.defaultChapterCount }}</strong> {{ sectionPlural.toLowerCase() }} / <strong>{{ selected.script.defaultLengthMinutes }}</strong> min default</span>
         <span><strong>{{ selected.imagePrompts.defaultScenesTotalRange[0] }}–{{ selected.imagePrompts.defaultScenesTotalRange[1] }}</strong> scenes</span>
+        <span><strong>{{ sceneTiming }}</strong> pacing</span>
       </div>
-      <details class="format-preview">
-        <summary>Preview the prompt role + opening style</summary>
-        <div class="preview-grid">
-          <div class="preview-row">
-            <span class="preview-key">Script role</span>
-            <span class="preview-val">{{ selected.script.systemPromptRole }}</span>
-          </div>
-          <div class="preview-row">
-            <span class="preview-key">Idea-gen role</span>
-            <span class="preview-val">{{ selected.idea.systemPromptRole }}</span>
-          </div>
-          <div class="preview-row">
-            <span class="preview-key">Default narrator</span>
-            <span class="preview-val">{{ defaultNarrator?.label }} — {{ defaultNarrator?.description }}</span>
-          </div>
-          <div class="preview-row">
-            <span class="preview-key">Closing hint</span>
-            <span class="preview-val">{{ selected.script.closingHint }}</span>
-          </div>
-          <div class="preview-row">
-            <span class="preview-key">Visual style</span>
-            <span class="preview-val">{{ selected.imagePrompts.visualStyleHint }}</span>
-          </div>
-        </div>
-      </details>
+      <p class="format-niche-note">
+        Voice, vocabulary, narrator style, and emotional tone come from the <strong>niche</strong> — not the format.
+      </p>
     </div>
 
     <div v-if="error" class="format-error">
@@ -68,7 +47,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Format } from '../composables/useFormats.js'
+import { formatBuildLine, type Format } from '../composables/useFormats.js'
 
 const props = defineProps<{
   modelValue: string
@@ -83,10 +62,14 @@ const emit = defineEmits<{
 const { formats, isLoading, error, find } = useFormats()
 
 const selected = computed<Format | undefined>(() => find(props.modelValue))
-const defaultNarrator = computed(() => {
-  if (!selected.value) return null
-  return selected.value.script.narratorStyles.find(n => n.id === selected.value!.script.defaultNarratorStyleId)
-    ?? selected.value.script.narratorStyles[0]
+const buildLine = computed(() => selected.value ? formatBuildLine(selected.value) : '')
+const sectionPlural = computed(() => selected.value?.script.sectionLabel?.plural || 'Chapters')
+const sceneTiming = computed(() => {
+  const f = selected.value
+  if (!f) return ''
+  if (f.visualSource === 'broll') return 'continuous'
+  const sentence = f.visualSource === 'timestamp-driven' || f.visualSource === 'narrated-scenes' || f.sceneAlignment === 'sentence'
+  return sentence ? 'sentence-timed' : 'chapter-even'
 })
 
 function onSelect(id: string) {
@@ -151,11 +134,29 @@ function formatErr(e: any): string {
   border-radius: 3px;
 }
 
+.format-buildline {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
 .format-description {
   margin: 0;
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.5;
+}
+
+.format-niche-note {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: 4px;
 }
 
 .format-stats {

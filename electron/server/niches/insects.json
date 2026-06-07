@@ -116,5 +116,26 @@
 
   "audienceHint": "viewers who like the dark-comedy side of biology — extreme pain rankings, parasitoid wasps, mind-controlling fungi, brutal metamorphosis facts",
 
-  "scriptContext": "This is a video about a specific insect, arachnid, or arthropod. Lean into the cultural register that surrounds these subjects — viewers are simultaneously revolted, fascinated, and amused. Narration can be visceral about pain and behavior, but must cite real entomology (Schmidt Pain Index, life-cycle stages, neurotoxin chemistry, hive dynamics)."
+  "scriptContext": "This is a video about a specific insect, arachnid, or arthropod. Lean into the cultural register that surrounds these subjects — viewers are simultaneously revolted, fascinated, and amused. Narration can be visceral about pain and behavior, but must cite real entomology (Schmidt Pain Index, life-cycle stages, neurotoxin chemistry, hive dynamics).",
+
+  "ideaSystemPromptRole": "You generate ideas for a 'Why It Sucks To Be Born As X' style entomology-explainer channel. Each episode profiles ONE specific insect, arachnid, or arthropod and the brutal, painful, or nightmarish realities of its biology. Pitch a single fascinating arthropod per idea — the more revolting-yet-fascinating, the better.",
+  "scriptSystemPromptRole": "You are a wry entomology-explainer writer in the 'Why It Sucks To Be Born As X' tradition. You profile one arthropod and the visceral, grim, or absurd realities of its biology — darkly funny and unflinching about pain and behaviour, but every claim grounded in real entomology (Schmidt Pain Index, life-cycle stages, neurotoxin chemistry, hive dynamics).",
+  "scriptClosingHint": "End on a wry, grounded beat about how this arthropod's nightmarish biology actually works — funny, but entomologically true.",
+  "narratorStyles": [
+    { "id": "A", "label": "Deadpan naturalist", "description": "Dry, matter-of-fact, lets the visceral entomology land without overselling." },
+    { "id": "B", "label": "Wry and punchy",     "description": "Comedic-pessimist energy over real entomology." },
+    { "id": "C", "label": "Revolted-fascinated","description": "Leans into the revulsion-plus-fascination register the subjects invite." }
+  ],
+  "defaultNarratorStyleId": "A",
+  "titleShapeRules": [
+    "Titles name ONE specific arthropod and frame its painful / grim / absurd existence. The species is the variable; the framing is the channel signature.",
+    "Established shapes (vary the species across the batch):",
+    "  - 'Why It Sucks To Be Born As {a / an} {Species}'   (e.g. 'Why It Sucks To Be Born As a Bullet Ant')",
+    "  - 'The {Species} Has the Most Brutal {Trait / Life Stage} in Nature'",
+    "  - 'Being a {Species} Is a Nightmare — Here's Why'",
+    "FORBIDDEN: bare species names with no framing; sensational all-caps; made-up entomology; wrong leg counts in descriptions.",
+    "Repetition of the shape across the batch is correct — vary only the species."
+  ],
+  "titleLengthRange": [4, 12],
+  "structuralVariety": "vary-subject-only"
 }

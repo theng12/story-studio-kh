@@ -988,9 +988,12 @@ const starterTemplates: StarterTemplate[] = [
 function templateIdForFormat(formatId: string): string {
   switch (formatId) {
     case 'continuity-chain': return 'pov'
-    case 'narration-synced': return 'explainer'
-    case 'narrative':        return 'explainer'
+    case 'scenes':           return 'explainer'
     case 'listicle':         return 'listicle'
+    // legacy ids (pre-v1.0.280) — kept so old projects map correctly
+    case 'narration-synced':
+    case 'narrated-scenes':
+    case 'narrative':        return 'explainer'
     default:                 return 'minimal'
   }
 }

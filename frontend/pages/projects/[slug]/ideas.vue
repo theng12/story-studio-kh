@@ -1516,7 +1516,7 @@ function onIdeasPresetApplied() {
 // used pattern + subject are persisted in the same config under
 // `idea_generator_last_pattern` / `idea_generator_last_subject` —
 // matches the *_last_* convention used by other generator pages.
-const formatId = ref<string>('narrative')
+const formatId = ref<string>('scenes')
 // v1.0.83+: reactive section-label vocabulary for the active format
 // ("Chapter" for sleep-story, "Reason" for bound-explainer, "Topic" for
 // listicle). Used in form labels, table column headers, and inline copy

@@ -1,299 +1,64 @@
 {
   "id": "listicle",
-  "name": "Listicle (numbered Top-N)",
-  "description": "Multi-topic explainer video in the 'Top N X' / 'N things you didn't know' / 'N Y explained' shape. Each chapter is an independent topic with hook → reveal → micro-payoff; no narrative continuity between chapters. Use this for educational countdowns ('10 Sleep Mysteries Explained'), ranking videos ('15 Cheapest Cities'), trivia compilations, BrainWise-channel style. Pipeline matches Narrative (AI-generated scenes per chapter) but the script shape is enumeration, not story arc. Pairs with compilation video layout (looping background + per-chapter foreground icons / minimalist circular badges). Layer a niche to set the topic domain — history-narration, animals, plants, psychology, fungi, insects. NOT for cohesive stories with characters — use Narrative. NOT for citation-dependent factual content — use Narration-synced.",
+  "name": "Listicle — numbered Top-N",
+  "description": "Presentation shell for multi-topic 'Top N' explainer videos. Defines HOW the video is built: each chapter is an INDEPENDENT topic (no narrative continuity), chapters expand in PARALLEL, and scenes render as minimalist circular badges designed to composite over a background via chroma-key. The niche layered on top defines WHAT the topics are about (voice, subject domain, title shape). Pipeline: idea → enumerated independent-topic script → audio → one badge scene per topic → compilation assembly (looping background + per-topic badge). NOT for cohesive character stories — pick Scenes. NOT for img2img character continuity — pick Continuity. NOT for human-shot footage — pick Stock Footage.",
   "builtin": true,
   "schemaVersion": 1,
+  "visualSource": "scene-images",
+  "sceneAlignment": "chapter",
   "idea": {
-    "systemPromptRole": "You are helping generate new episode ideas for a multi-topic explainer / listicle YouTube channel. Each episode is a single video bundling several short, independent topics around a unifying theme.",
-    "audienceDefault": "curious adults",
-    "moodVocabulary": [
-      "curious",
-      "punchy",
-      "accessible",
-      "intriguing",
-      "playful",
-      "informative",
-      "matter-of-fact",
-      "surprising",
-      "evidence-based",
-      "wry"
-    ],
-    "themeVocabulary": [
-      "paradoxes",
-      "mysteries",
-      "unsolved cases",
-      "scientific oddities",
-      "historical events",
-      "everyday phenomena",
-      "psychology",
-      "biology",
-      "physics",
-      "engineering failures",
-      "linguistic curiosities",
-      "conspiracy debunks"
-    ],
-    "genreVocabulary": [
-      "explainer",
-      "facts",
-      "mysteries",
-      "paradoxes",
-      "history",
-      "science",
-      "engineering",
-      "psychology",
-      "documentary",
-      "trivia",
-      "case studies",
-      "deep-dive",
-      "phenomena",
-      "anomalies"
-    ],
-    "keywordVocabulary": [
-      "psychology",
-      "neuroscience",
-      "evolutionary biology",
-      "physics",
-      "chemistry",
-      "astronomy",
-      "ancient history",
-      "modern history",
-      "engineering",
-      "aviation",
-      "medicine",
-      "linguistics",
-      "anthropology",
-      "philosophy",
-      "mathematics",
-      "ecology",
-      "climate",
-      "technology",
-      "human behavior",
-      "perception",
-      "memory",
-      "sleep",
-      "dreams",
-      "consciousness",
-      "evolution",
-      "extinction",
-      "disasters",
-      "cold cases",
-      "lost civilizations",
-      "everyday life",
-      "optical illusions",
-      "auditory illusions",
-      "cognitive biases",
-      "logical fallacies",
-      "famous paradoxes",
-      "thought experiments",
-      "unsolved math problems",
-      "mathematical coincidences",
-      "physics weirdness",
-      "quantum mysteries",
-      "astronomical scales",
-      "tiny scales",
-      "weird animals",
-      "extreme adaptations",
-      "deep-sea creatures",
-      "extinct creatures",
-      "fossil mysteries",
-      "weird plants",
-      "carnivorous plants",
-      "weird fungi",
-      "ancient inventions",
-      "ancient computers",
-      "lost technologies",
-      "engineering disasters",
-      "aviation incidents",
-      "maritime disasters",
-      "submarine incidents",
-      "spaceflight mishaps",
-      "near-misses",
-      "near-extinctions",
-      "narrow escapes",
-      "famous coincidences",
-      "weird laws still on the books",
-      "obscure rules",
-      "strange tax codes",
-      "language oddities",
-      "untranslatable words",
-      "phonetic curiosities",
-      "lost-in-translation moments",
-      "etymological surprises",
-      "place-name origins",
-      "name-meaning surprises",
-      "linguistic relatives",
-      "writing-system origins",
-      "missing letters",
-      "obsolete punctuation",
-      "scientific accidents",
-      "lucky discoveries",
-      "serendipity in science",
-      "left-handed facts",
-      "right-handed facts",
-      "human-body oddities",
-      "anatomy curiosities",
-      "genetic mosaicism",
-      "chimerism",
-      "weird inheritance",
-      "rare conditions",
-      "extreme aging",
-      "longevity records",
-      "premature aging",
-      "child prodigies",
-      "savant abilities",
-      "synaesthesia",
-      "phantom limbs",
-      "déjà vu",
-      "tip-of-the-tongue",
-      "involuntary memories",
-      "famous unsolved cases",
-      "famous heists",
-      "famous forgeries",
-      "art-world scandals",
-      "music-world hoaxes",
-      "publishing-world frauds",
-      "film-set disasters",
-      "lost media",
-      "found footage",
-      "abandoned places",
-      "ghost towns",
-      "lost cities",
-      "unfinished megaprojects",
-      "scrapped inventions",
-      "patent oddities",
-      "weird trademarks",
-      "lost languages",
-      "rediscovered languages",
-      "isolated populations",
-      "uncontacted tribes",
-      "expeditions that disappeared",
-      "cold cases solved by DNA",
-      "wrongful convictions overturned"
-    ],
-    "guidanceText": "Episode ideas should be a UNIFYING theme covering 5-15 short independent topics (e.g. '10 paradoxes explained' or '7 plane crashes that changed aviation'). Don't pitch a single-topic deep-dive — that's a different channel. Each topic must be self-contained, fact-checkable, and 2-5 minutes long when narrated.",
-    "titleShapeRules": [
-      "Titles MUST lead with a NUMBER (the chapter count) followed by a plural subject and a verb/qualifier.",
-      "Established shapes (vary the subject/verb across the batch — never repeat the same combination):",
-      "  - '{N} {Plural Subject} Explained'             (e.g. '10 Sleep Mysteries Explained', '12 Paradoxes Explained')",
-      "  - '{N} {Plural Subject} That {Did X}'           (e.g. '7 Plane Crashes That Changed Aviation Forever')",
-      "  - '{N} {Plural Subject} You {Verb}'             (e.g. '15 Optical Illusions You Won't Believe')",
-      "  - '{N} {Adjective} {Plural Subject}'            (e.g. '10 Bizarre Deep-Sea Creatures')",
-      "REQUIRED: the leading number MUST match suggested_chapters EXACTLY. If the title says '10', suggested_chapters MUST be 10.",
-      "FORBIDDEN: titles without a leading number — those are deep-dive shapes, not listicle shapes.",
-      "FORBIDDEN: clickbait punctuation ('!!', all-caps, fire emoji). Title can be curious / catchy but stays evidence-based.",
-      "Subject must be PLURAL (mysteries, crashes, paradoxes, illusions, creatures, theories, facts) — singular = wrong format."
-    ],
-    "titleLengthRange": [
-      4,
-      10
-    ],
-    "loglineShapeRules": [
-      "1-2 sentences describing the unifying angle + a hint at the most striking 1-2 items in the list.",
-      "Concrete: name specific examples, not 'various interesting cases'.",
-      "Evidence-based voice — research / data / documented incidents, not speculation."
-    ],
-    "loglineSentenceRange": [
-      1,
-      2
-    ],
-    "themeShapeRules": [
-      "Pick 2-4 SUBJECT-AREA keywords (the domain the listicle covers, not emotional themes).",
-      "Examples: sleep / psychology / biology for sleep mysteries; aviation / safety / engineering for plane crashes."
-    ],
-    "themeCountRange": [
-      2,
-      4
-    ],
-    "structuralVariety": "vary-all",
-    "exampleIdeas": [
-      {
-        "title": "10 Sleep Mysteries Explained",
-        "logline": "From why we yawn to why we never seem to fall in dreams without waking — ten everyday sleep oddities, each settled in 3 minutes.",
-        "themes": [
-          "sleep",
-          "psychology",
-          "biology"
-        ],
-        "suggested_chapters": 10,
-        "suggested_length": "30 min",
-        "mood": "curious, accessible, evidence-based"
-      },
-      {
-        "title": "7 Plane Crashes That Changed Aviation Forever",
-        "logline": "Each disaster rewrote a rule still saving lives today. Seven case studies — what went wrong, what was learned, what we owe to the lost.",
-        "themes": [
-          "historical events",
-          "engineering failures"
-        ],
-        "suggested_chapters": 7,
-        "suggested_length": "35 min",
-        "mood": "matter-of-fact, evidence-based"
-      }
-    ]
+    "systemPromptRole": "You are helping generate new episode ideas for a multi-topic listicle / explainer channel. Each episode bundles several short, independent topics around a unifying theme. The niche layered on top (if any) sets the subject domain and voice.",
+    "audienceDefault": "general audience",
+    "moodVocabulary": [],
+    "themeVocabulary": [],
+    "genreVocabulary": [],
+    "keywordVocabulary": [],
+    "guidanceText": "Episode ideas should be a UNIFYING theme covering several short independent topics (e.g. a 'Top N' countdown). Each topic must be self-contained. The number of topics equals the chapter count."
   },
   "script": {
-    "systemPromptRole": "You are a clear, curious explainer-channel writer. You don't tell stories — you bundle short, independent topics around a unifying theme, each with a hook, an explanation, and a memorable micro-payoff. Think of QI, Veritasium, RealLifeLore in tone: confident, evidence-based, occasionally wry, never preachy.",
+    "systemPromptRole": "You are a scriptwriter for a multi-topic explainer video. Each section is an INDEPENDENT topic with no narrative threads or characters carried between sections — the sections are rendered and expanded in parallel. The niche layer sets the voice and subject domain.",
     "additionalRules": [
       "Each section is an INDEPENDENT topic. Do NOT carry narrative threads or characters between topics — they are standalone.",
-      "Open each topic with a HOOK question or counter-intuitive claim in the first 1-2 sentences (e.g. 'Why don't humans hibernate?' or 'A single sneeze travels at 30 mph.').",
-      "Body of each topic explains the answer with ~2-4 supporting beats. Cite mechanism, evidence, history, or a notable example — don't just assert.",
-      "End each topic with a 1-2 sentence MICRO-PAYOFF: a memorable summary line, an open question, or a wry observation. Avoid 'and so we see…' textbook closers.",
-      "Section headings use 'Topic NN: [Title as Question or Bold Claim]'. Numbers Arabic, never Roman.",
-      "No filler transitions between topics ('And now, our next topic is…'). The hard cut between topics is intentional — let the topic shift speak for itself.",
-      "Conversational but precise. No marketing speak, no hype adjectives, no 'mind-blowing'."
+      "Section headings use 'Topic NN: [Title]'. Numbers Arabic, never Roman.",
+      "No filler transitions between topics ('And now, our next topic is…'). The hard cut between topics is intentional."
     ],
     "pacingArc": [
-      "Topic 1: Strongest hook — the topic that grabs in the YouTube preview and earns the click",
-      "Topics 2-{lastButOne}: Mix of surprising / counter-intuitive / evidence-rich topics, varying tone slightly so the listicle doesn't feel monotone",
-      "Topic {last}: Save a satisfying / punchy topic for last so the video ends strong, not fizzles"
+      "Topic 1: Strongest hook — the topic that earns the click",
+      "Topics 2-{lastButOne}: Vary the angle so the listicle doesn't feel monotone",
+      "Topic {last}: End on a satisfying / punchy topic so the video finishes strong"
     ],
     "closingHint": "Each topic must stand alone — a viewer dropping in mid-video should still get a complete topic.",
     "defaultChapterCount": 10,
-    "chapterCountRange": [
-      3,
-      20
-    ],
+    "chapterCountRange": [3, 20],
     "defaultLengthMinutes": 30,
-    "lengthMinutesRange": [
-      10,
-      90
-    ],
-    "durationPresets": [
-      10,
-      15,
-      20,
-      30,
-      45,
-      60,
-      90
-    ],
+    "lengthMinutesRange": [10, 90],
+    "durationPresets": [10, 15, 20, 30, 45, 60, 90],
     "defaultWordsPerMinute": 155,
     "narratorStyles": [
       {
         "id": "A",
         "label": "Curious explainer",
-        "description": "Like a smart friend explaining over coffee. Confident but never condescending. Veritasium-adjacent."
+        "description": "Like a smart friend explaining over coffee. Confident but never condescending."
       },
       {
         "id": "B",
-        "label": "QI-style wry",
-        "description": "Slightly arch, finds humour in the absurd. Lets factual surprise carry the laugh; never punches the joke."
+        "label": "Wry and dry",
+        "description": "Slightly arch, finds humour in the absurd. Lets factual surprise carry the laugh."
       },
       {
         "id": "C",
         "label": "Documentary deadpan",
-        "description": "Matter-of-fact, evidence-forward, quiet authority. RealLifeLore in narration mode."
+        "description": "Matter-of-fact, evidence-forward, quiet authority."
       },
       {
         "id": "D",
-        "label": "Energetic listicle host",
-        "description": "Punchy, paced, conversational. Closer to a long-form podcast host than a documentary narrator."
+        "label": "Energetic host",
+        "description": "Punchy, paced, conversational. Closer to a long-form podcast host."
       },
       {
         "id": "E",
         "label": "Educational calm",
-        "description": "Patient, clear, slightly schoolteacher — but the cool kind who made the subject feel alive."
+        "description": "Patient, clear, slightly schoolteacher — but the kind who made the subject feel alive."
       }
     ],
     "defaultNarratorStyleId": "A",
@@ -325,57 +90,39 @@
         "Channel + topics covered",
         "Subscribe + like + comment ask",
         "Transition into the topics"
-      ],
-      "exampleText": "Hello there… I'm {host_name}.\nHere on {channel_name}, we explore mysteries, paradoxes, history, and the everyday phenomena.\nIf you enjoy getting your brain picked, you're welcome to subscribe… and leave a like or a comment if you'd like.\nNow… let's begin."
+      ]
     }
   },
   "imagePrompts": {
-    "purposeNote": "for a multi-topic explainer episode (one minimalist circular badge per topic, designed to composite over a starfield / atmospheric background via chroma-key)",
+    "purposeNote": "for a multi-topic explainer episode (one minimalist circular badge per topic, designed to composite over a background via chroma-key)",
     "visualStyleHint": "minimalist circular badge, flat colors, isolated subject, white background for chroma-key",
-    "defaultScenesTotalRange": [
-      10,
-      10
-    ],
+    "defaultScenesTotalRange": [10, 10],
     "defaultThumbnails": 3,
     "defaultStyleTag": "Minimalist circular badge illustration with the subject framed inside a white circular border. Flat colors, bold simple line work, isolated subject (no background imagery — pure white background fills everything outside the circle for chroma-key removal). Single-concept icon style, like a sticker or pictogram. Avoid text inside the badge unless the topic explicitly calls for one short word. Aspect 16:9 with the badge centered.",
     "characterReferenceMode": "inline",
     "recommendedAspect": "16:9",
     "thumbnail": {
-      "conceptGuidance": "A bold, punchy cover for a numbered explainer. Feature ONE striking hero subject drawn from the most surprising item in the list, rendered large and high-impact, optionally with a big number motif. This is a clickable COVER — NOT the minimalist white-background scene badge (badges are for in-video compositing only).",
+      "conceptGuidance": "A bold, punchy cover for a numbered explainer. Feature ONE striking hero subject from the most surprising item in the list, rendered large, optionally with a big number motif. This is a clickable COVER — NOT the minimalist white-background scene badge (badges are for in-video compositing only).",
       "compositionRules": [
         "One oversized hero subject filling much of the frame",
-        "Punchy, saturated palette with a strong high-contrast band reserved for the title and/or a large number",
+        "Strong high-contrast band reserved for the title and/or a large number",
         "Poster-like crisp edges with clear separation from the background"
       ],
       "defaultTextStyle": "shadow",
       "defaultFontStyle": "bold",
-      "moodKeywords": ["punchy", "bold", "high-energy", "eye-catching", "high-contrast"],
-      "avoid": ["white chroma-key background", "minimalist circular badge look", "pastel or low-contrast palette", "busy multi-subject collage"]
+      "avoid": ["white chroma-key background", "minimalist circular badge look", "busy multi-subject collage"]
     }
   },
   "metadata": {
     "purposeNote": "for a listicle / explainer episode bundling N independent topics",
-    "titleStyleHint": "punchy listicle / explainer title — number-led, hook-first, optimised for YouTube CTR without being clickbait",
-    "titleHookRules": [
-      "Lead with a number when natural ('10 Sleep Mysteries Explained', '7 Plane Crashes…').",
-      "Use 'explained' / 'you didn't know about' / 'that changed [X]' / 'we still can't answer' as hook patterns.",
-      "Include the unifying theme keyword early so search picks it up.",
-      "Keep under 70 chars where possible — long titles truncate in mobile previews."
-    ],
+    "titleStyleHint": "",
+    "titleHookRules": [],
     "tagsContext": "for this listicle / explainer video",
     "tagsHookRules": [
-      "Mix of broad theme keywords (mysteries, paradoxes, plane crashes, etc.) and per-topic keywords pulled from each chapter.",
-      "Each tag 1-4 words, no '#' prefix.",
-      "Include 'explained' and 'top N' style tags — those drive listicle discovery."
+      "Each tag should be 1-4 words.",
+      "No \"#\" prefix — these are YouTube tags, not hashtags."
     ],
-    "broadKeywords": [
-      "explained",
-      "top 10",
-      "mysteries",
-      "facts",
-      "documentary",
-      "things you didn't know"
-    ],
+    "broadKeywords": [],
     "defaultMaxChars": 3500,
     "defaultTitleCount": 5,
     "defaultTitleMaxLength": 70,
@@ -383,15 +130,11 @@
     "youtubeDescriptionStructure": {
       "musicLabel": "MUSIC",
       "booksSectionLabel": "📚 FURTHER READING:",
-      "supportSection": "💡 SUPPORT:\nSubscribe to keep the topics coming. New episode every week.",
+      "supportSection": "💡 SUPPORT:\nSubscribe to keep the topics coming.",
       "aiDisclosure": "🤖 AI DISCLOSURE:\nResearch consolidation and narration assisted by AI tools, reviewed for accuracy.",
-      "defaultHashtags": [
-        "#explained",
-        "#facts"
-      ],
+      "defaultHashtags": [],
       "totalHashtagCount": 12
     },
     "defaultStarterTemplate": "listicle"
-  },
-  "productionStandardsAddendum": "LISTICLE / EXPLAINER FORMAT — CRITICAL RULES\n\n1. Each chapter is an independent topic. Do NOT carry recurring characters, settings, or plot threads between chapters.\n2. Every chapter opens with a HOOK (question or counter-intuitive claim) and ends with a MICRO-PAYOFF (memorable line / open question / wry beat).\n3. Evidence-based. When making a factual claim, mention the mechanism, source, or notable example. Avoid bare assertions.\n4. Conversational but precise. No marketing speak. No 'mind-blowing'. No 'this will change your life'.\n5. The chapter title doubles as the on-screen text overlay during that chapter, so write it as a question or bold claim suitable for a YouTube graphic — not as a noun phrase like 'Hibernation Patterns'."
+  }
 }

@@ -113,5 +113,26 @@
 
   "audienceHint": "viewers who like nature trivia, wildlife documentaries, and the dark-humor side of animal biology",
 
-  "scriptContext": "This is a video about a specific animal species. Narration can use light anthropomorphism for humor ('it spends every breeding season regretting its choices') but must always ground claims in real biology — cite specific anatomy, behavior, lifecycle stages, or known field-study findings."
+  "scriptContext": "This is a video about a specific animal species. Narration can use light anthropomorphism for humor ('it spends every breeding season regretting its choices') but must always ground claims in real biology — cite specific anatomy, behavior, lifecycle stages, or known field-study findings.",
+
+  "ideaSystemPromptRole": "You generate ideas for a 'Why It Sucks To Be Born As X' style wildlife-explainer channel. Each episode profiles ONE specific animal species and the brutal, weird, or absurd realities of its biology. Pitch a single fascinating creature per idea — the grimmer, stranger, or more improbable its survival, the better.",
+  "scriptSystemPromptRole": "You are a wry wildlife-explainer writer in the 'Why It Sucks To Be Born As X' tradition. You profile one species and its brutal, bizarre, or absurd biology — darkly funny and lightly anthropomorphic for laughs, but every claim grounded in real zoology (anatomy, behaviour, lifecycle, field findings). Deadpan, punchy, viscerally specific.",
+  "scriptClosingHint": "End on a final wry, grounded beat about the creature's improbable survival — funny, but true.",
+  "narratorStyles": [
+    { "id": "A", "label": "Deadpan naturalist", "description": "Dry, matter-of-fact-grim, lets the brutal facts land without mugging for the laugh." },
+    { "id": "B", "label": "Wry and punchy",     "description": "Faster, comedic-pessimist energy — gallows humour over real biology." },
+    { "id": "C", "label": "Wonder-tinged",      "description": "Finds genuine awe in the weirdness, with a darkly funny edge." }
+  ],
+  "defaultNarratorStyleId": "A",
+  "titleShapeRules": [
+    "Titles name ONE specific species and frame its grim / weird / absurd existence. The species is the variable; the framing is the channel signature.",
+    "Established shapes (vary the species across the batch):",
+    "  - 'Why It Sucks To Be Born As {a / an} {Species}'   (e.g. 'Why It Sucks To Be Born As a Komodo Dragon')",
+    "  - 'The {Species} Has the Worst {Trait / Life Stage} in Nature'",
+    "  - 'Being a {Species} Is a Nightmare — Here's Why'",
+    "FORBIDDEN: bare species names with no framing; sensational all-caps; made-up biology.",
+    "Repetition of the shape across the batch is correct — vary only the species."
+  ],
+  "titleLengthRange": [4, 12],
+  "structuralVariety": "vary-subject-only"
 }

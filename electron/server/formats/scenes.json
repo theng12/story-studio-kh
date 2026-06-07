@@ -1,0 +1,98 @@
+{
+  "id": "scenes",
+  "name": "Scenes — AI-generated stills",
+  "description": "Unified presentation shell for AI-generated scene-image videos. This format defines HOW the video is built (chapter-based or sentence-timed scene pairing, AI-rendered stills, evenly-distributed or transcript-aligned cuts); the niche layered on top defines WHAT the video is about (voice, vocab, mood, title rules). The `sceneAlignment` field flips between the two pacing modes: `chapter` distributes scenes evenly across chapters (classic narrative pacing, ~10s per scene), `sentence` times scenes to the actual audio transcript (factual/explainer pacing, 3–6s cuts that track spoken beats). Pipeline: idea → chaptered script → audio (one MP3 per chapter) → AI-generated scene images → final assembly. NOT for sequential character-locked img2img rendering — pick Continuity for that. NOT for human-shot B-roll footage — pick Stock Footage.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "visualSource": "scene-images",
+  "sceneAlignment": "chapter",
+  "idea": {
+    "systemPromptRole": "You are helping generate new video ideas for a scenes-format channel. The niche layered on top (if any) tells you the subject domain and voice — produce strong, audience-ready ideas that match it.",
+    "audienceDefault": "general audience",
+    "moodVocabulary": [],
+    "themeVocabulary": [],
+    "genreVocabulary": [],
+    "keywordVocabulary": [],
+    "guidanceText": ""
+  },
+  "script": {
+    "systemPromptRole": "You are a skilled scriptwriter. Write a clear, engaging spoken-narration script in a natural voice suited to the topic and the niche layer's voice guidance.",
+    "additionalRules": [],
+    "pacingArc": [
+      "Chapters 1-3: Setting, hook, audience orientation",
+      "Chapters 4-{lastButOne}: Develop — body of the topic",
+      "Chapter {last}: Close — satisfying resolution / payoff"
+    ],
+    "closingHint": "End on a clear, satisfying close suited to the niche's voice (calm for sleep, payoff for explainer, blessing for prayer, etc.).",
+    "defaultChapterCount": 10,
+    "chapterCountRange": [3, 20],
+    "defaultLengthMinutes": 30,
+    "lengthMinutesRange": [5, 120],
+    "durationPresets": [10, 15, 20, 30, 45, 60, 90, 120],
+    "narratorStyles": [
+      {
+        "id": "A",
+        "label": "Default narrator",
+        "description": "Clear, natural delivery. The niche layer tunes tone, pace, and persona."
+      }
+    ],
+    "defaultNarratorStyleId": "A",
+    "videoDefaults": {
+      "aspectRatio": "landscape",
+      "defaultTimelineClipDurationSeconds": 7200
+    },
+    "audioDefaults": {
+      "speed": 1,
+      "stability": 1,
+      "similarity": 1
+    },
+    "audioMergeDefaults": {
+      "normalizeVolume": false,
+      "gapDurationSec": 3
+    }
+  },
+  "imagePrompts": {
+    "purposeNote": "for a scenes-format video episode",
+    "visualStyleHint": "tuned by the niche layer — soft and dreamlike for sleep, cinematic and moody for narrative, factual and clean for explainer, devotional for prayer",
+    "defaultScenesTotalRange": [20, 30],
+    "defaultThumbnails": 5,
+    "defaultStyleTag": "",
+    "characterReferenceMode": "inline",
+    "recommendedAspect": "16:9",
+    "thumbnail": {
+      "conceptGuidance": "A single dramatic focal subject suited to the niche's voice and the episode's hook. Strong key light, atmospheric depth, clean area reserved for the title.",
+      "compositionRules": [
+        "Single clear focal subject rendered large",
+        "Cinematic lighting — key + rim + atmospheric depth",
+        "Rule-of-thirds with a lower-clutter title zone"
+      ],
+      "moodKeywords": ["cinematic", "atmospheric", "high-contrast"],
+      "avoid": ["flat even lighting", "cluttered frames", "tiny distant subjects"]
+    }
+  },
+  "metadata": {
+    "purposeNote": "for a scenes-format video episode",
+    "titleStyleHint": "tuned by the niche layer",
+    "titleHookRules": [],
+    "tagsContext": "for this scenes-format video",
+    "tagsHookRules": [
+      "Mix of broad subject-domain keywords (from the niche) and episode-specific keywords from the script.",
+      "Each tag should be 1-4 words.",
+      "No \"#\" prefix — these are YouTube tags, not hashtags."
+    ],
+    "broadKeywords": [],
+    "defaultMaxChars": 5000,
+    "defaultTitleCount": 5,
+    "defaultTitleMaxLength": 100,
+    "defaultTagCount": 15,
+    "youtubeDescriptionStructure": {
+      "musicLabel": "MUSIC",
+      "booksSectionLabel": "📚 RECOMMENDED:",
+      "supportSection": "💛 SUPPORT:\nSubscribe — it keeps the videos coming.",
+      "aiDisclosure": "🤖 AI DISCLOSURE:\nThis video was produced with AI tools and reviewed for quality.",
+      "defaultHashtags": [],
+      "totalHashtagCount": 15
+    },
+    "defaultStarterTemplate": "explainer"
+  }
+}

@@ -2336,7 +2336,7 @@ const { confirmGeneration } = useConfirmation()
 // "Per-scene reason assignments", a listicle project sees "Per-scene
 // topic assignments", etc. Reactive on project meta change.
 const { project: vaProject } = useProject()
-const vaFormatId = ref<string>('narrative')
+const vaFormatId = ref<string>('scenes')
 watch(vaProject, (p) => {
   if (!p) return
   const id = (p as any).format_id
@@ -2346,7 +2346,7 @@ watch(vaProject, (p) => {
     // v1.0.102+ — see scripts.vue for rationale. Defensive fallback;
     // logs to console so the case is debuggable when it fires.
     console.warn('[video-assembly.vue] project.format_id missing — falling back to sleep-story for section labels. Set a format in Settings → Format if this is unexpected.')
-    vaFormatId.value = 'narrative'
+    vaFormatId.value = 'scenes'
   }
 }, { immediate: true })
 const sectionLabel = useSectionLabel(vaFormatId)

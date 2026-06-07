@@ -484,6 +484,9 @@ export async function generateImagePrompts(job: Job): Promise<void> {
 
   let scenes: any[] = []
   let thumbnails: any[] = []
+  // v1.0.304 — batches that failed every retry. Surfaced at the end so the job
+  // reports honestly (it used to print "Done." even when most batches failed).
+  let failedSceneBatches: Array<{ from: number; to: number }> = []
 
   try {
     if (useChunkedScenes) {
@@ -503,9 +506,17 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       let aborted = false
       let completed = 0
       const collected: any[] = []
+      const failed: Array<{ from: number; to: number }> = []
+      // v1.0.304 — retry a failed batch a few times before giving up. A
+      // transient endpoint blip (a Mac that slept mid-run, a Wi-Fi hiccup)
+      // used to lose the batch's scenes permanently. With the provider's
+      // pre-flight probe + the pool's failover, a retry routes to a healthy
+      // endpoint, so most "failures" recover on the next attempt.
+      const MAX_BATCH_ATTEMPTS = 3
+      const RETRY_BACKOFF_MS = 800
 
       async function sceneWorker(workerId: number): Promise<void> {
-        while (cursor < batches.length && !aborted) {
+        while (!aborted) {
           if (jq.isCancelled(job.job_id)) { aborted = true; return }
           const idx = cursor++
           if (idx >= batches.length) return
@@ -517,46 +528,49 @@ export async function generateImagePrompts(job: Job): Promise<void> {
             /Generate exactly \d+ scene prompts\./,
             `Generate exactly ${to - from + 1} scene prompts numbered ${from} through ${to} (do NOT generate scenes outside this range, do NOT generate thumbnails).`,
           ) + `\n\nIMPORTANT: This response must contain ONLY scenes ${from}..${to}. The "thumbnails" array MUST be empty.`
-          try {
-            const raw = await callAi(model, '', batchPrompt, aiCreds(config), false,
-              { slug: project_slug, jobId: job.job_id, signal: controller.signal })
-            const obj = parseImagePromptsJson(raw)
-            // v1.0.86+: don't filter by `s.number` matching the requested
-            // from..to range. LLMs frequently number every batch's output
-            // as 1..N regardless of how clearly the prompt asks for "scenes
-            // 11 through 20" — which made the old filter drop everything
-            // but the first batch (the only one whose 1..N numbering
-            // happened to overlap the expected range). Symptom user hit
-            // 2026-05-12: requested 250 scenes via the chunked path,
-            // received only ~3 on disk.
-            //
-            // New approach: take the first (to-from+1) scenes the LLM
-            // returned (any numbering, any title/prompt structure that
-            // parses), and RENUMBER them to the batch's expected range.
-            // Drop entries that don't carry a usable `prompt` string —
-            // those are unusable downstream regardless of numbering.
-            const rawScenes = (obj.scenes || []).filter((s: any) =>
-              s && typeof s.prompt === 'string' && s.prompt.trim().length > 0,
-            )
-            const expected = to - from + 1
-            const got = rawScenes.slice(0, expected).map((s: any, i: number) => ({
-              ...s,
-              number: from + i,
-            }))
-            collected.push(...got)
-            completed++
-            const tail = rawScenes.length > expected ? ` (truncated from ${rawScenes.length})` : ''
-            job.output_lines.push(
-              `[chunked]   [w${workerId}] scenes ${from}-${to}: got ${got.length}/${expected}${tail} (${completed}/${batches.length} batches done)`,
-            )
-          } catch (e: any) {
-            job.output_lines.push(
-              `[chunked]   [w${workerId}] scenes ${from}-${to} FAILED: ${e?.message || e}`,
-            )
-            if (jq.isCancelled(job.job_id) || controller.signal.aborted) {
-              aborted = true; return
+
+          let done = false
+          let lastErr: any
+          for (let attempt = 1; attempt <= MAX_BATCH_ATTEMPTS && !aborted; attempt++) {
+            if (jq.isCancelled(job.job_id)) { aborted = true; return }
+            try {
+              const raw = await callAi(model, '', batchPrompt, aiCreds(config), false,
+                { slug: project_slug, jobId: job.job_id, signal: controller.signal })
+              const obj = parseImagePromptsJson(raw)
+              // v1.0.86+: don't filter by `s.number` matching the requested
+              // from..to range — LLMs frequently renumber every batch 1..N.
+              // Take the first (to-from+1) parseable scenes and RENUMBER them
+              // to this batch's expected range; drop entries with no usable
+              // prompt string.
+              const rawScenes = (obj.scenes || []).filter((s: any) =>
+                s && typeof s.prompt === 'string' && s.prompt.trim().length > 0,
+              )
+              const expected = to - from + 1
+              const got = rawScenes.slice(0, expected).map((s: any, i: number) => ({
+                ...s,
+                number: from + i,
+              }))
+              collected.push(...got)
+              completed++
+              const tail = rawScenes.length > expected ? ` (truncated from ${rawScenes.length})` : ''
+              const retryNote = attempt > 1 ? ` (recovered on retry ${attempt - 1})` : ''
+              job.output_lines.push(
+                `[chunked]   [w${workerId}] scenes ${from}-${to}: got ${got.length}/${expected}${tail}${retryNote} (${completed}/${batches.length} batches done)`,
+              )
+              done = true
+              break
+            } catch (e: any) {
+              lastErr = e
+              if (jq.isCancelled(job.job_id) || controller.signal.aborted) { aborted = true; return }
+              const isLast = attempt === MAX_BATCH_ATTEMPTS
+              job.output_lines.push(
+                `[chunked]   [w${workerId}] scenes ${from}-${to} attempt ${attempt}/${MAX_BATCH_ATTEMPTS} failed: ${e?.message || e}` +
+                (isLast ? ' — giving up on this batch.' : ' — retrying…'),
+              )
+              if (!isLast) await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS))
             }
           }
+          if (!done && !aborted) failed.push({ from, to })
         }
       }
 
@@ -565,6 +579,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       )
 
       if (aborted) throw new Error('Cancelled by user')
+      failedSceneBatches = failed.sort((a, b) => a.from - b.from)
       // Sort by number so the docx output is in deterministic order
       // regardless of which worker finished a given batch first.
       scenes = collected.sort((a, b) => Number(a.number) - Number(b.number))
@@ -640,5 +655,21 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   }
 
   await trackGeneration(project_slug, 'prompts').catch(() => {})
+
+  // v1.0.304 — honest completion. The chunked path used to print "Done." even
+  // when most batches failed (e.g. 30/100 scenes saved, job shown green). Now,
+  // if any batch failed every retry, we surface it as an ERROR with the exact
+  // counts — the partial scenes are already saved above (preserved, not lost),
+  // so the user can re-run to fill only the gaps once the endpoint is back.
+  if (failedSceneBatches.length > 0) {
+    const missing = failedSceneBatches.reduce((n, b) => n + (b.to - b.from + 1), 0)
+    const ranges = failedSceneBatches.map(b => `${b.from}-${b.to}`).join(', ')
+    throw new Error(
+      `Generated ${scenes.length} of ${sceneCount} scene prompts — ` +
+      `${failedSceneBatches.length} batch(es) failed after ${3} attempts (${missing} scenes missing: ${ranges}). ` +
+      `Likely an unreachable local endpoint. The ${scenes.length} generated scene(s) were saved; ` +
+      `re-run Scene Prompts once the endpoint is back to fill the gaps.`,
+    )
+  }
   job.output_lines.push(`Done.`)
 }

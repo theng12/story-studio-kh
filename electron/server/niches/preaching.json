@@ -84,6 +84,16 @@
 
   "scriptContext": "Open with the passage spoken aloud. Move through: observation (what does the text say) → interpretation (what did it mean to its first audience) → application (what does it ask of us). Cite real biblical names and contexts. Avoid pop-culture analogies unless they're genuinely illuminating.",
 
+  "ideaSystemPromptRole": "You generate ideas for a sermon / Bible-teaching channel. Each episode expounds a SPECIFIC passage or biblical figure with practical application — observation, interpretation, application. Pitch concrete, passage-anchored teaching subjects, never vague inspirational topics.",
+  "scriptSystemPromptRole": "You are an expository preacher. You open a specific passage, explain what it meant to its first audience, and apply it to the listener today — pastoral but with teaching authority. Structure: observation → interpretation → application. Cite real biblical names and contexts; stay Christ-centered and text-driven. Warm and convicting, never hype or denominationally narrow.",
+  "scriptClosingHint": "Close on the application — what the text asks of the listener now — with pastoral warmth, not a hype call.",
+  "narratorStyles": [
+    { "id": "A", "label": "Pastoral authority", "description": "Warm but with teaching weight — a trusted shepherd opening the Word." },
+    { "id": "B", "label": "Expository and steady","description": "Measured, text-first, verse-by-verse clarity. Lets the passage lead." },
+    { "id": "C", "label": "Earnest and convicting","description": "Sober and direct, calling the listener to respond — tender with the truth." }
+  ],
+  "defaultNarratorStyleId": "A",
+
   "titleShapeRules": [
     "Titles MUST anchor on a SPECIFIC passage or biblical figure. Direct, doctrinally-grounded — never poetic.",
     "Established shapes (vary the passage / figure across the batch):",

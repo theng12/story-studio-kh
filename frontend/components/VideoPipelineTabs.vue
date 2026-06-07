@@ -27,6 +27,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { normalizeVisualSource } from '~/composables/useProjectFlow'
 
 const route = useRoute()
 const { get } = useApi()
@@ -52,11 +53,13 @@ async function loadPipeline(): Promise<void> {
   applicableTab.value = null
   if (!slug.value) return
   try {
-    const fmt = await get<{ visualSource?: string }>(`/projects/${slug.value}/effective-format`)
-    const vs = fmt?.visualSource
-    if (vs === 'broll') { applicableTab.value = 'broll'; pipelineLabel.value = 'B-Roll' }
-    else if (vs === 'timestamp-driven' || vs === 'continuity-chain' || vs === 'narrated-scenes') { applicableTab.value = 'timestamps'; pipelineLabel.value = 'timestamp-driven' }
-    else { applicableTab.value = 'scenes'; pipelineLabel.value = 'scene-images' }
+    const fmt = await get<{ visualSource?: string; sceneAlignment?: string }>(`/projects/${slug.value}/effective-format`)
+    // v1.0.280+ — normalize the unified `scenes` format (visualSource
+    // 'scene-images' + sceneAlignment) onto the pipeline vocabulary.
+    const vs = normalizeVisualSource(fmt?.visualSource, fmt?.sceneAlignment)
+    if (vs === 'broll') { applicableTab.value = 'broll'; pipelineLabel.value = 'Stock Footage' }
+    else if (vs === 'timestamp-driven' || vs === 'continuity-chain' || vs === 'narrated-scenes') { applicableTab.value = 'timestamps'; pipelineLabel.value = 'sentence-timed scenes' }
+    else { applicableTab.value = 'scenes'; pipelineLabel.value = 'chapter-distributed scenes' }
   } catch { applicableTab.value = null }
 }
 

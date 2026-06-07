@@ -8,7 +8,7 @@
       :project-slug="slug"
       :presets="promptPresets"
       v-model:episode-id="form.episode_id"
-      filter-field="prompts"
+      :filter-field="promptFilterField"
       :generate-label="generateLabel"
       loading-label="Generating…"
       :generate-loading="generating"
@@ -368,15 +368,6 @@
           Start with 1 per chapter to keep costs low — you can always generate
           more scenes for specific chapters later.
         </span>
-        <button
-          class="btn btn-sm btn-primary mt-2"
-          :disabled="!form.episode_id || generating || !scriptReady"
-          :title="scriptGateReason || 'Only regenerates scene prompts — thumbnails on disk are left untouched.'"
-          @click="generateScenes"
-        >
-          <LoadingSpinner v-if="generating" size="sm" />
-          Generate Scene Prompts Only
-        </button>
       </div>
 
       <!-- ── Thumbnail Prompts section ─────────────────────────────────── -->
@@ -513,16 +504,6 @@
             ✨ Surprise Me
           </button>
         </div>
-
-        <button
-          class="btn btn-sm btn-primary mt-2"
-          :disabled="!form.episode_id || generating"
-          :title="'Only regenerates thumbnail prompts — scenes on disk are left untouched.'"
-          @click="generateThumbnails"
-        >
-          <LoadingSpinner v-if="generating" size="sm" />
-          Generate Thumbnail Prompts Only
-        </button>
       </div>
 
       <div class="flex items-center gap-2 mt-2">
@@ -745,12 +726,10 @@ const showStyleEditor = ref(false)
 // never leaks into a prompt run. Auto-on when the active form already carries
 // characters (editing an episode that was set up with a cast).
 const useCharacters = ref(false)
-watch(useCharacters, (on) => {
-  if (!on && activeForm.value.character_ids.length) activeForm.value.character_ids = []
-})
-watch(() => activeForm.value.character_ids.length, (n) => {
-  if (n > 0 && !useCharacters.value) useCharacters.value = true
-})
+// NOTE: the watches that sync `useCharacters` ↔ `activeForm.character_ids` live
+// *after* the `activeForm` computed is declared (below), because watch() runs
+// its source getter once during setup — referencing activeForm up here threw
+// "Cannot access 'activeForm' before initialization" under SSR (nuxt dev).
 const generatedPrompts = ref<any>(null)
 const activeTab = ref('current')
 
@@ -803,6 +782,13 @@ const capPreviewInfo = computed(() => {
 const formTab = ref<'thumbnails' | 'scenes'>(
   route.query.tab === 'scenes' ? 'scenes' : 'thumbnails',
 )
+// v1.0.304 — the "Pending only" episode filter must reflect the ACTIVE pool.
+// The two pools have independent asset status (scene_prompts vs thumb_prompts);
+// the legacy `prompts` field is just an alias of scene_prompts, so using it on
+// the Thumbnail tab marked an episode "done" based on SCENE prompts — an episode
+// with thumbnails generated but no scenes still showed as pending here. Bind the
+// filter to the pool that matches the tab.
+const promptFilterField = computed(() => formTab.value === 'thumbnails' ? 'thumb_prompts' : 'scene_prompts')
 // React to query changes (sidebar clicks while on the page, back/forward).
 watch(() => route.query.tab, (v) => {
   const next = v === 'scenes' ? 'scenes' : 'thumbnails'
@@ -841,7 +827,7 @@ const { project, config, refreshConfig } = useProject()
 // v1.0.83+: format-aware section label ("Chapter"/"Reason"/"Topic").
 // Watches the project meta so swapping format in Settings live-updates
 // the labels here without a full reload.
-const projectFormatId = ref<string>('narrative')
+const projectFormatId = ref<string>('scenes')
 watch(project, (p) => {
   if (!p) return
   const id = (p as any).format_id
@@ -851,7 +837,7 @@ watch(project, (p) => {
     // v1.0.102+ — see scripts.vue for rationale. Defensive fallback;
     // logs to console so the case is debuggable when it fires.
     console.warn('[image-prompts.vue] project.format_id missing — falling back to sleep-story for section labels. Set a format in Settings → Format if this is unexpected.')
-    projectFormatId.value = 'narrative'
+    projectFormatId.value = 'scenes'
   }
 }, { immediate: true })
 const sectionLabel = useSectionLabel(projectFormatId)
@@ -883,7 +869,16 @@ interface HistoryEntry {
 }
 const history = ref<HistoryEntry[]>([])
 
-const { promptGenerating: isGenerating } = useGenerating()
+// v1.0.304 — the sidebar pulse must match the pool actually generating:
+// `promptGenerating` drives the "Scene Prompts" nav entry, `thumbPromptGenerating`
+// drives "Thumbnail Prompts". Previously a thumbnail-only run set promptGenerating,
+// so the SCENE Prompts entry pulsed during a thumbnail generation. Light only the
+// flag(s) for the mode being run.
+const { promptGenerating, thumbPromptGenerating } = useGenerating()
+function setPromptPulse(mode: PromptMode, on: boolean) {
+  if (mode === 'scenes' || mode === 'all') promptGenerating.value = on
+  if (mode === 'thumbnails' || mode === 'all') thumbPromptGenerating.value = on
+}
 
 const STYLE_PRESETS: Record<string, string> = {
   'storybook': 'Storybook 2D illustration style, flat design, bold outlines, warm and luminous colour palette, bright golden and shiny accent details, soft cel-shaded depth, dreamlike and cosy atmosphere.',
@@ -1045,6 +1040,18 @@ watch(() => form.episode_id, (newEp, oldEp) => {
 const activeForm = computed<ThumbnailForm | SceneForm>(() =>
   formTab.value === 'thumbnails' ? form.thumbnail : form.scene,
 )
+
+// v1.0.304 — moved here from the `useCharacters` declaration above: watch()
+// evaluates its source getter during setup, so `() => activeForm.value.…` must
+// run AFTER activeForm exists (the getter referencing it earlier TDZ-crashed
+// the page under SSR / nuxt dev). Character-references opt-in (mirrors the
+// Script page): toggling off clears the cast; an existing cast auto-enables it.
+watch(useCharacters, (on) => {
+  if (!on && activeForm.value.character_ids.length) activeForm.value.character_ids = []
+})
+watch(() => activeForm.value.character_ids.length, (n) => {
+  if (n > 0 && !useCharacters.value) useCharacters.value = true
+})
 
 function pickRandomPresetId(presets: StylePreset[]): string {
   // Skip the 'custom' sentinel — randomizing into custom would leave the
@@ -1706,7 +1713,7 @@ async function waitForJob(slug: string, jobId: string): Promise<any> {
 async function runGenerate(mode: PromptMode) {
   if (!form.episode_id) return
   generating.value = true
-  isGenerating.value = true
+  setPromptPulse(mode, true)
   try {
     const job: any = await post(`/projects/${slug.value}/generate/image-prompts`, {
       episode_id: form.episode_id,
@@ -1806,7 +1813,7 @@ async function runGenerate(mode: PromptMode) {
     showError(e.data?.detail || e.message || `Failed to generate ${poolLabel}`)
   } finally {
     generating.value = false
-    isGenerating.value = false
+    setPromptPulse(mode, false)
   }
 }
 
@@ -1817,7 +1824,9 @@ async function runGenerate(mode: PromptMode) {
 async function generate() {
   await runGenerate(formTab.value === 'thumbnails' ? 'thumbnails' : 'scenes')
 }
-async function generateScenes() { await runGenerate('scenes') }
+// generateThumbnails is still used by surpriseMeThumb (randomize → generate).
+// The legacy per-pool inline buttons were removed in v1.0.304 — the top action
+// bar generates the active tab's pool, so a separate "…Only" button was redundant.
 async function generateThumbnails() { await runGenerate('thumbnails') }
 
 async function saveToFile() {

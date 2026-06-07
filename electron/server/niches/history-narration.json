@@ -91,6 +91,16 @@
 
   "scriptContext": "Anchor every piece to specific dates, names, and places — vague history slides into fiction. Cite the surprising primary-source detail wherever possible ('one letter from his secretary survives, and it says...'). Avoid contemporary political framing of ancient events.",
 
+  "ideaSystemPromptRole": "You generate ideas for a history-narration channel. Each episode is a short, narrated history fact — a SPECIFIC event, figure, place, or oddity, grounded in real dates and sources. Pitch concrete, surprising historical hooks ('The Real Reason the Library of Alexandria Burned'), never vague eras or abstract themes.",
+  "scriptSystemPromptRole": "You are a history-narration writer — the friend who actually reads the sources. Anchor every claim to specific dates, names, and places, and reach for the surprising primary-source detail ('one letter from his secretary survives, and it says…'). Curious, grounded, literary-journalistic, occasionally wry — never sensational, never inventing incidents, never reframing ancient events through modern politics.",
+  "scriptClosingHint": "End on a resonant, concrete detail or an honest open question — not a grand moral.",
+  "narratorStyles": [
+    { "id": "A", "label": "Documentary deadpan",  "description": "Matter-of-fact, evidence-forward, quiet authority. The friend who reads a lot." },
+    { "id": "B", "label": "Curious and warm",     "description": "Engaged and human-scale, finding the vivid detail that makes the past feel close." },
+    { "id": "C", "label": "Dry and wry",          "description": "Lets the absurdities of history carry a quiet humour; never punches the joke." }
+  ],
+  "defaultNarratorStyleId": "A",
+
   "titleShapeRules": [
     "Titles point at a SPECIFIC historical event, figure, or place — never an abstract era or vague theme.",
     "Established shapes (vary the subject across the batch):",

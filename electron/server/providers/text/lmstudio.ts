@@ -19,11 +19,24 @@
 import OpenAI from 'openai'
 import { registry } from '../registry.js'
 import { redactSecrets } from '../../lib/redact-secrets.js'
-import { lmstudioApiBase, getLmstudioDispatcher } from '../../lib/lmstudio-client.js'
+import { lmstudioApiBase, getLmstudioDispatcher, health } from '../../lib/lmstudio-client.js'
 import { runOnPool } from '../../lib/endpoint-pool.js'
 import type { TextProvider, TextGenerationRequest } from '../types.js'
 
 export const LMSTUDIO_MODEL_PREFIX = 'lmstudio:'
+
+// v1.0.304 — request resilience. A local Mac that's asleep/offline HANGS the
+// TCP connect (~75s OS timeout) instead of refusing it. The old client had no
+// timeout (SDK default 10 min) and no maxRetries override (SDK default 2), so a
+// single hung call could block ~30 min — freezing cancel and gating the whole
+// chunked Promise.all on the stuck worker.
+//   - PREFLIGHT_PROBE_MS: a short GET /v1/models that tears the connecting
+//     socket down in seconds, converting a silent hang into a throwable
+//     connection error so runOnPool can fail over (or fail fast) immediately.
+//   - REQUEST_TIMEOUT_MS: generous enough for a real long generation batch, but
+//     a hard ceiling so a mid-generation death can't stall indefinitely.
+const LMSTUDIO_PREFLIGHT_PROBE_MS = 4000
+const LMSTUDIO_REQUEST_TIMEOUT_MS = 240_000
 
 const lmstudioProvider: TextProvider = {
   meta: {
@@ -82,10 +95,30 @@ const lmstudioProvider: TextProvider = {
     // against the next endpoint, and rethrows content errors immediately.
     // For single-endpoint setups (dispatcher === null) it's a pass-through.
     return runOnPool(dispatcher, fallbackUrl, async (endpointUrl) => {
+      if (signal?.aborted) throw new Error('Cancelled by user')
+      // v1.0.304 — pre-flight reachability probe. A sleeping Mac HANGS the
+      // connect; this short-timeout GET fails in ~4s and throws a connection
+      // error that runOnPool's isConnectionError matcher recognises ("unreach-
+      // able"), so we fail over to a healthy endpoint (or fail fast on a single
+      // endpoint) instead of blocking the big chat request for minutes.
+      const probe = await health(endpointUrl, LMSTUDIO_PREFLIGHT_PROBE_MS)
+      if (!probe.ok) {
+        throw new Error(
+          `LM Studio at ${endpointUrl} is unreachable: ${probe.error || 'no response'}. ` +
+          `Connection error — failing over if other endpoints are configured.`,
+        )
+      }
       const baseUrl = lmstudioApiBase(endpointUrl)
       // LM Studio ignores the Authorization header, but the OpenAI SDK requires
-      // a non-empty apiKey — pass a placeholder.
-      const client = new OpenAI({ apiKey: 'lm-studio', baseURL: baseUrl })
+      // a non-empty apiKey — pass a placeholder. timeout + maxRetries:0 bound
+      // the call: runOnPool owns failover, so SDK-level retries (default 2) only
+      // multiply a hang; the default 10-min timeout becomes our explicit ceiling.
+      const client = new OpenAI({
+        apiKey: 'lm-studio',
+        baseURL: baseUrl,
+        timeout: LMSTUDIO_REQUEST_TIMEOUT_MS,
+        maxRetries: 0,
+      })
       try {
         if (stream) {
           const collected: string[] = []

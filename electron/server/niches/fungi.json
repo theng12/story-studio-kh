@@ -113,5 +113,26 @@
 
   "audienceHint": "viewers who like the unsettling side of biology — decomposition, parasitic infection, alien-looking organisms",
 
-  "scriptContext": "This is a video about a specific fungus. Fungi are NOT plants — they're closer to animals genetically. Narration should respect this: no 'plant-like' framing. Reference real mycology — fruiting body morphology, spore-dispersal mechanism, mycelial network behavior, symbiotic / parasitic relationships."
+  "scriptContext": "This is a video about a specific fungus. Fungi are NOT plants — they're closer to animals genetically. Narration should respect this: no 'plant-like' framing. Reference real mycology — fruiting body morphology, spore-dispersal mechanism, mycelial network behavior, symbiotic / parasitic relationships.",
+
+  "ideaSystemPromptRole": "You generate ideas for a 'Why It Sucks To Be Born As X' style mycology-explainer channel. Each episode profiles ONE specific fungus and the alien, parasitic, or grimly clever realities of its life cycle. Pitch a single fascinating fungus per idea — zombie-ant cordyceps, bleeding tooth, corpse-finder, or otherwise unsettling.",
+  "scriptSystemPromptRole": "You are a wry mycology-explainer writer in the 'Why It Sucks To Be Born As X' tradition. You profile one fungus and the alien, grim, or absurd realities of its biology — darkly funny, but never framing fungi as plants. Ground every claim in real mycology: fruiting-body morphology, spore dispersal, mycelial networks, symbiotic / parasitic relationships.",
+  "scriptClosingHint": "End on a wry, grounded beat about how this fungus's unsettling strategy actually works — funny, but mycologically true.",
+  "narratorStyles": [
+    { "id": "A", "label": "Deadpan naturalist", "description": "Dry, matter-of-fact, lets the unsettling mycology land without overselling." },
+    { "id": "B", "label": "Wry and punchy",     "description": "Comedic-pessimist energy over real mycology." },
+    { "id": "C", "label": "Wonder-tinged",      "description": "Genuine awe at the fungus's alien weirdness, with a darkly funny edge." }
+  ],
+  "defaultNarratorStyleId": "A",
+  "titleShapeRules": [
+    "Titles name ONE specific fungus and frame its alien / grim / absurd existence. The species is the variable; the framing is the channel signature.",
+    "Established shapes (vary the species across the batch):",
+    "  - 'Why It Sucks To Be Born As {a / an / the} {Species}'   (e.g. 'Why It Sucks To Be Born As the Bleeding Tooth Fungus')",
+    "  - 'The {Species} Has the Most Disturbing {Strategy} in Nature'",
+    "  - 'Being a {Species} Is a Nightmare — Here's Why'",
+    "FORBIDDEN: bare species names with no framing; sensational all-caps; made-up mycology; calling fungi 'plants'.",
+    "Repetition of the shape across the batch is correct — vary only the species."
+  ],
+  "titleLengthRange": [4, 12],
+  "structuralVariety": "vary-subject-only"
 }

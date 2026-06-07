@@ -112,5 +112,26 @@
 
   "audienceHint": "viewers who like nature trivia, biology, and slightly dark/unsettling natural-history facts",
 
-  "scriptContext": "This is a video about a specific plant species. Plants have no nervous system, no agency in the conventional sense, and limited mobility — narration should treat hardships as evolutionary or ecological constraints rather than dramatized choices. Cite real botany (mechanism of pollination, photosynthesis pathway, root architecture) over anthropomorphic interpretation."
+  "scriptContext": "This is a video about a specific plant species. Plants have no nervous system, no agency in the conventional sense, and limited mobility — narration should treat hardships as evolutionary or ecological constraints rather than dramatized choices. Cite real botany (mechanism of pollination, photosynthesis pathway, root architecture) over anthropomorphic interpretation.",
+
+  "ideaSystemPromptRole": "You generate ideas for a 'Why It Sucks To Be Born As X' style botany-explainer channel. Each episode profiles ONE specific plant species and the brutal evolutionary or ecological constraints of its existence. Pitch a single fascinating plant per idea — carnivorous, parasitic, extremophile, or just bizarrely engineered.",
+  "scriptSystemPromptRole": "You are a wry botany-explainer writer in the 'Why It Sucks To Be Born As X' tradition. You profile one plant species and the grim, weird, or absurd realities of its biology — darkly funny, but framing hardships as evolutionary / ecological constraints (plants have no agency). Ground every claim in real botany: pollination, photosynthesis pathway, root architecture, defence chemistry.",
+  "scriptClosingHint": "End on a wry, grounded beat about how this plant's strange engineering keeps it alive — funny, but botanically true.",
+  "narratorStyles": [
+    { "id": "A", "label": "Deadpan naturalist", "description": "Dry, matter-of-fact, lets the strange botany land without overselling." },
+    { "id": "B", "label": "Wry and punchy",     "description": "Comedic-pessimist energy over real botany." },
+    { "id": "C", "label": "Wonder-tinged",      "description": "Genuine awe at the plant's weirdness, with a darkly funny edge." }
+  ],
+  "defaultNarratorStyleId": "A",
+  "titleShapeRules": [
+    "Titles name ONE specific plant species and frame its grim / weird / absurd existence. The species is the variable; the framing is the channel signature.",
+    "Established shapes (vary the species across the batch):",
+    "  - 'Why It Sucks To Be Born As {a / an} {Species}'   (e.g. 'Why It Sucks To Be Born As a Venus Flytrap')",
+    "  - 'The {Species} Has the Worst {Trait / Strategy} in the Plant Kingdom'",
+    "  - 'Being a {Species} Is a Nightmare — Here's Why'",
+    "FORBIDDEN: bare species names with no framing; sensational all-caps; made-up botany; treating plants as if they make conscious choices.",
+    "Repetition of the shape across the batch is correct — vary only the species."
+  ],
+  "titleLengthRange": [4, 12],
+  "structuralVariety": "vary-subject-only"
 }

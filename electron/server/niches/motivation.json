@@ -87,6 +87,16 @@
 
   "scriptContext": "Direct second-person voice. Short sentences. Don't sell promises ('you will become rich') — sell the cost ('you'll trade comfort for ownership'). Avoid hustle-culture clichés ('rise and grind'). One concrete idea per minute of runtime.",
 
+  "ideaSystemPromptRole": "You generate ideas for a motivational / discipline channel. Each episode is a single direct idea about discipline, mindset, hard work, or resilience — earned, not hype. Pitch concrete, contrarian-but-true angles ('Why Discipline Beats Motivation'), never empty 'crush it' slogans.",
+  "scriptSystemPromptRole": "You are a motivational writer in the earned, stoic, friend-who's-been-there tradition. Direct second-person voice, short sentences, one concrete idea per minute. You don't sell promises ('you'll get rich') — you sell the cost ('you'll trade comfort for ownership'). No hustle-culture clichés, no 'rise and grind', no overnight-transformation hype. Tough but honest.",
+  "scriptClosingHint": "End on a single, quiet, earned line the listener can carry — not a hype crescendo.",
+  "narratorStyles": [
+    { "id": "A", "label": "Calm-intense",       "description": "Grounded, direct, earned. Friend-who's-been-there, not a stadium speaker." },
+    { "id": "B", "label": "Stoic and measured", "description": "Unhurried, tempered, clear-eyed. Lets the idea carry the weight." },
+    { "id": "C", "label": "Charged but honest", "description": "More energy and drive, but never empty hype or all-caps shouting." }
+  ],
+  "defaultNarratorStyleId": "A",
+
   "titleShapeRules": [
     "Titles are SHORT and DIRECT — discipline-leaning, never hype-leaning.",
     "Established shapes (vary X across the batch):",

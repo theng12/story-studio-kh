@@ -387,22 +387,38 @@
             </div>
           </div>
 
+          <!-- Niche picker — PRIMARY content/voice chooser (v1.0.280+).
+               The niche decides WHAT the video says and HOW it feels:
+               vocabulary, title style, narrator voice, emotional tone, and
+               visual mood. Format (below) only decides how it's built. Comes
+               first because most users think "what's my channel about?" before
+               "how is each video assembled?". -->
+          <div class="form-group">
+            <label id="niche-label">
+              Content &amp; voice
+              <span class="text-muted" style="font-size: 11px; font-weight: normal;">
+                — the niche is your channel's voice: vocabulary, title style, narrator, mood. This is the main creative choice.
+              </span>
+            </label>
+            <NichePicker v-model="form.niche_id" />
+          </div>
+
           <!-- Channel Format picker (v1.0.68+).
                Picks WHICH content style the new project's prompts +
                vocab + image / metadata defaults are tuned for. Folder
                Template above governs the on-disk layout; Format below
-               governs what the LLM produces. They're independent —
-               sleep-stories with a listicle format work, blank with
-               sleep-story works. Default 'narrative' preserves the
-               original behaviour for users who skip the picker.
+               governs HOW the video is built (the niche governs WHAT it
+               says). They're independent — any niche pairs with any
+               format. Default 'scenes' (AI-generated stills) is used for
+               users who skip the picker.
                v1.0.69: the auto-selected default format gets a
                "Default" badge so users know which one they'll ship
                with if they don't interact with the picker. -->
           <div class="form-group">
             <label id="format-label">
-              Channel Format
+              Format — how it's built
               <span class="text-muted" style="font-size: 11px; font-weight: normal;">
-                — drives prompt tone, dropdown vocab, and metadata sizing. Override per-project later from Settings → Format.
+                — the production pipeline (AI scenes, badges, character continuity, or stock footage). The niche above sets the voice. Change later from Settings → Format.
               </span>
             </label>
             <div v-if="formatsLoading" class="text-muted" style="font-size: 12px; padding: 8px 0;">
@@ -448,7 +464,7 @@
                       title="Auto-selected when you don't pick a format. Click another card to change."
                     >Default</span>
                   </strong>
-                  <p>{{ shortFormatDescription(f) }}</p>
+                  <p>{{ formatBuildLine(f) }}</p>
                 </button>
               </div>
               <button
@@ -464,17 +480,6 @@
               the format will default to <code>sleep-story</code> and you
               can change it from Settings → Format after creation.
             </div>
-          </div>
-
-          <!-- Niche picker (orthogonal subject-domain layer).
-               Optional — empty selection means "format defaults only".
-               Pairs with any format: narrative × plants for a calm
-               plant-focused story; narrative × gemstones for a gemstone
-               narrative; listicle × animals for nature listicles.
-               Sits underneath the format grid so the visual hierarchy
-               reads "what shape (format) of what subject (niche)". -->
-          <div class="form-group" style="margin-top: 16px;">
-            <NichePicker v-model="form.niche_id" />
           </div>
 
           <div class="flex gap-2">
@@ -1004,7 +1009,12 @@
               <span>{{ form.template }}</span>
             </div>
             <div class="review-item">
-              <span class="text-muted">Channel Format</span>
+              <span class="text-muted">Content &amp; voice</span>
+              <span v-if="form.niche_id">{{ selectedNicheName }}</span>
+              <span v-else class="review-warn">⚠ No niche — generic voice</span>
+            </div>
+            <div class="review-item">
+              <span class="text-muted">Format (how it's built)</span>
               <span>
                 {{ formatIcon(form.format_id) }}
                 {{ formats.find(f => f.id === form.format_id)?.name || form.format_id }}
@@ -1233,6 +1243,8 @@
 // FileBrowserModal (server mode / remote tailnet browser). Not auto-imported
 // — it's a bare named export, not a useX composable.
 import { pickFolder as pickFolderShared } from '~/composables/usePathPicker'
+import { formatBuildLine } from '~/composables/useFormats'
+import { useNiches } from '~/composables/useNiches'
 
 useAppTitle()
 const { get, post, put } = useApi()
@@ -1344,11 +1356,17 @@ function templateIcon(id: string): string {
 // Loads built-in + user-custom formats from /api/formats so the
 // Step-1 picker stays current as the user adds new built-ins to
 // electron/server/formats/ or custom formats via Settings → Format.
-type FormatLite = { id: string; name: string; description?: string; builtin?: boolean }
+type FormatLite = {
+  id: string; name: string; description?: string; builtin?: boolean
+  // v1.0.280+ presentation fields (the /formats endpoint returns full Format
+  // objects) — used to render the "how it's built" line on each card.
+  visualSource?: string; sceneAlignment?: string
+  script?: { chaptersIndependent?: boolean }
+}
 // Mirrors electron/server/services/format-loader.ts:DEFAULT_FORMAT_ID.
 // Frontend can't import the backend constant directly (no shared
 // module boundary today), so we duplicate it. Keep both in sync.
-const DEFAULT_FORMAT_ID = 'narrative'
+const DEFAULT_FORMAT_ID = 'scenes'
 const formats = ref<FormatLite[]>([])
 const formatsLoading = ref(false)
 
@@ -1410,29 +1428,21 @@ function formatIcon(id: string): string {
   // mapping that requires a code change every time someone ships
   // a new built-in.
   //
-  // v1.0.162 — pruned to the 4 consolidated formats (was 8 entries
-  // for the pre-consolidation set: sleep-story / documentary /
-  // educational / comedy / adventure / true-crime / kids-fairytale +
-  // listicle). Niches do the content variation now; formats only
-  // describe the production pipeline.
+  // v1.0.162 — pruned to the consolidated formats. Niches do the content
+  // variation now; formats only describe the production pipeline.
+  // v1.0.280 — format↔niche refactor: narrative / narrated-scenes /
+  // narration-synced collapsed into the unified 'scenes' format.
   const map: Record<string, string> = {
-    'narrative':         '📖',
+    'scenes':            '📖',
     'listicle':          '📊',
+    'continuity-chain':  '🎭',
     'stock-footage':     '🎞',
-    'narration-synced':  '🎯',
   }
   return map[id] || '☆'
 }
-function shortFormatDescription(f: FormatLite): string {
-  // Format JSONs ship verbose multi-sentence descriptions tuned for
-  // Settings → Format where there's room to read. Trim to a single
-  // sentence for the picker card so all 8 cards fit on screen
-  // without scroll.
-  const desc = (f.description || '').trim()
-  if (!desc) return ''
-  const firstSentence = desc.split(/(?<=[.!?])\s/, 1)[0] ?? desc
-  return firstSentence.length > 110 ? firstSentence.slice(0, 107) + '…' : firstSentence
-}
+// v1.0.280+ — the picker card shows a "how it's built" line (formatBuildLine,
+// from useFormats) instead of the JSON description's first sentence, so users
+// choose a production pipeline rather than reading presentation-shell prose.
 
 const showCreate = ref(false)
 const step = ref(1)
@@ -1458,10 +1468,16 @@ const form = reactive<{
   season_size: 20,
   output_root: '',
   // Default matches the project-manager fallback so users who don't
-  // touch the Channel Format picker get the legacy behaviour.
-  format_id: 'narrative',
+  // touch the Channel Format picker get the default 'scenes' format.
+  format_id: 'scenes',
   niche_id: '',
 })
+
+// v1.0.280+ — niche is the primary content choice; resolve its display name
+// for the review step. useNiches shares a module-level cache (NichePicker
+// already populates it), so this is a cheap lookup.
+const { find: findNiche } = useNiches()
+const selectedNicheName = computed(() => findNiche(form.niche_id)?.name || form.niche_id)
 
 function closeCreate() {
   showCreate.value = false
@@ -2916,6 +2932,11 @@ onMounted(async () => {
   border-bottom: 1px solid var(--border);
   font-size: 14px;
   gap: 16px;
+}
+
+.review-warn {
+  color: var(--warning, #d8a23c);
+  font-size: 13px;
 }
 
 .path-display {

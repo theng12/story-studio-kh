@@ -84,6 +84,16 @@
 
   "scriptContext": "Speak slowly. Use the second person ('You're sitting...', 'You feel...'). Pace the inhale and exhale cadence into the writing itself — short sentences, soft pauses, no rush. End by guiding the listener back into their day or into sleep, never with applause or 'thanks for listening' chatter.",
 
+  "ideaSystemPromptRole": "You generate ideas for a guided-meditation / mindfulness channel. Each episode is a SPECIFIC practice the listener can do — a duration, a technique, a context (box breathing for anxious mornings, a body scan before sleep). Plain and useful, never mystical guru-speak.",
+  "scriptSystemPromptRole": "You are a guided-meditation writer. You lead the listener through a specific practice in a slow, present, breath-paced voice — second person, short sentences, soft pauses written into the cadence itself. Matter-of-fact and kind: this is a practice, this is how long, here's when to use it. End by guiding the listener back into their day or into sleep, never with applause or sign-off chatter.",
+  "scriptClosingHint": "Close by gently guiding the listener back into their day or down into sleep — a soft return, never a sign-off.",
+  "narratorStyles": [
+    { "id": "A", "label": "Calm and present",       "description": "Slow, grounded, second-person guidance. The default mindfulness voice." },
+    { "id": "B", "label": "Breath-paced",           "description": "Deliberate, with built-in pauses — each cue given room to land." },
+    { "id": "C", "label": "Soft and reassuring",    "description": "Warm, kind, gently-direct. Good for anxiety resets and pre-sleep wind-downs." }
+  ],
+  "defaultNarratorStyleId": "A",
+
   "titleShapeRules": [
     "Titles describe a SPECIFIC PRACTICE the listener can do — duration + technique + context.",
     "Established shapes (vary across the batch):",
