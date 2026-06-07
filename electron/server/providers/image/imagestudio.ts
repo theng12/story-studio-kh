@@ -21,9 +21,16 @@ import { registry } from '../registry.js'
 import {
   submitTxt2Img, submitImg2Img, submitEdit, pollJob, jobImageUrl,
   repoForModelId, isImageStudioModelId, capabilitiesForRepo,
-  DEFAULT_IMAGESTUDIO_BASE_URL,
+  DEFAULT_IMAGESTUDIO_BASE_URL, getImagestudioDispatcher, health as imgHealth,
   type ImageStudioTxt2ImgParams,
 } from '../../lib/imagestudio-client.js'
+import { runOnPool } from '../../lib/endpoint-pool.js'
+
+// v1.0.306 — pre-flight probe timeout. A few of the user's Macs HANG the connect
+// (asleep but on the network) rather than refusing it; without this, the 30s
+// submit timeout is what eventually frees them. The probe detects an unreachable
+// endpoint in ~4s and throws a connection error so runOnPool fails over fast.
+const IMAGESTUDIO_PREFLIGHT_PROBE_MS = 4000
 import type { ImageProvider, ImageGenerationRequest, ImageGenerationResult } from '../types.js'
 
 /**
@@ -125,8 +132,13 @@ const imagestudioImageProvider: ImageProvider = {
    * convention while audio returns file:// from the registry shape.
    */
   async generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
-    const baseUrl = (request.apiKey || '').trim() || DEFAULT_IMAGESTUDIO_BASE_URL
-    if (!baseUrl) {
+    // v1.0.306 — the apiKey slot may hold a comma/space-separated LIST of modal
+    // URLs (one per Mac). Parse it into a pool: a generateImage call submits +
+    // polls on ONE endpoint, and runOnPool fails over to a healthy Mac on a
+    // connection error. (Before this, the whole list was passed to fetch() as a
+    // single URL → "Failed to parse URL from <list>/api/generate/txt2img".)
+    const rawApiKey = (request.apiKey || '').trim() || DEFAULT_IMAGESTUDIO_BASE_URL
+    if (!rawApiKey) {
       throw new Error(
         'Image Studio modal URL not configured. ' +
         'Open App Settings → Local Models and set the URL (Tailscale IP + port).',
@@ -136,6 +148,8 @@ const imagestudioImageProvider: ImageProvider = {
 
     const repo = repoForModelId(request.modelId)
     if (!repo) throw new Error(`Image Studio provider received unknown model id '${request.modelId}'.`)
+    const { dispatcher, endpoints } = getImagestudioDispatcher(rawApiKey)
+    const fallbackUrl = endpoints[0] || rawApiKey
     // v1.0.261 — honour an explicit pixel size when the caller sends one (Scene
     // Review's "render size" tier); else fall back to the aspect preset. Clamp
     // to sane bounds and round to /16 (FLUX/MLX engines require it).
@@ -147,45 +161,65 @@ const imagestudioImageProvider: ImageProvider = {
     const refs = request.referenceImagePaths
     const sourceImage = Array.isArray(refs) && refs.length ? refs[0] : undefined
 
-    let submit
-    if (sourceImage) {
-      // Reference-driven: img2img (general) or edit (Kontext/Qwen-Edit), by capability.
-      const mode = await resolveRefMode(baseUrl, repo)
-      const strength = typeof request.providerParams?.image_strength === 'number'
-        ? request.providerParams.image_strength
-        : undefined  // let the client/modal default (0.6 img2img, 0.85 edit)
-      if (mode === 'edit') {
-        submit = await submitEdit(baseUrl, {
-          imagePath: sourceImage, repo, prompt: request.prompt,
-          width: dims.width, height: dims.height,
-          steps: o.steps, guidance: o.guidance, seed: o.seed,
-          image_strength: strength, lora_names: o.lora_names, lora_scales: o.lora_scales,
-        })
+    // Submit + poll on a SINGLE pooled endpoint. runOnPool picks least-busy and,
+    // on a connection error (friendlyConnectError → "cannot reach"/"refused",
+    // matched by isConnectionError), marks that Mac down and re-runs the whole
+    // submit+poll on another. Single-endpoint setups (dispatcher === null) run
+    // straight through against fallbackUrl — byte-for-byte the old behaviour.
+    return runOnPool(dispatcher, fallbackUrl, async (baseUrl) => {
+      if (request.isCancelled?.()) throw new Error('Cancelled by user')
+      // Pre-flight reachability probe — skip a hanging Mac in ~4s rather than
+      // eating the 30s submit timeout. Only meaningful when pooling (>1
+      // endpoint); for a single endpoint we let the submit's own error surface.
+      if (dispatcher) {
+        const probe = await imgHealth(baseUrl, IMAGESTUDIO_PREFLIGHT_PROBE_MS)
+        if (!probe.ok) {
+          throw new Error(
+            `Image Studio at ${baseUrl} is unreachable: ${probe.error || 'no response'}. ` +
+            `Connection error — failing over.`,
+          )
+        }
+      }
+      let submit
+      if (sourceImage) {
+        // Reference-driven: img2img (general) or edit (Kontext/Qwen-Edit), by capability.
+        const mode = await resolveRefMode(baseUrl, repo)
+        const strength = typeof request.providerParams?.image_strength === 'number'
+          ? request.providerParams.image_strength
+          : undefined  // let the client/modal default (0.6 img2img, 0.85 edit)
+        if (mode === 'edit') {
+          submit = await submitEdit(baseUrl, {
+            imagePath: sourceImage, repo, prompt: request.prompt,
+            width: dims.width, height: dims.height,
+            steps: o.steps, guidance: o.guidance, seed: o.seed,
+            image_strength: strength, lora_names: o.lora_names, lora_scales: o.lora_scales,
+          })
+        } else {
+          submit = await submitImg2Img(baseUrl, {
+            imagePath: sourceImage, repo, prompt: request.prompt,
+            width: dims.width, height: dims.height,
+            steps: o.steps, guidance: o.guidance, seed: o.seed,
+            negative_prompt: o.negative_prompt,
+            image_strength: strength, lora_names: o.lora_names, lora_scales: o.lora_scales,
+          })
+        }
       } else {
-        submit = await submitImg2Img(baseUrl, {
-          imagePath: sourceImage, repo, prompt: request.prompt,
-          width: dims.width, height: dims.height,
+        const params: ImageStudioTxt2ImgParams = {
+          repo, prompt: request.prompt, width: dims.width, height: dims.height,
           steps: o.steps, guidance: o.guidance, seed: o.seed,
-          negative_prompt: o.negative_prompt,
-          image_strength: strength, lora_names: o.lora_names, lora_scales: o.lora_scales,
-        })
+          negative_prompt: o.negative_prompt, lora_names: o.lora_names, lora_scales: o.lora_scales,
+        }
+        submit = await submitTxt2Img(baseUrl, params)
       }
-    } else {
-      const params: ImageStudioTxt2ImgParams = {
-        repo, prompt: request.prompt, width: dims.width, height: dims.height,
-        steps: o.steps, guidance: o.guidance, seed: o.seed,
-        negative_prompt: o.negative_prompt, lora_names: o.lora_names, lora_scales: o.lora_scales,
-      }
-      submit = await submitTxt2Img(baseUrl, params)
-    }
 
-    await pollJob(baseUrl, submit.job_id, { isCancelled: request.isCancelled })
-    // The image lives at /api/generate/jobs/{id}/image on the modal.
-    // Return it as a URL string — generators/images.ts's downloadImage
-    // helper fetches it directly. Single URL per generate today (the
-    // wrapper doesn't batch); array shape kept for interface parity
-    // with kie which can return multiple variants per call.
-    return { urls: [jobImageUrl(baseUrl, submit.job_id)], taskId: submit.job_id }
+      await pollJob(baseUrl, submit.job_id, { isCancelled: request.isCancelled })
+      // The image lives at /api/generate/jobs/{id}/image on the modal.
+      // Return it as a URL string — generators/images.ts's downloadImage
+      // helper fetches it directly. Single URL per generate today (the
+      // wrapper doesn't batch); array shape kept for interface parity
+      // with kie which can return multiple variants per call.
+      return { urls: [jobImageUrl(baseUrl, submit.job_id)], taskId: submit.job_id }
+    })
   },
 }
 

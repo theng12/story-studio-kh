@@ -22,7 +22,7 @@
   downloaded.
 -->
 <template>
-  <div class="image-model-picker" @click.stop>
+  <div class="image-model-picker" ref="rootEl" @click.stop>
     <!-- Trigger pill — shows current provider + selection + cost -->
     <button type="button" class="imp-trigger" :class="{ open: expanded }" @click="toggle">
       <span
@@ -500,13 +500,25 @@ function openImageStudioWeb() {
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape' && expanded.value) expanded.value = false
 }
+// v1.0.306 — close on outside click (same pattern as ComboInput). The panel
+// used to only close by re-clicking the trigger — clicking anywhere else left
+// it stuck open. The root carries @click.stop, so inside clicks never reach
+// this listener; the contains() check is a defensive belt-and-braces.
+const rootEl = ref<HTMLElement | null>(null)
+function onClickOutside(e: MouseEvent) {
+  if (expanded.value && !rootEl.value?.contains(e.target as Node)) expanded.value = false
+}
 onMounted(() => {
   window.addEventListener('keydown', onKey)
+  document.addEventListener('click', onClickOutside)
   // Best-effort prefetch so the local section is populated by the time
   // the user opens the panel. Silently no-ops if the modal is offline.
   void loadLocalCatalog()
 })
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey)
+  document.removeEventListener('click', onClickOutside)
+})
 </script>
 
 <style scoped>

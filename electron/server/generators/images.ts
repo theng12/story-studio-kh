@@ -446,13 +446,29 @@ export async function generateImages(job: Job): Promise<void> {
   const reqConcurrency = Number((req as any).concurrency) || 0
   const isLocalProvider = providerId === 'imagestudio'
   const baseConcurrency = Math.max(1, Math.min(10, reqConcurrency || configConcurrency || 5))
-  const concurrency = isLocalProvider ? 1 : baseConcurrency
-  if (isLocalProvider && baseConcurrency !== 1) {
-    job.output_lines.push(
-      `Local modal (${providerId}): clamped concurrency from ${baseConcurrency} → 1 ` +
-      `(Apple Silicon MLX inference is serial; the modal queues anyway). ` +
-      `Per-job poll budget is 24h, so deep batches will complete sequentially.`,
-    )
+  // v1.0.306 — a local modal is serial PER MAC (one MLX inference at a time),
+  // but the user may run a POOL of Macs. The old code hard-clamped local
+  // concurrency to 1, so a fleet of 12 Macs still rendered one-at-a-time on a
+  // single box — the "stall" the user saw. Probe the endpoints and parallelise
+  // across the HEALTHY ones: each Mac still runs serially, but different Macs
+  // run concurrently, and the provider's least-busy dispatcher spreads the work.
+  // A single endpoint stays at concurrency 1, exactly as before.
+  let concurrency = baseConcurrency
+  if (isLocalProvider) {
+    const { parseEndpoints, healthyEndpoints } = await import('../lib/endpoint-pool.js')
+    const { health: imgHealth } = await import('../lib/imagestudio-client.js')
+    const eps = parseEndpoints(apiKey)
+    if (eps.length <= 1) {
+      concurrency = 1
+    } else {
+      const { healthy, offline } = await healthyEndpoints(eps, async (u) => (await imgHealth(u, 4000)).ok)
+      concurrency = Math.max(1, Math.min(baseConcurrency, healthy.length))
+      job.output_lines.push(
+        `Local modal pool: ${healthy.length}/${eps.length} endpoint(s) reachable — ` +
+        `generating with concurrency=${concurrency} (each Mac runs one inference at a time, in parallel).` +
+        (offline.length ? ` Skipped ${offline.length} unreachable endpoint(s).` : ''),
+      )
+    }
   }
   // Launch stagger: delay each pool worker's FIRST task by `i * staggerMs` so
   // the initial-burst submit doesn't trip per-second 429s on Kie / fal.

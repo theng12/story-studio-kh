@@ -1,5 +1,5 @@
 <template>
-  <div class="voice-picker" @click.stop>
+  <div class="voice-picker" ref="rootEl" @click.stop>
     <!-- Trigger row: current selection + star + expand chevron -->
     <button type="button" class="vp-trigger" :class="{ open: expanded, 'has-unavailable': currentVoice && !isAvailable(currentVoice.voice_id) }" @click="toggle">
       <span class="vp-current" :title="currentVoice?.description || currentVoice?.name || defaultLabel">
@@ -839,14 +839,25 @@ function openVoiceStudioWeb() {
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape' && expanded.value) expanded.value = false
 }
+// v1.0.306 — close on outside click (was: only closable by re-clicking the
+// trigger). Root carries @click.stop so inside clicks never reach this; the
+// contains() check is defensive.
+const rootEl = ref<HTMLElement | null>(null)
+function onClickOutside(e: MouseEvent) {
+  if (expanded.value && !rootEl.value?.contains(e.target as Node)) expanded.value = false
+}
 
 onMounted(() => {
   void loadCatalog()
   void loadFavourites()
   void loadVoicestudioVoices()
   window.addEventListener('keydown', onKey)
+  document.addEventListener('click', onClickOutside)
 })
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey)
+  document.removeEventListener('click', onClickOutside)
+})
 
 watch(search, () => { showAllCatalog.value = false })
 

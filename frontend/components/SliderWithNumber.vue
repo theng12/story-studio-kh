@@ -17,8 +17,9 @@
         :min="min"
         :max="max"
         :step="step"
-        :value="displayedValue"
+        :value="text"
         :disabled="disabled"
+        @focus="onFocus"
         @input="onNumber"
         @blur="onBlur"
       />
@@ -63,10 +64,18 @@ const decimals = computed(() => {
   return dot >= 0 ? s.length - dot - 1 : 0
 })
 
-const displayedValue = computed(() => {
-  // Keep the field value matching the bound value precisely so typing
-  // 0.1 doesn't get round-tripped to 0.10000000001 from parseFloat.
-  return Number(props.modelValue).toFixed(decimals.value)
+// v1.0.306 — the number field is a FOCUS-AWARE text buffer. Previously the
+// input was bound `:value="modelValue.toFixed(decimals)"`, which re-formatted on
+// every keystroke's emit: typing "0.8" went "0" → emit 0 → field snaps to
+// "0.00" → "0." → "0.00" again… landing on garbage. Now `text` holds exactly
+// what the user types WHILE the field is focused, and only re-syncs from the
+// (clamped) model when the field is NOT focused — e.g. the slider moved, a
+// preset loaded, or the user blurred. This fully decouples typing from display.
+const focused = ref(false)
+const text = ref(Number(props.modelValue).toFixed(decimals.value))
+
+watch(() => [props.modelValue, decimals.value] as const, () => {
+  if (!focused.value) text.value = Number(props.modelValue).toFixed(decimals.value)
 })
 
 function clamp(v: number): number {
@@ -79,20 +88,26 @@ function onRange(e: Event) {
   emit('update:modelValue', v)
 }
 
-function onNumber(e: Event) {
-  const raw = (e.target as HTMLInputElement).value
-  // Allow empty while typing — don't thrash the bound value to 0. The
-  // blur handler will snap back to min if they leave it blank.
-  if (raw === '' || raw === '-' || raw === '.') return
-  const v = parseFloat(raw)
-  if (Number.isNaN(v)) return
-  emit('update:modelValue', v)
+function onFocus() {
+  focused.value = true
 }
 
-function onBlur(e: Event) {
+function onNumber(e: Event) {
   const raw = (e.target as HTMLInputElement).value
-  const v = raw === '' ? props.min : parseFloat(raw)
-  emit('update:modelValue', clamp(v))
+  text.value = raw  // keep exactly what the user typed — no re-format mid-edit
+  // Mid-typing tokens that aren't a complete number yet: don't thrash the model.
+  if (raw === '' || raw === '-' || raw === '.' || raw === '-.' || raw.endsWith('.')) return
+  const v = parseFloat(raw)
+  if (Number.isNaN(v)) return
+  emit('update:modelValue', v)  // emit raw value live; clamp happens on blur
+}
+
+function onBlur() {
+  focused.value = false
+  const v = text.value.trim() === '' ? props.min : parseFloat(text.value)
+  const c = clamp(Number.isNaN(v) ? props.min : v)
+  emit('update:modelValue', c)
+  text.value = c.toFixed(decimals.value)  // snap the field to the clamped value
 }
 </script>
 

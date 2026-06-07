@@ -356,9 +356,9 @@
         <button class="btn btn-sm btn-ghost ml-2" @click="refreshImageStatus">Retry</button>
       </div>
 
-      <div v-else-if="!imageStatus.hasAny" class="text-muted text-md">
-        No scene or thumbnail prompts found for this episode yet. Generate prompts
-        first on the <NuxtLink :to="`/projects/${slug}/image-prompts`">Image Prompts</NuxtLink> page.
+      <div v-else-if="!activePoolStatus" class="text-muted text-md">
+        No {{ activePoolLabel }} prompts found for this episode yet. Generate them
+        first on the <NuxtLink :to="`/projects/${slug}/image-prompts?tab=${form.mode === 'thumbs' ? 'thumbnails' : 'scenes'}`">Image Prompts</NuxtLink> page.
       </div>
 
       <div v-else class="flex items-center gap-2 flex-wrap">
@@ -384,26 +384,22 @@
           Regenerate prompts →
         </NuxtLink>
 
-        <!-- Tier 2: prompts ↔ on-disk images. Existing behaviour. -->
-        <span v-if="imageStatus.scenes" class="integrity-pill" :class="imageStatus.scenes.missing.length ? 'warn' : 'ok'">
-          <template v-if="imageStatus.scenes.missing.length === 0">✓ {{ imageStatus.scenes.total }} scenes present</template>
-          <template v-else>⚠ {{ imageStatus.scenes.missing.length }} of {{ imageStatus.scenes.total }} scenes missing</template>
-        </span>
-        <span v-if="imageStatus.thumbnails" class="integrity-pill" :class="imageStatus.thumbnails.missing.length ? 'warn' : 'ok'">
-          <template v-if="imageStatus.thumbnails.missing.length === 0">✓ {{ imageStatus.thumbnails.total }} thumbnails present</template>
-          <template v-else>⚠ {{ imageStatus.thumbnails.missing.length }} of {{ imageStatus.thumbnails.total }} thumbnails missing</template>
+        <!-- Tier 2: prompts ↔ on-disk images. Scoped to the ACTIVE pool only. -->
+        <span v-if="activePoolStatus" class="integrity-pill" :class="activeMissingCount ? 'warn' : 'ok'">
+          <template v-if="activeMissingCount === 0">✓ {{ activePoolStatus.total }} {{ activePoolLabel }} present</template>
+          <template v-else>⚠ {{ activeMissingCount }} of {{ activePoolStatus.total }} {{ activePoolLabel }} missing</template>
         </span>
 
         <button
-          v-if="imageStatus.hasMissing"
+          v-if="activeMissingCount > 0"
           class="btn btn-sm btn-secondary"
           :disabled="submitting || generating || promptsStaleVsOutline.stale"
           :title="promptsStaleVsOutline.stale
             ? 'Prompts are stale vs the outline — regenerate prompts first so the repair targets the right chapter count.'
-            : 'Re-submits the form for missing scenes/thumbnails. Existing files with content are skipped automatically.'"
+            : `Re-fetches missing ${activePoolLabel} from provider history — no credit cost. Existing files with content are skipped.`"
           @click="repairMissing"
         >
-          Repair missing ({{ imageStatus.totalMissing }})
+          Repair missing {{ activePoolLabel }} ({{ activeMissingCount }})
         </button>
 
         <button class="btn btn-sm btn-ghost" :disabled="imageStatus.loading" @click="refreshImageStatus">
@@ -411,12 +407,9 @@
         </button>
       </div>
 
-      <div v-if="imageStatus.missingScenesList || imageStatus.missingThumbsList" class="missing-detail mt-2">
-        <div v-if="imageStatus.missingScenesList" class="text-muted text-sm">
-          Missing scenes: {{ imageStatus.missingScenesList }}
-        </div>
-        <div v-if="imageStatus.missingThumbsList" class="text-muted text-sm">
-          Missing thumbnails: {{ imageStatus.missingThumbsList }}
+      <div v-if="activeMissingList" class="missing-detail mt-2">
+        <div class="text-muted text-sm">
+          Missing {{ activePoolLabel }}: {{ activeMissingList }}
         </div>
       </div>
     </div>
@@ -1235,6 +1228,16 @@ const imageStatus = reactive<ImageStatusState>({
   missingScenesList: '', missingThumbsList: '',
 })
 
+// v1.0.306 — the integrity card is scoped to the ACTIVE generator pool. The
+// Thumbnail Generator and Scene Generator are separate pages; each shows +
+// repairs only its own pool, not both. (Repair is the user's favourite
+// money-saver — keeping the pools separate avoids re-checking the wrong half.)
+const integrityPool = computed<'scenes' | 'thumbnails'>(() => form.mode === 'thumbs' ? 'thumbnails' : 'scenes')
+const activePoolStatus = computed(() => form.mode === 'thumbs' ? imageStatus.thumbnails : imageStatus.scenes)
+const activeMissingCount = computed(() => activePoolStatus.value?.missing.length ?? 0)
+const activeMissingList = computed(() => form.mode === 'thumbs' ? imageStatus.missingThumbsList : imageStatus.missingScenesList)
+const activePoolLabel = computed(() => form.mode === 'thumbs' ? 'thumbnails' : 'scenes')
+
 async function refreshImageStatus() {
   if (!form.episode_id) return
   imageStatus.loading = true
@@ -1268,8 +1271,13 @@ async function repairMissing() {
   // log telling them to click Generate for those specific items.
   submitting.value = true
   try {
-    await post(`/projects/${slug.value}/generate/images-repair`, { episode_id: form.episode_id })
-    success(`Repair job queued — recovers from provider history (no credit cost). Check the Jobs tab.`)
+    // v1.0.306 — scope the repair to this page's pool (thumbnails on the
+    // Thumbnail Generator, scenes on the Scene Generator).
+    await post(`/projects/${slug.value}/generate/images-repair`, {
+      episode_id: form.episode_id,
+      pool: integrityPool.value,
+    })
+    success(`${activePoolLabel.value === 'thumbnails' ? 'Thumbnail' : 'Scene'} repair queued — recovers from provider history (no credit cost). Check the Jobs tab.`)
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to queue repair')
   } finally {

@@ -59,7 +59,9 @@ export function registerAllExecutors(): void {
   // (cancel / retry / log streaming) covers it just like a normal generation.
   registerExecutor('images_repair', async (job) => {
     const episodeId = (job.params as any)?.episode_id || job.episode_id
-    await reconcileImages(job.project_slug, episodeId, job)
+    const rawPool = (job.params as any)?.pool
+    const pool = rawPool === 'scenes' || rawPool === 'thumbnails' ? rawPool : 'all'
+    await reconcileImages(job.project_slug, episodeId, job, pool)
   })
   // Same shape as images_repair — delegates the per-provider dispatch
   // (kie-video / fal-video) to the reconciler itself.

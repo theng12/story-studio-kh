@@ -226,6 +226,10 @@ export async function getImagesReconcileStatus(
  */
 export async function reconcileImages(
   slug: string, episodeId: string, job: Job,
+  // v1.0.306 — scope the repair to one pool. The Thumbnail Generator and Scene
+  // Generator are separate pages; each should repair only its own pool, not
+  // both. Default 'all' preserves the old behaviour for any caller that omits it.
+  pool: 'scenes' | 'thumbnails' | 'all' = 'all',
 ): Promise<ImageReconcileResult> {
   const result: ImageReconcileResult = {
     scene_results: [], thumb_results: [],
@@ -289,9 +293,10 @@ export async function reconcileImages(
     }
   }
 
-  job.output_lines.push(`Repairing images for ${episodeId}...`)
-  await processSet(sceneFile, bgDir, 'Scene', result.scene_results)
-  await processSet(thumbFile, thumbDir, 'Thumb', result.thumb_results)
+  const poolLabel = pool === 'scenes' ? 'scene images' : pool === 'thumbnails' ? 'thumbnails' : 'images'
+  job.output_lines.push(`Repairing ${poolLabel} for ${episodeId}...`)
+  if (pool === 'scenes' || pool === 'all') await processSet(sceneFile, bgDir, 'Scene', result.scene_results)
+  if (pool === 'thumbnails' || pool === 'all') await processSet(thumbFile, thumbDir, 'Thumb', result.thumb_results)
   // Reveal the parent of bgDir/thumbDir (i.e. the episode dir) so the
   // user lands somewhere they can see both folders. Falls back to bgDir
   // if there's no thumb work.

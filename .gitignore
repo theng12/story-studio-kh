@@ -34,3 +34,6 @@ _trash/
 .claude/
 .vscode/
 .idea/
+
+# Runtime voice catalog cache (written to repo root in dev mode)
+elevenlabs-voices.json

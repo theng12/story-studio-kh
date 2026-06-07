@@ -36,6 +36,38 @@ import path from 'path'
 import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
 import { sleepCancellable } from './http-retry.js'
+import { parseEndpoints, createDispatcher, type Dispatcher } from './endpoint-pool.js'
+
+// ── Multi-endpoint dispatcher (v1.0.306) ────────────────────────────────────
+// The Image Studio URL setting may hold SEVERAL base URLs (one per Mac running
+// the modal), comma/space separated — exactly like LM Studio. Before this, the
+// image provider passed that whole string to fetch() as one URL, producing
+// "Failed to parse URL from <list>/api/generate/txt2img". This mirrors
+// getLmstudioDispatcher: a cached least-busy pool with self-healing failover.
+
+const imgDispatcherCache = new Map<string, Dispatcher>()
+function imgEndpointsKey(eps: string[]): string { return [...eps].sort().join(',') }
+
+/** First endpoint of a (possibly comma/space-separated) stored URL list. */
+export function imagestudioFirst(stored: string | null | undefined): string {
+  return parseEndpoints(stored)[0] || ''
+}
+
+/**
+ * Cached least-busy dispatcher over the Image Studio endpoint list. Returns
+ * `dispatcher: null` for the single-endpoint case so the provider's fast path
+ * stays a pass-through. Mirrors getLmstudioDispatcher (lmstudio-client.ts).
+ */
+export function getImagestudioDispatcher(
+  stored: string | null | undefined,
+): { dispatcher: Dispatcher | null; endpoints: string[] } {
+  const eps = parseEndpoints(stored)
+  if (eps.length <= 1) return { dispatcher: null, endpoints: eps }
+  const key = imgEndpointsKey(eps)
+  let d = imgDispatcherCache.get(key)
+  if (!d) { d = createDispatcher(eps); imgDispatcherCache.set(key, d) }
+  return { dispatcher: d, endpoints: eps }
+}
 
 /**
  * Image Studio modal base URL default.
@@ -291,10 +323,10 @@ function friendlyConnectError(baseUrl: string, e: any): Error {
 }
 
 /** Liveness probe. Never throws — returns `{ ok: false, error }` on failure. */
-export async function health(baseUrl: string): Promise<ImageStudioHealth> {
+export async function health(baseUrl: string, timeoutMs = 5_000): Promise<ImageStudioHealth> {
   try {
     const resp = await fetch(joinUrl(baseUrl, '/api/health'), {
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(timeoutMs),
     })
     if (!resp.ok) {
       return { ok: false, error: `Health check failed (${resp.status})` }

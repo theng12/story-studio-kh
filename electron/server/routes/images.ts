@@ -113,17 +113,23 @@ router.post('/projects/:slug/generate/images-repair', async (req, res) => {
 
   const episodeId: string | undefined = req.body?.episode_id
   if (!episodeId) return res.status(400).json({ detail: 'episode_id is required' })
+  // v1.0.306 — scope to one pool (the Thumbnail vs Scene generator pages each
+  // repair only their own). Omitted / invalid → 'all' (back-compat).
+  const rawPool = req.body?.pool
+  const pool: 'scenes' | 'thumbnails' | 'all' =
+    rawPool === 'scenes' || rawPool === 'thumbnails' ? rawPool : 'all'
 
   if (jq.isDuplicate(slug, episodeId, 'images_repair' as JobType)) {
     return res.status(409).json({ detail: `Image repair already queued/running for ${episodeId}` })
   }
 
+  const poolTitle = pool === 'scenes' ? 'Scene Image Repair' : pool === 'thumbnails' ? 'Thumbnail Repair' : 'Image Repair'
   const job = jq.enqueue({
     project_slug: slug,
     type: 'images_repair' as JobType,
     episode_id: episodeId,
-    title: 'Image Repair (no credits)',
-    params: { episode_id: episodeId },
+    title: `${poolTitle} (no credits)`,
+    params: { episode_id: episodeId, pool },
   })
   res.status(201).json(job)
 })
@@ -474,16 +480,52 @@ router.get('/imagestudio/catalog', async (_req, res) => {
 // model id (`imagestudio:<repo>`) the generator/provider resolve directly,
 // plus capabilities so the picker can gate txt2img/img2img/edit. `ok:false`
 // (modal offline) → frontend keeps whatever it had / hides the local section.
-router.get('/imagestudio/models', async (_req, res) => {
+// v1.0.306 — cache the last GOOD image catalog so a transient all-Macs-busy
+// period (every endpoint mid-render, catalog query queued behind MLX inference)
+// doesn't blank the model picker. The catalog is stable, so serving a recent
+// snapshot is correct; a successful live probe always replaces it. Refresh
+// (?refresh=1) bypasses the cache.
+let imgModelsCache: { at: number; payload: any } | null = null
+const IMG_MODELS_CACHE_TTL_MS = 10 * 60_000
+
+router.get('/imagestudio/models', async (req, res) => {
   try {
     const { listAvailableModels, DEFAULT_IMAGESTUDIO_BASE_URL } = await import('../lib/imagestudio-client.js')
+    const { parseEndpoints } = await import('../lib/endpoint-pool.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const stored = await getApiKey('imagestudio')
-    const baseUrl = firstEndpoint(stored) || DEFAULT_IMAGESTUDIO_BASE_URL
-    if (!baseUrl) { res.json({ ok: false, configured: false, models: [], baseUrl: '' }); return }
-    const result = await listAvailableModels(baseUrl)
-    res.json({ ...result, configured: !!stored, baseUrl })
+    const eps = parseEndpoints(stored)
+    const candidates = (eps.length ? eps : [DEFAULT_IMAGESTUDIO_BASE_URL]).filter(Boolean)
+    if (!candidates.length) { res.json({ ok: false, configured: false, models: [], baseUrl: '' }); return }
+
+    // Try up to the first 3 endpoints for a non-empty catalog — when one Mac is
+    // busy/asleep, another idle one answers instantly. (Capped so a row of dead
+    // endpoints can't make this slow.)
+    let result: any = null
+    for (const ep of candidates.slice(0, 3)) {
+      try {
+        const r = await listAvailableModels(ep)
+        if (r?.ok && r.models?.length) { result = { ...r, baseUrl: ep }; break }
+        if (!result) result = { ...r, baseUrl: ep }
+      } catch { /* try next endpoint */ }
+    }
+    const payload = { ...(result || { ok: false, models: [] }), configured: !!stored }
+
+    if (payload.ok && payload.models?.length) {
+      imgModelsCache = { at: Date.now(), payload }   // refresh cache on a live success
+      return res.json(payload)
+    }
+    // Live probe came back empty/failed (Macs busy). Serve the last good catalog
+    // unless the caller forced a refresh.
+    const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true'
+    if (!forceRefresh && imgModelsCache && Date.now() - imgModelsCache.at < IMG_MODELS_CACHE_TTL_MS) {
+      return res.json({ ...imgModelsCache.payload, configured: !!stored, stale: true })
+    }
+    res.json(payload)
   } catch (e: any) {
+    if (imgModelsCache && Date.now() - imgModelsCache.at < IMG_MODELS_CACHE_TTL_MS) {
+      return res.json({ ...imgModelsCache.payload, stale: true })
+    }
     res.json({ ok: false, configured: false, models: [], error: e?.message || 'probe failed' })
   }
 })

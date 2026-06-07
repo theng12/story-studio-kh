@@ -4,6 +4,43 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.306 — 2026-06-08
+
+### Fixed — local image generation now uses your whole fleet of Macs
+
+If you run Image Studio on several Macs, image + thumbnail generation was only ever using **one** of them — it crawled through everything serially. Two bugs were behind it:
+
+- **It treated your whole endpoint list as a single broken URL** ("Failed to parse URL from …"). The image provider now parses the list into a pool and submits + polls on one Mac at a time, **failing over to a healthy Mac** on a connection error (the same treatment the local-LLM path got in 1.0.305).
+- **It hard-clamped concurrency to 1.** Now it probes your endpoints and renders **across every healthy Mac in parallel** (each Mac runs one inference at a time; different Macs run at once). With 5 reachable Macs, 5 images render simultaneously — roughly 5× faster. You'll see *"Local modal pool: 5/12 reachable — concurrency=5"* in the job log.
+- **Hanging Macs are skipped fast.** A Mac that's asleep-but-on-the-network used to stall a render for ~30s; a 4s pre-flight probe now skips it and moves on.
+
+Queuing a thumbnail job and a scene job at the same time is safe — they share the same least-busy pool, so the load spreads evenly across your Macs and each Mac queues its own work.
+
+### Fixed — model dropdown no longer empties when your Macs are busy
+
+The local model picker did a live probe on every open; while every Mac was mid-render, the probe timed out and the dropdown went blank. It now **caches the last good catalog** (and tries several endpoints), so the list stays put through a busy batch. Refresh still forces a live re-check.
+
+### Fixed — image Repair is split per pool
+
+On the **Thumbnail Generator**, "Image integrity / Repair missing" now shows and repairs **thumbnails only**; on the **Scene Generator**, **scenes only**. No more combined "Repair missing (35)" mixing both halves. (The zero-cost provider-history recovery is unchanged.)
+
+### Fixed — quality-of-life
+
+- **Model & voice dropdowns close on outside-click** (and Escape) — no more re-clicking the field to dismiss them.
+- **Number fields accept typed values again.** Speed / stability / similarity (and any slider-with-number field) snapped to a junk value while you typed; they now hold exactly what you type and clamp to range on blur.
+
+### Files
+- `electron/server/providers/image/imagestudio.ts` + `lib/imagestudio-client.ts` — endpoint pool + pre-flight probe.
+- `electron/server/generators/images.ts` — parallel-across-Macs concurrency.
+- `electron/server/routes/images.ts` — cached image-model list; per-pool repair.
+- `electron/server/services/image-reconciler.ts` + `boot/executors.ts` — pool-scoped repair.
+- `frontend/components/{ImageModelPicker,VoicePicker,SliderWithNumber}.vue`, `pages/projects/[slug]/images.vue` — dropdown dismiss, number-field fix, per-pool integrity card.
+
+### Verification
+- `tsc` clean; endpoint-pool 8/8, providers 18/18, format-loader 30/30. Parallel concurrency verified against the real fleet (12 endpoints → 5 healthy → concurrency 5) and in the live job log.
+
+---
+
 ## v1.0.305 — 2026-06-07
 
 ### Fixed — local LLM generation no longer freezes when a Mac is asleep
