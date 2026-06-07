@@ -4,6 +4,43 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.297 — 2026-06-07
+
+### Added — "Story guidance": optional free-text direction for the Script Generator
+Until now the outline/script LLM only ever saw what the app fed it: the format, the niche overlay, recency avoidance, and — optionally — a formal pinned cast from the Characters library. There was **no lightweight way to inject ad-hoc direction** for a single episode: "name the hero Sokha," "set it in a coastal Khmer village," "this is a tense, sleepless tone," or — the one that finally forced this feature — "stop using the same names." After 150+ TerraNash episodes the model keeps reaching for the same handful of fantasy names (Lyra, Elara, Aria, …) and there was no lever to break the rut short of editing every chapter by hand.
+
+**New "Story guidance" field** on the Script Generator → Outline tab (optional, free text, max 2000 chars), sitting just below the format/niche context and above the word counts:
+
+- Whatever you type is injected **verbatim, high-priority**, into a `PRODUCER NOTES (binding — follow these over any generic default)` block in **both** the outline prompt **and every chapter-expansion prompt** (narrative and listicle formats). So names, settings, and tone shape the actual chapter bodies — not just the outline titles.
+- It **persists to the chunked sidecar** (`generation_params.manual_guidance`), so when you Expand Chapters later, the chapters are written against the **same** guidance the outline was built with. Names introduced at outline time stay consistent through the body.
+- Leave it blank and behaviour is **byte-for-byte unchanged** — this is purely additive.
+
+### The "✨ Vary the names" button — one-click reroll for repetitive names
+The core complaint was repetition, so there's a dedicated helper next to the field:
+
+- Click it and it seeds an **editable** instruction into the guidance: *"Use fresh, varied character names that fit the setting — vary cultural origin and sound. Avoid the names this channel keeps reusing: Lyra, Elara, Aria, Kael, Elowen, Seraphina, Thorne."*
+- It also flips on **Force regenerate** (and expands the Advanced panel so you see it's on), because re-running "Generate Outline" without force would just serve the cached outline. With force + a changed prompt, even a deterministic local model returns genuinely different names.
+- You can edit the seeded names, add your own, or write something else entirely before regenerating. It's transparent and idempotent (won't stack the tip on repeated clicks).
+
+### Why a free-text field and not the Characters library
+The Characters library (sidebar) is for a **reusable cast** pinned across many episodes — names + descriptions + reference images, stored as records. Story guidance is the opposite: **one-off, throwaway direction** for the episode in front of you, with zero record-keeping overhead. The UI hint points you to Characters when you want the heavyweight version. They compose — a pinned cast plus a one-off "set this episode at night" note both flow into the prompt.
+
+### Cache correctness
+The guidance is folded into the outline's `params_hash` **conditionally** — only when it's actually set. That means:
+- Editing the guidance busts the cached outline, so a re-request genuinely regenerates (you don't get the stale draft back).
+- Episodes with **no** guidance hash exactly as they did pre-v1.0.297, so upgrading doesn't invalidate or rebuild any existing approved outline.
+
+### Files
+- `electron/server/lib/chunked-narration.ts` — `manual_guidance` on `GenerationParams` + `manualGuidance` on `ChunkedNarrationParams`; `producerNotesBlock()` injected into the narrative + listicle outline and batch prompt builders; conditional `computeParamsHash`.
+- `electron/server/generators/episode.ts` — threads the field from the request body (outline build) / sidecar snapshot (expand) into params + persisted generation_params.
+- `electron/server/contracts/index.ts` — `manual_guidance` added to `GenerateScriptOnlySchema` (max 2000).
+- `frontend/pages/projects/[slug]/scripts.vue` — Story guidance card with char counter, the "✨ Vary the names" helper, and styles.
+
+### Verification
+electron `tsc` clean · `scripts.vue` parse + compile clean · full backend test suite **1030/1030** pass.
+
+---
+
 ## v1.0.296 — 2026-06-07
 
 ### Fixed — generator pages falsely showing "Generate the script first" while status loads
