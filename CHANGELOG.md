@@ -4,6 +4,35 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.298 — 2026-06-07
+
+### Fixed — Metadata Generator gave no feedback while running or on completion
+Clicking **Generate Metadata** felt like nothing happened: no "building" indicator, the button stayed looking clickable, nothing obvious surfaced in the Jobs/notification area, and there was no clear success-vs-failure signal once it finished.
+
+**The backend was never the problem.** The `metadata` job is enqueued, the executor is registered, it runs, and it streams + lands on the Jobs page like every other job. The bug was entirely the metadata page's **in-page feedback**:
+
+- The "Generate Metadata" button's loading state was driven **only** by `metadataJobActiveForEpisode` — a computed derived from the eventually-consistent jobs stream (SSE / poll). The user's own synchronous "I just clicked generate" flag (`genAll`, flipped true instantly) was **never wired to the button**. So from the click until the job propagated through the stream — and for a fast local-model run, possibly the *entire* duration — the button showed no spinner and stayed enabled.
+- Once it finished, the only signals were transient toasts (which fade in 5s) — easy to miss, and nothing persistent told you whether it succeeded or failed.
+
+### The fix (frontend only)
+- **Immediate, guaranteed button feedback.** New `metadataBusy = genAll || metadataJobActiveForEpisode`. `genAll` covers the user's own click instantly; the jobs-derived flag still covers the "switched to another episode and came back" case (which is why it existed). The spinner + "Generating…" + disabled state now appear the moment you click, for the whole run — no dead window.
+- **Persistent result banner** under the action bar that outlives the toast:
+  - running → `⟳ Generating metadata for TN0161… you can switch episodes, it keeps running in the background`
+  - success → `✓ Metadata generated for TN0161 — latest version applied below` (with a Dismiss link)
+  - error → `✗ <the actual error message>` so you always know it failed *and why*
+  - cancelled → `⊘ …`
+  It clears automatically when you switch episodes (the old result no longer applies).
+- **Readable job labels everywhere.** `JOB_TYPE_LABELS` was missing `metadata` — so the Jobs panel and completion toasts rendered the raw slug ("metadata completed"). Fixed, and while there, filled in ~20 other missing types (video, video assembly, research, scene plan, subtitles, b-roll *, outline, chapter expansion, image prompts, …). The whole Jobs panel now reads in plain English.
+
+### Files
+- `frontend/pages/projects/[slug]/metadata.vue` — `metadataBusy` computed driving the button; persistent `lastGenResult` banner set across all outcome branches of `generateAll`; cleared on episode switch; styles.
+- `frontend/composables/useJobs.ts` — completed `JOB_TYPE_LABELS` to cover the full JobType union.
+
+### Verification
+metadata.vue parse + compile clean · useJobs.ts transpiles clean · full frontend build (`nuxt generate`) clean.
+
+---
+
 ## v1.0.297 — 2026-06-07
 
 ### Added — "Story guidance": optional free-text direction for the Script Generator
