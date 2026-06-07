@@ -4,6 +4,29 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.302 — 2026-06-07
+
+### Added — format badge on project cards
+The home-page project cards now show **which format each project follows** (e.g. `📐 Narrative Video`, `📐 Narrated Scenes`) next to Prefix / Created. The label resolves live from the format registry, so it stays correct even as formats are renamed, and legacy alias ids (`sleep-story`) resolve to their effective name rather than a dead id. `format_id` is now included in the `/projects` summary response.
+
+### Changed — Format settings page de-cluttered
+The Format tab stacked three co-equal sections that confused every user: the format picker, **Content mode** (Format-shaped vs Freeform), and **Per-project overrides** (Script/Image/Metadata/Ideas field tabs). The latter two are power-user tuning that ~95% of users never touch, yet they confronted everyone every visit.
+
+Now the default view is just **the format picker + its description**. Content mode and per-field overrides moved into a single collapsed **"Advanced — content mode + per-field overrides"** disclosure (its open/closed state persists per project, so a power user who lives in there isn't re-collapsing it each visit). Capability is unchanged — just tiered by how often you actually need it.
+
+### Fixed — stale Format description
+The Format tab blurb claimed *"Default for new projects is sleep-story. We ship 8 format presets — sleep-story, listicle, documentary, educational, comedy, adventure, true-crime, kids-fairytale."* **None of those 8 exist** — they were consolidated into the real formats back in v1.0.162, so the copy had been lying for ~140 versions. Rewritten **generically** (it explains what a format *is* and points at the descriptions below rather than hardcoding a list), so it can't go stale again as formats change.
+
+### Files
+- `electron/server/services/project-manager.ts` + `models/types.ts` + `contracts/index.ts` — `format_id` in the project summary.
+- `frontend/pages/index.vue` — `formatLabel()` helper + card chip + styles.
+- `frontend/pages/projects/[slug]/settings.vue` — Advanced disclosure wrapping Content mode + overrides; rewritten description.
+
+### Verification
+electron `tsc` clean · index + settings SFCs compile · full backend suite **1030/1030**.
+
+---
+
 ## v1.0.301 — 2026-06-07
 
 ### Changed — Narrated Scenes now exposes Research + Character Sheet as OPTIONAL steps

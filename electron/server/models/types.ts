@@ -1352,6 +1352,11 @@ export interface ProjectSummary {
   output_root_exists?: boolean
   /** iCloud sync state — see `ProjectSummaryStatus`. */
   status?: ProjectSummaryStatus
+  /** v1.0.302 — the project's configured `format_id` (raw; may be a legacy
+   *  alias). The home page maps it to a friendly format name for the card
+   *  badge. Undefined for projects with no format_id set (→ shown as the
+   *  default format). */
+  format_id?: string
 }
 
 // ── Config ──────────────────────────────────────────────────────────────────

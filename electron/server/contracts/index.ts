@@ -241,6 +241,8 @@ export interface ProjectSummaryResponse {
   episode_prefix: string
   created_at: string
   has_api_keys: boolean
+  /** v1.0.302 — raw configured format id; the home page maps it to a label. */
+  format_id?: string
 }
 
 // ── Settings ────────────────────────────────────────────────────────────────

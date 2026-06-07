@@ -237,6 +237,11 @@
             <div class="project-card-meta">
               <span>Prefix: {{ project.episode_prefix }}</span>
               <span>Created {{ formatDate(project.created_at) }}</span>
+              <span
+                v-if="formatLabel(project.format_id)"
+                class="project-format-chip"
+                :title="`This project's video format — change it in Settings → Format.`"
+              >📐 {{ formatLabel(project.format_id) }}</span>
             </div>
           </div>
         </template>
@@ -1346,6 +1351,20 @@ type FormatLite = { id: string; name: string; description?: string; builtin?: bo
 const DEFAULT_FORMAT_ID = 'narrative'
 const formats = ref<FormatLite[]>([])
 const formatsLoading = ref(false)
+
+// v1.0.302 — compact format label for the project-card badge. Maps the raw
+// format_id to its friendly name (stripping the parenthetical so the chip
+// stays short), falling back to the default format for unknown / legacy
+// alias ids (e.g. 'sleep-story' → 'Narrative Video'). Returns '' until the
+// formats list has loaded, so the chip simply doesn't render yet.
+function formatLabel(id?: string): string {
+  if (!formats.value.length) return ''
+  const fid = id || DEFAULT_FORMAT_ID
+  const f = formats.value.find(ff => ff.id === fid)
+    || formats.value.find(ff => ff.id === DEFAULT_FORMAT_ID)
+  const name = f?.name || ''
+  return name.split(' (')[0]!.trim()
+}
 
 // Carousel scroll state (v1.0.70). Tracks whether the format-cards
 // strip can scroll further in either direction so the chevron buttons
@@ -2668,9 +2687,21 @@ onMounted(async () => {
 
 .project-card-meta {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
   font-size: 12px;
   color: var(--text-muted);
+}
+/* v1.0.302 — format badge on the project card. */
+.project-format-chip {
+  margin-left: auto;
+  background: var(--accent-dim, rgba(240, 198, 116, 0.12));
+  color: var(--accent, #f0c674);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 /* Modal */

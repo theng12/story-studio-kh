@@ -279,13 +279,13 @@
         <div>
           <h3>Format</h3>
           <p class="text-muted mt-1 mb-2">
-            <strong>Default for new projects is sleep-story.</strong>
-            We ship 8 format presets — sleep-story, listicle, documentary,
-            educational, comedy, adventure, true-crime, kids-fairytale.
-            Pick one above, override fields per-project below, or create your
-            own from a sample script via "+ Create from Sample".
-            Built-in formats live in the app bundle; custom formats live alongside your
-            projects and can be exported as <code>.json</code> files for sharing.
+            The <strong>format</strong> decides what <em>kind</em> of video this project makes —
+            it shapes the whole pipeline (how scenes are produced, which steps appear).
+            Pick one below; each has a description so you can tell them apart.
+            Fine-tuning (content mode + per-field overrides) lives under <strong>Advanced</strong>,
+            and you can build your own from a sample script via "+ Create from Sample".
+            Built-in formats ship with the app; custom formats live alongside your projects
+            and export as <code>.json</code> for sharing.
           </p>
         </div>
         <button class="btn btn-secondary btn-sm" @click="formatWizardOpen = true">
@@ -295,34 +295,44 @@
 
       <FormatPicker v-model="formatId" @change="onFormatChanged" />
 
-      <!-- v1.0.270 — content mode: does the format shape the IDEAS + SCRIPT, or
-           only the visuals? -->
-      <div class="cm-box mt-3">
-        <label class="cm-label">Content mode</label>
-        <div class="cm-options">
-          <label class="cm-opt" :class="{ active: contentMode === 'format' }">
-            <input type="radio" value="format" v-model="contentMode" />
-            <div>
-              <strong>Format-shaped</strong> <span class="text-muted text-xs">(default)</span>
-              <div class="text-muted text-xs">The format shapes ideas, titles, and script voice/structure — and the visuals.</div>
-            </div>
-          </label>
-          <label class="cm-opt" :class="{ active: contentMode === 'freeform' }">
-            <input type="radio" value="freeform" v-model="contentMode" />
-            <div>
-              <strong>Freeform</strong>
-              <div class="text-muted text-xs">The format drives <em>visuals only</em>. Ideas + script use neutral prompts, so you're not boxed into the format's narrative recipe. (Narrator styles, chapter counts, and pacing still apply.)</div>
-            </div>
-          </label>
+      <!-- v1.0.302 — Content mode + per-field overrides are power-user tuning;
+           tucked under one Advanced disclosure so the default view is just
+           "pick a format". persistKey remembers the open state per project so
+           a power user who lives in here isn't re-collapsing it every visit. -->
+      <AdvancedDisclosure
+        class="mt-3"
+        label="Advanced — content mode + per-field overrides"
+        :persist-key="`format_advanced_open_${slug}`"
+      >
+        <!-- v1.0.270 — content mode: does the format shape the IDEAS + SCRIPT, or
+             only the visuals? -->
+        <div class="cm-box">
+          <label class="cm-label">Content mode</label>
+          <div class="cm-options">
+            <label class="cm-opt" :class="{ active: contentMode === 'format' }">
+              <input type="radio" value="format" v-model="contentMode" />
+              <div>
+                <strong>Format-shaped</strong> <span class="text-muted text-xs">(default)</span>
+                <div class="text-muted text-xs">The format shapes ideas, titles, and script voice/structure — and the visuals.</div>
+              </div>
+            </label>
+            <label class="cm-opt" :class="{ active: contentMode === 'freeform' }">
+              <input type="radio" value="freeform" v-model="contentMode" />
+              <div>
+                <strong>Freeform</strong>
+                <div class="text-muted text-xs">The format drives <em>visuals only</em>. Ideas + script use neutral prompts, so you're not boxed into the format's narrative recipe. (Narrator styles, chapter counts, and pacing still apply.)</div>
+              </div>
+            </label>
+          </div>
         </div>
-      </div>
 
-      <div class="mt-3">
-        <FormatOverrideEditor
-          v-model="formatOverrides"
-          :base-format="selectedBaseFormat"
-        />
-      </div>
+        <div class="mt-3">
+          <FormatOverrideEditor
+            v-model="formatOverrides"
+            :base-format="selectedBaseFormat"
+          />
+        </div>
+      </AdvancedDisclosure>
 
       <div class="mt-3 button-row">
         <button class="btn btn-primary" :disabled="formatSaving || !formatDirty" @click="saveFormatSettings">

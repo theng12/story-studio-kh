@@ -573,6 +573,11 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       // the synced badge it powered is gone.)
       output_root: outputRootAbs,
       output_root_exists: outputRootExists,
+      // v1.0.302 — surfaced so the home-page card can show which format the
+      // project follows. Raw id only (e.g. 'narrated-scenes' or the legacy
+      // 'sleep-story' alias); the frontend maps it to a friendly name via the
+      // format registry, so this stays correct even as formats are renamed.
+      format_id: typeof meta.format_id === 'string' ? meta.format_id : undefined,
       status: 'ready',
     }
   }))
