@@ -4,6 +4,38 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.300 — 2026-06-07
+
+### Added — "Narrated Scenes" format (Phase 1 of the sleep-story continuity flow)
+First, fully-additive step toward moving sleep stories to a transcript-driven visual flow for proper coherence. This release **adds a new format and pipeline** but changes **nothing** about any existing project — TerraNash stays on its current flow until you explicitly switch it (a later, confirmed step).
+
+**New format: `narrated-scenes`** (`visualSource: "narrated-scenes"`):
+- Same writing voice as **Narrative** (the idea/script/metadata content is identical — bedtime stories, folklore, gentle fiction), but the **visual pipeline is transcript-driven**: scenes are planned *after* the audio exists, against the actual spoken-word timeline, instead of being distributed evenly across chapters.
+- Pipeline: **Script → Metadata → Thumbnail Prompts → Thumbnails → Audio → Audio Assembly → Subtitles → Scene Plan → Scene Review → Video Assembly.**
+- **No Research step** (this is fiction — nothing to fact-check; that's what `narration-synced` is for) and **no Character Sheet / img2img lock** (that's `continuity-chain`, for a fixed recurring character). Just the clean audio-paced scene-planning flow.
+- **Scene pacing is dynamic** — the planner cuts on natural narration beats (default 3–12s band) rather than a fixed cadence, so scene length follows the story.
+- Visual style defaults tuned soft/dreamlike for sleep ("muted, warm palette, gentle light, unhurried composition").
+
+### Wiring (so the new format behaves everywhere)
+The pipeline step-chain, the flow ribbon, the sidebar nav (Scene Plan / Scene Review / Video Assembly appear; Research + Character Sheet stay hidden), and the video-assembly tab selector are all now `narrated-scenes`-aware. The Scene Plan generator already handles it — it falls through to the default dynamic pacing band (no special config needed).
+
+### Not yet (deliberately)
+- **The video assembly for this flow is still the simple timestamp assembler.** Bringing the rich scene-tab controls (assets check, intro, effects, subtitles styling, export) to it is **Phase 2**, landing across the next releases via a *unified* wizard (no forked code).
+- **TerraNash is NOT switched yet.** It stays on its current `narrative`-based flow. The switch is **Phase 3**, a single confirmed config flip — your 384 existing episodes keep their assets untouched.
+
+### Files
+- `electron/server/formats/narrated-scenes.json` (NEW) — the format.
+- `electron/server/models/types.ts` — `'narrated-scenes'` added to the `visualSource` union.
+- `frontend/pages/projects/[slug]/pipeline.vue` — `CHAIN_NARRATED_SCENES` (timestamp chain minus Research/Character Sheet) + wiring.
+- `frontend/layouts/dashboard.vue` — sidebar nav recognizes the new flow.
+- `frontend/components/VideoPipelineTabs.vue` — maps to the timestamp assembly tab.
+- `frontend/composables/useProjectFlow.ts` — `FLOW_NARRATED_SCENES` for the flow ribbon.
+
+### Verification
+electron `tsc` clean · new format loads + validates · pipeline/dashboard/VideoPipelineTabs SFCs compile · useProjectFlow transpiles · full backend suite **1030/1030**.
+
+---
+
 ## v1.0.299 — 2026-06-07
 
 ### Fixed — generator gates stuck on "Checking script status…" on large projects

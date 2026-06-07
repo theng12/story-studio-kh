@@ -515,14 +515,16 @@ const { config, refreshConfig } = useProject()
 //     gate by design), so they appear as "Open page →" nodes too.
 // External (non-batchable) nodes are display-only: they document the real
 // chain order but are never enqueued by Run Batch.
-const visualSource = ref<'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain'>('scene-images')
+type VS = 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
+const visualSource = ref<VS>('scene-images')
 async function loadVisualSource(): Promise<void> {
   if (!slug.value) return
   try {
-    const f = await get<{ visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' }>(`/projects/${slug.value}/effective-format`)
+    const f = await get<{ visualSource?: VS }>(`/projects/${slug.value}/effective-format`)
     if (f?.visualSource === 'broll') visualSource.value = 'broll'
     else if (f?.visualSource === 'timestamp-driven') visualSource.value = 'timestamp-driven'
     else if (f?.visualSource === 'continuity-chain') visualSource.value = 'continuity-chain'
+    else if (f?.visualSource === 'narrated-scenes') visualSource.value = 'narrated-scenes'
     else visualSource.value = 'scene-images'
   } catch { /* leave as default — scene-images is the safe superset */ }
 }
@@ -531,11 +533,16 @@ const isTimestampDriven = computed(() => visualSource.value === 'timestamp-drive
 // v1.0.187+ — continuity-chain shares the audio-paced (timestamp) chain
 // but inserts a Character Sheet node and renders scenes sequentially.
 const isContinuityChain = computed(() => visualSource.value === 'continuity-chain')
+// v1.0.300 — narrated-scenes: transcript-driven scene plan for STORY/fiction
+// (sleep stories). Same audio-paced flow as timestamp-driven but WITHOUT the
+// Research node (fiction has nothing to fact-check) and WITHOUT a Character
+// Sheet (no img2img lock).
+const isNarratedScenes = computed(() => visualSource.value === 'narrated-scenes')
 // Scene-only steps (scene prompts, scene images, AI video clips) are
 // irrelevant for the alternative pipelines — broll pulls visuals from a
-// pool; timestamp-driven + continuity-chain place them against the audio
-// timeline.
-const hidesScenePages = computed(() => isBroll.value || isTimestampDriven.value || isContinuityChain.value)
+// pool; timestamp-driven / continuity-chain / narrated-scenes place them
+// against the audio timeline.
+const hidesScenePages = computed(() => isBroll.value || isTimestampDriven.value || isContinuityChain.value || isNarratedScenes.value)
 watch(slug, () => { void loadVisualSource() }, { immediate: true })
 
 // ── Step metadata ──────────────────────────────────────────────────────
@@ -681,11 +688,22 @@ const CHAIN_CONTINUITY: ChainSpec = [
   { external: 'character_sheet' },
   { external: 'scene_plan' }, { external: 'scene_review' }, { external: 'timestamp_assemble' },
 ]
+// Narrated-scenes (v1.0.300) — the timestamp chain for STORY/fiction. Same
+// audio-paced scene planning, but NO Research node (fiction has nothing to
+// fact-check) and NO Character Sheet (no img2img lock). Scenes are placed on
+// the Scene Review page, so no batchable scene/image step here.
+const CHAIN_NARRATED_SCENES: ChainSpec = [
+  'script-only', 'introduction-only', 'metadata',
+  'image_prompts', 'thumb_images',
+  'audio', 'audio_merge',
+  { external: 'scene_plan' }, { external: 'scene_review' }, { external: 'timestamp_assemble' },
+]
 
 const activeChainSpec = computed<ChainSpec>(() => {
   if (isBroll.value) return CHAIN_BROLL
   if (isTimestampDriven.value) return CHAIN_TIMESTAMP
   if (isContinuityChain.value) return CHAIN_CONTINUITY
+  if (isNarratedScenes.value) return CHAIN_NARRATED_SCENES
   return CHAIN_SCENE_IMAGES
 })
 
@@ -718,6 +736,7 @@ const chainLabel = computed(() => {
   if (isBroll.value) return 'B-Roll (stock footage)'
   if (isTimestampDriven.value) return 'narration-synced (timestamp-driven)'
   if (isContinuityChain.value) return 'continuity-chain (character-locked, live-paced)'
+  if (isNarratedScenes.value) return 'narrated-scenes (story, transcript-driven)'
   return 'scene-images'
 })
 const hasExternalNodes = computed(() => chainEntries.value.some(e => e.kind === 'external'))

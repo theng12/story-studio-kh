@@ -580,7 +580,7 @@ export interface Format {
    *     Sheet page. Research is available too (optional — handy when the
    *     niche is factual).
    */
-  visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain'
+  visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
 }
 
 // ── Niche primitive (subject-domain layer, orthogonal to Format) ───────────

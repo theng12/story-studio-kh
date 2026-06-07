@@ -55,7 +55,7 @@ async function loadPipeline(): Promise<void> {
     const fmt = await get<{ visualSource?: string }>(`/projects/${slug.value}/effective-format`)
     const vs = fmt?.visualSource
     if (vs === 'broll') { applicableTab.value = 'broll'; pipelineLabel.value = 'B-Roll' }
-    else if (vs === 'timestamp-driven' || vs === 'continuity-chain') { applicableTab.value = 'timestamps'; pipelineLabel.value = 'timestamp-driven' }
+    else if (vs === 'timestamp-driven' || vs === 'continuity-chain' || vs === 'narrated-scenes') { applicableTab.value = 'timestamps'; pipelineLabel.value = 'timestamp-driven' }
     else { applicableTab.value = 'scenes'; pipelineLabel.value = 'scene-images' }
   } catch { applicableTab.value = null }
 }

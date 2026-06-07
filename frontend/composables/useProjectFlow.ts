@@ -33,7 +33,7 @@ import { useRoute } from 'vue-router'
  * Library/Jobs/Settings are intentionally NOT steps — they're tools, not
  * stages of the creation chain.
  */
-export type VisualSource = 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain'
+export type VisualSource = 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
 
 export interface FlowStep {
   /** Stable key for v-for + current-step matching. */
@@ -90,11 +90,20 @@ const FLOW_CONTINUITY: FlowStep[] = [
   STEP.audio, STEP.audioMerge, STEP.subtitles,
   STEP.characterSheet, STEP.scenePlan, STEP.sceneReview, STEP.timestampAssemble,
 ]
+// v1.0.300 — narrated-scenes: story/fiction on the audio-paced flow. Like
+// timestamp WITHOUT Research (fiction) and WITHOUT a Character Sheet.
+const FLOW_NARRATED_SCENES: FlowStep[] = [
+  STEP.ideas, STEP.script, STEP.metadata,
+  STEP.thumbPrompts, STEP.thumbnails,
+  STEP.audio, STEP.audioMerge, STEP.subtitles,
+  STEP.scenePlan, STEP.sceneReview, STEP.timestampAssemble,
+]
 
 export function flowForVisualSource(vs: VisualSource): FlowStep[] {
   if (vs === 'broll') return FLOW_BROLL
   if (vs === 'timestamp-driven') return FLOW_TIMESTAMP
   if (vs === 'continuity-chain') return FLOW_CONTINUITY
+  if (vs === 'narrated-scenes') return FLOW_NARRATED_SCENES
   return FLOW_SCENE_IMAGES
 }
 

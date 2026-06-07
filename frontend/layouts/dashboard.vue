@@ -452,14 +452,16 @@ const { refreshReadiness } = useNotifications()
 // when visuals are placed against the audio timeline rather than
 // pre-planned). isBroll + isTimestampDriven are mutually exclusive
 // flags driven off the same source so templates can branch cleanly.
-const visualSource = ref<'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain'>('scene-images')
+type VS = 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
+const visualSource = ref<VS>('scene-images')
 async function loadVisualSource(): Promise<void> {
   if (!slug.value) return
   try {
-    const f = await apiGet<{ visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' }>(`/projects/${slug.value}/effective-format`)
+    const f = await apiGet<{ visualSource?: VS }>(`/projects/${slug.value}/effective-format`)
     if (f?.visualSource === 'broll') visualSource.value = 'broll'
     else if (f?.visualSource === 'timestamp-driven') visualSource.value = 'timestamp-driven'
     else if (f?.visualSource === 'continuity-chain') visualSource.value = 'continuity-chain'
+    else if (f?.visualSource === 'narrated-scenes') visualSource.value = 'narrated-scenes'
     else visualSource.value = 'scene-images'
   } catch { /* leave as default */ }
 }
@@ -470,16 +472,22 @@ const isTimestampDriven = computed(() => visualSource.value === 'timestamp-drive
 // scene-prompts/generator pages, but adds a Character Sheet step and has NO
 // Research phase.
 const isContinuityChain = computed(() => visualSource.value === 'continuity-chain')
+// v1.0.300 — narrated-scenes: story/fiction on the audio-paced pipeline.
+// Shares Scene Plan / Scene Review / Timestamp Assemble, but NO Research and
+// NO Character Sheet (see usesScenePlan; Research + Character Sheet nav stay
+// gated on their own flags below, which narrated-scenes deliberately fails).
+const isNarratedScenes = computed(() => visualSource.value === 'narrated-scenes')
 /** True when the active pipeline plans scenes against the actual audio
- *  timeline (timestamp-driven OR continuity-chain) — these share the
- *  Scene Plan / Scene Review pages and route assembly to /timestamp-assemble. */
-const usesScenePlan = computed(() => isTimestampDriven.value || isContinuityChain.value)
+ *  timeline (timestamp-driven, continuity-chain, OR narrated-scenes) — these
+ *  share the Scene Plan / Scene Review pages and route assembly to
+ *  /timestamp-assemble. */
+const usesScenePlan = computed(() => isTimestampDriven.value || isContinuityChain.value || isNarratedScenes.value)
 /** True when the active pipeline plans scenes against the actual
  *  audio timeline OR pulls them from a B-Roll pool — i.e. NOT the
  *  classic scene-images pipeline. Used by sidebar entries that the
  *  same way for both alternative pipelines (Scene Prompts / Scene
  *  Generator / Video Generator are all hidden when this is true). */
-const hidesScenePages = computed(() => isBroll.value || isTimestampDriven.value || isContinuityChain.value)
+const hidesScenePages = computed(() => isBroll.value || isTimestampDriven.value || isContinuityChain.value || isNarratedScenes.value)
 watch(slug, () => { void loadVisualSource() }, { immediate: true })
 // v1.0.146+ — also re-fetch the effective format when the project's
 // format_id / brand_id / niche_id changes, even while staying on the
