@@ -18,7 +18,7 @@
  * OpenAI SDK pointed at {base}/v1.
  */
 
-import { parseEndpoints, createDispatcher, type Dispatcher } from './endpoint-pool.js'
+import { parseEndpoints, parseEnabledEndpoints, createDispatcher, type Dispatcher } from './endpoint-pool.js'
 
 /** No universal default — it's the user's own machine. Empty = unconfigured. */
 export const DEFAULT_LMSTUDIO_BASE_URL = ''
@@ -116,7 +116,7 @@ export async function listModelsPooled(
   stored: string | null | undefined,
   timeoutMs = 2500,
 ): Promise<string[]> {
-  const eps = parseEndpoints(stored)
+  const eps = parseEnabledEndpoints(stored)
   if (eps.length === 0) return []
   if (eps.length === 1) return listModels(eps[0]!, timeoutMs)
   const lists = await Promise.all(eps.map(u => listModels(u, timeoutMs).catch(() => [])))
@@ -170,7 +170,7 @@ function endpointsKey(eps: string[]): string {
 export function getLmstudioDispatcher(
   stored: string | null | undefined,
 ): { dispatcher: Dispatcher | null; endpoints: string[] } {
-  const eps = parseEndpoints(stored)
+  const eps = parseEnabledEndpoints(stored)
   if (eps.length <= 1) return { dispatcher: null, endpoints: eps }
   const key = endpointsKey(eps)
   let d = dispatcherCache.get(key)
@@ -189,7 +189,7 @@ export function getLmstudioDispatcher(
  * a fair retry. Safe to call when no dispatcher exists (no-op).
  */
 export function resetLmstudioDispatcher(stored: string | null | undefined): void {
-  const eps = parseEndpoints(stored)
+  const eps = parseEnabledEndpoints(stored)
   if (eps.length === 0) return
   dispatcherCache.delete(endpointsKey(eps))
 }

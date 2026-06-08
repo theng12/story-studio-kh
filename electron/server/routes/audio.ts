@@ -404,10 +404,11 @@ router.get('/voicestudio/base-url', async (_req, res) => {
   try {
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const { DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
-    const { getEndpointLabels } = await import('../services/app-settings.js')
+    const { getEndpointLabels, getDisabledEndpoints } = await import('../services/app-settings.js')
     const stored = await getApiKey('voicestudio')
     const labels = await getEndpointLabels('voicestudio')
-    res.json({ baseUrl: stored || '', defaultBaseUrl: DEFAULT_VOICESTUDIO_BASE_URL, labels })
+    const disabled = await getDisabledEndpoints('voicestudio')
+    res.json({ baseUrl: stored || '', defaultBaseUrl: DEFAULT_VOICESTUDIO_BASE_URL, labels, disabled })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not read Voice Studio base URL'))
   }
@@ -428,11 +429,14 @@ router.put('/voicestudio/base-url', async (req, res) => {
     }
     const cleaned = urls.join(', ')
     const { setApiKey } = await import('../services/app-secrets-store.js')
-    const { setEndpointLabelsForUrls } = await import('../services/app-settings.js')
+    const { setEndpointLabelsForUrls, setDisabledEndpointsForUrls } = await import('../services/app-settings.js')
+    const { setDisabledEndpoints } = await import('../lib/endpoint-pool.js')
     await setApiKey('voicestudio', cleaned)
     // parseEndpoints already stripped trailing slashes, so `urls` are the cleaned keys.
     const labels = await setEndpointLabelsForUrls('voicestudio', urls, req.body?.labels)
-    res.json({ ok: true, baseUrl: cleaned, labels })
+    const disabled = await setDisabledEndpointsForUrls('voicestudio', urls, req.body?.disabled)
+    setDisabledEndpoints('voicestudio', disabled)
+    res.json({ ok: true, baseUrl: cleaned, labels, disabled })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not save Voice Studio base URL'))
   }

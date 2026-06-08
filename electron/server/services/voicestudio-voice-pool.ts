@@ -44,7 +44,7 @@
  *   unreachable endpoint's voices are silently dropped.
  */
 
-import { parseEndpoints } from '../lib/endpoint-pool.js'
+import { parseEnabledEndpoints } from '../lib/endpoint-pool.js'
 import { listVoices, type VoiceStudioLibraryVoice } from '../lib/voicestudio-client.js'
 
 export interface PooledVoice {
@@ -113,7 +113,7 @@ export function clearVoicePoolCache(): void {
  * should fall back to the historical single-endpoint behaviour).
  */
 export async function resolveVoicePool(stored: string | null | undefined): Promise<VoicePoolResult> {
-  const endpoints = parseEndpoints(stored)
+  const endpoints = parseEnabledEndpoints(stored)
   if (endpoints.length === 0) {
     return {
       endpoints: [], reachableEndpoints: [], unreachableEndpoints: [],

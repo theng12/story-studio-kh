@@ -36,7 +36,7 @@ import path from 'path'
 import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
 import { sleepCancellable } from './http-retry.js'
-import { parseEndpoints, createDispatcher, type Dispatcher } from './endpoint-pool.js'
+import { parseEndpoints, parseEnabledEndpoints, createDispatcher, type Dispatcher } from './endpoint-pool.js'
 
 // ── Multi-endpoint dispatcher (v1.0.306) ────────────────────────────────────
 // The Image Studio URL setting may hold SEVERAL base URLs (one per Mac running
@@ -61,7 +61,7 @@ export function imagestudioFirst(stored: string | null | undefined): string {
 export function getImagestudioDispatcher(
   stored: string | null | undefined,
 ): { dispatcher: Dispatcher | null; endpoints: string[] } {
-  const eps = parseEndpoints(stored)
+  const eps = parseEnabledEndpoints(stored)
   if (eps.length <= 1) return { dispatcher: null, endpoints: eps }
   const key = imgEndpointsKey(eps)
   let d = imgDispatcherCache.get(key)

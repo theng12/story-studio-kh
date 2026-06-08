@@ -22,6 +22,54 @@ export function parseEndpoints(stored: string | null | undefined): string[] {
     .filter(Boolean)
 }
 
+// ── Manually-disabled endpoints (v1.0.311) ──────────────────────────────────
+// The user can switch an individual Mac OFF in Settings (e.g. a coworker's
+// machine that's powered down on weekends, or one they need full CPU on). A
+// disabled endpoint is filtered OUT of every dispatch + auto-probe path, so it
+// is never health-checked and never sent work — no wasted probe time, no
+// dipping into that machine's CPU. The state is persisted per-provider in
+// app-settings (endpoint_disabled) and mirrored here in-memory so the hot,
+// SYNCHRONOUS dispatcher/probe paths can filter without an async read.
+//
+// Keyed by full cleaned URL. Local providers use distinct fixed ports
+// (LM Studio :1234, Image Studio :47868, Voice Studio :47870), so a URL is
+// unambiguous across providers — the union below is safe and lets callers
+// filter without threading a providerId through every call site.
+const disabledByProvider: Record<string, Set<string>> = {}
+let disabledUnion = new Set<string>()
+
+function cleanEndpointKey(u: string): string {
+  return (u || '').replace(/\/+$/, '').trim()
+}
+function rebuildDisabledUnion(): void {
+  const next = new Set<string>()
+  for (const set of Object.values(disabledByProvider)) for (const u of set) next.add(u)
+  disabledUnion = next
+}
+
+/** Replace the disabled-URL set for one provider (called at boot + on toggle). */
+export function setDisabledEndpoints(providerId: string, urls: string[]): void {
+  disabledByProvider[providerId] = new Set((urls || []).map(cleanEndpointKey).filter(Boolean))
+  rebuildDisabledUnion()
+}
+
+/** True when the URL has NOT been manually switched off. */
+export function isEndpointEnabled(url: string): boolean {
+  return !disabledUnion.has(cleanEndpointKey(url))
+}
+
+/**
+ * Like parseEndpoints, but drops any endpoint the user has switched off in
+ * Settings. Use this on every DISPATCH + auto-probe path so disabled Macs are
+ * never contacted. The explicit "Test" button path keeps using parseEndpoints
+ * so the user can still test a machine before re-enabling it.
+ */
+export function parseEnabledEndpoints(stored: string | null | undefined): string[] {
+  const all = parseEndpoints(stored)
+  if (disabledUnion.size === 0) return all
+  return all.filter(u => !disabledUnion.has(cleanEndpointKey(u)))
+}
+
 /** Probe every URL concurrently; partition into online / offline. A probe that
  *  throws counts as offline. */
 export async function healthyEndpoints(

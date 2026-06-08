@@ -4,6 +4,33 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.311 — 2026-06-08
+
+### Added — On/Off switch per local endpoint (skip the Macs you know are off)
+
+Each Mac in your local pools (LM Studio / Image Studio / Voice Studio) now has an **On / Off** toggle in **Settings → Local Models**. Switch one **Off** and the app treats it as if it weren't there:
+
+- **Never probed** — health checks, model-list lookups, and "Test all" all skip it. No wasted seconds waiting on a machine you know is asleep.
+- **Never sent work** — generation only dispatches across the **On** endpoints.
+- **No CPU touched** — nothing is sent to that Mac at all, so a coworker who needs their full machine for the day isn't disturbed. Flip it back On when they're free.
+
+The URL stays saved while it's Off, so you don't have to retype it — it's a quick toggle, not a delete. The state persists across app restarts. (At least one endpoint must stay On; the single per-row **Test** button still works on an Off endpoint if you want to check it before switching it back on.)
+
+Why: on a channel running many Macs, some are coworkers' machines that aren't on every day (weekends, variable schedules), and probing a powered-down or busy Mac just wastes time and risks dipping into CPU someone else needs.
+
+### Files
+- `electron/server/lib/endpoint-pool.ts` — in-memory disabled-endpoint registry + `parseEnabledEndpoints` (filters every dispatch + auto-probe path; the explicit Test path stays unfiltered).
+- `electron/server/services/app-settings.ts` — persisted per-provider `endpoint_disabled` store.
+- `electron/server/boot/migrations.ts` — primes the registry at startup.
+- `electron/server/lib/{lmstudio,imagestudio,voicestudio}-client.ts`, `services/voicestudio-voice-pool.ts`, `generators/images.ts`, `routes/images.ts` — dispatch + probe paths now use the enabled-only endpoint list.
+- `electron/server/routes/{lmstudio.ts,images.ts,audio.ts}` — base-url GET returns the off-set; PUT persists it + updates the live registry.
+- `frontend/components/EndpointListEditor.vue` — per-row On/Off toggle.
+
+### Verification
+- Backend `tsc` clean; **1051 backend tests pass** including new registry tests (`parseEnabledEndpoints` filters the disabled set across providers, trailing-slash-insensitive, and is a no-op when nothing is off). Live round-trip verified against the real 12-endpoint Image Studio pool: a PUT disabling one endpoint persisted, the model probe still worked, and the exact original config was restored. The `nuxt generate` build compiles the editor.
+
+---
+
 ## v1.0.310 — 2026-06-08
 
 ### Added — Import an asset right from its generator page (no project-wide scan)

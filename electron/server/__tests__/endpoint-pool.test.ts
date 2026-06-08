@@ -14,6 +14,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   isConnectionError, runOnPool, createDispatcher, parseEndpoints,
+  parseEnabledEndpoints, setDisabledEndpoints, isEndpointEnabled,
 } from '../lib/endpoint-pool.js'
 
 describe('endpoint-pool', () => {
@@ -103,5 +104,38 @@ describe('endpoint-pool', () => {
     )
     assert.deepEqual(parseEndpoints(''), [])
     assert.deepEqual(parseEndpoints(null), [])
+  })
+
+  test('parseEnabledEndpoints drops manually-disabled endpoints, keeps the rest', () => {
+    // Distinct ports per provider make the union safe; we mix two providers.
+    setDisabledEndpoints('imagestudio', ['http://b:47868'])
+    setDisabledEndpoints('lmstudio', ['http://x:1234/'])  // trailing slash normalised
+
+    const stored = 'http://a:47868, http://b:47868, http://c:47868'
+    assert.deepEqual(
+      parseEnabledEndpoints(stored),
+      ['http://a:47868', 'http://c:47868'],
+      'the disabled imagestudio endpoint is filtered out',
+    )
+    assert.equal(isEndpointEnabled('http://b:47868'), false)
+    assert.equal(isEndpointEnabled('http://a:47868'), true)
+    // Trailing-slash variants of a disabled url are still recognised as off.
+    assert.equal(isEndpointEnabled('http://x:1234'), false)
+
+    // Re-enabling one provider clears only its set (union rebuilt).
+    setDisabledEndpoints('imagestudio', [])
+    assert.deepEqual(parseEnabledEndpoints(stored), ['http://a:47868', 'http://b:47868', 'http://c:47868'])
+    assert.equal(isEndpointEnabled('http://x:1234'), false, 'lmstudio set still applies')
+
+    // Clean up so we don't leak state into other test files sharing the module.
+    setDisabledEndpoints('lmstudio', [])
+  })
+
+  test('parseEnabledEndpoints with no disabled set is identical to parseEndpoints', () => {
+    setDisabledEndpoints('imagestudio', [])
+    setDisabledEndpoints('lmstudio', [])
+    setDisabledEndpoints('voicestudio', [])
+    const stored = 'http://a:1234, http://b:1234'
+    assert.deepEqual(parseEnabledEndpoints(stored), parseEndpoints(stored))
   })
 })

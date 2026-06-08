@@ -40,6 +40,15 @@ export function runBootMigrations(): void {
   // blocking the others (and without blocking startup) — boot_complete
   // means "no longer migrating", not "everything succeeded".
   const tasks: Promise<unknown>[] = []
+  // v1.0.311 — prime the in-memory disabled-endpoint registry from app-settings
+  // so any Mac the user switched OFF in Settings is filtered out from the very
+  // first dispatch/probe, not just after they next toggle it.
+  tasks.push(((async () => {
+    const { getAllDisabledEndpoints } = await import('../services/app-settings.js')
+    const { setDisabledEndpoints } = await import('../lib/endpoint-pool.js')
+    const all = await getAllDisabledEndpoints()
+    for (const [providerId, urls] of Object.entries(all)) setDisabledEndpoints(providerId, urls)
+  })()).catch(e => console.error('[migration] disabled-endpoints load failed:', e?.message || e)))
   tasks.push(migrateDescriptionToMetadata().catch(e => console.error('[migration] failed:', e)))
   tasks.push(migrateAppSecrets().then((summary) => {
     if (summary.scanned > 0 || summary.liftedProviders.length > 0) {

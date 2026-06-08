@@ -26,10 +26,11 @@ router.get('/lmstudio/base-url', async (_req, res) => {
   try {
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const { DEFAULT_LMSTUDIO_BASE_URL } = await import('../lib/lmstudio-client.js')
-    const { getEndpointLabels } = await import('../services/app-settings.js')
+    const { getEndpointLabels, getDisabledEndpoints } = await import('../services/app-settings.js')
     const stored = await getApiKey('lmstudio')
     const labels = await getEndpointLabels('lmstudio')
-    res.json({ baseUrl: stored || '', defaultBaseUrl: DEFAULT_LMSTUDIO_BASE_URL, labels })
+    const disabled = await getDisabledEndpoints('lmstudio')
+    res.json({ baseUrl: stored || '', defaultBaseUrl: DEFAULT_LMSTUDIO_BASE_URL, labels, disabled })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not read LM Studio base URL'))
   }
@@ -51,10 +52,13 @@ router.put('/lmstudio/base-url', async (req, res) => {
     const cleanedUrls = urls.map(u => u.replace(/\/+$/, ''))
     const cleaned = cleanedUrls.join(', ')
     const { setApiKey } = await import('../services/app-secrets-store.js')
-    const { setEndpointLabelsForUrls } = await import('../services/app-settings.js')
+    const { setEndpointLabelsForUrls, setDisabledEndpointsForUrls } = await import('../services/app-settings.js')
+    const { setDisabledEndpoints } = await import('../lib/endpoint-pool.js')
     await setApiKey('lmstudio', cleaned)
     const labels = await setEndpointLabelsForUrls('lmstudio', cleanedUrls, req.body?.labels)
-    res.json({ ok: true, baseUrl: cleaned, labels })
+    const disabled = await setDisabledEndpointsForUrls('lmstudio', cleanedUrls, req.body?.disabled)
+    setDisabledEndpoints('lmstudio', disabled)
+    res.json({ ok: true, baseUrl: cleaned, labels, disabled })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not save LM Studio base URL'))
   }

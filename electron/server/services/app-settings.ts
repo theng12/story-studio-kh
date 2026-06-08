@@ -464,6 +464,56 @@ export async function setEndpointLabelsForUrls(
   return filtered
 }
 
+// ── Disabled endpoints (v1.0.311) ───────────────────────────────────────────
+//
+// Which local-modal endpoints the user has manually switched OFF in Settings.
+// A disabled endpoint is never probed or dispatched to (see endpoint-pool.ts
+// parseEnabledEndpoints). Stored SEPARATELY from the URL list (which stays a
+// plain comma-joined string) and the labels, so a toggle never rewrites either.
+//   app-settings.json
+//     "endpoint_disabled": { "imagestudio": ["http://host:47868"], ... }
+// Keyed by provider id → array of cleaned (trailing-slash-stripped) URLs.
+
+export const ENDPOINT_DISABLED_KEY = 'endpoint_disabled'
+type EndpointDisabledStore = Record<string, string[]>
+
+export async function getDisabledEndpoints(providerId: string): Promise<string[]> {
+  const all = (await getAppSetting(ENDPOINT_DISABLED_KEY)) as EndpointDisabledStore | undefined
+  const forProvider = all && typeof all === 'object' ? all[providerId] : undefined
+  return Array.isArray(forProvider) ? forProvider.filter((u): u is string => typeof u === 'string') : []
+}
+
+/** Every provider's disabled set — used to prime the in-memory registry at boot. */
+export async function getAllDisabledEndpoints(): Promise<EndpointDisabledStore> {
+  const all = (await getAppSetting(ENDPOINT_DISABLED_KEY)) as EndpointDisabledStore | undefined
+  return all && typeof all === 'object' ? all : {}
+}
+
+/**
+ * Persist the OFF set for a provider, scoped to the given (already-cleaned) URL
+ * list — a disabled entry for a URL no longer in the pool is dropped. Returns
+ * the saved list.
+ */
+export async function setDisabledEndpointsForUrls(
+  providerId: string,
+  urls: string[],
+  disabled: unknown,
+): Promise<string[]> {
+  const urlSet = new Set(urls)
+  const kept = Array.isArray(disabled)
+    ? [...new Set(disabled.filter((u): u is string => typeof u === 'string' && urlSet.has(u)))]
+    : []
+  await withLock(APP_SETTINGS_PATH, async () => {
+    const settings = await readSettings()
+    const all = (settings[ENDPOINT_DISABLED_KEY] as EndpointDisabledStore) || {}
+    if (kept.length) all[providerId] = kept
+    else delete all[providerId]
+    settings[ENDPOINT_DISABLED_KEY] = all
+    await writeSettings(settings)
+  })
+  return kept
+}
+
 /**
  * Bootstrap helper: if server mode is enabled but no credentials exist,
  * AND `STORY_STUDIO_INITIAL_USERNAME` + `STORY_STUDIO_INITIAL_PASSWORD`

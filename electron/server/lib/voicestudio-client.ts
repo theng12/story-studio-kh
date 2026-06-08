@@ -34,7 +34,7 @@ import path from 'path'
 import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
 import { sleepCancellable } from './http-retry.js'
-import { parseEndpoints } from './endpoint-pool.js'
+import { parseEndpoints, parseEnabledEndpoints } from './endpoint-pool.js'
 
 /**
  * Voice Studio modal base URL default.
@@ -908,7 +908,7 @@ export async function transcribeAvailability(baseUrl: string): Promise<VoiceStud
 export async function pickFirstAvailableTranscribeEndpoint(
   stored: string | null | undefined,
 ): Promise<{ baseUrl: string; avail: VoiceStudioTranscribeAvailability } | null> {
-  const endpoints = parseEndpoints(stored)
+  const endpoints = parseEnabledEndpoints(stored)
   if (endpoints.length === 0) return null
   let lastError: Error | null = null
   for (const baseUrl of endpoints) {

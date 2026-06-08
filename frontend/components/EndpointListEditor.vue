@@ -8,9 +8,21 @@
 -->
 <template>
   <div class="ep-editor mt-2">
-    <div v-for="(row, i) in rows" :key="i" class="ep-row">
-      <span class="ep-dot" :class="row.status" :title="row.detail || row.status">
-        <template v-if="row.status === 'testing'">⋯</template>
+    <div v-for="(row, i) in rows" :key="i" class="ep-row" :class="{ off: !row.enabled }">
+      <button
+        type="button"
+        class="ep-toggle"
+        :class="row.enabled ? 'on' : 'off'"
+        role="switch"
+        :aria-checked="row.enabled"
+        :title="row.enabled
+          ? 'ON — this Mac is health-checked and sent work. Click to switch it OFF (e.g. a coworker needs the full machine, or it\'s powered down on weekends). It will be skipped entirely — no probes, no CPU use. Save to apply.'
+          : 'OFF — this Mac is never probed or sent work. Click to switch it back ON. Save to apply.'"
+        @click="row.enabled = !row.enabled"
+      >{{ row.enabled ? 'On' : 'Off' }}</button>
+      <span class="ep-dot" :class="row.enabled ? row.status : 'disabled'" :title="row.enabled ? (row.detail || row.status) : 'Switched off'">
+        <template v-if="!row.enabled">⏻</template>
+        <template v-else-if="row.status === 'testing'">⋯</template>
         <template v-else-if="row.status === 'online'">●</template>
         <template v-else-if="row.status === 'offline'">○</template>
         <template v-else>○</template>
@@ -54,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-interface Row { name: string; url: string; status: 'idle' | 'testing' | 'online' | 'offline'; detail: string }
+interface Row { name: string; url: string; status: 'idle' | 'testing' | 'online' | 'offline'; detail: string; enabled: boolean }
 
 const props = defineProps<{ routePrefix: string; placeholder?: string }>()
 const emit = defineEmits<{ (e: 'saved', urls: string[]): void }>()
@@ -62,7 +74,7 @@ const emit = defineEmits<{ (e: 'saved', urls: string[]): void }>()
 const { get, put, post } = useApi()
 const { success, error: showError } = useToast()
 
-const rows = ref<Row[]>([{ name: '', url: '', status: 'idle', detail: '' }])
+const rows = ref<Row[]>([{ name: '', url: '', status: 'idle', detail: '', enabled: true }])
 const saving = ref(false)
 const testingAll = ref(false)
 const savedMsg = ref('')
@@ -91,16 +103,17 @@ function derivedName(url: string): string {
 onMounted(load)
 async function load(): Promise<void> {
   try {
-    const r = await get<{ baseUrl: string; labels?: Record<string, string> }>(`${props.routePrefix}/base-url`)
+    const r = await get<{ baseUrl: string; labels?: Record<string, string>; disabled?: string[] }>(`${props.routePrefix}/base-url`)
     const labels = r.labels || {}
+    const disabledSet = new Set((r.disabled || []).map(cleanUrl))
     const urls = (r.baseUrl || '').split(/[\s,]+/).map(u => u.trim()).filter(Boolean)
     rows.value = urls.length
-      ? urls.map(u => ({ name: labels[cleanUrl(u)] || '', url: u, status: 'idle' as const, detail: '' }))
-      : [{ name: '', url: '', status: 'idle', detail: '' }]
+      ? urls.map(u => ({ name: labels[cleanUrl(u)] || '', url: u, status: 'idle' as const, detail: '', enabled: !disabledSet.has(cleanUrl(u)) }))
+      : [{ name: '', url: '', status: 'idle', detail: '', enabled: true }]
   } catch { /* keep the single empty row */ }
 }
 
-function addRow(): void { rows.value.push({ name: '', url: '', status: 'idle', detail: '' }) }
+function addRow(): void { rows.value.push({ name: '', url: '', status: 'idle', detail: '', enabled: true }) }
 function removeRow(i: number): void {
   rows.value.splice(i, 1)
   if (!rows.value.length) addRow()
@@ -142,7 +155,10 @@ async function testAll(): Promise<void> {
   testingAll.value = true
   try {
     for (let i = 0; i < rows.value.length; i++) {
-      if (rows.value[i].url.trim()) await testRow(i)
+      // Skip switched-off endpoints — the whole point of OFF is to not touch
+      // that machine. (A single-row Test still works if the user wants to
+      // check one before re-enabling it.)
+      if (rows.value[i].url.trim() && rows.value[i].enabled) await testRow(i)
     }
   } finally { testingAll.value = false }
 }
@@ -158,15 +174,24 @@ async function save(): Promise<void> {
     const name = r.name.trim()
     if (name) labels[cleanUrl(r.url)] = name
   }
+  // Switched-off endpoints, keyed by cleaned url (matches the backend's list).
+  const disabled = kept.filter(r => !r.enabled).map(r => cleanUrl(r.url))
+  // Guardrail: keep at least one ON, otherwise there's nothing to generate with
+  // and jobs would fail with a confusing "no endpoint" error.
+  if (disabled.length >= urls.length) {
+    showError('At least one endpoint must stay ON — turn one back on before saving.')
+    return
+  }
   saving.value = true
   try {
-    const r = await put<{ baseUrl: string; labels?: Record<string, string> }>(
+    const r = await put<{ baseUrl: string; labels?: Record<string, string>; disabled?: string[] }>(
       `${props.routePrefix}/base-url`,
-      { baseUrl: urls.join(', '), labels },
+      { baseUrl: urls.join(', '), labels, disabled },
     )
-    // The server cleans/validates + returns the stored list + labels — reflect it.
+    // The server cleans/validates + returns the stored list + labels + off-set — reflect it.
     const cleaned = (r?.baseUrl || urls.join(', ')).split(/[\s,]+/).map(u => u.trim()).filter(Boolean)
     const savedLabels = r?.labels || labels
+    const savedDisabled = new Set((r?.disabled || disabled).map(cleanUrl))
     rows.value = cleaned.map(u => {
       const prev = rows.value.find(x => x.url.trim() === u)
       return {
@@ -174,9 +199,11 @@ async function save(): Promise<void> {
         url: u,
         status: prev?.status ?? 'idle',
         detail: prev?.detail ?? '',
+        enabled: !savedDisabled.has(cleanUrl(u)),
       }
     })
-    savedMsg.value = `${cleaned.length} endpoint${cleaned.length === 1 ? '' : 's'}`
+    const offCount = savedDisabled.size
+    savedMsg.value = `${cleaned.length} endpoint${cleaned.length === 1 ? '' : 's'}${offCount ? ` · ${offCount} off` : ''}`
     success('Endpoints saved.')
     emit('saved', cleaned)
     setTimeout(() => { savedMsg.value = '' }, 3000)
@@ -196,7 +223,29 @@ async function save(): Promise<void> {
 .ep-dot.offline { color: #c97a4a; }
 .ep-dot.testing { color: var(--accent, #f0c674); }
 .ep-dot.idle { color: var(--text-muted); }
+.ep-dot.disabled { color: var(--text-muted); opacity: 0.6; }
 .ep-test { flex: 0 0 auto; }
+
+/* On/Off switch per endpoint (v1.0.311) */
+.ep-toggle {
+  flex: 0 0 auto;
+  min-width: 40px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  background: transparent;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.ep-toggle.on { color: #5bb37c; border-color: #5bb37c; }
+.ep-toggle.off { color: var(--text-muted); background: var(--bg-tertiary); }
+.ep-toggle:hover { filter: brightness(1.15); }
+/* Dim the rest of an OFF row so it reads as inactive (the toggle stays full). */
+.ep-row.off .ep-name,
+.ep-row.off .ep-input,
+.ep-row.off .ep-test { opacity: 0.45; }
 .ep-remove {
   flex: 0 0 auto;
   background: transparent; border: 1px solid var(--border); border-radius: 6px;

@@ -393,10 +393,11 @@ router.get('/imagestudio/base-url', async (_req, res) => {
   try {
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const { DEFAULT_IMAGESTUDIO_BASE_URL } = await import('../lib/imagestudio-client.js')
-    const { getEndpointLabels } = await import('../services/app-settings.js')
+    const { getEndpointLabels, getDisabledEndpoints } = await import('../services/app-settings.js')
     const stored = await getApiKey('imagestudio')
     const labels = await getEndpointLabels('imagestudio')
-    res.json({ baseUrl: stored || '', defaultBaseUrl: DEFAULT_IMAGESTUDIO_BASE_URL, labels })
+    const disabled = await getDisabledEndpoints('imagestudio')
+    res.json({ baseUrl: stored || '', defaultBaseUrl: DEFAULT_IMAGESTUDIO_BASE_URL, labels, disabled })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not read Image Studio base URL'))
   }
@@ -418,10 +419,13 @@ router.put('/imagestudio/base-url', async (req, res) => {
     const cleanedUrls = urls.map(u => u.replace(/\/+$/, ''))
     const cleaned = cleanedUrls.join(', ')
     const { setApiKey } = await import('../services/app-secrets-store.js')
-    const { setEndpointLabelsForUrls } = await import('../services/app-settings.js')
+    const { setEndpointLabelsForUrls, setDisabledEndpointsForUrls } = await import('../services/app-settings.js')
+    const { setDisabledEndpoints } = await import('../lib/endpoint-pool.js')
     await setApiKey('imagestudio', cleaned)
     const labels = await setEndpointLabelsForUrls('imagestudio', cleanedUrls, req.body?.labels)
-    res.json({ ok: true, baseUrl: cleaned, labels })
+    const disabled = await setDisabledEndpointsForUrls('imagestudio', cleanedUrls, req.body?.disabled)
+    setDisabledEndpoints('imagestudio', disabled)
+    res.json({ ok: true, baseUrl: cleaned, labels, disabled })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not save Image Studio base URL'))
   }
@@ -491,10 +495,10 @@ const IMG_MODELS_CACHE_TTL_MS = 10 * 60_000
 router.get('/imagestudio/models', async (req, res) => {
   try {
     const { listAvailableModels, DEFAULT_IMAGESTUDIO_BASE_URL } = await import('../lib/imagestudio-client.js')
-    const { parseEndpoints } = await import('../lib/endpoint-pool.js')
+    const { parseEnabledEndpoints } = await import('../lib/endpoint-pool.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const stored = await getApiKey('imagestudio')
-    const eps = parseEndpoints(stored)
+    const eps = parseEnabledEndpoints(stored)
     const candidates = (eps.length ? eps : [DEFAULT_IMAGESTUDIO_BASE_URL]).filter(Boolean)
     if (!candidates.length) { res.json({ ok: false, configured: false, models: [], baseUrl: '' }); return }
 

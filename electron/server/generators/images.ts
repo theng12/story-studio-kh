@@ -463,9 +463,9 @@ export async function generateImages(job: Job): Promise<void> {
   // A single endpoint stays at concurrency 1, exactly as before.
   let concurrency = baseConcurrency
   if (isLocalProvider) {
-    const { parseEndpoints, healthyEndpoints } = await import('../lib/endpoint-pool.js')
+    const { parseEnabledEndpoints, healthyEndpoints } = await import('../lib/endpoint-pool.js')
     const { health: imgHealth } = await import('../lib/imagestudio-client.js')
-    const eps = parseEndpoints(apiKey)
+    const eps = parseEnabledEndpoints(apiKey)
     if (eps.length <= 1) {
       concurrency = 1
     } else {
