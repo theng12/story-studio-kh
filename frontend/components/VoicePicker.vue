@@ -23,23 +23,16 @@
         <span class="vp-scope-text" v-html="scopeBanner" />
       </div>
 
-      <!-- Loading banner for the ElevenLabs catalog fetch (cloud scopes). -->
-      <div v-if="(loading || refreshing) && scopeFamily === 'cloud'" class="vp-loading-banner">
+      <!-- v1.0.312 — Loading / no-key banners removed for cloud scopes. The Audio
+           picker no longer fetches the live ElevenLabs catalog (saved voices are
+           the only source). The 'all' scope (Settings → Add from catalog dialog)
+           still fetches and shows its loading state below. -->
+      <div v-if="(loading || refreshing) && scope === 'all'" class="vp-loading-banner">
         <LoadingSpinner size="sm" />
         <span>{{ refreshing ? 'Refreshing voice catalog from ElevenLabs…' : 'Fetching voice catalog — may take a few seconds…' }}</span>
       </div>
 
-      <!-- No-key banner: only relevant for cloud scopes on the offline snapshot. -->
-      <div v-if="!loading && !refreshing && scopeFamily === 'cloud' && source === 'snapshot' && hasElevenLabsKey === false" class="vp-nokey-banner">
-        <div class="vp-nokey-title">Add your ElevenLabs API key to unlock 100+ voices</div>
-        <div class="vp-nokey-body">
-          You're seeing the offline snapshot ({{ catalog.length }} voices). Paste your key in
-          <a :href="`/projects/${props.projectSlug}/settings#api-keys`" class="vp-nokey-link" @click.prevent="goToSettings">Settings → API Keys</a>
-          (ElevenLabs → ElevenLabs). Then hit Refresh.
-        </div>
-      </div>
-
-      <!-- Toolbar: search + refresh (refresh only meaningful for cloud) -->
+      <!-- Toolbar: search + (refresh only meaningful for the Settings catalog dialog) -->
       <div class="vp-toolbar">
         <input
           v-model="search"
@@ -49,7 +42,7 @@
           autofocus
         />
         <button
-          v-if="scopeFamily === 'cloud'"
+          v-if="scope === 'all'"
           type="button"
           class="btn btn-sm btn-secondary"
           :disabled="refreshing"
@@ -60,10 +53,68 @@
           <span v-else aria-hidden="true">⟳</span>
           Refresh
         </button>
+        <!-- v1.0.312 — cloud scopes get a direct "+ Add voice by ID" affordance
+             and an ElevenLabs Voice Library link. Replaces the live-catalog
+             Refresh button (the catalog fetch is gone). -->
+        <button
+          v-if="scopeFamily === 'cloud'"
+          type="button"
+          class="btn btn-sm btn-secondary"
+          :title="addOpen ? 'Hide the Add panel' : 'Paste an ElevenLabs voice ID and save it to this project'"
+          @click="addOpen = !addOpen"
+        >
+          <span aria-hidden="true">＋</span> Add voice
+        </button>
+        <a
+          v-if="scopeFamily === 'cloud'"
+          href="https://elevenlabs.io/app/voice-library"
+          target="_blank"
+          rel="noopener"
+          class="btn btn-sm btn-ghost vp-eleven-link"
+          title="Open ElevenLabs Voice Library in your browser. Copy a voice's ID and paste it into the Add panel."
+        >ElevenLabs Voices ↗</a>
       </div>
-      <div v-if="scopeFamily === 'cloud'" class="vp-source-row">
+      <div v-if="scope === 'all'" class="vp-source-row">
         <span class="vp-source" :title="sourceTooltip">{{ sourceLabel }}</span>
         <span v-if="loadError" class="vp-error" :title="loadError">⚠ {{ loadError }}</span>
+      </div>
+
+      <!-- v1.0.312 — Inline "Add voice by ID" panel (cloud scopes only). Saves
+           to config.voice_presets so the new voice shows in the saved list
+           below as soon as the parent's config refreshes. -->
+      <div v-if="scopeFamily === 'cloud' && addOpen" class="vp-add-panel">
+        <div class="vp-add-help">
+          1. Open <a href="https://elevenlabs.io/app/voice-library" target="_blank" rel="noopener">ElevenLabs Voices ↗</a>
+             — pick any voice → copy its <strong>Voice ID</strong>.
+          <br />2. Paste it below with a name you'll recognise (e.g. <em>Calm Narrator</em>) → Save.
+        </div>
+        <div class="vp-add-row">
+          <input
+            v-model="addName"
+            type="text"
+            class="input input-sm"
+            placeholder="Name (e.g. Calm Narrator)"
+            maxlength="80"
+            @keydown.enter.prevent="saveNewVoice"
+          />
+          <input
+            v-model="addVoiceId"
+            type="text"
+            class="input input-sm vp-add-id"
+            placeholder="Voice ID (paste from ElevenLabs)"
+            spellcheck="false"
+            @keydown.enter.prevent="saveNewVoice"
+          />
+          <button
+            type="button"
+            class="btn btn-sm btn-primary"
+            :disabled="addSaving || !addName.trim() || !addVoiceId.trim()"
+            @click="saveNewVoice"
+          >
+            <LoadingSpinner v-if="addSaving" size="sm" />
+            {{ addSaving ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
       </div>
 
       <div class="vp-list">
@@ -193,9 +244,10 @@
         </div>
 
         <!-- Saved voices — your ElevenLabs voice ids (project voice_presets).
-             ONLY valid on ElevenLabs direct (your own account); hidden for the
-             fal/GenAIPro proxies, which use their own ElevenLabs accounts. -->
-        <div v-if="scope === 'elevenlabs-direct' && filteredCustomVoices.length" class="vp-section vp-section-saved">
+             v1.0.312 — surfaced for BOTH cloud scopes (direct AND GenAIPro/fal
+             proxies). The user confirmed saved voice IDs work the same through
+             the proxies as direct, so hiding them was a real bug. -->
+        <div v-if="scopeFamily === 'cloud' && filteredCustomVoices.length" class="vp-section vp-section-saved">
           <div class="vp-section-heading">☁︎ Saved voices ({{ filteredCustomVoices.length }})</div>
           <div
             v-for="v in filteredCustomVoices"
@@ -210,18 +262,22 @@
               <span class="vp-row-name">{{ v.name }}</span>
               <span class="vp-row-meta">
                 <span class="vp-chip subtle">saved voice</span>
-                <span v-if="!isAvailable(v.voice_id)" class="vp-chip warn" title="This voice isn't in your current ElevenLabs catalog — it may have been deleted or the subscription lapsed.">unavailable</span>
+                <!-- v1.0.312 — "unavailable" badge removed: it relied on the
+                     live ElevenLabs catalog (now gone). Generation surfaces a
+                     clear provider error if the id is bad. -->
               </span>
             </button>
-            <button type="button" class="vp-preview" :disabled="!isAvailable(v.voice_id)" :title="isAvailable(v.voice_id) ? 'Preview voice' : 'Voice unavailable'" @click.stop="$emit('preview', v.voice_id)" aria-label="Preview">▶</button>
+            <button type="button" class="vp-preview" title="Preview voice" @click.stop="$emit('preview', v.voice_id)" aria-label="Preview">▶</button>
           </div>
         </div>
 
-        <!-- ElevenLabs catalog — direct shows everything; the fal/GenAIPro
-             proxies show ONLY premade voices (the globally-available set). -->
-        <div v-if="scopeFamily === 'cloud' && filteredCatalogVoices.length" class="vp-section vp-section-eleven">
+        <!-- ElevenLabs catalog — v1.0.312: shown only for scope 'all' (the
+             Settings → Voices "Add from catalog" dialog). The Audio picker's
+             cloud scopes don't fetch the live catalog anymore — saved voices +
+             the "+ Add voice" panel above replace it there. -->
+        <div v-if="scope === 'all' && filteredCatalogVoices.length" class="vp-section vp-section-eleven">
           <div class="vp-section-heading">
-            ☁︎ {{ scope === 'elevenlabs-proxy' ? 'ElevenLabs premade voices' : 'ElevenLabs voices' }}
+            ☁︎ ElevenLabs voices
             ({{ filteredCatalogVoices.length }}<span v-if="search"> filtered</span>)
           </div>
           <div
@@ -264,7 +320,15 @@
           v-if="!loading && !voicestudioLoading && !favouriteVoices.length && !filteredCustomVoices.length && !filteredCatalogVoices.length && !filteredVoicestudioVoices.length && !voicestudioError"
           class="vp-empty"
         >
-          No voices to show for this model. Try a different search<span v-if="scopeFamily === 'cloud'">, or hit Refresh</span>.
+          <template v-if="scopeFamily === 'cloud'">
+            No saved voices yet. Click <strong>+ Add voice</strong> above to paste an ElevenLabs voice ID.
+          </template>
+          <template v-else-if="scope === 'all'">
+            No voices to show. Try a different search, or hit Refresh.
+          </template>
+          <template v-else>
+            No voices to show for this model. Try a different search.
+          </template>
         </div>
       </div>
     </div>
@@ -368,6 +432,10 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [voiceId: string | null]
   preview: [voiceId: string]
+  /** v1.0.312 — fires after the inline "Add voice by ID" form saves a new
+   *  voice into config.voice_presets, so the parent (audio.vue) can refresh
+   *  its `config` and immediately show the new voice in the picker. */
+  'voice-saved': [voice: { name: string; voice_id: string }]
 }>()
 
 const { get, post, put } = useApi()
@@ -391,6 +459,16 @@ const voicestudioVoices = ref<VoiceStudioVoice[]>([])
 const voicestudioLoading = ref(false)
 const voicestudioError = ref('')
 const voicestudioBaseUrl = ref<string>('')
+
+// v1.0.312 — inline "Add voice by ID" state for cloud scopes. Lets the user
+// paste a voice id from ElevenLabs without leaving the page. Saves into
+// config.voice_presets via the same /settings/config endpoint Settings uses,
+// then emits voice-saved so the parent refreshes config and the new voice
+// shows up in the saved list immediately.
+const addOpen = ref(false)
+const addName = ref('')
+const addVoiceId = ref('')
+const addSaving = ref(false)
 
 // ── Scope: the single source of truth for which families are shown ──────────
 // Derived deterministically from the model id/provider (no async dependency)
@@ -443,9 +521,9 @@ const voicestudioSectionTitle = computed(() =>
 const scopeBanner = computed(() => {
   switch (scope.value) {
     case 'elevenlabs-direct':
-      return 'Model: <strong>ElevenLabs (direct)</strong> — your <strong>saved voices</strong> and the full <strong>ElevenLabs</strong> catalogue are usable.'
+      return 'Model: <strong>ElevenLabs (direct)</strong> — your <strong>saved voices</strong> below. Add more by ID from <a href="https://elevenlabs.io/app/voice-library" target="_blank" rel="noopener">ElevenLabs Voices ↗</a>.'
     case 'elevenlabs-proxy':
-      return `Model: <strong>${cloudProviderLabel.value}</strong> — only <strong>ElevenLabs premade</strong> voices work here. Your saved custom voices need <strong>ElevenLabs (direct)</strong>.`
+      return `Model: <strong>${cloudProviderLabel.value}</strong> — paste any ElevenLabs voice ID below. Find IDs at <a href="https://elevenlabs.io/app/voice-library" target="_blank" rel="noopener">ElevenLabs Voices ↗</a>.`
     case 'voicestudio-voicepack':
       return `Model: <strong>${voicepackEngineLabel.value} (local)</strong> — pick from its <strong>built-in voicepack</strong> below.`
     case 'voicestudio-cloning':
@@ -478,11 +556,13 @@ function compatibleForScope(id: string): boolean {
     case 'voicestudio-cloning':
       return voicestudioVoices.value.some(v => v.id === id)
     case 'elevenlabs-direct':
-      return props.customVoices.some(p => p.voice_id === id) || catalogById.value.has(id)
-    case 'elevenlabs-proxy': {
-      const v = catalogById.value.get(id)
-      return !!v && v.category === 'premade'
-    }
+    case 'elevenlabs-proxy':
+      // v1.0.312 — the Audio picker no longer pulls the live ElevenLabs
+      // catalog. Saved voices are the source of truth, and an ElevenLabs voice
+      // id works the same through the GenAIPro/fal proxies as it does direct
+      // (the user confirmed this), so both cloud scopes treat a saved id as
+      // compatible. Free-typed ids we can't judge are left alone elsewhere.
+      return props.customVoices.some(p => p.voice_id === id)
   }
 }
 
@@ -563,7 +643,10 @@ const favouriteVoices = computed<VoiceMeta[]>(() => {
 })
 
 const filteredCustomVoices = computed<VoiceMeta[]>(() => {
-  if (scope.value !== 'elevenlabs-direct') return []
+  // v1.0.312 — saved voices now show for BOTH ElevenLabs scopes (direct AND the
+  // GenAIPro/fal proxies), not just direct. They're the only cloud voice source
+  // in the Audio picker now that the live catalog is gone.
+  if (scopeFamily.value !== 'cloud') return []
   const favSet = new Set(favouriteIds.value)
   return props.customVoices
     .filter(p => !favSet.has(p.voice_id))
@@ -634,6 +717,17 @@ function hasValidSlug(): boolean {
 
 async function loadCatalog() {
   if (!hasValidSlug()) return
+  // v1.0.312 — the Audio picker (cloud scopes) no longer fetches the live
+  // ElevenLabs catalog. It cost the user paid-tier API calls + several seconds
+  // of stall every open, just to surface voices they never used anyway — the
+  // saved voices in Settings are the actual workflow. The fetch is still made
+  // for scope 'all' (the Settings → Voices "Add from catalog" dialog reuses
+  // this component) so that escape hatch keeps working for people who want it.
+  if (scopeFamily.value === 'cloud') {
+    catalog.value = []
+    source.value = null
+    return
+  }
   loading.value = true
   loadError.value = ''
   try {
@@ -714,6 +808,42 @@ async function saveFavourites(ids: string[]) {
 }
 
 /**
+ * v1.0.312 — Save a typed-in voice id into the project's voice_presets, then
+ * emit so the parent refreshes its config and the new voice appears in the
+ * saved list. Uses the same /settings/config endpoint Settings → Voices uses,
+ * so the storage format stays identical (single source of truth).
+ */
+async function saveNewVoice() {
+  if (addSaving.value) return
+  const name = addName.value.trim()
+  const voiceId = addVoiceId.value.trim()
+  if (!name) { showError('Give the voice a name.'); return }
+  if (!voiceId) { showError('Paste the voice ID from ElevenLabs.'); return }
+  if (props.customVoices.some(p => p.voice_id === voiceId)) {
+    showError('That voice ID is already saved.')
+    return
+  }
+  addSaving.value = true
+  try {
+    // Append to the existing presets — don't read the project from elsewhere;
+    // props.customVoices is the parent's authoritative view.
+    const next = [...props.customVoices, { name, voice_id: voiceId }]
+    await put(`/projects/${props.projectSlug}/settings/config`, { voice_presets: next })
+    success(`Saved "${name}". You can pick it now.`)
+    emit('voice-saved', { name, voice_id: voiceId })
+    // Select the just-added voice so the user can hit Generate next.
+    select(voiceId)
+    addName.value = ''
+    addVoiceId.value = ''
+    addOpen.value = false
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to save voice')
+  } finally {
+    addSaving.value = false
+  }
+}
+
+/**
  * Keep-if-compatible-else-clear. Runs after the relevant voice list for the
  * current scope is loaded, so we only clear a selection we're confident is
  * incompatible — never on a slow fetch and never when the local modal is
@@ -733,16 +863,14 @@ function reconcileSelection() {
     return clearIncompatible()                            // cloud id on a local model
   }
 
-  // Cloud scope — only judge once we actually have a live/cached catalogue.
-  if (loading.value || source.value === null || source.value === 'snapshot') return
-  if (sc === 'elevenlabs-direct') {
-    if (props.customVoices.some(p => p.voice_id === id) || catalogById.value.has(id)) return
-    return clearIncompatible()
-  }
-  // elevenlabs-proxy — only premade catalogue voices are valid.
-  const v = catalogById.value.get(id)
-  if (v && v.category === 'premade') return
-  return clearIncompatible()
+  // v1.0.312 — Cloud scopes: with the live catalog removed, we can only judge
+  // against saved voices. A saved id is compatible on both direct and proxy
+  // (the user confirmed saved voices work everywhere). An unknown id is left
+  // alone — could be a free-typed/legacy id we have no way to refute now.
+  if (props.customVoices.some(p => p.voice_id === id)) return
+  // Unknown id — don't clear it. Worst case the generation fails with a
+  // clear provider error, which is better than a surprise clear.
+  return
 }
 
 function clearIncompatible() {
@@ -913,9 +1041,36 @@ watch(() => [props.audioModelId, props.audioModelProvider], () => {
   flex-direction: column;
   overflow: hidden;
 }
-.vp-toolbar { display: flex; gap: 8px; padding: 10px 10px 6px; align-items: center; }
-.vp-search { flex: 1; }
+.vp-toolbar { display: flex; gap: 8px; padding: 10px 10px 6px; align-items: center; flex-wrap: wrap; }
+.vp-search { flex: 1 1 200px; min-width: 120px; }
 .vp-source-row { padding: 0 12px 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.vp-eleven-link { white-space: nowrap; font-size: 12px; }
+
+/* v1.0.312 — inline Add-voice panel (cloud scopes) */
+.vp-add-panel {
+  margin: 0 10px 8px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vp-add-help {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+.vp-add-help a { color: var(--accent); text-decoration: underline; }
+.vp-add-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.vp-add-row .input { flex: 1 1 140px; min-width: 100px; }
+.vp-add-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; flex: 1 1 220px; }
 
 .vp-loading-banner {
   display: flex; align-items: center; gap: 10px;

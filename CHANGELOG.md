@@ -4,6 +4,33 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.312 — 2026-06-08
+
+### Changed — Audio voice picker: saved-only, with inline Add (no more slow live fetch)
+
+Every time you opened the voice picker on the Audio Generator it pulled the full ElevenLabs catalog over the network — several seconds of stall, a paid-tier API call, and a list of voices you didn't use anyway. You only ever use **saved voices**, and (you confirmed) a saved voice ID works through the GenAIPro/fal proxies the same as direct ElevenLabs. So the live catalog is gone from the Audio picker.
+
+What the Audio picker now shows for any ElevenLabs-family model (direct, GenAIPro, fal):
+
+- **Your saved voices** — surfaced for **all** cloud models, not just direct (this was a real bug — the proxies were hiding them).
+- **+ Add voice** button — opens an inline panel: paste an ElevenLabs voice ID + a name, hit Save. It lands in `config.voice_presets` (same place Settings → Voices uses) and the picker refreshes to show it immediately.
+- **ElevenLabs Voices ↗** link — opens [the Voice Library](https://elevenlabs.io/app/voice-library) so you can grab an ID.
+
+No network calls to ElevenLabs from the Audio picker anymore. The picker opens instantly. No paid-tier requirement to browse voices.
+
+The "Saved voice unavailable" badge is gone (it depended on the live catalog). A bad ID still surfaces clearly — generation returns the provider's error.
+
+(Settings → Voices' "Add from catalog…" dialog is unchanged. It still browses the live catalog so the escape hatch exists for anyone who wants it.)
+
+### Files
+- `frontend/components/VoicePicker.vue` — cloud scopes skip the catalog fetch; saved voices show on both direct + proxy; inline Add panel + ElevenLabs link; reconcile no longer clears unknown ids.
+- `frontend/pages/projects/[slug]/audio.vue` — listens for the new `voice-saved` event and calls `refreshConfig()` so the new voice appears in the picker instantly.
+
+### Verification
+- The `nuxt generate` build compiles every SFC (catches template/script errors); manual code-review of the gating (`scopeFamily === 'cloud'` for new behavior; `scope === 'all'` keeps Settings catalog dialog working).
+
+---
+
 ## v1.0.311 — 2026-06-08
 
 ### Added — On/Off switch per local endpoint (skip the Macs you know are off)

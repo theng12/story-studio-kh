@@ -81,6 +81,7 @@
             require-selection
             class="voice-picker-flex"
             @preview="previewVoiceId"
+            @voice-saved="refreshConfig(slug)"
           />
           <button
             v-if="previewAudio"
@@ -291,7 +292,7 @@ useAppTitle('Audio Generator')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { post, get } = useApi()
-const { project, config } = useProject()
+const { project, config, refreshConfig } = useProject()
 
 // v1.0.203+ — which Voice Studio engines the live modal can actually run.
 // Every voicestudio-* model is registered in the catalog so generation +
