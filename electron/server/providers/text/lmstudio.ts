@@ -156,14 +156,19 @@ const lmstudioProvider: TextProvider = {
           )
         }
         if (/404|not found|No models loaded|model_not_found/i.test(msg)) {
-          // Content error — model isn't loaded on THIS endpoint. With multi-
-          // endpoint setups the user said they keep the same models loaded
-          // everywhere, so this is a real failure: don't waste the pool, just
-          // throw. (If the user later wants per-endpoint model maps, this is
-          // where to add a "try next endpoint with same model" branch.)
+          // v1.0.318 — Per-endpoint capability error: this Mac is alive but
+          // doesn't have the model loaded. runOnPool now treats this as a
+          // failover-class error (see isModelNotReadyError in endpoint-pool.ts)
+          // so it marks this endpoint down and tries another in the pool. If
+          // another endpoint has the model, the chunk succeeds there; if none
+          // do, the user sees this message from the last endpoint to fail —
+          // the "failing over" phrasing matters because the matcher reads it
+          // when runOnPool decides whether to retry.
           throw new Error(
-            `LM Studio at ${endpointUrl} has no model "${slug}" loaded. Load it on every endpoint ` +
-            `in your pool (or pick another model from the dropdown), then retry.`,
+            `LM Studio at ${endpointUrl} has no model "${slug}" loaded — failing over ` +
+            `to another endpoint in the pool. If every endpoint reports the same, load ` +
+            `the model on at least one Mac (or pick a different model from the dropdown), ` +
+            `then retry.`,
             { cause: err },
           )
         }

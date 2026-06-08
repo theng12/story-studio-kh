@@ -13,7 +13,8 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  isConnectionError, runOnPool, createDispatcher, parseEndpoints,
+  isConnectionError, isModelNotReadyError, isFailoverableError,
+  runOnPool, createDispatcher, parseEndpoints,
   parseEnabledEndpoints, setDisabledEndpoints, isEndpointEnabled,
 } from '../lib/endpoint-pool.js'
 
@@ -34,15 +35,47 @@ describe('endpoint-pool', () => {
     }
   })
 
-  test('isConnectionError does NOT match content errors (no wasted failover)', () => {
+  test('isConnectionError does NOT match true content errors (no wasted failover)', () => {
     for (const m of [
-      'LM Studio at http://mac:1234 has no model "gemma" loaded.',
-      'No models loaded',
       'invalid JSON in response',
       '400 Bad Request',
+      // v1.0.318 — "no model loaded" / "not fully cached" used to be content
+      // errors here but moved to isModelNotReadyError below (still NOT matched
+      // by isConnectionError — failover-decision uses isFailoverableError now).
     ]) {
       assert.equal(isConnectionError(new Error(m)), false, `should NOT match: ${m}`)
     }
+  })
+
+  // v1.0.318 — model-not-ready (per-endpoint capability) failover.
+  test('isModelNotReadyError matches the messages providers actually throw when the model is missing', () => {
+    for (const m of [
+      // Voice Studio 409 — the TN1611 Kokoro case the user reported:
+      'Voice Studio submit failed (409): {"detail":"Model hexgrad/Kokoro-82M is not fully cached. Download it from the Models tab first."}',
+      // LM Studio's friendly wraps + the upstream variants:
+      'LM Studio at http://mac:1234 has no model "gemma-3-4b" loaded — failing over to another endpoint in the pool.',
+      'No models loaded',
+      'model_not_found',
+      'The model is not yet loaded',
+    ]) {
+      assert.equal(isModelNotReadyError(new Error(m)), true, `should match: ${m}`)
+    }
+  })
+
+  test('isModelNotReadyError does NOT match unrelated errors', () => {
+    for (const m of [
+      'ECONNREFUSED 127.0.0.1:1234',
+      'invalid JSON in response',
+      '400 Bad Request: prompt too long',
+    ]) {
+      assert.equal(isModelNotReadyError(new Error(m)), false, `should NOT match: ${m}`)
+    }
+  })
+
+  test('isFailoverableError is the union of connection + model-not-ready errors', () => {
+    assert.equal(isFailoverableError(new Error('ECONNREFUSED')), true, 'connection')
+    assert.equal(isFailoverableError(new Error('not fully cached')), true, 'model-not-ready')
+    assert.equal(isFailoverableError(new Error('400 Bad Request')), false, 'real content error')
   })
 
   test('runOnPool fails over to a healthy endpoint on a connection error', async () => {
@@ -60,15 +93,51 @@ describe('endpoint-pool', () => {
     assert.equal(d.liveCount(), 1)
   })
 
-  test('runOnPool rethrows a content error immediately (no failover)', async () => {
+  // v1.0.318 — the user's TN1611 Kokoro scenario: 5 endpoints online, 3 with
+  // the model missing. Before this fix, every chunk that landed on a missing-
+  // model Mac died with no retry. Now it fails over to one that has it.
+  test('runOnPool fails over on "model not fully cached" (Voice Studio 409)', async () => {
+    const d = createDispatcher([
+      'http://kokoro-missing-1:47870',
+      'http://kokoro-missing-2:47870',
+      'http://kokoro-loaded:47870',
+    ])
+    const tried: string[] = []
+    const result = await runOnPool(d, 'http://kokoro-loaded:47870', async (ep) => {
+      tried.push(ep)
+      if (ep.includes('missing')) {
+        throw new Error(
+          'Voice Studio submit failed (409): {"detail":"Model hexgrad/Kokoro-82M is not fully cached. Download it from the Models tab first."}',
+        )
+      }
+      return 'chunk-rendered-on-loaded'
+    })
+    assert.equal(result, 'chunk-rendered-on-loaded')
+    // Both missing-model endpoints were tried, then we landed on the loaded one.
+    assert.ok(tried.includes('http://kokoro-loaded:47870'), 'eventually hit the endpoint with the model')
+    // Both missing-model endpoints are out of rotation (they'll re-enter after
+    // the 30 s self-healing TTL — the user's "auto re-enter when restored" path).
+    assert.equal(d.liveCount(), 1, 'missing-model endpoints marked down')
+  })
+
+  test('runOnPool fails over on "no models loaded" (LM Studio variant)', async () => {
+    const d = createDispatcher(['http://a:1234', 'http://b:1234'])
+    const result = await runOnPool(d, 'http://a:1234', async (ep) => {
+      if (ep.includes('a')) throw new Error('No models loaded')
+      return 'ok-from-b'
+    })
+    assert.equal(result, 'ok-from-b')
+  })
+
+  test('runOnPool rethrows a TRUE content error immediately (no failover)', async () => {
     const d = createDispatcher(['http://a:1234', 'http://b:1234'])
     let calls = 0
     await assert.rejects(
-      () => runOnPool(d, 'http://a:1234', async () => { calls++; throw new Error('No models loaded') }),
-      /No models loaded/,
+      () => runOnPool(d, 'http://a:1234', async () => { calls++; throw new Error('400 Bad Request: prompt too long') }),
+      /Bad Request/,
     )
-    assert.equal(calls, 1, 'content error should NOT fan out across the pool')
-    assert.equal(d.liveCount(), 2, 'no endpoint marked down on a content error')
+    assert.equal(calls, 1, 'real content error should NOT fan out across the pool')
+    assert.equal(d.liveCount(), 2, 'no endpoint marked down on a real content error')
   })
 
   test('runOnPool throws the last connection error when all endpoints are down', async () => {

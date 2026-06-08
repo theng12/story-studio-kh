@@ -4,6 +4,38 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.318 — 2026-06-08
+
+### Fixed — pool now fails over when a Mac is alive but missing the model (the TN1611 Kokoro case)
+
+You ran an EP0001 audio gen on Kokoro across 12 Voice Studio Macs (5 online). 2 of those 5 had the Kokoro model loaded, the other 3 didn't, and the 3 that didn't returned `409: Model hexgrad/Kokoro-82M is not fully cached`. Every chunk that landed on one of those 3 Macs **died** instead of being retried on the 2 that worked. You got 8 failures and 2 successes — exactly the math the pool's behaviour produced.
+
+This was a real gap. The pool's failover-or-fail decision was: connection error → fail over; anything else → real content error, no failover. A `409 not fully cached` is neither: it's a **per-endpoint capability error** — the Mac is alive and reachable, just doesn't have the model. Failing over to a different Mac in the same pool is the correct response, and the v1.0.295 comment in the LM Studio provider that said "the user keeps the same models loaded everywhere" no longer holds for your real setup.
+
+What's now fixed:
+
+- A new `isModelNotReadyError` matcher catches `"not fully cached"`, `"no models loaded"`, `"model_not_found"`, `"has no model … loaded"`, and the polite variants providers wrap them in.
+- The dispatcher's failover decision is now `isFailoverableError = connection-error OR model-not-ready`. Same rules as before — least-busy pick, mark-down on failure, try the next live one — just with model-not-ready added to "failure."
+- The existing **30-second self-healing TTL** on marked-down endpoints unchanged — the same mechanism that re-enters a sleeping Mac after it wakes up also re-enters one whose model just finished downloading. So your *"once I restore the server, it auto-rejoins the pool"* expectation now works for the model-not-loaded case too.
+
+For your EP0001 setup, the new flow:
+- Chunk 1 → dispatcher → picks one of the 3 missing-Kokoro Macs → 409 → mark down → tries another → maybe another miss → mark down → lands on a Kokoro-loaded Mac → **success**.
+- After a few markdowns, only the 2 loaded Macs are eligible; all remaining chunks succeed on them.
+- 30 s later, the marked-down Macs become eligible again. If they're still missing the model (you haven't downloaded it), they fail once more and get re-marked. If you've downloaded it in the meantime, they rejoin and start serving traffic. Self-healing.
+
+The LM Studio provider's "has no model loaded" wrap message was also updated — it used to say *"Load it on every endpoint in your pool"*, which was misleading because the user there had told us they always do. Now it says *"failing over to another endpoint in the pool"*, accurate for the multi-model-availability case.
+
+### Files
+- `electron/server/lib/endpoint-pool.ts` — `isModelNotReadyError` + `isFailoverableError`; `runOnPool` now uses `isFailoverableError` instead of `isConnectionError` directly.
+- `electron/server/providers/text/lmstudio.ts` — friendly-wrap message updated to mention failover.
+- `electron/server/__tests__/endpoint-pool.test.ts` — 5 new tests covering the exact TN1611 Kokoro scenario (3 missing-model endpoints + 1 loaded) + the LM Studio variant + the union semantics.
+
+### Verification
+- Backend `tsc` clean; **1062 backend tests pass** (1057 + 5 new). The new "TN1611 Kokoro" test reproduces the exact symptom (Voice Studio 409 with the "not fully cached" body) and proves the chunk now succeeds on the loaded endpoint.
+- Pure additive change to the public API (new exports `isModelNotReadyError` + `isFailoverableError`); existing `isConnectionError` semantics unchanged.
+
+---
+
 ## v1.0.317 — 2026-06-08
 
 ### Added — Per-chunk pause (Audio Assembly) — fixes the rushed-robotic feel on cloud TTS chunked chapters

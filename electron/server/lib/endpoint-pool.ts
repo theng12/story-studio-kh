@@ -153,10 +153,40 @@ export function isConnectionError(e: any): boolean {
 }
 
 /**
- * Run `fn(endpoint)` against the pool. Picks least-busy; on a CONNECTION error
- * marks that endpoint down and retries on another (up to the live count); a
- * content error is rethrown immediately. With no dispatcher (single endpoint /
- * cloud), just runs `fn(fallbackUrl)`.
+ * v1.0.318 — A per-endpoint capability error: the endpoint is alive and
+ * reachable, but it can't serve THIS request right now because the model isn't
+ * loaded / cached. Treat this like a connection error for pool purposes — fail
+ * over to another endpoint, and mark this one down so the same job doesn't keep
+ * hammering it. The standard 30 s self-healing TTL lets the endpoint re-enter
+ * the pool once the user finishes the model download, so a paused job retried
+ * later just works.
+ *
+ * Patterns: Voice Studio 409 "Model X is not fully cached. Download it from
+ * the Models tab first." and LM Studio 404 / "No models loaded" /
+ * "model_not_found" / "has no model … loaded" friendly wraps.
+ *
+ * Previously these threw outright on the first failing endpoint, even when
+ * other endpoints in the same pool had the model loaded — the user's TN1611
+ * Kokoro run had 5 Macs online, 2 with the model, 3 without; the 3 without
+ * killed every chunk that landed on them instead of being skipped.
+ */
+export function isModelNotReadyError(e: any): boolean {
+  const m = String(e?.message || e).toLowerCase()
+  return /not fully cached|no models? loaded|model_not_found|has no model|model.*not.*loaded|not yet loaded|model is not ready|model not ready/.test(m)
+}
+
+/** A connection error OR a per-endpoint capability error — both worth failing
+ *  over to another endpoint in the pool. */
+export function isFailoverableError(e: any): boolean {
+  return isConnectionError(e) || isModelNotReadyError(e)
+}
+
+/**
+ * Run `fn(endpoint)` against the pool. Picks least-busy; on a connection or
+ * per-endpoint capability error (see isFailoverableError), marks that
+ * endpoint down and retries on another (up to the live count); a true content
+ * error (e.g. a malformed prompt) is rethrown immediately. With no dispatcher
+ * (single endpoint / cloud), just runs `fn(fallbackUrl)`.
  */
 export async function runOnPool<T>(
   dispatcher: Dispatcher | null,
@@ -174,7 +204,7 @@ export async function runOnPool<T>(
       return r
     } catch (e) {
       dispatcher.release(ep)
-      if (!isConnectionError(e)) throw e          // content error — no failover
+      if (!isFailoverableError(e)) throw e         // true content error — no failover
       dispatcher.markDown(ep)
       lastErr = e
       if (dispatcher.liveCount() === 0) break
