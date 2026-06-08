@@ -42,7 +42,16 @@
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
       @preset-deleted="success('Preset deleted')"
-    />
+    >
+      <template #actions>
+        <EpisodeImportButton
+          :slug="slug"
+          :episode-code="episodeId"
+          default-tab="video"
+          @imported="refreshVideoStatus"
+        />
+      </template>
+    </TopActionBar>
 
     <p class="text-muted mt-1 mb-2">
       Generate AI video clips for your episode. Optional — skip this tab if your episodes are audio-only.

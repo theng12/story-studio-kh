@@ -19,7 +19,16 @@
       @preset-applied="onPresetApplied"
       @preset-saved="onPresetSaved"
       @preset-deleted="success('Preset deleted')"
-    />
+    >
+      <template #actions>
+        <EpisodeImportButton
+          :slug="slug"
+          :episode-code="episodeId"
+          default-tab="merged"
+          @imported="refreshMergeStatus"
+        />
+      </template>
+    </TopActionBar>
 
     <p class="text-muted mt-1 mb-2">
       Merges chapter narration into a single file, optionally layered with an intro clip, background music, and ambience.

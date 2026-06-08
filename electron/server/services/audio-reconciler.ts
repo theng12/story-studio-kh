@@ -106,6 +106,34 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
     // used for recovery matching — match what the generator actually produced.
     const sectionText = normalizeForTts(section.text).text
     const chunks = chunkText(sectionText, ttsChunkCap)
+
+    // v1.0.310 — imported / hand-placed whole-chapter override. If the
+    // generator WOULD split this section into _part1/_part2… but a single
+    // `{code}_{slug}.mp3` is already on disk, treat that one file as the whole
+    // section so the status reads "complete" (e.g. a chapter rendered
+    // externally on ElevenLabs and imported). A NORMALLY-generated multi-part
+    // section has no bare base file — only the _partN files — so this only ever
+    // fires for a single imported file, never masking a real partial gen.
+    // Single-chunk generated sections already use `base`, so they're unchanged.
+    if (chunks.length > 1) {
+      let basePresent = false
+      try {
+        const actual = await findFileCaseInsensitive(audioDir, base)
+        if (actual) basePresent = (await fs.stat(actual)).size > 0
+      } catch { /* unreadable → fall through to the chunk expectation */ }
+      if (basePresent) {
+        expected.push({
+          filename: base,
+          fullPath: path.join(audioDir, base),
+          text: sectionText,
+          sectionLabel: section.label,
+          chunkIndex: 0,
+          totalChunks: 1,
+        })
+        continue
+      }
+    }
+
     for (let i = 0; i < chunks.length; i++) {
       const filename = chunks.length > 1
         ? base.replace('.mp3', `_part${i + 1}.mp3`)

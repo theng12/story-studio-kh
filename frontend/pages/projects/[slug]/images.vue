@@ -22,7 +22,16 @@
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
       @preset-deleted="success('Preset deleted')"
-    />
+    >
+      <template #actions>
+        <EpisodeImportButton
+          :slug="slug"
+          :episode-code="form.episode_id"
+          :default-tab="form.mode === 'thumbs' ? 'thumb' : 'scene'"
+          @imported="() => { refreshImageStatus(); onPanelRefresh() }"
+        />
+      </template>
+    </TopActionBar>
 
     <p class="text-muted mt-1 mb-2">Generate scene and thumbnail artwork from your prompts via kie.ai.</p>
 

@@ -25,7 +25,15 @@
       @preset-applied="onBundleApplied"
       @preset-saved="onBundleSaved"
       @preset-deleted="success('Bundle deleted')"
-    />
+    >
+      <template #actions>
+        <EpisodeImportButton
+          :slug="slug"
+          :episode-code="episodeId"
+          default-tab="final"
+        />
+      </template>
+    </TopActionBar>
 
     <!-- v1.0.93+ Cross-device + apply-time path-check banner for the bundle.
          Surfaces files referenced by the bundle that don't exist on this

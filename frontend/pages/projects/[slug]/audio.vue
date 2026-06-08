@@ -21,7 +21,16 @@
       @preset-applied="success('Preset applied')"
       @preset-saved="success('Preset saved')"
       @preset-deleted="success('Preset deleted')"
-    />
+    >
+      <template #actions>
+        <EpisodeImportButton
+          :slug="slug"
+          :episode-code="form.episode_id"
+          default-tab="audio"
+          @imported="refreshAudioStatus"
+        />
+      </template>
+    </TopActionBar>
 
     <!-- v1.0.78 — inline "Rescan from disk" affordance.
          Surfaces only when an episode is selected but scriptReady is false,

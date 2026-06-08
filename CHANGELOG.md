@@ -4,6 +4,33 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.310 — 2026-06-08
+
+### Added — Import an asset right from its generator page (no project-wide scan)
+
+You can already import existing files (audio you rendered elsewhere, scenes, etc.) via the Assets page — but on a big channel that page scans **every** episode's assets first, which takes minutes. Now there's an **⬆ Import** button right next to the **Generate** button on each generator page, scoped to the episode you're already working on. It opens the same import dialog **with no project-wide scan**, pre-focused on that page's asset type:
+
+- **Audio Generator** → Audio tab (map each file to a chapter / Introduction)
+- **Scene Generator** → Scenes tab · **Thumbnail Generator** → Thumbnails tab
+- **Video Generator** → Video tab · **Audio Merge** → Merged-narration tab · **Video Assembly** → Final-video tab
+
+Pick the file, map it, Copy (or Move) — it lands at the canonical name in the right folder and the page's status refreshes. Perfect for dropping in a chapter you rendered on ElevenLabs' free tier.
+
+### Fixed — an imported whole chapter now counts as complete
+
+The audio status checker expected a long chapter to be split into `_part1` / `_part2`… files (the way the in-app generator writes them). So a chapter you rendered as **one** file elsewhere and imported showed as "incomplete," even though it was perfectly fine. Now a single `{CODE}_{slug}.mp3` on disk satisfies the whole section — so imported chapters show green, and the app won't try to re-generate over them. (A normally-generated multi-part chapter is unaffected: it has no single base file, only the parts.)
+
+### Files
+- `frontend/components/EpisodeImportButton.vue` (new) — the per-page Import button + dialog wrapper.
+- `frontend/components/AssetImportDialog.vue` — new `defaultTab` prop so it opens on the page's asset type.
+- `frontend/pages/projects/[slug]/{audio,images,video,audio-merge,video-assembly}.vue` — Import button in the action bar, wired to each page's status refresh.
+- `electron/server/services/audio-reconciler.ts` — a single whole-chapter file satisfies a section that would otherwise expect chunk parts.
+
+### Verification
+- Backend `tsc` clean; all backend tests pass; the frontend `nuxt generate` build compiles every SFC, including the new `EpisodeImportButton` and its auto-import resolution into all five pages (a missing/typo'd component or bad template would fail the build). The Import button reuses the already-shipped `AssetImportDialog`, adding only a `defaultTab` prop.
+
+---
+
 ## v1.0.309 — 2026-06-08
 
 ### Fixed — Retry on Image Prompts now fills only the gaps (instead of redoing all of them)

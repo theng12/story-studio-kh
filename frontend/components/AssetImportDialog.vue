@@ -329,6 +329,13 @@ const props = defineProps<{
    * points stick with the safer 'copy' default.
    */
   defaultMode?: 'copy' | 'move'
+  /**
+   * Which tab the dialog opens on. Lets a generator page open the dialog
+   * pre-focused on its own asset type (the Audio page → 'audio', the Scene
+   * Generator → 'scene', etc.). Ignored when `prefilledItems` is set (the
+   * folder-import flow lands on its busiest tab instead).
+   */
+  defaultTab?: 'audio' | 'scene' | 'thumb' | 'video' | 'final' | 'merged' | 'other'
 }>()
 
 const emit = defineEmits<{
@@ -621,6 +628,10 @@ watch(() => props.visible, (v) => {
   if (props.defaultMode) mode.value = props.defaultMode
   if (Array.isArray(props.prefilledItems) && props.prefilledItems.length) {
     ingestPrefilled(props.prefilledItems)
+  } else if (props.defaultTab) {
+    // Open pre-focused on the page's asset type. Only when there's nothing
+    // prefilled — the folder-import flow picks its own busiest tab.
+    activeTab.value = props.defaultTab
   }
 })
 
