@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.315 — 2026-06-08
+
+### Fixed — Audio Assembly: parts of the same chapter now sort numerically (part2 before part10)
+
+On a chapter that got split into many TTS chunks (e.g. TN0153's Chapter 04 with 23 parts from yesterday's broken-cap run), the Audio Assembly list — and the actual merge order — sorted **alphabetically** within the chapter: `part1, part10, part11, part12, …, part19, part2, part20, …`. That meant the stitched audio would have been in the wrong order, doubly so on a re-merge: the parts you already generated weren't being wasted, but they were being concatenated jumbled.
+
+The comparator now does a proper natural sort for `_partN` suffixes: `part1, part2, part3, …, part10, …, part23`. A **bare** chapter file (no `_partN`, e.g. an imported single-file render of that chapter) sorts before its parts — so if both exist the bare one is picked up first by the merge step. Introduction → Chapter_01..N → bare chapter → parts.
+
+The merge step itself already grouped same-key files together (the parts of one chapter never get a silence gap inserted between them — that's the `chapterKeyOf` logic from v1.0.224). The fix here is only the within-chapter ordering.
+
+### Files
+- `electron/server/generators/audio-merge.ts` — extracted `compareChapterFilenames` (now exported) and added the same-chapter tiebreak that orders `_partN` numerically; `scanEpisodeAudioAssets` calls the helper.
+- `electron/server/__tests__/chapter-part-grouping.test.ts` — 6 new tests, including the exact TN0153 shape (Intro + 1-3 + bare Chapter_04 + 23 parts) as a regression guard.
+
+### Verification
+- Backend `tsc` clean; **1057 backend tests pass** (1051 baseline + 6 new sort tests). One of them sorts the exact 23-part TN0153 layout from your screenshot and asserts the natural order. No frontend changes — the Assembly UI reads from the backend scan, so this single fix corrects both the displayed list and the actual merge concat order.
+
+---
+
 ## v1.0.314 — 2026-06-08
 
 ### Changed — Chunk size is now a unified read-only display on the Audio Generator (cloud + local)

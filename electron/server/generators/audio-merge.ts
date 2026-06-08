@@ -270,6 +270,44 @@ async function applyLoudnorm(
  * then didn't line up with the per-chapter SRTs the Subtitles step produces,
  * so the stitch came out empty/misaligned.
  */
+/**
+ * v1.0.315 — Comparator for audio-asset filenames so the Audio Assembly list
+ * and the merge concat order are NATURAL:
+ *
+ *   Introduction < Chapter_01 < Chapter_02 < … < Chapter_10
+ *   Chapter_04   < Chapter_04_part1 < Chapter_04_part2 < … < Chapter_04_part10
+ *
+ * The old comparator only sorted by chapter NUMBER and let the same-chapter
+ * tiebreak fall through to `readdir` order (lexical on most filesystems), so
+ * `_part10` slotted between `_part1` and `_part2` — exactly the visible bug on
+ * a 23-part Chapter 04. A BARE chapter file (no `_partN`) sorts before any of
+ * its parts so the merge picks it up first when both exist.
+ */
+export function compareChapterFilenames(a: string, b: string): number {
+  const aIsIntro = /intro/i.test(a)
+  const bIsIntro = /intro/i.test(b)
+  if (aIsIntro && !bIsIntro) return -1
+  if (!aIsIntro && bIsIntro) return 1
+  const aNum = a.match(/chapter[_\s]*(\d+)/i)
+  const bNum = b.match(/chapter[_\s]*(\d+)/i)
+  if (aNum && bNum) {
+    const diff = parseInt(aNum[1], 10) - parseInt(bNum[1], 10)
+    if (diff !== 0) return diff
+    // Same chapter — order by part number. A bare file (no _partN) comes
+    // before any of its parts; numeric comparison so part2 < part10.
+    const aPart = a.match(/_part(\d+)/i)
+    const bPart = b.match(/_part(\d+)/i)
+    if (!aPart && bPart) return -1
+    if (aPart && !bPart) return 1
+    if (aPart && bPart) return parseInt(aPart[1], 10) - parseInt(bPart[1], 10)
+    // Both bare for the same chapter (e.g. _v2 vs bare) — natural compare.
+    return a.localeCompare(b, undefined, { numeric: true })
+  }
+  if (aNum && !bNum) return 1
+  if (!aNum && bNum) return -1
+  return a.localeCompare(b, undefined, { numeric: true })
+}
+
 export function chapterKeyOf(filename: string, code: string): string {
   let base = filename.replace(/\.[^.]+$/, '')
   if (base.startsWith(`${code}_`)) base = base.slice(code.length + 1)
@@ -933,19 +971,8 @@ export async function scanEpisodeAudioAssets(
       })
     }
 
-    // Sort: Introduction first, then chapters numerically
-    result.chapters.sort((a, b) => {
-      const aIsIntro = /intro/i.test(a.filename)
-      const bIsIntro = /intro/i.test(b.filename)
-      if (aIsIntro && !bIsIntro) return -1
-      if (!aIsIntro && bIsIntro) return 1
-      const aNum = a.filename.match(/chapter[_\s]*(\d+)/i)
-      const bNum = b.filename.match(/chapter[_\s]*(\d+)/i)
-      if (aNum && bNum) return parseInt(aNum[1]) - parseInt(bNum[1])
-      if (aNum && !bNum) return 1
-      if (!aNum && bNum) return -1
-      return a.filename.localeCompare(b.filename, undefined, { numeric: true })
-    })
+    // Sort: Introduction first, then chapters numerically.
+    result.chapters.sort((a, b) => compareChapterFilenames(a.filename, b.filename))
   }
 
   // Scan for music files in project root, episode dir, and music/ subdirs
