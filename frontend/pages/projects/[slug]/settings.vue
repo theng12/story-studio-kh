@@ -100,7 +100,14 @@
       </div>
       <table class="edit-table mt-1">
         <thead>
-          <tr><th>Model</th><th>$/1K chars</th><th></th></tr>
+          <tr>
+            <th>Model</th>
+            <th>$/1K chars</th>
+            <th title="Max characters per TTS API call. The script is split at sentence boundaries within this cap, then re-stitched. Cloud providers (ElevenLabs ≈ 4800, GenAIPro/fal as their proxies allow) have generous caps; local MLX engines need smaller chunks (VoxCPM2 ≈ 600, Chatterbox ≈ 1000). Leave blank to use the chunker default (~4800).">
+              Max chunk chars
+            </th>
+            <th></th>
+          </tr>
         </thead>
         <tbody>
           <tr v-for="(model, key) in editAudioModels" :key="key">
@@ -110,6 +117,23 @@
             </td>
             <td>
               <input v-model.number="model.cost_per_1k_chars" type="number" step="0.01" min="0" class="input input-sm" />
+            </td>
+            <td>
+              <!-- v1.0.313 — per-model chunk-size cap. Drives how the generator
+                   splits long sections into per-API-call chunks. Cloud providers
+                   take generous values (3000-5000); local MLX engines need 500-
+                   1000. Bound to AudioModelConfig.tts_soft_max_chars; backend
+                   already reads it (generators/audio.ts modelEntry.tts_soft_max_chars). -->
+              <input
+                v-model.number="model.tts_soft_max_chars"
+                type="number"
+                step="50"
+                min="0"
+                max="10000"
+                class="input input-sm"
+                placeholder="auto"
+                title="Maximum characters per TTS API call. Leave blank to use the chunker default. Suggested: 4800 for ElevenLabs / GenAIPro / fal; 500-600 for VoxCPM2; 1000 for Chatterbox; ≥3000 for Kokoro."
+              />
             </td>
             <td>
               <button
@@ -5362,7 +5386,19 @@ async function saveImagePricing() {
 
 async function saveAudioPricing() {
   try {
-    await put(`/projects/${slug.value}/settings/config`, { audio_models: editAudioModels.value })
+    // v1.0.313 — normalize tts_soft_max_chars: an empty input gives NaN via
+    // v-model.number, which the backend would reject. Strip non-positive
+    // values so "blank" cleanly means "use the chunker default" (the same
+    // semantics as before the field existed).
+    const payload: Record<string, any> = {}
+    for (const [k, m] of Object.entries(editAudioModels.value)) {
+      const copy: any = { ...m }
+      const cap = Number(copy.tts_soft_max_chars)
+      if (!Number.isFinite(cap) || cap <= 0) delete copy.tts_soft_max_chars
+      else copy.tts_soft_max_chars = Math.round(cap)
+      payload[k] = copy
+    }
+    await put(`/projects/${slug.value}/settings/config`, { audio_models: payload })
     await refreshConfig(slug.value)
     stampSaved('audio_pricing')
     success('Audio pricing saved!')

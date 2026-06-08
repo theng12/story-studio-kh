@@ -403,6 +403,17 @@ const currentAudioProvider = computed<string>(() => {
   return resolveAudioProvider(form.model, entry || {})
 })
 
+// v1.0.313 — when the user switches OFF Voice Studio (e.g. local → GenAIPro),
+// clear the local-only chunk-size override so it can't leak into cloud requests
+// — the field's input is gated to voicestudio, so otherwise a stale value just
+// sits hidden in form state and travels through submit. (The submit-time strip
+// in submit() is the real guard; this clear keeps presets clean too.)
+watch(currentAudioProvider, (next, prev) => {
+  if (prev === 'voicestudio' && next && next !== 'voicestudio' && form.max_chunk_chars) {
+    form.max_chunk_chars = null
+  }
+})
+
 // v1.0.207+ — voice/model compatibility reconciliation now lives inside
 // VoicePicker (it has the catalogue + Voice Studio voice lists to judge
 // against). On a model change it keeps the voice if it's still usable and
@@ -696,7 +707,17 @@ async function submit() {
   // .passthrough() but the generator's `> 0` check would reject it; cleaner
   // to omit so the engine default kicks in unambiguously.
   const payload: any = { ...rest, sections, force, no_overwrite }
-  if (!(typeof payload.max_chunk_chars === 'number' && payload.max_chunk_chars > 0)) {
+  // v1.0.313 — also strip max_chunk_chars when NOT on Voice Studio. The form's
+  // input is gated to voicestudio (v-if), but if the user had set a value
+  // earlier and then switched to a cloud model (ElevenLabs / GenAIPro / fal),
+  // the field stays in form state — just hidden — and used to ship through to
+  // the backend, shrinking cloud chunks to a local-sized cap (the source of
+  // the "Chunk cap: 250 chars" + 5-minute timeout on a cloud run). Cloud
+  // providers chunk based on their own per-model cap in audio_models config
+  // now (see Settings → Audio Models), not the local-only override.
+  if (currentAudioProvider.value !== 'voicestudio') {
+    delete payload.max_chunk_chars
+  } else if (!(typeof payload.max_chunk_chars === 'number' && payload.max_chunk_chars > 0)) {
     delete payload.max_chunk_chars
   }
 

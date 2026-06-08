@@ -4,6 +4,38 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.313 — 2026-06-08
+
+### Fixed — cloud TTS chunked at 250 chars (the "Chunk cap: 250 chars" + 5-minute timeout)
+
+What you saw on TN0153: a cloud model (GenAIPro Multilingual v2) chunked at **250 chars per submit** — slicing the Introduction into 10 parts and Chapter 04 into 23 — then timed out after 5 minutes. The log even called it out: *"per-job override from the Audio page; default would have been unset"*.
+
+What happened: the Audio page has a **Max chunk size** field gated to Voice Studio (local cloning engines need tiny chunks). If you'd set a value while on a Voice Studio model and then switched to a cloud model, the input disappeared from the screen — but the value **stayed in form state** and shipped through to the backend on the next submit, capping the cloud run at the local-sized 250. The submit-time strip checked only "is it a positive number?", not "are we even on a local provider?"
+
+Now the strip checks the provider. The value is also cleared automatically when you switch off Voice Studio, so it can't sneak into a saved preset.
+
+### Added — per-model chunk-size cap in Settings → Audio Models
+
+You asked: *"why don't I get a per-model chunk control? different voices have different limits, so I can have it saved."* That's exactly the right shape — and the backend already supported it (`AudioModelConfig.tts_soft_max_chars`), there just wasn't a Settings UI for it.
+
+A new **Max chunk chars** column on the **Audio Model Pricing** table now lets you set the per-model cap. Leave it blank to use the chunker default (≈4800). Suggested values:
+
+- **ElevenLabs / GenAIPro / fal proxies** → 3000–4800 (paste what their docs allow for your tier).
+- **Voice Studio Kokoro** → 3000+ (no cloning drift).
+- **VoxCPM2** → 500–600 (cloned voice drifts after ~30s).
+- **Chatterbox** → 1000 (drifts after ~60s).
+
+The per-job override on the Audio page is now strictly an *escape hatch for Voice Studio*; the per-model setting in Settings is the everyday control.
+
+### Files
+- `frontend/pages/projects/[slug]/audio.vue` — submit-time strip now gates on `currentAudioProvider !== 'voicestudio'`; new watcher clears `form.max_chunk_chars` when switching off Voice Studio.
+- `frontend/pages/projects/[slug]/settings.vue` — new **Max chunk chars** column on the Audio Models table; save handler normalizes empty/NaN to "unset" so blank means "use the chunker default."
+
+### Verification
+- `nuxt generate` build compiles every SFC. The backend already reads `tts_soft_max_chars` from `audio_models` config (see `generators/audio.ts` modelEntry handling) so no backend change was needed — only the UI to set it and the bug-stop to keep the local-only override from leaking.
+
+---
+
 ## v1.0.312 — 2026-06-08
 
 ### Changed — Audio voice picker: saved-only, with inline Add (no more slow live fetch)
