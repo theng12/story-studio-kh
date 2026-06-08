@@ -56,9 +56,33 @@
       </span>
     </div>
 
+    <!-- v1.0.316 — Couldn't-load state: distinct from genuine empty (Welcome).
+         Auto-retry already ran (4 attempts × backoff); this is the manual-
+         recovery exit. The backend usually comes back the moment the heavy
+         audio merge / image batch step finishes a phase, so a single click
+         typically works. -->
+    <div v-if="!loading && projects.length === 0 && projectsLoadError" class="onboarding">
+      <div class="onboarding-card">
+        <div class="onboarding-icon" aria-hidden="true">&#9888;</div>
+        <h2>Couldn't load your projects</h2>
+        <p>
+          We tried a few times. The backend is probably busy with a big job
+          (audio merge, image batch). Wait a moment and try again — your
+          projects and data are safe on disk.
+        </p>
+        <p class="text-muted" style="font-size: 12px;">{{ projectsLoadError }}</p>
+        <div class="flex gap-2 mt-2" style="justify-content:center; flex-wrap:wrap">
+          <button class="btn btn-primary btn-lg" :disabled="projectsRetrying" @click="retryLoadProjects">
+            <LoadingSpinner v-if="projectsRetrying" size="sm" />
+            {{ projectsRetrying ? 'Retrying…' : 'Retry' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Onboarding (no projects yet — and not just because they're all
          mid-download from iCloud). -->
-    <div v-if="!loading && projects.length === 0" class="onboarding">
+    <div v-else-if="!loading && projects.length === 0" class="onboarding">
       <div class="onboarding-card">
         <div class="onboarding-icon">&#10024;</div>
         <h2>Welcome to Story Studio KH</h2>
@@ -1260,6 +1284,11 @@ const appSettingsModal = useAppSettingsModal()
 const loading = ref(true)
 const projects = ref<any[]>([])
 const templates = ref<any[]>([])
+// v1.0.316 — sticky error state for the projects fetch. Distinguishes "no
+// projects yet (show Welcome onboarding)" from "fetch failed (show Retry)".
+// Cleared when a fetch succeeds with any result, even an empty array.
+const projectsLoadError = ref<string>('')
+const projectsRetrying = ref(false)
 
 // ── Linked-projects "Add existing project folder…" dialog ─────────────────
 const addLinkedOpen = ref(false)
@@ -2121,6 +2150,53 @@ function formatDate(date: string) {
   return new Date(date).toLocaleDateString()
 }
 
+/**
+ * v1.0.316 — Fetch /projects with backoff retry. Backstops the case where the
+ * backend's event loop is briefly stalled (long-running audio merge job
+ * spawning ffprobe per file), which used to fail the one-shot fetch and leave
+ * the page stuck on the empty-onboarding state until a manual reload.
+ *
+ * Tries up to 4 times (initial + 3 retries) with delays 1s / 3s / 9s. On
+ * success, clears projectsLoadError. On final failure, sets the error and
+ * returns []; the template shows a "Retry" panel instead of the Welcome card.
+ *
+ * Worst case the user waits 13s + the last attempt's request time before the
+ * Retry button appears — almost always invisible because the stalls are
+ * sub-second and the first or second retry succeeds.
+ */
+async function fetchProjectsWithRetry(): Promise<any[]> {
+  const delays = [1_000, 3_000, 9_000]
+  let lastErr: any = null
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      const r = await get<any[]>('/projects')
+      projectsLoadError.value = ''
+      return Array.isArray(r) ? r : []
+    } catch (e: any) {
+      lastErr = e
+      if (attempt === delays.length) break
+      console.warn(`[index] /projects attempt ${attempt + 1} failed; retrying in ${delays[attempt]}ms…`, e?.message || e)
+      await new Promise(r => setTimeout(r, delays[attempt]))
+    }
+  }
+  const msg = lastErr?.data?.detail || lastErr?.message || 'backend offline?'
+  projectsLoadError.value = msg
+  showError(`Couldn't load projects — ${msg}`)
+  return []
+}
+
+/** Manual retry handler for the empty-state Retry button (v1.0.316). */
+async function retryLoadProjects() {
+  if (projectsRetrying.value) return
+  projectsRetrying.value = true
+  try {
+    const fresh = await fetchProjectsWithRetry()
+    projects.value = fresh
+  } finally {
+    projectsRetrying.value = false
+  }
+}
+
 async function loadData() {
   loading.value = true
   try {
@@ -2134,11 +2210,14 @@ async function loadData() {
     // the onboarding state renders (Welcome card with the buttons), not
     // a forever-spinning blank screen.
     const [p, t] = await Promise.all([
-      get<any[]>('/projects').catch((e: any) => {
-        console.error('[index] /projects failed:', e)
-        showError(`Couldn't load projects — ${e?.data?.detail || e?.message || 'backend offline?'}`)
-        return [] as any[]
-      }),
+      // v1.0.316 — auto-retry the projects fetch on transient failure. The
+      // backend's event loop can briefly stall during a heavy audio merge
+      // (per-file ffprobe spawns) and a single failed fetch used to leave
+      // the page stuck on the empty-onboarding state until manual reload.
+      // Backoff: 1s, 3s, 9s. Sets projectsLoadError on final failure so the
+      // empty state shows a Retry button instead of the Welcome card; cleared
+      // on any success (even when the response is genuinely an empty array).
+      fetchProjectsWithRetry(),
       get<any[]>('/projects/templates').catch((e: any) => {
         console.error('[index] /projects/templates failed:', e)
         return [] as any[]

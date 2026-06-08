@@ -4,6 +4,32 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.316 — 2026-06-08
+
+### Fixed — projects list no longer goes blank when a big job is running
+
+What kept happening: while an audio merge or image batch was in flight, navigating to the home page (or reloading) sometimes showed "no projects" — a forever-empty Welcome screen — until you hit ⌘R manually. Even though the projects, jobs, and data were all fine on disk.
+
+Why: the merge job's per-file `ffprobe` / `ffmpeg` spawns keep the Node event loop very busy for short bursts. A request from the renderer that lands in a bad ~200ms window can time out. The home page's projects fetch was **one-shot** — if it failed, it set `projects = []` and stayed that way. The empty array then rendered as "you have no projects" since nothing distinguished "fetch failed" from "genuinely empty."
+
+Fix (two parts):
+
+1. **Auto-retry with backoff** on the projects fetch: 1 try + 3 retries at 1s / 3s / 9s. A 200ms backend hiccup is invisible to you — the first retry succeeds and the list renders normally. Worst case (4 failures = 13s) the page shows a manual recovery option:
+2. **A "Couldn't load your projects — Retry" panel**, distinct from the Welcome onboarding card. One click re-runs the same retry sequence. Your projects + data + jobs are untouched on disk; this is purely about the UI re-asking the backend.
+
+So a brief backend stall during a merge job no longer leaves the home page stranded.
+
+### Files
+- `frontend/pages/index.vue` — `fetchProjectsWithRetry()` helper with 1/3/9-second backoff; `projectsLoadError` sticky error state; a new "Couldn't load" panel + Retry button rendered when the error is set (vs. the Welcome card for genuine first-run empty).
+
+### Verification
+- `nuxt generate` build compiles every SFC. The retry helper uses `await new Promise(r => setTimeout(r, …))` between attempts, so it doesn't busy-wait. The error state is cleared on any success (including a legitimate empty array), so the Welcome onboarding still renders on a fresh install.
+
+### Followups (not in this release)
+The deeper cause is the merge job's event-loop pressure during heavy ffprobe spawning. The right fix is to batch / parallelize those probes with a concurrency cap (say 4 at a time) so the burst never starves the HTTP server in the first place. Filed for a future release.
+
+---
+
 ## v1.0.315 — 2026-06-08
 
 ### Fixed — Audio Assembly: parts of the same chapter now sort numerically (part2 before part10)
