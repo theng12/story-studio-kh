@@ -163,9 +163,27 @@
         <span class="text-muted text-xs">Inserted between each chapter (Introduction → Ch1 → Ch2 → ...)</span>
       </div>
 
+      <!-- v1.0.317 — Per-chunk pause. Only useful when at least one chapter
+           was split into _part1/_part2/... files (long chapters at the TTS
+           chunk cap). Default 0 = back-to-back concat (legacy behaviour);
+           0.3-1s lets cloud TTS chunks "breathe" at the chunker boundary so
+           the narration doesn't sound rushed mid-sentence. -->
+      <div class="form-group mt-2 gap-duration-field" v-if="hasMultiPartChapters">
+        <label>Per-chunk pause ({{ chunkSilenceSec.toFixed(1) }}s)</label>
+        <SliderWithNumber v-model="chunkSilenceSec" :min="0" :max="3" :step="0.1" suffix="s" />
+        <span class="text-muted text-xs">
+          Inserted between parts of the SAME chapter ({{ chunkTransitionsTotal }} transition{{ chunkTransitionsTotal === 1 ? '' : 's' }} in this episode). Cloud TTS chunks end mid-breath — back-to-back can sound rushed. Try <strong>0.3-1s</strong> for a more natural rhythm. Leave at 0 to keep current behavior.
+        </span>
+      </div>
+
       <!-- Total Duration -->
       <div class="summary-bar mt-2" v-if="chapters.length">
-        Total narration: {{ formatDuration(totalChapterDuration) }} + {{ (chapters.length - 1) * gapDuration }}s gaps = {{ formatDuration(estimatedMergedDuration) }}
+        Total narration: {{ formatDuration(totalChapterDuration) }}
+        + {{ chapterGapSecondsTotal }}s chapter gaps
+        <template v-if="chunkSilenceSec > 0 && chunkTransitionsTotal > 0">
+          + {{ chunkPauseSecondsTotal.toFixed(1) }}s chunk pauses
+        </template>
+        = {{ formatDuration(estimatedMergedDuration) }}
       </div>
     </div>
 
@@ -759,6 +777,10 @@ onUnmounted(() => {
 })
 
 const gapDuration = ref(5)
+// v1.0.317 — per-chunk pause for cloud TTS chunked chapters. Default 0 keeps
+// the legacy back-to-back concat behaviour exactly. Surfaced only when at
+// least one chapter has multiple `_partN` files.
+const chunkSilenceSec = ref(0)
 const normalizeVolume = ref(false)
 
 const chapters = ref<Array<{ filename: string; path: string; label: string; duration?: number }>>([])
@@ -901,6 +923,7 @@ const mergePresets = usePresets<any>({
     background_noise: JSON.parse(JSON.stringify(backgroundNoise)),
     ambient_tracks: ambientTracks.map(t => ({ ...t })),
     gap_duration: gapDuration.value,
+    chunk_silence_sec: chunkSilenceSec.value,
     normalize_volume: normalizeVolume.value,
   }),
   apply: (data) => {
@@ -912,6 +935,9 @@ const mergePresets = usePresets<any>({
       ambientTracks.splice(0, ambientTracks.length, ...data.ambient_tracks.map((t: any) => ({ ...t })))
     }
     if (typeof data.gap_duration === 'number') gapDuration.value = data.gap_duration
+    if (typeof data.chunk_silence_sec === 'number' && data.chunk_silence_sec >= 0) {
+      chunkSilenceSec.value = data.chunk_silence_sec
+    }
     if (typeof data.normalize_volume === 'boolean') normalizeVolume.value = data.normalize_volume
   },
 })
@@ -931,9 +957,34 @@ const totalChapterDuration = computed(() => {
   return chapters.value.reduce((sum, ch) => sum + (ch.duration || 0), 0)
 })
 
+// v1.0.317 — distinguish "same chapter" transitions (between _part1/_part2/...
+// of one chapter) from "different chapter" transitions. The per-chunk pause
+// goes between same-chapter parts; the existing gap_duration goes between
+// different chapters. Mirrors the backend's chapterKeyOf logic.
+function chapterKeyFromFilename(filename: string): string {
+  // Strip episode prefix (e.g. "TN0161_") then _part{N} / _v{N} suffixes.
+  let base = (filename || '').replace(/\.[^.]+$/, '').replace(/^[A-Z]+\d+_/, '')
+  while (/(?:_part\d+|_v\d+)$/i.test(base)) base = base.replace(/(?:_part\d+|_v\d+)$/i, '')
+  return base
+}
+const chapterTransitions = computed(() => {
+  let sameChapter = 0
+  let differentChapter = 0
+  for (let i = 0; i < chapters.value.length - 1; i++) {
+    const a = chapterKeyFromFilename(chapters.value[i]?.filename || '')
+    const b = chapterKeyFromFilename(chapters.value[i + 1]?.filename || '')
+    if (a && b && a === b) sameChapter++
+    else differentChapter++
+  }
+  return { sameChapter, differentChapter }
+})
+const chunkTransitionsTotal = computed(() => chapterTransitions.value.sameChapter)
+const hasMultiPartChapters = computed(() => chunkTransitionsTotal.value > 0)
+const chapterGapSecondsTotal = computed(() => chapterTransitions.value.differentChapter * gapDuration.value)
+const chunkPauseSecondsTotal = computed(() => chunkTransitionsTotal.value * chunkSilenceSec.value)
+
 const estimatedMergedDuration = computed(() => {
-  const gaps = (chapters.value.length - 1) * gapDuration.value
-  return totalChapterDuration.value + gaps
+  return totalChapterDuration.value + chapterGapSecondsTotal.value + chunkPauseSecondsTotal.value
 })
 
 const scannedMusicFiles = computed(() => {
@@ -1339,6 +1390,9 @@ async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite')
     narration_volume: 1.0,
     write_mode: writeMode,
   }
+  // v1.0.317 — opt-in per-chunk pause for cloud TTS chunked chapters. Only
+  // sent when > 0 so the backend payload stays clean for the legacy default.
+  if (chunkSilenceSec.value > 0) payload.chunk_silence_sec = chunkSilenceSec.value
 
   if (intro.enabled && intro.file) {
     payload.intro = {

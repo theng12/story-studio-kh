@@ -4,6 +4,35 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.317 — 2026-06-08
+
+### Added — Per-chunk pause (Audio Assembly) — fixes the rushed-robotic feel on cloud TTS chunked chapters
+
+When a long chapter goes over the TTS char cap, the audio generator splits it into `_part1`, `_part2`, … and Audio Assembly concatenates them back into one chapter. Until now those parts were joined **back-to-back** — and because cloud TTS (ElevenLabs, GenAIPro, fal) chunks end and start mid-breath, the seam sounds rushed and artificial. The longer the chapter, the more obvious it gets.
+
+There's now a **Per-chunk pause** slider on the Audio Assembly page that inserts a small silence (0.0 – 3.0s) between every `_partN` transition within the same chapter. Default is **0s** (current/legacy behaviour, no surprise on existing projects). Try **0.3–1s** for a natural breath. Different-chapter transitions still use the existing **Silence Between Chapters** value — they're independent controls.
+
+The slider only appears when the loaded episode actually has multi-part chapters (so it doesn't clutter the UI on episodes that fit in one chunk per chapter). The summary line at the top of the page shows the math: total narration + chapter gaps + chunk pauses = estimated duration.
+
+Important: the per-chapter duration sidecar (`audio_chapters.json`) folds the inter-part silences into each chapter's duration so per-chapter SRT cues stay aligned with the merged audio. Without this the subtitles would drift by `(parts−1) × chunk_silence` for every multi-part chapter (~11 seconds on a 23-part chapter at 0.5s pauses — substantial).
+
+### On the "is ffmpeg overloaded?" concern
+
+Your TN0161 merge with 171 chunks succeeded and produced a clean 39m file. The merge step concatenates fine at that scale — ffmpeg eats hundreds of files in one pass with no issue. The reliability worry was actually upstream: the per-file `ffprobe` spawn loop briefly stalls the event loop, which used to time out the projects fetch on the home page. **That was fixed in v1.0.316** with the projects auto-retry. The deeper fix — running the probes in batches with a concurrency cap so the event loop never gets starved — is still filed as a followup for a focused future release.
+
+On the "two-stage merge" idea (stitch chunks → chapter files → episode): considered and rejected as a separate step. The new `chunk_silence_sec` parameter on the existing single-stage merge gives the same audible result (a chapter with natural breathing between its parts) without introducing intermediate files to track / clean up / keep in sync with regenerations. One ffmpeg pass, same output.
+
+### Files
+- `electron/server/generators/audio-merge.ts` — `chunk_silence_sec` handling: builds a second ffmpeg silence track, inserts it between same-chapter parts in the concat list, folds inter-part silences into the sidecar's per-chapter duration so subtitles stay aligned.
+- `electron/server/models/types.ts` — `chunk_silence_sec?: number` added to `AudioMergeRequest`.
+- `frontend/pages/projects/[slug]/audio-merge.vue` — new "Per-chunk pause" slider gated on `hasMultiPartChapters`; chunk/chapter transition counts; updated summary bar; preset save/apply for the new field.
+
+### Verification
+- Backend `tsc` clean; **1057 backend tests pass** (no test changes — the new path is exercised when the field is set, and the legacy path is byte-for-byte identical when it's absent or 0).
+- `nuxt generate` build compiles every SFC. Frontend behaviour is gated correctly: the slider only appears for episodes with `_partN` files; the summary bar shows the new contribution only when `chunkSilenceSec > 0 AND chunkTransitions > 0`.
+
+---
+
 ## v1.0.316 — 2026-06-08
 
 ### Fixed — projects list no longer goes blank when a big job is running

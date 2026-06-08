@@ -446,6 +446,24 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       ], { timeoutMs: audioMergeTimeoutMs() })
     }
 
+    // v1.0.317 — per-chunk pause: a short silence inserted between PARTS of
+    // the same chapter (the _part1/_part2/... files a long chapter gets split
+    // into). Default 0 = back-to-back (legacy). 0.3-1.0s gives cloud TTS
+    // chunks a natural breath at the chunk boundary so the narration doesn't
+    // feel rushed where the chunker split a sentence.
+    const chunkSilenceSec = Math.max(0, Number(req.chunk_silence_sec) || 0)
+    let chunkSilenceFile: string | undefined
+    if (chunkSilenceSec > 0) {
+      chunkSilenceFile = path.join(tempDir, 'chunk_silence.mp3')
+      await runFfmpeg([
+        '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+        '-t', chunkSilenceSec.toString(),
+        '-c:a', 'libmp3lame', '-b:a', '128k',
+        chunkSilenceFile,
+      ], { timeoutMs: audioMergeTimeoutMs() })
+      job.output_lines.push(`Per-chunk pause: ${chunkSilenceSec}s between parts of the same chapter.`)
+    }
+
     // Build concat list file
     const concatListPath = path.join(tempDir, 'concat_list.txt')
     const concatLines: string[] = []
@@ -493,10 +511,19 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       // _part1/_part2/… files). `validChapters` is parallel-indexed to
       // `chapterFiles` (the normalized copies preserve order), so derive the
       // chapter key from the original filename.
-      if (i < chapterFiles.length - 1 && silenceFile) {
+      // v1.0.317 — also handle the SAME-chapter case: insert the per-chunk
+      // pause (chunkSilenceFile) so cloud TTS chunks don't run rushed into
+      // each other at the chunker boundary. When chunk_silence_sec is 0
+      // (default), chunkSilenceFile is undefined and behaviour is byte-for-
+      // byte identical to v1.0.224.
+      if (i < chapterFiles.length - 1) {
         const curKey = chapterKeyOf(path.basename(validChapters[i]), code)
         const nextKey = chapterKeyOf(path.basename(validChapters[i + 1]), code)
-        if (curKey !== nextKey) concatLines.push(escPath(silenceFile))
+        if (curKey !== nextKey) {
+          if (silenceFile) concatLines.push(escPath(silenceFile))
+        } else {
+          if (chunkSilenceFile) concatLines.push(escPath(chunkSilenceFile))
+        }
       }
     }
 
@@ -549,6 +576,17 @@ export async function generateAudioMerge(job: Job): Promise<void> {
         g.duration_s += d
         g.source_files!.push(filename)
       }
+      // v1.0.317 — fold the inter-part silences into each chapter's duration
+      // so the sidecar matches the chapter's REAL extent inside the merged
+      // file (otherwise per-chapter SRT offsets drift behind by N*chunk_silence
+      // for every N-part chapter). For a 23-part Chapter 04 with 0.5s pauses,
+      // that's 11s of silence baked between parts — substantial.
+      if (chunkSilenceSec > 0) {
+        for (const g of groups.values()) {
+          const partCount = g.source_files?.length ?? 1
+          if (partCount > 1) g.duration_s += (partCount - 1) * chunkSilenceSec
+        }
+      }
       for (const slug of order) chaptersForSidecar.push(groups.get(slug)!)
       const sidecarPath = path.join(episodeDir, 'audio_chapters.json')
       // v1.0.140+ — Persist the gap_duration the merge actually used.
@@ -563,9 +601,14 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       await fs.writeFile(sidecarPath, JSON.stringify({
         sections: chaptersForSidecar,
         gap_duration_s: req.gap_duration,
+        // v1.0.317 — persist the per-chunk pause so anything reading the
+        // sidecar (subtitle derivation, video assembly) knows the chapter
+        // durations already include inter-part silences. 0 / absent = legacy.
+        chunk_silence_sec: chunkSilenceSec,
       }, null, 2))
       job.output_lines.push(
-        `Wrote chapter-duration sidecar (audio_chapters.json): ${chaptersForSidecar.length} section(s), gap=${req.gap_duration}s`,
+        `Wrote chapter-duration sidecar (audio_chapters.json): ${chaptersForSidecar.length} section(s), gap=${req.gap_duration}s` +
+        (chunkSilenceSec > 0 ? `, chunk-pause=${chunkSilenceSec}s` : ''),
       )
     } catch (e: any) {
       job.output_lines.push(`Note: chapter-duration sidecar skipped (${e?.message || 'write error'})`)

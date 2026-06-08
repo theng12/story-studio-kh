@@ -2733,6 +2733,15 @@ export interface AudioMergeRequest {
   episode_id: string
   chapters: string[]           // ordered audio file paths
   gap_duration: number         // seconds of silence between chapters, default 5
+  /**
+   * v1.0.317 — seconds of silence to insert BETWEEN PARTS of the SAME chapter
+   * (the _part1/_part2/... files a long chapter gets split into). 0 = back-to-
+   * back concat (current/legacy behaviour). 0.3-1.0s reads as a natural breath
+   * — cloud TTS chunks end and start mid-sentence-flow with no audio padding,
+   * so back-to-back concat sounds rushed. The chapter-level `gap_duration`
+   * still controls transitions between DIFFERENT chapters.
+   */
+  chunk_silence_sec?: number
   normalize_volume: boolean    // apply loudnorm filter to equalize chapter volumes
   intro?: AudioMergeIntro      // optional audio intro prepended to narration
   music?: VideoMusicConfig     // optional background music
