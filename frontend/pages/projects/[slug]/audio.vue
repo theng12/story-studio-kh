@@ -137,42 +137,36 @@
         </div>
       </div>
 
-      <!-- Per-job chunk-size override. Only meaningful for Voice Studio
-           local engines (voice cloning models drift after ~10-30s; smaller
-           chunks keep each TTS call inside the coherence window). Hidden
-           for cloud engines (ElevenLabs / GenAIPro) where the chunking
-           defaults already account for the providers' own quirks. -->
-      <div v-if="currentAudioProvider === 'voicestudio'" class="form-group mb-2">
-        <label>
-          Max chunk size <span class="field-hint">— characters per TTS call (Voice Studio only)</span>
-        </label>
-        <div class="chunk-row">
-          <input
-            type="number"
-            v-model.number="form.max_chunk_chars"
-            min="50"
-            max="3000"
-            step="50"
-            class="input"
-            style="max-width: 140px;"
-            placeholder="auto"
-          />
-          <span class="text-muted text-xs">
-            ≈ {{ form.max_chunk_chars ? Math.round((form.max_chunk_chars || 0) / 15) : '?' }}s of audio
-            (at ~15 chars/sec narration pace)
+      <!-- v1.0.314 — Chunk size: read-only display for ALL providers. The cap
+           controls how a long section is split into per-API-call chunks (then
+           re-stitched). The per-model value is set in Settings → Audio Models
+           so the Audio Generator can never accidentally ship a wrong value
+           (which was the v1.0.313 bug — a hidden local-only override leaking
+           into cloud runs). Cloud + local both surface it the same way now. -->
+      <div v-if="form.model" class="form-group mb-2">
+        <label>Chunk size <span class="field-hint">— characters per TTS call</span></label>
+        <div class="chunk-display" :title="chunkSizeTooltip">
+          <span class="chunk-value">
+            <template v-if="resolvedChunkCap">
+              {{ resolvedChunkCap.toLocaleString() }} chars
+              <span class="text-muted text-xs"> · ≈ {{ formatChunkSeconds(resolvedChunkCap) }} of audio</span>
+            </template>
+            <template v-else>
+              <span class="text-muted">auto</span>
+              <span class="text-muted text-xs"> · chunker default ≈4,800 chars (≈5 min)</span>
+            </template>
           </span>
-          <button
-            v-if="form.max_chunk_chars"
-            class="link-btn"
-            type="button"
-            @click="form.max_chunk_chars = null"
-          >Reset to engine default</button>
+          <NuxtLink :to="`/projects/${slug}/settings#audio-models`" class="link-btn chunk-link" title="Open Settings → Audio Models to configure the per-model chunk cap.">
+            Configure in Settings ↗
+          </NuxtLink>
         </div>
         <p class="text-muted text-xs hint-line">
-          VoxCPM2 + Chatterbox clone the reference voice each chunk. The cloned voice naturally drifts after
-          ~10–30s of continuous output, so smaller chunks = better fidelity. Engine defaults: VoxCPM2 500 (~30s),
-          Chatterbox 1000 (~60s). Leave empty to use the default. Try 300 (~20s) or 225 (~15s) if the voice
-          still degrades partway through long sections.
+          The script is split at sentence boundaries within this cap, then the
+          per-chunk audio files are re-stitched. Suggested per provider:
+          ElevenLabs / GenAIPro / fal ≈ 3,000–4,800;
+          Kokoro 3,000+;
+          VoxCPM2 500–600 (cloned voice drifts after ~30s);
+          Chatterbox 1,000.
         </p>
       </div>
 
@@ -366,13 +360,13 @@ const form = reactive({
   speed: 0.93,
   stability: 1.0,
   similarity: 1.0,
-  // Per-job override for the chunk-size cap (chars). Null = use the engine's
-  // default from AudioModelConfig.tts_soft_max_chars. Used primarily for
-  // Voice Studio voice-cloning engines (VoxCPM2, Chatterbox) where the
-  // cloned voice drifts after ~10-30s — smaller chunks keep each TTS call
-  // inside the model's coherence window (each chunk gets a fresh reference
-  // injection). Surfaced in the UI only when a local voicestudio engine is
-  // selected; cloud engines (ElevenLabs / GenAIPro) ignore this entirely.
+  // v1.0.314 — the per-job chunk override field is gone. The chunk cap is
+  // configured per-model in Settings → Audio Models (tts_soft_max_chars) and
+  // surfaced read-only on this page so it can't be tweaked here. Kept as a
+  // null field so legacy presets / remembered-form entries that still carry
+  // it don't crash — it just never gets a value into payload (always stripped
+  // at submit). Safe to remove this line once no v1.0.313-or-older presets
+  // remain in the wild.
   max_chunk_chars: null as number | null,
   // Unified Generation Mode (M6). Submit translates this into the backend's
   // existing { force, no_overwrite } pair. Default 'skip' matches the old
@@ -385,7 +379,10 @@ const form = reactive({
 // left out of the allowlist. A restored voice that's incompatible with the
 // restored model is reconciled by VoicePicker on load.
 useRememberedForm('audio', slug, form, {
-  include: ['model', 'voice', 'speed', 'stability', 'similarity', 'generation_mode', 'max_chunk_chars'],
+  // v1.0.314 — max_chunk_chars removed from the allowlist. It's no longer
+  // user-settable on this page (per-model cap lives in Settings), so there's
+  // nothing to remember.
+  include: ['model', 'voice', 'speed', 'stability', 'similarity', 'generation_mode'],
 })
 
 // v1.0.150+ — resolve the provider of the currently-picked audio model so
@@ -403,16 +400,26 @@ const currentAudioProvider = computed<string>(() => {
   return resolveAudioProvider(form.model, entry || {})
 })
 
-// v1.0.313 — when the user switches OFF Voice Studio (e.g. local → GenAIPro),
-// clear the local-only chunk-size override so it can't leak into cloud requests
-// — the field's input is gated to voicestudio, so otherwise a stale value just
-// sits hidden in form state and travels through submit. (The submit-time strip
-// in submit() is the real guard; this clear keeps presets clean too.)
-watch(currentAudioProvider, (next, prev) => {
-  if (prev === 'voicestudio' && next && next !== 'voicestudio' && form.max_chunk_chars) {
-    form.max_chunk_chars = null
-  }
+// v1.0.314 — the per-model chunk cap (Settings → Audio Models → Max chunk
+// chars). Null = use the chunker default (~4800). Surfaced read-only in the
+// form so the user knows exactly what's about to be sent to the TTS API.
+const resolvedChunkCap = computed<number | null>(() => {
+  if (!form.model) return null
+  const entry = config.value?.audio_models?.[form.model] as any
+  const cap = Number(entry?.tts_soft_max_chars)
+  return Number.isFinite(cap) && cap > 0 ? Math.round(cap) : null
 })
+function formatChunkSeconds(chars: number): string {
+  // ~15 chars/sec narration pace (English audiobook average).
+  const sec = Math.round(chars / 15)
+  if (sec < 90) return `${sec}s`
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  return s ? `${m}m ${s}s` : `${m} min`
+}
+const chunkSizeTooltip = computed(() => resolvedChunkCap.value
+  ? `Set per-model in Settings → Audio Models. The script is split at sentence boundaries within ${resolvedChunkCap.value.toLocaleString()} chars per TTS call.`
+  : 'No per-model cap set — the chunker uses its ~4,800-char default. Set a value in Settings → Audio Models to make the chunk size explicit.')
 
 // v1.0.207+ — voice/model compatibility reconciliation now lives inside
 // VoicePicker (it has the catalogue + Voice Studio voice lists to judge
@@ -701,25 +708,13 @@ async function submit() {
   const force = form.generation_mode !== 'skip'
   const no_overwrite = form.generation_mode === 'new_version'
   const { generation_mode: _gm, ...rest } = form
-  // Strip max_chunk_chars from the payload when null/0/unset — the backend
-  // only overrides the engine default when the field is actually present
-  // with a positive number. Sending `null` would still pass the contract's
-  // .passthrough() but the generator's `> 0` check would reject it; cleaner
-  // to omit so the engine default kicks in unambiguously.
   const payload: any = { ...rest, sections, force, no_overwrite }
-  // v1.0.313 — also strip max_chunk_chars when NOT on Voice Studio. The form's
-  // input is gated to voicestudio (v-if), but if the user had set a value
-  // earlier and then switched to a cloud model (ElevenLabs / GenAIPro / fal),
-  // the field stays in form state — just hidden — and used to ship through to
-  // the backend, shrinking cloud chunks to a local-sized cap (the source of
-  // the "Chunk cap: 250 chars" + 5-minute timeout on a cloud run). Cloud
-  // providers chunk based on their own per-model cap in audio_models config
-  // now (see Settings → Audio Models), not the local-only override.
-  if (currentAudioProvider.value !== 'voicestudio') {
-    delete payload.max_chunk_chars
-  } else if (!(typeof payload.max_chunk_chars === 'number' && payload.max_chunk_chars > 0)) {
-    delete payload.max_chunk_chars
-  }
+  // v1.0.314 — always strip max_chunk_chars from the payload. The Audio
+  // Generator no longer exposes the per-job override — the cap is set per
+  // model in Settings → Audio Models. A legacy preset or remembered form may
+  // still carry the field; stripping it unconditionally means the backend
+  // falls back to the per-model cap (or the chunker default) in every case.
+  delete payload.max_chunk_chars
 
   if (form.episode_id && effectiveSections.value.length === 0 && form.sections) {
     // User selected items but every one was filtered out as already-generated.
@@ -752,12 +747,21 @@ async function submit() {
    hint + reset link all on one line so the user can scan the current
    value, see what that means in seconds, and clear it back to the
    engine default in one motion. */
-.chunk-row {
+/* v1.0.314 — read-only chunk-size display. Pill-style so it reads as
+   informational, not interactive (the per-model cap is set in Settings). */
+.chunk-display {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  padding: 7px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
 }
+.chunk-value { display: inline-flex; align-items: baseline; gap: 4px; }
+.chunk-link { font-size: 12px; margin-left: auto; white-space: nowrap; }
 
 /* v1.0.78 — inline "Rescan from disk" hint under the TopActionBar.
    Compact, low-contrast so it doesn't compete with the disabled button

@@ -92,7 +92,7 @@
         <SaveIndicator v-bind="savedHintProps('image_pricing')" />
       </div>
 
-      <div class="card-header mt-3">
+      <div class="card-header mt-3" id="audio-models">
         <h3>Audio Model Pricing</h3>
         <span class="text-muted" style="font-size:12px" v-if="config?.audio_pricing_last_updated">
           Updated: {{ config.audio_pricing_last_updated }}

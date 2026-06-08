@@ -4,6 +4,31 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.314 — 2026-06-08
+
+### Changed — Chunk size is now a unified read-only display on the Audio Generator (cloud + local)
+
+The Audio Generator now shows a small **Chunk size** pill below the voice — for **every** model, cloud or local:
+
+> **Chunk size**: 3,000 chars · ≈ 3 min of audio · [Configure in Settings ↗](#)
+
+Or when no per-model cap is set:
+
+> **Chunk size**: *auto* · chunker default ≈4,800 chars (≈5 min) · [Configure in Settings ↗](#)
+
+It's a visual cue with a hint — not an input. The actual per-model cap is set in **Settings → Audio Models** (the Max chunk chars column added in v1.0.313). The link in the pill jumps straight there.
+
+Why: the per-job override input that used to live on the Audio Generator was Voice Studio-only and was the source of the v1.0.313 bug (a leftover local value leaking into cloud runs, capping GenAIPro at 250 chars). Removing it entirely makes that whole class of bug impossible, and the read-only display is honestly more useful — you can see at a glance what the model is about to do, without hunting through Settings or guessing.
+
+### Files
+- `frontend/pages/projects/[slug]/audio.vue` — read-only Chunk size pill for all providers; per-job override input removed; `max_chunk_chars` stripped from payload unconditionally; field dropped from the remembered-form allowlist.
+- `frontend/pages/projects/[slug]/settings.vue` — added `id="audio-models"` to the Audio Model Pricing section so the in-pill link lands there precisely.
+
+### Verification
+- `nuxt generate` build compiles every SFC. The previous override field was the only place the user could set a per-job cap; with it gone, the only path to a custom cap is Settings → Audio Models, which the backend has read for ages (`tts_soft_max_chars` in `audio_models` config).
+
+---
+
 ## v1.0.313 — 2026-06-08
 
 ### Fixed — cloud TTS chunked at 250 chars (the "Chunk cap: 250 chars" + 5-minute timeout)
