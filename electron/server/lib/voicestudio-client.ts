@@ -162,22 +162,38 @@ export const VOICESTUDIO_ENGINES: VoiceStudioEngine[] = [
   // Audio page's "Max chunk size" field — that override takes precedence
   // over this default.
   { family: 'voxcpm-mlx',     modelId: 'voicestudio-voxcpm-mlx',     label: 'VoxCPM2 4-bit MLX', repo: 'mlx-community/VoxCPM2-4bit', softMaxChars: 500,  voiceField: 'voice_library_id',  availabilityKey: 'voxcpm' },
-  // v1.0.322 — Kokoro default switched again from MLX bf16 → MLX 4-bit. The
-  // bf16 variant either has an mlx-audio runtime bug or doesn't fully download
-  // reliably: the user reported all 5 Macs failing Chapter 04 of EP0002 in the
-  // Voice Studio web UI; live probing of `vengthengs-mac-mini` confirmed the
-  // SAME 1,240-char chapter renders fine end-to-end with the 4-bit variant
-  // (job finished in ~60 s with state=done, no error), while bf16 was reported
-  // "not fully cached" even after a manual download attempt. The 4-bit MLX
-  // build is also the de facto standard for Kokoro on Apple Silicon — smaller,
-  // faster on the same hardware, and what `VOICESTUDIO_DEFAULT_REPOS` already
-  // pointed to for the `kokoro-mlx` family before any of this.
-  // History: v1.0.318 added pool failover for "model not loaded"; v1.0.319
-  // switched the repo to bf16 thinking that was the MLX default; today's diag
-  // showed bf16 specifically is the broken one. v1.0.318's failover is still
-  // valuable for the "some Macs have it, some don't" case but doesn't help
-  // when every Mac fails identically.
-  { family: 'kokoro',         modelId: 'voicestudio-kokoro',         label: 'Kokoro v1.0 82M (MLX 4-bit)', repo: 'mlx-community/Kokoro-82M-4bit', softMaxChars: 2000, voiceField: 'voice',            availabilityKey: 'kokoro' },
+  // v1.0.323 — all three Kokoro variants surfaced as separate model entries.
+  // Up to v1.0.322 Story Studio only exposed one Kokoro option whose repo got
+  // swapped each release (hexgrad → bf16 → 4-bit) as we learned which
+  // variant actually worked. The user asked to have all three available in
+  // the dropdown so they can pick whichever they want on each project, and
+  // they're going to download all three on every Mac.
+  //
+  //   • voicestudio-kokoro       → MLX 4-bit (recommended — proven working in
+  //                                end-to-end synthesis on the user's Mac on
+  //                                2026-06-09; smallest + fastest on Apple Si).
+  //   • voicestudio-kokoro-bf16  → MLX full-precision. Larger weights (~327 MB),
+  //                                same audio quality as PyTorch in theory.
+  //                                Has had download / runtime issues in
+  //                                practice — leave at this label until end-
+  //                                to-end synthesis is confirmed by the user.
+  //   • voicestudio-kokoro-pt    → Original PyTorch (`hexgrad/Kokoro-82M`).
+  //                                Cross-platform baseline; safest "the model
+  //                                weights are exactly what the authors
+  //                                published" option, but slower on Apple
+  //                                Silicon than either MLX build.
+  //
+  // All three share `availabilityKey: 'kokoro'` (Voice Studio reports one
+  // `kokoro_available` flag covering all variants) and `voiceField: 'voice'`
+  // (the af_*/am_*/bf_*/bm_* voicepack ids work across all three repos). The
+  // family field differs (kokoro vs kokoro-mlx) so it matches the Voice Studio
+  // catalog precisely.
+  //
+  // Keep `voicestudio-kokoro` as the recommended-default modelId — anyone with
+  // saved presets / project configs referencing it gets the working variant.
+  { family: 'kokoro-mlx',     modelId: 'voicestudio-kokoro',         label: 'Kokoro v1.0 82M (MLX 4-bit, recommended)', repo: 'mlx-community/Kokoro-82M-4bit', softMaxChars: 2000, voiceField: 'voice',            availabilityKey: 'kokoro' },
+  { family: 'kokoro-mlx',     modelId: 'voicestudio-kokoro-bf16',    label: 'Kokoro v1.0 82M (MLX bf16, full precision)', repo: 'mlx-community/Kokoro-82M-bf16', softMaxChars: 2000, voiceField: 'voice',            availabilityKey: 'kokoro' },
+  { family: 'kokoro',         modelId: 'voicestudio-kokoro-pt',      label: 'Kokoro v1.0 82M (PyTorch baseline)',         repo: 'hexgrad/Kokoro-82M',            softMaxChars: 2000, voiceField: 'voice',            availabilityKey: 'kokoro' },
   // qwen3-tts: must pin to a CONCRETE catalog variant — bare 'Qwen/Qwen3-TTS'
   // is not in the modal's catalog and would hard-error (ValueError: repo not
   // in catalog). The wrapper dispatches mode by repo-name pattern: *Base* →

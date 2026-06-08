@@ -4,6 +4,36 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.323 — 2026-06-09
+
+### Added — all three Kokoro variants as separate model entries
+
+You asked for it: all three Kokoro v1.0 82M variants are now distinct entries in the audio model dropdown (under **Voice Studio · local**), so you can pick which one each project uses and A/B them yourself. After v1.0.319's bf16 mistake → v1.0.322's switch to 4-bit, it's clearer to just surface them all rather than swap the default each time someone discovers something new.
+
+| Model id | Label in dropdown | Repo | Notes |
+|---|---|---|---|
+| `voicestudio-kokoro` | Kokoro v1.0 82M (MLX 4-bit, recommended) | `mlx-community/Kokoro-82M-4bit` | The proven-working default. End-to-end synthesis confirmed on the user's Mac. Smallest + fastest on Apple Silicon. |
+| `voicestudio-kokoro-bf16` | Kokoro v1.0 82M (MLX bf16, full precision) | `mlx-community/Kokoro-82M-bf16` | Full-precision MLX. Theoretically identical quality to PyTorch. Had download/runtime issues in earlier diagnosis; leave at this label until you've confirmed end-to-end. |
+| `voicestudio-kokoro-pt` | Kokoro v1.0 82M (PyTorch baseline) | `hexgrad/Kokoro-82M` | Original cross-platform PyTorch. Slower on Apple Silicon than MLX builds. Safest "matches what the authors published" option. |
+
+All three share:
+- `availabilityKey: 'kokoro'` — Voice Studio reports one `kokoro_available` flag covering all variants.
+- `voiceField: 'voice'` — Kokoro voicepack ids (`af_bella`, `am_michael`, etc.) work across all three repos.
+- `softMaxChars: 2000` — same chunk cap.
+
+So you can swap between them per project without re-picking voices or rebuilding configs. v1.0.318's pool failover still routes around any Mac missing a particular variant, so you don't have to download all three on every Mac simultaneously — the pool degrades gracefully while you're mid-download.
+
+Existing projects: nothing changes. `voicestudio-kokoro` still points at the MLX 4-bit recommended default. The new ids only show up if you explicitly switch to them.
+
+### Files
+- `electron/server/lib/voicestudio-client.ts` — two new `VOICESTUDIO_ENGINES` entries (`voicestudio-kokoro-bf16` + `voicestudio-kokoro-pt`). `voicestudioAudioDefaults()` auto-generates the audio-models catalog rows from this array, so no other code needed updating; the new ids appear in the dropdown automatically with the `[Voice Studio · local]` suffix.
+- Family field on the recommended entry switched from `'kokoro'` → `'kokoro-mlx'` to match the Voice Studio catalog (MLX variants are in the `kokoro-mlx` family in `/api/catalog`). The PyTorch entry uses family `'kokoro'`.
+
+### Verification
+- Backend `tsc` clean; **1066 backend tests pass** (no test changes — additive only).
+
+---
+
 ## v1.0.322 — 2026-06-09
 
 ### Fixed — Kokoro default switched again: MLX bf16 → MLX 4-bit (the variant that *actually works*)
