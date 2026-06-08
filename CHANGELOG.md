@@ -4,6 +4,32 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.319 — 2026-06-08
+
+### Fixed — default Kokoro repo switched to MLX bf16 (matches what's actually downloaded on Apple Silicon)
+
+Followup to v1.0.318. Diagnosing the user's "all my servers have the model" report against `vengthengs-mac-mini` revealed something important: Voice Studio's `kokoro_available: true` flag means *"the Kokoro engine is importable"*, NOT *"the specific repo we asked for is cached"*. Story Studio was sending `repo: 'hexgrad/Kokoro-82M'` (PyTorch baseline) — but the Mac actually had `mlx-community/Kokoro-82M-bf16` cached (the MLX variant most users download via the Voice Studio Models tab on Apple Silicon). Same engine, same audio quality, different weight files; the 409 was Voice Studio honestly reporting *"that specific repo isn't on disk."*
+
+The user confirmed: the green "Downloaded" badge in their Voice Studio Models tab is on `mlx-community/Kokoro-82M-bf16`, not hexgrad. So Story Studio's default Kokoro repo is now that one — the one their Macs actually have. Going forward, fresh Voice Studio installs on Apple Silicon will Just Work without anyone having to manually download a second variant.
+
+- Same `voice` field (Kokoro voicepacks like `af_bella` work across both repos).
+- Same `/api/generate/txt2speech` endpoint.
+- `kokoro_available` covers both — no separate `kokoro_mlx_available` flag exists in the catalog.
+- The label updated to `"Kokoro v1.0 82M (MLX bf16)"` so the variant is visible in the model dropdown.
+
+If anyone specifically wanted the PyTorch baseline: download `hexgrad/Kokoro-82M` from the Voice Studio Models tab and v1.0.318's pool failover routes around any Mac that doesn't have it.
+
+### Why this wasn't a v1.0.318 fix
+v1.0.318 makes mixed-cache setups work via failover — your existing 2-of-5 setup (2 Macs with hexgrad, 3 without) would have rendered fine after that release because all chunks would have ended up on the 2 hexgrad Macs. This release goes further by aligning the default with what's actually downloaded, so all 5 Macs work instead of just the 2.
+
+### Files
+- `electron/server/lib/voicestudio-client.ts` — `voicestudio-kokoro` engine entry's `repo` field switched from `hexgrad/Kokoro-82M` to `mlx-community/Kokoro-82M-bf16`. Family stays `kokoro` (single availability flag). Label updated to disclose the variant.
+
+### Verification
+- Backend `tsc` clean; 1062 backend tests pass. Probed the Voice Studio catalog on `vengthengs-mac-mini` and confirmed `mlx-community/Kokoro-82M-bf16` is in the supported-models list with no separate availability flag from `hexgrad/Kokoro-82M` — both flow through the same `/api/generate/txt2speech` submit path.
+
+---
+
 ## v1.0.318 — 2026-06-08
 
 ### Fixed — pool now fails over when a Mac is alive but missing the model (the TN1611 Kokoro case)

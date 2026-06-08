@@ -162,7 +162,20 @@ export const VOICESTUDIO_ENGINES: VoiceStudioEngine[] = [
   // Audio page's "Max chunk size" field — that override takes precedence
   // over this default.
   { family: 'voxcpm-mlx',     modelId: 'voicestudio-voxcpm-mlx',     label: 'VoxCPM2 4-bit MLX', repo: 'mlx-community/VoxCPM2-4bit', softMaxChars: 500,  voiceField: 'voice_library_id',  availabilityKey: 'voxcpm' },
-  { family: 'kokoro',         modelId: 'voicestudio-kokoro',         label: 'Kokoro v1.0 82M',   repo: 'hexgrad/Kokoro-82M',        softMaxChars: 2000, voiceField: 'voice',            availabilityKey: 'kokoro' },
+  // v1.0.319 — switched the default Kokoro repo from PyTorch (`hexgrad/Kokoro-82M`)
+  // to the MLX bf16 variant. Voice Studio runs Apple-Silicon-only, so the MLX
+  // build is what most users actually download from the Models tab — the
+  // PyTorch repo wasn't cached on 3 of the user's 5 online Macs even though
+  // `kokoro_available` reported true (that flag means "engine importable", not
+  // "weights cached for THIS repo"). The bf16 variant is full-precision MLX —
+  // same audio quality as the original, just stored in MLX format. Voice Studio
+  // accepts either repo via the same `/api/generate/txt2speech` endpoint and
+  // the same `voice` field (Kokoro voicepacks like `af_bella` work regardless
+  // of weight format). Family stays `kokoro` so availability + voicepack
+  // listing keep working through `kokoro_available`. Users who specifically
+  // need the PyTorch baseline can download `hexgrad/Kokoro-82M` and v1.0.318's
+  // pool failover handles mixed setups gracefully.
+  { family: 'kokoro',         modelId: 'voicestudio-kokoro',         label: 'Kokoro v1.0 82M (MLX bf16)', repo: 'mlx-community/Kokoro-82M-bf16', softMaxChars: 2000, voiceField: 'voice',            availabilityKey: 'kokoro' },
   // qwen3-tts: must pin to a CONCRETE catalog variant — bare 'Qwen/Qwen3-TTS'
   // is not in the modal's catalog and would hard-error (ValueError: repo not
   // in catalog). The wrapper dispatches mode by repo-name pattern: *Base* →
