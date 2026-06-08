@@ -13,7 +13,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  isConnectionError, isModelNotReadyError, isFailoverableError,
+  isConnectionError, isModelNotReadyError, isInferenceFailureError, isFailoverableError,
   runOnPool, createDispatcher, parseEndpoints,
   parseEnabledEndpoints, setDisabledEndpoints, isEndpointEnabled,
 } from '../lib/endpoint-pool.js'
@@ -72,10 +72,58 @@ describe('endpoint-pool', () => {
     }
   })
 
-  test('isFailoverableError is the union of connection + model-not-ready errors', () => {
+  test('isFailoverableError is the union of connection + model-not-ready + inference-failure errors', () => {
     assert.equal(isFailoverableError(new Error('ECONNREFUSED')), true, 'connection')
     assert.equal(isFailoverableError(new Error('not fully cached')), true, 'model-not-ready')
+    assert.equal(isFailoverableError(new Error("didn't produce a wav file")), true, 'inference-failure')
     assert.equal(isFailoverableError(new Error('400 Bad Request')), false, 'real content error')
+  })
+
+  // v1.0.320 — per-endpoint inference failure (the EP0002 mlx-audio case).
+  test('isInferenceFailureError matches the EP0002 mlx-audio "no wav file" failure', () => {
+    for (const m of [
+      // The exact error string the user hit on TN0002/EP0002 — one Mac in a
+      // 5-Mac pool randomly failed to write its wav out:
+      'Voice Studio job failed: RuntimeError: mlx-audio didn\'t produce a wav file. Temp dir: /var/folders/c7/.../mlxaudio_kokoro-mlx_4e2775556fc4_7xlc_u9v',
+      // Likely close-relatives — same family of "inference ran but produced no output":
+      'Voice Studio job failed: failed to generate audio',
+      'wav file not found',
+      'produced no output',
+      'no audio produced for this section',
+    ]) {
+      assert.equal(isInferenceFailureError(new Error(m)), true, `should match: ${m}`)
+    }
+  })
+
+  test('isInferenceFailureError does NOT match real content errors (prompt issues etc.)', () => {
+    for (const m of [
+      '400 Bad Request: prompt too long',
+      'Voice "xx_unknown" not found in voicepack',
+      'ECONNREFUSED 127.0.0.1:47870',
+      'not fully cached',
+    ]) {
+      assert.equal(isInferenceFailureError(new Error(m)), false, `should NOT match: ${m}`)
+    }
+  })
+
+  test('runOnPool fails over on the EP0002 "didn\'t produce a wav file" runtime', async () => {
+    const d = createDispatcher([
+      'http://glitched-mac:47870',
+      'http://healthy-mac:47870',
+    ])
+    const tried: string[] = []
+    const result = await runOnPool(d, 'http://healthy-mac:47870', async (ep) => {
+      tried.push(ep)
+      if (ep.includes('glitched')) {
+        throw new Error(
+          "Voice Studio job failed: RuntimeError: mlx-audio didn't produce a wav file. Temp dir: /var/folders/c7/.../mlxaudio_kokoro-mlx_x.tmp",
+        )
+      }
+      return 'rendered-on-healthy-mac'
+    })
+    assert.equal(result, 'rendered-on-healthy-mac')
+    assert.ok(tried.includes('http://glitched-mac:47870'), 'tried the glitched Mac first')
+    assert.equal(d.liveCount(), 1, 'glitched Mac marked down')
   })
 
   test('runOnPool fails over to a healthy endpoint on a connection error', async () => {

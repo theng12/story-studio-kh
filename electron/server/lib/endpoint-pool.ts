@@ -175,10 +175,41 @@ export function isModelNotReadyError(e: any): boolean {
   return /not fully cached|no models? loaded|model_not_found|has no model|model.*not.*loaded|not yet loaded|model is not ready|model not ready/.test(m)
 }
 
-/** A connection error OR a per-endpoint capability error — both worth failing
- *  over to another endpoint in the pool. */
+/**
+ * v1.0.320 — A per-endpoint INFERENCE failure: the endpoint is alive, the
+ * model is loaded, the request even started running — but the modal failed
+ * to produce output on THIS Mac. Different from "model not ready" (which is
+ * about pre-flight cache state) because the error happens mid-generation.
+ *
+ * The user's TN0002 / EP0002 Kokoro run hit this on one of 5 online Macs:
+ *
+ *   Voice Studio job failed: RuntimeError: mlx-audio didn't produce a wav
+ *   file. Temp dir: /var/folders/.../mlxaudio_kokoro-mlx_*
+ *
+ * The same chunk would have rendered fine on any of the other 4 Macs (the
+ * code path is identical) — the failure is environmental: memory pressure,
+ * an mlx-audio transient bug, MPS hiccup, anything that doesn't repeat on a
+ * fresh attempt. Treating it as failover-class lets the chunk land on a
+ * healthy Mac instead of failing the whole job for one Mac's glitch.
+ *
+ * Patterns deliberately narrow: only known "the inference didn't produce
+ * output" phrasings, not a blanket "RuntimeError" match — a malformed prompt
+ * or unsupported voice that genuinely fails everywhere should NOT spin
+ * through every endpoint before failing. If a new phrasing shows up that we
+ * want to catch, add it here.
+ */
+export function isInferenceFailureError(e: any): boolean {
+  const m = String(e?.message || e).toLowerCase()
+  return /didn't produce a wav|did not produce a wav|didn't produce.*output|produced no output|no audio produced|wav file not found|failed to generate audio|mlx-audio.*runtimeerror|runtimeerror.*mlx-audio/.test(m)
+}
+
+/** A connection error OR a per-endpoint capability error OR a per-endpoint
+ *  inference glitch — all worth failing over to another endpoint in the pool.
+ *  The dispatcher's 30 s self-healing TTL then lets the marked-down endpoint
+ *  back in for the next chunk so a one-off glitch doesn't take it out for
+ *  the whole job. */
 export function isFailoverableError(e: any): boolean {
-  return isConnectionError(e) || isModelNotReadyError(e)
+  return isConnectionError(e) || isModelNotReadyError(e) || isInferenceFailureError(e)
 }
 
 /**

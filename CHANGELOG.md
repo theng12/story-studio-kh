@@ -4,6 +4,38 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.320 — 2026-06-09
+
+### Fixed — pool fails over on the "mlx-audio didn't produce a wav file" runtime (the EP0002 case)
+
+After yesterday's Kokoro MLX download finished on all your Macs, a TN0002/EP0002 chapter still failed — but with a different error this time:
+
+> `Voice Studio job failed: RuntimeError: mlx-audio didn't produce a wav file. Temp dir: /var/folders/.../mlxaudio_kokoro-mlx_*`
+
+The endpoint was alive, the model was loaded, the inference even started — but on **one** of your 5 online Macs, mlx-audio failed mid-generation and didn't write the wav. The same chunk would have rendered fine on any of the other 4 Macs (identical code, same model file). v1.0.318's failover only matched "not fully cached" and "no models loaded" — this *runtime* failure flavour wasn't caught, so the chunk died on the one glitched Mac instead of moving to a healthy one.
+
+New `isInferenceFailureError` matcher catches:
+- `"didn't produce a wav file"` / `"did not produce a wav"` — the EP0002 case
+- `"produced no output"` / `"no audio produced"` / `"wav file not found"` — likely close relatives
+- `"failed to generate audio"` — generic Voice Studio "the job tried and failed" phrasing
+- `"mlx-audio … RuntimeError"` either ordering
+
+…and joins `isConnectionError` + `isModelNotReadyError` under `isFailoverableError`. So runOnPool now treats *transport problems*, *missing-model problems*, and *inference glitches* the same way: mark the offending endpoint down, fail over to a healthy one. The standard 30 s self-healing TTL means the glitched Mac re-enters the pool on the next chunk, in case its hiccup was a one-off (which mlx-audio runtime errors usually are).
+
+Deliberately **not** matched: bare `RuntimeError` (too broad — a malformed prompt or unsupported voice that genuinely fails everywhere shouldn't waste retries through every Mac). If a new flavour shows up that should fail over, add it to the matcher.
+
+### Files
+- `electron/server/lib/endpoint-pool.ts` — `isInferenceFailureError` matcher + folded into `isFailoverableError`.
+- `electron/server/__tests__/endpoint-pool.test.ts` — 3 new tests, including the exact EP0002 RuntimeError string as a regression guard, plus a negative-match suite for true content errors that should still NOT fail over.
+
+### Verification
+- Backend `tsc` clean; **1065 backend tests pass** (1062 + 3 new). The new "EP0002 runtime" test reproduces the failure end-to-end through `runOnPool` — one Mac throws the verbatim error string, the second succeeds, the chunk lands on the healthy Mac, and the glitched one gets marked down.
+
+### Followup
+The deeper "why did mlx-audio fail on that Mac" is a Voice Studio / mlx-audio question I can't fix from this side — could be memory pressure, an MPS hiccup, a transient model-load bug. If the SAME Mac keeps failing across many runs, check Voice Studio's own logs on that machine. The pool just routes around it cleanly so your job doesn't suffer.
+
+---
+
 ## v1.0.319 — 2026-06-08
 
 ### Fixed — default Kokoro repo switched to MLX bf16 (matches what's actually downloaded on Apple Silicon)
