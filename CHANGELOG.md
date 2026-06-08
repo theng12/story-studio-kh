@@ -4,6 +4,32 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.321 — 2026-06-09
+
+### Fixed — single-chunk retries always landed on the same broken Mac (the *real* EP0002 cause)
+
+After v1.0.320 I expected the EP0002 Chapter 04 case to be solved — pool failover catches the `mlx-audio didn't produce a wav file` runtime error, marks down the glitched Mac, tries another. But the user retried 2-3 times and got the **same error every time**. That's not a transient glitch — that's the dispatcher's tie-break sending every retry to the same broken Mac.
+
+Cause: `dispatcher.pick()` sorted candidates by in-flight count. When the pool is idle (all in-flight = 0) — which happens on every fresh single-chunk job — JavaScript's stable sort kept the original input order, so the first endpoint in your URL list won the tie every time. EP0002 Chapter 04 is exactly one chunk; the job creates a fresh dispatcher; the dispatcher always picks the same first endpoint; the same endpoint keeps failing.
+
+Fix: **random tie-break.** When candidates have equal in-flight counts, `pick()` now randomises which one wins. Multi-chunk jobs are unaffected — the load-balancing kicks in as soon as one endpoint has 1 in-flight while others have 0. But single-chunk jobs (and any retry of a single-chunk job) now spread naturally across the pool.
+
+Together with v1.0.320: even if EP0002 Chapter 04 keeps hitting `mlx-audio didn't produce a wav file` on some of your Macs, v1.0.321's random pick + v1.0.320's failover means **a healthy Mac eventually answers**, and the retry doesn't get stuck on the same broken one.
+
+Verified the EP0002 Chapter 04 text directly (read the .md from disk) — pure English prose, no exotic characters, well within the chunk cap. Nothing about the *content* should crash mlx-audio. The failure is environmental on one or more Macs.
+
+### Files
+- `electron/server/lib/endpoint-pool.ts` — `pick()` now uses `Math.random() < 0.5` as the tie-break when in-flight counts are equal.
+- `electron/server/__tests__/endpoint-pool.test.ts` — existing pick test updated (no longer asserts deterministic first endpoint); new statistical test runs 200 fresh-dispatcher single-picks across 5 endpoints and asserts each is picked at least 10 times (would have failed pre-v1.0.321 with 200 to one endpoint and 0 to the others).
+
+### Verification
+- Backend `tsc` clean; **1066 backend tests pass** (1065 + 1 new statistical test).
+
+### Followup: why is mlx-audio failing on those Macs in the first place?
+v1.0.321 routes around the symptom but doesn't fix the underlying mlx-audio glitch. If a specific Mac keeps failing every time the random tie-break sends a chunk its way, that Mac has a real local issue — check Voice Studio's own logs on that machine. Likely candidates: Voice Studio version mismatch with the bf16 weights, MPS memory pressure from another app, mlx-audio package needing a reinstall on that machine. From Story Studio's side, there's not much more we can do.
+
+---
+
 ## v1.0.320 — 2026-06-09
 
 ### Fixed — pool fails over on the "mlx-audio didn't produce a wav file" runtime (the EP0002 case)

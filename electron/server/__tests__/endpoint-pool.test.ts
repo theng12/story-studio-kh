@@ -206,12 +206,39 @@ describe('endpoint-pool', () => {
     const d = createDispatcher(['http://a:1234', 'http://b:1234', 'http://c:1234'])
     assert.equal(d.size, 3)
     assert.equal(d.liveCount(), 3)
-    const first = d.pick()           // all 0 in-flight → first in list
-    assert.equal(first, 'http://a:1234')
-    const second = d.pick()          // a now has 1 in-flight → next least-busy
-    assert.notEqual(second, 'http://a:1234')
+    // v1.0.321 — when ALL endpoints are idle, the pick is randomised across
+    // the candidates (was: always the first in the list, which let a single-
+    // chunk retry job hit the same broken endpoint every time). Just assert
+    // the pick is one of the live endpoints.
+    const first = d.pick()
+    assert.ok(['http://a:1234', 'http://b:1234', 'http://c:1234'].includes(first!))
+    // The picked endpoint now has 1 in-flight; the next pick goes to one of
+    // the other two (least-busy is strictly enforced once counts diverge).
+    const second = d.pick()
+    assert.notEqual(second, first, 'second pick goes to a different (still-idle) endpoint')
     d.markDown('http://a:1234')
     assert.equal(d.liveCount(), 2, 'marked-down endpoint is out of rotation')
+  })
+
+  // v1.0.321 — regression guard for the EP0002 Chapter 04 case: 3 retries of
+  // the same single-chunk job all landed on the same broken Mac because pick()
+  // returned the first endpoint deterministically when the pool was idle.
+  test('repeated single-pick on an idle pool spreads across endpoints (random tie-break)', () => {
+    const urls = ['http://a:47870', 'http://b:47870', 'http://c:47870', 'http://d:47870', 'http://e:47870']
+    const counts: Record<string, number> = {}
+    for (let i = 0; i < 200; i++) {
+      const d = createDispatcher(urls)         // fresh dispatcher each iteration
+      const picked = d.pick()!                 // simulates a single-chunk job
+      counts[picked] = (counts[picked] || 0) + 1
+    }
+    // Every endpoint must have been picked at least a few times across 200
+    // fresh-dispatcher single-picks (was: ONLY the first endpoint, every time).
+    for (const u of urls) {
+      assert.ok(
+        (counts[u] || 0) >= 10,
+        `${u} should be picked sometimes (got ${counts[u] || 0}/200) — random tie-break broken`,
+      )
+    }
   })
 
   test('parseEndpoints splits comma/space lists and strips trailing slashes', () => {

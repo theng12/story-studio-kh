@@ -128,7 +128,20 @@ export function createDispatcher(urls: string[]): Dispatcher {
     pick() {
       const candidates = live()
       if (!candidates.length) return null
-      candidates.sort((a, b) => (inflight.get(a)! - inflight.get(b)!))
+      // v1.0.321 — random tie-break on equal in-flight counts. Without this,
+      // JavaScript's stable sort always returned the FIRST endpoint in the
+      // input list whenever the pool was idle (all in-flight = 0). A
+      // single-chunk retry job that started with the first endpoint broken
+      // would hit the same broken endpoint on every retry — the user's
+      // EP0002 Chapter 04 case where 3 retries all landed on the same
+      // glitched Mac. Randomising ties spreads single-chunk jobs naturally
+      // across the pool; multi-chunk jobs still load-balance perfectly
+      // because the in-flight counts diverge after the first pick.
+      candidates.sort((a, b) => {
+        const diff = inflight.get(a)! - inflight.get(b)!
+        if (diff !== 0) return diff
+        return Math.random() < 0.5 ? -1 : 1
+      })
       const u = candidates[0]!
       inflight.set(u, (inflight.get(u) || 0) + 1)
       return u
