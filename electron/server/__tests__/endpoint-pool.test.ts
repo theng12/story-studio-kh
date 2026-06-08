@@ -107,38 +107,63 @@ describe('endpoint-pool', () => {
   })
 
   test('runOnPool fails over on the EP0002 "didn\'t produce a wav file" runtime', async () => {
-    const d = createDispatcher([
-      'http://glitched-mac:47870',
-      'http://healthy-mac:47870',
-    ])
-    const tried: string[] = []
-    const result = await runOnPool(d, 'http://healthy-mac:47870', async (ep) => {
-      tried.push(ep)
-      if (ep.includes('glitched')) {
-        throw new Error(
-          "Voice Studio job failed: RuntimeError: mlx-audio didn't produce a wav file. Temp dir: /var/folders/c7/.../mlxaudio_kokoro-mlx_x.tmp",
-        )
+    // v1.0.321 — random tie-break means pick() might land on the healthy Mac
+    // first (chunk succeeds with no failover) or the glitched one first (fails
+    // over). Both outcomes are correct; run trials and check the invariant.
+    let sawGlitchedPicked = false
+    for (let trial = 0; trial < 30; trial++) {
+      const d = createDispatcher([
+        'http://glitched-mac:47870',
+        'http://healthy-mac:47870',
+      ])
+      const tried: string[] = []
+      const result = await runOnPool(d, 'http://healthy-mac:47870', async (ep) => {
+        tried.push(ep)
+        if (ep.includes('glitched')) {
+          throw new Error(
+            "Voice Studio job failed: RuntimeError: mlx-audio didn't produce a wav file. Temp dir: /var/folders/c7/.../mlxaudio_kokoro-mlx_x.tmp",
+          )
+        }
+        return 'rendered-on-healthy-mac'
+      })
+      assert.equal(result, 'rendered-on-healthy-mac', 'always succeeds — healthy Mac renders the chunk')
+      if (tried.includes('http://glitched-mac:47870')) {
+        sawGlitchedPicked = true
+        assert.equal(d.liveCount(), 1, 'glitched Mac marked down once it was tried')
       }
-      return 'rendered-on-healthy-mac'
-    })
-    assert.equal(result, 'rendered-on-healthy-mac')
-    assert.ok(tried.includes('http://glitched-mac:47870'), 'tried the glitched Mac first')
-    assert.equal(d.liveCount(), 1, 'glitched Mac marked down')
+    }
+    // Across 30 fresh dispatchers, the random tie-break must have picked the
+    // glitched endpoint first at least once (otherwise the failover path is
+    // never exercised — and that's what this whole test is for).
+    assert.ok(sawGlitchedPicked, 'random tie-break should sometimes pick the glitched Mac first')
   })
 
   test('runOnPool fails over to a healthy endpoint on a connection error', async () => {
-    const d = createDispatcher(['http://dead:1234', 'http://live:1234'])
-    const tried: string[] = []
-    const result = await runOnPool(d, 'http://dead:1234', async (ep) => {
-      tried.push(ep)
-      if (ep.includes('dead')) throw new Error('ECONNREFUSED')
-      return 'ok-from-live'
-    })
-    assert.equal(result, 'ok-from-live')
-    assert.ok(tried.includes('http://dead:1234'), 'tried the dead endpoint first')
-    assert.ok(tried.includes('http://live:1234'), 'failed over to the live endpoint')
-    // The dead endpoint is taken out of rotation.
-    assert.equal(d.liveCount(), 1)
+    // v1.0.321 — random tie-break means pick() might land on the live endpoint
+    // first (in which case the dead one is never touched). Run multiple trials
+    // so we exercise both pick orders and check the invariant: the call always
+    // succeeds, the dead endpoint never RETURNS, and when it IS picked, the
+    // pool fails over.
+    let sawDeadPicked = false
+    for (let trial = 0; trial < 30; trial++) {
+      const d = createDispatcher(['http://dead:1234', 'http://live:1234'])
+      const tried: string[] = []
+      const result = await runOnPool(d, 'http://dead:1234', async (ep) => {
+        tried.push(ep)
+        if (ep.includes('dead')) throw new Error('ECONNREFUSED')
+        return 'ok-from-live'
+      })
+      assert.equal(result, 'ok-from-live', 'always succeeds (failover catches the dead one)')
+      assert.ok(tried.includes('http://live:1234'), 'live endpoint must be tried')
+      if (tried.includes('http://dead:1234')) {
+        sawDeadPicked = true
+        // When the dead endpoint IS picked, it must be marked down after.
+        assert.equal(d.liveCount(), 1, 'dead endpoint taken out of rotation when tried')
+      }
+    }
+    // Across 30 trials with random tie-break we must have hit the dead-first
+    // path at least once (probability of 30 all-live-first picks ≈ 1e-9).
+    assert.ok(sawDeadPicked, 'random tie-break should sometimes pick the dead endpoint first')
   })
 
   // v1.0.318 — the user's TN1611 Kokoro scenario: 5 endpoints online, 3 with
@@ -161,11 +186,13 @@ describe('endpoint-pool', () => {
       return 'chunk-rendered-on-loaded'
     })
     assert.equal(result, 'chunk-rendered-on-loaded')
-    // Both missing-model endpoints were tried, then we landed on the loaded one.
+    // Whichever endpoint(s) the random tie-break tried, the chunk landed on
+    // the loaded one. (Pre-v1.0.321 the test could rely on pick() being
+    // deterministic and assert the exact liveCount; now random tie-break means
+    // the loaded endpoint might be tried first, so 0–2 missing endpoints may
+    // get marked down on any given run. The invariant that matters is just
+    // that the chunk succeeds, which the result assertion above covers.)
     assert.ok(tried.includes('http://kokoro-loaded:47870'), 'eventually hit the endpoint with the model')
-    // Both missing-model endpoints are out of rotation (they'll re-enter after
-    // the 30 s self-healing TTL — the user's "auto re-enter when restored" path).
-    assert.equal(d.liveCount(), 1, 'missing-model endpoints marked down')
   })
 
   test('runOnPool fails over on "no models loaded" (LM Studio variant)', async () => {

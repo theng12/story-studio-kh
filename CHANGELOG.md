@@ -4,6 +4,47 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.322 — 2026-06-09
+
+### Fixed — Kokoro default switched again: MLX bf16 → MLX 4-bit (the variant that *actually works*)
+
+After v1.0.318/320/321 still couldn't get EP0002 Chapter 04 to render, the user tried that exact text directly in Voice Studio's web UI on every Mac. All of them failed the same way. That ruled out everything I'd been fixing (pool failover, random tie-break, inference-error matching) — if every Mac fails identically, no amount of failover saves you.
+
+Live-probing `vengthengs-mac-mini` directly with the same 1,240-char Chapter 04 text settled it:
+
+| Repo | Result |
+|---|---|
+| `mlx-community/Kokoro-82M-bf16` (v1.0.319's default) | **409 not cached** even after a manual download attempt; reportedly fails everywhere |
+| `mlx-community/Kokoro-82M-4bit` (this release's default) | **Job finished, state=done, no error, ~60 s wall time** |
+
+So my v1.0.319 was wrong. I picked bf16 thinking it was the right MLX default; reality is that **4-bit is what the MLX community ships as the production default for Kokoro on Apple Silicon** — smaller, faster, and the one that actually loads + runs end-to-end via mlx-audio. bf16 either has a real runtime bug or downloads incompletely; either way it's not what to point users at.
+
+Switching to `mlx-community/Kokoro-82M-4bit` immediately makes EP0002 Chapter 04 (and presumably everything else) renderable on your existing setup.
+
+If anyone wants the bf16 baseline back, the same v1.0.318 pool-failover scaffolding handles a mixed setup gracefully — but I'd recommend just downloading the 4-bit one. Voice Studio's Models tab has it.
+
+### Wait, you tried bf16 yesterday and said it worked
+
+I told you to install bf16 in v1.0.319 because the catalog listed it and `kokoro_available: true` looked promising. I did not at that point reproduce end-to-end synthesis with bf16 — that's the gap. Today's bisect (probing 4-bit successfully against the exact failing chapter on the user's own Mac) caught what I should have caught yesterday.
+
+### Files
+- `electron/server/lib/voicestudio-client.ts` — `voicestudio-kokoro` `repo` field switched from `mlx-community/Kokoro-82M-bf16` to `mlx-community/Kokoro-82M-4bit`; label updated to disclose the variant.
+- `electron/server/__tests__/endpoint-pool.test.ts` — two existing failover tests reworked for the random tie-break: they now run 30 trials each and assert the chunk always succeeds AND that the bad endpoint gets picked first sometimes (otherwise the failover path is never exercised). One pre-existing assertion (`liveCount() === 1` on the v1.0.318 Kokoro test) softened — a test artifact from when pick() was deterministic.
+
+### Verification
+- Backend `tsc` clean; **1066 backend tests pass**. Two tests updated for the random tie-break introduced in v1.0.321 — they were over-specifying behaviour that's now correctly non-deterministic.
+- Live end-to-end synthesis with `mlx-community/Kokoro-82M-4bit` against the exact EP0002 Chapter 04 text confirmed on `vengthengs-mac-mini`: job finishes cleanly.
+
+### How the dust settles across recent releases
+
+- **v1.0.318** — pool failover on "model not loaded/cached" (still valuable for mixed setups).
+- **v1.0.319** — switched default to bf16. **Wrong choice; reversed in this release.**
+- **v1.0.320** — pool failover on `mlx-audio didn't produce a wav file` (still valuable when ONE Mac glitches, not when ALL of them do).
+- **v1.0.321** — random tie-break so single-chunk retries don't always hit the same Mac (still valuable).
+- **v1.0.322** — Kokoro default = MLX 4-bit (the actual fix).
+
+---
+
 ## v1.0.321 — 2026-06-09
 
 ### Fixed — single-chunk retries always landed on the same broken Mac (the *real* EP0002 cause)
