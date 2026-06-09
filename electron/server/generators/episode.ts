@@ -51,25 +51,61 @@ function narratorStyleFor(format: Format, styleId: string): NarratorStyle {
     ?? list[0]
 }
 
-// ── Narrative point of view (v1.0.196) ──────────────────────────────────────
+// ── Narrative point of view (v1.0.196, expanded v1.0.327) ──────────────────
 // First/second/third person — orthogonal to narrator style. Resolved from the
 // Script form's picker (req.perspective) with the format's defaultPerspective
 // as the fallback, then appended as a prominent rule so it overrides any
 // perspective baked into the format's own copy.
-type Perspective = 'first' | 'second' | 'third'
+//
+// v1.0.327 — expanded from 3 broad buckets ('first'/'second'/'third') to 8
+// concrete variants. The user reported that "first" was too vague for animal-
+// POV scripts ("when my script is about koalas, it should be I" — but as the
+// koala, not as a human bystander). Each variant maps to a distinct prompt
+// directive so the LLM can tell the difference between, say, an animal
+// speaking in first-person and a creator-influencer speaking in first-person.
+// Format's `defaultPerspective` still uses the narrow 3-choice enum (kept
+// stable so existing format JSONs work unchanged); the user picker can
+// override with any of the 8 specific variants.
+type Perspective =
+  | 'first'                     // generic human first-person narrator
+  | 'first-subject'             // I AM the subject of the video (koala, car, building)
+  | 'first-plural'              // we / us / our — collective voice
+  | 'second'                    // instructional you ("here's what you'd do")
+  | 'second-immersive'          // immersive you ("you find yourself in a forest")
+  | 'third'                     // third-person limited (follows ONE character)
+  | 'third-omniscient'          // all-knowing narrator
+  | 'third-documentary'         // objective, fact-based observer
+
 function perspectiveDirective(p: Perspective): string {
   switch (p) {
     case 'first':
-      return 'POINT OF VIEW — write the narration in FIRST person: the speaker refers to themselves as "I", "me", "my" and speaks about their own actions, plan, or experience. Do not narrate the subject from the outside.'
+      return 'POINT OF VIEW — write the narration in FIRST PERSON: a human speaker refers to themselves as "I", "me", "my" and speaks about their own actions, plan, or experience. Do not narrate the subject from the outside.'
+    case 'first-subject':
+      return 'POINT OF VIEW — write the narration in FIRST PERSON AS THE SUBJECT of the video. The narrator IS the topic itself — the animal, object, person, or place the video is about. Open by establishing identity ("I am a koala", "I am a Boeing 747", "I am the Mariana Trench") and stay in that voice throughout. Speak from inside the subject\'s experience using "I", "me", "my". Do NOT slip into third-person about the subject ("the koala does X"); the subject IS speaking. Concrete sensory detail from inside the subject\'s perspective.'
+    case 'first-plural':
+      return 'POINT OF VIEW — write the narration in FIRST PERSON PLURAL: a collective "we"/"us"/"our" voice — a group speaking together about shared experience, identity, or situation. Avoid singular "I" for the protagonist. Use "we", "our", "us", "ourselves" throughout. The narrator represents the group.'
     case 'second':
-      return 'POINT OF VIEW — write the narration in SECOND person: address the viewer directly as "you" and "your" (e.g. "here\'s what you\'d do…"). Do not use first-person "I"/"we" for the protagonist, nor third-person "he/she/they".'
+      return 'POINT OF VIEW — write the narration in SECOND PERSON (instructional/advisory): address the viewer directly as "you" and "your" (e.g. "here\'s what you\'d do…", "you can try…"). The viewer is being told what to do or what would happen if they took an action. Do not use first-person "I"/"we" for the protagonist, nor third-person "he/she/they".'
+    case 'second-immersive':
+      return 'POINT OF VIEW — write the narration in SECOND PERSON (immersive): put the viewer INTO the scene as the character experiencing the events. "You find yourself in…", "you see…", "you feel…", "you reach for…". The viewer IS the protagonist living the moment. Describe what they experience and sense, not what they should do. Concrete present-tense sensory detail.'
     case 'third':
-      return 'POINT OF VIEW — write the narration in THIRD person: refer to the subject by name and as "he", "she", or "they"; the narrator is an outside observer, not a participant. Avoid first-person "I"/"we" and second-person "you" for the subject.'
+      return 'POINT OF VIEW — write the narration in THIRD PERSON LIMITED: follow ONE character closely and refer to them by name and as "he", "she", or "they". The narrator stays with this character\'s perspective; we see only what they see and know. Avoid first-person "I"/"we" and second-person "you" for the subject.'
+    case 'third-omniscient':
+      return 'POINT OF VIEW — write the narration in THIRD PERSON OMNISCIENT: an all-knowing narrator who can see and report past, present, future, and the inner thoughts of every character. Free to switch focus between characters, foreshadow, and comment. Use "he", "she", "they", and proper nouns. Speak with the authority of someone who has the whole story.'
+    case 'third-documentary':
+      return 'POINT OF VIEW — write the narration in THIRD PERSON DOCUMENTARY: an objective, fact-based observer\'s voice. Refer to subjects by name and role. The narrator is uninvolved, like a documentary voiceover or natural-history host. Avoid emotional language unless directly quoting. Use "he", "she", "they", or proper nouns.'
   }
 }
+const KNOWN_PERSPECTIVES: ReadonlySet<Perspective> = new Set([
+  'first', 'first-subject', 'first-plural',
+  'second', 'second-immersive',
+  'third', 'third-omniscient', 'third-documentary',
+])
 function resolvePerspective(reqPerspective: unknown, format: Format): Perspective | '' {
   const p = String(reqPerspective || '').toLowerCase()
-  if (p === 'first' || p === 'second' || p === 'third') return p
+  if (KNOWN_PERSPECTIVES.has(p as Perspective)) return p as Perspective
+  // Format's defaultPerspective stays in the narrow 3-choice enum; map it
+  // straight through (format JSONs don't yet pick a specific sub-variant).
   const def = format.script.defaultPerspective
   return def === 'first' || def === 'second' || def === 'third' ? def : ''
 }

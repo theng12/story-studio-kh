@@ -4,6 +4,41 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.327 — 2026-06-09
+
+### Changed — Point of view dropdown expanded from 3 broad buckets to 8 specific variants
+
+The user was writing a MineePod episode about koalas and noticed the Script Generator's **Point of view** dropdown only offered Auto / First / Second / Third — but those map straight to pronouns, not to *who's actually speaking*. For a "Why It Sucks To Be Born As a Koala" episode they want first-person, but specifically with the **koala** as the narrator — not just any first-person voice. The old "First person" prompt didn't make that distinction.
+
+The dropdown now offers 8 specific variants, grouped by person:
+
+**First person**
+- *I, me, my* (human narrator) — the existing default
+- **I am the [topic]** (animal / object / place POV) — for the koala case: opens with identity ("I am a koala") and stays inside the subject's perspective
+- *We, us, our* (collective voice) — for group-spoken narration
+
+**Second person**
+- *Instructional* — "here's what you'd do…" (existing)
+- **Immersive** — "you find yourself in a forest…" puts the viewer INTO the scene as the protagonist
+
+**Third person**
+- *Limited* — close to one character (existing)
+- **Omniscient** — narrator knows past, present, future, every character's thoughts
+- **Documentary** — objective, fact-based observer (natural-history voiceover style)
+
+Each maps to a distinct prompt directive at the backend so the LLM understands the difference between "I (as a person observing)" and "I (as the subject itself speaking)". The hint under the dropdown calls out the animal/object case directly so it's discoverable.
+
+Format `defaultPerspective` JSON values stay in the narrow 3-choice enum (`'first' | 'second' | 'third'`) for back-compat — existing format files work unchanged. The user picker can override with any of the 8 variants.
+
+### Files
+- `electron/server/generators/episode.ts` — `Perspective` type union expanded to 8 variants; `perspectiveDirective` switch now has 8 cases; `resolvePerspective` accepts any of the 8 from the request, falls back to format default.
+- `frontend/pages/projects/[slug]/scripts.vue` — dropdown reorganised into `<optgroup>` sections; hint mentions the new "AS the subject" variant.
+
+### Verification
+- Backend `tsc` clean; **1068 backend tests pass**. Existing perspective values (`'first'`, `'second'`, `'third'`) still work — purely additive change.
+
+---
+
 ## v1.0.326 — 2026-06-09
 
 ### Fixed — bogus `<project>/episodes/episodes/` empty directory created on linked projects whose folder is already named `episodes`

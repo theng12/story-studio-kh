@@ -301,17 +301,33 @@
           </button>
         </div>
 
-        <!-- v1.0.196 — narrative point of view (orthogonal to narrator style). -->
+        <!-- v1.0.196 — narrative point of view (orthogonal to narrator style).
+             v1.0.327 — expanded from 3 broad buckets to 8 concrete variants
+             so animal-POV / immersive-you / documentary scripts each get
+             their own preset instead of all being lumped under one "first" or
+             "third". Each option maps to a distinct LLM directive (see
+             generators/episode.ts:perspectiveDirective). -->
         <div class="form-group">
           <label>Point of view <span class="text-muted" style="font-weight:400">(narrative person)</span></label>
           <select v-model="form.perspective" class="select">
             <option value="auto">Auto (format default)</option>
-            <option value="first">First person — I, me, my</option>
-            <option value="second">Second person — you, your</option>
-            <option value="third">Third person — he, she, they</option>
+            <optgroup label="First person — I, me, we">
+              <option value="first">First person — I, me, my (human narrator)</option>
+              <option value="first-subject">First person AS the subject — I am the [topic]</option>
+              <option value="first-plural">First person plural — we, us, our (collective)</option>
+            </optgroup>
+            <optgroup label="Second person — you">
+              <option value="second">Second person, instructional — "here's what you'd do"</option>
+              <option value="second-immersive">Second person, immersive — "you find yourself…"</option>
+            </optgroup>
+            <optgroup label="Third person — he, she, they">
+              <option value="third">Third person, limited — close to one character</option>
+              <option value="third-omniscient">Third person, omniscient — narrator knows all</option>
+              <option value="third-documentary">Third person, documentary — objective observer</option>
+            </optgroup>
           </select>
           <span class="text-muted text-xs">
-            How the narration is voiced. Continuity-chain defaults to first-person; other formats keep their own voice on Auto. Switch any time.
+            How the narration is voiced. For animal / object / place POV scripts (e.g. "I am a koala") pick <strong>First person AS the subject</strong>. Continuity-chain defaults to first-person on Auto; other formats keep their own voice. Switch any time.
           </span>
         </div>
       </div>
