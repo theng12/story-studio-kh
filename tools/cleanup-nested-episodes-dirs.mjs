@@ -141,16 +141,32 @@ async function collectProjectDirs() {
   const projectsRoot = resolveProjectsRoot(settings)
   console.log(`projects_root: ${projectsRoot}`)
 
-  // 1) Local project dirs in PROJECTS_ROOT (or the override).
+  // 1) Local project dirs in PROJECTS_ROOT (or the override). Story Studio
+  //    supports two layouts:
+  //      • outer-marker  → `<root>/<name>/.story-studio-project.json` exists.
+  //                        This is the v1.0.x "wrapper" shape, used when the
+  //                        project has `output_root: './episodes'` relative.
+  //      • inner-marker  → no outer file; the project actually lives at
+  //                        `<root>/<name>/episodes/.story-studio-project.json`.
+  //                        Single-marker projects where `<name>/episodes/` IS
+  //                        the project root (`output_root` set to that path).
+  //    We need both so the bug scan covers every project (MineePod was the
+  //    only outer-marker one; the other 5 user projects use inner-marker).
   if (existsSync(projectsRoot)) {
     for (const e of await safeReaddir(projectsRoot)) {
       if (!e.isDirectory()) continue
-      const dir = path.join(projectsRoot, e.name)
-      // Confirm it's a project (sentinel file present). Use case-insensitive
-      // match for the slug key so 'MineePod' on disk maps to 'mineepod' the
-      // app uses (macOS HFS+/APFS is case-insensitive by default).
-      if (existsSync(path.join(dir, '.story-studio-project.json'))) {
-        dirs.set(e.name.toLowerCase(), dir)
+      if (e.name.startsWith('.') || e.name.startsWith('_')) continue  // skip _TRASH, .DS_Store, etc.
+      const name = e.name
+      const slug = name.toLowerCase()
+      const outerDir = path.join(projectsRoot, name)
+      const innerDir = path.join(outerDir, 'episodes')
+      if (existsSync(path.join(outerDir, '.story-studio-project.json'))) {
+        dirs.set(slug, outerDir)
+      } else if (existsSync(path.join(innerDir, '.story-studio-project.json'))) {
+        // Single-marker case: the inner `episodes/` is the project root, but
+        // we still need to scan one level up to see the bug pattern (the
+        // dir `<x>/episodes/episodes/` would be relative to the inner root).
+        dirs.set(slug, innerDir)
       }
     }
   }
