@@ -53,6 +53,19 @@ import { existsSync } from 'fs'
 
 const APPLY = process.argv.includes('--apply')
 
+/** v1.0.326 — `--trash <dir>` makes the script MOVE candidates into that dir
+ *  instead of deleting. Preserves relative paths so you can see where each
+ *  piece came from. With --trash set, Pass 2's suggested-to-drop season dirs
+ *  ALSO get moved (otherwise Pass 2 stays informational). Without --trash,
+ *  --apply only deletes the empty Pass 1 bogus dirs (the old behaviour). */
+function readArgValue(name) {
+  const idx = process.argv.indexOf(name)
+  if (idx === -1) return null
+  const v = process.argv[idx + 1]
+  return (typeof v === 'string' && v.trim() && !v.startsWith('-')) ? v.trim() : null
+}
+const TRASH_DIR = readArgValue('--trash')
+
 /** Story Studio's per-user app settings directory on macOS. */
 const APP_SUPPORT = path.join(os.homedir(), 'Library/Application Support/Story Studio KH')
 const DEFAULT_PROJECTS_ROOT = path.join(APP_SUPPORT, 'projects')
@@ -259,8 +272,17 @@ function reportBogus(findings) {
 }
 
 async function applyBogusCleanup(findings) {
+  if (TRASH_DIR) {
+    // Move every bogus dir we found (even non-empty — user picked safe trash).
+    if (!findings.length) { console.log('\n  (nothing to trash — no bogus dirs found)'); return }
+    console.log(`\n  Moving ${findings.length} bogus director${findings.length === 1 ? 'y' : 'ies'} to trash…`)
+    for (const f of findings) {
+      await moveToTrash(f.bogusDir, f.projectDir)
+    }
+    return
+  }
   const target = findings.filter(f => f.empty)
-  if (!target.length) { console.log('\n  (nothing to delete — no empty bogus dirs)'); return }
+  if (!target.length) { console.log('\n  (nothing to delete — no empty bogus dirs; use --trash to move non-empty ones safely)'); return }
   console.log(`\n  Deleting ${target.length} empty bogus director${target.length === 1 ? 'y' : 'ies'}…`)
   for (const f of target) {
     try {
@@ -268,6 +290,42 @@ async function applyBogusCleanup(findings) {
       console.log(`    ✓ removed ${f.bogusDir}`)
     } catch (e) {
       console.log(`    ✗ failed ${f.bogusDir}: ${e?.message || e}`)
+    }
+  }
+}
+
+/**
+ * Move a directory into TRASH_DIR while preserving the relative path under the
+ * project. So /<root>/MineePod/Season 001 becomes /<trash>/MineePod/Season 001
+ * — the user can see at a glance what came from where. If a collision exists
+ * (e.g. the user re-runs after a previous move), suffix with a timestamp.
+ */
+async function moveToTrash(src, projectDir) {
+  const projectsRoot = path.dirname(projectDir)
+  // Relative path from PROJECTS_ROOT (so the trash mirrors the layout).
+  const rel = path.relative(projectsRoot, src)
+  let dest = path.join(TRASH_DIR, rel)
+  // Collision suffix — never overwrite anything already in trash.
+  if (existsSync(dest)) {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    dest = `${dest}.${ts}`
+  }
+  await fs.mkdir(path.dirname(dest), { recursive: true })
+  try {
+    await fs.rename(src, dest)  // atomic if same FS
+    console.log(`    ✓ moved  ${src}\n            → ${dest}`)
+  } catch (e) {
+    // Cross-filesystem rename fails with EXDEV — fall back to cp -R + rm.
+    if (e?.code === 'EXDEV') {
+      try {
+        await fs.cp(src, dest, { recursive: true, force: false, errorOnExist: true })
+        await fs.rm(src, { recursive: true })
+        console.log(`    ✓ copied+removed ${src}\n            → ${dest}`)
+      } catch (e2) {
+        console.log(`    ✗ failed (cross-fs) ${src}: ${e2?.message || e2}`)
+      }
+    } else {
+      console.log(`    ✗ failed ${src}: ${e?.message || e}`)
     }
   }
 }
@@ -325,14 +383,40 @@ function reportDupes(findings) {
   }
   console.log('\n  ⚠ Episodes marked DIFFERENT in the table above have a real content gap')
   console.log('    between the two sides. If any of those have unique work on the SMALLER side,')
-  console.log('    move that work into the KEEP side first (cp / mv), then delete.')
+  console.log('    move that work into the KEEP side first (cp / mv), then delete/trash.')
+}
+
+/** With --apply --trash, ALSO move the recommended drop side of each
+ *  duplicated season into trash. Without --trash, this stays informational
+ *  even on --apply — Pass 2 never deletes outright. */
+async function applyDuplicateSeasonsCleanup(findings) {
+  if (!TRASH_DIR) return  // no automatic deletion of season trees — too risky
+  for (const f of findings) {
+    for (const s of f.seasons) {
+      let outerSum = 0, innerSum = 0
+      for (const ep of s.episodes) { outerSum += ep.outer.bytes; innerSum += ep.inner.bytes }
+      const keepInner = innerSum > outerSum || s.innerOnly.length > 0
+      const dropDir = keepInner ? s.outerSeasonDir : s.innerSeasonDir
+      console.log(`\n  Moving duplicate ${s.season} (${keepInner ? 'outer' : 'inner'} side) to trash…`)
+      await moveToTrash(dropDir, f.projectDir)
+    }
+  }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`mode: ${APPLY ? 'APPLY (will delete empty bogus dirs)' : 'dry-run (no changes)'}`)
+  const trashLabel = TRASH_DIR ? `MOVE bogus + duplicate-season drops → ${TRASH_DIR}` : 'delete empty bogus dirs'
+  console.log(`mode: ${APPLY ? `APPLY (${trashLabel})` : 'dry-run (no changes)'}`)
   console.log(`app: ${APP_SUPPORT}`)
+  if (TRASH_DIR) {
+    // Pre-create + sanity-check the trash dir so a typo doesn't litter the FS.
+    if (!path.isAbsolute(TRASH_DIR)) {
+      console.error(`✗ --trash must be an absolute path. Got: ${TRASH_DIR}`)
+      process.exit(1)
+    }
+    await fs.mkdir(TRASH_DIR, { recursive: true })
+  }
   const projectDirs = await collectProjectDirs()
   console.log(`found ${projectDirs.size} project director${projectDirs.size === 1 ? 'y' : 'ies'}`)
 
@@ -341,15 +425,18 @@ async function main() {
   reportBogus(bogus)
   if (APPLY) await applyBogusCleanup(bogus)
   reportDupes(dupes)
+  if (APPLY) await applyDuplicateSeasonsCleanup(dupes)
 
-  if (!APPLY && (bogus.some(f => f.empty) || dupes.length)) {
+  if (!APPLY && (bogus.length || dupes.length)) {
     console.log('\n──────────────────────────────────────────────────────────────')
     console.log(' Next step:')
     if (bogus.some(f => f.empty)) {
       console.log('   • Re-run with --apply to delete the empty bogus dirs (zero data loss).')
     }
     if (dupes.length) {
-      console.log('   • Read the Pass 2 report and manually `rm -rf` one side of each duplicated Season.')
+      console.log('   • Or re-run with --apply --trash <abs path> to MOVE bogus + the')
+      console.log('     suggested-drop side of each duplicated season into trash (safer).')
+      console.log('   • Or read Pass 2 and manually `rm -rf` one side of each duplicate.')
     }
     console.log('──────────────────────────────────────────────────────────────')
   }
