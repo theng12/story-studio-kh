@@ -2058,10 +2058,22 @@ export interface GenerateScriptRequest {
    * each character's description into the per-scene prompts.
    */
   character_ids?: string[]
-  /** v1.0.196 — narrative point of view override: 'first' | 'second' |
-   *  'third'. 'auto' / absent → use the format's defaultPerspective (or none,
-   *  which keeps the format's own voice). */
+  /** v1.0.196 — narrative point of view override. As of v1.0.327 expanded
+   *  to 8 specific variants ('first', 'first-subject', 'first-plural',
+   *  'second', 'second-immersive', 'third', 'third-omniscient',
+   *  'third-documentary'). Special values:
+   *    - 'auto' / absent → use the format's defaultPerspective
+   *    - 'none' (v1.0.328) → inject NO POV directive at all; let the LLM
+   *       decide based on the format/niche prose
+   */
   perspective?: string
+  /** v1.0.328 — optional free-text POV directive the user can write when the
+   *  presets don't quite fit ("write from the koala's perspective but slip
+   *  into observing the human researcher in chapter 3"). Appended verbatim to
+   *  the format's additional rules; combines with `perspective` if both are
+   *  set (preset gives shape, custom adds nuance). Empty / undefined = no
+   *  extra note added. */
+  custom_perspective?: string
 }
 
 export interface GenerateImagesRequest {

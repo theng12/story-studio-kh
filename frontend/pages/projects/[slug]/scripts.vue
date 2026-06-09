@@ -306,11 +306,15 @@
              so animal-POV / immersive-you / documentary scripts each get
              their own preset instead of all being lumped under one "first" or
              "third". Each option maps to a distinct LLM directive (see
-             generators/episode.ts:perspectiveDirective). -->
+             generators/episode.ts:perspectiveDirective).
+             v1.0.328 — "None" option turns the enforcer OFF entirely; custom
+             text field appends a free-text directive on top of (or instead
+             of) the preset. -->
         <div class="form-group">
           <label>Point of view <span class="text-muted" style="font-weight:400">(narrative person)</span></label>
           <select v-model="form.perspective" class="select">
             <option value="auto">Auto (format default)</option>
+            <option value="none">None — no enforcer (let the LLM decide)</option>
             <optgroup label="First person — I, me, we">
               <option value="first">First person — I, me, my (human narrator)</option>
               <option value="first-subject">First person AS the subject — I am the [topic]</option>
@@ -327,7 +331,30 @@
             </optgroup>
           </select>
           <span class="text-muted text-xs">
-            How the narration is voiced. For animal / object / place POV scripts (e.g. "I am a koala") pick <strong>First person AS the subject</strong>. Continuity-chain defaults to first-person on Auto; other formats keep their own voice. Switch any time.
+            How the narration is voiced. For animal / object / place POV scripts (e.g. "I am a koala") pick <strong>First person AS the subject</strong>. Pick <strong>None</strong> to turn the POV enforcer off entirely and let the model decide. Continuity-chain defaults to first-person on Auto. Switch any time.
+          </span>
+        </div>
+
+        <!-- v1.0.328 — custom POV note. Optional free-text directive that gets
+             appended on top of the preset (or used alone when dropdown is None).
+             Lets the user pin nuance the presets don't cover: "first person but
+             swap to observing the human in chapter 3", "documentary but tilt
+             slightly admiring", etc. Kept short (300 chars cap) so it doesn't
+             accidentally turn into a second script-guidance field. -->
+        <div class="form-group" v-if="form.perspective !== 'auto'">
+          <label>
+            Custom POV note
+            <span class="text-muted" style="font-weight:400">(optional)</span>
+          </label>
+          <textarea
+            v-model="form.custom_perspective"
+            class="input"
+            rows="2"
+            maxlength="300"
+            placeholder="e.g. Stay first-person as the koala but let me catch a glimpse of the human researcher in the last chapter."
+          />
+          <span class="text-muted text-xs">
+            Appended on top of the preset above as an extra directive — or used alone if you picked <strong>None</strong>. Leave blank if the preset is enough. 300 chars max.
           </span>
         </div>
       </div>
@@ -1053,8 +1080,13 @@ const form = reactive({
   style: 'auto',
   // v1.0.196 — narrative point of view. 'auto' = use the format's default
   // (continuity-chain → first person; others → no override). first/second/third
-  // override it per script.
+  // and the v1.0.327 subvariants (first-subject/first-plural/second-immersive/
+  // third-omniscient/third-documentary) override it per script.
+  // v1.0.328 — 'none' = no enforcer at all (let the LLM decide); custom_perspective
+  // appends a free-text directive on top of the preset (or stands alone if
+  // perspective is 'none').
   perspective: 'auto',
+  custom_perspective: '',
   chapters: Number(route.query.chapters) || 10,
   total_words: 5500,
   words_per_chapter: 550,
@@ -1079,7 +1111,7 @@ const form = reactive({
 // the idea per-episode (route query), and character_ids / force are per-run, so
 // none of those are persisted.
 useRememberedForm('scripts', slug, form, {
-  include: ['model', 'style', 'perspective', 'generate_image_prompts', 'generate_youtube_desc'],
+  include: ['model', 'style', 'perspective', 'custom_perspective', 'generate_image_prompts', 'generate_youtube_desc'],
 })
 
 // v1.0.176 — character references are opt-in. Default OFF; the toggle reveals

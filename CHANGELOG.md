@@ -4,6 +4,33 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.328 — 2026-06-09
+
+### Added — Point of view: "None" option + Custom POV note field
+
+Two follow-ons to v1.0.327's expanded dropdown:
+
+**"None — no enforcer (let the LLM decide)"** is a new option at the top of the dropdown. Picking it means Story Studio injects **zero** POV directives — the LLM is free to interpret the format, niche, and your story guidance however it wants. Useful when the presets feel too rigid, or when your format / niche / cast already implies a POV cleanly and an extra "POINT OF VIEW —" rule just adds noise.
+
+**Custom POV note** is a small (300-char) optional text field that appears below the dropdown whenever a non-Auto option is picked. Whatever you type gets appended verbatim as an extra rule to the LLM. Combines cleanly with the preset:
+
+- **Preset + custom** — preset gives the broad shape ("First person AS the subject"), custom adds nuance ("…but slip into observing the human researcher briefly in chapter 3")
+- **None + custom** — your text is the only POV instruction the LLM sees
+- **Preset alone** — same as v1.0.327
+- **Auto / None + empty** — no extra POV directive (the v1.0.328 "let it be" path)
+
+So if the presets *almost* fit your story but you want one specific thing pinned, you don't have to fight the system — just write the one specific thing.
+
+### Files
+- `electron/server/generators/episode.ts` — `resolvePerspective` recognises `'none'` (returns `''` = no directive); `applyPerspectiveToFormat` now takes an optional `customNote` arg and appends it as an additional rule; the 4 call sites pass `req.custom_perspective`.
+- `electron/server/models/types.ts` — `custom_perspective?: string` added to the script request; doc-comment on `perspective` expanded for the `'none'` value.
+- `frontend/pages/projects/[slug]/scripts.vue` — `None` option added to the dropdown; new `<textarea v-if="form.perspective !== 'auto'">` for the custom note; `form.custom_perspective` added; preset `include` list extended so the custom note is saved with presets.
+
+### Verification
+- Backend `tsc` clean; **1068 backend tests pass**. Additive change — old `'first'`/`'second'`/`'third'` plus all v1.0.327 sub-variants still work; new `'none'` returns `''` from resolve (= existing "no directive" code path).
+
+---
+
 ## v1.0.327 — 2026-06-09
 
 ### Changed — Point of view dropdown expanded from 3 broad buckets to 8 specific variants

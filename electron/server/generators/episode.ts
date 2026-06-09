@@ -103,19 +103,42 @@ const KNOWN_PERSPECTIVES: ReadonlySet<Perspective> = new Set([
 ])
 function resolvePerspective(reqPerspective: unknown, format: Format): Perspective | '' {
   const p = String(reqPerspective || '').toLowerCase()
+  // v1.0.328 — 'none' is an explicit opt-out: caller wants ZERO POV directive
+  // injected. Returns '' so applyPerspectiveToFormat is a no-op below. (The
+  // empty-string return is also used for unknown values + formats with no
+  // default, but those callers semantically also want "no extra directive".)
+  if (p === 'none') return ''
   if (KNOWN_PERSPECTIVES.has(p as Perspective)) return p as Perspective
   // Format's defaultPerspective stays in the narrow 3-choice enum; map it
   // straight through (format JSONs don't yet pick a specific sub-variant).
   const def = format.script.defaultPerspective
   return def === 'first' || def === 'second' || def === 'third' ? def : ''
 }
-function applyPerspectiveToFormat(format: Format, perspective: Perspective | ''): Format {
-  if (!perspective) return format
+/**
+ * v1.0.328 — `customNote` is optional free-text the user wrote in the Script
+ * form's "Custom POV note" field. Appended verbatim as an additional rule so
+ * the LLM treats it with the same weight as the preset directive (if any).
+ * Combinations:
+ *   - preset + custom → both injected (preset gives shape, custom adds nuance)
+ *   - preset alone    → just the preset directive (existing behaviour)
+ *   - custom alone    → just the user's note (e.g. dropdown set to "None")
+ *   - neither         → format-untouched (no-op)
+ */
+function applyPerspectiveToFormat(
+  format: Format,
+  perspective: Perspective | '',
+  customNote?: string,
+): Format {
+  const additions: string[] = []
+  if (perspective) additions.push(perspectiveDirective(perspective))
+  const trimmed = typeof customNote === 'string' ? customNote.trim() : ''
+  if (trimmed) additions.push(`POINT OF VIEW (additional note from the user): ${trimmed}`)
+  if (!additions.length) return format
   return {
     ...format,
     script: {
       ...format.script,
-      additionalRules: [...format.script.additionalRules, perspectiveDirective(perspective)],
+      additionalRules: [...format.script.additionalRules, ...additions],
     },
   }
 }
@@ -426,7 +449,7 @@ async function generateEpisode(job: Job): Promise<void> {
   // items the channel used in its last N episodes. No-op when the
   // niche has no recencyAvoidance config OR the log is empty.
   format = await applyRecencyToFormat(format, project_slug)
-  format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format))
+  format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
   const title = req.title
   const length = req.length || format.script.defaultLengthMinutes
   let style = req.style === 'auto' ? autoSelectStyle(format, episode_id) : req.style
@@ -745,7 +768,7 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   const standards = await pm.getStandards(project_slug) || ''
   let format = await getEffectiveFormat(project_slug)
   format = await applyRecencyToFormat(format, project_slug)
-  format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format))
+  format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
   const brand = await getEffectiveBrand(project_slug)
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
   const sysPrompt = systemPrompt(format, standards, brand)
@@ -903,7 +926,7 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   const standards = await pm.getStandards(project_slug) || ''
   let format = await getEffectiveFormat(project_slug)
   format = await applyRecencyToFormat(format, project_slug)
-  format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format))
+  format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
   const title = req.title
   const length = req.length || format.script.defaultLengthMinutes
   const style = req.style || format.script.defaultNarratorStyleId
@@ -1107,7 +1130,7 @@ async function setupChunkedJobContext(
   const standards = await pm.getStandards(project_slug) || ''
   let format = await getEffectiveFormat(project_slug)
   format = await applyRecencyToFormat(format, project_slug)
-  format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format))
+  format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
   const title = req.title
 
   // For expand-chapters, prefer the sidecar's persisted snapshot over the
