@@ -191,9 +191,19 @@ export const VOICESTUDIO_ENGINES: VoiceStudioEngine[] = [
   //
   // Keep `voicestudio-kokoro` as the recommended-default modelId — anyone with
   // saved presets / project configs referencing it gets the working variant.
-  { family: 'kokoro-mlx',     modelId: 'voicestudio-kokoro',         label: 'Kokoro v1.0 82M (MLX 4-bit, recommended)', repo: 'mlx-community/Kokoro-82M-4bit', softMaxChars: 2000, voiceField: 'voice',            availabilityKey: 'kokoro' },
-  { family: 'kokoro-mlx',     modelId: 'voicestudio-kokoro-bf16',    label: 'Kokoro v1.0 82M (MLX bf16, full precision)', repo: 'mlx-community/Kokoro-82M-bf16', softMaxChars: 2000, voiceField: 'voice',            availabilityKey: 'kokoro' },
-  { family: 'kokoro',         modelId: 'voicestudio-kokoro-pt',      label: 'Kokoro v1.0 82M (PyTorch baseline)',         repo: 'hexgrad/Kokoro-82M',            softMaxChars: 2000, voiceField: 'voice',            availabilityKey: 'kokoro' },
+  // v1.0.325 — labels updated to reflect the past few days of real-world
+  // experience. The MLX variants are theoretically faster on Apple Silicon
+  // but mlx-audio has runtime stability issues under concurrent load (3-way
+  // parallelism across the user's 5 Macs hit "didn't produce a wav file"
+  // glitches often enough to fail multi-chunk jobs). PyTorch via the original
+  // hexgrad repo is slower per chunk but rock-solid reliable — the user ran
+  // EP0003 cleanly on it after the MLX variants failed. So the dropdown labels
+  // now lead with the actual trade-off, not just the variant name. Default
+  // (`voicestudio-kokoro`) stays the MLX 4-bit so single-machine users get the
+  // speed it can deliver — pool users should pick the PyTorch entry.
+  { family: 'kokoro-mlx',     modelId: 'voicestudio-kokoro',         label: 'Kokoro v1.0 82M (MLX 4-bit — fastest, may glitch under heavy concurrent load)', repo: 'mlx-community/Kokoro-82M-4bit', softMaxChars: 2000, voiceField: 'voice',            availabilityKey: 'kokoro' },
+  { family: 'kokoro-mlx',     modelId: 'voicestudio-kokoro-bf16',    label: 'Kokoro v1.0 82M (MLX bf16 — full precision, has had download issues)', repo: 'mlx-community/Kokoro-82M-bf16', softMaxChars: 2000, voiceField: 'voice',            availabilityKey: 'kokoro' },
+  { family: 'kokoro',         modelId: 'voicestudio-kokoro-pt',      label: 'Kokoro v1.0 82M (PyTorch — most reliable, slower per chunk)',          repo: 'hexgrad/Kokoro-82M',            softMaxChars: 2000, voiceField: 'voice',            availabilityKey: 'kokoro' },
   // qwen3-tts: must pin to a CONCRETE catalog variant — bare 'Qwen/Qwen3-TTS'
   // is not in the modal's catalog and would hard-error (ValueError: repo not
   // in catalog). The wrapper dispatches mode by repo-name pattern: *Base* →

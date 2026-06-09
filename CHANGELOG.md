@@ -4,6 +4,37 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.325 — 2026-06-09
+
+### Changed — Kokoro dropdown labels now reflect real-world reliability
+
+The user ran EP0003 cleanly on `voicestudio-kokoro-pt` (PyTorch) after the MLX 4-bit and bf16 variants each failed jobs under their actual workload (5 Macs × 3-parallel TTS). That's the empirical result from a real workload, not a benchmark — and it inverts the "MLX is the fast Apple Silicon choice" assumption I'd been working from.
+
+What's true:
+- **MLX 4-bit** is the fastest per-chunk on a single Mac, but mlx-audio's runtime stability degrades under concurrent load. Multi-chunk parallel jobs hit "didn't produce a wav file" glitches often enough to fail.
+- **MLX bf16** has had download-incomplete + runtime issues on top of the same concurrency problem.
+- **PyTorch** (`hexgrad/Kokoro-82M`) is the slowest per chunk but rock-solid reliable across the same pool.
+
+The dropdown labels now lead with this trade-off:
+
+| Old label | New label |
+|---|---|
+| Kokoro v1.0 82M (MLX 4-bit, recommended) | Kokoro v1.0 82M (MLX 4-bit — fastest, may glitch under heavy concurrent load) |
+| Kokoro v1.0 82M (MLX bf16, full precision) | Kokoro v1.0 82M (MLX bf16 — full precision, has had download issues) |
+| Kokoro v1.0 82M (PyTorch baseline) | Kokoro v1.0 82M (PyTorch — most reliable, slower per chunk) |
+
+The default (`voicestudio-kokoro`) **stays at MLX 4-bit** — for a single-Mac or low-parallelism setup the speed is real value, and changing the default twice in 24 h would just be churn. **For pool users with parallelism, pick the PyTorch entry.**
+
+Nothing else changed — pure label edit + behaviour comment in the source.
+
+### Files
+- `electron/server/lib/voicestudio-client.ts` — three Kokoro `VOICESTUDIO_ENGINES` entries get longer, more honest dropdown labels; the inline comment above them documents what we learned across v1.0.318–324.
+
+### Verification
+- Backend `tsc` clean; 1068 backend tests pass (no test changes — labels are display-only).
+
+---
+
 ## v1.0.324 — 2026-06-09
 
 ### Fixed — "Failed to parse URL from http://m4…, http://m1…, …" when the pool exhausts mid-job
