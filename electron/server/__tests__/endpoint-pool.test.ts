@@ -204,6 +204,40 @@ describe('endpoint-pool', () => {
     assert.equal(result, 'ok-from-b')
   })
 
+  // v1.0.324 — the EP0003 "Failed to parse URL from http://a, http://b, …"
+  // bug. Before this fix, runOnPool's `dispatcher.pick() ?? fallbackUrl`
+  // silently used fallbackUrl once the pool was exhausted mid-job. The audio
+  // and image callers pass the comma-joined apiKey there, so the WHOLE URL
+  // LIST would get smeared into a single URL field and the underlying fetch
+  // failed with a parse error rather than a clean "pool exhausted" throw.
+  test('runOnPool NEVER passes the comma-list fallbackUrl to fn when the pool is exhausted', async () => {
+    const d = createDispatcher(['http://a:47870', 'http://b:47870'])
+    const COMMA_LIST = 'http://a:47870, http://b:47870, http://c:47870'
+    const tried: string[] = []
+    await assert.rejects(
+      () => runOnPool(d, COMMA_LIST, async (ep) => {
+        tried.push(ep)
+        throw new Error("Voice Studio job failed: RuntimeError: mlx-audio didn't produce a wav file")
+      }),
+      // Throws the last real error, not a URL parse error from the comma-list.
+      /didn't produce a wav file/,
+    )
+    // Critically: the callback was NEVER invoked with the comma-list.
+    for (const t of tried) {
+      assert.ok(!t.includes(','), `callback got "${t}" — comma-list smeared into endpoint slot`)
+    }
+    assert.equal(d.liveCount(), 0, 'all endpoints marked down after exhausting the pool')
+  })
+
+  test('runOnPool throws a clear error if the pool was empty before any attempt', async () => {
+    const d = createDispatcher(['http://a:47870'])
+    d.markDown('http://a:47870')          // pool empty before runOnPool runs
+    await assert.rejects(
+      () => runOnPool(d, 'http://anything', async () => 'never-called'),
+      /All endpoints in the pool are unavailable/,
+    )
+  })
+
   test('runOnPool rethrows a TRUE content error immediately (no failover)', async () => {
     const d = createDispatcher(['http://a:1234', 'http://b:1234'])
     let calls = 0

@@ -231,6 +231,16 @@ export function isFailoverableError(e: any): boolean {
  * endpoint down and retries on another (up to the live count); a true content
  * error (e.g. a malformed prompt) is rethrown immediately. With no dispatcher
  * (single endpoint / cloud), just runs `fn(fallbackUrl)`.
+ *
+ * v1.0.324 — when a dispatcher IS present, never fall back to fallbackUrl.
+ * Pre-v1.0.324 the loop did `dispatcher.pick() ?? fallbackUrl`, which let a
+ * mid-job exhaustion of the pool (every endpoint marked down) silently use
+ * fallbackUrl as the endpoint string. For voicestudio + imagestudio callers
+ * that pass the comma-separated apiKey as fallbackUrl, the result was the
+ * EP0003 log's "Failed to parse URL from http://a, http://b, …" error — the
+ * whole URL list jammed into a single URL field. With the pool exhausted, the
+ * correct behaviour is to throw the last real error, not invent a doomed
+ * synthetic attempt.
  */
 export async function runOnPool<T>(
   dispatcher: Dispatcher | null,
@@ -241,7 +251,8 @@ export async function runOnPool<T>(
   let lastErr: any
   const maxTries = Math.max(1, dispatcher.size)
   for (let i = 0; i < maxTries; i++) {
-    const ep = dispatcher.pick() ?? fallbackUrl
+    const ep = dispatcher.pick()
+    if (!ep) break              // pool exhausted; don't smear the apiKey into a URL field
     try {
       const r = await fn(ep)
       dispatcher.release(ep)
@@ -254,5 +265,10 @@ export async function runOnPool<T>(
       if (dispatcher.liveCount() === 0) break
     }
   }
+  // v1.0.324 — give a useful error when the pool was empty before any attempt
+  // (e.g. every endpoint disabled in Settings; or the loop ran zero iterations
+  // because the dispatcher started empty). Without this the caller used to
+  // see `throw undefined`, which crashes with a useless stack.
+  if (!lastErr) throw new Error('All endpoints in the pool are unavailable. Check Settings → Local Models.')
   throw lastErr
 }

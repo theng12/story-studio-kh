@@ -4,6 +4,42 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.324 — 2026-06-09
+
+### Fixed — "Failed to parse URL from http://m4…, http://m1…, …" when the pool exhausts mid-job
+
+EP0003 ran with two distinct failure modes in the same job:
+
+1. Two `mlx-audio didn't produce a wav file` failures on Chapter 04 — same runtime glitch the v1.0.320 failover catches per-chunk; on EP0003 it just ran out of healthy Macs before any one chunk succeeded.
+2. Three `Failed to parse URL from http://m4…tail4e72cf…, http://m1…, http://vengthengs…, http://kt-271…, …` failures. **The "URL" in the error is the whole 12-Mac comma-separated endpoint list jammed into one URL field.**
+
+(2) was a real bug in `runOnPool` itself. When all live endpoints get marked down mid-job (every Mac you tried failed with a failover-class error), `dispatcher.pick()` returns null. The old code did:
+
+```ts
+const ep = dispatcher.pick() ?? fallbackUrl   // ← bug
+```
+
+`fallbackUrl` is what the caller passes for the no-dispatcher (single endpoint) case. Audio + image callers pass the comma-separated `apiKey` there because that's how Voice Studio + Image Studio identify themselves. So once the pool emptied, the next chunk's "endpoint" became the entire URL list, the voicestudio HTTP layer tried to construct a URL from it, and the parser barfed with the user-visible "Failed to parse URL from …" string.
+
+Fix: with a dispatcher present, `pick()` returning null means the pool is exhausted — break the loop cleanly and throw the last real error. **`fallbackUrl` is only used when there's no dispatcher at all (single-endpoint mode).** Same code path image gen used to live in before v1.0.306 — and now both image + audio go through this clean exit.
+
+Also added: a friendly error when the pool was empty *before* any attempt (e.g. every endpoint disabled in Settings or marked down before the call). Was throwing `undefined` (useless stack). Now says `"All endpoints in the pool are unavailable. Check Settings → Local Models."`
+
+### Why EP0003 ran out of Macs in the first place
+
+The `mlx-audio didn't produce a wav file` runtime glitch is per-endpoint, per-attempt. With v1.0.318/320 failover treating it as failover-class, each occurrence marks one endpoint down with a 30 s TTL. EP0003 had 12 chunks in 3-parallel mode against 5 online Macs; 2 chunks hit the glitch on different Macs at roughly the same time, marking both down; subsequent chunks ran into a shrunken live pool; by the time several more came through, all 5 were temporarily marked down and the loop hit `pick() → null`. Pre-v1.0.324 the loop then smeared the apiKey into the endpoint slot. Post-fix it throws cleanly so the chunk just fails with the actual `mlx-audio didn't produce a wav file` error and the caller can retry later (or "Skip existing" picks them up on the next run).
+
+If the underlying mlx-audio glitch keeps happening regularly, the 30 s TTL needs to be longer or the mlx-audio install on those Macs needs investigation — that's the real long-term fix and lives outside Story Studio. v1.0.324 just makes the failure mode honest.
+
+### Files
+- `electron/server/lib/endpoint-pool.ts` — `runOnPool` no longer falls back to `fallbackUrl` when a dispatcher is present and exhausted; cleaner empty-pool error.
+- `electron/server/__tests__/endpoint-pool.test.ts` — 2 new tests covering the exact EP0003 scenario (callback must never receive the comma-list) + the empty-pool-before-attempt edge case.
+
+### Verification
+- Backend `tsc` clean; **1068 backend tests pass** (1066 + 2 new). The new EP0003 regression test passes `'http://a, http://b, http://c'` as the fallback and asserts the callback NEVER receives a string containing a comma — i.e. the exact symptom of the user's log can no longer happen.
+
+---
+
 ## v1.0.323 — 2026-06-09
 
 ### Added — all three Kokoro variants as separate model entries
