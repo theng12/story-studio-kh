@@ -698,7 +698,13 @@ export async function createProject(req: CreateProjectRequest): Promise<ProjectM
   }
 
   // Ensure episodes dir + jobs.json
-  await fs.mkdir(path.join(projectDir, 'episodes'), { recursive: true })
+  // v1.0.326 — skip the alias mkdir when the projectDir is itself named
+  // 'episodes' (legacy nested-import shape). Otherwise we'd create the
+  // doubly-nested `<x>/episodes/episodes/` empty vestige the user found on
+  // MineePod. See import-project.ts for the matching guard.
+  if (path.basename(projectDir).toLowerCase() !== 'episodes') {
+    await fs.mkdir(path.join(projectDir, 'episodes'), { recursive: true })
+  }
   const jobsPath = path.join(projectDir, 'jobs.json')
   if (!existsSync(jobsPath)) await writeJson(jobsPath, { jobs: [] })
 

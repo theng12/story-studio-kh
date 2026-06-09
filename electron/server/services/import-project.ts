@@ -397,5 +397,13 @@ async function writeProjectFromInspection(
 
   // Create the episodes alias so path.join(projectDir, 'episodes') never
   // fails; the real output lives at outputRoot.
-  await fs.mkdir(path.join(projectDir, 'episodes'), { recursive: true })
+  // v1.0.326 — guard against the projectDir already being NAMED 'episodes'.
+  // The user's MineePod tree was an imported project nested under an
+  // `episodes/` sub-folder (output_root: './episodes' from an earlier import
+  // wrapper). Re-running this code on that tree would create the bogus
+  // `MineePod/episodes/episodes/` empty directory the user found. The path
+  // join is only needed when the projectDir isn't already that name.
+  if (path.basename(projectDir).toLowerCase() !== 'episodes') {
+    await fs.mkdir(path.join(projectDir, 'episodes'), { recursive: true })
+  }
 }

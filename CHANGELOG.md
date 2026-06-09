@@ -4,6 +4,41 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.326 — 2026-06-09
+
+### Fixed — bogus `<project>/episodes/episodes/` empty directory created on linked projects whose folder is already named `episodes`
+
+The user noticed `MineePod/episodes/episodes/` (empty) in their Downloads tree and asked where it came from. Investigation showed:
+
+- Their MineePod project was registered via "Add existing project folder" pointing at `Downloads/.../MineePod/episodes/` (which itself contained a `.story-studio-project.json` from a prior iCloud sync).
+- `getProjectDir('mineepod')` then returns that linked external directory (named literally `episodes`).
+- `createProject` and `writeProjectFromInspection` both run `await fs.mkdir(path.join(projectDir, 'episodes'), { recursive: true })` as a defensive "episodes alias" — but never check whether `projectDir` is **already** named `episodes`. So the join produces `…/episodes/episodes/`, mkdir creates it empty, nothing ever fills it.
+
+Fix: both call sites now skip the alias mkdir when the projectDir's basename is `episodes` (case-insensitive). The alias is just there so legacy code paths can do `path.join(projectDir, 'episodes')` without checking — when projectDir IS the episodes location, projectDir itself is the alias target, so nothing more needs creating.
+
+This was the **mechanism** for the bogus dir on future imports. Existing trees (like the user's MineePod) still have the empty `episodes/episodes/` left over — see the new cleanup script for that.
+
+### Added — `tools/cleanup-nested-episodes-dirs.mjs`: safe scan-and-clean for the bogus dirs
+
+One-shot Node script that walks every registered project's directory tree, finds any directory matching the bogus pattern (`<projectDir>/episodes/` where `<projectDir>` is itself already named `episodes`, AND the dir is empty after filtering `.DS_Store`/`._*`), and shows you a delete plan. Dry-run by default — re-run with `--apply` to delete.
+
+```
+node tools/cleanup-nested-episodes-dirs.mjs            # dry-run
+node tools/cleanup-nested-episodes-dirs.mjs --apply    # actually delete
+```
+
+It also compares duplicate `Season 001/EP*` directories between a project's outer wrapper and inner `episodes/` tree (the MineePod case) and reports which episodes have IDENTICAL content vs different — so you can confidently delete the dupe side without losing unique work.
+
+### Files
+- `electron/server/services/import-project.ts` — guard around `fs.mkdir(path.join(projectDir, 'episodes'))`.
+- `electron/server/services/project-manager.ts` — same guard inside `createProject`.
+- `tools/cleanup-nested-episodes-dirs.mjs` (new) — safe scan-and-clean script for existing trees.
+
+### Verification
+- Backend `tsc` clean; 1068 backend tests pass.
+
+---
+
 ## v1.0.325 — 2026-06-09
 
 ### Changed — Kokoro dropdown labels now reflect real-world reliability
