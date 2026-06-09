@@ -186,10 +186,15 @@
             and try Refresh.
           </div>
           <div v-else-if="voicestudioLoading" class="vp-loading">
-            <LoadingSpinner size="sm" /> Loading {{ scope === 'voicestudio-voicepack' ? voicepackEngineLabel + ' speakers' : 'your cloned voices' }}…
+            <LoadingSpinner size="sm" /> Loading {{ isMacosScope ? 'macOS voices' : scope === 'voicestudio-voicepack' ? voicepackEngineLabel + ' speakers' : 'your cloned voices' }}…
           </div>
           <div v-else-if="!filteredVoicestudioVoices.length" class="vp-vs-empty">
-            <template v-if="scope === 'voicestudio-voicepack'">
+            <template v-if="isMacosScope">
+              No macOS voices found. Download Enhanced/Premium voices in
+              System Settings → Accessibility → Spoken Content → System Voice → Manage Voices, then
+              <a href="#" class="vp-nokey-link" @click.prevent="loadVoicestudioVoices">Refresh ↻</a>.
+            </template>
+            <template v-else-if="scope === 'voicestudio-voicepack'">
               No {{ voicepackEngineLabel }} speakers reported by the modal.
               <a href="#" class="vp-nokey-link" @click.prevent="loadVoicestudioVoices">Retry ↻</a>
             </template>
@@ -210,7 +215,7 @@
             <button type="button" class="vp-select" @click="selectVoicestudio(v)">
               <span class="vp-row-name">{{ v.name }}</span>
               <span class="vp-row-meta">
-                <span class="vp-chip vp-vs-chip">{{ scope === 'voicestudio-voicepack' ? 'built-in' : 'local clone' }}</span>
+                <span class="vp-chip vp-vs-chip">{{ isMacosScope ? 'macOS' : scope === 'voicestudio-voicepack' ? 'built-in' : 'local clone' }}</span>
                 <span v-if="v.gender && v.gender !== 'unknown'" class="vp-chip">{{ v.gender }}</span>
                 <span v-if="v.language && v.language !== 'en'" class="vp-chip subtle">{{ v.language }}</span>
                 <span v-if="typeof v.duration_seconds === 'number'" class="vp-chip subtle">{{ Math.round(v.duration_seconds) }}s ref</span>
@@ -473,7 +478,7 @@ const addSaving = ref(false)
 // ── Scope: the single source of truth for which families are shown ──────────
 // Derived deterministically from the model id/provider (no async dependency)
 // so sections render correctly the instant the model changes.
-type Scope = 'elevenlabs-direct' | 'elevenlabs-proxy' | 'voicestudio-voicepack' | 'voicestudio-cloning' | 'all'
+type Scope = 'elevenlabs-direct' | 'elevenlabs-proxy' | 'voicestudio-voicepack' | 'voicestudio-cloning' | 'macos-builtin' | 'all'
 
 // Voice Studio engines that ship a built-in voicepack (vs. ones that clone
 // from your uploaded reference clips). Mirrors VOICESTUDIO_ENGINES on the
@@ -485,17 +490,21 @@ const scope = computed<Scope>(() => {
   if (p === 'voicestudio') {
     return VOICEPACK_MODEL_IDS.has(props.audioModelId) ? 'voicestudio-voicepack' : 'voicestudio-cloning'
   }
+  if (p === 'macos') return 'macos-builtin'
   if (p === 'elevenlabs') return 'elevenlabs-direct'
   if (p === 'fal' || p === 'genaipro') return 'elevenlabs-proxy'
   return 'all'
 })
 
-/** Coarse family for styling/branching: 'cloud' | 'voicestudio' | 'all'. */
+/** Coarse family for styling/branching: 'cloud' | 'voicestudio' | 'all'.
+ *  macOS reuses the 'voicestudio' (local) family — same section UI, just a
+ *  different fetch source + labels (branched on scope.value below). */
 const scopeFamily = computed<'cloud' | 'voicestudio' | 'all'>(() => {
-  if (scope.value === 'voicestudio-voicepack' || scope.value === 'voicestudio-cloning') return 'voicestudio'
+  if (scope.value === 'voicestudio-voicepack' || scope.value === 'voicestudio-cloning' || scope.value === 'macos-builtin') return 'voicestudio'
   if (scope.value === 'elevenlabs-direct' || scope.value === 'elevenlabs-proxy') return 'cloud'
   return 'all'
 })
+const isMacosScope = computed(() => scope.value === 'macos-builtin')
 
 const cloudProviderLabel = computed(() => {
   switch (props.audioModelProvider) {
@@ -513,9 +522,11 @@ const voicepackEngineLabel = computed(() => {
 })
 
 const voicestudioSectionTitle = computed(() =>
-  scope.value === 'voicestudio-voicepack'
-    ? `🎙 ${voicepackEngineLabel.value} voices`
-    : '💻 Your cloned voices',
+  isMacosScope.value
+    ? '💻 macOS built-in voices'
+    : scope.value === 'voicestudio-voicepack'
+      ? `🎙 ${voicepackEngineLabel.value} voices`
+      : '💻 Your cloned voices',
 )
 
 const scopeBanner = computed(() => {
@@ -528,6 +539,8 @@ const scopeBanner = computed(() => {
       return `Model: <strong>${voicepackEngineLabel.value} (local)</strong> — pick from its <strong>built-in voicepack</strong> below.`
     case 'voicestudio-cloning':
       return `Model: <strong>${voicepackEngineLabel.value} (local)</strong> — pick one of <strong>your cloned voices</strong>, or use the zero-shot default.`
+    case 'macos-builtin':
+      return 'Model: <strong>macOS say (local · free)</strong> — pick a <strong>built-in voice</strong> below. Download Enhanced/Premium voices in System Settings → Accessibility → Spoken Content to add more.'
     default:
       return ''
   }
@@ -767,12 +780,24 @@ async function loadVoicestudioVoices() {
   voicestudioLoading.value = true
   voicestudioError.value = ''
   try {
+    if (isMacosScope.value) {
+      // macOS built-in `say` voices — local, no base URL. Same response shape
+      // ({ voices: [{id,name,language}] }); stored plainly (no vsname prefix).
+      const data = await get<{ voices: VoiceStudioVoice[]; available?: boolean }>(`/macos/voices`)
+      voicestudioVoices.value = Array.isArray(data.voices) ? data.voices : []
+      voicestudioBaseUrl.value = ''
+      if (data.available === false) {
+        voicestudioError.value = 'macOS voices are only available when running on macOS.'
+      }
+      return
+    }
     const qs = props.audioModelId ? `?model=${encodeURIComponent(props.audioModelId)}` : ''
     const data = await get<{ voices: VoiceStudioVoice[]; baseUrl: string; source?: 'library' | 'voicepack' }>(`/voicestudio/voices${qs}`)
     voicestudioVoices.value = Array.isArray(data.voices) ? data.voices : []
     voicestudioBaseUrl.value = data.baseUrl || ''
   } catch (e: any) {
-    voicestudioError.value = e?.data?.detail || e?.message || 'Voice Studio modal unreachable'
+    voicestudioError.value = e?.data?.detail || e?.message
+      || (isMacosScope.value ? 'Could not list macOS voices' : 'Voice Studio modal unreachable')
     voicestudioVoices.value = []
   } finally {
     voicestudioLoading.value = false

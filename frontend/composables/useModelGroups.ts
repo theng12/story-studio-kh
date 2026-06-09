@@ -21,6 +21,8 @@ export const PROVIDER_DISPLAY: Record<string, string> = {
   // reached over Tailscale). v1.0.150 dropped the standalone Chatterbox
   // entry (chatterbox-mlx is reachable through Voice Studio's family list).
   voicestudio: 'Voice Studio KH (local)',
+  // v1.0.329+ — macOS built-in `say` voices (local, free; preview-oriented).
+  macos: 'macOS say (built-in · free)',
   // Image — kie.ai for cloud + Image Studio KH (v1.0.151+) for the
   // local Pinokio modal (FLUX / Qwen / Z-Image on Apple Silicon MLX).
   kie: 'kie.ai',
@@ -98,5 +100,7 @@ export function resolveAudioProvider(id: string, m: { provider?: string }): stri
   // v1.0.150 dropped the standalone chatterbox-* prefix (rolled into
   // Voice Studio's family list).
   if (id.startsWith('voicestudio-')) return 'voicestudio'
+  // v1.0.329+ — macOS built-in `say` (local, free).
+  if (id.startsWith('macos-')) return 'macos'
   return 'fal'
 }

@@ -276,6 +276,14 @@ export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {
   // every voicestudio-* model. (Kokoro/Bark aren't diffusion-based so they
   // don't hit VoxCPM's Metal single-buffer ceiling — caps reflect that.)
   ...voicestudioAudioDefaults(),
+  // v1.0.329 — macOS built-in `say` voices. Local, free ($0), offline; the
+  // chosen voice is the variable (Evan / Tom / Jamie / …), surfaced by the
+  // VoicePicker from `say -v '?'`. One model entry is enough — the voice
+  // carries the identity. soft cap generous: `say` handles long text fine
+  // (renders from a temp file), so chunking here is only for the pipeline's
+  // per-chunk file + merge granularity. Intended for free PREVIEW renders;
+  // swap to a premium provider for the final episode.
+  'macos-say': { label: 'macOS say (built-in · free)', cost_per_1k_chars: 0, provider: 'macos', tts_soft_max_chars: 3000 },
 }
 
 export const DEFAULT_VOICE_PRESETS: VoicePreset[] = [

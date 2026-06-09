@@ -17,6 +17,7 @@ import { generateTtsToFile as generateTtsElevenLabs } from '../lib/elevenlabs-cl
 // Chatterbox-mlx is reachable through Voice Studio's family list now.
 import { generateTtsToFile as generateTtsVoiceStudio } from '../providers/audio/voicestudio.js'
 import { DEFAULT_VOICESTUDIO_BASE_URL } from '../lib/voicestudio-client.js'
+import { generateTtsToFile as generateTtsMacos } from '../lib/macos-say-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -33,7 +34,7 @@ import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
 
-type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio'
+type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos'
 
 /**
  * Pick the TTS provider for a given model. Prefers the explicit `provider`
@@ -50,6 +51,7 @@ function resolveAudioProvider(
     if (modelId.startsWith('eleven_')) return 'elevenlabs'
     if (modelId.startsWith('genaipro-')) return 'genaipro'
     if (modelId.startsWith('voicestudio-')) return 'voicestudio'
+    if (modelId.startsWith('macos-')) return 'macos'
   }
   return 'fal'
 }
@@ -213,6 +215,7 @@ export async function generateAudio(job: Job): Promise<void> {
   const providerLabel = providerId === 'elevenlabs' ? 'ElevenLabs (direct)'
     : providerId === 'genaipro' ? 'GenAIPro'
     : providerId === 'voicestudio' ? 'Voice Studio (Local)'
+    : providerId === 'macos' ? 'macOS say (Local)'
     : 'fal.ai'
 
   // Voice Studio KH is special — there is no API key. The "key" we resolve
@@ -234,6 +237,10 @@ export async function generateAudio(job: Job): Promise<void> {
         'Open App Settings → Local Models and set the URL.',
       )
     }
+  } else if (providerId === 'macos') {
+    // macOS built-in `say` — local synthesis, no key, no URL. The voice
+    // (form.voice) is the only input; the render reads it per chunk.
+    apiKey = ''
   } else {
     apiKey = await resolveApiKeyForProviderId(project_slug, providerId, {
       model: req.model,
@@ -730,6 +737,16 @@ export async function generateAudio(job: Job): Promise<void> {
           signal: controller.signal,
           onProgress: makeChunkCb(),
         })
+      } else if (providerId === 'macos') {
+        // macOS built-in `say` — local, single-machine, no pool. Renders the
+        // chunk to AIFF then transcodes to MP3 at task.outputPath. `speed`
+        // maps to words-per-minute inside the client. effectiveVoice is the
+        // plain voice name (e.g. "Evan"); undefined → system default voice.
+        await generateTtsMacos(task.outputPath, {
+          text: task.chunkText,
+          voiceId: effectiveVoice,
+          speed: req.speed,
+        }, { signal: controller.signal })
       } else if (providerId === 'voicestudio') {
         // v1.0.149+ — Voice Studio KH writes the WAV straight to the
         // output path via its async job pipeline (POST → poll → download).

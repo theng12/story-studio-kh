@@ -4,6 +4,34 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.329 — 2026-06-09
+
+### Added — macOS built-in voices as a free TTS provider
+New **"macOS say (built-in · free)"** audio provider that renders narration with the Mac's own voices — **local, free, offline, no API key, no rate limits, no per-character cost.** It's a normal provider in the audio model dropdown (treated exactly like ElevenLabs / fal / GenAIPro / Voice Studio), intended for **zero-cost preview renders** — hear a script's pacing before spending ElevenLabs credits, then swap to a premium provider for the final episode.
+
+**How it works:** shells out to the system `say` command (AIFF) and transcodes to MP3 via the bundled ffmpeg — the same real-MP3 contract the rest of the pipeline expects. Per-chapter render + merge, identical to every other provider.
+
+**Voices:** the picker auto-lists the renderable English voices via `say -v '?'`, best first — **Premium → Enhanced → base** — with the classic novelty voices (Bells, Boing, Zarvox, …) filtered out. Whatever Premium/Enhanced voices you download in **System Settings → Accessibility → Spoken Content → System Voice → Manage Voices** appear automatically, no app update needed (e.g. Evan/Tom Enhanced, Jamie Premium). When Apple ships better voices in a future macOS update, they'll show up on their own too.
+
+**Speed:** the existing audio **Speed** control maps to words-per-minute — 1.0× = a calm 150 wpm (sleep-story sweet spot), scaling from there. `say`'s own default (~175–200 wpm) is too fast for narration, so this anchors lower by default.
+
+**Not exposed — the Siri voices.** They're licensed to the Siri assistant only; `say` silently falls back to the default voice when asked for them, so they're not renderable by any app (and using them in published content would be a licensing violation regardless). They simply don't appear in the picker.
+
+### Files
+- `electron/server/lib/macos-say-client.ts` (NEW) — voice listing (parse + tier + novelty filter), render (`say` → ffmpeg → MP3), speed→wpm.
+- `electron/server/providers/audio/macos.ts` (NEW) — the `AudioProvider` (preview path); self-registers.
+- `electron/server/boot/providers.ts` — register the provider.
+- `electron/server/generators/audio.ts` — `macos` in the provider union, resolver, label, no-key branch, per-chunk render branch.
+- `electron/server/models/types.ts` + `models/defaults.ts` — `macos` provider + the `macos-say` catalog entry ($0).
+- `electron/server/routes/audio.ts` — resolver, `GET /macos/voices`, preview-voice branch.
+- `frontend/composables/useModelGroups.ts` — provider grouping + display label.
+- `frontend/components/VoicePicker.vue` — `macos-builtin` scope (reuses the local-voices section; fetches `/macos/voices`; stores the plain voice name).
+
+### Verification
+electron `tsc` clean · VoicePicker SFC compiles · useModelGroups test 8/8 · full backend suite passes · live smoke test on macOS (28 voices listed, tiers correct, real MP3 rendered, Jamie Premium auto-detected).
+
+---
+
 ## v1.0.328 — 2026-06-09
 
 ### Added — Point of view: "None" option + Custom POV note field

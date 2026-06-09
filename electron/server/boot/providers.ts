@@ -27,6 +27,9 @@ import '../providers/audio/genaipro.js'
 // (Chatterbox is now reachable through Voice Studio's chatterbox-mlx
 // family if the user ever wants it back).
 import '../providers/audio/voicestudio.js'
+// v1.0.329+ — macOS built-in `say` voices (local, free, offline). Preview-
+// oriented; no API key.
+import '../providers/audio/macos.js'
 import '../providers/video/fal.js'
 import '../providers/video/kie.js'
 import '../providers/text/openai.js'

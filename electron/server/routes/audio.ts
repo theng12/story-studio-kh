@@ -22,7 +22,7 @@ const vsFirst = (stored: string | null | undefined): string => parseEndpoints(st
 function resolveAudioProvider(
   modelId: string | undefined,
   audioModels: Record<string, AudioModelConfig> | undefined,
-): 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' {
+): 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' {
   if (!modelId) return 'fal'
   const entry = audioModels?.[modelId]
   if (entry?.provider) return entry.provider
@@ -30,6 +30,8 @@ function resolveAudioProvider(
   if (modelId.startsWith('genaipro-')) return 'genaipro'
   // v1.0.149+ — Voice Studio KH (Pinokio FastAPI wrapper, local Tailscale).
   if (modelId.startsWith('voicestudio-')) return 'voicestudio'
+  // v1.0.329+ — macOS built-in `say` (local, free).
+  if (modelId.startsWith('macos-')) return 'macos'
   return 'fal'
 }
 
@@ -117,7 +119,7 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
     apiKey = picked.endpoint
     resolvedVoiceId = picked.voiceId
   }
-  if (providerId !== 'voicestudio') {
+  if (providerId !== 'voicestudio' && providerId !== 'macos') {
     apiKey = providerId === 'elevenlabs' ? ((config as any).elevenlabs_api_key || '')
       : providerId === 'genaipro' ? ((config as any).genaipro_api_key || '')
       : (config.fal_api_key || '')
@@ -133,6 +135,28 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
     : 'Welcome to the story. Take a deep breath, settle in, and let your mind drift.'
 
   try {
+    if (providerId === 'macos') {
+      // macOS built-in `say`: render to a temp MP3, inline as a data URL,
+      // delete the file. Same contract as the voicestudio preview.
+      const fs = await import('fs/promises')
+      const provider = registry.getAudioProvider('macos')
+      if (!provider) return res.status(500).json({ detail: 'macOS audio provider not registered' })
+      const result = await provider.generateAudio({
+        text: sample,
+        apiKey: '',
+        modelId: model || 'macos-say',
+        voiceId: resolvedVoiceId || undefined,
+        speed,
+      })
+      const filePath = result.audioUrl.startsWith('file://')
+        ? new URL(result.audioUrl).pathname
+        : result.audioUrl
+      const buf = await fs.readFile(filePath)
+      await fs.rm(filePath, { force: true }).catch(() => {})
+      const dataUrl = `data:audio/mpeg;base64,${buf.toString('base64')}`
+      return res.json({ audio_url: dataUrl })
+    }
+
     if (providerId === 'voicestudio') {
       // Voice Studio KH (local Pinokio modal): generate to a temp WAV,
       // inline as a data URL, delete the file. Keeps the preview-voice
@@ -554,6 +578,31 @@ router.get('/voicestudio/voices', async (req, res) => {
     })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load Voice Studio voice library'))
+  }
+})
+
+// GET /macos/voices — the renderable English macOS `say` voices for the picker.
+// Best (Premium/Enhanced neural) first; classic novelty voices filtered out.
+// The display name already carries the "(Enhanced)"/"(Premium)" qualifier, so
+// the picker row shows it as-is. Stored plainly in form.voice (no vsname:
+// prefix) — these aren't pooled. Empty + available:false on a non-macOS host.
+router.get('/macos/voices', async (_req, res) => {
+  try {
+    const { listMacosVoices, isMacosTtsAvailable } = await import('../lib/macos-say-client.js')
+    if (!isMacosTtsAvailable()) {
+      res.json({ voices: [], source: 'builtin', available: false })
+      return
+    }
+    const list = await listMacosVoices()
+    const voices = list.map(v => ({
+      id: v.id,
+      name: v.name,
+      language: v.language,
+      tier: v.tier,
+    }))
+    res.json({ voices, source: 'builtin', available: true })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not list macOS voices'))
   }
 })
 
