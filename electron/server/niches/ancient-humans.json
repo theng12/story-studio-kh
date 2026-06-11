@@ -1,0 +1,236 @@
+{
+  "id": "ancient-humans",
+  "name": "Ancient Humans",
+  "description": "Long-form prehistoric and early-human survival explainers. Each episode asks one concrete question about how ancient humans lived, coped, adapted, or understood the world before modern comforts existed. The tone is curious, grounded, vivid, and story-led: not dry textbook history, not fantasy caveman comedy, but a human survival narrative built from archaeology, anthropology, and environmental reality.",
+  "tagline": "How people survived before comfort existed.",
+  "builtin": true,
+  "schemaVersion": 1,
+
+  "exampleTopics": [
+    "How Did Ancient Humans Survive Without Medicine?",
+    "How Did Ancient Humans Live Without Artificial Light?",
+    "How Did Ancient Humans Find Food When Nothing Was Easy?",
+    "How Did Ancient Humans Survive Winter Before Warm Houses?",
+    "How Did Ancient Humans Sleep Safely With Predators Nearby?",
+    "How Did Ancient Humans Raise Babies While Constantly Moving?",
+    "How Did Ancient Humans Survive Injuries With No Hospitals?",
+    "What Did Ancient Humans Actually Do All Day?",
+    "How Did Ancient Humans Stay Clean Without Modern Bathrooms?",
+    "How Did Ancient Humans Travel Before Roads Existed?",
+    "How Did Ancient Humans Deal With Death?",
+    "How Did Ancient Humans Handle Hunger, Drought, and Bad Seasons?",
+    "Why Did Ancient Humans Start Wearing Clothes?",
+    "How Did Ancient Humans Survive the Dark?"
+  ],
+
+  "vocabulary": {
+    "mood": [
+      "curious",
+      "grounded",
+      "human-scale",
+      "survival-driven",
+      "vivid",
+      "patient",
+      "dramatic-but-honest",
+      "matter-of-fact",
+      "immersive",
+      "slightly wry",
+      "anthropology-forward",
+      "environmentally grounded",
+      "story-led",
+      "reflective",
+      "unsentimental",
+      "empathetic",
+      "concrete",
+      "unhurried",
+      "evidence-aware"
+    ],
+    "theme": [
+      "survival",
+      "daily life",
+      "prehistory",
+      "hunter-gatherers",
+      "adaptation",
+      "food scarcity",
+      "fire",
+      "darkness",
+      "illness",
+      "injury",
+      "child-rearing",
+      "migration",
+      "predators",
+      "climate",
+      "ritual",
+      "cooperation",
+      "risk",
+      "shelter",
+      "sleep",
+      "cold",
+      "heat",
+      "fear",
+      "tools",
+      "social bonds",
+      "seasons"
+    ],
+    "genre": [
+      "anthropology",
+      "archaeology",
+      "prehistory",
+      "human evolution",
+      "historical explainer",
+      "survival history",
+      "daily life history",
+      "documentary",
+      "social history",
+      "primitive technology",
+      "environmental history"
+    ],
+    "keyword": [
+      "ancient humans",
+      "prehistory",
+      "hunter-gatherers",
+      "foraging",
+      "band society",
+      "migration",
+      "campfire",
+      "stone tools",
+      "flint",
+      "obsidian",
+      "spear",
+      "atlatl",
+      "hide clothing",
+      "cave shelter",
+      "rock shelter",
+      "firelight",
+      "winter survival",
+      "predator avoidance",
+      "food storage",
+      "scavenging",
+      "persistence hunting",
+      "sleeping in shifts",
+      "seasonal movement",
+      "plant knowledge",
+      "medicinal plants",
+      "wound care",
+      "broken bones",
+      "infection",
+      "birth",
+      "child care",
+      "kinship",
+      "cooperation",
+      "ritual burial",
+      "darkness",
+      "cold exposure",
+      "starvation",
+      "famine",
+      "rain season",
+      "dry season",
+      "ice age",
+      "megafauna",
+      "cave lion",
+      "hyena",
+      "mammoth",
+      "hearth",
+      "smoke",
+      "fat lamps",
+      "woven fibers",
+      "animal skins",
+      "water sourcing",
+      "tracking",
+      "toolmaking",
+      "social learning",
+      "oral tradition",
+      "territory",
+      "danger",
+      "adaptation",
+      "human resilience"
+    ]
+  },
+
+  "visualStyleHint": "hand-drawn MS Paint storybook frames with prehistoric humans, readable expressions, bold silhouettes, and simple survival-focused compositions",
+  "visualStyleSheet": "Render every scene as a deliberately simple MS Paint-style cartoon: thick black outlines, flat color fills, lightly uneven hand-drawn shapes, expressive faces, and clear readable poses. Ancient humans should look handmade and humble rather than heroic fantasy characters: rough hide clothing, basic spears, stone tools, messy hair, dirt, smoke, caves, campfires, scrubland, snow, and open plains. Favor one strong idea per frame: fear in the dark, tending a wound, gathering roots, sharing food, following tracks, surviving winter, guarding a fire, watching predators, carrying children. Keep backgrounds simple but specific. Avoid glossy digital painting, cinematic photorealism, luxury-looking environments, futuristic props, polished armor, or fantasy magic.",
+  "defaultStyleKeywords": [
+    "ms paint style",
+    "hand-drawn cartoon",
+    "thick black outlines",
+    "flat colors",
+    "prehistoric survival scene",
+    "ancient humans"
+  ],
+  "negativePromptAddendum": "no modern tools, no electric light, no modern clothing, no clean suburban environments, no photorealism, no glossy 3D rendering, no fantasy armor, no sci-fi props",
+
+  "youtubeTagsHint": [
+    "ancient humans",
+    "prehistoric life",
+    "human evolution",
+    "ancient history",
+    "survival history",
+    "archaeology",
+    "anthropology",
+    "daily life in prehistory"
+  ],
+
+  "audienceHint": "Viewers who click on curiosity-driven survival questions about prehistoric life and want longer 20-30 minute episodes that feel visual, human, and easy to follow.",
+
+  "scriptContext": "Each episode answers ONE concrete survival or daily-life question about ancient humans. Write as a long-form explainer with a clear narrative spine: open with the modern assumption, drop the viewer into the ancient problem, walk through the environmental constraints, the practical solutions, the trade-offs, and what those solutions reveal about human adaptability. Keep it evidence-aware and vivid. Use cautious phrasing where the record is uncertain. Do not flatten all ancient humans into one place or one era; name the likely environments, timescales, and differences when relevant.",
+
+  "ideaSystemPromptRole": "You generate ideas for a long-form ancient-humans explainer channel. Each episode asks ONE concrete question about how prehistoric or early ancient humans survived, organized daily life, solved a practical problem, or experienced a major environmental pressure before modern technology. Ideas should be specific, visual, and durable for a 20-30 minute story-led explainer.",
+  "ideaGuidanceText": "Pitch one-question deep-dives, not listicles. The best ideas start from a modern discomfort or fear the viewer instantly understands: no medicine, no light, no food security, no privacy, no safe sleep, no heating, no hospitals, no supermarkets. Favor topics that naturally sustain a 20-30 minute structure by giving you environmental setup, daily routine, danger, adaptation, trade-offs, and a closing reflection. Avoid vague topics like 'Ancient Human Life' unless sharpened into a specific problem.",
+
+  "scriptSystemPromptRole": "You are an ancient-humans explainer writer working at the intersection of anthropology, archaeology, and survival storytelling. You make prehistoric life feel immediate without turning it into fantasy or comedy sketch. Start from a practical human problem the viewer already understands, then rebuild the ancient world around that problem step by step: environment, danger, routine, adaptation, cost, and what it tells us about human resilience. Your tone is grounded, vivid, evidence-aware, and story-led. You can be lightly wry, but never smug, never sensational, and never casually inventing certainty where the evidence is thin.",
+  "scriptClosingHint": "End by returning to the original question with a grounded takeaway: ancient humans were not comfortable, but they were resourceful, social, observant, and far less helpless than modern viewers assume.",
+
+  "narratorStyles": [
+    {
+      "id": "A",
+      "label": "Grounded documentary",
+      "description": "Calm, evidence-aware, and visual. Feels like a thoughtful documentary guide walking the viewer through a hard world."
+    },
+    {
+      "id": "B",
+      "label": "Curious survival storyteller",
+      "description": "More narrative and immersive. Drops the viewer into the problem first, then unpacks how ancient humans solved it."
+    },
+    {
+      "id": "C",
+      "label": "Wry human explainer",
+      "description": "Slightly drier and more observational. Finds the irony in modern assumptions without turning ancient life into a joke."
+    }
+  ],
+  "defaultNarratorStyleId": "B",
+
+  "titleShapeRules": [
+    "Titles should be one-question deep-dives about a concrete ancient-human survival or daily-life problem.",
+    "Established shapes (vary the problem, not the premise):",
+    "  - 'How Did Ancient Humans Survive Without {Modern Comfort}?'",
+    "  - 'How Did Ancient Humans {Verb} With No {Modern System}?'",
+    "  - 'What Did Ancient Humans Do When {Concrete Problem}?'",
+    "  - 'Why Did Ancient Humans Start {Behavior}?'",
+    "  - 'How Did Ancient Humans Stay {Safe / Warm / Fed / Alive}?'",
+    "REQUIRED: the title must imply a practical problem the viewer can instantly imagine.",
+    "FORBIDDEN: vague textbook titles ('Ancient Human Society Explained'), clickbait shouting, fantasy framing, or titles that treat all ancient humans as one exact culture with certainty when the evidence does not support that."
+  ],
+  "titleLengthRange": [6, 12],
+  "loglineShapeRules": [
+    "1-2 sentences. Start with the concrete problem, then hint at the surprising adaptations, costs, or trade-offs ancient humans used to solve it.",
+    "Keep it visual and practical, not abstract."
+  ],
+  "loglineSentenceRange": [1, 2],
+  "themeShapeRules": [
+    "Pick 2-4 topic keywords describing the survival problem, environment, and adaptation.",
+    "Examples: medicine / injury / plants; darkness / fire / sleep; hunting / hunger / cooperation."
+  ],
+  "themeCountRange": [2, 4],
+  "structuralVariety": "vary-subject-only",
+
+  "metadataTitleStyleHint": "curiosity-led ancient-human survival question, readable on YouTube, strong modern-vs-ancient contrast",
+  "metadataTitleHookRules": [
+    "Lead with 'How Did Ancient Humans...' or a closely related question shape when possible.",
+    "Use a specific missing comfort or concrete problem early in the title: medicine, light, heat, food, sleep, predators, privacy, periods, winter.",
+    "Keep the title clear enough that the thumbnail can carry the emotional punch while the title carries the exact question."
+  ],
+  "metadataTagsHookRules": [
+    "Mix broad discovery terms (ancient humans, prehistory, archaeology, anthropology) with the episode's concrete problem keywords.",
+    "Prefer practical-search terms over academic jargon unless the jargon is central to the episode."
+  ]
+}

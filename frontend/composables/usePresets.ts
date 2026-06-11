@@ -49,6 +49,8 @@ export interface Preset {
   name: string
   data: any
   type?: PresetType
+  /** Shipped with the app, not persisted in project config. */
+  builtin?: boolean
   /** Hostname of the device this preset was saved on. Stamped automatically
    *  on save in v1.0.93+. Missing on legacy presets — those pass through
    *  the device filter so nothing disappears for existing users. */
@@ -60,6 +62,8 @@ export interface UsePresetsOptions<T> {
   configKey: string
   snapshot: () => T
   apply: (data: T) => void
+  /** Optional app-shipped presets surfaced alongside user-saved ones. */
+  builtInPresets?: Preset[]
   /**
    * Tag for newly-saved presets. The composable also filters its `presets`
    * list to entries whose `type` matches (or is missing — for backwards
@@ -121,6 +125,7 @@ function stripKeysDeep(value: any, keys: string[]): any {
 
 export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   const { get, put } = useApi()
+  const builtInPresets = opts.builtInPresets ?? []
   // `allPresets` holds the raw stored list (untyped + typed). Public
   // `presets` is filtered to entries that match `opts.presetType`, so
   // each instance only sees the slice it owns.
@@ -147,8 +152,9 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   // counters (so "🌐 All devices · M" shows the count across machines for
   // THIS section's preset type, not the entire raw pool).
   const presetsByType = computed(() => {
-    if (!opts.presetType) return allPresets.value
-    return allPresets.value.filter(p => {
+    const merged = [...builtInPresets, ...allPresets.value]
+    if (!opts.presetType) return merged
+    return merged.filter(p => {
       // Untyped presets are treated as 'all' — they appear in every section
       // so legacy presets remain usable from the new typed UI.
       const t = p.type || 'all'
@@ -195,8 +201,15 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
    *  cross-device banner so the user knows which Mac the paths came from. */
   const activePresetMachineLabel = computed(() => {
     if (!activeId.value) return ''
-    const p = allPresets.value.find(x => x.id === activeId.value)
+    const p = presetsByType.value.find(x => x.id === activeId.value)
     return p?.machine_label || ''
+  })
+
+  /** Built-ins are app-shipped defaults: they can be applied, but not
+   *  renamed/overwritten/deleted like user-saved presets. */
+  const activePresetIsBuiltIn = computed(() => {
+    if (!activeId.value) return false
+    return !!builtInPresets.find(x => x.id === activeId.value)
   })
 
   // Wrap the user's snapshot to strip excluded keys — prevents new presets
@@ -239,7 +252,7 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   }
 
   function applyActive() {
-    const p = allPresets.value.find(x => x.id === activeId.value)
+    const p = presetsByType.value.find(x => x.id === activeId.value)
     if (!p) return null
     cleanApply(p.data)
     return p
@@ -274,6 +287,7 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   }
 
   async function overwrite() {
+    if (activePresetIsBuiltIn.value) return null
     const p = allPresets.value.find(x => x.id === activeId.value)
     if (!p) return null
     p.data = cleanSnapshot()
@@ -291,6 +305,7 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   }
 
   async function remove() {
+    if (activePresetIsBuiltIn.value) return null
     const p = allPresets.value.find(x => x.id === activeId.value)
     if (!p) return null
     allPresets.value = allPresets.value.filter(x => x.id !== activeId.value)
@@ -315,6 +330,7 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
    * page (the only place rename existed) just to fix a typo in a preset name.
    */
   async function rename(newName: string) {
+    if (activePresetIsBuiltIn.value) return null
     const trimmed = (newName || '').trim()
     if (!trimmed) return null
     const p = allPresets.value.find(x => x.id === activeId.value)
@@ -342,5 +358,6 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
     crossDeviceCount,
     activePresetIsCrossDevice,
     activePresetMachineLabel,
+    activePresetIsBuiltIn,
   }
 }

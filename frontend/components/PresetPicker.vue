@@ -26,14 +26,24 @@
       </select>
       <span v-if="activePresetName" class="last-used-badge">Last used: {{ activePresetName }}</span>
       <button class="btn btn-sm btn-secondary" :disabled="!activeId" @click="$emit('apply')">Apply</button>
-      <button class="btn btn-sm btn-secondary" :disabled="!activeId" @click="$emit('overwrite')">Save</button>
+      <button
+        class="btn btn-sm btn-secondary"
+        :disabled="!activeId || activePresetIsBuiltIn"
+        :title="activePresetIsBuiltIn ? 'Built-in presets can\'t be overwritten. Use Save as… to make your own copy.' : ''"
+        @click="$emit('overwrite')"
+      >Save</button>
       <button class="btn btn-sm btn-secondary" @click="openSaveAs">Save as…</button>
       <!-- v1.0.284 — rename the active preset in place. Same modal shape as
            Save-as (single input + Enter to confirm), pre-filled with the
            current name. Surfaces here because the management page (Presets
            tab) is too far away when you just want to fix a typo without
            leaving the generator you're working in. -->
-      <button class="btn btn-sm btn-secondary" :disabled="!activeId" @click="openRename">Rename</button>
+      <button
+        class="btn btn-sm btn-secondary"
+        :disabled="!activeId || activePresetIsBuiltIn"
+        :title="activePresetIsBuiltIn ? 'Built-in presets can\'t be renamed.' : ''"
+        @click="openRename"
+      >Rename</button>
 
       <!-- v1.0.93+ device-filter toggle.
            Only renders when there's actually something to toggle to (at
@@ -54,7 +64,12 @@
         <template v-else>📍 This device · {{ presets.length }}<span v-if="crossDeviceCount > 0" class="cross-device-stash"> (+{{ crossDeviceCount }})</span></template>
       </button>
 
-      <button class="btn btn-sm btn-danger" :disabled="!activeId" @click="confirmDelete">Delete</button>
+      <button
+        class="btn btn-sm btn-danger"
+        :disabled="!activeId || activePresetIsBuiltIn"
+        :title="activePresetIsBuiltIn ? 'Built-in presets can\'t be deleted.' : ''"
+        @click="confirmDelete"
+      >Delete</button>
     </div>
     <p v-if="hint" class="text-muted mt-1" style="font-size: 12px;">{{ hint }}</p>
 
@@ -121,6 +136,7 @@ export interface Preset {
   id: string
   name: string
   data: any
+  builtin?: boolean
   /** v1.0.93+ device tag (hostname). Missing on legacy presets — those
    *  pass through the filter, and the picker labels them `(legacy)`. */
   machine_label?: string
@@ -147,6 +163,8 @@ const props = defineProps<{
   /** Hostname stamped on the active preset (e.g. "Macbook-Pro"). Shown
    *  in the cross-device banner so the user knows where it came from. */
   activePresetMachineLabel?: string
+  /** Built-in presets are app-shipped defaults and can't be mutated. */
+  activePresetIsBuiltIn?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -189,8 +207,11 @@ const showDeviceToggle = computed(() => {
  *  on presets without a machine_label so they're flagged as "could be
  *  from any device — re-save to claim them". */
 function formatOption(p: Preset): string {
-  const base = p.name + (p.id === props.activeId ? ' (last used)' : '')
+  const base = p.name
+    + (p.builtin ? ' · built-in' : '')
+    + (p.id === props.activeId ? ' (last used)' : '')
   if (props.showAllDevices) {
+    if (p.builtin) return base
     if (!p.machine_label) return `${base} · (legacy)`
     return `${base} · ⌂ ${p.machine_label}`
   }
@@ -198,6 +219,7 @@ function formatOption(p: Preset): string {
   // showing here only because the filter passes undefined machine_label
   // through. Stamping them isn't automatic, so we surface the (legacy)
   // marker so the user knows the entry isn't strictly "this device".
+  if (p.builtin) return base
   if (!p.machine_label && props.currentMachineLabel) return `${base} · (legacy)`
   return base
 }

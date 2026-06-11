@@ -4,6 +4,87 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.331 — 2026-06-11
+
+### Added — built-in Ancient Humans niche for long-form prehistoric explainers
+
+Story Studio KH now ships with a new built-in **Ancient Humans** niche for channels built around prehistoric and early-human survival questions.
+
+This niche is designed for deeper 20-30 minute explainers rather than short curiosity clips. It gives the generators a stronger content frame for topics like:
+
+- **How Did Ancient Humans Survive Without Medicine?**
+- **How Did Ancient Humans Live Without Artificial Light?**
+- **How Did Ancient Humans Find Food When Nothing Was Easy?**
+- **How Did Ancient Humans Survive Winter, Predators, Injury, and Darkness?**
+
+### Added — niche-owned voice, title shapes, and story structure
+
+The new niche does more than add example topics. It also ships with its own:
+
+- survival-focused vocabulary pool
+- longer-form script context for problem → adaptation → trade-off storytelling
+- title-shape rules tuned for one-question ancient-human deep-dives
+- narrator voice presets for grounded documentary / survival-storytelling delivery
+
+This means the niche can guide ideation and scripting more intentionally instead of relying on a generic explainer voice.
+
+### Added — built-in MS Paint visual guidance for ancient-human channels
+
+The Ancient Humans niche also includes a bundled visual style sheet that points image generation toward the deliberately simple **MS Paint-style prehistoric look**:
+
+- thick black outlines
+- flat colors
+- readable survival scenes
+- rough hide clothing, firelight, caves, plains, winter, predators, and stone tools
+
+That makes it a natural companion to the built-in **MS Paint Fantasy** style preset you added on the Character Sheet.
+
+### Files
+- `electron/server/niches/ancient-humans.json` — new built-in niche definition with example topics, vocabulary, script voice, title rules, narrator styles, and visual guidance.
+
+### Verification
+- Ancient Humans niche JSON validated successfully.
+- Release metadata bumped to ship the niche in the packaged app.
+
+## v1.0.330 — 2026-06-11
+
+### Added — built-in visual style presets on the Character Sheet
+
+The continuity Character Sheet now ships with the first two **built-in style presets** for your render-time Style Bible:
+
+- **MS Paint Fantasy** — rough old-web fantasy art, thick outlines, flat fills, intentionally low-detail, dynamic off-centre staging
+- **Pixel Art Story** — readable retro RPG pixel art, restricted palette, sprite-like forms, playful adventure framing
+
+These appear directly in the existing **Style preset** picker, so you can apply them instantly without having to type the whole directive by hand first. They behave like app-shipped defaults: you can apply them immediately, and if you want to customize one, use **Save as…** to make your own editable copy.
+
+### Added — built-in style gallery with visual previews
+
+The Character Sheet's Style Bible section now includes a **built-in style gallery** with dedicated cards for those presets. Each card gives you:
+
+- a short visual summary of the style
+- an **Apply preset** button
+- a **Generate preview / Re-preview** button
+- a small preview image slot rendered from a fixed baseline scene for apples-to-apples comparison
+
+Preview generation reuses the app's existing cached style-preview backend, so you're not looking at fake mockups — the image is generated through your selected image model and then cached by `(style, model, aspect)` for cheap re-use.
+
+### Changed — preset infrastructure now supports app-shipped defaults cleanly
+
+The shared preset system can now surface **built-in presets** alongside user-saved presets without writing them into project config. Built-ins can be applied like any other preset, but the picker now correctly prevents **overwrite / rename / delete** on those shipped entries while still allowing **Save as…** for user-owned variants.
+
+### Files
+- `frontend/pages/projects/[slug]/character-sheet.vue` — built-in style definitions, style gallery UI, preview controls, preview state + apply flow.
+- `frontend/composables/usePresets.ts` — optional built-in preset support in the shared preset composable.
+- `frontend/components/PresetPicker.vue` — built-in preset labeling + mutation guards.
+
+### Verification
+- Frontend dependencies installed successfully.
+- Nuxt dev server launched for manual UI testing.
+- Backend / style-preview integration reused instead of inventing a second preview path.
+- Release metadata bumped so the What's New modal and packaged app version stay aligned.
+
+---
+
 ## v1.0.329 — 2026-06-09
 
 ### Added — macOS built-in voices as a free TTS provider
