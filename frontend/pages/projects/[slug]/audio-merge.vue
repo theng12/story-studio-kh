@@ -232,6 +232,26 @@
       </div>
     </div>
 
+    <!-- Narration Volume (v1.0.333) — base voiceover level, independent of music/noise/ambient -->
+    <div v-if="chapters.length" class="card mt-2">
+      <h3>Narration Volume</h3>
+      <p class="text-muted text-sm mt-1">
+        Base loudness of the voiceover itself — independent of the music, noise, and ambient beds below (those keep their own sliders). Raise this if the narration is coming across too soft.
+      </p>
+      <div class="form-group mt-2">
+        <label>Level ({{ narrationVolume }}%)</label>
+        <SliderWithNumber v-model="narrationVolume" :min="50" :max="200" :step="5" suffix="%" />
+        <p class="text-muted text-sm mt-1">
+          <template v-if="narrationVolume === 100">100% = original recorded level (unchanged).</template>
+          <template v-else-if="narrationVolume > 100">
+            Boosting voiceover to {{ (narrationVolume / 100).toFixed(2) }}× louder.<template v-if="narrationVolume > 130 && !normalizeVolume"> <strong>⚠ Above 130% without normalization can clip</strong> — enable Volume Normalization below for a safe, even level.</template>
+          </template>
+          <template v-else>Lowering voiceover to {{ (narrationVolume / 100).toFixed(2) }}× of the recorded level.</template>
+          Applied on top of normalization if that's also on.
+        </p>
+      </div>
+    </div>
+
     <!-- Volume Normalization -->
     <div v-if="chapters.length" class="card mt-2">
       <div class="flex gap-2 items-center">
@@ -620,6 +640,10 @@
             <span>{{ gapDuration }}s between each chapter</span>
           </div>
           <div class="summary-row">
+            <span class="text-muted">Narration Volume</span>
+            <span>{{ narrationVolume }}%{{ narrationVolume === 100 ? ' (unchanged)' : '' }}</span>
+          </div>
+          <div class="summary-row">
             <span class="text-muted">Normalize</span>
             <span>{{ normalizeVolume ? 'Yes (EBU R128)' : 'No' }}</span>
           </div>
@@ -782,6 +806,10 @@ const gapDuration = ref(5)
 // least one chapter has multiple `_partN` files.
 const chunkSilenceSec = ref(0)
 const normalizeVolume = ref(false)
+// v1.0.333 — base voiceover loudness as a 0-100+ UI percentage (sent as 0-1+
+// to the backend's narration_volume). 100 = unchanged; >100 boosts a soft
+// voiceover; only the narration track is affected, not music/noise/ambient.
+const narrationVolume = ref(100)
 
 const chapters = ref<Array<{ filename: string; path: string; label: string; duration?: number }>>([])
 
@@ -925,6 +953,7 @@ const mergePresets = usePresets<any>({
     gap_duration: gapDuration.value,
     chunk_silence_sec: chunkSilenceSec.value,
     normalize_volume: normalizeVolume.value,
+    narration_volume: narrationVolume.value,
   }),
   apply: (data) => {
     if (!data) return
@@ -939,6 +968,7 @@ const mergePresets = usePresets<any>({
       chunkSilenceSec.value = data.chunk_silence_sec
     }
     if (typeof data.normalize_volume === 'boolean') normalizeVolume.value = data.normalize_volume
+    if (typeof data.narration_volume === 'number') narrationVolume.value = data.narration_volume
   },
 })
 
@@ -1387,7 +1417,7 @@ async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite')
     chapters: chapters.value.map(ch => ch.path),
     gap_duration: gapDuration.value,
     normalize_volume: normalizeVolume.value,
-    narration_volume: 1.0,
+    narration_volume: narrationVolume.value / 100,
     write_mode: writeMode,
   }
   // v1.0.317 — opt-in per-chunk pause for cloud TTS chunked chapters. Only

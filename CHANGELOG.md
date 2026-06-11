@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.333 — 2026-06-11
+
+### Added — Narration Volume control on the Audio Merge page
+Reviewers can now flag the voiceover as "too soft" and you can actually fix it: the Audio Merge page has a new **Narration Volume** slider (50–200%, default 100% = unchanged) that sets the base loudness of the voiceover **only** — music, background noise, and ambient beds keep their own sliders and are untouched. Previously the narration level was hardcoded to 100% with no way to boost it. Above 130% without normalization, an inline warning suggests turning on Volume Normalization to avoid clipping. The value is saved/restored with audio-merge presets and shown in the pre-merge summary.
+
+### Clarified — what Volume Normalization actually touches
+For the record (no behavior change): **Volume Normalization only normalizes the narration chapters** to a consistent −16 LUFS (EBU R128) *before* mixing. Background music, noise, and ambient tracks are mixed in afterward at their own fixed volumes and are **never** normalized — so turning it on will not pump quiet ambient beds up to voiceover loudness.
+
+### Files
+- `frontend/pages/projects/[slug]/audio-merge.vue` (Narration Volume slider + state, payload `narration_volume`, preset save/load, summary row)
+
+---
+
 ## v1.0.332 — 2026-06-11
 
 ### Added — "Dark Psychology (essay)" niche
