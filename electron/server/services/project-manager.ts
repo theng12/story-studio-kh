@@ -618,6 +618,17 @@ export async function createProject(req: CreateProjectRequest): Promise<ProjectM
     if (tail !== req.name) {
       resolvedOutputRoot = path.join(resolvedOutputRoot, req.name)
     }
+    // Nest episodes under an `episodes/` subfolder so a custom-folder
+    // project has the SAME shape as a default-location one
+    // ({root}/episodes/Season…). Without this, Season folders land
+    // directly in the picked folder alongside project.json + cache — the
+    // inconsistency older custom-folder projects (Capi, Boundful) showed.
+    // Mirrors the './episodes' relative default. The basename guard avoids
+    // double-nesting if the user literally picked an `episodes` folder.
+    // Only affects NEW projects; existing output_root values are untouched.
+    if (path.basename(resolvedOutputRoot) !== 'episodes') {
+      resolvedOutputRoot = path.join(resolvedOutputRoot, 'episodes')
+    }
     try {
       await fs.mkdir(resolvedOutputRoot, { recursive: true })
       // Write-access probe — surface permission issues up front.

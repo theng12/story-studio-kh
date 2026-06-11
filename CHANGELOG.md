@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.334 — 2026-06-11
+
+### Fixed — custom-folder projects now nest episodes under `episodes/` like everything else
+When you create a project and pick a **custom storage folder** in the New Project wizard, episodes now land in `{your folder}/episodes/Season NNN/…` — the same tidy shape you get with the default location. Previously the custom-folder path stored the folder verbatim and dropped the `Season NNN` folders **directly** into it, mixed in with `project.json`, `cache`, and the other project files (this is why projects like Capi and Boundful ended up with seasons at the project root instead of inside `episodes/`). Default-location projects were always fine; only the picked-folder branch was inconsistent. This affects **new** projects only — existing projects keep their stored `output_root`. To fix an existing one, move its `Season NNN` folders into an `episodes/` subfolder and set `output_root` to `"./episodes"`.
+
+### Files
+- `electron/server/services/project-manager.ts` (`createProject`: nest an `episodes/` segment when an absolute `output_root` is chosen, with a guard against double-nesting)
+
+---
+
 ## v1.0.333 — 2026-06-11
 
 ### Added — Narration Volume control on the Audio Merge page
