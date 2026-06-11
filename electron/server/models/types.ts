@@ -680,6 +680,11 @@ export interface Niche {
    *  randomizer draws from the union. */
   vocabulary?: NicheVocabulary
 
+  /** v1.0.332 — art direction for THUMBNAIL images, separate from the scene
+   *  `visualStyleSheet`. Appended to the format's thumbnail conceptGuidance so
+   *  a niche can render thumbnails in a different art style than its scenes
+   *  (e.g. sketchy-ink covers over thick-paint scenes). */
+  thumbnailStyleSheet?: string
   /** Long-form style sheet appended after the format's `visualStyleHint`
    *  in image-prompt assembly. Use this to lock the rendering convention
    *  for every scene in this niche (e.g. "all plants drawn with soft

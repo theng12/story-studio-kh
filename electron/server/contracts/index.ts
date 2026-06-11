@@ -201,6 +201,7 @@ export const NicheSchema = z.object({
   exampleTopics: z.array(z.string().min(1).max(200)).max(200),
   vocabulary: NicheVocabularySchema.optional(),
   visualStyleSheet: z.string().max(3000).optional(),
+  thumbnailStyleSheet: z.string().max(3000).optional(),
   defaultStyleKeywords: z.array(z.string().min(1).max(120)).max(40).optional(),
   negativePromptAddendum: z.string().max(1500).optional(),
   referenceImages: z.array(NicheReferenceImageSchema).max(50).optional(),

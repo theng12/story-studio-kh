@@ -402,6 +402,15 @@ export async function getEffectiveFormatFor(
   if (project.content_mode === 'freeform') {
     base = neutralizeFormatNarrative(base)
   }
+  // v1.0.332 — keep the legacy `imagePrompts.alignment` in sync with the
+  // top-level `sceneAlignment` after all overrides resolve. The frontend
+  // pipeline/flow reads top-level `sceneAlignment`, but the backend video
+  // assembler (generators/video.ts) reads `imagePrompts.alignment`. Mirroring
+  // here means a per-project `sceneAlignment` override (the new Scene-timing
+  // toggle) reaches BOTH paths from one knob.
+  if (base.sceneAlignment && base.imagePrompts) {
+    base = { ...base, imagePrompts: { ...base.imagePrompts, alignment: base.sceneAlignment } }
+  }
   return base
 }
 
@@ -638,6 +647,21 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
   if (niche.defaultStyleKeywords?.length) {
     stylePieces.push(`Niche keywords: ${niche.defaultStyleKeywords.join(', ')}`)
   }
+  // v1.0.332 — niche THUMBNAIL art style. Distinct from the scene
+  // `visualStyleSheet` (which only feeds `defaultStyleTag` above). When the
+  // niche sets `thumbnailStyleSheet`, append it to the thumbnail block's
+  // conceptGuidance so the thumbnail prompt builder (image-prompts.ts ->
+  // buildThumbnailDirective reads `conceptGuidance`) renders covers in the
+  // niche's dedicated thumbnail style — e.g. sketchy-ink covers over
+  // thick-paint scenes. Leaves the rest of the thumbnail block intact.
+  const baseThumb = format.imagePrompts.thumbnail
+  const thumbnail = (baseThumb && niche.thumbnailStyleSheet)
+    ? {
+        ...baseThumb,
+        conceptGuidance: [baseThumb.conceptGuidance, `Niche thumbnail style: ${niche.thumbnailStyleSheet}`]
+          .filter(Boolean).join('\n\n'),
+      }
+    : baseThumb
   // The spread preserves every other imagePrompts field — including the
   // v1.0.224 `thumbnail` art-direction block — so per-format thumbnail
   // guidance survives niche application. Only `defaultStyleTag` (scene style)
@@ -648,6 +672,7 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
     defaultStyleTag: stylePieces.join('\n\n'),
     // v1.0.280+ — niche owns the human-facing one-liner too when it sets it.
     visualStyleHint: niche.visualStyleHint || format.imagePrompts.visualStyleHint,
+    ...(thumbnail ? { thumbnail } : {}),
   }
 
   // Metadata layer — niche tags merged into broadKeywords pool.

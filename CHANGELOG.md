@@ -4,6 +4,32 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.332 — 2026-06-11
+
+### Added — "Dark Psychology (essay)" niche
+A new built-in niche for contemplative, single-topic psychology video-essays — the "The Psychology of Effortless Charm" / "The Dark Side of Kindness" / "How Someone Slowly Goes Crazy" style. Modelled on real reference scripts:
+- **Voice:** second-person, profound and slightly poetic, archetype-framed (the Fool, the Scapegoat, the shadow self), weaving real named concepts (benign violation theory, the Pratfall effect, emotional contagion, Stoic *apatheia*, Jungian shadow) unpacked plainly. Opening hook → layered lenses → distilled philosophical close. Explicitly **not** listicle, **not** practical self-help — so it stays distinct from the existing practical "Psychology" niche (left untouched).
+- **Length:** `scriptStructure.defaultChapterCount: 6` → ~20–25 min essays.
+- **Scene art:** thick impasto oil-painting, non-realist, muted/moody — recurring motif of *a different animal doing a human activity matching the narration's moment*. Consistent medium/palette across every scene (carried by the niche style sheet); only the animal/activity changes.
+- **Thumbnail art:** dark sketchy charcoal-and-ink (Tim Burton / Ralph Steadman), stark-eyed subject on cream paper, bold condensed title — paired with the `portrait-block-right` layout.
+
+### Added — per-project Scene-timing override (gap 1)
+The merged `scenes` format defaults to **even distribution** (`sceneAlignment: chapter`). There was no way to pick **transcript-timed** scenes (`sentence`) for a new project — it only auto-applied to legacy `narration-synced` projects. Now there's a **"Scene timing" override** in Settings → Format → overrides (Image tab): *Even distribution* vs *Transcript-timed*. Transcript-timed routes through the Scene Plan / Scene Review flow so a different image tracks each spoken moment. The effective `sceneAlignment` is also mirrored into the legacy `imagePrompts.alignment` so both the frontend pipeline and the backend video assembler honor the one knob.
+
+### Added — niche `thumbnailStyleSheet` (gap 2)
+Niches can now set a **separate art style for thumbnails**, distinct from the scene `visualStyleSheet`. It's appended to the format's thumbnail `conceptGuidance` (which the thumbnail-prompt builder reads), so a niche can render, say, sketchy-ink *covers* over thick-paint *scenes* — verified the two styles don't bleed into each other.
+
+### Files
+- `electron/server/niches/dark-psychology.json` (NEW) — the niche, incl. `visualStyleSheet` (scenes) + `thumbnailStyleSheet` (covers) + `defaultThumbnailTemplateId`.
+- `electron/server/models/types.ts` + `contracts/index.ts` — `thumbnailStyleSheet` on the Niche type + strict schema.
+- `electron/server/services/format-loader.ts` — merge `thumbnailStyleSheet` into the thumbnail block; mirror `sceneAlignment` → `imagePrompts.alignment` after overrides resolve.
+- `frontend/components/FormatOverrideEditor.vue` — Scene-timing select override.
+
+### Verification
+electron `tsc` clean · FormatOverrideEditor SFC compiles · full backend suite **1068/1068** · functional checks: niche loads through strict schema, thumbnail uses ink while scenes use oil-paint (no bleed), `sceneAlignment` override resolves to `sentence`.
+
+---
+
 ## v1.0.331 — 2026-06-11
 
 ### Added — built-in Ancient Humans niche for long-form prehistoric explainers

@@ -67,6 +67,18 @@
 
     <!-- ── IMAGE PROMPTS ── -->
     <div v-if="baseFormat && activeTab === 'imagePrompts'" class="oe-pane">
+      <!-- v1.0.332 — scene-timing override (top-level sceneAlignment). Lets a
+           project flip the scenes format between even distribution and
+           transcript-timed without forking the format. -->
+      <OverrideField
+        label="Scene timing"
+        hint="Even distribution = one image per chapter beat, spread evenly. Transcript-timed = a different image tracks each moment of the spoken narration (uses the Scene Plan / Scene Review flow). Continuity / B-roll formats ignore this."
+        :base-value="baseFormat.sceneAlignment === 'sentence' ? 'Transcript-timed' : 'Even distribution'"
+        :override-value="overrides.sceneAlignment"
+        type="select"
+        :options="[{ value: 'chapter', label: 'Even distribution' }, { value: 'sentence', label: 'Transcript-timed' }]"
+        @update="(v: any) => setOverride(['sceneAlignment'], v)"
+      />
       <OverrideField
         label="Visual style hint"
         hint="Short description of the visual vibe — surfaces in pickers and per-prompt guidance."
