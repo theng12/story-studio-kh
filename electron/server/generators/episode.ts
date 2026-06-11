@@ -143,11 +143,52 @@ function applyPerspectiveToFormat(
   }
 }
 
+/**
+ * v1.0.335 — strip `## Image Prompts` / `## Thumbnail Prompts` H2 sections
+ * from a production-standards markdown blob. Used by the script-narration
+ * system prompt builder to keep image-prompt rules out of the writing LLM's
+ * context (they belong to dedicated generators with their own prompts, and
+ * carrying them into the chapter call causes the LLM to dump thumbnail
+ * prompts inside chapter bodies — see capi EP0017/19/23 regression).
+ *
+ * Stripping rule: any H2 heading whose title CONTAINS the words "image
+ * prompt" or "thumbnail" (case-insensitive) is dropped along with all the
+ * lines under it, up to the next H2 heading or end of file. H1/H3+/sibling
+ * sections are untouched. Empty input returns empty.
+ */
+export function stripImagePromptSections(standards: string): string {
+  if (!standards || !standards.trim()) return standards
+  const lines = standards.split('\n')
+  const out: string[] = []
+  let skipping = false
+  const stripHeading = /^##\s+/
+  const targetHeading = /^##\s+.*\b(image\s*prompt|thumbnail)/i
+  for (const line of lines) {
+    if (stripHeading.test(line)) {
+      // Entering a new H2 — flip skip flag based on whether THIS heading matches.
+      skipping = targetHeading.test(line)
+      if (skipping) continue
+    }
+    if (!skipping) out.push(line)
+  }
+  // Collapse runs of >2 blank lines that the strip may have left behind.
+  return out.join('\n').replace(/\n{3,}/g, '\n\n')
+}
+
 function systemPrompt(format: Format, productionStandards: string, brand?: import('../models/types.js').Brand | null): string {
   // Format-specific addendum is prepended to the user's free-form standards.
   // Both flow into the same "Follow these production standards exactly:" block
   // so the LLM treats them with the same priority. Empty addendum = no change.
-  const standardsBody = [format.productionStandardsAddendum, productionStandards]
+  // v1.0.335 — defensively strip ## Image Prompts / ## Thumbnail* H2 blocks
+  // from the user's standards. They have no business in the script-narration
+  // system prompt (each generator has its own dedicated prompts), and earlier
+  // template versions shipped with an "Image Prompts" section whose example
+  // string ("watercolor style, soft palette") caused the chunked-narration
+  // LLM to emit thumbnail prompts inside chapter bodies (capi EP0017/19/23).
+  // Templates have been cleaned, but legacy projects still have the buggy file
+  // on disk — this strip protects them without needing a per-project migration.
+  const cleanedStandards = stripImagePromptSections(productionStandards)
+  const standardsBody = [format.productionStandardsAddendum, cleanedStandards]
     .filter(s => s && s.trim()).join('\n\n')
 
   const additionalRules = format.script.additionalRules.map(r => `- ${r}`).join('\n')

@@ -4,6 +4,40 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.335 — 2026-06-11
+
+### Added — concurrent text generation (generate multiple episodes at once)
+Script outline, chapter expansion, metadata, image prompts, and scene planning no longer run strictly one-at-a-time. A new **Settings → Performance → "Script & Text Generation Concurrency"** slider (1–8, default 2) controls how many of these text jobs run simultaneously **across all of them combined** — so you can kick off several episodes in parallel instead of watching them queue. Concurrent calls spread automatically across your LM Studio endpoint pool (the shared least-busy dispatcher), so more endpoints = more real speedup. Set it to roughly your number of endpoints; **1** = the old fully-serial behaviour.
+
+Deliberately **unaffected**: image generation, video assembly, continuity render, audio, b-roll, and uploads still run one at a time — overlapping those would thrash the machine or trip provider rate limits. Concurrency is also strictly across **different episodes** (one episode still runs its own phases in order). It's a per-machine setting (reflects your local LM Studio capacity) and applies live without a restart.
+
+### Files
+- `electron/server/services/job-queue.ts` (per-type single slot → shared "llm" concurrency group with a configurable budget; new `pump`/`runJob`/`releaseSlot`/`pumpGroup`)
+- `electron/server/services/app-settings.ts` (`script_concurrency` get/set + clamp 1–8)
+- `electron/server/routes/app-settings.ts` (GET/PUT `/app-settings/script-concurrency`, applies to the live queue)
+- `electron/server/boot/executors.ts` (load the saved value into the queue at boot)
+- `frontend/pages/projects/[slug]/settings.vue` (Performance slider + load/save alongside the other concurrency knobs)
+- `electron/server/__tests__/job-queue-concurrency.test.ts` (new — shared-budget + serial-for-non-LLM invariants)
+
+### Fixed — thumbnail prompts leaking into the script (chapters ending with "thumbnail prompts: 1. …")
+Some generated chapters ended with a stray image/thumbnail prompt block — e.g. Capi's _Psychology of Release_ had `watercolor style, soft palette … thumbnail prompts: 1. A cracked mirror…` glued onto the end of Chapter 4, in a niche that uses oil-painting scenes and charcoal thumbnails (so "watercolor" obviously didn't belong).
+
+**Root cause:** the default `production_standards.txt` that ships with new projects had an `## Image Prompts` section ("End every prompt with your preferred style tag, e.g. *watercolor style, soft palette*; generate 3-5 thumbnail prompts"). That whole file is folded into the **script-writing** system prompt — so the writing model occasionally followed those image instructions and appended thumbnail prompts inside a chapter. Image and thumbnail prompts already have their own dedicated generators; the script writer should never see those rules.
+
+**The fix, three layers:**
+- Removed the `## Image Prompts` section from both shipped templates (`blank`, `sleep-stories`) and rewrote the "customize your standards" helper to tell the LLM *not* to add image/thumbnail rules.
+- Added a defensive strip in `systemPrompt()` — any `## Image Prompts` / `## Thumbnail…` H2 block is removed from a project's standards before they reach the script writer. This protects **existing** projects whose on-disk standards file still has the old section, with no per-project migration needed.
+- Cleaned the affected on-disk file for the Capi project.
+
+This only changes what the **script writer** sees — the real image/thumbnail generators are untouched and still read the niche's visual + thumbnail style sheets.
+
+### Files
+- `electron/server/generators/episode.ts` (`stripImagePromptSections()` + call in `systemPrompt()`)
+- `electron/templates/blank/production_standards.txt`, `electron/templates/sleep-stories/production_standards.txt` (dropped the Image Prompts section)
+- `electron/server/__tests__/strip-image-prompt-sections.test.ts` (new — 8 cases pinning the strip)
+
+---
+
 ## v1.0.334 — 2026-06-11
 
 ### Fixed — custom-folder projects now nest episodes under `episodes/` like everything else

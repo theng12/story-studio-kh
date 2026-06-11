@@ -175,7 +175,7 @@ const jobs = new Map<string, Job>()
 const cancelled = new Set<string>()
 const loadedProjects = new Set<string>()
 
-// Global pause flag. When set, processQueue() will not dequeue the next job.
+// Global pause flag. When set, pump() will not dequeue the next job.
 // Used by the network-status composable to hold jobs during connectivity loss.
 let queuePaused = false
 
@@ -260,6 +260,40 @@ const queues: Record<JobType, QueueState> = {
   prompt_director: { pending: [], running: false, executor: null },
   // v1.0.260: generate the composition LAYOUT template image from a prompt.
   composition_generate: { pending: [], running: false, executor: null },
+}
+
+// ── Concurrency groups ──────────────────────────────────────────────────────
+//
+// Most job types run strictly one-at-a-time (their own group, limit 1):
+// image/video/audio/ffmpeg/upload work would thrash the machine or trip
+// provider rate limits if overlapped. The LLM *text* generators are the
+// exception — they're cheap, I/O-bound, and the LM Studio dispatcher already
+// spreads concurrent calls least-busy across the endpoint pool. Different
+// episodes are independent (separate folders; enqueue dedup already forbids
+// two jobs on the *same* episode+type), so several can safely run at once.
+//
+// They therefore share ONE budget: `llmConcurrency` jobs at a time across all
+// of them COMBINED (not per-type). 1 = the old fully-serial behaviour.
+const LLM_GROUP = 'llm'
+const LLM_TYPES: ReadonlySet<JobType> = new Set<JobType>([
+  'outline_only', 'expand_chapters', 'metadata', 'image_prompts', 'scene_plan_run',
+])
+/** Which concurrency group a type belongs to: the shared LLM group, or its
+ *  own singleton group (= the type name) so non-LLM types keep one slot. */
+function groupOf(type: JobType): string {
+  return LLM_TYPES.has(type) ? LLM_GROUP : type
+}
+/** Active (running) job count for the shared LLM group. Non-LLM types track
+ *  their single slot via `QueueState.running` (unchanged). */
+const groupActive: Record<string, number> = {}
+/** Cap for the shared LLM group. Set from app-settings (`script_concurrency`)
+ *  at boot + whenever the user changes it in Settings → Performance. */
+let llmConcurrency = 2
+export function setLlmConcurrency(n: number): void {
+  llmConcurrency = Math.max(1, Math.min(8, Math.floor(Number(n)) || 1))
+}
+export function getLlmConcurrency(): number {
+  return llmConcurrency
 }
 
 // ── Persistence ─────────────────────────────────────────────────────────────
@@ -349,103 +383,142 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
 
 // ── Queue processing ────────────────────────────────────────────────────────
 
-async function processQueue(type: JobType): Promise<void> {
-  const q = queues[type]
-  if (q.running || q.pending.length === 0) return
+/**
+ * Launch as many pending jobs of `type` as its concurrency group allows.
+ * Non-LLM types keep a single slot (`q.running`, unchanged); LLM types share
+ * the `llmConcurrency` budget across the whole group. Synchronous: the whole
+ * budget is consumed before any launched job yields, so no double-launch race.
+ */
+function pump(type: JobType): void {
   if (queuePaused) return  // network is down; jobs wait
+  const q = queues[type]
+  if (groupOf(type) === LLM_GROUP) {
+    while (q.pending.length > 0 && (groupActive[LLM_GROUP] || 0) < llmConcurrency) {
+      const job = q.pending.shift()!
+      groupActive[LLM_GROUP] = (groupActive[LLM_GROUP] || 0) + 1
+      runJob(type, job).catch(e => console.error(`[job-queue] Error processing ${type}:`, e))
+    }
+  } else {
+    if (q.running || q.pending.length === 0) return
+    q.running = true
+    const job = q.pending.shift()!
+    runJob(type, job).catch(e => console.error(`[job-queue] Error processing ${type}:`, e))
+  }
+}
 
-  q.running = true
-  const job = q.pending.shift()!
+/** A freed LLM slot can be taken by ANY text generator, not just the one that
+ *  finished — so re-pump every type in the group. */
+function pumpGroup(group: string): void {
+  if (group === LLM_GROUP) for (const t of LLM_TYPES) pump(t)
+}
 
-  if (cancelled.has(job.job_id)) {
-    job.status = 'cancelled'
+/** Release the slot a finished job held, then pull in the next work. */
+function releaseSlot(type: JobType): void {
+  if (groupOf(type) === LLM_GROUP) {
+    groupActive[LLM_GROUP] = Math.max(0, (groupActive[LLM_GROUP] || 0) - 1)
+    pumpGroup(LLM_GROUP)
+  } else {
+    queues[type].running = false
+    pump(type)
+  }
+}
+
+/**
+ * Full lifecycle for one job: mark running → run executor → persist final
+ * status → chain the next pipeline step → release the slot. Fire-and-forget
+ * from pump(); the `finally` guarantees the slot is released even on error so
+ * the queue never deadlocks.
+ */
+async function runJob(type: JobType, job: Job): Promise<void> {
+  const q = queues[type]
+  try {
+    if (cancelled.has(job.job_id)) {
+      job.status = 'cancelled'
+      job.finished_at = new Date().toISOString()
+      jobs.set(job.job_id, job)
+      await persistJob(job)
+      emitUpdate(job)
+      return
+    }
+
+    // Mark running
+    job.status = 'running'
+    job.started_at = new Date().toISOString()
+    jobs.set(job.job_id, job)
+    await persistJob(job)
+    emitUpdate(job)
+
+    try {
+      if (q.executor) {
+        // Run the executor inside a per-job AsyncLocalStorage context so any
+        // child processes spawned deep in the call tree register against this
+        // job id via `trackChild(proc)`. Without this, a cancelled FFmpeg
+        // assembly would keep running until it finished or hit an error.
+        await jobContext.run({ jobId: job.job_id }, () => q.executor!(job))
+      }
+      if (cancelled.has(job.job_id)) {
+        // Job was cancelled while running — don't override status
+        // (cancelJob may have already set status from another call context)
+        job.status = 'cancelled'
+      } else if (job.status === 'running') {
+        job.status = 'done'
+        // Track generation for session stats
+        const typeMap: Record<string, 'script' | 'image' | 'audio'> = { 'script-only': 'script', 'introduction-only': 'script', 'chapter-only': 'script', images: 'image', scene_images: 'image', thumb_images: 'image', audio: 'audio', audio_merge: 'audio', video: 'image' }
+        const trackType = typeMap[job.type]
+        if (trackType) {
+          trackGeneration(job.project_slug, trackType).catch(() => {})
+        }
+
+        // Pipeline batch auto-chain: if this job was queued as part of a
+        // batch run (see routes/pipeline.ts), enqueue the next step for the
+        // same episode. Chain naturally stops on failure/cancellation because
+        // we only get here when status === 'running' → 'done' transitions.
+        const chain = job.params?.pipeline_chain
+        if (Array.isArray(chain) && chain.length > 0) {
+          const [nextStep, ...rest] = chain
+          if (nextStep && typeof nextStep.type === 'string') {
+            try {
+              const batchId = job.params.pipeline_batch_id
+              enqueue({
+                project_slug: job.project_slug,
+                type: nextStep.type as JobType,
+                episode_id: job.episode_id,
+                title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`,
+                params: {
+                  ...(nextStep.params || {}),
+                  episode_id: job.episode_id,
+                  pipeline_chain: rest,
+                  ...(batchId ? { pipeline_batch_id: batchId } : {}),
+                },
+              })
+              job.output_lines.push(`→ Chained next step: ${nextStep.type}`)
+            } catch (e: any) {
+              // Never let a chain failure break the completed job — log it.
+              job.output_lines.push(`Chain-next failed: ${e.message}`)
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      // If the job was cancelled mid-flight the executor typically rejects
+      // with an FFmpeg-exited error or a "Cancelled by user" from a cancel
+      // probe — either way, the user's intent is "cancelled", not "error".
+      if (cancelled.has(job.job_id)) {
+        job.status = 'cancelled'
+      } else {
+        job.status = 'error'
+        job.error = e.message
+        job.output_lines.push(`Error: ${e.message}`)
+      }
+    }
+
     job.finished_at = new Date().toISOString()
     jobs.set(job.job_id, job)
     await persistJob(job)
     emitUpdate(job)
-    q.running = false
-    processQueue(type).catch(e => console.error(`[job-queue] Error processing ${type}:`, e))
-    return
+  } finally {
+    releaseSlot(type)
   }
-
-  // Mark running
-  job.status = 'running'
-  job.started_at = new Date().toISOString()
-  jobs.set(job.job_id, job)
-  await persistJob(job)
-  emitUpdate(job)
-
-  try {
-    if (q.executor) {
-      // Run the executor inside a per-job AsyncLocalStorage context so any
-      // child processes spawned deep in the call tree register against this
-      // job id via `trackChild(proc)`. Without this, a cancelled FFmpeg
-      // assembly would keep running until it finished or hit an error.
-      await jobContext.run({ jobId: job.job_id }, () => q.executor!(job))
-    }
-    if (cancelled.has(job.job_id)) {
-      // Job was cancelled while running — don't override status
-      // (cancelJob may have already set status from another call context)
-      job.status = 'cancelled'
-    } else if (job.status === 'running') {
-      job.status = 'done'
-      // Track generation for session stats
-      const typeMap: Record<string, 'script' | 'image' | 'audio'> = { 'script-only': 'script', 'introduction-only': 'script', 'chapter-only': 'script', images: 'image', scene_images: 'image', thumb_images: 'image', audio: 'audio', audio_merge: 'audio', video: 'image' }
-      const trackType = typeMap[job.type]
-      if (trackType) {
-        trackGeneration(job.project_slug, trackType).catch(() => {})
-      }
-
-      // Pipeline batch auto-chain: if this job was queued as part of a
-      // batch run (see routes/pipeline.ts), enqueue the next step for the
-      // same episode. Chain naturally stops on failure/cancellation because
-      // we only get here when status === 'running' → 'done' transitions.
-      const chain = job.params?.pipeline_chain
-      if (Array.isArray(chain) && chain.length > 0) {
-        const [nextStep, ...rest] = chain
-        if (nextStep && typeof nextStep.type === 'string') {
-          try {
-            const batchId = job.params.pipeline_batch_id
-            enqueue({
-              project_slug: job.project_slug,
-              type: nextStep.type as JobType,
-              episode_id: job.episode_id,
-              title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`,
-              params: {
-                ...(nextStep.params || {}),
-                episode_id: job.episode_id,
-                pipeline_chain: rest,
-                ...(batchId ? { pipeline_batch_id: batchId } : {}),
-              },
-            })
-            job.output_lines.push(`→ Chained next step: ${nextStep.type}`)
-          } catch (e: any) {
-            // Never let a chain failure break the completed job — log it.
-            job.output_lines.push(`Chain-next failed: ${e.message}`)
-          }
-        }
-      }
-    }
-  } catch (e: any) {
-    // If the job was cancelled mid-flight the executor typically rejects
-    // with an FFmpeg-exited error or a "Cancelled by user" from a cancel
-    // probe — either way, the user's intent is "cancelled", not "error".
-    if (cancelled.has(job.job_id)) {
-      job.status = 'cancelled'
-    } else {
-      job.status = 'error'
-      job.error = e.message
-      job.output_lines.push(`Error: ${e.message}`)
-    }
-  }
-
-  job.finished_at = new Date().toISOString()
-  jobs.set(job.job_id, job)
-  await persistJob(job)
-  emitUpdate(job)
-
-  q.running = false
-  processQueue(type).catch(e => console.error(`[job-queue] Error processing ${type}:`, e))
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -458,9 +531,10 @@ export function setQueuePaused(paused: boolean): void {
   const wasPaused = queuePaused
   queuePaused = paused
   if (wasPaused && !paused) {
-    // Resuming — kick every type's queue so any pending jobs pick up
+    // Resuming — kick every type's queue so any pending jobs pick up. pump()
+    // is a no-op when the type's slot/group budget is already full.
     for (const type of Object.keys(queues) as JobType[]) {
-      processQueue(type).catch(e => console.error(`[job-queue] resume error:`, e))
+      pump(type)
     }
   }
 }
@@ -621,7 +695,7 @@ export function enqueue(opts: {
   emitUpdate(job)
 
   // Kick off processing
-  processQueue(opts.type).catch(e => console.error('[job-queue] Error processing:', e))
+  pump(opts.type)
 
   return safeJob(job)
 }

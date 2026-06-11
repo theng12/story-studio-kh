@@ -83,6 +83,37 @@ export async function setAppSetting(key: string, value: any): Promise<void> {
   })
 }
 
+// ── Script / LLM-text generation concurrency (global, per-machine) ─────────
+//
+// How many text-generation jobs (script outline, chapter expansion, metadata,
+// image prompts, scene planning) the job queue runs at once across all of them
+// combined. It's a machine-level knob — it reflects your local LM Studio pool
+// capacity, not a per-project preference — so it lives in app-settings rather
+// than each project's config. The queue (job-queue.ts) reads it at boot and on
+// every change. 1 = fully serial (the pre-v1.0.335 behaviour).
+export const SCRIPT_CONCURRENCY_KEY = 'script_concurrency'
+export const SCRIPT_CONCURRENCY_DEFAULT = 2
+export const SCRIPT_CONCURRENCY_MIN = 1
+export const SCRIPT_CONCURRENCY_MAX = 8
+
+function clampScriptConcurrency(n: unknown): number {
+  const v = Math.floor(Number(n))
+  if (!Number.isFinite(v)) return SCRIPT_CONCURRENCY_DEFAULT
+  return Math.max(SCRIPT_CONCURRENCY_MIN, Math.min(SCRIPT_CONCURRENCY_MAX, v))
+}
+
+export async function getScriptConcurrency(): Promise<number> {
+  const raw = await getAppSetting(SCRIPT_CONCURRENCY_KEY)
+  if (raw == null) return SCRIPT_CONCURRENCY_DEFAULT
+  return clampScriptConcurrency(raw)
+}
+
+export async function setScriptConcurrency(n: unknown): Promise<number> {
+  const clamped = clampScriptConcurrency(n)
+  await setAppSetting(SCRIPT_CONCURRENCY_KEY, clamped)
+  return clamped
+}
+
 // ── Voice presets + favourites (global, not per-project) ──────────────────
 //
 // Voices the user curates (named presets, ★ favourites) are personal-taste

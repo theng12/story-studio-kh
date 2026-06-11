@@ -1289,7 +1289,32 @@
 
     <!-- Performance -->
     <div v-if="activeTab === 'performance'" class="card mt-2">
-      <h3>Image Generation Concurrency</h3>
+      <!-- Text/LLM generation concurrency — app-level (per machine). Lets you -->
+      <!-- run several episodes' script/metadata/prompt/scene-plan jobs at once -->
+      <!-- instead of one-at-a-time, spread across the LM Studio endpoint pool. -->
+      <h3>Script &amp; Text Generation Concurrency</h3>
+      <p class="text-muted mt-1 mb-2">
+        How many <strong>text</strong> jobs run at the same time across
+        <strong>all</strong> of: script outline, chapter expansion, metadata, image prompts,
+        and scene planning — combined. This is what lets you generate several
+        <strong>episodes at once</strong> instead of waiting in a queue. Concurrent calls
+        spread across your LM&nbsp;Studio endpoint pool automatically.
+      </p>
+      <div class="form-group" style="max-width: 360px;">
+        <label>Concurrent text jobs ({{ scriptConcurrency }})</label>
+        <SliderWithNumber v-model="scriptConcurrency" :min="1" :max="8" :step="1" />
+        <div class="flex gap-2 mt-1" style="font-size: 11px;">
+          <span class="text-muted">1 (serial)</span>
+          <span class="text-muted" style="margin-left:auto">8 (max)</span>
+        </div>
+        <p class="text-muted mt-1" style="font-size: 12px;">
+          A good value is roughly the number of LM&nbsp;Studio endpoints you run.
+          Per-machine setting. Image, audio, video, and upload jobs are unaffected —
+          those always run one at a time to avoid overloading the machine.
+        </p>
+      </div>
+
+      <h3 class="mt-3">Image Generation Concurrency</h3>
       <p class="text-muted mt-1 mb-2">
         Number of image generation requests sent in parallel per job. Higher = faster, but providers have rate limits.
         Start at 5; raise cautiously if your provider allows. Lower if you see rate-limit errors.
@@ -5193,6 +5218,11 @@ watch(activeTab, async (tab) => {
 const imageConcurrency = ref(5)
 const audioConcurrency = ref(3)   // ElevenLabs Starter-tier safe default
 const videoConcurrency = ref(2)   // fal.ai new-account safe default
+// App-level (per-machine): how many text-generation jobs run at once across
+// script outline/expansion + metadata + image-prompts + scene-planning,
+// combined. Stored in app-settings (not project config) — see GET/PUT
+// /app-settings/script-concurrency. Default 2; 1 = serial (old behaviour).
+const scriptConcurrency = ref(2)
 // Launch stagger (ms) per modality. 0 = no stagger (default behaviour).
 // Non-zero values delay each pool worker's FIRST task by index*stagger to
 // smooth the initial-burst submit that triggers per-second 429s.
@@ -5255,6 +5285,9 @@ async function savePerformance() {
       tts_minutes: typeof t === 'number' && t > 0 ? Math.round(t) : null,
     }
     await put(`/projects/${slug.value}/settings/config`, body)
+    // Text-gen concurrency is a per-machine setting (app-settings), saved
+    // alongside the per-project performance config from the same button.
+    await put('/app-settings/script-concurrency', { value: scriptConcurrency.value })
     await refreshConfig(slug.value)
     stampSaved('performance')
     success('Performance settings saved')
@@ -5262,6 +5295,19 @@ async function savePerformance() {
     showError(e.data?.detail || 'Failed to save performance settings')
   }
 }
+
+// App-level text-gen concurrency lives in app-settings, not the project
+// config, so it loads via its own endpoint (the config watcher above won't
+// carry it). Default 2 stands if the read fails.
+async function loadScriptConcurrency() {
+  try {
+    const r = await get<{ value: number }>('/app-settings/script-concurrency')
+    if (r && typeof r.value === 'number') {
+      scriptConcurrency.value = Math.max(1, Math.min(8, Math.round(r.value)))
+    }
+  } catch { /* keep default */ }
+}
+onMounted(loadScriptConcurrency)
 
 // Sync project form. v1.0.45 — track the server-side season_size
 // separately so the Reseason flow can detect "user wants to change it"

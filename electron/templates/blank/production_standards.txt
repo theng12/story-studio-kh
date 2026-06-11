@@ -1,6 +1,9 @@
 # Production Standards
-# These guidelines are included in every AI prompt to ensure consistent output quality.
-# Customize them to match your channel's style and format.
+# These guidelines are folded into the SCRIPT-NARRATION system prompt only.
+# Keep this file focused on narration: tone, pacing, structure, word counts,
+# things the writing LLM should respect. Image-prompt and thumbnail rules
+# live in their own dedicated generators — DO NOT put them here, or the
+# script LLM will start emitting thumbnail prompts inside chapters.
 
 ## Script / Narration
 - Target word count: 5,000-8,000 words per episode (adjust for desired duration)
@@ -8,12 +11,6 @@
 - Include an introduction section (300-400 words) with a warm welcome and story preview
 - Use varied sentence structure; avoid repetitive phrasing
 - Maintain a consistent narrative voice throughout
-
-## Image Prompts
-- Each prompt should describe a single scene clearly and concisely
-- Include details about: setting, lighting, mood, colors, and any characters
-- End every prompt with your preferred style tag (e.g., "watercolor style, soft palette")
-- Generate 2-3 scene prompts per chapter, plus 3-5 thumbnail prompts
 
 ## Audio / Narration
 - Maintain consistent pacing across chapters
@@ -46,9 +43,14 @@ Typical chapter count: [e.g., "8-12 chapters per episode"]
 Please generate a complete production standards document that includes:
 1. Word count targets (per episode, per chapter, for intro)
 2. Narration style rules (tone, pronouns, pacing, character references)
-3. Image prompt rules (mandatory style tag to append, scene composition guidelines, character consistency rules)
-4. Chapter formatting standards (heading format, section structure)
-5. Quality checks (what to verify before publishing)
+3. Chapter formatting standards (heading format, section structure)
+4. Audio / pacing notes (pauses, target listener mood)
+5. YouTube metadata hints (title/description/tags style)
+6. Quality checks (what to verify before publishing)
+
+Do NOT include image-prompt or thumbnail-prompt rules here — those have their
+own dedicated configuration UI in Story Studio. Mixing them in causes the
+script LLM to emit thumbnail prompts inside chapter bodies.
 
 Format it as a plain text document I can paste into my production tool.
 ```

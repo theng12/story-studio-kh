@@ -7,7 +7,8 @@
  * grep across app.ts.
  */
 
-import { registerExecutor } from '../services/job-queue.js'
+import { registerExecutor, setLlmConcurrency } from '../services/job-queue.js'
+import { getScriptConcurrency } from '../services/app-settings.js'
 import {
   generateScriptOnly, generateIntroductionOnly, generateChapterOnly,
   generateOutlineOnly, generateExpandChapters,
@@ -102,4 +103,11 @@ export function registerAllExecutors(): void {
   registerExecutor('composition_generate', generateCompositionTemplateJob)
   // v1.0.145+ — Final ffmpeg assembler for the timestamp-driven pipeline.
   registerExecutor('timestamp_video_assemble', runTimestampVideoAssemble)
+
+  // Load the saved LLM-text concurrency (Settings → Performance) into the
+  // queue. Fire-and-forget: the queue defaults to 2 until this resolves
+  // (a few ms), and the PUT route applies live changes without a restart.
+  void getScriptConcurrency()
+    .then(setLlmConcurrency)
+    .catch(e => console.warn('[boot] failed to load script_concurrency:', e?.message))
 }
