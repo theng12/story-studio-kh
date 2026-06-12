@@ -341,11 +341,10 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
 })
 
 // ── POST /scene-review/:ep/repair-image/:sceneId ─────────────────────
-// Continuity-chain repair for one scene. If the image is missing and a
-// provider task_id was recorded, try to recover/download that already-paid
-// result first. If there is no recoverable task (or the scene already has an
-// image and the user wants a visual fix), queue a fresh single-scene
-// continuity render with the usual reference stack.
+// Continuity-chain repair for one missing scene. If a provider task_id was
+// recorded, try to recover/download that already-paid result first. If there
+// is no recoverable task, queue a fresh single-scene continuity render with
+// the usual reference stack.
 router.post('/projects/:slug/scene-review/:episodeId/repair-image/:sceneId', async (req, res) => {
   const { slug, episodeId, sceneId } = req.params
   if (!/^[A-Za-z0-9_-]+$/.test(sceneId)) return res.status(400).json({ detail: 'invalid scene id' })
@@ -364,31 +363,32 @@ router.post('/projects/:slug/scene-review/:episodeId/repair-image/:sceneId', asy
     const outDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
     const outPath = path.join(outDir, `${sceneId}.png`)
     const hasImage = existsSync(outPath)
+    if (hasImage) {
+      return res.status(400).json({ detail: 'Scene already has an image. Use Regenerate to create a fresh one.' })
+    }
 
-    if (!hasImage) {
-      const config = await pm.getConfig(slug)
-      const modelConfig = (config?.image_models?.[model] || { poll: '/jobs/recordInfo' }) as ImageModelConfig
-      const providerId = (modelConfig as any).provider || 'kie'
-      const imageProvider = registry.getImageProvider(providerId)
-      const apiKey = imageProvider
-        ? await resolveApiKeyForProvider(slug, imageProvider.meta, { model })
-        : ''
-      const manifest = await readManifest(outDir)
-      const entry = manifest.tasks[`${sceneId}.png`] || null
-      const recovered = await tryRecoverImageFromManifest(entry, apiKey, modelConfig)
-      if (recovered?.urls?.length) {
-        await fs.mkdir(outDir, { recursive: true })
-        await downloadImage(recovered.urls[0]!, outPath)
-        scene.image_path = outPath
-        scene.approved = false
-        await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
-        return res.json({
-          ok: true,
-          recovered: true,
-          scene_id: sceneId,
-          task_id: recovered.taskId,
-        })
-      }
+    const config = await pm.getConfig(slug)
+    const modelConfig = (config?.image_models?.[model] || { poll: '/jobs/recordInfo' }) as ImageModelConfig
+    const providerId = (modelConfig as any).provider || 'kie'
+    const imageProvider = registry.getImageProvider(providerId)
+    const apiKey = imageProvider
+      ? await resolveApiKeyForProvider(slug, imageProvider.meta, { model })
+      : ''
+    const manifest = await readManifest(outDir)
+    const entry = manifest.tasks[`${sceneId}.png`] || null
+    const recovered = await tryRecoverImageFromManifest(entry, apiKey, modelConfig)
+    if (recovered?.urls?.length) {
+      await fs.mkdir(outDir, { recursive: true })
+      await downloadImage(recovered.urls[0]!, outPath)
+      scene.image_path = outPath
+      scene.approved = false
+      await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
+      return res.json({
+        ok: true,
+        recovered: true,
+        scene_id: sceneId,
+        task_id: recovered.taskId,
+      })
     }
 
     const job = enqueueContinuityRender(slug, episodeId, {

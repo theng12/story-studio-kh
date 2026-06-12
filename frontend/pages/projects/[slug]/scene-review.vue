@@ -364,10 +364,19 @@
               class="btn btn-sm btn-secondary"
               :disabled="!form.model || regeneratingId === scene.id"
               @click="generateOne(scene)"
-              :title="!form.model ? 'Pick a model in the Greenlight panel first' : (isContinuity ? 'Repair this scene. Missing images try to recover the already-submitted provider task first; otherwise it queues a fresh single-scene continuity render.' : 'Generate / regenerate just this image (resets approval)')"
+              :title="!form.model ? 'Pick a model in the Greenlight panel first' : (isContinuity ? 'Generate a fresh continuity image for just this scene with its references. Existing images are regenerated from scratch.' : 'Generate / regenerate just this image (resets approval)')"
             >
               {{ regeneratingId === scene.id ? '⏳' : (isContinuity ? '🎬' : '↻') }}
-              {{ isContinuity ? (scene.image_filename ? 'Repair' : 'Recover / Generate') : 'Regenerate' }}
+              {{ isContinuity ? (scene.image_filename ? 'Regenerate' : 'Generate (refs)') : 'Regenerate' }}
+            </button>
+            <button
+              v-if="isContinuity && !scene.image_filename"
+              class="btn btn-sm btn-ghost"
+              :disabled="!form.model || regeneratingId === scene.id"
+              @click="repairOne(scene)"
+              title="Recover a missing continuity image from an already-submitted provider task first. If nothing is recoverable, queue a single-scene repair render."
+            >
+              🛠 Repair
             </button>
             <!-- v1.0.232 — set this scene's image from an uploaded file. -->
             <button
@@ -777,19 +786,15 @@ async function generateOne(scene: ReviewScene): Promise<void> {
   regeneratingId.value = scene.id
   try {
     if (isContinuity.value) {
-      const r = await post<{ recovered?: boolean; queued?: boolean }>(`/projects/${slug.value}/scene-review/${episodeId.value}/repair-image/${scene.id}`, {
+      await post(`/projects/${slug.value}/scene-review/${episodeId.value}/continuity-render`, {
         model: form.value.model,
         aspect_ratio: form.value.aspect_ratio,
+        single_scene_id: scene.id,
+        force: !!scene.image_filename,
         prompt_only: promptOnly.value,
         ...localSizeBody.value,
       })
-      if (r.recovered) {
-        success(`Recovered scene ${scene.scene_index} from the existing provider task.`)
-        cacheBuster.value = Date.now()
-        await loadReview()
-      } else {
-        success(`Repair queued for scene ${scene.scene_index} — it'll update above.`)
-      }
+      success(`${scene.image_filename ? 'Regeneration' : 'Generation'} queued for scene ${scene.scene_index} — it'll update above.`)
     } else {
       await post(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-image`, {
         scene_id: scene.id,
@@ -802,6 +807,33 @@ async function generateOne(scene: ReviewScene): Promise<void> {
     }
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to queue scene image')
+  } finally {
+    regeneratingId.value = null
+  }
+}
+
+async function repairOne(scene: ReviewScene): Promise<void> {
+  if (!form.value.model) {
+    showError('Pick a model in the Greenlight panel before repairing')
+    return
+  }
+  regeneratingId.value = scene.id
+  try {
+    const r = await post<{ recovered?: boolean; queued?: boolean }>(`/projects/${slug.value}/scene-review/${episodeId.value}/repair-image/${scene.id}`, {
+      model: form.value.model,
+      aspect_ratio: form.value.aspect_ratio,
+      prompt_only: promptOnly.value,
+      ...localSizeBody.value,
+    })
+    if (r.recovered) {
+      success(`Recovered scene ${scene.scene_index} from the existing provider task.`)
+      cacheBuster.value = Date.now()
+      await loadReview()
+    } else {
+      success(`Repair queued for scene ${scene.scene_index} — it'll update above.`)
+    }
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to repair scene image')
   } finally {
     regeneratingId.value = null
   }
