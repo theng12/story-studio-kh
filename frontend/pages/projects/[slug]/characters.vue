@@ -14,10 +14,12 @@
 
     <div v-if="loading" class="muted">Loading…</div>
 
-    <div v-else-if="!characters.length" class="empty">
-      No characters yet. Click <strong>+ New character</strong> to create one — or use the
-      <em>+ Quick character</em> shortcut on any episode's script page for a one-off.
-    </div>
+    <EmptyState
+      v-else-if="!characters.length"
+      icon="&#127917;"
+      title="No characters yet"
+      message="Click + New character to create one — or use the + Quick character shortcut on any episode's script page for a one-off."
+    />
 
     <div v-else class="char-list">
       <CharacterCard
@@ -818,15 +820,6 @@ async function uploadFiles(files: File[]) {
 
 .page-header h1 { margin: 0 0 4px; font-size: 20px; }
 .page-header .text-muted { font-size: 12px; line-height: 1.5; max-width: 720px; }
-
-.empty {
-  padding: 24px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-  background: var(--bg-secondary);
-  border-radius: 6px;
-}
 
 .char-list {
   display: flex;

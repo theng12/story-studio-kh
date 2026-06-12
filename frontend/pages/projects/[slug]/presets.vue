@@ -17,9 +17,12 @@
     <div v-if="error" class="text-danger mt-2" style="font-size: 13px;">{{ error }}</div>
 
     <!-- Empty state -->
-    <div v-if="!loading && !totalCount" class="empty-presets mt-2">
-      <p>No presets saved yet. Visit any generator page and save your current settings to create your first preset.</p>
-    </div>
+    <EmptyState
+      v-if="!loading && !totalCount"
+      icon="&#9881;"
+      title="No presets saved yet"
+      message="On any generator page, set up the options you like and hit Save preset — it'll show up here, ready to reuse on the next episode."
+    />
 
     <!-- Preset groups -->
     <div v-for="group in groups" :key="group.key" class="preset-group card mt-2" v-show="group.items.length">
@@ -381,15 +384,6 @@ onMounted(loadAll)
   padding-top: 16px;
 }
 .presets-header h1 { margin: 0; font-size: 22px; }
-
-.empty-presets {
-  padding: 24px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
-  text-align: center;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
 
 .group-head {
   display: flex;

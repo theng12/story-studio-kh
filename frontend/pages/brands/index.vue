@@ -20,14 +20,16 @@
       <button class="btn btn-secondary" @click="loadAll">Retry</button>
     </div>
 
-    <div v-else-if="brands.length === 0" class="empty-state">
-      <h2>No brands yet</h2>
-      <p>
-        Create one to share channel-level identity across projects. Without a brand,
-        each project uses literal defaults from its format profile.
-      </p>
-      <button class="btn btn-primary" @click="openCreate">+ New brand</button>
-    </div>
+    <EmptyState
+      v-else-if="brands.length === 0"
+      icon="&#127917;"
+      title="No brands yet"
+      message="Create one to share channel-level identity across projects. Without a brand, each project uses literal defaults from its format profile."
+    >
+      <template #action>
+        <button class="btn btn-primary mt-2" @click="openCreate">+ New brand</button>
+      </template>
+    </EmptyState>
 
     <ul v-else class="brand-list">
       <li v-for="b in brands" :key="b.id" class="brand-row">

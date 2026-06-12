@@ -13,10 +13,12 @@
 
     <div v-if="loading" class="muted">Loading…</div>
 
-    <div v-else-if="!characters.length" class="empty">
-      No characters in the library yet. Open a project's Characters page, edit any character, and
-      use <strong>Save to library</strong> to add them here.
-    </div>
+    <EmptyState
+      v-else-if="!characters.length"
+      icon="&#128218;"
+      title="No characters in the library yet"
+      message="Open a project's Characters page, edit any character, and use Save to library to add them here — then reuse them across projects."
+    />
 
     <div v-else class="char-list">
       <CharacterCard
@@ -204,15 +206,6 @@ async function confirmDelete(c: Character) {
 
 .page-header h1 { margin: 0 0 4px; font-size: 20px; }
 .page-header .text-muted { font-size: 12px; line-height: 1.5; max-width: 720px; }
-
-.empty {
-  padding: 24px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-  background: var(--bg-secondary);
-  border-radius: 6px;
-}
 
 .char-list {
   display: flex;
