@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.339 — 2026-06-12
+
+### Added — continuity image recovery from submitted Kie tasks
+Continuity renders now record provider task IDs before downloading scene images. If a Kie image task was submitted but the local file never landed, the Scene Review per-scene button can recover the already-submitted provider result first instead of immediately charging for a new render.
+
+### Added — repair and stop controls directly in Scene Review
+Continuity scenes now show a focused **Repair** / **Recover / Generate** action. Missing images try recovery first, while existing images queue a fresh single-scene continuity repair with the usual reference stack. Active continuity renders also show a **Stop render** button in Scene Review, using the same cancellation path as Jobs so completed images stay on disk and missing scenes can be resumed later.
+
+### Files
+- `electron/server/generators/continuity-render.ts` (record image task manifests for continuity renders)
+- `electron/server/routes/scene-review.ts` (active render metadata + continuity repair/recovery endpoint)
+- `frontend/pages/projects/[slug]/scene-review.vue` (repair/recover button + inline stop render control)
+
+---
+
 ## v1.0.338 — 2026-06-12
 
 ### Fixed — Kie GPT Image 2 references now upload as files first

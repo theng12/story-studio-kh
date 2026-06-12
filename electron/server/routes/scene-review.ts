@@ -21,10 +21,15 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { downloadImage } from '../lib/kie-client.js'
+import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER } from '../generators/scene-image.js'
 import { decodeUploadBuffer } from './image-references.js'
-import type { JobType, ScenePlan } from '../models/types.js'
+import { readManifest } from '../services/task-manifest.js'
+import { resolveApiKeyForProvider } from '../providers/registry.js'
+import { registry } from '../providers/registry.js'
+import type { ImageModelConfig, JobType, ScenePlan } from '../models/types.js'
 
 export const router = Router()
 
@@ -105,6 +110,12 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       }
     } catch { /* no status / unreadable — leave null */ }
 
+    const activeJob = (await jq.getJobs(slug)).find((j: any) =>
+      j.episode_id === episodeId
+      && j.type === 'continuity_render'
+      && (j.status === 'running' || j.status === 'queued')
+    ) || null
+
     res.json({
       scene_plan: {
         schema_version: plan.schema_version,
@@ -116,6 +127,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       scenes,
       audio_path: audioPath,
       render_status: renderStatus,
+      active_render_job: activeJob,
       stats: {
         total_scenes: plan.scenes.length,
         approved: approvedCount,
@@ -127,6 +139,43 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     res.status(500).json(humanizeBackendError(e, 'Failed to read scene review status'))
   }
 })
+
+function enqueueContinuityRender(
+  slug: string,
+  episodeId: string,
+  body: any,
+  opts: { singleSceneId?: string } = {},
+) {
+  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  if (!model) throw new Error('model is required')
+  const singleSceneId = opts.singleSceneId || (typeof body.single_scene_id === 'string' ? body.single_scene_id : undefined)
+  const dedupeParams = singleSceneId
+    ? (p: any) => p.single_scene_id === singleSceneId
+    : (p: any) => !p.single_scene_id
+  return jq.enqueue({
+    project_slug: slug,
+    type: 'continuity_render' as JobType,
+    episode_id: episodeId,
+    title: singleSceneId ? `Repair scene — ${episodeId}` : `Continuity render — ${episodeId}`,
+    dedupeParams,
+    params: {
+      episode_id: episodeId,
+      title: typeof body.title === 'string' ? body.title : '',
+      model,
+      aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+      width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
+      height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
+      force: body.force === true,
+      from_scene_id: typeof body.from_scene_id === 'string' ? body.from_scene_id : undefined,
+      single_scene_id: singleSceneId,
+      independent: body.independent === true,
+      concurrency: body.concurrency === 'auto'
+        ? 'auto'
+        : (Number.isFinite(Number(body.concurrency)) ? Number(body.concurrency) : undefined),
+      prompt_only: body.prompt_only === true,
+    },
+  })
+}
 
 // ── POST /scene-review/:ep/generate-image ─────────────────────────────
 router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req, res) => {
@@ -289,6 +338,71 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
     throw e
   }
   res.status(201).json(job)
+})
+
+// ── POST /scene-review/:ep/repair-image/:sceneId ─────────────────────
+// Continuity-chain repair for one scene. If the image is missing and a
+// provider task_id was recorded, try to recover/download that already-paid
+// result first. If there is no recoverable task (or the scene already has an
+// image and the user wants a visual fix), queue a fresh single-scene
+// continuity render with the usual reference stack.
+router.post('/projects/:slug/scene-review/:episodeId/repair-image/:sceneId', async (req, res) => {
+  const { slug, episodeId, sceneId } = req.params
+  if (!/^[A-Za-z0-9_-]+$/.test(sceneId)) return res.status(400).json({ detail: 'invalid scene id' })
+  const body = req.body || {}
+  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  if (!model) return res.status(400).json({ detail: 'model is required' })
+
+  try {
+    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const planPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
+    if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    const scene = plan.scenes.find(s => s.id === sceneId)
+    if (!scene) return res.status(404).json({ detail: `scene ${sceneId} not found in scene_plan.json` })
+
+    const outDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+    const outPath = path.join(outDir, `${sceneId}.png`)
+    const hasImage = existsSync(outPath)
+
+    if (!hasImage) {
+      const config = await pm.getConfig(slug)
+      const modelConfig = (config?.image_models?.[model] || { poll: '/jobs/recordInfo' }) as ImageModelConfig
+      const providerId = (modelConfig as any).provider || 'kie'
+      const imageProvider = registry.getImageProvider(providerId)
+      const apiKey = imageProvider
+        ? await resolveApiKeyForProvider(slug, imageProvider.meta, { model })
+        : ''
+      const manifest = await readManifest(outDir)
+      const entry = manifest.tasks[`${sceneId}.png`] || null
+      const recovered = await tryRecoverImageFromManifest(entry, apiKey, modelConfig)
+      if (recovered?.urls?.length) {
+        await fs.mkdir(outDir, { recursive: true })
+        await downloadImage(recovered.urls[0]!, outPath)
+        scene.image_path = outPath
+        scene.approved = false
+        await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
+        return res.json({
+          ok: true,
+          recovered: true,
+          scene_id: sceneId,
+          task_id: recovered.taskId,
+        })
+      }
+    }
+
+    const job = enqueueContinuityRender(slug, episodeId, {
+      ...body,
+      force: true,
+      single_scene_id: sceneId,
+    }, { singleSceneId: sceneId })
+    res.status(201).json({ ok: true, recovered: false, queued: true, job })
+  } catch (e: any) {
+    if (e instanceof jq.DuplicateJobError) {
+      return res.status(409).json({ detail: `That scene is already queued/rendering for ${episodeId}.` })
+    }
+    res.status(500).json(humanizeBackendError(e, 'Failed to repair continuity scene image'))
+  }
 })
 
 // ── POST /scene-review/:ep/upload-image/:sceneId ──────────────────────

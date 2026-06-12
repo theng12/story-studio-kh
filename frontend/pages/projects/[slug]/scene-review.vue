@@ -27,7 +27,7 @@
       filter-field="scene_review"
       generate-label="Generate all missing"
       loading-label="Queuing…"
-      :generate-loading="bulkQueuing || reviewJobActive"
+      :generate-loading="bulkQueuing || reviewJobActive || isRendering"
       :generate-disabled="!canBulkGenerate"
       :generate-status="bulkStatus"
       @generate="generateAllMissing"
@@ -126,7 +126,7 @@
           <button
             v-if="isContinuity"
             class="btn btn-sm btn-secondary"
-            :disabled="!form.model || continuityRendering"
+            :disabled="!form.model || continuityRendering || isRendering"
             @click="renderContinuity()"
             title="SEQUENTIAL — render every scene in order, each anchored to the PREVIOUS render + your character sheet/characters. Best frame-to-frame continuity, but slow (one scene at a time). Resumes where it left off. Runs in the Jobs panel."
           >
@@ -135,7 +135,7 @@
           <button
             v-if="isContinuity && stats.with_image > 0"
             class="btn btn-sm btn-ghost"
-            :disabled="!form.model || continuityRendering"
+            :disabled="!form.model || continuityRendering || isRendering"
             @click="renderContinuity({ force: true })"
             title="Re-render ALL scenes sequentially from scratch (discards current renders)."
           >
@@ -146,7 +146,7 @@
           <button
             v-if="isContinuity"
             class="btn btn-sm btn-primary"
-            :disabled="!form.model || continuityRendering"
+            :disabled="!form.model || continuityRendering || isRendering"
             @click="renderContinuity({ independent: true })"
             title="PARALLEL — render scenes concurrently using ONLY the style image + character sheet/characters (no previous-render reference). Much faster, but loses frame-to-frame continuity. Fills in any scene that's still missing an image."
           >
@@ -155,7 +155,7 @@
           <button
             v-if="isContinuity && stats.with_image > 0"
             class="btn btn-sm btn-ghost"
-            :disabled="!form.model || continuityRendering"
+            :disabled="!form.model || continuityRendering || isRendering"
             @click="renderContinuity({ independent: true, force: true })"
             title="Re-render ALL scenes in parallel from scratch (style + sheet only, no prev-render). Fast bulk re-roll."
           >
@@ -235,6 +235,14 @@
           @click="showLivePreview = !showLivePreview"
           :title="showLivePreview ? 'Hide the live reference preview' : 'Show which images are being fed into the model'"
         >{{ showLivePreview ? '👁 Hide preview' : '👁 Show preview' }}</button>
+        <button
+          v-if="activeContinuityRenderJob"
+          type="button"
+          class="review-stop-btn"
+          :disabled="cancelingRender"
+          @click="cancelActiveRender"
+          title="Stop the active continuity render. Finished scene images stay on disk; re-run Render sequentially later to resume missing scenes."
+        >{{ cancelingRender ? 'Stopping…' : 'Stop render' }}</button>
       </div>
 
       <!-- v1.0.233 — live "what's being fed in" preview. Shows the exact
@@ -356,10 +364,10 @@
               class="btn btn-sm btn-secondary"
               :disabled="!form.model || regeneratingId === scene.id"
               @click="generateOne(scene)"
-              :title="!form.model ? 'Pick a model in the Greenlight panel first' : (isContinuity ? 'Render JUST this scene with its references (character sheet + style + previous render). One click, no re-chaining.' : 'Generate / regenerate just this image (resets approval)')"
+              :title="!form.model ? 'Pick a model in the Greenlight panel first' : (isContinuity ? 'Repair this scene. Missing images try to recover the already-submitted provider task first; otherwise it queues a fresh single-scene continuity render.' : 'Generate / regenerate just this image (resets approval)')"
             >
               {{ regeneratingId === scene.id ? '⏳' : (isContinuity ? '🎬' : '↻') }}
-              {{ isContinuity ? 'Generate (refs)' : 'Regenerate' }}
+              {{ isContinuity ? (scene.image_filename ? 'Repair' : 'Recover / Generate') : 'Regenerate' }}
             </button>
             <!-- v1.0.232 — set this scene's image from an uploaded file. -->
             <button
@@ -374,7 +382,7 @@
             <button
               v-if="isContinuity"
               class="btn btn-sm btn-ghost"
-              :disabled="!form.model || continuityRendering"
+              :disabled="!form.model || continuityRendering || isRendering"
               @click="renderContinuity({ fromSceneId: scene.id })"
               title="Re-render THIS scene and every scene after it, re-chaining downstream (each anchored to the previous render). Use after editing this scene's prompt, or when the look drifted from here on."
             >
@@ -449,7 +457,7 @@ const slug = computed(() => route.params.slug as string)
 // (continuity chain / per-scene regen), so it needs the image-model picker,
 // not the LLM ModelSelector that used to be here.
 const { config } = useProject()
-const { get, post, put } = useApi()
+const { get, post, put, del } = useApi()
 const { success, error: showError } = useToast()
 
 const episodeId = ref('')
@@ -504,6 +512,8 @@ const audioPath = ref<string | null>(null)
 const stats = ref<ReviewStats | null>(null)
 const loading = ref(false)
 const renderStatus = ref<RenderStatus | null>(null)
+const activeRenderJobFromReview = ref<any | null>(null)
+const cancelingRender = ref(false)
 // Live-preview panel toggle — persisted per browser, default on.
 const showLivePreview = ref(true)
 if (typeof window !== 'undefined') {
@@ -539,7 +549,13 @@ const promptOnly = computed(() => isContinuity.value && form.value.render_mode =
 // parallel pool size and AUTO-APPLIES the last-used preset on load (default
 // autoApplyOnLoad), so the chosen model is restored instead of re-picked each
 // visit. Device-aware, same PresetPicker pattern as the Scene Plan page.
-const srPresets = usePresets<{ model: string; aspect_ratio: string; concurrency: number }>({
+const srPresets = usePresets<{
+  model: string
+  aspect_ratio: string
+  concurrency: string
+  render_mode?: 'refs' | 'prompt'
+  render_scale?: number
+}>({
   slug: slug.value,
   configKey: 'scene_review',
   presetType: 'scene-review',
@@ -580,7 +596,7 @@ const LOCAL_ASPECT_PRESETS: Record<string, [number, number]> = {
 }
 const round16 = (n: number) => Math.max(256, Math.round(n / 16) * 16)
 function dimsForScale(scale: number): { width: number; height: number } {
-  const base = LOCAL_ASPECT_PRESETS[form.value.aspect_ratio] || LOCAL_ASPECT_PRESETS['1:1']
+  const base = LOCAL_ASPECT_PRESETS[form.value.aspect_ratio] ?? [1024, 1024]
   const s = (scale || 100) / 100
   return { width: round16(base[0]! * s), height: round16(base[1]! * s) }
 }
@@ -735,6 +751,7 @@ async function loadReview(): Promise<void> {
       audio_path: string | null
       stats: ReviewStats | null
       render_status: RenderStatus | null
+      active_render_job?: any | null
     }
     const r = await get<ReviewResponse>(`/projects/${slug.value}/scene-review/${episodeId.value}`)
     plan.value = r.scene_plan
@@ -742,6 +759,7 @@ async function loadReview(): Promise<void> {
     audioPath.value = r.audio_path
     stats.value = r.stats
     renderStatus.value = r.render_status || null
+    activeRenderJobFromReview.value = r.active_render_job || null
   } catch (e: any) {
     if (e?.__slugRace) return
   } finally {
@@ -759,18 +777,19 @@ async function generateOne(scene: ReviewScene): Promise<void> {
   regeneratingId.value = scene.id
   try {
     if (isContinuity.value) {
-      // v1.0.232 — single-scene continuity render: just THIS scene, with the
-      // full reference stack (character sheet + style + characters + the
-      // previous scene's render). One click, auto-referenced.
-      await post(`/projects/${slug.value}/scene-review/${episodeId.value}/continuity-render`, {
+      const r = await post<{ recovered?: boolean; queued?: boolean }>(`/projects/${slug.value}/scene-review/${episodeId.value}/repair-image/${scene.id}`, {
         model: form.value.model,
         aspect_ratio: form.value.aspect_ratio,
-        single_scene_id: scene.id,
         prompt_only: promptOnly.value,
         ...localSizeBody.value,
       })
-      success(`Rendering scene ${scene.scene_index} ${promptOnly.value ? '(prompt only)' : 'with its references'} — it'll update above.`)
-      // The active-render auto-refresh picks it up + shows the spinner.
+      if (r.recovered) {
+        success(`Recovered scene ${scene.scene_index} from the existing provider task.`)
+        cacheBuster.value = Date.now()
+        await loadReview()
+      } else {
+        success(`Repair queued for scene ${scene.scene_index} — it'll update above.`)
+      }
     } else {
       await post(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-image`, {
         scene_id: scene.id,
@@ -905,9 +924,26 @@ const reviewJobActive = computed(() => isJobActiveFor(episodeId.value, ['scene_i
 const activeRenderJob = computed(() => {
   const code = episodeId.value
   if (!code) return null
+  const fromReview = activeRenderJobFromReview.value
+  if (fromReview && fromReview.episode_id === code && (fromReview.status === 'running' || fromReview.status === 'queued')) {
+    return fromReview
+  }
   return (jobs.value || []).find((j: any) =>
     j.episode_id === code
     && ['continuity_render', 'images', 'scene_images', 'thumb_images'].includes(j.type)
+    && (j.status === 'running' || j.status === 'queued'),
+  ) || null
+})
+const activeContinuityRenderJob = computed(() => {
+  const code = episodeId.value
+  if (!code) return null
+  const fromReview = activeRenderJobFromReview.value
+  if (fromReview && fromReview.episode_id === code && fromReview.type === 'continuity_render' && (fromReview.status === 'running' || fromReview.status === 'queued')) {
+    return fromReview
+  }
+  return (jobs.value || []).find((j: any) =>
+    j.episode_id === code
+    && j.type === 'continuity_render'
     && (j.status === 'running' || j.status === 'queued'),
   ) || null
 })
@@ -947,6 +983,25 @@ function isSceneGenerating(scene: ReviewScene): boolean {
   if (parallelInFlight.value.has(scene.scene_index)) return true
   // Sequential mode: only the single chained scene shows the spinner.
   return renderStatus.value?.mode !== 'independent' && renderingSceneId.value === scene.id
+}
+
+async function cancelActiveRender(): Promise<void> {
+  const job = activeContinuityRenderJob.value as any
+  if (!job?.job_id) return
+  const label = job.status === 'queued' ? 'queued render' : 'active render'
+  if (!confirm(`Stop this ${label}? Finished scene images stay on disk, and you can resume later by rendering missing scenes.`)) return
+  cancelingRender.value = true
+  try {
+    await del(`/projects/${slug.value}/jobs/${job.job_id}`)
+    success('Continuity render stopped. Completed images were kept.')
+    activeRenderJobFromReview.value = null
+    cacheBuster.value = Date.now()
+    await loadReview()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to stop render')
+  } finally {
+    cancelingRender.value = false
+  }
 }
 
 // Auto-refresh while a render is active so images land without a manual reload.
@@ -1146,6 +1201,17 @@ watch(episodeId, () => { void loadReview() })
   padding: 2px 10px; font-size: 11.5px; color: var(--text-secondary); cursor: pointer;
 }
 .review-live-toggle:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+.review-stop-btn {
+  background: rgba(220, 80, 80, 0.16);
+  border: 1px solid rgba(220, 80, 80, 0.55);
+  border-radius: 6px;
+  color: #ffb3b3;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.review-stop-btn:hover:not(:disabled) { background: rgba(220, 80, 80, 0.26); color: #ffd0d0; }
+.review-stop-btn:disabled { opacity: 0.6; cursor: default; }
 
 /* "Now rendering — these images are feeding in" preview panel */
 .review-live-panel {

@@ -29,6 +29,7 @@ import { parseEndpoints, healthyEndpoints, createDispatcher, runOnPool, type Dis
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
+import { recordTask, hashInput } from '../services/task-manifest.js'
 import { getCharacter, referenceImagePath } from '../services/character-manager.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER } from './scene-image.js'
@@ -487,6 +488,14 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
               isCancelled: () => jq.isCancelled(job.job_id),
             }))
             if (!result.urls.length) throw new Error('provider returned no image')
+            if (result.taskId) {
+              await recordTask(outDir, `${scene.id}.png`, {
+                provider: imageProvider.meta.providerId || imageProvider.meta.id,
+                task_id: result.taskId,
+                submitted_at: new Date().toISOString(),
+                input_hash: hashInput(composePrompt(scene.visual_prompt, sref.includeCharacter)),
+              })
+            }
             await downloadImage(result.urls[0]!, outPath)
             await persistImagePath(scene.id, outPath)
             rendered++
@@ -600,6 +609,14 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     }))
     if (!result.urls.length) {
       throw new Error(`${imageProvider.meta.name} returned no image for scene ${scene.scene_index} (${scene.id}).`)
+    }
+    if (result.taskId) {
+      await recordTask(outDir, `${scene.id}.png`, {
+        provider: imageProvider.meta.providerId || imageProvider.meta.id,
+        task_id: result.taskId,
+        submitted_at: new Date().toISOString(),
+        input_hash: hashInput(composePrompt(scene.visual_prompt, includeCharacter)),
+      })
     }
     await downloadImage(result.urls[0]!, outPath)
 
