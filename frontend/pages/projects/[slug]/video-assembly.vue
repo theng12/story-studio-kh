@@ -533,8 +533,20 @@
         </div>
       </div>
 
-      <!-- Scene Recycling -->
-      <div class="settings-section mt-2">
+      <!-- Scene Pacing — v1.0.354: transcript-timed/continuity formats hold each
+           scene for its own planned span, so the sleep-story recycling controls
+           don't apply. Show a short note instead. -->
+      <div v-if="isSentenceTimed" class="settings-section mt-2">
+        <h4>Scene Pacing</h4>
+        <p class="text-muted text-sm hint-line">
+          This project is <strong>transcript-timed</strong> — each scene stays on screen for exactly its
+          planned span (from the script timing), so there's nothing to recycle. Shape the look with
+          <em>Scene Transitions</em> and <em>Scene Animation</em> below.
+        </p>
+      </div>
+
+      <!-- Scene Recycling (recycled formats only) -->
+      <div v-else class="settings-section mt-2">
         <h4>Scene Recycling</h4>
         <p class="text-muted text-sm hint-line">
           Scenes cycle through in order, repeating until the audio finishes. Video length is fixed by the narration —
@@ -710,53 +722,26 @@
         </div>
       </div>
 
-      <!-- Target Duration -->
+      <!-- Video length (read-only) — v1.0.354: Target Duration removed.
+           The video always matches the narration; the only thing that can
+           extend it is the "After Narration Ends" tail below. -->
       <div class="settings-section mt-2">
-        <h4>Target Duration</h4>
-        <div class="flex gap-2 mt-1 items-center">
-          <button
-            :class="['btn btn-sm', duration.mode === 'auto' ? 'btn-primary' : 'btn-secondary']"
-            @click="duration.mode = 'auto'"
-          >Auto (match audio)</button>
-          <button
-            :class="['btn btn-sm', duration.mode === 'custom' ? 'btn-primary' : 'btn-secondary']"
-            @click="duration.mode = 'custom'"
-          >Custom range</button>
-        </div>
-
-        <div v-if="duration.mode === 'custom'" class="grid-2 mt-1">
-          <div class="form-group">
-            <label>Minimum Duration</label>
-            <div class="flex gap-2">
-              <input v-model.number="duration.min_hours" type="number" min="0" max="10" class="input input-sm hm-num-input" />
-              <span class="text-muted hm-num-suffix">h</span>
-              <input v-model.number="duration.min_minutes" type="number" min="0" max="59" class="input input-sm hm-num-input" />
-              <span class="text-muted hm-num-suffix">m</span>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Maximum Duration</label>
-            <div class="flex gap-2">
-              <input v-model.number="duration.max_hours" type="number" min="0" max="10" class="input input-sm hm-num-input" />
-              <span class="text-muted hm-num-suffix">h</span>
-              <input v-model.number="duration.max_minutes" type="number" min="0" max="59" class="input input-sm hm-num-input" />
-              <span class="text-muted hm-num-suffix">m</span>
-            </div>
-          </div>
-        </div>
-        <p v-if="duration.mode === 'custom'" class="text-muted text-sm mt-1">
-          A random duration between min and max will be chosen each time to vary video length
-        </p>
-
-        <!-- Duration summary -->
-        <div class="summary-bar mt-2">
-          <template v-if="duration.mode === 'auto'">
-            Target: Auto ({{ formatDurationLong(totalAudioDuration) }}) -- scenes will cycle ~{{ estimatedCycles }} times
+        <h4>Video Length</h4>
+        <div class="summary-bar mt-1">
+          <template v-if="totalAudioDuration > 0">
+            Follows the narration — ~{{ formatDurationLong(totalAudioDuration) }}{{ isSentenceTimed ? '' : ` (scenes cycle ~${estimatedCycles}×)` }}.
           </template>
           <template v-else>
-            Target: {{ formatDurationLong(minDurationSec) }} -- {{ formatDurationLong(maxDurationSec) }} (scenes will cycle ~{{ estimatedCycles }} times)
+            Follows the narration — scan an episode with merged audio to see the exact length.
           </template>
         </div>
+        <p class="text-muted text-sm hint-line">
+          The old Target Duration control is gone — there's no padding or random range.
+          {{ isSentenceTimed
+            ? 'Scenes are transcript-timed, so each holds for exactly its planned span.'
+            : 'Scenes loop in order until the audio finishes.' }}
+          To add a clean ending, use “After Narration Ends” below.
+        </p>
       </div>
 
       <!-- Post-Audio Behavior -->
@@ -778,6 +763,14 @@
           <div class="form-group field-narrow">
             <label>Fade Duration ({{ postAudio.fade_duration }}s)</label>
             <SliderWithNumber v-model="postAudio.fade_duration" :min="3" :max="15" :step="1" suffix="s" />
+          </div>
+        </div>
+
+        <!-- v1.0.354 — these tails carry their own length now that Target Duration is gone. -->
+        <div v-if="postAudio.behavior === 'black-screen' || postAudio.behavior === 'hold-last-scene'" class="mt-2">
+          <div class="form-group field-narrow">
+            <label>{{ postAudio.behavior === 'black-screen' ? 'Black screen' : 'Hold' }} length ({{ postAudio.tail_seconds }}s)</label>
+            <SliderWithNumber v-model="postAudio.tail_seconds" :min="1" :max="15" :step="1" suffix="s" />
           </div>
         </div>
 
@@ -2125,8 +2118,7 @@
           </span>
           <span class="estimator-hint">
             <template v-if="sizeEstimateGb !== null">for {{ estimatedDurationMin }} min at current settings</template>
-            <template v-else-if="duration.mode === 'auto'">scan an episode with merged audio first</template>
-            <template v-else>set a target duration above</template>
+            <template v-else>scan an episode with merged audio first</template>
           </span>
         </div>
         <div class="estimator-row">
@@ -2137,7 +2129,7 @@
           </span>
           <span class="estimator-hint">
             <template v-if="renderTimeEstimate !== null">varies with scene animation + effects complexity</template>
-            <template v-else>needs target duration to compute</template>
+            <template v-else>scan an episode with merged audio first</template>
           </span>
         </div>
         <p class="text-muted text-xs mt-1">
@@ -2231,17 +2223,17 @@
             <span>{{ activeSceneCount }} scenes</span>
           </div>
           <div class="summary-row">
-            <span class="text-muted">Recycling</span>
-            <span>{{ sceneRecycling.seconds_per_scene }}s/scene, shuffle {{ sceneRecycling.shuffle ? 'on' : 'off' }}, {{ sceneRecycling.excluded_scenes.length }} excluded</span>
+            <span class="text-muted">Pacing</span>
+            <span v-if="isSentenceTimed">Transcript-timed (per-scene)</span>
+            <span v-else>{{ sceneRecycling.seconds_per_scene }}s/scene, shuffle {{ sceneRecycling.shuffle ? 'on' : 'off' }}, {{ sceneRecycling.excluded_scenes.length }} excluded</span>
           </div>
           <div class="summary-row">
-            <span class="text-muted">Target Duration</span>
-            <span v-if="duration.mode === 'auto'">Auto ({{ formatDurationLong(totalAudioDuration) }})</span>
-            <span v-else>{{ formatDurationLong(minDurationSec) }} -- {{ formatDurationLong(maxDurationSec) }}</span>
+            <span class="text-muted">Video Length</span>
+            <span>Follows narration ({{ formatDurationLong(totalAudioDuration) }}){{ postRollSec > 0 ? ` + ${formatDurationLong(postRollSec)} tail` : '' }}</span>
           </div>
           <div class="summary-row">
             <span class="text-muted">After Narration</span>
-            <span>{{ postAudio.behavior.replace(/-/g, ' ') }}{{ postAudio.behavior === 'fade-to-black' ? ` (${postAudio.fade_duration}s)` : '' }}</span>
+            <span>{{ postAudio.behavior.replace(/-/g, ' ') }}{{ postRollSec > 0 ? ` (${formatDurationLong(postRollSec)})` : '' }}</span>
           </div>
           <div class="summary-row">
             <span class="text-muted">Audio</span>
@@ -2272,7 +2264,7 @@
             <span class="text-muted">Estimated Size</span>
             <span>
               <template v-if="estimatedFileSize > 0">~{{ estimatedFileSize }}MB</template>
-              <span v-else class="text-muted">— (need merged audio or a target duration)</span>
+              <span v-else class="text-muted">— (need merged audio)</span>
             </span>
           </div>
         </div>
@@ -2358,6 +2350,22 @@ watch(vaProject, (p) => {
   }
 }, { immediate: true })
 const sectionLabel = useSectionLabel(vaFormatId)
+
+// v1.0.354 — does this project's format time scenes from the transcript
+// (continuity / sentence-aligned) rather than recycle a uniform pool?
+// When true, Step 3 hides the sleep-story Scene Recycling controls: each
+// scene already holds for its own planned span, so seconds-per-scene /
+// shuffle / per-scene exclusion don't apply. Transitions + animations stay.
+const isSentenceTimed = ref(false)
+async function loadSceneTimingMode() {
+  try {
+    const fmt = await get(`/projects/${slug.value}/effective-format`)
+    isSentenceTimed.value = fmt?.imagePrompts?.alignment === 'sentence'
+  } catch {
+    // Best-effort — default to the recycling UI on any lookup failure.
+    isSentenceTimed.value = false
+  }
+}
 // Shared job-queue state. The dashboard layout already starts the SSE
 // stream; we reuse the same module-singleton refs here so the wizard's
 // in-flight panel is driven by the same source of truth as the Jobs page.
@@ -2604,10 +2612,10 @@ const colorGradingPresets = [
 ]
 
 const postAudioOptions = [
-  { id: 'fade-to-black', label: 'Fade to Black', icon: '&#9681;', description: 'Gradual fade then hold black' },
-  { id: 'black-screen', label: 'Black Screen', icon: '&#9632;', description: 'Instant cut to black' },
-  { id: 'hold-last-scene', label: 'Hold Last Scene', icon: '&#9634;', description: 'Freeze on final image' },
-  { id: 'continue-cycling', label: 'Continue Cycling', icon: '&#8635;', description: 'Keep cycling scenes' },
+  { id: 'fade-to-black', label: 'Fade to Black', icon: '&#9681;', description: 'Fade the last scene out' },
+  { id: 'black-screen', label: 'Black Screen', icon: '&#9632;', description: 'Cut to black for a few seconds' },
+  { id: 'hold-last-scene', label: 'Hold Last Scene', icon: '&#9634;', description: 'Freeze on the final image' },
+  { id: 'hard-cut', label: 'Hard Cut', icon: '&#9724;', description: 'End the moment narration stops' },
 ]
 
 const transitionTypes = [
@@ -2657,6 +2665,9 @@ const sceneRecycling = reactive({
 const postAudio = reactive({
   behavior: 'fade-to-black' as string,
   fade_duration: 5,
+  // v1.0.354 — length of the appended tail for 'black-screen' / 'hold-last-scene'.
+  // (fade-to-black uses fade_duration; hard-cut has no tail.)
+  tail_seconds: 4,
 })
 
 const transition = reactive({
@@ -2701,16 +2712,9 @@ const scenes = ref<Array<{
   enabled: boolean
 }>>([])
 
-// --------------- Duration target ---------------
-// Audio (narration source, chapter gap, music, noise) lives in the upstream
-// Audio Assembly step. The video assembler consumes only the merged track.
-const duration = reactive({
-  mode: 'custom' as 'auto' | 'custom',
-  min_hours: 2,
-  min_minutes: 40,
-  max_hours: 3,
-  max_minutes: 10,
-})
+// v1.0.354 — Target Duration removed. The video length always follows the
+// narration (see `totalAudioDuration`); the post-audio tail is the only
+// intentional extension. The old custom-range `duration` reactive is gone.
 
 // --------------- Step 5: Effects & Overlays ---------------
 const sceneAnimation = reactive({
@@ -3227,6 +3231,8 @@ const subtitles = reactive({
     align: 'center' as 'left' | 'center' | 'right',
     max_chars_per_line: 42,
     max_lines: 2,
+    // v1.0.353 — caption entrance animation (none = static force_style path).
+    animation: 'none' as 'none' | 'fade' | 'pop' | 'slide-up',
   },
 })
 
@@ -3392,7 +3398,6 @@ const timelinePresets = usePresets({
   snapshot: () => ({
     title_image: { ...titleImage },
     scene_recycling: { ...sceneRecycling },
-    duration: { ...duration },
     post_audio: { ...postAudio },
     transition: { ...transition, pool: [...transition.pool] },
     scene_animation: { ...sceneAnimation, pool: [...sceneAnimation.pool] },
@@ -3401,8 +3406,9 @@ const timelinePresets = usePresets({
     if (!data) return
     if (data.title_image) Object.assign(titleImage, data.title_image)
     if (data.scene_recycling) Object.assign(sceneRecycling, data.scene_recycling)
-    if (data.duration) Object.assign(duration, data.duration)
     if (data.post_audio) Object.assign(postAudio, data.post_audio)
+    // v1.0.354 — retired option; old presets fall back to the equivalent hard cut.
+    if (postAudio.behavior === 'continue-cycling') postAudio.behavior = 'hard-cut'
     if (data.transition) {
       Object.assign(transition, data.transition)
       if (Array.isArray(data.transition.pool)) transition.pool = [...data.transition.pool]
@@ -3533,7 +3539,6 @@ function snapshotTimelineData() {
   return {
     title_image: { ...titleImage },
     scene_recycling: { ...sceneRecycling },
-    duration: { ...duration },
     post_audio: { ...postAudio },
     transition: { ...transition, pool: [...transition.pool] },
     scene_animation: { ...sceneAnimation, pool: [...sceneAnimation.pool] },
@@ -3543,8 +3548,9 @@ function applyTimelineData(data: any) {
   if (!data) return
   if (data.title_image) Object.assign(titleImage, data.title_image)
   if (data.scene_recycling) Object.assign(sceneRecycling, data.scene_recycling)
-  if (data.duration) Object.assign(duration, data.duration)
   if (data.post_audio) Object.assign(postAudio, data.post_audio)
+  // v1.0.354 — retired option; old presets fall back to the equivalent hard cut.
+  if (postAudio.behavior === 'continue-cycling') postAudio.behavior = 'hard-cut'
   if (data.transition) {
     Object.assign(transition, data.transition)
     if (Array.isArray(data.transition.pool)) transition.pool = [...data.transition.pool]
@@ -3628,6 +3634,10 @@ function snapshotSubtitlesData() {
   return {
     enabled: subtitles.enabled,
     source: subtitles.source,
+    // v1.0.352 — MUST include the SRT path. The assembler only burns subtitles
+    // when `srt_path` exists (video.ts), so omitting it here silently dropped
+    // the subtitle track from every render even after an .srt was picked.
+    srt_path: subtitles.srt_path,
     style: { ...subtitles.style },
   }
 }
@@ -3852,23 +3862,14 @@ const activeSceneCount = computed(() => {
   return scenes.value.length - sceneRecycling.excluded_scenes.length
 })
 
-const minDurationSec = computed(() => {
-  return duration.min_hours * 3600 + duration.min_minutes * 60
-})
-
-const maxDurationSec = computed(() => {
-  return duration.max_hours * 3600 + duration.max_minutes * 60
-})
-
+// v1.0.354 — length always follows the narration, so cycles are estimated
+// straight from the narration duration (no more custom min/max range).
 const estimatedCycles = computed(() => {
   const sceneCount = activeSceneCount.value
   if (sceneCount <= 0 || sceneRecycling.seconds_per_scene <= 0) return 0
   const cycleDuration = sceneCount * sceneRecycling.seconds_per_scene
-  const targetDuration = duration.mode === 'auto'
-    ? totalAudioDuration.value
-    : (minDurationSec.value + maxDurationSec.value) / 2
   if (cycleDuration <= 0) return 0
-  return Math.max(1, Math.round(targetDuration / cycleDuration))
+  return Math.max(1, Math.round(totalAudioDuration.value / cycleDuration))
 })
 
 // Heuristic warning: many cycles with few scenes = very obvious repetition.
@@ -3877,7 +3878,7 @@ const lowAssetWarning = computed(() => {
   const sceneCount = activeSceneCount.value
   const cycles = estimatedCycles.value
   if (sceneCount < 1 || cycles < 8) return null
-  return `Heads up — only ${sceneCount} scene${sceneCount === 1 ? '' : 's'} will cycle ~${cycles} times to fill the target duration. Viewers will notice the repetition. Add more scenes, shorten the episode, or enable shuffle.`
+  return `Heads up — only ${sceneCount} scene${sceneCount === 1 ? '' : 's'} will cycle ~${cycles} times to fill the narration. Viewers will notice the repetition. Add more scenes, shorten the episode, or enable shuffle.`
 })
 
 /**
@@ -3924,11 +3925,18 @@ const RESOLUTION_SPEED_FACTOR: Record<string, number> = {
   '720p': 0.5, '1080p': 1.0, '1440p': 1.8, '4k': 4.5,
 }
 
+// v1.0.354 — the only thing that extends the body past the narration is the
+// post-audio tail (fade-out / hold / black screen). Mirrors the backend
+// post-roll math in video.ts so estimates and the summary line stay honest.
+const postRollSec = computed(() => {
+  const b = postAudio.behavior
+  if (b === 'fade-to-black') return Math.max(0, postAudio.fade_duration || 5)
+  if (b === 'black-screen' || b === 'hold-last-scene') return Math.max(0, postAudio.tail_seconds ?? 4)
+  return 0
+})
+
 const estimatedDurationSec = computed(() => {
-  const target = duration.mode === 'auto'
-    ? totalAudioDuration.value
-    : (minDurationSec.value + maxDurationSec.value) / 2
-  return Math.max(0, target)
+  return Math.max(0, totalAudioDuration.value + postRollSec.value)
 })
 
 const estimatedDurationMin = computed(() => Math.round(estimatedDurationSec.value / 60))
@@ -4207,15 +4215,15 @@ const presetSummary = computed(() => {
 })
 
 const postAudioSummary = computed(() => {
+  // v1.0.354 — the body always equals the narration; the tail below is the
+  // only extension. Each tail carries its own explicit length now.
   const narrDur = totalAudioDuration.value
-  const targetDur = duration.mode === 'auto' ? narrDur : (minDurationSec.value + maxDurationSec.value) / 2
-  const postDur = Math.max(0, targetDur - narrDur)
-  if (postDur <= 0) return 'No post-audio section — narration fills the full duration'
+  const tail = postRollSec.value
   const b = postAudio.behavior
-  if (b === 'fade-to-black') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then ${postAudio.fade_duration}s fade to black + ${formatDurationLong(Math.max(0, postDur - postAudio.fade_duration))} hold black`
-  if (b === 'black-screen') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then ${formatDurationLong(postDur)} black screen`
-  if (b === 'hold-last-scene') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then hold last scene for ${formatDurationLong(postDur)}`
-  return `Scenes continue cycling for the full ${formatDurationLong(targetDur)} target duration`
+  if (b === 'fade-to-black') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then fade to black over ${postAudio.fade_duration}s`
+  if (b === 'black-screen') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then ${formatDurationLong(tail)} of black`
+  if (b === 'hold-last-scene') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then hold the last scene for ${formatDurationLong(tail)}`
+  return `Scenes play during narration (~${formatDurationLong(narrDur)}), then end on a hard cut`
 })
 
 // Transition preview backgrounds (use scene images or gradients)
@@ -4481,7 +4489,7 @@ const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo } = useVideoAss
   slug, episodeId, selectedEpisode, ffmpegStatus, scannedAssets, scanning, scenes,
   excludeIntroFromEffects,
   logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, postAudio,
-  duration, colorGrading, vignette, filmGrain, letterbox, chromaKey,
+  colorGrading, vignette, filmGrain, letterbox, chromaKey,
   overlays,
   alignVisualsToChapters,
   sceneAssignmentSaved,
@@ -4703,6 +4711,7 @@ onMounted(async () => {
   checkFfmpeg()
   loadTransitionsCatalog()
   loadAnimationsCatalog()
+  loadSceneTimingMode()
   // Format-aware seeding runs FIRST so saved presets (loaded right
   // after) can still override these defaults. Without this, listicle
   // projects opened the page with sleep-story 10 s/scene + 1.5 s

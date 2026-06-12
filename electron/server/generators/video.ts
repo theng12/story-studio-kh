@@ -11,6 +11,7 @@
 
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
+import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
@@ -848,20 +849,30 @@ export async function generateVideo(job: Job): Promise<void> {
   }
   job.output_lines.push(`Narration duration: ${narrationDuration.toFixed(1)}s`)
 
-  let targetDuration: number
-  if (req.duration.mode === 'custom') {
-    const min = req.duration.min_duration
-    const max = req.duration.max_duration
-    targetDuration = min + Math.random() * (max - min)
-    // Ensure target is at least as long as narration
-    if (targetDuration < narrationDuration) {
-      targetDuration = narrationDuration + 30
-      job.output_lines.push(`Warning: custom duration shorter than narration, extending to ${targetDuration.toFixed(0)}s`)
+  // v1.0.354 — Target Duration removed. The video body always equals the
+  // narration: scenes (looping stills or per-scene-timed continuity clips)
+  // cover exactly the narration, and the ONLY thing that extends the body is
+  // an intentional "after narration" tail (a fade-out, a held final frame, or
+  // a black screen). The old `+30` pad and the custom min/max range padded
+  // silent video or risked cutting the audio, so they're gone — the post-audio
+  // tail now carries its own explicit length instead of being sized by a
+  // target/narration gap.
+  let postRoll = 0
+  {
+    const pa = req.post_audio
+    const b = pa?.behavior || 'fade-to-black'
+    if (pa) {
+      if (b === 'fade-to-black') postRoll = Math.max(0, pa.fade_duration || 5)
+      else if (b === 'black-screen' || b === 'hold-last-scene') postRoll = Math.max(0, pa.tail_seconds ?? 4)
+      // 'hard-cut' and legacy 'continue-cycling' → 0 (end with the narration)
     }
-  } else {
-    targetDuration = narrationDuration + 30
   }
-  job.output_lines.push(`Target duration: ${targetDuration.toFixed(1)}s`)
+  const targetDuration = narrationDuration + postRoll
+  job.output_lines.push(
+    postRoll > 0
+      ? `Video length: narration ${narrationDuration.toFixed(1)}s + ${postRoll.toFixed(1)}s tail = ${targetDuration.toFixed(1)}s`
+      : `Video length follows narration: ${targetDuration.toFixed(1)}s`,
+  )
 
   // 3. Create temp directory — under os.tmpdir() (never iCloud-synced)
   // so the multi-GB intermediate clips/concat-list/premixed-audio don't
@@ -2638,8 +2649,10 @@ async function buildConcatList(
     lines.push(esc(c.path))
   }
 
-  // Handle post-audio section (the gap between narration end and target duration)
-  if (behavior !== 'continue-cycling') {
+  // Handle post-audio tail (v1.0.354: an explicit fade/hold/black appended
+  // after the narration). 'hard-cut' and legacy 'continue-cycling' carry no
+  // tail — the video ends with the narration.
+  if (behavior !== 'continue-cycling' && behavior !== 'hard-cut') {
     const postDuration = Math.max(0, targetDuration - sceneEndTime)
 
     if (postDuration > 0) {
@@ -3259,15 +3272,39 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   //     sit inside the safe area; placed before the logo so the logo
   //     always renders on top.
   if (subtitles?.enabled && subtitles.srt_path && existsSync(subtitles.srt_path)) {
-    const { buildAssStyle } = await import('../lib/subtitle-builder.js')
-    const ass = buildAssStyle(subtitles.style).replace(/'/g, "\\'")
-    // FFmpeg filter-graph paths escape: backslashes, colons (Windows drive
-    // letters), single quotes. Forward slashes are fine even on Windows.
-    const escPath = subtitles.srt_path.replace(/\\/g, '/').replace(/:/g, '\\:')
+    const anim = subtitles.style?.animation
     const st = vn()
-    filterParts.push(`${vLabel}subtitles=filename='${escPath}':force_style='${ass}'${gateEnable}${st}`)
+    // FFmpeg filter-graph paths escape: backslashes, colons (Windows drive
+    // letters). Forward slashes are fine even on Windows.
+    const escFor = (p: string) => p.replace(/\\/g, '/').replace(/:/g, '\\:')
+    let wired = false
+    if (anim && anim !== 'none') {
+      // v1.0.353 — animated captions need a full ASS document (force_style
+      // can't animate). Render the SRT into ASS with the entrance animation,
+      // then burn it with the `ass=` filter. Falls back to the static path on
+      // any error so a malformed ASS never silently drops the subtitles.
+      try {
+        const { parseSrt, srtToAss } = await import('../lib/subtitle-builder.js')
+        const cues = parseSrt(await fs.readFile(subtitles.srt_path, 'utf-8'))
+        if (cues.length) {
+          const assDoc = srtToAss(cues, subtitles.style, { width: w, height: h, animation: anim })
+          const assPath = path.join(os.tmpdir(), `ssk-subs-${Date.now()}.ass`)
+          await fs.writeFile(assPath, assDoc, 'utf-8')
+          filterParts.push(`${vLabel}ass=filename='${escFor(assPath)}'${gateEnable}${st}`)
+          job.output_lines.push(`Burning in animated subtitles (${anim}): ${path.basename(subtitles.srt_path)}`)
+          wired = true
+        }
+      } catch (e: any) {
+        job.output_lines.push(`Animated-subtitle build failed (${e?.message || e}) — using static subtitles.`)
+      }
+    }
+    if (!wired) {
+      const { buildAssStyle } = await import('../lib/subtitle-builder.js')
+      const ass = buildAssStyle(subtitles.style).replace(/'/g, "\\'")
+      filterParts.push(`${vLabel}subtitles=filename='${escFor(subtitles.srt_path)}':force_style='${ass}'${gateEnable}${st}`)
+      job.output_lines.push(`Burning in subtitles: ${path.basename(subtitles.srt_path)}`)
+    }
     vLabel = st
-    job.output_lines.push(`Burning in subtitles: ${path.basename(subtitles.srt_path)}`)
   }
 
   // 7. Logo overlay

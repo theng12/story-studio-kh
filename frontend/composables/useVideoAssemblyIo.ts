@@ -85,7 +85,6 @@ export interface VideoAssemblyIoState {
   transition: any
   sceneAnimation: any
   postAudio: any
-  duration: any
   colorGrading: any
   vignette: any
   filmGrain: any
@@ -220,9 +219,6 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       || s.scannedAssets.value?.audio_sections?.[0]?.path
       || ''
 
-    const minSec = s.duration.min_hours * 3600 + s.duration.min_minutes * 60
-    const maxSec = s.duration.max_hours * 3600 + s.duration.max_minutes * 60
-
     // v1.0.57+: stamp per-scene chapter_slug from the saved
     // assignments map so backend honours explicit overrides without
     // re-reading the sidecar. Falls back to undefined when no
@@ -260,11 +256,8 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
         shuffle: s.sceneRecycling.shuffle,
         excluded_scenes: s.sceneRecycling.excluded_scenes,
       },
-      duration: {
-        mode: s.duration.mode,
-        min_duration: minSec,
-        max_duration: maxSec,
-      },
+      // v1.0.354 — Target Duration removed. Length follows the narration;
+      // the post-audio tail (post_audio) is the only intentional extension.
       chapter_titles: { ...s.chapterTitles },
     }
 

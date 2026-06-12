@@ -2594,6 +2594,9 @@ export interface VideoSubtitleStyle {
   align: 'left' | 'center' | 'right'
   max_chars_per_line: number            // wrap target, default 42
   max_lines: number                     // libass `WrapStyle` + `MaxLines`
+  /** v1.0.353 — entrance animation per caption line. 'none' = static (the
+   *  `force_style` path); the rest render a full ASS file (`ass=` filter). */
+  animation?: 'none' | 'fade' | 'pop' | 'slide-up'
 }
 
 export interface VideoSubtitleConfig {
@@ -2619,11 +2622,18 @@ export interface VideoSceneAnimation {
   breathe_base_zoom: number   // %, default 103
 }
 
-export type PostAudioBehavior = 'black-screen' | 'fade-to-black' | 'hold-last-scene' | 'continue-cycling'
+// 'hard-cut' (v1.0.354): the video ends the instant the narration does — no
+// tail. 'continue-cycling' is retained only so pre-v1.0.354 presets keep
+// loading; with Target Duration removed it now behaves identically to 'hard-cut'.
+export type PostAudioBehavior = 'black-screen' | 'fade-to-black' | 'hold-last-scene' | 'continue-cycling' | 'hard-cut'
 
 export interface VideoPostAudio {
   behavior: PostAudioBehavior   // default 'fade-to-black'
   fade_duration: number         // seconds, default 5, only used for 'fade-to-black'
+  /** v1.0.354 — length (seconds) of the tail for 'black-screen' (black) and
+   *  'hold-last-scene' (frozen final frame). Replaces the old Target-Duration
+   *  padding that used to size this section. Default 4. Ignored otherwise. */
+  tail_seconds?: number
 }
 
 
@@ -2643,7 +2653,11 @@ export interface GenerateVideoRequest {
   title_image?: VideoTitleImageConfig
   scene_recycling: VideoSceneRecycling
   music?: VideoMusicConfig
-  duration: VideoDurationConfig
+  /** @deprecated v1.0.354 — Target Duration removed. The video body always
+   *  equals the narration; an optional post-audio tail is the only extension.
+   *  Kept optional so old presets that still carry it load without error; the
+   *  assembler ignores it entirely. */
+  duration?: VideoDurationConfig
   transition: string
   transition_duration: number
   resolution: '720p' | '1080p' | '1440p' | '4k'

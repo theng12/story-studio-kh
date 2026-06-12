@@ -3,9 +3,17 @@
     <div class="ssp-grid">
       <div class="form-group">
         <label>Font family</label>
-        <select :value="style.font_family" @change="update('font_family', ($event.target as HTMLSelectElement).value)" class="select">
+        <select :value="isCustomFont ? '__custom__' : style.font_family" @change="onFontSelect(($event.target as HTMLSelectElement).value)" class="select">
           <option v-for="f in FONT_CHOICES" :key="f" :value="f">{{ f }}</option>
+          <option value="__custom__">Custom…</option>
         </select>
+        <input
+          v-if="isCustomFont"
+          :value="style.font_family"
+          @input="update('font_family', ($event.target as HTMLInputElement).value)"
+          class="input mt-1"
+          placeholder="Type any font installed on your Mac (e.g. Bebas Neue)"
+        />
       </div>
 
       <div class="form-group">
@@ -86,6 +94,17 @@
           @input="update('max_lines', parseInt(($event.target as HTMLInputElement).value))"
           class="slider" />
       </div>
+
+      <!-- v1.0.353 — caption entrance animation. -->
+      <div class="form-group">
+        <label>Caption animation</label>
+        <select :value="style.animation || 'none'" @change="update('animation', ($event.target as HTMLSelectElement).value as SubtitleStyle['animation'])" class="select">
+          <option v-for="a in ANIMATIONS" :key="a.id" :value="a.id">{{ a.label }}</option>
+        </select>
+        <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+          How each line enters. The CSS preview above is static — use "Render exact preview" to see it animate.
+        </p>
+      </div>
     </div>
 
     <!-- Live preview: CSS approximation + optional "Exact render" via FFmpeg -->
@@ -125,6 +144,8 @@ interface SubtitleStyle {
   align: 'left' | 'center' | 'right'
   max_chars_per_line: number
   max_lines: number
+  // v1.0.353 — entrance animation per caption line.
+  animation?: 'none' | 'fade' | 'pop' | 'slide-up'
 }
 
 const props = defineProps<{
@@ -137,9 +158,33 @@ const props = defineProps<{
 
 const emit = defineEmits<{ 'update:style': [style: SubtitleStyle] }>()
 
+// v1.0.353 — a fuller curated list of caption-friendly faces that ship with
+// macOS (libass resolves them via fontconfig). 'Custom…' lets the user type any
+// installed font name not in the list.
 const FONT_CHOICES = [
-  'Helvetica', 'Arial', 'Georgia', 'Times New Roman', 'Verdana',
-  'Courier New', 'Impact', 'Comic Sans MS', 'Tahoma', 'Trebuchet MS',
+  'Helvetica', 'Helvetica Neue', 'Arial', 'Arial Black', 'Avenir', 'Avenir Next',
+  'Futura', 'Gill Sans', 'Optima', 'Georgia', 'Times New Roman', 'Palatino',
+  'Baskerville', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Courier New', 'Menlo',
+  'Impact', 'American Typewriter', 'Marker Felt', 'Chalkboard SE', 'Comic Sans MS',
+]
+const CUSTOM_FONT = '__custom__'
+const isCustomFont = computed(() => {
+  const f = props.style.font_family
+  return f != null && !FONT_CHOICES.includes(f)
+})
+function onFontSelect(value: string) {
+  if (value === CUSTOM_FONT) {
+    if (!isCustomFont.value) update('font_family', '')  // blank → type a name
+  } else {
+    update('font_family', value)
+  }
+}
+
+const ANIMATIONS = [
+  { id: 'none' as const,     label: 'None (static)' },
+  { id: 'fade' as const,     label: 'Fade in / out' },
+  { id: 'pop' as const,      label: 'Pop in' },
+  { id: 'slide-up' as const, label: 'Slide up' },
 ]
 
 const BG_OPTIONS = [

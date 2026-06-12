@@ -180,6 +180,94 @@ function hexToAss(hex: string): string {
   return `&H00${b}${g}${r}&`
 }
 
+// ── v1.0.353 — animated captions (full ASS document) ────────────────────────
+//
+// `force_style` on the `subtitles=` filter can only set a static style — it
+// can't animate. For an entrance animation we render a complete ASS file and
+// burn it with the `ass=` filter instead. SRT cues → ASS Dialogue lines, each
+// prefixed with the chosen animation's override tags.
+
+export type SubtitleAnimation = 'none' | 'fade' | 'pop' | 'slide-up'
+
+/** ASS timestamp: `H:MM:SS.cc` (centiseconds). */
+function assTime(totalSec: number): string {
+  if (!isFinite(totalSec) || totalSec < 0) totalSec = 0
+  const cs = Math.round(totalSec * 100)
+  const h = Math.floor(cs / 360000)
+  const m = Math.floor((cs % 360000) / 6000)
+  const s = Math.floor((cs % 6000) / 100)
+  const c = cs % 100
+  return `${h}:${pad2(m)}:${pad2(s)}.${pad2(c)}`
+}
+
+/** Per-line override tags for the entrance animation. `\move`/`\pos` anchor on
+ *  the style's alignment point, so slide-up's coords are derived from the
+ *  resolution + position/align + margin. */
+function animationTag(animation: SubtitleAnimation, style: VideoSubtitleStyle, w: number, h: number): string {
+  if (animation === 'fade') return '{\\fad(180,180)}'
+  if (animation === 'pop') return '{\\fad(60,60)\\fscx72\\fscy72\\t(0,150,\\fscx100\\fscy100)}'
+  if (animation === 'slide-up') {
+    const marginV = 40
+    const x = style.align === 'left' ? 40 : style.align === 'right' ? Math.max(40, w - 40) : Math.round(w / 2)
+    const yEnd = style.position === 'top' ? marginV : style.position === 'center' ? Math.round(h / 2) : Math.max(marginV, h - marginV)
+    const yStart = style.position === 'top' ? Math.max(0, yEnd - 36) : yEnd + 36
+    return `{\\fad(160,80)\\move(${x},${yStart},${x},${yEnd})}`
+  }
+  return ''
+}
+
+/**
+ * Render SRT cues into a complete ASS document with the user's style + an
+ * entrance animation per line. Used by video.ts when `style.animation` is set;
+ * the static `force_style` path stays for `animation: 'none'`.
+ */
+export function srtToAss(
+  cues: SrtCue[],
+  style: VideoSubtitleStyle,
+  opts: { width: number; height: number; animation: SubtitleAnimation },
+): string {
+  const w = Math.max(2, Math.round(opts.width || 1920))
+  const h = Math.max(2, Math.round(opts.height || 1080))
+  const fontName = style.font_family || 'Helvetica'
+  const fontSize = style.font_size_px || 28
+  const vBase = style.position === 'top' ? 7 : style.position === 'center' ? 4 : 1
+  const hOffset = style.align === 'center' ? 1 : style.align === 'right' ? 2 : 0
+  const alignment = vBase + hOffset
+  const borderStyle = (style.background === 'full' || style.background === 'semi') ? 3 : 1
+  const backColour = style.background === 'full' ? '&H00000000' : style.background === 'semi' ? '&H80000000' : '&H00000000'
+  const outline = Math.max(0, Math.min(style.outline_px ?? 2, 6))
+  const primary = hexToAss(style.color_hex || '#FFFFFF').replace(/&$/, '')
+  const outlineCol = hexToAss(style.outline_color_hex || '#000000').replace(/&$/, '')
+  const maxChars = style.max_chars_per_line ?? 42
+  const maxLines = style.max_lines ?? 2
+
+  const header = [
+    '[Script Info]',
+    'ScriptType: v4.00+',
+    `PlayResX: ${w}`,
+    `PlayResY: ${h}`,
+    'WrapStyle: 2',
+    'ScaledBorderAndShadow: yes',
+    '',
+    '[V4+ Styles]',
+    'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+    `Style: Default,${fontName},${fontSize},${primary},${primary},${outlineCol},${backColour},0,0,0,0,100,100,0,0,${borderStyle},${outline},0,${alignment},40,40,40,1`,
+    '',
+    '[Events]',
+    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+  ]
+
+  const events = cues.map(c => {
+    const tag = animationTag(opts.animation, style, w, h)
+    // Wrap to the style's width, hard-break with \N, and neutralise any braces
+    // in the source text so they can't be read as override blocks.
+    const text = wrapText(c.text, maxChars, maxLines).replace(/\r?\n/g, '\\N').replace(/\{/g, '(').replace(/\}/g, ')')
+    return `Dialogue: 0,${assTime(c.start_sec)},${assTime(c.end_sec)},Default,,0,0,0,,${tag}${text}`
+  })
+
+  return [...header, ...events].join('\n') + '\n'
+}
+
 /**
  * Minimal SRT validator — accepts well-formed SRT, or coerces VTT into SRT
  * by dropping the `WEBVTT` header, renumbering cues, and rewriting `HH:MM:SS.mmm`

@@ -4,6 +4,51 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.354 — 2026-06-13
+
+### Changed — Video Assembly timeline: Target Duration removed + continuity-aware Step 3
+Step 3 (Title & Timeline) of Video Assembly is reworked around how videos are actually built now.
+
+- **Target Duration is gone.** The old "Auto (match audio) / Custom range" control padded every video (+30 s) or rolled a random length, which made no sense now that episodes loop still images sized to the audio. The video body now **always equals the narration** — no padding, no random range. Step 3 shows a read-only **Video Length** line instead of a control.
+- **"After Narration Ends" now carries its own length.** Because the tail used to be sized by the Target-vs-narration gap (which no longer exists), each ending is now explicit: **Fade to Black** fades over its fade-duration, **Black Screen** / **Hold Last Scene** get their own length slider, and a new **Hard Cut** ends the moment the narration stops. (The legacy "Continue Cycling" option is retired — it now behaves like Hard Cut, and old presets still load.)
+- **Continuity / transcript-timed projects hide Scene Recycling.** For formats where each scene holds for its own planned span (sentence-aligned continuity), the sleep-story seconds-per-scene / shuffle / per-scene-exclude controls don't apply — Step 3 now shows a short "transcript-timed" note in their place. **Scene Transitions and Scene Animation stay available for every format**, so continuity videos can finally use the transition + animation effects. Recycled formats are unchanged.
+
+### Files
+- `electron/server/generators/video.ts` (video body = narration + an explicit post-audio tail; `hard-cut` carries no tail)
+- `electron/server/models/types.ts` (`PostAudioBehavior` adds `hard-cut`; `VideoPostAudio.tail_seconds`; request `duration` now optional/ignored)
+- `frontend/pages/projects/[slug]/video-assembly.vue` (Target Duration card removed → read-only Video Length; post-audio tail-length slider + Hard Cut; Scene Recycling hidden for transcript-timed projects via the effective-format alignment)
+- `frontend/composables/useVideoAssemblyIo.ts` (stop sending the `duration` block in the render payload)
+
+---
+
+## v1.0.353 — 2026-06-13
+
+### Added — subtitle font choices + animated captions
+The Subtitle style picker (Step 5 of Video Assembly) gets two upgrades:
+
+- **More fonts + custom.** The font list is expanded with caption-friendly macOS faces (Helvetica Neue, Avenir Next, Futura, Gill Sans, Optima, Bebas-style, Impact, and more), plus a **Custom…** option to type any font installed on your Mac.
+- **Animated captions.** A new **Caption animation** control — **Fade in/out**, **Pop in**, or **Slide up** (or None). When set, the assembler renders the captions as a full ASS file with per-line entrance animations instead of the static burn-in; "Render exact preview" shows the real result. Falls back to the static path automatically if anything goes wrong, so subtitles never silently disappear.
+
+### Files
+- `electron/server/lib/subtitle-builder.ts` (new `srtToAss` — SRT → animated ASS document; per-animation override tags)
+- `electron/server/generators/video.ts` (burn animated captions via the `ass=` filter when an animation is set; static `force_style` path unchanged for None)
+- `electron/server/models/types.ts` (`VideoSubtitleStyle.animation`)
+- `frontend/components/SubtitleStylePicker.vue` (expanded font list + Custom font field + Caption animation selector)
+- `frontend/pages/projects/[slug]/video-assembly.vue` (default `animation: 'none'` in the subtitle style)
+- `electron/server/__tests__/subtitle-ass.test.ts` (new — ASS structure + per-animation tags)
+
+---
+
+## v1.0.352 — 2026-06-12
+
+### Fixed — Video Assembly: selected subtitles were never burned into the render
+Picking a subtitle `.srt` in Step 5 (Subtitles) had no effect — the rendered video came out with no captions. The assembler only burns subtitles when it receives an `srt_path`, but the page's payload builder was sending the subtitle `enabled`/`source`/`style` and **omitting the `srt_path`**, so the burn step was silently skipped on every render. The path is now included, so an enabled subtitle track with a chosen `.srt` is burned in as expected.
+
+### Files
+- `frontend/pages/projects/[slug]/video-assembly.vue` (`snapshotSubtitlesData` now includes `srt_path`)
+
+---
+
 ## v1.0.351 — 2026-06-12
 
 ### Added — Production Board: every episode × every step on one screen
