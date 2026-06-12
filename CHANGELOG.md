@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.350 — 2026-06-12
+
+### Fixed — Thumbnail Generator no longer shows scene-generator leftovers
+The Thumbnail Generator page was still using shared Scene Generator UI in a few visible places: the img2img reference card talked about per-scene/chain references, the prompt preview listed scene prompts, the edit gallery showed scene images, and some helper text still said scenes/thumbs.
+
+Thumbnail Generator is now thumbnail-only. It shows thumbnail prompts in preview, thumbnail images in the edit/lightbox flow, thumbnail-only integrity messaging, and thumbnail-specific copy. Scene-only reference controls remain available only on the Scene Generator page.
+
+### Files
+- `frontend/pages/projects/[slug]/images.vue` (scope preview, edit gallery, lightbox, integrity text, and img2img reference UI to the active generator kind)
+
+---
+
 ## v1.0.349 — 2026-06-12
 
 ### Fixed — local server On/Off switches now persist immediately

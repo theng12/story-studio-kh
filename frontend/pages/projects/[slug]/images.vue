@@ -33,7 +33,11 @@
       </template>
     </TopActionBar>
 
-    <p class="text-muted mt-1 mb-2">Generate scene and thumbnail artwork from your prompts via kie.ai.</p>
+    <p class="text-muted mt-1 mb-2">
+      {{ form.mode === 'thumbs'
+        ? 'Generate YouTube thumbnail artwork from your thumbnail prompts.'
+        : 'Generate scene artwork from your scene prompts.' }}
+    </p>
 
     <!-- Image mode tabs (Text → Image vs Image → Image). Mirrors the
          video page's Text→Video / Image→Video pattern. Default is
@@ -197,7 +201,7 @@
             <input type="radio" value="skip" v-model="activeForm.generation_mode" />
             <div>
               <strong>Skip existing</strong>
-              <span class="text-muted">Don't regenerate scenes/thumbs that already exist.</span>
+              <span class="text-muted">Don't regenerate {{ form.mode === 'thumbs' ? 'thumbnails' : 'scenes' }} that already exist.</span>
             </div>
           </label>
           <label class="generation-mode-option">
@@ -225,7 +229,7 @@
          + the upload UI for the file-backed sources. Toggles bind to
          activeForm.reference_sources which is sent to the backend on submit. -->
     <Img2ImgReferencesCard
-      v-if="activeForm.image_mode === 'img2img' && form.episode_id"
+      v-if="form.mode === 'scenes' && activeForm.image_mode === 'img2img' && form.episode_id"
       :project-slug="slug"
       :episode-id="form.episode_id"
       :title="ep2imgTitle"
@@ -301,7 +305,7 @@
     />
 
     <!-- ── Preview what will be generated ─────────────────────────────────
-         Read-only list of every scene + thumbnail prompt for this episode,
+         Read-only list of the active prompt kind for this episode,
          each with an inline "🖼️ Preview" button that renders a single
          sample image of that exact prompt with the user's currently-
          selected model + aspect + tier. Per-prompt cache keyed by
@@ -323,14 +327,13 @@
         <h3 id="image-preview-heading" class="preview-card-title">
           Preview what will be generated
         </h3>
-        <span v-if="promptList.scenes.length || promptList.thumbnails.length" class="text-muted text-xs">
-          {{ promptList.scenes.length }} scene · {{ promptList.thumbnails.length }} thumbnail prompt(s) on disk
+        <span v-if="activePromptRows.length" class="text-muted text-xs">
+          {{ activePromptRows.length }} {{ form.mode === 'thumbs' ? 'thumbnail' : 'scene' }} prompt(s) on disk
         </span>
       </button>
       <p v-if="previewOpen" class="text-muted text-sm preview-card-blurb">
-        Inspect the prompts that will be sent to the image provider, and
-        render a single sample of any one to gut-check the visual style
-        before kicking off the full batch.
+        Inspect the {{ form.mode === 'thumbs' ? 'thumbnail' : 'scene' }} prompts that will be sent to the image provider,
+        and render a single sample of any one to gut-check the visual style before kicking off the full batch.
         <strong>Cached app-wide</strong> by prompt + model + aspect + tier — same
         combo across episodes / projects re-uses the cached render and
         costs nothing.
@@ -343,31 +346,20 @@
         {{ promptList.error }}
       </div>
       <template v-else-if="previewOpen">
-        <ul v-if="promptList.scenes.length" class="preview-list" role="list">
-          <li class="preview-list-section">Scenes</li>
-          <li v-for="row in promptList.scenes" :key="`s-${row.number}`" class="preview-row">
+        <ul v-if="activePromptRows.length" class="preview-list" role="list">
+          <li class="preview-list-section">{{ form.mode === 'thumbs' ? 'Thumbnails' : 'Scenes' }}</li>
+          <li v-for="row in activePromptRows" :key="`${activePreviewKind}-${row.number}`" class="preview-row">
             <PreviewPromptRow
               :row="row"
-              :prefix="'Scene'"
-              :state="previewState[previewKey('scene', row.number)] || null"
-              @preview="renderPromptPreview('scene', row)"
+              :prefix="form.mode === 'thumbs' ? 'Thumbnail' : 'Scene'"
+              :state="previewState[previewKey(activePreviewKind, row.number)] || null"
+              @preview="renderPromptPreview(activePreviewKind, row)"
             />
           </li>
         </ul>
-        <ul v-if="promptList.thumbnails.length" class="preview-list" role="list">
-          <li class="preview-list-section">Thumbnails</li>
-          <li v-for="row in promptList.thumbnails" :key="`t-${row.number}`" class="preview-row">
-            <PreviewPromptRow
-              :row="row"
-              :prefix="'Thumbnail'"
-              :state="previewState[previewKey('thumbnail', row.number)] || null"
-              @preview="renderPromptPreview('thumbnail', row)"
-            />
-          </li>
-        </ul>
-        <div v-if="!promptList.scenes.length && !promptList.thumbnails.length" class="text-muted text-md">
+        <div v-if="!activePromptRows.length" class="text-muted text-md">
           No prompts found yet. Generate them on the
-          <NuxtLink :to="`/projects/${slug}/image-prompts`">Image Prompts</NuxtLink> page first.
+          <NuxtLink :to="`/projects/${slug}/image-prompts?tab=${form.mode === 'thumbs' ? 'thumbnails' : 'scenes'}`">Image Prompts</NuxtLink> page first.
         </div>
       </template>
     </div>
@@ -379,7 +371,7 @@
       <p class="text-muted text-sm integrity-blurb">
         Check whether every expected image is on disk. <strong>Repair missing</strong>
         queues a new job with the current form settings — the generator automatically
-        skips scenes/thumbnails that already have ≥1 variant with content.
+        skips {{ activePoolLabel }} that already have ≥1 variant with content.
       </p>
 
       <div v-if="imageStatus.loading" class="text-muted text-md">
@@ -450,7 +442,7 @@
     </div>
 
     <!-- ── Edit existing image (AI clean-up / removal) ────────────────────
-         Tile grid that lists already-generated scenes + thumbnails and
+         Tile grid that lists the active image pool and
          opens the shared ImageEditDialog on click. Audit pain-point #14. -->
     <div v-if="form.episode_id" class="card mt-2">
       <div class="card-header">
@@ -474,7 +466,7 @@
       <div v-if="editScanError" class="text-danger text-sm mt-2">{{ editScanError }}</div>
 
       <!-- Scenes -->
-      <div v-if="editScenes.length" class="mt-2">
+      <div v-if="form.mode === 'scenes' && editScenes.length" class="mt-2">
         <h4 class="edit-grid-heading">Scenes ({{ editScenes.length }})</h4>
         <div class="edit-image-grid">
           <button
@@ -492,7 +484,7 @@
       </div>
 
       <!-- Thumbnails -->
-      <div v-if="editThumbs.length" class="mt-2">
+      <div v-if="form.mode === 'thumbs' && editThumbs.length" class="mt-2">
         <div class="edit-grid-heading-row">
           <h4 class="edit-grid-heading">Thumbnails ({{ editThumbs.length }})</h4>
           <span class="text-muted" style="font-size: 11px;">
@@ -540,10 +532,10 @@
       </div>
 
       <p
-        v-if="!editScenes.length && !editThumbs.length && !editScanLoading && !editScanError"
+        v-if="!activeEditImages.length && !editScanLoading && !editScanError"
         class="text-muted text-sm mt-2"
       >
-        No images on disk yet for {{ form.episode_id }}. Generate some first using the form above.
+        No {{ activePoolLabel }} on disk yet for {{ form.episode_id }}. Generate some first using the form above.
       </p>
     </div>
 
@@ -552,8 +544,8 @@
       <span class="help-icon" aria-hidden="true">💡</span>
       <div>
         <strong>Need prompts first?</strong>
-        Generate image prompts for this episode on the
-        <NuxtLink :to="`/projects/${slug}/image-prompts`">Image Prompts</NuxtLink>
+        Generate {{ form.mode === 'thumbs' ? 'thumbnail' : 'scene' }} prompts for this episode on the
+        <NuxtLink :to="`/projects/${slug}/image-prompts?tab=${form.mode === 'thumbs' ? 'thumbnails' : 'scenes'}`">Image Prompts</NuxtLink>
         page before running image generation.
       </div>
     </div>
@@ -1113,12 +1105,14 @@ const modeTabs: Array<{ id: Mode; label: string; icon: string; hint: string }> =
 // models. Both produce the same scene + thumbnail PNGs at the
 // same paths, so downstream stages (audio / video assembly) don't
 // care which pipeline was used.
-const imageModeTabs: Array<{ id: ImageMode; label: string; icon: string; hint: string }> = [
+const imageModeTabs = computed<Array<{ id: ImageMode; label: string; icon: string; hint: string }>>(() => [
   { id: 'text2img', label: 'Text → Image', icon: '✏️',
     hint: 'Prompt-only generation (default).' },
   { id: 'img2img',  label: 'Image → Image', icon: '🔁',
-    hint: 'Reference images guide each scene — continuity + character consistency.' },
-]
+    hint: form.mode === 'thumbs'
+      ? 'Reference images can guide a thumbnail render.'
+      : 'Reference images guide each scene — continuity + character consistency.' },
+])
 function selectImageMode(m: ImageMode) {
   activeForm.value.image_mode = m
 }
@@ -1301,6 +1295,9 @@ async function loadOutlineChapterCount() {
 // example, the user changing the title's listicle [N] from 7 → 20
 // and rebuilding the outline at 20 without rerunning prompts.
 const promptsStaleVsOutline = computed<{ stale: boolean; promptCount: number; chapterCount: number }>(() => {
+  // Thumbnail prompts are not expected to match chapter count. This warning is
+  // scene-only; showing it on the Thumbnail Generator leaks scene workflow state.
+  if (form.mode === 'thumbs') return { stale: false, promptCount: 0, chapterCount: 0 }
   const chapterCount = outlineChapterCount.value
   const promptCount = imageStatus.scenes?.total ?? 0
   if (!chapterCount || promptCount <= 0) return { stale: false, promptCount: 0, chapterCount: 0 }
@@ -1337,6 +1334,8 @@ const activePoolStatus = computed(() => form.mode === 'thumbs' ? imageStatus.thu
 const activeMissingCount = computed(() => activePoolStatus.value?.missing.length ?? 0)
 const activeMissingList = computed(() => form.mode === 'thumbs' ? imageStatus.missingThumbsList : imageStatus.missingScenesList)
 const activePoolLabel = computed(() => form.mode === 'thumbs' ? 'thumbnails' : 'scenes')
+const activePreviewKind = computed<'scene' | 'thumbnail'>(() => form.mode === 'thumbs' ? 'thumbnail' : 'scene')
+const activePromptRows = computed(() => form.mode === 'thumbs' ? promptList.thumbnails : promptList.scenes)
 
 async function refreshImageStatus() {
   if (!form.episode_id) return
@@ -1401,6 +1400,7 @@ const editScenes = ref<ScannedImage[]>([])
 const editThumbs = ref<ScannedImage[]>([])
 const editScanLoading = ref(false)
 const editScanError = ref('')
+const activeEditImages = computed(() => form.mode === 'thumbs' ? editThumbs.value : editScenes.value)
 
 // v1.0.87+: cache-bust key for the new ImageGeneratorPanel components.
 // Bumped after a per-row or bulk render completes inside either panel
@@ -1514,11 +1514,14 @@ interface LightboxImage {
 }
 const allEditableImages = computed<LightboxImage[]>(() => {
   const out: LightboxImage[] = []
-  for (const s of editScenes.value) {
-    out.push({ filename: s.filename, path: s.path, section: 'scenes', scene_number: s.scene_number ?? null })
-  }
-  for (const t of editThumbs.value) {
-    out.push({ filename: t.filename, path: t.path, section: 'thumbnails' })
+  if (form.mode === 'scenes') {
+    for (const s of editScenes.value) {
+      out.push({ filename: s.filename, path: s.path, section: 'scenes', scene_number: s.scene_number ?? null })
+    }
+  } else {
+    for (const t of editThumbs.value) {
+      out.push({ filename: t.filename, path: t.path, section: 'thumbnails' })
+    }
   }
   return out
 })
