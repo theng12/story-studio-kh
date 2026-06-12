@@ -4,6 +4,33 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.351 — 2026-06-12
+
+### Added — Production Board: every episode × every step on one screen
+A new **Production Board** (sidebar, right under Pipeline — also linked from the project dashboard) gives the episode-centric overview the app was missing. The whole app is otherwise tool-centric (you go to "Scripts", then "Audio"); the board flips it so you can answer *"where is EP0042?"* and *"what's left across the whole channel?"* at a glance.
+
+- **A grid of every accepted episode (rows) × every pipeline step (columns).** Columns are format-aware — they come from the same step list that drives the sidebar, so a continuity-chain project shows Scene Plan / Review and a stock-footage one hides the scene steps. Each cell is a status chip: **✓ done** (detected from files), **✓ dashed** (marked done by hand), **○ pending**, plus a row **🔄** when a job is running for that episode, and per-column "Audio 180/300" done counts in the header.
+- **Click a cell → jump straight to that step for that episode.** Generator pages now preselect the episode from the URL, so you land *on* EP0042's Audio page, not an empty picker.
+- **Mark a step done by hand (bulk).** Switch the board to "Mark done" mode and click cells to set/clear a manual override — the fast way to close out steps whose result you imported from outside the app, across many episodes from one screen. (The same per-step chips also live under the episode picker on every generator page.)
+- **Import a finished file per row.** A ⬆ on any row opens the import dialog scoped to that episode — drop in a finished audio/thumbnail/final video, it lands with the right name, and the step flips done on the spot.
+- **Filter to a backlog.** Click a column header to see only episodes still pending that step ("who needs Audio?"); plus search and a "Needs work only" toggle. Built to stay smooth at 300+ episodes (sticky header/first-column, row virtualization).
+
+### Added — cleaner empty states
+The shared **EmptyState** component (icon + heading + guidance + a next-action button) now backs the empty states on **Brands, Presets, Characters, Character Library, and B-Roll Library** instead of five different hand-rolled blank boxes.
+
+### Internal — hardening + the start of an Upload Center cleanup
+- The terminal Express **error boundary** is now its own unit-tested module (sanitized 500s, no stack-trace leaks); a structural test pins the `/jobs/app/stream` SSE route ahead of `/jobs/app/:jobId` so it can't regress into a 404 loop; `docs/architecture/schema-history.md` ledgers the 10 live back-compat shims.
+- `useProjectFlow` (the step list shared by the sidebar, flow ribbon, and the new board) gained **10 tests** pinning its per-format step sets.
+- Began splitting the 8.3k-line **Upload Center** page: the read-only **Analytics tab** is now its own component (`components/upload/AnalyticsTab.vue`) with shared formatters in `utils/upload-format.ts`. The remaining tabs touch live-YouTube write paths and are being left in place until they can be split with live verification.
+
+### Files
+- `frontend/pages/projects/[slug]/board.vue` (new), `frontend/components/EpisodeSelector.vue` (step chips + preselect), `frontend/composables/useEpisodes.ts` (light revalidate), `frontend/pages/projects/[slug]/index.vue` (board CTA)
+- `frontend/components/EmptyState` adopted in `brands/index.vue`, `projects/[slug]/presets.vue`, `projects/[slug]/characters.vue`, `character-library.vue`, `broll-library.vue`
+- `electron/server/lib/error-boundary.ts` (+ test), `electron/server/__tests__/jobs-route-order.test.ts`, `docs/architecture/schema-history.md`, `frontend/__tests__/useProjectFlow.test.ts`
+- `frontend/components/upload/AnalyticsTab.vue` + `frontend/utils/upload-format.ts` (Upload Center split, slice 1)
+
+---
+
 ## v1.0.350 — 2026-06-12
 
 ### Fixed — Thumbnail Generator no longer shows scene-generator leftovers
