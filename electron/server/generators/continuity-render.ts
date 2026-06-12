@@ -51,6 +51,11 @@ interface ContinuityRenderParams {
    *  sheet + style + characters + the previous scene's render). The rest of
    *  the chain is left untouched. Powers the per-scene "Generate with refs". */
   single_scene_id?: string
+  /** v1.0.344 — render an explicit SET of scenes in ONE parallel job (Scene
+   *  Review's "Regenerate selected ⚡" / "all unapproved ⚡"). Forces independent
+   *  mode and renders exactly these ids (existing images included), distributing
+   *  them across the whole Mac pool instead of N serial single-scene jobs. */
+  scene_ids?: string[]
   /** v1.0.241 — INDEPENDENT / PARALLEL mode. Render each scene against the
    *  static references only (character sheet + style + anchor characters) and
    *  DROP the previous-render reference, so scenes no longer depend on one
@@ -100,6 +105,11 @@ function defaultCfg(): ContinuityCfg {
  *  scene + the exact reference images it's feeding into the model before each
  *  render; Scene Review reads it to show a "Now rendering" preview panel. */
 export const RENDER_STATUS_FILENAME = '.render_status.json'
+
+// v1.0.341 — how often the parallel renderer re-probes the local Image Studio
+// pool to absorb Macs that came online (or recovered) mid-render. Picked to be
+// responsive without hammering the health endpoints.
+const POOL_REPROBE_MS = 20_000
 
 export async function runContinuityRenderJob(job: Job): Promise<void> {
   const params = job.params as ContinuityRenderParams
@@ -205,12 +215,17 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     if (eps.length > 1) {
       const { health: imgHealth } = await import('../lib/imagestudio-client.js')
       const { healthy, offline } = await healthyEndpoints(eps, async (u) => (await imgHealth(u)).ok)
-      const usable = healthy.length ? healthy : eps
-      dispatcher = createDispatcher(usable)
+      // v1.0.341 — build the pool over ALL configured endpoints (not just the
+      // online-at-start snapshot) and pre-mark the offline ones DOWN. The 30s
+      // self-healing TTL + the periodic re-probe below then bring a Mac that
+      // boots (or recovers) mid-render back into rotation — instead of it
+      // sitting idle for the whole job because it missed the start probe.
+      dispatcher = createDispatcher(eps)
+      for (const u of offline) dispatcher.markDown(u)
       job.output_lines.push(
         `Image Studio pool: ${healthy.length}/${eps.length} online` +
-        (offline.length ? ` (offline: ${offline.join(', ')})` : '') +
-        ` — distributing least-busy across ${usable.length} endpoint(s).`,
+        (offline.length ? ` (offline: ${offline.join(', ')} — will auto-join within ~${Math.round(POOL_REPROBE_MS / 1000)}s of coming online)` : '') +
+        ` — distributing least-busy; machines that come online mid-render are picked up automatically.`,
       )
     }
   }
@@ -306,9 +321,13 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     job.output_lines.push(`Render size: ${renderWidth}×${renderHeight} (local models; cloud uses ${aspectRatio}).`)
   }
   const force = params.force === true
+  // v1.0.344 — an explicit scene selection always renders in parallel.
+  const sceneIdSet = Array.isArray(params.scene_ids) && params.scene_ids.length
+    ? new Set(params.scene_ids)
+    : null
   // v1.0.241 — independent / parallel mode: drop the prev-render reference so
   // scenes are mutually independent and can render concurrently.
-  const independent = params.independent === true
+  const independent = params.independent === true || sceneIdSet !== null
   // v1.0.256 — 'auto' concurrency matches the number of ONLINE endpoints (one
   // worker per Mac); falls back to 1 for a single local modal, 3 for cloud.
   const concurrency = params.concurrency === 'auto'
@@ -425,9 +444,11 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     const endpoint = (sharedRefPaths.length && (providerParams as any).supports_reference_images === true)
       ? 'image-to-image' : 'text-to-image'
 
-    // Which scenes to render: single → that one; force → all; from → index≥; resume → missing.
+    // Which scenes to render: explicit selection → exactly those; single → that
+    // one; force → all; from → index≥; resume → missing.
     const toRender = scenes.filter(scene => {
       if (!scene.visual_prompt?.trim()) return false
+      if (sceneIdSet) return sceneIdSet.has(scene.id)   // selection re-renders the chosen scenes
       const outPath = path.join(outDir, `${scene.id}.png`)
       return singleIndex > 0
         ? scene.scene_index === singleIndex
@@ -465,7 +486,17 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
 
     try {
       let idx = 0
+      let active = 0
+      let finishAll!: () => void
+      const allWorkersDone = new Promise<void>((res) => { finishAll = res })
+      // Resolve once all work is claimed (or the job is cancelled) AND every
+      // worker has drained — so a cancelled run can't hang waiting on workers.
+      const maybeFinish = () => {
+        if ((idx >= toRender.length || jq.isCancelled(job.job_id)) && active === 0) finishAll()
+      }
       const worker = async (): Promise<void> => {
+        active++
+        try {
         while (idx < toRender.length) {
           if (jq.isCancelled(job.job_id)) return
           const scene = toRender[idx++]!
@@ -510,8 +541,49 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
             await pushStatus()
           }
         }
+        } finally { active--; maybeFinish() }
       }
-      await Promise.all(Array.from({ length: Math.min(concurrency, toRender.length || 1) }, () => worker()))
+
+      // v1.0.341 — growable worker pool. Start at the live count; a periodic
+      // re-probe brings recovered/booted Macs back into rotation (markUp) and
+      // scales the pool UP to the live count — never beyond it, so we keep the
+      // "one inference per Mac" guarantee. 'auto' may grow to the full
+      // configured pool; an explicit concurrency is a hard cap. No idle Macs.
+      const maxWorkers = params.concurrency === 'auto'
+        ? Math.max(1, Math.min(8, dispatcher ? dispatcher.size : concurrency))
+        : concurrency
+      const liveNow = () => (dispatcher ? Math.max(1, dispatcher.liveCount()) : maxWorkers)
+      const ensureWorkers = () => {
+        if (idx >= toRender.length || jq.isCancelled(job.job_id)) return
+        const want = Math.min(maxWorkers, liveNow(), toRender.length - idx + active)
+        while (active < want) void worker()
+      }
+      ensureWorkers()
+      maybeFinish()  // nothing to render → resolve immediately
+
+      let poolScaler: ReturnType<typeof setInterval> | null = null
+      if (dispatcher && providerId === 'imagestudio') {
+        poolScaler = setInterval(() => {
+          if (idx >= toRender.length || jq.isCancelled(job.job_id)) return
+          void (async () => {
+            try {
+              const { health: imgHealth } = await import('../lib/imagestudio-client.js')
+              const probeEps = parseEndpoints(apiKey)
+              const { healthy, offline } = await healthyEndpoints(probeEps, async (u) => (await imgHealth(u)).ok)
+              const before = dispatcher!.liveCount()
+              for (const u of healthy) dispatcher!.markUp(u)
+              for (const u of offline) dispatcher!.markDown(u)
+              const after = dispatcher!.liveCount()
+              if (after > before) {
+                job.output_lines.push(`Pool grew: ${after}/${probeEps.length} Macs online — adding workers.`)
+              }
+              ensureWorkers()
+            } catch { /* transient probe failure — keep the current workers */ }
+          })()
+        }, POOL_REPROBE_MS)
+      }
+
+      try { await allWorkersDone } finally { if (poolScaler) clearInterval(poolScaler) }
     } finally {
       await writeStatus({ active: false, updated_at: new Date().toISOString() })
     }

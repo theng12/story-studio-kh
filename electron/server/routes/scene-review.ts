@@ -316,6 +316,12 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
         force: body.force === true,
         from_scene_id: typeof body.from_scene_id === 'string' ? body.from_scene_id : undefined,
         single_scene_id: singleSceneId,
+        // v1.0.344 — render an explicit SET of scenes in one parallel job (Scene
+        // Review "Regenerate selected ⚡" / "all unapproved ⚡"). Distributes
+        // across the whole Mac pool instead of N serial single-scene jobs.
+        scene_ids: Array.isArray(body.scene_ids)
+          ? body.scene_ids.filter((s: any) => typeof s === 'string')
+          : undefined,
         // v1.0.241 — independent/parallel mode (no prev-render reference).
         independent: body.independent === true,
         concurrency: body.concurrency === 'auto'

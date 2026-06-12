@@ -38,7 +38,7 @@ import type {
   VideoDurationConfig, VideoColorGrading, VideoVignetteConfig,
   VideoChromaKeyConfig, VideoOverlaysConfig, VideoOverlay, VideoBackgroundNoise, VideoFilmGrain, VideoLetterbox,
   BackgroundPlate, ForegroundDefaults, ForegroundPosition,
-  VideoSceneAnimation, VideoPostAudio,
+  VideoSceneAnimation, VideoPostAudio, ScenePlan,
 } from '../models/types.js'
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -49,6 +49,9 @@ const RESOLUTIONS: Record<string, { w: number; h: number }> = {
   '1440p': { w: 2560, h: 1440 },
   '4k':    { w: 3840, h: 2160 },
 }
+
+const SCENE_PLAN_FILENAME = 'scene_plan.json'
+const TIMESTAMP_SCENE_IMAGES_SUBFOLDER = 'scene_images'
 
 /**
  * Quality tier → default (CRF, x264/x265 preset) pair.
@@ -395,6 +398,33 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
     result.scenes.sort((a, b) => a.number - b.number)
   }
 
+  // Timestamp-driven / continuity projects render reviewed images into
+  // <episode>/scene_images/<scene-id>.png and track timing in scene_plan.json,
+  // not the classic numbered scene-image folder. Surface those images to the
+  // rich scene editor too, so users can use its timeline/effects/subtitle
+  // controls without abandoning the reviewed timestamp plan.
+  if (result.scenes.length === 0) {
+    const planPath = path.join(episodeDir, SCENE_PLAN_FILENAME)
+    const timestampImagesDir = path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER)
+    if (existsSync(planPath) && existsSync(timestampImagesDir)) {
+      try {
+        const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+        for (const scene of plan.scenes || []) {
+          const plannedPath = scene.image_path || path.join(timestampImagesDir, `${scene.id}.png`)
+          if (!scene.approved || !existsSync(plannedPath)) continue
+          result.scenes.push({
+            filename: path.basename(plannedPath),
+            path: plannedPath,
+            number: scene.scene_index,
+          })
+        }
+        result.scenes.sort((a, b) => a.number - b.number)
+      } catch {
+        // Invalid or mid-write plan: leave the classic scan result unchanged.
+      }
+    }
+  }
+
   // Scan thumbnails
   if (thumbsDir) {
     const files = await safeReaddir(thumbsDir)
@@ -730,6 +760,42 @@ export async function generateVideo(job: Job): Promise<void> {
     if (!existsSync(scene.image_path)) {
       throw new Error(`Scene image not found: ${scene.image_path}`)
     }
+  }
+
+  // Timestamp-plan bridge for the rich scene editor. When the Scenes editor is
+  // opened on a timestamp-driven project, scanEpisodeAssets() exposes approved
+  // <episode>/scene_images/<scene-id>.png files. Stamp their exact planned
+  // durations onto the request so the rich renderer preserves the Scene Plan
+  // timeline instead of falling back to a uniform seconds-per-scene cycle.
+  try {
+    const planPath = path.join(episodeDir, SCENE_PLAN_FILENAME)
+    if (existsSync(planPath)) {
+      const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      const byImagePath = new Map<string, ScenePlan['scenes'][number]>()
+      const timestampImagesDir = path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER)
+      for (const scene of plan.scenes || []) {
+        const plannedPath = path.resolve(scene.image_path || path.join(timestampImagesDir, `${scene.id}.png`))
+        byImagePath.set(plannedPath, scene)
+      }
+      let stamped = 0
+      for (const scene of req.scenes) {
+        const planned = byImagePath.get(path.resolve(scene.image_path))
+        if (!planned) continue
+        const plannedDuration = planned.end_sec - planned.start_sec
+        if (Number.isFinite(plannedDuration) && plannedDuration > 0) {
+          scene.duration = plannedDuration
+          ;(scene as any).__timestamp_plan_duration = true
+          if (!scene.title) scene.title = `Scene ${planned.scene_index}`
+          if (!scene.scene_number) scene.scene_number = planned.scene_index
+          stamped++
+        }
+      }
+      if (stamped > 0) {
+        job.output_lines.push(`Timestamp plan bridge: using exact durations for ${stamped} scene(s) from ${SCENE_PLAN_FILENAME}`)
+      }
+    }
+  } catch (e: any) {
+    job.output_lines.push(`Timestamp plan bridge skipped (${e?.message || 'could not read scene_plan.json'})`)
   }
 
   // Validate narration — merged audio takes priority, then chapters, then single narration
@@ -1732,16 +1798,24 @@ async function prepareSceneClips(
     const scene = scenes[i]
     const clipPath = path.join(tempDir, `scene_${String(i).padStart(4, '0')}.mp4`)
 
-    // Pick per-scene duration: sentence-aligned override (when supplied
-    // by the caller) wins over the uniform recycling default. Floor at
-    // 0.5s so tiny sentence assignments don't produce sub-frame clips.
+    // Pick per-scene duration: an exact timestamp-plan duration wins first;
+    // then sentence-aligned override; then an explicit scene.duration from the
+    // caller; then the uniform recycling default. Floor at 0.5s so tiny windows
+    // don't produce sub-frame clips.
+    const hasTimestampPlanDuration = !!(scene as any).__timestamp_plan_duration
     const sceneOverride = perSceneDurations?.[i]
-    const duration = (typeof sceneOverride === 'number' && Number.isFinite(sceneOverride) && sceneOverride > 0)
-      ? Math.max(0.5, sceneOverride)
-      : defaultDuration
+    const explicitSceneDuration = scene?.duration
+    const durationCandidate = hasTimestampPlanDuration && typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0
+      ? explicitSceneDuration
+      : (typeof sceneOverride === 'number' && Number.isFinite(sceneOverride) && sceneOverride > 0)
+      ? sceneOverride
+      : (typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0)
+          ? explicitSceneDuration
+          : defaultDuration
+    const duration = Math.max(0.5, durationCandidate)
 
     const pickedType = picks[i]
-    const durLog = perSceneDurations && Math.abs(duration - defaultDuration) > 0.05 ? ` [dur=${duration.toFixed(2)}s]` : ''
+    const durLog = Math.abs(duration - defaultDuration) > 0.05 ? ` [dur=${duration.toFixed(2)}s]` : ''
     job.output_lines.push(`Preparing scene clips: ${i + 1}/${scenes.length}${pickedType !== sceneAnimation.type ? ` [anim=${pickedType}]` : ''}${durLog}`)
 
     const vfParts = buildAnimationFilter({

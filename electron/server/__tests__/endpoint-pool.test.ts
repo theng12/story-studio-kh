@@ -281,6 +281,18 @@ describe('endpoint-pool', () => {
     assert.equal(d.liveCount(), 2, 'marked-down endpoint is out of rotation')
   })
 
+  test('markUp returns a recovered endpoint to rotation without waiting out the TTL (v1.0.341)', () => {
+    const d = createDispatcher(['http://a:1234', 'http://b:1234', 'http://c:1234'])
+    d.markDown('http://a:1234')
+    assert.equal(d.liveCount(), 2, 'down endpoint excluded')
+    d.markUp('http://a:1234')
+    assert.equal(d.liveCount(), 3, 'markUp brought it straight back into rotation')
+    // markUp on an endpoint that isn't part of the pool is a safe no-op
+    d.markUp('http://not-in-pool:9999')
+    assert.equal(d.liveCount(), 3)
+    assert.equal(d.size, 3, 'markUp never adds new endpoints')
+  })
+
   // v1.0.321 — regression guard for the EP0002 Chapter 04 case: 3 retries of
   // the same single-chunk job all landed on the same broken Mac because pick()
   // returned the first endpoint deterministically when the pool was idle.

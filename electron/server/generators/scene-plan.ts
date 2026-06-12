@@ -159,11 +159,29 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       getApiKey('openai').catch(() => ''),
       getApiKey('kie').catch(() => ''),
     ])
+    // v1.0.343 — keep the rewrite ON-STYLE. The Scene Review reprompt doesn't
+    // pass a style_prompt, so the LLM used to invent its own art direction and
+    // drift from the channel look. Fall back to the episode's continuity Style
+    // Bible (the same text the renderer appends to every prompt) so the rewritten
+    // prompt matches the rendered style instead of fighting it.
+    let stylePromptForRewrite = params.style_prompt
+    if (!stylePromptForRewrite) {
+      try {
+        const continuityPath = path.join(paths.episode_dir, 'continuity.json')
+        if (existsSync(continuityPath)) {
+          const cc = JSON.parse(await fs.readFile(continuityPath, 'utf-8'))
+          if (typeof cc?.style_bible === 'string' && cc.style_bible.trim()) {
+            stylePromptForRewrite = cc.style_bible.trim()
+            job.output_lines.push('Using the episode Style Bible to keep the rewrite on-style.')
+          }
+        }
+      } catch { /* no continuity style — rewrite without one */ }
+    }
     const newPrompt = await generateVisualPromptOnly({
       transcript_segment: target.transcript_segment,
       model,
       detail_level: params.detail_level,
-      style_prompt: params.style_prompt,
+      style_prompt: stylePromptForRewrite,
       custom_instructions: params.custom_instructions,
       apiKeys: { anthropic_api_key, openai_api_key, kie_api_key },
       slug: job.project_slug,

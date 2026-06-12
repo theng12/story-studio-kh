@@ -161,6 +161,44 @@
           >
             ⚡↻ Re-render all (parallel)
           </button>
+          <!-- v1.0.344 — re-roll a CHOSEN set (checkboxes on the scenes below) or
+               all unapproved, as ONE parallel job spread across the Mac pool —
+               instead of clicking per-scene Regenerate (which queues serial,
+               one-Mac-at-a-time jobs). -->
+          <button
+            v-if="isContinuity && selectedCount > 0"
+            class="btn btn-sm btn-primary"
+            :disabled="!form.model || continuityRendering || isRendering"
+            @click="regenerateSelected"
+            title="Re-render the selected scenes in ONE parallel job across the whole Mac pool."
+          >
+            ⚡ Regenerate selected ({{ selectedCount }})
+          </button>
+          <button
+            v-if="isContinuity && selectedCount > 0"
+            class="btn btn-sm btn-ghost"
+            @click="clearSelection"
+            title="Clear the scene selection."
+          >
+            Clear
+          </button>
+          <button
+            v-if="isContinuity && selectedCount === 0 && stats.approved < stats.total_scenes"
+            class="btn btn-sm btn-ghost"
+            @click="selectAllUnapproved"
+            title="Tick every not-yet-approved scene so you can trim the selection, then Regenerate selected."
+          >
+            ☑ Select unapproved
+          </button>
+          <button
+            v-if="isContinuity && stats.with_image > 0 && stats.approved < stats.total_scenes"
+            class="btn btn-sm btn-ghost"
+            :disabled="!form.model || continuityRendering || isRendering"
+            @click="regenerateUnapproved"
+            title="Re-render every not-yet-approved scene in ONE parallel job across the pool."
+          >
+            ⚡ Regenerate all unapproved
+          </button>
         </div>
       </div>
     </section>
@@ -341,6 +379,14 @@
 
           <div class="review-body-cell">
             <div class="review-row-head">
+              <input
+                v-if="isContinuity"
+                type="checkbox"
+                class="review-select"
+                :checked="selectedIds.has(scene.id)"
+                @change="toggleSelected(scene.id)"
+                title="Select for a parallel re-render (⚡ Regenerate selected)"
+              />
               <strong>#{{ scene.scene_index }}</strong>
               <button class="review-time-btn" @click="seekTo(scene.start_sec)" title="Jump audio to this scene">
                 {{ scene.start_sec.toFixed(1) }}s → {{ scene.end_sec.toFixed(1) }}s
@@ -432,11 +478,46 @@
           class="sr-lb-img"
         />
         <figcaption class="sr-lb-cap">
-          <strong>Scene #{{ previewScene.scene_index }}</strong>
-          <span class="text-muted">{{ previewScene.start_sec.toFixed(1) }}s → {{ previewScene.end_sec.toFixed(1) }}s</span>
-          <span v-if="previewScene.approved" class="sr-lb-approved">✓ Approved</span>
+          <div class="sr-lb-meta">
+            <strong>Scene #{{ previewScene.scene_index }}</strong>
+            <span class="text-muted">{{ previewScene.start_sec.toFixed(1) }}s → {{ previewScene.end_sec.toFixed(1) }}s</span>
+            <span v-if="previewScene.approved" class="sr-lb-approved">✓ Approved</span>
+            <span v-if="promptDirty" class="sr-lb-dirty" title="You've edited the prompt but haven't saved/regenerated yet.">● unsaved prompt edit</span>
+          </div>
+          <!-- v1.0.342 — the prompt that produced this image, editable inline so
+               a bad LLM prompt can be fixed + re-rendered without leaving review. -->
+          <div class="sr-lb-prompt">
+            <label class="sr-lb-prompt-label">Image prompt <span class="text-muted">— edit to fix, then Regenerate</span></label>
+            <textarea
+              v-model="editPrompt"
+              class="sr-lb-prompt-input"
+              rows="3"
+              spellcheck="false"
+              placeholder="(no prompt on this scene)"
+              @keydown.stop
+            />
+          </div>
           <span class="sr-lb-actions">
             <button class="btn btn-sm btn-ghost" @click.stop="seekTo(previewScene.start_sec)" title="Jump the audio player to this scene">▶ Play from here</button>
+            <button
+              class="btn btn-sm btn-ghost"
+              :disabled="!textModel || rewritingId === previewScene.id"
+              @click.stop="rewritePromptAI(previewScene)"
+              :title="!textModel ? 'No usable text model — set an API key or LM Studio in Settings → Models' : 'Have the LLM re-write this scene\'s prompt (kept on-style via the episode Style Bible), then Regenerate to apply it'"
+            >{{ rewritingId === previewScene.id ? '⏳ Rewriting…' : '✏️ Rewrite with AI' }}</button>
+            <button
+              v-if="promptDirty"
+              class="btn btn-sm btn-secondary"
+              :disabled="savingPrompt || !editPrompt.trim()"
+              @click.stop="savePromptOnly(previewScene)"
+              title="Save the edited prompt (the image stays until you Regenerate)"
+            >{{ savingPrompt ? '⏳' : '💾 Save prompt' }}</button>
+            <button
+              class="btn btn-sm btn-secondary"
+              :disabled="!form.model || regeneratingId === previewScene.id"
+              @click.stop="regenerateFromPreview(previewScene)"
+              :title="!form.model ? 'Pick a model in the Greenlight panel first' : 'Re-render this image (saves your prompt edit first)'"
+            >{{ regeneratingId === previewScene.id ? '⏳ Rendering…' : '🔄 Regenerate' }}</button>
             <button
               :class="['btn btn-sm', previewScene.approved ? 'btn-primary' : 'btn-secondary']"
               @click.stop="approveOne(previewScene, !previewScene.approved)"
@@ -732,6 +813,119 @@ watch(scenes, (list) => {
   if (fresh) previewScene.value = fresh
 })
 
+// v1.0.342 — inline prompt fix in the preview lightbox. The editor resets when
+// the previewed SCENE changes (open / step), but survives a background scenes
+// reload of the SAME scene so an in-progress edit isn't clobbered.
+const editPrompt = ref('')
+const savingPrompt = ref(false)
+const rewritingId = ref<string | null>(null)
+// v1.0.343 — "Rewrite with AI" is an LLM task, so it needs a TEXT model — NOT
+// the image model in `form.model` (passing that timed out as "Unsupported
+// model"). Resolve the first usable text model the same way ModelSelector does.
+const textModel = ref('')
+async function loadTextModel(): Promise<void> {
+  try {
+    const models = await get<Array<{ id: string; available?: boolean; disabled_reason?: string }>>(`/models?project=${slug.value}`)
+    textModel.value = models.find(m => m.available && !m.disabled_reason)?.id || ''
+  } catch { textModel.value = '' }
+}
+
+// v1.0.344 — multi-select to re-roll a CHOSEN set of scenes in ONE parallel job
+// across the Mac pool (instead of N serial single-scene jobs that run one Mac
+// at a time). Selection is by scene id and survives reloads.
+const selectedIds = ref<Set<string>>(new Set())
+const selectedCount = computed(() => selectedIds.value.size)
+function toggleSelected(id: string): void {
+  const s = new Set(selectedIds.value)
+  if (s.has(id)) s.delete(id); else s.add(id)
+  selectedIds.value = s
+}
+function clearSelection(): void { selectedIds.value = new Set() }
+function selectAllUnapproved(): void {
+  selectedIds.value = new Set(scenes.value.filter(s => !s.approved && s.visual_prompt).map(s => s.id))
+}
+/** Re-render the checked scenes as ONE parallel pool job. */
+async function regenerateSelected(): Promise<void> {
+  const ids = scenes.value.filter(s => selectedIds.value.has(s.id) && s.visual_prompt).map(s => s.id)
+  if (!ids.length) { showError('Select at least one scene that has a prompt'); return }
+  await renderContinuity({ sceneIds: ids })
+  clearSelection()
+}
+/** Re-render every not-yet-approved scene as ONE parallel pool job. */
+async function regenerateUnapproved(): Promise<void> {
+  const ids = scenes.value.filter(s => !s.approved && s.visual_prompt).map(s => s.id)
+  if (!ids.length) { showError('No unapproved scenes to regenerate'); return }
+  if (!confirm(`Re-render all ${ids.length} unapproved scene(s) in parallel across the pool? Existing images for those scenes are replaced.`)) return
+  await renderContinuity({ sceneIds: ids })
+}
+watch(() => previewScene.value?.id, (id) => {
+  editPrompt.value = id ? (previewScene.value?.visual_prompt || '') : ''
+})
+const promptDirty = computed(() =>
+  !!previewScene.value && editPrompt.value.trim() !== (previewScene.value.visual_prompt || '').trim())
+
+/** Persist the hand-edited prompt for one scene (resets its approval server-side). */
+async function savePromptOnly(scene: ReviewScene): Promise<boolean> {
+  const next = editPrompt.value.trim()
+  if (!next) { showError('Prompt can\'t be empty'); return false }
+  savingPrompt.value = true
+  try {
+    await post(`/projects/${slug.value}/scene-plan/${episodeId.value}/set-prompt`, {
+      scene_id: scene.id,
+      visual_prompt: next,
+    })
+    scene.visual_prompt = next
+    scene.approved = false   // image is now stale vs the edited prompt
+    success(`Prompt saved for scene ${scene.scene_index}`)
+    return true
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to save prompt')
+    return false
+  } finally {
+    savingPrompt.value = false
+  }
+}
+
+/** "Fix it right now": save the edited prompt (if changed) then re-render. */
+async function regenerateFromPreview(scene: ReviewScene): Promise<void> {
+  if (promptDirty.value && !(await savePromptOnly(scene))) return
+  await generateOne(scene)
+}
+
+/** Ask the LLM to re-write this scene's prompt (the original generation issue).
+ *  Runs as a scene-plan job; poll the plan until the prompt changes, then load
+ *  it into the editor for review before the user re-renders. */
+async function rewritePromptAI(scene: ReviewScene): Promise<void> {
+  if (!textModel.value) {
+    showError('No usable text model — set an API key (or LM Studio) in Settings → Models, then reload.')
+    return
+  }
+  rewritingId.value = scene.id
+  const before = scene.visual_prompt
+  const ep = episodeId.value
+  try {
+    await post(`/projects/${slug.value}/scene-plan/${episodeId.value}/regenerate-prompt`, {
+      scene_id: scene.id,
+      model: textModel.value,   // LLM model — NOT the image model (form.model)
+    })
+    for (let i = 0; i < 40 && episodeId.value === ep && rewritingId.value === scene.id; i++) {
+      await new Promise((r) => setTimeout(r, 1500))
+      await loadReview()
+      const fresh = scenes.value.find((s) => s.id === scene.id)
+      if (fresh?.visual_prompt && fresh.visual_prompt !== before) {
+        editPrompt.value = fresh.visual_prompt
+        success(`Prompt re-written for scene ${scene.scene_index} — review it, then Regenerate.`)
+        return
+      }
+    }
+    showError('Prompt rewrite is taking a while — check the Jobs panel; it\'ll update here when done.')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to rewrite prompt')
+  } finally {
+    rewritingId.value = null
+  }
+}
+
 // ── Audio / seek ────────────────────────────────────────────────────
 function onAudioTimeUpdate(): void {
   if (audioEl.value) currentTime.value = audioEl.value.currentTime
@@ -911,9 +1105,12 @@ async function loadContinuityFlag(): Promise<void> {
   } catch { isContinuity.value = false }
 }
 
-async function renderContinuity(opts: { force?: boolean; fromSceneId?: string; independent?: boolean } = {}): Promise<void> {
+async function renderContinuity(opts: { force?: boolean; fromSceneId?: string; independent?: boolean; sceneIds?: string[] } = {}): Promise<void> {
   if (!form.value.model) { showError('Pick a model in the Greenlight panel first'); return }
-  if (opts.force) {
+  const selection = opts.sceneIds && opts.sceneIds.length ? opts.sceneIds : undefined
+  // A full force-re-render of EVERY scene needs a confirm; an explicit selection
+  // is already a deliberate choice, so it doesn't.
+  if (opts.force && !selection) {
     const msg = opts.independent
       ? 'Re-render EVERY scene in parallel from scratch? This discards the current renders (style + sheet only, no previous-render continuity).'
       : 'Re-render EVERY scene from scratch? This discards the current renders and runs the full sequential chain again.'
@@ -927,16 +1124,20 @@ async function renderContinuity(opts: { force?: boolean; fromSceneId?: string; i
       aspect_ratio: form.value.aspect_ratio,
       force: !!opts.force,
       from_scene_id: opts.fromSceneId,
-      independent: !!opts.independent,
-      concurrency: opts.independent ? form.value.concurrency : undefined,
+      // A selection always renders in parallel (one job across the pool).
+      independent: !!opts.independent || !!selection,
+      scene_ids: selection,
+      concurrency: (opts.independent || selection) ? form.value.concurrency : undefined,
       prompt_only: promptOnly.value,
       ...localSizeBody.value,
     })
-    success(opts.independent
-      ? `Parallel render queued (${form.value.concurrency === 'auto' ? 'auto — matches online servers' : '×' + form.value.concurrency})${promptOnly.value ? ', prompt only (text2img)' : ' — using style + character sheet'}. Watch the Jobs panel; images land as each finishes.`
-      : opts.fromSceneId
-        ? 'Re-rendering from this scene onward — watch the Jobs panel.'
-        : 'Continuity render queued — watch the Jobs panel. It renders scene-by-scene and can take a while.')
+    success(selection
+      ? `Queued ${selection.length} scene(s) to re-render in parallel across the pool (${form.value.concurrency === 'auto' ? 'auto — matches online Macs' : '×' + form.value.concurrency}) — watch the Jobs panel.`
+      : opts.independent
+        ? `Parallel render queued (${form.value.concurrency === 'auto' ? 'auto — matches online servers' : '×' + form.value.concurrency})${promptOnly.value ? ', prompt only (text2img)' : ' — using style + character sheet'}. Watch the Jobs panel; images land as each finishes.`
+        : opts.fromSceneId
+          ? 'Re-rendering from this scene onward — watch the Jobs panel.'
+          : 'Continuity render queued — watch the Jobs panel. It renders scene-by-scene and can take a while.')
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to start render')
   } finally {
@@ -1110,6 +1311,7 @@ async function approveAll(approved: boolean): Promise<void> {
 onMounted(() => {
   void loadReview()
   void loadContinuityFlag()
+  void loadTextModel()    // resolves the LLM model used by "Rewrite with AI"
   void srPresets.load()   // auto-applies the last render preset (model, aspect, pool)
   if (typeof window !== 'undefined') window.addEventListener('keydown', onPreviewKey)
 })
@@ -1155,19 +1357,32 @@ watch(episodeId, () => { void loadReview() })
 }
 .sr-lb-img {
   max-width: 100%;
-  max-height: calc(100vh - 130px);
+  /* Leaves room for the meta row + the editable prompt + the action row below. */
+  max-height: calc(100vh - 300px);
   object-fit: contain;
   border-radius: 6px;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
   background: var(--bg-secondary);
 }
 .sr-lb-cap {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: center;
+  display: flex; flex-direction: column; gap: 10px;
+  width: min(900px, 92vw);
   color: #fff; font-size: 13px;
 }
 .sr-lb-cap .text-muted { color: rgba(255, 255, 255, 0.6); }
+.sr-lb-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: center; }
 .sr-lb-approved { color: #5bb37c; font-weight: 600; }
-.sr-lb-actions { display: flex; gap: 8px; margin-left: 6px; }
+.sr-lb-dirty { color: #e0b15a; font-weight: 600; }
+.sr-lb-prompt { display: flex; flex-direction: column; gap: 4px; }
+.sr-lb-prompt-label { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
+.sr-lb-prompt-input {
+  width: 100%; resize: vertical; font: inherit; font-size: 12px; line-height: 1.45;
+  padding: 8px 10px; border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.35); color: #fff;
+}
+.sr-lb-prompt-input:focus { outline: none; border-color: #6aa9ff; }
+.sr-lb-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .sr-lb-close {
   position: absolute; top: 16px; right: 20px;
   width: 38px; height: 38px; border-radius: 50%;
@@ -1355,6 +1570,8 @@ watch(episodeId, () => { void loadReview() })
 
 .review-body-cell { min-width: 0; }
 .review-row-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+/* v1.0.344 — per-scene select checkbox for parallel batch re-render. */
+.review-select { width: 15px; height: 15px; cursor: pointer; accent-color: #6aa9ff; align-self: center; }
 .review-time-btn {
   background: transparent;
   border: 0;

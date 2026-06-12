@@ -4,6 +4,88 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.345 — 2026-06-12
+
+### Added — timestamp projects can use the full scene video editor
+Timestamp-driven and continuity projects no longer have to stay inside the simplified Timestamp Assemble screen when they need the richer editor controls. The video pipeline tabs now keep the alternate assemblers reachable, and the full **Scenes** assembler can discover approved `scene_plan.json` images from the timestamp review flow.
+
+The rich renderer also preserves the exact Scene Plan timing for those approved timestamp scenes, so using the full editor for timeline clips, effects, filters, overlays, subtitle styling, and export controls does not flatten the scene pacing back to a uniform seconds-per-scene duration.
+
+### Files
+- `frontend/components/VideoPipelineTabs.vue` (alternate assemblers stay clickable instead of disabled)
+- `electron/server/generators/video.ts` (scan approved timestamp scene images; preserve `scene_plan.json` per-scene durations in the rich renderer)
+
+---
+
+## v1.0.344 — 2026-06-12
+
+### Added — re-roll a chosen SET of scenes in parallel across the Mac pool
+Clicking **Regenerate** on scenes one-by-one in Scene Review queued a *separate* `continuity_render` job per scene — and that queue runs one job at a time, each rendering a single image on a single Mac. So with 6 machines you still got one-at-a-time. The 6-machine parallelism only ever kicked in *inside* one multi-scene render job.
+
+Now you can re-roll a selection as **one** parallel job that the growable worker pool spreads across every online Mac:
+
+- **☑ checkboxes** on each scene + **⚡ Regenerate selected (N)** — re-renders exactly the scenes you ticked, in parallel.
+- **☑ Select unapproved** — tick every not-yet-approved scene at once (then trim if you like).
+- **⚡ Regenerate all unapproved** — one-click parallel re-render of everything not yet approved.
+
+Each runs as a single `continuity_render` job with the new `scene_ids` selection, so it uses the shared least-busy pool (and absorbs Macs that come online mid-render, per v1.0.341). Tip: the per-scene **Regenerate** button is still there for a quick single fix — but for several scenes, use the selection so they run concurrently instead of serially.
+
+### Files
+- `electron/server/generators/continuity-render.ts` (`scene_ids` param → render an explicit selection in parallel; forces independent mode)
+- `electron/server/routes/scene-review.ts` (forward `scene_ids` to the render job)
+- `frontend/pages/projects/[slug]/scene-review.vue` (per-scene select checkboxes; ⚡ Regenerate selected / Select unapproved / ⚡ Regenerate all unapproved)
+
+---
+
+## v1.0.343 — 2026-06-12
+
+### Fixed — "Rewrite with AI" in Scene Review now uses a text model + stays on-style
+The in-preview **Rewrite with AI** button (v1.0.342) was passing the **image** model (e.g. `imagestudio:…`) to the prompt rewrite — which is an LLM task — so it failed slowly with "Unsupported model" and timed out. Two fixes:
+
+- **Uses a real text model.** Scene Review now resolves the first usable LLM model (the same way the model picker does) for the rewrite, instead of the image model. The button is disabled with a clear hint if no text model is configured, and the endpoint now rejects image models up front with an **instant, clear error** (no more long timeout).
+- **Keeps the channel art style.** The rewrite previously got no style guidance, so the LLM invented its own art direction and drifted off-style. It now falls back to the episode's **Style Bible** (the same text the renderer appends to every prompt), so the rewritten prompt matches the rendered look instead of fighting it.
+
+### Files
+- `frontend/pages/projects/[slug]/scene-review.vue` (resolve + use a usable text model for the rewrite; button gating + hints)
+- `electron/server/generators/scene-plan.ts` (regenerate-prompt: fall back to the episode Style Bible when no `style_prompt` is passed)
+- `electron/server/routes/scene-plan.ts` (reject image models on the regenerate-prompt + replan-scene routes with a fast, clear error)
+
+---
+
+## v1.0.342 — 2026-06-12
+
+### Added — fix a scene's prompt and re-render right inside the Scene Review preview
+The full-size preview lightbox in Scene Review now shows the **image prompt** that produced each scene — **editable inline** — plus the actions you actually need while reviewing, instead of having to jump back to the Scene Plan page:
+
+- **🔄 Regenerate** — re-render this image (saving your prompt edit first), so a bad render is fixed on the spot.
+- **✏️ Rewrite with AI** — have the LLM re-write the scene's prompt (the original generation issue), loaded back into the editor to review before you re-render.
+- **💾 Save prompt** — persist a hand-edit without re-rendering (e.g. correcting an off-style or wrong-subject prompt); the scene's approval resets since the image is now stale.
+- Plus the existing **▶ Play from here** and **✓ Approve**.
+
+This is what you need when two adjacent scenes drift in art style — open the preview, fix the offending prompt, and regenerate without leaving the review flow.
+
+### Files
+- `electron/server/routes/scene-plan.ts` (new `POST /scene-plan/:ep/set-prompt` — save one scene's hand-edited `visual_prompt`; resets that scene's approval)
+- `frontend/pages/projects/[slug]/scene-review.vue` (lightbox: editable prompt + Regenerate / Rewrite-with-AI / Save-prompt buttons; reuses the existing image-regen + LLM `regenerate-prompt` endpoints)
+
+---
+
+## v1.0.341 — 2026-06-12
+
+### Fixed — local image pool: machines that come online (or recover) mid-render now join automatically
+For continuity-chain renders distributed across a pool of local Image Studio Macs, the pool is no longer frozen to whichever machines were online when the job started — **no more idle machines**:
+
+- **A Mac you turn on mid-render now joins within ~20s.** The pool is built over *all* configured endpoints (offline ones pre-marked-down), and a periodic re-probe pulls newly-online Macs into rotation — and, in parallel mode, spins up an extra worker for each so they actually take work instead of sitting idle. Previously a continuity render took a one-time health snapshot at job start, so a machine you powered on later was locked out for the whole job.
+- **A Mac that drops out and comes back rejoins.** This already worked via the 30s self-healing TTL; the re-probe now also brings a recovered Mac back into rotation **immediately** (new `markUp`) instead of waiting out the TTL.
+- **Still one inference per Mac.** The worker pool never exceeds the live endpoint count, so it never doubles up requests on a single machine (no OOM risk). "Auto" concurrency can grow up to the full configured pool; an explicit concurrency stays a hard cap.
+
+### Files
+- `electron/server/lib/endpoint-pool.ts` (new `markUp` — return a recovered endpoint to rotation without waiting out the down-TTL)
+- `electron/server/generators/continuity-render.ts` (build the pool over all configured endpoints + pre-markDown offline; growable worker pool with a 20s re-probe that absorbs Macs coming online mid-render)
+- `electron/server/__tests__/endpoint-pool.test.ts` (markUp test)
+
+---
+
 ## v1.0.340 — 2026-06-12
 
 ### Fixed — continuity Repair no longer replaces Regenerate

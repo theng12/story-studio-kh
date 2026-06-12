@@ -2,23 +2,20 @@
   Shared tab nav for the video pipeline. Renders on
   /projects/:slug/video-assembly, /broll, and /timestamp-assemble.
 
-  v1.0.265 — the tab that matches the project's pipeline (from the effective
-  format's visualSource) is the active/usable one; the other two are greyed out
-  + non-clickable, so a timestamp project doesn't invite you into the Scenes or
-  B-Roll assemblers that don't apply. The currently-open tab is never greyed
-  (you're on it), and if the format can't be determined all tabs stay enabled.
+  v1.0.345 — keep every assembler reachable. The project-native pipeline still
+  gets labelled, but advanced users can jump to the richer scene editor from a
+  timestamp project when they want its timeline/effects/subtitle controls.
 -->
 <template>
   <nav class="pipeline-tabs" aria-label="Video pipeline">
     <component
       v-for="t in tabs"
       :key="t.id"
-      :is="isDisabled(t.id) ? 'span' : 'NuxtLink'"
-      :to="isDisabled(t.id) ? undefined : t.to"
+      :is="'NuxtLink'"
+      :to="t.to"
       class="pipeline-tab"
-      :class="{ active: activeTab === t.id, disabled: isDisabled(t.id) }"
-      :title="isDisabled(t.id) ? `Not used by this project's pipeline (${pipelineLabel})` : undefined"
-      :aria-disabled="isDisabled(t.id) ? 'true' : undefined"
+      :class="{ active: activeTab === t.id, alternate: isAlternate(t.id) }"
+      :title="isAlternate(t.id) ? `Alternate assembler; this project's default is ${pipelineLabel}` : undefined"
     >
       {{ t.label }}
     </component>
@@ -63,9 +60,9 @@ async function loadPipeline(): Promise<void> {
   } catch { applicableTab.value = null }
 }
 
-// A tab is greyed only when the pipeline is known, it's not the applicable one,
-// and it's not the tab you're currently on.
-function isDisabled(id: string): boolean {
+// A tab is marked alternate only when the pipeline is known, it's not the
+// default one, and it's not the tab you're currently on.
+function isAlternate(id: string): boolean {
   return !!applicableTab.value && id !== applicableTab.value && id !== activeTab.value
 }
 
@@ -97,9 +94,7 @@ watch(slug, () => { void loadPipeline() }, { immediate: true })
   border-bottom-color: var(--accent, #6c8fff);
   font-weight: 600;
 }
-.pipeline-tab.disabled {
-  opacity: 0.38;
-  cursor: not-allowed;
-  pointer-events: none;
+.pipeline-tab.alternate {
+  opacity: 0.62;
 }
 </style>

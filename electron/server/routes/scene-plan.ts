@@ -111,6 +111,12 @@ router.post('/projects/:slug/scene-plan/:episodeId/replan-scene', async (req, re
   const body = req.body || {}
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
+  // v1.0.343 — scene planning/rewrite is an LLM task. Reject IMAGE models up
+  // front with a clear, fast error (passing one used to time out deep in the
+  // text client as "Unsupported model").
+  if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
+    return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
+  }
   const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
 
@@ -158,6 +164,12 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
   const body = req.body || {}
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
+  // v1.0.343 — scene planning/rewrite is an LLM task. Reject IMAGE models up
+  // front with a clear, fast error (passing one used to time out deep in the
+  // text client as "Unsupported model").
+  if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
+    return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
+  }
   const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
 
@@ -188,6 +200,43 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
     },
   })
   res.status(201).json(job)
+})
+
+// ── POST /scene-plan/:ep/set-prompt ───────────────────────────────────
+// v1.0.342 — save ONE scene's hand-edited visual_prompt. Powers the inline
+// prompt fix in Scene Review's preview lightbox (the LLM sometimes writes a
+// prompt that produces the wrong image / off-style render; this lets the user
+// correct it on the spot and re-render). Synchronous file edit — no job. Resets
+// the scene's approval, since the rendered image is now stale vs the new prompt.
+router.post('/projects/:slug/scene-plan/:episodeId/set-prompt', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+  const sceneId = typeof req.body?.scene_id === 'string' ? req.body.scene_id.trim() : ''
+  const visualPrompt = typeof req.body?.visual_prompt === 'string' ? req.body.visual_prompt.trim() : ''
+  if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
+  if (!visualPrompt) return res.status(400).json({ detail: 'visual_prompt is required (non-empty)' })
+
+  try {
+    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const sidecarPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
+    if (!existsSync(sidecarPath)) {
+      return res.status(404).json({ detail: 'No scene_plan.json — run Scene Plan first.' })
+    }
+    const plan = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+    const scene = plan.scenes.find(s => s.id === sceneId)
+    if (!scene) return res.status(404).json({ detail: `Scene ${sceneId} not found in scene_plan.json` })
+
+    scene.visual_prompt = visualPrompt
+    // If the Visual Recipe composed this prompt, keep the raw in sync so a later
+    // re-compose starts from the user's edit, not the stale planner original.
+    if (scene.visual_prompt_raw) scene.visual_prompt_raw = visualPrompt
+    scene.approved = false  // image is now stale vs the edited prompt
+    await fs.writeFile(sidecarPath, JSON.stringify(plan, null, 2), 'utf-8')
+    res.json({ ok: true, scene_id: sceneId, visual_prompt: visualPrompt })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save prompt'))
+  }
 })
 
 // ── GET /scene-plan/:ep ───────────────────────────────────────────────

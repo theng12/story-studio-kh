@@ -105,6 +105,10 @@ export interface Dispatcher {
   release(url: string): void
   /** Take an endpoint out of rotation for ENDPOINT_DOWN_TTL_MS (self-healing). */
   markDown(url: string): void
+  /** Clear an endpoint's down-state immediately (a re-probe confirmed it's back),
+   *  so it rejoins rotation without waiting out the TTL. No-op if not down or
+   *  not part of this pool. */
+  markUp(url: string): void
   /** Endpoints currently in rotation (down-state TTL respected). */
   liveCount(): number
   /** Total endpoints. */
@@ -148,6 +152,7 @@ export function createDispatcher(urls: string[]): Dispatcher {
     },
     release(u) { inflight.set(u, Math.max(0, (inflight.get(u) || 0) - 1)) },
     markDown(u) { downUntil.set(u, Date.now() + ENDPOINT_DOWN_TTL_MS) },
+    markUp(u) { if (inflight.has(u)) downUntil.delete(u) },
     liveCount() { return live().length },
   }
 }
