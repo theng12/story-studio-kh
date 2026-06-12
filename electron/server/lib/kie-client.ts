@@ -14,6 +14,7 @@ import { redactSecrets } from './redact-secrets.js'
 import type { ImageModelConfig } from '../models/types.js'
 
 const KIE_BASE_URL = 'https://api.kie.ai/api/v1'
+const KIE_FILE_UPLOAD_URL = 'https://kieai.redpandaai.co/api/file-stream-upload'
 const POLL_INTERVAL = 6000 // ms
 const MAX_WAIT = 360000 // 6 minutes
 const MAX_CONSECUTIVE_FAILURES = 8
@@ -39,6 +40,40 @@ async function encodeReferenceImages(absolutePaths: string[]): Promise<string[]>
   return encoded
 }
 
+async function uploadReferenceImages(apiKey: string, absolutePaths: string[]): Promise<string[]> {
+  const uploaded: string[] = []
+  for (const p of absolutePaths.slice(0, 3)) {
+    try {
+      const buf = await fs.readFile(p)
+      const ext = path.extname(p).toLowerCase() || '.png'
+      const original = path.basename(p) || `reference${ext}`
+      const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${original.replace(/[^\w.-]+/g, '_')}`
+      const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.webp' ? 'image/webp' : 'image/png'
+      const form = new FormData()
+      form.append('file', new Blob([buf as any], { type: mime }), safeName)
+      form.append('uploadPath', 'images/story-studio')
+      form.append('fileName', safeName)
+      const resp = await fetch(KIE_FILE_UPLOAD_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+        signal: AbortSignal.timeout(60000),
+      })
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '')
+        throw new Error(`HTTP ${resp.status}: ${redactSecrets(text, apiKey).slice(0, 200)}`)
+      }
+      const data = await resp.json() as any
+      const url = data?.data?.downloadUrl || data?.data?.fileUrl || data?.data?.url
+      if (typeof url !== 'string' || !url) throw new Error(`No uploaded file URL in response: ${JSON.stringify(data).slice(0, 200)}`)
+      uploaded.push(url)
+    } catch (e: any) {
+      console.warn(`[kie-client] reference image upload failed, skipping (${p}): ${e.message}`)
+    }
+  }
+  return uploaded
+}
+
 export async function submitGeneration(
   prompt: string, apiKey: string, aspectRatio: string,
   modelConfig: ImageModelConfig,
@@ -53,8 +88,12 @@ export async function submitGeneration(
   // ingest input images. Caller is expected to gate the call behind
   // `supports_reference_images` so we don't pay payload overhead for models
   // that ignore the field. Empty array = no encoding work.
+  const refsField = modelConfig.refs_field || 'image_urls'
+  const needsUploadedUrls = refsField === 'input_urls' || (modelConfig as any).refs_upload === true
   const refs = (opts.referenceImagePaths && opts.referenceImagePaths.length)
-    ? await encodeReferenceImages(opts.referenceImagePaths)
+    ? (needsUploadedUrls
+        ? await uploadReferenceImages(apiKey, opts.referenceImagePaths)
+        : await encodeReferenceImages(opts.referenceImagePaths))
     : []
 
   // Some kie.ai models swap their model slug between text-to-image and
@@ -69,7 +108,6 @@ export async function submitGeneration(
   // `input_urls`, `inputImages`) and aspect-ratio field (`aspect_ratio`
   // vs `image_size`). Defaults match the historical behaviour for models
   // that didn't bother to override.
-  const refsField = modelConfig.refs_field || 'image_urls'
   const aspectField = modelConfig.aspect_field || 'aspect_ratio'
 
   let payload: any

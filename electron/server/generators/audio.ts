@@ -124,17 +124,10 @@ export async function resolveAudioDir(projectSlug: string, narrationPath: string
   const names = await resolveSubfolderNames(projectSlug, code)
   const audioName = names.audio // e.g. "TN0024 - 07 Audio Assets"
 
-  // Scan for existing folder (handles ✅ prefix)
-  try {
-    const entries = await fs.readdir(episodeDir)
-    for (const entry of entries) {
-      const clean = entry.replace(/^✅\s*/, '')
-      if (clean === audioName) return path.join(episodeDir, entry)
-    }
-  } catch { /* fall through */ }
-
-  // Fall back to config-based path (will be created)
-  return path.join(episodeDir, audioName)
+  // v1.0.338 — shared lookup (handles the ✅ done-marker prefix); falls
+  // back to the config-based path, which the writer creates on demand.
+  const { findSubfolder } = await import('../lib/folder-resolver.js')
+  return (await findSubfolder(episodeDir, audioName)) ?? path.join(episodeDir, audioName)
 }
 
 export async function generateAudio(job: Job): Promise<void> {

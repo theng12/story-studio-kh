@@ -4,6 +4,39 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.338 — 2026-06-12
+
+### Fixed — Kie GPT Image 2 references now upload as files first
+Kie.ai's GPT Image 2 image-to-image endpoint expects hosted image URLs in `input_urls`; sending base64 data URLs caused jobs to fail with `File type not supported`. Reference images for URL-only Kie models now upload to Kie's temporary file service before task submission.
+
+### Added — fal.ai image generation provider
+fal.ai image generation is now a real image provider in the backend, starting with GPT Image 2 text-to-image and edit routing. The provider uses fal queue endpoints directly and keeps fal.ai separate from Kie's aggregator-specific payload shapes.
+
+### Cleanup — curated Kie image model list
+The default Kie image picker list is trimmed to the models actually used in production:
+
+- GPT Image 2
+- Nano Banana 2
+- Grok Imagine
+- Z-Image
+
+OpenRouter Gemini/Nano Banana entries are kept, and non-Kie providers are not pruned.
+
+### Fixed — shared episode folder resolution
+Episode folder and subfolder lookup is consolidated into one shared resolver. It now consistently handles `✅ ` done-marker prefixes, title-hint disambiguation, and bulk episode directory indexing, avoiding duplicate output folders and reducing repeated tree walks.
+
+### Cleanup — project route guards
+Project existence checks for `/api/projects/:slug/*` routes now go through a shared middleware instead of being repeated by individual handlers.
+
+### Files
+- `electron/server/lib/kie-client.ts` (Kie reference upload before URL-only image tasks)
+- `electron/server/providers/image/fal-image.ts` + `electron/server/boot/providers.ts` (fal.ai image provider)
+- `electron/server/models/defaults.ts`, `electron/server/models/types.ts`, `electron/server/providers/image/kie.ts` (curated image catalogue + ref upload flag)
+- `electron/server/lib/folder-resolver.ts`, `electron/server/__tests__/folder-resolver.test.ts` (shared folder resolver)
+- `electron/server/routes/middleware.ts`, `electron/server/routes/index.ts` (shared project guard)
+
+---
+
 ## v1.0.337 — 2026-06-12
 
 ### Added — guide character appearance is now per-channel, and can be turned off

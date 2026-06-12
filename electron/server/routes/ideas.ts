@@ -1040,47 +1040,14 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
   // below (buildRow captures this via the outer scope).
   const root: string = outputRoot
 
-  const fsP = await import('fs/promises')
-  const path = await import('path')
   const { episodeStatusCache } = await import('../services/episode-status-cache.js')
 
-  // v1.0.337 — ONE tree walk builds a code→dir index shared by every row.
-  // The old per-episode findDir() recursed from the project root for each
-  // episode — and descended into every NON-matching episode's subfolders
-  // (image folders with hundreds of files included). On a 300-episode
-  // project that multiplied into hundreds of thousands of readdir calls
-  // per list request, all uncached. The index walk visits each directory
-  // at most once (~1 + seasons + stray dirs) and stops descending at any
-  // matched episode dir, mirroring findDir's first-match semantics.
-  async function buildEpisodeDirIndex(codes: Set<string>): Promise<Map<string, string>> {
-    const found = new Map<string, string>()
-    async function walk(dir: string): Promise<void> {
-      if (found.size >= codes.size) return
-      let entries
-      try {
-        entries = await fsP.readdir(dir, { withFileTypes: true })
-      } catch { return }
-      const descend: string[] = []
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        const sep = entry.name.indexOf(' - ')
-        const prefix = sep > 0 ? entry.name.slice(0, sep) : ''
-        if (prefix && codes.has(prefix)) {
-          if (!found.has(prefix)) found.set(prefix, path.join(dir, entry.name))
-          continue // an episode dir — its subfolders are "{code} - NN …", never other episodes
-        }
-        descend.push(path.join(dir, entry.name))
-      }
-      for (const sub of descend) {
-        if (found.size >= codes.size) return
-        await walk(sub)
-      }
-    }
-    await walk(root)
-    return found
-  }
+  // v1.0.337 — ONE tree walk builds a code→dir index shared by every row
+  // (vs. the old per-episode recursive findDir that re-walked the whole
+  // project per episode). v1.0.338 — moved to the shared folder-resolver.
+  const { buildEpisodeDirIndex } = await import('../lib/folder-resolver.js')
   const codes = new Set<string>(ideas.map((i: any) => i.episode_code).filter(Boolean))
-  const dirIndex = await buildEpisodeDirIndex(codes)
+  const dirIndex = await buildEpisodeDirIndex(root, codes)
 
   // Source-doc checks (script / prompts / metadata) stay as cheap file-ext
   // scans — they're "is the input artifact present?" questions where a file
@@ -1834,7 +1801,6 @@ router.delete('/projects/:slug/ideas/:ideaId', async (req, res) => {
 
 router.get('/projects/:slug/episodes/compact-preview', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const preview = await previewCompact(req.params.slug)
     res.json(preview)
   } catch (e: any) {
@@ -1844,7 +1810,6 @@ router.get('/projects/:slug/episodes/compact-preview', async (req, res) => {
 
 router.post('/projects/:slug/episodes/compact', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const result = await compactAcceptedEpisodes(req.params.slug)
     invalidateProjectUploadCaches(req.params.slug)
     res.json({ ok: true, ...result })
@@ -1863,7 +1828,6 @@ router.post('/projects/:slug/episodes/compact', async (req, res) => {
 
 router.get('/projects/:slug/episodes/reseason-preview', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const newSize = parseInt(String(req.query.new_size || ''), 10)
     if (!Number.isInteger(newSize) || newSize < 1 || newSize > 1000) {
       return res.status(400).json({ detail: 'new_size must be a positive integer ≤ 1000' })
@@ -1877,7 +1841,6 @@ router.get('/projects/:slug/episodes/reseason-preview', async (req, res) => {
 
 router.post('/projects/:slug/episodes/reseason', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const newSize = parseInt(String(req.body?.new_size || ''), 10)
     if (!Number.isInteger(newSize) || newSize < 1 || newSize > 1000) {
       return res.status(400).json({ detail: 'new_size must be a positive integer ≤ 1000' })
@@ -1892,7 +1855,6 @@ router.post('/projects/:slug/episodes/reseason', async (req, res) => {
 
 router.get('/projects/:slug/episodes/reseason-undo', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const plan = await readReseasonUndo(req.params.slug)
     if (!plan) return res.json({ available: false })
     res.json({
@@ -1908,7 +1870,6 @@ router.get('/projects/:slug/episodes/reseason-undo', async (req, res) => {
 
 router.post('/projects/:slug/episodes/reseason-undo/revert', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const result = await revertReseason(req.params.slug)
     invalidateProjectUploadCaches(req.params.slug)
     res.json({ ok: true, ...result })
@@ -1919,7 +1880,6 @@ router.post('/projects/:slug/episodes/reseason-undo/revert', async (req, res) =>
 
 router.delete('/projects/:slug/episodes/reseason-undo', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const deleted = await deleteReseasonUndo(req.params.slug)
     res.json({ ok: true, deleted })
   } catch (e: any) {

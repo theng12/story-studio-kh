@@ -12,6 +12,7 @@ before(async () => {
   // Import registry and all providers (self-register on import)
   registry = (await import('../providers/registry.js')).registry
   await import('../providers/image/kie.js')
+  await import('../providers/image/fal-image.js')
   await import('../providers/image/openai-image.js')
   await import('../providers/audio/fal.js')
   await import('../providers/text/openai.js')
@@ -45,6 +46,13 @@ describe('Registry registration', () => {
     assert.ok(p, 'openai-image provider should be registered')
     assert.equal(p?.meta.id, 'openai-image')
     assert.equal(p?.meta.apiKeyField, 'openai_api_key')
+  })
+
+  test('has fal-image image provider registered', () => {
+    const p = registry.getImageProvider('fal-image')
+    assert.ok(p, 'fal-image provider should be registered')
+    assert.equal(p?.meta.id, 'fal-image')
+    assert.equal(p?.meta.providerId, 'fal')
   })
 
   test('listImageProviders / listAudioProviders / listTextProviders', () => {

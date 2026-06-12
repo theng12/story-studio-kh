@@ -45,7 +45,6 @@ interface ReviewSceneAugmented {
 // ── GET /scene-review/:ep ─────────────────────────────────────────────
 router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const paths = await resolveEpisodePathsByCode(slug, episodeId)
     const planPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
@@ -132,7 +131,6 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
 // ── POST /scene-review/:ep/generate-image ─────────────────────────────
 router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   const body = req.body || {}
   const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
   const model = typeof body.model === 'string' ? body.model.trim() : ''
@@ -167,7 +165,6 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
 // already have an image on disk. Skips scenes already in flight.
 router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   const body = req.body || {}
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
@@ -225,7 +222,6 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
 // already have an image.
 router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   const body = req.body || {}
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
@@ -301,7 +297,6 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
 // scene's render in scene_images/{id}.png and recorded in scene_plan.json.
 router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', async (req, res) => {
   const { slug, episodeId, sceneId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   // Strict id (matches the planner's freshId scheme) — prevents path traversal.
   if (!/^[A-Za-z0-9_-]+$/.test(sceneId)) return res.status(400).json({ detail: 'invalid scene id' })
   const buf = decodeUploadBuffer(req.body)
@@ -334,7 +329,6 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
 //   { all: true|false }                          — bulk all
 router.put('/projects/:slug/scene-review/:episodeId/approve', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const body = req.body || {}
   try {
@@ -389,7 +383,6 @@ router.put('/projects/:slug/scene-review/:episodeId/approve', async (req, res) =
 // the scene_images dir.
 router.get('/projects/:slug/scene-review/:episodeId/image/:sceneId', async (req, res) => {
   const { slug, episodeId, sceneId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   if (!/^[A-Za-z0-9_-]+$/.test(sceneId)) {
     return res.status(400).json({ detail: 'Invalid scene id' })
   }
@@ -416,7 +409,6 @@ router.get('/projects/:slug/scene-review/:episodeId/image/:sceneId', async (req,
 // doesn't need to round-trip the user through a doomed job.
 router.post('/projects/:slug/scene-review/:episodeId/assemble', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   // Pre-flight: refuse here when the plan isn't ready, instead of
   // queuing a job that's going to fail in the executor.
@@ -470,7 +462,6 @@ router.post('/projects/:slug/scene-review/:episodeId/assemble', async (req, res)
 // route — never serves anything outside merged_audio_dir.
 router.get('/projects/:slug/scene-review/:episodeId/audio', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const paths = await resolveEpisodePathsByCode(slug, episodeId)
     if (!existsSync(paths.merged_audio_dir)) return res.status(404).json({ detail: 'No merged audio' })

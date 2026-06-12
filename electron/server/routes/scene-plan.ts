@@ -29,7 +29,6 @@ export const router = Router()
 // directly so the frontend can render the cue count without polling.
 router.post('/projects/:slug/scene-plan/:episodeId/stitch-subtitles', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const paths = await resolveEpisodePathsByCode(slug, episodeId)
     const result = await stitchSubtitles({
@@ -46,7 +45,6 @@ router.post('/projects/:slug/scene-plan/:episodeId/stitch-subtitles', async (req
 // ── POST /scene-plan/:ep/run ──────────────────────────────────────────
 router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const body = req.body || {}
   const model = typeof body.model === 'string' ? body.model.trim() : ''
@@ -109,7 +107,6 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
 // place of the target scene, leaving every other scene + its image untouched.
 router.post('/projects/:slug/scene-plan/:episodeId/replan-scene', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const body = req.body || {}
   const model = typeof body.model === 'string' ? body.model.trim() : ''
@@ -157,7 +154,6 @@ router.post('/projects/:slug/scene-plan/:episodeId/replan-scene', async (req, re
 // prose, not structured JSON.
 router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const body = req.body || {}
   const model = typeof body.model === 'string' ? body.model.trim() : ''
@@ -199,7 +195,6 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
 // 3-step wizard correctly (stitch ready? plan ready? drift?).
 router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const paths = await resolveEpisodePathsByCode(slug, episodeId)
     const stitchedSrtPath = path.join(paths.subtitles_dir, `${episodeId.toUpperCase()}_stitched.srt`)
@@ -286,7 +281,6 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
 // ── PUT /scene-plan/:ep ───────────────────────────────────────────────
 router.put('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const body = req.body as Partial<ScenePlan> | undefined
   if (!body || body.schema_version !== 1) {
@@ -310,7 +304,6 @@ router.put('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
 // ── DELETE /scene-plan/:ep ────────────────────────────────────────────
 router.delete('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const paths = await resolveEpisodePathsByCode(slug, episodeId)
     const sidecarPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)

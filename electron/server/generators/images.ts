@@ -201,6 +201,7 @@ export async function generateImages(job: Job): Promise<void> {
     api_model: modelConfig.api_model,
     api_model_i2i: (modelConfig as any).api_model_i2i,
     refs_field: (modelConfig as any).refs_field,
+    refs_upload: (modelConfig as any).refs_upload === true,
     aspect_field: (modelConfig as any).aspect_field,
     supports_reference_images: modelConfig.supports_reference_images === true,
   }

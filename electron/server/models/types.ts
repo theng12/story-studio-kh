@@ -1530,6 +1530,12 @@ export interface ImageModelConfig {
    */
   refs_field?: string
   /**
+   * Some kie.ai endpoints require hosted URLs for refs instead of accepting
+   * base64 data URLs directly. When true, local references are first uploaded
+   * to kie.ai's temporary file service before the generation task is created.
+   */
+  refs_upload?: boolean
+  /**
    * Per-model name of the request-body field that carries the aspect-ratio
    * string. Most kie.ai models use `aspect_ratio` (default); the original
    * Nano Banana family uses `image_size`. Absent = `aspect_ratio`.

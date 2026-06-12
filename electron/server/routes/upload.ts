@@ -44,7 +44,6 @@ export const router = Router()
 router.get('/projects/:slug/upload/playlists', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const accountId = typeof req.query.account_id === 'string' && req.query.account_id
       ? req.query.account_id
       : await store.getDefaultAccountId(slug, 'youtube')
@@ -61,7 +60,6 @@ router.get('/projects/:slug/upload/playlists', async (req, res) => {
 router.post('/projects/:slug/upload/playlists', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const accountId = typeof req.body?.account_id === 'string' && req.body.account_id
       ? req.body.account_id
       : await store.getDefaultAccountId(slug, 'youtube')
@@ -87,7 +85,6 @@ router.post('/projects/:slug/upload/playlists', async (req, res) => {
 router.post('/projects/:slug/upload/playlists/generate-description', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const title = typeof req.body?.title === 'string' ? req.body.title.trim() : ''
     if (!title) return res.status(400).json({ detail: 'title required' })
 
@@ -155,7 +152,6 @@ Target ~${targetLength} characters. Plain prose — no bullet lists, no all-caps
 router.put('/projects/:slug/upload/playlists/default', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const accountId = typeof req.body?.account_id === 'string' && req.body.account_id
       ? req.body.account_id
       : await store.getDefaultAccountId(slug, 'youtube')
@@ -183,7 +179,6 @@ router.put('/projects/:slug/upload/playlists/default', async (req, res) => {
 router.get('/projects/:slug/upload/analytics', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const accountId = (req.query.account_id as string)
       || await store.getDefaultAccountId(slug, 'youtube')
     if (!accountId) {
@@ -225,7 +220,6 @@ router.get('/projects/:slug/upload/analytics', async (req, res) => {
 router.get('/projects/:slug/upload/comments', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const accountId = (req.query.account_id as string)
       || await store.getDefaultAccountId(slug, 'youtube')
     if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected.' })
@@ -250,7 +244,6 @@ router.get('/projects/:slug/upload/comments', async (req, res) => {
 router.post('/projects/:slug/upload/comments/draft', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const config = await pm.getConfig(slug)
     if (!config) return res.status(404).json({ detail: 'Project config not found' })
 
@@ -292,7 +285,6 @@ router.post('/projects/:slug/upload/comments/draft', async (req, res) => {
 router.post('/projects/:slug/upload/comments/reply', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const accountId = String(req.body?.account_id || '').trim()
       || await store.getDefaultAccountId(slug, 'youtube')
     if (!accountId) return res.status(400).json({ detail: 'No YouTube account connected.' })
@@ -320,7 +312,6 @@ router.post('/projects/:slug/upload/comments/reply', async (req, res) => {
 router.get('/projects/:slug/upload/mode', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const youtube = await store.getUploadMode(slug, 'youtube')
     res.json({ youtube })
   } catch (e: any) {
@@ -331,7 +322,6 @@ router.get('/projects/:slug/upload/mode', async (req, res) => {
 router.put('/projects/:slug/upload/mode', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const platform = readPlatform(req.body?.platform) || 'youtube'
     const mode = req.body?.mode
     if (mode !== 'apply-plan' && mode !== 'private') {
@@ -349,7 +339,6 @@ router.put('/projects/:slug/upload/mode', async (req, res) => {
 router.get('/projects/:slug/upload/quota', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const snap = await quota.readQuota(slug)
     res.json(snap)
   } catch (e: any) {
@@ -360,7 +349,6 @@ router.get('/projects/:slug/upload/quota', async (req, res) => {
 router.put('/projects/:slug/upload/quota/ceiling', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const ceiling = Number(req.body?.ceiling)
     if (!Number.isFinite(ceiling) || ceiling < 1 || ceiling > 1_000_000) {
       return res.status(400).json({ detail: 'ceiling must be a positive integer up to 1,000,000' })
@@ -376,7 +364,6 @@ router.put('/projects/:slug/upload/quota/ceiling', async (req, res) => {
 // ── Platforms catalogue ───────────────────────────────────────────────────
 
 router.get('/projects/:slug/upload/platforms', async (req, res) => {
-  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
   res.json({
     platforms: [
       { id: 'youtube', label: 'YouTube', enabled: true, requires_oauth_client: true },
@@ -393,7 +380,6 @@ router.get('/projects/:slug/upload/platforms', async (req, res) => {
 router.get('/projects/:slug/upload/oauth-client', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const platform = readPlatform(req.query.platform)
     if (!platform) return res.status(400).json({ detail: 'platform query param required' })
     const creds = await store.readOAuthClient(slug, platform)
@@ -411,7 +397,6 @@ router.get('/projects/:slug/upload/oauth-client', async (req, res) => {
 router.put('/projects/:slug/upload/oauth-client', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const platform = readPlatform(req.body?.platform)
     if (!platform) return res.status(400).json({ detail: 'platform required' })
     const client_id = typeof req.body?.client_id === 'string' ? req.body.client_id.trim() : ''
@@ -429,7 +414,6 @@ router.put('/projects/:slug/upload/oauth-client', async (req, res) => {
 router.delete('/projects/:slug/upload/oauth-client', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const platform = readPlatform(req.query.platform)
     if (!platform) return res.status(400).json({ detail: 'platform query param required' })
     await store.deleteOAuthClient(slug, platform)
@@ -444,7 +428,6 @@ router.delete('/projects/:slug/upload/oauth-client', async (req, res) => {
 router.post('/projects/:slug/upload/oauth/start', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const platform = readPlatform(req.body?.platform)
     if (!platform) return res.status(400).json({ detail: 'platform required' })
     if (platform !== 'youtube') {
@@ -479,7 +462,6 @@ router.post('/projects/:slug/upload/oauth/start', async (req, res) => {
 router.get('/projects/:slug/upload/oauth/status', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const flow_id = typeof req.query.flow_id === 'string' ? req.query.flow_id : ''
     if (!flow_id) return res.status(400).json({ detail: 'flow_id query param required' })
     const s = getFlowStatus(flow_id)
@@ -504,7 +486,6 @@ router.get('/projects/:slug/upload/oauth/status', async (req, res) => {
 router.get('/projects/:slug/upload/accounts', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const accounts = await store.listAllAccounts(slug)
     const defaults: Record<string, string> = {}
     for (const p of store.UPLOAD_PLATFORMS) {
@@ -519,7 +500,6 @@ router.get('/projects/:slug/upload/accounts', async (req, res) => {
 router.put('/projects/:slug/upload/accounts/:id/default', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const platform = readPlatform(req.body?.platform)
     if (!platform) return res.status(400).json({ detail: 'platform required' })
     await store.setDefaultAccountId(slug, platform, req.params.id)
@@ -532,7 +512,6 @@ router.put('/projects/:slug/upload/accounts/:id/default', async (req, res) => {
 router.delete('/projects/:slug/upload/accounts/:id', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const platform = readPlatform(req.query.platform)
     if (!platform) return res.status(400).json({ detail: 'platform query param required' })
     const removed = await store.removeAccount(slug, platform, req.params.id)
@@ -964,7 +943,6 @@ function filterAndSortIndex(
 router.get('/projects/:slug/upload/queue', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const platform = readPlatform(req.query.platform) || 'youtube'
 
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
@@ -1078,7 +1056,6 @@ router.get('/projects/:slug/upload/queue/:episode_code/preview', async (req, res
     const slug = req.params.slug
     const code = req.params.episode_code
     const platform = readPlatform(req.query.platform) || 'youtube'
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
     const idea = (await im.getIdeas(slug, 'accepted')).find(i => i.episode_code === code)
     if (!idea) return res.status(404).json({ detail: `Episode ${code} not found` })
@@ -1131,7 +1108,6 @@ router.get('/projects/:slug/upload/queue/:episode_code/preview', async (req, res
 router.post('/projects/:slug/upload/upload', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const platform = readPlatform(req.body?.platform) || 'youtube'
     if (platform !== 'youtube') return res.status(400).json({ detail: `${platform} upload is not enabled yet.` })
     const episode_id: string = typeof req.body?.episode_id === 'string' ? req.body.episode_id : ''
@@ -1213,7 +1189,6 @@ router.post('/projects/:slug/upload/upload', async (req, res) => {
 router.post('/projects/:slug/upload/update-playlist', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const platform = readPlatform(req.body?.platform) || 'youtube'
     if (platform !== 'youtube') return res.status(400).json({ detail: `${platform} playlist update is not enabled yet.` })
     const episode_id: string = typeof req.body?.episode_id === 'string' ? req.body.episode_id : ''
@@ -1351,7 +1326,6 @@ async function fetchYouTubeCategories(slug: string, accountId: string, regionCod
 router.get('/projects/:slug/upload/youtube-categories', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const regionCode = (typeof req.query.region === 'string' && req.query.region) ? req.query.region : 'US'
 
     const cached = await readCategoryCache(regionCode)
@@ -1416,7 +1390,6 @@ router.get('/projects/:slug/upload/youtube-categories', async (req, res) => {
 router.post('/projects/:slug/upload/youtube-backfill', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
     const dryRun = req.body?.dry_run === true
 
@@ -1559,7 +1532,6 @@ router.post('/projects/:slug/upload/youtube-backfill', async (req, res) => {
 router.get('/projects/:slug/upload/plans', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const list = await plans.listPlans(slug)
     // Active pointers keyed by `${platform}:${account_id}`.
     const cfg = (await pm.getConfig(slug)) as any
@@ -1575,7 +1547,6 @@ router.get('/projects/:slug/upload/plans', async (req, res) => {
 router.post('/projects/:slug/upload/plans', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const body = req.body || {}
     const { name, platform, account_id, schedule, defaults, id } = body
     if (!name || typeof name !== 'string') return res.status(400).json({ detail: 'name required' })
@@ -1593,7 +1564,6 @@ router.post('/projects/:slug/upload/plans', async (req, res) => {
 router.delete('/projects/:slug/upload/plans/:id', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const removed = await plans.removePlan(slug, req.params.id)
     if (!removed) return res.status(404).json({ detail: 'Plan not found' })
     res.json({ ok: true })
@@ -1605,7 +1575,6 @@ router.delete('/projects/:slug/upload/plans/:id', async (req, res) => {
 router.put('/projects/:slug/upload/plans/:id/active', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const plan = await plans.getPlan(slug, req.params.id)
     if (!plan) return res.status(404).json({ detail: 'Plan not found' })
     await plans.setActivePlanId(slug, plan.platform, plan.account_id, plan.id)
@@ -1629,7 +1598,6 @@ router.put('/projects/:slug/upload/plans/:id/active', async (req, res) => {
 router.post('/projects/:slug/upload/plans/:id/preview', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const plan = await plans.getPlan(slug, req.params.id)
     if (!plan) return res.status(404).json({ detail: 'Plan not found' })
     const count = Math.max(1, Math.min(500, Number(req.body?.count) || 10))
@@ -1694,7 +1662,6 @@ router.post('/projects/:slug/upload/plans/:id/preview', async (req, res) => {
 router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const plan = await plans.getPlan(slug, req.params.id)
     if (!plan) return res.status(404).json({ detail: 'Plan not found' })
 
@@ -1881,7 +1848,6 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
 router.post('/projects/:slug/upload/imports/scan', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const result = await uq.scanImports(slug)
     res.json(result)
   } catch (e: any) {
@@ -1892,7 +1858,6 @@ router.post('/projects/:slug/upload/imports/scan', async (req, res) => {
 router.put('/projects/:slug/upload/imports/:filename/meta', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     // Defense-in-depth: reject path-traversal filenames at the route layer
     // too, with a correct 400 (rather than the generic 500 the service throw
     // would become in the catch below).
@@ -1918,7 +1883,6 @@ router.put('/projects/:slug/upload/imports/:filename/meta', async (req, res) => 
 router.delete('/projects/:slug/upload/imports/:filename', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const filenameErr = validateFilename(req.params.filename)
     if (filenameErr) return res.status(400).json({ detail: filenameErr })
     const deleteFile = req.query.delete_file === '1' || req.query.delete_file === 'true'
@@ -1933,7 +1897,6 @@ router.delete('/projects/:slug/upload/imports/:filename', async (req, res) => {
 router.put('/projects/:slug/upload/sequence', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const ordered = Array.isArray(req.body?.ordered_ids)
       ? req.body.ordered_ids.filter((x: any) => typeof x === 'string')
       : []
@@ -1956,7 +1919,6 @@ router.post('/projects/:slug/episodes/:code/imported/scan', async (req, res) => 
   try {
     const slug = req.params.slug
     const code = req.params.code
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const result = await uq.scanEpisodeImports(slug, code)
     res.json(result)
   } catch (e: any) {
@@ -1968,7 +1930,6 @@ router.get('/projects/:slug/episodes/:code/imported/folder', async (req, res) =>
   try {
     const slug = req.params.slug
     const code = req.params.code
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const folder = await uq.ensureEpisodeImportFolder(slug, code)
     res.json({ folder })
   } catch (e: any) {
@@ -1988,7 +1949,6 @@ router.get('/projects/:slug/episodes/:code/imported/folder', async (req, res) =>
 router.get('/projects/:slug/upload/missing-video', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const noCache = req.query.nocache === '1' || req.query.nocache === 'true'
 
     // Episodes the user manually marked as "uploaded elsewhere".
@@ -2070,7 +2030,6 @@ function validateExternalUrlOrErr(raw: unknown): string | null {
 router.post('/projects/:slug/upload/mark-legacy-uploaded', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const episodeCode = typeof req.body?.episode_code === 'string' ? req.body.episode_code.trim() : ''
     if (!episodeCode) return res.status(400).json({ detail: 'episode_code is required' })
     const mark = req.body?.mark !== false   // default true; pass false to unmark
@@ -2136,7 +2095,6 @@ router.post('/projects/:slug/upload/mark-legacy-uploaded', async (req, res) => {
 router.post('/projects/:slug/upload/mark-legacy-uploaded-bulk', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const codes = Array.isArray(req.body?.episode_codes) ? req.body.episode_codes.filter((c: any) => typeof c === 'string' && c.trim()) : []
     if (!codes.length) return res.status(400).json({ detail: 'episode_codes (array) is required' })
     const mark = req.body?.mark !== false
@@ -2181,7 +2139,6 @@ router.post('/projects/:slug/upload/mark-legacy-uploaded-bulk', async (req, res)
 router.get('/projects/:slug/upload/imports/folder', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const folder = await uq.ensureQueueFolder(slug)
     if (!folder) return res.status(400).json({ detail: 'Project output root not configured' })
     res.json({ folder, relative: uq.UPLOAD_QUEUE_FOLDER })
@@ -2200,7 +2157,6 @@ router.get('/projects/:slug/upload/imports/folder', async (req, res) => {
 router.post('/projects/:slug/upload/reconcile/preview', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const account_id = typeof req.body?.account_id === 'string' && req.body.account_id
       ? req.body.account_id
       : (await store.getDefaultAccountId(slug, 'youtube'))
@@ -2215,7 +2171,6 @@ router.post('/projects/:slug/upload/reconcile/preview', async (req, res) => {
 router.post('/projects/:slug/upload/reconcile/confirm', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const account_id = typeof req.body?.account_id === 'string' && req.body.account_id
       ? req.body.account_id
       : (await store.getDefaultAccountId(slug, 'youtube'))
@@ -2254,7 +2209,6 @@ router.post('/projects/:slug/upload/reconcile/confirm', async (req, res) => {
 router.get('/projects/:slug/upload/orphans', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const accountId = typeof req.query.account_id === 'string' && req.query.account_id
       ? req.query.account_id
       : await store.getDefaultAccountId(slug, 'youtube')
@@ -2269,7 +2223,6 @@ router.get('/projects/:slug/upload/orphans', async (req, res) => {
 router.post('/projects/:slug/upload/orphans/adopt-single', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const accountId = typeof req.body?.account_id === 'string' && req.body.account_id
       ? req.body.account_id
       : await store.getDefaultAccountId(slug, 'youtube')
@@ -2289,7 +2242,6 @@ router.post('/projects/:slug/upload/orphans/adopt-single', async (req, res) => {
 router.post('/projects/:slug/upload/orphans/adopt-bulk', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const accountId = typeof req.body?.account_id === 'string' && req.body.account_id
       ? req.body.account_id
       : await store.getDefaultAccountId(slug, 'youtube')
@@ -2330,7 +2282,6 @@ router.post('/projects/:slug/upload/orphans/adopt-bulk', async (req, res) => {
 router.get('/projects/:slug/upload/renumber-undo', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const plan = await renumberUndo.readUndoSidecar(slug)
     if (!plan) return res.json({ available: false })
     res.json({
@@ -2350,7 +2301,6 @@ router.get('/projects/:slug/upload/renumber-undo', async (req, res) => {
 router.post('/projects/:slug/upload/renumber-undo/revert', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const result = await renumberUndo.revertRenumber(slug)
     // Bust caches that depend on episode codes — most importantly the
     // queue index, which built up assuming the renumbered codes.
@@ -2365,7 +2315,6 @@ router.post('/projects/:slug/upload/renumber-undo/revert', async (req, res) => {
 router.delete('/projects/:slug/upload/renumber-undo', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const deleted = await renumberUndo.deleteUndoSidecar(slug)
     res.json({ ok: true, deleted })
   } catch (e: any) {
@@ -2389,7 +2338,6 @@ router.delete('/projects/:slug/upload/renumber-undo', async (req, res) => {
 router.post('/projects/:slug/upload/queue/:episode_code/reset', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const code = req.params.episode_code
     const platform = readPlatform(req.body?.platform) || 'youtube'
 
@@ -2437,7 +2385,6 @@ router.post('/projects/:slug/upload/queue/:episode_code/reset', async (req, res)
 router.post('/projects/:slug/upload/queue/:episode_code/link-existing-video', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const code = req.params.episode_code
     const platform = readPlatform(req.body?.platform) || 'youtube'
 
@@ -2517,7 +2464,6 @@ router.post('/projects/:slug/upload/queue/:episode_code/link-existing-video', as
 router.post('/projects/:slug/upload/queue/:episode_code/mark-deleted', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const code = req.params.episode_code
     const platform = readPlatform(req.body?.platform) || 'youtube'
     // `clear: true` un-marks a tombstoned row WITHOUT touching the rest of
@@ -2593,7 +2539,6 @@ router.post('/projects/:slug/upload/queue/:episode_code/mark-deleted', async (re
 router.patch('/projects/:slug/upload/queue/:episode_code/schedule', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const code = req.params.episode_code
     const publish_at = typeof req.body?.publish_at === 'string' ? req.body.publish_at : ''
     if (!publish_at) return res.status(400).json({ detail: 'publish_at (ISO 8601) required' })
@@ -2650,7 +2595,6 @@ router.patch('/projects/:slug/upload/queue/:episode_code/schedule', async (req, 
 router.delete('/projects/:slug/upload/queue/:episode_code/schedule', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const code = req.params.episode_code
     const make = req.body?.make === 'public' ? 'public' : 'private'
 
@@ -2714,7 +2658,6 @@ router.delete('/projects/:slug/upload/queue/:episode_code/schedule', async (req,
 router.post('/projects/:slug/upload/queue/sync-from-youtube', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
     const accountId = await store.getDefaultAccountId(slug, 'youtube')
     if (!accountId) return res.status(400).json({ detail: 'No default YouTube account set for this project.' })
@@ -2865,7 +2808,6 @@ router.post('/projects/:slug/upload/queue/sync-from-youtube', async (req, res) =
 router.delete('/projects/:slug/upload/item-schedule', async (req, res) => {
   try {
     const slug = req.params.slug
-    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const planId = typeof req.query.plan_id === 'string' ? req.query.plan_id : ''
     const syncYoutube = req.query.sync_youtube === '1' || req.query.sync_youtube === 'true'
     // Explicit episode_codes (comma-separated query param) lets the Plans-tab

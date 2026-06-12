@@ -8,6 +8,8 @@
  */
 
 import '../providers/image/kie.js'
+// v1.0.338+ — fal.ai cloud image generation/editing (GPT Image 2).
+import '../providers/image/fal-image.js'
 // v1.0.151+ — Image Studio KH (Pinokio FastAPI wrapper, MLX-backed
 // FLUX-family image generation). Sibling of Voice Studio; the user
 // runs them on the same Mac and swaps them in/out via Pinokio.

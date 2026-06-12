@@ -34,7 +34,6 @@ router.get('/projects/:slug/video-editor/check-ffmpeg', async (_req, res) => {
 // Scan episode assets for video editor
 router.get('/projects/:slug/video-editor/scan/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   try {
     const assets = await scanEpisodeAssets(slug, episodeId)
@@ -47,7 +46,6 @@ router.get('/projects/:slug/video-editor/scan/:episodeId', async (req, res) => {
 // Scan local music files in project directory
 router.get('/projects/:slug/video-editor/music-files', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   try {
     const projectDir = pm.getProjectDir(slug)
@@ -96,7 +94,6 @@ router.get('/projects/:slug/video-editor/music-files', async (req, res) => {
 // fan-out for static images so the response stays cheap.
 router.get('/projects/:slug/video-editor/overlay-files', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   try {
     const projectDir = pm.getProjectDir(slug)
@@ -168,7 +165,6 @@ router.get('/projects/:slug/video-editor/overlay-files', async (req, res) => {
 // the UI can show "rain.mp3 · 4m 12s" without an extra round-trip.
 router.get('/projects/:slug/video-editor/ambient-files', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   try {
     const projectDir = pm.getProjectDir(slug)
@@ -205,7 +201,6 @@ router.get('/projects/:slug/video-editor/ambient-files', async (req, res) => {
 // scanners — drop sources into ${PROJECT}/backgrounds/, click + Add.
 router.get('/projects/:slug/video-editor/background-files', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   try {
     const projectDir = pm.getProjectDir(slug)
@@ -258,7 +253,6 @@ router.get('/projects/:slug/video-editor/background-files', async (req, res) => 
 
 router.post('/projects/:slug/video-editor/backgrounds/open-folder', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const projectDir = pm.getProjectDir(slug)
     if (!projectDir) return res.status(404).json({ detail: 'Project directory not found' })
@@ -273,32 +267,15 @@ router.post('/projects/:slug/video-editor/backgrounds/open-folder', async (req, 
   }
 })
 
-// Locate the on-disk episode directory by code. Walks up to 4 levels
-// deep under the project's output root and returns the first directory
-// whose name starts with the episode code (e.g. "TN0143 - Title…").
-// Used by the chapter-alignment + per-scene-swap routes below.
+// Locate the on-disk episode directory by code. Delegates to the shared
+// folder-resolver (v1.0.338 consolidation — this used to be a private
+// recursive-walk copy). Used by the chapter-alignment + per-scene-swap
+// routes below.
 async function findEpisodeDirForRoute(slug: string, episodeCode: string): Promise<string | null> {
   const outputRoot = await pm.getProjectOutputRoot(slug)
   if (!outputRoot) return null
-  async function searchRecursive(dir: string, depth: number): Promise<string | null> {
-    if (depth > 4) return null
-    try {
-      const entries = await fs.readdir(dir, { withFileTypes: true })
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        if (entry.name.toUpperCase().startsWith(episodeCode.toUpperCase())) {
-          return path.join(dir, entry.name)
-        }
-      }
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        const found = await searchRecursive(path.join(dir, entry.name), depth + 1)
-        if (found) return found
-      }
-    } catch { /* skip */ }
-    return null
-  }
-  return searchRecursive(outputRoot, 0)
+  const { findEpisodeDir } = await import('../lib/folder-resolver.js')
+  return findEpisodeDir(outputRoot, episodeCode)
 }
 
 // GET the audio_chapters.json sidecar (Workstream B). Returns the
@@ -309,7 +286,6 @@ router.get('/projects/:slug/video-editor/audio-chapters', async (req, res) => {
   const { slug } = req.params
   const episodeId = String(req.query.episode_id || '').trim()
   if (!episodeId) return res.status(400).json({ detail: 'episode_id query parameter required' })
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const episodeDir = await findEpisodeDirForRoute(slug, episodeId)
     if (!episodeDir) return res.json({ sections: [], episode_dir: null, exists: false })
@@ -339,7 +315,6 @@ router.get('/projects/:slug/video-editor/scene-chapter-assignments', async (req,
   const { slug } = req.params
   const episodeId = String(req.query.episode_id || '').trim()
   if (!episodeId) return res.status(400).json({ detail: 'episode_id query parameter required' })
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const episodeDir = await findEpisodeDirForRoute(slug, episodeId)
     if (!episodeDir) return res.json({ assignments: [], episode_dir: null, exists: false })
@@ -365,7 +340,6 @@ router.put('/projects/:slug/video-editor/scene-chapter-assignments', async (req,
   const { slug } = req.params
   const episodeId = String(req.body?.episode_id || '').trim()
   if (!episodeId) return res.status(400).json({ detail: 'episode_id required in body' })
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const episodeDir = await findEpisodeDirForRoute(slug, episodeId)
     if (!episodeDir) return res.status(404).json({ detail: `Episode directory not found for ${episodeId}` })
@@ -412,7 +386,6 @@ router.put('/projects/:slug/video-editor/scene-chapter-assignments', async (req,
 
 router.post('/projects/:slug/video-editor/ambient/open-folder', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const projectDir = pm.getProjectDir(slug)
     if (!projectDir) return res.status(404).json({ detail: 'Project directory not found' })
@@ -432,7 +405,6 @@ router.post('/projects/:slug/video-editor/ambient/open-folder', async (req, res)
 // the click never fails on a fresh project.
 router.post('/projects/:slug/video-editor/overlays/open-folder', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const projectDir = pm.getProjectDir(slug)
     if (!projectDir) return res.status(404).json({ detail: 'Project directory not found' })
@@ -453,7 +425,6 @@ router.post('/projects/:slug/video-editor/overlays/open-folder', async (req, res
 // Serve an audio file for preview playback (music, background noise)
 router.get('/projects/:slug/video-editor/preview-audio', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const filePath = req.query.path as string
   if (!filePath) return res.status(400).json({ detail: 'path query parameter required' })
@@ -505,7 +476,6 @@ router.get('/projects/:slug/video-editor/preview-audio', async (req, res) => {
 // Serve an image file for preview (thumbnails, scene images, logos)
 router.get('/projects/:slug/video-editor/preview-image', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const filePath = req.query.path as string
   if (!filePath) return res.status(400).json({ detail: 'path query parameter required' })
@@ -543,7 +513,6 @@ router.get('/projects/:slug/video-editor/preview-image', async (req, res) => {
 
 router.get('/projects/:slug/video-editor/transitions/catalog', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   res.json({ transitions: TRANSITIONS, grouped: groupedTransitions() })
 })
 
@@ -558,7 +527,6 @@ router.get('/projects/:slug/video-editor/transitions/catalog', async (req, res) 
  */
 router.get('/projects/:slug/video-editor/preview-transition', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const type = (req.query.type as string) || 'crossfade'
   const duration = Math.max(0.3, Math.min(Number(req.query.duration) || 1.2, 3))
@@ -645,7 +613,6 @@ router.get('/projects/:slug/video-editor/preview-transition', async (req, res) =
 
 router.get('/projects/:slug/video-editor/animations/catalog', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   res.json({ animations: ANIMATIONS, grouped: groupedAnimations() })
 })
 
@@ -656,7 +623,6 @@ router.get('/projects/:slug/video-editor/animations/catalog', async (req, res) =
  */
 router.get('/projects/:slug/video-editor/preview-animation', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const type = (req.query.type as string) || 'none'
   const episodeId = req.query.episode as string | undefined
@@ -729,7 +695,6 @@ router.get('/projects/:slug/video-editor/preview-animation', async (req, res) =>
 /** Check what source options are actually usable for the current episode. */
 router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const [assets, libass, config] = await Promise.all([
       scanEpisodeAssets(slug, episodeId),
@@ -832,7 +797,6 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
  *  audio (each section's cue starts 2-3s late, error compounds). */
 router.post('/projects/:slug/video-editor/subtitles/from-chapters/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const assets = await scanEpisodeAssets(slug, episodeId)
     if (assets.audio_sections.length === 0) {
@@ -904,7 +868,6 @@ router.post('/projects/:slug/video-editor/subtitles/from-chapters/:episodeId', a
  *  the subtitle stays with the episode even if the source is deleted. */
 router.post('/projects/:slug/video-editor/subtitles/import/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const srcPath = req.body?.source_path as string | undefined
   if (!srcPath) return res.status(400).json({ detail: 'source_path is required' })
@@ -933,7 +896,6 @@ router.post('/projects/:slug/video-editor/subtitles/import/:episodeId', async (r
  *  poll /jobs/:id for progress. */
 router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   // v1.0.217+ — engine-aware gating. 'voicestudio' = the local modal's free
   // Whisper STT (no OpenAI key needed); 'openai' = the paid fallback.
@@ -1000,7 +962,6 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
  *  GET. */
 router.delete('/projects/:slug/video-editor/subtitles/:episodeId/:filename', async (req, res) => {
   const { slug, episodeId, filename } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   if (
     !filename ||
@@ -1049,7 +1010,6 @@ router.delete('/projects/:slug/video-editor/subtitles/:episodeId/:filename', asy
  *  preview endpoints. */
 router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const sampleText = typeof req.query.text === 'string' && req.query.text.length > 0
     ? String(req.query.text)
@@ -1133,7 +1093,6 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
 // Video Generator can own /generate/video.
 router.post('/projects/:slug/generate/video-assembly', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
   const { episode_id, scenes, narration_path, scene_recycling, duration } = req.body
   if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })

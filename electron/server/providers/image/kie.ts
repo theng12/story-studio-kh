@@ -42,6 +42,7 @@ const kieImageProvider: ImageProvider = {
       api_model: providerParams.api_model as string,
       api_model_i2i: providerParams.api_model_i2i as string | undefined,
       refs_field: providerParams.refs_field as string | undefined,
+      refs_upload: providerParams.refs_upload === true,
       aspect_field: providerParams.aspect_field as string | undefined,
       supports_reference_images: providerParams.supports_reference_images === true,
     } as any

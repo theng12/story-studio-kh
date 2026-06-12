@@ -50,8 +50,14 @@ import { router as scenePlanRouter } from './scene-plan.js'
 import { router as sceneReviewRouter } from './scene-review.js'
 import { router as continuityRouter } from './continuity.js'
 import { router as lmstudioRouter } from './lmstudio.js'
+import { requireProject } from './middleware.js'
 
 export function mountRoutes(app: Express): void {
+  // v1.0.338 — ONE project-existence guard for every /projects/:slug/*
+  // endpoint (404 {detail:'Project not found'} for unknown slugs). Mounted
+  // before all routers so individual handlers no longer each need the
+  // hand-copied inline check. See routes/middleware.ts.
+  app.use('/api/projects/:slug', requireProject)
   app.use('/api', projectsRouter)
   app.use('/api', settingsRouter)
   app.use('/api', appSettingsRouter)

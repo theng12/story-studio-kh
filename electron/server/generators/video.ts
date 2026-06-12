@@ -16,6 +16,10 @@ import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
 import { trackChild } from '../services/job-queue.js'
 import { resolveSubfolderNames } from '../services/utils.js'
+// v1.0.338 — episode-dir + subfolder lookups consolidated into the shared
+// folder-resolver (this file used to carry private copies; the ✅-prefix
+// and title-hint semantics moved there verbatim).
+import { findEpisodeDir, findSubfolder as resolveSubfolder } from '../lib/folder-resolver.js'
 import { runFfmpeg, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
@@ -352,7 +356,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
     if (match?.title) titleHint = match.title
   } catch { /* fall back to code-only match */ }
 
-  const episodeDir = await findEpisodeDir(outputRoot, code, titleHint)
+  const episodeDir = await findEpisodeDir(outputRoot, code, { titleHint })
   if (!episodeDir) throw new Error(`Episode directory not found for ${code}`)
 
   const imagesDir = await resolveSubfolder(episodeDir, names.images)
@@ -642,7 +646,7 @@ export async function generateVideo(job: Job): Promise<void> {
     const match = ideas.find(i => i.episode_code === code)
     if (match?.title) titleHint = match.title
   } catch { /* fall back to code-only match */ }
-  const episodeDir = await findEpisodeDir(outputRoot, code, titleHint)
+  const episodeDir = await findEpisodeDir(outputRoot, code, { titleHint })
   if (!episodeDir) throw new Error(`Episode directory not found for ${code}`)
 
   const videoDir = await resolveSubfolder(episodeDir, names.video) || path.join(episodeDir, names.video)
@@ -3640,57 +3644,6 @@ function calculateLogoPosition(
  * "{code} - {titleHint}" match first, then fall back to any folder
  * starting with the code.
  */
-async function findEpisodeDir(
-  projectDir: string, code: string, titleHint?: string,
-): Promise<string | null> {
-  const exactName = titleHint ? `${code} - ${titleHint}` : null
-  async function searchRecursive(dir: string, depth: number): Promise<string | null> {
-    if (depth > 4) return null
-    try {
-      const entries = await fs.readdir(dir, { withFileTypes: true })
-      // Pass 1: exact match on "{code} - {title}" when we have a title hint.
-      if (exactName) {
-        for (const entry of entries) {
-          if (!entry.isDirectory()) continue
-          if (entry.name === exactName) return path.join(dir, entry.name)
-        }
-      }
-      // Pass 2: any folder starting with the code prefix. Preserves the
-      // pre-titleHint behaviour for callers that don't supply one.
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        if (entry.name.toUpperCase().startsWith(code)) {
-          return path.join(dir, entry.name)
-        }
-      }
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        const found = await searchRecursive(path.join(dir, entry.name), depth + 1)
-        if (found) return found
-      }
-    } catch { /* skip */ }
-    return null
-  }
-  return searchRecursive(projectDir, 0)
-}
-
-async function resolveSubfolder(episodeDir: string, subfolderName: string): Promise<string | null> {
-  try {
-    const entries = await fs.readdir(episodeDir)
-    // Folders can be prefixed with "✅ " when the user marks a step done;
-    // strip that when matching so scanEpisodeAssets keeps working after the
-    // prefix is added (previously this returned null, causing video-assembly
-    // to silently miss merged audio and scene images).
-    for (const entry of entries) {
-      const clean = entry.replace(/^✅\s*/, '')
-      if (clean === subfolderName) return path.join(episodeDir, entry)
-    }
-  } catch { /* fall through */ }
-  const exactPath = path.join(episodeDir, subfolderName)
-  if (existsSync(exactPath)) return exactPath
-  return null
-}
-
 async function safeReaddir(dir: string): Promise<string[]> {
   try {
     return await fs.readdir(dir)

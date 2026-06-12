@@ -25,7 +25,6 @@ export const router = Router()
 
 router.get('/projects/:slug/music-pool', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const state = await mp.getPoolState(req.params.slug)
     res.json(state)
   } catch (e: any) {
@@ -35,7 +34,6 @@ router.get('/projects/:slug/music-pool', async (req, res) => {
 
 router.put('/projects/:slug/music-pool', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const body = req.body || {}
     const validStrategies = ['sequential', 'random-no-repeat', 'manual']
     if (body.strategy !== undefined && !validStrategies.includes(body.strategy)) {
@@ -62,7 +60,6 @@ router.put('/projects/:slug/music-pool', async (req, res) => {
 
 router.post('/projects/:slug/music-pool/tracks', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const source = typeof req.body?.source_path === 'string' ? req.body.source_path.trim() : ''
     if (!source) return res.status(400).json({ detail: 'source_path is required (absolute path to the audio file)' })
     const { filename } = await mp.addTrack(req.params.slug, source)
@@ -74,7 +71,6 @@ router.post('/projects/:slug/music-pool/tracks', async (req, res) => {
 
 router.patch('/projects/:slug/music-pool/tracks/:filename', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const patch: {
       enabled?: boolean
       label?: string
@@ -103,7 +99,6 @@ router.patch('/projects/:slug/music-pool/tracks/:filename', async (req, res) => 
 
 router.delete('/projects/:slug/music-pool/tracks/:filename', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const result = await mp.removeTrack(req.params.slug, decodeURIComponent(req.params.filename))
     if (!result.removed) return res.status(404).json({ detail: 'Track not found on disk' })
     res.json({ ok: true, pool: await mp.getPoolState(req.params.slug) })
@@ -114,7 +109,6 @@ router.delete('/projects/:slug/music-pool/tracks/:filename', async (req, res) =>
 
 router.get('/projects/:slug/music-pool/peek-next', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const episode_code = typeof req.query.episode_code === 'string' ? req.query.episode_code : ''
     const result = await mp.peekNext(req.params.slug, episode_code)
     res.json(result)
@@ -125,7 +119,6 @@ router.get('/projects/:slug/music-pool/peek-next', async (req, res) => {
 
 router.post('/projects/:slug/music-pool/record-pick', async (req, res) => {
   try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const filename = typeof req.body?.filename === 'string' ? req.body.filename.trim() : ''
     const episode_code = typeof req.body?.episode_code === 'string' ? req.body.episode_code.trim() : ''
     if (!filename || !episode_code) {
