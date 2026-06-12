@@ -23,6 +23,7 @@
       :project-slug="slug"
       v-model:episode-id="episodeId"
       filter-field="scene_plan"
+      :presets="planPresets"
       generate-label="Plan scenes"
       loading-label="Planning…"
       :generate-loading="planning || planJobActive"
@@ -256,25 +257,8 @@
         </div>
       </div>
 
-      <!-- Savable presets for these plan settings. -->
-      <PresetPicker
-        label="Plan preset"
-        hint="Saves the model, target count, research toggle, detail level, style prompt, and custom instructions. Pick one + Apply to load; Save as… to capture the current settings."
-        :presets="planPresets.presets.value"
-        :active-id="planPresets.activeId.value"
-        :current-machine-label="planPresets.machineLabel.value"
-        :show-all-devices="planPresets.showAllDevices.value"
-        :cross-device-count="planPresets.crossDeviceCount.value"
-        :active-preset-is-cross-device="planPresets.activePresetIsCrossDevice.value"
-        :active-preset-machine-label="planPresets.activePresetMachineLabel.value"
-        @update:active-id="planPresets.setActive"
-        @update:show-all-devices="(v) => planPresets.showAllDevices.value = v"
-        @apply="planPresets.applyActive(); success('Preset applied')"
-        @overwrite="planPresets.overwrite(); success('Preset saved')"
-        @save-as="(n) => planPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
-        @rename="(n) => planPresets.rename(n).then(() => success(`Renamed to ${n}`))"
-        @delete="planPresets.remove(); success('Preset deleted')"
-      />
+      <!-- v1.0.357 — the Plan preset moved to the page-level preset row at the
+           top (TopActionBar), matching every other generator tab. -->
     </section>
 
     <!-- Step 3: Plan + edit -->

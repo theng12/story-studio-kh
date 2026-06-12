@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.357 — 2026-06-13
+
+### Changed — Scene Plan: preset moved to the top, like every other tab
+The Scene Plan "Plan preset" (model, target count, research toggle, detail level, style prompt, custom instructions) was an inline picker buried lower in the page. It's now in the **preset row at the top** — same spot and behaviour as Scripts, Image Prompts, Audio, and the Character Sheet. Same single preset, just consistent placement: pick + Apply to load, Save as… to capture the current settings. No storage change — your existing Plan presets carry over.
+
+### Files
+- `frontend/pages/projects/[slug]/scene-plan.vue` (`:presets="planPresets"` on TopActionBar; removed the inline `PresetPicker`)
+
+---
+
 ## v1.0.356 — 2026-06-13
 
 ### Changed — Character Sheet: ONE preset for the whole page (apply your continuity setup in a click)
