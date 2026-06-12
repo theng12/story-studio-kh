@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.336 — 2026-06-12
+
+### Added — continuity videos: the guide character now appears SELECTIVELY, not in every scene
+For continuity-chain videos built around an anchored character (e.g. Boundless's explorer boy), the guide no longer shows up in all ~80 shots. The scene planner now **classifies every scene** — `character` / `event` / `environment` / `map` / `artifact` — aiming for a mix of roughly **40% character, 35% event, 15% map/environment, 10% artifact**, so the guide stays special by appearing selectively.
+
+- **Non-character scenes** (the event itself, a place, a map, an artifact) are planned **without** the character in their prompt, and the renderer **drops the character sheet / anchor / previous-render references** for them (keeping style + composition) and adds a "no people" negative — so the guide doesn't get img2img'd into a battle scene or a map.
+- **The guide's look stays consistent**: each character scene chains off the *previous character render*, skipping the cutaways in between — so continuity survives even when the boy isn't in the shots between his appearances.
+- **You're in control**: a colour-coded per-scene picker in **Scene Plan** (🧒 Character · ⚔️ Event · 🏛️ Environment · 🗺️ Map · 📜 Artifact) lets you override any scene's type; your choice locks (🔒) and survives a re-plan.
+
+Back-compat: plans made before this update have no type set and render exactly as before (guide everywhere) until you re-plan or set types yourself.
+
+### Files
+- `electron/server/models/types.ts` (`SceneType` + `ScenePlanEntry.scene_type` / `scene_type_locked`)
+- `electron/server/services/scene-planner.ts` (classify in the continuity planner prompt + parse `scene_type`; selective-guide cross-segment wording)
+- `electron/server/generators/continuity-render.ts` (per-scene reference stack — character scenes vs cutaways; character-only prev-render chaining; no-people negative on non-character scenes)
+- `frontend/pages/projects/[slug]/scene-plan.vue` (per-scene type picker + lock, continuity-only)
+- `electron/server/__tests__/scene-planner-salvage.test.ts` (updated for the new continuity wording)
+
+---
+
 ## v1.0.335 — 2026-06-11
 
 ### Added — concurrent text generation (generate multiple episodes at once)

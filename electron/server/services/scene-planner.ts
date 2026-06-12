@@ -33,10 +33,18 @@ import type {
   ScenePlan,
   ScenePlanEntry,
   ScenePlanRunOptions,
+  SceneType,
 } from '../models/types.js'
 
 const MIN_SCENE_SEC = 3
 const MAX_SCENE_SEC = 12
+
+// v1.0.336 — coerce the planner's `scene_type` to a valid value (or undefined,
+// which the renderer treats as a character scene for back-compat).
+const VALID_SCENE_TYPES: ReadonlySet<string> = new Set(['character', 'event', 'environment', 'map', 'artifact'])
+function coerceSceneType(v: unknown): SceneType | undefined {
+  return typeof v === 'string' && VALID_SCENE_TYPES.has(v) ? (v as SceneType) : undefined
+}
 
 /**
  * v1.0.242 — visual-prompt detail levels for the scene planner. The UI slider
@@ -83,6 +91,10 @@ function buildScenePlannerPrompt(opts: {
   custom_instructions?: string
   /** continuity-chain density pacing — see ScenePlanRunOptions.pacing. */
   pacing?: { min_sec: number; max_sec: number; mode?: 'live' }
+  /** v1.0.337 — % of scenes that feature the recurring guide character
+   *  (continuity-chain). 0 = no guide at all; 100 = guide in every scene;
+   *  ~40 (default) = selective. Drives the planner's cast guidance. */
+  character_density?: number
   /** v1.0.226 — when set, the planner is working on ONE time-segment of a
    *  longer video (chunked planner). `stitched_srt` then holds only this
    *  segment's cues, and the model is asked for scenes covering [start,end]
@@ -103,13 +115,19 @@ function buildScenePlannerPrompt(opts: {
   // (~30-60 words)" behaviour, so unset/legacy runs are unchanged.
   const detail = DETAIL_SPECS[opts.detail_level ?? 2] ?? DETAIL_SPECS[2]!
 
+  // continuity-chain only: classify each scene so the renderer can keep the
+  // guide character SELECTIVE. The explainer planner has no anchored character,
+  // so it skips this field.
+  const sceneTypeLine = opts.pacing
+    ? `\n      "scene_type": "<one of: character | event | environment | map | artifact — see rule about the character>",`
+    : ''
   const schemaBlock = `Output JSON schema:
 {
   "scenes": [
     {
       "start_sec": <number>,
       "end_sec": <number>,
-      "transcript_segment": "<verbatim text from the SRT for this window>",
+      "transcript_segment": "<verbatim text from the SRT for this window>",${sceneTypeLine}
       "visual_prompt": "<${detail.length} describing the still image — cover: ${detail.cover}>",
       "boundary_reason": "<short hint: why you chose this boundary>"
     }
@@ -119,14 +137,23 @@ function buildScenePlannerPrompt(opts: {
   // continuity-chain: a character-driven, live-paced planner. Scenes track the
   // action moment-to-moment and cut denser on busy passages.
   const system = opts.pacing
-    ? `You are a video scene planner for a character-driven, LIVE-paced video. Each scene becomes ONE still image, and consecutive images are rendered to flow into one another — so scenes should track the on-screen action moment to moment.
+    ? `You are a video scene planner for a character-driven, LIVE-paced video. There is ONE recurring GUIDE CHARACTER — a curious observer who travels through the story while a calm narrator explains what unfolds. The guide is a STORYTELLING DEVICE, not the subject of every shot: he appears SELECTIVELY so he stays special. Each scene becomes ONE still image, and consecutive character images are rendered to flow into one another.
 
 Rules:
   1. Pick scene boundaries that follow the ACTION and the speaker's beats: a new action, a new place, a new object handled, a shift in what's on screen.
   2. PACE FOR A LIVE FEEL. Every scene must be at least ${minSec} seconds and at most ${maxSec} seconds. Cut MORE often during busy, fast, or action-packed passages (multiple actions, list items, rapid delivery) — favour the SHORTER end of the range there. Hold longer (toward ${maxSec}s) only during slow, reflective, single-idea passages.
   3. Boundaries must align to actual cue start/end times from the SRT — don't invent timestamps that fall mid-cue.
-  4. Each scene's \`visual_prompt\` is ${detail.length}, detailed enough for an image generator to render it well. Cover: ${detail.cover}. Keep the SAME on-screen character, wardrobe, and setting consistent across scenes, and anchor on the specific beat they're performing (what they're doing, holding, or looking at). Write a descriptive prompt, not a short caption — be concrete and avoid vague filler like "an interesting image" or "a person speaking".
-  5. Return ONLY a JSON object. No prose, no markdown fences.
+  4. CLASSIFY each scene with a "scene_type". Keep the guide SELECTIVE — roughly 40% of scenes, and NEVER in two or three shots in a row while the narration is describing the event itself:
+       • "character"   — the guide is on screen, reacting to or exploring the moment.
+       • "event"       — the historical action/event itself, NO guide (soldiers marching, a ship in a storm, a treaty signed).
+       • "environment" — a place or setting, NO guide (a city, a landscape, an interior).
+       • "map"         — a map, route, or diagram, NO guide.
+       • "artifact"    — a single object, document, or detail in focus, NO guide.
+     Aim for a mix of roughly 40% character, 35% event, 15% map/environment, 10% artifact across the whole video — a guideline, not a quota. When the narration introduces an event, place, or object, CUT AWAY to it; bring the guide back to react a beat later.
+  5. Write each scene's \`visual_prompt\` — ${detail.length}, cover: ${detail.cover}; descriptive and concrete, not a short caption; avoid vague filler like "an interesting image":
+       • "character" scenes: describe the GUIDE performing the specific beat (what he's doing, holding, looking at), keeping his appearance and wardrobe consistent with the other character scenes.
+       • every NON-character scene ("event" / "environment" / "map" / "artifact"): describe ONLY the subject of the shot. Do NOT mention, include, or imply the guide — no boy, no observer in frame.
+  6. Return ONLY a JSON object. No prose, no markdown fences.
 
 ${schemaBlock}`
     : `You are a video scene planner for a fact-checked explainer channel.
@@ -341,6 +368,7 @@ function normalizeScenes(
       transcript_segment: typeof s.transcript_segment === 'string' ? s.transcript_segment : '',
       visual_prompt: typeof s.visual_prompt === 'string' ? s.visual_prompt : '',
       boundary_reason: typeof s.boundary_reason === 'string' ? s.boundary_reason : undefined,
+      scene_type: coerceSceneType(s.scene_type),
       approved: false,
     })
     prevEnd = end
@@ -490,11 +518,15 @@ export function buildWindows(cues: SrtCue[], windowSec: number): PlanWindow[] {
 export function buildStorySoFar(scenes: ScenePlanEntry[], live: boolean): string {
   const withVisual = scenes.filter(s => s.visual_prompt && s.visual_prompt.trim())
   if (!withVisual.length) return ''
-  const anchor = withVisual[0]!.visual_prompt.trim()
+  // For continuity, anchor on the first CHARACTER scene (the guide's
+  // establishing look) so he stays consistent across the seam even when the
+  // immediately-preceding scenes were character-free cutaways.
+  const charAnchor = live ? withVisual.find(s => !s.scene_type || s.scene_type === 'character') : undefined
+  const anchor = (charAnchor || withVisual[0]!).visual_prompt.trim()
   const recent = withVisual.slice(-5)
-  const recentLines = recent.map(s => `  • [${s.start_sec.toFixed(0)}s] ${s.visual_prompt.trim()}`)
+  const recentLines = recent.map(s => `  • [${s.start_sec.toFixed(0)}s]${s.scene_type ? ` (${s.scene_type})` : ''} ${s.visual_prompt.trim()}`)
   const rule = live
-    ? 'CONTINUITY: this is one continuous character-driven video. Keep the SAME character (face, age, hair, wardrobe) and the established setting consistent with the scenes already planned below — do not restyle or re-introduce them.'
+    ? 'CONTINUITY: this is one continuous character-driven video with ONE recurring guide character who appears SELECTIVELY — only in "character" scenes. In "character" scenes, keep the SAME guide (face, age, hair, wardrobe) and the established setting consistent with the character scenes already planned below; do not restyle or re-introduce him. In non-character scenes (event / environment / map / artifact), do NOT include the guide at all.'
     : 'CONTINUITY: keep the visual style, recurring subjects, and setting consistent with the scenes already planned below; don\'t contradict or re-introduce what\'s already established.'
   return [
     rule,

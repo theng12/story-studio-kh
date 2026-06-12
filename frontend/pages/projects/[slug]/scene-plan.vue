@@ -434,6 +434,26 @@
               <span v-if="scene.boundary_reason" class="text-muted text-xs scene-boundary-reason">
                 · {{ scene.boundary_reason }}
               </span>
+              <!-- v1.0.336 — continuity only: who/what is in the shot. 'Character'
+                   includes the guide; the others render WITHOUT him so he stays
+                   selective. Drives the renderer's per-scene reference stack. -->
+              <span
+                v-if="continuityPacing"
+                class="scene-type-pick"
+                :class="`st-${scene.scene_type || 'character'}`"
+                :title="(scene.scene_type && scene.scene_type !== 'character') || !scene.scene_type
+                  ? 'What this scene shows. Only ‘Character’ includes the guide; the rest render without him.'
+                  : 'Character scene — the guide appears here.'"
+              >
+                <select
+                  :value="scene.scene_type || 'character'"
+                  class="scene-type-select"
+                  @change="setSceneType(scene, ($event.target as HTMLSelectElement).value)"
+                >
+                  <option v-for="t in SCENE_TYPE_OPTIONS" :key="t.value" :value="t.value">{{ t.emoji }} {{ t.label }}</option>
+                </select>
+                <span v-if="scene.scene_type_locked" class="scene-type-lock" title="You set this — kept on re-plan.">🔒</span>
+              </span>
             </div>
             <div class="form-group mt-1">
               <label class="text-xs text-muted">Transcript segment</label>
@@ -586,7 +606,19 @@ interface ScenePlanEntry {
   visual_prompt_raw?: string
   emotion?: string
   emotion_locked?: boolean
+  // v1.0.336 — continuity: what the scene depicts. 'character' includes the
+  // guide; the rest render without him. Unset → treated as 'character'.
+  scene_type?: SceneType
+  scene_type_locked?: boolean
 }
+type SceneType = 'character' | 'event' | 'environment' | 'map' | 'artifact'
+const SCENE_TYPE_OPTIONS: Array<{ value: SceneType; emoji: string; label: string }> = [
+  { value: 'character', emoji: '🧒', label: 'Character' },
+  { value: 'event', emoji: '⚔️', label: 'Event' },
+  { value: 'environment', emoji: '🏛️', label: 'Environment' },
+  { value: 'map', emoji: '🗺️', label: 'Map' },
+  { value: 'artifact', emoji: '📜', label: 'Artifact' },
+]
 interface ScenePlan {
   schema_version: 1
   generated_at: string
@@ -724,6 +756,13 @@ function markEmotionEdited(scene: ScenePlanEntry): void {
 }
 function toggleEmotionLock(scene: ScenePlanEntry): void {
   scene.emotion_locked = !scene.emotion_locked
+}
+
+/** Set a scene's type and lock it so a re-plan keeps the user's choice. The
+ *  `dirty` computed picks up the mutation; the user saves with the Save button. */
+function setSceneType(scene: ScenePlanEntry, value: string): void {
+  scene.scene_type = value as SceneType
+  scene.scene_type_locked = true
 }
 
 const form = ref({
@@ -1571,8 +1610,21 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
 }
 .plan-health-chip:hover { border-color: #e0a23a; background: rgba(224, 162, 58, 0.2); }
 .plan-health-why { color: var(--text-muted); }
-.scene-row-head { display: flex; gap: 8px; align-items: baseline; }
+.scene-row-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .scene-boundary-reason { font-style: italic; }
+/* v1.0.336 — per-scene type picker (continuity). Colour-tinted so the cast
+   mix is scannable down the list at a glance. */
+.scene-type-pick { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+.scene-type-select {
+  font-size: 11px; padding: 1px 4px; border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-subtle); color: var(--text-primary);
+}
+.scene-type-lock { font-size: 10px; }
+.scene-type-pick.st-character .scene-type-select { border-color: #6aa9ff; background: rgba(106, 169, 255, 0.14); }
+.scene-type-pick.st-event     .scene-type-select { border-color: #e0795a; background: rgba(224, 121, 90, 0.14); }
+.scene-type-pick.st-environment .scene-type-select { border-color: #5ab47a; background: rgba(90, 180, 122, 0.14); }
+.scene-type-pick.st-map       .scene-type-select { border-color: #c79a4e; background: rgba(199, 154, 78, 0.14); }
+.scene-type-pick.st-artifact  .scene-type-select { border-color: #a98cd0; background: rgba(169, 140, 208, 0.14); }
 .scene-textarea {
   font-size: 12px;
   font-family: ui-sans-serif, system-ui, sans-serif;

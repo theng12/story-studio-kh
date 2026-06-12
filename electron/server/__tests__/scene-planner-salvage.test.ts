@@ -106,9 +106,12 @@ describe('buildStorySoFar — cross-segment continuity recap (v1.0.228)', () => 
     assert.doesNotMatch(recap, /visual number 3\b/, 'drops the middle (only last ~5 kept)')
   })
 
-  test('uses character-continuity wording for live (continuity-chain) mode', () => {
+  test('uses selective-guide continuity wording for live (continuity-chain) mode', () => {
     const recap = buildStorySoFar([mkScene(0, 'a man in a grey hoodie at a desk')], true)
-    assert.match(recap, /SAME character/i)
+    // v1.0.336 — wording shifted from "SAME character" everywhere to a guide who
+    // appears SELECTIVELY (only in character scenes).
+    assert.match(recap, /SAME guide/i)
+    assert.match(recap, /selectively/i)
   })
 
   test('uses general visual-consistency wording for non-live mode', () => {

@@ -3070,6 +3070,19 @@ export interface ContinuityConfig {
 // this + writes back with approval flags. v1.0.145's video assembler
 // consumes the approved plan to render the final video.
 
+/**
+ * v1.0.336 — coarse classification of what a continuity scene depicts. Drives
+ * whether the anchored guide character appears in the rendered image:
+ *   - 'character'   → the recurring guide is on screen, reacting/exploring.
+ *   - 'event'       → the historical action itself (soldiers marching, a storm).
+ *   - 'environment' → a place/setting with no character.
+ *   - 'map'         → a map, route, or diagram.
+ *   - 'artifact'    → a single object/document/detail in focus.
+ * Non-'character' scenes render WITHOUT the character sheet / anchor refs so the
+ * guide stays selective (and special) instead of appearing in every shot.
+ */
+export type SceneType = 'character' | 'event' | 'environment' | 'map' | 'artifact'
+
 export interface ScenePlanEntry {
   /** Stable id for UI editing — survives reorder / split / merge. */
   id: string
@@ -3110,6 +3123,15 @@ export interface ScenePlanEntry {
   /** v1.0.260 — true when the user hand-set `emotion`; the Director keeps that
    *  value on the next apply instead of re-deriving it. */
   emotion_locked?: boolean
+  /** v1.0.336 — what this scene depicts (see SceneType). The continuity
+   *  renderer uses it to decide whether the anchored guide character appears.
+   *  Set by the planner; user-overridable in Scene Review. Absent on plans made
+   *  before this field → renderer treats the scene as 'character' (prior
+   *  behaviour: the guide appears everywhere). */
+  scene_type?: SceneType
+  /** v1.0.336 — true when the user hand-set `scene_type` in Scene Review; a
+   *  re-plan / re-classify keeps their choice instead of overwriting it. */
+  scene_type_locked?: boolean
 }
 
 export interface ScenePlan {

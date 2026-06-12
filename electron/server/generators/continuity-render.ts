@@ -32,7 +32,7 @@ import * as jq from '../services/job-queue.js'
 import { getCharacter, referenceImagePath } from '../services/character-manager.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER } from './scene-image.js'
-import type { Job, ImageModelConfig, ScenePlan } from '../models/types.js'
+import type { Job, ImageModelConfig, ScenePlan, ScenePlanEntry } from '../models/types.js'
 
 interface ContinuityRenderParams {
   episode_id: string
@@ -274,9 +274,14 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     ? characterDescs.map(c => `${c.name}: ${c.description}`).join('; ')
     : ''
   const styleBible = cfg.style_bible?.trim() || ''
-  const composePrompt = (visualPrompt: string): string => {
+  // v1.0.336 — non-character scenes (event / map / artifact / environment) drop
+  // the guide's descriptor text so the prompt describes ONLY the subject. Plans
+  // with no scene_type behave as before (the guide everywhere).
+  const isCharacterScene = (s: ScenePlanEntry): boolean => !s.scene_type || s.scene_type === 'character'
+  const NONCHARACTER_NEGATIVE = 'person, people, child, boy, kid, human figure, character, portrait'
+  const composePrompt = (visualPrompt: string, includeCharacter = true): string => {
     const parts = [visualPrompt.trim()]
-    if (charText) parts.push(`Character details — ${charText}.`)
+    if (includeCharacter && charText) parts.push(`Character details — ${charText}.`)
     if (styleBible) parts.push(`Style: ${styleBible}`)
     return parts.join('\n\n')
   }
@@ -361,6 +366,44 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     return planChain
   }
 
+  // v1.0.336 — per-scene reference stack. Character scenes get the full anchor
+  // stack (composition + sheet + character refs + optional prev-render + style).
+  // Non-character scenes DROP the character-bearing refs (sheet / characters /
+  // prev-render) so the guide isn't img2img'd into them — they keep composition
+  // + style and add a "no people" negative. `prevCharRender` is the previous
+  // CHARACTER scene's render (null in parallel mode); only character scenes use
+  // it, so the guide's continuity survives the non-character cutaways between.
+  const buildSceneRefs = (
+    scene: ScenePlanEntry,
+    prevCharRender: { path: string; id: string; index: number } | null,
+  ): {
+    refPaths: string[]
+    descs: Array<{ kind: string; label: string; url: string }>
+    params: typeof providerParams
+    includeCharacter: boolean
+  } => {
+    const isChar = isCharacterScene(scene)
+    const refs: string[] = []
+    const descs: Array<{ kind: string; label: string; url: string }> = []
+    if (useComposition) { refs.push(compositionPath); descs.push({ kind: 'composition', label: 'Composition template', url: compositionUrl }) }
+    if (isChar) {
+      if (useSheet) { refs.push(sheetPath); descs.push({ kind: 'sheet', label: 'Character sheet', url: sheetUrl }) }
+      if (cfg.references.characters) {
+        for (const c of characterRefs) { refs.push(c.abs); descs.push({ kind: 'character', label: c.label, url: c.url }) }
+      }
+      if (cfg.references.prev_render && prevCharRender && existsSync(prevCharRender.path)) {
+        refs.push(prevCharRender.path)
+        descs.push({ kind: 'prev', label: `Previous render (scene ${prevCharRender.index})`, url: sceneImgUrl(prevCharRender.id) })
+      }
+    }
+    if (useStyle) { refs.push(stylePath); descs.push({ kind: 'style', label: 'Style reference', url: styleUrl }) }
+    const refPaths = promptOnly ? [] : Array.from(new Set(refs))
+    const params = isChar
+      ? providerParams
+      : { ...providerParams, negative_prompt: [(providerParams as any).negative_prompt, NONCHARACTER_NEGATIVE].filter(Boolean).join(', ') }
+    return { refPaths, descs, params, includeCharacter: isChar }
+  }
+
   // ── INDEPENDENT / PARALLEL mode ─────────────────────────────────────
   // Each scene renders against the static references only (sheet + style +
   // characters); NO previous-render reference, so scenes don't chain and a
@@ -425,25 +468,28 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           if (jq.isCancelled(job.job_id)) return
           const scene = toRender[idx++]!
           const outPath = path.join(outDir, `${scene.id}.png`)
+          // Per-scene refs — character scenes get the anchor stack, non-character
+          // scenes drop it (no prev-render in parallel mode either way).
+          const sref = buildSceneRefs(scene, null)
           inFlight.add(scene.scene_index)
           await pushStatus()
           try {
             const result = await runOnPool(dispatcher, apiKey, (ep) => imageProvider.generateImage({
-              prompt: composePrompt(scene.visual_prompt),
+              prompt: composePrompt(scene.visual_prompt, sref.includeCharacter),
               apiKey: ep,
               aspectRatio,
               modelId: model,
-              providerParams,
+              providerParams: sref.params,
               width: renderWidth,
               height: renderHeight,
-              referenceImagePaths: sharedRefPaths.length ? sharedRefPaths : undefined,
+              referenceImagePaths: sref.refPaths.length ? sref.refPaths : undefined,
               isCancelled: () => jq.isCancelled(job.job_id),
             }))
             if (!result.urls.length) throw new Error('provider returned no image')
             await downloadImage(result.urls[0]!, outPath)
             await persistImagePath(scene.id, outPath)
             rendered++
-            job.output_lines.push(`Scene ${scene.scene_index}/${scenes.length} (${scene.id}) ✓ — ${sharedRefPaths.length} ref(s)`)
+            job.output_lines.push(`Scene ${scene.scene_index}/${scenes.length} (${scene.id}) ✓ — ${sref.refPaths.length} ref(s)${sref.includeCharacter ? '' : ' · no-character'}`)
           } catch (e: any) {
             // Independent scenes don't block each other — log + keep going.
             job.output_lines.push(`Scene ${scene.scene_index} failed: ${e?.message || e}`)
@@ -472,9 +518,10 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     ` · ${mode}`,
   )
 
-  let prevRenderPath: string | null = null
-  let prevSceneId: string | null = null
-  let prevIndex = 0
+  // Tracks the previous CHARACTER scene's render so the guide chains across the
+  // non-character cutaways between his appearances. Non-character scenes never
+  // set or consume it.
+  let prevCharRender: { path: string; id: string; index: number } | null = null
 
   try {
   for (let i = 0; i < scenes.length; i++) {
@@ -496,8 +543,8 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           : !existsSync(outPath)
 
     if (!renderThis) {
-      // Skipped — but an existing render still seeds the chain for the next.
-      if (existsSync(outPath)) { prevRenderPath = outPath; prevSceneId = scene.id; prevIndex = scene.scene_index }
+      // Skipped — but an existing CHARACTER render still seeds the guide chain.
+      if (existsSync(outPath) && isCharacterScene(scene)) { prevCharRender = { path: outPath, id: scene.id, index: scene.scene_index } }
       skipped++
       job.progress = Math.round(((i + 1) / scenes.length) * 100)
       continue
@@ -508,26 +555,13 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       continue
     }
 
-    // Stack references for THIS scene per the toggles — and a parallel
-    // descriptor list (kind + label + frontend URL) for the live panel.
-    const refs: string[] = []
-    const refDescs: Array<{ kind: string; label: string; url: string }> = []
-    if (useComposition) { refs.push(compositionPath); refDescs.push({ kind: 'composition', label: 'Composition template', url: compositionUrl }) }
-    if (useSheet) { refs.push(sheetPath); refDescs.push({ kind: 'sheet', label: 'Character sheet', url: sheetUrl }) }
-    if (cfg.references.characters) {
-      for (const c of characterRefs) { refs.push(c.abs); refDescs.push({ kind: 'character', label: c.label, url: c.url }) }
-    }
-    if (cfg.references.prev_render && prevRenderPath && prevSceneId && existsSync(prevRenderPath)) {
-      refs.push(prevRenderPath)
-      refDescs.push({ kind: 'prev', label: `Previous render (scene ${prevIndex})`, url: sceneImgUrl(prevSceneId) })
-    }
-    if (useStyle) { refs.push(stylePath); refDescs.push({ kind: 'style', label: 'Style reference', url: styleUrl }) }
-    // v1.0.254 — prompt-only drops every reference image (pure text2img).
-    const referenceImagePaths = promptOnly ? [] : Array.from(new Set(refs))
+    // Per-scene references (character vs non-character) + the live-panel
+    // descriptor list. Character scenes chain off the previous character render.
+    const { refPaths: referenceImagePaths, descs: refDescs, params: sceneParams, includeCharacter } = buildSceneRefs(scene, prevCharRender)
 
     job.output_lines.push(
       `Scene ${scene.scene_index}/${scenes.length} (${scene.id}) — ${referenceImagePaths.length} ref(s)` +
-      `${prevRenderPath ? '' : ' · establishing'}`,
+      `${includeCharacter ? (prevCharRender ? '' : ' · establishing') : ' · no-character'}`,
     )
 
     // Publish the live status BEFORE the (slow) API call so the panel shows
@@ -547,17 +581,17 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       scene_index: scene.scene_index,
       total: scenes.length,
       rendered_so_far: rendered,
-      prompt: composePrompt(scene.visual_prompt),
+      prompt: composePrompt(scene.visual_prompt, includeCharacter),
       references: refDescs,
       updated_at: new Date().toISOString(),
     })
 
     const result = await runOnPool(dispatcher, apiKey, (ep) => imageProvider.generateImage({
-      prompt: composePrompt(scene.visual_prompt),
+      prompt: composePrompt(scene.visual_prompt, includeCharacter),
       apiKey: ep,
       aspectRatio,
       modelId: model,
-      providerParams,
+      providerParams: sceneParams,
       width: renderWidth,
       height: renderHeight,
       referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
@@ -580,9 +614,9 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       }
     } catch { /* best-effort — the file on disk is what Scene Review reads */ }
 
-    prevRenderPath = outPath
-    prevSceneId = scene.id
-    prevIndex = scene.scene_index
+    // Only character scenes seed the guide-continuity chain; cutaways don't,
+    // so the next character scene anchors off the last character render.
+    if (includeCharacter) prevCharRender = { path: outPath, id: scene.id, index: scene.scene_index }
     rendered++
     job.progress = Math.round(((i + 1) / scenes.length) * 100)
   }
