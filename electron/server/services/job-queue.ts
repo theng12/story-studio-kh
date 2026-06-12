@@ -275,12 +275,14 @@ const queues: Record<JobType, QueueState> = {
 // They therefore share ONE budget: `llmConcurrency` jobs at a time across all
 // of them COMBINED (not per-type). 1 = the old fully-serial behaviour.
 const LLM_GROUP = 'llm'
+const SUBTITLE_TRANSCRIBE_GROUP = 'subtitle_transcribe'
 const LLM_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'outline_only', 'expand_chapters', 'metadata', 'image_prompts', 'scene_plan_run',
 ])
 /** Which concurrency group a type belongs to: the shared LLM group, or its
  *  own singleton group (= the type name) so non-LLM types keep one slot. */
 function groupOf(type: JobType): string {
+  if (type === 'subtitles_transcribe') return SUBTITLE_TRANSCRIBE_GROUP
   return LLM_TYPES.has(type) ? LLM_GROUP : type
 }
 /** Active (running) job count for the shared LLM group. Non-LLM types track
@@ -289,11 +291,24 @@ const groupActive: Record<string, number> = {}
 /** Cap for the shared LLM group. Set from app-settings (`script_concurrency`)
  *  at boot + whenever the user changes it in Settings → Performance. */
 let llmConcurrency = 2
+let subtitleTranscribeConcurrency = 1
 export function setLlmConcurrency(n: number): void {
   llmConcurrency = Math.max(1, Math.min(8, Math.floor(Number(n)) || 1))
 }
 export function getLlmConcurrency(): number {
   return llmConcurrency
+}
+export function setSubtitleTranscribeConcurrency(n: number): void {
+  subtitleTranscribeConcurrency = Math.max(1, Math.min(3, Math.floor(Number(n)) || 1))
+  pump('subtitles_transcribe')
+}
+export function getSubtitleTranscribeConcurrency(): number {
+  return subtitleTranscribeConcurrency
+}
+function groupLimit(group: string): number {
+  if (group === LLM_GROUP) return llmConcurrency
+  if (group === SUBTITLE_TRANSCRIBE_GROUP) return subtitleTranscribeConcurrency
+  return 1
 }
 
 // ── Persistence ─────────────────────────────────────────────────────────────
@@ -392,10 +407,11 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
 function pump(type: JobType): void {
   if (queuePaused) return  // network is down; jobs wait
   const q = queues[type]
-  if (groupOf(type) === LLM_GROUP) {
-    while (q.pending.length > 0 && (groupActive[LLM_GROUP] || 0) < llmConcurrency) {
+  const group = groupOf(type)
+  if (group === LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP) {
+    while (q.pending.length > 0 && (groupActive[group] || 0) < groupLimit(group)) {
       const job = q.pending.shift()!
-      groupActive[LLM_GROUP] = (groupActive[LLM_GROUP] || 0) + 1
+      groupActive[group] = (groupActive[group] || 0) + 1
       runJob(type, job).catch(e => console.error(`[job-queue] Error processing ${type}:`, e))
     }
   } else {
@@ -410,13 +426,15 @@ function pump(type: JobType): void {
  *  finished — so re-pump every type in the group. */
 function pumpGroup(group: string): void {
   if (group === LLM_GROUP) for (const t of LLM_TYPES) pump(t)
+  else if (group === SUBTITLE_TRANSCRIBE_GROUP) pump('subtitles_transcribe')
 }
 
 /** Release the slot a finished job held, then pull in the next work. */
 function releaseSlot(type: JobType): void {
-  if (groupOf(type) === LLM_GROUP) {
-    groupActive[LLM_GROUP] = Math.max(0, (groupActive[LLM_GROUP] || 0) - 1)
-    pumpGroup(LLM_GROUP)
+  const group = groupOf(type)
+  if (group === LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP) {
+    groupActive[group] = Math.max(0, (groupActive[group] || 0) - 1)
+    pumpGroup(group)
   } else {
     queues[type].running = false
     pump(type)

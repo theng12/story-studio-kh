@@ -34,7 +34,7 @@ import path from 'path'
 import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
 import { sleepCancellable } from './http-retry.js'
-import { parseEndpoints, parseEnabledEndpoints } from './endpoint-pool.js'
+import { createDispatcher, parseEndpoints, parseEnabledEndpoints, runOnPool, type Dispatcher } from './endpoint-pool.js'
 
 /**
  * Voice Studio modal base URL default.
@@ -913,6 +913,9 @@ export interface VoiceStudioTranscribeResult {
   vtt: string
 }
 
+const DEFAULT_WHISPER_TRANSCRIBE_MODEL = 'mlx-community/whisper-large-v3-turbo'
+const transcribeDispatchers = new Map<string, Dispatcher>()
+
 /** Which Whisper models the modal has cached + ready. Call before transcribing. */
 export async function transcribeAvailability(baseUrl: string): Promise<VoiceStudioTranscribeAvailability> {
   let resp: Response
@@ -973,6 +976,68 @@ export async function pickFirstAvailableTranscribeEndpoint(
     throw e
   }
   return null
+}
+
+async function transcribePoolCandidates(
+  stored: string | null | undefined,
+  requestedModel?: string,
+): Promise<Array<{ baseUrl: string; avail: VoiceStudioTranscribeAvailability; model: string }>> {
+  const endpoints = parseEnabledEndpoints(stored)
+  if (endpoints.length === 0) return []
+  const checked = await Promise.all(endpoints.map(async (baseUrl) => {
+    try {
+      const avail = await transcribeAvailability(baseUrl)
+      if (!avail.available) return null
+      const model = (requestedModel && requestedModel.trim()) || avail.default_model || DEFAULT_WHISPER_TRANSCRIBE_MODEL
+      const entry = (avail.models || []).find(m => m.repo === model)
+      if (entry && entry.cached === false) return null
+      return { baseUrl, avail, model }
+    } catch {
+      return null
+    }
+  }))
+  return checked.filter(Boolean) as Array<{ baseUrl: string; avail: VoiceStudioTranscribeAvailability; model: string }>
+}
+
+/**
+ * Count ready Voice Studio transcription endpoints for the selected Whisper
+ * model. Used by the Story Studio queue to keep one STT job per Mac instead
+ * of piling multiple long Whisper requests onto the same endpoint.
+ */
+export async function availableTranscribeEndpointCount(
+  stored: string | null | undefined,
+  requestedModel?: string,
+): Promise<number> {
+  return (await transcribePoolCandidates(stored, requestedModel)).length
+}
+
+/**
+ * Run one Voice Studio Whisper request through a shared least-busy dispatcher.
+ * Separate subtitle jobs share the same dispatcher instance, so concurrent
+ * episode jobs spread across Macs instead of every job picking endpoint #1.
+ */
+export async function runOnTranscribePool<T>(
+  stored: string | null | undefined,
+  requestedModel: string | undefined,
+  fn: (endpoint: string, model: string) => Promise<T>,
+): Promise<T> {
+  const candidates = await transcribePoolCandidates(stored, requestedModel)
+  if (!candidates.length) {
+    const modelHint = requestedModel ? ` with "${requestedModel}" cached` : ''
+    throw new Error(`No Voice Studio transcription endpoint is ready${modelHint}. Start Voice Studio and download the Whisper model on at least one configured Mac.`)
+  }
+  const endpoints = candidates.map(c => c.baseUrl)
+  const modelsByEndpoint = new Map(candidates.map(c => [c.baseUrl, c.model]))
+  const key = `${endpoints.join('\n')}|${[...new Set(candidates.map(c => c.model))].join('\n')}`
+  let dispatcher = transcribeDispatchers.get(key)
+  if (!dispatcher || dispatcher.size !== endpoints.length) {
+    dispatcher = createDispatcher(endpoints)
+    transcribeDispatchers.set(key, dispatcher)
+  }
+  return runOnPool(dispatcher, endpoints[0]!, async (endpoint) => {
+    const model = modelsByEndpoint.get(endpoint) || requestedModel || DEFAULT_WHISPER_TRANSCRIBE_MODEL
+    return fn(endpoint, model)
+  })
 }
 
 /** Kick off a one-time Whisper model download on the modal (same generic

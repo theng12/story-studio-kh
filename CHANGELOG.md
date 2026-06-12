@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.348 — 2026-06-12
+
+### Added — Whisper transcription can run across multiple Voice Studio Macs
+Subtitle transcription was not concurrent for two separate reasons:
+
+- The Story Studio job queue treated `subtitles_transcribe` as a singleton, so only one episode transcription could run at a time.
+- The Voice Studio Whisper path picked the first ready endpoint instead of using the local-model least-busy pool, so multiple configured URLs were only a failover list, not a parallel pool.
+
+Voice Studio subtitle jobs now get their own bounded queue group. When you enqueue transcription with 2-3 configured Voice Studio URLs that are reachable and have the selected Whisper model cached, different episodes can transcribe at the same time, one long STT request per Mac. A single ready URL stays serial, and OpenAI Whisper remains serial because it has no local server pool to distribute across.
+
+### Files
+- `electron/server/services/job-queue.ts` (new bounded subtitle-transcription group, separate from LLM text concurrency)
+- `electron/server/lib/voicestudio-client.ts` (model-ready endpoint count + shared least-busy transcription dispatcher)
+- `electron/server/generators/subtitles.ts` (per-chapter Voice Studio transcription runs through the dispatcher instead of endpoint #1)
+- `electron/server/routes/video.ts` (sets subtitle queue concurrency from the selected model's ready Voice Studio endpoint count)
+- `electron/server/__tests__/job-queue-concurrency.test.ts` (regression coverage for subtitle transcription concurrency)
+
+---
+
 ## v1.0.347 — 2026-06-12
 
 ### Fixed — timestamp scene transitions no longer collapse the final video

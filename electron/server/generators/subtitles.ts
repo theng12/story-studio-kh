@@ -159,59 +159,22 @@ async function transcribePerChapter(
   // v1.0.217+ — resolve the chosen engine up front. 'voicestudio' uses the
   // local modal's free Whisper STT; 'openai' is the paid fallback.
   const engine = req.engine === 'voicestudio' ? 'voicestudio' : 'openai'
-  const { transcribeFile, transcribeAvailability, DEFAULT_VOICESTUDIO_BASE_URL, voicestudioFirst, pickFirstAvailableTranscribeEndpoint } =
+  const { transcribeFile, DEFAULT_VOICESTUDIO_BASE_URL, runOnTranscribePool } =
     await import('../lib/voicestudio-client.js')
   let apiKey = ''            // OpenAI key (openai engine)
-  let vsBaseUrl = ''         // Voice Studio modal URL (voicestudio engine)
-  let vsModel = req.model    // resolved Whisper repo (voicestudio engine)
+  let vsStoredUrl = ''       // Voice Studio modal URL list (voicestudio engine)
+  let vsModel = req.model    // requested Whisper repo (voicestudio engine)
 
   if (engine === 'voicestudio') {
     const { getApiKey } = await import('../services/app-secrets-store.js')
-    // v1.0.290 — walk the user's configured Voice Studio endpoints and use
-    // the FIRST ONE THAT'S REACHABLE + has STT loaded. Replaces the v1.0.289
-    // blind-first-endpoint pick which failed entirely when endpoint #1 was
-    // offline. Common case: user has 2 Macs registered, primary is asleep
-    // or unreachable — the secondary should just take over rather than
-    // erroring out and forcing a manual reorder of the URL list.
-    //
-    // The probe inside pickFirstAvailableTranscribeEndpoint is the same
-    // /api/transcribe/availability call we'd make next anyway, so this
-    // doesn't add a roundtrip — it just folds the "which endpoint?" and
-    // "is it ready?" checks into one pass. If NO endpoint is available
-    // we fall through to the configured default + a clear error below.
-    const storedUrl = await getApiKey('voicestudio')
-    const picked = await pickFirstAvailableTranscribeEndpoint(storedUrl).catch(() => null)
-    if (picked) {
-      vsBaseUrl = picked.baseUrl
-      const allEndpoints = storedUrl?.split(/[,\s]+/).filter(Boolean) || []
-      if (allEndpoints.length > 1 && vsBaseUrl !== allEndpoints[0]) {
-        job.output_lines.push(`Voice Studio: primary endpoint unreachable — using fallback ${vsBaseUrl}`)
-      }
-      // Use the availability result we already have — saves a redundant probe.
-      vsModel = (req.model && req.model.trim()) || picked.avail.default_model || 'mlx-community/whisper-large-v3-turbo'
-      const entry = (picked.avail.models || []).find(m => m.repo === vsModel)
-      if (entry && entry.cached === false) {
-        throw new Error(`Whisper model "${vsModel}" isn't downloaded on ${vsBaseUrl} yet. Download it (Subtitles tab → Download model), then retry.`)
-      }
-    } else {
-      // No endpoint was reachable + ready. Fall back to the configured
-      // default so the user gets a single clear error about that endpoint
-      // instead of a generic "none available" message.
-      vsBaseUrl = voicestudioFirst(storedUrl) || DEFAULT_VOICESTUDIO_BASE_URL
-      if (!vsBaseUrl) {
-        throw new Error('Voice Studio URL not set — add it in Settings → This Mac → Local Models.')
-      }
-      const avail = await transcribeAvailability(vsBaseUrl)
-      if (!avail.available) {
-        throw new Error('Voice Studio transcription unavailable on every configured endpoint (mlx-audio STT not importable, or all endpoints offline).')
-      }
-      vsModel = (req.model && req.model.trim()) || avail.default_model || 'mlx-community/whisper-large-v3-turbo'
-      const entry = (avail.models || []).find(m => m.repo === vsModel)
-      if (entry && entry.cached === false) {
-        throw new Error(`Whisper model "${vsModel}" isn't downloaded on Voice Studio yet. Download it (Subtitles tab → Download model), then retry.`)
-      }
+    // v1.0.348 — keep the URL list intact. The per-chapter call below uses
+    // the shared least-busy transcription dispatcher, so separate episode jobs
+    // can run on separate Macs instead of every job choosing endpoint #1.
+    vsStoredUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+    if (!vsStoredUrl) {
+      throw new Error('Voice Studio URL not set — add it in Settings → This Mac → Local Models.')
     }
-    job.output_lines.push(`Engine: Voice Studio (local) · ${vsModel} · ${vsBaseUrl}`)
+    job.output_lines.push(`Engine: Voice Studio (local pool) · ${vsModel || 'default Whisper model'}`)
   } else {
     apiKey = await resolveApiKeyForProviderId(projectSlug, 'openai', {
       model: req.model || 'whisper',
@@ -306,10 +269,14 @@ async function transcribePerChapter(
       try {
         let srtRaw: string
         if (engine === 'voicestudio') {
-          const result = await transcribeFile(vsBaseUrl, audioPath, {
-            model: vsModel,
-            language: req.language || 'en',
-            signal: controller.signal,
+          const result = await runOnTranscribePool(vsStoredUrl, vsModel, async (endpoint, model) => {
+            job.output_lines.push(`  Voice Studio endpoint: ${endpoint} · ${model}`)
+            vsModel = model
+            return transcribeFile(endpoint, audioPath, {
+              model,
+              language: req.language || 'en',
+              signal: controller.signal,
+            })
           })
           srtRaw = result.srt
         } else {

@@ -7,7 +7,7 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
-import { enqueue, isDuplicate } from '../services/job-queue.js'
+import { enqueue, isDuplicate, setSubtitleTranscribeConcurrency } from '../services/job-queue.js'
 import { checkFfmpeg, scanEpisodeAssets } from '../generators/video.js'
 import { TRANSITIONS, groupedTransitions, getTransition } from '../models/transitions.js'
 import { ANIMATIONS, groupedAnimations, getAnimation } from '../models/animations.js'
@@ -907,12 +907,18 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
     if (!appKey && !(config as any)?.openai_api_key) {
       return res.status(400).json({ detail: 'OpenAI API key not configured. Add one in Settings → API Keys, or pick the Voice Studio engine.' })
     }
+    setSubtitleTranscribeConcurrency(1)
   } else {
-    const { DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
+    const { DEFAULT_VOICESTUDIO_BASE_URL, availableTranscribeEndpointCount } = await import('../lib/voicestudio-client.js')
     const baseUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
     if (!baseUrl) {
       return res.status(400).json({ detail: 'Voice Studio URL not set — add it in Settings → This Mac → Local Models, or pick the OpenAI engine.' })
     }
+    const readyEndpoints = await availableTranscribeEndpointCount(baseUrl, req.body?.model).catch(() => 1)
+    // One Whisper inference per Mac. With 2-3 model-ready Voice Studio URLs,
+    // different episode transcription jobs can run together; one URL stays
+    // serial so we don't pile multiple long STT requests onto the same modal.
+    setSubtitleTranscribeConcurrency(Math.max(1, Math.min(3, readyEndpoints || 1)))
   }
 
   if (isDuplicate(slug, episodeId, 'subtitles_transcribe')) {

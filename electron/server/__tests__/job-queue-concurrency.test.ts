@@ -25,6 +25,7 @@ before(async () => {
 
 after(async () => {
   jq.setLlmConcurrency(2)   // restore default so other files aren't affected
+  jq.setSubtitleTranscribeConcurrency(1)
   await cleanup()
 })
 
@@ -135,5 +136,27 @@ describe('LLM-group concurrency', () => {
     await waitFor(() => b.done === 2)
     await settle()
     assert.equal(b.peak, 1)
+  })
+
+  test('subtitle transcription has its own bounded concurrency group', async () => {
+    const proj = await pm.createProject({ name: 'JQCC5' })
+    const b = makeBlocker()
+    jq.registerExecutor('subtitles_transcribe', b.executor)
+    jq.setLlmConcurrency(1)
+    jq.setSubtitleTranscribeConcurrency(3)
+    for (const ep of ['EP001', 'EP002', 'EP003', 'EP004']) {
+      jq.enqueue({ project_slug: proj.slug, type: 'subtitles_transcribe', episode_id: ep, title: ep, params: {} })
+    }
+    await waitFor(() => b.active === 3)
+    await settle()
+    assert.equal(b.active, 3, 'subtitle jobs use their own pool, not the LLM budget')
+    b.releases.shift()!()
+    b.releases.shift()!()
+    b.releases.shift()!()
+    await waitFor(() => b.done === 3 && b.active === 1)
+    b.releases.shift()!()
+    await waitFor(() => b.done === 4)
+    await settle()
+    assert.equal(b.peak, 3)
   })
 })
