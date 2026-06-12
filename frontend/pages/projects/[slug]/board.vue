@@ -140,12 +140,20 @@
           <tr v-for="ep in visibleEpisodes" :key="ep.episode_code" class="board-row">
             <th class="col-ep sticky-col">
               <div class="ep-cell">
-                <span class="ep-code">
-                  {{ ep.episode_code }}
-                  <span v-if="isGenerating(ep.episode_code)" class="ep-busy" title="A job is running for this episode">🔄</span>
-                  <span v-if="ep.marked_done" class="ep-donepill" title="Whole episode marked done">done</span>
-                </span>
-                <span class="ep-title" :title="ep.title">{{ ep.title }}</span>
+                <div class="ep-cell-text">
+                  <span class="ep-code">
+                    {{ ep.episode_code }}
+                    <span v-if="isGenerating(ep.episode_code)" class="ep-busy" title="A job is running for this episode">🔄</span>
+                    <span v-if="ep.marked_done" class="ep-donepill" title="Whole episode marked done">done</span>
+                  </span>
+                  <span class="ep-title" :title="ep.title">{{ ep.title }}</span>
+                </div>
+                <button
+                  type="button"
+                  class="ep-import"
+                  :title="`Import a finished file for ${ep.episode_code} (audio, thumbnail, final video…) — it lands with the right name and flips the step done.`"
+                  @click="openImport(ep)"
+                >⬆</button>
               </div>
             </th>
             <td
@@ -187,13 +195,29 @@
       <span class="board-legend-hint">
         · <template v-if="mode === 'open'">click any cell to open that step for that episode</template>
         <template v-else>click a pending cell to mark it done by hand · click a hand-marked one to undo</template>
+        · ⬆ on a row imports a finished file for that episode
       </span>
     </div>
+
+    <!-- One shared import dialog, scoped to whichever row's ⬆ was clicked. The
+         dialog POSTs straight to /import-assets (no project-wide scan); on
+         success the backend invalidates that episode's status cache, so we
+         just revalidate to flip the step done. -->
+    <AssetImportDialog
+      v-if="importEp"
+      :visible="true"
+      :slug="slug"
+      :episode-code="importEp.episode_code"
+      :chapter-count="importEp.suggested_chapters"
+      @close="importEp = null"
+      @imported="onImported"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { normalizeVisualSource, flowForVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
+import AssetImportDialog from '~/components/AssetImportDialog.vue'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Production Board')
@@ -211,6 +235,14 @@ const { jobs } = useJobs()
 // outside the app, so file-detection never flips them done).
 const mode = ref<'open' | 'mark'>('open')
 const busyCell = ref('') // `${code}:${field}` while a PATCH is in flight
+const importEp = ref<any | null>(null) // episode row whose import dialog is open
+
+function openImport(ep: any) { importEp.value = ep }
+function onImported() {
+  // Backend invalidated this episode's status cache on import; pull the fresh
+  // status so the relevant step flips done. Dialog stays open for staging more.
+  void revalidate()
+}
 
 // ── Format-aware columns ──────────────────────────────────────────────────
 // Map each flow step to the per-episode status field it reports on. Steps
@@ -575,7 +607,31 @@ async function markCell(ep: any, col: BoardCol) {
   contain-intrinsic-size: 0 38px;
 }
 
-.ep-cell { display: flex; flex-direction: column; gap: 1px; }
+.ep-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ep-cell-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* Import button stays subtle until the row is hovered, so the grid reads
+   cleanly but the affordance is one move away. */
+.ep-import {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s;
+}
+.board-row:hover .ep-import { opacity: 1; }
+.ep-import:hover { background: var(--bg-hover); color: var(--text-primary); }
 .ep-code {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
