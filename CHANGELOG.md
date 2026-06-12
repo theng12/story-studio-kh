@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.347 — 2026-06-12
+
+### Fixed — timestamp scene transitions no longer collapse the final video
+Rendering a timestamp-planned episode through the full **Scenes** assembler could prepare every scene correctly, then collapse the intermediate video to only a few dozen seconds when scene transitions were enabled. The timestamp bridge made each scene clip use its exact `scene_plan.json` duration, but the xfade transition graph still assumed every input clip used one uniform `seconds_per_scene` length.
+
+The transition builder now carries real per-scene durations through the concat/xfade plan, calculates xfade offsets from the actual accumulated clip length, and clamps the transition duration when a timestamp scene is shorter than the chosen transition. Short clips like `0.80s` now use a safe transition length instead of breaking the graph.
+
+### Files
+- `electron/server/generators/video.ts` (pass actual scene durations into concat/xfade planning; calculate scene end time from real durations)
+- `electron/server/lib/transition-filters.ts` (new variable-duration xfade graph builder)
+- `electron/server/__tests__/transition-filters.test.ts` (locks variable-duration xfade offsets + short-clip rejection)
+
+---
+
 ## v1.0.346 — 2026-06-12
 
 ### Fixed — timestamp projects now open the full Video Assembly editor by default

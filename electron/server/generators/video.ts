@@ -23,7 +23,7 @@ import { findEpisodeDir, findSubfolder as resolveSubfolder } from '../lib/folder
 import { runFfmpeg, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
-import { planTransitions, buildXfadeFilterComplex } from '../lib/transition-filters.js'
+import { planTransitions, buildXfadeFilterComplex, buildVariableXfadeFilterComplex } from '../lib/transition-filters.js'
 import { getTransition } from '../models/transitions.js'
 import { buildAnimationFilter, supersampleMultiplier, normalizeFrame } from '../lib/animation-filters.js'
 import { getAnimation } from '../models/animations.js'
@@ -1126,6 +1126,21 @@ export async function generateVideo(job: Job): Promise<void> {
       job.output_lines.push(`Note: sentence-alignment check skipped (${e?.message || 'lookup error'})`)
     }
 
+    const defaultSceneDuration = req.scene_recycling?.seconds_per_scene || 10
+    const sceneClipDurations = req.scenes.map((scene, i) => {
+      const hasTimestampPlanDuration = !!(scene as any).__timestamp_plan_duration
+      const sceneOverride = sentenceDurations?.[i]
+      const explicitSceneDuration = scene?.duration
+      const durationCandidate = hasTimestampPlanDuration && typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0
+        ? explicitSceneDuration
+        : (typeof sceneOverride === 'number' && Number.isFinite(sceneOverride) && sceneOverride > 0)
+        ? sceneOverride
+        : (typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0)
+            ? explicitSceneDuration
+            : defaultSceneDuration
+      return Math.max(0.5, durationCandidate)
+    })
+
     const sceneClips = await prepareSceneClips(
       req.scenes, sceneAnimation, req.chapter_titles, resW, resH, quality, tempDir, canDrawtext, req.scene_recycling, job,
       {
@@ -1133,7 +1148,7 @@ export async function generateVideo(job: Job): Promise<void> {
         randomizeMode: ((req as any).animation_randomize || 'off') as 'off' | 'single' | 'per-scene',
         seed: (req as any).animation_seed,
       },
-      sentenceDurations,
+      sceneClipDurations,
     )
 
     // 6. Prepare title image clip (if provided)
@@ -1370,6 +1385,7 @@ export async function generateVideo(job: Job): Promise<void> {
       tempDir, introClipPath, titleClipPath, sceneClips,
       targetDuration, narrationDuration, postAudio,
       req.scene_recycling, resW, resH, quality, lastSceneImagePath, job,
+      sceneClipDurations,
       req.transition && req.transition !== 'none' ? {
         primaryId: req.transition,
         pool: (req as any).transition_pool || [],
@@ -2246,6 +2262,7 @@ async function buildConcatList(
   quality: { crf: number; preset: string; fps: number },
   lastSceneImagePath: string | undefined,
   job: Job,
+  sceneClipDurations?: number[],
   /** Optional scene-to-scene transition settings. When the primary id resolves
    * to a real xfade keyword, the scene clips are pre-xfaded into a single
    * intermediate MP4 (replacing N lines in the concat list with one). */
@@ -2324,6 +2341,9 @@ async function buildConcatList(
   // Filter out excluded scenes — excluded_scenes contains 1-based scene numbers
   const excludedSet = new Set(recycling.excluded_scenes || [])
   const availableClips = sceneClips.filter((_, idx) => !excludedSet.has(idx + 1))
+  const availableDurations = (sceneClipDurations || sceneClips.map(() => sceneDuration))
+    .filter((_, idx) => !excludedSet.has(idx + 1))
+    .map(d => (Number.isFinite(d) && d > 0 ? Math.max(0.5, d) : sceneDuration))
   // Parallel slug array, kept in sync with the same exclusion filter so
   // index `i` of availableClips matches `availableSlugs[i]` even after
   // some scenes are dropped.
@@ -2336,7 +2356,7 @@ async function buildConcatList(
 
   const behavior = postAudio.behavior || 'fade-to-black'
   const clipsPerCycle = availableClips.length
-  const durationPerCycle = clipsPerCycle * sceneDuration
+  const durationPerCycle = availableDurations.reduce((sum, d) => sum + d, 0)
 
   // Determine how long scenes should play:
   // - 'continue-cycling': scenes fill the entire target duration (original behavior)
@@ -2355,7 +2375,8 @@ async function buildConcatList(
   //     ordering must follow chapter order to preserve the alignment.
   //  B) Legacy uniform cycling: every scene gets the same duration and
   //     the whole bag cycles to fill `sceneFillDuration`.
-  const scenePlayOrder: string[] = []
+  type ScenePlayClip = { path: string; duration: number }
+  const scenePlayOrder: ScenePlayClip[] = []
   const chapterAlignActive = !!(chapterAlignment?.enabled
     && chapterAlignment.chapterDurations.length > 0
     && availableClips.length > 0)
@@ -2371,7 +2392,7 @@ async function buildConcatList(
     // is the legacy Workstream B behaviour and the safe fallback when
     // no slugs are set.
     const hasExplicitSlugs = availableSlugs.some(s => typeof s === 'string' && s.length > 0)
-    type ChapterBucket = { ch: typeof chapters[number]; clips: string[] }
+    type ChapterBucket = { ch: typeof chapters[number]; clips: ScenePlayClip[] }
     const buckets: ChapterBucket[] = chapters.map(ch => ({ ch, clips: [] }))
     const bucketIdxBySlug = new Map<string, number>()
     chapters.forEach((ch, i) => bucketIdxBySlug.set(ch.slug, i))
@@ -2400,7 +2421,7 @@ async function buildConcatList(
         let bIdx = -1
         if (slug && bucketIdxBySlug.has(slug)) bIdx = bucketIdxBySlug.get(slug)!
         if (bIdx < 0) bIdx = positionalBucket(i)
-        buckets[bIdx]!.clips.push(availableClips[i]!)
+        buckets[bIdx]!.clips.push({ path: availableClips[i]!, duration: availableDurations[i] || sceneDuration })
       }
       job.output_lines.push(
         `Chapter alignment: ON · explicit per-scene assignments (any unmapped scene falls to positional default)`,
@@ -2413,7 +2434,10 @@ async function buildConcatList(
       for (let ci = 0; ci < C; ci++) {
         const chapterScenes = baseSpc + (ci < extra ? 1 : 0)
         const sliceClips = availableClips.slice(cursor, cursor + chapterScenes)
-        buckets[ci]!.clips.push(...sliceClips)
+        buckets[ci]!.clips.push(...sliceClips.map((clip, i) => ({
+          path: clip,
+          duration: availableDurations[cursor + i] || sceneDuration,
+        })))
         cursor += chapterScenes
       }
     }
@@ -2421,20 +2445,24 @@ async function buildConcatList(
     // Cycle each bucket within its chapter's audio duration. Empty
     // buckets borrow the previous bucket's last clip so the chapter
     // doesn't render as a silent gap (covers S < C and odd skews).
-    let lastNonEmpty: string | null = null
+    let lastNonEmpty: ScenePlayClip | null = null
     const chapterPlanLog: string[] = []
     for (let ci = 0; ci < C; ci++) {
       const b = buckets[ci]!
       if (b.clips.length === 0) {
         const fallback = lastNonEmpty
           ?? buckets.find(o => o.clips.length > 0)?.clips[0]
-          ?? availableClips[0]!
+          ?? { path: availableClips[0]!, duration: availableDurations[0] || sceneDuration }
         b.clips.push(fallback)
       }
       lastNonEmpty = b.clips[b.clips.length - 1]!
-      const clipsNeeded = Math.max(1, Math.ceil(b.ch.duration_s / sceneDuration))
-      for (let k = 0; k < clipsNeeded; k++) {
-        scenePlayOrder.push(b.clips[k % b.clips.length]!)
+      let chapterVisualSec = 0
+      let clipsNeeded = 0
+      while (chapterVisualSec < b.ch.duration_s || clipsNeeded === 0) {
+        const pick = b.clips[clipsNeeded % b.clips.length]!
+        scenePlayOrder.push(pick)
+        chapterVisualSec += pick.duration
+        clipsNeeded++
       }
       chapterPlanLog.push(`${b.ch.slug}: ${b.clips.length} scene(s) × ${clipsNeeded} cycle(s) = ${b.ch.duration_s.toFixed(1)}s`)
     }
@@ -2451,11 +2479,15 @@ async function buildConcatList(
           [cycleClips[i], cycleClips[j]] = [cycleClips[j], cycleClips[i]]
         }
       }
-      for (const clip of cycleClips) scenePlayOrder.push(clip)
+      for (const clip of cycleClips) {
+        const originalIdx = availableClips.indexOf(clip)
+        scenePlayOrder.push({ path: clip, duration: availableDurations[originalIdx] || sceneDuration })
+      }
     }
   }
 
   const totalClips = scenePlayOrder.length
+  const totalScenePlayDuration = scenePlayOrder.reduce((sum, clip) => sum + clip.duration, 0)
 
   // Decide whether to pre-xfade the scenes into a single fused MP4.
   // Pre-xfade runs only when: more than one clip, a primary transition was
@@ -2482,18 +2514,30 @@ async function buildConcatList(
 
   let xfadeHardCuts = 0
   if (xfadeEnabled && transitionOpts) {
+    const shortestClip = Math.min(...scenePlayOrder.map(c => c.duration))
+    const effectiveTransitionDuration = Math.min(
+      transitionOpts.durationSec,
+      Math.max(0.1, shortestClip - 0.1),
+    )
+    const safeTransitionOpts = { ...transitionOpts, durationSec: effectiveTransitionDuration }
+    if (Math.abs(effectiveTransitionDuration - transitionOpts.durationSec) > 0.001) {
+      job.output_lines.push(
+        `Transition duration clamped from ${transitionOpts.durationSec.toFixed(2)}s to ` +
+        `${effectiveTransitionDuration.toFixed(2)}s for short timestamp scene clips.`,
+      )
+    }
     const plan = planTransitions({
       clipCount: totalClips,
-      durationSec: transitionOpts.durationSec,
-      primaryId: transitionOpts.primaryId,
-      pool: transitionOpts.pool,
-      randomizeMode: transitionOpts.randomizeMode,
-      seed: transitionOpts.seed,
+      durationSec: safeTransitionOpts.durationSec,
+      primaryId: safeTransitionOpts.primaryId,
+      pool: safeTransitionOpts.pool,
+      randomizeMode: safeTransitionOpts.randomizeMode,
+      seed: safeTransitionOpts.seed,
     })
 
     // Split the play order into chunks of at most XFADE_CHUNK_SIZE clips.
     // Each chunk becomes one FFmpeg invocation with its own filter graph.
-    const chunks: string[][] = []
+    const chunks: ScenePlayClip[][] = []
     for (let i = 0; i < scenePlayOrder.length; i += XFADE_CHUNK_SIZE) {
       chunks.push(scenePlayOrder.slice(i, i + XFADE_CHUNK_SIZE))
     }
@@ -2517,18 +2561,26 @@ async function buildConcatList(
       if (chunk.length === 1) {
         // A singleton chunk can't xfade anything. Stream-copy it so the
         // output has a stable filename and the concat list shape is uniform.
-        await runFfmpeg(['-y', '-i', chunk[0], '-c:v', 'copy', '-an', chunkPath])
+        await runFfmpeg(['-y', '-i', chunk[0]!.path, '-c:v', 'copy', '-an', chunkPath])
       } else {
         const internalBoundaries = chunk.length - 1
         const keywordsForChunk = plan.xfadeKeywords.slice(keywordCursor, keywordCursor + internalBoundaries)
-        const filter = buildXfadeFilterComplex({
-          inputCount: chunk.length,
-          clipDuration: sceneDuration,
-          transitionDuration: plan.durationSec,
-          xfadeKeywords: keywordsForChunk,
-        })
+        const chunkDurations = chunk.map(o => o.duration)
+        const variableDurations = chunkDurations.some(d => Math.abs(d - sceneDuration) > 0.01)
+        const filter = variableDurations
+          ? buildVariableXfadeFilterComplex({
+              inputDurations: chunkDurations,
+              transitionDuration: plan.durationSec,
+              xfadeKeywords: keywordsForChunk,
+            })
+          : buildXfadeFilterComplex({
+              inputCount: chunk.length,
+              clipDuration: sceneDuration,
+              transitionDuration: plan.durationSec,
+              xfadeKeywords: keywordsForChunk,
+            })
         const args: string[] = ['-y']
-        for (const clip of chunk) args.push('-i', clip)
+        for (const clip of chunk) args.push('-i', clip.path)
         args.push('-filter_complex', filter)
         args.push('-map', '[vout]')
         args.push('-c:v', 'libx264', '-crf', quality.crf.toString(), '-preset', 'ultrafast')
@@ -2557,7 +2609,7 @@ async function buildConcatList(
       keywordCursor += chunk.length
     }
   } else {
-    for (const clip of scenePlayOrder) lines.push(esc(clip))
+    for (const clip of scenePlayOrder) lines.push(esc(clip.path))
   }
 
   // With xfade, the total displayed duration shrinks by transitionDuration
@@ -2565,9 +2617,9 @@ async function buildConcatList(
   // (no overlap), so savings = (xfades actually performed) × t.
   // Actual xfades = (totalClips - 1) - hardCuts.
   const xfadeSavings = xfadeEnabled && transitionOpts
-    ? Math.max(0, (totalClips - 1 - xfadeHardCuts)) * transitionOpts.durationSec
+    ? Math.max(0, (totalClips - 1 - xfadeHardCuts)) * Math.min(transitionOpts.durationSec, Math.max(0.1, Math.min(...scenePlayOrder.map(c => c.duration)) - 0.1))
     : 0
-  const sceneEndTime = accumulatedDuration + (totalClips * sceneDuration) - xfadeSavings
+  const sceneEndTime = accumulatedDuration + totalScenePlayDuration - xfadeSavings
   // `cyclesNeeded` only makes sense in legacy uniform-cycling mode. The
   // chapter-aligned path doesn't have a single global cycle count, so
   // we report a derived round-trip number for diagnostics either way.

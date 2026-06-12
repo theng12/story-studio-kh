@@ -109,6 +109,55 @@ export function buildXfadeFilterComplex(opts: {
   return parts.join(';')
 }
 
+/**
+ * Build an xfade graph for clips with real, per-input durations.
+ *
+ * FFmpeg's xfade `offset` is measured against the current left-hand stream.
+ * After each xfade, the accumulated stream becomes shorter by one transition
+ * overlap, so the next offset is:
+ *   accumulatedOutputDuration - transitionDuration
+ *
+ * This is required for timestamp-planned scene assembly where each scene clip
+ * inherits its [start_sec, end_sec] window. The uniform builder above is still
+ * correct for classic recycled scenes where every input has the same duration.
+ */
+export function buildVariableXfadeFilterComplex(opts: {
+  inputDurations: number[]
+  transitionDuration: number
+  xfadeKeywords: string[]
+}): string {
+  const { inputDurations, transitionDuration, xfadeKeywords } = opts
+  const inputCount = inputDurations.length
+  if (inputCount < 2) throw new Error('buildVariableXfadeFilterComplex needs at least 2 inputs')
+  if (xfadeKeywords.length !== inputCount - 1) {
+    throw new Error(`expected ${inputCount - 1} transitions, got ${xfadeKeywords.length}`)
+  }
+  const shortest = Math.min(...inputDurations)
+  if (transitionDuration >= shortest) {
+    throw new Error(`transitionDuration (${transitionDuration}) must be shorter than shortest clip (${shortest})`)
+  }
+
+  const parts: string[] = []
+  for (let i = 0; i < inputCount; i++) {
+    parts.push(`[${i}:v]setpts=PTS-STARTPTS[v${i}]`)
+  }
+
+  let leftLabel = 'v0'
+  let accumulatedDuration = inputDurations[0]!
+  for (let i = 0; i < xfadeKeywords.length; i++) {
+    const rightLabel = `v${i + 1}`
+    const outLabel = (i === xfadeKeywords.length - 1) ? 'vout' : `m${i}`
+    const offset = Math.max(0, accumulatedDuration - transitionDuration)
+    parts.push(
+      `[${leftLabel}][${rightLabel}]xfade=transition=${xfadeKeywords[i]}:duration=${transitionDuration}:offset=${offset.toFixed(3)}[${outLabel}]`
+    )
+    accumulatedDuration = accumulatedDuration + inputDurations[i + 1]! - transitionDuration
+    leftLabel = outLabel
+  }
+
+  return parts.join(';')
+}
+
 /** Resolve a user-facing transition id (e.g. "wipe-left") to the xfade keyword. */
 export function resolveXfade(id: string): string {
   const def: TransitionDef | null = getTransition(id)
