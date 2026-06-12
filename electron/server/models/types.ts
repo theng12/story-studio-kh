@@ -3187,6 +3187,10 @@ export interface ScenePlanRunOptions {
    *  band from continuity.json) and cuts denser on busy passages for a "live"
    *  feel, instead of leaning on target_scene_count. */
   pacing?: { min_sec: number; max_sec: number; mode?: 'live' }
+  /** v1.0.337 — % of scenes that feature the recurring guide character
+   *  (continuity-chain). Per-project (config.json `character_density`).
+   *  0 = no guide; 100 = guide in every scene; ~40 (default) = selective. */
+  character_density?: number
   /** v1.0.226 — progress callback for the chunked planner; fires once per
    *  time-window as its scenes come back (done, total windows, cumulative
    *  scene count). Lets the generator surface live progress + per-window logs. */

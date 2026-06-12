@@ -9,12 +9,13 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { planScenes, planScenesTwoPass, generateVisualPromptOnly } from '../services/scene-planner.js'
+import { planScenes, planScenesTwoPass, generateVisualPromptOnly, assignDensityToUntagged } from '../services/scene-planner.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
+import { getConfig } from '../services/project-manager.js'
 import type { Job, ScenePlan } from '../models/types.js'
 
 interface ScenePlanRunParams {
@@ -94,6 +95,21 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       }
     }
   } catch { /* non-continuity project or format load failed — no pacing */ }
+
+  // v1.0.337 — per-project guide cast density (config.json `character_density`).
+  // Only meaningful for continuity (pacing set). Unset → undefined: single-pass
+  // uses the 40% default; two-pass stays untagged (renderer treats as character)
+  // — i.e. exactly the pre-config behaviour. Set → both modes honour it.
+  let characterDensity: number | undefined
+  if (pacing) {
+    try {
+      const cfg = await getConfig(job.project_slug)
+      const raw = (cfg as any)?.character_density
+      if (raw != null && Number.isFinite(Number(raw))) {
+        characterDensity = Math.max(0, Math.min(100, Math.round(Number(raw))))
+      }
+    } catch { /* default density applies */ }
+  }
 
   job.output_lines.push(`Model: ${model}`)
   job.output_lines.push(`Stitched SRT: ${stitchedSrt}`)
@@ -243,6 +259,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     style_prompt: params.style_prompt,
     custom_instructions: params.custom_instructions,
     pacing,
+    character_density: characterDensity,
     // v1.0.285 — per-window scene count tuning (auto = local→small,
     // cloud→full). See ScenePlanRunOptions.window_size for the rationale.
     // Ignored by planScenesTwoPass.
@@ -259,6 +276,20 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       job.progress = 10 + Math.round((done / Math.max(1, totalWindows)) * 70)
     },
   })
+
+  // v1.0.337 — apply the configured guide density to any scenes the planner
+  // left untagged (two-pass / salvage). Single-pass scenes keep the LLM's
+  // classification. Skipped entirely when density is unset (back-compat).
+  if (characterDensity != null) {
+    const before = plan.scenes.filter(s => !s.scene_type).length
+    assignDensityToUntagged(plan.scenes, characterDensity)
+    const charCount = plan.scenes.filter(s => s.scene_type === 'character').length
+    job.output_lines.push(
+      `Guide cast: ${characterDensity}% target → ${charCount}/${plan.scenes.length} character scene(s)` +
+      (before ? ` (${before} untagged scene(s) distributed)` : '') +
+      (characterDensity === 0 ? ' — no guide character' : characterDensity >= 100 ? ' — guide in every scene' : ''),
+    )
+  }
 
   job.progress = 80
   if ((plan.planned_in_windows ?? 1) > 1) {

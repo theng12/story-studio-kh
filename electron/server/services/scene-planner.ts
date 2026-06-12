@@ -46,6 +46,25 @@ function coerceSceneType(v: unknown): SceneType | undefined {
   return typeof v === 'string' && VALID_SCENE_TYPES.has(v) ? (v as SceneType) : undefined
 }
 
+// v1.0.337 — distribute scene_type across scenes the planner left UNTAGGED
+// (two-pass deterministic split, salvage fallbacks) to hit the configured guide
+// density. An even-spread accumulator scatters the character scenes rather than
+// clustering them: 0 → none, 100 → all character, 40 → ~40% spread out. Scenes
+// that already carry a type (single-pass LLM classification, or a user
+// override) are left untouched.
+const NONCHAR_CYCLE: SceneType[] = ['event', 'environment', 'map', 'artifact']
+export function assignDensityToUntagged(scenes: ScenePlanEntry[], density: number): void {
+  const d = Math.max(0, Math.min(100, density))
+  let acc = 0
+  let nonCharIdx = 0
+  for (const s of scenes) {
+    if (s.scene_type) continue
+    acc += d / 100
+    if (acc >= 1) { acc -= 1; s.scene_type = 'character' }
+    else { s.scene_type = NONCHAR_CYCLE[nonCharIdx++ % NONCHAR_CYCLE.length] }
+  }
+}
+
 /**
  * v1.0.242 — visual-prompt detail levels for the scene planner. The UI slider
  * (1–4) maps directly to these. `length` sets how many sentences/words to aim
@@ -134,22 +153,37 @@ function buildScenePlannerPrompt(opts: {
   ]
 }`
 
-  // continuity-chain: a character-driven, live-paced planner. Scenes track the
-  // action moment-to-moment and cut denser on busy passages.
-  const system = opts.pacing
-    ? `You are a video scene planner for a character-driven, LIVE-paced video. There is ONE recurring GUIDE CHARACTER — a curious observer who travels through the story while a calm narrator explains what unfolds. The guide is a STORYTELLING DEVICE, not the subject of every shot: he appears SELECTIVELY so he stays special. Each scene becomes ONE still image, and consecutive character images are rendered to flow into one another.
-
-Rules:
-  1. Pick scene boundaries that follow the ACTION and the speaker's beats: a new action, a new place, a new object handled, a shift in what's on screen.
-  2. PACE FOR A LIVE FEEL. Every scene must be at least ${minSec} seconds and at most ${maxSec} seconds. Cut MORE often during busy, fast, or action-packed passages (multiple actions, list items, rapid delivery) — favour the SHORTER end of the range there. Hold longer (toward ${maxSec}s) only during slow, reflective, single-idea passages.
-  3. Boundaries must align to actual cue start/end times from the SRT — don't invent timestamps that fall mid-cue.
-  4. CLASSIFY each scene with a "scene_type". Keep the guide SELECTIVE — roughly 40% of scenes, and NEVER in two or three shots in a row while the narration is describing the event itself:
+  // v1.0.337 — cast control. `character_density` (0–100) sets how often the
+  // recurring guide appears: 0 = none (no on-screen character at all), 100 =
+  // every scene (the pre-v1.0.336 behaviour), in between = selective.
+  const density = Math.max(0, Math.min(100, Math.round(opts.character_density ?? 40)))
+  const castIntro = density === 0
+    ? 'This video has NO recurring on-screen character — a calm narrator speaks over imagery of the events, places, maps, and artifacts themselves.'
+    : density >= 100
+      ? 'There is ONE recurring GUIDE CHARACTER — a curious observer who travels through the story while a calm narrator explains what unfolds — and he appears in EVERY scene.'
+      : 'There is ONE recurring GUIDE CHARACTER — a curious observer who travels through the story while a calm narrator explains what unfolds. The guide is a STORYTELLING DEVICE, not the subject of every shot: he appears SELECTIVELY so he stays special.'
+  const castRule = density === 0
+    ? `4. There is NO recurring guide character. Classify EVERY scene as one of "event" / "environment" / "map" / "artifact" (NEVER "character") — pick the one that best fits what the narration describes. Never show a recurring person-guide.`
+    : density >= 100
+      ? `4. Classify each scene with a "scene_type". The guide appears in EVERY scene, so set "scene_type" to "character" for all of them, and keep his appearance and wardrobe consistent across scenes.`
+      : `4. CLASSIFY each scene with a "scene_type", and keep the guide SELECTIVE — he should appear in about ${density}% of scenes, and NEVER in two or three shots in a row while the narration is describing the event itself:
        • "character"   — the guide is on screen, reacting to or exploring the moment.
        • "event"       — the historical action/event itself, NO guide (soldiers marching, a ship in a storm, a treaty signed).
        • "environment" — a place or setting, NO guide (a city, a landscape, an interior).
        • "map"         — a map, route, or diagram, NO guide.
        • "artifact"    — a single object, document, or detail in focus, NO guide.
-     Aim for a mix of roughly 40% character, 35% event, 15% map/environment, 10% artifact across the whole video — a guideline, not a quota. When the narration introduces an event, place, or object, CUT AWAY to it; bring the guide back to react a beat later.
+     Aim for about ${density}% character scenes; split the remaining ${100 - density}% across event (the largest share), then environment/map, then the occasional artifact. When the narration introduces an event, place, or object, CUT AWAY to it; bring the guide back to react a beat later.`
+
+  // continuity-chain: a character-driven, live-paced planner. Scenes track the
+  // action moment-to-moment and cut denser on busy passages.
+  const system = opts.pacing
+    ? `You are a video scene planner for a LIVE-paced video. ${castIntro} Each scene becomes ONE still image, and consecutive character images are rendered to flow into one another.
+
+Rules:
+  1. Pick scene boundaries that follow the ACTION and the speaker's beats: a new action, a new place, a new object handled, a shift in what's on screen.
+  2. PACE FOR A LIVE FEEL. Every scene must be at least ${minSec} seconds and at most ${maxSec} seconds. Cut MORE often during busy, fast, or action-packed passages (multiple actions, list items, rapid delivery) — favour the SHORTER end of the range there. Hold longer (toward ${maxSec}s) only during slow, reflective, single-idea passages.
+  3. Boundaries must align to actual cue start/end times from the SRT — don't invent timestamps that fall mid-cue.
+${castRule}
   5. Write each scene's \`visual_prompt\` — ${detail.length}, cover: ${detail.cover}; descriptive and concrete, not a short caption; avoid vague filler like "an interesting image":
        • "character" scenes: describe the GUIDE performing the specific beat (what he's doing, holding, looking at), keeping his appearance and wardrobe consistent with the other character scenes.
        • every NON-character scene ("event" / "environment" / "map" / "artifact"): describe ONLY the subject of the shot. Do NOT mention, include, or imply the guide — no boy, no observer in frame.
@@ -1031,6 +1065,7 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
       narration_text: narrationText,
       total_duration_sec: totalDuration,
       pacing: opts.pacing,
+      character_density: opts.character_density,
       target_scene_count: opts.target_scene_count,
       detail_level: opts.detail_level,
       style_prompt: opts.style_prompt,

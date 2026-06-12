@@ -12,9 +12,10 @@ import assert from 'node:assert/strict'
 let parsePlannerJson: (raw: string) => { scenes?: any[] }
 let buildWindows: (cues: any[], windowSec: number) => Array<{ start: number; end: number; cues: any[] }>
 let buildStorySoFar: (scenes: any[], live: boolean) => string
+let assignDensityToUntagged: (scenes: any[], density: number) => void
 
 before(async () => {
-  ;({ parsePlannerJson, buildWindows, buildStorySoFar } = await import('../services/scene-planner.js'))
+  ;({ parsePlannerJson, buildWindows, buildStorySoFar, assignDensityToUntagged } = await import('../services/scene-planner.js'))
 })
 
 const scene = (i: number) =>
@@ -122,5 +123,47 @@ describe('buildStorySoFar — cross-segment continuity recap (v1.0.228)', () => 
 
   test('ignores scenes with empty visual prompts and returns "" when none', () => {
     assert.equal(buildStorySoFar([{ start_sec: 0, end_sec: 4, visual_prompt: '' }], true), '')
+  })
+})
+
+describe('assignDensityToUntagged — guide cast density (v1.0.337)', () => {
+  const mkScenes = (n: number): any[] => Array.from({ length: n }, (_, i) => ({ id: `s${i}`, scene_index: i + 1 }))
+  const count = (scenes: any[], t: string): number => scenes.filter(s => s.scene_type === t).length
+
+  test('0% → no character scenes; every scene is a non-character type', () => {
+    const scenes = mkScenes(12)
+    assignDensityToUntagged(scenes, 0)
+    assert.equal(count(scenes, 'character'), 0)
+    assert.ok(scenes.every(s => ['event', 'environment', 'map', 'artifact'].includes(s.scene_type)))
+  })
+
+  test('100% → every scene is a character scene', () => {
+    const scenes = mkScenes(12)
+    assignDensityToUntagged(scenes, 100)
+    assert.equal(count(scenes, 'character'), 12)
+  })
+
+  test('40% → roughly 40% character, scattered (no 3-in-a-row clusters)', () => {
+    const scenes = mkScenes(20)
+    assignDensityToUntagged(scenes, 40)
+    assert.equal(count(scenes, 'character'), 8, '40% of 20 = 8 character scenes')
+    // even-spread accumulator never places 3 character scenes back-to-back
+    let run = 0
+    for (const s of scenes) {
+      run = s.scene_type === 'character' ? run + 1 : 0
+      assert.ok(run < 3, 'character scenes should be scattered, not clustered')
+    }
+  })
+
+  test('leaves already-tagged scenes untouched (single-pass LLM / user override)', () => {
+    const scenes: any[] = [
+      { id: 'a', scene_type: 'event' },
+      { id: 'b' },                       // untagged
+      { id: 'c', scene_type: 'character' },
+    ]
+    assignDensityToUntagged(scenes, 100)
+    assert.equal(scenes[0].scene_type, 'event', 'pre-tagged event kept despite 100% density')
+    assert.equal(scenes[2].scene_type, 'character')
+    assert.equal(scenes[1].scene_type, 'character', 'only the untagged scene was assigned')
   })
 })

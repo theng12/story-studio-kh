@@ -172,6 +172,32 @@
             </span>
           </div>
 
+          <!-- v1.0.337 — guide appearance density. Project-level (channel
+               default), saved instantly + separately from the per-episode
+               continuity settings below. -->
+          <div class="form-group">
+            <label>
+              Guide character appearance
+              <span class="text-muted text-xs">— channel default, applies to every episode</span>
+            </label>
+            <div class="cs-density-row">
+              <input
+                v-model.number="guideDensity"
+                type="range" min="0" max="100" step="5"
+                class="cs-density-slider"
+                :disabled="savingGuideDensity"
+                @change="saveGuideDensity"
+              />
+              <span class="cs-density-readout" :class="{ off: guideDensity === 0 }">{{ guideDensityLabel }}</span>
+            </div>
+            <span class="text-muted text-xs">
+              How often the recurring guide is in the shot — the Scene Planner makes the rest
+              event / environment / map / artifact scenes (no guide), so he stays special.
+              <strong>0%</strong> = no guide character at all; <strong>100%</strong> = guide in every scene.
+              Saves immediately for the whole channel.
+            </span>
+          </div>
+
           <div class="form-group">
             <label>Each scene references</label>
             <label class="cs-checkbox">
@@ -613,6 +639,33 @@ const recipePresets = usePresets<VisualRecipe>({
 
 // v1.0.260 — project config (image_models) for the template generator's picker.
 const { config: projectConfig } = useProject()
+
+// v1.0.337 — guide cast density (project-level config.json). The channel
+// default for how often the recurring guide appears; the Scene Planner +
+// continuity renderer key off it. Saved instantly + separately from the
+// per-episode continuity.json (so the "Save continuity settings" button is
+// unaffected).
+const guideDensity = ref(40)
+const savingGuideDensity = ref(false)
+watch(projectConfig, (c) => {
+  const v = (c as any)?.character_density
+  if (typeof v === 'number') guideDensity.value = Math.max(0, Math.min(100, Math.round(v)))
+}, { immediate: true })
+const guideDensityLabel = computed(() =>
+  guideDensity.value === 0 ? 'Off — no guide character'
+    : guideDensity.value >= 100 ? 'Guide in every scene'
+      : `Guide in ~${guideDensity.value}% of scenes`)
+async function saveGuideDensity(): Promise<void> {
+  savingGuideDensity.value = true
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { character_density: guideDensity.value })
+    success(`Guide appearance saved — ${guideDensityLabel.value.toLowerCase()}`)
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to save guide appearance')
+  } finally {
+    savingGuideDensity.value = false
+  }
+}
 const STYLE_PREVIEW_ASPECT_OPTIONS = ['16:9', '1:1', '9:16'] as const
 const stylePreviewModel = ref('')
 const stylePreviewAspect = ref<(typeof STYLE_PREVIEW_ASPECT_OPTIONS)[number]>('16:9')
@@ -1016,6 +1069,11 @@ watch(episodeId, () => {
 .cs-settings { display: flex; flex-direction: column; gap: 18px; }
 .cs-checkbox { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 4px; cursor: pointer; }
 .cs-range-row { display: flex; align-items: center; gap: 8px; }
+/* v1.0.337 — guide cast density slider */
+.cs-density-row { display: flex; align-items: center; gap: 12px; max-width: 420px; }
+.cs-density-slider { flex: 1; cursor: pointer; accent-color: #6aa9ff; }
+.cs-density-readout { font-size: 13px; font-weight: 600; min-width: 150px; color: var(--text-primary); }
+.cs-density-readout.off { color: var(--text-muted); font-weight: 500; }
 .input-inline { width: 70px; }
 .cs-range { width: 260px; max-width: 100%; }
 
