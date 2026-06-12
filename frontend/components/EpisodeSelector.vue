@@ -136,6 +136,32 @@ const slugRef = computed(() => props.projectSlug)
 const { episodes, isLoading: loading, isRevalidating, refresh, revalidate, rescan } = useEpisodes(slugRef)
 const showAll = ref(false)
 
+// v1.0.341 — preselect from ?episode_id= in the URL. The Production Board
+// links every cell to a step page with ?episode_id=CODE, so landing there
+// should open that episode, not an empty picker. Fires ONCE, only when the
+// host page hasn't already chosen an episode (so pages that read the query
+// themselves — e.g. Scripts — still win). If a "Pending only" filter would
+// hide the target (it's already done for this step), flip to Show all so the
+// selection is visible rather than a blank <select>.
+const route = useRoute()
+let didAutoSelect = false
+function tryAutoSelectFromQuery() {
+  if (didAutoSelect) return
+  if (props.modelValue) { didAutoSelect = true; return }
+  const q = String(route.query.episode_id || '').trim()
+  if (!q) return
+  const match = episodes.value.find(e => e.episode_code === q)
+  if (!match) return // episodes not loaded yet (retry on next change) or unknown code
+  didAutoSelect = true
+  if (!showAll.value && props.filterField && match.status?.[props.filterField]) {
+    showAll.value = true
+  }
+  emit('update:modelValue', q)
+  emit('episode-selected', match)
+}
+watch(episodes, tryAutoSelectFromQuery)
+onMounted(tryAutoSelectFromQuery)
+
 // ── v1.0.338 — per-step status chips + manual mark-as-done ────────────────
 const { patch } = useApi()
 const { success, error: showError, info: showInfo } = useToast()

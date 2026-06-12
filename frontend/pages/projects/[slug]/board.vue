@@ -28,6 +28,24 @@
       </div>
 
       <div class="board-tools">
+        <!-- Click-mode switch: Open (jump to the step) vs Mark done (toggle a
+             manual override for imported-from-elsewhere steps). -->
+        <div class="board-mode" role="group" aria-label="Cell click action">
+          <button
+            type="button"
+            class="board-mode-btn"
+            :class="{ active: mode === 'open' }"
+            title="Click a cell to open that step for that episode."
+            @click="mode = 'open'"
+          >↗ Open</button>
+          <button
+            type="button"
+            class="board-mode-btn"
+            :class="{ active: mode === 'mark' }"
+            title="Click a pending cell to mark it done by hand (for results you imported from outside the app). Click a hand-marked cell to undo."
+            @click="mode = 'mark'"
+          >✓ Mark done</button>
+        </div>
         <div class="board-search">
           <span class="board-search-icon" aria-hidden="true">🔎</span>
           <input
@@ -121,6 +139,7 @@
               class="col-step"
             >
               <NuxtLink
+                v-if="mode === 'open'"
                 :to="routeFor(col, ep.episode_code)"
                 class="cell"
                 :class="cellClass(ep, col)"
@@ -128,6 +147,17 @@
               >
                 {{ cellMark(ep, col) }}
               </NuxtLink>
+              <button
+                v-else
+                type="button"
+                class="cell cell-btn"
+                :class="[cellClass(ep, col), { 'cell-loading': cellBusy(ep, col) }]"
+                :disabled="cellBusy(ep, col)"
+                :title="markTitle(ep, col)"
+                @click="markCell(ep, col)"
+              >
+                {{ cellBusy(ep, col) ? '·' : cellMark(ep, col) }}
+              </button>
             </td>
           </tr>
         </tbody>
@@ -139,7 +169,10 @@
       <span><b class="lg-manual">✓</b> marked done by hand</span>
       <span><b class="lg-pending">○</b> pending</span>
       <span>🔄 generating now</span>
-      <span class="board-legend-hint">· click any cell to open that step for that episode</span>
+      <span class="board-legend-hint">
+        · <template v-if="mode === 'open'">click any cell to open that step for that episode</template>
+        <template v-else>click a pending cell to mark it done by hand · click a hand-marked one to undo</template>
+      </span>
     </div>
   </div>
 </template>
@@ -152,10 +185,17 @@ useAppTitle('Production Board')
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const { get } = useApi()
+const { get, patch } = useApi()
+const { success, error: showError, info: showInfo } = useToast()
 
-const { episodes, isLoading: loading, isRevalidating, refresh } = useEpisodes(slug)
+const { episodes, isLoading: loading, isRevalidating, refresh, revalidate } = useEpisodes(slug)
 const { jobs } = useJobs()
+
+// Cell-click mode. 'open' (default) = navigate to the step page; 'mark' =
+// toggle a manual done override (for steps whose result you imported from
+// outside the app, so file-detection never flips them done).
+const mode = ref<'open' | 'mark'>('open')
+const busyCell = ref('') // `${code}:${field}` while a PATCH is in flight
 
 // ── Format-aware columns ──────────────────────────────────────────────────
 // Map each flow step to the per-episode status field it reports on. Steps
@@ -258,6 +298,13 @@ function cellTitle(ep: any, col: BoardCol): string {
 function doneCount(col: BoardCol): number {
   return episodes.value.filter(ep => ep.status?.[col.field] === true).length
 }
+function markTitle(ep: any, col: BoardCol): string {
+  const detected = ep.status?.[col.field] === true
+  const manual = isManual(ep, col.field)
+  if (manual) return `${ep.episode_code} · ${col.label}: marked done by hand — click to return to auto-detect`
+  if (detected) return `${ep.episode_code} · ${col.label}: detected from files — can't be unmarked`
+  return `${ep.episode_code} · ${col.label}: pending — click to mark done by hand`
+}
 
 /** Route to a step's page for one episode (mirrors useProjectFlow.routeFor,
  *  plus episode preselect). */
@@ -267,6 +314,55 @@ function routeFor(col: BoardCol, code: string): string {
   if (col.tab) params.set('tab', col.tab)
   params.set('episode_id', code)
   return `${base}?${params.toString()}`
+}
+
+// ── Mark-done mode ──────────────────────────────────────────────────────────
+function cellBusy(ep: any, col: BoardCol): boolean {
+  return busyCell.value === `${ep.episode_code}:${col.field}`
+}
+
+/** Toggle a manual done override for one episode/step. Detected-done cells
+ *  (done from files, not a manual flag) are a no-op — you can't un-detect a
+ *  file that exists. The PATCH replaces the whole overrides object, so we
+ *  rebuild it from the current one and flip just this field. */
+async function markCell(ep: any, col: BoardCol) {
+  if (busyCell.value) return
+  if (ep.marked_done) {
+    showInfo(`${ep.episode_code} is marked done as a whole episode — manage that from the Ideas page.`)
+    return
+  }
+  const field = col.field
+  const detected = ep.status?.[field] === true
+  const manual = isManual(ep, field)
+  if (detected && !manual) {
+    showInfo(`${col.label} for ${ep.episode_code} is already detected from files on disk.`)
+    return
+  }
+
+  const next: Record<string, boolean> = {}
+  const current = ep.status_overrides
+  if (current && typeof current === 'object') {
+    for (const [k, v] of Object.entries(current)) {
+      if (typeof v === 'boolean') next[k] = v
+    }
+  }
+  if (manual) delete next[field]
+  else next[field] = true
+
+  busyCell.value = `${ep.episode_code}:${field}`
+  try {
+    await patch(`/projects/${slug.value}/episodes/${ep.episode_code}/status-overrides`, {
+      overrides: Object.keys(next).length ? next : null,
+    })
+    await revalidate() // backend invalidated just this episode's status cache
+    success(manual
+      ? `${col.label} → auto-detect for ${ep.episode_code}`
+      : `${col.label} marked done for ${ep.episode_code}`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || `Could not update ${col.label} for ${ep.episode_code}`)
+  } finally {
+    busyCell.value = ''
+  }
 }
 </script>
 
@@ -304,6 +400,25 @@ function routeFor(col: BoardCol, code: string): string {
   align-items: center;
   gap: 8px;
 }
+.board-mode {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.board-mode-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 0;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.board-mode-btn + .board-mode-btn { border-left: 1px solid var(--border); }
+.board-mode-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.board-mode-btn.active { background: var(--accent); color: #0f1117; }
 .board-search {
   position: relative;
   display: flex;
@@ -449,6 +564,16 @@ function routeFor(col: BoardCol, code: string): string {
   transition: background 0.12s;
 }
 .cell:hover { background: var(--bg-hover); }
+/* Button variant (Mark-done mode) — strip native button chrome so it reads
+   identically to the link cells. */
+.cell-btn {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.cell-btn:disabled { cursor: default; }
+.cell-loading { opacity: 0.5; }
 .cell-done { color: var(--success, #22c55e); }
 .cell-pending { color: var(--text-muted); opacity: 0.55; }
 /* Manual override — dashed underline ring echoes the EpisodeSelector chips. */
