@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.349 — 2026-06-12
+
+### Fixed — local server On/Off switches now persist immediately
+In Settings → This Mac → Local Models, switching a server row **Off** only changed the local editor state until the separate **Save endpoints** button was clicked. That made it look like the app accepted the change, but leaving Settings and coming back showed every server **On** again.
+
+The On/Off switch now saves the endpoint list immediately. If the save fails, or if the toggle would leave every endpoint off, the row rolls back and shows the existing error toast. The manual **Save endpoints** button still works for URL/name edits.
+
+### Files
+- `frontend/components/EndpointListEditor.vue` (On/Off toggle autosaves and rolls back on failure; tooltip no longer says "Save to apply")
+
+---
+
 ## v1.0.348 — 2026-06-12
 
 ### Added — Whisper transcription can run across multiple Voice Studio Macs

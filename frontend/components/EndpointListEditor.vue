@@ -16,9 +16,10 @@
         role="switch"
         :aria-checked="row.enabled"
         :title="row.enabled
-          ? 'ON — this Mac is health-checked and sent work. Click to switch it OFF (e.g. a coworker needs the full machine, or it\'s powered down on weekends). It will be skipped entirely — no probes, no CPU use. Save to apply.'
-          : 'OFF — this Mac is never probed or sent work. Click to switch it back ON. Save to apply.'"
-        @click="row.enabled = !row.enabled"
+          ? 'ON — this Mac is health-checked and sent work. Click to switch it OFF (e.g. a coworker needs the full machine, or it\'s powered down on weekends). It will be skipped entirely — no probes, no CPU use.'
+          : 'OFF — this Mac is never probed or sent work. Click to switch it back ON.'"
+        :disabled="saving"
+        @click="toggleEnabled(i)"
       >{{ row.enabled ? 'On' : 'Off' }}</button>
       <span class="ep-dot" :class="row.enabled ? row.status : 'disabled'" :title="row.enabled ? (row.detail || row.status) : 'Switched off'">
         <template v-if="!row.enabled">⏻</template>
@@ -163,10 +164,19 @@ async function testAll(): Promise<void> {
   } finally { testingAll.value = false }
 }
 
-async function save(): Promise<void> {
+async function toggleEnabled(i: number): Promise<void> {
+  const row = rows.value[i]
+  if (!row || saving.value) return
+  const before = row.enabled
+  row.enabled = !before
+  const ok = await save({ auto: true })
+  if (!ok) row.enabled = before
+}
+
+async function save(_opts: { auto?: boolean } = {}): Promise<boolean> {
   const kept = rows.value.filter(r => r.url.trim())
   const urls = kept.map(r => r.url.trim())
-  if (!urls.length) { showError('Add at least one endpoint URL.'); return }
+  if (!urls.length) { showError('Add at least one endpoint URL.'); return false }
   // Names are keyed by the CLEANED url (matches the backend's stored list).
   // Empty names are dropped server-side — the row just shows its derived host.
   const labels: Record<string, string> = {}
@@ -180,7 +190,7 @@ async function save(): Promise<void> {
   // and jobs would fail with a confusing "no endpoint" error.
   if (disabled.length >= urls.length) {
     showError('At least one endpoint must stay ON — turn one back on before saving.')
-    return
+    return false
   }
   saving.value = true
   try {
@@ -207,8 +217,10 @@ async function save(): Promise<void> {
     success('Endpoints saved.')
     emit('saved', cleaned)
     setTimeout(() => { savedMsg.value = '' }, 3000)
+    return true
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to save endpoints')
+    return false
   } finally { saving.value = false }
 }
 </script>
@@ -242,6 +254,7 @@ async function save(): Promise<void> {
 .ep-toggle.on { color: #5bb37c; border-color: #5bb37c; }
 .ep-toggle.off { color: var(--text-muted); background: var(--bg-tertiary); }
 .ep-toggle:hover { filter: brightness(1.15); }
+.ep-toggle:disabled { opacity: 0.55; cursor: wait; }
 /* Dim the rest of an OFF row so it reads as inactive (the toggle stays full). */
 .ep-row.off .ep-name,
 .ep-row.off .ep-input,
