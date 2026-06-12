@@ -23,6 +23,7 @@ import { requireAllowedHost } from './lib/security.js'
 import { isServerMode, getServerModeConfig } from './lib/server-mode.js'
 import { buildRequireSession } from './lib/auth-session.js'
 import { router as authRouter } from './routes/auth.js'
+import { errorBoundary } from './lib/error-boundary.js'
 
 const app = express()
 const SERVER_MODE = isServerMode()
@@ -142,16 +143,9 @@ registerAllExecutors()
 // project.json files in the wild may still carry the field — ignored.)
 
 // ── Error boundary (must be last) ──────────────────────────────────────────
-app.use((err: any, req: any, res: any, _next: any) => {
-  logLine('error', 'unhandled-error', {
-    method: req.method, path: req.path,
-    error: String(err?.message || err), stack: err?.stack,
-  })
-  if (res.headersSent) return
-  res.status(err?.status || 500).json({
-    detail: err?.expose ? String(err.message) : 'Internal server error',
-  })
-})
+// Extracted to lib/error-boundary.ts so it's unit-tested against a real
+// throwing route (error-boundary.test.ts).
+app.use(errorBoundary)
 
 // ── Standalone listen (dev via tsx) ────────────────────────────────────────
 // Packaged Electron (main.ts) owns the port and calls `app.listen` itself.
