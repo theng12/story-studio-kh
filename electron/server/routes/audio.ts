@@ -9,6 +9,7 @@ import { generateTtsBuffer } from '../lib/elevenlabs-client.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { parseEndpoints } from '../lib/endpoint-pool.js'
 import { getAudioStatus, reconcileAudioViaGenaipro } from '../services/audio-reconciler.js'
+import { TtlCache, swrFetch } from '../lib/ttl-cache.js'
 import type { AudioModelConfig } from '../models/types.js'
 
 export const router = Router()
@@ -17,6 +18,17 @@ export const router = Router()
 // Mac) for the TTS pool; single-endpoint ops (health/voices/availability) use
 // the first. Render distribution happens in generators/audio.ts.
 const vsFirst = (stored: string | null | undefined): string => parseEndpoints(stored)[0] || ''
+
+// v1.0.337 — stale-while-revalidate caches for the provider probes the voice
+// picker hits on every open. On big projects these requests used to queue
+// behind episode-status disk scans and time out → empty dropdowns ("missing
+// providers"). Now: repeat opens within the TTL are instant, and a failed
+// probe serves the last-known-good list (flagged `stale: true`) instead of
+// nothing. `?refresh=1` (sent by the picker's refresh button) bypasses.
+const vsVoicesCache = new TtlCache<object>(60_000)        // pool/voicepack voices — users add clips occasionally
+const vsModelsCache = new TtlCache<object>(60_000)        // available engines on the modal
+const vsTranscribeCache = new TtlCache<object>(60_000)    // whisper availability
+const macosVoicesCache = new TtlCache<object>(10 * 60_000) // changes only when user installs voices in System Settings
 
 /** Pick the TTS provider for a model id, mirroring generators/audio.ts. */
 function resolveAudioProvider(
@@ -527,13 +539,18 @@ router.get('/voicestudio/voices', async (req, res) => {
     if (!baseUrl) { res.json({ voices: [], baseUrl: '', source: 'library' }); return }
     const modelId = typeof req.query.model === 'string' ? req.query.model : ''
     const family = familyForModelId(modelId)
+    const forceRefresh = req.query.refresh === '1'
+
     // Voicepack engines (Kokoro / Qwen3 / Bark) ship preset speakers built
     // into the model itself — they're identical across every Voice Studio
     // instance. No pool resolution needed; one endpoint's preset list IS
     // the authoritative answer.
     if (family && familyShipsVoicepack(family)) {
-      const voices = await listPresetVoices(baseUrl, family)
-      res.json({ voices, baseUrl, source: 'voicepack' })
+      const r = await swrFetch(vsVoicesCache, `vs-voices:pack:${baseUrl}:${family}`, async () => {
+        const voices = await listPresetVoices(baseUrl, family)
+        return { voices, baseUrl, source: 'voicepack' as const }
+      }, { forceRefresh })
+      res.json({ ...r.value, stale: r.stale || undefined })
       return
     }
     // v1.0.293 — Clone-engine voices (VoxCPM2 / Chatterbox) are user-
@@ -543,39 +560,42 @@ router.get('/voicestudio/voices', async (req, res) => {
     // badge (✓ on every Mac / ⚠ only on m1 — will run serially). The
     // dispatcher reads the same pool to resolve names to per-endpoint
     // UUIDs at TTS time.
-    const pool = await resolveVoicePool(stored)
-    // Massage into the existing picker shape with extra availability
-    // fields. `id` is now the NAME (the picker stores `vsname:<name>`
-    // in form.voice instead of a raw UUID) — see voicestudio-voice-pool
-    // module header for the rationale.
-    const voices = pool.voices.map(v => ({
-      id: v.name,                              // picker stores this; resolver re-maps to UUIDs per endpoint
-      name: v.name,
-      language: v.sample.language,
-      gender: v.sample.gender,
-      duration_seconds: v.sample.duration_seconds,
-      has_transcript: v.sample.has_transcript,
-      audio_url: v.sample.audio_url,
-      // v1.0.293 — multi-endpoint availability metadata. Picker uses these
-      // to render badges; legacy callers ignore them safely.
-      available_on: v.availableOn,
-      available_everywhere: v.availableEverywhere,
-      endpoint_count: pool.reachableEndpoints.length,
-      // Schema marker so the picker can detect "this is a pooled voice,
-      // store the name with the vsname: prefix" vs. the old "store the
-      // raw id directly" behaviour.
-      voice_kind: 'voicestudio-pooled' as const,
-    }))
-    res.json({
-      voices,
-      baseUrl,
-      source: 'library',
-      pool: {
-        endpoints: pool.endpoints,
-        reachable: pool.reachableEndpoints,
-        unreachable: pool.unreachableEndpoints,
-      },
-    })
+    const r = await swrFetch(vsVoicesCache, `vs-voices:pool:${stored || ''}`, async () => {
+      const pool = await resolveVoicePool(stored)
+      // Massage into the existing picker shape with extra availability
+      // fields. `id` is now the NAME (the picker stores `vsname:<name>`
+      // in form.voice instead of a raw UUID) — see voicestudio-voice-pool
+      // module header for the rationale.
+      const voices = pool.voices.map(v => ({
+        id: v.name,                              // picker stores this; resolver re-maps to UUIDs per endpoint
+        name: v.name,
+        language: v.sample.language,
+        gender: v.sample.gender,
+        duration_seconds: v.sample.duration_seconds,
+        has_transcript: v.sample.has_transcript,
+        audio_url: v.sample.audio_url,
+        // v1.0.293 — multi-endpoint availability metadata. Picker uses these
+        // to render badges; legacy callers ignore them safely.
+        available_on: v.availableOn,
+        available_everywhere: v.availableEverywhere,
+        endpoint_count: pool.reachableEndpoints.length,
+        // Schema marker so the picker can detect "this is a pooled voice,
+        // store the name with the vsname: prefix" vs. the old "store the
+        // raw id directly" behaviour.
+        voice_kind: 'voicestudio-pooled' as const,
+      }))
+      return {
+        voices,
+        baseUrl,
+        source: 'library' as const,
+        pool: {
+          endpoints: pool.endpoints,
+          reachable: pool.reachableEndpoints,
+          unreachable: pool.unreachableEndpoints,
+        },
+      }
+    }, { forceRefresh })
+    res.json({ ...r.value, stale: r.stale || undefined })
   } catch (e: any) {
     res.status(502).json(humanizeBackendError(e, 'Could not load Voice Studio voice library'))
   }
@@ -586,21 +606,24 @@ router.get('/voicestudio/voices', async (req, res) => {
 // The display name already carries the "(Enhanced)"/"(Premium)" qualifier, so
 // the picker row shows it as-is. Stored plainly in form.voice (no vsname:
 // prefix) — these aren't pooled. Empty + available:false on a non-macOS host.
-router.get('/macos/voices', async (_req, res) => {
+router.get('/macos/voices', async (req, res) => {
   try {
     const { listMacosVoices, isMacosTtsAvailable } = await import('../lib/macos-say-client.js')
     if (!isMacosTtsAvailable()) {
       res.json({ voices: [], source: 'builtin', available: false })
       return
     }
-    const list = await listMacosVoices()
-    const voices = list.map(v => ({
-      id: v.id,
-      name: v.name,
-      language: v.language,
-      tier: v.tier,
-    }))
-    res.json({ voices, source: 'builtin', available: true })
+    const r = await swrFetch(macosVoicesCache, 'macos-voices', async () => {
+      const list = await listMacosVoices()
+      const voices = list.map(v => ({
+        id: v.id,
+        name: v.name,
+        language: v.language,
+        tier: v.tier,
+      }))
+      return { voices, source: 'builtin' as const, available: true }
+    }, { forceRefresh: req.query.refresh === '1' })
+    res.json({ ...r.value, stale: r.stale || undefined })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not list macOS voices'))
   }
@@ -612,15 +635,18 @@ router.get('/macos/voices', async (_req, res) => {
 // generation/preview work); this endpoint tells the frontend which to
 // *show*. `ok:false` (modal offline/unreachable) → frontend falls back to
 // showing all registered voicestudio models so the dropdown never empties.
-router.get('/voicestudio/models', async (_req, res) => {
+router.get('/voicestudio/models', async (req, res) => {
   try {
     const { listAvailableEngines, DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const stored = await getApiKey('voicestudio')
     const baseUrl = vsFirst(stored) || DEFAULT_VOICESTUDIO_BASE_URL
     if (!baseUrl) { res.json({ ok: false, configured: false, models: [], baseUrl: '' }); return }
-    const result = await listAvailableEngines(baseUrl)
-    res.json({ ...result, configured: !!stored, baseUrl })
+    const r = await swrFetch(vsModelsCache, `vs-models:${baseUrl}`, async () => {
+      const result = await listAvailableEngines(baseUrl)
+      return { ...result, configured: !!stored, baseUrl }
+    }, { forceRefresh: req.query.refresh === '1' })
+    res.json({ ...r.value, stale: r.stale || undefined })
   } catch (e: any) {
     // Non-fatal — report not-ok so the frontend keeps the static list.
     res.json({ configured: false, ok: false, models: [], error: e?.message || 'probe failed' })
@@ -631,14 +657,17 @@ router.get('/voicestudio/models', async (_req, res) => {
 // learn which Whisper models the modal has cached + ready, so it can gate the
 // "Transcribe (local)" action and offer the right model. Non-fatal on a
 // missing URL / offline modal (the tab falls back to OpenAI).
-router.get('/voicestudio/transcribe-availability', async (_req, res) => {
+router.get('/voicestudio/transcribe-availability', async (req, res) => {
   try {
     const { transcribeAvailability, DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
     const baseUrl = vsFirst(await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
     if (!baseUrl) { res.json({ available: false, configured: false, models: [] }); return }
-    const avail = await transcribeAvailability(baseUrl)
-    res.json({ ...avail, configured: true })
+    const r = await swrFetch(vsTranscribeCache, `vs-transcribe:${baseUrl}`, async () => {
+      const avail = await transcribeAvailability(baseUrl)
+      return { ...avail, configured: true }
+    }, { forceRefresh: req.query.refresh === '1' })
+    res.json({ ...r.value, stale: r.stale || undefined })
   } catch (e: any) {
     res.json({ available: false, configured: false, models: [], error: e?.message || 'probe failed' })
   }

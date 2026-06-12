@@ -4,6 +4,53 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.337 — 2026-06-12
+
+### Added — guide character appearance is now per-channel, and can be turned off
+The selective-guide behaviour from v1.0.336 is no longer a baked-in 40% — it's a **per-project setting**. On the **Character Sheet** page (continuity hub), a **"Guide character appearance"** slider (0–100%, a channel default that saves instantly) controls how often the recurring guide is on screen:
+
+- **0%** — no guide character at all (pure event / place / map / artifact imagery over narration), for channels that don't use one.
+- **~40%** (default) — selective, so the guide stays special.
+- **100%** — guide in every scene (the pre-v1.0.336 behaviour).
+
+The Scene Planner reads it (`config.json` → `character_density`) and targets that mix; the continuity renderer keys off each scene's type as before. Works in **both** planning modes — single-pass lets the LLM classify to the target, and two-pass (local-model deterministic split) distributes the types with an even-spread accumulator so character scenes are scattered, not clustered. Projects that never set it keep the v1.0.336 default behaviour.
+
+### Files
+- `electron/server/services/scene-planner.ts` (density-driven cast guidance in the planner prompt; exported `assignDensityToUntagged` even-spread distributor)
+- `electron/server/generators/scene-plan.ts` (reads `character_density` from project config; applies it to untagged scenes; logs the resulting cast)
+- `electron/server/models/types.ts` (`ScenePlanRunOptions.character_density` + builder opt)
+- `electron/server/services/project-manager.ts` (`character_density` in the safe config read shape)
+- `frontend/pages/projects/[slug]/character-sheet.vue` (Guide appearance slider → project config)
+- `electron/server/__tests__/scene-planner-salvage.test.ts` (density-distribution tests)
+
+### Performance — big projects (200–300+ episodes) load faster, and providers stop "going missing"
+Four root-cause fixes for the slowdown on episode-heavy projects:
+
+- **One folder walk instead of 300.** The episode list endpoint used to re-walk the whole project tree from the root for EVERY episode just to resolve its folder path — descending into every other episode's image folders along the way. On a 300-episode project that multiplied into hundreds of thousands of redundant directory reads per page load. It now builds the code→folder index in a single walk shared by all rows.
+- **Duplicate scans collapse into one.** Opening several generator pages at once used to fire several full status sweeps in parallel. Identical concurrent requests now share one computation.
+- **Voice/model dropdowns can't starve anymore.** The Voice Studio voices / engines / Whisper probes and the macOS voice list are now cached for 60s (10 min for macOS) with a last-known-good fallback: if a probe fails while the disk is busy, the dropdown shows the previous list (flagged stale) instead of going empty. That was the "missing providers" bug.
+- **4× more filesystem threads.** Node's filesystem thread pool defaults to 4 threads; the status sweep saturated all of them, which is what made unrelated requests queue up behind it. The app now boots with 16.
+
+### Added — mark any pipeline step as done by hand (for imported assets)
+Under the episode picker on every generator page there's now a **Steps: N/M done** summary — expand it to see every pipeline step as a chip (✓ done / ○ pending). Steps auto-detect from files on disk; when you import a finished result from outside the app (legacy audio, a thumbnail made elsewhere), the step could stay "pending" forever with no way to close it. Now: **click the pending chip to mark it done by hand** (shown with a dashed ring + "manual"), click again to return to auto-detect. Format-specific steps (Research / Clips / Scene plan / Scene review) only appear where they apply. Also:
+
+- Importing assets via the Import dialog now refreshes that episode's status immediately (no more stale "pending" until a manual refresh).
+- In "Show all" mode the dropdown now marks episodes that have THIS page's step done (`✓`, or `✓ (manual)` for hand-marked) — previously only fully-finished episodes got a mark.
+
+### Cleanup
+- Removed unused `@fal-ai/client` dependency; archived executed one-off migration scripts to `scripts/archive/`; repo-root scratch files deleted and `test-results.txt` gitignored.
+
+### Files
+- `electron/server/routes/ideas.ts` (single-walk episode-dir index + in-flight request coalescing on `/episodes`)
+- `electron/server/lib/ttl-cache.ts` (new — stale-while-revalidate TTL cache) + `electron/server/__tests__/ttl-cache.test.ts` (8 tests)
+- `electron/server/routes/audio.ts` (SWR cache on voices/models/transcribe/macOS probes, `?refresh=1` bypass)
+- `electron/boot-env.ts` (new — `UV_THREADPOOL_SIZE=16`, imported first in `electron/main.ts`)
+- `electron/server/routes/projects.ts` (status-cache invalidation after asset import)
+- `frontend/components/EpisodeSelector.vue` (step chips + manual mark-done + per-page ✓ suffix)
+- `frontend/composables/useEpisodes.ts` (light `revalidate()`; `research`/`scene_plan`/`scene_review` in the row type)
+
+---
+
 ## v1.0.336 — 2026-06-12
 
 ### Added — continuity videos: the guide character now appears SELECTIVELY, not in every scene

@@ -3,6 +3,9 @@
  * Starts the Express backend server and opens the frontend in a BrowserWindow.
  */
 
+// MUST stay the first import — sets UV_THREADPOOL_SIZE before any module
+// touches the filesystem (see boot-env.ts for why).
+import './boot-env.js'
 import { app as electronApp, BrowserWindow, Menu, Notification, dialog, shell } from 'electron'
 import { app as expressApp } from './server/app.js'
 import http from 'http'

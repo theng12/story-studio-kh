@@ -73,6 +73,46 @@
       </option>
     </select>
     <div v-if="legend" class="status-legend">{{ legend }}</div>
+
+    <!-- v1.0.338 — per-step status for the SELECTED episode + manual
+         mark-as-done. Step status auto-detects from files on disk; when a
+         finished asset is imported from outside the app the step can stay
+         "pending" forever with nothing to click. Clicking a pending chip
+         stores a manual override (dashed ✓); clicking it again returns the
+         step to auto-detect. Collapsed to a one-line summary by default so
+         the picker stays compact on every generator page. -->
+    <div v-if="selectedEp" class="step-strip">
+      <button type="button" class="step-summary" @click="stepsExpanded = !stepsExpanded">
+        <span class="step-summary-arrow">{{ stepsExpanded ? '▾' : '▸' }}</span>
+        Steps: {{ doneChipCount }}/{{ visibleChips.length }} done
+        <span v-if="manualChipCount" class="step-summary-manual">· {{ manualChipCount }} manual</span>
+      </button>
+      <template v-if="stepsExpanded">
+        <div class="step-chips-row">
+          <button
+            v-for="chip in visibleChips"
+            :key="chip.field"
+            type="button"
+            class="step-chip"
+            :class="chipClass(chip.field)"
+            :disabled="togglingStep !== '' || selectedEp.marked_done === true"
+            :title="chipTitle(chip)"
+            @click="onChipClick(chip)"
+          >
+            <span class="step-chip-mark">{{ chipMark(chip.field) }}</span>{{ chip.label }}
+          </button>
+        </div>
+        <div class="step-chips-hint">
+          <template v-if="selectedEp.marked_done === true">
+            This episode is marked done — every step is forced ✓. Undo from the Ideas page.
+          </template>
+          <template v-else>
+            Steps auto-detect from files on disk. Imported a result from outside the app?
+            Click its step to mark it done by hand (dashed ✓) — click again to return to auto-detect.
+          </template>
+        </div>
+      </template>
+    </div>
   </div>
 </template>
 
@@ -93,8 +133,124 @@ const emit = defineEmits<{
 // concurrent fetches. Manual refresh + job-completion auto-refresh both
 // flow through the composable.
 const slugRef = computed(() => props.projectSlug)
-const { episodes, isLoading: loading, isRevalidating, refresh, rescan } = useEpisodes(slugRef)
+const { episodes, isLoading: loading, isRevalidating, refresh, revalidate, rescan } = useEpisodes(slugRef)
 const showAll = ref(false)
+
+// ── v1.0.338 — per-step status chips + manual mark-as-done ────────────────
+const { patch } = useApi()
+const { success, error: showError, info: showInfo } = useToast()
+
+const selectedEp = computed(() =>
+  props.modelValue ? episodes.value.find(e => e.episode_code === props.modelValue) || null : null)
+
+interface StepChip { field: string; label: string; conditional?: boolean }
+// Pipeline-ordered. `conditional` steps only apply to some formats
+// (research / scene-plan / scene-review for transcript-timed pipelines,
+// per-scene Clips for AI-video formats) — they'd read as forever-pending
+// noise elsewhere, so they only render when they're done, overridden, or
+// this page IS that step (filterField match).
+const STEP_CHIPS: StepChip[] = [
+  { field: 'research',       label: 'Research', conditional: true },
+  { field: 'script',         label: 'Script' },
+  { field: 'metadata',       label: 'Metadata' },
+  { field: 'scene_prompts',  label: 'Scene prompts' },
+  { field: 'thumb_prompts',  label: 'Thumb prompts' },
+  { field: 'images',         label: 'Scene images' },
+  { field: 'thumbnails',     label: 'Thumbnails' },
+  { field: 'video',          label: 'Clips', conditional: true },
+  { field: 'audio',          label: 'Audio' },
+  { field: 'merged_audio',   label: 'Audio merge' },
+  { field: 'scene_plan',     label: 'Scene plan', conditional: true },
+  { field: 'scene_review',   label: 'Scene review', conditional: true },
+  { field: 'video_assembly', label: 'Final video' },
+]
+
+const stepsExpanded = ref(false)
+const togglingStep = ref('')
+
+function overrideFor(field: string): boolean | undefined {
+  const o = selectedEp.value?.status_overrides
+  return o && typeof o === 'object' ? (o as Record<string, boolean | undefined>)[field] : undefined
+}
+
+const visibleChips = computed(() => {
+  const ep = selectedEp.value
+  if (!ep) return []
+  return STEP_CHIPS.filter(c => {
+    if (!c.conditional) return true
+    return ep.status?.[c.field] === true
+      || overrideFor(c.field) !== undefined
+      || props.filterField === c.field
+  })
+})
+const doneChipCount = computed(() =>
+  visibleChips.value.filter(c => selectedEp.value?.status?.[c.field] === true).length)
+const manualChipCount = computed(() =>
+  visibleChips.value.filter(c => overrideFor(c.field) !== undefined).length)
+
+function chipClass(field: string): Record<string, boolean> {
+  const done = selectedEp.value?.status?.[field] === true
+  const manual = overrideFor(field) !== undefined
+  return {
+    'chip-done': done,
+    'chip-pending': !done,
+    'chip-manual': manual,
+    'chip-busy': togglingStep.value === field,
+  }
+}
+function chipMark(field: string): string {
+  return selectedEp.value?.status?.[field] === true ? '✓' : '○'
+}
+function chipTitle(chip: StepChip): string {
+  const done = selectedEp.value?.status?.[chip.field] === true
+  const manual = overrideFor(chip.field) !== undefined
+  if (manual) return `${chip.label}: marked ${done ? 'done' : 'pending'} BY HAND — click to return to auto-detect`
+  if (done) return `${chip.label}: done (detected from files on disk)`
+  return `${chip.label}: pending — click to mark done by hand (e.g. you imported the finished file)`
+}
+
+async function onChipClick(chip: StepChip) {
+  const ep = selectedEp.value
+  if (!ep || togglingStep.value) return
+  const field = chip.field
+  const manual = overrideFor(field) !== undefined
+  const done = ep.status?.[field] === true
+
+  // Auto-detected done — nothing to toggle (removing a detection isn't a
+  // thing; the files are on disk). Explain instead of silently ignoring.
+  if (done && !manual) {
+    showInfo(`${chip.label} is already detected as done from the files on disk.`)
+    return
+  }
+
+  // Build the REPLACEMENT overrides object (the PATCH replaces, not merges).
+  const next: Record<string, boolean> = {}
+  const current = ep.status_overrides
+  if (current && typeof current === 'object') {
+    for (const [k, v] of Object.entries(current)) {
+      if (typeof v === 'boolean') next[k] = v
+    }
+  }
+  if (manual) delete next[field]
+  else next[field] = true
+
+  togglingStep.value = field
+  try {
+    await patch(`/projects/${props.projectSlug}/episodes/${ep.episode_code}/status-overrides`, {
+      overrides: Object.keys(next).length ? next : null,
+    })
+    // Backend surgically invalidated this episode's status cache — a plain
+    // revalidate picks it up without forcing a full-project recompute.
+    await revalidate()
+    success(manual
+      ? `${chip.label} returned to auto-detect for ${ep.episode_code}`
+      : `${chip.label} marked done for ${ep.episode_code}`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || `Could not update ${chip.label} for ${ep.episode_code}`)
+  } finally {
+    togglingStep.value = ''
+  }
+}
 
 // v1.0.92+ — episode search (case-insensitive substring on code or
 // title). Local-only state: each EpisodeSelector instance owns its own
@@ -234,6 +390,17 @@ function statusSuffix(ep: any): string {
   }
   if (props.filterField === 'research') {
     return s.research ? ' ✓ researched' : ''
+  }
+  // v1.0.338 — generic per-page suffix. In "Show all" mode the dropdown
+  // used to mark only fully-finished episodes (all_done ✓), so you couldn't
+  // tell which episodes had THIS page's step done. Now the page's own step
+  // (filterField) drives the mark, with "(manual)" when it came from a
+  // hand-set override rather than file detection.
+  if (props.filterField && s[props.filterField]) {
+    const manual = ep.status_overrides
+      && typeof ep.status_overrides === 'object'
+      && ep.status_overrides[props.filterField] !== undefined
+    return manual ? ' ✓ (manual)' : ' ✓'
   }
   return s.all_done ? ' ✓' : ''
 }
@@ -449,5 +616,85 @@ defineExpose({ refresh, rescan })
 .ep-search-clear:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+/* v1.0.338 — per-step status strip (collapsed summary + expandable chips). */
+.step-strip {
+  margin-top: 6px;
+}
+.step-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.step-summary:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.step-summary-arrow {
+  font-size: 9px;
+  line-height: 1;
+}
+.step-summary-manual {
+  color: var(--accent);
+}
+.step-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.step-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.step-chip:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.step-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.step-chip.chip-done {
+  color: var(--success, #22c55e);
+  border-color: color-mix(in srgb, var(--success, #22c55e) 45%, transparent);
+}
+/* Manual override — dashed ring distinguishes "marked by hand" from
+   "detected from files" at a glance. */
+.step-chip.chip-manual {
+  border-style: dashed;
+  border-color: var(--accent);
+}
+.step-chip.chip-busy {
+  opacity: 0.6;
+}
+.step-chip-mark {
+  font-size: 10px;
+  line-height: 1;
+}
+.step-chips-hint {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
 }
 </style>

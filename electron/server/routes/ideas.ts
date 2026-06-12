@@ -969,17 +969,17 @@ router.post('/projects/:slug/episodes/bulk-mark-done-by-source', async (req, res
 
 // ── Get accepted episodes with folder status (for Scripts/Image Prompts dropdowns) ──
 
+// v1.0.337 — in-flight coalescing for the plain (no-param) list request.
+// Several generator pages mount at once and each fires GET /episodes; on a
+// 200–300 episode project every uncoalesced call repeats the full status
+// sweep. Identical concurrent plain requests now share ONE computation.
+// Requests carrying refresh/rescan/invalidate params are deliberate cache
+// actions and always run on their own.
+const inflightEpisodeLists = new Map<string, Promise<any[] | null>>()
+
 router.get('/projects/:slug/episodes', async (req, res) => {
   const { slug } = req.params
-  const ideas = await im.getIdeas(slug, 'accepted')
-  const outputRoot = await pm.getProjectOutputRoot(slug)
-  if (!outputRoot) return res.status(404).json({ detail: 'Project not found' })
-  // Re-bind to a `string` local so TS narrowing survives the async closures
-  // below (buildRow captures this via the outer scope).
-  const root: string = outputRoot
 
-  const fsP = await import('fs/promises')
-  const path = await import('path')
   const { episodeStatusCache } = await import('../services/episode-status-cache.js')
 
   // Optional `?refresh=1` clears this project's cache before computing.
@@ -1002,9 +1002,85 @@ router.get('/projects/:slug/episodes', async (req, res) => {
   // cost for every other episode in the project. Used by useEpisodeStatus
   // on every page mount so generator pages always reflect current disk
   // state for the selected episode (catches iCloud-flaky mtime cases).
-  if (typeof req.query.invalidate === 'string' && req.query.invalidate.trim()) {
-    episodeStatusCache.invalidate(slug, req.query.invalidate.trim())
+  const invalidateCode = typeof req.query.invalidate === 'string' ? req.query.invalidate.trim() : ''
+  if (invalidateCode) {
+    episodeStatusCache.invalidate(slug, invalidateCode)
   }
+
+  const isPlain = req.query.refresh !== '1' && req.query.rescan !== '1' && !invalidateCode
+  if (isPlain) {
+    const existing = inflightEpisodeLists.get(slug)
+    if (existing) {
+      const rows = await existing
+      if (rows === null) return res.status(404).json({ detail: 'Project not found' })
+      return res.json(rows)
+    }
+    const p = computeEpisodeRows(slug)
+    inflightEpisodeLists.set(slug, p)
+    try {
+      const rows = await p
+      if (rows === null) return res.status(404).json({ detail: 'Project not found' })
+      return res.json(rows)
+    } finally {
+      inflightEpisodeLists.delete(slug)
+    }
+  }
+
+  const rows = await computeEpisodeRows(slug)
+  if (rows === null) return res.status(404).json({ detail: 'Project not found' })
+  res.json(rows)
+})
+
+/** Returns the episode rows, or null when the project doesn't exist. */
+async function computeEpisodeRows(slug: string): Promise<any[] | null> {
+  const ideas = await im.getIdeas(slug, 'accepted')
+  const outputRoot = await pm.getProjectOutputRoot(slug)
+  if (!outputRoot) return null
+  // Re-bind to a `string` local so TS narrowing survives the async closures
+  // below (buildRow captures this via the outer scope).
+  const root: string = outputRoot
+
+  const fsP = await import('fs/promises')
+  const path = await import('path')
+  const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+
+  // v1.0.337 — ONE tree walk builds a code→dir index shared by every row.
+  // The old per-episode findDir() recursed from the project root for each
+  // episode — and descended into every NON-matching episode's subfolders
+  // (image folders with hundreds of files included). On a 300-episode
+  // project that multiplied into hundreds of thousands of readdir calls
+  // per list request, all uncached. The index walk visits each directory
+  // at most once (~1 + seasons + stray dirs) and stops descending at any
+  // matched episode dir, mirroring findDir's first-match semantics.
+  async function buildEpisodeDirIndex(codes: Set<string>): Promise<Map<string, string>> {
+    const found = new Map<string, string>()
+    async function walk(dir: string): Promise<void> {
+      if (found.size >= codes.size) return
+      let entries
+      try {
+        entries = await fsP.readdir(dir, { withFileTypes: true })
+      } catch { return }
+      const descend: string[] = []
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        const sep = entry.name.indexOf(' - ')
+        const prefix = sep > 0 ? entry.name.slice(0, sep) : ''
+        if (prefix && codes.has(prefix)) {
+          if (!found.has(prefix)) found.set(prefix, path.join(dir, entry.name))
+          continue // an episode dir — its subfolders are "{code} - NN …", never other episodes
+        }
+        descend.push(path.join(dir, entry.name))
+      }
+      for (const sub of descend) {
+        if (found.size >= codes.size) return
+        await walk(sub)
+      }
+    }
+    await walk(root)
+    return found
+  }
+  const codes = new Set<string>(ideas.map((i: any) => i.episode_code).filter(Boolean))
+  const dirIndex = await buildEpisodeDirIndex(codes)
 
   // Source-doc checks (script / prompts / metadata) stay as cheap file-ext
   // scans — they're "is the input artifact present?" questions where a file
@@ -1012,21 +1088,6 @@ router.get('/projects/:slug/episodes', async (req, res) => {
   // merged) go through the authoritative helpers so partial generations are
   // correctly reported as NOT done. That fixes the bidirectional filter bug
   // (done episodes showing as pending and vice-versa).
-  async function findDir(dir: string, code: string): Promise<string | null> {
-    try {
-      const entries = await fsP.readdir(dir, { withFileTypes: true })
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const fp = path.join(dir, entry.name)
-          if (entry.name.startsWith(`${code} - `)) return fp
-          const nested = await findDir(fp, code)
-          if (nested) return nested
-        }
-      }
-    } catch {}
-    return null
-  }
-
   async function buildRow(idea: any): Promise<any | null> {
     if (!idea.episode_code) return null
     const code = idea.episode_code
@@ -1034,8 +1095,7 @@ router.get('/projects/:slug/episodes', async (req, res) => {
     // Resolve the episode directory purely for the response's episode_dir
     // field — the status computation now lives in services/asset-status.ts
     // so buildRow and run-batch agree on every boolean.
-    const dir = await findDir(root, code)
-    const episodeDir = dir || ''
+    const episodeDir = dirIndex.get(code) || ''
 
     // Pass `ideas` so the underlying compute skips its internal ideas.json
     // load — at 150+ episodes this used to do 2 reloads/parses per call,
@@ -1160,8 +1220,8 @@ router.get('/projects/:slug/episodes', async (req, res) => {
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ideas.length) }, worker))
 
-  res.json(results.filter(Boolean))
-})
+  return results.filter(Boolean)
+}
 
 // ── Single-episode status (v1.0.299) ────────────────────────────────────────
 // The generator-page gates (useEpisodeStatus) only ever need ONE episode's

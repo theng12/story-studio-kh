@@ -461,6 +461,16 @@ router.post('/projects/:slug/episodes/:code/import-assets', async (req, res) => 
 
     const { importAssets } = await import('../services/asset-importer.js')
     const result = await importAssets(slug, code, validated.items as any, { mode })
+    // v1.0.337 — imported files land with canonical names that the status
+    // detection DOES recognise, but the episode-status cache only re-checks
+    // when watched-folder mtimes change — and on iCloud those mtime reads
+    // can be flaky right after a write. Drop this episode's cache entry so
+    // the very next status read recomputes and the imported step flips to
+    // done immediately instead of staying "pending" until a manual refresh.
+    try {
+      const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+      episodeStatusCache.invalidate(slug, code)
+    } catch { /* cache invalidation is best-effort; import already succeeded */ }
     res.json(result)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Asset import failed'))

@@ -50,7 +50,15 @@ export interface EpisodeRow {
   marked_done?: boolean
   marked_done_at?: string | null
   status_overrides?: Partial<EpisodeRow['status']> | null
+  // v1.0.338 — research / scene_plan / scene_review were already sent by the
+  // backend (surfaced v1.0.246 / v1.0.279) but missing here; optional since
+  // they only apply to transcript-timed formats. The Record intersection
+  // lets generic per-step code (EpisodeSelector's chips, filterField
+  // lookups) index by string without a cast.
   status: {
+    research?: boolean
+    scene_plan?: boolean
+    scene_review?: boolean
     script: boolean
     introduction: boolean
     prompts: boolean
@@ -66,7 +74,7 @@ export interface EpisodeRow {
     publishable: boolean
     metadata: boolean
     all_done: boolean
-  }
+  } & Record<string, boolean | undefined>
 }
 
 interface SharedSlot {
@@ -204,6 +212,20 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
   }
 
   /**
+   * v1.0.338 — light refetch (NO ?refresh=1). The backend serves its
+   * mtime-cached status for unchanged episodes and recomputes only entries
+   * something surgically invalidated (e.g. the status-overrides PATCH or an
+   * asset import). Use after single-episode mutations: refresh() would
+   * force a full recompute of every episode — a 300-episode disk sweep —
+   * to pick up a one-row change.
+   */
+  async function revalidate() {
+    const slot = currentSlot()
+    slot.isRevalidating.value = true
+    try { await fetchOnce(false) } catch { /* error stored */ }
+  }
+
+  /**
    * Heavier "Rescan from disk" — wipes the backend's on-disk cache file
    * for this project too, so the next pass is guaranteed to readdir
    * every episode folder fresh. Use when an iCloud sync arrived but the
@@ -280,6 +302,7 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
       return t === 0 || (Date.now() - t) > TTL_MS
     }),
     refresh,
+    revalidate,
     rescan,
     invalidate,
   }
