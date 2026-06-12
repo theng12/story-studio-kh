@@ -37,6 +37,12 @@
         <NuxtLink :to="`/projects/${slug}/pipeline`" class="nav-item" active-class="active">
           <span class="nav-icon">&#9881;</span> Pipeline
         </NuxtLink>
+        <!-- v1.0.341 — Production Board: episodes × steps status grid. The
+             episode-centric overview ("where is EP0042?") to complement the
+             tool-centric generator pages. -->
+        <NuxtLink :to="`/projects/${slug}/board`" class="nav-item" active-class="active" title="Every episode × every pipeline step at a glance — see what's done, what's pending, and jump straight to any step for any episode.">
+          <span class="nav-icon">&#9783;</span> Production Board
+        </NuxtLink>
 
         <div class="nav-divider" />
         <div class="nav-section-label">Generators</div>
