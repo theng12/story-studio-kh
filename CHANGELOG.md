@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.340 — 2026-06-12
+
+### Fixed — continuity Repair no longer replaces Regenerate
+Scene Review now keeps continuity **Regenerate** as the intentional "make a fresh image" action, while **Repair** is a separate recovery-focused action for missing continuity images. Repair first tries to recover an already-submitted provider task, then falls back to a single-scene repair render if there is nothing recoverable.
+
+### Files
+- `frontend/pages/projects/[slug]/scene-review.vue` (separate continuity Regenerate and Repair buttons)
+- `electron/server/routes/scene-review.ts` (repair endpoint only handles missing images; existing images use Regenerate)
+
+---
+
 ## v1.0.339 — 2026-06-12
 
 ### Added — continuity image recovery from submitted Kie tasks
