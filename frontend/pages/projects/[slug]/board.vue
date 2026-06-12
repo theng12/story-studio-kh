@@ -21,10 +21,17 @@
       <div class="board-title">
         <h1>Production Board</h1>
         <span v-if="!loading" class="board-count">
-          <template v-if="searchActive || hidePending">{{ visibleEpisodes.length }} of {{ episodes.length }} shown</template>
+          <template v-if="searchActive || hidePending || stepFilter">{{ visibleEpisodes.length }} of {{ episodes.length }} shown</template>
           <template v-else>{{ episodes.length }} episode{{ episodes.length === 1 ? '' : 's' }}</template>
         </span>
         <span v-else class="board-count">Loading…</span>
+        <button
+          v-if="stepFilter && stepFilterCol"
+          type="button"
+          class="board-stepfilter-chip"
+          title="Clear this step filter"
+          @click="stepFilter = null"
+        >needs {{ stepFilterCol.label }} ✕</button>
       </div>
 
       <div class="board-tools">
@@ -94,11 +101,12 @@
     <div v-else-if="!visibleEpisodes.length" class="board-empty">
       <p class="board-empty-title">Nothing matches</p>
       <p class="text-muted">
+        <template v-if="stepFilter && stepFilterCol">Every episode has {{ stepFilterCol.label }} done. </template>
         <template v-if="hidePending">Every shown episode is fully done. </template>
         <template v-if="searchActive">No episode matches "{{ search }}". </template>
         Clear the filters to see all {{ episodes.length }}.
       </p>
-      <button class="btn btn-secondary" @click="search = ''; hidePending = false">Clear filters</button>
+      <button class="btn btn-secondary" @click="search = ''; hidePending = false; stepFilter = null">Clear filters</button>
     </div>
 
     <!-- The matrix -->
@@ -111,13 +119,20 @@
               v-for="col in columns"
               :key="col.key"
               class="col-step sticky-head"
-              :title="col.label"
             >
-              <div class="step-h">
+              <button
+                type="button"
+                class="step-h"
+                :class="{ 'step-h-active': stepFilter === col.field }"
+                :title="stepFilter === col.field
+                  ? `Showing only episodes that still need ${col.label} — click to clear`
+                  : `Show only episodes that still need ${col.label}`"
+                @click="toggleStepFilter(col.field)"
+              >
                 <span class="step-h-icon">{{ col.icon }}</span>
                 <span class="step-h-label">{{ col.label }}</span>
                 <span class="step-h-count">{{ doneCount(col) }}/{{ episodes.length }}</span>
-              </div>
+              </button>
             </th>
           </tr>
         </thead>
@@ -238,10 +253,23 @@ const columns = computed<BoardCol[]>(() =>
 // ── Filtering ─────────────────────────────────────────────────────────────
 const search = ref('')
 const hidePending = ref(false)
+// Click a column header to show only episodes still pending THAT step
+// ("who needs Audio?"). Null = no per-step filter.
+const stepFilter = ref<string | null>(null)
 const searchActive = computed(() => search.value.trim().length > 0)
+const stepFilterCol = computed(() => columns.value.find(c => c.field === stepFilter.value) || null)
+
+function toggleStepFilter(field: string) {
+  stepFilter.value = stepFilter.value === field ? null : field
+}
+// If a format change drops the filtered column, clear the stale filter.
+watch(columns, cols => {
+  if (stepFilter.value && !cols.some(c => c.field === stepFilter.value)) stepFilter.value = null
+})
 
 const visibleEpisodes = computed(() => {
   let list = episodes.value
+  if (stepFilter.value) list = list.filter(ep => ep.status?.[stepFilter.value!] !== true)
   if (hidePending.value) list = list.filter(ep => !isFullyDone(ep))
   if (searchActive.value) {
     const q = search.value.trim().toLowerCase()
@@ -395,6 +423,17 @@ async function markCell(ep: any, col: BoardCol) {
   font-size: 12px;
   color: var(--text-muted);
 }
+.board-stepfilter-chip {
+  font-size: 11px;
+  font-family: inherit;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.board-stepfilter-chip:hover { background: color-mix(in srgb, var(--accent) 30%, transparent); }
 .board-tools {
   display: flex;
   align-items: center;
@@ -513,6 +552,17 @@ async function markCell(ep: any, col: BoardCol) {
   align-items: center;
   gap: 1px;
   padding: 6px 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.step-h:hover { background: var(--bg-hover); }
+.step-h-active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 .step-h-icon { font-size: 13px; }
 .step-h-label { font-size: 10px; line-height: 1.1; color: var(--text-primary); text-align: center; }
