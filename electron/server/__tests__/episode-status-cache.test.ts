@@ -287,6 +287,7 @@ describe('episode-status-cache', () => {
         metadata: false,
         images: false, thumbnails: false,
         audio: false, merged_audio: false,
+        subtitles: false,
         video: false,
         video_assembly: false,
       },

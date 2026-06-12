@@ -21,7 +21,7 @@
       :project-slug="slug"
       :presets="subtitlesPresets"
       v-model:episode-id="episodeId"
-      filter-field="audio"
+      filter-field="subtitles"
       :generate-label="transcribeLabel"
       loading-label="Queuing…"
       :generate-loading="transcribing || transcribeJobActive"

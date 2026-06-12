@@ -1084,6 +1084,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       thumbnails: thumbsDone,
       audio: audioDone,
       merged_audio: mergedAudioDone,
+      subtitles: subtitlesDone,
       video: videoDone,
       video_assembly: videoAssemblyDone,
     } = status
@@ -1157,6 +1158,10 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
         thumbnails: thumbsDone,
         audio: audioDone,
         merged_audio: mergedAudioDone,
+        // v1.0.352 — surfaced so the Subtitles page's "Pending only" filter can
+        // key off real subtitle presence instead of borrowing `audio` (which
+        // hid audio-ready episodes that still needed subtitles).
+        subtitles: subtitlesDone,
         video: videoDone,
         // Added 2026-04-24: was silently dropped by buildRow's destructure so
         // pipeline.vue saw `undefined` and always reported video_assembly as

@@ -186,6 +186,7 @@ const STEP_CHIPS: StepChip[] = [
   { field: 'video',          label: 'Clips', conditional: true },
   { field: 'audio',          label: 'Audio' },
   { field: 'merged_audio',   label: 'Audio merge' },
+  { field: 'subtitles',      label: 'Subtitles', conditional: true },
   { field: 'scene_plan',     label: 'Scene plan', conditional: true },
   { field: 'scene_review',   label: 'Scene review', conditional: true },
   { field: 'video_assembly', label: 'Final video' },

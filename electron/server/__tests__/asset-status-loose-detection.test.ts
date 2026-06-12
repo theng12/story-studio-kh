@@ -187,6 +187,34 @@ describe('asset-status looser detection (no prompts docx)', () => {
     assert.equal(status.thumbnails, true, 'looser thumb detection flips thumbnails→true')
   })
 
+  // v1.0.352 — the Subtitles-page "Pending only" filter regression: an episode
+  // with audio but no SRTs must report subtitles=false (it was borrowing the
+  // `audio` field, so audio-ready episodes were wrongly hidden from pending).
+  test('subtitles=false until an .srt/.vtt exists, then true', async () => {
+    const { episodeDir } = await makeProject()
+    const subsDir = path.join(episodeDir, `${CODE} - 09 Subtitles Output`)
+    await fs.mkdir(subsDir, { recursive: true })
+
+    // Empty subtitles folder → not done (this is the EP0006-0010 case).
+    let status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.subtitles, false, 'no SRT yet → subtitles pending')
+
+    // Drop a per-chapter SRT → done.
+    await fs.writeFile(path.join(subsDir, `${CODE}_chapter_01.srt`), '1\n00:00:00,000 --> 00:00:02,000\nhi\n')
+    cacheMod.episodeStatusCache.clear()
+    status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.subtitles, true, 'an SRT present → subtitles done')
+  })
+
+  test('subtitles also detects a .vtt track', async () => {
+    const { episodeDir } = await makeProject()
+    const subsDir = path.join(episodeDir, `${CODE} - 09 Subtitles Output`)
+    await fs.mkdir(subsDir, { recursive: true })
+    await fs.writeFile(path.join(subsDir, `${CODE}_whisper.vtt`), 'WEBVTT\n\n00:00.000 --> 00:02.000\nhi\n')
+    const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.subtitles, true, '.vtt counts as a subtitle track')
+  })
+
   test('back-compat: prompts docx present → strict expected-vs-present preserved', async () => {
     // When the user HAS a prompts docx, the existing strict logic must
     // still apply. We can't easily fabricate a parseable docx here, so

@@ -68,6 +68,7 @@ export interface EpisodeRow {
     thumbnails: boolean
     audio: boolean
     merged_audio: boolean
+    subtitles?: boolean
     video: boolean
     video_assembly: boolean
     video_ready: boolean

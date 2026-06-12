@@ -38,6 +38,7 @@ function fullStatus(overrides: Partial<EpisodeStatus> = {}): EpisodeStatus {
     metadata: false,
     images: false, thumbnails: false,
     audio: false, merged_audio: false,
+    subtitles: false,
     video: false,
     video_assembly: false,
     ...overrides,

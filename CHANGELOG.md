@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.355 — 2026-06-13
+
+### Fixed — Subtitles "Pending only" hid episodes that still needed subtitles
+On the **Subtitles** page, the **Pending only** filter was secretly keyed to *audio*, not subtitles — so any episode that already had audio (i.e. was *ready* to be subtitled) was treated as "done" and dropped out of the pending list. You had to switch to **Show all** to even find episodes with no subtitles (e.g. KH Boundless EP0006–EP0010, "0/10 chapters transcribed, no SRT yet"). Exactly backwards.
+
+There was no real subtitle-status signal at all — the page borrowed `audio` as a stand-in. Now there's a genuine one:
+
+- **New `subtitles` episode-status field** — true when the episode's subtitles folder holds at least one `.srt`/`.vtt` track (per-chapter, whisper, stitched, or imported all count). The Subtitles page's "Pending only" now filters on *this*, so episodes without subtitles correctly show as pending.
+- **Subtitles is now a step on the Production Board** (its own column) and in the per-episode step chips under the picker — consistent with every other pipeline step, including the hand-mark-done override.
+- Like Research / Scene Plan, subtitles is treated as **optional** — it's not folded into an episode's "all done" rollup (not every video burns in subtitles).
+
+### Files
+- `electron/server/services/asset-status.ts` (`subtitles` field + detection in `computeEpisodeStatus`; `emptyStatus`/`allDoneStatus`)
+- `electron/server/routes/ideas.ts` (surface `subtitles` in the `/episodes` status)
+- `frontend/composables/useEpisodes.ts` (type), `frontend/pages/projects/[slug]/subtitles.vue` (`filter-field="subtitles"`), `frontend/pages/projects/[slug]/board.vue` + `frontend/components/EpisodeSelector.vue` (Subtitles column/chip)
+- `electron/server/__tests__/asset-status-loose-detection.test.ts` (detection tests) + 2 fixtures updated for the new field
+
+---
+
 ## v1.0.354 — 2026-06-13
 
 ### Changed — Video Assembly timeline: Target Duration removed + continuity-aware Step 3

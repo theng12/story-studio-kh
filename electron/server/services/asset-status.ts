@@ -675,6 +675,12 @@ export interface EpisodeStatus {
   thumbnails: boolean
   audio: boolean
   merged_audio: boolean
+  // v1.0.352 — subtitle track present: at least one .srt/.vtt in the
+  // subtitles_dir. The Subtitles page filters its "pending" list by this.
+  // Previously the page borrowed `audio` as a proxy, so episodes that HAD
+  // audio (i.e. were ready FOR subtitles) were wrongly hidden from pending.
+  // Optional like research/scene_plan — NOT folded into all_done.
+  subtitles: boolean
   video: boolean
   // Video-assembly final render — the single merged output that the
   // Video Assembly page produces. Named `{code}_final_video.{ext}` under
@@ -711,6 +717,7 @@ function emptyStatus(): EpisodeStatus {
     metadata: false,
     images: false, thumbnails: false,
     audio: false, merged_audio: false,
+    subtitles: false,
     video: false,
     video_assembly: false,
   }
@@ -897,6 +904,14 @@ export async function computeEpisodeStatus(
     status.scene_prompts = scenePromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md') || f.endsWith('.json'))
     status.thumb_prompts = thumbPromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md') || f.endsWith('.json'))
     status.metadata = metadataFiles.some(f => f.endsWith('.txt') || f.endsWith('.json') || f.endsWith('.md'))
+
+    // v1.0.352 — subtitles done = at least one .srt/.vtt in the subtitles
+    // folder (per-chapter {code}_{slug}.srt, {code}_whisper.srt, a stitched
+    // SRT, or an imported track all count). Scanned separately so a transient
+    // subtitles-folder read error doesn't poison the four-folder _unreliable
+    // check above — it just leaves subtitles:false to recompute next pass.
+    const subtitleR = await safeReaddirRich(paths.subtitles_dir)
+    status.subtitles = subtitleR.files.some(f => f.endsWith('.srt') || f.endsWith('.vtt'))
 
     // Research sidecar now lives in the "{code} - 11 Research" folder
     // (resolveResearchPaths auto-migrates any legacy loose copy). episode_dir
@@ -1193,6 +1208,7 @@ function allDoneStatus(): EpisodeStatus {
     metadata: true,
     images: true, thumbnails: true,
     audio: true, merged_audio: true,
+    subtitles: true,
     video: true,
     video_assembly: true,
   }

@@ -259,6 +259,7 @@ const STEP_FIELD: Record<string, string> = {
   scenes: 'images',
   audio: 'audio',
   'audio-merge': 'merged_audio',
+  subtitles: 'subtitles',
   'scene-plan': 'scene_plan',
   'scene-review': 'scene_review',
   'video-assembly': 'video_assembly',
