@@ -18,12 +18,12 @@ import { useRoute } from 'vue-router'
  *
  *   timestamp-driven (narration-synced):
  *     Ideas → Research → Script → Metadata → Thumb Prompts → Thumbnails →
- *     Audio → Audio Assembly → Scene Plan → Scene Review → Timestamp Assemble
+ *     Audio → Audio Assembly → Scene Plan → Scene Review → Video Assembly
  *
  *   continuity-chain (continuity-chain):
  *     Ideas → Research → Script → Metadata → Thumb Prompts → Thumbnails →
  *     Audio → Audio Assembly → Character Sheet → Scene Plan → Scene Review →
- *     Timestamp Assemble
+ *     Video Assembly
  *     (like timestamp-driven, plus a Character Sheet step; scenes render
  *     sequentially via img2img anchored to the sheet. Research is available
  *     too — handy when the niche is factual.)
@@ -118,13 +118,13 @@ const FLOW_TIMESTAMP: FlowStep[] = [
   STEP.ideas, STEP.research, STEP.script, STEP.metadata,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
-  STEP.scenePlan, STEP.sceneReview, STEP.timestampAssemble,
+  STEP.scenePlan, STEP.sceneReview, STEP.videoAssembly,
 ]
 const FLOW_CONTINUITY: FlowStep[] = [
   STEP.ideas, STEP.research, STEP.script, STEP.metadata,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
-  STEP.characterSheet, STEP.scenePlan, STEP.sceneReview, STEP.timestampAssemble,
+  STEP.characterSheet, STEP.scenePlan, STEP.sceneReview, STEP.videoAssembly,
 ]
 // v1.0.300 — narrated-scenes: story/fiction on the audio-paced flow.
 // v1.0.301 — Research + Character Sheet exposed as OPTIONAL steps (non-
@@ -134,7 +134,7 @@ const FLOW_NARRATED_SCENES: FlowStep[] = [
   STEP.ideas, STEP.research, STEP.script, STEP.metadata,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
-  STEP.characterSheet, STEP.scenePlan, STEP.sceneReview, STEP.timestampAssemble,
+  STEP.characterSheet, STEP.scenePlan, STEP.sceneReview, STEP.videoAssembly,
 ]
 
 export function flowForVisualSource(vs: VisualSource): FlowStep[] {

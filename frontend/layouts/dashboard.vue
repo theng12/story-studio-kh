@@ -171,14 +171,13 @@
         >
           <span class="nav-icon">&#9989;</span> Scene Review
         </NuxtLink>
-        <!-- Video Assembly target depends on the active pipeline:
-             - scene-images / broll → /video-assembly (existing page,
-               has tabs for scenes vs broll inside).
-             - timestamp-driven / continuity-chain → /timestamp-assemble
-               (v1.0.145+ page with the greenlight gate that requires every
-               scene in scene_plan.json to be approved before render). -->
+        <!-- v1.0.346 — Video Assembly always opens the full editor. Audio-paced
+             projects can still use the fast timestamp renderer from the
+             Timestamps tab inside the editor area, but the main nav should not
+             strand them on the simplified assembler when they need timeline,
+             effects, filters, and subtitle controls. -->
         <NuxtLink
-          :to="`/projects/${slug}/${usesScenePlan ? 'timestamp-assemble' : 'video-assembly'}`"
+          :to="`/projects/${slug}/video-assembly`"
           class="nav-item"
           active-class="active"
         >

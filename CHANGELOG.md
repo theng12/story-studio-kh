@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.346 — 2026-06-12
+
+### Fixed — timestamp projects now open the full Video Assembly editor by default
+The v1.0.345 bridge made the full **Scenes** assembler capable of reading approved timestamp scene images, but the main app flow still routed audio-paced projects back to the simplified **Timestamp Assemble** page. That made the editor still feel blocked from the sidebar and top production ribbon.
+
+Now the default **Video Assembly** route is the full scene editor for timestamp-driven, narrated-scenes, and continuity-chain projects. The **Timestamps** tab remains available as the fast/simple assembler, but it no longer traps the main workflow away from timeline clips, effects, filters, overlays, subtitle styling, and export controls.
+
+### Files
+- `frontend/layouts/dashboard.vue` (sidebar Video Assembly always opens `/video-assembly`)
+- `frontend/composables/useProjectFlow.ts` (audio-paced flows end on Video Assembly, not Timestamp Assemble)
+- `frontend/components/VideoPipelineTabs.vue` (tabs render as clear active links instead of visually greyed alternate controls)
+- `frontend/__tests__/useProjectFlow.test.ts` (updated flow expectations)
+
+---
+
 ## v1.0.345 — 2026-06-12
 
 ### Added — timestamp projects can use the full scene video editor

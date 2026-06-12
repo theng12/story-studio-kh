@@ -2,23 +2,22 @@
   Shared tab nav for the video pipeline. Renders on
   /projects/:slug/video-assembly, /broll, and /timestamp-assemble.
 
-  v1.0.345 — keep every assembler reachable. The project-native pipeline still
-  gets labelled, but advanced users can jump to the richer scene editor from a
-  timestamp project when they want its timeline/effects/subtitle controls.
+  v1.0.346 — keep every assembler visibly reachable. Audio-paced projects use
+  the full Scenes editor as the main Video Assembly page, with Timestamps kept
+  as the fast/simple assembler tab.
 -->
 <template>
   <nav class="pipeline-tabs" aria-label="Video pipeline">
-    <component
+    <NuxtLink
       v-for="t in tabs"
       :key="t.id"
-      :is="'NuxtLink'"
       :to="t.to"
       class="pipeline-tab"
-      :class="{ active: activeTab === t.id, alternate: isAlternate(t.id) }"
-      :title="isAlternate(t.id) ? `Alternate assembler; this project's default is ${pipelineLabel}` : undefined"
+      :class="{ active: activeTab === t.id }"
+      :title="tabTitle(t.id)"
     >
       {{ t.label }}
-    </component>
+    </NuxtLink>
   </nav>
 </template>
 
@@ -55,15 +54,14 @@ async function loadPipeline(): Promise<void> {
     // 'scene-images' + sceneAlignment) onto the pipeline vocabulary.
     const vs = normalizeVisualSource(fmt?.visualSource, fmt?.sceneAlignment)
     if (vs === 'broll') { applicableTab.value = 'broll'; pipelineLabel.value = 'Stock Footage' }
-    else if (vs === 'timestamp-driven' || vs === 'continuity-chain' || vs === 'narrated-scenes') { applicableTab.value = 'timestamps'; pipelineLabel.value = 'sentence-timed scenes' }
+    else if (vs === 'timestamp-driven' || vs === 'continuity-chain' || vs === 'narrated-scenes') { applicableTab.value = 'scenes'; pipelineLabel.value = 'full scene editor' }
     else { applicableTab.value = 'scenes'; pipelineLabel.value = 'chapter-distributed scenes' }
   } catch { applicableTab.value = null }
 }
 
-// A tab is marked alternate only when the pipeline is known, it's not the
-// default one, and it's not the tab you're currently on.
-function isAlternate(id: string): boolean {
-  return !!applicableTab.value && id !== applicableTab.value && id !== activeTab.value
+function tabTitle(id: string): string | undefined {
+  if (!applicableTab.value || id === applicableTab.value) return undefined
+  return `Alternate assembler; this project's default is ${pipelineLabel.value}`
 }
 
 watch(slug, () => { void loadPipeline() }, { immediate: true })
@@ -86,15 +84,12 @@ watch(slug, () => { void loadPipeline() }, { immediate: true })
   margin-bottom: -1px;
   transition: color 0.15s, border-color 0.15s;
 }
-.pipeline-tab:hover:not(.disabled) {
+.pipeline-tab:hover {
   color: var(--text-primary);
 }
 .pipeline-tab.active {
   color: var(--accent, #6c8fff);
   border-bottom-color: var(--accent, #6c8fff);
   font-weight: 600;
-}
-.pipeline-tab.alternate {
-  opacity: 0.62;
 }
 </style>

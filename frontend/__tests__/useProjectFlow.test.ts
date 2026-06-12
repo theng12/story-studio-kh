@@ -63,29 +63,31 @@ describe('flowForVisualSource — per-format step sets', () => {
     assert.ok(k.includes('video-assembly'))
   })
 
-  test('timestamp-driven: research + scene plan/review + timestamp assemble, no scene-prompts', () => {
+  test('timestamp-driven: research + scene plan/review + video assembly, no scene-prompts', () => {
     const k = keys('timestamp-driven')
-    for (const s of ['research', 'scene-plan', 'scene-review', 'timestamp-assemble']) {
+    for (const s of ['research', 'scene-plan', 'scene-review', 'video-assembly']) {
       assert.ok(k.includes(s), `timestamp-driven should include ${s}`)
     }
     assert.ok(!k.includes('scene-prompts'))
     assert.ok(!k.includes('character-sheet'), 'timestamp-driven has no character sheet')
-    assert.ok(!k.includes('video-assembly'), 'uses timestamp-assemble, not video-assembly')
+    assert.ok(!k.includes('timestamp-assemble'), 'uses full video-assembly as the default final step')
   })
 
   test('continuity-chain: adds character sheet on top of the audio-paced flow', () => {
     const k = keys('continuity-chain')
-    for (const s of ['research', 'character-sheet', 'scene-plan', 'scene-review', 'timestamp-assemble']) {
+    for (const s of ['research', 'character-sheet', 'scene-plan', 'scene-review', 'video-assembly']) {
       assert.ok(k.includes(s), `continuity-chain should include ${s}`)
     }
+    assert.ok(!k.includes('timestamp-assemble'), 'fast timestamp assembler stays available as a tab, not the main flow step')
     assert.ok(!k.includes('scene-prompts'))
   })
 
   test('narrated-scenes: audio-paced flow with optional research + character sheet', () => {
     const k = keys('narrated-scenes')
-    for (const s of ['research', 'character-sheet', 'scene-plan', 'scene-review', 'timestamp-assemble']) {
+    for (const s of ['research', 'character-sheet', 'scene-plan', 'scene-review', 'video-assembly']) {
       assert.ok(k.includes(s), `narrated-scenes should include ${s}`)
     }
+    assert.ok(!k.includes('timestamp-assemble'), 'fast timestamp assembler stays available as a tab, not the main flow step')
   })
 
   test('every step is a well-formed FlowStep with a unique key', () => {
