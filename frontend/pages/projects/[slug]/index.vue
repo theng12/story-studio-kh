@@ -146,6 +146,18 @@
       </div>
     </div>
 
+    <!-- v1.0.341 — Production Board CTA. The board is the episode-centric view
+         of everything below; surface it from the landing page, not just the
+         sidebar, so it's the obvious "where is each episode?" entry point. -->
+    <NuxtLink :to="`/projects/${slug}/board`" class="board-cta mt-3">
+      <span class="board-cta-icon" aria-hidden="true">&#9783;</span>
+      <span class="board-cta-text">
+        <strong>Production Board</strong>
+        <span class="text-muted">Every episode × every step at a glance — see what's done, what's pending, jump to any step, import finished files.</span>
+      </span>
+      <span class="board-cta-arrow" aria-hidden="true">&rarr;</span>
+    </NuxtLink>
+
     <!-- Assets + Completion -->
     <div class="grid-2 mt-3">
       <!-- Asset breakdown -->
@@ -710,6 +722,26 @@ onBeforeUnmount(() => {
 .hero-card.accent { border-color: rgba(240, 198, 116, 0.3); }
 .hero-card.success { border-color: rgba(74, 222, 128, 0.3); }
 .hero-card.time-saved { border-color: rgba(96, 165, 250, 0.3); }
+
+.board-cta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent, #6c8fff);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s, border-color 0.15s;
+}
+.board-cta:hover { background: var(--bg-hover); border-color: var(--border-light); }
+.board-cta-icon { font-size: 22px; color: var(--accent, #6c8fff); flex: 0 0 auto; }
+.board-cta-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.board-cta-text strong { font-size: 14px; }
+.board-cta-text .text-muted { font-size: 12px; line-height: 1.4; }
+.board-cta-arrow { margin-left: auto; font-size: 18px; color: var(--text-muted); flex: 0 0 auto; }
 
 .hero-icon { font-size: 24px; margin-bottom: 8px; }
 
