@@ -26,11 +26,16 @@
 
     <div v-if="loading" class="muted">Loading pools…</div>
 
-    <div v-else-if="!pools.length" class="empty">
-      No pools yet. Click <strong>+ Register pool</strong> and point at the folder on your SSD that
-      holds the clips. Tags + indexing metadata live in a JSON sidecar inside that folder, so they
-      travel with the SSD across Macs.
-    </div>
+    <EmptyState
+      v-else-if="!pools.length"
+      icon="&#127909;"
+      title="No B-Roll pools yet"
+      message="Register a folder on your SSD that holds the clips. Tags + indexing metadata live in a JSON sidecar inside that folder, so they travel with the SSD across Macs."
+    >
+      <template #action>
+        <button class="btn btn-primary mt-2" @click="openCreateModal()">+ Register pool</button>
+      </template>
+    </EmptyState>
 
     <div v-else class="broll-layout">
       <!-- Pool list (left rail) -->
