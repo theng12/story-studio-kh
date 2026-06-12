@@ -25,6 +25,7 @@
       :project-slug="slug"
       v-model:episode-id="episodeId"
       filter-field="scene_review"
+      :presets="srPresets"
       generate-label="Generate all missing"
       loading-label="Queuing…"
       :generate-loading="bulkQueuing || reviewJobActive || isRendering"
@@ -203,30 +204,12 @@
       </div>
     </section>
 
-    <!-- v1.0.244 — Scene Review render preset. Remembers the image model +
-         aspect ratio + parallel pool size and auto-applies them on load, so you
-         don't re-pick the model every visit. -->
-    <PresetPicker
-      v-if="stats"
-      label="Render preset"
-      hint="Saves the image model, aspect ratio, and parallel pool size. Auto-applies your last preset on load; Save as… to capture the current pick."
-      :presets="srPresets.presets.value"
-      :active-id="srPresets.activeId.value"
-      :current-machine-label="srPresets.machineLabel.value"
-      :show-all-devices="srPresets.showAllDevices.value"
-      :cross-device-count="srPresets.crossDeviceCount.value"
-      :active-preset-is-cross-device="srPresets.activePresetIsCrossDevice.value"
-      :active-preset-machine-label="srPresets.activePresetMachineLabel.value"
-      @update:active-id="srPresets.setActive"
-      @update:show-all-devices="(v) => srPresets.showAllDevices.value = v"
-      @apply="srPresets.applyActive(); success('Render preset applied')"
-      @overwrite="srPresets.overwrite(); success('Render preset saved')"
-      @save-as="(n) => srPresets.saveAs(n).then(() => success(`Saved: ${n}`))"
-      @rename="(n) => srPresets.rename(n).then(() => success(`Renamed to ${n}`))"
-      @delete="srPresets.remove(); success('Render preset deleted')"
-    />
+    <!-- v1.0.358 — the Render preset (model, aspect ratio, parallel pool size)
+         moved to the page-level preset row at the top (TopActionBar), matching
+         every other generator tab. Still auto-applies your last preset on load
+         via srPresets.load() in onMounted. -->
 
-    <section v-else-if="!plan && !loading" class="card mt-3">
+    <section v-if="!stats && !plan && !loading" class="card mt-3">
       <p class="text-muted text-sm">
         <strong>No scene plan yet.</strong>
         Open the <NuxtLink :to="`/projects/${slug}/scene-plan`" class="text-accent">Scene Plan</NuxtLink>
@@ -532,6 +515,20 @@
         title="Next scene with an image (→)"
       >›</button>
     </div>
+
+    <!-- v1.0.358 — back-to-top floating button (mirrors Scene Plan). The scene
+         grid gets very tall on long episodes (50+ scenes); this saves the
+         scroll-grind back up. The promised button in v1.0.286 only ever landed
+         on the Scene Plan page — this adds it to Scene Review too. -->
+    <button
+      v-if="showBackToTop"
+      class="back-to-top"
+      title="Back to top"
+      aria-label="Scroll to top of page"
+      @click="scrollToTop"
+    >
+      ↑
+    </button>
   </div>
 </template>
 
@@ -1308,20 +1305,66 @@ async function approveAll(approved: boolean): Promise<void> {
   }
 }
 
+// v1.0.358 — back-to-top floating button. The dashboard layout scrolls
+// .page-content (not window), so we track scrollTop there. Mirrors Scene Plan.
+const showBackToTop = ref(false)
+const SCROLL_THRESHOLD = 800
+function getScrollContainer(): HTMLElement | null {
+  if (typeof document === 'undefined') return null
+  return document.querySelector('.page-content') as HTMLElement | null
+}
+function onScroll(): void {
+  const el = getScrollContainer()
+  if (el) showBackToTop.value = el.scrollTop > SCROLL_THRESHOLD
+}
+function scrollToTop(): void {
+  const el = getScrollContainer()
+  if (el) el.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
 onMounted(() => {
   void loadReview()
   void loadContinuityFlag()
   void loadTextModel()    // resolves the LLM model used by "Rewrite with AI"
   void srPresets.load()   // auto-applies the last render preset (model, aspect, pool)
   if (typeof window !== 'undefined') window.addEventListener('keydown', onPreviewKey)
+  const el = getScrollContainer()
+  if (el) el.addEventListener('scroll', onScroll, { passive: true })
 })
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') window.removeEventListener('keydown', onPreviewKey)
+  const el = getScrollContainer()
+  if (el) el.removeEventListener('scroll', onScroll)
 })
 watch(episodeId, () => { void loadReview() })
 </script>
 
 <style scoped>
+/* v1.0.358 — back-to-top floating button (matches Scene Plan). Sits above the
+   dashboard's bottom chrome; only rendered once scrolled past the threshold. */
+.back-to-top {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--border, #444);
+  background: var(--bg-secondary, #1c1c1f);
+  color: var(--text-primary, #eee);
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  z-index: 100;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.back-to-top:hover {
+  background: var(--accent, #6c8fff);
+  color: #0f1117;
+  transform: translateY(-2px);
+}
+
 /* Constrain the image-model picker so it sits inline with the toolbar
    buttons instead of stretching to full width. */
 .sr-model-pick { min-width: 220px; max-width: 340px; flex: 0 1 300px; }

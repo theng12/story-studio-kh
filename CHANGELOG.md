@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.358 — 2026-06-13
+
+### Changed — Scene Review: render preset moved to the top
+The Scene Review **Render preset** (image model + aspect ratio + parallel pool size) was an inline picker mid-page. It's now in the **preset row at the top** (TopActionBar), matching Scripts / Image Prompts / Audio / Scene Plan / Character Sheet. Same preset, still auto-applies your last one on load; no storage change.
+
+### Fixed — Scene Review now actually has the back-to-top button
+The floating **↑ back-to-top** button promised in v1.0.286 only ever landed on the **Scene Plan** page — it was never added to **Scene Review**, which is the page with the long scrollable scene grid where you'd actually want it (50+ scenes get very tall). It's there now: it appears once you scroll down ~800px and jumps you back to the top in one click. (Scene Review scrolls the dashboard's `.page-content`, not the window, so the button tracks scroll position there.)
+
+### Files
+- `frontend/pages/projects/[slug]/scene-review.vue` (`:presets="srPresets"` on TopActionBar + removed inline `PresetPicker`; back-to-top button, scroll tracking, and styles mirrored from Scene Plan)
+
+---
+
 ## v1.0.357 — 2026-06-13
 
 ### Changed — Scene Plan: preset moved to the top, like every other tab
