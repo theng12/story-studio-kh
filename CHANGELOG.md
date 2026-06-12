@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.356 — 2026-06-13
+
+### Changed — Character Sheet: ONE preset for the whole page (apply your continuity setup in a click)
+The Character Sheet had **no whole-page preset** — every time you set up an episode you had to re-pick each attribute (anchors, references, pacing, denoise, Style Bible, negative prompt, Visual Recipe). The only presets were a **Style preset** (just the Style Bible + negative prompt) and a separate **Recipe preset** (just the composition) — two fragmented pickers buried in the page that each saved only their own slice.
+
+Now there's **one Continuity preset for the entire page**, in the preset row at the top (same spot as Scripts / Image Prompts):
+
+- **Save once, apply everywhere.** A saved Continuity preset captures the *whole* setup — anchor characters, episode-sheet toggle, all reference toggles, pacing, denoise strength, Style Bible, negative prompt, **and** the Visual Recipe. Apply it on a new episode and the entire page fills in one click; then **Save anchors & settings** to keep it on that episode. (Apply fills the fields; it doesn't auto-save — your episode's own `continuity.json` still drives what loads.)
+- **The two old pickers are gone**, folded into the single one. The built-in **style gallery** (with preview renders) stays as a quick "starter look" picker — whatever you apply from it is captured when you save a Continuity preset.
+
+Note: presets you'd saved under the *old* separate Style / Recipe pickers won't appear in the new unified picker (different storage) — re-save your setup once as a whole-page Continuity preset and you're set.
+
+### Files
+- `frontend/pages/projects/[slug]/character-sheet.vue` (one `usePresets<ContinuityConfig>` wired into TopActionBar's preset row; removed the Style + Recipe `PresetPicker`s; built-in gallery applies straight to the config)
+
+---
+
 ## v1.0.355 — 2026-06-13
 
 ### Fixed — Subtitles "Pending only" hid episodes that still needed subtitles

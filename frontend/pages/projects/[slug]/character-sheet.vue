@@ -22,6 +22,7 @@
       :project-slug="slug"
       v-model:episode-id="episodeId"
       filter-field="script"
+      :presets="pagePresets"
       generate-label="Save anchors & settings"
       loading-label="Saving…"
       :generate-loading="saving"
@@ -228,30 +229,10 @@
             </span>
           </div>
 
-          <!-- v1.0.243 — Style Bible presets. Save the style text once and
-               Apply it on any episode instead of retyping. Apply fills the
-               fields below; click "Save continuity settings" to persist into
-               this episode. -->
-          <PresetPicker
-            label="Style preset"
-            hint="Saves the Style Bible + negative prompt so you can reuse them across episodes. Apply fills the fields below, then Save continuity settings to persist them to this episode."
-            :presets="stylePresets.presets.value"
-            :active-id="stylePresets.activeId.value"
-            :current-machine-label="stylePresets.machineLabel.value"
-            :show-all-devices="stylePresets.showAllDevices.value"
-            :cross-device-count="stylePresets.crossDeviceCount.value"
-            :active-preset-is-cross-device="stylePresets.activePresetIsCrossDevice.value"
-            :active-preset-machine-label="stylePresets.activePresetMachineLabel.value"
-            :active-preset-is-built-in="stylePresets.activePresetIsBuiltIn.value"
-            @update:active-id="stylePresets.setActive"
-            @update:show-all-devices="(v) => stylePresets.showAllDevices.value = v"
-            @apply="stylePresets.applyActive(); success('Style preset applied — Save continuity settings to keep it')"
-            @overwrite="stylePresets.overwrite(); success('Style preset saved')"
-            @save-as="(n) => stylePresets.saveAs(n).then(() => success(`Saved: ${n}`))"
-            @rename="(n) => stylePresets.rename(n).then(() => success(`Renamed to ${n}`))"
-            @delete="stylePresets.remove(); success('Style preset deleted')"
-          />
-
+          <!-- v1.0.356 — the savable preset moved to the page-level preset row
+               at the top (TopActionBar). The built-in style gallery below is a
+               quick "starter look" picker; whatever you apply here is captured
+               when you save a whole-page Continuity preset. -->
           <div class="cs-builtins mt-3">
             <div class="cs-builtins-head">
               <div>
@@ -482,25 +463,8 @@
             </div>
           </div>
 
-          <!-- Recipe presets -->
-          <PresetPicker
-            label="Recipe preset"
-            hint="Saves the composition directive + guide + emotion mode so you can reuse the explainer look across episodes. Apply fills the fields, then Save continuity settings to keep it on this episode."
-            :presets="recipePresets.presets.value"
-            :active-id="recipePresets.activeId.value"
-            :current-machine-label="recipePresets.machineLabel.value"
-            :show-all-devices="recipePresets.showAllDevices.value"
-            :cross-device-count="recipePresets.crossDeviceCount.value"
-            :active-preset-is-cross-device="recipePresets.activePresetIsCrossDevice.value"
-            :active-preset-machine-label="recipePresets.activePresetMachineLabel.value"
-            @update:active-id="recipePresets.setActive"
-            @update:show-all-devices="(v) => recipePresets.showAllDevices.value = v"
-            @apply="recipePresets.applyActive(); success('Recipe applied — Save continuity settings to keep it')"
-            @overwrite="recipePresets.overwrite(); success('Recipe preset saved')"
-            @save-as="(n) => recipePresets.saveAs(n).then(() => success(`Saved: ${n}`))"
-            @rename="(n) => recipePresets.rename(n).then(() => success(`Renamed to ${n}`))"
-            @delete="recipePresets.remove(); success('Recipe preset deleted')"
-          />
+          <!-- v1.0.356 — the Visual Recipe is now saved as part of the single
+               whole-page Continuity preset (top of page), not its own picker. -->
         </div>
       </section>
     </template>
@@ -600,40 +564,43 @@ const BUILT_IN_STYLE_PRESETS = [
   },
 ]
 
-// v1.0.243 — savable Style Bible presets. The Style Bible (+ negative prompt)
-// is usually the same across episodes of a channel, so let the user save it
-// once and Apply it instead of retyping. autoApplyOnLoad is OFF: the episode's
-// own continuity.json drives the fields on load; the preset is applied only
-// when the user explicitly clicks Apply (then Save continuity settings to
-// persist it into this episode).
-const stylePresets = usePresets<{ style_bible: string; negative_prompt: string }>({
+// v1.0.356 — ONE whole-page preset for the entire continuity setup. Replaces
+// the two fragmented pickers (Style Bible preset + Visual Recipe preset) the
+// user had to manage separately. A channel's continuity look (anchors,
+// references, pacing, denoise, Style Bible, negative prompt, Visual Recipe) is
+// usually the same across episodes, so saving it ONCE and Applying it fills
+// the whole page in one click instead of re-picking every attribute. Lives in
+// the TopActionBar's preset row (same spot as Scripts/Image Prompts).
+//
+// autoApplyOnLoad is OFF: the episode's own continuity.json drives the fields
+// on load; the preset is applied only on explicit Apply (then Save anchors &
+// settings to persist it into this episode).
+//
+// Snapshot/apply cover the FULL config minus the transient `updated_at`.
+type ContinuityPagePreset = Omit<ContinuityConfig, 'updated_at'>
+const pagePresets = usePresets<ContinuityPagePreset>({
   slug: slug.value,
-  configKey: 'continuity_style',
-  presetType: 'style-bible',
-  builtInPresets: BUILT_IN_STYLE_PRESETS,
+  configKey: 'continuity_page',
+  presetType: 'continuity-page',
   autoApplyOnLoad: false,
-  snapshot: () => ({
-    style_bible: config.value.style_bible || '',
-    negative_prompt: config.value.negative_prompt || '',
-  }),
-  apply: (data) => {
-    config.value.style_bible = data.style_bible || ''
-    config.value.negative_prompt = data.negative_prompt || ''
+  snapshot: () => {
+    // Deep clone so the stored preset doesn't alias the live config refs.
+    const { updated_at: _drop, ...rest } = config.value
+    return JSON.parse(JSON.stringify(rest)) as ContinuityPagePreset
   },
-})
-
-// v1.0.260 — savable Visual Recipe presets (directive + guide + emotion mode).
-// The composition is usually the same across a channel's episodes, so save it
-// once and Apply it. autoApplyOnLoad OFF — the episode's continuity.json drives
-// the fields; the preset is applied only on explicit Apply (then Save).
-const recipePresets = usePresets<VisualRecipe>({
-  slug: slug.value,
-  configKey: 'continuity_recipe',
-  presetType: 'visual-recipe',
-  autoApplyOnLoad: false,
-  snapshot: () => ({ ...defaultRecipe(), ...config.value.recipe }),
   apply: (data) => {
-    config.value.recipe = { ...defaultRecipe(), ...data }
+    // Merge over defaults so a preset saved before a field existed still
+    // yields a complete, valid config (nested objects get their own merge).
+    const d = defaults()
+    config.value = {
+      ...d,
+      ...data,
+      schema_version: 1,
+      anchor_character_ids: Array.isArray(data.anchor_character_ids) ? [...data.anchor_character_ids] : [],
+      pacing: { ...d.pacing, ...(data.pacing || {}) },
+      references: { ...d.references, ...(data.references || {}) },
+      recipe: { ...defaultRecipe(), ...(data.recipe || {}) },
+    }
   },
 })
 
@@ -696,10 +663,12 @@ watch(stylePreviewModelOptions, (opts) => {
   if (!stylePreviewModel.value && opts.length) stylePreviewModel.value = opts[0]!.value
 }, { immediate: true })
 
-async function applyBuiltInStylePreset(preset: typeof BUILT_IN_STYLE_PRESETS[number]): Promise<void> {
-  stylePresets.activeId.value = preset.id
-  stylePresets.applyActive()
-  try { await stylePresets.persist() } catch { /* best effort */ }
+function applyBuiltInStylePreset(preset: typeof BUILT_IN_STYLE_PRESETS[number]): void {
+  // v1.0.356 — the gallery now sets the Style Bible + negative prompt straight
+  // onto the config (it used to route through the standalone style preset,
+  // which is gone). Save a whole-page Continuity preset at the top to keep it.
+  config.value.style_bible = preset.data.style_bible || ''
+  config.value.negative_prompt = preset.data.negative_prompt || ''
   success(`${preset.name} applied — Save anchors & settings to keep it for this episode`)
 }
 
@@ -1027,8 +996,7 @@ watch(episodeId, () => {
   void loadCharacters()
   void loadConfig()
   void loadRefs()
-  void stylePresets.load()
-  void recipePresets.load()
+  void pagePresets.load()
 }, { immediate: true })
 </script>
 
