@@ -252,6 +252,15 @@
             <template v-if="isRefreshing">refreshing…</template>
             <template v-else>refresh in {{ Math.max(1, Math.ceil(nextRefreshInMs / 1000)) }}s</template>
           </span>
+          <button
+            v-if="anyCreditRow"
+            type="button"
+            class="refresh-btn credits-edit-btn"
+            :class="{ active: editingCredits }"
+            :aria-label="editingCredits ? 'Done choosing balances' : 'Choose which balances to show'"
+            :title="editingCredits ? 'Done — tap a balance to show or hide it' : 'Show / hide which provider balances appear here'"
+            @click="editingCredits = !editingCredits"
+          >{{ editingCredits ? '✓' : '⚙' }}</button>
         </div>
         <div
           class="network-status"
@@ -264,26 +273,24 @@
           <span class="network-label">{{ networkOnline ? 'Online' : 'Offline' }}</span>
           <span v-if="networkQueueSyncFailed" class="network-warn" aria-label="Queue state out of sync">⚠</span>
         </div>
-        <div v-if="apiKeys.openai" class="credit-badge">
-          <span class="credit-label">OpenAI</span>
-          <span class="credit-value">~${{ openaiUsage.toFixed(2) }}</span>
-        </div>
-        <div v-if="apiKeys.kie" class="credit-badge">
-          <span class="credit-label">kie.ai</span>
-          <span class="credit-value">{{ kieCredits ?? '...' }}</span>
-        </div>
-        <div v-if="apiKeys.fal" class="credit-badge">
-          <span class="credit-label">fal.ai</span>
-          <span class="credit-value">{{ typeof falBalance === 'number' ? `$${falBalance.toFixed(2)}` : (falBalance ?? '...') }}</span>
-        </div>
-        <div v-if="apiKeys.elevenlabs" class="credit-badge" :title="elevenLabsBalance ? `${elevenLabsBalance.tier} — ${elevenLabsBalance.character_count.toLocaleString()} / ${elevenLabsBalance.character_limit.toLocaleString()} chars used` : undefined">
-          <span class="credit-label">ElevenLabs</span>
-          <span class="credit-value">{{ elevenLabsBalance ? `${formatChars(elevenLabsBalance.remaining)} left` : '...' }}</span>
-        </div>
-        <div v-if="apiKeys.genaipro" class="credit-badge" title="GenAIPro credits — used by TTS generation">
-          <span class="credit-label">GenAIPro</span>
-          <span class="credit-value">{{ genaiproBalance !== null ? genaiproBalance.toLocaleString() : '...' }}</span>
-        </div>
+        <template v-for="row in creditRows" :key="row.id">
+          <div
+            v-if="row.show && (isCreditVisible(row.id) || editingCredits)"
+            class="credit-badge"
+            :class="{ 'credit-badge-editing': editingCredits, 'credit-badge-off': editingCredits && !isCreditVisible(row.id) }"
+            :title="editingCredits
+              ? (isCreditVisible(row.id) ? 'Tap to hide this balance from the sidebar' : 'Tap to show this balance in the sidebar')
+              : (row.title || undefined)"
+            @click="editingCredits && toggleCredit(row.id)"
+          >
+            <span class="credit-label">{{ row.label }}</span>
+            <span class="credit-value">
+              <span v-if="editingCredits" class="credit-eye">{{ isCreditVisible(row.id) ? '👁' : '🚫' }}</span>
+              {{ row.value }}
+            </span>
+          </div>
+        </template>
+        <p v-if="editingCredits" class="credits-edit-hint">Tap a balance to show / hide it. ✓ when done.</p>
         <!-- App version + build date — beta testers can quote this when
              reporting an issue. Click to copy. Read at frontend build time
              from the root package.json (see runtimeConfig in nuxt.config.ts).
@@ -539,6 +546,38 @@ const charFormatter = new Intl.NumberFormat('en', { notation: 'compact', maximum
 function formatChars(n: number) {
   return charFormatter.format(n)
 }
+
+// ── Sidebar credit visibility (per-machine UI preference) ──────────────────
+// Users keep every API key configured, but can hide the balance badge for
+// providers whose credit they've exhausted so the sidebar doesn't get crowded.
+// Stored in localStorage; a missing entry means "visible" (preserves the old
+// always-show default). Applies to every balance/credit/value-reporting row.
+const CREDIT_VIS_KEY = 'ssk_credit_visibility'
+const creditVisible = reactive<Record<string, boolean>>({})
+const editingCredits = ref(false)
+function isCreditVisible(id: string) { return creditVisible[id] !== false }
+function toggleCredit(id: string) {
+  creditVisible[id] = creditVisible[id] === false
+  try { localStorage.setItem(CREDIT_VIS_KEY, JSON.stringify(creditVisible)) } catch { /* private mode / quota */ }
+}
+function loadCreditVisibility() {
+  try {
+    const raw = localStorage.getItem(CREDIT_VIS_KEY)
+    if (raw) Object.assign(creditVisible, JSON.parse(raw))
+  } catch { /* corrupt prefs — ignore */ }
+}
+
+// Data-driven so the badge list + visibility toggle scale as more
+// balance-reporting providers are added. `show` = key configured AND the
+// provider reports a balance/credit/value.
+const creditRows = computed(() => [
+  { id: 'openai',     label: 'OpenAI',     show: !!apiKeys.value.openai,     value: `~$${openaiUsage.value.toFixed(2)}`, title: '' },
+  { id: 'kie',        label: 'kie.ai',     show: !!apiKeys.value.kie,        value: String(kieCredits.value ?? '...'), title: '' },
+  { id: 'fal',        label: 'fal.ai',     show: !!apiKeys.value.fal,        value: typeof falBalance.value === 'number' ? `$${(falBalance.value as number).toFixed(2)}` : String(falBalance.value ?? '...'), title: '' },
+  { id: 'elevenlabs', label: 'ElevenLabs', show: !!apiKeys.value.elevenlabs, value: elevenLabsBalance.value ? `${formatChars(elevenLabsBalance.value.remaining)} left` : '...', title: elevenLabsBalance.value ? `${elevenLabsBalance.value.tier} — ${elevenLabsBalance.value.character_count.toLocaleString()} / ${elevenLabsBalance.value.character_limit.toLocaleString()} chars used` : '' },
+  { id: 'genaipro',   label: 'GenAIPro',   show: !!apiKeys.value.genaipro,   value: genaiproBalance.value !== null ? genaiproBalance.value.toLocaleString() : '...', title: 'GenAIPro credits — used by TTS generation' },
+])
+const anyCreditRow = computed(() => creditRows.value.some(r => r.show))
 const {
   scriptGenerating, promptGenerating, thumbPromptGenerating,
   imageGenerating, thumbImageGenerating,
@@ -664,6 +703,7 @@ async function returnToProjectList() {
 }
 
 onMounted(loadSessionUiState)
+onMounted(loadCreditVisibility)
 
 onUnmounted(() => { stopJobPolling(); stopCreditPolling() })
 
@@ -861,6 +901,15 @@ function openWhatsNew() { _whatsNew.open() }
 .credit-badge { display: flex; justify-content: space-between; font-size: 10px; }
 .credit-label { color: var(--text-muted); }
 .credit-value { color: var(--accent); font-weight: 500; }
+/* v1.0.380 — per-provider balance visibility toggle (edit mode). */
+.credit-badge-editing { cursor: pointer; border-radius: 4px; padding: 1px 3px; margin: 0 -3px; }
+.credit-badge-editing:hover { background: var(--bg-hover); }
+.credit-badge-off { opacity: 0.5; }
+.credit-badge-off .credit-value { color: var(--text-muted); text-decoration: line-through; }
+.credit-eye { margin-right: 3px; text-decoration: none; }
+.credits-edit-btn { margin-left: auto; }
+.credits-edit-btn.active { color: var(--accent); border-color: var(--accent); background: var(--bg-hover); }
+.credits-edit-hint { margin: 2px 0 0; font-size: 9px; color: var(--text-muted); line-height: 1.3; }
 
 /* Version badge — last item in the sidebar credits column.
    Click to copy "Story Studio KH v1.0.11 · built 2026-04-27" so beta

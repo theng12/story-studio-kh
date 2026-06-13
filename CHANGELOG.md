@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.380 — 2026-06-14
+
+### Added — show / hide which provider balances appear in the sidebar
+The sidebar balance badges (OpenAI, kie.ai, fal.ai, ElevenLabs, GenAIPro) can now be toggled on/off individually, so you can keep an API key configured but hide its balance once you've exhausted that provider — and keep the sidebar uncluttered as more providers are added.
+
+- A small **⚙** button next to the balance refresh control enters "choose" mode. Tap any balance to show (👁) or hide (🚫) it; tap **✓** when done.
+- Hidden balances stay hidden across restarts (saved per-Mac) and re-appear instantly in choose mode so you can bring them back.
+- Applies to every balance/credit/value-reporting provider; the list is now data-driven so future providers inherit the toggle automatically.
+
+### Files
+- `frontend/layouts/dashboard.vue` (data-driven credit rows + per-provider visibility toggle, localStorage-backed)
+
+---
+
 ## v1.0.379 — 2026-06-14
 
 ### Fixed — Fish Audio "Test" button reported "Unknown provider"
