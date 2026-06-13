@@ -233,73 +233,15 @@
                at the top (TopActionBar). The built-in style gallery below is a
                quick "starter look" picker; whatever you apply here is captured
                when you save a whole-page Continuity preset. -->
-          <div class="cs-builtins mt-3">
-            <div class="cs-builtins-head">
-              <div>
-                <label>Built-in style gallery</label>
-                <p class="text-muted text-xs mt-1">
-                  Quick visual presets you can apply to the Style Bible. Preview renders use one fixed baseline scene so you can compare the look directly.
-                </p>
-              </div>
-              <div class="cs-builtins-controls">
-                <select v-model="stylePreviewModel" class="input input-sm">
-                  <option value="" :disabled="!!stylePreviewModelOptions.length">Pick preview model</option>
-                  <option v-for="opt in stylePreviewModelOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                </select>
-                <select v-model="stylePreviewAspect" class="input input-sm">
-                  <option v-for="opt in STYLE_PREVIEW_ASPECT_OPTIONS" :key="opt" :value="opt">{{ opt }}</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="cs-builtins-grid">
-              <article v-for="preset in BUILT_IN_STYLE_PRESETS" :key="preset.id" class="cs-style-card">
-                <div class="cs-style-card-top">
-                  <div>
-                    <h4>{{ preset.name }}</h4>
-                    <p class="text-muted text-xs mt-1">{{ preset.blurb }}</p>
-                  </div>
-                  <span class="cs-style-chip">Built-in</span>
-                </div>
-
-                <div class="cs-style-preview">
-                  <img
-                    v-if="stylePreviewStates[preset.id]?.url"
-                    :src="stylePreviewStates[preset.id]?.url || ''"
-                    :alt="`${preset.name} preview`"
-                    class="cs-style-preview-img"
-                  />
-                  <div v-else class="cs-style-preview-empty">
-                    Preview not generated yet
-                  </div>
-                </div>
-
-                <div class="cs-style-card-actions">
-                  <button class="btn btn-secondary btn-sm" @click="applyBuiltInStylePreset(preset)">
-                    Apply preset
-                  </button>
-                  <button
-                    class="btn btn-ghost btn-sm"
-                    :disabled="!stylePreviewModel || stylePreviewStates[preset.id]?.loading"
-                    :title="!stylePreviewModel ? 'Pick a preview model first' : 'Render a cached preview sample for this style preset'"
-                    @click="generateBuiltInStylePreview(preset)"
-                  >
-                    {{ stylePreviewStates[preset.id]?.loading ? 'Rendering…' : (stylePreviewStates[preset.id]?.url ? 'Re-preview' : 'Generate preview') }}
-                  </button>
-                </div>
-
-                <p class="cs-style-card-copy">{{ preset.data.style_bible }}</p>
-                <p v-if="stylePreviewStates[preset.id]?.error" class="cs-style-card-error">
-                  {{ stylePreviewStates[preset.id]?.error }}
-                </p>
-                <p v-else-if="stylePreviewStates[preset.id]?.url" class="cs-style-card-meta">
-                  {{ stylePreviewStates[preset.id]?.cached ? 'Cached preview' : 'Fresh preview' }}
-                  · {{ stylePreviewStates[preset.id]?.model_id || stylePreviewModel }}
-                  · {{ stylePreviewStates[preset.id]?.aspect_ratio || stylePreviewAspect }}
-                </p>
-              </article>
-            </div>
-          </div>
+          <!-- v1.0.364 — shared StylePicker (same gallery used on the Scene Plan
+               page) so "style" is one concept. Applying a card sets the Style
+               Bible + negative prompt below. -->
+          <StylePicker
+            class="mt-3"
+            :slug="slug"
+            :image-models="projectConfig?.image_models || {}"
+            @apply="onStyleApply"
+          />
 
           <!-- v1.0.243 — render-time Style Bible. Appended to every scene's
                prompt when rendering, so editing it + re-rendering needs no
@@ -506,16 +448,6 @@ interface ContinuityConfig {
   recipe: VisualRecipe
   updated_at?: string
 }
-interface StylePreviewState {
-  loading: boolean
-  url: string | null
-  cached: boolean | null
-  hash: string | null
-  model_id: string | null
-  aspect_ratio: string | null
-  tier: string | null
-  error: string | null
-}
 function defaultRecipe(): VisualRecipe {
   return { enabled: false, mode: 'guide', directive: '', guide_character_id: '', emotion_mode: 'auto', fixed_emotion: '' }
 }
@@ -534,35 +466,6 @@ function defaults(): ContinuityConfig {
 }
 
 const config = ref<ContinuityConfig>(defaults())
-
-const BUILT_IN_STYLE_PRESETS = [
-  {
-    id: 'builtin-ms-paint-fantasy',
-    name: 'MS Paint Fantasy',
-    builtin: true,
-    type: 'style-bible' as const,
-    blurb: 'Deliberately rough fantasy art with thick outlines, flat fills, and goofy old-web energy.',
-    data: {
-      style_bible:
-        'crude MS Paint fantasy art, retro internet animation aesthetic, medieval fantasy atmosphere, thick black outlines, rough hand-drawn lines, flat colors, limited color palette, simple shading, intentionally low-detail rendering, expressive faces, minimal textures, clean digital fill areas, dramatic perspective, wide-angle framing, dynamic off-center composition',
-      negative_prompt:
-        'photorealism, realistic anatomy, cinematic realism, ultra detailed rendering, 3D render, smooth skin, glossy realism, centered composition',
-    },
-  },
-  {
-    id: 'builtin-pixel-art-story',
-    name: 'Pixel Art Story',
-    builtin: true,
-    type: 'style-bible' as const,
-    blurb: 'Readable retro RPG pixel art with strong silhouettes and playful adventure framing.',
-    data: {
-      style_bible:
-        '16-bit pixel art fantasy, retro RPG aesthetic, pixel-defined edges, restricted retro palette, clean sprite-like forms, readable silhouettes, tileable background logic, playful scene staging, side-scrolling adventure energy, simple dramatic lighting translated into pixel clusters',
-      negative_prompt:
-        'photorealism, painterly brushwork, smooth gradients, ultra detailed rendering, 3D render, soft airbrush shading, realistic skin texture, centered static composition',
-    },
-  },
-]
 
 // v1.0.356 — ONE whole-page preset for the entire continuity setup. Replaces
 // the two fragmented pickers (Style Bible preset + Visual Recipe preset) the
@@ -633,78 +536,13 @@ async function saveGuideDensity(): Promise<void> {
     savingGuideDensity.value = false
   }
 }
-const STYLE_PREVIEW_ASPECT_OPTIONS = ['16:9', '1:1', '9:16'] as const
-const stylePreviewModel = ref('')
-const stylePreviewAspect = ref<(typeof STYLE_PREVIEW_ASPECT_OPTIONS)[number]>('16:9')
-const stylePreviewStates = ref<Record<string, StylePreviewState>>({})
-
-const stylePreviewModelOptions = computed(() =>
-  Object.keys(projectConfig.value?.image_models || {}).map(id => ({ value: id, label: id })),
-)
-
-function defaultStylePreviewState(): StylePreviewState {
-  return {
-    loading: false,
-    url: null,
-    cached: null,
-    hash: null,
-    model_id: null,
-    aspect_ratio: null,
-    tier: null,
-    error: null,
-  }
-}
-
-function setStylePreviewState(id: string, next: Partial<StylePreviewState>): void {
-  stylePreviewStates.value[id] = { ...(stylePreviewStates.value[id] || defaultStylePreviewState()), ...next }
-}
-
-watch(stylePreviewModelOptions, (opts) => {
-  if (!stylePreviewModel.value && opts.length) stylePreviewModel.value = opts[0]!.value
-}, { immediate: true })
-
-function applyBuiltInStylePreset(preset: typeof BUILT_IN_STYLE_PRESETS[number]): void {
-  // v1.0.356 — the gallery now sets the Style Bible + negative prompt straight
-  // onto the config (it used to route through the standalone style preset,
-  // which is gone). Save a whole-page Continuity preset at the top to keep it.
-  config.value.style_bible = preset.data.style_bible || ''
-  config.value.negative_prompt = preset.data.negative_prompt || ''
-  success(`${preset.name} applied — Save anchors & settings to keep it for this episode`)
-}
-
-async function generateBuiltInStylePreview(preset: typeof BUILT_IN_STYLE_PRESETS[number]): Promise<void> {
-  if (!stylePreviewModel.value) return
-  setStylePreviewState(preset.id, { loading: true, error: null })
-  try {
-    const data = await post<{
-      hash: string
-      url: string
-      cached: boolean
-      model_id: string
-      aspect_ratio: string
-      tier: string
-    }>(`/projects/${slug.value}/style-preview`, {
-      style_tag: preset.data.style_bible,
-      model: stylePreviewModel.value,
-      aspect_ratio: stylePreviewAspect.value,
-    })
-    stylePreviewStates.value[preset.id] = {
-      loading: false,
-      url: data.url,
-      cached: !!data.cached,
-      hash: data.hash,
-      model_id: data.model_id,
-      aspect_ratio: data.aspect_ratio,
-      tier: data.tier || null,
-      error: null,
-    }
-  } catch (e: any) {
-    setStylePreviewState(preset.id, {
-      loading: false,
-      error: e?.data?.detail || e?.message || 'Preview failed',
-    })
-    showError(stylePreviewStates.value[preset.id]?.error || 'Preview failed')
-  }
+// v1.0.364 — the shared StylePicker component owns the gallery + preview
+// rendering now. Applying a style just writes the look onto the continuity
+// config; save a whole-page Continuity preset (top bar) to keep it.
+function onStyleApply(data: { style_bible: string; negative_prompt: string }): void {
+  config.value.style_bible = data.style_bible || ''
+  config.value.negative_prompt = data.negative_prompt || ''
+  success('Style applied — Save anchors & settings to keep it for this episode')
 }
 
 const characters = ref<Character[]>([])
@@ -1044,109 +882,4 @@ watch(episodeId, () => {
 .cs-density-readout.off { color: var(--text-muted); font-weight: 500; }
 .input-inline { width: 70px; }
 .cs-range { width: 260px; max-width: 100%; }
-
-.cs-builtins {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.cs-builtins-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-  flex-wrap: wrap;
-}
-.cs-builtins-controls {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.cs-builtins-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 14px;
-}
-.cs-style-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background:
-    radial-gradient(circle at top right, rgba(240, 198, 116, 0.12), transparent 34%),
-    var(--bg-secondary);
-}
-.cs-style-card-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: flex-start;
-}
-.cs-style-card h4 {
-  margin: 0;
-  font-size: 14px;
-}
-.cs-style-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: rgba(108, 143, 255, 0.14);
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.cs-style-preview {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-}
-.cs-style-preview-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.cs-style-preview-empty {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  font-size: 12px;
-  text-align: center;
-  padding: 12px;
-}
-.cs-style-card-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.cs-style-card-copy {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 5;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.cs-style-card-meta {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-.cs-style-card-error {
-  margin: 0;
-  color: rgb(220, 38, 38);
-  font-size: 11px;
-}
 </style>

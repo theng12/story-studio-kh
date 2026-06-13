@@ -18,6 +18,32 @@ import { getEffectiveFormat } from '../services/format-loader.js'
 import { getConfig } from '../services/project-manager.js'
 import type { Job, ScenePlan } from '../models/types.js'
 
+/**
+ * v1.0.364 — resolve the effective plan-time style. The channel "Look" is the
+ * continuity Style Bible (continuity.json), applied at render to every scene.
+ * When the planner isn't given an explicit per-plan style, fall back to that
+ * Style Bible so the plan and the render share ONE look — no second field to
+ * drift. Returns the explicit value (trimmed) untouched when present.
+ */
+async function resolveEffectiveStyle(
+  explicit: string | undefined,
+  episodeDir: string,
+  onFallback?: () => void,
+): Promise<string | undefined> {
+  if (explicit && explicit.trim()) return explicit.trim()
+  try {
+    const continuityPath = path.join(episodeDir, 'continuity.json')
+    if (existsSync(continuityPath)) {
+      const cc = JSON.parse(await fs.readFile(continuityPath, 'utf-8'))
+      if (typeof cc?.style_bible === 'string' && cc.style_bible.trim()) {
+        onFallback?.()
+        return cc.style_bible.trim()
+      }
+    }
+  } catch { /* no continuity style — plan without one */ }
+  return explicit
+}
+
 interface ScenePlanRunParams {
   episode_id: string
   title?: string
@@ -163,20 +189,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     // pass a style_prompt, so the LLM used to invent its own art direction and
     // drift from the channel look. Fall back to the episode's continuity Style
     // Bible (the same text the renderer appends to every prompt) so the rewritten
-    // prompt matches the rendered style instead of fighting it.
-    let stylePromptForRewrite = params.style_prompt
-    if (!stylePromptForRewrite) {
-      try {
-        const continuityPath = path.join(paths.episode_dir, 'continuity.json')
-        if (existsSync(continuityPath)) {
-          const cc = JSON.parse(await fs.readFile(continuityPath, 'utf-8'))
-          if (typeof cc?.style_bible === 'string' && cc.style_bible.trim()) {
-            stylePromptForRewrite = cc.style_bible.trim()
-            job.output_lines.push('Using the episode Style Bible to keep the rewrite on-style.')
-          }
-        }
-      } catch { /* no continuity style — rewrite without one */ }
-    }
+    // prompt matches the rendered style instead of fighting it. v1.0.364 — this
+    // fallback is now the shared `resolveEffectiveStyle` used by every plan path.
+    const stylePromptForRewrite = await resolveEffectiveStyle(
+      params.style_prompt, paths.episode_dir,
+      () => job.output_lines.push('Using the episode Style Bible to keep the rewrite on-style.'),
+    )
     const newPrompt = await generateVisualPromptOnly({
       transcript_segment: target.transcript_segment,
       model,
@@ -222,13 +240,17 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       `Re-planning scene #${target.scene_index} (${target.start_sec.toFixed(1)}–${target.end_sec.toFixed(1)}s, ` +
       `${(target.end_sec - target.start_sec).toFixed(1)}s) — other scenes + their images are untouched.`,
     )
+    const replanStyle = await resolveEffectiveStyle(
+      params.style_prompt, paths.episode_dir,
+      () => job.output_lines.push('No style prompt set — using the episode Style Bible for the re-plan.'),
+    )
     const replanned = await planScenes({
       stitched_srt_path: stitchedSrt,
       research_path: useResearch ? researchPath : undefined,
       narration_docx_path: resolveReadPath(paths.narration_docx),
       model,
       detail_level: params.detail_level,
-      style_prompt: params.style_prompt,
+      style_prompt: replanStyle,
       custom_instructions: params.custom_instructions,
       pacing,
       range: { start_sec: target.start_sec, end_sec: target.end_sec },
@@ -267,6 +289,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     job.output_lines.push('Planning mode: single-pass (windowed LLM)')
   }
 
+  const effectiveStyle = await resolveEffectiveStyle(
+    params.style_prompt, paths.episode_dir,
+    () => job.output_lines.push('No style prompt set — using the episode Style Bible for the plan.'),
+  )
   const plan: ScenePlan = await planner({
     stitched_srt_path: stitchedSrt,
     research_path: useResearch ? researchPath : undefined,
@@ -274,7 +300,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     model,
     target_scene_count: params.target_scene_count,
     detail_level: params.detail_level,
-    style_prompt: params.style_prompt,
+    style_prompt: effectiveStyle,
     custom_instructions: params.custom_instructions,
     pacing,
     character_density: characterDensity,

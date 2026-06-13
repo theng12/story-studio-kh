@@ -4,6 +4,27 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.364 — 2026-06-13
+
+### Changed — one "Look" + a shared style picker across Character Sheet and Scene Plan
+The visual style was settable in two disconnected places — the Scene Plan "Style prompt" (plan-time) and the Character Sheet "Style Bible" (render-time) — which is the same idea applied at two stages. They're now unified around a single channel **Look**.
+
+- **One canonical Look = the Style Bible.** When the Scene Planner isn't given an explicit per-plan style, it now falls back to the episode's continuity Style Bible (the same text the renderer appends to every scene). So the plan and the render share one look — set it once, no second field to drift. This was already true for the Scene Review re-prompt; it now applies to the full plan and the per-scene re-plan too.
+- **Shared style picker on both pages.** The built-in style gallery is now a reusable `StylePicker` component used on both the Character Sheet and the Scene Plan. Picking a style on the Character Sheet sets the Style Bible; on a continuity project the Scene Plan page shows that same Look read-only (edit it on the Character Sheet) and its picker writes the channel Style Bible too. Non-continuity formats keep their per-plan style field.
+- **New shipped styles.** The gallery now ships **Sepia Ink & Wash** (muted line-and-wash, lamplit/weathered — the period-expedition look), plus Watercolor Storybook, Cinematic Photoreal, Flat Vector Explainer, Oil Painting Classical, and Anime Cel, alongside the existing MS Paint Fantasy and Pixel Art Story.
+
+Pipeline: no change needed — the batch Scene Plan step already passes the saved preset's style when set, and otherwise inherits the Style Bible via the new fallback (which the batch Character Sheet step writes from your continuity preset). Style previews still render on demand; bundling pre-baked thumbnails is a follow-up.
+
+### Files
+- `frontend/composables/useBuiltInStyles.ts` (new — shipped style library, single source of truth)
+- `frontend/components/StylePicker.vue` (new — shared gallery + apply + on-demand preview)
+- `frontend/pages/projects/[slug]/character-sheet.vue` (inline gallery → shared StylePicker)
+- `frontend/pages/projects/[slug]/scene-plan.vue` (shared StylePicker + read-only channel Look for continuity)
+- `electron/server/generators/scene-plan.ts` (`resolveEffectiveStyle` — Style Bible fallback across all plan paths)
+- `frontend/composables/usePresets.ts` (add the `continuity-page` preset type to the union)
+
+---
+
 ## v1.0.363 — 2026-06-13
 
 ### Changed — Pipeline automation now runs the whole audio-paced chain, not just the legacy front half

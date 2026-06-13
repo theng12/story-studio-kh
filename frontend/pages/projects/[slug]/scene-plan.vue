@@ -229,9 +229,33 @@
         <p class="text-muted text-xs mt-1">{{ neighborContextMeta.hint }}</p>
       </div>
 
-      <!-- v1.0.242 — global style + custom instructions woven into every scene. -->
+      <!-- v1.0.364 — unified channel Look. The same shipped-style gallery used
+           on the Character Sheet; picking one sets the Style Bible applied to
+           every scene (channel-wide for continuity, this plan otherwise). -->
+      <div class="mt-2">
+        <label class="block">Look <span class="text-muted text-xs">— the art style for every scene</span></label>
+        <StylePicker class="mt-1" :slug="slug" :image-models="projectConfig?.image_models || {}" @apply="onStyleApply" />
+      </div>
+
       <div class="grid-2 mt-2">
-        <div class="form-group">
+        <!-- Continuity: the Look IS the channel Style Bible — shown read-only;
+             edit the wording on the Character Sheet. The planner uses it
+             automatically, so there's no separate style field to drift. -->
+        <div v-if="isContinuityChain" class="form-group">
+          <label>
+            Channel look <span class="text-muted text-xs">— the Style Bible used for every scene</span>
+          </label>
+          <div class="channel-look-box">
+            <span v-if="channelStyleBible">{{ channelStyleBible }}</span>
+            <span v-else class="text-muted">Not set — pick a style above, or set it on the Character Sheet.</span>
+          </div>
+          <span class="text-muted text-xs">
+            Set once per channel. Edit the wording on the
+            <NuxtLink :to="`/projects/${slug}/character-sheet`" class="link">Character Sheet</NuxtLink> — the planner uses it automatically.
+          </span>
+        </div>
+        <!-- Non-continuity formats keep the per-plan style field. -->
+        <div v-else class="form-group">
           <label>
             Style prompt
             <span class="text-muted text-xs">— applied to every scene</span>
@@ -554,6 +578,8 @@ const slug = computed(() => route.params.slug as string)
 const { get, post, put, del } = useApi()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
+// v1.0.364 — project config (image_models) for the StylePicker preview models.
+const { config: projectConfig } = useProject()
 
 const episodeId = ref('')
 
@@ -640,22 +666,59 @@ const recipeEnabled = ref(false)
 // v1.0.263 — recipe composition mode. 'guide' shows per-scene emotion controls;
 // 'scene' (no recurring character) hides them since there's no character to emote.
 const recipeMode = ref<'guide' | 'scene'>('guide')
+// v1.0.364 — unified Look. For continuity-chain the canonical look is the
+// continuity Style Bible (shown read-only here; edited via the StylePicker or
+// the Character Sheet). The planner falls back to it when no per-plan style is
+// set, so it drives every scene without a competing field.
+const isContinuityChain = ref(false)
+const channelStyleBible = ref('')
 
 async function loadContinuity(): Promise<void> {
   continuityPacing.value = null
   recipeEnabled.value = false
   recipeMode.value = 'guide'
+  isContinuityChain.value = false
+  channelStyleBible.value = ''
   if (!episodeId.value) return
   try {
     const fmt = await get<{ visualSource?: string }>(`/projects/${slug.value}/effective-format`)
     if (fmt?.visualSource !== 'continuity-chain') return
-    const r = await get<{ exists: boolean; config: { pacing?: { min_sec: number; max_sec: number }; recipe?: { enabled?: boolean; mode?: 'guide' | 'scene' } } }>(
+    isContinuityChain.value = true
+    const r = await get<{ exists: boolean; config: { pacing?: { min_sec: number; max_sec: number }; recipe?: { enabled?: boolean; mode?: 'guide' | 'scene' }; style_bible?: string } }>(
       `/projects/${slug.value}/continuity/${episodeId.value}`,
     )
     continuityPacing.value = r.config?.pacing || { min_sec: 2, max_sec: 8 }
     recipeEnabled.value = r.config?.recipe?.enabled === true
     recipeMode.value = r.config?.recipe?.mode === 'scene' ? 'scene' : 'guide'
+    channelStyleBible.value = (r.config?.style_bible || '').trim()
   } catch { /* non-continuity project or fetch failed — no chip */ }
+}
+
+// v1.0.364 — apply a picked style. Continuity-chain → write the channel Style
+// Bible (re-fetch first so we never clobber other continuity fields, since the
+// PUT replaces). Otherwise it's this plan's style override.
+async function onStyleApply(data: { style_bible: string; negative_prompt: string }): Promise<void> {
+  const ep = episodeId.value
+  if (!ep) return
+  if (isContinuityChain.value) {
+    try {
+      const r = await get<{ config: Record<string, any> }>(`/projects/${slug.value}/continuity/${ep}`)
+      const merged = {
+        ...(r.config || {}),
+        schema_version: 1,
+        style_bible: data.style_bible,
+        negative_prompt: data.negative_prompt,
+      }
+      const saved = await put<{ config: { style_bible?: string } }>(`/projects/${slug.value}/continuity/${ep}`, merged)
+      channelStyleBible.value = (saved.config?.style_bible || data.style_bible || '').trim()
+      success('Style applied to this episode’s Style Bible')
+    } catch (e: any) {
+      showError(e?.data?.detail || e?.message || 'Failed to save the style')
+    }
+  } else {
+    form.value.style_prompt = data.style_bible
+    success('Style applied to this plan')
+  }
 }
 
 // ── v1.0.260 — Visual Recipe (Prompt Director) apply / revert ───────────
@@ -1381,6 +1444,21 @@ watch(episodeId, () => { void loadStatus(); void loadContinuity() })
 </script>
 
 <style scoped>
+/* v1.0.364 — read-only channel Look (Style Bible) box on the Scene Plan page. */
+.channel-look-box {
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  background: var(--bg-secondary, #1c1c1f);
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.block { display: block; }
+.link { color: var(--accent, #6c8fff); text-decoration: underline; cursor: pointer; }
+.mb-1 { margin-bottom: 4px; }
+
 /* v1.0.291 — planning-mode radio group. Each radio card spans full width
    with its description below so the user can scan both options at a glance. */
 .planning-mode-radios {
