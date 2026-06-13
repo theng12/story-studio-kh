@@ -4,6 +4,32 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.381 — 2026-06-14
+
+### Added — Fish S2 expression markup (emotion & performance tags)
+Fish Audio S2-Pro can perform inline direction tags — `[whispering]`, `[excited]`, `[long pause]`, even open-ended ones like `[dead tired]`. Select a **Fish Audio S2-Pro** model in the Audio Generator and a new **Expression** panel appears so the voice's emotion range isn't wasted:
+
+- **✨ Tag all with AI** drafts performance tags across the whole script (one section at a time, with progress), preserving your words and only inserting bracketed directions. Pick which model writes them (DeepSeek Flash by default).
+- **Review & edit** every section before it's voiced — a tag toolbar (whisper, excited, sigh, long pause, …) inserts tags at the cursor, and you can type free-form ones too.
+- The tagged "expressive script" is **saved per episode**, so you can re-render audio (different voice, speed, retries) without re-running the AI or re-reviewing. Clear a section to fall back to the plain narration.
+- A **Use expression markup** toggle controls whether a render uses the tagged script. Gated to S2-Pro only (S1 would read tags aloud); every other model/provider is untouched.
+
+### Fixed — Pipeline Scene Review now honors the preset's render size
+Running Scene Review from the Pipeline ignored the preset's **render scale** (the local Image Studio size picker — e.g. 16:9 at a chosen resolution) and rendered at the model's default size. The Pipeline now forwards the saved `render_scale`, and the continuity renderer resolves it to the exact pixels the Scene Review page would produce (shared aspect-preset math). Local Image Studio models honor it; cloud models still use the aspect ratio.
+
+### Files
+- `electron/server/services/audio-expression.ts` (new — expressive-script sidecar + LLM markup pass)
+- `electron/server/providers/image/imagestudio.ts` (`dimsForAspectScale` — shared scale→px)
+- `electron/server/generators/continuity-render.ts` (resolve render_scale → px for local models)
+- `electron/server/routes/pipeline.ts` (forward the preset's render_scale into Scene Review)
+- `electron/server/routes/audio.ts` (load / generate / save expression endpoints)
+- `electron/server/generators/audio.ts` (swap tagged text in at render time for Fish S2-Pro)
+- `electron/server/contracts/index.ts`, `electron/server/models/types.ts` (`use_expression` flag)
+- `frontend/components/FishExpressionPanel.vue` (new — AI pass + review/edit + tag toolbar)
+- `frontend/pages/projects/[slug]/audio.vue` (mount the panel, gated to Fish S2-Pro)
+
+---
+
 ## v1.0.380 — 2026-06-14
 
 ### Added — show / hide which provider balances appear in the sidebar

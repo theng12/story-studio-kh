@@ -458,6 +458,12 @@ export const GenerateAudioSchema = z.object({
    * Bounds 50-3000 chars (~3-180 seconds at typical narration pace).
    */
   max_chunk_chars: z.number().int().min(50).max(3000).optional(),
+  /**
+   * Fish Audio S2-Pro only: when true, the generator swaps each section's text
+   * for its saved "expressive script" (inline [tag] markup) before chunking.
+   * Ignored by every other provider/model.
+   */
+  use_expression: z.boolean().optional(),
 }).passthrough()
 export type GenerateAudioBody = z.infer<typeof GenerateAudioSchema>
 

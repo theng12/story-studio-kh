@@ -273,6 +273,28 @@ export async function generateAudio(job: Job): Promise<void> {
     job.output_lines.push(`  ${s.label} (${s.text.length.toLocaleString()} chars)`)
   }
 
+  // v1.0.381 — Fish S2 expression markup. When the operator enabled the
+  // expressive script for this Fish S2-Pro run, swap each section's spoken
+  // text for its tagged version (matched by slug). The real narration still
+  // defines the section structure; we only override the words. Runs BEFORE
+  // normalization so the inline [tags] get the same punctuation cleanup as the
+  // rest of the text (normalizeForTts leaves square brackets untouched). Tags
+  // are gated to s2-pro because S1 would read an unknown tag aloud.
+  if (req.use_expression === true && providerId === 'fishaudio' && req.model === 'fishaudio-s2-pro') {
+    const { readExpression } = await import('../services/audio-expression.js')
+    const expr = await readExpression(narrationPath)
+    let applied = 0
+    if (expr?.sections) {
+      for (const s of allSections) {
+        const tagged = expr.sections[s.slug]
+        if (typeof tagged === 'string' && tagged.trim()) { s.text = tagged; applied++ }
+      }
+    }
+    job.output_lines.push(applied
+      ? `Fish S2 expression: applied tagged narration to ${applied}/${allSections.length} section(s).`
+      : 'Fish S2 expression: enabled but no saved markup found — using plain narration.')
+  }
+
   // v1.0.215+ — TTS-friendly normalization (the deterministic safeguard).
   // LLM narration often carries em dashes, smart quotes, ellipses, semicolons
   // and stray markdown that local engines (Kokoro/Bark) read unnaturally —

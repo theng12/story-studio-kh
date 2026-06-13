@@ -78,6 +78,11 @@ interface ContinuityRenderParams {
    *  Cloud providers ignore these. */
   width?: number
   height?: number
+  /** v1.0.381 — local Image Studio render scale as a PERCENT of the aspect
+   *  preset (100 = full). Used by the Pipeline batch path, which carries the
+   *  Scene Review preset's `render_scale` instead of explicit px. Resolved to
+   *  width/height here when explicit px aren't supplied. Cloud providers ignore. */
+  render_scale?: number
 }
 
 interface ContinuityCfg {
@@ -315,8 +320,20 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // v1.0.261 — explicit render size (local Image Studio only). When provided,
   // the imagestudio provider renders at this resolution instead of the aspect
   // preset; cloud providers ignore it. Smaller = far less GPU memory + faster.
-  const renderWidth = typeof params.width === 'number' && params.width > 0 ? params.width : undefined
-  const renderHeight = typeof params.height === 'number' && params.height > 0 ? params.height : undefined
+  let renderWidth = typeof params.width === 'number' && params.width > 0 ? params.width : undefined
+  let renderHeight = typeof params.height === 'number' && params.height > 0 ? params.height : undefined
+  // v1.0.381 — when explicit px weren't supplied but a render_scale PERCENT was
+  // (the Pipeline batch carries the preset's scale, not pixels), derive the size
+  // from the aspect preset × scale — but only for local Image Studio, since
+  // cloud providers render from the aspect ratio and ignore px. Matches the
+  // Scene Review page's size picker exactly (shared dimsForAspectScale).
+  if ((renderWidth === undefined || renderHeight === undefined) && providerId === 'imagestudio'
+      && typeof params.render_scale === 'number' && params.render_scale > 0) {
+    const { dimsForAspectScale } = await import('../providers/image/imagestudio.js')
+    const dims = dimsForAspectScale(aspectRatio, params.render_scale)
+    renderWidth = dims.width
+    renderHeight = dims.height
+  }
   if (renderWidth && renderHeight) {
     job.output_lines.push(`Render size: ${renderWidth}×${renderHeight} (local models; cloud uses ${aspectRatio}).`)
   }

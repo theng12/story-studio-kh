@@ -54,6 +54,21 @@ function resolveDimensions(aspectRatio: string): { width: number; height: number
 }
 
 /**
+ * Render dimensions for a local Image Studio render: the aspect-ratio base
+ * preset scaled by `scalePct` (100 = full preset), rounded to /16 and clamped
+ * to the modal's 256–2048 range. Single source of truth shared with the
+ * continuity renderer so a Pipeline batch — which carries the preset's
+ * `render_scale` percentage rather than explicit pixels — renders at exactly
+ * the size the Scene Review page's size picker would have produced.
+ */
+export function dimsForAspectScale(aspectRatio: string, scalePct: number): { width: number; height: number } {
+  const base = resolveDimensions(aspectRatio)
+  const s = (Number.isFinite(scalePct) && scalePct > 0 ? scalePct : 100) / 100
+  const r16 = (n: number) => Math.max(256, Math.min(2048, Math.round(n / 16) * 16))
+  return { width: r16(base.width * s), height: r16(base.height * s) }
+}
+
+/**
  * Distilled FLUX/Z-Image variants (klein, schnell, turbo) run at very few
  * steps and ignore guidance. Everything else needs full step counts. We
  * derive this from the repo string so it holds for any catalog model

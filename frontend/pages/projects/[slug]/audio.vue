@@ -202,6 +202,18 @@
         </p>
       </div>
 
+      <!-- Fish S2 expression markup — only for Fish Audio S2-Pro, which performs
+           inline [tags]. Lets the operator draft + review a tagged "expressive
+           script" the audio renders when the toggle is on. -->
+      <div v-if="isFishS2Pro" class="form-group mb-2">
+        <label>Expression <span class="field-hint">— emotion &amp; performance tags (Fish S2)</span></label>
+        <FishExpressionPanel
+          v-model="form.use_expression"
+          :project-slug="slug"
+          :episode-id="form.episode_id || null"
+        />
+      </div>
+
       <!-- Generation Mode (M6): single tri-state replaces the previous
            pair of `force` + `no_overwrite` checkboxes. The form still
            sends those booleans to the backend (translated at submit
@@ -404,6 +416,8 @@ const form = reactive({
   // existing { force, no_overwrite } pair. Default 'skip' matches the old
   // default behaviour (force=false, no_overwrite=false).
   generation_mode: 'skip' as 'skip' | 'regenerate' | 'new_version',
+  // Fish Audio S2-Pro only — render the saved expressive (tagged) narration.
+  use_expression: false,
 })
 
 // v1.0.259 — remember the voice + tuning across reloads. `sections` is
@@ -431,6 +445,12 @@ const currentAudioProvider = computed<string>(() => {
   const entry = config.value?.audio_models?.[form.model] as any
   return resolveAudioProvider(form.model, entry || {})
 })
+
+// Fish S2-Pro is the only model with inline expression tags — gate the
+// expression panel + the use_expression flag to it. (S1 would read an unknown
+// tag aloud, so it's deliberately excluded.)
+const isFishS2Pro = computed(() => currentAudioProvider.value === 'fishaudio' && form.model === 'fishaudio-s2-pro')
+watch(isFishS2Pro, (on) => { if (!on) form.use_expression = false })
 
 // v1.0.314 — the per-model chunk cap (Settings → Audio Models → Max chunk
 // chars). Null = use the chunker default (~4800). Surfaced read-only in the

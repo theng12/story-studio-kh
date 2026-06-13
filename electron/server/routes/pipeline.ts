@@ -585,10 +585,12 @@ export function resolveStepParams(
       independent: true,
       concurrency: data.concurrency === undefined ? 'auto' : data.concurrency,
       // Honor the preset's render mode: 'prompt' → text-to-image (no reference
-      // images), matching the Scene Review page's "Prompt only" toggle. Render
-      // size (render_scale) is local-model only and falls back to the model's
-      // aspect-default resolution in batch.
+      // images), matching the Scene Review page's "Prompt only" toggle.
       prompt_only: data.render_mode === 'prompt',
+      // Honor the preset's render scale (% of the aspect preset). Local Image
+      // Studio models resolve this to explicit px in continuity-render; cloud
+      // models ignore it and use the aspect ratio.
+      render_scale: typeof data.render_scale === 'number' ? data.render_scale : undefined,
     }
   }
   if (step === 'timestamp_assemble') {

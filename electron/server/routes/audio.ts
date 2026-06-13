@@ -243,6 +243,113 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
   }
 })
 
+// ── Fish S2 expression markup (the "expressive script" sidecar) ───────────
+// Tagged narration for Fish Audio S2-Pro: an LLM pass inserts inline [tags]
+// (whispering, excited, long pause, …) that the Audio Generator swaps in at
+// render time when "Use expression" is on. Stored per section slug so the real
+// narration always stays the authoritative source of section structure.
+
+/** Resolve the narration path or send a 404. Returns null after responding. */
+async function resolveNarrationOr404(slug: string, code: string, res: any): Promise<string | null> {
+  const { findNarrationFile } = await import('../generators/audio.js')
+  try {
+    return await findNarrationFile(slug, code)
+  } catch {
+    res.status(404).json({ detail: 'No narration found for this episode. Generate the script first.' })
+    return null
+  }
+}
+
+// Load each section's original text + any saved tagged version.
+router.get('/projects/:slug/episodes/:code/expression', async (req, res) => {
+  const { slug, code } = req.params
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const narrationPath = await resolveNarrationOr404(slug, code, res)
+    if (!narrationPath) return
+    const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+    const { readExpression } = await import('../services/audio-expression.js')
+    const parsed = await parseNarrationDocx(narrationPath)
+    const expr = await readExpression(narrationPath)
+    const sections = parsed.map(s => ({
+      slug: s.slug, label: s.label, original: s.text, expressive: expr?.sections?.[s.slug] || '',
+    }))
+    res.json({ model: expr?.model || null, generated_at: expr?.generated_at || null, sections })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to load expression markup'))
+  }
+})
+
+// Run the LLM markup pass for some/all sections and persist the result.
+router.post('/projects/:slug/episodes/:code/expression/generate', async (req, res) => {
+  const { slug, code } = req.params
+  const requestedSlugs: string[] | null = Array.isArray(req.body?.slugs)
+    ? req.body.slugs.filter((x: any) => typeof x === 'string') : null
+  const model = typeof req.body?.model === 'string' && req.body.model.trim()
+    ? req.body.model.trim() : 'deepseek-v4-flash'
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const config = await pm.getConfig(slug)
+    if (!config) return res.status(404).json({ detail: 'Project config not found' })
+    const narrationPath = await resolveNarrationOr404(slug, code, res)
+    if (!narrationPath) return
+    const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+    const { readExpression, writeExpression, markupSectionText } = await import('../services/audio-expression.js')
+    const parsed = await parseNarrationDocx(narrationPath)
+    const targets = requestedSlugs && requestedSlugs.length
+      ? parsed.filter(s => requestedSlugs.includes(s.slug)) : parsed
+    if (!targets.length) return res.status(400).json({ detail: 'No matching sections to mark up.' })
+
+    const apiKeys = {
+      anthropic_api_key: (config as any).anthropic_api_key,
+      openai_api_key: (config as any).openai_api_key,
+      kie_api_key: (config as any).kie_api_key,
+    }
+    const existing = await readExpression(narrationPath)
+    const sectionsOut: Record<string, string> = { ...(existing?.sections || {}) }
+    for (const s of targets) {
+      sectionsOut[s.slug] = await markupSectionText(model, s.text, apiKeys, slug)
+    }
+    const generated_at = new Date().toISOString()
+    await writeExpression(narrationPath, { schema_version: 1, model, generated_at, sections: sectionsOut })
+    const sections = parsed.map(s => ({ slug: s.slug, label: s.label, original: s.text, expressive: sectionsOut[s.slug] || '' }))
+    res.json({ model, generated_at, sections })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to generate expression markup'))
+  }
+})
+
+// Save manual edits / toolbar inserts. Empty text for a slug clears it (that
+// section falls back to the plain narration at render time).
+router.put('/projects/:slug/episodes/:code/expression', async (req, res) => {
+  const { slug, code } = req.params
+  const incoming = req.body?.sections
+  if (!incoming || typeof incoming !== 'object') return res.status(400).json({ detail: 'sections object required' })
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const narrationPath = await resolveNarrationOr404(slug, code, res)
+    if (!narrationPath) return
+    const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+    const { readExpression, writeExpression } = await import('../services/audio-expression.js')
+    const parsed = await parseNarrationDocx(narrationPath)
+    const validSlugs = new Set(parsed.map(s => s.slug))
+    const existing = await readExpression(narrationPath)
+    const sectionsOut: Record<string, string> = { ...(existing?.sections || {}) }
+    for (const [k, v] of Object.entries(incoming)) {
+      if (!validSlugs.has(k)) continue
+      const text = typeof v === 'string' ? v : ''
+      if (text.trim()) sectionsOut[k] = text
+      else delete sectionsOut[k]
+    }
+    const generated_at = new Date().toISOString()
+    await writeExpression(narrationPath, { schema_version: 1, model: existing?.model, generated_at, sections: sectionsOut })
+    const sections = parsed.map(s => ({ slug: s.slug, label: s.label, original: s.text, expressive: sectionsOut[s.slug] || '' }))
+    res.json({ model: existing?.model || null, generated_at, sections })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save expression markup'))
+  }
+})
+
 // ── Audio reconciliation (recover missing chunks) ─────────────────────────
 // Scans expected vs present audio chunks for an episode. `/status` is
 // read-only; `/repair` hits GenAIPro's task-history API to download any

@@ -2117,6 +2117,8 @@ export interface GenerateAudioRequest {
   similarity: number
   force: boolean
   no_overwrite: boolean
+  /** Fish Audio S2-Pro only — render the saved expressive (tagged) narration. */
+  use_expression?: boolean
 }
 
 export interface VideoScene {
