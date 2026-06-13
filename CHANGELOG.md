@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.368 — 2026-06-13
+
+### Fixed — Pipeline step labels now match the format (no more legacy "Image Prompts")
+On the Pipeline page, the "Steps to Run" cards used generic step names that didn't match the format's flow ribbon. For the continuity / transcript / narrated / B-roll formats — where scenes come from Scene Plan → Scene Review — the `image_prompts` step only produces the YouTube **thumbnail** prompt, but it was labelled "Image Prompts" (reading like a leftover scene-image step). Now:
+
+- `image_prompts` shows as **Thumbnail Prompts** for those formats (still "Image Prompts" for the classic chapter-distributed scenes format, where it genuinely makes scene prompts too).
+- `thumb_images` → **Thumbnails** and `audio_merge` → **Audio Assembly**, matching the flow ribbon + sidebar app-wide.
+
+These flow through the step cards, the in-page chain sentence, and the pending pills, so the Pipeline reads consistently with the rest of the app. The steps themselves are unchanged — the continuity format does still produce a YouTube thumbnail (its prompt + image), it just wasn't named clearly.
+
+Note on "no preset selected": the Pipeline remembers your preset per step, per project — but it can't safely auto-pick for the thumbnail/scene-image steps because they share one preset pool, so it waits for an explicit choice. Pick a preset once in the dropdown (or use the step's page) and it sticks.
+
+### Files
+- `frontend/pages/projects/[slug]/pipeline.vue` (format-aware `image_prompts` label in `chainEntries`; `thumb_images`/`audio_merge` label alignment)
+
 ## v1.0.367 — 2026-06-13
 
 ### Added — notification controls: per-event toggles, failure pings, friendlier labels, quieter digest

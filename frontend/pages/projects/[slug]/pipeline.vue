@@ -641,12 +641,12 @@ const stepsMeta: StepMeta[] = [
   // stays declared (and `stepsMeta` still includes it) for back-compat
   // with saved pipeline state from prior versions, but it's off by
   // default in fresh checkouts (see stepChecked.images = false below).
-  { id: 'thumb_images',      label: 'Thumbnail Images',  icon: '📸', link: '/images',         presetList: 'image_generator_presets', presetActive: 'image_generator_last_preset' },
+  { id: 'thumb_images',      label: 'Thumbnails',        icon: '📸', link: '/images',         presetList: 'image_generator_presets', presetActive: 'image_generator_last_preset' },
   { id: 'scene_images',      label: 'Scene Images',      icon: '🎞', link: '/images',         presetList: 'image_generator_presets', presetActive: 'image_generator_last_preset' },
   { id: 'images',            label: 'Images (all, legacy)', icon: '📸', link: '/images',      presetList: 'image_generator_presets', presetActive: 'image_generator_last_preset' },
   { id: 'video',             label: 'Video Clips',       icon: '🎬', link: '/video',          presetList: 'video_generator_presets', presetActive: 'video_generator_last_preset', costly: true, warning: '$0.50–$2 per clip — off by default' },
   { id: 'audio',             label: 'Audio (TTS)',       icon: '🎙', link: '/audio',          presetList: 'audio_generator_presets', presetActive: 'audio_generator_last_preset' },
-  { id: 'audio_merge',       label: 'Audio Merge',       icon: '🎛', link: '/audio-merge',    presetList: 'audio_merge_presets',     presetActive: 'audio_merge_last_preset' },
+  { id: 'audio_merge',       label: 'Audio Assembly',    icon: '🎛', link: '/audio-merge',    presetList: 'audio_merge_presets',     presetActive: 'audio_merge_last_preset' },
   // v1.0.363 — audio-paced format steps. Preset keys mirror each page's
   // usePresets({ configKey, presetType }) call (typed active pointer).
   { id: 'subtitles',         label: 'Subtitles',         icon: '💬', link: '/subtitles',      presetList: 'subtitles_generator_presets', presetActive: 'subtitles_generator_last_preset' },
@@ -738,11 +738,19 @@ const activeChainSpec = computed<ChainSpec>(() => {
 
 // The full ordered display list (steps + external nodes) for the template.
 const chainEntries = computed<ChainEntry[]>(() =>
-  activeChainSpec.value.map((e): ChainEntry =>
-    typeof e === 'string'
-      ? { kind: 'step', ...stepById(e) }
-      : EXTERNAL_NODES[e.external],
-  ),
+  activeChainSpec.value.map((e): ChainEntry => {
+    if (typeof e !== 'string') return EXTERNAL_NODES[e.external]!
+    const meta = stepById(e)
+    // v1.0.368 — for formats where scene images come from Scene Plan → Scene
+    // Review (continuity / timestamp / narrated / broll), the `image_prompts`
+    // step only produces the YouTube THUMBNAIL prompt (its scene-prompt half
+    // goes unused). Label it "Thumbnail Prompts" so the card matches the flow
+    // ribbon + sidebar and doesn't read like a leftover scene-image step.
+    if (e === 'image_prompts' && hidesScenePages.value) {
+      return { kind: 'step', ...meta, label: 'Thumbnail Prompts' }
+    }
+    return { kind: 'step', ...meta }
+  }),
 )
 
 // Just the batchable steps for the active format, in chain order. This
