@@ -1075,6 +1075,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       research: researchDone,
       scene_plan: scenePlanDone,
       scene_review: sceneReviewDone,
+      character_sheet: characterSheetDone,
       script: scriptDone,
       introduction: introductionDone,
       scene_prompts: scenePromptsDone,
@@ -1149,6 +1150,9 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
         // and never excluded finished episodes. Surfaced now.
         scene_plan: scenePlanDone,
         scene_review: sceneReviewDone,
+        // v1.0.361 — surfaced so the Character Sheet page filters its pending
+        // list by "continuity config saved" instead of borrowing `script`.
+        character_sheet: characterSheetDone,
         script: scriptDone,
         introduction: introductionDone,
         prompts: scenePromptsDone,           // backward compat

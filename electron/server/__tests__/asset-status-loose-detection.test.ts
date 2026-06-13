@@ -215,6 +215,25 @@ describe('asset-status looser detection (no prompts docx)', () => {
     assert.equal(status.subtitles, true, '.vtt counts as a subtitle track')
   })
 
+  // v1.0.361 — Character Sheet "pending" filter regression: it keyed off
+  // `script`, so every scripted episode looked done. character_sheet now means
+  // the episode's continuity config has been saved (continuity.json on disk).
+  test('character_sheet=false until continuity.json is saved, then true', async () => {
+    const { episodeDir } = await makeProject()
+    // No continuity.json yet → not configured (this is the "all show pending" case).
+    let status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.character_sheet, false, 'no continuity.json → character sheet pending')
+
+    // Save the continuity config (what the Character Sheet page's PUT writes).
+    await fs.writeFile(
+      path.join(episodeDir, 'continuity.json'),
+      JSON.stringify({ schema_version: 1, anchor_character_ids: ['c1'], references: {} }),
+    )
+    cacheMod.episodeStatusCache.clear()
+    status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.character_sheet, true, 'continuity.json present → character sheet done')
+  })
+
   test('back-compat: prompts docx present → strict expected-vs-present preserved', async () => {
     // When the user HAS a prompts docx, the existing strict logic must
     // still apply. We can't easily fabricate a parseable docx here, so

@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.361 — 2026-06-13
+
+### Fixed — Character Sheet "Pending only" hid every episode (couldn't tell which were set up)
+Same class of bug as the Subtitles filter: the Character Sheet's **Pending only** list was secretly keyed to `script`, so every episode that had a script (i.e. all of them) counted as "done" and dropped out — there was no way to see which episodes you'd actually saved + anchored continuity settings for.
+
+Now there's a real signal:
+- **New `character_sheet` status field** — true when the episode's continuity config has been **saved** (`continuity.json` exists at the episode folder; the Character Sheet page writes it only on Save — opening an unset episode just shows defaults without creating the file). So "Pending only" now shows exactly the episodes you haven't set up yet.
+- **Character Sheet is now a real step on the Production Board** (its own column, for continuity-chain / narrated-scenes) and in the per-episode step chips — so you can see at a glance which episodes are anchored, and hand-mark it done if you set continuity up outside the app.
+- Optional like Research / Scene Plan — not folded into an episode's "all done" rollup.
+
+### Files
+- `electron/server/services/asset-status.ts` (`character_sheet` field + detection via `continuity.json`; `emptyStatus`/`allDoneStatus`)
+- `electron/server/routes/ideas.ts` (surface `character_sheet` in `/episodes`)
+- `frontend/composables/useEpisodes.ts` (type), `frontend/pages/projects/[slug]/character-sheet.vue` (`filter-field="character_sheet"`), `frontend/pages/projects/[slug]/board.vue` + `frontend/components/EpisodeSelector.vue` (column/chip)
+- `electron/server/__tests__/asset-status-loose-detection.test.ts` (detection test) + 2 fixtures updated
+
+---
+
 ## v1.0.360 — 2026-06-13
 
 ### Fixed — Subtitles: switching episodes left Transcribe stuck on "loading/pending"

@@ -666,6 +666,13 @@ export interface EpisodeStatus {
   // scene_images/<id>.png layout). Drives the Scene Review "pending" filter.
   // NOT folded into all_done.
   scene_review: boolean
+  // v1.0.361 — continuity-chain / narrated-scenes "character sheet" step: the
+  // user has SAVED this episode's continuity config (continuity.json exists at
+  // the episode_dir root — written only by the Character Sheet page's Save, the
+  // GET returns defaults without creating it). Drives the Character Sheet page's
+  // "pending" filter (was wrongly keyed to `script`, so every scripted episode
+  // looked done). Only the continuity pipelines produce it — NOT in all_done.
+  character_sheet: boolean
   script: boolean
   introduction: boolean
   scene_prompts: boolean
@@ -712,6 +719,7 @@ function emptyStatus(): EpisodeStatus {
   return {
     research: false,
     scene_plan: false, scene_review: false,
+    character_sheet: false,
     script: false, introduction: false,
     scene_prompts: false, thumb_prompts: false,
     metadata: false,
@@ -927,6 +935,10 @@ export async function computeEpisodeStatus(
     // never found → episode wrongly read as pending. By-code is rename-proof.
     try {
       const byCode = await resolveEpisodePathsByCode(slug, code)
+      // v1.0.361 — character sheet "done" = the episode's continuity config has
+      // been saved (continuity.json at the episode_dir root). Same by-code
+      // resolution as scene_plan so a renamed-folder episode still resolves.
+      status.character_sheet = await fileHasContent(path.join(byCode.episode_dir, 'continuity.json'))
       const planPath = path.join(byCode.episode_dir, 'scene_plan.json')
       status.scene_plan = await fileHasContent(planPath)
       if (status.scene_plan) {
@@ -1203,6 +1215,7 @@ function allDoneStatus(): EpisodeStatus {
   return {
     research: true,
     scene_plan: true, scene_review: true,
+    character_sheet: true,
     script: true, introduction: true,
     scene_prompts: true, thumb_prompts: true,
     metadata: true,

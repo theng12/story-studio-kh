@@ -21,7 +21,7 @@
     <TopActionBar
       :project-slug="slug"
       v-model:episode-id="episodeId"
-      filter-field="script"
+      filter-field="character_sheet"
       :presets="pagePresets"
       generate-label="Save anchors & settings"
       loading-label="Saving…"
