@@ -271,13 +271,12 @@ const bulkBusy = ref(false)
 // launched from the page's TopActionBar Generate button, or surviving a page
 // reload) so the bulk button greys out consistently — not only during this
 // panel's own runBulk poll. Scene vs thumbnail are independent pools, so we
-// only watch the kind this panel owns (legacy unified `images` jobs cover
-// both, so they're always included).
+// only watch the kind this panel owns.
 const { isJobActiveFor } = useJobs()
 const jobActiveForEpisode = computed(() =>
   isJobActiveFor(
     props.episodeId,
-    props.kind === 'thumbnail' ? ['thumb_images', 'images'] : ['scene_images', 'images'],
+    props.kind === 'thumbnail' ? ['thumb_images'] : ['scene_images'],
   ),
 )
 const bulkDisabled = computed(() => bulkBusy.value || jobActiveForEpisode.value)

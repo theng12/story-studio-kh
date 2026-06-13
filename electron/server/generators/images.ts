@@ -225,16 +225,19 @@ export async function generateImages(job: Job): Promise<void> {
   // Local modals (imagestudio) have no balance — skip the check.
   if (providerId === 'kie') await assertBalanceAvailable('kie', apiKey)
 
-  // Find scene and thumbnail prompt files (separate or combined)
-  const mode = req.mode || 'all'
+  // Find the prompt file for the requested independent pool.
+  const mode = req.mode
+  if (mode !== 'scenes' && mode !== 'thumbs') {
+    throw new Error('Image generation mode must be "scenes" or "thumbs"; merged all-mode generation is no longer supported.')
+  }
   let scenePromptsPath: string | null = null
   let thumbPromptsPath: string | null = null
 
-  if (mode === 'all' || mode === 'scenes') {
+  if (mode === 'scenes') {
     scenePromptsPath = await findScenePromptsFile(project_slug, episode_id)
     job.output_lines.push(`Found scene prompts: ${path.basename(scenePromptsPath)}`)
   }
-  if (mode === 'all' || mode === 'thumbs') {
+  if (mode === 'thumbs') {
     thumbPromptsPath = await findThumbPromptsFile(project_slug, episode_id)
     job.output_lines.push(`Found thumbnail prompts: ${path.basename(thumbPromptsPath)}`)
   }
@@ -688,7 +691,7 @@ export async function generateImages(job: Job): Promise<void> {
   }
 
   // Scene images
-  if (mode === 'all' || mode === 'scenes') {
+  if (mode === 'scenes') {
     let filteredScenes = scenes
     if (req.scene_number) filteredScenes = filteredScenes.filter(s => s.number === req.scene_number)
     totalToProcess = filteredScenes.length
@@ -719,7 +722,7 @@ export async function generateImages(job: Job): Promise<void> {
   }
 
   // Thumbnail images
-  if (mode === 'all' || mode === 'thumbs') {
+  if (mode === 'thumbs') {
     let thumbs = thumbnails
     if (req.thumb_number) thumbs = thumbs.filter(t => t.number === req.thumb_number)
     totalToProcess = thumbs.length

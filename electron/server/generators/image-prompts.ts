@@ -62,7 +62,7 @@ interface ImagePromptsParams {
   /** v1.0.224 — vision-extracted style descriptor from a reference thumbnail
    *  the user wants to replicate. */
   thumb_reference_style?: string
-  mode?: 'all' | 'scenes' | 'thumbnails'
+  mode?: 'scenes' | 'thumbnails'
   /**
    * Cast for this episode — passed through from a saved Image Prompts
    * preset (the form field added in image-prompts.vue). The batch
@@ -356,7 +356,10 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   if (credErr) throw new Error(credErr)
 
   const title = req.title || episode_id
-  const mode = req.mode || 'all'
+  const mode = req.mode || 'thumbnails'
+  if (mode !== 'scenes' && mode !== 'thumbnails') {
+    throw new Error('Prompt generation mode must be "scenes" or "thumbnails"; merged all-mode generation is no longer supported.')
+  }
 
   // Prefer scenes_per_chapter when present (matches UI semantics: that
   // field is the primary control, total_scenes is the "custom total"

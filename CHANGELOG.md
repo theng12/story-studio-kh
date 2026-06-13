@@ -4,6 +4,31 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.373 — 2026-06-13
+
+### Fixed — scene and thumbnail prompt/image generation are fully independent
+The split from earlier releases still left one root-level escape hatch: Pipeline's single prompt step could still mean "both scene + thumbnail prompts" for classic scene-image projects, and the old unified image route still accepted `mode: "all"`. That made the app feel like the scene generator had only been renamed instead of truly separated.
+
+This release removes the merged path:
+
+- Pipeline now has separate **Thumbnail Prompts** and **Scene Prompts** steps.
+- The Pipeline thumbnail prompt step always enqueues `image_prompts` with `mode: "thumbnails"`.
+- The Pipeline scene prompt step always enqueues `image_prompts` with `mode: "scenes"`.
+- Classic scene-image projects now run `Thumbnail Prompts → Thumbnails → Scene Prompts → Scene Images` as separate chain links.
+- Pipeline no longer accepts the legacy unified `images` step in batch runs.
+- `/generate/images` now accepts only `mode: "scenes"` or `mode: "thumbs"`; merged `mode: "all"` is rejected.
+- `/generate/image-prompts` now accepts only `mode: "scenes"` or `mode: "thumbnails"`; explicit `mode: "all"` is rejected and missing mode defaults to thumbnails.
+- Remote cockpit chains now include the separate Scene Prompts step for classic scene-image projects.
+- Regression tests now pin the rule that scene prompts/images and thumbnail prompts/images are independent.
+
+### Files
+- `electron/server/routes/pipeline.ts`, `electron/server/routes/images.ts`, and `electron/server/routes/scripts.ts` (split-only batch/route contracts)
+- `electron/server/generators/image-prompts.ts` and `electron/server/generators/images.ts` (reject merged all-mode generation)
+- `frontend/pages/projects/[slug]/pipeline.vue`, `frontend/composables/useRemoteChain.ts`, and generator pages (split-only UI flow)
+- Pipeline route/unit tests and route validation tests (new split assertions)
+
+---
+
 ## v1.0.372 — 2026-06-13
 
 ### Fixed — thumbnail and scene prompt/generator split is now visible across the app

@@ -58,13 +58,14 @@ describe('isStepAlreadyDone — truth table', () => {
     assert.equal(isStepAlreadyDone(fullStatus({ introduction: false }), 'introduction-only'), false)
   })
 
-  test('image_prompts requires BOTH scene + thumb prompts', () => {
-    assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: true, thumb_prompts: true }), 'image_prompts'), true)
+  test('thumbnail and scene prompt steps are independent', () => {
+    assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: false, thumb_prompts: true }), 'image_prompts'), true)
     assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: true, thumb_prompts: false }), 'image_prompts'), false)
-    assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: false, thumb_prompts: true }), 'image_prompts'), false)
+    assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: true, thumb_prompts: false }), 'scene_prompts'), true)
+    assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: false, thumb_prompts: true }), 'scene_prompts'), false)
   })
 
-  test('image_prompts requires only thumbnail prompts for timestamp/scene-plan formats', () => {
+  test('image_prompts is thumbnail-only for every format', () => {
     const timestampFormat = { visualSource: 'timestamp-driven' } as any
     const sentenceScenesFormat = { visualSource: 'scene-images', sceneAlignment: 'sentence' } as any
     assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: false, thumb_prompts: true }), 'image_prompts', timestampFormat), true)
@@ -72,10 +73,11 @@ describe('isStepAlreadyDone — truth table', () => {
     assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: true, thumb_prompts: false }), 'image_prompts', timestampFormat), false)
   })
 
-  test('images requires BOTH scene images + thumbnails', () => {
-    assert.equal(isStepAlreadyDone(fullStatus({ images: true, thumbnails: true }), 'images'), true)
-    assert.equal(isStepAlreadyDone(fullStatus({ images: true, thumbnails: false }), 'images'), false)
-    assert.equal(isStepAlreadyDone(fullStatus({ images: false, thumbnails: true }), 'images'), false)
+  test('scene_images and thumb_images are independent', () => {
+    assert.equal(isStepAlreadyDone(fullStatus({ images: true, thumbnails: false }), 'scene_images'), true)
+    assert.equal(isStepAlreadyDone(fullStatus({ images: false, thumbnails: true }), 'scene_images'), false)
+    assert.equal(isStepAlreadyDone(fullStatus({ images: false, thumbnails: true }), 'thumb_images'), true)
+    assert.equal(isStepAlreadyDone(fullStatus({ images: true, thumbnails: false }), 'thumb_images'), false)
   })
 
   test('audio / audio_merge / metadata / video each track their status field', () => {

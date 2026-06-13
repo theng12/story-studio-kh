@@ -741,6 +741,9 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
   if (typeof episode_id !== 'string' || !episode_id) {
     return res.status(400).json({ detail: 'episode_id is required' })
   }
+  if (req.body?.mode && req.body.mode !== 'scenes' && req.body.mode !== 'thumbnails') {
+    return res.status(400).json({ detail: 'mode must be "scenes" or "thumbnails"' })
+  }
 
   // Pre-flight API-key check — same set the inline route used. Surfacing
   // this as a 400 from the route (rather than letting the executor fail
@@ -774,7 +777,7 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
     // through verbatim so any field the form sends (style_tag, aspect_
     // ratio, scenes_per_chapter, total_scenes, chapter_count, thumb_*,
     // mode, character_ids) flows untouched.
-    params: req.body,
+    params: { ...req.body, mode: req.body.mode || 'thumbnails' },
   })
 
   res.status(201).json(job)
@@ -1475,7 +1478,7 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
 
 // M4: `POST /generate/image-prompts-only` removed. Zero frontend callers
 // (verified by grep across the frontend tree). The image-prompts page
-// uses `/generate/image-prompts` with `mode: 'scenes' | 'thumbnails' | 'all'`
+// uses `/generate/image-prompts` with `mode: 'scenes' | 'thumbnails'`
 // for granular generation. Pipeline batch uses `image_prompts` step.
 
 // ── Legacy narration normaliser (Part 3 of mark-done plan) ─────────────────
@@ -1520,4 +1523,3 @@ router.post('/projects/:slug/episodes/:code/normalize-script', async (req, res) 
     res.status(500).json(humanizeBackendError(e, 'Narration normalisation failed'))
   }
 })
-

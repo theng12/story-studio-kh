@@ -861,9 +861,8 @@ interface HistoryEntry {
   episode_id: string
   style_preset: string
   aspect_ratio: string
-  // Which slice of the result this entry captured — drives the "scenes only"
-  // / "thumbs only" / "all" annotation in the History tab.
-  mode: 'all' | 'scenes' | 'thumbnails'
+  // Which independent prompt pool this entry captured.
+  mode: 'scenes' | 'thumbnails'
   prompts: any
   generated_at: string
 }
@@ -876,8 +875,8 @@ const history = ref<HistoryEntry[]>([])
 // flag(s) for the mode being run.
 const { promptGenerating, thumbPromptGenerating } = useGenerating()
 function setPromptPulse(mode: PromptMode, on: boolean) {
-  if (mode === 'scenes' || mode === 'all') promptGenerating.value = on
-  if (mode === 'thumbnails' || mode === 'all') thumbPromptGenerating.value = on
+  if (mode === 'scenes') promptGenerating.value = on
+  if (mode === 'thumbnails') thumbPromptGenerating.value = on
 }
 
 const STYLE_PRESETS: Record<string, string> = {
@@ -1686,7 +1685,7 @@ function loadFromHistory(entry: HistoryEntry) {
 // (the save endpoint only writes docx files for arrays actually present
 // in the payload), so a Scene-only run never clobbers an existing thumb
 // file, and vice-versa.
-type PromptMode = 'all' | 'scenes' | 'thumbnails'
+type PromptMode = 'scenes' | 'thumbnails'
 
 // v1.0.87+: image-prompts generation now runs as an enqueued background
 // job (Jobs tab visibility, per-step output_lines, retryable on error)
@@ -1755,7 +1754,7 @@ async function runGenerate(mode: PromptMode) {
     // immediately so the user knows the click registered, then poll for
     // completion. We don't block paint while the job runs — the existing
     // `generating` flag keeps the button disabled + spinner showing.
-    success(`Queued ${mode === 'scenes' ? 'scene prompts' : mode === 'thumbnails' ? 'thumbnail prompts' : 'scene + thumbnail prompts'} — job ${job.job_id}`)
+    success(`Queued ${mode === 'scenes' ? 'scene prompts' : 'thumbnail prompts'} — job ${job.job_id}`)
 
     const completed = await waitForJob(slug.value, job.job_id)
     if (completed.status === 'error') {
@@ -1778,7 +1777,7 @@ async function runGenerate(mode: PromptMode) {
     // Merge into the inline review pane. Scene-only / thumb-only runs
     // preserve the OTHER half from whatever was already there on disk
     // (the executor only writes the half it generated).
-    if (mode === 'all' || !generatedPrompts.value) {
+    if (!generatedPrompts.value) {
       generatedPrompts.value = { scenes: onDisk?.scenes || [], thumbnails: onDisk?.thumbnails || [] }
     } else {
       generatedPrompts.value = {
@@ -1805,16 +1804,12 @@ async function runGenerate(mode: PromptMode) {
     const sceneCt = onDisk?.scenes?.length || 0
     const thumbCt = onDisk?.thumbnails?.length || 0
     const msg = mode === 'scenes' ? `Generated ${sceneCt} scene prompts`
-      : mode === 'thumbnails' ? `Generated ${thumbCt} thumbnail prompts`
-      : `Generated ${sceneCt} scene + ${thumbCt} thumbnail prompts`
+      : `Generated ${thumbCt} thumbnail prompts`
     success(msg)
   } catch (e: any) {
-    // Name the pool that failed so the toast is actionable. Multi-pool
-    // 'all' runs aggregate errors at the backend, so the detail message
-    // (when present) carries the per-pool breakdown.
+    // Name the pool that failed so the toast is actionable.
     const poolLabel = mode === 'scenes' ? 'scene prompts'
-      : mode === 'thumbnails' ? 'thumbnail prompts'
-      : 'scene + thumbnail prompts'
+      : 'thumbnail prompts'
     console.error(`[image-prompts] ${poolLabel} generation failed:`, e)
     showError(e.data?.detail || e.message || `Failed to generate ${poolLabel}`)
   } finally {

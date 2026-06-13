@@ -110,16 +110,16 @@ describe('findActivePreset — split prompt and image preset pools', () => {
     assert.equal(r.preset?.id, 'tp1')
   })
 
-  test('image_prompts falls back to the scene prompt pool', () => {
+  test('scene_prompts resolves from the scene prompt pool', () => {
     const config = {
       scene_prompts_presets: [{ id: 'sp1', name: 'Scene prompt preset' }],
       scene_prompts_last_preset: 'sp1',
     }
-    const r = findActivePreset(config, 'image_prompts')
+    const r = findActivePreset(config, 'scene_prompts')
     assert.equal(r.preset?.id, 'sp1')
   })
 
-  test('image_prompts skips a stale thumbnail pointer and resolves a valid scene pointer', () => {
+  test('image_prompts does not fall back to the scene prompt pool', () => {
     const config = {
       thumbnail_prompts_presets: [{ id: 'tp1', name: 'Old thumbnail prompt preset' }],
       scene_prompts_presets: [{ id: 'sp1', name: 'Scene prompt preset' }],
@@ -127,17 +127,17 @@ describe('findActivePreset — split prompt and image preset pools', () => {
       scene_prompts_last_preset: 'sp1',
     }
     const r = findActivePreset(config, 'image_prompts')
-    assert.equal(r.preset?.id, 'sp1')
-    assert.equal(r.missingReason, null)
+    assert.equal(r.preset, null)
+    assert.match(r.missingReason || '', /not found/)
   })
 
-  test('image_prompts keeps the legacy unified prompt pool as a fallback', () => {
+  test('image_prompts ignores the legacy unified prompt pool', () => {
     const config = {
       image_prompts_presets: [{ id: 'ip1', name: 'My prompts preset' }],
       image_prompts_last_preset: 'ip1',
     }
     const r = findActivePreset(config, 'image_prompts')
-    assert.equal(r.preset?.id, 'ip1')
+    assert.equal(r.preset, null)
   })
 
   test('image_prompts returns missingReason when all active ids are stale', () => {
@@ -145,7 +145,6 @@ describe('findActivePreset — split prompt and image preset pools', () => {
       thumbnail_prompts_presets: [{ id: 'tp1', name: 'a' }],
       scene_prompts_presets: [{ id: 'sp1', name: 'b' }],
       thumbnail_prompts_last_preset: 'tp-stale',
-      image_prompts_last_preset: 'ip-stale',
     }
     const r = findActivePreset(config, 'image_prompts')
     assert.equal(r.preset, null)

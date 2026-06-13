@@ -67,7 +67,7 @@ type BatchStep =
   | 'script-only'
   | 'introduction-only'
   | 'image_prompts'
-  | 'images'
+  | 'scene_prompts'
   | 'scene_images'
   | 'thumb_images'
   | 'audio'
@@ -80,14 +80,11 @@ type BatchStep =
   | 'timestamp_assemble'
   | 'video'
   | 'video_assembly'
-// v1.0.87+: scene_images + thumb_images are split equivalents of the
-// unified `images` step. The pipeline UI defaults to these two so the
-// user can tick scenes-only or thumbs-only as discrete pipeline steps.
-// Legacy `images` stays valid for any saved pipeline preset that still
-// references it. The split steps use their own preset pools
-// (`scene_generator_*` and `thumbnail_generator_*`); only the legacy
-// unified step still reads `image_generator_*`.
-const VALID_STEPS: BatchStep[] = ['script-only', 'introduction-only', 'image_prompts', 'images', 'scene_images', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'scene_review', 'character_sheet', 'timestamp_assemble', 'video', 'video_assembly']
+// v1.0.373+: Pipeline only exposes split scene/thumbnail image steps. The
+// legacy unified `images` job type can still exist in old job history, but
+// run-batch no longer accepts it as a step because it can merge scenes and
+// thumbnails into one provider run.
+const VALID_STEPS: BatchStep[] = ['script-only', 'introduction-only', 'image_prompts', 'scene_prompts', 'scene_images', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'scene_review', 'character_sheet', 'timestamp_assemble', 'video', 'video_assembly']
 
 // Steps that run with the generator's own defaults — no saved preset required.
 // `timestamp_assemble`'s settings live in a per-Mac remembered form (not a
@@ -120,18 +117,15 @@ const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: stri
   // typed first wins.
   'script-only':       { list: 'script_presets',           activeKeys: ['script_last_preset_script', 'script_last_preset'] },
   'introduction-only': { list: 'script_presets',           activeKeys: ['script_last_preset_introduction', 'script_last_preset'] },
-  // v1.0.370 — the prompt page split into Thumbnail Prompts (thumbnail_prompts)
-  // + Scene Prompts (scene_prompts); the legacy unified `image_prompts` pool is
-  // kept last for pre-split saves. The batch runs mode 'all' (both prompt types)
-  // and the preset shape is identical, so whichever pool the channel saved into
-  // resolves. Mirrors PRESET pools in image-prompts.vue + the Pipeline stepsMeta.
-  image_prompts:       { list: ['thumbnail_prompts_presets', 'scene_prompts_presets', 'image_prompts_presets'], activeKeys: ['thumbnail_prompts_last_preset', 'scene_prompts_last_preset', 'image_prompts_last_preset'] },
-  images:              { list: 'image_generator_presets',  activeKeys: ['image_generator_last_preset'] },
-  // v1.0.88+: scene_images + thumb_images each point at their own preset
-  // list, matching the split image-generator UI (Thumbnail Generator and
-  // Scene Generator tabs save independently). The legacy `image_generator
-  // _presets` key still works for the unified `images` step above so a
-  // saved pipeline that targets that step keeps running unchanged.
+  // v1.0.373 — prompt pools are fully split. Pipeline has one step for
+  // Thumbnail Prompts and one for Scene Prompts; neither may resolve through
+  // the other pool or run mode='all'. Legacy unified `image_prompts` presets
+  // are intentionally not used here because they reintroduce the merged path.
+  image_prompts:       { list: 'thumbnail_prompts_presets', activeKeys: ['thumbnail_prompts_last_preset'] },
+  scene_prompts:       { list: 'scene_prompts_presets',     activeKeys: ['scene_prompts_last_preset'] },
+  // scene_images + thumb_images each point at their own preset list, matching
+  // the split image-generator UI (Thumbnail Generator and Scene Generator tabs
+  // save independently).
   scene_images:        { list: 'scene_generator_presets',  activeKeys: ['scene_generator_last_preset'] },
   thumb_images:        { list: 'thumbnail_generator_presets', activeKeys: ['thumbnail_generator_last_preset'] },
   audio:               { list: 'audio_generator_presets',  activeKeys: ['audio_generator_last_preset'] },
@@ -155,22 +149,6 @@ const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: stri
 }
 
 interface StoredPreset { id: string; name: string; data?: any; type?: string; [k: string]: any }
-
-function promptModeForFormat(format?: Format | null): 'all' | 'thumbnails' {
-  if (!format) return 'all'
-  const visualSource = (format as any).visualSource
-  const sceneAlignment = (format as any).sceneAlignment
-  if (visualSource === 'broll' ||
-      visualSource === 'timestamp-driven' ||
-      visualSource === 'continuity-chain' ||
-      visualSource === 'narrated-scenes') {
-    return 'thumbnails'
-  }
-  if ((visualSource === 'scene-images' || !visualSource) && sceneAlignment === 'sentence') {
-    return 'thumbnails'
-  }
-  return 'all'
-}
 
 /**
  * Per-step type tag used by usePresets({ presetType }) on the scripts page.
@@ -201,10 +179,8 @@ export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format
   switch (step) {
     case 'script-only':       return status.script
     case 'introduction-only': return status.introduction
-    case 'image_prompts':     return promptModeForFormat(format) === 'thumbnails'
-      ? status.thumb_prompts
-      : status.scene_prompts && status.thumb_prompts
-    case 'images':            return status.images && status.thumbnails
+    case 'image_prompts':     return status.thumb_prompts
+    case 'scene_prompts':     return status.scene_prompts
     case 'scene_images':      return status.images
     case 'thumb_images':      return status.thumbnails
     case 'audio':             return status.audio
@@ -227,10 +203,9 @@ export function findActivePreset(
   config: any, step: BatchStep,
 ): { preset: StoredPreset | null; missingReason: string | null } {
   const keys = PRESET_KEYS[step]
-  // v1.0.370 — a step can resolve across more than one preset pool. The prompt
-  // step (image_prompts) merges the split `thumbnail_prompts` + `scene_prompts`
-  // pools (+ the legacy `image_prompts` pool) so whichever the channel saved is
-  // found regardless of which page it was saved from.
+  // Some legacy steps can resolve across more than one preset pool. Split
+  // prompt steps intentionally do not: thumbnail and scene prompt presets are
+  // independent and must never fall through to each other.
   const listKeys = Array.isArray(keys.list) ? keys.list : [keys.list]
   const list: StoredPreset[] = listKeys.flatMap(k => (Array.isArray(config?.[k]) ? config[k] : []))
   // Walk activeKeys in order; the first key that points at an existing preset
@@ -318,11 +293,11 @@ export function resolveStepParams(
         : [],
     }
   }
-  if (step === 'image_prompts') {
+  if (step === 'image_prompts' || step === 'scene_prompts') {
     // image_prompts preset shape: { form: {...} } from image-prompts.vue.
-    // Classic scene-image formats still run mode='all'. Audio-paced formats
-    // get their scene prompts from Scene Plan, so the batch prompt step runs
-    // thumbnail-only there.
+    // v1.0.373: Pipeline prompt steps are hard-split. Thumbnail Prompts
+    // always runs mode='thumbnails'; Scene Prompts always runs mode='scenes'.
+    // There is no Pipeline path that runs mode='all'.
     const form = data.form || {}
     const { title: _t, episode_id: _e, ...rest } = form
     // Mirror the UI's submit normalization (image-prompts.vue:705-706):
@@ -372,20 +347,16 @@ export function resolveStepParams(
       ...rest,
       episode_id: episodeId,
       title: title || '',
-      mode: promptModeForFormat(format),
+      mode: step === 'scene_prompts' ? 'scenes' : 'thumbnails',
     }
   }
-  if (step === 'images' || step === 'scene_images' || step === 'thumb_images') {
+  if (step === 'scene_images' || step === 'thumb_images') {
     const form = data.form || {}
-    // v1.0.87+: pipeline-step variant determines mode. Legacy `images` step
-    // keeps its preset-stored `form.mode` (or 'all' fallback); the new
-    // split steps force the corresponding mode regardless of what the
-    // preset carries, so a single saved image_generator preset can drive
-    // either a scenes-only or thumbs-only pipeline run.
+    // Pipeline-step variant determines mode. Split steps force the
+    // corresponding mode regardless of what the preset carries.
     const forcedMode =
       step === 'scene_images' ? 'scenes' :
-      step === 'thumb_images' ? 'thumbs' :
-      (form.mode || 'all')
+      'thumbs'
     return {
       ...form,
       episode_id: episodeId,
@@ -1042,9 +1013,11 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
         chain.push({ type: 'expand_chapters' as JobType, title: `[batch] chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', auto_approve: true } })
         continue
       }
+      const jobType = step === 'scene_prompts' ? 'image_prompts' : step as JobType
+      const jobTitleStep = step === 'image_prompts' ? 'thumbnail_prompts' : step
       chain.push({
-        type: step as JobType,
-        title: `[batch] ${step} — ${episodeId}`,
+        type: jobType,
+        title: `[batch] ${jobTitleStep} — ${episodeId}`,
         params: resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat),
       })
     }

@@ -37,7 +37,10 @@ export type EstimateStep =
   | 'script-only'
   | 'introduction-only'
   | 'image_prompts'
+  | 'scene_prompts'
   | 'images'
+  | 'scene_images'
+  | 'thumb_images'
   | 'audio'
   | 'audio_merge'
   | 'metadata'
@@ -102,9 +105,13 @@ export function estimateBytesForStep(step: EstimateStep, inputs: EpisodeEstimate
     }
     case 'images':
       return IMAGES_BYTES
+    case 'scene_images':
+    case 'thumb_images':
+      return Math.ceil(IMAGES_BYTES / 2)
     case 'script-only':
     case 'introduction-only':
     case 'image_prompts':
+    case 'scene_prompts':
     case 'metadata':
       return TINY_STEP_BYTES
     default:

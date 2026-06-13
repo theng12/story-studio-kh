@@ -13,13 +13,13 @@
 import type { VisualSource } from '~/composables/useProjectFlow'
 
 export type CockpitStep =
-  | 'script-only' | 'metadata' | 'image_prompts' | 'thumb_images' | 'scene_images'
+  | 'script-only' | 'metadata' | 'image_prompts' | 'scene_prompts' | 'thumb_images' | 'scene_images'
   | 'audio' | 'audio_merge' | 'subtitles' | 'character_sheet'
   | 'scene_plan' | 'scene_review' | 'timestamp_assemble' | 'video_assembly'
 
 const CHAINS: Record<VisualSource, CockpitStep[]> = {
   'broll':            ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles'],
-  'scene-images':     ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'scene_images', 'audio', 'audio_merge', 'subtitles', 'video_assembly'],
+  'scene-images':     ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'scene_prompts', 'scene_images', 'audio', 'audio_merge', 'subtitles', 'video_assembly'],
   'timestamp-driven': ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'scene_plan', 'scene_review', 'timestamp_assemble'],
   'continuity-chain': ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'character_sheet', 'scene_plan', 'scene_review', 'timestamp_assemble'],
   'narrated-scenes':  ['script-only', 'metadata', 'image_prompts', 'thumb_images', 'audio', 'audio_merge', 'subtitles', 'character_sheet', 'scene_plan', 'scene_review', 'timestamp_assemble'],
@@ -32,7 +32,8 @@ const FINAL_STEPS = new Set<CockpitStep>(['timestamp_assemble', 'video_assembly'
 export const STEP_LABELS: Record<CockpitStep, string> = {
   'script-only': 'Script',
   'metadata': 'Metadata',
-  'image_prompts': 'Image prompts',
+  'image_prompts': 'Thumbnail prompts',
+  'scene_prompts': 'Scene prompts',
   'thumb_images': 'Thumbnail',
   'scene_images': 'Scene images',
   'audio': 'Audio',
@@ -46,7 +47,6 @@ export const STEP_LABELS: Record<CockpitStep, string> = {
 }
 
 export function stepLabelFor(vs: VisualSource, step: CockpitStep): string {
-  if (step === 'image_prompts' && vs !== 'scene-images') return 'Thumbnail prompts'
   return STEP_LABELS[step]
 }
 

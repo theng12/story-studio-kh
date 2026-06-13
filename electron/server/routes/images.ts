@@ -38,7 +38,7 @@ router.post('/projects/:slug/generate/images', validateBody(GenerateImagesSchema
   if (!config) return res.status(400).json({ detail: 'Project config not found' })
   // API key validation happens at generation time (provider-specific)
 
-  const mode: string = req.body.mode || 'all'
+  const mode: string = req.body.mode || 'thumbs'
 
   // Use distinct job types for scene vs thumbnail images
   let jobType: JobType
@@ -51,9 +51,7 @@ router.post('/projects/:slug/generate/images', validateBody(GenerateImagesSchema
     jobType = 'thumb_images'
     title = 'Thumbnail Images'
   } else {
-    // mode === 'all' — use legacy 'images' type for backward compatibility
-    jobType = 'images'
-    title = 'Images (all)'
+    return res.status(400).json({ detail: 'mode must be "scenes" or "thumbs"' })
   }
 
   // Dedupe per (episode, jobType, scene_number, thumb_number).

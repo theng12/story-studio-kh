@@ -304,7 +304,7 @@ describe('Error handling', () => {
     const res = await request(app).post(`/api/projects/${slug}/generate/images`).send({
       episode_id: 'FAKE001',
       model: 'grok-imagine',
-      mode: 'all',
+      mode: 'thumbs',
     })
     // Route will accept the job (validation happens at generation time);
     // API key check now moved to provider layer. Either 201 (queued, will fail later)

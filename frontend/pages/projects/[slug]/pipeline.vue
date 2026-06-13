@@ -226,8 +226,9 @@
             <optgroup label="Missing a specific step">
               <option value="missing-script">Missing script ({{ missingCountByStep['script-only'] }})</option>
               <option value="missing-introduction">Missing introduction ({{ missingCountByStep['introduction-only'] }})</option>
-              <option value="missing-image-prompts">Missing prompts ({{ missingCountByStep['image_prompts'] }})</option>
-              <option v-if="!hidesScenePages" value="missing-images">Missing images ({{ missingCountByStep['images'] }})</option>
+              <option value="missing-image-prompts">Missing thumbnail prompts ({{ missingCountByStep['image_prompts'] }})</option>
+              <option v-if="!hidesScenePages" value="missing-scene-prompts">Missing scene prompts ({{ missingCountByStep['scene_prompts'] }})</option>
+              <option v-if="!hidesScenePages" value="missing-images">Missing scene images ({{ missingCountByStep['scene_images'] }})</option>
               <option value="missing-audio">Missing audio ({{ missingCountByStep['audio'] }})</option>
               <option value="missing-audio-merge">Missing merged audio ({{ missingCountByStep['audio_merge'] }})</option>
               <option value="missing-metadata">Missing metadata ({{ missingCountByStep['metadata'] }})</option>
@@ -576,7 +577,7 @@ watch(slug, () => {
 // gated on the script step in this UI — see `stepDisabled` below.
 type StepId =
   | 'script-only' | 'introduction-only'
-  | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'audio' | 'audio_merge'
+  | 'image_prompts' | 'scene_prompts' | 'scene_images' | 'thumb_images' | 'audio' | 'audio_merge'
   | 'metadata' | 'video' | 'video_assembly'
   // v1.0.363 — audio-paced format steps, now chained by the batch runner
   // instead of being read-only "Open page →" nodes.
@@ -588,10 +589,8 @@ interface StepMeta {
   link: string
   presetList: string
   presetActive: string
-  /** v1.0.370 — extra preset lists / active-pointer keys to also resolve from.
-   *  The prompt step resolves across split `thumbnail_prompts` + `scene_prompts`
-   *  presets (+ the legacy `image_prompts` pool) and shows whichever the
-   *  channel actually saved. */
+  /** Extra preset lists / active-pointer keys to also resolve from. Do not use
+   *  for split prompt steps: thumbnail and scene prompt presets are independent. */
   presetListAlt?: string[]
   presetActiveAlt?: string[]
   /** If true, unchecked by default — user must opt in. For cost-sensitive steps. */
@@ -637,7 +636,7 @@ const EXTERNAL_NODES: Record<string, ExternalNode> = {
 }
 
 // Order in this array is the chain order for each episode's batch run.
-// script-only → introduction-only → metadata → image_prompts → images →
+// script-only → introduction-only → metadata → thumbnail/scene prompts → images →
 // (video if opted in) → audio → audio_merge → video_assembly.
 // Metadata sits early so titles/descriptions are ready before any image work
 // — prompt generation and the post-merge metadata-driven exports both benefit.
@@ -650,15 +649,12 @@ const stepsMeta: StepMeta[] = [
   { id: 'script-only',       label: 'Script (chapters)', icon: '📝', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_script' },
   { id: 'introduction-only', label: 'Introduction',      icon: '🎙', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_introduction' },
   { id: 'metadata',          label: 'Metadata',          icon: '📄', link: '/metadata',       presetList: 'metadata_presets',        presetActive: 'metadata_last_preset' },
-  { id: 'image_prompts',     label: 'Prompts',           icon: '🎨', link: '/image-prompts',  presetList: 'thumbnail_prompts_presets', presetActive: 'thumbnail_prompts_last_preset', presetListAlt: ['scene_prompts_presets', 'image_prompts_presets'], presetActiveAlt: ['scene_prompts_last_preset', 'image_prompts_last_preset'] },
-  // v1.0.87+: pipeline splits Images into Thumbnail Images + Scene Images
-  // mirroring the page-level tab split. The legacy unified `images` step
-  // stays declared (and `stepsMeta` still includes it) for back-compat
-  // with saved pipeline state from prior versions, but it's off by
-  // default in fresh checkouts (see stepChecked.images = false below).
+  { id: 'image_prompts',     label: 'Thumbnail Prompts', icon: '🖼', link: '/image-prompts?tab=thumbnails', presetList: 'thumbnail_prompts_presets', presetActive: 'thumbnail_prompts_last_preset' },
+  { id: 'scene_prompts',     label: 'Scene Prompts',     icon: '🎨', link: '/image-prompts?tab=scenes', presetList: 'scene_prompts_presets', presetActive: 'scene_prompts_last_preset' },
+  // Pipeline image generation is fully split: Thumbnail Images and Scene
+  // Images are separate steps with separate preset pools.
   { id: 'thumb_images',      label: 'Thumbnails',        icon: '📸', link: '/images',         presetList: 'thumbnail_generator_presets', presetActive: 'thumbnail_generator_last_preset' },
   { id: 'scene_images',      label: 'Scene Images',      icon: '🎞', link: '/images',         presetList: 'scene_generator_presets', presetActive: 'scene_generator_last_preset' },
-  { id: 'images',            label: 'Images (all, legacy)', icon: '📸', link: '/images',      presetList: 'image_generator_presets', presetActive: 'image_generator_last_preset' },
   { id: 'video',             label: 'Video Clips',       icon: '🎬', link: '/video',          presetList: 'video_generator_presets', presetActive: 'video_generator_last_preset', costly: true, warning: '$0.50–$2 per clip — off by default' },
   { id: 'audio',             label: 'Audio (TTS)',       icon: '🎙', link: '/audio',          presetList: 'audio_generator_presets', presetActive: 'audio_generator_last_preset' },
   { id: 'audio_merge',       label: 'Audio Assembly',    icon: '🎛', link: '/audio-merge',    presetList: 'audio_merge_presets',     presetActive: 'audio_merge_last_preset' },
@@ -685,18 +681,15 @@ function noPresetStep(id: StepId): boolean { return NO_PRESET_STEPS.has(id) }
 // ── Per-format chains ───────────────────────────────────────────────────
 // Each entry is either a batchable StepId (rendered as a checkbox tile) or
 // an EXTERNAL_NODES key (rendered as a read-only "Open page →" node). The
-// order is the real production chain for that format. `image_prompts` and
-// `thumb_images` appear in all three formats — broll/timestamp use only the
-// thumbnail output (see the image_prompts note above the chain computeds).
+// order is the real production chain for that format. Thumbnail Prompts and
+// Thumbnail Images appear in every format; Scene Prompts/Scene Images appear
+// only in classic chapter-distributed scene-image formats.
 //
-// Legacy unified `images` is intentionally NOT in any chain — it's kept in
-// stepsMeta only so old saved selections still resolve. Fresh runs use the
-// split thumb/scene steps.
 type ChainSpec = Array<StepId | { external: keyof typeof EXTERNAL_NODES }>
 
 const CHAIN_SCENE_IMAGES: ChainSpec = [
   'script-only', 'introduction-only', 'metadata',
-  'image_prompts', 'thumb_images', 'scene_images', 'video',
+  'image_prompts', 'thumb_images', 'scene_prompts', 'scene_images', 'video',
   'audio', 'audio_merge', 'subtitles', 'video_assembly',
 ]
 const CHAIN_BROLL: ChainSpec = [
@@ -756,14 +749,6 @@ const chainEntries = computed<ChainEntry[]>(() =>
   activeChainSpec.value.map((e): ChainEntry => {
     if (typeof e !== 'string') return EXTERNAL_NODES[e.external]!
     const meta = stepById(e)
-    // v1.0.368 — for formats where scene images come from Scene Plan → Scene
-    // Review (continuity / timestamp / narrated / broll), the `image_prompts`
-    // step only produces the YouTube THUMBNAIL prompt (its scene-prompt half
-    // goes unused). Label it "Thumbnail Prompts" so the card matches the flow
-    // ribbon + sidebar and doesn't read like a leftover scene-image step.
-    if (e === 'image_prompts' && hidesScenePages.value) {
-      return { kind: 'step', ...meta, label: 'Thumbnail Prompts' }
-    }
     return { kind: 'step', ...meta }
   }),
 )
@@ -774,11 +759,6 @@ const chainEntries = computed<ChainEntry[]>(() =>
 const visibleSteps = computed<StepMeta[]>(() =>
   chainEntries.value.filter((e): e is { kind: 'step' } & StepMeta => e.kind === 'step'),
 )
-
-// Note on image_prompts for broll/timestamp/continuity/narrated:
-// the batch runner sends mode='thumbnails' because scene prompts are owned by
-// Scene Plan in those flows. The done-detector below mirrors that so a
-// thumbnail-only prompt run is treated as complete for those formats.
 
 const chainLabel = computed(() => {
   if (isBroll.value) return 'Voice over Stock Footage (B-Roll)'
@@ -799,13 +779,12 @@ const stepChecked = reactive<Record<StepId, boolean>>({
   // it anymore (Metadata now needs only the Script). Opt in per project when a
   // format genuinely wants a separate intro.
   'introduction-only': false,
-  // v1.0.87+: default to the split steps (Thumbnail + Scene) and leave the
-  // legacy unified Images step OFF. Both new steps ship checked-on so an
-  // out-of-the-box "Run all pending" still produces a full image set.
+  // Default to the split prompt/image steps. Thumbnail and scene work are
+  // independent; no checked step runs both.
   image_prompts: true,
+  scene_prompts: true,
   thumb_images: true,
   scene_images: true,
-  images: false,            // legacy unified step — opt-in for users who want it
   audio: true, audio_merge: true, metadata: true,
   video: false,             // opt-in because it's expensive
   // v1.0.363 — audio-paced format steps default ON so one click runs the whole
@@ -888,10 +867,9 @@ const TYPE_FOR_STEP: Partial<Record<StepId, string>> = {
   character_sheet: 'continuity-page',
 }
 
-// v1.0.370 — a step's preset pool = its primary list + any alt lists. The
-// prompt step (image_prompts) pulls from both split pools (thumbnail_prompts +
-// scene_prompts) plus the legacy image_prompts pool, so whichever the channel
-// actually saved resolves + shows here.
+// A step's preset pool = its primary list + any alt lists. Split prompt steps
+// deliberately use only their own preset pools so Pipeline never collapses
+// scene prompts and thumbnail prompts back into one selection.
 function listForStep(meta: StepMeta): any[] {
   const cfg = config.value as any
   return [meta.presetList, ...(meta.presetListAlt || [])]
@@ -974,7 +952,7 @@ function presetSelectTooltip(stepId: StepMeta['id']): string {
 // dropdown twice fast.
 const presetSaving = reactive<Record<StepId, boolean>>({
   'script-only': false, 'introduction-only': false, metadata: false,
-  image_prompts: false, images: false,
+  image_prompts: false, scene_prompts: false,
   // v1.0.87+: split image steps.
   scene_images: false, thumb_images: false,
   video: false,
@@ -1074,6 +1052,7 @@ type FilterMode =
   | 'missing-script'
   | 'missing-introduction'
   | 'missing-image-prompts'
+  | 'missing-scene-prompts'
   | 'missing-images'
   | 'missing-audio'
   | 'missing-audio-merge'
@@ -1088,7 +1067,8 @@ const FILTER_MODE_TO_STEP: Partial<Record<FilterMode, StepId>> = {
   'missing-script': 'script-only',
   'missing-introduction': 'introduction-only',
   'missing-image-prompts': 'image_prompts',
-  'missing-images': 'images',
+  'missing-scene-prompts': 'scene_prompts',
+  'missing-images': 'scene_images',
   'missing-audio': 'audio',
   'missing-audio-merge': 'audio_merge',
   'missing-metadata': 'metadata',
@@ -1109,16 +1089,13 @@ const searchQuery = ref('')
 // finishing an episode end-to-end requires the assembled final video,
 // and including it here lets "Run all pending" batch the full flow in
 // one click (assembly waits for its inputs via the chain mechanism).
-// v1.0.87+: split-image steps replace the unified `images` step in the
-// missing-core counter. A fresh episode needs both thumbnails and scenes
-// to be considered "complete enough to assemble"; tracking them
-// separately lets a partially-rendered episode (e.g. scenes done,
-// thumbs pending) show up in the missing-scene-only filter without
-// false-positive blocking everything else.
+// Split image steps drive the missing-core counter. A fresh classic scene
+// episode needs both thumbnails and scenes to be considered complete enough
+// to assemble; tracking them separately lets a partially-rendered episode
+// show up in the right missing-only filter.
 // v1.0.167 — CORE steps are now derived from the active format's chain
 // rather than hardcoded to the scene-images set. "Core" = every batchable
-// step in the chain EXCEPT the opt-in AI `video` clips step and the legacy
-// unified `images` step. For broll/timestamp the scene-only steps simply
+// step in the chain EXCEPT the opt-in AI `video` clips step. For broll/timestamp the scene-only steps simply
 // aren't in visibleSteps, so they never count toward "missing core" — a
 // stock-footage episode isn't flagged pending just because it has no
 // scene images. (video_assembly stays core for scene-images; broll and
@@ -1126,7 +1103,7 @@ const searchQuery = ref('')
 // stops at audio_merge — correct, since the final render is a separate,
 // page-driven step.)
 const CORE_STEP_IDS = computed<StepId[]>(() =>
-  visibleSteps.value.map(s => s.id).filter(id => id !== 'video' && id !== 'images'),
+  visibleSteps.value.map(s => s.id).filter(id => id !== 'video'),
 )
 
 function missingCoreSteps(ep: Episode): number {
@@ -1206,8 +1183,8 @@ const pendingEpisodesCount = computed(() => episodes.value.filter(ep => missingC
 // so users see "(4)" next to e.g. "Missing audio" before selecting it.
 const missingCountByStep = computed<Record<StepId, number>>(() => {
   const ids: StepId[] = [
-    'script-only', 'introduction-only', 'image_prompts',
-    'thumb_images', 'scene_images', 'images',
+    'script-only', 'introduction-only', 'image_prompts', 'scene_prompts',
+    'thumb_images', 'scene_images',
     'audio', 'audio_merge', 'metadata',
     'video', 'video_assembly',
   ]
@@ -1268,10 +1245,8 @@ function isStepDoneForEpisode(stepId: StepId, status: Record<string, boolean> | 
   switch (stepId) {
     case 'script-only':        return !!s.script
     case 'introduction-only':  return !!s.introduction
-    case 'image_prompts':      return hidesScenePages.value
-      ? !!s.thumb_prompts
-      : !!s.scene_prompts && !!s.thumb_prompts
-    case 'images':             return !!s.images && !!s.thumbnails
+    case 'image_prompts':      return !!s.thumb_prompts
+    case 'scene_prompts':      return !!s.scene_prompts
     case 'scene_images':       return !!s.images
     case 'thumb_images':       return !!s.thumbnails
     case 'audio':              return !!s.audio
@@ -1391,10 +1366,8 @@ function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
   switch (stepId) {
     case 'script-only':       return 'script' in ov
     case 'introduction-only': return 'introduction' in ov
-    case 'image_prompts':     return hidesScenePages.value
-      ? 'thumb_prompts' in ov
-      : 'scene_prompts' in ov || 'thumb_prompts' in ov
-    case 'images':            return 'images' in ov || 'thumbnails' in ov
+    case 'image_prompts':     return 'thumb_prompts' in ov
+    case 'scene_prompts':     return 'scene_prompts' in ov
     case 'scene_images':      return 'images' in ov
     case 'thumb_images':      return 'thumbnails' in ov
     case 'audio':             return 'audio' in ov

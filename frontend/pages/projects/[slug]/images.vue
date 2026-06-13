@@ -682,7 +682,7 @@ const { isJobActiveFor } = useJobs()
 const submitting = ref(false)
 const specificNum = ref<number | null>(null)
 
-type Mode = 'all' | 'scenes' | 'thumbs'
+type Mode = 'scenes' | 'thumbs'
 
 type ImageMode = 'text2img' | 'img2img'
 interface ReferenceSources { master: boolean; per_scene: boolean; characters: boolean; chain: boolean }
@@ -1193,20 +1193,17 @@ const thumbnailRenderSize = computed(() => sizeBodyFor(form.thumbnail))
 
 const generateButtonLabel = computed(() => {
   if (form.mode === 'scenes') return 'Generate Scene Images'
-  if (form.mode === 'thumbs') return 'Generate Thumbnail Images'
-  return 'Generate Images (Scenes + Thumbnails)'
+  return 'Generate Thumbnail Images'
 })
 
 const generatingLabel = computed(() => {
   if (form.mode === 'scenes') return 'Generating scene images'
-  if (form.mode === 'thumbs') return 'Generating thumbnail images'
-  return 'Generating images'
+  return 'Generating thumbnail images'
 })
 
 const generating = computed(() => {
   if (form.mode === 'scenes') return imageGenerating.value
-  if (form.mode === 'thumbs') return thumbImageGenerating.value
-  return imageGenerating.value || thumbImageGenerating.value
+  return thumbImageGenerating.value
 })
 
 // v1.0.307 — keep the Generate button disabled for the WHOLE job, not just
@@ -1215,12 +1212,11 @@ const generating = computed(() => {
 // authoritative job queue (per-episode, per-kind) so the button stays greyed
 // until the running render actually finishes — and survives a page reload or
 // a job launched from the in-page panel. Scene vs thumbnail are independent
-// pools, so we only watch the kind matching the active tab (legacy unified
-// `images` jobs cover both, so they're always included).
+// pools, so we only watch the kind matching the active tab.
 const imageJobActiveForEpisode = computed(() =>
   isJobActiveFor(
     form.episode_id,
-    form.mode === 'thumbs' ? ['thumb_images', 'images'] : ['scene_images', 'images'],
+    form.mode === 'thumbs' ? ['thumb_images'] : ['scene_images'],
   ),
 )
 
@@ -1237,10 +1233,8 @@ function selectMode(m: Mode) {
 // sidebar's split "Thumbnail Generator" / "Scene Generator" entries
 // drive the active tab, and browser back/forward navigation moves
 // between them. Mapping: query 'thumbnails'/'scenes' ↔ form.mode
-// 'thumbs'/'scenes'. The legacy 'all' mode is no longer reachable
-// from the sidebar but a saved preset with mode='all' still loads as
-// the legacy unified flow (no query → defaults to thumbs tab visually
-// but the saved preset's mode wins the actual submit value).
+// 'thumbs'/'scenes'. The legacy unified "all" mode is not loaded by the
+// split generator pages.
 const _router = useRouter()
 watch(() => route.query.tab, (v) => {
   const next = v === 'scenes' ? 'scenes' : 'thumbs'
@@ -1256,10 +1250,9 @@ watch(() => form.mode, (m) => {
   _router.replace({ query: { ...route.query, tab: desired } })
 })
 
-function getConfirmationType(): 'scene_images' | 'thumb_images' | 'images' {
+function getConfirmationType(): 'scene_images' | 'thumb_images' {
   if (form.mode === 'scenes') return 'scene_images'
-  if (form.mode === 'thumbs') return 'thumb_images'
-  return 'images'
+  return 'thumb_images'
 }
 
 // ── Image integrity pill ────────────────────────────────────────────────

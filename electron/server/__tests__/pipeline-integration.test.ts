@@ -116,10 +116,10 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     assert.equal(params.scenes_per_chapter, 3)
     assert.equal(params.total_scenes, undefined,
       'total_scenes must be dropped when scenes_per_chapter > 0 (UI normalisation)')
-    assert.equal(params.mode, 'all')
+    assert.equal(params.mode, 'thumbnails')
   })
 
-  test('image_prompts step uses thumbnail-only mode for timestamp/scene-plan formats', () => {
+  test('image_prompts step always uses thumbnail-only mode', () => {
     const preset = fakePreset({
       form: { scenes_per_chapter: 3, total_scenes: 30, thumb_count: 3 },
     })
@@ -127,12 +127,12 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     assert.equal(params.mode, 'thumbnails')
   })
 
-  test('image_prompts step uses thumbnail-only mode for sentence-aligned scenes format', () => {
+  test('scene_prompts step always uses scene-only mode', () => {
     const preset = fakePreset({
       form: { scenes_per_chapter: 3, total_scenes: 30, thumb_count: 3 },
     })
-    const params = resolveStepParams('image_prompts', 'EP0042', 'Title', preset, SENTENCE_SCENES_FORMAT)
-    assert.equal(params.mode, 'thumbnails')
+    const params = resolveStepParams('scene_prompts', 'EP0042', 'Title', preset, SENTENCE_SCENES_FORMAT)
+    assert.equal(params.mode, 'scenes')
   })
 
   test('image_prompts step seeds defaults from imagePrompts when preset lacks them', () => {
@@ -243,10 +243,10 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     // images / audio / audio_merge resolve paths via the existing
     // folder structure and don't need title in their params.
     const STEPS_WITH_TITLE = [
-      'script-only', 'introduction-only', 'image_prompts',
+      'script-only', 'introduction-only', 'image_prompts', 'scene_prompts',
       'metadata', 'video', 'video_assembly',
     ] as const
-    const STEPS_WITHOUT_TITLE = ['images', 'audio', 'audio_merge'] as const
+    const STEPS_WITHOUT_TITLE = ['scene_images', 'thumb_images', 'audio', 'audio_merge'] as const
     const minimalPreset = fakePreset({
       form: { chapters: 10, words_per_chapter: 500 },
       sections: [],

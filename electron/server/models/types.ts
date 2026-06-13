@@ -2090,7 +2090,7 @@ export interface GenerateScriptRequest {
 export interface GenerateImagesRequest {
   episode_id: string
   model: string
-  mode: string // 'all' | 'scenes' | 'thumbs'
+  mode: string // 'scenes' | 'thumbs'
   aspect_ratio: string
   scene_number?: number
   thumb_number?: number
