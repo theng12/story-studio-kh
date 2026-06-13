@@ -156,6 +156,22 @@ const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: stri
 
 interface StoredPreset { id: string; name: string; data?: any; type?: string; [k: string]: any }
 
+function promptModeForFormat(format?: Format | null): 'all' | 'thumbnails' {
+  if (!format) return 'all'
+  const visualSource = (format as any).visualSource
+  const sceneAlignment = (format as any).sceneAlignment
+  if (visualSource === 'broll' ||
+      visualSource === 'timestamp-driven' ||
+      visualSource === 'continuity-chain' ||
+      visualSource === 'narrated-scenes') {
+    return 'thumbnails'
+  }
+  if ((visualSource === 'scene-images' || !visualSource) && sceneAlignment === 'sentence') {
+    return 'thumbnails'
+  }
+  return 'all'
+}
+
 /**
  * Per-step type tag used by usePresets({ presetType }) on the scripts page.
  * When the active-key lookup fails (either missing or pointing at an id no
@@ -181,11 +197,13 @@ const TYPE_FALLBACK: Partial<Record<BatchStep, string>> = {
  * on the user's export config), so it's never auto-skipped. `video` uses
  * the asset-reconciler's `status.video` (every clip present).
  */
-export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep): boolean {
+export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format?: Format | null): boolean {
   switch (step) {
     case 'script-only':       return status.script
     case 'introduction-only': return status.introduction
-    case 'image_prompts':     return status.scene_prompts && status.thumb_prompts
+    case 'image_prompts':     return promptModeForFormat(format) === 'thumbnails'
+      ? status.thumb_prompts
+      : status.scene_prompts && status.thumb_prompts
     case 'images':            return status.images && status.thumbnails
     case 'scene_images':      return status.images
     case 'thumb_images':      return status.thumbnails
@@ -302,7 +320,9 @@ export function resolveStepParams(
   }
   if (step === 'image_prompts') {
     // image_prompts preset shape: { form: {...} } from image-prompts.vue.
-    // Batch mode always runs mode='all' — generate both scenes AND thumbs.
+    // Classic scene-image formats still run mode='all'. Audio-paced formats
+    // get their scene prompts from Scene Plan, so the batch prompt step runs
+    // thumbnail-only there.
     const form = data.form || {}
     const { title: _t, episode_id: _e, ...rest } = form
     // Mirror the UI's submit normalization (image-prompts.vue:705-706):
@@ -352,7 +372,7 @@ export function resolveStepParams(
       ...rest,
       episode_id: episodeId,
       title: title || '',
-      mode: 'all',
+      mode: promptModeForFormat(format),
     }
   }
   if (step === 'images' || step === 'scene_images' || step === 'thumb_images') {
@@ -983,7 +1003,7 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
     if (!force) {
       const status = await computeEpisodeStatus(slug, episodeId)
       effectiveSteps = steps.filter(step => {
-        if (isStepAlreadyDone(status, step)) {
+        if (isStepAlreadyDone(status, step, effectiveFormat)) {
           steps_skipped_as_done.push({ episode_id: episodeId, step })
           return false
         }

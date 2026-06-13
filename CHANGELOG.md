@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.371 — 2026-06-13
+
+### Fixed — Pipeline no longer forces Scene Prompts when only Thumbnail Prompts are needed
+The previous split-key fix made the Pipeline find the correct thumbnail prompt preset, but the batch runner still hardcoded the prompt job params to `mode: "all"`. That forced scene prompts to run alongside thumbnail prompts, even for B-Roll / timestamp / continuity / narrated-scenes flows where scene prompts are owned by Scene Plan.
+
+Now the batch prompt mode is format-aware:
+
+- Classic chapter-distributed scene-image formats still run both scene + thumbnail prompts.
+- B-Roll, timestamp-driven, continuity-chain, narrated-scenes, and sentence-aligned scenes formats run `mode: "thumbnails"` for the Pipeline's prompt step.
+- Pipeline pending/done logic now treats `thumb_prompts` alone as complete for those thumbnail-only flows.
+- The Jobs page labels thumbnail-only `image_prompts` jobs as **Thumbnail Prompts**, so the queue no longer looks like the old combined prompt step.
+
+### Files
+- `electron/server/routes/pipeline.ts` (format-aware prompt mode + skip logic)
+- `frontend/pages/projects/[slug]/pipeline.vue` (format-aware prompt done/manual state)
+- `frontend/pages/projects/[slug]/jobs.vue` (mode-aware job label)
+- `electron/server/__tests__/pipeline-integration.test.ts` and `electron/server/__tests__/pipeline-step-skip.test.ts` (regression coverage)
+- `AGENTS.md` (memory note tightened so future work keeps thumbnail-only batch mode)
+
 ## v1.0.370 — 2026-06-13
 
 ### Fixed — split thumbnail/scene presets are now respected everywhere

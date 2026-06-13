@@ -64,6 +64,14 @@ describe('isStepAlreadyDone — truth table', () => {
     assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: false, thumb_prompts: true }), 'image_prompts'), false)
   })
 
+  test('image_prompts requires only thumbnail prompts for timestamp/scene-plan formats', () => {
+    const timestampFormat = { visualSource: 'timestamp-driven' } as any
+    const sentenceScenesFormat = { visualSource: 'scene-images', sceneAlignment: 'sentence' } as any
+    assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: false, thumb_prompts: true }), 'image_prompts', timestampFormat), true)
+    assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: false, thumb_prompts: true }), 'image_prompts', sentenceScenesFormat), true)
+    assert.equal(isStepAlreadyDone(fullStatus({ scene_prompts: true, thumb_prompts: false }), 'image_prompts', timestampFormat), false)
+  })
+
   test('images requires BOTH scene images + thumbnails', () => {
     assert.equal(isStepAlreadyDone(fullStatus({ images: true, thumbnails: true }), 'images'), true)
     assert.equal(isStepAlreadyDone(fullStatus({ images: true, thumbnails: false }), 'images'), false)

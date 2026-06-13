@@ -589,10 +589,9 @@ interface StepMeta {
   presetList: string
   presetActive: string
   /** v1.0.370 — extra preset lists / active-pointer keys to also resolve from.
-   *  The prompt step (image_prompts) runs mode 'all' (scene + thumbnail prompts)
-   *  but the page split prompts into `thumbnail_prompts` + `scene_prompts`
-   *  presets — so it resolves across both (+ the legacy `image_prompts` pool)
-   *  and shows whichever the channel actually saved. */
+   *  The prompt step resolves across split `thumbnail_prompts` + `scene_prompts`
+   *  presets (+ the legacy `image_prompts` pool) and shows whichever the
+   *  channel actually saved. */
   presetListAlt?: string[]
   presetActiveAlt?: string[]
   /** If true, unchecked by default — user must opt in. For cost-sensitive steps. */
@@ -776,14 +775,10 @@ const visibleSteps = computed<StepMeta[]>(() =>
   chainEntries.value.filter((e): e is { kind: 'step' } & StepMeta => e.kind === 'step'),
 )
 
-// Note on image_prompts for broll/timestamp: the batch runner generates
-// BOTH scene + thumbnail prompts (mode 'all') regardless of format. For
-// broll/timestamp the scene prompts go unused, but keeping mode 'all' is
-// deliberate — the done-detector requires both scene_prompts AND
-// thumb_prompts on disk, so a thumbnails-only run would read as forever
-// "pending" and re-queue endlessly. Every format gets a scene_prompts
-// subfolder, so nothing throws. The thumbnail (what these formats
-// actually need) is produced either way.
+// Note on image_prompts for broll/timestamp/continuity/narrated:
+// the batch runner sends mode='thumbnails' because scene prompts are owned by
+// Scene Plan in those flows. The done-detector below mirrors that so a
+// thumbnail-only prompt run is treated as complete for those formats.
 
 const chainLabel = computed(() => {
   if (isBroll.value) return 'Voice over Stock Footage (B-Roll)'
@@ -1273,7 +1268,9 @@ function isStepDoneForEpisode(stepId: StepId, status: Record<string, boolean> | 
   switch (stepId) {
     case 'script-only':        return !!s.script
     case 'introduction-only':  return !!s.introduction
-    case 'image_prompts':      return !!s.scene_prompts && !!s.thumb_prompts
+    case 'image_prompts':      return hidesScenePages.value
+      ? !!s.thumb_prompts
+      : !!s.scene_prompts && !!s.thumb_prompts
     case 'images':             return !!s.images && !!s.thumbnails
     case 'scene_images':       return !!s.images
     case 'thumb_images':       return !!s.thumbnails
@@ -1394,7 +1391,9 @@ function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
   switch (stepId) {
     case 'script-only':       return 'script' in ov
     case 'introduction-only': return 'introduction' in ov
-    case 'image_prompts':     return 'scene_prompts' in ov || 'thumb_prompts' in ov
+    case 'image_prompts':     return hidesScenePages.value
+      ? 'thumb_prompts' in ov
+      : 'scene_prompts' in ov || 'thumb_prompts' in ov
     case 'images':            return 'images' in ov || 'thumbnails' in ov
     case 'scene_images':      return 'images' in ov
     case 'thumb_images':      return 'thumbnails' in ov

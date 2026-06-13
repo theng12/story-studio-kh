@@ -230,7 +230,7 @@
         <div class="job-row-main">
           <div class="flex items-center gap-2">
             <StatusBadge :status="job.status" />
-            <span class="job-type">{{ jobTypeLabel(job.type) }}</span>
+            <span class="job-type">{{ jobDisplayLabel(job) }}</span>
             <span class="job-episode">{{ job.episode_id }}</span>
             <span v-if="job.title" class="text-muted">- {{ job.title }}</span>
           </div>
@@ -406,7 +406,7 @@
           <div class="job-row-main">
             <div class="flex items-center gap-2">
               <StatusBadge :status="job.status" />
-              <span class="job-type">{{ jobTypeLabel(job.type) }}</span>
+              <span class="job-type">{{ jobDisplayLabel(job) }}</span>
               <span class="job-episode">{{ job.episode_id }}</span>
               <span v-if="job.title" class="text-muted">- {{ job.title }}</span>
             </div>
@@ -690,6 +690,15 @@ const JOB_TYPE_LABELS: Record<string, string> = {
 }
 function jobTypeLabel(type: string): string {
   return JOB_TYPE_LABELS[type] || type
+}
+function jobDisplayLabel(job: Pick<RJob, 'type' | 'params'>): string {
+  if (job.type === 'image_prompts' && (job.params as any)?.mode === 'thumbnails') {
+    return 'Thumbnail Prompts'
+  }
+  if (job.type === 'image_prompts' && (job.params as any)?.mode === 'scenes') {
+    return 'Scene Prompts'
+  }
+  return jobTypeLabel(job.type)
 }
 
 // ── Filter tabs ─────────────────────────────────────────────────────────

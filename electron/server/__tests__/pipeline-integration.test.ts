@@ -71,6 +71,21 @@ const SLEEP_STORY_FORMAT: Format = {
   },
 }
 
+const TIMESTAMP_FORMAT: Format = {
+  ...LISTICLE_FORMAT,
+  id: 'timestamp-driven',
+  name: 'Timestamp Driven',
+  visualSource: 'timestamp-driven',
+}
+
+const SENTENCE_SCENES_FORMAT: Format = {
+  ...LISTICLE_FORMAT,
+  id: 'scenes',
+  name: 'Scenes',
+  visualSource: 'scene-images',
+  sceneAlignment: 'sentence',
+}
+
 const fakePreset = (data: any) => ({ id: 'p1', name: 'Test', data })
 
 // ── Integration tests ─────────────────────────────────────────────────────
@@ -102,6 +117,22 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     assert.equal(params.total_scenes, undefined,
       'total_scenes must be dropped when scenes_per_chapter > 0 (UI normalisation)')
     assert.equal(params.mode, 'all')
+  })
+
+  test('image_prompts step uses thumbnail-only mode for timestamp/scene-plan formats', () => {
+    const preset = fakePreset({
+      form: { scenes_per_chapter: 3, total_scenes: 30, thumb_count: 3 },
+    })
+    const params = resolveStepParams('image_prompts', 'EP0042', 'Title', preset, TIMESTAMP_FORMAT)
+    assert.equal(params.mode, 'thumbnails')
+  })
+
+  test('image_prompts step uses thumbnail-only mode for sentence-aligned scenes format', () => {
+    const preset = fakePreset({
+      form: { scenes_per_chapter: 3, total_scenes: 30, thumb_count: 3 },
+    })
+    const params = resolveStepParams('image_prompts', 'EP0042', 'Title', preset, SENTENCE_SCENES_FORMAT)
+    assert.equal(params.mode, 'thumbnails')
   })
 
   test('image_prompts step seeds defaults from imagePrompts when preset lacks them', () => {

@@ -9,4 +9,4 @@ Scene prompts, thumbnail prompts, scene image generation, and thumbnail image ge
 - Thumbnail generator presets use `thumbnail_generator_presets` and `thumbnail_generator_last_preset`.
 - Scene generator presets use `scene_generator_presets` and `scene_generator_last_preset`.
 - `image_prompts_*` and `image_generator_*` are legacy compatibility keys only. They should not be the primary keys for new thumbnail/scene UI or Pipeline selectors.
-- The Pipeline batch step named `image_prompts` may still generate both prompt files for done-state compatibility, but the UI must label and resolve presets according to the active format and the split pools above.
+- The Pipeline batch step named `image_prompts` must use the active format to choose prompt mode. Classic chapter-distributed scene-image formats may run `mode: "all"`; B-Roll, timestamp-driven, continuity-chain, and narrated-scenes formats must run thumbnail prompts only (`mode: "thumbnails"`) because scene prompts come from Scene Plan.
