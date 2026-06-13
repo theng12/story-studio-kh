@@ -4,6 +4,33 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.363 — 2026-06-13
+
+### Changed — Pipeline automation now runs the whole audio-paced chain, not just the legacy front half
+The batch Pipeline was stuck on the old sleep-story shape: it gated on **Script + Introduction**, and everything past Audio Merge (Scene Plan, Scene Review, the final timestamp render — and Subtitles, which wasn't even there) was a read-only "Open page →" note you had to run by hand. For the current formats that's all redundant manual clicking. This release rewires it end-to-end.
+
+**Gate on the Script only.** Introduction is now **optional and off by default** — it was a sleep-story convention and nothing downstream needs it. **Metadata now depends on the Script alone** (it summarises the script; the intro was never an input). So one click no longer drags an intro step into every run.
+
+**The Script step now runs your real outline-first flow.** Instead of the legacy one-shot, the batch runs **Outline → Expand Chapters**, both auto-approved — exactly what you do by hand on the Scripts page and get 100% acceptance on with a good model. (Point the Script preset at a paid/strong model; local models are where outline quality falls down.)
+
+**Four steps were promoted from "Open page →" notes to real chained steps**, so a single "Run all the way to final video" click does the whole audio-paced pipeline:
+- **Subtitles** — transcribes per-chapter SRTs (new step, slots in right after Audio Merge).
+- **Character Sheet** — config-only, so the batch **writes `continuity.json` from your saved whole-page preset** inline (no job) before planning, so the planner + renderer see the anchor. Skipped cleanly if you haven't saved a preset.
+- **Scene Plan** — runs `scene_plan_run` with your saved default attributes.
+- **Scene Review (render)** — renders **every** planned scene image across your server pool (your model + concurrency preset). Uncheck the **Final Video** step if you'd rather stop here and eyeball the images first.
+- **Final Video (timestamp)** — `timestamp_video_assemble`. Since there's no human at Scene Review in a full run, it **auto-approves every rendered scene** before assembling (the missing-image check still guards an incomplete render). Runs on built-in export defaults — no preset needed; tune it on its page.
+
+Each step still skips when its output already exists (so a half-done episode only runs the gaps), `force` still re-runs everything, and the per-format chains only show the steps that format actually uses.
+
+### Files
+- `electron/server/routes/pipeline.ts` (new BatchSteps + preset keys + skip truth-table + param resolvers; script-only → outline_only/expand_chapters expansion; inline character-sheet apply; `character_sheets_applied` in the response)
+- `electron/server/routes/continuity.ts` (extracted `buildContinuityConfig` / `writeContinuityConfig`, reused by the Character-Sheet step)
+- `electron/server/generators/timestamp-video-assemble.ts` (`auto_approve` greenlights scenes for unattended runs)
+- `frontend/pages/projects/[slug]/pipeline.vue` (5 new step tiles, all five format chains, intro-off + metadata-on-script gating, preset-free "Final Video" tile)
+- `electron/server/__tests__/pipeline-step-skip.test.ts` (truth-table + expansion + inline-apply coverage)
+
+---
+
 ## v1.0.362 — 2026-06-13
 
 ### Fixed — Audited every "Pending only" filter; B-Roll and Video Assembly were keyed to the wrong step

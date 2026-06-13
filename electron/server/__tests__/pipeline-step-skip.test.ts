@@ -87,6 +87,23 @@ describe('isStepAlreadyDone — truth table', () => {
     assert.equal(isStepAlreadyDone(done, 'video_assembly'), true)
     assert.equal(isStepAlreadyDone(fullStatus(), 'video_assembly'), false)
   })
+
+  // v1.0.363 — audio-paced format steps, now batchable.
+  test('subtitles / scene_plan / scene_review / character_sheet track their status field', () => {
+    assert.equal(isStepAlreadyDone(fullStatus({ subtitles: true }), 'subtitles'), true)
+    assert.equal(isStepAlreadyDone(fullStatus({ subtitles: false }), 'subtitles'), false)
+    assert.equal(isStepAlreadyDone(fullStatus({ scene_plan: true }), 'scene_plan'), true)
+    assert.equal(isStepAlreadyDone(fullStatus({ scene_review: true }), 'scene_review'), true)
+    assert.equal(isStepAlreadyDone(fullStatus({ character_sheet: true }), 'character_sheet'), true)
+  })
+
+  test('timestamp_assemble shares the final-video flag with video_assembly', () => {
+    // The timestamp/continuity final render lands as the same final-video
+    // file every format's reconciler keys video_assembly off of — so a
+    // completed timestamp render must read as done and not re-queue.
+    assert.equal(isStepAlreadyDone(fullStatus({ video_assembly: true }), 'timestamp_assemble'), true)
+    assert.equal(isStepAlreadyDone(fullStatus({ video_assembly: false }), 'timestamp_assemble'), false)
+  })
 })
 
 // ── Integration: run-batch response shape ────────────────────────────────
@@ -219,5 +236,95 @@ describe('run-batch — step skip behaviour', () => {
     assert.equal(res.body.enqueued, 1)
     assert.equal(res.body.total_jobs_planned, 1)
     assert.equal((res.body.steps_skipped_as_done || []).length, 0)
+  })
+})
+
+// ── v1.0.363 — script-only expansion + character-sheet inline apply ───────
+
+/** Walk the project output root to find the on-disk episode folder. */
+async function findEpisodeDir(slug: string, episodeId: string): Promise<string> {
+  const outputRoot = await pm.getProjectOutputRoot(slug)
+  if (!outputRoot) throw new Error('project output root missing')
+  const entries = await fs.readdir(outputRoot, { withFileTypes: true }).catch(() => [])
+  for (const e of entries) {
+    if (!e.isDirectory()) continue
+    if (e.name.includes(episodeId)) return path.join(outputRoot, e.name)
+    const sub = await fs.readdir(path.join(outputRoot, e.name), { withFileTypes: true }).catch(() => [])
+    for (const s of sub) {
+      if (s.isDirectory() && s.name.includes(episodeId)) return path.join(outputRoot, e.name, s.name)
+    }
+  }
+  throw new Error(`episode dir not found for ${episodeId}`)
+}
+
+describe('run-batch — v1.0.363 audio-paced wiring', () => {
+  test('script-only expands into outline_only → expand_chapters (auto-approved)', async () => {
+    const proj = await pm.createProject({ name: 'Pipeline Skip Test' })
+    // A typed script preset so findActivePreset resolves the script step.
+    await pm.updateConfig(proj.slug, {
+      script_presets: [{ id: 'sp1', name: 'default', type: 'script', data: { form: { model: 'gpt-4o', chapters: 5 }, customStyleText: '' } }],
+      script_last_preset_script: 'sp1',
+    } as any)
+    const im = await import('../services/idea-manager.js')
+    const ideas = await im.addIdeas(proj.slug, [{
+      title: 'Test episode', logline: '', themes: [], suggested_chapters: 5, suggested_length: '20 min', mood: 'calm',
+    }], 'test-model')
+    await im.acceptIdea(proj.slug, ideas[0].id)
+    const episodeId = (await im.getIdeas(proj.slug, 'accepted'))[0].episode_code!
+
+    const res = await request(app)
+      .post(`/api/projects/${proj.slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['script-only'] })
+
+    assert.equal(res.status, 201)
+    // ONE chain head enqueued, but the chain holds TWO jobs (outline + expand).
+    assert.equal(res.body.enqueued, 1, 'one chain head')
+    assert.equal(res.body.total_jobs_planned, 2, 'script-only expands into 2 jobs')
+    assert.equal(res.body.jobs[0].type, 'outline_only', 'chain head is the outline build')
+
+    // The head job's pipeline_chain must carry expand_chapters next, and both
+    // must be auto-approved (unattended — no human at the outline review gate).
+    const jq = await import('../services/job-queue.js')
+    const headJob = jq.getJob(res.body.jobs[0].job_id)
+    assert.ok(headJob, 'head job present in queue')
+    assert.equal(headJob!.params.auto_approve, true, 'outline build is auto-approved')
+    const chain = headJob!.params.pipeline_chain as any[]
+    assert.equal(chain[0].type, 'expand_chapters', 'next link expands the chapters')
+    assert.equal(chain[0].params.auto_approve, true, 'expansion is auto-approved')
+  })
+
+  test('character_sheet applies the continuity_page preset inline (no job)', async () => {
+    const proj = await pm.createProject({ name: 'Pipeline Skip Test' })
+    await pm.updateConfig(proj.slug, {
+      continuity_page_presets: [{
+        id: 'cp1', name: 'anchor', type: 'continuity-page',
+        data: { schema_version: 1, anchor_character_ids: ['c1'], style_bible: 'test bible' },
+      }],
+      'continuity_page_last_preset_continuity-page': 'cp1',
+    } as any)
+    const im = await import('../services/idea-manager.js')
+    const ideas = await im.addIdeas(proj.slug, [{
+      title: 'Test episode', logline: '', themes: [], suggested_chapters: 5, suggested_length: '20 min', mood: 'calm',
+    }], 'test-model')
+    await im.acceptIdea(proj.slug, ideas[0].id)
+    const episodeId = (await im.getIdeas(proj.slug, 'accepted'))[0].episode_code!
+
+    const res = await request(app)
+      .post(`/api/projects/${proj.slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['character_sheet'] })
+
+    assert.equal(res.status, 201)
+    assert.equal(res.body.character_sheets_applied, 1, 'config applied for the episode')
+    assert.equal(res.body.enqueued, 0, 'character_sheet is not a job')
+    // Applied, NOT skipped — the inline write counts as work done.
+    assert.equal((res.body.skipped || []).length, 0, 'not recorded as skipped')
+
+    // continuity.json must exist with the preset's anchor data.
+    const episodeDir = await findEpisodeDir(proj.slug, episodeId)
+    const raw = await fs.readFile(path.join(episodeDir, 'continuity.json'), 'utf-8')
+    const cfg = JSON.parse(raw)
+    assert.deepEqual(cfg.anchor_character_ids, ['c1'])
+    assert.equal(cfg.style_bible, 'test bible')
+    assert.equal(cfg.schema_version, 1)
   })
 })

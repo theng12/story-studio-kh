@@ -16,6 +16,7 @@ import * as jq from '../services/job-queue.js'
 import type { Format, JobType } from '../models/types.js'
 import { computeEpisodeStatus, type EpisodeStatus } from '../services/asset-status.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
+import { writeContinuityConfig } from './continuity.js'
 import {
   estimateRunBatchBytes,
   getFreeBytes,
@@ -40,6 +41,22 @@ export const router = Router()
 // auto-saves without review. `video` is expensive (~$0.50-$2/clip via
 // Veo) so it's opt-in; same for `video_assembly` which requires
 // images+merged audio to be done.
+// v1.0.363 — the batch runner now chains through the audio-paced formats'
+// own steps instead of dead-ending at audio_merge. New steps:
+//   - subtitles       → enqueues `subtitles_transcribe` (per-chapter SRTs)
+//   - scene_plan       → enqueues `scene_plan_run` (places scenes on the audio
+//                        timeline; transcript/continuity formats)
+//   - scene_review     → enqueues `continuity_render` (renders every planned
+//                        scene image, parallel across the server pool)
+//   - timestamp_assemble → enqueues `timestamp_video_assemble` (final render;
+//                        auto-approves scenes — see the generator)
+//   - character_sheet  → NOT a job. Config-only: applies the saved
+//                        `continuity_page` preset to continuity.json inline at
+//                        submit time (before scene_plan runs). Handled in the
+//                        run-batch loop, never enqueued.
+// The `script-only` step is also expanded, at chain-build time, into the
+// outline-first pair `outline_only` → `expand_chapters` (both auto-approved)
+// to match what the Scripts page actually runs by hand.
 type BatchStep =
   | 'script-only'
   | 'introduction-only'
@@ -50,6 +67,11 @@ type BatchStep =
   | 'audio'
   | 'audio_merge'
   | 'metadata'
+  | 'subtitles'
+  | 'scene_plan'
+  | 'scene_review'
+  | 'character_sheet'
+  | 'timestamp_assemble'
   | 'video'
   | 'video_assembly'
 // v1.0.87+: scene_images + thumb_images are split equivalents of the
@@ -59,7 +81,14 @@ type BatchStep =
 // references it. All three use the same `image_generator_presets`
 // preset list and end up calling `generateImages` via the registered
 // executor; only the `mode` param in resolveStepParams differs.
-const VALID_STEPS: BatchStep[] = ['script-only', 'introduction-only', 'image_prompts', 'images', 'scene_images', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'video', 'video_assembly']
+const VALID_STEPS: BatchStep[] = ['script-only', 'introduction-only', 'image_prompts', 'images', 'scene_images', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'scene_review', 'character_sheet', 'timestamp_assemble', 'video', 'video_assembly']
+
+// Steps that run with the generator's own defaults — no saved preset required.
+// `timestamp_assemble`'s settings live in a per-Mac remembered form (not a
+// server-side preset the batch could read), and its inputs (scene images +
+// merged audio) are already on disk by the time it runs, so the generator's
+// export defaults are the right fallback for an unattended run.
+const NO_PRESET_STEPS = new Set<BatchStep>(['timestamp_assemble'])
 
 // Per-step preset-storage keys. Matches the configKey used by each
 // generator page's usePresets() call. If the user hasn't applied a
@@ -97,6 +126,19 @@ const PRESET_KEYS: Record<BatchStep, { list: string; activeKeys: string[] }> = {
   audio:               { list: 'audio_generator_presets',  activeKeys: ['audio_generator_last_preset'] },
   audio_merge:         { list: 'audio_merge_presets',      activeKeys: ['audio_merge_last_preset'] },
   metadata:            { list: 'metadata_presets',         activeKeys: ['metadata_last_preset'] },
+  // v1.0.363 — audio-paced format steps. Keys mirror each page's
+  // usePresets({ configKey, presetType }) call: typed active pointer first,
+  // legacy untyped pointer as fallback. Subtitles has no presetType.
+  subtitles:           { list: 'subtitles_generator_presets', activeKeys: ['subtitles_generator_last_preset'] },
+  scene_plan:          { list: 'scene_plan_presets',       activeKeys: ['scene_plan_last_preset_scene-plan', 'scene_plan_last_preset'] },
+  scene_review:        { list: 'scene_review_presets',     activeKeys: ['scene_review_last_preset_scene-review', 'scene_review_last_preset'] },
+  // Character Sheet's whole-page preset (anchor characters, refs, style bible).
+  // Not a job — the run-batch loop writes it to continuity.json inline.
+  character_sheet:     { list: 'continuity_page_presets',  activeKeys: ['continuity_page_last_preset_continuity-page', 'continuity_page_last_preset'] },
+  // timestamp_assemble runs preset-free (see NO_PRESET_STEPS). This entry only
+  // satisfies the Record<BatchStep, …> type; findActivePreset is never called
+  // for it.
+  timestamp_assemble:  { list: 'timestamp_assemble_presets', activeKeys: ['timestamp_assemble_last_preset'] },
   video:               { list: 'video_generator_presets',  activeKeys: ['video_generator_last_preset'] },
   video_assembly:      { list: 'video_bundle_presets',     activeKeys: ['video_bundle_last_preset'] },
 }
@@ -113,6 +155,10 @@ interface StoredPreset { id: string; name: string; data?: any; type?: string; [k
 const TYPE_FALLBACK: Partial<Record<BatchStep, string>> = {
   'script-only': 'script',
   'introduction-only': 'introduction',
+  // v1.0.363 — typed presets on the audio-paced format pages.
+  scene_plan: 'scene-plan',
+  scene_review: 'scene-review',
+  character_sheet: 'continuity-page',
 }
 
 /**
@@ -135,6 +181,14 @@ export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep): boole
     case 'audio':             return status.audio
     case 'audio_merge':       return status.merged_audio
     case 'metadata':          return status.metadata
+    // v1.0.363 — audio-paced format steps.
+    case 'subtitles':         return status.subtitles
+    case 'scene_plan':        return status.scene_plan
+    case 'scene_review':      return status.scene_review
+    case 'character_sheet':   return status.character_sheet
+    // The timestamp/continuity final render lands as the same final-video file
+    // every format's reconciler keys `video_assembly` off of.
+    case 'timestamp_assemble': return status.video_assembly
     case 'video':             return status.video
     case 'video_assembly':    return status.video_assembly
   }
@@ -450,6 +504,65 @@ export function resolveStepParams(
     // disabled for legacy presets that never set them.
     return flattenVideoAssemblyBundle(data, episodeId, title)
   }
+  // ── v1.0.363 audio-paced format steps ──────────────────────────────────
+  if (step === 'subtitles') {
+    // subtitles_generator preset: { engine?, vsModel?, force? } (subtitles.vue).
+    // Batch always transcribes per-chapter (audio-paced flow); the VoiceStudio
+    // engine takes a model id, OpenAI/whisper doesn't.
+    const engine = data.engine === 'voicestudio' ? 'voicestudio' : 'openai'
+    return {
+      episode_id: episodeId,
+      per_chapter: true,
+      engine,
+      model: engine === 'voicestudio' ? (data.vsModel || undefined) : undefined,
+      language: 'en',
+      force: data.force === true,
+    }
+  }
+  if (step === 'scene_plan') {
+    // scene_plan preset (scene-plan.vue): the saved default planning attributes.
+    // Mirror the page's POST normalization: drop 'auto' window_size and only
+    // send two-pass neighbor context when two-pass is selected.
+    const twoPass = data.planning_mode === 'two-pass'
+    return {
+      episode_id: episodeId,
+      title: title || '',
+      model: data.model,
+      target_scene_count: Number(data.target_scene_count) > 0 ? Number(data.target_scene_count) : undefined,
+      use_research: data.use_research !== false,
+      detail_level: Number.isFinite(Number(data.detail_level)) ? Number(data.detail_level) : 2,
+      style_prompt: (typeof data.style_prompt === 'string' && data.style_prompt.trim()) ? data.style_prompt.trim() : undefined,
+      custom_instructions: (typeof data.custom_instructions === 'string' && data.custom_instructions.trim()) ? data.custom_instructions.trim() : undefined,
+      window_size: (data.window_size && data.window_size !== 'auto') ? data.window_size : undefined,
+      planning_mode: twoPass ? 'two-pass' : undefined,
+      neighbor_context_back: twoPass ? data.neighbor_context_back : undefined,
+      neighbor_context_forward: twoPass ? data.neighbor_context_forward : undefined,
+    }
+  }
+  if (step === 'scene_review') {
+    // scene_review preset (scene-review.vue): { model, aspect_ratio, concurrency,
+    // render_mode?, render_scale? }. Batch renders EVERY planned scene (no
+    // scene_ids) in parallel across the server pool — independent + concurrency
+    // is exactly the "pick the model, let it run on my pool" mode.
+    return {
+      episode_id: episodeId,
+      title: title || '',
+      model: data.model,
+      aspect_ratio: typeof data.aspect_ratio === 'string' && data.aspect_ratio ? data.aspect_ratio : '16:9',
+      independent: true,
+      concurrency: data.concurrency === undefined ? 'auto' : data.concurrency,
+    }
+  }
+  if (step === 'timestamp_assemble') {
+    // No preset (NO_PRESET_STEPS) — the generator's export defaults drive the
+    // render. auto_approve greenlights every rendered scene since there's no
+    // human at Scene Review in a "run all the way" pipeline.
+    return {
+      episode_id: episodeId,
+      title: title || '',
+      auto_approve: true,
+    }
+  }
   return { episode_id: episodeId }
 }
 
@@ -719,6 +832,9 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
   const missing: Array<{ step: BatchStep; reason: string }> = []
   const presetByStep = {} as Record<BatchStep, StoredPreset>
   for (const step of steps) {
+    // timestamp_assemble (and any future preset-free step) runs on generator
+    // defaults — don't demand a saved preset for it.
+    if (NO_PRESET_STEPS.has(step)) continue
     const r = findActivePreset(config, step)
     if (r.preset) {
       presetByStep[step] = r.preset
@@ -794,6 +910,9 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
   // used for the response's `total_jobs_planned` so the number reflects
   // what'll really run (not `episodes × steps`).
   let totalEnqueuedStepCount = 0
+  // Character-sheet applies are config writes, not jobs — counted separately
+  // so the response can report "wrote continuity.json for N episode(s)".
+  let characterSheetsApplied = 0
 
   for (const episodeId of episode_ids) {
     const idea = ideaByCode.get(episodeId)
@@ -817,17 +936,53 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       })
     }
 
-    if (effectiveSteps.length === 0) {
-      skipped.push({ episode_id: episodeId, reason: 'All selected steps already complete' })
-      continue
+    // Character Sheet is config-only (no job). Apply the saved continuity_page
+    // preset to continuity.json NOW — synchronously, before any chain job runs
+    // — so scene_plan / scene_review downstream see the anchor config on disk.
+    // It's then dropped from the job chain below (never enqueued).
+    if (effectiveSteps.includes('character_sheet')) {
+      try {
+        const csPreset = presetByStep['character_sheet']
+        const csData = (csPreset?.data ?? csPreset) as any
+        await writeContinuityConfig(slug, episodeId, csData)
+        characterSheetsApplied++
+      } catch (e: any) {
+        // Don't abort the whole episode — surface it and let the other steps
+        // (which may not need continuity) still run.
+        skipped.push({ episode_id: episodeId, reason: `character sheet apply failed: ${e?.message || e}` })
+      }
     }
 
-    // Build the whole chain up front so each link has its own resolved params.
-    const chain = effectiveSteps.map(step => ({
-      type: step as JobType,
-      title: `[batch] ${step} — ${episodeId}`,
-      params: resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat),
-    }))
+    // Build the job chain. Two transforms vs the raw step list:
+    //   • script-only expands into the outline-first pair outline_only →
+    //     expand_chapters (both auto-approved) — exactly what the Scripts page
+    //     runs by hand, and the path the user gets 100% acceptance on.
+    //   • character_sheet is dropped (applied inline above, not a job).
+    const chain: Array<{ type: JobType; title: string; params: Record<string, any> }> = []
+    for (const step of effectiveSteps) {
+      if (step === 'character_sheet') continue
+      if (step === 'script-only') {
+        const outlineParams = resolveStepParams('script-only', episodeId, idea.title || '', presetByStep['script-only'], effectiveFormat)
+        chain.push({ type: 'outline_only' as JobType, title: `[batch] outline — ${episodeId}`, params: { ...outlineParams, auto_approve: true } })
+        chain.push({ type: 'expand_chapters' as JobType, title: `[batch] chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', auto_approve: true } })
+        continue
+      }
+      chain.push({
+        type: step as JobType,
+        title: `[batch] ${step} — ${episodeId}`,
+        params: resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat),
+      })
+    }
+
+    // Nothing to enqueue. If the only selected work was the inline character
+    // sheet, that's NOT a skip — we did do the work. Otherwise every step was
+    // skipped-as-done, so record the skip.
+    if (chain.length === 0) {
+      if (!effectiveSteps.includes('character_sheet')) {
+        skipped.push({ episode_id: episodeId, reason: 'All selected steps already complete' })
+      }
+      continue
+    }
 
     const [first, ...rest] = chain
 
@@ -851,13 +1006,14 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       },
     })
     enqueued.push({ episode_id: episodeId, job_id: job.job_id, type: first.type })
-    totalEnqueuedStepCount += effectiveSteps.length
+    totalEnqueuedStepCount += chain.length
   }
 
   res.status(201).json({
     batch_id,
     enqueued: enqueued.length,
     total_jobs_planned: totalEnqueuedStepCount,
+    character_sheets_applied: characterSheetsApplied,
     skipped,
     steps_skipped_as_done,
     jobs: enqueued,

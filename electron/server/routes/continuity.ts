@@ -93,6 +93,60 @@ router.get('/projects/:slug/continuity/:episodeId', async (req, res) => {
   }
 })
 
+/**
+ * Coerce + clamp an untrusted (possibly partial) continuity payload into a
+ * clean ContinuityConfig, stamping a fresh `updated_at`. Shared by the PUT
+ * route and the pipeline's Character-Sheet auto-apply (routes/pipeline.ts) so
+ * both produce byte-identical sidecars — a saved `continuity_page` preset
+ * applied by an unattended batch run lands exactly as a manual Save would.
+ */
+export function buildContinuityConfig(body: Partial<ContinuityConfig> | undefined): ContinuityConfig {
+  const b = body || {}
+  // Coerce + clamp the numeric fields so a malformed client can't write junk.
+  const minSec = Math.max(1, Math.min(60, Number(b.pacing?.min_sec) || 2))
+  const maxSec = Math.max(minSec, Math.min(60, Number(b.pacing?.max_sec) || 8))
+  const denoise = Math.max(0, Math.min(1, Number(b.denoise_strength)))
+  return {
+    schema_version: 1,
+    anchor_character_ids: Array.isArray(b.anchor_character_ids)
+      ? b.anchor_character_ids.filter((x): x is string => typeof x === 'string')
+      : [],
+    use_episode_sheet: !!b.use_episode_sheet,
+    pacing: { min_sec: minSec, max_sec: maxSec },
+    references: {
+      prev_render: b.references?.prev_render !== false,
+      sheet: b.references?.sheet !== false,
+      characters: b.references?.characters !== false,
+      style: b.references?.style === true,
+      composition: b.references?.composition === true,
+    },
+    denoise_strength: Number.isFinite(denoise) ? denoise : 0.5,
+    // v1.0.243 — render-time Style Bible + negative prompt. Trimmed; capped so
+    // a malformed client can't write an unbounded blob into the prompt.
+    style_bible: typeof b.style_bible === 'string' ? b.style_bible.trim().slice(0, 2000) : '',
+    negative_prompt: typeof b.negative_prompt === 'string' ? b.negative_prompt.trim().slice(0, 1000) : '',
+    // v1.0.260 — explainer composition recipe (drives the Prompt Director).
+    recipe: sanitizeRecipe(b.recipe),
+    updated_at: new Date().toISOString(),
+  }
+}
+
+/**
+ * Build + write continuity.json for an episode, returning the persisted
+ * config. Folder resolution uses resolveEpisodePathsByCode so the sidecar
+ * lands in the real `{code} - {title}` folder. Used by the PUT route and the
+ * pipeline Character-Sheet step.
+ */
+export async function writeContinuityConfig(
+  slug: string, episodeId: string, body: Partial<ContinuityConfig> | undefined,
+): Promise<ContinuityConfig> {
+  const config = buildContinuityConfig(body)
+  const paths = await resolveEpisodePathsByCode(slug, episodeId)
+  await fs.mkdir(paths.episode_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.episode_dir, CONTINUITY_FILENAME), JSON.stringify(config, null, 2), 'utf-8')
+  return config
+}
+
 // ── PUT ───────────────────────────────────────────────────────────────
 router.put('/projects/:slug/continuity/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
@@ -102,39 +156,9 @@ router.put('/projects/:slug/continuity/:episodeId', async (req, res) => {
   if (!body || body.schema_version !== 1) {
     return res.status(400).json({ detail: 'Invalid continuity payload (missing schema_version: 1)' })
   }
-  // Coerce + clamp the numeric fields so a malformed client can't write junk.
-  const minSec = Math.max(1, Math.min(60, Number(body.pacing?.min_sec) || 2))
-  const maxSec = Math.max(minSec, Math.min(60, Number(body.pacing?.max_sec) || 8))
-  const denoise = Math.max(0, Math.min(1, Number(body.denoise_strength)))
-  const config: ContinuityConfig = {
-    schema_version: 1,
-    anchor_character_ids: Array.isArray(body.anchor_character_ids)
-      ? body.anchor_character_ids.filter((x): x is string => typeof x === 'string')
-      : [],
-    use_episode_sheet: !!body.use_episode_sheet,
-    pacing: { min_sec: minSec, max_sec: maxSec },
-    references: {
-      prev_render: body.references?.prev_render !== false,
-      sheet: body.references?.sheet !== false,
-      characters: body.references?.characters !== false,
-      style: body.references?.style === true,
-      composition: body.references?.composition === true,
-    },
-    denoise_strength: Number.isFinite(denoise) ? denoise : 0.5,
-    // v1.0.243 — render-time Style Bible + negative prompt. Trimmed; capped so
-    // a malformed client can't write an unbounded blob into the prompt.
-    style_bible: typeof body.style_bible === 'string' ? body.style_bible.trim().slice(0, 2000) : '',
-    negative_prompt: typeof body.negative_prompt === 'string' ? body.negative_prompt.trim().slice(0, 1000) : '',
-    // v1.0.260 — explainer composition recipe (drives the Prompt Director).
-    recipe: sanitizeRecipe(body.recipe),
-    updated_at: new Date().toISOString(),
-  }
 
   try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
-    await fs.mkdir(paths.episode_dir, { recursive: true })
-    const sidecarPath = path.join(paths.episode_dir, CONTINUITY_FILENAME)
-    await fs.writeFile(sidecarPath, JSON.stringify(config, null, 2), 'utf-8')
+    const config = await writeContinuityConfig(slug, episodeId, body)
     res.json({ ok: true, config })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save continuity config'))

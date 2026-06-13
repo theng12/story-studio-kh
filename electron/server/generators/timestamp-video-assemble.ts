@@ -42,6 +42,14 @@ interface TimestampAssembleParams {
   subtitles?: { enabled?: boolean; position?: 'bottom' | 'center' | 'top'; font_size?: number; color?: string; outline?: number }
   export_settings?: { resolution?: '720p' | '1080p' | '1440p' | '4k'; fps?: number; crf?: number }
   transition?: { type?: 'none' | 'crossfade' | 'fadeblack' | 'dissolve'; duration?: number }
+  /**
+   * v1.0.363 — set by the unattended Pipeline when "run all the way to final
+   * video" is selected. There's no human at Scene Review to greenlight scenes,
+   * so the assembler auto-approves every scene that already has a rendered
+   * image. Absent / false keeps the manual greenlight gate (the page never
+   * sends this — it pre-flights approval on the route).
+   */
+  auto_approve?: boolean
 }
 
 const MIN_SCENE_DURATION_SEC = 0.5
@@ -84,6 +92,23 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   }
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
   if (!plan.scenes.length) throw new Error('scene_plan.json has no scenes')
+
+  // Pipeline auto-approve (v1.0.363). When the Pipeline drives this step in
+  // "run all the way to final video" mode there's no human at Scene Review to
+  // greenlight scenes — so honour the explicit `auto_approve` signal by
+  // greenlighting every scene, persisting the plan, then continuing into the
+  // gates below. The missing-image check still guards against an incomplete
+  // render, so this trusts the render without skipping safety.
+  if (params.auto_approve === true) {
+    let approvedNow = 0
+    for (const s of plan.scenes) {
+      if (!s.approved) { s.approved = true; approvedNow++ }
+    }
+    if (approvedNow > 0) {
+      await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
+      job.output_lines.push(`Auto-approved ${approvedNow}/${plan.scenes.length} scene(s) (pipeline run).`)
+    }
+  }
 
   // Greenlight enforcement (v1.0.144 produced the flag; this is where
   // the assembler honours it).
