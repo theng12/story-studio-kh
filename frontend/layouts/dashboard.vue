@@ -72,7 +72,7 @@
         <NuxtLink :to="`/projects/${slug}/metadata`" class="nav-item" active-class="active">
           <span class="nav-icon">&#128203;</span> Metadata Generator <span v-if="metaGenerating" class="nav-pulse" />
         </NuxtLink>
-        <!-- v1.0.88+: Image Prompts split into two sidebar entries that
+        <!-- v1.0.88+: prompt generation split into two sidebar entries that
              both open /image-prompts but pre-select the corresponding tab
              via ?tab=. Active highlighting is computed manually because
              NuxtLink's active-class matches paths, not query strings —

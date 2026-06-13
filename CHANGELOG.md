@@ -4,6 +4,29 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.372 — 2026-06-13
+
+### Fixed — thumbnail and scene prompt/generator split is now visible across the app
+After the backend and preset split landed, a few current UI surfaces still carried the old combined prompt/generator wording. That made thumbnail-only jobs look like they were still running scene prompt work, even when the job params were already correct.
+
+This release audits the active app surfaces and makes the split explicit wherever the mode is known:
+
+- Thumbnail and Scene prompt pages now use mode-specific page titles, breadcrumbs, save toasts, empty states, and generator links.
+- Thumbnail and Scene generator pages now use mode-specific titles, breadcrumbs, prompt links, missing-prompt messages, and stale-scene warnings.
+- Jobs, notifications, and remote cockpit labels now show Thumbnail Prompts or Scene Prompts for mode-specific `image_prompts` jobs, while generic filters use Prompts instead of the old combined label.
+- Pipeline filters and step cards no longer present the prompt step as the old combined image-prompt surface.
+- Shared character/style helper copy now says visual prompts or Prompts, so future UI work does not reintroduce the old mental model.
+- QA docs now list Thumbnail Prompts, Scene Prompts, Thumbnail Generator, and Scene Generator as separate checks.
+
+### Files
+- `frontend/pages/projects/[slug]/image-prompts.vue` and `frontend/pages/projects/[slug]/images.vue` (mode-specific prompt/generator copy)
+- `frontend/pages/projects/[slug]/jobs.vue`, `frontend/composables/useJobs.ts`, and `frontend/composables/useNotifications.ts` (mode-aware job labels)
+- `frontend/composables/useRemoteChain.ts` and `frontend/pages/remote.vue` (mode-aware cockpit labels)
+- `frontend/components/Breadcrumb.vue`, `frontend/components/ImageGeneratorPanel.vue`, and `frontend/components/Img2ImgReferencesCard.vue` (mode-specific navigation and empty states)
+- `frontend/pages/projects/[slug]/pipeline.vue`, dashboard/helper copy, and `docs/operations/qa-checklist.md` (split terminology cleanup)
+
+---
+
 ## v1.0.371 — 2026-06-13
 
 ### Fixed — Pipeline no longer forces Scene Prompts when only Thumbnail Prompts are needed

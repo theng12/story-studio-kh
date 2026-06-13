@@ -53,7 +53,7 @@
         </div>
         <div v-else-if="!scenes.length" class="text-muted text-md">
           No scene prompts found yet — generate them on the
-          <NuxtLink :to="`/projects/${projectSlug}/image-prompts`">Image Prompts</NuxtLink>
+          <NuxtLink :to="`/projects/${projectSlug}/image-prompts?tab=scenes`">Scene Prompts</NuxtLink>
           page first, then come back.
         </div>
         <ul v-else class="i2i-scene-list" role="list">

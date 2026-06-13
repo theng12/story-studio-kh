@@ -2,7 +2,7 @@
   <div>
     <div class="page-header">
       <Breadcrumb />
-      <h1 class="page-title">Image Prompts</h1>
+      <h1 class="page-title">{{ formTab === 'thumbnails' ? 'Thumbnail Prompts' : 'Scene Prompts' }}</h1>
     </div>
     <TopActionBar
       :project-slug="slug"
@@ -41,8 +41,7 @@
     </div>
 
     <p class="text-muted mt-1 mb-2">
-      Image prompts are split into two pools — <strong>scenes</strong> (per-chapter visuals used in the final video)
-      and <strong>thumbnails</strong> (cover art candidates). This is the
+      Scene prompts and thumbnail prompts are separate pools. This is the
       <strong>{{ formTab === 'thumbnails' ? 'Thumbnail' : 'Scene' }} Prompts</strong> page — Generate here only
       affects {{ formTab === 'thumbnails' ? 'thumbnails' : 'scenes' }}; switch pools from the sidebar. Keeping them
       separate means a scene regen never clobbers your saved thumbnails and vice-versa.
@@ -118,9 +117,9 @@
            anxiety, $0 cost, no API calls.
            (The image-rendering Preview button that briefly lived here
            was moved off this page — it surfaced a kie.ai 422 because
-           the Image Prompts flow doesn't naturally know which image
+           prompt generation doesn't naturally know which image
            model the user wants to test, and the right home for "render
-           a sample of this style" is the Image Generator page where
+           a sample of this style" is the Generator page where
            that context already exists. Pill stays here as the free
            visibility affordance.) -->
       <div v-if="activeForm.style_tag && activeForm.style_tag.trim()" class="style-preview-row">
@@ -554,7 +553,7 @@
     />
 
     <!-- Provider prompt-cap reference table. Same modal shape as the
-         Image Generator page so users see a consistent surface. -->
+         Generator page so users see a consistent surface. -->
     <div v-if="showCapsTable" class="modal-overlay" @click.self="showCapsTable = false">
       <div class="caps-modal">
         <div class="caps-modal-head">
@@ -564,7 +563,7 @@
         <p class="text-muted text-sm caps-modal-intro">
           Approximate per-prompt character limits documented by each provider. Prompts longer than the
           cap are typically rejected outright or silently truncated — wasting credits either way.
-          Keep generated image prompts under the cap of whichever model you plan to render with.
+          Keep generated prompts under the cap of whichever model you plan to render with.
         </p>
         <div class="caps-table-wrap">
           <table class="caps-table">
@@ -708,7 +707,6 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'dashboard' })
-useAppTitle('Image Prompts')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
@@ -735,7 +733,7 @@ const activeTab = ref('current')
 
 // Image-model picker for the per-prompt char-counter colour-coding. This
 // page generates prompts via an LLM but doesn't render images itself —
-// the user picks the image model on the Image Generator page later. The
+// the user picks the image model on the Generator page later. The
 // dropdown here is purely a preview: select the model you plan to use
 // downstream and each row's char counter colours against THAT model's cap.
 const capPreviewModel = ref<string>('')
@@ -782,6 +780,8 @@ const capPreviewInfo = computed(() => {
 const formTab = ref<'thumbnails' | 'scenes'>(
   route.query.tab === 'scenes' ? 'scenes' : 'thumbnails',
 )
+const promptPageTitle = computed(() => formTab.value === 'thumbnails' ? 'Thumbnail Prompts' : 'Scene Prompts')
+useAppTitle(promptPageTitle)
 // v1.0.304 — the "Pending only" episode filter must reflect the ACTIVE pool.
 // The two pools have independent asset status (scene_prompts vs thumb_prompts);
 // the legacy `prompts` field is just an alias of scene_prompts, so using it on
@@ -1075,7 +1075,7 @@ async function surpriseMeThumb() {
 }
 
 // Source-of-truth episode hydration. `scriptReady` is the gate for the
-// Generate buttons below — image prompts read narration context from the
+// Generate buttons below — visual prompts read narration context from the
 // script docx, so generating without it would 500 on the backend. Refetch
 // when a script-only job lands so the gate enables itself live.
 const { selectedEpisode, scriptReady, statusKnown, refetch: refetchEpisodeStatus } = useEpisodeStatus(
@@ -1755,7 +1755,7 @@ async function runGenerate(mode: PromptMode) {
     // immediately so the user knows the click registered, then poll for
     // completion. We don't block paint while the job runs — the existing
     // `generating` flag keeps the button disabled + spinner showing.
-    success(`Queued ${mode === 'scenes' ? 'scene prompts' : mode === 'thumbnails' ? 'thumbnail prompts' : 'image prompts'} — job ${job.job_id}`)
+    success(`Queued ${mode === 'scenes' ? 'scene prompts' : mode === 'thumbnails' ? 'thumbnail prompts' : 'scene + thumbnail prompts'} — job ${job.job_id}`)
 
     const completed = await waitForJob(slug.value, job.job_id)
     if (completed.status === 'error') {
@@ -1814,7 +1814,7 @@ async function runGenerate(mode: PromptMode) {
     // (when present) carries the per-pool breakdown.
     const poolLabel = mode === 'scenes' ? 'scene prompts'
       : mode === 'thumbnails' ? 'thumbnail prompts'
-      : 'image prompts (scenes + thumbnails)'
+      : 'scene + thumbnail prompts'
     console.error(`[image-prompts] ${poolLabel} generation failed:`, e)
     showError(e.data?.detail || e.message || `Failed to generate ${poolLabel}`)
   } finally {
@@ -1843,7 +1843,7 @@ async function saveToFile() {
       title: selectedEpisode.value?.title || '',
       prompts: generatedPrompts.value,
     })
-    success('Image prompts saved to .docx!')
+    success(`${promptPageTitle.value} saved to .docx!`)
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to save')
   }
@@ -2097,7 +2097,7 @@ async function saveToFile() {
 }
 .cap-link:hover { color: var(--text-primary); }
 
-/* Provider caps reference modal. Same shape as the Image Generator
+/* Provider caps reference modal. Same shape as the Generator
    page's modal. */
 .caps-modal {
   background: var(--bg-secondary);

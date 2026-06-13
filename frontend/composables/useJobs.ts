@@ -64,6 +64,12 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   timestamp_video_assemble: 'Timestamp assembly',
 }
 
+function jobLabel(job: Job): string {
+  if (job.type === 'image_prompts' && (job.params as any)?.mode === 'thumbnails') return 'Thumbnail prompts'
+  if (job.type === 'image_prompts' && (job.params as any)?.mode === 'scenes') return 'Scene prompts'
+  return JOB_TYPE_LABELS[job.type] || job.type
+}
+
 const EMPTY_STATS: JobStats = { running: 0, queued: 0, done: 0, error: 0, total: 0 }
 
 const jobs = ref<Job[]>([])
@@ -121,7 +127,7 @@ function announceTransitions(next: Job[]) {
   for (const job of next) {
     const prev = previousStatuses.get(job.job_id)
     if (prev && (prev === 'running' || prev === 'queued')) {
-      const label = JOB_TYPE_LABELS[job.type] || job.type
+      const label = jobLabel(job)
       if (job.status === 'done') success(`${label} completed: ${job.episode_id}`)
       else if (job.status === 'error') showError(`${label} failed: ${job.episode_id}`)
     }

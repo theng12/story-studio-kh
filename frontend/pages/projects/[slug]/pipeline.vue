@@ -226,7 +226,7 @@
             <optgroup label="Missing a specific step">
               <option value="missing-script">Missing script ({{ missingCountByStep['script-only'] }})</option>
               <option value="missing-introduction">Missing introduction ({{ missingCountByStep['introduction-only'] }})</option>
-              <option value="missing-image-prompts">Missing image prompts ({{ missingCountByStep['image_prompts'] }})</option>
+              <option value="missing-image-prompts">Missing prompts ({{ missingCountByStep['image_prompts'] }})</option>
               <option v-if="!hidesScenePages" value="missing-images">Missing images ({{ missingCountByStep['images'] }})</option>
               <option value="missing-audio">Missing audio ({{ missingCountByStep['audio'] }})</option>
               <option value="missing-audio-merge">Missing merged audio ({{ missingCountByStep['audio_merge'] }})</option>
@@ -640,7 +640,7 @@ const EXTERNAL_NODES: Record<string, ExternalNode> = {
 // script-only → introduction-only → metadata → image_prompts → images →
 // (video if opted in) → audio → audio_merge → video_assembly.
 // Metadata sits early so titles/descriptions are ready before any image work
-// — image prompts and the post-merge metadata-driven exports both benefit.
+// — prompt generation and the post-merge metadata-driven exports both benefit.
 //
 // This is the canonical FULL list of batchable steps (keyed by StepId).
 // All the preset/status/done helpers below key off it. What the user
@@ -650,7 +650,7 @@ const stepsMeta: StepMeta[] = [
   { id: 'script-only',       label: 'Script (chapters)', icon: '📝', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_script' },
   { id: 'introduction-only', label: 'Introduction',      icon: '🎙', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_introduction' },
   { id: 'metadata',          label: 'Metadata',          icon: '📄', link: '/metadata',       presetList: 'metadata_presets',        presetActive: 'metadata_last_preset' },
-  { id: 'image_prompts',     label: 'Image Prompts',     icon: '🎨', link: '/image-prompts',  presetList: 'thumbnail_prompts_presets', presetActive: 'thumbnail_prompts_last_preset', presetListAlt: ['scene_prompts_presets', 'image_prompts_presets'], presetActiveAlt: ['scene_prompts_last_preset', 'image_prompts_last_preset'] },
+  { id: 'image_prompts',     label: 'Prompts',           icon: '🎨', link: '/image-prompts',  presetList: 'thumbnail_prompts_presets', presetActive: 'thumbnail_prompts_last_preset', presetListAlt: ['scene_prompts_presets', 'image_prompts_presets'], presetActiveAlt: ['scene_prompts_last_preset', 'image_prompts_last_preset'] },
   // v1.0.87+: pipeline splits Images into Thumbnail Images + Scene Images
   // mirroring the page-level tab split. The legacy unified `images` step
   // stays declared (and `stepsMeta` still includes it) for back-compat

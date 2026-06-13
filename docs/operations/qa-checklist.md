@@ -75,24 +75,33 @@ Use this checklist before shipping any release. Cover each phase end-to-end with
 - [ ] Job completes with `done` status
 - [ ] Verify `{CODE}_Script_Narration.docx` exists in `{CODE} - 01 Script/`
 
-> Note: Scripts tab only writes the narration docx. Image prompts and metadata
+> Note: Scripts tab only writes the narration docx. Prompt generation and metadata
 > live on their own tabs (see Phases 8 and 11).
 
-## Phase 8 — Image Prompts + Image Generator
+## Phase 8 — Thumbnail/Scene Prompts + Thumbnail/Scene Generators
 
-### Image Prompts tab
-- [ ] Image Prompts tab → select episode
-- [ ] Style tag, aspect ratio, scenes per chapter
-- [ ] Click Generate → prompts appear for review
+### Thumbnail Prompts tab
+- [ ] Thumbnail Prompts tab → select episode
+- [ ] Style tag, aspect ratio, thumbnail count/text settings
+- [ ] Click Generate Thumbnail Prompts → thumbnail prompts appear for review
 - [ ] Edit one prompt inline → Save → persists on reload
-- [ ] Verify `{CODE}_Scene_Prompts.docx` and `{CODE}_Thumbnail_Prompts.docx` in `03 Scene Prompts/` and `04 Thumbnail Prompts/`
+- [ ] Verify `{CODE}_Thumbnail_Prompts.docx` exists in `04 Thumbnail Prompts/`
 
-### Image Generator tab (unified scene + thumbnail)
-- [ ] Image Generator tab → select episode
-- [ ] Generate scene images → wait for `done`
-- [ ] Verify PNGs in `05 Scene Images/`
+### Scene Prompts tab
+- [ ] Scene Prompts tab → select episode
+- [ ] Style tag, aspect ratio, scenes per chapter
+- [ ] Click Generate Scene Prompts → scene prompts appear for review
+- [ ] Verify `{CODE}_Scene_Prompts.docx` exists in `03 Scene Prompts/`
+
+### Thumbnail Generator tab
+- [ ] Thumbnail Generator tab → select episode
 - [ ] Generate thumbnail images → wait for `done`
 - [ ] Verify PNGs in `06 Thumbnail Images/`
+
+### Scene Generator tab
+- [ ] Scene Generator tab → select episode
+- [ ] Generate scene images → wait for `done`
+- [ ] Verify PNGs in `05 Scene Images/`
 
 ## Phase 9 — Audio Generator
 
@@ -175,7 +184,7 @@ Use this checklist before shipping any release. Cover each phase end-to-end with
 
 - [ ] Paste a bad API key → attempt generation → red error banner with clear "invalid key" message
 - [ ] Disable internet mid-generation → job marked as error with a network-ish message
-- [ ] Try generating images before creating prompts → clear "Could not find scene prompts for {code}. Generate the prompts first." error
+- [ ] Try generating scene images before creating scene prompts → clear "Could not find scene prompts for {code}. Generate the prompts first." error
 - [ ] Uninstall ffmpeg, try audio merge → FFmpeg download dialog appears
 
 ## Phase 18 — Multi-Project & Cleanup

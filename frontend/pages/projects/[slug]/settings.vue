@@ -1295,7 +1295,7 @@
       <h3>Script &amp; Text Generation Concurrency</h3>
       <p class="text-muted mt-1 mb-2">
         How many <strong>text</strong> jobs run at the same time across
-        <strong>all</strong> of: script outline, chapter expansion, metadata, image prompts,
+        <strong>all</strong> of: script outline, chapter expansion, metadata, scene/thumbnail prompts,
         and scene planning — combined. This is what lets you generate several
         <strong>episodes at once</strong> instead of waiting in a queue. Concurrent calls
         spread across your LM&nbsp;Studio endpoint pool automatically.

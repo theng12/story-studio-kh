@@ -3,7 +3,7 @@
  *
  * Brands live above projects in the resolution chain. One brand per channel
  * carries channel name, narrator persona, default voice, logo, brand-style
- * keywords for image prompts. Future hooks (pronunciation lexicon, analytics
+ * keywords for visual prompts. Future hooks (pronunciation lexicon, analytics
  * persona, comment-reply tone) hang off this object.
  *
  * Mirrors the shape of usePresets — loading/error refs + actions.

@@ -106,7 +106,7 @@
 
 <script setup lang="ts">
 import { normalizeVisualSource, type VisualSource } from '~/composables/useProjectFlow'
-import { fullRunSteps, upToReviewSteps, chainHasFinal, STEP_LABELS, type CockpitStep } from '~/composables/useRemoteChain'
+import { fullRunSteps, upToReviewSteps, chainHasFinal, stepLabelFor, type CockpitStep } from '~/composables/useRemoteChain'
 import type { Job } from '~/composables/useJobs'
 
 definePageMeta({ layout: 'default' })
@@ -136,7 +136,7 @@ const hasFinal = computed(() => chainHasFinal(visualSource.value))
 const steps = computed<CockpitStep[]>(() =>
   runMode.value === 'review' ? upToReviewSteps(visualSource.value) : fullRunSteps(visualSource.value),
 )
-const stepSummary = computed(() => steps.value.map(s => STEP_LABELS[s]).join(' · '))
+const stepSummary = computed(() => steps.value.map(s => stepLabelFor(visualSource.value, s)).join(' · '))
 const episodeCount = computed(() => episodeCodes.value.length)
 
 // Active = anything not finished/cancelled. Errors stay so the user can retry.
@@ -240,7 +240,7 @@ async function run() {
   } catch (e: any) {
     const missing = e?.data?.missing
     if (Array.isArray(missing) && missing.length) {
-      const names = missing.map((m: any) => STEP_LABELS[m.step as CockpitStep] || m.step).join(', ')
+      const names = missing.map((m: any) => stepLabelFor(visualSource.value, m.step as CockpitStep) || m.step).join(', ')
       runError.value = `These steps need a saved preset (set them on the desktop): ${names}.`
     } else {
       runError.value = e?.data?.detail || e?.message || 'Failed to start the run'

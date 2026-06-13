@@ -45,6 +45,11 @@ export const STEP_LABELS: Record<CockpitStep, string> = {
   'video_assembly': 'Final video',
 }
 
+export function stepLabelFor(vs: VisualSource, step: CockpitStep): string {
+  if (step === 'image_prompts' && vs !== 'scene-images') return 'Thumbnail prompts'
+  return STEP_LABELS[step]
+}
+
 export function fullRunSteps(vs: VisualSource): CockpitStep[] {
   return CHAINS[vs] ?? CHAINS['scene-images']
 }

@@ -91,7 +91,7 @@
           <div class="form-group">
             <label>Description <span class="req">*</span></label>
             <span class="hint">
-              Physical + personality. Flows verbatim into script + image prompts. Specific concrete details work best
+              Physical + personality. Flows verbatim into script + visual prompts. Specific concrete details work best
               ("plate armour with a silver braid down her back" beats "a knight").
               <template v-if="editing && (draft.references?.images?.length || 0) > 0">
                 Or click <strong>✨ Describe from image</strong> on any reference below to bootstrap.
@@ -120,7 +120,7 @@
           <div v-if="draft.scope === 'episode'" class="form-group">
             <label>Episode codes <span class="req">*</span></label>
             <span class="hint">
-              Pick the episodes this character appears in. The picker on Image Prompts / Scripts
+              Pick the episodes this character appears in. The picker on Prompts / Scripts
               only surfaces this character when one of these codes matches the active episode.
               Click an episode to add it. Episode codes are matched exactly — typing <code>EP001</code>
               when your project uses <code>EP0001</code> means the character will silently never show up.
@@ -171,7 +171,7 @@
           <div class="form-group">
             <label>Style keywords (optional)</label>
             <span class="hint">
-              Visual style words appended to image prompts whenever this character appears
+              Visual style words appended to visual prompts whenever this character appears
               (e.g. <code>cel-shaded</code>, <code>photoreal</code>, <code>watercolor</code>).
               Keeps a recurring character looking the same across episodes even when the scene prompt changes.
               Press Enter or comma to add. De-duped automatically.
@@ -343,7 +343,7 @@ const selectedEpisodeCodes = computed(() => new Set(parseEpisodeCodes(episodeCod
 
 /** Warn the user when a typed code doesn't match any project episode —
  *  flushes out the EP001 vs EP0001 footgun before they save and silently
- *  break the picker on Image Prompts / Scripts. */
+ *  break the picker on Prompts / Scripts. */
 const unknownEpisodeCodes = computed(() => {
   const known = new Set(projectEpisodes.value.map(e => e.episode_code))
   return parseEpisodeCodes(episodeCodesText.value).filter(code => !known.has(code))

@@ -261,7 +261,7 @@
               v-if="job.status === 'error' || job.status === 'cancelled'"
               class="btn btn-xs btn-secondary"
               @click="retryJob(job)"
-              :title="retryTooltip(job.type)"
+              :title="retryTooltip(job)"
             >
               Retry
             </button>
@@ -675,7 +675,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   'script-only': 'Script (chapters)',
   'introduction-only': 'Introduction',
   'chapter-only': 'Chapter regen',
-  image_prompts: 'Image Prompts',
+  image_prompts: 'Prompts',
   images: 'Images (All)',
   scene_images: 'Scene Images',
   thumb_images: 'Thumbnail Images',
@@ -718,7 +718,7 @@ const filterTabs = computed(() => {
     { type: 'introduction-only',    label: 'Introductions' },
     { type: 'chapter-only',         label: 'Chapter Regen' },
     { type: 'metadata',             label: 'Metadata' },
-    { type: 'image_prompts',        label: 'Image Prompts' },
+    { type: 'image_prompts',        label: 'Prompts' },
     { type: 'scene_images',         label: 'Scene Images' },
     { type: 'thumb_images',         label: 'Thumb Images' },
     { type: 'images',               label: 'Images (All)' },
@@ -1079,9 +1079,17 @@ function jobCanBeRepaired(jobType: string): boolean {
 // v1.0.308 — type-aware Retry tooltip so the cost/behaviour is honest per job
 // type. image_prompts now does a smart gap-fill; image/audio/video have a free
 // Repair to click first; everything else re-runs whole.
-function retryTooltip(jobType: string): string {
+function retryTooltip(job: Pick<RJob, 'type' | 'params'>): string {
+  const jobType = job.type
   if (jobType === 'image_prompts') {
-    return 'SMART RETRY — Regenerates ONLY the missing scene prompts and merges them into the existing file, keeping the prompts that already succeeded. Local models: free. Cloud models: charges only for the missing scenes, not all of them.'
+    const mode = (job.params as any)?.mode
+    if (mode === 'thumbnails') {
+      return 'SMART RETRY — Regenerates ONLY the missing thumbnail prompts and merges them into the existing file, keeping the prompts that already succeeded. Local models: free. Cloud models: charges only for the missing thumbnails, not all prompts.'
+    }
+    if (mode === 'scenes') {
+      return 'SMART RETRY — Regenerates ONLY the missing scene prompts and merges them into the existing file, keeping the prompts that already succeeded. Local models: free. Cloud models: charges only for the missing scenes, not all prompts.'
+    }
+    return 'SMART RETRY — Regenerates ONLY missing scene/thumbnail prompts and merges them into the existing files, keeping prompts that already succeeded. Local models: free. Cloud models: charges only for the missing prompts.'
   }
   if (jobCanBeRepaired(jobType)) {
     return 'CHARGES MAY APPLY — Deletes this failed job and re-submits a fresh request. Click Repair FIRST (free — recovers in-flight provider work). The generator skips assets already on disk, so after Repair, Retry only re-submits genuinely-missing items.'
@@ -1183,8 +1191,8 @@ async function retryJob(job: RJob) {
     'chapter-only':      { url: `/projects/${slug.value}/generate/chapter-only`,      params: job.params },
     // v1.0.308 — image_prompts Retry is now SMART: it routes to the dedicated
     // /generate/image-prompts route with fill_gaps=true, so the generator
-    // regenerates ONLY the missing scenes and merges them into the existing
-    // file (preserving the ones that already succeeded). Previously this went
+    // regenerates ONLY missing prompt entries for the job's mode and merges
+    // them into existing files (preserving the ones that already succeeded). Previously this went
     // through pipeline/run-batch which regenerated all N from scratch.
     image_prompts:   { url: `/projects/${slug.value}/generate/image-prompts`, params: { ...job.params, fill_gaps: true } },
     scene_images:    { url: `/projects/${slug.value}/generate/images`,  params: { ...job.params, mode: 'scenes' } },

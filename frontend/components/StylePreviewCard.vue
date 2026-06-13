@@ -33,7 +33,7 @@
       Quick visual gut-check before kicking off a full batch.
     </p>
 
-    <!-- Saved presets — project-level pool, shared with the Image Prompts
+    <!-- Saved presets — project-level pool, shared with the Prompts
          page's "Custom" style dropdown. Selecting a preset fills the
          textarea + shows its saved preview PNG (if one was attached).
          The same pool also surfaces on /image-prompts under Custom,
@@ -125,7 +125,7 @@
         </button>
         <!-- Save the current preview + style description as a NAMED preset
              in the project. Becomes available from the dropdown above on
-             every subsequent visit + on the Image Prompts page's Custom
+             every subsequent visit + on the Prompts page's Custom
              style picker. v1.0.89+. -->
         <button
           type="button"
@@ -159,7 +159,7 @@
         <p class="text-muted text-sm">
           The style description + rendered preview will be saved in this
           project. Reusable across episodes from the dropdown above and
-          from the Image Prompts page's Custom style picker.
+          from the Prompts page's Custom style picker.
         </p>
         <input
           v-model="presetSaveState.draftName"
@@ -276,7 +276,7 @@ const saveState = ref<SaveState>({ saving: false, saved: null, error: null })
 
 // ── Project-level named presets (v1.0.89+) ─────────────────────────────
 //
-// Shared pool with the Image Prompts page's "Custom" style dropdown.
+// Shared pool with the Prompts page's "Custom" style dropdown.
 // Stored on ProjectConfig.style_presets — iCloud-synced via the project
 // folder. Preview PNG (when attached) lives at
 // <project>/style-previews/<slug>.png; we serve it through a dedicated

@@ -189,13 +189,13 @@
             <span>Scripts</span><span class="text-accent">{{ currentSession.scripts_generated }}</span>
           </div>
           <div class="session-row" v-if="currentSession.prompts_generated">
-            <span>Image Prompts</span><span class="text-accent">{{ currentSession.prompts_generated }}</span>
+            <span>Prompts</span><span class="text-accent">{{ currentSession.prompts_generated }}</span>
           </div>
           <div class="session-row" v-if="currentSession.descriptions_generated">
             <span>Descriptions</span><span class="text-accent">{{ currentSession.descriptions_generated }}</span>
           </div>
           <div class="session-row" v-if="currentSession.images_generated">
-            <span>Images</span><span class="text-accent">{{ currentSession.images_generated }}</span>
+            <span>Images / Thumbnails</span><span class="text-accent">{{ currentSession.images_generated }}</span>
           </div>
           <div class="session-row" v-if="currentSession.audio_generated">
             <span>Audio</span><span class="text-accent">{{ currentSession.audio_generated }}</span>
@@ -221,13 +221,13 @@
               <span>Scripts</span><span>{{ previousSession.scripts_generated }}</span>
             </div>
             <div class="session-row" v-if="previousSession.prompts_generated">
-              <span>Image Prompts</span><span>{{ previousSession.prompts_generated }}</span>
+              <span>Prompts</span><span>{{ previousSession.prompts_generated }}</span>
             </div>
             <div class="session-row" v-if="previousSession.descriptions_generated">
               <span>Descriptions</span><span>{{ previousSession.descriptions_generated }}</span>
             </div>
             <div class="session-row" v-if="previousSession.images_generated">
-              <span>Images</span><span>{{ previousSession.images_generated }}</span>
+              <span>Images / Thumbnails</span><span>{{ previousSession.images_generated }}</span>
             </div>
             <div class="session-row" v-if="previousSession.audio_generated">
               <span>Audio</span><span>{{ previousSession.audio_generated }}</span>
@@ -377,8 +377,8 @@ const assetItems = computed(() => {
   return [
     { label: 'Scripts', count: a.scripts || 0, pct: Math.round(((a.scripts || 0) / total) * 100) },
     { label: 'Scene Prompts', count: a.scene_prompts || 0, pct: Math.round(((a.scene_prompts || 0) / total) * 100) },
-    { label: 'Thumb Prompts', count: a.thumb_prompts || 0, pct: Math.round(((a.thumb_prompts || 0) / total) * 100) },
-    { label: 'Images', count: a.total_image_files || 0, pct: Math.round(((a.images || 0) / total) * 100) },
+    { label: 'Thumbnail Prompts', count: a.thumb_prompts || 0, pct: Math.round(((a.thumb_prompts || 0) / total) * 100) },
+    { label: 'Scene Images', count: a.images || 0, pct: Math.round(((a.images || 0) / total) * 100) },
     { label: 'Thumbnails', count: a.thumbnails || 0, pct: Math.round(((a.thumbnails || 0) / total) * 100) },
     { label: 'Audio', count: a.total_audio_files || 0, pct: Math.round(((a.audio || 0) / total) * 100) },
     { label: 'Descriptions', count: a.descriptions || 0, pct: Math.round(((a.descriptions || 0) / total) * 100) },
@@ -403,8 +403,8 @@ const workflowSteps = [
   { icon: '✨', label: 'Ideas', path: 'ideas' },
   { icon: '✏', label: 'Script', path: 'scripts' },
   { icon: '▶', label: 'Description', path: 'youtube' },
-  { icon: '🎨', label: 'Image Prompts', path: 'image-prompts' },
-  { icon: '📸', label: 'Images', path: 'images' },
+  { icon: '🎨', label: 'Thumbnail Prompts', path: 'image-prompts?tab=thumbnails' },
+  { icon: '📸', label: 'Thumbnails', path: 'images?tab=thumbnails' },
   { icon: '🎙', label: 'Audio', path: 'audio' },
   { icon: '🎵', label: 'Audio Editor', path: 'audio-merge' },
 ]

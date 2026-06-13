@@ -1,5 +1,5 @@
 <!--
-  ImageGeneratorPanel — per-tab list of image prompts with inline
+  ImageGeneratorPanel — per-tab list of visual prompts with inline
   preview + per-row Generate/Regenerate controls. Two instances mount
   in images.vue (one per kind: scene / thumbnail). v1.0.87+.
 
@@ -54,7 +54,7 @@
     <div v-else-if="loadError" class="igp-status igp-status-error">{{ loadError }}</div>
     <div v-else-if="!prompts.length" class="igp-status">
       No {{ kindLabelLower }} prompts found yet for {{ episodeId }}. Generate prompts on
-      the Image Prompts page first, then return here to render them.
+      the {{ kind === 'thumbnail' ? 'Thumbnail Prompts' : 'Scene Prompts' }} page first, then return here to render them.
     </div>
 
     <!-- Pagination meta (only shows when needed) -->

@@ -41,8 +41,8 @@ function sectionLabel(path: string): string {
     scripts: 'Script Generator',
     youtube: 'Description Generator',
     metadata: 'Metadata Generator',
-    'image-prompts': 'Image Prompts',
-    images: 'Images',
+    'image-prompts': promptSectionLabel(),
+    images: imageSectionLabel(),
     audio: 'Audio Generator',
     'audio-merge': 'Audio Assembly',
     pipeline: 'Pipeline',
@@ -52,6 +52,20 @@ function sectionLabel(path: string): string {
     'video-assembly': 'Video Assembly',
   }
   return map[path] || path
+}
+
+function promptSectionLabel(): string {
+  const tab = String(route.query.tab || '')
+  if (tab === 'thumbnails') return 'Thumbnail Prompts'
+  if (tab === 'scenes') return 'Scene Prompts'
+  return 'Prompts'
+}
+
+function imageSectionLabel(): string {
+  const tab = String(route.query.tab || '')
+  if (tab === 'thumbnails') return 'Thumbnails'
+  if (tab === 'scenes') return 'Scene Generator'
+  return 'Images'
 }
 </script>
 

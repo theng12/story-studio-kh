@@ -73,7 +73,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   images: 'Images',
   scene_images: 'Scene Images',
   thumb_images: 'Thumbnails',
-  image_prompts: 'Image Prompts',
+  image_prompts: 'Prompts',
   images_repair: 'Image Repair',
   audio: 'Audio',
   audio_merge: 'Audio Assembly',
@@ -95,7 +95,10 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   scene_image_generate: 'Scene Image',
 }
 
-function labelForJobType(t: string): string {
+function labelForJob(job: Job): string {
+  if (job.type === 'image_prompts' && (job.params as any)?.mode === 'thumbnails') return 'Thumbnail Prompts'
+  if (job.type === 'image_prompts' && (job.params as any)?.mode === 'scenes') return 'Scene Prompts'
+  const t = job.type
   return JOB_TYPE_LABELS[t] || t.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
@@ -265,7 +268,7 @@ export function useNotifications() {
         .filter(j => j.status === 'done' || j.status === 'error')
         .map(j => ({
           id: j.job_id,
-          kind: labelForJobType(j.type),
+          kind: labelForJob(j),
           title: j.title || j.episode_id || j.job_id,
           status: j.status as 'done' | 'error',
           ts: tsOf(j.finished_at),

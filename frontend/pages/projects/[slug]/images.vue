@@ -2,7 +2,7 @@
   <div>
     <div class="page-header">
       <Breadcrumb />
-      <h1 class="page-title">Images</h1>
+      <h1 class="page-title">{{ form.mode === 'thumbs' ? 'Thumbnail Generator' : 'Scene Generator' }}</h1>
     </div>
     <!-- Live download speed for the running image-generation job. Only
          visible while bytes are flowing in from the provider CDN; auto-
@@ -359,7 +359,7 @@
         </ul>
         <div v-if="!activePromptRows.length" class="text-muted text-md">
           No prompts found yet. Generate them on the
-          <NuxtLink :to="`/projects/${slug}/image-prompts?tab=${form.mode === 'thumbs' ? 'thumbnails' : 'scenes'}`">Image Prompts</NuxtLink> page first.
+          <NuxtLink :to="`/projects/${slug}/image-prompts?tab=${form.mode === 'thumbs' ? 'thumbnails' : 'scenes'}`">{{ promptPageLabel }}</NuxtLink> page first.
         </div>
       </template>
     </div>
@@ -385,20 +385,20 @@
 
       <div v-else-if="!activePoolStatus" class="text-muted text-md">
         No {{ activePoolLabel }} prompts found for this episode yet. Generate them
-        first on the <NuxtLink :to="`/projects/${slug}/image-prompts?tab=${form.mode === 'thumbs' ? 'thumbnails' : 'scenes'}`">Image Prompts</NuxtLink> page.
+        first on the <NuxtLink :to="`/projects/${slug}/image-prompts?tab=${form.mode === 'thumbs' ? 'thumbnails' : 'scenes'}`">{{ promptPageLabel }}</NuxtLink> page.
       </div>
 
       <div v-else class="flex items-center gap-2 flex-wrap">
         <!-- Tier 1: outline ↔ prompts. Surfaces when the user changed the
              title's listicle [N] (e.g. 7 → 20) and rebuilt the outline
-             but didn't re-run Image Prompts. Without this pill, Repair
+             but didn't re-run Scene Prompts. Without this pill, Repair
              would silently regenerate against the OLD prompt count,
              leaving the user with images for 7 of 20 expected chapters
              and burning credits to find out. -->
         <span
           v-if="promptsStaleVsOutline.stale"
           class="integrity-pill warn"
-          :title="`The outline has ${promptsStaleVsOutline.chapterCount} chapters but only ${promptsStaleVsOutline.promptCount} scene prompts exist on disk. Regenerate Image Prompts at the new chapter count first — otherwise images will only cover ${promptsStaleVsOutline.promptCount} of the ${promptsStaleVsOutline.chapterCount} chapters.`"
+          :title="`The outline has ${promptsStaleVsOutline.chapterCount} chapters but only ${promptsStaleVsOutline.promptCount} scene prompts exist on disk. Regenerate Scene Prompts at the new chapter count first — otherwise images will only cover ${promptsStaleVsOutline.promptCount} of the ${promptsStaleVsOutline.chapterCount} chapters.`"
         >
           ⚠ Prompts stale: {{ promptsStaleVsOutline.promptCount }} / {{ promptsStaleVsOutline.chapterCount }} chapters
         </span>
@@ -406,7 +406,7 @@
           v-if="promptsStaleVsOutline.stale"
           :to="`/projects/${slug}/image-prompts`"
           class="btn btn-sm btn-secondary"
-          title="Regenerate Image Prompts at the current chapter count before generating images."
+          title="Regenerate Scene Prompts at the current chapter count before generating images."
         >
           Regenerate prompts →
         </NuxtLink>
@@ -545,7 +545,7 @@
       <div>
         <strong>Need prompts first?</strong>
         Generate {{ form.mode === 'thumbs' ? 'thumbnail' : 'scene' }} prompts for this episode on the
-        <NuxtLink :to="`/projects/${slug}/image-prompts?tab=${form.mode === 'thumbs' ? 'thumbnails' : 'scenes'}`">Image Prompts</NuxtLink>
+        <NuxtLink :to="`/projects/${slug}/image-prompts?tab=${form.mode === 'thumbs' ? 'thumbnails' : 'scenes'}`">{{ promptPageLabel }}</NuxtLink>
         page before running image generation.
       </div>
     </div>
@@ -605,7 +605,7 @@
         <p class="text-muted text-sm caps-modal-intro">
           Approximate per-prompt character limits documented by each provider. A prompt longer than
           the cap is typically rejected outright or silently truncated — wasting credits either way.
-          Keep image prompts under the cap of whichever model you choose. Numbers refresh as
+          Keep prompts under the cap of whichever model you choose. Numbers refresh as
           providers update their docs.
         </p>
         <div class="caps-table-wrap">
@@ -648,7 +648,6 @@
 
 <script setup lang="ts">
 definePageMeta({ layout: 'dashboard' })
-useAppTitle('Images')
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -756,6 +755,9 @@ const form = reactive({
   thumbnail: defaultSubForm(),
   scene: defaultSubForm(),
 })
+const promptPageLabel = computed(() => form.mode === 'thumbs' ? 'Thumbnail Prompts' : 'Scene Prompts')
+const generatorPageTitle = computed(() => form.mode === 'thumbs' ? 'Thumbnail Generator' : 'Scene Generator')
+useAppTitle(generatorPageTitle)
 
 // v1.0.259 — remember each tab's render settings (model / aspect / tier /
 // image_mode / reference_sources) across reloads. `mode` is deliberately NOT
@@ -1005,7 +1007,7 @@ async function loadPrompts(): Promise<void> {
   } catch (e: any) {
     if (e?.status === 404) {
       promptList.error = e?.data?.detail
-        || 'No prompts found yet. Generate them on the Image Prompts page first.'
+        || `No prompts found yet. Generate them on the ${promptPageLabel.value} page first.`
     } else {
       promptList.error = e?.data?.detail || e?.message || 'Failed to load prompts'
     }
@@ -1089,7 +1091,7 @@ async function renderPromptPreview(kind: 'scene' | 'thumbnail', row: PromptRow):
 // 250 scene jobs + 3 thumbnail jobs as a single batch, which made
 // retries painful when only the thumbnails came back wrong. Splitting
 // forces the user to tune each surface separately — same pattern as
-// the Image Prompts page where Thumbnail and Scene are now distinct
+// the Prompts page where Thumbnail and Scene are now distinct
 // tabs. Thumbnails first because they're the CTR lever (you lock the
 // cover image direction before committing to N scene renders).
 // Backend still accepts 'all' for API parity / older clients; only the
@@ -1266,7 +1268,7 @@ function getConfirmationType(): 'scene_images' | 'thumb_images' | 'images' {
 // prompts" — i.e. the prompt docx has fewer entries than the outline
 // has chapters, which means the user regenerated the outline at a
 // different count (e.g. title's [N] flipped from 7 to 20) but didn't
-// re-run Image Prompts. Without this signal the integrity card would
+// re-run Scene Prompts. Without this signal the integrity card would
 // happily say "✓ 7 scenes present" even though the user expects 20.
 const outlineChapterCount = ref<number | null>(null)
 async function loadOutlineChapterCount() {
@@ -1290,7 +1292,7 @@ async function loadOutlineChapterCount() {
 //   - The scene-prompts docx has fewer entries than the outline's
 //     total_chapters.
 // When true, the integrity card surfaces a warning pill + a direct
-// link back to Image Prompts so the user regenerates prompts before
+// link back to Scene Prompts so the user regenerates prompts before
 // burning provider calls on a wrong-count batch. Triggered by, for
 // example, the user changing the title's listicle [N] from 7 → 20
 // and rebuilding the outline at 20 without rerunning prompts.
@@ -1406,7 +1408,7 @@ const activeEditImages = computed(() => form.mode === 'thumbs' ? editThumbs.valu
 // Bumped after a per-row or bulk render completes inside either panel
 // so the parent Edit gallery + image-integrity card can pick up the
 // new files on the next refresh. Mirrors the pattern used by the
-// Image Prompts page (reviewRefreshKey for PromptReviewPanel).
+// Prompts page (reviewRefreshKey for PromptReviewPanel).
 const igPanelRefreshKey = ref(0)
 
 function onPanelRefresh() {

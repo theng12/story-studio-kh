@@ -473,7 +473,7 @@ const config = ref<ContinuityConfig>(defaults())
 // references, pacing, denoise, Style Bible, negative prompt, Visual Recipe) is
 // usually the same across episodes, so saving it ONCE and Applying it fills
 // the whole page in one click instead of re-picking every attribute. Lives in
-// the TopActionBar's preset row (same spot as Scripts/Image Prompts).
+// the TopActionBar's preset row (same spot as Scripts/Prompts).
 //
 // autoApplyOnLoad is OFF: the episode's own continuity.json drives the fields
 // on load; the preset is applied only on explicit Apply (then Save anchors &

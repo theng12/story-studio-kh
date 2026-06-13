@@ -45,7 +45,7 @@
       </div>
       <div class="form-group">
         <label>Description</label>
-        <span class="hint">Physical + personality. Used in script + image prompts.</span>
+        <span class="hint">Physical + personality. Used in script + visual prompts.</span>
         <textarea v-model="quick.description" class="input" rows="3" placeholder="Tall, plate armour, silver braid. Calm under pressure, dry sense of humour." />
       </div>
       <div class="quick-actions">

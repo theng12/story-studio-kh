@@ -8,20 +8,20 @@ import { useRoute } from 'vue-router'
  * format's `visualSource` (the same value that already gates the sidebar):
  *
  *   scene-images   (narrative, listicle):
- *     Ideas → Script → Metadata → Thumb Prompts → Scene Prompts →
+ *     Ideas → Script → Metadata → Thumbnail Prompts → Scene Prompts →
  *     Thumbnails → Scenes → Audio → Audio Assembly → Video Assembly
  *
  *   broll          (stock-footage):
- *     Ideas → Script → Metadata → Thumb Prompts → Thumbnails →
+ *     Ideas → Script → Metadata → Thumbnail Prompts → Thumbnails →
  *     Audio → Audio Assembly → Video Assembly
  *     (no per-scene prompts/images — visuals come from the B-Roll pool)
  *
  *   timestamp-driven (narration-synced):
- *     Ideas → Research → Script → Metadata → Thumb Prompts → Thumbnails →
+ *     Ideas → Research → Script → Metadata → Thumbnail Prompts → Thumbnails →
  *     Audio → Audio Assembly → Scene Plan → Scene Review → Video Assembly
  *
  *   continuity-chain (continuity-chain):
- *     Ideas → Research → Script → Metadata → Thumb Prompts → Thumbnails →
+ *     Ideas → Research → Script → Metadata → Thumbnail Prompts → Thumbnails →
  *     Audio → Audio Assembly → Character Sheet → Scene Plan → Scene Review →
  *     Video Assembly
  *     (like timestamp-driven, plus a Character Sheet step; scenes render

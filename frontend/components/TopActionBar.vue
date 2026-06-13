@@ -55,7 +55,7 @@
            Save as… / Delete) behind a kebab, which trained the user to
            click twice for the operation they perform every session.
            Matches the PresetPicker row style used elsewhere (Ideas,
-           Image Prompts) so the action set is consistent project-wide. -->
+           Prompts) so the action set is consistent project-wide. -->
       <div class="preset-actions" role="group" aria-label="Preset actions">
         <button
           type="button"
