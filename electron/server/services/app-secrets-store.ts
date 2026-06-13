@@ -47,6 +47,11 @@ export const SECRET_PROVIDERS = [
   'openrouter',
   'genaipro',
   'elevenlabs',
+  // v1.0.378+ — Fish Audio (direct cloud TTS, ~$0.015/1k chars; cheapest
+  // cloud option). Voices are picked by reference_id (incl. cloned voices),
+  // so there's no curated voice catalogue — the Audio Generator surfaces a
+  // free-text reference-id field. Key resolved via getApiKey('fishaudio').
+  'fishaudio',
   'google',
   // v1.0.149+ — Voice Studio KH (Pinokio-launched wrapper around
   // VoxCPM-MLX + 11 other TTS engine families). The "apiKey" slot here

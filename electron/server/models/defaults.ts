@@ -173,6 +173,12 @@ export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {
   'genaipro-turbo-v2.5':      { label: 'ElevenLabs Turbo v2.5 [GenAIPro]',      cost_per_1k_chars: 0.05, provider: 'genaipro' },
   'genaipro-flash-v2.5':      { label: 'ElevenLabs Flash v2.5 [GenAIPro]',      cost_per_1k_chars: 0.03, provider: 'genaipro' },
   'genaipro-v3':              { label: 'ElevenLabs v3 [GenAIPro]',              cost_per_1k_chars: 0.10, provider: 'genaipro' },
+  // v1.0.378+ — Fish Audio (direct cloud TTS). Cheapest cloud option:
+  // ~$0.015/1k chars ($15 / 1M UTF-8 bytes). Voices are reference_ids
+  // (incl. your cloned voices), entered free-text in the Audio Generator —
+  // there's no curated voice catalogue. Only 's1' / 's2-pro' are valid models.
+  'fishaudio-s2-pro': { label: 'Fish Audio S2-Pro [Fish]', cost_per_1k_chars: 0.015, provider: 'fishaudio' },
+  'fishaudio-s1':     { label: 'Fish Audio S1 [Fish]',     cost_per_1k_chars: 0.015, provider: 'fishaudio' },
   // v1.0.149+ — Voice Studio KH local modal (Pinokio FastAPI wrapper).
   // v1.0.150+ — replaced the standalone 'chatterbox-default' /
   // 'chatterbox-cloned' entries entirely. Chatterbox is reachable

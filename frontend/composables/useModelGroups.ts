@@ -17,6 +17,8 @@ export const PROVIDER_DISPLAY: Record<string, string> = {
   elevenlabs: 'ElevenLabs (direct)',
   fal: 'fal.ai (ElevenLabs)',
   genaipro: 'GenAIPro (ElevenLabs)',
+  // v1.0.378+ — Fish Audio (direct cloud TTS; cheapest cloud option).
+  fishaudio: 'Fish Audio',
   // v1.0.149+ — Voice Studio KH local modal (Pinokio FastAPI wrapper,
   // reached over Tailscale). v1.0.150 dropped the standalone Chatterbox
   // entry (chatterbox-mlx is reachable through Voice Studio's family list).
@@ -44,7 +46,7 @@ const DEFAULT_ORDER = [
   // TTS ordering — user-reported preference: direct first, then gateways,
   // then local-modal options at the bottom (advanced; require Tailscale +
   // a running Pinokio modal).
-  'elevenlabs', 'fal', 'genaipro', 'voicestudio',
+  'elevenlabs', 'fal', 'genaipro', 'fishaudio', 'voicestudio',
   // Image — kie.ai cloud first, then local Pinokio modal at the bottom.
   'kie', 'imagestudio',
   // LLM — DeepSeek first (cheapest, the project default), then OpenRouter,
@@ -102,5 +104,7 @@ export function resolveAudioProvider(id: string, m: { provider?: string }): stri
   if (id.startsWith('voicestudio-')) return 'voicestudio'
   // v1.0.329+ — macOS built-in `say` (local, free).
   if (id.startsWith('macos-')) return 'macos'
+  // v1.0.378+ — Fish Audio (direct cloud TTS).
+  if (id.startsWith('fishaudio-')) return 'fishaudio'
   return 'fal'
 }

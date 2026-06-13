@@ -72,7 +72,22 @@
       <div class="form-group">
         <label>Voice</label>
         <div class="voice-row">
+          <!-- Fish Audio has no curated voice catalogue — voices are
+               reference_ids (your cloned voice, or any model id from
+               fish.audio), so we surface a free-text field instead of the
+               ElevenLabs-style picker. -->
+          <input
+            v-if="currentAudioProvider === 'fishaudio'"
+            v-model.trim="form.voice"
+            type="text"
+            class="input voice-picker-flex"
+            placeholder="Fish reference ID — e.g. c332dba836014c85903124a522991138"
+            spellcheck="false"
+            autocapitalize="off"
+            autocorrect="off"
+          />
           <VoicePicker
+            v-else
             v-model="form.voice"
             :project-slug="slug"
             :custom-voices="config?.voice_presets || []"
@@ -84,6 +99,16 @@
             @voice-saved="refreshConfig(slug)"
           />
           <button
+            v-if="currentAudioProvider === 'fishaudio'"
+            type="button"
+            class="btn btn-sm btn-ghost"
+            :disabled="!form.voice || previewing"
+            :title="!form.voice ? 'Paste a reference ID first' : 'Preview this voice'"
+            @click="previewVoiceId()"
+          >
+            {{ previewing ? '…' : '▶ Preview' }}
+          </button>
+          <button
             v-if="previewAudio"
             type="button"
             class="btn btn-sm btn-ghost"
@@ -94,8 +119,15 @@
           </button>
         </div>
         <span class="text-muted text-xs">
-          Click ▶ next to any voice for a 1-sentence preview. ★ to pin favourites to the top (per-project).
-          Hit <strong>Refresh</strong> inside the picker to pull the latest voices from ElevenLabs.
+          <template v-if="currentAudioProvider === 'fishaudio'">
+            Paste a Fish Audio <strong>reference ID</strong> — your cloned voice, or any model id from
+            <a href="https://fish.audio" target="_blank" rel="noopener">fish.audio</a>.
+            Speed maps to Fish prosody; Stability / Similarity don’t apply.
+          </template>
+          <template v-else>
+            Click ▶ next to any voice for a 1-sentence preview. ★ to pin favourites to the top (per-project).
+            Hit <strong>Refresh</strong> inside the picker to pull the latest voices from ElevenLabs.
+          </template>
         </span>
       </div>
 

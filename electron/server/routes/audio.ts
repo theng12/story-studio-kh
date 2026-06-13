@@ -34,7 +34,7 @@ const macosVoicesCache = new TtlCache<object>(10 * 60_000) // changes only when 
 function resolveAudioProvider(
   modelId: string | undefined,
   audioModels: Record<string, AudioModelConfig> | undefined,
-): 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' {
+): 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' | 'fishaudio' {
   if (!modelId) return 'fal'
   const entry = audioModels?.[modelId]
   if (entry?.provider) return entry.provider
@@ -44,6 +44,8 @@ function resolveAudioProvider(
   if (modelId.startsWith('voicestudio-')) return 'voicestudio'
   // v1.0.329+ — macOS built-in `say` (local, free).
   if (modelId.startsWith('macos-')) return 'macos'
+  // v1.0.378+ — Fish Audio (direct cloud TTS).
+  if (modelId.startsWith('fishaudio-')) return 'fishaudio'
   return 'fal'
 }
 
@@ -131,7 +133,15 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
     apiKey = picked.endpoint
     resolvedVoiceId = picked.voiceId
   }
-  if (providerId !== 'voicestudio' && providerId !== 'macos') {
+  if (providerId === 'fishaudio') {
+    // Fish Audio key lives in the per-machine app-secrets store (same path the
+    // generator resolves), not the legacy per-project config fields.
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    apiKey = await getApiKey('fishaudio')
+    if (!apiKey) {
+      return res.status(400).json({ detail: 'No Fish Audio API key configured. Add one in Settings → API Keys.' })
+    }
+  } else if (providerId !== 'voicestudio' && providerId !== 'macos') {
     apiKey = providerId === 'elevenlabs' ? ((config as any).elevenlabs_api_key || '')
       : providerId === 'genaipro' ? ((config as any).genaipro_api_key || '')
       : (config.fal_api_key || '')
@@ -201,6 +211,17 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
         // Note: ElevenLabs ignores the vsname: prefix because resolvedVoiceId
         // only gets the prefix-strip treatment when providerId==='voicestudio'.
         // For ElevenLabs voice_id is the raw catalogue id, unchanged.
+      })
+      const dataUrl = `data:audio/mpeg;base64,${buf.toString('base64')}`
+      return res.json({ audio_url: dataUrl })
+    }
+
+    if (providerId === 'fishaudio') {
+      // Fish Audio (direct): MP3 bytes inline → data URL. voice_id is the
+      // Fish reference_id (cloned voice / any fish.audio model id).
+      const { generateTtsBuffer: generateFishBuffer } = await import('../lib/fishaudio-client.js')
+      const buf = await generateFishBuffer(sample, apiKey, {
+        model, voiceId: resolvedVoiceId || undefined, speed,
       })
       const dataUrl = `data:audio/mpeg;base64,${buf.toString('base64')}`
       return res.json({ audio_url: dataUrl })

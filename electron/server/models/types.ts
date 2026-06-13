@@ -1579,7 +1579,7 @@ export interface AudioModelConfig {
    * if missing, the audio generator falls back to prefix-based detection
    * (`genaipro-*` → genaipro, `eleven_*` → elevenlabs, else fal).
    */
-  provider?: 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos'
+  provider?: 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' | 'fishaudio'
   /**
    * v1.0.155+ — soft per-call character cap for chunking. The TTS
    * chunker (lib/text-chunker.ts) splits narration sections into

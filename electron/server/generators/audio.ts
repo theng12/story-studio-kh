@@ -18,6 +18,8 @@ import { generateTtsToFile as generateTtsElevenLabs } from '../lib/elevenlabs-cl
 import { generateTtsToFile as generateTtsVoiceStudio } from '../providers/audio/voicestudio.js'
 import { DEFAULT_VOICESTUDIO_BASE_URL } from '../lib/voicestudio-client.js'
 import { generateTtsToFile as generateTtsMacos } from '../lib/macos-say-client.js'
+// v1.0.378+ — Fish Audio (direct cloud TTS; streams bytes inline like ElevenLabs).
+import { generateTtsToFile as generateTtsFishaudio } from '../lib/fishaudio-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -34,7 +36,7 @@ import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
 
-type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos'
+type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' | 'fishaudio'
 
 /**
  * Pick the TTS provider for a given model. Prefers the explicit `provider`
@@ -52,6 +54,7 @@ function resolveAudioProvider(
     if (modelId.startsWith('genaipro-')) return 'genaipro'
     if (modelId.startsWith('voicestudio-')) return 'voicestudio'
     if (modelId.startsWith('macos-')) return 'macos'
+    if (modelId.startsWith('fishaudio-')) return 'fishaudio'
   }
   return 'fal'
 }
@@ -209,6 +212,7 @@ export async function generateAudio(job: Job): Promise<void> {
     : providerId === 'genaipro' ? 'GenAIPro'
     : providerId === 'voicestudio' ? 'Voice Studio (Local)'
     : providerId === 'macos' ? 'macOS say (Local)'
+    : providerId === 'fishaudio' ? 'Fish Audio'
     : 'fal.ai'
 
   // Voice Studio KH is special — there is no API key. The "key" we resolve
@@ -727,6 +731,18 @@ export async function generateAudio(job: Job): Promise<void> {
           speed: req.speed,
           stability: req.stability,
           similarity: req.similarity,
+          signal: controller.signal,
+          onProgress: makeChunkCb(),
+        })
+      } else if (providerId === 'fishaudio') {
+        // Fish Audio (direct): streams MP3 bytes inline → write straight to
+        // disk. `effectiveVoice` is the Fish reference_id (cloned voice / any
+        // fish.audio model id). Stability/similarity don't apply; speed maps
+        // to Fish prosody.speed inside the client.
+        await generateTtsFishaudio(task.chunkText, apiKey, task.outputPath, {
+          model: req.model,
+          voiceId: effectiveVoice,
+          speed: req.speed,
           signal: controller.signal,
           onProgress: makeChunkCb(),
         })

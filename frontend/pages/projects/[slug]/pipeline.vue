@@ -589,10 +589,6 @@ interface StepMeta {
   link: string
   presetList: string
   presetActive: string
-  /** Extra preset lists / active-pointer keys to also resolve from. Do not use
-   *  for split prompt steps: thumbnail and scene prompt presets are independent. */
-  presetListAlt?: string[]
-  presetActiveAlt?: string[]
   /** If true, unchecked by default — user must opt in. For cost-sensitive steps. */
   costly?: boolean
   /** Human-readable warning rendered on the step tile when costly. */
@@ -867,13 +863,11 @@ const TYPE_FOR_STEP: Partial<Record<StepId, string>> = {
   character_sheet: 'continuity-page',
 }
 
-// A step's preset pool = its primary list + any alt lists. Split prompt steps
-// deliberately use only their own preset pools so Pipeline never collapses
-// scene prompts and thumbnail prompts back into one selection.
+// A step's preset pool. Split prompt steps each use only their own pool, so
+// Pipeline never collapses scene prompts and thumbnail prompts into one.
 function listForStep(meta: StepMeta): any[] {
   const cfg = config.value as any
-  return [meta.presetList, ...(meta.presetListAlt || [])]
-    .flatMap(k => (Array.isArray(cfg?.[k]) ? cfg[k] : []))
+  return Array.isArray(cfg?.[meta.presetList]) ? cfg[meta.presetList] : []
 }
 
 function presetNameFor(stepId: StepMeta['id']): string {
@@ -892,12 +886,9 @@ function activePresetIdFor(stepId: StepMeta['id']): string {
   const cfg = config.value as any
   const list = listForStep(meta)
 
-  // 1. Active pointer(s) — primary key first, then any alt keys (the split
-  //    prompt pools each have their own `*_last_preset`).
-  for (const ak of [meta.presetActive, ...(meta.presetActiveAlt || [])]) {
-    const id: string = cfg?.[ak] || ''
-    if (id && list.some(x => x.id === id)) return id
-  }
+  // 1. Active pointer — the step's `*_last_preset` key.
+  const activeId: string = cfg?.[meta.presetActive] || ''
+  if (activeId && list.some(x => x.id === activeId)) return activeId
 
   // 2. Legacy untyped active pointer (script-only / introduction-only
   //    fall back to `script_last_preset` for pre-typing saves).
@@ -937,8 +928,7 @@ function presetsForStep(stepId: StepMeta['id']): Array<{ id: string; name: strin
 function presetSelectTooltip(stepId: StepMeta['id']): string {
   const meta = stepsMeta.find(s => s.id === stepId)!
   const cfg = config.value as any
-  const pinned = [meta.presetActive, ...(meta.presetActiveAlt || [])]
-    .some(k => typeof cfg?.[k] === 'string' && cfg[k])
+  const pinned = typeof cfg?.[meta.presetActive] === 'string' && !!cfg[meta.presetActive]
   const legacy: string = LEGACY_ACTIVE_KEY[stepId] ? cfg?.[LEGACY_ACTIVE_KEY[stepId]!] || '' : ''
   if (pinned || legacy) return 'Pick which saved preset this step runs with. Selection is sticky across sessions.'
   if (activePresetIdFor(stepId)) {

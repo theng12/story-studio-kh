@@ -4,6 +4,32 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.378 — 2026-06-13
+
+### Added — Fish Audio as a 5th TTS provider
+Fish Audio joins ElevenLabs, fal.ai, GenAIPro, Voice Studio KH, and macOS `say` as a narration backend. It's the **cheapest cloud option** — roughly **$0.015 / 1,000 characters** ($15 per 1M UTF-8 bytes), about a third of GenAIPro and a fifth of ElevenLabs direct — with strong voice-cloning quality.
+
+- **Two models** in Settings → Audio Models: **Fish Audio S2-Pro** (flagship) and **Fish Audio S1**.
+- **Bring your own voice.** Fish picks voices by *reference ID*, not a fixed catalogue, so the Audio Generator shows a free-text **Voice** field when a Fish model is selected — paste your cloned voice's reference ID (or any model id from fish.audio). A ▶ **Preview** button reads a sample in that voice before you commit a full run.
+- **Speed** maps to Fish prosody; Stability / Similarity don't apply to Fish and are noted as such inline.
+- Add your key in **Settings → API Keys → Fish Audio** (stored per-machine, encrypted, like every other key).
+
+### Changed — pipeline preset resolution simplified
+Removed an unused multi-list generalization (`presetListAlt` / `presetActiveAlt`) from the Pipeline page's preset resolver. Each step already resolves a single preset pool; the dead branch is gone. No behavior change.
+
+### Files
+- `electron/server/lib/fishaudio-client.ts` (new — direct streaming TTS client)
+- `electron/server/generators/audio.ts` (Fish generate branch + provider label)
+- `electron/server/routes/audio.ts` (Fish voice-preview branch)
+- `electron/server/services/app-secrets-store.ts` (`fishaudio` secret provider)
+- `electron/server/models/{types,defaults}.ts` (provider union + S1/S2-Pro catalog entries)
+- `frontend/components/ThisMacSettings.vue` (Fish Audio API-key row)
+- `frontend/composables/useModelGroups.ts` (Fish provider label/order/inference)
+- `frontend/pages/projects/[slug]/audio.vue` (free-text reference-ID voice field + preview)
+- `frontend/pages/projects/[slug]/pipeline.vue` (drop dead preset-resolution branch)
+
+---
+
 ## v1.0.377 — 2026-06-13
 
 ### Fixed — Scene Review loads saved plans even with old scene-review job records

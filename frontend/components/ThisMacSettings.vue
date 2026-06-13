@@ -171,6 +171,7 @@ const PROVIDER_META: Array<{
   { id: 'fal', name: 'Fal.ai', helpText: 'Image and audio generation (Flux LoRA, voice cloning).', placeholder: 'fal-…' },
   { id: 'genaipro', name: 'GenAI Pro', helpText: 'Veo video and audio generation gateway.', placeholder: '…' },
   { id: 'elevenlabs', name: 'ElevenLabs', helpText: 'Voice synthesis for narration.', placeholder: 'xi-…' },
+  { id: 'fishaudio', name: 'Fish Audio', helpText: 'Affordable cloud voice synthesis (~$0.015/1k chars). Supports your cloned voices via reference ID — paste it in the Audio Generator’s Voice field.', placeholder: '…', affiliateUrl: 'https://fish.audio/go-api/' },
   { id: 'google', name: 'Google', helpText: 'Used for selected Google AI Studio endpoints.', placeholder: '…' },
   { id: 'pexels', name: 'Pexels', helpText: 'Free CC-licensed stock video. Get a key at pexels.com/api — 200 req/hr free tier.', placeholder: '…', affiliateUrl: 'https://www.pexels.com/api/new/' },
   { id: 'pixabay', name: 'Pixabay', helpText: 'Free CC-licensed stock video. Get a key at pixabay.com/api/docs — free tier.', placeholder: '…', affiliateUrl: 'https://pixabay.com/api/docs/' },
