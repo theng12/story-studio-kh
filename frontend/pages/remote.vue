@@ -83,7 +83,23 @@
         </div>
       </section>
 
-      <p class="rm-foot">Tip: set step presets once on the desktop — the cockpit just triggers.</p>
+      <!-- Needs approval -->
+      <section v-if="pendingApprovals.length" class="rm-card">
+        <p class="rm-card-title">Needs approval</p>
+        <div v-for="ep in pendingApprovals" :key="ep.episode_id" class="rm-job">
+          <div class="rm-job-main">
+            <p class="rm-job-title">{{ ep.title }} <span class="rm-mut">· {{ ep.episode_id }}</span></p>
+            <p class="rm-job-sub">{{ ep.with_image }}/{{ ep.total }} rendered · {{ ep.approved }} approved</p>
+          </div>
+          <button
+            class="rm-job-btn rm-approve"
+            :disabled="approving.has(ep.episode_id)"
+            @click="approve(ep)"
+          >Approve</button>
+        </div>
+      </section>
+
+      <p class="rm-foot">Alerts on run finish / fail go to Telegram — enable it in Settings → Notifications on the desktop.</p>
     </template>
   </div>
 </template>
@@ -95,7 +111,7 @@ import type { Job } from '~/composables/useJobs'
 
 definePageMeta({ layout: 'default' })
 
-const { get, post, del } = useApi()
+const { get, post, put, del } = useApi()
 const { success, error: showError } = useToast()
 const { jobs, stats, startPolling, stopPolling } = useJobs()
 
@@ -135,6 +151,32 @@ function jobSubline(job: Job): string {
   return last ? String(last).slice(0, 80) : 'running…'
 }
 
+interface PendingApproval { episode_id: string; title: string; total: number; approved: number; with_image: number }
+const pendingApprovals = ref<PendingApproval[]>([])
+const approving = ref<Set<string>>(new Set())
+
+async function loadApprovals(slug: string) {
+  try {
+    const r = await get<{ pending: PendingApproval[] }>(`/projects/${slug}/pipeline/pending-approvals`)
+    pendingApprovals.value = r?.pending || []
+  } catch { pendingApprovals.value = [] }
+}
+
+async function approve(ep: PendingApproval) {
+  const slug = selectedSlug.value
+  if (!slug || approving.value.has(ep.episode_id)) return
+  approving.value = new Set(approving.value).add(ep.episode_id)
+  try {
+    await put(`/projects/${slug}/scene-review/${ep.episode_id}/approve`, { all: true })
+    success(`Approved ${ep.episode_id}`)
+    await loadApprovals(slug)
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to approve')
+  } finally {
+    const next = new Set(approving.value); next.delete(ep.episode_id); approving.value = next
+  }
+}
+
 async function loadProjects() {
   loadingProjects.value = true
   try {
@@ -163,14 +205,22 @@ async function loadProject(slug: string) {
     const list = Array.isArray(data) ? data : (data?.episodes || [])
     episodeCodes.value = list.map((e: any) => e.episode_code).filter((c: any) => typeof c === 'string' && c)
   } catch { episodeCodes.value = [] }
+  void loadApprovals(slug)
 }
 
 watch(selectedSlug, (slug, prev) => {
   if (!slug || slug === prev) return
   if (import.meta.client) localStorage.setItem(LAST_KEY, slug)
   stopPolling()
+  pendingApprovals.value = []
   void loadProject(slug)
   startPolling(slug)
+})
+
+// Each time a job completes, a render may have just finished — refresh the
+// approvals list so newly-rendered episodes surface without a manual reload.
+watch(() => stats.value?.done, (now, prev) => {
+  if (now !== prev && selectedSlug.value) void loadApprovals(selectedSlug.value)
 })
 
 async function run() {
@@ -320,6 +370,7 @@ onBeforeUnmount(() => stopPolling())
 .rm-job-btn { height: 44px; min-width: 64px; padding: 0 14px; border-radius: 8px; font-size: 14px; flex-shrink: 0; }
 .rm-stop { color: #dc6666; border-color: rgba(220,38,38,0.4); }
 .rm-retry { color: #c79328; border-color: rgba(240,198,116,0.5); }
+.rm-approve { color: #4ade80; border-color: rgba(74,222,128,0.45); }
 .rm-stopall { height: 36px; padding: 0 12px; border-radius: 8px; font-size: 13px; color: #dc6666; border-color: rgba(220,38,38,0.4); }
 
 .rm-foot { margin: 0; font-size: 11px; color: var(--text-muted, #888); text-align: center; }

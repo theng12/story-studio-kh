@@ -8,6 +8,8 @@
          bell. The drag region flexes to fill the gap so the window stays
          draggable everywhere except over the bell. -->
     <header class="top-bar">
+      <!-- v1.0.366 — hamburger for narrow screens (iPad/phone). Hidden ≥900px via CSS. -->
+      <button class="menu-toggle" aria-label="Open navigation" @click="mobileNavOpen = true">&#9776;</button>
       <div class="titlebar-drag"></div>
       <div class="top-bar-actions">
         <NotificationCenter v-if="slug" :slug="slug" />
@@ -15,7 +17,8 @@
     </header>
     <FfmpegSetupDialog />
     <div class="layout-body">
-    <aside class="sidebar">
+    <div v-if="mobileNavOpen" class="sidebar-overlay" @click="mobileNavOpen = false" />
+    <aside class="sidebar" :class="{ 'mobile-open': mobileNavOpen }">
       <div class="sidebar-brand">
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
           <circle cx="12" cy="12" r="10" stroke="var(--accent)" stroke-width="1.5" />
@@ -421,6 +424,11 @@ import { normalizeVisualSource, type VisualSource } from '~/composables/useProje
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 
+// v1.0.366 — mobile/touch: the sidebar becomes an off-canvas drawer below 900px.
+// Closes on navigation so tapping a nav item doesn't leave the drawer open.
+const mobileNavOpen = ref(false)
+watch(() => route.fullPath, () => { mobileNavOpen.value = false })
+
 // v1.0.88+: helpers for the four split image-prompts/images sidebar
 // entries. Each pair points at the same URL path with a different
 // ?tab= query value, so NuxtLink's path-based active-class can't
@@ -725,6 +733,46 @@ function openWhatsNew() { _whatsNew.open() }
   padding: 0 12px;
   border-bottom: 1px solid var(--border);
   -webkit-app-region: no-drag;
+}
+
+/* v1.0.366 — hamburger + off-canvas sidebar for narrow screens (iPad/phone).
+   Desktop (≥900px) is unchanged; the toggle + overlay only appear below it. */
+.menu-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 38px;
+  flex-shrink: 0;
+  font-size: 20px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text, inherit);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.sidebar-overlay { display: none; }
+@media (max-width: 900px) {
+  .menu-toggle { display: inline-flex; }
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: 264px;
+    max-width: 82vw;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    z-index: 300;
+  }
+  .sidebar.mobile-open { transform: translateX(0); box-shadow: 0 0 40px rgba(0, 0, 0, 0.5); }
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 250;
+  }
+  .main-content { padding: 16px; }
 }
 
 /* Body takes remaining space below top-bar, holds sidebar + main content side-by-side. */

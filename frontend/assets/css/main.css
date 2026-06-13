@@ -504,3 +504,15 @@ label {
 }
 .form-tab:hover { color: var(--text-primary); }
 .form-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* v1.0.366 — touch targets. On touch/pen pointers (iPad, phone) grow the small
+   buttons + native checkboxes/radios to a comfortable tap size. Gated on
+   `pointer: coarse` so mouse/desktop sizing is completely unchanged. */
+@media (pointer: coarse) {
+  .btn,
+  .btn-sm,
+  .btn-xs { min-height: 44px; }
+  .btn-xs { padding-top: 8px; padding-bottom: 8px; }
+  input[type="checkbox"],
+  input[type="radio"] { min-width: 22px; min-height: 22px; }
+}

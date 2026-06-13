@@ -17,6 +17,12 @@ import type { Format, JobType } from '../models/types.js'
 import { computeEpisodeStatus, type EpisodeStatus } from '../services/asset-status.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { writeContinuityConfig } from './continuity.js'
+import fs from 'fs/promises'
+import { existsSync } from 'fs'
+import path from 'path'
+import { resolveEpisodePathsByCode } from '../services/utils.js'
+import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
+import { SCENE_IMAGES_SUBFOLDER } from '../generators/scene-image.js'
 import {
   estimateRunBatchBytes,
   getFreeBytes,
@@ -807,6 +813,43 @@ function extractEstimateInputs(
   }
   return Array.from({ length: episodeCount }, () => ({ ...perEpisode }))
 }
+
+// v1.0.366 — episodes awaiting Scene Review approval, for the Remote cockpit.
+// "Pending" = a scene_plan exists, at least one scene is rendered, and not all
+// scenes are approved. Mirrors the per-episode logic in scene-review.ts (count
+// approved + rendered), in one call so the cockpit doesn't fan out N requests.
+router.get('/projects/:slug/pipeline/pending-approvals', async (req, res) => {
+  const { slug } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const ideas = await im.getIdeas(slug, 'accepted')
+    const pending: Array<{ episode_id: string; title: string; total: number; approved: number; with_image: number }> = []
+    for (const idea of ideas) {
+      const code = (idea as any).episode_code
+      if (!code) continue
+      let paths
+      try { paths = await resolveEpisodePathsByCode(slug, code) } catch { continue }
+      const planPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
+      if (!existsSync(planPath)) continue
+      let scenes: any[]
+      try { scenes = JSON.parse(await fs.readFile(planPath, 'utf-8'))?.scenes || [] } catch { continue }
+      if (!scenes.length) continue
+      const approved = scenes.filter(s => s.approved).length
+      if (approved >= scenes.length) continue   // fully approved — nothing to do
+      const imageDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+      let withImage = 0
+      if (existsSync(imageDir)) {
+        const files = new Set(await fs.readdir(imageDir).catch(() => [] as string[]))
+        withImage = scenes.filter(s => files.has(`${s.id}.png`)).length
+      }
+      if (withImage === 0) continue              // nothing rendered yet — can't approve
+      pending.push({ episode_id: code, title: (idea as any).title || code, total: scenes.length, approved, with_image: withImage })
+    }
+    res.json({ pending })
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to compute pending approvals' })
+  }
+})
 
 router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
   const { slug } = req.params

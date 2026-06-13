@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.366 — 2026-06-13
+
+### Added — Remote cockpit Phase 2: approvals, run alerts, and desktop touch-polish
+Rounds out the `/remote` cockpit and makes the regular pages usable on a phone.
+
+- **Approvals in the cockpit.** A "Needs approval" card lists episodes that have rendered scenes awaiting your OK, with a big Approve button (bulk-approves all rendered scenes). It refreshes automatically as renders finish. Backed by a new `GET /projects/:slug/pipeline/pending-approvals` that returns episodes whose scene plan is rendered-but-not-all-approved (one call, no per-episode fan-out).
+- **Run finished / failed alerts → Telegram.** This was already wired end-to-end (a pipeline batch completing fires a Telegram message with the success/failed counts) — you just enable it once in Settings → Notifications (bot token + chat ID; there's a "Detect chat ID" button). The cockpit now says so in its footer. Works over plain Tailscale, app closed, no HTTPS.
+- **Desktop pages are touch-friendly.** The 220px sidebar now collapses to a hamburger + slide-in drawer below 900px (it closes when you tap a nav item), and on touch devices the small buttons + checkboxes grow to a 44px tap target. All of this is gated on screen width / `pointer: coarse`, so the desktop mouse experience is completely unchanged.
+
+### Files
+- `electron/server/routes/pipeline.ts` (new `pending-approvals` endpoint)
+- `frontend/pages/remote.vue` (approvals card + approve; Telegram footer)
+- `frontend/layouts/dashboard.vue` (hamburger + off-canvas sidebar drawer, <900px)
+- `frontend/assets/css/main.css` (touch tap-target sizes under `pointer: coarse`)
+
+---
+
 ## v1.0.365 — 2026-06-13
 
 ### Added — Remote control cockpit (touch-first, for iPad/phone over Tailscale)
