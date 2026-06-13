@@ -372,13 +372,16 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // promise chain (re-reading fresh each time) so concurrent independent-mode
   // workers can't clobber each other's writes to the shared plan file.
   let planChain: Promise<void> = Promise.resolve()
-  const persistImagePath = (sceneId: string, outPath: string): Promise<void> => {
+  const persistImagePath = (sceneId: string, outPath: string, renderedPrompt: string): Promise<void> => {
     planChain = planChain.then(async () => {
       try {
         const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
         const target = fresh.scenes.find(s => s.id === sceneId)
         if (target) {
           target.image_path = outPath
+          // v1.0.359 — stamp the prompt this image was rendered from so Scene
+          // Review can flag the image as stale if visual_prompt later changes.
+          target.rendered_prompt = renderedPrompt
           target.approved = false   // user re-approves after a render
           await fs.writeFile(planPath, JSON.stringify(fresh, null, 2), 'utf-8')
         }
@@ -528,7 +531,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
               })
             }
             await downloadImage(result.urls[0]!, outPath)
-            await persistImagePath(scene.id, outPath)
+            await persistImagePath(scene.id, outPath, scene.visual_prompt)
             rendered++
             job.output_lines.push(`Scene ${scene.scene_index}/${scenes.length} (${scene.id}) ✓ — ${sref.refPaths.length} ref(s)${sref.includeCharacter ? '' : ' · no-character'}`)
           } catch (e: any) {
@@ -699,6 +702,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       const target = fresh.scenes.find(s => s.id === scene.id)
       if (target) {
         target.image_path = outPath
+        target.rendered_prompt = scene.visual_prompt   // v1.0.359 — stale-detection stamp
         target.approved = false
         await fs.writeFile(planPath, JSON.stringify(fresh, null, 2), 'utf-8')
       }

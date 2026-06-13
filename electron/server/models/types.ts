@@ -3126,6 +3126,12 @@ export interface ScenePlanEntry {
   approved?: boolean
   /** v1.0.144+ — path to the generated image file once it exists. */
   image_path?: string
+  /** v1.0.359 — the `visual_prompt` value the current `image_path` was rendered
+   *  from. Stamped by the continuity renderer when it writes image_path. If it
+   *  later differs from `visual_prompt` (user re-prompted in Scene Plan, or
+   *  edited+saved in Scene Review without re-rendering), the image is STALE —
+   *  Scene Review flags it. Absent on images rendered before this shipped. */
+  rendered_prompt?: string
   /** Reason the LLM picked this scene boundary, used as a hint in
    *  the Scene Plan UI ("Topic shift to <X>", "Named entity intro:
    *  <Y>"). Optional. */

@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.359 — 2026-06-13
+
+### Added — Scene Review: stale-image detection + select/approve from inside the preview
+
+**Stale images are now flagged.** When you re-prompt a scene in Scene Plan (or edit + save its prompt in Scene Review) without re-rendering, the existing image is now *stale* — rendered from an older prompt. Scene Review surfaces this so you can refresh exactly those:
+- An **⚠ corner flag** on the thumbnail + an **"⚠ stale — re-render"** badge on the row (and in the preview), for every image whose prompt has changed since it was rendered.
+- A **"⚠ Select stale (N)"** button in the toolbar ticks all stale scenes in one click, then **⚡ Regenerate selected** re-renders them as one parallel job.
+- How it works: the renderer now stamps each image with the prompt it was rendered from (`rendered_prompt` in `scene_plan.json`); a mismatch with the current `visual_prompt` = stale. **Only images rendered from this version on are tracked** — older images won't light up retroactively (no false alarms), but the next time you render or re-prompt them, staleness tracks correctly.
+
+**Select for re-render without leaving the preview.** Previously, to pick scenes for a batch re-render you had to close the full-size preview, find the row, tick its checkbox, and re-open. Now there's a **"☐ Select for re-render"** toggle right in the preview's action row — and a keyboard shortcut **Shift+Y** to toggle it while flipping through scenes with ← / →. Pick as you review, then ⚡ Regenerate selected.
+
+### Files
+- `electron/server/models/types.ts` (`ScenePlanEntry.rendered_prompt`)
+- `electron/server/generators/continuity-render.ts` + `electron/server/generators/scene-image.ts` (stamp `rendered_prompt` when writing `image_path`)
+- `electron/server/routes/scene-review.ts` (compute + return per-scene `stale`)
+- `frontend/pages/projects/[slug]/scene-review.vue` (stale badges + "Select stale", in-preview select button + Shift+Y)
+
+---
+
 ## v1.0.358 — 2026-06-13
 
 ### Changed — Scene Review: render preset moved to the top

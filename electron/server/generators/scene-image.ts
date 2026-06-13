@@ -160,6 +160,9 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   const target = fresh.scenes.find(s => s.id === scene_id)
   if (target) {
     target.image_path = outPath
+    // v1.0.359 — stamp the prompt this image was rendered from so Scene Review
+    // can flag it stale if visual_prompt changes later (re-prompt without render).
+    target.rendered_prompt = target.visual_prompt
     // Reset approval if it was set against a prior image — user
     // should re-approve after a regen.
     target.approved = false

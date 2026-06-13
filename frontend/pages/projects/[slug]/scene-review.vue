@@ -191,6 +191,17 @@
           >
             ☑ Select unapproved
           </button>
+          <!-- v1.0.359 — stale images: rendered from an older prompt (you
+               re-prompted in Scene Plan or edited the prompt here without
+               re-rendering). One click ticks them all for a parallel re-render. -->
+          <button
+            v-if="isContinuity && selectedCount === 0 && staleCount > 0"
+            class="btn btn-sm btn-warn"
+            @click="selectAllStale"
+            title="Tick every scene whose image is older than its current prompt, then Regenerate selected."
+          >
+            ⚠ Select stale ({{ staleCount }})
+          </button>
           <button
             v-if="isContinuity && stats.with_image > 0 && stats.approved < stats.total_scenes"
             class="btn btn-sm btn-ghost"
@@ -348,6 +359,8 @@
                 <span class="review-spinner" aria-hidden="true" />
                 <small>Rendering…</small>
               </div>
+              <!-- v1.0.359 — stale corner flag (image older than current prompt). -->
+              <span v-if="scene.stale && !isSceneGenerating(scene)" class="review-thumb-stale" title="Stale — rendered from an older prompt">⚠</span>
             </template>
             <!-- Empty + currently generating (sequential render is on this one). -->
             <div v-else-if="isSceneGenerating(scene)" class="review-thumb-generating" :style="{ aspectRatio: thumbAspect }">
@@ -380,6 +393,12 @@
               <span v-if="scene.boundary_reason" class="text-muted text-xs">
                 · {{ scene.boundary_reason }}
               </span>
+              <!-- v1.0.359 — stale: image older than the current prompt. -->
+              <span
+                v-if="scene.stale"
+                class="review-stale-badge"
+                title="This image was rendered from an older prompt — the prompt has changed since. Re-render to refresh it."
+              >⚠ stale — re-render</span>
             </div>
             <p class="review-transcript">{{ scene.transcript_segment }}</p>
             <details class="review-prompt-details">
@@ -466,6 +485,7 @@
             <span class="text-muted">{{ previewScene.start_sec.toFixed(1) }}s → {{ previewScene.end_sec.toFixed(1) }}s</span>
             <span v-if="previewScene.approved" class="sr-lb-approved">✓ Approved</span>
             <span v-if="promptDirty" class="sr-lb-dirty" title="You've edited the prompt but haven't saved/regenerated yet.">● unsaved prompt edit</span>
+            <span v-if="previewScene.stale" class="sr-lb-stale" title="This image was rendered from an older prompt — re-render to refresh it.">⚠ stale — re-render</span>
           </div>
           <!-- v1.0.342 — the prompt that produced this image, editable inline so
                a bad LLM prompt can be fixed + re-rendered without leaving review. -->
@@ -501,6 +521,14 @@
               @click.stop="regenerateFromPreview(previewScene)"
               :title="!form.model ? 'Pick a model in the Greenlight panel first' : 'Re-render this image (saves your prompt edit first)'"
             >{{ regeneratingId === previewScene.id ? '⏳ Rendering…' : '🔄 Regenerate' }}</button>
+            <!-- v1.0.359 — tick THIS scene for the parallel "Regenerate selected"
+                 batch without leaving the preview. Keyboard: Shift+Y. -->
+            <button
+              v-if="isContinuity"
+              :class="['btn btn-sm', previewSelected ? 'btn-primary' : 'btn-ghost']"
+              @click.stop="toggleSelected(previewScene.id)"
+              title="Mark this scene for a parallel re-render (⚡ Regenerate selected). Keyboard: Shift+Y"
+            >{{ previewSelected ? '☑ Selected' : '☐ Select for re-render' }}<span class="sr-lb-kbd">⇧Y</span></button>
             <button
               :class="['btn btn-sm', previewScene.approved ? 'btn-primary' : 'btn-secondary']"
               @click.stop="approveOne(previewScene, !previewScene.approved)"
@@ -559,6 +587,10 @@ interface ReviewScene {
   approved: boolean
   image_filename: string | null
   boundary_reason?: string
+  /** v1.0.359 — image exists but was rendered from a different prompt than the
+   *  current visual_prompt (re-prompted in Scene Plan / edited here without
+   *  re-rendering). */
+  stale?: boolean
 }
 interface ReviewStats {
   total_scenes: number
@@ -798,9 +830,19 @@ function stepPreview(dir: -1 | 1): void {
 }
 function onPreviewKey(e: KeyboardEvent): void {
   if (!previewScene.value) return
+  // Ignore keystrokes while typing in the inline prompt editor (it has
+  // @keydown.stop, but guard anyway so Shift+Y can't fire from a text field).
+  const tag = (e.target as HTMLElement | null)?.tagName
+  if (tag === 'TEXTAREA' || tag === 'INPUT') return
   if (e.key === 'Escape') { closePreview(); e.preventDefault() }
   else if (e.key === 'ArrowLeft') { stepPreview(-1); e.preventDefault() }
   else if (e.key === 'ArrowRight') { stepPreview(1); e.preventDefault() }
+  // v1.0.359 — Shift+Y toggles THIS scene's re-render selection without
+  // leaving the preview (continuity only — that's where the batch lives).
+  else if (e.shiftKey && (e.key === 'Y' || e.key === 'y') && isContinuity.value) {
+    toggleSelected(previewScene.value.id)
+    e.preventDefault()
+  }
 }
 // Keep the open preview pointed at the freshest scene object after reloads
 // (e.g. when its approval flips or a parallel render lands its image).
@@ -841,6 +883,16 @@ function clearSelection(): void { selectedIds.value = new Set() }
 function selectAllUnapproved(): void {
   selectedIds.value = new Set(scenes.value.filter(s => !s.approved && s.visual_prompt).map(s => s.id))
 }
+
+// v1.0.359 — stale images (rendered from an older prompt). Surfaced as a count
+// + a one-click "select all stale" so re-prompted scenes are easy to re-render.
+const staleCount = computed(() => scenes.value.filter(s => s.stale).length)
+function selectAllStale(): void {
+  selectedIds.value = new Set(scenes.value.filter(s => s.stale && s.visual_prompt).map(s => s.id))
+}
+/** Is the currently-previewed scene ticked for re-render? (modal selection.) */
+const previewSelected = computed(() =>
+  !!previewScene.value && selectedIds.value.has(previewScene.value.id))
 /** Re-render the checked scenes as ONE parallel pool job. */
 async function regenerateSelected(): Promise<void> {
   const ids = scenes.value.filter(s => selectedIds.value.has(s.id) && s.visual_prompt).map(s => s.id)
@@ -1416,6 +1468,49 @@ watch(episodeId, () => { void loadReview() })
 .sr-lb-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: center; }
 .sr-lb-approved { color: #5bb37c; font-weight: 600; }
 .sr-lb-dirty { color: #e0b15a; font-weight: 600; }
+
+/* v1.0.359 — stale-image flags + the in-preview keyboard hint + Select-stale button. */
+.sr-lb-stale { color: #e0843a; font-weight: 600; }
+.sr-lb-kbd {
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 1.4;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  opacity: 0.7;
+}
+/* Row-head badge + thumbnail corner flag. */
+.review-stale-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e0843a;
+  border: 1px solid color-mix(in srgb, #e0843a 50%, transparent);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+.review-thumb-stale {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border-radius: 50%;
+  background: #e0843a;
+  color: #1a1205;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  z-index: 2;
+}
+.btn-warn {
+  background: color-mix(in srgb, #e0843a 22%, transparent);
+  border-color: #e0843a;
+  color: var(--text-primary);
+}
+.btn-warn:hover { background: color-mix(in srgb, #e0843a 38%, transparent); }
 .sr-lb-prompt { display: flex; flex-direction: column; gap: 4px; }
 .sr-lb-prompt-label { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
 .sr-lb-prompt-input {

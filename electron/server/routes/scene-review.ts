@@ -45,6 +45,13 @@ interface ReviewSceneAugmented {
    *  + the image streaming endpoint to render the thumbnail. */
   image_filename: string | null
   boundary_reason?: string
+  /** v1.0.359 — the rendered image is STALE: it exists but was rendered from a
+   *  different prompt than the scene's current `visual_prompt` (the user
+   *  re-prompted in Scene Plan, or edited + saved the prompt in Scene Review,
+   *  without re-rendering). Computed from ScenePlanEntry.rendered_prompt, which
+   *  the renderer stamps alongside image_path. Always false for images rendered
+   *  before this shipped (no rendered_prompt recorded) — no false positives. */
+  stale: boolean
 }
 
 // ── GET /scene-review/:ep ─────────────────────────────────────────────
@@ -78,6 +85,12 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         approved: !!s.approved,
         image_filename: exists ? filename : null,
         boundary_reason: s.boundary_reason,
+        // Stale = image on disk but its rendered_prompt no longer matches the
+        // current visual_prompt. Unknown rendered_prompt (pre-feature renders)
+        // → not stale, so old episodes don't all light up red.
+        stale: exists
+          && typeof (s as any).rendered_prompt === 'string'
+          && (s as any).rendered_prompt !== s.visual_prompt,
       })
     }
 
