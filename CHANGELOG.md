@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.365 — 2026-06-13
+
+### Added — Remote control cockpit (touch-first, for iPad/phone over Tailscale)
+A new `/remote` page built for controlling the pipeline from a phone or iPad while you're out — bookmark `http://<your-tailscale-host>:<port>/remote` to your home screen. It's the easy-to-use surface the dense desktop pages aren't on a small screen.
+
+- **Project switcher** at the top — jump between channels; remembers your last pick.
+- **One-tap bulk run** — pick "Full run" or "Up to review", optionally force re-run finished steps, and tap "Run N episodes". It queues `run-batch` across every episode; the backend skips already-done steps, so it only does outstanding work. The step set mirrors the desktop pipeline's defaults per format and deliberately excludes the opt-in/costly steps (Introduction, AI Video Clips) so a remote tap never surprise-spends. If a step lacks a saved preset, the cockpit says which — set presets once on the desktop.
+- **Live jobs** — running/queued/failed jobs with big touch targets: Stop per job, Stop all, and Retry on a failed job (re-runs that episode's outstanding steps).
+- Status chips (running / queued / failed / episode count) from the live job stream.
+
+Reachable today over Server Mode + Tailscale (no HTTPS needed). Next: run-finished/failed alerts via the existing Telegram notifier, and an optional touch-polish pass on the desktop pages.
+
+### Files
+- `frontend/pages/remote.vue` (new — the cockpit; uses `definePageMeta({ layout: 'default' })` so no desktop sidebar)
+- `frontend/composables/useRemoteChain.ts` (new — per-format step chains for the bulk run, mirroring pipeline.vue's defaults)
+
+---
+
 ## v1.0.364 — 2026-06-13
 
 ### Changed — one "Look" + a shared style picker across Character Sheet and Scene Plan
