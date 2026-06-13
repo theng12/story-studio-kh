@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.377 — 2026-06-13
+
+### Fixed — Scene Review loads saved plans even with old scene-review job records
+Scene Review could still show the empty **No scene plan yet** state for finished episodes because the review API crashed after reading `scene_plan.json`. The crash came from optional job metadata: old `jobs.json` files could contain retired `scene_review` job records, and `getJobs()` tried to calculate queue position from a queue lane that no longer exists.
+
+This release fixes the actual load failure:
+
+- Job listing now tolerates persisted legacy job types with no active queue lane.
+- Scene Review treats active-render job metadata as optional, so bad job history cannot block loading the saved scene plan.
+- A regression test pins the legacy-job behavior.
+
+### Files
+- `electron/server/services/job-queue.ts` (legacy job type guard)
+- `electron/server/routes/scene-review.ts` (non-blocking active job lookup)
+- `electron/server/__tests__/job-queue.test.ts` (legacy job regression)
+
+---
+
 ## v1.0.376 — 2026-06-13
 
 ### Fixed — shared DMG now copies to the correct iCloud folder

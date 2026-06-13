@@ -123,11 +123,18 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       }
     } catch { /* no status / unreadable — leave null */ }
 
-    const activeJob = (await jq.getJobs(slug)).find((j: any) =>
-      j.episode_id === episodeId
-      && j.type === 'continuity_render'
-      && (j.status === 'running' || j.status === 'queued')
-    ) || null
+    let activeJob: any = null
+    try {
+      activeJob = (await jq.getJobs(slug)).find((j: any) =>
+        j.episode_id === episodeId
+        && j.type === 'continuity_render'
+        && (j.status === 'running' || j.status === 'queued')
+      ) || null
+    } catch {
+      // Job metadata is non-critical for this endpoint. A stale/legacy job
+      // record must not prevent Scene Review from loading the saved plan.
+      activeJob = null
+    }
 
     res.json({
       scene_plan: {

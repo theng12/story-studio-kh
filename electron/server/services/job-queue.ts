@@ -725,7 +725,8 @@ export async function getJobs(projectSlug: string): Promise<Job[]> {
     if (job.project_slug === projectSlug) {
       const j = safeJob(job)
       if (j.status === 'queued') {
-        j.queue_position = queues[job.type].pending.findIndex(p => p.job_id === j.job_id) + 1
+        const q = queues[job.type]
+        j.queue_position = q ? q.pending.findIndex(p => p.job_id === j.job_id) + 1 : 0
       }
       projectJobs.push(j)
     }

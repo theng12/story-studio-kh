@@ -106,6 +106,33 @@ describe('getJobs() / getQueueStats()', () => {
     assert.ok(codes.includes('EP002'))
   })
 
+  test('tolerates persisted legacy job types with no queue lane', async () => {
+    const proj = await pm.createProject({ name: 'JQLegacyType' })
+    const jobsPath = path.join(tempDir, 'projects', proj.slug, 'jobs.json')
+    await fs.writeFile(jobsPath, JSON.stringify({
+      jobs: [{
+        job_id: 'legacy01',
+        project_slug: proj.slug,
+        type: 'scene_review',
+        episode_id: 'EP001',
+        title: 'Retired scene review job',
+        status: 'queued',
+        created_at: new Date().toISOString(),
+        started_at: null,
+        finished_at: null,
+        error: null,
+        output_lines: [],
+        params: {},
+      }],
+    }, null, 2))
+
+    const list = await jq.getJobs(proj.slug)
+    const legacy = list.find(j => j.job_id === 'legacy01')
+    assert.equal(legacy?.type, 'scene_review')
+    assert.equal(legacy?.status, 'error')
+    assert.equal(legacy?.error, 'Interrupted by app restart')
+  })
+
   test('getQueueStats reports counts', async () => {
     const proj = await pm.createProject({ name: 'JQStats' })
     jq.registerExecutor('script-only', async () => {})
