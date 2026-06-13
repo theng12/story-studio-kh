@@ -91,7 +91,7 @@ router.put('/app-settings/notifications', async (req, res) => {
       return res.status(400).json({ detail: 'digest must be an object' })
     }
     const dg = body.digest as Record<string, unknown>
-    const dgPatch: { enabled?: boolean; time_local?: string; desktop_enabled?: boolean; telegram_enabled?: boolean } = {}
+    const dgPatch: { enabled?: boolean; time_local?: string; desktop_enabled?: boolean; telegram_enabled?: boolean; quiet_when_empty?: boolean } = {}
     if (dg.enabled !== undefined) {
       if (typeof dg.enabled !== 'boolean') {
         return res.status(400).json({ detail: 'digest.enabled must be a boolean' })
@@ -116,7 +116,30 @@ router.put('/app-settings/notifications', async (req, res) => {
       }
       dgPatch.telegram_enabled = dg.telegram_enabled
     }
+    if (dg.quiet_when_empty !== undefined) {
+      if (typeof dg.quiet_when_empty !== 'boolean') {
+        return res.status(400).json({ detail: 'digest.quiet_when_empty must be a boolean' })
+      }
+      dgPatch.quiet_when_empty = dg.quiet_when_empty
+    }
     ;(patch as any).digest = dgPatch
+  }
+  // v1.0.367 — per-event toggles.
+  if (body.events !== undefined) {
+    if (!body.events || typeof body.events !== 'object') {
+      return res.status(400).json({ detail: 'events must be an object' })
+    }
+    const ev = body.events as Record<string, unknown>
+    const evPatch: { pipeline_finished?: boolean; failures?: boolean; long_job?: boolean } = {}
+    for (const k of ['pipeline_finished', 'failures', 'long_job'] as const) {
+      if (ev[k] !== undefined) {
+        if (typeof ev[k] !== 'boolean') {
+          return res.status(400).json({ detail: `events.${k} must be a boolean` })
+        }
+        evPatch[k] = ev[k] as boolean
+      }
+    }
+    ;(patch as any).events = evPatch
   }
   if (body.telegram !== undefined) {
     if (!body.telegram || typeof body.telegram !== 'object') {

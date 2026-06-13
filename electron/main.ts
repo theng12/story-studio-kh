@@ -20,7 +20,7 @@ import { isServerMode, getServerModeConfig } from './server/lib/server-mode.js'
 import { bootstrapServerModeFromEnv } from './server/services/app-settings.js'
 import {
   aggregateBatch, isBatchComplete, shouldNotifyForSingleJob,
-  formatBatchMessage, formatSingleJobMessage, getBatchId,
+  formatBatchMessage, formatSingleJobMessage, formatFailureMessage, getBatchId,
   getNotifierSettings,
 } from './server/services/job-notifier.js'
 import type { Job } from './server/models/types.js'
@@ -428,25 +428,36 @@ function installJobNotifier(): void {
         projectLabel = meta?.name || job.project_slug
       } catch { projectLabel = job.project_slug }
 
+      // v1.0.367 — per-event toggles. Channels (above) decide WHERE; these
+      // decide WHICH events fire. getNotifierSettings always populates events.
+      const events = settings.events || { pipeline_finished: true, failures: true, long_job: true }
       const batchId = getBatchId(job)
+
+      // 1. Immediate failure ping — any job (incl. batch members), no duration
+      //    gate. Deduped via notifiedJobs so it fires at most once per job.
+      if (events.failures && job.status === 'error' && !notifiedJobs.has(job.job_id)) {
+        notifiedJobs.add(job.job_id)
+        await dispatchNotification(formatFailureMessage(job, projectLabel), job.project_slug, settings)
+      }
+
+      // 2. Batch summary — once per batch, when every job in it is terminal.
       if (batchId) {
-        if (notifiedBatches.has(batchId)) return
-        const allJobs = await getJobs(job.project_slug).catch(() => [] as Job[])
-        const stats = aggregateBatch(allJobs, batchId)
-        if (!isBatchComplete(stats)) return
-        notifiedBatches.add(batchId)
-        await dispatchNotification(formatBatchMessage(stats, projectLabel), job.project_slug, settings)
+        if (events.pipeline_finished && !notifiedBatches.has(batchId)) {
+          const allJobs = await getJobs(job.project_slug).catch(() => [] as Job[])
+          const stats = aggregateBatch(allJobs, batchId)
+          if (isBatchComplete(stats)) {
+            notifiedBatches.add(batchId)
+            await dispatchNotification(formatBatchMessage(stats, projectLabel), job.project_slug, settings)
+          }
+        }
         return
       }
 
+      // 3. Long single (non-batch) job. Errors are handled by the failure
+      //    ping above, so this covers done/cancelled that ran ≥ the threshold.
       if (notifiedJobs.has(job.job_id)) return
-      // shouldNotifyForSingleJob still gates on `settings.enabled` for
-      // the desktop side, so we re-check at dispatch level: if EITHER
-      // desktop or telegram is on for long-job pings, dispatch.
-      const wantsLongJobPing = (settings.enabled
-        || !!(settings.telegram?.enabled && settings.telegram.bot_token && settings.telegram.chat_id))
-        && !getBatchId(job)
-        && (job.status === 'done' || job.status === 'error' || job.status === 'cancelled')
+      const wantsLongJobPing = events.long_job
+        && (job.status === 'done' || job.status === 'cancelled')
         && !!(job.started_at && job.finished_at)
         && (Date.parse(job.finished_at) - Date.parse(job.started_at)) >= settings.min_duration_ms
       if (wantsLongJobPing) {

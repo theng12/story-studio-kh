@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.367 — 2026-06-13
+
+### Added — notification controls: per-event toggles, failure pings, friendlier labels, quieter digest
+Settings → Notifications gives you control over exactly which alerts you get.
+
+- **Per-event toggles.** A "Which events notify you" section with three switches — **Pipeline run finished**, **Failures**, and **Long single job done** — so you can keep the ones you want and mute the rest. Channels (desktop / Telegram) decide *where* alerts go; these decide *which* fire. All on by default.
+- **Immediate failure alerts.** With **Failures** on, any job that errors pings you the moment it fails — for every job type, including the audio-paced steps (scene plan, scene render, subtitles, audio merge, character sheet…). No more waiting for the whole run to finish to learn something broke.
+- **Friendlier job names.** Notifications now say "Scene plan" / "Scene render" / "Subtitles" instead of raw internal names like `scene_plan_run`.
+- **Quieter daily digest.** A new **"Only when something's going live"** option skips the scheduled digest on days with nothing scheduled — no "nothing today" pings. Manual "Send digest now" always works.
+
+### Files
+- `electron/server/services/job-notifier.ts` (`NotificationEvents` config + read/merge; `JOB_TYPE_LABELS` + `labelForJobType`; `shouldNotifyFailure` + `formatFailureMessage`; `DigestConfig.quiet_when_empty`)
+- `electron/main.ts` (dispatch gates on the per-event toggles; immediate failure ping)
+- `electron/server/services/digest-scheduler.ts` (skip scheduled send when quiet-when-empty and nothing's going live)
+- `electron/server/routes/app-settings.ts` (validate `events` + `digest.quiet_when_empty`)
+- `frontend/pages/projects/[slug]/settings.vue` (events toggles + quiet-when-empty UI)
+- `electron/server/__tests__/job-notifier.test.ts` (events/failure/label/quiet coverage)
+
 ## v1.0.366 — 2026-06-13
 
 ### Added — Remote cockpit Phase 2: approvals, run alerts, and desktop touch-polish

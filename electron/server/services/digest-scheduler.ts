@@ -122,10 +122,9 @@ async function tick(): Promise<void> {
     && !!(settings.telegram?.enabled && settings.telegram.bot_token && settings.telegram.chat_id)
   if (!desktop && !telegram) return
 
-  let payload: NotificationPayload
+  let data
   try {
-    const data = await buildDigest()
-    payload = formatDigestMessage(data)
+    data = await buildDigest()
   } catch (e) {
     // Don't bump last_fired_date on failure — give the next minute's
     // tick a chance to retry. Logged at the dispatcher layer.
@@ -133,6 +132,15 @@ async function tick(): Promise<void> {
     return
   }
 
+  // v1.0.367 — quiet-when-empty: on days with nothing going live, skip the
+  // send but still mark today fired so we don't re-check every minute. Manual
+  // "Send now" bypasses this (it doesn't run through tick).
+  if (cfg.quiet_when_empty && data.totals.going_live_today === 0) {
+    await setNotifierSettings({ digest: { ...cfg, last_fired_date: today } as any }).catch(() => {})
+    return
+  }
+
+  const payload: NotificationPayload = formatDigestMessage(data)
   try {
     await dispatcherRef(payload, { desktop, telegram })
     await setNotifierSettings({ digest: { ...cfg, last_fired_date: today } as any })

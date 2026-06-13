@@ -1830,6 +1830,36 @@
         </span>
       </div>
 
+      <!-- v1.0.367 — per-event toggles. Channels (desktop / Telegram) decide
+           WHERE a notification goes; these decide WHICH events fire. -->
+      <div class="form-group mt-3" style="max-width: 600px;">
+        <label><strong>Which events notify you</strong></label>
+        <span class="field-hint" style="display: block; margin: 2px 0 8px;">
+          Applies to both desktop and Telegram (whichever channels you've enabled). Turn off the ones you don't want.
+        </span>
+        <label class="flex gap-2 mt-1" style="align-items: flex-start;">
+          <input type="checkbox" v-model="notifSettings.events.pipeline_finished" @change="saveNotifSettings" />
+          <span>
+            <strong>Pipeline run finished</strong>
+            <span class="field-hint" style="display: block;">One summary when a batch run completes — e.g. <em>"8/10 episodes succeeded. 2 failed."</em></span>
+          </span>
+        </label>
+        <label class="flex gap-2 mt-2" style="align-items: flex-start;">
+          <input type="checkbox" v-model="notifSettings.events.failures" @change="saveNotifSettings" />
+          <span>
+            <strong>Failures</strong>
+            <span class="field-hint" style="display: block;">Pings the moment any job fails (any step — scene render, audio, subtitles, etc.), so you catch breaks early.</span>
+          </span>
+        </label>
+        <label class="flex gap-2 mt-2" style="align-items: flex-start;">
+          <input type="checkbox" v-model="notifSettings.events.long_job" @change="saveNotifSettings" />
+          <span>
+            <strong>Long single job done</strong>
+            <span class="field-hint" style="display: block;">A standalone (non-batch) job that ran at least the threshold above ({{ notifMinDurationMinutes }} min) finishes.</span>
+          </span>
+        </label>
+      </div>
+
       <!-- Telegram channel (v1.0.60+). Independent of desktop — turn
            one off, the other still fires. The setup walkthrough is
            rendered as actionable numbered steps with buttons that
@@ -2052,6 +2082,21 @@
             Telegram routing only fires when the Telegram channel above is also configured + enabled.
           </span>
         </div>
+
+        <!-- v1.0.367 — quiet-when-empty: skip the scheduled digest on days with
+             nothing going live, so it only pings when there's something to act on. -->
+        <label class="checkbox-label flex gap-2 mt-2" style="align-items: flex-start;">
+          <input
+            v-model="notifSettings.digest.quiet_when_empty"
+            type="checkbox"
+            :disabled="!notifSettings.digest.enabled"
+            @change="saveNotifSettings"
+          />
+          <span>
+            <strong style="font-size: 13px;">Only when something's going live</strong>
+            <span class="field-hint" style="display: block;">Skip the daily digest on days when no episode is scheduled to go live — no "nothing today" pings. The manual <em>Send digest now</em> always works.</span>
+          </span>
+        </label>
 
         <div class="flex gap-2 mt-1" style="flex-wrap: wrap; align-items: center;">
           <button
@@ -4371,24 +4416,29 @@ watch(() => _route.hash, applyHash)
 // Backed by `/api/app-settings/notifications`. We debounce the save on
 // slider drags so one gesture doesn't burn a PUT per integer tick.
 interface TelegramConfigUI { enabled: boolean; bot_token: string; chat_id: string }
+interface EventsConfigUI { pipeline_finished: boolean; failures: boolean; long_job: boolean }
 interface DigestConfigUI {
   enabled: boolean
   time_local: string
   desktop_enabled: boolean
   telegram_enabled: boolean
+  quiet_when_empty?: boolean
   last_fired_date?: string
 }
 interface NotifSettings {
   enabled: boolean
   min_duration_ms: number
+  events: EventsConfigUI
   telegram: TelegramConfigUI
   digest: DigestConfigUI
 }
+function defaultEvents(): EventsConfigUI { return { pipeline_finished: true, failures: true, long_job: true } }
 const notifSettings = ref<NotifSettings>({
   enabled: true,
   min_duration_ms: 300_000,
+  events: defaultEvents(),
   telegram: { enabled: false, bot_token: '', chat_id: '' },
-  digest: { enabled: false, time_local: '09:00', desktop_enabled: true, telegram_enabled: true },
+  digest: { enabled: false, time_local: '09:00', desktop_enabled: true, telegram_enabled: true, quiet_when_empty: false },
 })
 const notifSaveStatus = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const notifSaveError = ref('')
@@ -4409,6 +4459,13 @@ async function loadNotifSettings() {
     notifSettings.value = {
       enabled: !!r.enabled,
       min_duration_ms: typeof r.min_duration_ms === 'number' ? r.min_duration_ms : 300_000,
+      events: r.events
+        ? {
+            pipeline_finished: r.events.pipeline_finished !== false,
+            failures: r.events.failures !== false,
+            long_job: r.events.long_job !== false,
+          }
+        : defaultEvents(),
       telegram: r.telegram
         ? {
             enabled: !!r.telegram.enabled,
@@ -4422,9 +4479,10 @@ async function loadNotifSettings() {
             time_local: r.digest.time_local || '09:00',
             desktop_enabled: r.digest.desktop_enabled !== false,
             telegram_enabled: r.digest.telegram_enabled !== false,
+            quiet_when_empty: !!r.digest.quiet_when_empty,
             last_fired_date: r.digest.last_fired_date,
           }
-        : { enabled: false, time_local: '09:00', desktop_enabled: true, telegram_enabled: true },
+        : { enabled: false, time_local: '09:00', desktop_enabled: true, telegram_enabled: true, quiet_when_empty: false },
     }
   } catch { /* leave defaults */ }
 }
@@ -4440,6 +4498,11 @@ async function saveNotifSettings() {
     const saved = await put<NotifSettings>('/app-settings/notifications', {
       enabled: notifSettings.value.enabled,
       min_duration_ms: notifSettings.value.min_duration_ms,
+      events: {
+        pipeline_finished: notifSettings.value.events.pipeline_finished,
+        failures: notifSettings.value.events.failures,
+        long_job: notifSettings.value.events.long_job,
+      },
       telegram: {
         enabled: notifSettings.value.telegram.enabled,
         bot_token: notifSettings.value.telegram.bot_token,
@@ -4450,6 +4513,7 @@ async function saveNotifSettings() {
         time_local: notifSettings.value.digest.time_local,
         desktop_enabled: notifSettings.value.digest.desktop_enabled,
         telegram_enabled: notifSettings.value.digest.telegram_enabled,
+        quiet_when_empty: notifSettings.value.digest.quiet_when_empty,
       },
     })
     // Re-normalise (same shape as loadNotifSettings) — the backend may
@@ -4457,6 +4521,13 @@ async function saveNotifSettings() {
     notifSettings.value = {
       enabled: !!saved.enabled,
       min_duration_ms: typeof saved.min_duration_ms === 'number' ? saved.min_duration_ms : 300_000,
+      events: saved.events
+        ? {
+            pipeline_finished: saved.events.pipeline_finished !== false,
+            failures: saved.events.failures !== false,
+            long_job: saved.events.long_job !== false,
+          }
+        : defaultEvents(),
       telegram: saved.telegram
         ? {
             enabled: !!saved.telegram.enabled,
@@ -4470,9 +4541,10 @@ async function saveNotifSettings() {
             time_local: saved.digest.time_local || '09:00',
             desktop_enabled: saved.digest.desktop_enabled !== false,
             telegram_enabled: saved.digest.telegram_enabled !== false,
+            quiet_when_empty: !!saved.digest.quiet_when_empty,
             last_fired_date: saved.digest.last_fired_date,
           }
-        : { enabled: false, time_local: '09:00', desktop_enabled: true, telegram_enabled: true },
+        : { enabled: false, time_local: '09:00', desktop_enabled: true, telegram_enabled: true, quiet_when_empty: false },
     }
     notifSaveStatus.value = 'saved'
     stampSaved('notifications')

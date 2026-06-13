@@ -43,10 +43,26 @@ export interface DigestConfig {
   time_local: string
   desktop_enabled: boolean
   telegram_enabled: boolean
+  /** v1.0.367 — when on, the scheduled digest is skipped on days when
+   *  nothing is going live (totals.going_live_today === 0), so it only
+   *  pings you when there's something to act on. Manual "Send now"
+   *  ignores this and always sends a preview. */
+  quiet_when_empty?: boolean
   /** Last YYYY-MM-DD (local) the scheduled fire ran. Used by the
    *  60-second tick to dedupe so a fire-window crossing minute marks
    *  doesn't double-fire. Manual "Send now" doesn't update this. */
   last_fired_date?: string
+}
+
+/** v1.0.367 — per-event toggles. Channels (desktop / telegram) decide WHERE a
+ *  notification goes; these decide WHICH events fire at all. All default on. */
+export interface NotificationEvents {
+  /** The per-run summary when a pipeline batch finishes (success or with issues). */
+  pipeline_finished: boolean
+  /** A job failed — pings immediately, for any job type. */
+  failures: boolean
+  /** A standalone (non-batch) job finished after running ≥ `min_duration_ms`. */
+  long_job: boolean
 }
 
 export interface NotifierSettings {
@@ -54,6 +70,9 @@ export interface NotifierSettings {
   enabled: boolean
   /** Single-job notifications fire only when elapsed ≥ this threshold. */
   min_duration_ms: number
+  /** v1.0.367 — which events are allowed to notify (on whichever channels
+   *  are enabled). Missing = all on (the historical behaviour). */
+  events?: NotificationEvents
   /** Optional Telegram channel. Backward compat: missing/undefined =
    *  Telegram disabled, the original desktop-only behaviour. */
   telegram?: TelegramConfig
@@ -64,8 +83,9 @@ export interface NotifierSettings {
 export const DEFAULT_NOTIFIER_SETTINGS: NotifierSettings = {
   enabled: true,
   min_duration_ms: 300_000,
+  events: { pipeline_finished: true, failures: true, long_job: true },
   telegram: { enabled: false, bot_token: '', chat_id: '' },
-  digest: { enabled: false, time_local: '09:00', desktop_enabled: true, telegram_enabled: true },
+  digest: { enabled: false, time_local: '09:00', desktop_enabled: true, telegram_enabled: true, quiet_when_empty: false },
 }
 
 /** Aggregate over every job tagged with a given `pipeline_batch_id`. */
@@ -170,6 +190,45 @@ function suffixProject(title: string, projectLabel?: string): string {
   return projectLabel ? `${title} — ${projectLabel}` : title
 }
 
+// v1.0.367 — friendly names for job types so notifications read "Scene plan"
+// instead of "scene_plan_run". Mirrors JOB_TYPE_LABELS in frontend useJobs.ts;
+// covers the audio-paced pipeline jobs added in 2026. Unknown types fall back
+// to the raw type string.
+const JOB_TYPE_LABELS: Record<string, string> = {
+  'script-only': 'Script', 'introduction-only': 'Introduction', 'chapter-only': 'Chapter regen',
+  outline_only: 'Outline', expand_chapters: 'Chapter expansion',
+  image_prompts: 'Image prompts', images: 'Images', scene_images: 'Scene images',
+  thumb_images: 'Thumbnail images', images_repair: 'Image repair',
+  audio: 'Audio', audio_merge: 'Audio merge', metadata: 'Metadata',
+  video: 'Video clips', video_repair: 'Video repair', video_assembly: 'Video assembly',
+  subtitles_transcribe: 'Subtitles', scene_plan_run: 'Scene plan',
+  scene_image_generate: 'Scene image', continuity_render: 'Scene render',
+  prompt_director: 'Prompt director', composition_generate: 'Composition',
+  research_run: 'Research', timestamp_assemble: 'Final video',
+  broll_normalize: 'B-roll normalize', broll_assemble: 'B-roll assembly',
+  broll_autotag: 'B-roll auto-tag', broll_fetch: 'B-roll fetch',
+  youtube_upload: 'YouTube upload', youtube_playlist_update: 'YouTube playlist',
+}
+export function labelForJobType(type: string): string {
+  return JOB_TYPE_LABELS[type] || type
+}
+
+/** Immediate failure ping — fires for ANY job error when the `failures`
+ *  event is on. Independent of duration / batch membership. */
+export function shouldNotifyFailure(job: Job, events?: NotificationEvents): boolean {
+  if (events && !events.failures) return false
+  return job.status === 'error'
+}
+
+export function formatFailureMessage(job: Job, projectLabel?: string): NotificationPayload {
+  const ep = job.episode_id ? `${job.episode_id} — ` : ''
+  const err = (job.error || '').trim()
+  return {
+    title: suffixProject(`Failed: ${labelForJobType(job.type)}`, projectLabel),
+    body: `${ep}${err ? err.slice(0, 160) : 'Job failed.'}`,
+  }
+}
+
 export function formatBatchMessage(stats: BatchStats, projectLabel?: string): NotificationPayload {
   const baseTitle = stats.fail > 0 || stats.cancelled > 0
     ? 'Pipeline finished with issues'
@@ -190,7 +249,7 @@ export function formatSingleJobMessage(job: Job, projectLabel?: string): Notific
            :                          'Cancelled'
   const prefix = job.episode_id ? `${job.episode_id} — ` : ''
   return {
-    title: suffixProject(`${tag}: ${job.type}`, projectLabel),
+    title: suffixProject(`${tag}: ${labelForJobType(job.type)}`, projectLabel),
     body: `${prefix}${formatDuration(elapsed)}`,
   }
 }
@@ -221,6 +280,7 @@ function readDigestConfig(raw: unknown): DigestConfig {
     time_local: time,
     desktop_enabled: typeof r.desktop_enabled === 'boolean' ? r.desktop_enabled : def.desktop_enabled,
     telegram_enabled: typeof r.telegram_enabled === 'boolean' ? r.telegram_enabled : def.telegram_enabled,
+    quiet_when_empty: typeof r.quiet_when_empty === 'boolean' ? r.quiet_when_empty : !!def.quiet_when_empty,
   }
   // Only include last_fired_date when actually persisted — otherwise
   // deepEqual against DEFAULT_NOTIFIER_SETTINGS (which omits the key)
@@ -229,11 +289,22 @@ function readDigestConfig(raw: unknown): DigestConfig {
   return out
 }
 
+function readEvents(raw: unknown): NotificationEvents {
+  const def = DEFAULT_NOTIFIER_SETTINGS.events!
+  if (!raw || typeof raw !== 'object') return { ...def }
+  const r = raw as Record<string, unknown>
+  return {
+    pipeline_finished: typeof r.pipeline_finished === 'boolean' ? r.pipeline_finished : def.pipeline_finished,
+    failures: typeof r.failures === 'boolean' ? r.failures : def.failures,
+    long_job: typeof r.long_job === 'boolean' ? r.long_job : def.long_job,
+  }
+}
+
 export async function getNotifierSettings(): Promise<NotifierSettings> {
   const raw = await getAppSetting('notifications')
   const defaults = DEFAULT_NOTIFIER_SETTINGS
   if (!raw || typeof raw !== 'object') {
-    return { ...defaults, telegram: { ...defaults.telegram! }, digest: { ...defaults.digest! } }
+    return { ...defaults, events: { ...defaults.events! }, telegram: { ...defaults.telegram! }, digest: { ...defaults.digest! } }
   }
   const r = raw as Record<string, unknown>
   const min = typeof r.min_duration_ms === 'number' && r.min_duration_ms >= 0
@@ -241,6 +312,7 @@ export async function getNotifierSettings(): Promise<NotifierSettings> {
   return {
     enabled: typeof r.enabled === 'boolean' ? r.enabled : defaults.enabled,
     min_duration_ms: min,
+    events: readEvents(r.events),
     telegram: readTelegramConfig(r.telegram),
     digest: readDigestConfig(r.digest),
   }
@@ -248,10 +320,18 @@ export async function getNotifierSettings(): Promise<NotifierSettings> {
 
 export async function setNotifierSettings(patch: Partial<NotifierSettings>): Promise<NotifierSettings> {
   const current = await getNotifierSettings()
+  const curEvents = current.events || DEFAULT_NOTIFIER_SETTINGS.events!
   const next: NotifierSettings = {
     enabled: typeof patch.enabled === 'boolean' ? patch.enabled : current.enabled,
     min_duration_ms: typeof patch.min_duration_ms === 'number' && patch.min_duration_ms >= 0
       ? patch.min_duration_ms : current.min_duration_ms,
+    events: patch.events
+      ? {
+          pipeline_finished: typeof patch.events.pipeline_finished === 'boolean' ? patch.events.pipeline_finished : curEvents.pipeline_finished,
+          failures: typeof patch.events.failures === 'boolean' ? patch.events.failures : curEvents.failures,
+          long_job: typeof patch.events.long_job === 'boolean' ? patch.events.long_job : curEvents.long_job,
+        }
+      : curEvents,
     telegram: patch.telegram
       ? {
           enabled: typeof patch.telegram.enabled === 'boolean'
@@ -279,6 +359,9 @@ export async function setNotifierSettings(patch: Partial<NotifierSettings>): Pro
           telegram_enabled: typeof patch.digest.telegram_enabled === 'boolean'
             ? patch.digest.telegram_enabled
             : (current.digest?.telegram_enabled ?? true),
+          quiet_when_empty: typeof patch.digest.quiet_when_empty === 'boolean'
+            ? patch.digest.quiet_when_empty
+            : (current.digest?.quiet_when_empty ?? false),
           // last_fired_date is set internally by the scheduler; preserve
           // unless the patch explicitly sets it (e.g. tests).
           last_fired_date: typeof patch.digest.last_fired_date === 'string'

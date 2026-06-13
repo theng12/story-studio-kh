@@ -26,6 +26,9 @@ import {
   shouldNotifyForSingleJob,
   formatDuration,
   formatBatchMessage,
+  formatFailureMessage,
+  shouldNotifyFailure,
+  labelForJobType,
   getBatchId,
   getNotifierSettings,
   setNotifierSettings,
@@ -46,7 +49,7 @@ function mkJob(overrides: Partial<Job> & Pick<Job, 'status'>): Job {
   return {
     job_id: overrides.job_id || Math.random().toString(36).slice(2, 8),
     project_slug: 'p',
-    type: 'script-only',
+    type: overrides.type || 'script-only',
     episode_id: overrides.episode_id || 'EP001',
     title: overrides.title || 't',
     status: overrides.status,
@@ -280,5 +283,47 @@ describe('batch settling fires exactly one notification', () => {
     // A stray duplicate event for the same batch does not double-fire.
     bus.emit('update', corpus[1])
     assert.equal(seen.length, 1)
+  })
+})
+
+describe('per-event toggles + failures (v1.0.367)', () => {
+  const ALL_ON = { pipeline_finished: true, failures: true, long_job: true }
+
+  test('labelForJobType maps new pipeline job types to friendly names', () => {
+    assert.equal(labelForJobType('scene_plan_run'), 'Scene plan')
+    assert.equal(labelForJobType('continuity_render'), 'Scene render')
+    assert.equal(labelForJobType('subtitles_transcribe'), 'Subtitles')
+    assert.equal(labelForJobType('unknown_type'), 'unknown_type')  // graceful fallback
+  })
+
+  test('shouldNotifyFailure: only for errors, and only when failures is on', () => {
+    assert.equal(shouldNotifyFailure(mkJob({ status: 'error' }), ALL_ON), true)
+    assert.equal(shouldNotifyFailure(mkJob({ status: 'error' }), { ...ALL_ON, failures: false }), false)
+    assert.equal(shouldNotifyFailure(mkJob({ status: 'done' }), ALL_ON), false)
+  })
+
+  test('formatFailureMessage uses the friendly label + episode + error text', () => {
+    const j = mkJob({ status: 'error', type: 'continuity_render', episode_id: 'EP0001', error: 'whisper timed out' })
+    const p = formatFailureMessage(j, 'My Channel')
+    assert.match(p.title, /Failed: Scene render/)
+    assert.match(p.title, /My Channel/)
+    assert.match(p.body, /EP0001/)
+    assert.match(p.body, /whisper timed out/)
+  })
+
+  test('defaults include events (all on) + digest.quiet_when_empty=false', async () => {
+    await setNotifierSettings(DEFAULT_NOTIFIER_SETTINGS)
+    const s = await getNotifierSettings()
+    assert.deepEqual(s.events, ALL_ON)
+    assert.equal(s.digest?.quiet_when_empty, false)
+  })
+
+  test('a partial events patch merges (unset keys keep their value)', async () => {
+    await setNotifierSettings(DEFAULT_NOTIFIER_SETTINGS)
+    const after = await setNotifierSettings({ events: { failures: false } as any, digest: { quiet_when_empty: true } as any })
+    assert.equal(after.events?.failures, false)
+    assert.equal(after.events?.pipeline_finished, true)
+    assert.equal(after.events?.long_job, true)
+    assert.equal(after.digest?.quiet_when_empty, true)
   })
 })
