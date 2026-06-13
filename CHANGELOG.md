@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.369 — 2026-06-13
+
+### Fixed — Pipeline showed "no preset selected" for presets saved earlier in the session
+The Pipeline read the project config from a shared singleton that's populated once when you enter a project. A preset saved on a step's page *after* that (e.g. a new Audio Assembly preset) was on disk and active, but the Pipeline kept showing "⚠ no preset selected" until a full app reload — even though the run itself would have used it. The Pipeline now pulls a fresh config on mount / project switch, so its preset pickers always reflect what's actually saved.
+
+(Combined with v1.0.368's label fix, the continuity Pipeline now reads "Audio Assembly" and shows your saved Audio Assembly preset selected.)
+
+### Files
+- `frontend/pages/projects/[slug]/pipeline.vue` (`refreshConfig(slug)` on the slug watch so the config singleton can't go stale on this page)
+
 ## v1.0.368 — 2026-06-13
 
 ### Fixed — Pipeline step labels now match the format (no more legacy "Image Prompts")

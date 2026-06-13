@@ -555,7 +555,16 @@ const isNarratedScenes = computed(() => visualSource.value === 'narrated-scenes'
 // pool; timestamp-driven / continuity-chain / narrated-scenes place them
 // against the audio timeline.
 const hidesScenePages = computed(() => isBroll.value || isTimestampDriven.value || isContinuityChain.value || isNarratedScenes.value)
-watch(slug, () => { void loadVisualSource() }, { immediate: true })
+watch(slug, () => {
+  void loadVisualSource()
+  // v1.0.368 — pull a FRESH config on entry. The shared useProject() config
+  // singleton is populated once at project-entry; a preset saved on a step's
+  // page later in the same session (e.g. a new Audio Assembly preset) wasn't
+  // reflected here until a full reload, so the step showed "no preset selected"
+  // even though the pointer + preset were saved. Refreshing on mount + slug
+  // change keeps the preset pickers in sync with what's on disk.
+  if (slug.value && slug.value !== 'undefined') void refreshConfig(slug.value)
+}, { immediate: true })
 
 // ── Step metadata ──────────────────────────────────────────────────────
 // ID matches the BatchStep enum on the backend (routes/pipeline.ts).
