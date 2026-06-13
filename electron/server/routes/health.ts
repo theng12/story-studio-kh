@@ -3,7 +3,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { createRequire } from 'module'
 import * as pm from '../services/project-manager.js'
-import { getKieCredits, getFalBalance, getElevenLabsBalance, getGenaiproBalance, testApiKey } from '../services/utils.js'
+import { getKieCredits, getFalBalance, getElevenLabsBalance, getGenaiproBalance, getFishCredit, getDeepseekBalance, testApiKey } from '../services/utils.js'
 import { MODEL_LABELS, SUPPORTED_MODELS, KNOWN_UNAVAILABLE_REASONS } from '../models/types.js'
 import { getSessionUsage, getModelPricing } from '../services/usage-tracker.js'
 import { getSessionStats } from '../services/session-tracker.js'
@@ -466,22 +466,34 @@ router.get('/projects/:slug/health', async (req, res) => {
   const config = await pm.getConfig(req.params.slug)
   if (!config) return res.status(404).json({ detail: 'Project not found' })
 
-  const [kieCredits, falBalance, elevenLabsBalance, genaiproBalance] = await Promise.all([
+  // Fish Audio + DeepSeek keys live in the per-machine app-secrets store (short
+  // ids), not the legacy per-project config fields — resolve them there.
+  const { getApiKey } = await import('../services/app-secrets-store.js')
+  const [fishKey, deepseekKey] = await Promise.all([getApiKey('fishaudio'), getApiKey('deepseek')])
+
+  const [kieCredits, falBalance, elevenLabsBalance, genaiproBalance, fishCredit, deepseekBalance] = await Promise.all([
     getKieCredits(config.kie_api_key),
     getFalBalance(config.fal_api_key),
     getElevenLabsBalance((config as any).elevenlabs_api_key || ''),
     getGenaiproBalance((config as any).genaipro_api_key || ''),
+    getFishCredit(fishKey),
+    getDeepseekBalance(deepseekKey),
   ])
 
   res.json({
     status: 'ok',
-    credits: { kie: kieCredits, fal: falBalance, elevenlabs: elevenLabsBalance, genaipro: genaiproBalance },
+    credits: {
+      kie: kieCredits, fal: falBalance, elevenlabs: elevenLabsBalance, genaipro: genaiproBalance,
+      fishaudio: fishCredit, deepseek: deepseekBalance,
+    },
     api_keys: {
       kie: !!config.kie_api_key,
       fal: !!config.fal_api_key,
       openai: !!config.openai_api_key,
       elevenlabs: !!(config as any).elevenlabs_api_key,
       genaipro: !!(config as any).genaipro_api_key,
+      fishaudio: !!fishKey,
+      deepseek: !!deepseekKey,
     },
   })
 })

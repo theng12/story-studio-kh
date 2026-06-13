@@ -456,6 +456,62 @@ export async function getGenaiproBalance(apiKey: string): Promise<number | null>
   }
 }
 
+/**
+ * Fish Audio remaining API credit. Fish bills in "credit bytes" (≈1 byte per
+ * English character), so this is a raw count, not dollars. `self` resolves to
+ * the key's owner. Cached like the other balances to survive the 5s sidebar poll.
+ */
+export async function getFishCredit(apiKey: string): Promise<number | null> {
+  if (!apiKey) return null
+  const cacheKey = hashKey('fishaudio', apiKey)
+  const cached = getCached(cacheKey)
+  if (cached !== undefined) return cached
+  try {
+    const resp = await fetch('https://api.fish.audio/wallet/self/api-credit', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(5000),
+    })
+    if (resp.status !== 200) { setCache(cacheKey, null); return null }
+    const data = await resp.json() as any
+    const credit = Number(data?.credit)
+    const val = Number.isFinite(credit) ? credit : null
+    setCache(cacheKey, val)
+    return val
+  } catch {
+    return getCached(cacheKey) ?? null
+  }
+}
+
+export interface DeepseekBalance { currency: string; total_balance: number }
+
+/**
+ * DeepSeek account balance (the official `/user/balance` endpoint). Returns the
+ * primary balance bucket's currency + total. total_balance comes back as a
+ * STRING from DeepSeek, so we coerce. Cached like the others.
+ */
+export async function getDeepseekBalance(apiKey: string): Promise<DeepseekBalance | null> {
+  if (!apiKey) return null
+  const cacheKey = hashKey('deepseek', apiKey)
+  const cached = getCached(cacheKey)
+  if (cached !== undefined) return cached
+  try {
+    const resp = await fetch('https://api.deepseek.com/user/balance', {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    })
+    if (resp.status !== 200) { setCache(cacheKey, null); return null }
+    const data = await resp.json() as any
+    const info = Array.isArray(data?.balance_infos) ? data.balance_infos[0] : null
+    const total = info ? Number(info.total_balance) : NaN
+    const val: DeepseekBalance | null = info && Number.isFinite(total)
+      ? { currency: String(info.currency || 'USD'), total_balance: total } : null
+    setCache(cacheKey, val)
+    return val
+  } catch {
+    return getCached(cacheKey) ?? null
+  }
+}
+
 export async function getElevenLabsBalance(apiKey: string): Promise<ElevenLabsBalance | null> {
   if (!apiKey) return null
   const cacheKey = hashKey('eleven', apiKey)

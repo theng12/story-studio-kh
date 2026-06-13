@@ -537,7 +537,7 @@ watch(
 useBatchCompletionSignals(() => jobs.value as any)
 const { online: networkOnline, queueSyncFailed: networkQueueSyncFailed } = useNetworkStatus()
 const {
-  kieCredits, falBalance, elevenLabsBalance, genaiproBalance, openaiUsage, apiKeys,
+  kieCredits, falBalance, elevenLabsBalance, genaiproBalance, fishCredit, deepseekBalance, openaiUsage, apiKeys,
   isRefreshing, nextRefreshInMs, pollIntervalMs,
   startPolling: startCreditPolling, stopPolling: stopCreditPolling, refreshNow,
 } = useCredits()
@@ -572,11 +572,18 @@ function loadCreditVisibility() {
 // provider reports a balance/credit/value.
 const creditRows = computed(() => [
   { id: 'openai',     label: 'OpenAI',     show: !!apiKeys.value.openai,     value: `~$${openaiUsage.value.toFixed(2)}`, title: '' },
+  { id: 'deepseek',   label: 'DeepSeek',   show: !!apiKeys.value.deepseek,   value: deepseekBalance.value ? formatDeepseek(deepseekBalance.value) : '...', title: 'DeepSeek account balance' },
   { id: 'kie',        label: 'kie.ai',     show: !!apiKeys.value.kie,        value: String(kieCredits.value ?? '...'), title: '' },
   { id: 'fal',        label: 'fal.ai',     show: !!apiKeys.value.fal,        value: typeof falBalance.value === 'number' ? `$${(falBalance.value as number).toFixed(2)}` : String(falBalance.value ?? '...'), title: '' },
   { id: 'elevenlabs', label: 'ElevenLabs', show: !!apiKeys.value.elevenlabs, value: elevenLabsBalance.value ? `${formatChars(elevenLabsBalance.value.remaining)} left` : '...', title: elevenLabsBalance.value ? `${elevenLabsBalance.value.tier} — ${elevenLabsBalance.value.character_count.toLocaleString()} / ${elevenLabsBalance.value.character_limit.toLocaleString()} chars used` : '' },
   { id: 'genaipro',   label: 'GenAIPro',   show: !!apiKeys.value.genaipro,   value: genaiproBalance.value !== null ? genaiproBalance.value.toLocaleString() : '...', title: 'GenAIPro credits — used by TTS generation' },
+  { id: 'fishaudio',  label: 'Fish Audio', show: !!apiKeys.value.fishaudio,  value: fishCredit.value !== null ? `${fishCredit.value.toLocaleString()} credit` : '...', title: 'Fish Audio remaining credit (credit bytes) — used by TTS generation' },
 ])
+
+// DeepSeek returns the balance currency + total; show "$" for USD, else suffix.
+function formatDeepseek(b: { currency: string; total_balance: number }): string {
+  return b.currency === 'USD' ? `$${b.total_balance.toFixed(2)}` : `${b.total_balance.toFixed(2)} ${b.currency}`
+}
 const anyCreditRow = computed(() => creditRows.value.some(r => r.show))
 const {
   scriptGenerating, promptGenerating, thumbPromptGenerating,

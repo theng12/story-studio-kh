@@ -15,10 +15,14 @@ export type ElevenLabsBalance = {
   remaining: number
 }
 
+export type DeepseekBalance = { currency: string; total_balance: number }
+
 const kieCredits = ref<number | string | null>(null)
 const falBalance = ref<number | string | null>(null)
 const elevenLabsBalance = ref<ElevenLabsBalance | null>(null)
 const genaiproBalance = ref<number | null>(null)
+const fishCredit = ref<number | null>(null)
+const deepseekBalance = ref<DeepseekBalance | null>(null)
 const openaiUsage = ref<number>(0)
 const apiKeys = ref<Record<string, boolean>>({})
 const isRefreshing = ref<boolean>(false)
@@ -46,13 +50,15 @@ export function useCredits() {
     isRefreshing.value = true
     try {
       const [healthData, usageData] = await Promise.all([
-        get<{ credits: { kie: any; fal: any; elevenlabs: ElevenLabsBalance | null; genaipro: number | null }; api_keys: Record<string, boolean> }>(`/projects/${slug}/health`),
+        get<{ credits: { kie: any; fal: any; elevenlabs: ElevenLabsBalance | null; genaipro: number | null; fishaudio: number | null; deepseek: DeepseekBalance | null }; api_keys: Record<string, boolean> }>(`/projects/${slug}/health`),
         get<{ total_cost: number }>('/usage'),
       ])
       kieCredits.value = healthData.credits.kie
       falBalance.value = healthData.credits.fal
       elevenLabsBalance.value = healthData.credits.elevenlabs
       genaiproBalance.value = healthData.credits.genaipro ?? null
+      fishCredit.value = healthData.credits.fishaudio ?? null
+      deepseekBalance.value = healthData.credits.deepseek ?? null
       apiKeys.value = healthData.api_keys
       openaiUsage.value = usageData.total_cost
     } catch {
@@ -117,6 +123,8 @@ export function useCredits() {
     falBalance: readonly(falBalance),
     elevenLabsBalance: readonly(elevenLabsBalance),
     genaiproBalance: readonly(genaiproBalance),
+    fishCredit: readonly(fishCredit),
+    deepseekBalance: readonly(deepseekBalance),
     openaiUsage: readonly(openaiUsage),
     apiKeys: readonly(apiKeys),
     isRefreshing: readonly(isRefreshing),

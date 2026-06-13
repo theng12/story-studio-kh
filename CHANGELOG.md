@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.382 — 2026-06-14
+
+### Added — Fish Audio + DeepSeek balances in the sidebar
+The sidebar balance strip now also shows **DeepSeek** (account balance) and **Fish Audio** (remaining credit — Fish bills in credit bytes, shown neutrally). Both poll alongside the others (30s cached) and respect the per-provider show/hide toggle from v1.0.380, so you can keep them visible or hide them like any other balance.
+
+### Files
+- `electron/server/services/utils.ts` (`getFishCredit`, `getDeepseekBalance` — cached probes)
+- `electron/server/routes/health.ts` (resolve Fish/DeepSeek keys from app-secrets; add to `/health`)
+- `frontend/composables/useCredits.ts` (fish + deepseek refs + response typing)
+- `frontend/layouts/dashboard.vue` (two new balance rows)
+
+---
+
 ## v1.0.381 — 2026-06-14
 
 ### Added — Fish S2 expression markup (emotion & performance tags)
