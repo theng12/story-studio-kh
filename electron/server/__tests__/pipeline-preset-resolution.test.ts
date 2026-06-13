@@ -100,8 +100,38 @@ describe('findActivePreset — script-only / introduction-only', () => {
   })
 })
 
-describe('findActivePreset — non-script steps unchanged', () => {
-  test('image_prompts resolves via its single active key', () => {
+describe('findActivePreset — split prompt and image preset pools', () => {
+  test('image_prompts resolves from the thumbnail prompt pool', () => {
+    const config = {
+      thumbnail_prompts_presets: [{ id: 'tp1', name: 'Thumbnail prompt preset' }],
+      thumbnail_prompts_last_preset: 'tp1',
+    }
+    const r = findActivePreset(config, 'image_prompts')
+    assert.equal(r.preset?.id, 'tp1')
+  })
+
+  test('image_prompts falls back to the scene prompt pool', () => {
+    const config = {
+      scene_prompts_presets: [{ id: 'sp1', name: 'Scene prompt preset' }],
+      scene_prompts_last_preset: 'sp1',
+    }
+    const r = findActivePreset(config, 'image_prompts')
+    assert.equal(r.preset?.id, 'sp1')
+  })
+
+  test('image_prompts skips a stale thumbnail pointer and resolves a valid scene pointer', () => {
+    const config = {
+      thumbnail_prompts_presets: [{ id: 'tp1', name: 'Old thumbnail prompt preset' }],
+      scene_prompts_presets: [{ id: 'sp1', name: 'Scene prompt preset' }],
+      thumbnail_prompts_last_preset: 'tp-stale',
+      scene_prompts_last_preset: 'sp1',
+    }
+    const r = findActivePreset(config, 'image_prompts')
+    assert.equal(r.preset?.id, 'sp1')
+    assert.equal(r.missingReason, null)
+  })
+
+  test('image_prompts keeps the legacy unified prompt pool as a fallback', () => {
     const config = {
       image_prompts_presets: [{ id: 'ip1', name: 'My prompts preset' }],
       image_prompts_last_preset: 'ip1',
@@ -110,15 +140,39 @@ describe('findActivePreset — non-script steps unchanged', () => {
     assert.equal(r.preset?.id, 'ip1')
   })
 
-  test('image_prompts returns missingReason without type fallback', () => {
-    // No type-based fallback for non-script steps — they don't use typed
-    // presets, so a stale pointer should still surface as a missing config.
+  test('image_prompts returns missingReason when all active ids are stale', () => {
     const config = {
-      image_prompts_presets: [{ id: 'ip1', name: 'a' }],
+      thumbnail_prompts_presets: [{ id: 'tp1', name: 'a' }],
+      scene_prompts_presets: [{ id: 'sp1', name: 'b' }],
+      thumbnail_prompts_last_preset: 'tp-stale',
       image_prompts_last_preset: 'ip-stale',
     }
     const r = findActivePreset(config, 'image_prompts')
     assert.equal(r.preset, null)
     assert.match(r.missingReason || '', /not found/)
+  })
+
+  test('thumb_images resolves from thumbnail_generator presets only', () => {
+    const config = {
+      thumbnail_generator_presets: [{ id: 'tg1', name: 'Thumb render preset' }],
+      scene_generator_presets: [{ id: 'sg1', name: 'Scene render preset' }],
+      image_generator_presets: [{ id: 'ig1', name: 'Legacy render preset' }],
+      thumbnail_generator_last_preset: 'tg1',
+      image_generator_last_preset: 'ig1',
+    }
+    const r = findActivePreset(config, 'thumb_images')
+    assert.equal(r.preset?.id, 'tg1')
+  })
+
+  test('scene_images resolves from scene_generator presets only', () => {
+    const config = {
+      thumbnail_generator_presets: [{ id: 'tg1', name: 'Thumb render preset' }],
+      scene_generator_presets: [{ id: 'sg1', name: 'Scene render preset' }],
+      image_generator_presets: [{ id: 'ig1', name: 'Legacy render preset' }],
+      scene_generator_last_preset: 'sg1',
+      image_generator_last_preset: 'ig1',
+    }
+    const r = findActivePreset(config, 'scene_images')
+    assert.equal(r.preset?.id, 'sg1')
   })
 })

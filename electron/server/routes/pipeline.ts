@@ -84,9 +84,9 @@ type BatchStep =
 // unified `images` step. The pipeline UI defaults to these two so the
 // user can tick scenes-only or thumbs-only as discrete pipeline steps.
 // Legacy `images` stays valid for any saved pipeline preset that still
-// references it. All three use the same `image_generator_presets`
-// preset list and end up calling `generateImages` via the registered
-// executor; only the `mode` param in resolveStepParams differs.
+// references it. The split steps use their own preset pools
+// (`scene_generator_*` and `thumbnail_generator_*`); only the legacy
+// unified step still reads `image_generator_*`.
 const VALID_STEPS: BatchStep[] = ['script-only', 'introduction-only', 'image_prompts', 'images', 'scene_images', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'scene_review', 'character_sheet', 'timestamp_assemble', 'video', 'video_assembly']
 
 // Steps that run with the generator's own defaults — no saved preset required.
@@ -112,7 +112,7 @@ const NO_PRESET_STEPS = new Set<BatchStep>(['timestamp_assemble'])
 //
 // Steps that don't use typed presets (every step except the future
 // script-only / introduction-only) just have a single-element list.
-const PRESET_KEYS: Record<BatchStep, { list: string; activeKeys: string[] }> = {
+const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: string[] }> = {
   // Both script-only and introduction-only share the 'script' configKey
   // (both live on scripts.vue). They use typed-preset keys per
   // usePresets({ presetType }), with a fallback to the legacy untyped
@@ -120,7 +120,12 @@ const PRESET_KEYS: Record<BatchStep, { list: string; activeKeys: string[] }> = {
   // typed first wins.
   'script-only':       { list: 'script_presets',           activeKeys: ['script_last_preset_script', 'script_last_preset'] },
   'introduction-only': { list: 'script_presets',           activeKeys: ['script_last_preset_introduction', 'script_last_preset'] },
-  image_prompts:       { list: 'image_prompts_presets',    activeKeys: ['image_prompts_last_preset'] },
+  // v1.0.370 — the prompt page split into Thumbnail Prompts (thumbnail_prompts)
+  // + Scene Prompts (scene_prompts); the legacy unified `image_prompts` pool is
+  // kept last for pre-split saves. The batch runs mode 'all' (both prompt types)
+  // and the preset shape is identical, so whichever pool the channel saved into
+  // resolves. Mirrors PRESET pools in image-prompts.vue + the Pipeline stepsMeta.
+  image_prompts:       { list: ['thumbnail_prompts_presets', 'scene_prompts_presets', 'image_prompts_presets'], activeKeys: ['thumbnail_prompts_last_preset', 'scene_prompts_last_preset', 'image_prompts_last_preset'] },
   images:              { list: 'image_generator_presets',  activeKeys: ['image_generator_last_preset'] },
   // v1.0.88+: scene_images + thumb_images each point at their own preset
   // list, matching the split image-generator UI (Thumbnail Generator and
@@ -204,17 +209,24 @@ export function findActivePreset(
   config: any, step: BatchStep,
 ): { preset: StoredPreset | null; missingReason: string | null } {
   const keys = PRESET_KEYS[step]
-  const list: StoredPreset[] = Array.isArray(config?.[keys.list]) ? config[keys.list] : []
-  // Walk activeKeys in order; first key with a non-empty string id wins.
-  // Typed-preset key first → legacy untyped key fallback. Centralised here
-  // so individual step entries don't have to duplicate the lookup chain.
-  let activeId = ''
+  // v1.0.370 — a step can resolve across more than one preset pool. The prompt
+  // step (image_prompts) merges the split `thumbnail_prompts` + `scene_prompts`
+  // pools (+ the legacy `image_prompts` pool) so whichever the channel saved is
+  // found regardless of which page it was saved from.
+  const listKeys = Array.isArray(keys.list) ? keys.list : [keys.list]
+  const list: StoredPreset[] = listKeys.flatMap(k => (Array.isArray(config?.[k]) ? config[k] : []))
+  // Walk activeKeys in order; the first key that points at an existing preset
+  // wins. Keep the first non-empty id for the final error message, but don't
+  // stop on a stale pointer because split steps can have a stale primary key
+  // and a valid fallback key.
+  let firstActiveId = ''
   for (const k of keys.activeKeys) {
     const v = typeof config?.[k] === 'string' ? config[k] : ''
-    if (v) { activeId = v; break }
+    if (!v) continue
+    if (!firstActiveId) firstActiveId = v
+    const pointedTo = list.find(p => p.id === v)
+    if (pointedTo) return { preset: pointedTo, missingReason: null }
   }
-  const pointedTo = activeId ? list.find(p => p.id === activeId) : null
-  if (pointedTo) return { preset: pointedTo, missingReason: null }
 
   // Type-based fallback — heals stale/missing active pointers by using the
   // most recently saved preset of the matching type. usePresets appends on
@@ -226,8 +238,8 @@ export function findActivePreset(
     }
   }
 
-  if (!activeId) return { preset: null, missingReason: `No active preset for ${step}. Open the ${step} page, apply a preset, then retry.` }
-  return { preset: null, missingReason: `Active preset for ${step} (${activeId}) not found in saved presets.` }
+  if (!firstActiveId) return { preset: null, missingReason: `No active preset for ${step}. Open the ${step} page, apply a preset, then retry.` }
+  return { preset: null, missingReason: `Active preset for ${step} (${firstActiveId}) not found in saved presets.` }
 }
 
 /**

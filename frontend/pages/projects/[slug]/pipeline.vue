@@ -588,6 +588,13 @@ interface StepMeta {
   link: string
   presetList: string
   presetActive: string
+  /** v1.0.370 — extra preset lists / active-pointer keys to also resolve from.
+   *  The prompt step (image_prompts) runs mode 'all' (scene + thumbnail prompts)
+   *  but the page split prompts into `thumbnail_prompts` + `scene_prompts`
+   *  presets — so it resolves across both (+ the legacy `image_prompts` pool)
+   *  and shows whichever the channel actually saved. */
+  presetListAlt?: string[]
+  presetActiveAlt?: string[]
   /** If true, unchecked by default — user must opt in. For cost-sensitive steps. */
   costly?: boolean
   /** Human-readable warning rendered on the step tile when costly. */
@@ -644,14 +651,14 @@ const stepsMeta: StepMeta[] = [
   { id: 'script-only',       label: 'Script (chapters)', icon: '📝', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_script' },
   { id: 'introduction-only', label: 'Introduction',      icon: '🎙', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_introduction' },
   { id: 'metadata',          label: 'Metadata',          icon: '📄', link: '/metadata',       presetList: 'metadata_presets',        presetActive: 'metadata_last_preset' },
-  { id: 'image_prompts',     label: 'Image Prompts',     icon: '🎨', link: '/image-prompts',  presetList: 'image_prompts_presets',   presetActive: 'image_prompts_last_preset' },
+  { id: 'image_prompts',     label: 'Image Prompts',     icon: '🎨', link: '/image-prompts',  presetList: 'thumbnail_prompts_presets', presetActive: 'thumbnail_prompts_last_preset', presetListAlt: ['scene_prompts_presets', 'image_prompts_presets'], presetActiveAlt: ['scene_prompts_last_preset', 'image_prompts_last_preset'] },
   // v1.0.87+: pipeline splits Images into Thumbnail Images + Scene Images
   // mirroring the page-level tab split. The legacy unified `images` step
   // stays declared (and `stepsMeta` still includes it) for back-compat
   // with saved pipeline state from prior versions, but it's off by
   // default in fresh checkouts (see stepChecked.images = false below).
-  { id: 'thumb_images',      label: 'Thumbnails',        icon: '📸', link: '/images',         presetList: 'image_generator_presets', presetActive: 'image_generator_last_preset' },
-  { id: 'scene_images',      label: 'Scene Images',      icon: '🎞', link: '/images',         presetList: 'image_generator_presets', presetActive: 'image_generator_last_preset' },
+  { id: 'thumb_images',      label: 'Thumbnails',        icon: '📸', link: '/images',         presetList: 'thumbnail_generator_presets', presetActive: 'thumbnail_generator_last_preset' },
+  { id: 'scene_images',      label: 'Scene Images',      icon: '🎞', link: '/images',         presetList: 'scene_generator_presets', presetActive: 'scene_generator_last_preset' },
   { id: 'images',            label: 'Images (all, legacy)', icon: '📸', link: '/images',      presetList: 'image_generator_presets', presetActive: 'image_generator_last_preset' },
   { id: 'video',             label: 'Video Clips',       icon: '🎬', link: '/video',          presetList: 'video_generator_presets', presetActive: 'video_generator_last_preset', costly: true, warning: '$0.50–$2 per clip — off by default' },
   { id: 'audio',             label: 'Audio (TTS)',       icon: '🎙', link: '/audio',          presetList: 'audio_generator_presets', presetActive: 'audio_generator_last_preset' },
@@ -886,27 +893,38 @@ const TYPE_FOR_STEP: Partial<Record<StepId, string>> = {
   character_sheet: 'continuity-page',
 }
 
+// v1.0.370 — a step's preset pool = its primary list + any alt lists. The
+// prompt step (image_prompts) pulls from both split pools (thumbnail_prompts +
+// scene_prompts) plus the legacy image_prompts pool, so whichever the channel
+// actually saved resolves + shows here.
+function listForStep(meta: StepMeta): any[] {
+  const cfg = config.value as any
+  return [meta.presetList, ...(meta.presetListAlt || [])]
+    .flatMap(k => (Array.isArray(cfg?.[k]) ? cfg[k] : []))
+}
+
 function presetNameFor(stepId: StepMeta['id']): string {
   const id = activePresetIdFor(stepId)
   if (!id) return ''
   const meta = stepsMeta.find(s => s.id === stepId)!
-  const list: any[] = (config.value as any)?.[meta.presetList] || []
-  return list.find(x => x.id === id)?.name || ''
+  return listForStep(meta).find(x => x.id === id)?.name || ''
 }
 
 /** Resolve the preset id the backend will use for this step. Mirrors the
- *  three-tier fallback in /electron/server/routes/pipeline.ts so the
- *  inline picker shows whichever preset will actually run, not just
- *  whichever pointer is set. Returns '' when nothing resolves. */
+ *  fallback chain in /electron/server/routes/pipeline.ts so the inline picker
+ *  shows whichever preset will actually run, not just whichever pointer is set.
+ *  Returns '' when nothing resolves. */
 function activePresetIdFor(stepId: StepMeta['id']): string {
   const meta = stepsMeta.find(s => s.id === stepId)!
   const cfg = config.value as any
-  const list: any[] = cfg?.[meta.presetList] || []
+  const list = listForStep(meta)
 
-  // 1. Typed active pointer (canonical, set by per-stage pages and by
-  //    onPresetChange below).
-  const primary: string = cfg?.[meta.presetActive] || ''
-  if (primary && list.some(x => x.id === primary)) return primary
+  // 1. Active pointer(s) — primary key first, then any alt keys (the split
+  //    prompt pools each have their own `*_last_preset`).
+  for (const ak of [meta.presetActive, ...(meta.presetActiveAlt || [])]) {
+    const id: string = cfg?.[ak] || ''
+    if (id && list.some(x => x.id === id)) return id
+  }
 
   // 2. Legacy untyped active pointer (script-only / introduction-only
   //    fall back to `script_last_preset` for pre-typing saves).
@@ -917,9 +935,7 @@ function activePresetIdFor(stepId: StepMeta['id']): string {
   }
 
   // 3. Type-based auto-resolve (last-resort). Save-order in usePresets is
-  //    chronological, so the LAST matching entry is the newest. This is
-  //    the "silent shift" behaviour the picker lets users override — they
-  //    can pick explicitly to pin a stable choice.
+  //    chronological, so the LAST matching entry is the newest.
   const wantedType = TYPE_FOR_STEP[stepId]
   if (wantedType) {
     for (let i = list.length - 1; i >= 0; i--) {
@@ -932,13 +948,11 @@ function activePresetIdFor(stepId: StepMeta['id']): string {
 
 /** Filter the step's preset pool to options that make sense for this step.
  *  Steps with a typed pool (script-only, introduction-only) hide presets
- *  belonging to the OTHER type — script_presets holds both 'script' and
- *  'introduction' typed presets, so an unfiltered dropdown would mix them.
- *  Untyped legacy presets are kept in both lists since they predate the
- *  typing convention and the legacy fallback above can resolve them. */
+ *  belonging to the OTHER type. Untyped legacy presets are kept since they
+ *  predate the typing convention and the legacy fallback above resolves them. */
 function presetsForStep(stepId: StepMeta['id']): Array<{ id: string; name: string; type?: string }> {
   const meta = stepsMeta.find(s => s.id === stepId)!
-  const list: any[] = (config.value as any)?.[meta.presetList] || []
+  const list = listForStep(meta)
   const wantedType = TYPE_FOR_STEP[stepId]
   if (!wantedType) return list
   return list.filter(p => !p?.type || p.type === wantedType)
@@ -950,9 +964,10 @@ function presetsForStep(stepId: StepMeta['id']): Array<{ id: string; name: strin
 function presetSelectTooltip(stepId: StepMeta['id']): string {
   const meta = stepsMeta.find(s => s.id === stepId)!
   const cfg = config.value as any
-  const primary: string = cfg?.[meta.presetActive] || ''
+  const pinned = [meta.presetActive, ...(meta.presetActiveAlt || [])]
+    .some(k => typeof cfg?.[k] === 'string' && cfg[k])
   const legacy: string = LEGACY_ACTIVE_KEY[stepId] ? cfg?.[LEGACY_ACTIVE_KEY[stepId]!] || '' : ''
-  if (primary || legacy) return 'Pick which saved preset this step runs with. Selection is sticky across sessions.'
+  if (pinned || legacy) return 'Pick which saved preset this step runs with. Selection is sticky across sessions.'
   if (activePresetIdFor(stepId)) {
     return 'No preset is pinned — Pipeline is auto-using the most recently saved preset of this type. Pick one explicitly to lock it.'
   }

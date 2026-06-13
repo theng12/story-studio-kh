@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.370 — 2026-06-13
+
+### Fixed — split thumbnail/scene presets are now respected everywhere
+The Thumbnail Prompts and Thumbnail Generator pages were already saving presets under the new split keys (`thumbnail_prompts_*` / `thumbnail_generator_*`), but the Pipeline and Presets library still looked at the old unified `image_prompts_*` / `image_generator_*` keys in a few places. That made saved thumbnail presets appear missing, and it made the Pipeline feel like it was just renaming the old Scene Generator.
+
+Now the split is explicit end-to-end:
+
+- Pipeline prompt presets resolve from `thumbnail_prompts`, then `scene_prompts`, then legacy `image_prompts`.
+- Pipeline thumbnail renders resolve from `thumbnail_generator`.
+- Pipeline scene renders resolve from `scene_generator`.
+- The Presets page shows separate Thumbnail Prompts, Scene Prompts, Thumbnail Generator, and Scene Generator groups.
+- A repo-level `AGENTS.md` note records this split so future work does not collapse these flows back into the old unified image model.
+
+### Files
+- `frontend/pages/projects/[slug]/pipeline.vue` (split preset pools in the step picker)
+- `electron/server/routes/pipeline.ts` (backend batch preset resolution mirrors the split keys)
+- `frontend/pages/projects/[slug]/presets.vue` (separate preset groups)
+- `electron/server/__tests__/pipeline-preset-resolution.test.ts` (regression coverage for split preset pools)
+- `AGENTS.md` (persistent repo note for future Codex sessions)
+
 ## v1.0.369 — 2026-06-13
 
 ### Fixed — Pipeline showed "no preset selected" for presets saved earlier in the session
