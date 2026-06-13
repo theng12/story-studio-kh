@@ -3,7 +3,7 @@
  * Copy the freshly built macOS DMG into the user's iCloud-shared app folder.
  *
  * Default target:
- *   <projects_root_override>/_app_/Story Studio KH-arm64.dmg
+ *   ~/Library/Mobile Documents/com~apple~CloudDocs/02 Business Ventures (Others)/Business - YouTube/Story Studio KH-arm64.dmg
  *
  * Override target directory with:
  *   STORY_STUDIO_SHARED_DMG_DIR=/path/to/folder npm run dist
@@ -45,6 +45,16 @@ async function readPackageVersion() {
 async function resolveSharedDir() {
   const override = process.env.STORY_STUDIO_SHARED_DMG_DIR
   if (override && override.trim()) return path.resolve(expandHome(override.trim()))
+
+  const defaultICloudDir = path.join(
+    os.homedir(),
+    'Library',
+    'Mobile Documents',
+    'com~apple~CloudDocs',
+    '02 Business Ventures (Others)',
+    'Business - YouTube',
+  )
+  if (existsSync(defaultICloudDir)) return defaultICloudDir
 
   const settingsPath = path.join(userDataPath(PRODUCT_NAME), 'app-settings.json')
   try {

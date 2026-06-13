@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.376 — 2026-06-13
+
+### Fixed — shared DMG now copies to the correct iCloud folder
+The release DMG copy now lands directly in the shared **Business - YouTube** iCloud folder:
+
+- `Business - YouTube/Story Studio KH-arm64.dmg`
+
+This replaces the previous `_app_` subfolder target under the local channel projects folder, so the installer is shared from the folder requested for all iCloud machines.
+
+### Files
+- `scripts/copy-shared-dmg.mjs` (correct default shared DMG target)
+
+---
+
 ## v1.0.375 — 2026-06-13
 
 ### Added — release DMG is copied to the iCloud shared app folder
