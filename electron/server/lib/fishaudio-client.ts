@@ -37,6 +37,11 @@ export interface FishAudioTtsOptions {
   voiceId?: string
   /** 0.5–2.0 playback-speed multiplier → prosody.speed (omitted when 1). */
   speed?: number
+  /**
+   * 0–1 sampling temperature. Higher = more prosodic variation (less monotone),
+   * lower = flatter but more stable. Fish defaults to 0.7; omitted unless set.
+   */
+  temperature?: number
   /** Output container. Defaults to mp3. */
   format?: 'mp3' | 'wav' | 'pcm' | 'opus'
   /** Abort signal for caller-level timeouts. */
@@ -74,6 +79,10 @@ async function callTts(text: string, apiKey: string, opts: FishAudioTtsOptions):
   // prosody.speed defaults to 1 server-side; only send it when it differs.
   if (typeof opts.speed === 'number' && opts.speed !== 1) {
     body.prosody = { speed: opts.speed }
+  }
+  // Expressiveness — only sent when explicitly set, else Fish uses its 0.7 default.
+  if (typeof opts.temperature === 'number' && opts.temperature >= 0 && opts.temperature <= 1) {
+    body.temperature = opts.temperature
   }
 
   const resp = await fetch('https://api.fish.audio/v1/tts', {

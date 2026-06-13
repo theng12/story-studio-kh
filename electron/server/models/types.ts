@@ -2119,6 +2119,10 @@ export interface GenerateAudioRequest {
   no_overwrite: boolean
   /** Fish Audio S2-Pro only — render the saved expressive (tagged) narration. */
   use_expression?: boolean
+  /** Fish Audio only — 0–1 expressiveness (temperature). Higher = less monotone. */
+  fish_temperature?: number
+  /** Fish Audio S2-Pro only — auto-insert pause tags at sentence/paragraph breaks. */
+  fish_autopace?: boolean
 }
 
 export interface VideoScene {

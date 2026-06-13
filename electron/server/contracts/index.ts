@@ -464,6 +464,11 @@ export const GenerateAudioSchema = z.object({
    * Ignored by every other provider/model.
    */
   use_expression: z.boolean().optional(),
+  /** Fish Audio only: 0–1 expressiveness (temperature). Higher = less monotone. */
+  fish_temperature: z.number().min(0).max(1).optional(),
+  /** Fish Audio S2-Pro only: insert [short pause]/[long pause] tags at sentence
+   *  + paragraph boundaries so plain narration stops rushing through periods. */
+  fish_autopace: z.boolean().optional(),
 }).passthrough()
 export type GenerateAudioBody = z.infer<typeof GenerateAudioSchema>
 

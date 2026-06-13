@@ -202,6 +202,29 @@
         </p>
       </div>
 
+      <!-- Fish delivery controls — expressiveness for any Fish model, plus
+           auto-pacing for S2-Pro (which performs inline pause tags). Fixes the
+           "monotone + rushes through periods" feel. -->
+      <div v-if="isFish" class="form-group mb-2">
+        <label>Delivery <span class="field-hint">— Fish voice pacing &amp; expressiveness</span></label>
+        <div class="form-group">
+          <label>Expressiveness ({{ form.fish_temperature.toFixed(2) }}) <span class="field-hint">Higher = less monotone</span></label>
+          <SliderWithNumber v-model="form.fish_temperature" :min="0" :max="1" :step="0.05" :decimals="2" />
+          <p class="text-muted text-xs hint-line">
+            Fish's own default is <strong>0.70</strong>; we start at <strong>0.80</strong> for livelier delivery.
+            Raise toward <strong>0.90</strong> for more varied intonation; lower toward 0.70 for a steadier read. (Very high can wobble.)
+          </p>
+        </div>
+        <label v-if="isFishS2Pro" class="checkbox-label" :title="'Inserts [short pause] after sentences and [long pause] between paragraphs so the voice does not rush through full stops.'">
+          <input type="checkbox" v-model="form.fish_autopace" />
+          <span>Auto-pause at sentence breaks <span class="field-hint">— adds breathing room</span></span>
+        </label>
+        <p v-if="isFishS2Pro" class="text-muted text-xs hint-line">
+          Adds a brief pause after each sentence and a longer one between paragraphs. Works on plain narration and
+          layers on top of Expression markup (pauses won't double up). S2-Pro only.
+        </p>
+      </div>
+
       <!-- Fish S2 expression markup — only for Fish Audio S2-Pro, which performs
            inline [tags]. Lets the operator draft + review a tagged "expressive
            script" the audio renders when the toggle is on. -->
@@ -418,6 +441,11 @@ const form = reactive({
   generation_mode: 'skip' as 'skip' | 'regenerate' | 'new_version',
   // Fish Audio S2-Pro only — render the saved expressive (tagged) narration.
   use_expression: false,
+  // Fish Audio delivery controls. 0.8 starts a touch above Fish's own 0.7
+  // default for livelier (less monotone) delivery; autopace inserts pause tags
+  // so the voice doesn't rush through periods.
+  fish_temperature: 0.8,
+  fish_autopace: false,
 })
 
 // v1.0.259 — remember the voice + tuning across reloads. `sections` is
@@ -428,7 +456,7 @@ useRememberedForm('audio', slug, form, {
   // v1.0.314 — max_chunk_chars removed from the allowlist. It's no longer
   // user-settable on this page (per-model cap lives in Settings), so there's
   // nothing to remember.
-  include: ['model', 'voice', 'speed', 'stability', 'similarity', 'generation_mode'],
+  include: ['model', 'voice', 'speed', 'stability', 'similarity', 'generation_mode', 'fish_temperature', 'fish_autopace'],
 })
 
 // v1.0.150+ — resolve the provider of the currently-picked audio model so
@@ -449,8 +477,9 @@ const currentAudioProvider = computed<string>(() => {
 // Fish S2-Pro is the only model with inline expression tags — gate the
 // expression panel + the use_expression flag to it. (S1 would read an unknown
 // tag aloud, so it's deliberately excluded.)
-const isFishS2Pro = computed(() => currentAudioProvider.value === 'fishaudio' && form.model === 'fishaudio-s2-pro')
-watch(isFishS2Pro, (on) => { if (!on) form.use_expression = false })
+const isFish = computed(() => currentAudioProvider.value === 'fishaudio')
+const isFishS2Pro = computed(() => isFish.value && form.model === 'fishaudio-s2-pro')
+watch(isFishS2Pro, (on) => { if (!on) { form.use_expression = false; form.fish_autopace = false } })
 
 // v1.0.314 — the per-model chunk cap (Settings → Audio Models → Max chunk
 // chars). Null = use the chunker default (~4800). Surfaced read-only in the

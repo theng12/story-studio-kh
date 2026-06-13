@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.383 — 2026-06-14
+
+### Added — Fish voice delivery controls (pacing + expressiveness)
+Fish was rushing through full stops with no pause and sounding monotone. You now have direct control, in a new **Delivery** section that appears when a Fish model is selected:
+
+- **Expressiveness** slider (Fish `temperature`) — higher = livelier, more varied intonation; lower = flatter and steadier. Now starts at **0.80** (a touch above Fish's 0.70 default) so delivery is less monotone out of the box.
+- **Auto-pause at sentence breaks** (Fish S2-Pro) — inserts a brief `[short pause]` after sentences and a `[long pause]` between paragraphs so the voice gets breathing room instead of sprinting through periods. Works on plain narration and layers cleanly on top of Expression markup (pauses won't double up). Skips common abbreviations (Mr. / Dr. / etc.).
+- **The AI expression pass now prioritizes pacing too** — it adds pause tags for rhythm first, then emotion, so an expressive script no longer reads breathlessly.
+
+### Files
+- `electron/server/lib/fishaudio-client.ts` (temperature → Fish request)
+- `electron/server/services/audio-expression.ts` (pacing-first LLM prompt + `addSentencePacing`)
+- `electron/server/generators/audio.ts` (apply auto-pacing + temperature for Fish S2-Pro)
+- `electron/server/contracts/index.ts`, `electron/server/models/types.ts` (`fish_temperature`, `fish_autopace`)
+- `frontend/pages/projects/[slug]/audio.vue` (Delivery controls)
+
+---
+
 ## v1.0.382 — 2026-06-14
 
 ### Added — Fish Audio + DeepSeek balances in the sidebar

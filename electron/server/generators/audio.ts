@@ -353,6 +353,18 @@ export async function generateAudio(job: Job): Promise<void> {
     } catch { /* brand layer must never break audio generation */ }
   }
 
+  // v1.0.383 — Fish S2 auto-pacing. Fish rushes through full stops with almost
+  // no gap (robotic). When enabled, deterministically insert [short pause] /
+  // [long pause] tags at sentence + paragraph boundaries so plain narration
+  // gets breathing room. Runs AFTER normalization (so it keys off cleaned
+  // punctuation) and composes with the expression pass (the dedup inside
+  // addSentencePacing prevents stacked pauses). s2-pro only — S1 reads tags aloud.
+  if (req.fish_autopace === true && providerId === 'fishaudio' && req.model === 'fishaudio-s2-pro') {
+    const { addSentencePacing } = await import('../services/audio-expression.js')
+    for (const s of allSections) s.text = addSentencePacing(s.text)
+    job.output_lines.push('Fish S2 auto-pacing: inserted sentence/paragraph pause tags.')
+  }
+
   // Filter sections
   let sections = allSections
   const sectionsParam = req.sections || 'all'
@@ -760,11 +772,12 @@ export async function generateAudio(job: Job): Promise<void> {
         // Fish Audio (direct): streams MP3 bytes inline → write straight to
         // disk. `effectiveVoice` is the Fish reference_id (cloned voice / any
         // fish.audio model id). Stability/similarity don't apply; speed maps
-        // to Fish prosody.speed inside the client.
+        // to Fish prosody.speed and fish_temperature to expressiveness.
         await generateTtsFishaudio(task.chunkText, apiKey, task.outputPath, {
           model: req.model,
           voiceId: effectiveVoice,
           speed: req.speed,
+          temperature: typeof req.fish_temperature === 'number' ? req.fish_temperature : undefined,
           signal: controller.signal,
           onProgress: makeChunkCb(),
         })
