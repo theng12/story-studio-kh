@@ -4,6 +4,7 @@
 
 import path from 'path'
 import { createHash } from 'crypto'
+import { existsSync } from 'fs'
 import { PROJECTS_ROOT, getProjectDir } from './project-manager.js'
 
 /**
@@ -163,6 +164,81 @@ export async function resolveEpisodePathsByCode(slug: string, code: string): Pro
     title = ideas.find(i => i.episode_code === code)?.title || ''
   } catch { /* fall back to '' — better than throwing from a path resolver */ }
   return resolveEpisodePaths(slug, code, title)
+}
+
+function rebaseEpisodePaths(paths: EpisodePaths, episodeDir: string): EpisodePaths {
+  const from = path.resolve(paths.episode_dir)
+  const to = path.resolve(episodeDir)
+  const rebase = (p: string) => {
+    const rel = path.relative(from, path.resolve(p))
+    return rel && !rel.startsWith('..') && !path.isAbsolute(rel)
+      ? path.join(to, rel)
+      : p
+  }
+
+  return {
+    ...paths,
+    episode_dir: to,
+    script_dir: rebase(paths.script_dir),
+    scene_prompts_dir: rebase(paths.scene_prompts_dir),
+    thumb_prompts_dir: rebase(paths.thumb_prompts_dir),
+    metadata_dir: rebase(paths.metadata_dir),
+    bg_dir: rebase(paths.bg_dir),
+    thumb_dir: rebase(paths.thumb_dir),
+    audio_dir: rebase(paths.audio_dir),
+    merged_audio_dir: rebase(paths.merged_audio_dir),
+    subtitles_dir: rebase(paths.subtitles_dir),
+    video_dir: rebase(paths.video_dir),
+    narration_docx: rebase(paths.narration_docx),
+    scene_prompts_docx: rebase(paths.scene_prompts_docx),
+    thumb_prompts_docx: rebase(paths.thumb_prompts_docx),
+    metadata_txt: rebase(paths.metadata_txt),
+    metadata_json: rebase(paths.metadata_json),
+  }
+}
+
+/**
+ * Resolve by episode code, but when the caller is trying to read or update an
+ * existing sidecar, prefer the sibling episode-code folder that actually has
+ * that file. This protects Scene Plan / Scene Review from duplicate or renamed
+ * episode folders such as:
+ *
+ *   EP0011 - Old Title/
+ *   EP0011 - Current Title/scene_plan.json
+ *
+ * The normal resolver still owns new writes. This helper only intervenes when
+ * the canonical path is missing the sidecar and a same-code sibling has it.
+ */
+export async function resolveEpisodePathsByCodeWithSidecar(
+  slug: string,
+  code: string,
+  sidecarFilename: string,
+): Promise<EpisodePaths> {
+  const paths = await resolveEpisodePathsByCode(slug, code)
+  if (existsSync(path.join(paths.episode_dir, sidecarFilename))) return paths
+
+  const seasonDir = path.dirname(path.resolve(paths.episode_dir))
+  let entries: import('fs').Dirent[]
+  try {
+    const fs = await import('fs/promises')
+    entries = await fs.readdir(seasonDir, { withFileTypes: true })
+  } catch {
+    return paths
+  }
+
+  const wanted = code.toLowerCase()
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const name = entry.name.toLowerCase()
+    if (name !== wanted && !name.startsWith(`${wanted} - `)) continue
+    const candidateDir = path.join(seasonDir, entry.name)
+    if (path.resolve(candidateDir) === path.resolve(paths.episode_dir)) continue
+    if (existsSync(path.join(candidateDir, sidecarFilename))) {
+      return rebaseEpisodePaths(paths, candidateDir)
+    }
+  }
+
+  return paths
 }
 
 // ── Resolve subfolder names from project config ────────────────────────────

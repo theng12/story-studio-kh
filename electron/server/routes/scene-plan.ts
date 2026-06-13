@@ -14,7 +14,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import { resolveEpisodePathsByCode } from '../services/utils.js'
+import { resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { stitchSubtitles } from '../services/subtitle-stitcher.js'
@@ -30,7 +30,7 @@ export const router = Router()
 router.post('/projects/:slug/scene-plan/:episodeId/stitch-subtitles', async (req, res) => {
   const { slug, episodeId } = req.params
   try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const result = await stitchSubtitles({
       episode_dir: paths.episode_dir,
       subtitles_dir: paths.subtitles_dir,
@@ -218,7 +218,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-prompt', async (req, res)
   if (!visualPrompt) return res.status(400).json({ detail: 'visual_prompt is required (non-empty)' })
 
   try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const sidecarPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
     if (!existsSync(sidecarPath)) {
       return res.status(404).json({ detail: 'No scene_plan.json — run Scene Plan first.' })
@@ -245,7 +245,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-prompt', async (req, res)
 router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
   try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const stitchedSrtPath = path.join(paths.subtitles_dir, `${episodeId.toUpperCase()}_stitched.srt`)
     const stitchedMetaPath = `${stitchedSrtPath}.json`
     const scenePlanPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
@@ -340,7 +340,7 @@ router.put('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
   }
 
   try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     await fs.mkdir(paths.episode_dir, { recursive: true })
     const sidecarPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
     await fs.writeFile(sidecarPath, JSON.stringify(body, null, 2), 'utf-8')
@@ -354,7 +354,7 @@ router.put('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
 router.delete('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
   try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const sidecarPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
     try {
       await fs.unlink(sidecarPath)

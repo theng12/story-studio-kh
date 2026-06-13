@@ -18,7 +18,12 @@ import fs from 'fs/promises'
 import path from 'path'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
 import { unwrapICloudPlaceholderName } from '../lib/sync-safe.js'
-import { resolveEpisodePaths, resolveEpisodePathsByCode, resolveSubfolderNames } from './utils.js'
+import {
+  resolveEpisodePaths,
+  resolveEpisodePathsByCode,
+  resolveEpisodePathsByCodeWithSidecar,
+  resolveSubfolderNames,
+} from './utils.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
@@ -941,7 +946,7 @@ export async function computeEpisodeStatus(
     // apostrophe/colon, empty title) resolved to a phantom dir → scene_plan.json
     // never found → episode wrongly read as pending. By-code is rename-proof.
     try {
-      const byCode = await resolveEpisodePathsByCode(slug, code)
+      const byCode = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'scene_plan.json')
       // v1.0.361 — character sheet "done" = the episode's continuity config has
       // been saved (continuity.json at the episode_dir root). Same by-code
       // resolution as scene_plan so a renamed-folder episode still resolves.
@@ -1236,5 +1241,4 @@ function allDoneStatus(): EpisodeStatus {
     video_assembly: true,
   }
 }
-
 

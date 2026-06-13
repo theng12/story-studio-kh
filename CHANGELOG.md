@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.374 — 2026-06-13
+
+### Fixed — Scene Review now finds saved scene plans in renamed/duplicate episode folders
+Scene Plan could show a saved plan while Scene Review said **No scene plan yet** when the project had more than one same-code episode folder, for example an old `EP0011 - ...` folder plus the current `EP0011 - How Rome's Roads Shaped Imperial Movement` folder. The review/status path trusted the first resolved title path and missed the `scene_plan.json` that was already on disk.
+
+This release makes scene-plan sidecar lookup episode-code aware:
+
+- Scene Plan / Scene Review now prefer the same-code episode folder that actually contains `scene_plan.json`.
+- Scene Review actions, image preview/audio routes, approval writes, and assemble preflight all use the recovered plan folder.
+- Pipeline asset status uses the same sidecar-aware lookup so `scene_plan` / `scene_review` badges do not disagree with the tab.
+- A regression test recreates the duplicate-folder EP0011 case and pins the fixed behavior.
+
+### Files
+- `electron/server/services/utils.ts` (sidecar-aware episode-code resolver)
+- `electron/server/routes/scene-plan.ts`, `electron/server/routes/scene-review.ts`, and `electron/server/services/asset-status.ts` (scene-plan sidecar lookup)
+- `electron/server/__tests__/episode-path-sidecar.test.ts` (duplicate-folder regression)
+
+---
+
 ## v1.0.373 — 2026-06-13
 
 ### Fixed — scene and thumbnail prompt/image generation are fully independent

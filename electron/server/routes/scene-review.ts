@@ -19,7 +19,7 @@ import { existsSync, createReadStream } from 'fs'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import { resolveEpisodePathsByCode } from '../services/utils.js'
+import { resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { downloadImage } from '../lib/kie-client.js'
 import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
@@ -58,7 +58,7 @@ interface ReviewSceneAugmented {
 router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
   try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
     if (!existsSync(planPath)) {
       return res.json({ scene_plan: null, scenes: [], audio_path: null, stats: null })
@@ -232,7 +232,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
   if (!model) return res.status(400).json({ detail: 'model is required' })
 
   try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
@@ -372,7 +372,7 @@ router.post('/projects/:slug/scene-review/:episodeId/repair-image/:sceneId', asy
   if (!model) return res.status(400).json({ detail: 'model is required' })
 
   try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
@@ -435,7 +435,7 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
   const buf = decodeUploadBuffer(req.body)
   if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
   try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
@@ -465,7 +465,7 @@ router.put('/projects/:slug/scene-review/:episodeId/approve', async (req, res) =
 
   const body = req.body || {}
   try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
@@ -520,7 +520,7 @@ router.get('/projects/:slug/scene-review/:episodeId/image/:sceneId', async (req,
     return res.status(400).json({ detail: 'Invalid scene id' })
   }
   try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const imagePath = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER, `${sceneId}.png`)
     if (!existsSync(imagePath)) return res.status(404).json({ detail: 'Image not found' })
     res.setHeader('Content-Type', 'image/png')
@@ -546,7 +546,7 @@ router.post('/projects/:slug/scene-review/:episodeId/assemble', async (req, res)
   // Pre-flight: refuse here when the plan isn't ready, instead of
   // queuing a job that's going to fail in the executor.
   try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
     if (!existsSync(planPath)) {
       return res.status(400).json({ detail: 'No scene_plan.json yet — run Scene Plan first.' })
@@ -596,7 +596,7 @@ router.post('/projects/:slug/scene-review/:episodeId/assemble', async (req, res)
 router.get('/projects/:slug/scene-review/:episodeId/audio', async (req, res) => {
   const { slug, episodeId } = req.params
   try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     if (!existsSync(paths.merged_audio_dir)) return res.status(404).json({ detail: 'No merged audio' })
     // Pick the largest audio file (same heuristic as the status endpoint).
     let audioPath: string | null = null
