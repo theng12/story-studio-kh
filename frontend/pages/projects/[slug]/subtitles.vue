@@ -356,24 +356,36 @@ const transcribeDisabledReason = computed(() => {
   return ''
 })
 
+// v1.0.360 — race token so out-of-order responses from rapid episode switches
+// can't clobber the current episode's status or leave `loading` stuck true
+// (the "switch episode → still shows Checking subtitle status…" bug).
+let loadToken = 0
 async function loadStatus(): Promise<void> {
-  if (!episodeId.value) { status.value = null; sections.value = []; return }
+  const myToken = ++loadToken
+  if (!episodeId.value) { status.value = null; sections.value = []; loading.value = false; return }
   loading.value = true
   try {
     const [st, secs] = await Promise.all([
       get<SubtitleStatus>(`/projects/${slug.value}/video-editor/subtitles/status/${episodeId.value}`),
       get<{ sections: any[] }>(`/projects/${slug.value}/episodes/${episodeId.value}/audio-sections`).catch(() => ({ sections: [] })),
     ])
+    if (myToken !== loadToken) return   // a newer load (episode switch) superseded this one
     status.value = st
     sections.value = (secs.sections || []).map((s: any) => ({ label: s.label, slug: s.slug }))
     void loadStitchStatus()
   } catch (e: any) {
-    if (!e?.__slugRace) showError(e?.data?.detail || e?.message || 'Could not load subtitle status')
+    if (myToken === loadToken && !e?.__slugRace) showError(e?.data?.detail || e?.message || 'Could not load subtitle status')
   } finally {
-    loading.value = false
+    if (myToken === loadToken) loading.value = false
   }
 }
-watch(episodeId, loadStatus)
+// v1.0.360 — on episode switch, clear the transient queue flag so a slow/
+// in-flight transcribe POST on the PREVIOUS episode doesn't leave the new
+// episode's Transcribe button stuck on "Queuing…" / disabled.
+watch(episodeId, () => {
+  transcribing.value = false
+  void loadStatus()
+})
 
 // ── Stitch into the global timeline (v1.0.218 — moved here from Scene Plan
 // so subtitle creation + stitching live in one workspace). Reads/writes the
@@ -482,8 +494,30 @@ async function transcribe(): Promise<void> {
   }
 }
 
-watch(transcribeJobActive, (active, was) => {
-  if (was && !active) { void loadStatus(); success('Transcription finished — subtitle status updated.') }
+// v1.0.360 — reload + toast ONLY when a transcribe job actually reaches 'done'
+// for the current episode. The old `watch(transcribeJobActive)` fired on its
+// true→false transition, which ALSO happens when you switch away from an
+// episode whose job is still running — producing a false "Transcription
+// finished" toast and an unnecessary reload. Tracking job ids keyed off a
+// shallow signal (not a deep watch) avoids that and the UI-thread churn.
+const seenDoneTranscribes = new Set<string>()
+const transcribeJobSignal = computed(() =>
+  (jobs.value as any[])
+    .filter(j => j.type === 'subtitles_transcribe' && j.project_slug === slug.value)
+    .map(j => `${j.job_id}:${j.status}`)
+    .join('|'),
+)
+watch(transcribeJobSignal, () => {
+  for (const j of jobs.value as any[]) {
+    if (j.type === 'subtitles_transcribe' && j.status === 'done'
+        && j.project_slug === slug.value && !seenDoneTranscribes.has(j.job_id)) {
+      seenDoneTranscribes.add(j.job_id)
+      if (j.episode_id === episodeId.value) {
+        void loadStatus()
+        success('Transcription finished — subtitle status updated.')
+      }
+    }
+  }
 })
 
 async function fromChapters(): Promise<void> {

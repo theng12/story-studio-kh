@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.360 — 2026-06-13
+
+### Fixed — Subtitles: switching episodes left Transcribe stuck on "loading/pending"
+Switching episodes on the Subtitles tab could leave the page stuck showing the previous episode's loading/queueing state, so you couldn't queue a transcribe for the new one. Three fixes:
+- **Race-guarded status load** — a slow status fetch from the episode you just left can no longer clobber the new episode's status or leave "Checking subtitle status…" stuck on.
+- **Reset the queue flag on switch** — an in-flight transcribe POST on the previous episode no longer leaves the new episode's Transcribe button stuck on "Queuing…" / disabled.
+- **No more false "Transcription finished"** — switching away from an episode whose transcribe is still running used to fire a fake "finished" toast + reload. It now keys off the job actually reaching `done` for the current episode.
+
+### Added — Scene Review: bulk AI re-prompt of selected scenes + a Rewrite-LLM picker
+- **Pick the rewrite model.** "Rewrite with AI" used to silently use whichever LLM it auto-picked. There's now a **✏️ Rewrite LLM** dropdown in the toolbar — choose the text model used for rewrites (separate from the image model). Your choice sticks for the session and isn't clobbered on reload/episode-switch.
+- **Bulk re-prompt.** Tick the scenes you want (checkboxes, "Select stale", or **Shift+Y** in the preview), then **✏️ Rewrite selected with AI (N)** re-writes all their prompts with the chosen LLM — one at a time (the rewrite is one job per episode), with live "Rewriting 2/5…" progress. Images are untouched; review the new prompts, then **⚡ Regenerate selected**.
+
+### Files
+- `frontend/pages/projects/[slug]/subtitles.vue` (race-token load + reset-on-switch + job-done–keyed reload)
+- `frontend/pages/projects/[slug]/scene-review.vue` (Rewrite-LLM picker; `rewriteOneAndWait` extracted; bulk `rewriteSelectedAI`)
+
+---
+
 ## v1.0.359 — 2026-06-13
 
 ### Added — Scene Review: stale-image detection + select/approve from inside the preview

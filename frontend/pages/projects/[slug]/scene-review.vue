@@ -107,6 +107,20 @@
               default-label="Pick an image model…"
             />
           </div>
+          <!-- v1.0.360 — LLM model for "Rewrite with AI" (single + bulk). Was
+               auto-picked silently; now you choose it. -->
+          <div class="sr-llm-pick" title="The text/LLM model used by 'Rewrite with AI' (per-scene and bulk). Separate from the image model on the left.">
+            <span class="sr-llm-label">✏️ Rewrite&nbsp;LLM</span>
+            <select v-model="textModel" class="select sr-llm-select">
+              <option value="" disabled>Pick an LLM…</option>
+              <option
+                v-for="m in textModels"
+                :key="m.id"
+                :value="m.id"
+                :disabled="!m.available || !!m.disabled_reason"
+              >{{ m.label || m.id }}{{ (!m.available || m.disabled_reason) ? ' (unavailable)' : '' }}</option>
+            </select>
+          </div>
           <button
             class="btn btn-sm btn-secondary"
             :disabled="approvingAll || stats.with_image === 0"
@@ -169,11 +183,22 @@
           <button
             v-if="isContinuity && selectedCount > 0"
             class="btn btn-sm btn-primary"
-            :disabled="!form.model || continuityRendering || isRendering"
+            :disabled="!form.model || continuityRendering || isRendering || bulkRewriting"
             @click="regenerateSelected"
             title="Re-render the selected scenes in ONE parallel job across the whole Mac pool."
           >
             ⚡ Regenerate selected ({{ selectedCount }})
+          </button>
+          <!-- v1.0.360 — bulk AI re-prompt of the selected scenes (one at a time;
+               rewrite is one job per episode). Images stay until you Regenerate. -->
+          <button
+            v-if="isContinuity && selectedCount > 0"
+            class="btn btn-sm btn-secondary"
+            :disabled="!textModel || bulkRewriting || isRendering"
+            @click="rewriteSelectedAI"
+            :title="!textModel ? 'Pick a Rewrite LLM above first' : 'Re-write every selected scene\'s prompt with the chosen LLM, one at a time. Review, then Regenerate selected.'"
+          >
+            {{ bulkRewriting ? '⏳ ' + bulkRewriteProgress : `✏️ Rewrite selected with AI (${selectedCount})` }}
           </button>
           <button
             v-if="isContinuity && selectedCount > 0"
@@ -504,9 +529,9 @@
             <button class="btn btn-sm btn-ghost" @click.stop="seekTo(previewScene.start_sec)" title="Jump the audio player to this scene">▶ Play from here</button>
             <button
               class="btn btn-sm btn-ghost"
-              :disabled="!textModel || rewritingId === previewScene.id"
+              :disabled="!textModel || rewritingId === previewScene.id || bulkRewriting"
               @click.stop="rewritePromptAI(previewScene)"
-              :title="!textModel ? 'No usable text model — set an API key or LM Studio in Settings → Models' : 'Have the LLM re-write this scene\'s prompt (kept on-style via the episode Style Bible), then Regenerate to apply it'"
+              :title="!textModel ? 'Pick a Rewrite LLM in the toolbar first (or set an API key / LM Studio in Settings → Models)' : `Re-write this scene's prompt with ${textModel} (kept on-style via the episode Style Bible), then Regenerate to apply it`"
             >{{ rewritingId === previewScene.id ? '⏳ Rewriting…' : '✏️ Rewrite with AI' }}</button>
             <button
               v-if="promptDirty"
@@ -861,12 +886,23 @@ const rewritingId = ref<string | null>(null)
 // v1.0.343 — "Rewrite with AI" is an LLM task, so it needs a TEXT model — NOT
 // the image model in `form.model` (passing that timed out as "Unsupported
 // model"). Resolve the first usable text model the same way ModelSelector does.
+// v1.0.360 — the LLM used for "Rewrite with AI" (single + bulk). Previously
+// auto-picked the first available model silently ("some model I don't
+// remember"); now the user can choose it from a picker. We keep the full list
+// and only auto-fill a default when nothing is chosen yet — a reload / episode
+// switch won't clobber the user's pick.
 const textModel = ref('')
+const textModels = ref<Array<{ id: string; label?: string; available?: boolean; disabled_reason?: string }>>([])
+const IMAGE_MODEL_RE = /^(imagestudio|kie|fal|runware|replicate):/i
 async function loadTextModel(): Promise<void> {
   try {
-    const models = await get<Array<{ id: string; available?: boolean; disabled_reason?: string }>>(`/models?project=${slug.value}`)
-    textModel.value = models.find(m => m.available && !m.disabled_reason)?.id || ''
-  } catch { textModel.value = '' }
+    const models = await get<Array<{ id: string; label?: string; available?: boolean; disabled_reason?: string }>>(`/models?project=${slug.value}`)
+    // Rewrite is an LLM task — drop image models (the route rejects them anyway).
+    textModels.value = (models || []).filter(m => !IMAGE_MODEL_RE.test(m.id))
+    if (!textModel.value) {
+      textModel.value = textModels.value.find(m => m.available && !m.disabled_reason)?.id || ''
+    }
+  } catch { textModels.value = []; textModel.value = '' }
 }
 
 // v1.0.344 — multi-select to re-roll a CHOSEN set of scenes in ONE parallel job
@@ -944,12 +980,11 @@ async function regenerateFromPreview(scene: ReviewScene): Promise<void> {
 /** Ask the LLM to re-write this scene's prompt (the original generation issue).
  *  Runs as a scene-plan job; poll the plan until the prompt changes, then load
  *  it into the editor for review before the user re-renders. */
-async function rewritePromptAI(scene: ReviewScene): Promise<void> {
-  if (!textModel.value) {
-    showError('No usable text model — set an API key (or LM Studio) in Settings → Models, then reload.')
-    return
-  }
-  rewritingId.value = scene.id
+// Core: queue ONE scene's prompt rewrite and poll until the plan reflects the
+// new prompt (the regenerate-prompt job shares the one-per-episode lane, so
+// callers run these serially). Returns true on success. Shared by the single
+// "Rewrite with AI" button and the bulk "Rewrite selected" loop.
+async function rewriteOneAndWait(scene: ReviewScene): Promise<boolean> {
   const before = scene.visual_prompt
   const ep = episodeId.value
   try {
@@ -957,20 +992,70 @@ async function rewritePromptAI(scene: ReviewScene): Promise<void> {
       scene_id: scene.id,
       model: textModel.value,   // LLM model — NOT the image model (form.model)
     })
-    for (let i = 0; i < 40 && episodeId.value === ep && rewritingId.value === scene.id; i++) {
-      await new Promise((r) => setTimeout(r, 1500))
-      await loadReview()
-      const fresh = scenes.value.find((s) => s.id === scene.id)
-      if (fresh?.visual_prompt && fresh.visual_prompt !== before) {
-        editPrompt.value = fresh.visual_prompt
-        success(`Prompt re-written for scene ${scene.scene_index} — review it, then Regenerate.`)
-        return
-      }
-    }
-    showError('Prompt rewrite is taking a while — check the Jobs panel; it\'ll update here when done.')
   } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to rewrite prompt')
+    showError(e?.data?.detail || `Failed to start rewrite for scene ${scene.scene_index}`)
+    return false
+  }
+  for (let i = 0; i < 40 && episodeId.value === ep; i++) {
+    await new Promise((r) => setTimeout(r, 1500))
+    await loadReview()
+    const fresh = scenes.value.find((s) => s.id === scene.id)
+    if (fresh?.visual_prompt && fresh.visual_prompt !== before) {
+      return true
+    }
+  }
+  return false
+}
+
+async function rewritePromptAI(scene: ReviewScene): Promise<void> {
+  if (!textModel.value) {
+    showError('No rewrite model selected — pick one from the LLM dropdown (or set an API key / LM Studio in Settings → Models).')
+    return
+  }
+  rewritingId.value = scene.id
+  try {
+    const ok = await rewriteOneAndWait(scene)
+    if (ok) {
+      const fresh = scenes.value.find((s) => s.id === scene.id)
+      if (fresh) editPrompt.value = fresh.visual_prompt
+      success(`Prompt re-written for scene ${scene.scene_index} — review it, then Regenerate.`)
+    } else {
+      showError('Prompt rewrite is taking a while — check the Jobs panel; it\'ll update here when done.')
+    }
   } finally {
+    rewritingId.value = null
+  }
+}
+
+// v1.0.360 — bulk: re-write the prompts for every SELECTED scene with the
+// chosen LLM, one at a time (the rewrite job is one-per-episode). Lets the user
+// fix a batch of stale/off scenes without opening each. Images are untouched —
+// re-review then ⚡ Regenerate selected.
+const bulkRewriting = ref(false)
+const bulkRewriteProgress = ref('')
+async function rewriteSelectedAI(): Promise<void> {
+  if (!textModel.value) {
+    showError('No rewrite model selected — pick one from the LLM dropdown first.')
+    return
+  }
+  const targets = scenes.value.filter(s => selectedIds.value.has(s.id) && s.visual_prompt)
+  if (!targets.length) { showError('Select at least one scene that has a prompt'); return }
+  if (!confirm(`Re-write the prompt for ${targets.length} selected scene(s) with "${textModel.value}"? They run one at a time (one rewrite job per episode); existing prompts are replaced. The images stay until you ⚡ Regenerate selected.`)) return
+  bulkRewriting.value = true
+  let done = 0
+  try {
+    for (const scene of targets) {
+      if (!bulkRewriting.value) break   // user cancelled
+      bulkRewriteProgress.value = `Rewriting ${done + 1}/${targets.length} — scene #${scene.scene_index}…`
+      rewritingId.value = scene.id
+      const ok = await rewriteOneAndWait(scene)
+      rewritingId.value = null
+      if (ok) done++
+    }
+    success(`Re-wrote ${done}/${targets.length} prompt(s) — review them, then ⚡ Regenerate selected.`)
+  } finally {
+    bulkRewriting.value = false
+    bulkRewriteProgress.value = ''
     rewritingId.value = null
   }
 }
@@ -1511,6 +1596,11 @@ watch(episodeId, () => { void loadReview() })
   color: var(--text-primary);
 }
 .btn-warn:hover { background: color-mix(in srgb, #e0843a 38%, transparent); }
+
+/* v1.0.360 — Rewrite-LLM picker in the toolbar. */
+.sr-llm-pick { display: inline-flex; align-items: center; gap: 6px; }
+.sr-llm-label { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.sr-llm-select { font-size: 12px; max-width: 220px; }
 .sr-lb-prompt { display: flex; flex-direction: column; gap: 4px; }
 .sr-lb-prompt-label { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
 .sr-lb-prompt-input {
