@@ -234,6 +234,26 @@ describe('asset-status looser detection (no prompts docx)', () => {
     assert.equal(status.character_sheet, true, 'continuity.json present → character sheet done')
   })
 
+  // v1.0.362 — B-Roll "pending" filter regression: it keyed off `video` (AI
+  // clips), which the stock-footage flow never produces, so every episode
+  // looked pending forever. broll_picked now means a B-Roll selection has been
+  // saved (broll-selection.json on disk, written by the /broll/pick route).
+  test('broll_picked=false until broll-selection.json is saved, then true', async () => {
+    const { episodeDir } = await makeProject()
+    // No broll-selection.json yet → no clips picked.
+    let status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.broll_picked, false, 'no broll-selection.json → B-Roll pending')
+
+    // Save the picked selection (what the B-Roll page's pick route writes).
+    await fs.writeFile(
+      path.join(episodeDir, 'broll-selection.json'),
+      JSON.stringify({ schema_version: 1, clips: [{ scene: 1, asset_id: 'a1' }] }),
+    )
+    cacheMod.episodeStatusCache.clear()
+    status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.broll_picked, true, 'broll-selection.json present → B-Roll picked')
+  })
+
   test('back-compat: prompts docx present → strict expected-vs-present preserved', async () => {
     // When the user HAS a prompts docx, the existing strict logic must
     // still apply. We can't easily fabricate a parseable docx here, so

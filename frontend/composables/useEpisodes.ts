@@ -60,6 +60,7 @@ export interface EpisodeRow {
     scene_plan?: boolean
     scene_review?: boolean
     character_sheet?: boolean
+    broll_picked?: boolean
     script: boolean
     introduction: boolean
     prompts: boolean

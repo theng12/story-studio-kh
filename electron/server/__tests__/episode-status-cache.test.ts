@@ -283,6 +283,7 @@ describe('episode-status-cache', () => {
         research: false,
         scene_plan: false, scene_review: false,
         character_sheet: false,
+        broll_picked: false,
         script: true, introduction: false,
         scene_prompts: false, thumb_prompts: false,
         metadata: false,

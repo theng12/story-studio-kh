@@ -34,6 +34,7 @@ function fullStatus(overrides: Partial<EpisodeStatus> = {}): EpisodeStatus {
     research: false,
     scene_plan: false, scene_review: false,
     character_sheet: false,
+    broll_picked: false,
     script: false, introduction: false,
     scene_prompts: false, thumb_prompts: false,
     metadata: false,

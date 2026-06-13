@@ -1076,6 +1076,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       scene_plan: scenePlanDone,
       scene_review: sceneReviewDone,
       character_sheet: characterSheetDone,
+      broll_picked: brollPickedDone,
       script: scriptDone,
       introduction: introductionDone,
       scene_prompts: scenePromptsDone,
@@ -1153,6 +1154,8 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
         // v1.0.361 — surfaced so the Character Sheet page filters its pending
         // list by "continuity config saved" instead of borrowing `script`.
         character_sheet: characterSheetDone,
+        // v1.0.362 — B-Roll page filters by "selection picked" instead of `video`.
+        broll_picked: brollPickedDone,
         script: scriptDone,
         introduction: introductionDone,
         prompts: scenePromptsDone,           // backward compat

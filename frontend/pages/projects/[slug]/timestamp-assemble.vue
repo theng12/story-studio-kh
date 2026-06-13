@@ -20,7 +20,7 @@
     <TopActionBar
       :project-slug="slug"
       v-model:episode-id="episodeId"
-      filter-field="video"
+      filter-field="video_assembly"
       generate-label="🎞 Assemble video"
       loading-label="Queuing…"
       :generate-loading="assembling || assembleJobActive"

@@ -688,6 +688,12 @@ export interface EpisodeStatus {
   // audio (i.e. were ready FOR subtitles) were wrongly hidden from pending.
   // Optional like research/scene_plan — NOT folded into all_done.
   subtitles: boolean
+  // v1.0.362 — stock-footage (broll) format: a B-Roll selection has been picked
+  // for this episode (broll-selection.json at the episode_dir root, written by
+  // the /broll/pick route). Drives the B-Roll page's "pending" filter (was
+  // wrongly keyed to `video`, which is AI clips — broll has none). Only the
+  // broll pipeline produces it — NOT in all_done.
+  broll_picked: boolean
   video: boolean
   // Video-assembly final render — the single merged output that the
   // Video Assembly page produces. Named `{code}_final_video.{ext}` under
@@ -726,6 +732,7 @@ function emptyStatus(): EpisodeStatus {
     images: false, thumbnails: false,
     audio: false, merged_audio: false,
     subtitles: false,
+    broll_picked: false,
     video: false,
     video_assembly: false,
   }
@@ -939,6 +946,8 @@ export async function computeEpisodeStatus(
       // been saved (continuity.json at the episode_dir root). Same by-code
       // resolution as scene_plan so a renamed-folder episode still resolves.
       status.character_sheet = await fileHasContent(path.join(byCode.episode_dir, 'continuity.json'))
+      // v1.0.362 — broll selection picked for this episode (stock-footage flow).
+      status.broll_picked = await fileHasContent(path.join(byCode.episode_dir, 'broll-selection.json'))
       const planPath = path.join(byCode.episode_dir, 'scene_plan.json')
       status.scene_plan = await fileHasContent(planPath)
       if (status.scene_plan) {
@@ -1222,6 +1231,7 @@ function allDoneStatus(): EpisodeStatus {
     images: true, thumbnails: true,
     audio: true, merged_audio: true,
     subtitles: true,
+    broll_picked: true,
     video: true,
     video_assembly: true,
   }

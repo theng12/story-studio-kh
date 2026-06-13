@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.362 — 2026-06-13
+
+### Fixed — Audited every "Pending only" filter; B-Roll and Video Assembly were keyed to the wrong step
+You'd been finding these one tab at a time (Subtitles, then Character Sheet) — each had its **Pending only** filter secretly keyed to the wrong status field, so the list either hid every episode or showed all of them. Rather than wait to discover the rest, I swept **all 15** generator pages that have a Pending filter and checked each one against the step it actually produces. Eleven were already correct; two were wrong:
+
+- **B-Roll** was keyed to `video` (AI per-scene clips) — but the stock-footage flow never produces those, so **every** episode looked pending, forever. Now there's a real signal: a **new `broll_picked` status field**, true once you've **picked a B-Roll selection** (`broll-selection.json` exists at the episode folder, written by the Pick route). "Pending only" now shows exactly the episodes you haven't selected clips for yet.
+- **Video Assembly (timestamp flow)** was keyed to `video` too; it now keys to `video_assembly` — the final-render step it actually does. Continuity/timestamp episodes have no per-scene AI clips, so the old key never flipped.
+
+`broll_picked` is optional like Research / Scene Plan / Character Sheet — it shows as a per-episode step chip when present, and is **not** folded into an episode's "all done" rollup. (B-Roll pick isn't a Production Board flow step, so it gets a chip but no board column.)
+
+The takeaway: this whole **class** of bug — a Pending filter pointing at a proxy field instead of the page's own step — is now swept clean across the app, so you shouldn't keep tripping over new ones.
+
+### Files
+- `electron/server/services/asset-status.ts` (`broll_picked` field + detection via `broll-selection.json`; `emptyStatus`/`allDoneStatus`)
+- `electron/server/routes/ideas.ts` (surface `broll_picked` in `/episodes`)
+- `frontend/composables/useEpisodes.ts` (type), `frontend/pages/projects/[slug]/broll.vue` (`filter-field="broll_picked"`), `frontend/pages/projects/[slug]/timestamp-assemble.vue` (`filter-field="video_assembly"`), `frontend/components/EpisodeSelector.vue` (chip)
+- `electron/server/__tests__/asset-status-loose-detection.test.ts` (detection test) + 2 fixtures updated
+
+---
+
 ## v1.0.361 — 2026-06-13
 
 ### Fixed — Character Sheet "Pending only" hid every episode (couldn't tell which were set up)

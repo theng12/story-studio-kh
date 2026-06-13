@@ -32,7 +32,7 @@
       :project-slug="slug"
       :presets="brollPresets"
       v-model:episode-id="form.episode_id"
-      filter-field="video"
+      filter-field="broll_picked"
       generate-label="Pick B-Roll for this episode"
       :generate-loading="picking"
       :generate-disabled="!subscribedPool || !form.episode_id || picking"
