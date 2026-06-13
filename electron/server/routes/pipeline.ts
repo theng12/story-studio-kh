@@ -84,7 +84,31 @@ type BatchStep =
 // legacy unified `images` job type can still exist in old job history, but
 // run-batch no longer accepts it as a step because it can merge scenes and
 // thumbnails into one provider run.
-const VALID_STEPS: BatchStep[] = ['script-only', 'introduction-only', 'image_prompts', 'scene_prompts', 'scene_images', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'scene_review', 'character_sheet', 'timestamp_assemble', 'video', 'video_assembly']
+export const VALID_STEPS: BatchStep[] = ['script-only', 'introduction-only', 'image_prompts', 'scene_prompts', 'scene_images', 'thumb_images', 'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'scene_review', 'character_sheet', 'timestamp_assemble', 'video', 'video_assembly']
+
+// A few Pipeline step ids don't equal their generator's JobType (the id the
+// job queue keys its lane + executor on). Any step NOT listed here enqueues
+// under its own id, which IS a valid JobType + lane. Steps listed here MUST be
+// translated before jq.enqueue() — otherwise enqueue pushes to a non-existent
+// queue lane (`queues[type].pending`) and throws a TypeError, which surfaces to
+// the user as "Scene Review always errors out". (scene_review runs the
+// continuity renderer in independent/parallel mode across the Mac pool.)
+export const STEP_JOB_TYPE: Partial<Record<BatchStep, JobType>> = {
+  scene_prompts: 'image_prompts',              // shared image-prompts generator (mode='scenes')
+  subtitles: 'subtitles_transcribe',
+  scene_plan: 'scene_plan_run',
+  scene_review: 'continuity_render',
+  timestamp_assemble: 'timestamp_video_assemble',
+}
+
+/**
+ * The JobType a pipeline step enqueues under (mirrors the run-batch loop).
+ * `script-only` is special: it expands to outline_only → expand_chapters, so it
+ * has no single job type. `character_sheet` is applied inline (never a job).
+ */
+export function jobTypeForStep(step: BatchStep): JobType {
+  return STEP_JOB_TYPE[step] || (step as JobType)
+}
 
 // Steps that run with the generator's own defaults — no saved preset required.
 // `timestamp_assemble`'s settings live in a per-Mac remembered form (not a
@@ -560,6 +584,11 @@ export function resolveStepParams(
       aspect_ratio: typeof data.aspect_ratio === 'string' && data.aspect_ratio ? data.aspect_ratio : '16:9',
       independent: true,
       concurrency: data.concurrency === undefined ? 'auto' : data.concurrency,
+      // Honor the preset's render mode: 'prompt' → text-to-image (no reference
+      // images), matching the Scene Review page's "Prompt only" toggle. Render
+      // size (render_scale) is local-model only and falls back to the model's
+      // aspect-default resolution in batch.
+      prompt_only: data.render_mode === 'prompt',
     }
   }
   if (step === 'timestamp_assemble') {
@@ -1013,7 +1042,7 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
         chain.push({ type: 'expand_chapters' as JobType, title: `[batch] chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', auto_approve: true } })
         continue
       }
-      const jobType = step === 'scene_prompts' ? 'image_prompts' : step as JobType
+      const jobType = jobTypeForStep(step)
       const jobTitleStep = step === 'image_prompts' ? 'thumbnail_prompts' : step
       chain.push({
         type: jobType,

@@ -4,6 +4,27 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.379 — 2026-06-14
+
+### Fixed — Fish Audio "Test" button reported "Unknown provider"
+Saving a Fish Audio key worked and audio generation worked, but the **Test** button in Settings → API Keys errored with *"Unknown provider: fishaudio"* — the key-test path had no Fish case. It now probes Fish's wallet endpoint and reports **"Key works — N credit remaining"** (Fish bills in credit bytes, so the number is shown neutrally, not as dollars). An invalid key reads "Invalid key (401)".
+
+### Fixed — Scene Review (and Scene Plan / Subtitles / Final Video) crashed when run from the Pipeline
+Running **Scene Review (render)** from the Pipeline always errored out. The batch runner enqueued each step under its own id, but four steps use a *different* job type internally — Scene Review renders via `continuity_render`, Scene Plan via `scene_plan_run`, Subtitles via `subtitles_transcribe`, and Final Video (timestamp) via `timestamp_video_assemble`. The id mismatch was hidden by a type cast, so at run time the queue had no lane for `scene_review` and threw before the job could start (a chained Scene Review instead logged "Chain-next failed" and silently stopped).
+
+- The Pipeline now translates each step to its real job type before queueing, so **Scene Review, Scene Plan, Subtitles, and Final Video all run from the Pipeline.**
+- Scene Review from the Pipeline runs in **independent / parallel mode across your Mac pool** at the preset's concurrency — this *is* the "parallel render" path; there's no separate toggle needed.
+- It now also honors the preset's **render mode** (`Prompt only` → text-to-image, no reference images). Render *size* (`render_scale`) is local-model-only and falls back to the model's aspect-default resolution in batch runs.
+- A regression test pins that every Pipeline step maps to a real job-queue lane, so a future mismatched step fails the build instead of the user.
+
+### Files
+- `electron/server/services/utils.ts` (Fish Audio key-test probe)
+- `electron/server/routes/pipeline.ts` (step→JobType map + `jobTypeForStep`; thread `prompt_only` into Scene Review)
+- `electron/server/services/job-queue.ts` (`knownJobTypes()` introspection)
+- `electron/server/__tests__/pipeline-step-skip.test.ts` (lane-mapping regression)
+
+---
+
 ## v1.0.378 — 2026-06-13
 
 ### Added — Fish Audio as a 5th TTS provider

@@ -262,6 +262,16 @@ const queues: Record<JobType, QueueState> = {
   composition_generate: { pending: [], running: false, executor: null },
 }
 
+/**
+ * The set of JobTypes that have a real queue lane. `enqueue()` indexes
+ * `queues[type]` directly, so enqueuing a type absent here throws a TypeError
+ * (`Cannot read 'pending' of undefined`). Exposed so callers/tests can verify a
+ * derived job type is enqueueable BEFORE it reaches the queue.
+ */
+export function knownJobTypes(): JobType[] {
+  return Object.keys(queues) as JobType[]
+}
+
 // ── Concurrency groups ──────────────────────────────────────────────────────
 //
 // Most job types run strictly one-at-a-time (their own group, limit 1):

@@ -338,3 +338,41 @@ describe('run-batch — v1.0.363 audio-paced wiring', () => {
     assert.equal(cfg.schema_version, 1)
   })
 })
+
+// Regression: every Pipeline step must enqueue under a JobType that has a real
+// queue lane. The run-batch loop casts `step as JobType`, which silently
+// compiles even when a step id ≠ its generator's JobType — that shipped a bug
+// where Scene Review (id 'scene_review', job 'continuity_render'), Scene Plan,
+// Subtitles and the timestamp assemble step all threw "Cannot read 'pending' of
+// undefined" inside jq.enqueue and surfaced to the user as "always errors out".
+describe('every pipeline step maps to a real job-queue lane', () => {
+  let VALID_STEPS: typeof import('../routes/pipeline.js').VALID_STEPS
+  let jobTypeForStep: typeof import('../routes/pipeline.js').jobTypeForStep
+  let knownJobTypes: typeof import('../services/job-queue.js').knownJobTypes
+
+  before(async () => {
+    ;({ VALID_STEPS, jobTypeForStep } = await import('../routes/pipeline.js'))
+    ;({ knownJobTypes } = await import('../services/job-queue.js'))
+  })
+
+  test('each step (except inline character_sheet) resolves to an enqueueable lane', () => {
+    const lanes = new Set<string>(knownJobTypes())
+    for (const step of VALID_STEPS) {
+      // character_sheet is applied inline (continuity.json write), never enqueued.
+      if (step === 'character_sheet') continue
+      const jobType = jobTypeForStep(step)
+      assert.ok(
+        lanes.has(jobType),
+        `step '${step}' → jobType '${jobType}' has no queue lane (jq.enqueue would throw)`,
+      )
+    }
+  })
+
+  test('the mismatched steps map to their generator job types', () => {
+    assert.equal(jobTypeForStep('scene_review'), 'continuity_render')
+    assert.equal(jobTypeForStep('scene_plan'), 'scene_plan_run')
+    assert.equal(jobTypeForStep('subtitles'), 'subtitles_transcribe')
+    assert.equal(jobTypeForStep('timestamp_assemble'), 'timestamp_video_assemble')
+    assert.equal(jobTypeForStep('scene_prompts'), 'image_prompts')
+  })
+})

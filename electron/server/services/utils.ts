@@ -574,6 +574,25 @@ export async function testApiKey(provider: string, apiKey: string): Promise<Test
       ? { valid: true, reachable: true, message: `Credits: ${credits.toLocaleString()}` }
       : { valid: false, reachable: true, message: 'Unexpected response shape' }
   }
+  // v1.0.379+ — Fish Audio probe. The wallet credit endpoint validates the key
+  // (Bearer) AND returns the remaining balance; `self` resolves to the key's
+  // owner so we don't need the user id. Fish bills in "credit bytes" (≈1 byte
+  // per English character), so we label the number neutrally — not as dollars.
+  if (provider === 'fishaudio') {
+    const r = await probeJson('https://api.fish.audio/wallet/self/api-credit', { Authorization: `Bearer ${apiKey}` })
+    if (r.kind === 'network') return { valid: false, reachable: false, message: r.error }
+    if (r.status === 401 || r.status === 403) return { valid: false, reachable: true, message: 'Invalid key (401)' }
+    if (r.status !== 200) return { valid: false, reachable: true, message: `HTTP ${r.status}` }
+    const credit = (r.body as any)?.credit
+    const creditNum = credit !== undefined && credit !== null ? Number(credit) : NaN
+    return {
+      valid: true,
+      reachable: true,
+      message: Number.isFinite(creditNum)
+        ? `Key works — ${creditNum.toLocaleString()} credit remaining`
+        : 'Key works',
+    }
+  }
   // v1.0.123+ — Pexels probe. The `popular` endpoint returns one video
   // with a per_page=1 request — cheapest possible auth check. Pexels
   // takes the raw key as the Authorization header (NO `Bearer ` prefix —
