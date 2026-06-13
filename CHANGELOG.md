@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.375 — 2026-06-13
+
+### Added — release DMG is copied to the iCloud shared app folder
+Every `npm run dist` release now copies the freshly built Apple Silicon DMG into the iCloud-shared project root's `_app_` folder as a stable file:
+
+- `Story Studio KH-arm64.dmg`
+
+The filename stays the same, so each new release replaces the previous shared installer instead of accumulating old DMGs. A small `Story Studio KH-arm64.version.txt` sidecar records the copied version and source build path.
+
+### Files
+- `scripts/copy-shared-dmg.mjs` (shared DMG copy helper)
+- `package.json` (runs the helper automatically after `npm run dist`)
+
+---
+
 ## v1.0.374 — 2026-06-13
 
 ### Fixed — Scene Review now finds saved scene plans in renamed/duplicate episode folders

@@ -1,7 +1,7 @@
 {
   "name": "story-studio-kh",
   "productName": "Story Studio KH",
-  "version": "1.0.374",
+  "version": "1.0.375",
   "private": true,
   "description": "Story Studio KH — multi-format video pipeline for YouTube channels. Research, scripts, voice, scenes, B-roll, and assembly across 4 production formats (scenes / listicle / continuity / stock-footage), with niches supplying each channel's voice.",
   "author": "",
@@ -18,6 +18,7 @@
     "build": "npm run check:changelog && npm run build:frontend && npm run build:electron",
     "fetch:ffmpeg": "node scripts/fetch-ffmpeg.mjs",
     "dist": "npm run check:changelog && npm run fetch:ffmpeg && npm run build && electron-builder",
+    "postdist": "node scripts/copy-shared-dmg.mjs",
     "start": "electron .",
     "test:backend": "cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test server/__tests__/*.test.ts",
     "test:frontend": "cd frontend && npx tsx --import ./__tests__/setup.ts --test __tests__/*.test.ts",
