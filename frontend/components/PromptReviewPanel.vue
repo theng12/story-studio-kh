@@ -14,7 +14,7 @@
     <div class="prp-head">
       <h3 class="prp-title">🔁 Prompt Review</h3>
       <span class="text-muted text-xs">
-        Click 🔁 on any row to regenerate just that prompt — keeps the others on disk untouched.
+        Expand any row to inspect the full prompt, edit it, save it back to disk, or reprompt that one row with feedback.
       </span>
     </div>
 
@@ -36,10 +36,12 @@
           <PromptRow
             :row="row" :prefix="'Scene'"
             :busy="busy.has(`scene-${row.number}`)"
+            :saving="saving.has(`scene-${row.number}`)"
             :error="errors[`scene-${row.number}`] || null"
             :cap="scenePromptCap ?? null"
             :model-label="sceneModelLabel"
-            @regenerate="regenerateOne('scene', row)"
+            @save="saveOne('scene', row.number, $event)"
+            @regenerate="regenerateOne('scene', row.number, $event)"
           />
         </li>
         <!-- Pagination controls. Only render when the scenes list exceeds
@@ -91,10 +93,12 @@
           <PromptRow
             :row="row" :prefix="'Thumbnail'"
             :busy="busy.has(`thumbnail-${row.number}`)"
+            :saving="saving.has(`thumbnail-${row.number}`)"
             :error="errors[`thumbnail-${row.number}`] || null"
             :cap="thumbnailPromptCap ?? null"
             :model-label="thumbnailModelLabel"
-            @regenerate="regenerateOne('thumbnail', row)"
+            @save="saveOne('thumbnail', row.number, $event)"
+            @regenerate="regenerateOne('thumbnail', row.number, $event)"
           />
         </li>
       </ul>
@@ -140,7 +144,7 @@ const props = defineProps<{
   pool?: 'scenes' | 'thumbnails' | 'all'
 }>()
 
-const { get, post } = useApi()
+const { get, post, put } = useApi()
 const { success, error: showError } = useToast()
 
 const showScenes = computed(() => (props.pool ?? 'all') !== 'thumbnails')
@@ -151,6 +155,7 @@ const thumbnails = ref<PromptRowData[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 const busy = ref<Set<string>>(new Set())
+const saving = ref<Set<string>>(new Set())
 const errors = ref<Record<string, string>>({})
 
 // v1.0.87+: scenes pagination. Bound-explainer at sentence-aligned
@@ -221,8 +226,12 @@ async function loadPrompts(): Promise<void> {
   }
 }
 
-async function regenerateOne(kind: 'scene' | 'thumbnail', row: PromptRowData): Promise<void> {
-  const key = `${kind}-${row.number}`
+async function regenerateOne(
+  kind: 'scene' | 'thumbnail',
+  number: number,
+  payload: { title: string; prompt: string; notes: string },
+): Promise<void> {
+  const key = `${kind}-${number}`
   if (busy.value.has(key)) return
   busy.value = new Set([...busy.value, key])
   errors.value = { ...errors.value, [key]: '' }
@@ -230,15 +239,18 @@ async function regenerateOne(kind: 'scene' | 'thumbnail', row: PromptRowData): P
     const data = await post<{ number: number; title: string; prompt: string }>(
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/image-prompts/regenerate`,
       {
-        kind, number: row.number,
+        kind, number,
         title: props.title,
         model: props.model,
+        current_title: payload.title,
+        current_prompt: payload.prompt,
+        notes: payload.notes,
       },
     )
     // Patch the in-memory list so the card reflects the new prompt
     // without a full reload.
     const list = kind === 'scene' ? scenes : thumbnails
-    const idx = list.value.findIndex(p => p.number === row.number)
+    const idx = list.value.findIndex(p => p.number === number)
     if (idx >= 0) {
       list.value = [
         ...list.value.slice(0, idx),
@@ -246,7 +258,7 @@ async function regenerateOne(kind: 'scene' | 'thumbnail', row: PromptRowData): P
         ...list.value.slice(idx + 1),
       ]
     }
-    success(`${kind === 'scene' ? 'Scene' : 'Thumbnail'} ${row.number} regenerated`)
+    success(`${kind === 'scene' ? 'Scene' : 'Thumbnail'} ${number} regenerated`)
   } catch (e: any) {
     const msg = e?.data?.detail || e?.message || 'Regeneration failed'
     errors.value = { ...errors.value, [key]: msg }
@@ -255,6 +267,46 @@ async function regenerateOne(kind: 'scene' | 'thumbnail', row: PromptRowData): P
     const next = new Set(busy.value)
     next.delete(key)
     busy.value = next
+  }
+}
+
+async function saveOne(
+  kind: 'scene' | 'thumbnail',
+  number: number,
+  payload: { title: string; prompt: string },
+): Promise<void> {
+  const key = `${kind}-${number}`
+  if (saving.value.has(key)) return
+  saving.value = new Set([...saving.value, key])
+  errors.value = { ...errors.value, [key]: '' }
+  try {
+    const data = await put<{ number: number; title: string; prompt: string }>(
+      `/projects/${props.projectSlug}/episodes/${props.episodeId}/image-prompts/item?title=${encodeURIComponent(props.title || '')}`,
+      {
+        kind,
+        number,
+        title: payload.title,
+        prompt: payload.prompt,
+      },
+    )
+    const list = kind === 'scene' ? scenes : thumbnails
+    const idx = list.value.findIndex(p => p.number === number)
+    if (idx >= 0) {
+      list.value = [
+        ...list.value.slice(0, idx),
+        { number: data.number, title: data.title, prompt: data.prompt },
+        ...list.value.slice(idx + 1),
+      ]
+    }
+    success(`${kind === 'scene' ? 'Scene' : 'Thumbnail'} ${number} saved`)
+  } catch (e: any) {
+    const msg = e?.data?.detail || e?.message || 'Save failed'
+    errors.value = { ...errors.value, [key]: msg }
+    showError(msg)
+  } finally {
+    const next = new Set(saving.value)
+    next.delete(key)
+    saving.value = next
   }
 }
 

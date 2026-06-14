@@ -246,6 +246,10 @@ function buildThumbnailDirective(opts: {
     `THUMBNAIL ART DIRECTION — the thumbnail is the single most important asset for click-through. ` +
     `It is a COVER, not a scene still: do NOT reuse the scene style tag for thumbnails. Follow the direction below.`,
   )
+  lines.push(
+    `THUMBNAIL GOAL: design a professional YouTube cover that feels intentional, premium, and instantly clickable. ` +
+    `The result must read at a glance on mobile and communicate the episode's emotional promise in under a second.`,
+  )
   lines.push(`CONCEPT: ${(fmt?.conceptGuidance || '').trim() || GENERIC_THUMBNAIL_CONCEPT}`)
   if (fmt?.compositionRules?.length) {
     lines.push(`COMPOSITION:\n${fmt.compositionRules.map(r => `  - ${r}`).join('\n')}`)
@@ -253,6 +257,12 @@ function buildThumbnailDirective(opts: {
   if (fmt?.moodKeywords?.length) lines.push(`MOOD: ${fmt.moodKeywords.join(', ')}`)
   lines.push(`YOUTUBE BEST-PRACTICES (apply to every thumbnail):\n${YOUTUBE_CTR_RULES.map(r => `  - ${r}`).join('\n')}`)
   lines.push(`AVOID: ${[...(fmt?.avoid || []), ...GENERIC_THUMBNAIL_AVOID].join('; ')}`)
+  lines.push(
+    `THUMBNAIL PROMPT CONTENT: every thumbnail prompt must explicitly describe ` +
+    `the hero subject, emotional hook, camera distance, framing, negative space, ` +
+    `background separation, lighting direction, color contrast, and why the title area stays readable. ` +
+    `Do not write a generic scenic image prompt.`,
+  )
 
   // (c) reference-style replication — overrides the generic/format look.
   const ref = (opts.referenceStyle || '').trim()
@@ -265,14 +275,16 @@ function buildThumbnailDirective(opts: {
   if (opts.titleMode === 'composite') {
     lines.push(
       `TITLE TEXT: Render NO text, title, lettering, watermark, or logo anywhere in the image. ` +
-      `Leave a clean, uncluttered area (consistent with the composition) where a crisp title will be overlaid afterward.`,
+      `Leave a clean, uncluttered area (consistent with the composition) where a crisp title will be overlaid afterward. ` +
+      `The prompt must still describe that reserved text-safe zone clearly so the composition feels designed around the future title.`,
     )
   } else {
     const fontPhrase = resolveFontStyle(opts.fontStyle, opts.fontStyleCustom)
     const textPhrase = resolveTextStyle(opts.textStyle, opts.textStyleCustom)
     lines.push(
       `TITLE TEXT: The episode title "${opts.title}" must appear in ${fontPhrase}, ${textPhrase}, ` +
-      `positioned at the ${opts.textPosition || 'center'} of the frame — large, bold, and legible with strong contrast against the background.`,
+      `positioned at the ${opts.textPosition || 'center'} of the frame — large, bold, and legible with strong contrast against the background. ` +
+      `Treat the title as a core design element, not an afterthought: the prompt should explain how the composition, lighting, and negative space make the words feel premium and easy to read.`,
     )
   }
   return lines.join('\n\n')
@@ -319,6 +331,12 @@ function buildPrompt(args: {
     `mood + atmosphere, framing/composition, and any visible characters ` +
     `with concrete physical descriptions. Short one-line prompts are unusable.`,
   )
+  if (thumbs > 0) {
+    requirements.push(
+      `Thumbnail prompts must feel like professional thumbnail briefs, not scene prompts. ` +
+      `Each one must specify the click-driving focal image, emotional hook, title-safe composition, and the exact role of the title text or reserved text zone.`,
+    )
+  }
   requirements.push(`Every prompt must end with this style tag: "${style_tag}"`)
   requirements.push(`Every prompt must specify composition for ${ratioInstruction}.`)
   requirements.push(`Every prompt must include inline character descriptions.`)

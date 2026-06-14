@@ -36,6 +36,16 @@ const RegenerateSchema = z.object({
    *  "<style_tag>" per the bulk generator's contract. */
   style_tag: z.string().optional(),
   title: z.string().optional(),
+  current_title: z.string().optional(),
+  current_prompt: z.string().optional(),
+  notes: z.string().max(2000).optional(),
+})
+
+const UpdatePromptSchema = z.object({
+  kind: z.enum(['scene', 'thumbnail']),
+  number: z.number().int().min(1).max(999),
+  title: z.string().trim().min(1).max(300),
+  prompt: z.string().trim().min(10).max(12000),
 })
 
 router.post(
@@ -77,6 +87,9 @@ router.post(
         })
       }
       const target = list[targetIdx]!
+      const currentTitle = ((req.body.current_title as string | undefined)?.trim()) || target.title
+      const currentPrompt = ((req.body.current_prompt as string | undefined)?.trim()) || target.prompt
+      const notes = ((req.body.notes as string | undefined)?.trim()) || ''
 
       // Recover the style tag from the existing prompt's tail. The bulk
       // generator appends `<style_tag>` to every prompt, so the LAST
@@ -95,7 +108,13 @@ router.post(
         .map(p => `${kind === 'scene' ? 'Scene' : 'Thumbnail'} ${p.number}: ${p.prompt}`)
 
       const llmPrompt = buildRegenPrompt({
-        kind, number, target, peers, windowed, styleTag,
+        kind,
+        number,
+        target: { ...target, title: currentTitle, prompt: currentPrompt },
+        peers,
+        windowed,
+        styleTag,
+        notes,
       })
 
       const apiKeys = {
@@ -125,7 +144,52 @@ router.post(
         number: target.number,
         title: next.title || target.title,
         prompt: next.prompt,
-      })
+})
+
+router.put(
+  '/projects/:slug/episodes/:episodeId/image-prompts/item',
+  validateBody(UpdatePromptSchema),
+  async (req, res) => {
+    const { slug, episodeId } = req.params
+    const { kind, number, title, prompt } = req.body as z.infer<typeof UpdatePromptSchema>
+    const titleParam = (req.query.title as string) || ''
+
+    try {
+      const project = await pm.getProject(slug)
+      if (!project) return res.status(404).json({ detail: 'Project not found' })
+
+      const paths = await resolveEpisodePaths(slug, episodeId, titleParam)
+      const promptsConstant = kind === 'scene' ? paths.scene_prompts_docx : paths.thumb_prompts_docx
+      const readPath = promptsConstant ? resolveReadPath(promptsConstant) : ''
+      if (!readPath || !existsSync(readPath)) {
+        return res.status(404).json({
+          detail: `No ${kind} prompts on disk. Generate them on the Image Prompts page first.`,
+        })
+      }
+      const writePath = toMdPath(promptsConstant)
+      const parsed = await parseImagePromptsDocx(readPath)
+      const list = kind === 'scene' ? parsed.scenes : parsed.thumbnails
+      const targetIdx = list.findIndex(p => p.number === number)
+      if (targetIdx < 0) {
+        return res.status(404).json({
+          detail: `${kind} ${number} not found in ${path.basename(readPath)}`,
+        })
+      }
+
+      const updatedList = list.map((p, i) => (i === targetIdx
+        ? { number, title, prompt }
+        : p
+      ))
+      const serialised = serialiseList(kind, updatedList)
+      await buildImagePromptsDocx(serialised, episodeId, project.name || episodeId, writePath)
+      _clearImagePromptsParseCache()
+
+      res.json({ number, title, prompt })
+    } catch (e: any) {
+      res.status(500).json({ detail: e?.message || 'Failed to save prompt edits' })
+    }
+  },
+)
     } catch (e: any) {
       res.status(500).json({ detail: e?.message || 'Failed to regenerate prompt' })
     }
@@ -153,6 +217,7 @@ function buildRegenPrompt(opts: {
   peers: { number: number; title: string }[]
   windowed: string[]
   styleTag: string
+  notes?: string
 }): string {
   const kindLabel = opts.kind === 'scene' ? 'scene' : 'thumbnail'
   const peerList = opts.peers
@@ -160,6 +225,12 @@ function buildRegenPrompt(opts: {
     .join('\n')
   const windowed = opts.windowed.length
     ? `\n\nNeighbouring prompts for tone/voice consistency:\n\n${opts.windowed.join('\n\n')}`
+    : ''
+  const userNotes = opts.notes?.trim()
+    ? `\n\nUser feedback for this retry:\n${opts.notes.trim()}`
+    : ''
+  const kindSpecific = opts.kind === 'thumbnail'
+    ? `\n5. This is a THUMBNAIL brief, not a scene still. Make it feel like a professional YouTube cover: clear hero subject, emotional hook, negative space, title-safe composition, premium readability, and strong click appeal.\n6. If title text belongs in the image, explain how the composition, contrast, and lighting support it. If the current prompt implies a clean text-safe zone instead, preserve that deliberate layout.`
     : ''
 
   return `Regenerate a single image ${kindLabel} prompt for an episode.
@@ -171,14 +242,15 @@ The ${kindLabel} being regenerated is #${opts.number} — "${opts.target.title}"
 Other ${kindLabel}s in this episode (titles only, for context):
 
 ${peerList}
-${windowed}
+${windowed}${userNotes}
 
 REQUIREMENTS:
 1. Produce ONE replacement prompt. Keep ${kindLabel} number ${opts.number} and its subject coherent with the title.
 2. 60–120 words, 3–5 sentences. Cover: subject + action, setting + props, lighting + time of day, mood + atmosphere, framing/composition, character physical detail when present.
 3. Match the visual voice of the surrounding ${kindLabel}s — same style language, same image quality.
 4. End with this exact style tag: "${opts.styleTag || '(retain the style from the original prompt)'}"
-5. Do NOT change the ${kindLabel} number. Title may stay or be lightly improved.
+${kindSpecific}
+${opts.kind === 'thumbnail' ? '7' : '5'}. Do NOT change the ${kindLabel} number. Title may stay or be lightly improved.
 
 FORMAT — return ONLY a JSON object:
 { "title": "Brief Title", "prompt": "Full prompt text..." }

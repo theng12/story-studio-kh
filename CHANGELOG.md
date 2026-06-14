@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.393 — 2026-06-14
+
+### Improved — Thumbnail prompts now push for deliberate title treatment, not just a pretty scene
+Two recent Terranash sleep-story episodes surfaced a regression in the newer format-aware thumbnail flow: the prompt could still come back as a strong scenic image description, but it wasn't forceful enough about the **title being a core design element**. That made some thumbnail prompts feel like "good scene prompt, weak cover brief" — especially when using strong image models like GPT Image 2 / Nano Banana that don't need generic help and benefit more from a precise, professional thumbnail brief.
+
+- **Thumbnail prompt requests are now much stricter about cover design.** The generator explicitly asks for a professional YouTube cover, not a scene still, and requires the prompt to describe the **hero subject, emotional hook, framing, negative space, background separation, lighting direction, color contrast, and why the title area stays readable**.
+- **AI-title mode is stronger.** When the title should be rendered inside the image, the request now tells the model to treat the title as a **core design element**, with composition / lighting / contrast built around making it premium and legible.
+- **Composite-title mode is clearer.** Text-free thumbnail prompts now explicitly describe a **reserved text-safe zone**, so the generated background feels intentionally designed for a later overlay instead of accidentally empty.
+- **Single-row thumbnail review is now much better.** In Thumbnail Prompts / Scene Prompts, each row can now be **expanded, previewed, edited inline, saved back to disk, and reprompted with feedback notes**. That means if a prompt feels too scenic / not clicky enough, you can steer just that one row without regenerating everything.
+- **Shared DMG copies now keep the version in the filename.** The post-release iCloud copy no longer strips the version off the DMG name, so you can see exactly which build you're installing.
+
+### Files
+- `electron/server/generators/image-prompts.ts` (stronger thumbnail brief + title-treatment wording)
+- `electron/server/routes/image-prompts-edit.ts` (single-row save API + richer reprompt input)
+- `frontend/components/PromptReviewPanel.vue`, `frontend/components/PromptReviewPanelRow.vue` (inline preview/edit/save/reprompt flow)
+
+---
+
 ## v1.0.392 — 2026-06-14
 
 ### Improved — Upload Queue: plain-English "Quick views" + opens on what's left to publish

@@ -23,16 +23,16 @@
            if approaching the cap (≥80%), red if over. When no cap is known
            the badge shows the raw count in muted grey. -->
       <span class="prr-chars" :class="charStatusClass" :title="charBadgeTooltip">
-        {{ promptLen }}<template v-if="cap"> / {{ cap }}</template> chars
+        {{ draftPromptLen }}<template v-if="cap"> / {{ cap }}</template> chars
       </span>
       <button
         type="button"
         class="btn btn-sm btn-secondary prr-regen-btn"
-        :disabled="busy"
+        :disabled="busy || saving"
         :title="busy
           ? 'Regenerating this prompt — wait a couple of seconds'
           : 'Re-run this single prompt through the LLM. Other prompts on disk stay untouched.'"
-        @click="$emit('regenerate')"
+        @click="emitRegenerate"
       >
         <LoadingSpinner v-if="busy" size="sm" />
         <span v-else aria-hidden="true">🔁</span>
@@ -40,19 +40,72 @@
       </button>
     </div>
 
-    <div v-if="expanded" class="prr-prompt">{{ row.prompt }}</div>
+    <div v-if="expanded" class="prr-body">
+      <div class="prr-field">
+        <label class="prr-label">Title</label>
+        <input v-model="draftTitle" type="text" class="input prr-input" maxlength="300" />
+      </div>
+      <div class="prr-field">
+        <div class="prr-label-row">
+          <label class="prr-label">Prompt Preview</label>
+          <span class="text-muted text-xs">Edit freely, then save or reprompt this row only.</span>
+        </div>
+        <textarea v-model="draftPrompt" class="textarea prr-textarea" rows="8" />
+      </div>
+      <div class="prr-field">
+        <div class="prr-label-row">
+          <label class="prr-label">Reprompt Notes</label>
+          <span class="text-muted text-xs">Optional guidance for the next retry.</span>
+        </div>
+        <textarea
+          v-model="repromptNotes"
+          class="textarea prr-notes"
+          rows="3"
+          placeholder="e.g. Make the title treatment more premium, push the hero subject closer, keep stronger negative space behind the lettering."
+        />
+      </div>
+      <div class="prr-actions">
+        <button
+          type="button"
+          class="btn btn-sm btn-primary"
+          :disabled="saving || !isDirty || !canSave"
+          @click="emitSave"
+        >
+          <LoadingSpinner v-if="saving" size="sm" />
+          {{ saving ? 'Saving…' : 'Save Edits' }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          :disabled="!isDirty || busy || saving"
+          @click="resetDraft"
+        >
+          Reset
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          :disabled="busy || saving || !canSave"
+          @click="emitRegenerate"
+        >
+          <span aria-hidden="true">✨</span>
+          Reprompt With Notes
+        </button>
+      </div>
+    </div>
     <div v-if="error" class="prr-error" :title="error">⚠ {{ error }}</div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 interface PromptRowData { number: number; title: string; prompt: string }
 const props = defineProps<{
   row: PromptRowData
   prefix: string
   busy: boolean
+  saving?: boolean
   error: string | null
   /** Provider's documented prompt char cap for the active model (advisory).
    *  Pass 0 / null when no cap is known — the counter still renders but
@@ -61,21 +114,38 @@ const props = defineProps<{
   /** Friendly model label for the tooltip ("Seedream", "Nano Banana"). */
   modelLabel?: string
 }>()
-defineEmits<{ (e: 'regenerate'): void }>()
+const emit = defineEmits<{
+  (e: 'regenerate', payload: { title: string; prompt: string; notes: string }): void
+  (e: 'save', payload: { title: string; prompt: string }): void
+}>()
 
 const expanded = ref(false)
+const draftTitle = ref(props.row.title || '')
+const draftPrompt = ref(props.row.prompt || '')
+const repromptNotes = ref('')
 
-const promptLen = computed(() => (props.row?.prompt || '').length)
+watch(() => props.row.title, (next) => { draftTitle.value = next || '' })
+watch(() => props.row.prompt, (next) => { draftPrompt.value = next || '' })
+
+const draftPromptLen = computed(() => (draftPrompt.value || '').length)
+const isDirty = computed(() =>
+  draftTitle.value !== (props.row.title || '') ||
+  draftPrompt.value !== (props.row.prompt || ''),
+)
+const canSave = computed(() =>
+  draftTitle.value.trim().length > 0 &&
+  draftPrompt.value.trim().length >= 10,
+)
 const charStatusClass = computed(() => {
   if (!props.cap) return 'prr-chars-neutral'
-  const ratio = promptLen.value / props.cap
+  const ratio = draftPromptLen.value / props.cap
   if (ratio > 1) return 'prr-chars-over'
   if (ratio >= 0.8) return 'prr-chars-warn'
   return 'prr-chars-ok'
 })
 const charBadgeTooltip = computed(() => {
-  if (!props.cap) return `${promptLen.value} characters — no documented cap`
-  const remaining = props.cap - promptLen.value
+  if (!props.cap) return `${draftPromptLen.value} characters — no documented cap`
+  const remaining = props.cap - draftPromptLen.value
   const modelHint = props.modelLabel ? ` (${props.modelLabel})` : ''
   if (remaining < 0) {
     return `⚠ ${Math.abs(remaining)} chars over the ${props.cap}-char cap${modelHint}. ` +
@@ -84,8 +154,30 @@ const charBadgeTooltip = computed(() => {
   if (remaining < props.cap * 0.2) {
     return `Close to the ${props.cap}-char cap${modelHint} — ${remaining} chars left.`
   }
-  return `${promptLen.value} / ${props.cap} chars${modelHint}.`
+  return `${draftPromptLen.value} / ${props.cap} chars${modelHint}.`
 })
+
+function resetDraft(): void {
+  draftTitle.value = props.row.title || ''
+  draftPrompt.value = props.row.prompt || ''
+}
+
+function emitSave(): void {
+  if (!canSave.value) return
+  emit('save', {
+    title: draftTitle.value.trim(),
+    prompt: draftPrompt.value.trim(),
+  })
+}
+
+function emitRegenerate(): void {
+  if (!canSave.value) return
+  emit('regenerate', {
+    title: draftTitle.value.trim(),
+    prompt: draftPrompt.value.trim(),
+    notes: repromptNotes.value.trim(),
+  })
+}
 </script>
 
 <style scoped>
@@ -144,5 +236,41 @@ const charBadgeTooltip = computed(() => {
   margin-top: 6px;
   font-size: 11px; color: rgb(220, 38, 38);
   cursor: help;
+}
+.prr-body {
+  margin-top: 8px;
+  display: grid;
+  gap: 10px;
+}
+.prr-field { display: grid; gap: 4px; }
+.prr-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.prr-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.prr-input,
+.prr-textarea,
+.prr-notes {
+  width: 100%;
+}
+.prr-textarea,
+.prr-notes {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.prr-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 </style>

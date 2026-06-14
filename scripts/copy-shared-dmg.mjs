@@ -3,7 +3,7 @@
  * Copy the freshly built macOS DMG into the user's iCloud-shared app folder.
  *
  * Default target:
- *   ~/Library/Mobile Documents/com~apple~CloudDocs/02 Business Ventures (Others)/Business - YouTube/Story Studio KH-arm64.dmg
+ *   ~/Library/Mobile Documents/com~apple~CloudDocs/02 Business Ventures (Others)/Business - YouTube/Story Studio KH <version>-arm64.dmg
  *
  * Override target directory with:
  *   STORY_STUDIO_SHARED_DMG_DIR=/path/to/folder npm run dist
@@ -19,8 +19,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
 const DIST_DIR = path.join(ROOT, 'dist')
 const PRODUCT_NAME = 'Story Studio KH'
-const STABLE_DMG_NAME = `${PRODUCT_NAME}-arm64.dmg`
-
 function userDataPath(productName) {
   const home = os.homedir()
   if (process.platform === 'darwin') {
@@ -87,10 +85,10 @@ async function main() {
   }
 
   await mkdir(sharedDir, { recursive: true })
-  const target = path.join(sharedDir, STABLE_DMG_NAME)
+  const target = path.join(sharedDir, path.basename(source))
   await copyFile(source, target)
   await writeFile(
-    path.join(sharedDir, `${PRODUCT_NAME}-arm64.version.txt`),
+    path.join(sharedDir, `${PRODUCT_NAME} ${version}-arm64.version.txt`),
     `version=${version}\nsource=${source}\ncopied_at=${new Date().toISOString()}\n`,
     'utf-8',
   )
