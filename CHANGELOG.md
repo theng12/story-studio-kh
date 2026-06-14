@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.385 — 2026-06-14
+
+### Fixed — voice volume did nothing on voice-only audio merges
+In Audio Assembly, raising the voice level (e.g. 120%, 200%) had no audible effect when no music, background noise, or ambient track was layered in. The volume was only applied inside the mixing filter; a voice-only merge took a separate path that copied the narration straight to the output **without** the gain. Now the voice-only path applies the volume too, so the control works whether or not you add background audio. (Merges *with* music were already affected by the slider.)
+
+Heads-up: above ~130% without **Volume Normalization** can clip — the in-app warning still applies; enable normalization for a safe, even boost.
+
+### Files
+- `electron/server/generators/audio-merge.ts` (apply narration_volume on the no-background path)
+
+---
+
 ## v1.0.384 — 2026-06-14
 
 ### Added — save & reuse Fish Audio voices

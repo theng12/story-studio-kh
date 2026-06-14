@@ -683,9 +683,23 @@ export async function generateAudioMerge(job: Job): Promise<void> {
           job,
         })
       } else {
-        // No music/noise/ambient — just copy narration to output
-        job.output_lines.push('No music, noise, or ambient configured, copying narration...')
-        await fs.copyFile(narrationOnlyPath, outputPath)
+        // No music/noise/ambient. The mix path applies narration_volume via its
+        // volume= filter, but this branch used to plain-copy the concatenated
+        // narration — which was assembled WITHOUT any gain — so the voice-volume
+        // control silently did nothing on voice-only merges (v1.0.385 fix).
+        const narrVol = req.narration_volume ?? 1.0
+        if (Math.abs(narrVol - 1.0) > 0.001) {
+          job.output_lines.push(`No music/noise/ambient — applying voice volume ${Math.round(narrVol * 100)}%...`)
+          await runFfmpeg([
+            '-y', '-i', narrationOnlyPath,
+            '-af', `volume=${narrVol.toFixed(2)}`,
+            '-c:a', 'libmp3lame', '-b:a', '192k',
+            outputPath,
+          ], { timeoutMs: audioMergeTimeoutMs() })
+        } else {
+          job.output_lines.push('No music, noise, or ambient configured, copying narration...')
+          await fs.copyFile(narrationOnlyPath, outputPath)
+        }
       }
       mixSucceeded = true
     } finally {
