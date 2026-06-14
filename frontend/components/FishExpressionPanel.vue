@@ -15,7 +15,8 @@
     <p class="text-muted text-xs fish-expr-hint">
       Fish S2 performs inline <code>[tags]</code> — e.g. <code>[whispering]</code>, <code>[excited]</code>,
       <code>[long&nbsp;pause]</code>, or free-form like <code>[dead&nbsp;tired]</code>. Draft them with AI, then
-      review &amp; edit. When the toggle is on, the audio renders this tagged script instead of the plain narration.
+      review &amp; edit. When the toggle is on, the audio renders this tagged script instead of the plain narration —
+      and any section you haven't tagged yet is <strong>auto-tagged at render time</strong> (including Pipeline runs), so it works hands-off.
     </p>
 
     <div v-if="!episodeId" class="text-muted text-xs fish-expr-empty">Pick an episode to mark up its script.</div>

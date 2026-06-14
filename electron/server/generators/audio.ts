@@ -281,18 +281,45 @@ export async function generateAudio(job: Job): Promise<void> {
   // rest of the text (normalizeForTts leaves square brackets untouched). Tags
   // are gated to s2-pro because S1 would read an unknown tag aloud.
   if (req.use_expression === true && providerId === 'fishaudio' && req.model === 'fishaudio-s2-pro') {
-    const { readExpression } = await import('../services/audio-expression.js')
+    const { readExpression, writeExpression, markupSectionText } = await import('../services/audio-expression.js')
     const expr = await readExpression(narrationPath)
-    let applied = 0
-    if (expr?.sections) {
-      for (const s of allSections) {
-        const tagged = expr.sections[s.slug]
-        if (typeof tagged === 'string' && tagged.trim()) { s.text = tagged; applied++ }
-      }
+    const sectionsOut: Record<string, string> = { ...(expr?.sections || {}) }
+    // v1.0.387 — auto-tag any UN-tagged section inline, so a Pipeline (or remote
+    // cockpit) run is fully hands-off: no need to hit "Tag all" first. A section
+    // already in the sidecar is reused as-is (no re-spend). Persists what it
+    // generates so the next render reuses it. Best-effort per section — a failed
+    // tag falls back to that section's plain narration, never blocks the audio.
+    const markupModel = (typeof (req as any).expression_model === 'string' && (req as any).expression_model.trim())
+      ? (req as any).expression_model.trim() : 'deepseek-v4-flash'
+    const apiKeys = {
+      anthropic_api_key: (config as any).anthropic_api_key,
+      openai_api_key: (config as any).openai_api_key,
+      kie_api_key: (config as any).kie_api_key,
     }
-    job.output_lines.push(applied
-      ? `Fish S2 expression: applied tagged narration to ${applied}/${allSections.length} section(s).`
-      : 'Fish S2 expression: enabled but no saved markup found — using plain narration.')
+    let applied = 0
+    let generated = 0
+    for (const s of allSections) {
+      let tagged = sectionsOut[s.slug]
+      if (!(typeof tagged === 'string' && tagged.trim())) {
+        try {
+          job.output_lines.push(`Fish S2 expression: auto-tagging "${s.label}" with ${markupModel}…`)
+          tagged = await markupSectionText(markupModel, s.text, apiKeys, project_slug)
+          sectionsOut[s.slug] = tagged
+          generated++
+        } catch (e: any) {
+          job.output_lines.push(`  ⚠ auto-tag failed for ${s.label} (${e?.message || e}) — using plain text`)
+          tagged = ''
+        }
+      }
+      if (typeof tagged === 'string' && tagged.trim()) { s.text = tagged; applied++ }
+    }
+    if (generated > 0) {
+      await writeExpression(narrationPath, {
+        schema_version: 1, model: markupModel, generated_at: new Date().toISOString(), sections: sectionsOut,
+      }).catch(() => { /* sidecar persistence is best-effort */ })
+      job.output_lines.push(`Fish S2 expression: auto-generated markup for ${generated} new section(s).`)
+    }
+    job.output_lines.push(`Fish S2 expression: applied tagged narration to ${applied}/${allSections.length} section(s).`)
   }
 
   // v1.0.215+ — TTS-friendly normalization (the deterministic safeguard).

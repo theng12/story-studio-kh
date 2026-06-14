@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.387 — 2026-06-14
+
+### Added — Pipeline auto-tags emotion (hands-off Fish expression)
+When a Fish S2-Pro audio render has **Use expression markup** on but a section hasn't been tagged yet, the audio job now **generates the markup on the fly** (and saves it for reuse) instead of falling back to plain narration. So a Pipeline or remote-cockpit batch is fully hands-off: if your saved audio preset has expression on, every episode gets emotion + pacing automatically — no need to open each one and hit "Tag all" first.
+
+- Already-tagged sections are reused as-is (no repeated LLM spend); only missing ones are generated.
+- Each auto-tagged section is persisted to the episode's expressive script, so later renders are instant.
+- Best-effort per section — a failed tag falls back to that section's plain text and never blocks the audio.
+- Auto-tagging uses DeepSeek Flash by default. (Pre-tag with **✨ Tag all** using any model if you want a specific one — the render reuses it.)
+
+*ElevenLabs v3 expression support is coming in a follow-up (it uses a different tag dialect — `[whispers]`/`[laughs]` + ellipsis pauses — so it needs its own handling).*
+
+### Files
+- `electron/server/generators/audio.ts` (auto-generate missing expression markup at render time)
+- `frontend/components/FishExpressionPanel.vue` (note the hands-off behavior)
+
+---
+
 ## v1.0.386 — 2026-06-14
 
 ### Improved — Fish S2 expression: background tagging, full model list, reliable paragraph pauses
