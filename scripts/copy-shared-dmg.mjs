@@ -9,7 +9,7 @@
  *   STORY_STUDIO_SHARED_DMG_DIR=/path/to/folder npm run dist
  */
 
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -19,6 +19,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
 const DIST_DIR = path.join(ROOT, 'dist')
 const PRODUCT_NAME = 'Story Studio KH'
+const LEGACY_SHARED_NAMES = [
+  `${PRODUCT_NAME}-arm64.dmg`,
+  `${PRODUCT_NAME}-arm64.version.txt`,
+]
 function userDataPath(productName) {
   const home = os.homedir()
   if (process.platform === 'darwin') {
@@ -92,9 +96,15 @@ async function main() {
     `version=${version}\nsource=${source}\ncopied_at=${new Date().toISOString()}\n`,
     'utf-8',
   )
+  await Promise.all(LEGACY_SHARED_NAMES.map(async (name) => {
+    const legacyPath = path.join(sharedDir, name)
+    if (path.resolve(legacyPath) === path.resolve(target)) return
+    await rm(legacyPath, { force: true })
+  }))
 
   console.log(`[copy-shared-dmg] copied ${source}`)
   console.log(`[copy-shared-dmg] shared copy: ${target}`)
+  console.log('[copy-shared-dmg] removed any legacy unversioned shared DMG copies')
 }
 
 main().catch((err) => {

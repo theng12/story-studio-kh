@@ -18,6 +18,7 @@ import { fileExistsWithContent, isCloudEvictedPlaceholder, sleepCancellable } fr
 import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
 import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
+import { parseEnabledEndpoints, healthyEndpoints, createDispatcher, type Dispatcher } from '../lib/endpoint-pool.js'
 import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
 import fs from 'fs/promises'
@@ -29,6 +30,11 @@ import fs from 'fs/promises'
 // generators/image-prompts.ts already carrying the correct (format-aware)
 // title-text directive — or, in composite mode, intentionally text-free for
 // the thumbnail composer. So the render path uses `thumb.prompt` verbatim.
+
+// Mirrors continuity-render.ts: periodically re-probe the local Image Studio
+// pool so the Jobs panel can surface Macs joining/leaving mid-run and the
+// worker count can grow back when a machine comes online.
+const POOL_REPROBE_MS = 20_000
 
 /**
  * Search recursively for a file matching any of the candidate filenames.
@@ -458,6 +464,9 @@ export async function generateImages(job: Job): Promise<void> {
   const reqConcurrency = Number((req as any).concurrency) || 0
   const isLocalProvider = providerId === 'imagestudio'
   const baseConcurrency = Math.max(1, Math.min(50, reqConcurrency || configConcurrency || 5))
+  let dispatcher: Dispatcher | null = null
+  let poolEndpoints: string[] = []
+  let lastHealthyPool = new Set<string>()
   // v1.0.306 — a local modal is serial PER MAC (one MLX inference at a time),
   // but the user may run a POOL of Macs. The old code hard-clamped local
   // concurrency to 1, so a fleet of 12 Macs still rendered one-at-a-time on a
@@ -467,18 +476,22 @@ export async function generateImages(job: Job): Promise<void> {
   // A single endpoint stays at concurrency 1, exactly as before.
   let concurrency = baseConcurrency
   if (isLocalProvider) {
-    const { parseEnabledEndpoints, healthyEndpoints } = await import('../lib/endpoint-pool.js')
     const { health: imgHealth } = await import('../lib/imagestudio-client.js')
-    const eps = parseEnabledEndpoints(apiKey)
-    if (eps.length <= 1) {
+    poolEndpoints = parseEnabledEndpoints(apiKey)
+    if (poolEndpoints.length <= 1) {
       concurrency = 1
     } else {
-      const { healthy, offline } = await healthyEndpoints(eps, async (u) => (await imgHealth(u, 4000)).ok)
+      const { healthy, offline } = await healthyEndpoints(poolEndpoints, async (u) => (await imgHealth(u, 4000)).ok)
+      lastHealthyPool = new Set(healthy)
+      dispatcher = createDispatcher(poolEndpoints)
+      for (const u of offline) dispatcher.markDown(u)
       concurrency = Math.max(1, Math.min(baseConcurrency, healthy.length))
       job.output_lines.push(
-        `Local modal pool: ${healthy.length}/${eps.length} endpoint(s) reachable — ` +
+        `Local modal pool: ${healthy.length}/${poolEndpoints.length} endpoint(s) reachable — ` +
         `generating with concurrency=${concurrency} (each Mac runs one inference at a time, in parallel).` +
-        (offline.length ? ` Skipped ${offline.length} unreachable endpoint(s).` : ''),
+        (offline.length
+          ? ` Offline now: ${offline.join(', ')} — they will auto-join within ~${Math.round(POOL_REPROBE_MS / 1000)}s of coming online.`
+          : ''),
       )
     }
   }
@@ -670,8 +683,28 @@ export async function generateImages(job: Job): Promise<void> {
    *  `i * launchStaggerMs`. The sleep is broken into 200ms ticks so a
    *  user-cancel during the stagger window unwinds promptly. */
   async function runPool<T>(items: T[], worker: (item: T) => Promise<void>) {
-    let cursor = 0
     const isCancelled = () => jq.isCancelled(job.job_id)
+    let cursor = 0
+    let active = 0
+    let launched = 0
+    let settled = false
+    let poolScaler: ReturnType<typeof setInterval> | null = null
+
+    const maxWorkers = concurrency
+    const liveNow = () => {
+      if (!dispatcher || !poolEndpoints.length) return maxWorkers
+      return Math.max(1, Math.min(maxWorkers, dispatcher.liveCount()))
+    }
+
+    let resolveAll!: () => void
+    const allWorkersDone = new Promise<void>(resolve => { resolveAll = resolve })
+    const maybeFinish = () => {
+      if (!settled && (isCancelled() || (cursor >= items.length && active === 0))) {
+        settled = true
+        resolveAll()
+      }
+    }
+
     async function next(workerIndex: number): Promise<void> {
       if (launchStaggerMs > 0 && workerIndex > 0) {
         try {
@@ -684,10 +717,61 @@ export async function generateImages(job: Job): Promise<void> {
         await worker(items[i]!)
       }
     }
-    await Promise.all(Array.from(
-      { length: Math.min(concurrency, items.length) },
-      (_, i) => next(i),
-    ))
+
+    const spawnWorker = () => {
+      const workerIndex = launched++
+      active++
+      void next(workerIndex).finally(() => {
+        active--
+        ensureWorkers()
+        maybeFinish()
+      })
+    }
+
+    const ensureWorkers = () => {
+      if (cursor >= items.length || isCancelled()) return
+      const want = Math.min(liveNow(), items.length - cursor + active)
+      while (active < want) spawnWorker()
+    }
+
+    ensureWorkers()
+    maybeFinish()
+
+    if (dispatcher && poolEndpoints.length > 1) {
+      poolScaler = setInterval(() => {
+        if (cursor >= items.length || isCancelled()) return
+        void (async () => {
+          try {
+            const { health: imgHealth } = await import('../lib/imagestudio-client.js')
+            const { healthy, offline } = await healthyEndpoints(poolEndpoints, async (u) => (await imgHealth(u, 4000)).ok)
+            const joined = healthy.filter(u => !lastHealthyPool.has(u))
+            const dropped = offline.filter(u => lastHealthyPool.has(u))
+            const before = dispatcher!.liveCount()
+            for (const u of healthy) dispatcher!.markUp(u)
+            for (const u of offline) dispatcher!.markDown(u)
+            lastHealthyPool = new Set(healthy)
+            const after = dispatcher!.liveCount()
+            if (joined.length || dropped.length || after !== before) {
+              job.output_lines.push(
+                `Local modal pool update: ${after}/${poolEndpoints.length} online` +
+                (joined.length ? ` — joined: ${joined.join(', ')}` : '') +
+                (dropped.length ? ` — offline: ${dropped.join(', ')}` : '') +
+                `. Active render concurrency now ${Math.min(maxWorkers, after)}.`,
+              )
+            }
+            ensureWorkers()
+          } catch {
+            // Keep the current pool state on transient probe failures.
+          }
+        })()
+      }, POOL_REPROBE_MS)
+    }
+
+    try {
+      await allWorkersDone
+    } finally {
+      if (poolScaler) clearInterval(poolScaler)
+    }
   }
 
   // Scene images

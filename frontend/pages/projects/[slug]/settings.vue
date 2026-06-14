@@ -5407,7 +5407,7 @@ const ttsTimeoutActiveLabel = computed(() => {
 })
 watch(config, (c) => {
   if (c && (c as any).image_concurrency) {
-    imageConcurrency.value = Math.max(1, Math.min(10, Number((c as any).image_concurrency) || 5))
+    imageConcurrency.value = Math.max(1, Math.min(50, Number((c as any).image_concurrency) || 5))
   }
   if (c && (c as any).audio_concurrency) {
     audioConcurrency.value = Math.max(1, Math.min(15, Number((c as any).audio_concurrency) || 3))

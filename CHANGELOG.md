@@ -20,6 +20,25 @@ Two recent Terranash sleep-story episodes surfaced a regression in the newer for
 - `electron/server/routes/image-prompts-edit.ts` (single-row save API + richer reprompt input)
 - `frontend/components/PromptReviewPanel.vue`, `frontend/components/PromptReviewPanelRow.vue` (inline preview/edit/save/reprompt flow)
 
+### Improved — Image generator now shows live pool joins/offline changes during local runs
+The regular Image Generator already used the multi-Mac Image Studio pool for parallel renders, but unlike Scene Review it only logged the **startup** health snapshot. If a Mac came online mid-run, or one dropped off, the Jobs panel stayed quiet even though the pool was self-healing underneath.
+
+- **Live `N/N` pool updates now appear in the job log** during scene/thumbnail generation, including which Macs **joined** and which went **offline**.
+- **Worker count now follows the live pool** during a run, so newly-online Macs can start taking work without waiting for a fresh job.
+- The **Image Generation Concurrency** setting also now reloads correctly up to **50** instead of snapping back to the old stale `10` cap after refresh.
+
+### Fixed — release copy now removes the stale unversioned iCloud DMG
+The shared iCloud folder still had an older legacy installer name:
+
+- `Story Studio KH-arm64.dmg`
+
+That stale unversioned file could sit beside the newer versioned build and make it look like the shared installer hadn't updated. The post-release copy step now removes that legacy file and its sidecar automatically, leaving the current versioned DMG as the source of truth.
+
+### Files
+- `electron/server/generators/images.ts` (live pool status updates + adaptive worker scaling)
+- `frontend/pages/projects/[slug]/settings.vue` (reload cap 10 → 50)
+- `scripts/copy-shared-dmg.mjs` (remove legacy unversioned shared DMG + sidecar)
+
 ---
 
 ## v1.0.392 — 2026-06-14
