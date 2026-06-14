@@ -260,6 +260,9 @@ const queues: Record<JobType, QueueState> = {
   prompt_director: { pending: [], running: false, executor: null },
   // v1.0.260: generate the composition LAYOUT template image from a prompt.
   composition_generate: { pending: [], running: false, executor: null },
+  // v1.0.386: Fish S2 expression "Tag all" — LLM markup over every section,
+  // saved incrementally so it survives the operator leaving the page.
+  expression_markup: { pending: [], running: false, executor: null },
 }
 
 /**

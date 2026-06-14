@@ -274,9 +274,38 @@ router.get('/projects/:slug/episodes/:code/expression', async (req, res) => {
     const sections = parsed.map(s => ({
       slug: s.slug, label: s.label, original: s.text, expressive: expr?.sections?.[s.slug] || '',
     }))
-    res.json({ model: expr?.model || null, generated_at: expr?.generated_at || null, sections })
+    // job_active = a background "Tag all" is queued/running for this episode, so
+    // the panel knows to keep polling for progress even across navigations.
+    const jobActive = jq.isDuplicate(slug, code, 'expression_markup')
+    res.json({ model: expr?.model || null, generated_at: expr?.generated_at || null, sections, job_active: jobActive })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to load expression markup'))
+  }
+})
+
+// Background "Tag all" — enqueue the markup job so it keeps running after the
+// operator leaves the page (saves the sidecar after each section).
+router.post('/projects/:slug/episodes/:code/expression/generate-all', async (req, res) => {
+  const { slug, code } = req.params
+  const model = typeof req.body?.model === 'string' && req.body.model.trim()
+    ? req.body.model.trim() : 'deepseek-v4-flash'
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const narrationPath = await resolveNarrationOr404(slug, code, res)
+    if (!narrationPath) return
+    if (jq.isDuplicate(slug, code, 'expression_markup')) {
+      return res.status(409).json({ detail: 'Expression tagging is already running for this episode.' })
+    }
+    const job = jq.enqueue({
+      project_slug: slug,
+      type: 'expression_markup',
+      episode_id: code,
+      title: `Expression markup — ${code}`,
+      params: { episode_id: code, model },
+    })
+    res.status(201).json({ job_id: job.job_id })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to start expression markup'))
   }
 })
 

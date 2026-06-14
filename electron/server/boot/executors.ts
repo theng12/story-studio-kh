@@ -36,6 +36,7 @@ import { runTimestampVideoAssemble } from '../generators/timestamp-video-assembl
 import { runContinuityRenderJob } from '../generators/continuity-render.js'
 import { runPromptDirectorJob } from '../generators/prompt-director.js'
 import { generateCompositionTemplateJob } from '../generators/composition-template.js'
+import { runExpressionMarkupJob } from '../services/audio-expression.js'
 
 export function registerAllExecutors(): void {
   // Legacy `'script'` executor (the coupled generateEpisode) was removed
@@ -103,6 +104,9 @@ export function registerAllExecutors(): void {
   registerExecutor('composition_generate', generateCompositionTemplateJob)
   // v1.0.145+ — Final ffmpeg assembler for the timestamp-driven pipeline.
   registerExecutor('timestamp_video_assemble', runTimestampVideoAssemble)
+  // v1.0.386 — Fish S2 expression "Tag all" — background LLM markup over every
+  // section (survives leaving the Audio Generator page).
+  registerExecutor('expression_markup', runExpressionMarkupJob)
 
   // Load the saved LLM-text concurrency (Settings → Performance) into the
   // queue. Fire-and-forget: the queue defaults to 2 until this resolves

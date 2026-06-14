@@ -23,12 +23,23 @@
     <template v-else>
       <div class="fish-expr-row">
         <select v-model="markupModel" class="select fish-expr-model" title="Which LLM writes the tags">
-          <option v-for="m in MARKUP_MODELS" :key="m.id" :value="m.id">{{ m.label }}</option>
+          <template v-if="modelGroups.length">
+            <optgroup v-for="g in modelGroups" :key="g.provider" :label="g.label">
+              <option v-for="m in g.items" :key="m.id" :value="m.id" :disabled="!m.available">
+                {{ m.label }}{{ m.available ? '' : ' · needs API key' }}
+              </option>
+            </optgroup>
+          </template>
+          <option v-else :value="markupModel">{{ markupModel }}</option>
         </select>
-        <button type="button" class="btn btn-sm" :disabled="!!busy || !sections.length" @click="generateAll">
-          {{ busy === 'all' ? `Tagging ${progress}…` : '✨ Tag all with AI' }}
+        <button type="button" class="btn btn-sm" :disabled="!!busy || jobActive || !sections.length" @click="generateAll">
+          {{ jobActive ? `Tagging… (${taggedCount}/${sections.length})` : '✨ Tag all with AI' }}
         </button>
       </div>
+
+      <p v-if="jobActive" class="text-muted text-xs fish-expr-bg">
+        ⏳ Tagging all sections in the background — this keeps running even if you leave this page. Come back anytime to review.
+      </p>
 
       <div v-if="sections.length" class="fish-expr-editor">
         <div class="fish-expr-row">
@@ -73,10 +84,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useApi } from '~/composables/useApi'
+import { PROVIDER_DISPLAY } from '~/composables/useModelGroups'
 
 interface ExprSection { slug: string; label: string; original: string; expressive: string }
+interface ModelRow { id: string; label: string; provider: string; available: boolean }
 
 const props = defineProps<{
   projectSlug: string
@@ -88,14 +101,39 @@ defineEmits<{ (e: 'update:modelValue', v: boolean): void }>()
 
 const { get, post, put } = useApi()
 
-// Curated LLM choices for the tagging pass. DeepSeek Flash is cheap + fast and
-// the project default; the others trade cost for nuance.
-const MARKUP_MODELS = [
-  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash · cheap, fast' },
-  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro · more nuance' },
-  { id: 'gpt-4o-mini', label: 'GPT-4o mini' },
-]
-const markupModel = ref(MARKUP_MODELS[0]!.id)
+// Text models for the tagging pass — pulled live from /models so every
+// configured provider (DeepSeek, OpenAI/ChatGPT, OpenRouter, kie Claude/GPT/
+// Gemini, LM Studio) is offered, grouped + labelled. Models without a key show
+// disabled. Defaults to the cheap DeepSeek Flash when it's available.
+const markupModel = ref('deepseek-v4-flash')
+const modelGroups = ref<Array<{ provider: string; label: string; items: ModelRow[] }>>([])
+const PROV_ORDER = ['deepseek', 'openrouter', 'openai', 'kie', 'lmstudio']
+
+async function loadModels() {
+  try {
+    const rows = await get<ModelRow[]>(`/models?project=${props.projectSlug}`)
+    const byProv = new Map<string, ModelRow[]>()
+    for (const m of rows) {
+      if (!byProv.has(m.provider)) byProv.set(m.provider, [])
+      byProv.get(m.provider)!.push(m)
+    }
+    const provs = [...byProv.keys()].sort((a, b) => {
+      const ai = PROV_ORDER.indexOf(a), bi = PROV_ORDER.indexOf(b)
+      if (ai !== -1 && bi !== -1) return ai - bi
+      if (ai !== -1) return -1
+      if (bi !== -1) return 1
+      return a.localeCompare(b)
+    })
+    modelGroups.value = provs.map(p => ({ provider: p, label: PROVIDER_DISPLAY[p] || p, items: byProv.get(p)! }))
+    // Keep the current choice if still usable; else fall back to the first
+    // available (preferring the cheap DeepSeek default when present).
+    if (!rows.some(m => m.id === markupModel.value && m.available)) {
+      const pref = rows.find(m => m.id === 'deepseek-v4-flash' && m.available)
+      const firstAvail = pref || rows.find(m => m.available)
+      if (firstAvail) markupModel.value = firstAvail.id
+    }
+  } catch { /* leave the default single option */ }
+}
 
 // Quick-insert palette (covers the blog's tag categories; the AI + free typing
 // handle everything else, since Fish tags are open-domain).
@@ -109,9 +147,10 @@ const edits = reactive<Record<string, string>>({})   // working expressive text 
 const saved = reactive<Record<string, string>>({})   // last server-confirmed text per slug
 const activeSlug = ref('')
 const busy = ref<string>('')                          // '' | 'all' | 'save' | '<slug>'
-const progress = ref('')                              // "3/10" while tagging all
+const jobActive = ref(false)                          // a background "Tag all" is running
 const loadError = ref('')
 const editorEl = ref<HTMLTextAreaElement | null>(null)
+let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const activeOriginal = computed(() => sections.value.find(s => s.slug === activeSlug.value)?.original || '')
 const taggedCount = computed(() => sections.value.filter(s => (edits[s.slug] || '').trim()).length)
@@ -128,35 +167,46 @@ function applyServer(rows: ExprSection[]) {
   if (!activeSlug.value && rows.length) activeSlug.value = rows[0]!.slug
 }
 
+function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null } }
+function startPolling() { if (!pollTimer) pollTimer = setInterval(() => { void load() }, 4000) }
+
 async function load() {
-  if (!props.episodeId) { sections.value = []; return }
+  if (!props.episodeId) { sections.value = []; jobActive.value = false; stopPolling(); return }
   loadError.value = ''
   try {
-    const r = await get<{ sections: ExprSection[] }>(`/projects/${props.projectSlug}/episodes/${props.episodeId}/expression`)
+    const r = await get<{ sections: ExprSection[]; job_active?: boolean }>(`/projects/${props.projectSlug}/episodes/${props.episodeId}/expression`)
     applyServer(r.sections || [])
+    jobActive.value = !!r.job_active
+    // While a background "Tag all" runs, poll for live progress (the job saves
+    // each section as it finishes) and keep the button in its busy state.
+    if (jobActive.value) { busy.value = 'all'; startPolling() }
+    else { stopPolling(); if (busy.value === 'all') busy.value = '' }
   } catch (e: any) {
     sections.value = []
     loadError.value = e?.data?.detail || 'Could not load the script for this episode. Generate the narration first.'
   }
 }
 
-// Tag every section by looping ONE request per section — keeps each LLM call
-// short (a single long "tag all" request could exceed the server's request
-// timeout on a multi-chapter episode) and shows progress as it goes.
+// "Tag all" runs as a BACKGROUND JOB — it keeps tagging even if you leave the
+// Audio Generator page, saving each section as it goes. We just kick it off and
+// poll for progress; returning to the page reattaches via the load() check.
 async function generateAll() {
-  if (busy.value) return
+  if (busy.value || jobActive.value) return
   busy.value = 'all'
   loadError.value = ''
   try {
-    const slugs = sections.value.map(s => s.slug)
-    for (let i = 0; i < slugs.length; i++) {
-      progress.value = `${i + 1}/${slugs.length}`
-      const r = await post<{ sections: ExprSection[] }>(`/projects/${props.projectSlug}/episodes/${props.episodeId}/expression/generate`, { model: markupModel.value, slugs: [slugs[i]] })
-      applyServer(r.sections || [])
-    }
+    await post(`/projects/${props.projectSlug}/episodes/${props.episodeId}/expression/generate-all`, { model: markupModel.value })
+    jobActive.value = true
+    startPolling()
   } catch (e: any) {
-    loadError.value = e?.data?.detail || 'AI tagging failed (stopped partway). Check your text-model API key in Settings; tagged sections were saved.'
-  } finally { busy.value = ''; progress.value = '' }
+    const detail = e?.data?.detail || ''
+    if (e?.status === 409 || /already (running|tagging)/i.test(detail)) {
+      jobActive.value = true; startPolling()   // one is already going — just attach
+    } else {
+      busy.value = ''
+      loadError.value = detail || 'Could not start tagging. Check your text-model API key in Settings.'
+    }
+  }
 }
 
 async function generateOne() {
@@ -205,8 +255,9 @@ function insertTag(tag: string) {
   })
 }
 
-onMounted(load)
-watch(() => props.episodeId, () => { activeSlug.value = ''; load() })
+onMounted(() => { void loadModels(); void load() })
+watch(() => props.episodeId, () => { activeSlug.value = ''; void load() })
+onUnmounted(stopPolling)
 </script>
 
 <style scoped>
@@ -227,6 +278,7 @@ watch(() => props.episodeId, () => { activeSlug.value = ''; load() })
   background: var(--accent-soft, var(--bg-hover)); color: var(--accent);
 }
 .fish-expr-hint { margin: 0; line-height: 1.4; }
+.fish-expr-bg { margin: 0; line-height: 1.4; color: var(--accent); }
 .fish-expr-hint code {
   background: var(--bg-tertiary); padding: 0 3px; border-radius: 3px; font-size: 0.9em;
 }

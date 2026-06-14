@@ -1941,7 +1941,7 @@ export interface UpdateConfigRequest {
 
 // ── Jobs ────────────────────────────────────────────────────────────────────
 
-export type JobType = 'script-only' | 'introduction-only' | 'chapter-only' | 'outline_only' | 'expand_chapters' | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'images_repair' | 'audio' | 'audio_merge' | 'metadata' | 'video' | 'video_repair' | 'video_assembly' | 'subtitles_transcribe' | 'youtube_upload' | 'youtube_playlist_update' | 'broll_normalize' | 'broll_assemble' | 'broll_autotag' | 'broll_fetch' | 'research_run' | 'scene_plan_run' | 'scene_image_generate' | 'timestamp_video_assemble' | 'continuity_render' | 'prompt_director' | 'composition_generate'
+export type JobType = 'script-only' | 'introduction-only' | 'chapter-only' | 'outline_only' | 'expand_chapters' | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'images_repair' | 'audio' | 'audio_merge' | 'metadata' | 'video' | 'video_repair' | 'video_assembly' | 'subtitles_transcribe' | 'youtube_upload' | 'youtube_playlist_update' | 'broll_normalize' | 'broll_assemble' | 'broll_autotag' | 'broll_fetch' | 'research_run' | 'scene_plan_run' | 'scene_image_generate' | 'timestamp_video_assemble' | 'continuity_render' | 'prompt_director' | 'composition_generate' | 'expression_markup'
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
 /**

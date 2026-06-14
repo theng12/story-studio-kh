@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.386 — 2026-06-14
+
+### Improved — Fish S2 expression: background tagging, full model list, reliable paragraph pauses
+Four fixes/upgrades to the Fish S2 expression + pacing tools:
+
+- **"Tag all" now runs in the background.** It's a proper job — it keeps tagging every section even if you leave the Audio Generator page, saving each section as it finishes. The panel shows live progress and reattaches to a running job when you come back. (Previously it stopped the moment you navigated away.)
+- **Full model picker.** The "tag with AI" dropdown now lists **every configured text model — DeepSeek, OpenAI/ChatGPT, OpenRouter, kie (Claude/GPT/Gemini), LM Studio** — grouped and labelled by provider. Models without an API key show disabled ("needs API key") so you know what to add.
+- **Auto-pause reliably catches paragraphs.** The deterministic "Auto-pause at sentence breaks" now inserts a `[long pause]` at **every** paragraph/line break (it no longer required a specific blank-line format), so paragraph pacing stops getting skipped.
+- **The AI pass works the whole script.** The prompt now insists on pacing + emotion through **every** paragraph including the last, and a `[long pause]` at each new paragraph — fixing later paragraphs that came back untagged.
+
+### Files
+- `electron/server/services/audio-expression.ts` (robust paragraph pacing + pacing-through-all-paragraphs prompt + background `runExpressionMarkupJob`)
+- `electron/server/models/types.ts`, `electron/server/services/job-queue.ts`, `electron/server/boot/executors.ts`, `electron/server/services/job-notifier.ts` (new `expression_markup` job type)
+- `electron/server/routes/audio.ts` (`generate-all` job endpoint + `job_active` on load)
+- `frontend/components/FishExpressionPanel.vue` (full model dropdown + background-job enqueue/polling)
+
+---
+
 ## v1.0.385 — 2026-06-14
 
 ### Fixed — voice volume did nothing on voice-only audio merges
