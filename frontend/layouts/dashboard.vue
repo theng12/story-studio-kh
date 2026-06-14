@@ -184,7 +184,7 @@
           class="nav-item"
           active-class="active"
         >
-          <span class="nav-icon">&#127902;</span> Video Assembly
+          <span class="nav-icon">&#127902;</span> Video Assembly <span v-if="videoAssemblyGenerating" class="nav-pulse" />
         </NuxtLink>
 
         <div class="nav-divider" />
@@ -589,6 +589,7 @@ const {
   scriptGenerating, promptGenerating, thumbPromptGenerating,
   imageGenerating, thumbImageGenerating,
   audioGenerating, audioMergeGenerating, metaGenerating, videoGenerating,
+  videoAssemblyGenerating,
 } = useGenerating()
 
 // Cross-machine credential warnings are retired — API keys live app-level

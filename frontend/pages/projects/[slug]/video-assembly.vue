@@ -2327,7 +2327,7 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
 const { success, error: showError } = useToast()
-const { videoGenerating } = useGenerating()
+const { videoAssemblyGenerating } = useGenerating()
 const { confirmGeneration } = useConfirmation()
 
 // v1.0.83+: format-aware section vocabulary. Sections that show
@@ -4502,7 +4502,7 @@ const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo } = useVideoAss
     foregroundDefaults: compilationLayout.foregroundDefaults,
   },
   titleCard, chapterTitles, outroCard, exportSettings,
-  // generateVideo() needs these three plus post+confirmGeneration+videoGenerating
+  // generateVideo() needs these three plus post+confirmGeneration+videoAssemblyGenerating
   // passed at call-time so the composable doesn't duplicate those imports.
   subtitles, generating, jobOutput, activeJobId,
 })
@@ -4546,7 +4546,7 @@ async function generateVideo() {
   // a visible toast + a console.error so the next user-side incident
   // is debuggable from devtools instead of opaque.
   try {
-    await runGenerateVideo({ post, confirmGeneration, videoGenerating })
+    await runGenerateVideo({ post, confirmGeneration, videoAssemblyGenerating })
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Generate failed unexpectedly — see console for details (Cmd+Option+I).')
     console.error('[video-assembly] generateVideo threw:', e)
@@ -4648,7 +4648,7 @@ watch(activeJobFingerprint, async () => {
   const terminal = job.status === 'done' || job.status === 'error' || job.status === 'cancelled'
   if (terminal) {
     generating.value = false
-    videoGenerating.value = false
+    videoAssemblyGenerating.value = false
     // Leave activeJobId set so the final output panel stays visible
     // after completion — user can read what happened. Clearing it on
     // a new render start (next click of Generate) will reset the panel.

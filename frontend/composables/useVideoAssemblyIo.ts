@@ -189,7 +189,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
    * Build the video-assembly generate payload from the page's reactive state,
    * run the cost-confirmation prompt, then POST to the queue. Returns true
    * if the job was enqueued, false if the user cancelled or a submit error
-   * occurred. The page is free to read `s.generating` / `videoGenerating`
+   * occurred. The page is free to read `s.generating` / `videoAssemblyGenerating`
    * for its own UI feedback.
    *
    * Callers supply:
@@ -197,13 +197,15 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
    *     doesn't have to import it twice if the caller already has it).
    *   - `confirmGeneration` — the useConfirmation().confirmGeneration
    *     function, injected the same way.
-   *   - `videoGenerating` — the sidebar's cross-tab "video is running"
-   *     flag that useGenerating exposes.
+   *   - `videoAssemblyGenerating` — the sidebar's cross-tab "video assembly
+   *     is running" flag that useGenerating exposes. This is the Video
+   *     *Assembly* pulse, distinct from the AI Video Generator's
+   *     `videoGenerating` (v1.0.391 — they used to be conflated).
    */
   async function generateVideo(opts: {
     post: (path: string, body: any) => Promise<any>
     confirmGeneration: (slug: string, type: string, params: Record<string, any>) => Promise<boolean>
-    videoGenerating: Ref<boolean>
+    videoAssemblyGenerating: Ref<boolean>
   }): Promise<boolean> {
     const enabledScenes = s.scenes.value.filter(
       sc => !s.sceneRecycling.excluded_scenes.includes(sc.number),
@@ -386,7 +388,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     if (!confirmed) return false
 
     if (s.generating) s.generating.value = true
-    opts.videoGenerating.value = true
+    opts.videoAssemblyGenerating.value = true
     if (s.jobOutput) s.jobOutput.value = []
 
     try {
@@ -402,7 +404,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       console.error('[video-assembly] POST failed:', e)
       showError(e.data?.detail || 'Failed to start video generation')
       if (s.generating) s.generating.value = false
-      opts.videoGenerating.value = false
+      opts.videoAssemblyGenerating.value = false
       return false
     }
     // Intentionally no `finally { generating = false }`. The caller now
