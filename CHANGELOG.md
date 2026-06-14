@@ -4,6 +4,27 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.388 — 2026-06-14
+
+### Added — ElevenLabs v3 expression + auto-pause (your other main model)
+Emotion markup and auto-pause now work on **ElevenLabs v3** too, not just Fish S2-Pro. Pick an **ElevenLabs v3** model (`eleven-v3` via fal, or `genaipro-v3` via GenAIPro) and the Expression panel + auto-pause appear, speaking ElevenLabs' own tag dialect:
+
+- **ElevenLabs tags** use the verb form — `[whispers]`, `[laughs]`, `[sighs]`, `[excited]`, `[sarcastic]`, `[pause]` — vs Fish's `[whispering]` / `[long pause]`. The AI pass, the quick-insert chips, and auto-pause all switch automatically based on the selected model.
+- **Auto-pause** on ElevenLabs adds paragraph pauses (it paces sentences naturally and over-tagging can destabilize v3); on Fish it stays aggressive (sentence + paragraph).
+- **No tag mixing.** The saved expressive script records its dialect; if you switch a model to the other family, the render re-tags in the correct dialect instead of sending Fish tags to ElevenLabs (which would be read aloud).
+- Expressiveness (temperature) stays Fish-only — ElevenLabs doesn't expose it via these gateways.
+
+Everything from the Fish flow carries over to ElevenLabs v3: review/edit, the tag toolbar, background "Tag all", and the hands-off Pipeline auto-tagging.
+
+### Files
+- `electron/server/services/audio-expression.ts` (`TagDialect` + `dialectForModel`, ElevenLabs prompt, dialect-aware pacing + markup + job)
+- `electron/server/generators/audio.ts` (gate expression + auto-pause to tag-capable models, per-dialect)
+- `electron/server/routes/audio.ts` (derive dialect from the audio model; sidecar dialect guard)
+- `frontend/pages/projects/[slug]/audio.vue` (show controls for ElevenLabs v3; expressiveness stays Fish-only)
+- `frontend/components/FishExpressionPanel.vue` (dialect-aware tags, chips, badge; sends the audio model)
+
+---
+
 ## v1.0.387 — 2026-06-14
 
 ### Added — Pipeline auto-tags emotion (hands-off Fish expression)

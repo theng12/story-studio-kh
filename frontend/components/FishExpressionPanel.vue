@@ -8,14 +8,15 @@
           @change="$emit('update:modelValue', ($event.target as HTMLInputElement).checked)"
         />
         <span>Use expression markup</span>
-        <span class="fish-expr-badge">Fish S2</span>
+        <span class="fish-expr-badge">{{ dialectLabel }}</span>
       </label>
       <span v-if="sections.length" class="text-muted text-xs">{{ taggedCount }}/{{ sections.length }} tagged</span>
     </div>
     <p class="text-muted text-xs fish-expr-hint">
-      Fish S2 performs inline <code>[tags]</code> — e.g. <code>[whispering]</code>, <code>[excited]</code>,
-      <code>[long&nbsp;pause]</code>, or free-form like <code>[dead&nbsp;tired]</code>. Draft them with AI, then
-      review &amp; edit. When the toggle is on, the audio renders this tagged script instead of the plain narration —
+      {{ dialectLabel }} performs inline <code>[tags]</code> —
+      <template v-if="dialect === 'elevenlabs'">e.g. <code>[whispers]</code>, <code>[excited]</code>, <code>[sighs]</code>, <code>[pause]</code>.</template>
+      <template v-else>e.g. <code>[whispering]</code>, <code>[excited]</code>, <code>[long&nbsp;pause]</code>, or free-form like <code>[dead&nbsp;tired]</code>.</template>
+      Draft them with AI, then review &amp; edit. When the toggle is on, the audio renders this tagged script instead of the plain narration —
       and any section you haven't tagged yet is <strong>auto-tagged at render time</strong> (including Pipeline runs), so it works hands-off.
     </p>
 
@@ -97,10 +98,18 @@ const props = defineProps<{
   episodeId: string | null
   /** Bound to form.use_expression. */
   modelValue: boolean
+  /** The selected audio (TTS) model — picks the tag dialect. */
+  audioModel?: string
 }>()
 defineEmits<{ (e: 'update:modelValue', v: boolean): void }>()
 
 const { get, post, put } = useApi()
+
+// Tag dialect follows the chosen TTS model: ElevenLabs v3 vs Fish S2. Drives the
+// quick-insert palette + the badge, and is sent so the backend tags in-dialect.
+const dialect = computed<'fish' | 'elevenlabs'>(() =>
+  (props.audioModel === 'eleven-v3' || props.audioModel === 'genaipro-v3') ? 'elevenlabs' : 'fish')
+const dialectLabel = computed(() => dialect.value === 'elevenlabs' ? 'ElevenLabs v3' : 'Fish S2')
 
 // Text models for the tagging pass — pulled live from /models so every
 // configured provider (DeepSeek, OpenAI/ChatGPT, OpenRouter, kie Claude/GPT/
@@ -136,12 +145,17 @@ async function loadModels() {
   } catch { /* leave the default single option */ }
 }
 
-// Quick-insert palette (covers the blog's tag categories; the AI + free typing
-// handle everything else, since Fish tags are open-domain).
-const TAGS = [
+// Quick-insert palette — dialect-specific so the chips match the chosen model
+// (Fish uses -ing verbs + short/long pause; ElevenLabs v3 uses -s verbs + pause).
+const FISH_TAGS = [
   'whispering', 'soft voice', 'warmly', 'excited', 'emphasis', 'sad', 'angry', 'shouting',
   'sigh', 'exhale', 'gasp', 'laughing', 'chuckling', 'short pause', 'long pause',
 ]
+const EL_TAGS = [
+  'whispers', 'excited', 'sad', 'angry', 'sarcastic', 'curious', 'sighs', 'exhales',
+  'laughs', 'chuckles', 'clears throat', 'gasps', 'pause',
+]
+const TAGS = computed(() => dialect.value === 'elevenlabs' ? EL_TAGS : FISH_TAGS)
 
 const sections = ref<ExprSection[]>([])
 const edits = reactive<Record<string, string>>({})   // working expressive text per slug
@@ -196,7 +210,7 @@ async function generateAll() {
   busy.value = 'all'
   loadError.value = ''
   try {
-    await post(`/projects/${props.projectSlug}/episodes/${props.episodeId}/expression/generate-all`, { model: markupModel.value })
+    await post(`/projects/${props.projectSlug}/episodes/${props.episodeId}/expression/generate-all`, { model: markupModel.value, audio_model: props.audioModel })
     jobActive.value = true
     startPolling()
   } catch (e: any) {
@@ -215,7 +229,7 @@ async function generateOne() {
   const slug = activeSlug.value
   busy.value = slug
   try {
-    const r = await post<{ sections: ExprSection[] }>(`/projects/${props.projectSlug}/episodes/${props.episodeId}/expression/generate`, { model: markupModel.value, slugs: [slug] })
+    const r = await post<{ sections: ExprSection[] }>(`/projects/${props.projectSlug}/episodes/${props.episodeId}/expression/generate`, { model: markupModel.value, slugs: [slug], audio_model: props.audioModel })
     applyServer(r.sections || [])
   } catch (e: any) {
     loadError.value = e?.data?.detail || 'AI tagging failed. Check your text-model API key in Settings.'

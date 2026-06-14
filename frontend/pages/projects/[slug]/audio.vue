@@ -247,12 +247,12 @@
         </p>
       </div>
 
-      <!-- Fish delivery controls — expressiveness for any Fish model, plus
-           auto-pacing for S2-Pro (which performs inline pause tags). Fixes the
+      <!-- Delivery controls — expressiveness (Fish only) + auto-pacing
+           (tag-capable models: Fish S2-Pro + ElevenLabs v3). Fixes the
            "monotone + rushes through periods" feel. -->
-      <div v-if="isFish" class="form-group mb-2">
-        <label>Delivery <span class="field-hint">— Fish voice pacing &amp; expressiveness</span></label>
-        <div class="form-group">
+      <div v-if="isFish || isTagCapable" class="form-group mb-2">
+        <label>Delivery <span class="field-hint">— voice pacing &amp; expressiveness</span></label>
+        <div v-if="isFish" class="form-group">
           <label>Expressiveness ({{ form.fish_temperature.toFixed(2) }}) <span class="field-hint">Higher = less monotone</span></label>
           <SliderWithNumber v-model="form.fish_temperature" :min="0" :max="1" :step="0.05" :decimals="2" />
           <p class="text-muted text-xs hint-line">
@@ -260,25 +260,27 @@
             Raise toward <strong>0.90</strong> for more varied intonation; lower toward 0.70 for a steadier read. (Very high can wobble.)
           </p>
         </div>
-        <label v-if="isFishS2Pro" class="checkbox-label" :title="'Inserts [short pause] after sentences and [long pause] between paragraphs so the voice does not rush through full stops.'">
+        <label v-if="isTagCapable" class="checkbox-label" title="Inserts pause tags at sentence + paragraph breaks so the voice does not rush through full stops.">
           <input type="checkbox" v-model="form.fish_autopace" />
           <span>Auto-pause at sentence breaks <span class="field-hint">— adds breathing room</span></span>
         </label>
-        <p v-if="isFishS2Pro" class="text-muted text-xs hint-line">
-          Adds a brief pause after each sentence and a longer one between paragraphs. Works on plain narration and
-          layers on top of Expression markup (pauses won't double up). S2-Pro only.
+        <p v-if="isTagCapable" class="text-muted text-xs hint-line">
+          Inserts pauses at paragraph + sentence breaks so the read isn't rushed. Works on plain narration and
+          layers on top of Expression markup (pauses won't double up).
+          <template v-if="!isFishS2Pro"> On ElevenLabs v3 this adds paragraph pauses (it paces sentences naturally).</template>
         </p>
       </div>
 
-      <!-- Fish S2 expression markup — only for Fish Audio S2-Pro, which performs
-           inline [tags]. Lets the operator draft + review a tagged "expressive
-           script" the audio renders when the toggle is on. -->
-      <div v-if="isFishS2Pro" class="form-group mb-2">
-        <label>Expression <span class="field-hint">— emotion &amp; performance tags (Fish S2)</span></label>
+      <!-- Expression markup — tag-capable models (Fish S2-Pro + ElevenLabs v3).
+           Draft + review a tagged "expressive script" the audio renders when on;
+           untagged sections are auto-tagged at render time. -->
+      <div v-if="isTagCapable" class="form-group mb-2">
+        <label>Expression <span class="field-hint">— emotion &amp; performance tags</span></label>
         <FishExpressionPanel
           v-model="form.use_expression"
           :project-slug="slug"
           :episode-id="form.episode_id || null"
+          :audio-model="form.model"
         />
       </div>
 
@@ -524,7 +526,10 @@ const currentAudioProvider = computed<string>(() => {
 // tag aloud, so it's deliberately excluded.)
 const isFish = computed(() => currentAudioProvider.value === 'fishaudio')
 const isFishS2Pro = computed(() => isFish.value && form.model === 'fishaudio-s2-pro')
-watch(isFishS2Pro, (on) => { if (!on) { form.use_expression = false; form.fish_autopace = false } })
+// Models that take inline emotion/pause tags: Fish S2-Pro + ElevenLabs v3
+// (via fal / GenAIPro). Expressiveness (temperature) stays Fish-only.
+const isTagCapable = computed(() => ['fishaudio-s2-pro', 'eleven-v3', 'genaipro-v3'].includes(form.model))
+watch(isTagCapable, (on) => { if (!on) { form.use_expression = false; form.fish_autopace = false } })
 
 // Fish saved voices share the global voice_presets list (same one ElevenLabs
 // uses), tagged provider:'fishaudio' so the two reference-id spaces never mix.

@@ -273,53 +273,55 @@ export async function generateAudio(job: Job): Promise<void> {
     job.output_lines.push(`  ${s.label} (${s.text.length.toLocaleString()} chars)`)
   }
 
-  // v1.0.381 — Fish S2 expression markup. When the operator enabled the
-  // expressive script for this Fish S2-Pro run, swap each section's spoken
-  // text for its tagged version (matched by slug). The real narration still
-  // defines the section structure; we only override the words. Runs BEFORE
-  // normalization so the inline [tags] get the same punctuation cleanup as the
-  // rest of the text (normalizeForTts leaves square brackets untouched). Tags
-  // are gated to s2-pro because S1 would read an unknown tag aloud.
-  if (req.use_expression === true && providerId === 'fishaudio' && req.model === 'fishaudio-s2-pro') {
-    const { readExpression, writeExpression, markupSectionText } = await import('../services/audio-expression.js')
-    const expr = await readExpression(narrationPath)
-    const sectionsOut: Record<string, string> = { ...(expr?.sections || {}) }
-    // v1.0.387 — auto-tag any UN-tagged section inline, so a Pipeline (or remote
-    // cockpit) run is fully hands-off: no need to hit "Tag all" first. A section
-    // already in the sidecar is reused as-is (no re-spend). Persists what it
-    // generates so the next render reuses it. Best-effort per section — a failed
-    // tag falls back to that section's plain narration, never blocks the audio.
-    const markupModel = (typeof (req as any).expression_model === 'string' && (req as any).expression_model.trim())
-      ? (req as any).expression_model.trim() : 'deepseek-v4-flash'
-    const apiKeys = {
-      anthropic_api_key: (config as any).anthropic_api_key,
-      openai_api_key: (config as any).openai_api_key,
-      kie_api_key: (config as any).kie_api_key,
-    }
-    let applied = 0
-    let generated = 0
-    for (const s of allSections) {
-      let tagged = sectionsOut[s.slug]
-      if (!(typeof tagged === 'string' && tagged.trim())) {
-        try {
-          job.output_lines.push(`Fish S2 expression: auto-tagging "${s.label}" with ${markupModel}…`)
-          tagged = await markupSectionText(markupModel, s.text, apiKeys, project_slug)
-          sectionsOut[s.slug] = tagged
-          generated++
-        } catch (e: any) {
-          job.output_lines.push(`  ⚠ auto-tag failed for ${s.label} (${e?.message || e}) — using plain text`)
-          tagged = ''
-        }
+  // v1.0.381/387/388 — inline expression markup. When the operator enabled the
+  // expressive script, swap each section's spoken text for its tagged version
+  // (matched by slug), auto-generating any un-tagged section so a Pipeline /
+  // cockpit run is fully hands-off. Runs BEFORE normalization so the inline
+  // [tags] get the same punctuation cleanup (normalizeForTts leaves square
+  // brackets untouched). Gated to tag-capable models via dialectForModel —
+  // Fish S2-Pro (fish dialect) and ElevenLabs v3 (elevenlabs dialect) — and the
+  // tags are generated/reused in THAT model's dialect so Fish tags never reach
+  // ElevenLabs (or vice versa), which would otherwise be read aloud.
+  if (req.use_expression === true) {
+    const { dialectForModel, readExpression, writeExpression, markupSectionText } = await import('../services/audio-expression.js')
+    const exprDialect = dialectForModel(req.model)
+    if (exprDialect) {
+      const expr = await readExpression(narrationPath)
+      // Only reuse saved tags if they were written in THIS model's dialect.
+      const reusable = expr && (expr.dialect ?? 'fish') === exprDialect
+      const sectionsOut: Record<string, string> = { ...(reusable ? expr!.sections : {}) }
+      const markupModel = (typeof (req as any).expression_model === 'string' && (req as any).expression_model.trim())
+        ? (req as any).expression_model.trim() : 'deepseek-v4-flash'
+      const apiKeys = {
+        anthropic_api_key: (config as any).anthropic_api_key,
+        openai_api_key: (config as any).openai_api_key,
+        kie_api_key: (config as any).kie_api_key,
       }
-      if (typeof tagged === 'string' && tagged.trim()) { s.text = tagged; applied++ }
+      let applied = 0
+      let generated = 0
+      for (const s of allSections) {
+        let tagged = sectionsOut[s.slug]
+        if (!(typeof tagged === 'string' && tagged.trim())) {
+          try {
+            job.output_lines.push(`Expression (${exprDialect}): auto-tagging "${s.label}" with ${markupModel}…`)
+            tagged = await markupSectionText(markupModel, s.text, apiKeys, project_slug, exprDialect)
+            sectionsOut[s.slug] = tagged
+            generated++
+          } catch (e: any) {
+            job.output_lines.push(`  ⚠ auto-tag failed for ${s.label} (${e?.message || e}) — using plain text`)
+            tagged = ''
+          }
+        }
+        if (typeof tagged === 'string' && tagged.trim()) { s.text = tagged; applied++ }
+      }
+      if (generated > 0) {
+        await writeExpression(narrationPath, {
+          schema_version: 1, model: markupModel, dialect: exprDialect, generated_at: new Date().toISOString(), sections: sectionsOut,
+        }).catch(() => { /* sidecar persistence is best-effort */ })
+        job.output_lines.push(`Expression (${exprDialect}): auto-generated markup for ${generated} new section(s).`)
+      }
+      job.output_lines.push(`Expression (${exprDialect}): applied tagged narration to ${applied}/${allSections.length} section(s).`)
     }
-    if (generated > 0) {
-      await writeExpression(narrationPath, {
-        schema_version: 1, model: markupModel, generated_at: new Date().toISOString(), sections: sectionsOut,
-      }).catch(() => { /* sidecar persistence is best-effort */ })
-      job.output_lines.push(`Fish S2 expression: auto-generated markup for ${generated} new section(s).`)
-    }
-    job.output_lines.push(`Fish S2 expression: applied tagged narration to ${applied}/${allSections.length} section(s).`)
   }
 
   // v1.0.215+ — TTS-friendly normalization (the deterministic safeguard).
@@ -380,16 +382,19 @@ export async function generateAudio(job: Job): Promise<void> {
     } catch { /* brand layer must never break audio generation */ }
   }
 
-  // v1.0.383 — Fish S2 auto-pacing. Fish rushes through full stops with almost
-  // no gap (robotic). When enabled, deterministically insert [short pause] /
-  // [long pause] tags at sentence + paragraph boundaries so plain narration
-  // gets breathing room. Runs AFTER normalization (so it keys off cleaned
-  // punctuation) and composes with the expression pass (the dedup inside
-  // addSentencePacing prevents stacked pauses). s2-pro only — S1 reads tags aloud.
-  if (req.fish_autopace === true && providerId === 'fishaudio' && req.model === 'fishaudio-s2-pro') {
-    const { addSentencePacing } = await import('../services/audio-expression.js')
-    for (const s of allSections) s.text = addSentencePacing(s.text)
-    job.output_lines.push('Fish S2 auto-pacing: inserted sentence/paragraph pause tags.')
+  // v1.0.383/388 — auto-pacing. When enabled, deterministically insert pause
+  // tags at sentence + paragraph boundaries so the read gets breathing room.
+  // Runs AFTER normalization (keys off cleaned punctuation) and composes with
+  // the expression pass (the dedup inside addSentencePacing prevents stacked
+  // pauses). Gated to tag-capable models; the dialect picks the right tokens
+  // (Fish: [short/long pause]; ElevenLabs: [pause] at paragraphs).
+  if (req.fish_autopace === true) {
+    const { dialectForModel, addSentencePacing } = await import('../services/audio-expression.js')
+    const paceDialect = dialectForModel(req.model)
+    if (paceDialect) {
+      for (const s of allSections) s.text = addSentencePacing(s.text, paceDialect)
+      job.output_lines.push(`Auto-pacing (${paceDialect}): inserted pause tags.`)
+    }
   }
 
   // Filter sections

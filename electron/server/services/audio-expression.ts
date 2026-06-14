@@ -25,6 +25,10 @@ export interface ExpressionSidecar {
   schema_version: 1
   /** Model used for the last LLM markup pass (informational). */
   model?: string
+  /** Tag dialect the stored tags are in — render only uses them when it matches
+   *  the target model's dialect (Fish tags must not go to ElevenLabs & vice
+   *  versa). Absent = legacy Fish-only sidecar. */
+  dialect?: 'fish' | 'elevenlabs'
   /** ISO timestamp of the last write (informational). */
   generated_at?: string
   /** Tagged narration per section slug. Missing slug = use plain narration. */
@@ -52,11 +56,26 @@ export async function writeExpression(narrationPath: string, data: ExpressionSid
 }
 
 /**
- * System prompt for the markup pass. Strict: insert ONLY bracketed tags,
- * never touch the words. The user reviews/edits the result before it's voiced,
- * so this is a best-effort first draft, not a trusted transform.
+ * Which inline-tag dialect a TTS model speaks, or null if it can't do tags.
+ * Fish S2-Pro and ElevenLabs v3 (via fal / GenAIPro) each take square-bracket
+ * tags but with different vocabularies — keep them separate so we never send
+ * one provider's tags to the other (which would get read aloud).
  */
-const EXPRESSION_SYSTEM = `You add Fish Audio S2 inline performance tags to narration that will be spoken by a text-to-speech voice.
+export type TagDialect = 'fish' | 'elevenlabs'
+const ELEVENLABS_TAG_MODELS = new Set(['eleven-v3', 'genaipro-v3'])
+export function dialectForModel(model: string | undefined | null): TagDialect | null {
+  if (!model) return null
+  if (model === 'fishaudio-s2-pro') return 'fish'
+  if (ELEVENLABS_TAG_MODELS.has(model)) return 'elevenlabs'
+  return null
+}
+
+/**
+ * System prompts for the markup pass — one per tag dialect. Strict: insert ONLY
+ * bracketed tags, never touch the words. The user reviews/edits before it's
+ * voiced, so this is a best-effort first draft, not a trusted transform.
+ */
+const FISH_SYSTEM = `You add Fish Audio S2 inline performance tags to narration that will be spoken by a text-to-speech voice.
 
 Fish S2 tags are square-bracket directions that affect the words AFTER them, e.g.
   [whispering] Don't let them hear you.
@@ -72,50 +91,75 @@ RULES — follow every one exactly:
 - Preserve every line break and paragraph exactly as given.
 - Output ONLY the tagged narration. No preamble, no commentary, no code fences.`
 
+const ELEVEN_SYSTEM = `You add ElevenLabs v3 inline audio tags to narration that will be spoken by a text-to-speech voice.
+
+ElevenLabs v3 audio tags are square-bracket stage directions, e.g.
+  [whispers] Don't let them hear you.
+  [excited] We actually did it!
+  She set the folder down. [pause] Then she looked up.
+Use ElevenLabs' VERB form: [whispers] (not whispering), [laughs] (not laughing), [sighs] (not sigh). Supported: whispers, shouts, excited, sad, angry, sarcastic, curious, sighs, exhales, laughs, chuckles, clears throat, gasps, crying. Pauses: the [pause] tag, plus an ellipsis (…) for a soft trailing beat. Capital letters add emphasis.
+
+RULES — follow every one exactly:
+- PACING FIRST: put a [pause] at each paragraph break / major topic shift, and where a sentence genuinely needs a beat. ElevenLabs paces sentences naturally, so do NOT pause after every sentence — add pauses where meaning calls for one; an ellipsis (…) suits a soft trailing beat.
+- EVERY PARAGRAPH gets attention: work through the WHOLE text top to bottom including the final paragraph; never thin out the later paragraphs.
+- THEN add emotion/delivery tags where they clearly help. Use them SPARINGLY — overusing reaction tags sounds cluttered and can destabilize the voice. A few per paragraph at most.
+- DO NOT change, add, remove, reorder, correct, or rephrase ANY of the narration's words. Insert ONLY bracketed tags (and at most an ellipsis for a beat) between existing words.
+- Preserve every line break and paragraph exactly as given.
+- Output ONLY the tagged narration. No preamble, no commentary, no code fences.`
+
+function systemFor(dialect: TagDialect): string {
+  return dialect === 'elevenlabs' ? ELEVEN_SYSTEM : FISH_SYSTEM
+}
+
 /**
- * Deterministic pacing pass (no LLM): insert Fish pause tags at sentence and
- * paragraph boundaries so plain narration stops rushing through full stops.
- * `[long pause]` between paragraphs, `[short pause]` after sentence-ending
- * punctuation. Skips common abbreviations on a single period, and won't double
- * up next to a pause tag that's already there (so it composes with the LLM
- * pass / hand edits). Fish S2-Pro only — the tags would be read aloud by S1.
+ * Deterministic pacing pass (no LLM): insert pause tags at paragraph (and, for
+ * Fish, sentence) boundaries so the read stops rushing. Fish gets aggressive
+ * sentence pacing (it rushes full stops); ElevenLabs gets paragraph pauses only
+ * (it paces sentences naturally, and over-tagging can destabilize v3). Skips
+ * common abbreviations on a lone period and never stacks adjacent pauses, so it
+ * composes with the LLM pass + hand edits. Tag-capable models only.
  */
 const PACING_ABBREV = new Set([
   'mr', 'mrs', 'ms', 'dr', 'st', 'sr', 'jr', 'vs', 'etc', 'no', 'inc', 'ltd',
   'prof', 'gen', 'sgt', 'lt', 'col', 'capt', 'rev', 'hon', 'dept', 'fig', 'vol',
 ])
-export function addSentencePacing(text: string): string {
-  // 1. ANY line break = a paragraph/beat boundary → [long pause]. Narration is
+export function addSentencePacing(text: string, dialect: TagDialect = 'fish'): string {
+  const PARA = dialect === 'elevenlabs' ? '[pause]' : '[long pause]'
+  const SENT = dialect === 'elevenlabs' ? '' : '[short pause]'  // EL: paragraphs only
+  // 1. ANY line break = a paragraph/beat boundary → a pause tag. Narration is
   //    never hard-wrapped mid-paragraph, so this reliably catches every
-  //    paragraph change whether the source — or the LLM expression pass —
-  //    separated paragraphs with one newline or two. Newlines don't matter to
-  //    Fish; the tag carries the pause, so we flatten them into the tag.
-  let t = text.trim().replace(/[ \t]*[\r\n]+[ \t]*/g, ' [long pause] ')
-  // 2. [short pause] after sentence-ending . ? ! + whitespace + a capital /
+  //    paragraph change whether the source — or the LLM pass — separated
+  //    paragraphs with one newline or two. The tag carries the pause.
+  let t = text.trim().replace(/[ \t]*[\r\n]+[ \t]*/g, ` ${PARA} `)
+  // 2. (Fish only) pause after sentence-ending . ? ! + whitespace + a capital /
   //    quote / open-paren, skipping common abbreviations on a lone period.
-  t = t.replace(/(\S+?)([.!?]+)([ \t]+)(?=["'“‘(]?[A-Z0-9])/g, (m, word: string, punct: string, sp: string) => {
-    const bare = word.toLowerCase().replace(/[^a-z]/g, '')
-    if (punct === '.' && PACING_ABBREV.has(bare)) return m  // Mr. / Dr. / etc.
-    return `${word}${punct}${sp}[short pause] `
-  })
+  if (SENT) {
+    t = t.replace(/(\S+?)([.!?]+)([ \t]+)(?=["'“‘(]?[A-Z0-9])/g, (m, word: string, punct: string, sp: string) => {
+      const bare = word.toLowerCase().replace(/[^a-z]/g, '')
+      if (punct === '.' && PACING_ABBREV.has(bare)) return m  // Mr. / Dr. / etc.
+      return `${word}${punct}${sp}${SENT} `
+    })
+  }
   // 3. Never stack pauses (the LLM pass + this pass can land on the same spot).
-  t = t.replace(/\[(?:short|long) pause\](?:\s*\[(?:short|long) pause\])+/g, (m) => (m.includes('long') ? '[long pause]' : '[short pause]'))
+  t = t.replace(/\[(?:short |long )?pause\](?:\s*\[(?:short |long )?pause\])+/g, (m) => (m.includes('long') ? '[long pause]' : (m.includes('short') ? '[short pause]' : '[pause]')))
   return t.replace(/[ \t]{2,}/g, ' ').trim()
 }
 
 interface AiKeys { anthropic_api_key?: string; openai_api_key?: string; kie_api_key?: string }
 
 /**
- * Run the LLM markup pass over one section's text. Returns the tagged text
- * (or the original on an empty/failed response so a section is never blanked).
+ * Run the LLM markup pass over one section's text in the given dialect. Returns
+ * the tagged text (or the original on an empty/failed response so a section is
+ * never blanked).
  */
 export async function markupSectionText(
   model: string,
   sectionText: string,
   apiKeys: AiKeys,
   slug: string,
+  dialect: TagDialect = 'fish',
 ): Promise<string> {
-  const out = await callAi(model, EXPRESSION_SYSTEM, sectionText, apiKeys, false, { slug })
+  const out = await callAi(model, systemFor(dialect), sectionText, apiKeys, false, { slug })
   const trimmed = (out || '').trim()
   return trimmed.length ? trimmed : sectionText
 }
@@ -125,6 +169,8 @@ export interface ExpressionMarkupParams {
   title?: string
   /** Text model for the markup pass; defaults to deepseek-v4-flash. */
   model?: string
+  /** Tag dialect to write (matches the target TTS model). Defaults to 'fish'. */
+  dialect?: TagDialect
   /** Limit to these section slugs; omit/empty = every section. */
   slugs?: string[]
 }
@@ -140,6 +186,7 @@ export async function runExpressionMarkupJob(job: Job): Promise<void> {
   const episodeId = params.episode_id
   if (!episodeId) throw new Error('episode_id is required')
   const model = (typeof params.model === 'string' && params.model.trim()) ? params.model.trim() : 'deepseek-v4-flash'
+  const dialect: TagDialect = params.dialect === 'elevenlabs' ? 'elevenlabs' : 'fish'
 
   const pm = await import('./project-manager.js')
   const { findNarrationFile } = await import('../generators/audio.js')
@@ -160,18 +207,21 @@ export async function runExpressionMarkupJob(job: Job): Promise<void> {
     openai_api_key: (config as any).openai_api_key,
     kie_api_key: (config as any).kie_api_key,
   }
-  job.output_lines.push(`Tagging ${targets.length} section(s) with ${model}…`)
+  job.output_lines.push(`Tagging ${targets.length} section(s) with ${model} (${dialect})…`)
 
+  // If the saved sidecar was tagged in a DIFFERENT dialect, don't carry its
+  // tags forward — start fresh so we never mix Fish + ElevenLabs tags.
   const existing = await readExpression(narrationPath)
-  const sectionsOut: Record<string, string> = { ...(existing?.sections || {}) }
+  const reusable = existing && (existing.dialect ?? 'fish') === dialect
+  const sectionsOut: Record<string, string> = { ...(reusable ? existing!.sections : {}) }
   for (let i = 0; i < targets.length; i++) {
     if (isCancelled(job.job_id)) { job.output_lines.push('Cancelled by user.'); return }
     const s = targets[i]!
     job.output_lines.push(`  ${s.label} (${i + 1}/${targets.length})`)
-    sectionsOut[s.slug] = await markupSectionText(model, s.text, apiKeys, job.project_slug)
+    sectionsOut[s.slug] = await markupSectionText(model, s.text, apiKeys, job.project_slug, dialect)
     // Persist after every section so partial progress is never lost.
     await writeExpression(narrationPath, {
-      schema_version: 1, model, generated_at: new Date().toISOString(), sections: sectionsOut,
+      schema_version: 1, model, dialect, generated_at: new Date().toISOString(), sections: sectionsOut,
     })
     job.progress = Math.round(((i + 1) / targets.length) * 100)
   }

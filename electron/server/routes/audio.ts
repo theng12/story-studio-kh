@@ -277,7 +277,7 @@ router.get('/projects/:slug/episodes/:code/expression', async (req, res) => {
     // job_active = a background "Tag all" is queued/running for this episode, so
     // the panel knows to keep polling for progress even across navigations.
     const jobActive = jq.isDuplicate(slug, code, 'expression_markup')
-    res.json({ model: expr?.model || null, generated_at: expr?.generated_at || null, sections, job_active: jobActive })
+    res.json({ model: expr?.model || null, dialect: expr?.dialect || null, generated_at: expr?.generated_at || null, sections, job_active: jobActive })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to load expression markup'))
   }
@@ -293,6 +293,8 @@ router.post('/projects/:slug/episodes/:code/expression/generate-all', async (req
     if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const narrationPath = await resolveNarrationOr404(slug, code, res)
     if (!narrationPath) return
+    const { dialectForModel } = await import('../services/audio-expression.js')
+    const dialect = dialectForModel(req.body?.audio_model) || 'fish'
     if (jq.isDuplicate(slug, code, 'expression_markup')) {
       return res.status(409).json({ detail: 'Expression tagging is already running for this episode.' })
     }
@@ -301,7 +303,7 @@ router.post('/projects/:slug/episodes/:code/expression/generate-all', async (req
       type: 'expression_markup',
       episode_id: code,
       title: `Expression markup — ${code}`,
-      params: { episode_id: code, model },
+      params: { episode_id: code, model, dialect },
     })
     res.status(201).json({ job_id: job.job_id })
   } catch (e: any) {
@@ -323,7 +325,8 @@ router.post('/projects/:slug/episodes/:code/expression/generate', async (req, re
     const narrationPath = await resolveNarrationOr404(slug, code, res)
     if (!narrationPath) return
     const { parseNarrationDocx } = await import('../lib/docx-parser.js')
-    const { readExpression, writeExpression, markupSectionText } = await import('../services/audio-expression.js')
+    const { readExpression, writeExpression, markupSectionText, dialectForModel } = await import('../services/audio-expression.js')
+    const dialect = dialectForModel(req.body?.audio_model) || 'fish'
     const parsed = await parseNarrationDocx(narrationPath)
     const targets = requestedSlugs && requestedSlugs.length
       ? parsed.filter(s => requestedSlugs.includes(s.slug)) : parsed
@@ -335,12 +338,14 @@ router.post('/projects/:slug/episodes/:code/expression/generate', async (req, re
       kie_api_key: (config as any).kie_api_key,
     }
     const existing = await readExpression(narrationPath)
-    const sectionsOut: Record<string, string> = { ...(existing?.sections || {}) }
+    // Drop tags from a different dialect so Fish + ElevenLabs tags never mix.
+    const reusable = existing && (existing.dialect ?? 'fish') === dialect
+    const sectionsOut: Record<string, string> = { ...(reusable ? existing!.sections : {}) }
     for (const s of targets) {
-      sectionsOut[s.slug] = await markupSectionText(model, s.text, apiKeys, slug)
+      sectionsOut[s.slug] = await markupSectionText(model, s.text, apiKeys, slug, dialect)
     }
     const generated_at = new Date().toISOString()
-    await writeExpression(narrationPath, { schema_version: 1, model, generated_at, sections: sectionsOut })
+    await writeExpression(narrationPath, { schema_version: 1, model, dialect, generated_at, sections: sectionsOut })
     const sections = parsed.map(s => ({ slug: s.slug, label: s.label, original: s.text, expressive: sectionsOut[s.slug] || '' }))
     res.json({ model, generated_at, sections })
   } catch (e: any) {
@@ -371,7 +376,7 @@ router.put('/projects/:slug/episodes/:code/expression', async (req, res) => {
       else delete sectionsOut[k]
     }
     const generated_at = new Date().toISOString()
-    await writeExpression(narrationPath, { schema_version: 1, model: existing?.model, generated_at, sections: sectionsOut })
+    await writeExpression(narrationPath, { schema_version: 1, model: existing?.model, dialect: existing?.dialect, generated_at, sections: sectionsOut })
     const sections = parsed.map(s => ({ slug: s.slug, label: s.label, original: s.text, expressive: sectionsOut[s.slug] || '' }))
     res.json({ model: existing?.model || null, generated_at, sections })
   } catch (e: any) {
