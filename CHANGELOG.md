@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.390 — 2026-06-14
+
+### Improved — Subtitle concurrency: Auto mode + higher cap (for big Voice Studio pools)
+The new Subtitle (Transcription) Concurrency control now has an **Auto** option and a higher manual ceiling — built for fleets of 10+ Macs:
+
+- **Auto (now the default)** matches your live pool — one transcription per *online, Whisper-ready* Voice Studio Mac, **self-healing** (the dispatcher fails a Mac over if it drops mid-run). Cloud Whisper resolves to 3; a single local machine resolves to 1 (sequential).
+- **Manual cap raised to 16** (was 8), with quick picks Auto / 1 / ×2 / ×3 / ×4 / ×6 / ×8 / ×12 / ×16. Auto itself uses up to 16 ready Macs.
+- The job log now says e.g. "Transcribing 12 chapter(s) — up to 11 at a time (auto — 11 online Macs)" so you can see what it picked.
+
+### Files
+- `electron/server/lib/voicestudio-client.ts` (`readyTranscribeEndpointCount`)
+- `electron/server/generators/subtitles.ts` (resolve auto/number; pool sized to live endpoints)
+- `electron/server/models/types.ts`, `electron/server/services/project-manager.ts` (`subtitle_concurrency: number | 'auto'`)
+- `frontend/pages/projects/[slug]/settings.vue` (Auto + ×2…×16 select)
+
+---
+
 ## v1.0.389 — 2026-06-14
 
 ### Added — Subtitle (transcription) concurrency

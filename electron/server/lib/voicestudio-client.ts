@@ -1040,6 +1040,19 @@ export async function runOnTranscribePool<T>(
   })
 }
 
+/**
+ * How many Voice Studio endpoints are READY to transcribe right now (online +
+ * the requested/any Whisper model cached). Subtitle 'auto' concurrency uses this
+ * to match the live pool size — one transcription per Mac. 0 when none ready.
+ */
+export async function readyTranscribeEndpointCount(
+  stored: string | null | undefined,
+  requestedModel?: string,
+): Promise<number> {
+  const candidates = await transcribePoolCandidates(stored, requestedModel)
+  return candidates.length
+}
+
 /** Kick off a one-time Whisper model download on the modal (same generic
  *  /api/downloads endpoint the TTS models use). Returns the modal's response. */
 export async function downloadTranscribeModel(baseUrl: string, repo: string): Promise<any> {

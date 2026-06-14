@@ -225,15 +225,32 @@ async function transcribePerChapter(
   let done = 0
   let totalCues = 0
 
-  // v1.0.389 — per-chapter transcription concurrency (Settings → Performance →
-  // Subtitle Concurrency). Voice Studio fans chapters across its endpoint pool;
-  // cloud Whisper parallelises requests. Clamp 1–8; default 2. 1 = sequential
-  // (the old behaviour — safest for a single local Whisper machine).
+  // v1.0.389/390 — per-chapter transcription concurrency (Settings → Performance
+  // → Subtitle Concurrency). Voice Studio fans chapters across its endpoint pool;
+  // cloud Whisper parallelises requests. Value is a number (clamped 1–16) or
+  // 'auto'. DEFAULT 'auto': match the live pool — one transcription per ready
+  // Voice Studio Mac (self-healing: the dispatcher fails a dropped Mac over),
+  // or 3 for cloud Whisper. A single local machine → 1 = sequential.
   const { getConfig } = await import('../services/project-manager.js')
   const subConfig = await getConfig(projectSlug)
-  const concurrency = Math.max(1, Math.min(8, Math.floor(Number((subConfig as any)?.subtitle_concurrency) || 2)))
+  const rawConc = (subConfig as any)?.subtitle_concurrency
+  const isAuto = rawConc === 'auto' || rawConc == null
+  let concurrency: number
+  if (isAuto) {
+    if (engine === 'voicestudio') {
+      const { readyTranscribeEndpointCount } = await import('../lib/voicestudio-client.js')
+      const n = await readyTranscribeEndpointCount(vsStoredUrl, vsModel).catch(() => 1)
+      concurrency = Math.max(1, Math.min(16, n || 1))
+    } else {
+      concurrency = 3  // cloud Whisper — safe parallel default
+    }
+  } else {
+    concurrency = Math.max(1, Math.min(16, Math.floor(Number(rawConc) || 1)))
+  }
+  const autoNote = isAuto ? (engine === 'voicestudio' ? ` (auto — ${concurrency} online Mac${concurrency === 1 ? '' : 's'})` : ' (auto)') : ''
   job.output_lines.push(
-    `Transcribing ${sections.length} chapter(s)` + (concurrency > 1 ? ` — up to ${concurrency} at a time` : '') + '…',
+    `Transcribing ${sections.length} chapter(s)` +
+    (concurrency > 1 ? ` — up to ${concurrency} at a time${autoNote}` : ` (sequential${autoNote})`) + '…',
   )
 
   // One chapter's transcription. (The old loop's `continue`s become `return`s.)

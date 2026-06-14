@@ -1007,7 +1007,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     audio_concurrency: typeof (config as any).audio_concurrency === 'number' ? (config as any).audio_concurrency : undefined,
     video_concurrency: typeof (config as any).video_concurrency === 'number' ? (config as any).video_concurrency : undefined,
     image_concurrency: typeof (config as any).image_concurrency === 'number' ? (config as any).image_concurrency : undefined,
-    subtitle_concurrency: typeof (config as any).subtitle_concurrency === 'number' ? (config as any).subtitle_concurrency : undefined,
+    subtitle_concurrency: (typeof (config as any).subtitle_concurrency === 'number' || (config as any).subtitle_concurrency === 'auto') ? (config as any).subtitle_concurrency : undefined,
     // v1.0.337 — continuity guide cast density (0–100; undefined = 40% default).
     character_density: typeof (config as any).character_density === 'number' ? (config as any).character_density : undefined,
     // Per-modality launch stagger (ms). 0 / undefined = no stagger; non-zero
