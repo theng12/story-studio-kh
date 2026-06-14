@@ -662,6 +662,10 @@ const filteredCustomVoices = computed<VoiceMeta[]>(() => {
   if (scopeFamily.value !== 'cloud') return []
   const favSet = new Set(favouriteIds.value)
   return props.customVoices
+    // Fish Audio voices share the voice_presets store but live in a different
+    // reference-id space — never show them in the ElevenLabs picker (the Fish
+    // model surfaces its own saved-voice dropdown). Save still preserves them.
+    .filter(p => (p as any)?.provider !== 'fishaudio')
     .filter(p => !favSet.has(p.voice_id))
     .map(p => ({ voice_id: p.voice_id, name: p.name, category: 'cloned' as const, gender: 'unknown' as const, language: 'en' }))
     .filter(matchesFilters)

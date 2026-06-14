@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.384 — 2026-06-14
+
+### Added — save & reuse Fish Audio voices
+You can now name and save Fish reference IDs instead of re-pasting them. With a Fish model selected in the Audio Generator:
+
+- Paste a reference ID, click **💾 Save**, give it a name (e.g. "Aiden (narrator)") — it's stored and appears in a **saved-voices dropdown** above the field.
+- Pick a saved voice from the dropdown anytime; **✕ Remove** drops one you no longer want.
+- Saved per-machine (shared across projects, like your ElevenLabs voices), since a Fish reference ID is account-level.
+
+Under the hood Fish voices live in the same global voice list as ElevenLabs but are tagged so the two ID spaces never mix — the ElevenLabs picker hides Fish entries, and saving in either place preserves the other.
+
+### Files
+- `frontend/pages/projects/[slug]/audio.vue` (Fish saved-voice dropdown + save/remove)
+- `frontend/components/VoicePicker.vue` (hide Fish-tagged entries from the ElevenLabs picker)
+
+---
+
 ## v1.0.383 — 2026-06-14
 
 ### Added — Fish voice delivery controls (pacing + expressiveness)
