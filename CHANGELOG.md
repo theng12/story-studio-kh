@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.389 — 2026-06-14
+
+### Added — Subtitle (transcription) concurrency
+Subtitle transcription used to do one chapter at a time, sequentially — even with a Voice Studio Mac pool or cloud Whisper that could handle several at once. There's now a **Subtitle (Transcription) Concurrency** slider in **Settings → Performance** (its own knob, separate from the Audio/TTS one):
+
+- The per-chapter transcription runs through a bounded worker pool. With **Voice Studio** it spreads chapters across your endpoint pool (idle Macs now pitch in); with **cloud Whisper** it parallelises the requests.
+- Default **2**, range 1–8. **1 = sequential** (the old behavior — safest on a single local Whisper machine).
+- Cancel still works mid-run, "skip existing" and the auto-stitch cascade are unchanged.
+
+### Files
+- `electron/server/generators/subtitles.ts` (per-chapter bounded worker pool)
+- `electron/server/models/types.ts`, `electron/server/services/project-manager.ts` (`subtitle_concurrency` config field)
+- `frontend/pages/projects/[slug]/settings.vue` (Performance slider + load/save)
+
+---
+
 ## v1.0.388 — 2026-06-14
 
 ### Added — ElevenLabs v3 expression + auto-pause (your other main model)

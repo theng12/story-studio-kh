@@ -1398,6 +1398,23 @@
         </p>
       </div>
 
+      <!-- Subtitle (transcription) concurrency — how many chapters transcribe -->
+      <!-- at once. Voice Studio fans them across the Mac pool; cloud Whisper -->
+      <!-- parallelises requests. 1 = sequential (safest for a single local Mac). -->
+      <h3 class="mt-3">Subtitle (Transcription) Concurrency</h3>
+      <p class="text-muted mt-1 mb-2">
+        How many chapters the Subtitles step transcribes at the same time. With a Voice Studio pool this spreads chapters across your Macs;
+        on cloud Whisper it parallelises requests. Default <strong>2</strong>. Keep it at <strong>1</strong> if you transcribe on a single local Whisper machine.
+      </p>
+      <div class="form-group" style="max-width: 360px;">
+        <label>Concurrency ({{ subtitleConcurrency }})</label>
+        <SliderWithNumber v-model="subtitleConcurrency" :min="1" :max="8" :step="1" />
+        <div class="flex gap-2 mt-1" style="font-size: 11px;">
+          <span class="text-muted">1 (sequential)</span>
+          <span class="text-muted" style="margin-left:auto">8 (full pool)</span>
+        </div>
+      </div>
+
       <!-- TTS timeout: clients default to 20 min for GenAIPro, 5 min for -->
       <!-- fal.ai. A longer timeout avoids orphaning completed tasks whose -->
       <!-- results never got downloaded (GenAIPro keeps history only 1 day). -->
@@ -5290,6 +5307,7 @@ watch(activeTab, async (tab) => {
 const imageConcurrency = ref(5)
 const audioConcurrency = ref(3)   // ElevenLabs Starter-tier safe default
 const videoConcurrency = ref(2)   // fal.ai new-account safe default
+const subtitleConcurrency = ref(2) // per-chapter transcription; 1 = sequential
 // App-level (per-machine): how many text-generation jobs run at once across
 // script outline/expansion + metadata + image-prompts + scene-planning,
 // combined. Stored in app-settings (not project config) — see GET/PUT
@@ -5328,6 +5346,9 @@ watch(config, (c) => {
   if (c && (c as any).video_concurrency) {
     videoConcurrency.value = Math.max(1, Math.min(8, Number((c as any).video_concurrency) || 2))
   }
+  if (c && (c as any).subtitle_concurrency) {
+    subtitleConcurrency.value = Math.max(1, Math.min(8, Number((c as any).subtitle_concurrency) || 2))
+  }
   // Stagger values default to 0 when unset; clamp 0..5000 to match backend.
   imageLaunchStaggerMs.value = Math.max(0, Math.min(5000,
     Number((c as any)?.image_launch_stagger_ms) || 0))
@@ -5345,6 +5366,7 @@ async function savePerformance() {
       image_concurrency: imageConcurrency.value,
       audio_concurrency: audioConcurrency.value,
       video_concurrency: videoConcurrency.value,
+      subtitle_concurrency: subtitleConcurrency.value,
       image_launch_stagger_ms: imageLaunchStaggerMs.value,
       audio_launch_stagger_ms: audioLaunchStaggerMs.value,
       video_launch_stagger_ms: videoLaunchStaggerMs.value,

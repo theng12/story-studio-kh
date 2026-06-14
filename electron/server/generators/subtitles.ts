@@ -224,85 +224,112 @@ async function transcribePerChapter(
   const sections = [...bySlug.values()]
   let done = 0
   let totalCues = 0
-  try {
-    for (const sec of sections) {
-      if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
-      const outPath = path.join(outDir, `${code}_${sec.slug}.srt`)
-      if (!req.force && await fileExistsWithContent(outPath)) {
-        job.output_lines.push(`Skipping ${sec.slug} — SRT already exists. Tick "Re-run" to overwrite.`)
-        done++; job.progress = Math.round((done / sections.length) * 100)
-        continue
-      }
 
-      // Order this chapter's parts; concat (re-encode, so it's robust whether
-      // the parts are real MP3 or legacy WAV-in-.mp3) when there's more than one.
-      sec.files.sort((a, b) => a.part - b.part)
-      let audioPath: string
-      let tmpConcat: string | null = null
-      let tmpList: string | null = null
-      if (sec.files.length === 1) {
-        audioPath = path.join(audioDir, sec.files[0]!.name)
-      } else {
-        tmpConcat = path.join(os.tmpdir(), `subt-${randomUUID()}.mp3`)
-        tmpList = path.join(os.tmpdir(), `subt-${randomUUID()}.txt`)
-        const listText = sec.files
-          .map(f => formatConcatFileLine(path.join(audioDir, f.name)))
-          .join('\n') + '\n'
-        await fs.writeFile(tmpList, listText)
-        await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', tmpList, '-c:a', 'libmp3lame', '-b:a', '192k', tmpConcat])
-        audioPath = tmpConcat
-      }
+  // v1.0.389 — per-chapter transcription concurrency (Settings → Performance →
+  // Subtitle Concurrency). Voice Studio fans chapters across its endpoint pool;
+  // cloud Whisper parallelises requests. Clamp 1–8; default 2. 1 = sequential
+  // (the old behaviour — safest for a single local Whisper machine).
+  const { getConfig } = await import('../services/project-manager.js')
+  const subConfig = await getConfig(projectSlug)
+  const concurrency = Math.max(1, Math.min(8, Math.floor(Number((subConfig as any)?.subtitle_concurrency) || 2)))
+  job.output_lines.push(
+    `Transcribing ${sections.length} chapter(s)` + (concurrency > 1 ? ` — up to ${concurrency} at a time` : '') + '…',
+  )
 
-      // Guard: never hand a missing/empty file to the transcriber. This catches
-      // an iCloud-evicted 0-byte placeholder part or a concat that silently
-      // produced nothing — otherwise the engine just returns "zero cues" with
-      // no actionable reason. Surface a clear per-chapter skip instead.
-      if (!(await fileExistsWithContent(audioPath))) {
-        if (tmpConcat) await fs.unlink(tmpConcat).catch(() => {})
-        if (tmpList) await fs.unlink(tmpList).catch(() => {})
-        job.output_lines.push(`  ⚠ ${sec.slug}: chapter audio is missing or empty (0 bytes) — skipped. Re-generate this chapter's audio.`)
-        done++; job.progress = Math.round((done / sections.length) * 100)
-        continue
-      }
+  // One chapter's transcription. (The old loop's `continue`s become `return`s.)
+  async function transcribeSection(sec: { slug: string; files: Array<{ name: string; part: number }> }): Promise<void> {
+    const outPath = path.join(outDir, `${code}_${sec.slug}.srt`)
+    if (!req.force && await fileExistsWithContent(outPath)) {
+      job.output_lines.push(`Skipping ${sec.slug} — SRT already exists. Tick "Re-run" to overwrite.`)
+      done++; job.progress = Math.round((done / sections.length) * 100)
+      return
+    }
 
-      job.output_lines.push(`Transcribing ${sec.slug} (${sec.files.length} part${sec.files.length === 1 ? '' : 's'})…`)
-      try {
-        let srtRaw: string
-        if (engine === 'voicestudio') {
-          const result = await runOnTranscribePool(vsStoredUrl, vsModel, async (endpoint, model) => {
-            job.output_lines.push(`  Voice Studio endpoint: ${endpoint} · ${model}`)
-            vsModel = model
-            return transcribeFile(endpoint, audioPath, {
-              model,
-              language: req.language || 'en',
-              signal: controller.signal,
-            })
-          })
-          srtRaw = result.srt
-        } else {
-          srtRaw = await transcribeToSrt({
-            apiKey,
-            audioPath,
-            language: req.language,
-            model: req.model,
+    // Order this chapter's parts; concat (re-encode, so it's robust whether
+    // the parts are real MP3 or legacy WAV-in-.mp3) when there's more than one.
+    sec.files.sort((a, b) => a.part - b.part)
+    let audioPath: string
+    let tmpConcat: string | null = null
+    let tmpList: string | null = null
+    if (sec.files.length === 1) {
+      audioPath = path.join(audioDir, sec.files[0]!.name)
+    } else {
+      tmpConcat = path.join(os.tmpdir(), `subt-${randomUUID()}.mp3`)
+      tmpList = path.join(os.tmpdir(), `subt-${randomUUID()}.txt`)
+      const listText = sec.files
+        .map(f => formatConcatFileLine(path.join(audioDir, f.name)))
+        .join('\n') + '\n'
+      await fs.writeFile(tmpList, listText)
+      await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', tmpList, '-c:a', 'libmp3lame', '-b:a', '192k', tmpConcat])
+      audioPath = tmpConcat
+    }
+
+    // Guard: never hand a missing/empty file to the transcriber. This catches
+    // an iCloud-evicted 0-byte placeholder part or a concat that silently
+    // produced nothing — otherwise the engine just returns "zero cues" with
+    // no actionable reason. Surface a clear per-chapter skip instead.
+    if (!(await fileExistsWithContent(audioPath))) {
+      if (tmpConcat) await fs.unlink(tmpConcat).catch(() => {})
+      if (tmpList) await fs.unlink(tmpList).catch(() => {})
+      job.output_lines.push(`  ⚠ ${sec.slug}: chapter audio is missing or empty (0 bytes) — skipped. Re-generate this chapter's audio.`)
+      done++; job.progress = Math.round((done / sections.length) * 100)
+      return
+    }
+
+    job.output_lines.push(`Transcribing ${sec.slug} (${sec.files.length} part${sec.files.length === 1 ? '' : 's'})…`)
+    try {
+      let srtRaw: string
+      if (engine === 'voicestudio') {
+        const result = await runOnTranscribePool(vsStoredUrl, vsModel, async (endpoint, model) => {
+          job.output_lines.push(`  Voice Studio endpoint: ${endpoint} · ${model}`)
+          vsModel = model
+          return transcribeFile(endpoint, audioPath, {
+            model,
+            language: req.language || 'en',
             signal: controller.signal,
           })
-        }
-        const { srt, cues, warnings } = normalizeSrtOrVtt(srtRaw)
-        for (const w of warnings) job.output_lines.push(`  Warning (${sec.slug}): ${w}`)
-        if (cues === 0) {
-          job.output_lines.push(`  ⚠ ${sec.slug}: zero cues — skipped`)
-        } else {
-          await fs.writeFile(outPath, srt, 'utf-8')
-          totalCues += cues
-          job.output_lines.push(`  ✓ ${sec.slug}: ${cues} cues → ${path.basename(outPath)}`)
-        }
-      } finally {
-        if (tmpConcat) await fs.unlink(tmpConcat).catch(() => {})
-        if (tmpList) await fs.unlink(tmpList).catch(() => {})
+        })
+        srtRaw = result.srt
+      } else {
+        srtRaw = await transcribeToSrt({
+          apiKey,
+          audioPath,
+          language: req.language,
+          model: req.model,
+          signal: controller.signal,
+        })
       }
-      done++; job.progress = Math.round((done / sections.length) * 100)
+      const { srt, cues, warnings } = normalizeSrtOrVtt(srtRaw)
+      for (const w of warnings) job.output_lines.push(`  Warning (${sec.slug}): ${w}`)
+      if (cues === 0) {
+        job.output_lines.push(`  ⚠ ${sec.slug}: zero cues — skipped`)
+      } else {
+        await fs.writeFile(outPath, srt, 'utf-8')
+        totalCues += cues
+        job.output_lines.push(`  ✓ ${sec.slug}: ${cues} cues → ${path.basename(outPath)}`)
+      }
+    } finally {
+      if (tmpConcat) await fs.unlink(tmpConcat).catch(() => {})
+      if (tmpList) await fs.unlink(tmpList).catch(() => {})
     }
+    done++; job.progress = Math.round((done / sections.length) * 100)
+  }
+
+  try {
+    // Bounded worker pool over the chapters. Workers stop pulling new chapters
+    // on cancel; any in-flight transcribe is aborted by the cancelWatcher's
+    // shared AbortController. Sequential behaviour falls out naturally at N=1.
+    let nextIdx = 0
+    const worker = async (): Promise<void> => {
+      while (true) {
+        if (jq.isCancelled(job.job_id)) return
+        const i = nextIdx++
+        if (i >= sections.length) return
+        await transcribeSection(sections[i]!)
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(concurrency, sections.length) }, () => worker()))
+    if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
   } finally {
     clearInterval(cancelWatcher)
   }

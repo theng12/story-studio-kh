@@ -1724,6 +1724,8 @@ export interface ProjectConfig {
   video_concurrency?: number
   /** Already-existing knob; kept here for symmetry + surfacing in the UI. */
   image_concurrency?: number
+  /** Per-chapter subtitle transcription concurrency (1–8, default 2). */
+  subtitle_concurrency?: number
   /**
    * Unified model catalog — projection over image_models/audio_models/video_models.
    * Delivery 1: computed in-memory per read; absent on disk. Delivery 4 starts
@@ -1909,6 +1911,7 @@ export interface SafeProjectConfig {
   audio_concurrency?: number
   video_concurrency?: number
   image_concurrency?: number
+  subtitle_concurrency?: number
   /** Unified model catalog (same content as `ProjectConfig.models`). */
   models?: UnifiedModel[]
   confirmation_preferences?: ConfirmationPreferences
@@ -1936,6 +1939,7 @@ export interface UpdateConfigRequest {
   audio_concurrency?: number
   video_concurrency?: number
   image_concurrency?: number
+  subtitle_concurrency?: number
   confirmation_preferences?: ConfirmationPreferences
 }
 
