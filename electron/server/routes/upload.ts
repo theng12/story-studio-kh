@@ -889,6 +889,36 @@ function matchesFilter(item: QueueIndexItem, parsed: ParsedFilter): boolean {
   return true
 }
 
+export interface QueueStateCounts {
+  ready: number
+  uploaded_local: number
+  uploaded_freed: number
+  deleted_upstream: number
+  imports: number
+  all: number
+}
+
+/**
+ * v1.0.390 — per-state row counts over the FULL index (independent of the
+ * active filter / page), so the Upload Queue's "Quick views" buttons can show
+ * absolute totals per intent ("Ready to upload (12)"). The state branches MUST
+ * mirror matchesFilter() above so the count next to a chip equals what
+ * selecting that chip actually shows.
+ */
+export function queueStateCounts(index: QueueIndexItem[]): QueueStateCounts {
+  const counts: QueueStateCounts = {
+    ready: 0, uploaded_local: 0, uploaded_freed: 0, deleted_upstream: 0, imports: 0, all: index.length,
+  }
+  for (const it of index) {
+    if (it.type === 'import') counts.imports++
+    else if (it.deleted_at) counts.deleted_upstream++
+    else if (it.uploaded && it.has_local_final) counts.uploaded_local++
+    else if (it.uploaded && !it.has_local_final) counts.uploaded_freed++
+    else if (!it.uploaded && it.has_local_final) counts.ready++
+  }
+  return counts
+}
+
 function filterAndSortIndex(
   items: QueueIndexItem[],
   filterRaw: string,
@@ -1028,6 +1058,7 @@ router.get('/projects/:slug/upload/queue', async (req, res) => {
       items,
       total,
       total_unfiltered: index.length,
+      counts: queueStateCounts(index),
       page,
       page_size: pageSize,
       total_pages: totalPages,

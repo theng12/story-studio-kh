@@ -214,6 +214,12 @@ export function useUploadAccounts(slug: string) {
   const queueTotal = ref(0)
   const queueTotalUnfiltered = ref(0)
   const queueTotalPages = ref(1)
+  // v1.0.390 — absolute per-state row counts (independent of the active
+  // filter), so the Upload Queue's Quick-View buttons can show "Ready (12)".
+  // Populated from the queue response's `counts` block.
+  const queueCounts = ref<{ ready: number; uploaded_local: number; uploaded_freed: number; deleted_upstream: number; imports: number; all: number }>(
+    { ready: 0, uploaded_local: 0, uploaded_freed: 0, deleted_upstream: 0, imports: 0, all: 0 },
+  )
   // Sticky last-used params so the many call sites that just call
   // `loadQueue('youtube')` to refresh continue to work — they implicitly
   // re-request the same page/filter/sort the user is currently viewing.
@@ -221,12 +227,13 @@ export function useUploadAccounts(slug: string) {
     platform: 'youtube' as UploadPlatform,
     page: 1,
     pageSize: 10,
-    // Default: "Ready" + "Uploaded · local kept" — covers the two states
-    // a user typically wants to act on (ready to upload, or recently
-    // uploaded with the local copy still around). Excludes
-    // `uploaded_freed` (older private videos cleaned up after upload)
-    // so bulk actions don't accidentally re-touch them.
-    filter: 'ready,uploaded_local' as QueueFilter,
+    // v1.0.390 — default is "Ready" only (was Ready + Uploaded·local kept).
+    // The dominant intent is "what's left to publish?"; surfacing the already-
+    // uploaded back-catalogue on every cold load buried the rows that need
+    // action under years-old episodes. "Already uploaded" / "Everything" are
+    // one click away via the queue's Quick Views row. Bulk-upload actions also
+    // benefit: a Ready-only default never targets already-uploaded videos.
+    filter: 'ready' as QueueFilter,
     sort: 'code_asc' as QueueSort,
     q: '',
   }
@@ -275,6 +282,7 @@ export function useUploadAccounts(slug: string) {
         items: any[]
         total: number
         total_unfiltered: number
+        counts?: { ready: number; uploaded_local: number; uploaded_freed: number; deleted_upstream: number; imports: number; all: number }
         page: number
         page_size: number
         total_pages: number
@@ -283,6 +291,7 @@ export function useUploadAccounts(slug: string) {
       queueTotal.value = r.total ?? 0
       queueTotalUnfiltered.value = r.total_unfiltered ?? 0
       queueTotalPages.value = r.total_pages ?? 1
+      if (r.counts) queueCounts.value = r.counts
     } finally {
       queueLoading.value = false
     }
@@ -990,6 +999,7 @@ export function useUploadAccounts(slug: string) {
     queueTotal,
     queueTotalUnfiltered,
     queueTotalPages,
+    queueCounts,
     queueLastParams,
     markLegacyUploaded,
     markLegacyUploadedBulk,

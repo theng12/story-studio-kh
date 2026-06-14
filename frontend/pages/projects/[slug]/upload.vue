@@ -290,18 +290,43 @@
         Import folder: <code>{{ importsFolder }}</code>
       </p>
 
+      <!-- Quick views (v1.0.390): plain-English intents that one-click set the
+           right filter, so you don't have to reason about the 8 Show chips
+           below. "Ready to upload" hides the already-uploaded back catalogue
+           (the years-old episodes); "Needs a video" jumps to the tab where
+           episodes with no final render live. The fine-grained Show chips
+           stay below for power tweaks. -->
+      <div class="quick-views mt-2" role="group" aria-label="Quick views">
+        <span class="quick-views-label">I want to see</span>
+        <button
+          v-for="qv in QUICK_VIEWS"
+          :key="qv.id"
+          type="button"
+          class="quick-view"
+          :class="{ 'is-active': activeQuickView === qv.id, 'quick-view--jump': qv.id === 'missing' }"
+          :title="qv.tooltip"
+          @click="applyQuickView(qv.id)"
+        >
+          <span class="quick-view-icon" aria-hidden="true">{{ qv.icon }}</span>
+          <span class="quick-view-text">{{ qv.label }}</span>
+          <span v-if="qv.count() !== null" class="quick-view-count">{{ qv.count() }}</span>
+          <span v-if="qv.id === 'missing'" class="quick-view-arrow" aria-hidden="true">→</span>
+        </button>
+      </div>
+
       <!-- Filter + sort + pagination toolbar. All three feed the same
            server-side paged request — switching filter or sort jumps to
            page 1 automatically. The default filter is "Not uploaded"
            because the dominant use case is "show me what's left to do". -->
       <div class="queue-toolbar mt-2">
-        <!-- Multi-select filter chip strip. Tick any combination of state
-             chips (Ready / Uploaded·local kept / Uploaded·local freed /
-             Imports) plus the Scheduled overlay. Defaults to
-             "Ready + Uploaded · local kept" so older private videos whose
-             local copy was freed don't show up in bulk-action targets. -->
+        <!-- Multi-select filter chip strip — the fine-tune layer under the
+             Quick Views above. Tick any combination of state chips (Ready /
+             Uploaded·local kept / Uploaded·local freed / Imports) plus the
+             Scheduled overlay. Cold-start default is "Ready" only (see
+             FILTER_DEFAULT) so what's left to publish isn't buried under the
+             already-uploaded back catalogue. -->
         <div class="qt-group qt-filter-group">
-          <label class="qt-label" title="Pick which categories of rows to include. State chips combine; the Scheduled chip narrows further.">Show</label>
+          <label class="qt-label" title="Fine-tune the Quick Views above: tick which categories of rows to include. State chips combine; the Scheduled/Public chips narrow further.">Or fine-tune</label>
           <div class="filter-chips">
             <button
               v-for="chip in QUEUE_FILTER_CHIPS"
@@ -318,7 +343,7 @@
               v-if="queueStateFilters.size !== FILTER_DEFAULT.length || queueOverlayFilters.size > 0 || ![...queueStateFilters].every(s => (FILTER_DEFAULT as string[]).includes(s)) || queueSearch.trim() !== ''"
               type="button"
               class="filter-chip-reset"
-              title="Reset filters + search to default (Ready + Uploaded · local kept, no search)"
+              title="Reset filters + search to default (Ready to upload, no search)"
               @click="clearQueueFilters"
             >Reset</button>
           </div>
@@ -2661,6 +2686,7 @@ const {
   queueTotal,
   queueTotalUnfiltered,
   queueTotalPages,
+  queueCounts,
   queueLastParams,
   markLegacyUploaded,
   markLegacyUploadedBulk,
@@ -2776,7 +2802,12 @@ const scanning = ref(false)
 // a chip is O(1) and we can derive the canonical comma-string for the API
 // at request time. Default state matches `queueLastParams.filter` in
 // useUploadAccounts so a cold reload starts with the same view.
-const FILTER_DEFAULT: Array<'ready' | 'uploaded_local'> = ['ready', 'uploaded_local']
+// v1.0.390 — cold-start default is now "Ready to upload" ONLY (was
+// Ready + Uploaded·local kept). The dominant intent is "what's left to
+// publish?", and including the uploaded back-catalogue surfaced years-old
+// TN0001/TN0002 rows on top every time. "Already uploaded" / "Everything"
+// are one click away via the Quick Views row.
+const FILTER_DEFAULT: Array<'ready' | 'uploaded_local'> = ['ready']
 const queueStateFilters = reactive(new Set<string>(FILTER_DEFAULT))
 const queueOverlayFilters = reactive(new Set<string>())
 const queueSort   = ref<import('~/composables/useUploadAccounts').QueueSort>('code_asc')
@@ -2874,6 +2905,62 @@ function clearQueueFilters() {
   queueOverlayFilters.clear()
   for (const t of FILTER_DEFAULT) queueStateFilters.add(t)
   queueSearch.value = ''
+}
+
+// ── Quick views (v1.0.390) ──────────────────────────────────────────────
+// Plain-English intents that one-click set the right chip combination, so the
+// user doesn't have to reason about 8 individual state/overlay chips to express
+// "what's ready to publish?" vs "what still needs a video?". The granular SHOW
+// chips stay below as the fine-tune layer; the active quick view is DERIVED
+// from the current chip Set so the two never drift out of sync.
+type QuickViewId = 'ready' | 'uploaded' | 'all' | 'missing'
+interface QuickView {
+  id: QuickViewId
+  icon: string
+  label: string
+  tooltip: string
+  /** null = count not known yet (e.g. Missing-Video list not loaded). */
+  count: () => number | null
+}
+const QUICK_VIEWS: QuickView[] = [
+  { id: 'ready', icon: '🟢', label: 'Ready to upload',
+    tooltip: 'Final video is on disk and it is NOT yet uploaded — your publish list. Hides the already-uploaded back catalogue.',
+    count: () => queueCounts.value.ready },
+  { id: 'uploaded', icon: '✅', label: 'Already uploaded',
+    tooltip: 'Already on YouTube (local copy kept or freed). Your back catalogue.',
+    count: () => queueCounts.value.uploaded_local + queueCounts.value.uploaded_freed },
+  { id: 'all', icon: '📋', label: 'Everything',
+    tooltip: 'Every row in the queue, all states.',
+    count: () => queueCounts.value.all },
+  { id: 'missing', icon: '🎬', label: 'Needs a video',
+    tooltip: 'Episodes with no final video yet — you have to make it. Opens the Missing Video tab.',
+    count: () => (missingVideoEpisodes.value.length || null) },
+]
+
+/** Which quick view the current chip set corresponds to ('' = a custom mix). */
+const activeQuickView = computed<QuickViewId | ''>(() => {
+  if (queueOverlayFilters.size > 0) return ''
+  const s = queueStateFilters
+  if (s.size === 0) return 'all'   // empty state set == "all"
+  if (s.size === 1 && s.has('ready')) return 'ready'
+  if (s.size === 2 && s.has('uploaded_local') && s.has('uploaded_freed')) return 'uploaded'
+  return ''
+})
+
+function applyQuickView(id: QuickViewId) {
+  // "Needs a video" lives in its own tab (those episodes have no final video,
+  // so they're never in the upload queue index). Route there instead of
+  // filtering.
+  if (id === 'missing') { activeTab.value = 'missing'; return }
+  queueOverlayFilters.clear()
+  queueStateFilters.clear()
+  if (id === 'ready') {
+    queueStateFilters.add('ready')
+  } else if (id === 'uploaded') {
+    queueStateFilters.add('uploaded_local')
+    queueStateFilters.add('uploaded_freed')
+  }
+  // 'all' leaves both sets empty → queueFilterString computes 'all'.
 }
 
 function goToQueuePage(n: number) {
@@ -7355,6 +7442,62 @@ td.col-actions > a.btn {
   font-size: 11px;
 }
 .qt-filter-group { flex: 1 1 100%; align-items: flex-start; gap: 8px; }
+
+/* ── Quick views (v1.0.390) — intent buttons above the granular Show chips ── */
+.quick-views {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.quick-views-label {
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+  margin-right: 2px;
+}
+.quick-view {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.quick-view:hover { background: var(--bg-hover, var(--bg-tertiary)); color: var(--text-primary); border-color: var(--text-muted); }
+.quick-view.is-active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.quick-view-icon { font-size: 14px; line-height: 1; }
+.quick-view-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg-secondary, rgba(127, 127, 127, 0.18));
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.quick-view.is-active .quick-view-count { background: var(--accent); color: var(--bg-primary, #1a1a1a); }
+/* "Needs a video" jumps to another tab — read it as a link, not a filter. */
+.quick-view--jump { border-style: dashed; }
+.quick-view-arrow { color: var(--text-muted); font-size: 13px; }
+
 .filter-chips {
   display: flex;
   flex-wrap: wrap;
