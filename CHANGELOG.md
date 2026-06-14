@@ -4,6 +4,28 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.392 — 2026-06-14
+
+### Improved — Upload Queue: plain-English "Quick views" + opens on what's left to publish
+The Upload Queue's eight **Show** chips made the two everyday questions ("what's ready to upload?" / "what still needs a video?") fiddly to express, and the queue opened on **Ready + Uploaded·local kept** — so your entire already-uploaded back catalogue (the years-old TN0001/TN0002 rows) sat on top every time.
+
+- **New "Quick views" row** above the Show chips — one click each, no chip-wrangling:
+  - **🟢 Ready to upload (N)** — final video on disk and *not* yet uploaded. Your publish list.
+  - **✅ Already uploaded (N)** — the back catalogue (local copy kept or freed).
+  - **📋 Everything (N)**.
+  - **🎬 Needs a video (M) →** — jumps to the **Missing Video** tab, where episodes with no final render live (those were never in the upload queue, which is why you couldn't filter to them here). The tab loads on arrival.
+- **Live counts** on each view (computed server-side over the whole queue, so the number next to a view equals exactly what it shows).
+- The active view highlights based on your current chips, and the granular **Show** chips stay below as the fine-tune layer (relabelled "Or fine-tune").
+- **The queue now opens on "Ready to upload" only** (was Ready + Uploaded·local kept), so what's left to publish isn't buried. "Already uploaded" / "Everything" are one click away. Bulk-upload also benefits — a Ready-only default never targets already-uploaded videos.
+
+### Files
+- `electron/server/routes/upload.ts` (`queueStateCounts` — per-state counts returned by `GET /upload/queue`)
+- `frontend/composables/useUploadAccounts.ts` (`queueCounts`; default filter → `ready`)
+- `frontend/pages/projects/[slug]/upload.vue` (Quick views row + logic; Ready-only default)
+- `electron/server/__tests__/upload-queue-counts.test.ts` (count ↔ chip parity)
+
+---
+
 ## v1.0.391 — 2026-06-14
 
 ### Changed — concurrency ceilings raised to 50 (for big local pools)
