@@ -1321,7 +1321,7 @@
       </p>
       <div class="form-group" style="max-width: 360px;">
         <label>Concurrency ({{ imageConcurrency }})</label>
-        <SliderWithNumber v-model="imageConcurrency" :min="1" :max="10" :step="1" />
+        <SliderWithNumber v-model="imageConcurrency" :min="1" :max="50" :step="1" />
         <div class="flex gap-2 mt-1" style="font-size: 11px;">
           <span class="text-muted">1 (serial)</span>
           <span class="text-muted" style="margin-left:auto">10 (aggressive)</span>
@@ -1351,7 +1351,7 @@
       </p>
       <div class="form-group" style="max-width: 360px;">
         <label>Concurrency ({{ audioConcurrency }})</label>
-        <SliderWithNumber v-model="audioConcurrency" :min="1" :max="15" :step="1" />
+        <SliderWithNumber v-model="audioConcurrency" :min="1" :max="50" :step="1" />
         <div class="flex gap-2 mt-1" style="font-size: 11px;">
           <span class="text-muted">1 (serial — slow)</span>
           <span class="text-muted" style="margin-left:auto">15 (Scale tier)</span>
@@ -1419,6 +1419,9 @@
           <option value="8">×8</option>
           <option value="12">×12</option>
           <option value="16">×16</option>
+          <option value="24">×24</option>
+          <option value="32">×32</option>
+          <option value="50">×50</option>
         </select>
       </div>
 
@@ -1526,6 +1529,41 @@
             That's it — every project on this Mac shares it.
           </li>
         </ol>
+      </div>
+
+      <!-- v1.0.391 — one-click pool health: probe every configured local Mac
+           and show how many are online (Voice Studio + Image Studio). -->
+      <div class="pool-status-card">
+        <div class="pool-status-head">
+          <strong>Local server pool</strong>
+          <button class="btn btn-sm" :disabled="poolChecking" @click="checkLocalServers">
+            {{ poolChecking ? 'Checking…' : '↻ Check now' }}
+          </button>
+        </div>
+        <template v-if="poolStatus">
+          <div v-for="side in poolSides" :key="side.key" class="pool-row">
+            <span class="pool-label">{{ side.label }}</span>
+            <template v-if="side.data.total">
+              <span class="pool-count" :class="side.data.online === 0 ? 'pool-zero' : 'pool-ok'">
+                {{ side.data.online }}/{{ side.data.total }} online
+              </span>
+              <span class="pool-dots">
+                <span
+                  v-for="(e, i) in side.data.endpoints"
+                  :key="i"
+                  class="pool-dot"
+                  :class="e.online ? 'on' : 'off'"
+                  :title="`${e.url} — ${e.online ? 'online' : 'offline'}`"
+                />
+              </span>
+            </template>
+            <span v-else class="text-muted" style="font-size: 12px;">no URL configured</span>
+          </div>
+        </template>
+        <p v-else-if="poolError" class="text-muted" style="font-size: 12px; color: var(--danger, #e5534b);">{{ poolError }}</p>
+        <p v-else class="text-muted" style="font-size: 12px; margin: 4px 0 0;">
+          Probes every configured Voice Studio + Image Studio Mac and shows how many are reachable right now.
+        </p>
       </div>
 
       <hr style="border: 0; border-top: 1px solid var(--border); margin: 22px 0 18px;" />
@@ -5315,6 +5353,30 @@ const imageConcurrency = ref(5)
 const audioConcurrency = ref(3)   // ElevenLabs Starter-tier safe default
 const videoConcurrency = ref(2)   // fal.ai new-account safe default
 const subtitleConcurrency = ref<string>('auto') // 'auto' (match live pool) or '1'..'16'
+
+// v1.0.391 — one-click local-server pool health (Local Models tab).
+interface PoolEndpoint { url: string; online: boolean }
+interface PoolSide { online: number; total: number; endpoints: PoolEndpoint[] }
+const poolStatus = ref<{ voicestudio: PoolSide; imagestudio: PoolSide } | null>(null)
+const poolChecking = ref(false)
+const poolError = ref('')
+const poolSides = computed(() => poolStatus.value ? [
+  { key: 'vs', label: '🎙 Voice Studio', data: poolStatus.value.voicestudio },
+  { key: 'is', label: '🖼 Image Studio', data: poolStatus.value.imagestudio },
+] : [])
+async function checkLocalServers() {
+  if (poolChecking.value) return
+  poolChecking.value = true
+  poolError.value = ''
+  try {
+    poolStatus.value = await get<{ voicestudio: PoolSide; imagestudio: PoolSide }>('/local-servers/status')
+  } catch (e: any) {
+    poolStatus.value = null
+    poolError.value = e?.data?.detail || 'Could not reach the app engine to check.'
+  } finally {
+    poolChecking.value = false
+  }
+}
 // App-level (per-machine): how many text-generation jobs run at once across
 // script outline/expansion + metadata + image-prompts + scene-planning,
 // combined. Stored in app-settings (not project config) — see GET/PUT
@@ -6839,4 +6901,26 @@ async function deleteProject() {
   flex-wrap: wrap;
 }
 .niche-lib-tile .btn.danger { color: var(--error, #e25c5c); }
+
+/* v1.0.391 — local server pool status card */
+.pool-status-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--bg-secondary);
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pool-status-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pool-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.pool-label { min-width: 130px; }
+.pool-count { font-weight: 600; }
+.pool-count.pool-ok { color: var(--accent); }
+.pool-count.pool-zero { color: var(--danger, #e5534b); }
+.pool-dots { display: inline-flex; gap: 3px; flex-wrap: wrap; }
+.pool-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.pool-dot.on { background: var(--success, #3fb950); }
+.pool-dot.off { background: var(--danger, #e5534b); opacity: 0.6; }
 </style>

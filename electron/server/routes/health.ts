@@ -597,3 +597,37 @@ router.post('/projects/:slug/test-key/:provider', async (req, res) => {
   const result = await testApiKey(req.params.provider, apiKey)
   res.json(result)
 })
+
+// ── Local server pool status (Voice Studio + Image Studio) ─────────────────
+// One-shot health probe of every configured local-modal endpoint so the UI can
+// show "N of M Macs online" at a glance. Per-machine (no project) — reads the
+// app-secrets URL lists. Each probe has its own short timeout and runs in
+// parallel; an unreachable Mac just counts as offline (never throws).
+router.get('/local-servers/status', async (_req, res) => {
+  try {
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    const { parseEndpoints, healthyEndpoints } = await import('../lib/endpoint-pool.js')
+    const { health: voiceHealth } = await import('../lib/voicestudio-client.js')
+    const { health: imgHealth } = await import('../lib/imagestudio-client.js')
+
+    const vsUrls = parseEndpoints(await getApiKey('voicestudio').catch(() => ''))
+    const isUrls = parseEndpoints(await getApiKey('imagestudio').catch(() => ''))
+
+    const [vs, is] = await Promise.all([
+      healthyEndpoints(vsUrls, async (u) => (await voiceHealth(u)).ok),
+      healthyEndpoints(isUrls, async (u) => (await imgHealth(u, 4000)).ok),
+    ])
+
+    const shape = (urls: string[], healthy: string[]) => ({
+      online: healthy.length,
+      total: urls.length,
+      endpoints: urls.map(u => ({ url: u, online: healthy.includes(u) })),
+    })
+    res.json({
+      voicestudio: shape(vsUrls, vs.healthy),
+      imagestudio: shape(isUrls, is.healthy),
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to check local servers'))
+  }
+})

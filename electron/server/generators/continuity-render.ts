@@ -347,9 +347,10 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   const independent = params.independent === true || sceneIdSet !== null
   // v1.0.256 — 'auto' concurrency matches the number of ONLINE endpoints (one
   // worker per Mac); falls back to 1 for a single local modal, 3 for cloud.
+  // v1.0.391 — ceiling raised 8→50 for large local Image Studio pools.
   const concurrency = params.concurrency === 'auto'
-    ? Math.max(1, Math.min(8, dispatcher ? dispatcher.liveCount() : (providerId === 'imagestudio' ? 1 : 3)))
-    : Math.max(1, Math.min(8, Math.floor(Number(params.concurrency) || 3)))
+    ? Math.max(1, Math.min(50, dispatcher ? dispatcher.liveCount() : (providerId === 'imagestudio' ? 1 : 3)))
+    : Math.max(1, Math.min(50, Math.floor(Number(params.concurrency) || 3)))
   if (params.concurrency === 'auto') {
     job.output_lines.push(`Auto concurrency → ×${concurrency} (matched to online server${concurrency === 1 ? '' : 's'}).`)
   }
@@ -570,7 +571,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       // "one inference per Mac" guarantee. 'auto' may grow to the full
       // configured pool; an explicit concurrency is a hard cap. No idle Macs.
       const maxWorkers = params.concurrency === 'auto'
-        ? Math.max(1, Math.min(8, dispatcher ? dispatcher.size : concurrency))
+        ? Math.max(1, Math.min(50, dispatcher ? dispatcher.size : concurrency))
         : concurrency
       const liveNow = () => (dispatcher ? Math.max(1, dispatcher.liveCount()) : maxWorkers)
       const ensureWorkers = () => {

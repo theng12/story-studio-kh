@@ -627,7 +627,7 @@ export async function generateAudio(job: Job): Promise<void> {
 
   // ── Concurrency pool ───────────────────────────────────────────────────
   const rawConcurrency = Number((config as any).audio_concurrency) || 0
-  const baseAudioConcurrency = Math.max(1, Math.min(15, rawConcurrency || 3))
+  const baseAudioConcurrency = Math.max(1, Math.min(50, rawConcurrency || 3))
   const isLocalAudioProvider = providerId === 'voicestudio'
 
   // v1.0.293 — Voice Studio voice-pool resolution. Each Voice Studio

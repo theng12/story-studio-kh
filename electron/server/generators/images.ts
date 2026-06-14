@@ -457,7 +457,7 @@ export async function generateImages(job: Job): Promise<void> {
   const configConcurrency = Number((config as any).image_concurrency) || 0
   const reqConcurrency = Number((req as any).concurrency) || 0
   const isLocalProvider = providerId === 'imagestudio'
-  const baseConcurrency = Math.max(1, Math.min(10, reqConcurrency || configConcurrency || 5))
+  const baseConcurrency = Math.max(1, Math.min(50, reqConcurrency || configConcurrency || 5))
   // v1.0.306 — a local modal is serial PER MAC (one MLX inference at a time),
   // but the user may run a POOL of Macs. The old code hard-clamped local
   // concurrency to 1, so a fleet of 12 Macs still rendered one-at-a-time on a

@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.391 — 2026-06-14
+
+### Changed — concurrency ceilings raised to 50 (for big local pools)
+Every local-server-pool concurrency cap is now **50** (was 8–16), so a 20+ Mac fleet can be fully used now and has headroom to grow:
+
+- **Scene Review (continuity render)** — Auto now scales to up to 50 online Image Studio Macs; the picker adds ×12 / ×16 / ×24 / ×50.
+- **Subtitle transcription** — Auto + manual up to 50 (added ×24 / ×32 / ×50).
+- **Image generation** and **Audio (TTS)** — Performance sliders now go to 50.
+
+### Added — one-click "Local server pool" health check
+**Settings → Local Models** has a new **Local server pool** card with a **↻ Check now** button. It probes every configured Voice Studio + Image Studio Mac in parallel and shows **N / M online** for each, with a green/red dot per endpoint (hover for the URL + status). Quick way to confirm how many of your Macs are up before a big run.
+
+### Files
+- `electron/server/generators/{continuity-render,subtitles,images,audio}.ts` (ceiling 8/10/15/16 → 50)
+- `electron/server/routes/health.ts` (`GET /local-servers/status` — probes both pools)
+- `frontend/pages/projects/[slug]/settings.vue` (Performance maxes → 50; pool status card)
+- `frontend/pages/projects/[slug]/scene-review.vue` (higher concurrency options)
+
+---
+
 ## v1.0.390 — 2026-06-14
 
 ### Improved — Subtitle concurrency: Auto mode + higher cap (for big Voice Studio pools)

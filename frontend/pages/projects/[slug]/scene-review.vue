@@ -76,6 +76,10 @@
               <option value="4">×4</option>
               <option value="6">×6</option>
               <option value="8">×8</option>
+              <option value="12">×12</option>
+              <option value="16">×16</option>
+              <option value="24">×24</option>
+              <option value="50">×50</option>
             </select>
           </div>
           <!-- v1.0.254 — render mode for continuity projects: img2img (references)

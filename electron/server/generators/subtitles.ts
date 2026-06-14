@@ -240,12 +240,12 @@ async function transcribePerChapter(
     if (engine === 'voicestudio') {
       const { readyTranscribeEndpointCount } = await import('../lib/voicestudio-client.js')
       const n = await readyTranscribeEndpointCount(vsStoredUrl, vsModel).catch(() => 1)
-      concurrency = Math.max(1, Math.min(16, n || 1))
+      concurrency = Math.max(1, Math.min(50, n || 1))
     } else {
       concurrency = 3  // cloud Whisper — safe parallel default
     }
   } else {
-    concurrency = Math.max(1, Math.min(16, Math.floor(Number(rawConc) || 1)))
+    concurrency = Math.max(1, Math.min(50, Math.floor(Number(rawConc) || 1)))
   }
   const autoNote = isAuto ? (engine === 'voicestudio' ? ` (auto — ${concurrency} online Mac${concurrency === 1 ? '' : 's'})` : ' (auto)') : ''
   job.output_lines.push(
