@@ -282,6 +282,7 @@
               :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
               title="Choose an intro video"
               aria-label="Intro video path"
+              :output-root="vaProject?.output_root || ''"
               clearable
             />
           </div>
@@ -311,6 +312,7 @@
               :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
               title="Choose an outro video"
               aria-label="Outro video path"
+              :output-root="vaProject?.output_root || ''"
               clearable
             />
           </div>
@@ -374,6 +376,7 @@
             :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
             title="Choose a timeline clip"
             :aria-label="`Timeline clip ${i + 1} path`"
+            :output-root="vaProject?.output_root || ''"
             clearable
           />
 
@@ -387,6 +390,7 @@
               :filters="[{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }]"
               title="Choose a still image for the static segment"
               :aria-label="`Timeline clip ${i + 1} image path`"
+              :output-root="vaProject?.output_root || ''"
               clearable
             />
             <div class="flex gap-2 mt-1 items-center">
@@ -457,7 +461,7 @@
                 v-for="(thumb, i) in scannedAssets.thumbnails"
                 :key="i"
                 :class="['thumb-card-img', { selected: titleImage.image_path === thumb.path }]"
-                @click="titleImage.image_path = thumb.path"
+                @click="pickTitleImage(thumb.path)"
                 :title="thumb.filename"
               >
                 <img :src="getImagePreviewUrl(thumb.path)" :alt="thumb.filename" class="thumb-preview" />
@@ -474,6 +478,7 @@
               :filters="[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]"
               title="Choose a title image"
               aria-label="Title image path"
+              :output-root="vaProject?.output_root || ''"
               clearable
             />
           </div>
@@ -1025,6 +1030,7 @@
               :filters="[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]"
               title="Choose a logo image"
               aria-label="Logo image path"
+              :output-root="vaProject?.output_root || ''"
               clearable
             />
             <button
@@ -1239,7 +1245,15 @@
         <div v-if="chromaKey.enabled" class="mt-2">
           <div class="form-group">
             <label>Green Screen Source <span class="text-muted text-xs">(video or image with green background)</span></label>
-            <input v-model="chromaKey.source_path" class="input" placeholder="Path to green screen video/image" />
+            <FilePicker
+              v-model="chromaKey.source_path"
+              placeholder="Path to green screen video/image"
+              :filters="[{ name: 'Media', extensions: ['mp4', 'mov', 'mkv', 'webm', 'png', 'jpg', 'jpeg', 'webp'] }]"
+              title="Choose a green screen source"
+              aria-label="Green screen source path"
+              :output-root="vaProject?.output_root || ''"
+              clearable
+            />
           </div>
           <div class="grid-3 mt-1">
             <div class="form-group">
@@ -1915,7 +1929,7 @@
               <button v-for="srt in subtitlesStatus.existing_srts" :key="srt.path"
                 class="btn btn-sm btn-secondary"
                 :disabled="subtitles.srt_path === srt.path"
-                @click="subtitles.srt_path = srt.path">
+                @click="pickSubtitlePath(srt.path)">
                 {{ srt.filename }}
               </button>
             </div>
@@ -2877,8 +2891,10 @@ async function openBackgroundsFolder() {
 }
 
 function pickBackgroundPlate(file: { path: string; filename: string }) {
-  compilationLayout.backgroundPlate.source_path = file.path
-  showBackgroundPicker.value = false
+  void (async () => {
+    compilationLayout.backgroundPlate.source_path = await collapseToPortablePath(file.path)
+    showBackgroundPicker.value = false
+  })()
 }
 
 // Project's overlays/ folder contents — populated on tab open via the
@@ -2935,23 +2951,25 @@ function newOverlayId(): string {
 }
 
 function addOverlayLayer(file: { path: string; filename: string; likely_has_alpha: boolean }) {
-  overlays.layers.push({
-    id: newOverlayId(),
-    enabled: true,
-    source_path: file.path,
-    source_filename: file.filename,
-    // Default the chroma-key block based on the file's likely alpha
-    // status. Alpha-friendly extensions skip keying entirely; others
-    // get a green-screen default the user can tweak.
-    chroma_key: file.likely_has_alpha
-      ? null
-      : { color: '#00FF00', similarity: 0.15, blend: 0.1 },
-    opacity: 1,
-    scale: 'cover',
-    loop: true,
-  })
-  overlays.enabled = true   // first add auto-enables the system
-  showOverlayPickerForLayer.value = null
+  void (async () => {
+    overlays.layers.push({
+      id: newOverlayId(),
+      enabled: true,
+      source_path: await collapseToPortablePath(file.path),
+      source_filename: file.filename,
+      // Default the chroma-key block based on the file's likely alpha
+      // status. Alpha-friendly extensions skip keying entirely; others
+      // get a green-screen default the user can tweak.
+      chroma_key: file.likely_has_alpha
+        ? null
+        : { color: '#00FF00', similarity: 0.15, blend: 0.1 },
+      opacity: 1,
+      scale: 'cover',
+      loop: true,
+    })
+    overlays.enabled = true   // first add auto-enables the system
+    showOverlayPickerForLayer.value = null
+  })()
 }
 
 function removeOverlayLayer(id: string) {
@@ -3764,6 +3782,7 @@ async function runBundlePathCheck() {
     const result = await validateBundlePaths(
       currentBundleSnapshotForValidation(),
       BUNDLE_PATH_FIELDS,
+      { outputRoot: vaProject.value?.output_root },
     )
     bundleInvalidPaths.value = result.invalid
   } catch {
@@ -3773,14 +3792,20 @@ async function runBundlePathCheck() {
 
 function onBundleApplied() {
   success('Bundle applied — all 5 steps updated')
-  void runBundlePathCheck()
+  void (async () => {
+    await normalizeVideoAssemblyPathsInState()
+    await runBundlePathCheck()
+  })()
 }
 function onBundleSaved() {
   success('Bundle saved')
   // After save the snapshot just captured whatever the form currently
   // has — re-check so the banner reflects the saved state, not the state
   // before the user fixed any paths via the row buttons.
-  void runBundlePathCheck()
+  void (async () => {
+    await normalizeVideoAssemblyPathsInState()
+    await runBundlePathCheck()
+  })()
 }
 
 function bundlePathFieldLabel(key: string): string {
@@ -3822,24 +3847,25 @@ async function repickBundlePath(row: { key: string; index: number | null }) {
     return
   }
   if (!newPath) return
+  const portablePath = await collapseToPortablePath(newPath)
 
   switch (row.key) {
-    case 'intro.video_path':         intro.video_path = newPath; break
-    case 'outro.video_path':         outro.video_path = newPath; break
-    case 'title_image.image_path':   titleImage.image_path = newPath; break
-    case 'logo.image_path':          logo.image_path = newPath; break
-    case 'chroma_key.source_path':   chromaKey.source_path = newPath; break
+    case 'intro.video_path':         intro.video_path = portablePath; break
+    case 'outro.video_path':         outro.video_path = portablePath; break
+    case 'title_image.image_path':   titleImage.image_path = portablePath; break
+    case 'logo.image_path':          logo.image_path = portablePath; break
+    case 'chroma_key.source_path':   chromaKey.source_path = portablePath; break
     case 'compilation_layout.background_plate.source_path':
-      compilationLayout.backgroundPlate.source_path = newPath
+      compilationLayout.backgroundPlate.source_path = portablePath
       break
     case 'timeline_clips[].video_path': {
       const i = row.index ?? -1
-      if (i >= 0 && i < timelineClips.value.length) (timelineClips.value[i] as any).video_path = newPath
+      if (i >= 0 && i < timelineClips.value.length) (timelineClips.value[i] as any).video_path = portablePath
       break
     }
     case 'timeline_clips[].image_path': {
       const i = row.index ?? -1
-      if (i >= 0 && i < timelineClips.value.length) (timelineClips.value[i] as any).image_path = newPath
+      if (i >= 0 && i < timelineClips.value.length) (timelineClips.value[i] as any).image_path = portablePath
       break
     }
   }
@@ -4321,14 +4347,17 @@ function openImageEditor(path: string, slot: 'title' | 'logo') {
 }
 
 function onImageEditAccepted(newPath: string) {
-  if (imageEditSlot.value === 'title') {
-    titleImage.image_path = newPath
-  } else if (imageEditSlot.value === 'logo') {
-    logo.image_path = newPath
-    logoLoadError.value = false  // new file; let the <img> re-probe
-  }
-  imageEditTarget.value = null
-  imageEditSlot.value = null
+  void (async () => {
+    const portable = await collapseToPortablePath(newPath)
+    if (imageEditSlot.value === 'title') {
+      titleImage.image_path = portable
+    } else if (imageEditSlot.value === 'logo') {
+      logo.image_path = portable
+      logoLoadError.value = false  // new file; let the <img> re-probe
+    }
+    imageEditTarget.value = null
+    imageEditSlot.value = null
+  })()
 }
 
 // Show the first scene image as the preview backdrop so the user sees the
@@ -4481,6 +4510,49 @@ function getImagePreviewUrl(filePath: string): string {
   return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(filePath)}`
 }
 
+function pickTitleImage(filePath: string) {
+  void (async () => {
+    titleImage.image_path = await collapseToPortablePath(filePath)
+  })()
+}
+
+function pickSubtitlePath(filePath: string) {
+  void (async () => {
+    subtitles.srt_path = await collapseToPortablePath(filePath)
+  })()
+}
+
+async function collapseToPortablePath(input: string): Promise<string> {
+  const raw = String(input || '').trim()
+  if (!raw) return ''
+  try {
+    const r = await post<{ output: string }>(`/system/resolve-asset-path`, {
+      path: raw,
+      output_root: vaProject.value?.output_root,
+      mode: 'portable',
+    })
+    return String(r?.output || raw)
+  } catch {
+    return raw
+  }
+}
+
+async function normalizeVideoAssemblyPathsInState(): Promise<void> {
+  if (intro.video_path) intro.video_path = await collapseToPortablePath(intro.video_path)
+  if (outro.video_path) outro.video_path = await collapseToPortablePath(outro.video_path)
+  if (titleImage.image_path) titleImage.image_path = await collapseToPortablePath(titleImage.image_path)
+  if (logo.image_path) logo.image_path = await collapseToPortablePath(logo.image_path)
+  if (chromaKey.source_path) chromaKey.source_path = await collapseToPortablePath(chromaKey.source_path)
+  if (subtitles.srt_path) subtitles.srt_path = await collapseToPortablePath(subtitles.srt_path)
+  if (compilationLayout.backgroundPlate.source_path) {
+    compilationLayout.backgroundPlate.source_path = await collapseToPortablePath(compilationLayout.backgroundPlate.source_path)
+  }
+  for (const clip of timelineClips.value) {
+    if (clip.video_path) clip.video_path = await collapseToPortablePath(clip.video_path)
+    if (clip.image_path) clip.image_path = await collapseToPortablePath(clip.image_path)
+  }
+}
+
 // Asset scan + ffmpeg check + preset load/save were 150+ lines of orchestration
 // logic with no rendering concerns — they now live in `useVideoAssemblyIo`.
 // The composable mutates the reactive state we pass in, so the template below
@@ -4502,6 +4574,7 @@ const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo } = useVideoAss
     foregroundDefaults: compilationLayout.foregroundDefaults,
   },
   titleCard, chapterTitles, outroCard, exportSettings,
+  normalizePath: collapseToPortablePath,
   // generateVideo() needs these three plus post+confirmGeneration+videoAssemblyGenerating
   // passed at call-time so the composable doesn't duplicate those imports.
   subtitles, generating, jobOutput, activeJobId,
@@ -4733,6 +4806,7 @@ onMounted(async () => {
     exportPresets.load(),
   ])
   await videoBundlePresets.load()
+  await normalizeVideoAssemblyPathsInState()
   // v1.0.93+ — `videoBundlePresets.load()` auto-applies the last-active
   // bundle. Kick off the path check so any broken links surface on first
   // paint after the device-switch case (iCloud-synced project, fresh Mac).

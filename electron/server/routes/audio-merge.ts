@@ -13,6 +13,7 @@ import { checkFfmpeg } from '../lib/ffmpeg-utils.js'
 import { getAudioMergeStatus } from '../services/asset-status.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
+import { resolveAssetPath } from '../services/path-resolver.js'
 
 export const router = Router()
 
@@ -94,10 +95,17 @@ router.post('/projects/:slug/generate/audio-merge', async (req, res) => {
 // Serve audio file for preview playback
 router.get('/projects/:slug/audio-editor/preview-audio', async (req, res) => {
   const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  const project = await pm.getProject(slug)
+  if (!project) return res.status(404).json({ detail: 'Project not found' })
 
-  const filePath = req.query.path as string
-  if (!filePath) return res.status(400).json({ detail: 'path query parameter required' })
+  const rawPath = req.query.path as string
+  if (!rawPath) return res.status(400).json({ detail: 'path query parameter required' })
+  let filePath = rawPath
+  try {
+    filePath = resolveAssetPath(rawPath, project.output_root)
+  } catch (e: any) {
+    return res.status(400).json(humanizeBackendError(e, 'Could not resolve preview path'))
+  }
   if (!existsSync(filePath)) return res.status(404).json({ detail: 'File not found' })
 
   // Gate: allow project/output paths OR any recognized audio file the user

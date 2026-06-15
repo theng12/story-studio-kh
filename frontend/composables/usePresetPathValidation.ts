@@ -105,10 +105,15 @@ function* iterPathFields(
 export function usePresetPathValidation() {
   const { post } = useApi()
 
-  async function validateOne(p: string, mustBeDir: boolean): Promise<{ valid: boolean; reason?: string }> {
+  async function validateOne(
+    p: string,
+    mustBeDir: boolean,
+    outputRoot?: string,
+  ): Promise<{ valid: boolean; reason?: string }> {
     try {
       const r = await post<{ valid: boolean; reason?: string }>(`/system/validate-path`, {
         path: p,
+        output_root: outputRoot,
         must_be_dir: mustBeDir,
         must_exist: true,
       })
@@ -120,7 +125,11 @@ export function usePresetPathValidation() {
     }
   }
 
-  async function validate(data: any, fields: PathFieldSpec[]): Promise<ValidatePathsResult> {
+  async function validate(
+    data: any,
+    fields: PathFieldSpec[],
+    opts: { outputRoot?: string } = {},
+  ): Promise<ValidatePathsResult> {
     const checks: Array<Promise<void>> = []
     const valid: string[] = []
     const invalid: InvalidPath[] = []
@@ -128,7 +137,7 @@ export function usePresetPathValidation() {
     for (const spec of fields) {
       for (const { index, value } of iterPathFields(data, spec)) {
         checks.push(
-          validateOne(value, spec.mustBeDir === true).then(r => {
+          validateOne(value, spec.mustBeDir === true, opts.outputRoot).then(r => {
             if (r.valid) valid.push(value)
             else invalid.push({
               key: spec.key,

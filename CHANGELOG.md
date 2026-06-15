@@ -4,6 +4,49 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.394 — 2026-06-15
+
+### Improved — cross-device file paths now survive Mac-to-Mac project handoff much better
+If your project lives in iCloud Drive and you switch between Macs with different home usernames, several production pages could still save raw absolute paths like `/Users/you/...`. That meant a preset, remembered field, logo, subtitle import, or assembly asset could look fine on one Mac and silently break on the next.
+
+- **Audio Assembly and Video Assembly now normalize many picked/saved asset paths into portable project-aware paths** instead of storing machine-specific absolute ones.
+- **Preset path validation now resolves portable paths correctly**, so "broken path" warnings are based on the current Mac's real location rather than the original machine's username.
+- **Preview routes now understand portable paths**, so audio/image previews still open after a device switch.
+- The shared **`FilePicker`** now supports project-aware portable path normalization, and key pages now use it:
+  - **Video Assembly** intro/outro/title image/logo/chroma/timeline clips
+  - **Timestamp Assembly** music + ambient beds
+  - **Subtitles** import
+  - **B-Roll** subtitle import
+  - **Brand** logo selection
+- **Image Prompts** now portableize the saved reference-image path too, including edited references and reloaded remembered references.
+- **Thumbnail Compose** now saves the per-project channel logo path in portable form as well.
+
+Net effect: the app is much less likely to break just because one Mac is `/build` and another is `/Users/othername`.
+
+### Fixed — local subtitle transcription no longer falls back to OpenAI on retry / merged-audio paths
+The subtitle transcription flow had two bad edge cases around the Voice Studio engine:
+
+- a merged-audio transcription could still route through **OpenAI Whisper** even when the user had chosen **Voice Studio (local)**, which could either bill OpenAI unexpectedly or fail with an opaque invalid-model error
+- a partial local-pool failure could throw away a mostly-successful episode instead of keeping the chapters that already transcribed
+
+Now:
+
+- **Voice Studio stays on the local Whisper pool** for the merged-audio path too
+- **OpenAI rejects local-only Whisper repo ids with a clear message** instead of surfacing a vague 400
+- **Per-chapter local failures are isolated**, so successful chapter SRTs are kept and only the failed chapters need a re-run
+- **Chapter audio discovery is more robust** when audio exists on disk but chunk/version naming differs from the old predictor
+- **Retry preserves the subtitle engine details properly**, so a Voice Studio job retries as Voice Studio instead of mutating into an OpenAI-shaped request
+
+### Files
+- `electron/server/generators/subtitles.ts`, `electron/server/lib/whisper-client.ts`, `frontend/pages/projects/[slug]/jobs.vue`
+- `electron/server/routes/{system,video,audio-merge}.ts`
+- `frontend/components/FilePicker.vue`, `frontend/components/ThumbnailComposeDialog.vue`
+- `frontend/composables/{usePresetPathValidation,useVideoAssemblyIo}.ts`
+- `frontend/pages/projects/[slug]/{audio-merge,video-assembly,image-prompts,timestamp-assemble,subtitles,broll}.vue`
+- `frontend/pages/brands/[id].vue`
+
+---
+
 ## v1.0.393 — 2026-06-14
 
 ### Improved — Thumbnail prompts now push for deliberate title treatment, not just a pretty scene

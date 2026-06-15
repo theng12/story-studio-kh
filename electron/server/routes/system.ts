@@ -275,6 +275,7 @@ router.post('/system/browse-dir', async (req, res) => {
 
 router.post('/system/validate-path', async (req, res) => {
   const inputPath = typeof req.body?.path === 'string' ? req.body.path.trim() : ''
+  const outputRoot = typeof req.body?.output_root === 'string' ? req.body.output_root : undefined
   const mustBeDir = req.body?.must_be_dir === true
   const mustExist = req.body?.must_exist !== false  // default true
   const mustHaveExt = Array.isArray(req.body?.must_have_extension)
@@ -283,6 +284,11 @@ router.post('/system/validate-path', async (req, res) => {
   if (!inputPath) return res.json({ valid: false, reason: 'path is empty' })
 
   let expanded = inputPath
+  try {
+    expanded = resolveAssetPath(expanded, outputRoot)
+  } catch (e: any) {
+    return res.json({ valid: false, reason: e?.message || 'could not resolve portable path', normalized: inputPath })
+  }
   if (expanded.startsWith('~')) {
     const home = process.env.HOME || process.env.USERPROFILE || ''
     if (home) expanded = path.join(home, expanded.slice(1))

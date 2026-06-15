@@ -13,6 +13,7 @@ import { TRANSITIONS, groupedTransitions, getTransition } from '../models/transi
 import { ANIMATIONS, groupedAnimations, getAnimation } from '../models/animations.js'
 import { buildAnimationFilter } from '../lib/animation-filters.js'
 import { getOrRender } from '../services/preview-cache.js'
+import { resolveAssetPath } from '../services/path-resolver.js'
 import { runFfmpeg, hasLibass, getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { chaptersFromDurations, chaptersToSrt, normalizeSrtOrVtt, buildAssStyle } from '../lib/subtitle-builder.js'
 import { resolveSubtitlesDir } from '../generators/subtitles.js'
@@ -425,9 +426,17 @@ router.post('/projects/:slug/video-editor/overlays/open-folder', async (req, res
 // Serve an audio file for preview playback (music, background noise)
 router.get('/projects/:slug/video-editor/preview-audio', async (req, res) => {
   const { slug } = req.params
+  const project = await pm.getProject(slug)
+  if (!project) return res.status(404).json({ detail: 'Project not found' })
 
-  const filePath = req.query.path as string
-  if (!filePath) return res.status(400).json({ detail: 'path query parameter required' })
+  const rawPath = req.query.path as string
+  if (!rawPath) return res.status(400).json({ detail: 'path query parameter required' })
+  let filePath = rawPath
+  try {
+    filePath = resolveAssetPath(rawPath, project.output_root)
+  } catch (e: any) {
+    return res.status(400).json(humanizeBackendError(e, 'Could not resolve preview path'))
+  }
   if (!existsSync(filePath)) return res.status(404).json({ detail: 'File not found' })
 
   // Gate by file type only — this backend binds localhost, so the risk
@@ -476,9 +485,17 @@ router.get('/projects/:slug/video-editor/preview-audio', async (req, res) => {
 // Serve an image file for preview (thumbnails, scene images, logos)
 router.get('/projects/:slug/video-editor/preview-image', async (req, res) => {
   const { slug } = req.params
+  const project = await pm.getProject(slug)
+  if (!project) return res.status(404).json({ detail: 'Project not found' })
 
-  const filePath = req.query.path as string
-  if (!filePath) return res.status(400).json({ detail: 'path query parameter required' })
+  const rawPath = req.query.path as string
+  if (!rawPath) return res.status(400).json({ detail: 'path query parameter required' })
+  let filePath = rawPath
+  try {
+    filePath = resolveAssetPath(rawPath, project.output_root)
+  } catch (e: any) {
+    return res.status(400).json(humanizeBackendError(e, 'Could not resolve preview path'))
+  }
   if (!existsSync(filePath)) return res.status(404).json({ detail: 'File not found' })
 
   // Gate by file type only — localhost backend, user-picked paths OK.

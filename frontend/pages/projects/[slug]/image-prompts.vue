@@ -1393,12 +1393,14 @@ function openReferenceEdit() {
   referenceEditOpen.value = true
 }
 function onReferenceEditAccepted(newPath: string) {
-  referenceImagePath.value = newPath
-  referenceEditKey.value++  // bust the preview cache
-  // Clear any stale "Analyzed N min ago" — the image's content changed,
-  // so the previous style extraction no longer describes it.
-  lastAnalyzedAt.value = ''
-  lastAnalysisModel.value = ''
+  void (async () => {
+    referenceImagePath.value = await collapseToPortablePath(newPath)
+    referenceEditKey.value++  // bust the preview cache
+    // Clear any stale "Analyzed N min ago" — the image's content changed,
+    // so the previous style extraction no longer describes it.
+    lastAnalyzedAt.value = ''
+    lastAnalysisModel.value = ''
+  })()
 }
 
 const referenceImageName = computed(() => {
@@ -1439,6 +1441,21 @@ async function loadVisionCaps() {
   } catch { /* tolerate — keep default */ }
 }
 
+async function collapseToPortablePath(input: string): Promise<string> {
+  const raw = String(input || '').trim()
+  if (!raw) return ''
+  try {
+    const r = await post<{ output: string }>(`/system/resolve-asset-path`, {
+      path: raw,
+      output_root: project.value?.output_root,
+      mode: 'portable',
+    })
+    return String(r?.output || raw)
+  } catch {
+    return raw
+  }
+}
+
 async function pickReferenceImage() {
   try {
     const r = await post<{ path: string | null }>('/system/pick-file', {
@@ -1450,7 +1467,7 @@ async function pickReferenceImage() {
       ],
     })
     if (!r.path) return
-    referenceImagePath.value = r.path
+    referenceImagePath.value = await collapseToPortablePath(r.path)
     lastAnalyzedAt.value = null
     lastAnalysisModel.value = null
     // Auto-extract on first pick — saves the user one click. Re-analyze is
@@ -1520,11 +1537,12 @@ async function extractThumbReferenceStyle() {
       ],
     })
     if (!r.path) return
+    const portablePath = await collapseToPortablePath(r.path)
     extractingThumbRef.value = true
     const data = await post<{ style_text: string; model_used: string }>(
       `/projects/${slug.value}/analyze-style`,
       {
-        image_path: r.path,
+        image_path: portablePath,
         model: visionModel.value,
         focus: 'YouTube thumbnail: focal subject, composition, lighting, color palette, mood, and title-text treatment',
       },
@@ -1622,12 +1640,12 @@ async function saveStylePreset() {
 // remembered across reloads. Cleared explicitly via clearReference.
 const REF_PATH_LS_KEY = computed(() => `story-studio:${slug.value}:image-prompts:reference-path`)
 
-function loadPersistedReferencePath() {
+async function loadPersistedReferencePath() {
   if (typeof window === 'undefined') return  // SSR safety, even though Nuxt runs in SPA mode here
   try {
     const raw = window.localStorage.getItem(REF_PATH_LS_KEY.value)
     if (raw && typeof raw === 'string' && raw.trim()) {
-      referenceImagePath.value = raw
+      referenceImagePath.value = await collapseToPortablePath(raw)
     }
   } catch { /* localStorage may be unavailable in private mode — ignore */ }
 }
@@ -1640,7 +1658,7 @@ watch(referenceImagePath, (v) => {
   } catch { /* ignore quota / private-mode errors */ }
 })
 
-onMounted(() => loadPersistedReferencePath())
+onMounted(() => { void loadPersistedReferencePath() })
 
 function onStyleChange() {
   if (activeForm.value.style_preset in STYLE_PRESETS) {

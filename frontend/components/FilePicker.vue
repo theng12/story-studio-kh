@@ -3,6 +3,7 @@
     <input
       :value="modelValue"
       @input="(e) => emit('update:modelValue', (e.target as HTMLInputElement).value)"
+      @blur="normalizeTypedValue"
       class="input file-picker-input"
       :placeholder="placeholder"
       :aria-label="ariaLabel || 'File path'"
@@ -33,6 +34,7 @@ const props = defineProps<{
   buttonLabel?: string
   ariaLabel?: string
   clearable?: boolean
+  outputRoot?: string
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -40,6 +42,27 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const { post } = useApi()
 const { error: showError } = useToast()
 const picking = ref(false)
+
+async function collapseToPortablePath(input: string): Promise<string> {
+  const raw = String(input || '').trim()
+  if (!raw) return ''
+  if (typeof props.outputRoot === 'undefined') return raw
+  try {
+    const result = await post<{ output: string }>('/system/resolve-asset-path', {
+      path: raw,
+      output_root: props.outputRoot || undefined,
+      mode: 'portable',
+    })
+    return String(result?.output || raw)
+  } catch {
+    return raw
+  }
+}
+
+async function normalizeTypedValue() {
+  const normalized = await collapseToPortablePath(props.modelValue)
+  if (normalized !== props.modelValue) emit('update:modelValue', normalized)
+}
 
 async function browse() {
   if (picking.value) return
@@ -50,7 +73,7 @@ async function browse() {
       buttonLabel: props.buttonLabel || 'Select',
       filters: props.filters || [{ name: 'All Files', extensions: ['*'] }],
     })
-    if (result.path) emit('update:modelValue', result.path)
+    if (result.path) emit('update:modelValue', await collapseToPortablePath(result.path))
   } catch (e: any) {
     // Previously silent — that turned "backend returned 500" into "Browse
     // button looks broken" for users who had no way to know their request

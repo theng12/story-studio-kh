@@ -223,6 +223,7 @@ const emit = defineEmits<{
 
 const { get, put, post } = useApi()
 const { success: toastSuccess, error: toastError } = useToast()
+const projectOutputRoot = ref('')
 
 // ── Template + niche state (v1.0.105+) ──────────────────────────────────
 // Templates live in the library and are picked via the embedded gallery.
@@ -322,12 +323,32 @@ const logoBasename = computed(() => {
 
 async function loadLogoPath() {
   try {
-    const cfg = await get<Record<string, any>>(`/projects/${props.projectSlug}/settings/config`)
+    const [cfg, project] = await Promise.all([
+      get<Record<string, any>>(`/projects/${props.projectSlug}/settings/config`),
+      get<Record<string, any>>(`/projects/${props.projectSlug}`),
+    ])
     const stored = typeof cfg?.[CHANNEL_LOGO_KEY] === 'string' ? cfg[CHANNEL_LOGO_KEY] : ''
+    projectOutputRoot.value = typeof project?.output_root === 'string' ? project.output_root : ''
     logoPath.value = stored || ''
   } catch {
     // Config fetch can fail (no project, no config yet) — non-fatal.
+    projectOutputRoot.value = ''
     logoPath.value = ''
+  }
+}
+
+async function collapseToPortablePath(input: string): Promise<string> {
+  const raw = String(input || '').trim()
+  if (!raw) return ''
+  try {
+    const r = await post<{ output: string }>(`/system/resolve-asset-path`, {
+      path: raw,
+      output_root: projectOutputRoot.value || undefined,
+      mode: 'portable',
+    })
+    return String(r?.output || raw)
+  } catch {
+    return raw
   }
 }
 
@@ -349,8 +370,9 @@ async function chooseLogo() {
       initial_path: logoPath.value || undefined,
     })
     if (!picked) return
-    logoPath.value = picked
-    await persistLogoPath(picked)
+    const portable = await collapseToPortablePath(picked)
+    logoPath.value = portable
+    await persistLogoPath(portable)
     toastSuccess('Logo saved for this project')
   } finally {
     pickingLogo.value = false

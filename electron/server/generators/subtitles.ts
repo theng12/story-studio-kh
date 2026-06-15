@@ -86,11 +86,14 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
 
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project not found')
-  const apiKey = await resolveApiKeyForProviderId(project_slug, 'openai', {
-    model: req.model || 'whisper',
-    jobId: job.job_id,
-  })
-  if (!apiKey) throw new Error('OpenAI API key not configured — add it in Settings → API Keys')
+
+  // v1.0.393 — honour the chosen engine on the merged-audio path too. This used
+  // to ALWAYS call OpenAI, so a Voice Studio job that ran here (or a retry of
+  // one) silently billed OpenAI — or failed "400 invalid model ID" when it
+  // forwarded the local Whisper repo. Now 'voicestudio' transcribes the merged
+  // file on the same local Mac pool the per-chapter path uses; OpenAI is only
+  // touched when the user explicitly picked the OpenAI engine.
+  const engine = req.engine === 'voicestudio' ? 'voicestudio' : 'openai'
 
   // Resolve the audio source: explicit override wins; otherwise we use the
   // first merged-audio file the scanner surfaces. Rejecting the chapter
@@ -104,14 +107,16 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
     if (!merged) throw new Error('No merged audio file found — run Audio Assembly first')
     audioPath = merged.path
   }
-  job.output_lines.push(`Source: ${path.basename(audioPath)}`)
+  // `const` so TS keeps the string narrowing inside the async closures below.
+  const sourceAudio: string = audioPath
+  job.output_lines.push(`Source: ${path.basename(sourceAudio)}`)
 
   // Whisper is a single long HTTP call (30-90 s on a merged sleep-story).
   // Without cancel propagation, clicking Cancel would mark the job cancelled
-  // but the OpenAI request would still complete and still bill. We poll
-  // `isCancelled` every 500 ms and fire the AbortController — the SDK unwinds
-  // the fetch and `transcribeToSrt` rejects with an AbortError, which the
-  // queue runner then classifies as `cancelled` (not `error`) because the
+  // but the request would still complete (and still bill, on OpenAI). We poll
+  // `isCancelled` every 500 ms and fire the AbortController — the client unwinds
+  // the in-flight fetch and the transcribe call rejects with an AbortError,
+  // which the queue runner classifies as `cancelled` (not `error`) because the
   // cancelled set is populated before we abort.
   const controller = new AbortController()
   const cancelWatcher = setInterval(() => {
@@ -119,17 +124,48 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
   }, 500)
 
   try {
-    const srtRaw = await transcribeToSrt({
-      apiKey,
-      audioPath,
-      language: req.language,
-      model: req.model,
-      signal: controller.signal,
-      onProgress: (phase, pct) => {
-        job.progress = Math.max(job.progress ?? 0, pct)
-        job.output_lines.push(`Whisper: ${phase} (${pct}%)`)
-      },
-    })
+    let srtRaw: string
+    if (engine === 'voicestudio') {
+      // Same local-pool dispatcher the per-chapter path uses: least-busy Mac
+      // with mid-job failover. Never falls back to OpenAI.
+      const { getApiKey } = await import('../services/app-secrets-store.js')
+      const { transcribeFile, DEFAULT_VOICESTUDIO_BASE_URL, runOnTranscribePool } =
+        await import('../lib/voicestudio-client.js')
+      const vsStoredUrl = (await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
+      if (!vsStoredUrl) {
+        throw new Error('Voice Studio URL not set — add it in Settings → This Mac → Local Models.')
+      }
+      job.output_lines.push(`Engine: Voice Studio (local pool) · ${req.model || 'default Whisper model'}`)
+      job.progress = Math.max(job.progress ?? 0, 10)
+      const result = await runOnTranscribePool(vsStoredUrl, req.model, async (endpoint, model) => {
+        job.output_lines.push(`Voice Studio endpoint: ${endpoint} · ${model}`)
+        return transcribeFile(endpoint, sourceAudio, {
+          model,
+          language: req.language || 'en',
+          signal: controller.signal,
+        })
+      })
+      srtRaw = result.srt
+      job.progress = Math.max(job.progress ?? 0, 90)
+    } else {
+      const apiKey = await resolveApiKeyForProviderId(project_slug, 'openai', {
+        model: req.model || 'whisper',
+        jobId: job.job_id,
+      })
+      if (!apiKey) throw new Error('OpenAI API key not configured — add it in Settings → API Keys')
+      job.output_lines.push('Engine: OpenAI Whisper API')
+      srtRaw = await transcribeToSrt({
+        apiKey,
+        audioPath: sourceAudio,
+        language: req.language,
+        model: req.model,
+        signal: controller.signal,
+        onProgress: (phase, pct) => {
+          job.progress = Math.max(job.progress ?? 0, pct)
+          job.output_lines.push(`Whisper: ${phase} (${pct}%)`)
+        },
+      })
+    }
     // Run the rest of the pipeline under the same try so `finally` always
     // clears the watcher interval — otherwise a parse failure would leak
     // a 500 ms timer per cancelled-during-parse job.
@@ -184,25 +220,49 @@ async function transcribePerChapter(
     job.output_lines.push('Engine: OpenAI Whisper API')
   }
 
-  // Source the chapter audio files (+ their dir) from the reconciler's view.
+  // Resolve the audio dir via the reconciler (it knows the 07-folder contract),
+  // then scan that dir DIRECTLY for chapter MP3s.
+  //
+  // v1.0.393 — we used to group `status.present` (the reconciler's view), but
+  // `present` is computed by rebuilding the EXPECTED filenames from the
+  // narration doc + a CHARACTER-based chunk predictor and intersecting with
+  // disk. When the TTS engine chunked a chapter differently from that
+  // prediction — e.g. fishaudio split TN0169's Chapter_02 into 30 sentence-sized
+  // `_partN` files — none of the predicted names matched, so `present` came back
+  // empty and we aborted "No chapter audio found" with the mp3s sitting right
+  // there on disk. Scanning the directory with our own `partRe` finds whatever
+  // chapter audio actually exists, independent of how it was chunked.
   const { getAudioStatus } = await import('../services/audio-reconciler.js')
   const status = await getAudioStatus(projectSlug, code)
   const audioDir = status.audio_dir
 
-  // Group present chapter MP3s by section slug: `{code}_{slug}[_partN].mp3`.
+  // Group MP3s in the audio dir by section slug: `{code}_{slug}[_partN][_vN].mp3`.
   const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  // Tolerate the optional `_vN` suffix that "save as new version" audio runs
-  // append, so a versioned file groups under its real chapter slug instead of
-  // inventing a phantom chapter (e.g. `Chapter_01_v2`).
-  const partRe = new RegExp(`^${esc(code)}_(.+?)(?:_part(\\d+))?(?:_v\\d+)?\\.mp3$`, 'i')
-  const bySlug = new Map<string, { slug: string; files: Array<{ name: string; part: number }> }>()
-  for (const f of status.present) {
+  // Capture the optional `_vN` ("save as new version") suffix (group 3) so a
+  // versioned file groups under its real chapter slug AND so we keep the NEWEST
+  // file per part instead of concatenating an old + new copy of the same part.
+  const partRe = new RegExp(`^${esc(code)}_(.+?)(?:_part(\\d+))?(?:_v(\\d+))?\\.mp3$`, 'i')
+  let dirFiles: string[]
+  try {
+    dirFiles = await fs.readdir(audioDir)
+  } catch {
+    dirFiles = []
+  }
+  const bySlug = new Map<string, { slug: string; files: Array<{ name: string; part: number; version: number }> }>()
+  for (const f of dirFiles) {
     const m = f.match(partRe)
     if (!m) continue
     const slug = m[1]!
     const part = m[2] ? parseInt(m[2], 10) : 1
+    const version = m[3] ? parseInt(m[3], 10) : 1
     const g = bySlug.get(slug) || { slug, files: [] }
-    g.files.push({ name: f, part })
+    const existing = g.files.find(x => x.part === part)
+    if (existing) {
+      // Same part rendered more than once (e.g. `_v2`) — keep the newest.
+      if (version > existing.version) { existing.name = f; existing.version = version }
+    } else {
+      g.files.push({ name: f, part, version })
+    }
     bySlug.set(slug, g)
   }
   if (!bySlug.size) {
@@ -224,6 +284,14 @@ async function transcribePerChapter(
   const sections = [...bySlug.values()]
   let done = 0
   let totalCues = 0
+  // v1.0.393 — per-chapter failure isolation. A chapter whose transcription
+  // exhausts the Voice Studio pool's failover (e.g. a Mac slept mid-request and
+  // the pool was momentarily empty) used to THROW out of the worker, rejecting
+  // the whole `Promise.all` and discarding every chapter that already
+  // succeeded. We now record the failure and keep going — mirroring the
+  // zero-cue / missing-audio skip paths — so good chapters are written and the
+  // user can re-run to fill in just the stragglers (existing SRTs are skipped).
+  const failures: Array<{ slug: string; error: string }> = []
 
   // v1.0.389/390 — per-chapter transcription concurrency (Settings → Performance
   // → Subtitle Concurrency). Voice Studio fans chapters across its endpoint pool;
@@ -342,7 +410,19 @@ async function transcribePerChapter(
         if (jq.isCancelled(job.job_id)) return
         const i = nextIdx++
         if (i >= sections.length) return
-        await transcribeSection(sections[i]!)
+        const sec = sections[i]!
+        try {
+          await transcribeSection(sec)
+        } catch (e) {
+          // Cancellation aborts the in-flight transcribe via the shared
+          // AbortController — that's not a chapter failure, so bail quietly and
+          // let the post-loop cancel check report it.
+          if (jq.isCancelled(job.job_id)) return
+          const msg = (e as Error)?.message || String(e)
+          failures.push({ slug: sec.slug, error: msg })
+          job.output_lines.push(`  ✗ ${sec.slug}: ${msg} — skipped (re-run to fill it in).`)
+          done++; job.progress = Math.round((done / sections.length) * 100)
+        }
       }
     }
     await Promise.all(Array.from({ length: Math.min(concurrency, sections.length) }, () => worker()))
@@ -351,7 +431,23 @@ async function transcribePerChapter(
     clearInterval(cancelWatcher)
   }
 
-  if (totalCues === 0) throw new Error('No cues produced — every chapter transcript was empty.')
+  // Only hard-fail when NOTHING usable came out. If some chapters succeeded we
+  // keep their SRTs and report which ones to retry — one unreachable Mac no
+  // longer throws away a near-complete episode.
+  if (totalCues === 0) {
+    if (failures.length) {
+      throw new Error(
+        `All ${failures.length} chapter(s) failed to transcribe. First error: ${failures[0]!.error}`,
+      )
+    }
+    throw new Error('No cues produced — every chapter transcript was empty.')
+  }
+  if (failures.length) {
+    job.output_lines.push(
+      `⚠ ${failures.length} of ${sections.length} chapter(s) failed: ${failures.map(f => f.slug).join(', ')}. ` +
+      `Re-run transcription for this episode to fill in just these — chapters with an existing SRT are skipped.`,
+    )
+  }
   job.output_dir = outDir
   job.progress = 100
   job.output_lines.push(

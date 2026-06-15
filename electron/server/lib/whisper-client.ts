@@ -47,6 +47,20 @@ export async function transcribeToSrt(opts: TranscribeOptions): Promise<string> 
   if (!opts.apiKey) throw new Error('No OpenAI API key configured')
   if (!fs.existsSync(opts.audioPath)) throw new Error(`Audio file not found: ${opts.audioPath}`)
 
+  // Guard against a Voice Studio Whisper repo (e.g. `mlx-community/whisper-tiny`)
+  // being routed to the OpenAI API by mistake — OpenAI's model ids never contain
+  // a `/` (they're `whisper-1`, `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`),
+  // so a slash means a local-modal repo leaked into this path. Previously this
+  // surfaced as OpenAI's opaque `400 invalid model ID`; fail with an actionable
+  // message instead. (Root cause was the Retry button dropping `engine`/
+  // `per_chapter` — fixed in jobs.vue — but keep this as a backstop.)
+  if (opts.model && opts.model.includes('/')) {
+    throw new Error(
+      `"${opts.model}" is a Voice Studio (local) Whisper model and can't be used with the OpenAI engine. ` +
+      `Pick the Voice Studio engine for this model, or choose an OpenAI model (whisper-1 / gpt-4o-transcribe).`,
+    )
+  }
+
   const stat = fs.statSync(opts.audioPath)
   if (stat.size > WHISPER_SIZE_LIMIT_BYTES) {
     return transcribeLargeAudio(opts, stat.size)

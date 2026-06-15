@@ -1206,10 +1206,22 @@ async function retryJob(job: RJob) {
     video_repair:    { url: `/projects/${slug.value}/generate/video-repair`,   params: { episode_id: job.episode_id } },
     // Whisper transcription uses a non-`/generate` URL because the endpoint
     // lives under /video-editor. The episode id is a path param, not a body
-    // field — params stay as the optional { language, model } the user chose.
+    // field. We MUST forward `engine` and `per_chapter` too: without them the
+    // backend route defaults engine→'openai' and per_chapter→false, so
+    // retrying a Voice Studio per-chapter job silently became an OpenAI
+    // merged-audio job — and since the model stayed a Voice Studio Whisper repo
+    // (e.g. mlx-community/whisper-tiny), OpenAI rejected it with
+    // "400 invalid model ID". Forward force as well so a retry of a "re-run"
+    // job still overwrites instead of skipping the existing SRT.
     subtitles_transcribe: {
       url: `/projects/${slug.value}/video-editor/subtitles/transcribe/${job.episode_id}`,
-      params: { language: job.params?.language, model: job.params?.model },
+      params: {
+        language: job.params?.language,
+        model: job.params?.model,
+        engine: job.params?.engine,
+        per_chapter: job.params?.per_chapter,
+        force: job.params?.force,
+      },
     },
   }
   // Batch-only types — `metadata` and `image_prompts` are enqueued exclusively

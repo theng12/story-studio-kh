@@ -355,7 +355,7 @@
               class="btn btn-sm btn-secondary"
               :title="mf.path"
               :disabled="music.files.includes(mf.path)"
-              @click="music.files.push(mf.path)">
+              @click="addScannedMusicFile(mf.path)">
               + {{ mf.filename }}
             </button>
           </div>
@@ -699,6 +699,7 @@ const { get, post } = useApi()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const { audioMergeGenerating } = useGenerating()
+const { project, loadProject } = useProject()
 
 // ── State ──
 const episodeId = ref('')
@@ -780,6 +781,7 @@ function loadEpisodeDataDebounced() {
 }
 
 watch(() => episodeId.value, (v) => { if (v) loadEpisodeDataDebounced() }, { immediate: true })
+watch(slug, (s) => { if (s) void loadProject(s) }, { immediate: true })
 
 // v1.0.107+ — when an audio-merge job completes (audioMergeGenerating
 // flips back to false after being true), the backend may have advanced
@@ -906,19 +908,21 @@ function newAmbientId(): string {
 }
 
 function addAmbientTrack(file: { path: string; filename: string }) {
-  ambientTracks.push({
-    id: newAmbientId(),
-    enabled: true,
-    source_path: file.path,
-    source_filename: file.filename,
-    // Sensible default for ambient layers — quieter than the
-    // narration/music base so it sits underneath. User can crank it.
-    volume: 20,
-    fade_in: 2,
-    fade_out: 3,
-    loop: true,
-  })
-  showAmbientPicker.value = false
+  void (async () => {
+    ambientTracks.push({
+      id: newAmbientId(),
+      enabled: true,
+      source_path: await collapseToPortablePath(file.path),
+      source_filename: file.filename,
+      // Sensible default for ambient layers — quieter than the
+      // narration/music base so it sits underneath. User can crank it.
+      volume: 20,
+      fade_in: 2,
+      fade_out: 3,
+      loop: true,
+    })
+    showAmbientPicker.value = false
+  })()
 }
 
 function removeAmbientTrack(id: string) {
@@ -1032,6 +1036,31 @@ const existingMergedAudio = computed(() => {
 // to the centralised version. See `formatDurationPrecise` for output format.
 const formatDuration = formatDurationPrecise
 
+async function collapseToPortablePath(input: string): Promise<string> {
+  const raw = String(input || '').trim()
+  if (!raw) return ''
+  try {
+    const r = await post<{ output: string }>(`/system/resolve-asset-path`, {
+      path: raw,
+      output_root: project.value?.output_root,
+      mode: 'portable',
+    })
+    return String(r?.output || raw)
+  } catch {
+    return raw
+  }
+}
+
+async function normalizeAudioMergePathsInState(): Promise<void> {
+  if (intro.file) intro.file = await collapseToPortablePath(intro.file)
+  if (backgroundNoise.custom_file) backgroundNoise.custom_file = await collapseToPortablePath(backgroundNoise.custom_file)
+  if (newMusicPath.value) newMusicPath.value = await collapseToPortablePath(newMusicPath.value)
+  music.files = await Promise.all(music.files.map(f => collapseToPortablePath(f)))
+  for (const track of ambientTracks) {
+    if (track.source_path) track.source_path = await collapseToPortablePath(track.source_path)
+  }
+}
+
 function moveChapter(index: number, direction: -1 | 1) {
   const newIndex = index + direction
   if (newIndex < 0 || newIndex >= chapters.value.length) return
@@ -1043,34 +1072,46 @@ function moveChapter(index: number, direction: -1 | 1) {
 }
 
 function togglePreview(filePath: string) {
-  if (playingPath.value === filePath) {
+  void (async () => {
+    if (playingPath.value === filePath) {
+      previewAudio.value?.pause()
+      previewAudio.value = null
+      playingPath.value = ''
+      return
+    }
     previewAudio.value?.pause()
-    previewAudio.value = null
-    playingPath.value = ''
-    return
-  }
-  previewAudio.value?.pause()
-  const url = `/api/projects/${slug.value}/audio-editor/preview-audio?path=${encodeURIComponent(filePath)}`
-  const audio = new Audio(url)
-  audio.onended = () => { playingPath.value = ''; previewAudio.value = null }
-  // play() returns a Promise that rejects on missing files / unsupported
-  // codec / autoplay block. Without this catch the click silently does
-  // nothing and the user has no signal anything went wrong.
-  audio.play().catch((err) => {
-    console.error(`[audio-merge] preview failed for ${filePath}:`, err)
-    showError(`Couldn't play preview — file may be missing or in an unsupported format: ${filePath.split('/').pop()}`)
-    playingPath.value = ''
-    previewAudio.value = null
-  })
-  previewAudio.value = audio
-  playingPath.value = filePath
+    const url = `/api/projects/${slug.value}/audio-editor/preview-audio?path=${encodeURIComponent(filePath)}`
+    const audio = new Audio(url)
+    audio.onended = () => { playingPath.value = ''; previewAudio.value = null }
+    // play() returns a Promise that rejects on missing files / unsupported
+    // codec / autoplay block. Without this catch the click silently does
+    // nothing and the user has no signal anything went wrong.
+    audio.play().catch((err) => {
+      console.error(`[audio-merge] preview failed for ${filePath}:`, err)
+      showError(`Couldn't play preview — file may be missing or in an unsupported format: ${filePath.split('/').pop()}`)
+      playingPath.value = ''
+      previewAudio.value = null
+    })
+    previewAudio.value = audio
+    playingPath.value = filePath
+  })()
 }
 
 function addMusicFile() {
-  if (newMusicPath.value && !music.files.includes(newMusicPath.value)) {
-    music.files.push(newMusicPath.value)
-    newMusicPath.value = ''
-  }
+  void (async () => {
+    const next = await collapseToPortablePath(newMusicPath.value)
+    if (next && !music.files.includes(next)) {
+      music.files.push(next)
+      newMusicPath.value = ''
+    }
+  })()
+}
+
+function addScannedMusicFile(filePath: string) {
+  void (async () => {
+    const next = await collapseToPortablePath(filePath)
+    if (next && !music.files.includes(next)) music.files.push(next)
+  })()
 }
 
 const AUDIO_FILTERS = [
@@ -1085,7 +1126,8 @@ async function browseMusicFile() {
       buttonLabel: 'Add Music',
       filters: AUDIO_FILTERS,
     })
-    if (r.path && !music.files.includes(r.path)) music.files.push(r.path)
+    const next = r.path ? await collapseToPortablePath(r.path) : ''
+    if (next && !music.files.includes(next)) music.files.push(next)
   } catch (e: any) {
     showError(`Music file picker failed — ${e.data?.detail || e.message || 'unknown error'}`)
   }
@@ -1098,7 +1140,7 @@ async function browseNoiseFile() {
       buttonLabel: 'Use This File',
       filters: AUDIO_FILTERS,
     })
-    if (r.path) backgroundNoise.custom_file = r.path
+    if (r.path) backgroundNoise.custom_file = await collapseToPortablePath(r.path)
   } catch (e: any) {
     showError(`Ambience file picker failed — ${e.data?.detail || e.message || 'unknown error'}`)
   }
@@ -1111,7 +1153,7 @@ async function browseIntroFile() {
       buttonLabel: 'Use This File',
       filters: AUDIO_FILTERS,
     })
-    if (r.path) intro.file = r.path
+    if (r.path) intro.file = await collapseToPortablePath(r.path)
   } catch (e: any) {
     showError(`Intro file picker failed — ${e.data?.detail || e.message || 'unknown error'}`)
   }
@@ -1165,6 +1207,7 @@ async function runPresetPathCheck() {
     const result = await validatePresetPaths(
       currentMergeSnapshotForValidation(),
       AUDIO_MERGE_PATH_FIELDS,
+      { outputRoot: project.value?.output_root },
     )
     presetInvalidPaths.value = result.invalid
   } catch {
@@ -1179,7 +1222,10 @@ async function runPresetPathCheck() {
  *  the form state IS already updated when this fires. */
 function onPresetApplied() {
   success('Preset applied')
-  void runPresetPathCheck()
+  void (async () => {
+    await normalizeAudioMergePathsInState()
+    await runPresetPathCheck()
+  })()
 }
 
 /** Friendly field label for the banner row. Keeps the user-facing string
@@ -1238,7 +1284,7 @@ async function repickInvalidPath(row: { key: string; index: number | null; value
           accept: ['audio/*'],
         })
         const newPath = r?.files?.[0]?.path
-        if (newPath) ambientTracks[i].source_path = newPath
+        if (newPath) ambientTracks[i].source_path = await collapseToPortablePath(newPath)
       } catch (e: any) {
         showError(`Pick failed — ${e?.data?.detail || e?.message || 'unknown error'}`)
       }
@@ -1304,13 +1350,14 @@ async function refreshPoolPeek() {
       `/projects/${slug.value}/music-pool/peek-next?episode_code=${encodeURIComponent(episodeId.value)}`,
     )
     if (r && r.track) {
+      const portableTrackPath = await collapseToPortablePath(r.track.path)
       poolPickedTrack.value = r.track.filename
       poolPickedReason.value = r.reason
       // Only auto-fill when the user hasn't already populated music.files.
       // If the user already curated their own list, we DON'T trample it
       // — but we still surface the suggestion in the banner so they know.
       if (music.enabled && music.files.length === 0) {
-        music.files.push(r.track.path)
+        music.files.push(portableTrackPath)
         applyTrackOverrides(r.track)
       } else if (!music.enabled && music.files.length === 0) {
         // Pool has a pick + music is off — auto-enable so the cycler
@@ -1318,7 +1365,7 @@ async function refreshPoolPeek() {
         // cycling. User can toggle off if they don't want music for
         // this specific episode (and the Skip button clears the pick).
         music.enabled = true
-        music.files.push(r.track.path)
+        music.files.push(portableTrackPath)
         applyTrackOverrides(r.track)
       }
     } else {
@@ -1408,10 +1455,11 @@ const generateLabel = computed(() => {
 })
 
 function onGenerateClick() {
-  generateMergedAudio(writeMode.value)
+  void generateMergedAudio(writeMode.value)
 }
 
 async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite') {
+  await normalizeAudioMergePathsInState()
   const payload: Record<string, any> = {
     episode_id: episodeId.value,
     chapters: chapters.value.map(ch => ch.path),
@@ -1529,6 +1577,7 @@ onMounted(async () => {
   checkFfmpeg()
   await applyMergeFormatDefaultsIfNoPreset()
   await mergePresets.load()
+  await normalizeAudioMergePathsInState()
   // v1.0.93+ — `mergePresets.load()` auto-applies the last-active preset
   // when there is one. Run the path-check after that so the banner is
   // already visible on first paint if any files from the saved preset

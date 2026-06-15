@@ -9,7 +9,7 @@
  *     duration, title, show_title}.
  *   - Narration path resolution: merged audio > full narration > first
  *     chapter, with the falls-through reflected in `merged_audio_path`.
- *   - Optional sections (logo, intro, title image, color grading, vignette,
+ *   - Optional sections (logo, intro, outro, title image, color grading, vignette,
  *     chroma key, film grain, letterbox, subtitles, title/outro card) only
  *     appear in the payload when their `.enabled` flag is true.
  *   - Cost-confirmation gate: cancel short-circuits before any POST.
@@ -70,7 +70,6 @@ function makeState() {
     transition:    reactive({ type: 'fade', duration: 0.5, pool: [], randomize_mode: 'off' }),
     sceneAnimation: reactive({ type: 'ken-burns', zoom_start: 100, zoom_end: 108, pool: [], randomize_mode: 'off' }),
     postAudio:     reactive({ behavior: 'fade-to-black', fade_duration: 5 }),
-    duration:      reactive({ mode: 'auto', min_hours: 0, min_minutes: 30, max_hours: 1, max_minutes: 0 }),
     colorGrading:  reactive({ enabled: false, preset: 'none', brightness: 0, contrast: 1, saturation: 1, warmth: 0, tint: 0 }),
     vignette:      reactive({ enabled: false, strength: 0.4 }),
     filmGrain:     reactive({ enabled: false, strength: 15 }),
@@ -103,7 +102,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     const ok = await generateVideo({
       post: async () => { postCalls++ },
       confirmGeneration: async () => false, // user cancels the cost dialog
-      videoGenerating,
+      videoAssemblyGenerating: videoGenerating,
     })
     assert.equal(ok, false, 'cancel should return false')
     assert.equal(postCalls, 0, 'cancel must not POST')
@@ -118,7 +117,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     const ok = await generateVideo({
       post: async (url, body) => { capturedUrl = url; capturedBody = body },
       confirmGeneration: async () => true,
-      videoGenerating,
+      videoAssemblyGenerating: videoGenerating,
     })
 
     assert.equal(ok, true)
@@ -147,9 +146,13 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     assert.equal(capturedBody.narration_path, '/m/merged.mp3')
     assert.equal(capturedBody.merged_audio_path, '/m/merged.mp3')
 
-    // Duration translation: hours/minutes → seconds
-    assert.equal(capturedBody.duration.min_duration, 1800) // 0h 30m
-    assert.equal(capturedBody.duration.max_duration, 3600) // 1h 0m
+    // v1.0.354+: target-duration padding was removed. Video length follows
+    // narration, with post-audio as the only intentional tail extension.
+    assert.equal(capturedBody.duration, undefined)
+    assert.deepEqual(capturedBody.post_audio, {
+      behavior: 'fade-to-black',
+      fade_duration: 5,
+    })
 
     // Transition "none" maps to 0s duration
     // (our baseline uses "fade"; confirm the echo)
@@ -191,7 +194,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     await generateVideo({
       post: async (_u, b) => { body = b },
       confirmGeneration: async () => true,
-      videoGenerating,
+      videoAssemblyGenerating: videoGenerating,
     })
     assert.equal(body.scenes.length, 2)
     assert.deepEqual(body.scenes.map((s: any) => s.image_path), ['/i/1.png', '/i/3.png'])
@@ -206,7 +209,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     await generateVideo({
       post: async (_u, b) => { body = b },
       confirmGeneration: async () => true,
-      videoGenerating,
+      videoAssemblyGenerating: videoGenerating,
     })
     assert.equal(body.narration_path, '/m/full.mp3',
       'narration_full used when merged_audio is empty')
@@ -221,7 +224,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     await generateVideo({
       post: async (_u, b) => { body = b },
       confirmGeneration: async () => true,
-      videoGenerating,
+      videoAssemblyGenerating: videoGenerating,
     })
     assert.equal(body.narration_path, '/m/section-1.mp3')
   })
@@ -256,7 +259,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     await generateVideo({
       post: async (_u, b) => { body = b },
       confirmGeneration: async () => true,
-      videoGenerating,
+      videoAssemblyGenerating: videoGenerating,
     })
 
     assert.ok(body.logo, 'logo section present when enabled')
@@ -286,7 +289,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     await generateVideo({
       post: async (_u, b) => { body = b },
       confirmGeneration: async () => true,
-      videoGenerating,
+      videoAssemblyGenerating: videoGenerating,
     })
     assert.ok(Array.isArray(body.timeline_clips), 'timeline_clips included when at least one valid row exists')
     assert.equal(body.timeline_clips.length, 2, 'empty-path and disabled rows are filtered out')
@@ -309,7 +312,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     await generateVideo({
       post: async (_u, b) => { body = b },
       confirmGeneration: async () => true,
-      videoGenerating,
+      videoAssemblyGenerating: videoGenerating,
     })
     assert.equal(body.timeline_clips, undefined, 'empty list → key absent, not an empty array')
   })
@@ -322,7 +325,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     await generateVideo({
       post: async (_u, b) => { body = b },
       confirmGeneration: async () => true,
-      videoGenerating,
+      videoAssemblyGenerating: videoGenerating,
     })
     assert.equal(body.chroma_key, undefined,
       'chroma_key requires a source_path — the enabled flag alone is not enough')
@@ -333,7 +336,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     const ok = await generateVideo({
       post: async () => { throw new Error('backend down') },
       confirmGeneration: async () => true,
-      videoGenerating,
+      videoAssemblyGenerating: videoGenerating,
     })
     assert.equal(ok, false)
     assert.equal(state.generating.value, false,
@@ -349,7 +352,7 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     await generateVideo({
       post: async (_u, b) => { body = b },
       confirmGeneration: async () => true,
-      videoGenerating,
+      videoAssemblyGenerating: videoGenerating,
     })
     for (const scene of body.scenes) {
       assert.equal(scene.show_title, true,

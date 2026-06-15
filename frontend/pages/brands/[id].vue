@@ -51,8 +51,14 @@
           when the project hasn't overridden it.
         </p>
         <div class="form-group">
-          <label>Logo path (absolute)</label>
-          <input class="input" v-model="brand.visual!.logo_path" type="text" placeholder="/Users/me/Pictures/logo.png" />
+          <label>Logo path</label>
+          <FilePicker
+            v-model="brand.visual!.logo_path"
+            placeholder="/path/to/logo.png"
+            :filters="[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]"
+            title="Choose a brand logo"
+            clearable
+          />
         </div>
         <div class="form-group">
           <label>Font family</label>

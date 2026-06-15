@@ -123,6 +123,7 @@ export interface VideoAssemblyIoState {
   // so the page can subscribe to useJobs() and mirror the in-flight
   // output_lines + status onto the wizard UI.
   activeJobId?: Ref<string | null>
+  normalizePath?: (input: string) => Promise<string>
 }
 
 export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
@@ -175,7 +176,8 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
         s.titleCard.text = s.selectedEpisode.value.title
       }
       if (s.scannedAssets.value?.thumbnails?.length) {
-        s.titleImage.image_path = s.scannedAssets.value.thumbnails[0].path
+        const picked = s.scannedAssets.value.thumbnails[0].path
+        s.titleImage.image_path = s.normalizePath ? await s.normalizePath(picked) : picked
       }
     } catch (e: any) {
       showError(e.data?.detail || 'Failed to scan assets')
@@ -388,7 +390,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     if (!confirmed) return false
 
     if (s.generating) s.generating.value = true
-    opts.videoAssemblyGenerating.value = true
+    if (opts.videoAssemblyGenerating) opts.videoAssemblyGenerating.value = true
     if (s.jobOutput) s.jobOutput.value = []
 
     try {
@@ -404,7 +406,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       console.error('[video-assembly] POST failed:', e)
       showError(e.data?.detail || 'Failed to start video generation')
       if (s.generating) s.generating.value = false
-      opts.videoAssemblyGenerating.value = false
+      if (opts.videoAssemblyGenerating) opts.videoAssemblyGenerating.value = false
       return false
     }
     // Intentionally no `finally { generating = false }`. The caller now

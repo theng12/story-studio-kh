@@ -453,6 +453,7 @@
             placeholder="/path/to/subtitles.srt"
             :filters="[{ name: 'Subtitles', extensions: ['srt', 'vtt'] }]"
             title="Choose a subtitle file"
+            :output-root="project?.output_root || ''"
             clearable
           />
           <button
@@ -625,6 +626,7 @@ const { success, error: showError } = useToast()
 // confirmation dialog (subtitle deletes are not undoable from inside
 // the app, so we ask once).
 const { ask } = useConfirm()
+const { project } = useProject()
 const broll = useBrollPools()
 
 const pools = broll.pools

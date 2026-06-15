@@ -152,7 +152,14 @@
           <h4>Background music <span class="text-muted text-xs">(optional)</span></h4>
           <div class="form-group">
             <label>Audio file path <span class="text-muted text-xs">(.mp3 / .wav / .m4a)</span></label>
-            <input v-model="form.music_path" class="input" placeholder="/absolute/path/to/music.mp3" />
+            <FilePicker
+              v-model="form.music_path"
+              placeholder="/path/to/music.mp3"
+              :filters="[{ name: 'Audio', extensions: ['mp3', 'wav', 'm4a', 'aac', 'flac'] }]"
+              title="Choose background music"
+              :output-root="project?.output_root || ''"
+              clearable
+            />
           </div>
           <template v-if="form.music_path.trim()">
             <div class="form-group">
@@ -171,7 +178,14 @@
           <h4>Ambient sound <span class="text-muted text-xs">(optional)</span></h4>
           <div class="form-group">
             <label>Audio file path <span class="text-muted text-xs">(.mp3 / .wav / .m4a)</span></label>
-            <input v-model="form.ambient_path" class="input" placeholder="/absolute/path/to/ambient.mp3" />
+            <FilePicker
+              v-model="form.ambient_path"
+              placeholder="/path/to/ambient.mp3"
+              :filters="[{ name: 'Audio', extensions: ['mp3', 'wav', 'm4a', 'aac', 'flac'] }]"
+              title="Choose ambient audio"
+              :output-root="project?.output_root || ''"
+              clearable
+            />
           </div>
           <template v-if="form.ambient_path.trim()">
             <div class="form-group">
@@ -202,6 +216,7 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post } = useApi()
 const { success, error: showError } = useToast()
+const { project } = useProject()
 
 const episodeId = ref('')
 
@@ -243,6 +258,26 @@ const form = ref({
   transition_duration: 0.5,
 })
 useRememberedForm('timestamp-assemble', slug, form)
+
+async function collapseToPortablePath(input: string): Promise<string> {
+  const raw = String(input || '').trim()
+  if (!raw) return ''
+  try {
+    const result = await post<{ output: string }>('/system/resolve-asset-path', {
+      path: raw,
+      output_root: project.value?.output_root,
+      mode: 'portable',
+    })
+    return String(result?.output || raw)
+  } catch {
+    return raw
+  }
+}
+
+async function normalizeRememberedPaths(): Promise<void> {
+  if (form.value.music_path) form.value.music_path = await collapseToPortablePath(form.value.music_path)
+  if (form.value.ambient_path) form.value.ambient_path = await collapseToPortablePath(form.value.ambient_path)
+}
 
 const canAssemble = computed(() => {
   if (!episodeId.value) return false
@@ -303,8 +338,14 @@ async function assembleVideo(): Promise<void> {
   }
 }
 
-onMounted(loadStats)
+onMounted(async () => {
+  await normalizeRememberedPaths()
+  await loadStats()
+})
 watch(episodeId, () => { void loadStats() })
+watch(project, (p) => {
+  if (p?.output_root) void normalizeRememberedPaths()
+}, { immediate: true })
 </script>
 
 <style scoped>
