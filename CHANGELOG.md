@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.396 — 2026-06-16
+
+### Fixed — B-Roll burned the wrong subtitle file; now you can pick (+ smarter auto)
+When an episode had several subtitle files on disk (e.g. a full `EP0075_stitched.srt` plus per-chapter `EP0075_Chapter_01/02/03.srt`), the B-Roll assembler burned **the first `.srt` in directory order** — which on macOS is alphabetical, so `Chapter_01` beat `stitched` and you got only the first chapter's captions, with **no way to choose**. Good catch.
+
+Two fixes:
+- **You can now pick the file to burn.** The "Subtitle files on disk" list has a radio per file plus an **Auto** option; your pick is persisted per-episode (a `.selected_subtitle` sidecar in the episode's subtitles folder) and the next assembly burns exactly that one. The selected row shows **✓ burned next**.
+- **Smarter Auto.** When nothing is pinned, Auto now prefers a full transcript — `*_stitched` → `*_whisper` → any non-per-chapter file — and only falls back to a `Chapter_NN` partial if that's all there is. So even without picking, it stops burning Chapter 1 by accident.
+
+The same resolver is shared so the burn target is consistent. The B-Roll assembler change is otherwise unchanged (still skips burn entirely when subtitles are disabled).
+
+### Files
+- `electron/server/lib/subtitle-selection.ts` (new — pin sidecar read/write + `resolveBurnSubtitle` auto-heuristic)
+- `electron/server/generators/broll-assemble.ts` (use `resolveBurnSubtitle` instead of first-match)
+- `electron/server/routes/video.ts` (status returns `selected_subtitle`; new `PUT …/subtitles/select/:episodeId`)
+- `frontend/pages/projects/[slug]/broll.vue` (Auto + per-file radio selection in the subtitle list)
+
+---
+
 ## v1.0.395 — 2026-06-15
 
 ### Added — Local Whisper option in the B-Roll subtitle transcriber

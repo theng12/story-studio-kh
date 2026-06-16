@@ -568,17 +568,41 @@
         v-if="subtitlesStatus?.existing_srts?.length"
         class="text-sm mt-3"
       >
-        <label class="text-muted">Subtitle files on disk for this episode</label>
+        <label class="text-muted">
+          Subtitle files on disk — pick which one to burn
+        </label>
+        <!-- v1.0.396 — AUTO option + one radio per file. The picked file is what
+             the next assembly burns (persisted per episode). AUTO prefers the
+             full stitched/whisper transcript and skips per-chapter partials. -->
+        <label class="broll-srt-auto">
+          <input
+            type="radio"
+            name="broll-sub-pick"
+            :checked="!subtitlesStatus.selected_subtitle"
+            :disabled="brollSubtitleSelecting"
+            @change="selectBrollSubtitle(null)"
+          />
+          <strong>Auto</strong>
+          <span class="text-muted text-xs">— pick the full transcript automatically (stitched / whisper; skips single-chapter files)</span>
+        </label>
         <ul class="broll-srt-list">
           <li v-for="srt in subtitlesStatus.existing_srts" :key="srt.path">
+            <input
+              type="radio"
+              name="broll-sub-pick"
+              class="broll-srt-radio"
+              :checked="subtitlesStatus.selected_subtitle === srt.filename"
+              :disabled="brollSubtitleSelecting"
+              :title="`Burn ${srt.filename} on the next assembly`"
+              @change="selectBrollSubtitle(srt.filename)"
+            />
             <code>{{ srt.filename }}</code>
-            <span class="text-muted">
-              <template v-if="brollSubtitles.enabled">
-                — first match by priority (.srt → .ass → .vtt) gets burned on the next assembly
-              </template>
-              <template v-else>
-                — currently disabled by the toggle above; will be burned when re-enabled
-              </template>
+            <span
+              v-if="subtitlesStatus.selected_subtitle === srt.filename"
+              class="broll-srt-pinned"
+            >✓ burned next</span>
+            <span class="text-muted" v-if="!brollSubtitles.enabled">
+              — currently disabled by the toggle above; will be burned when re-enabled
             </span>
             <!-- v1.0.140+ — Drift warning. Surfaces when this SRT was
                  derived against a different merge gap than the audio
@@ -762,7 +786,10 @@ const subtitlesStatus = ref<{
    *  used, read from the audio_chapters.json sidecar. null when no
    *  merge has run on 1.0.140+ yet. */
   current_merge_gap_s?: number | null
+  /** v1.0.396 — user-pinned subtitle filename to burn (null = AUTO). */
+  selected_subtitle?: string | null
 } | null>(null)
+const brollSubtitleSelecting = ref(false)
 const brollSubtitleUploadPath = ref('')
 const brollWhisperForce = ref(false)
 
@@ -883,6 +910,25 @@ async function loadBrollSubtitlesStatus(): Promise<void> {
   } catch {
     // Non-fatal — leave previous value or null; the UI just hides the
     // condition-gated warnings.
+  }
+}
+
+// v1.0.396 — pin which subtitle file the next assembly burns (or clear → AUTO).
+async function selectBrollSubtitle(filename: string | null): Promise<void> {
+  if (!form.episode_id) return
+  brollSubtitleSelecting.value = true
+  try {
+    const r = await put<{ selected_subtitle: string | null }>(
+      `/projects/${slug.value}/video-editor/subtitles/select/${form.episode_id}`,
+      { filename },
+    )
+    if (subtitlesStatus.value) subtitlesStatus.value.selected_subtitle = r.selected_subtitle
+    success(filename ? `Will burn ${filename} on the next assembly` : 'Auto-pick re-enabled')
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not set subtitle selection')
+    await loadBrollSubtitlesStatus()
+  } finally {
+    brollSubtitleSelecting.value = false
   }
 }
 
@@ -1473,12 +1519,31 @@ function formatDuration(sec: number): string {
    filename is monospace so SRT/ASS/VTT extensions read clearly. */
 .broll-srt-list {
   margin: 6px 0 8px;
-  padding-left: 18px;
-  list-style: disc;
+  padding-left: 0;
+  list-style: none;
 }
 .broll-srt-list li {
   margin: 2px 0;
   line-height: 1.45;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+/* v1.0.396 — burn-target selection (Auto + per-file radios). */
+.broll-srt-auto {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 2px;
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+.broll-srt-radio { flex: 0 0 auto; cursor: pointer; }
+.broll-srt-pinned {
+  font-size: 11px;
+  color: #5bb37c;
+  font-weight: 600;
 }
 .broll-srt-list code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

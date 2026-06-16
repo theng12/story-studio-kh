@@ -39,6 +39,7 @@ import { getFFmpegPath, getFFprobePath } from '../services/ffmpeg-manager.js'
 import { buildBrollMotion, type BrollMotion, pickRotatedMotion } from '../lib/broll-motion.js'
 import { getTransition } from '../models/transitions.js'
 import { buildAssStyle } from '../lib/subtitle-builder.js'
+import { resolveBurnSubtitle } from '../lib/subtitle-selection.js'
 import type { Job, BrollUsageEntry, VideoSubtitleStyle } from '../models/types.js'
 
 /**
@@ -62,21 +63,6 @@ async function hasAudioStream(filePath: string): Promise<boolean> {
     proc.on('error', () => resolve(false))
     proc.on('close', () => resolve(stdout.trim() === 'audio'))
   })
-}
-
-/** Look for a burnable subtitle file in the episode's subtitles dir.
- *  Prefer SRT (drawtext-style overlay support is widest); fall back to
- *  ASS or VTT. Returns null when nothing burnable exists. */
-async function findSubtitlePath(subtitlesDir: string): Promise<string | null> {
-  if (!existsSync(subtitlesDir)) return null
-  const files = await fsp.readdir(subtitlesDir).catch(() => [] as string[])
-  // Preference order matches the existing video assembly path's behaviour.
-  const priorities = [/\.srt$/i, /\.ass$/i, /\.vtt$/i]
-  for (const re of priorities) {
-    const hit = files.find(f => re.test(f) && !f.startsWith('.tmp_'))
-    if (hit) return path.join(subtitlesDir, hit)
-  }
-  return null
 }
 
 interface AssembleParams {
@@ -206,7 +192,11 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   // files exist in subtitles_dir. The user can keep a generated SRT on
   // disk and toggle rendering with subs vs without without re-running
   // the generate step.
-  const subPath = subtitles_enabled ? await findSubtitlePath(paths.subtitles_dir) : null
+  // v1.0.396 — honour the user's pinned subtitle (.selected_subtitle sidecar),
+  // else AUTO-pick the full stitched/whisper transcript over per-chapter
+  // partials. Replaces the old "first .srt in readdir order" which alphabetically
+  // favoured Chapter_01 over the full _stitched file.
+  const subPath = subtitles_enabled ? await resolveBurnSubtitle(paths.subtitles_dir) : null
   function escapeForSubtitlesFilter(p: string): string {
     // ffmpeg's subtitles filter interprets `:` as an argument separator
     // unless the path is wrapped + colons escaped. Backslash-escape both.

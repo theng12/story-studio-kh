@@ -17,6 +17,7 @@ import { resolveAssetPath } from '../services/path-resolver.js'
 import { runFfmpeg, hasLibass, getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { chaptersFromDurations, chaptersToSrt, normalizeSrtOrVtt, buildAssStyle } from '../lib/subtitle-builder.js'
 import { resolveSubtitlesDir } from '../generators/subtitles.js'
+import { readSelectedSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import type { VideoSubtitleStyle } from '../models/types.js'
 
@@ -790,6 +791,9 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       existing_srts: existingSrts,
       subtitles_dir: subtitlesDir,
       current_merge_gap_s: currentMergeGap,
+      // v1.0.396 — the user-pinned subtitle to burn (null = AUTO: prefer the
+      // full stitched/whisper transcript, skip per-chapter partials).
+      selected_subtitle: await readSelectedSubtitle(subtitlesDir),
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not compute subtitle status'))
@@ -1025,6 +1029,40 @@ router.delete('/projects/:slug/video-editor/subtitles/:episodeId/:filename', asy
     res.json({ existing_srts: existingSrts, deleted: filename })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not delete subtitle file'))
+  }
+})
+
+/** v1.0.396 — PIN which subtitle file the next assembly burns.
+ *  Body: { filename: "<basename>" } to pin, or { filename: null|"" } to clear
+ *  (revert to AUTO). Returns { selected_subtitle }. */
+router.put('/projects/:slug/video-editor/subtitles/select/:episodeId', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const raw = req.body?.filename
+  const filename = typeof raw === 'string' ? raw.trim() : ''
+
+  // Validate non-empty pins the same way the delete route does (basename, burnable).
+  if (filename && (
+    filename.includes('/') ||
+    filename.includes('\\') ||
+    filename.startsWith('.') ||
+    !/\.(srt|vtt|ass)$/i.test(filename)
+  )) {
+    return res.status(400).json({ detail: `Invalid subtitle filename: ${filename}` })
+  }
+
+  try {
+    const subtitlesDir = await resolveSubtitlesDir(slug, episodeId)
+    // Only allow pinning a file that actually exists (avoid a dangling pin).
+    if (filename) {
+      const target = path.join(subtitlesDir, filename)
+      if (!existsSync(target)) {
+        return res.status(404).json({ detail: `Subtitle file not found: ${filename}` })
+      }
+    }
+    await writeSelectedSubtitle(subtitlesDir, filename || null)
+    res.json({ selected_subtitle: filename || null })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not set subtitle selection'))
   }
 })
 
