@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.397 — 2026-06-16
+
+### Added — Audio Assembly: use the first few seconds of the background music as a full-volume intro
+You can now let one background track double as the intro sting — no more splitting the file and fighting the alignment. In **Audio Assembly → Background Music**, there's a new tick: **"Use the first few seconds as a full-volume intro"**, with a slider for how long (2–30s, default 8s).
+
+When on:
+- The music plays at **100%** for the chosen lead-in, then **ducks** (over a short ~0.6s fade) to your **Volume During Narration** level exactly as the voiceover starts.
+- The narration is **delayed** by that lead-in, so the intro is heard cleanly first — the same effect you were hand-rolling with a separate trimmed intro file, but from a single untrimmed track.
+
+It's **optional and off by default** — the separate **Intro** section still works if you'd rather upload a dedicated intro file, and you can use both. The setting is saved with your Audio Assembly presets and honoured by Pipeline batch runs.
+
+### Files
+- `electron/server/models/types.ts` (`VideoMusicConfig.lead_in_enabled` / `lead_in_seconds`)
+- `electron/server/generators/audio-merge.ts` (`adelay` the narration, extend duration, piecewise music volume envelope; `buildMusicLeadInVolumeExpr` helper)
+- `frontend/pages/projects/[slug]/audio-merge.vue` (toggle + slider + payload)
+- `electron/server/__tests__/audio-merge-lead-in.test.ts` (envelope unit test)
+
+---
+
 ## v1.0.396 — 2026-06-16
 
 ### Fixed — B-Roll burned the wrong subtitle file; now you can pick (+ smarter auto)

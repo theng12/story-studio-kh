@@ -2421,6 +2421,15 @@ export interface VideoMusicConfig {
   post_narration_volume: number // 0-1 after narration ends
   fade_in: number
   fade_out: number
+  /**
+   * v1.0.397 — optional music "intro lead-in". When `lead_in_enabled`, the
+   * SAME background track plays at full volume for the first `lead_in_seconds`,
+   * then ducks (over a short fade) to `volume` exactly as the narration begins —
+   * the narration is delayed by that many seconds. Lets a single uploaded track
+   * double as the intro sting, with no separate intro file or manual trimming.
+   */
+  lead_in_enabled?: boolean
+  lead_in_seconds?: number     // seconds of full-volume music before narration
 }
 
 export interface VideoDurationConfig {

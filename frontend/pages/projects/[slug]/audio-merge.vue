@@ -382,6 +382,27 @@
             <SliderWithNumber v-model="music.fade_out" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" />
           </div>
         </div>
+
+        <!-- v1.0.397 — Music intro lead-in. Play the first N seconds of THIS
+             track at full volume as the intro, then duck to "Volume During
+             Narration" exactly as the voice starts (the narration is delayed
+             by N). No separate intro file or trimming needed — though the
+             Intro section below still works if you'd rather upload one. -->
+        <div class="lead-in-block mt-2">
+          <label class="checkbox-label" @click.stop>
+            <input type="checkbox" v-model="music.lead_in_enabled" />
+            <span>Use the first few seconds as a full-volume intro</span>
+          </label>
+          <p class="hint" style="margin: 4px 0 0;">
+            Plays this track at <strong>100%</strong> for the chosen time, then ducks to
+            <strong>{{ music.volume }}%</strong> as the voiceover begins — the voice is delayed by
+            that long. Lets one track double as the intro sting; no need to split a separate intro file.
+          </p>
+          <div v-if="music.lead_in_enabled" class="form-group mt-2">
+            <label>Intro length ({{ music.lead_in_seconds }}s of full-volume music before the voice)</label>
+            <SliderWithNumber v-model="music.lead_in_seconds" :min="2" :max="30" :step="1" suffix="s" />
+          </div>
+        </div>
       </div>
     </div>
 
@@ -822,6 +843,11 @@ const music = reactive({
   post_narration_volume: 40,
   fade_in: 3,
   fade_out: 5,
+  // v1.0.397 — use the first N seconds of this same track as a full-volume
+  // intro, then duck to "Volume During Narration" as the voice starts. Off by
+  // default; you can still upload a separate intro file in the Intro section.
+  lead_in_enabled: false,
+  lead_in_seconds: 8,
 })
 const newMusicPath = ref('')
 
@@ -1489,6 +1515,9 @@ async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite')
       post_narration_volume: music.post_narration_volume / 100,
       fade_in: music.fade_in,
       fade_out: music.fade_out,
+      // v1.0.397 — lead-in is a duration (seconds), not a volume — sent as-is.
+      lead_in_enabled: music.lead_in_enabled,
+      lead_in_seconds: music.lead_in_seconds,
     }
     // v1.0.107+ — when the cycler pre-filled the track and the user
     // didn't swap it out, tag the request so the backend records the

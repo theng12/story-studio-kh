@@ -764,13 +764,45 @@ interface MixOptions {
   job: Job
 }
 
+/**
+ * Build the per-frame `volume` expression for the music intro lead-in
+ * (v1.0.397). Phases, by output time t:
+ *   [0, leadIn)              → 1.0     full-volume intro
+ *   [leadIn, leadIn+fade)    → linear ramp 1.0 → duckVol (smooth duck as the
+ *                              narration begins)
+ *   [leadIn+fade, leadIn+narrDur) → duckVol (music under narration)
+ *   ≥ leadIn+narrDur         → postVol (after narration; usually trimmed off)
+ * Pure + exported for unit coverage — the math is fiddly and FFmpeg can't run
+ * in tests. `duckFade` is clamped by the caller (>0). Values are absolute
+ * gains, fed to `volume='…':eval=frame`.
+ */
+export function buildMusicLeadInVolumeExpr(
+  leadIn: number, duckFade: number, narrDur: number, duckVol: number, postVol: number,
+): string {
+  const L = leadIn.toFixed(3)
+  const Lf = (leadIn + duckFade).toFixed(3)
+  const narrEnd = (leadIn + narrDur).toFixed(3)
+  const mv = duckVol.toFixed(3)
+  const pv = postVol.toFixed(3)
+  const df = duckFade.toFixed(3)
+  return `if(lt(t,${L}),1.0,`
+    + `if(lt(t,${Lf}),1.0+(${mv}-1.0)*(t-${L})/${df},`
+    + `if(lt(t,${narrEnd}),${mv},${pv})))`
+}
+
 async function mixAudioLayers(opts: MixOptions): Promise<void> {
   const {
     narrationPath, narrationDuration, narrationVolume,
     music, noise, ambientTracks, outputPath, tempDir, job,
   } = opts
 
-  const totalDur = narrationDuration
+  // v1.0.397 — optional music "intro lead-in": the background music plays at
+  // full volume for the first N seconds, then the narration begins (delayed by
+  // N) as the music ducks. Only when music is present + the toggle is on.
+  const leadIn = (music?.lead_in_enabled && (music.lead_in_seconds ?? 0) > 0)
+    ? Math.max(0, music.lead_in_seconds as number)
+    : 0
+  const totalDur = narrationDuration + leadIn
   const inputs: string[] = []
   const filterParts: string[] = []
   const mixInputLabels: string[] = []
@@ -779,8 +811,12 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
   inputs.push('-i', narrationPath)
 
   const narrVol = narrationVolume.toFixed(2)
+  // Delay the voice by the lead-in so the music intro is heard first.
+  const narrDelay = leadIn > 0
+    ? `,adelay=${Math.round(leadIn * 1000)}|${Math.round(leadIn * 1000)}`
+    : ''
   filterParts.push(
-    `[0:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${narrVol}[narr]`,
+    `[0:a]aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${narrVol}${narrDelay}[narr]`,
   )
   mixInputLabels.push('[narr]')
 
@@ -821,16 +857,38 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
       ? (postNarrVol / music.volume).toFixed(2)
       : '1.00'
 
-    filterParts.push(
-      `[${inputIdx}:a]atrim=0:${totalDur.toFixed(2)},asetpts=PTS-STARTPTS,` +
-      `aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,` +
-      `volume=${musicVol}[bgm]`,
-    )
+    if (leadIn > 0) {
+      // Lead-in "intro" (v1.0.397): one piecewise volume envelope plays the
+      // track at full volume for `leadIn` seconds, then ducks (over a short
+      // fade) to the during-narration volume exactly as the delayed narration
+      // starts. Replaces the base-volume + post-boost chain used below. `:eval=
+      // frame` makes the volume expression time-varying. Quoting protects the
+      // commas in the expression from the filtergraph parser (same as the
+      // existing `enable='gt(t,…)'` boost).
+      const duckFade = Math.max(0.05, Math.min(0.6, leadIn / 2))
+      const env = buildMusicLeadInVolumeExpr(
+        leadIn, duckFade, narrationDuration, music.volume, music.post_narration_volume,
+      )
+      filterParts.push(
+        `[${inputIdx}:a]atrim=0:${totalDur.toFixed(2)},asetpts=PTS-STARTPTS,` +
+        `aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,` +
+        `volume='${env}':eval=frame[bgm2]`,
+      )
+      job.output_lines.push(
+        `  Music intro: first ${leadIn}s at full volume, then ducks to ${Math.round(music.volume * 100)}% as narration starts`,
+      )
+    } else {
+      filterParts.push(
+        `[${inputIdx}:a]atrim=0:${totalDur.toFixed(2)},asetpts=PTS-STARTPTS,` +
+        `aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,` +
+        `volume=${musicVol}[bgm]`,
+      )
 
-    // Boost music volume after narration ends
-    filterParts.push(
-      `[bgm]volume=enable='gt(t,${narrationDuration.toFixed(2)})':volume=${boostRatio}[bgm2]`,
-    )
+      // Boost music volume after narration ends
+      filterParts.push(
+        `[bgm]volume=enable='gt(t,${narrationDuration.toFixed(2)})':volume=${boostRatio}[bgm2]`,
+      )
+    }
 
     // Apply fade in/out
     let musicLabel = 'bgm2'
