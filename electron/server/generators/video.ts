@@ -232,7 +232,7 @@ export function buildEncoderArgs(opts: {
 
 /**
  * Build the `:enable='<expr>'` suffix that FFmpeg filters like `noise`,
- * `eq`, `vignette`, `subtitles`, and `overlay` accept to time-gate their
+ * `eq`, `colorbalance`, `vignette`, and `overlay` accept to time-gate their
  * application. Cheap pure string op — no I/O.
  *
  *   start > 0, end > 0 → `between(t,start,end)`
@@ -241,8 +241,13 @@ export function buildEncoderArgs(opts: {
  *   both zero          → `''`  (no gate; filter applies to every frame)
  *
  * Used to keep intro/title/outro/post-audio segments free of colour
- * grading, grain, vignette, chroma, subtitles, and logo — the user's
- * branded or flat-black content shouldn't get stylised.
+ * grading, grain, vignette, chroma, and logo — the user's branded or
+ * flat-black content shouldn't get stylised.
+ *
+ * ⚠️ Do NOT apply this to the libass filters (`ass` / `subtitles`): they do
+ * not support the timeline `enable` option, and adding it makes the entire
+ * filtergraph fail to initialise. Subtitles are kept off the intro by their
+ * cue timestamps being offset past the lead-in, not by a filter gate.
  */
 function buildGateEnable(start: number, end: number): string {
   if (start > 0 && end > 0) return `:enable='between(t,${start.toFixed(2)},${end.toFixed(2)})'`
@@ -3290,7 +3295,15 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
           const assDoc = srtToAss(cues, subtitles.style, { width: w, height: h, animation: anim })
           const assPath = path.join(os.tmpdir(), `ssk-subs-${Date.now()}.ass`)
           await fs.writeFile(assPath, assDoc, 'utf-8')
-          filterParts.push(`${vLabel}ass=filename='${escFor(assPath)}'${gateEnable}${st}`)
+          // NOTE: do NOT append `gateEnable` here. FFmpeg's libass filters
+          // (`ass` / `subtitles`) do NOT support the timeline `enable` option —
+          // adding it makes the WHOLE filtergraph fail to initialise
+          // ("Timeline ('enable' option) not supported with filter 'ass'"),
+          // which drops the encode to the no-effects recovery tier (losing the
+          // grade, vignette, grain, logo AND subtitles). The intro is already
+          // excluded because the stitched SRT's cue timestamps are offset past
+          // the intro/title lead-in, so there are no cues to suppress in 0–startSec.
+          filterParts.push(`${vLabel}ass=filename='${escFor(assPath)}'${st}`)
           job.output_lines.push(`Burning in animated subtitles (${anim}): ${path.basename(subtitles.srt_path)}`)
           wired = true
         }
@@ -3301,7 +3314,10 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     if (!wired) {
       const { buildAssStyle } = await import('../lib/subtitle-builder.js')
       const ass = buildAssStyle(subtitles.style).replace(/'/g, "\\'")
-      filterParts.push(`${vLabel}subtitles=filename='${escFor(subtitles.srt_path)}':force_style='${ass}'${gateEnable}${st}`)
+      // No `gateEnable` — same FFmpeg libass limitation as the `ass` filter
+      // above (timeline `enable` is unsupported and breaks the whole graph).
+      // Intro suppression comes from the cue timestamps, not a filter gate.
+      filterParts.push(`${vLabel}subtitles=filename='${escFor(subtitles.srt_path)}':force_style='${ass}'${st}`)
       job.output_lines.push(`Burning in subtitles: ${path.basename(subtitles.srt_path)}`)
     }
     vLabel = st

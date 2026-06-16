@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.399 — 2026-06-16
+
+### Fixed — effects, logo overlay, and subtitles silently dropped from the final video
+When effects were time-gated to start after the intro (Effects & Overlays → "exclude intro from effects"), the `enable='gt(t,…)'` gate was being appended to **every** filter in the composition — including FFmpeg's libass subtitle filters (`ass` / `subtitles`). Those filters **don't support** the timeline `enable` option, so FFmpeg failed to initialise the whole filtergraph (`Timeline ('enable' option) not supported with filter 'ass'`). The encoder then fell back to its no-effects **recovery tier**, producing a clean video with the colour grade, vignette, film grain, chroma key, **logo overlay**, and **subtitles** all stripped — even though every one of them was configured. The job still reported success, so the loss was silent.
+
+The fix: the two libass subtitle filters no longer receive the gate (the other gated filters — `eq`, `colorbalance`, `vignette`, `noise`, `overlay` — keep it; they support it). Keeping captions off the intro was already handled the right way — the stitched SRT's cue timestamps are offset past the intro lead-in (v1.0.398), so no cues ever fell inside the gated window. Effects renders now complete on the full-effects tier instead of silently dropping to recovery.
+
+### Files
+- `electron/server/generators/video.ts` (drop `gateEnable` from the `ass` / `subtitles` libass filters; correct the `buildGateEnable` doc comment that wrongly listed `subtitles` as gate-compatible)
+
+---
+
 ## v1.0.398 — 2026-06-16
 
 ### Fixed — subtitles ignored the intro audio, so captions ran ahead of the video
