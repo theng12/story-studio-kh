@@ -462,13 +462,26 @@ async function transcribePerChapter(
   // audio not merged yet) logs a note but never fails the transcribe job.
   try {
     const epaths = await resolveEpisodePathsByCode(projectSlug, episodeId)
+    // v1.0.397 — offset the stitched timeline by the intro lead-in so the
+    // burned captions line up with the merged audio (which plays the intro
+    // before any narration). Read-only against the merged file + sidecar.
+    let leadIn = 0
+    try {
+      const { computeIntroLeadInSec } = await import('../lib/intro-lead-in.js')
+      const assets = await scanEpisodeAssets(projectSlug, episodeId)
+      const merged = assets.merged_audio[0]?.path || null
+      const sc = JSON.parse(await fs.readFile(path.join(epaths.episode_dir, 'audio_chapters.json'), 'utf-8'))
+      leadIn = await computeIntroLeadInSec(merged, sc.sections || [], typeof sc.gap_duration_s === 'number' ? sc.gap_duration_s : 0)
+    } catch { /* no merged audio / sidecar — leadIn stays 0 (intro-less timeline) */ }
     const r = await stitchSubtitles({
       episode_dir: epaths.episode_dir,
       subtitles_dir: outDir,
       episode_code: code,
+      lead_in_sec: leadIn,
     })
     job.output_lines.push(
-      `✓ Auto-stitched ${r.total_cues} cue(s) (${r.total_duration_sec.toFixed(1)}s) → ${path.basename(r.output_path)}. ` +
+      `✓ Auto-stitched ${r.total_cues} cue(s) (${r.total_duration_sec.toFixed(1)}s)` +
+      `${leadIn > 0 ? ` · intro lead-in ${leadIn.toFixed(1)}s applied` : ''} → ${path.basename(r.output_path)}. ` +
       `Re-run Scene Plan to pick up the new timeline.`,
     )
   } catch (e: any) {

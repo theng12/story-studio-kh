@@ -845,12 +845,24 @@ router.post('/projects/:slug/video-editor/subtitles/from-chapters/:episodeId', a
       gap_source = 'default'
     }
 
+    // v1.0.397 — offset cues by the intro lead-in (intro + its gap) so the
+    // chapter captions line up with the merged audio instead of running ahead.
+    // Best-effort + read-only against the merged file + sidecar; 0 = no intro.
+    let leadIn = 0
+    try {
+      const { computeIntroLeadInSec } = await import('../lib/intro-lead-in.js')
+      const merged = assets.merged_audio?.[0]?.path || null
+      const parsed = JSON.parse(await fs.readFile(path.join(assets.episode_dir, 'audio_chapters.json'), 'utf-8'))
+      leadIn = await computeIntroLeadInSec(merged, parsed.sections || [], typeof parsed.gap_duration_s === 'number' ? parsed.gap_duration_s : gap)
+    } catch { /* no merged audio / sidecar — leadIn stays 0 */ }
+
     const chapters = chaptersFromDurations(
       assets.audio_sections.map(a => ({
         title: a.label || a.filename.replace(/\.[^.]+$/, ''),
         duration_sec: a.duration || 0,
       })),
       gap,
+      leadIn,
     )
     const srt = chaptersToSrt(chapters, {
       max_chars_per_line: req.body?.max_chars_per_line,
@@ -871,13 +883,14 @@ router.post('/projects/:slug/video-editor/subtitles/from-chapters/:episodeId', a
         srt: path.basename(outPath),
         gap_duration_s: gap,
         gap_source,
+        lead_in_sec: leadIn,
         generated_at: new Date().toISOString(),
         cues: chapters.length,
       }
       await fs.writeFile(`${outPath}.json`, JSON.stringify(meta, null, 2))
     } catch { /* best-effort */ }
 
-    res.json({ srt_path: outPath, cues: chapters.length, gap_sec: gap, gap_source })
+    res.json({ srt_path: outPath, cues: chapters.length, gap_sec: gap, gap_source, lead_in_sec: leadIn })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not derive subtitles from chapters'))
   }

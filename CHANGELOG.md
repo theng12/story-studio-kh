@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.398 — 2026-06-16
+
+### Fixed — subtitles ignored the intro audio, so captions ran ahead of the video
+When Audio Assembly starts the merged track with a lead-in before the narration — a prepended **intro file + gap**, or the new (v1.0.397) **background-music lead-in** that delays the voice — the subtitle timelines built from the **clean per-chapter narration** (the stitched `_stitched.srt` and the "Auto from chapters" `_chapters.srt`) still started at `00:00:00`, so every caption ran **ahead of the video by the lead-in length**. That's the mismatch.
+
+The subtitle builders now detect the **intro lead-in** and offset the whole timeline by it. It's computed read-only as `merged-audio duration − narration extent` — the merge has no outro, so that difference is exactly the lead-in, **whichever way it was produced** (intro file or the music lead-in from 1.0.397). Nothing in the Audio Assembly / merge code is touched; intro-less episodes compute a 0 offset and are byte-for-byte unchanged. The detected value is logged ("intro lead-in 12.0s applied").
+
+To apply it to an episode you already transcribed: **re-run "Transcribe (Whisper)"** (the auto-stitch re-applies it) or click **"Auto from chapters"** again. The merged-audio Whisper SRT (`_whisper.srt`) was already correct (Whisper times against the merged file directly) and is unchanged. Scene Plan's stitch passes no lead-in, so scene timing is unaffected.
+
+### Files
+- `electron/server/lib/intro-lead-in.ts` (new — `computeIntroLeadInSec`)
+- `electron/server/services/subtitle-stitcher.ts` (optional `lead_in_sec` → timeline start offset)
+- `electron/server/generators/subtitles.ts` (auto-stitch computes + applies the lead-in)
+- `electron/server/lib/subtitle-builder.ts` (`chaptersFromDurations` start-offset param)
+- `electron/server/routes/video.ts` ("from chapters" derivation applies + reports the lead-in)
+
+---
+
 ## v1.0.397 — 2026-06-16
 
 ### Added — Audio Assembly: use the first few seconds of the background music as a full-volume intro

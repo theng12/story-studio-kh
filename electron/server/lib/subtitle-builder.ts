@@ -321,9 +321,12 @@ export function normalizeSrtOrVtt(raw: string, opts?: { source_filename?: string
 export function chaptersFromDurations(
   items: Array<{ title: string; duration_sec: number }>,
   gap_sec: number,
+  /** v1.0.397 — start the timeline at this offset (seconds) so chapter cues
+   *  line up with a merged track that begins with an intro. Default 0. */
+  start_offset_sec = 0,
 ): Chapter[] {
   const out: Chapter[] = []
-  let cursor = 0
+  let cursor = Math.max(0, start_offset_sec)
   for (const it of items) {
     const start = cursor
     const end = cursor + Math.max(0, it.duration_sec)

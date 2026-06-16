@@ -43,6 +43,12 @@ export interface StitcherInputs {
   /** Episode code, used to name the stitched output + match
    *  per-chapter SRT files. */
   episode_code: string
+  /** v1.0.397 — seconds of intro audio (intro + its gap) prepended to the
+   *  merged track. The stitched timeline starts at this offset so the burned
+   *  captions line up with the video instead of running ahead by the intro
+   *  length. Default 0 (no intro) — Scene Plan's stitch passes nothing, so
+   *  scene timing is unchanged. */
+  lead_in_sec?: number
 }
 
 export interface StitchedSection {
@@ -74,6 +80,8 @@ export interface StitchResult {
   /** Gap value the stitch was performed with. Matches what's in
    *  audio_chapters.json at the time. */
   gap_sec: number
+  /** v1.0.397 — intro lead-in the timeline was offset by (0 = none). */
+  lead_in_sec: number
 }
 
 interface AudioChaptersSidecar {
@@ -169,10 +177,14 @@ export async function stitchSubtitles(inputs: StitcherInputs): Promise<StitchRes
   const allFiles = await fs.readdir(subtitles_dir)
   const srtFiles = allFiles.filter(f => f.toLowerCase().endsWith('.srt'))
 
-  // Walk sections, offset each chapter's cues, accumulate.
+  // Walk sections, offset each chapter's cues, accumulate. The timeline
+  // starts at the intro lead-in (v1.0.397) so the captions line up with the
+  // merged audio (which plays the intro before any narration). 0 when there's
+  // no intro — identical to the pre-1.0.397 timeline.
+  const leadIn = Math.max(0, Number(inputs.lead_in_sec) || 0)
   const stitchedCues: SrtCue[] = []
   const sectionsResult: StitchedSection[] = []
-  let cursor = 0
+  let cursor = leadIn
   let cueIdx = 0
   for (const sec of sectionsMeta) {
     const sourceSrt = findSrtForChapter(srtFiles, episode_code, sec.slug)
@@ -252,6 +264,7 @@ export async function stitchSubtitles(inputs: StitcherInputs): Promise<StitchRes
     schema_version: 1,
     generated_at: new Date().toISOString(),
     gap_duration_s: gapSec,
+    lead_in_sec: leadIn,
     total_cues: stitchedCues.length,
     total_duration_sec: totalDuration,
     sections: sectionsResult,
@@ -264,5 +277,6 @@ export async function stitchSubtitles(inputs: StitcherInputs): Promise<StitchRes
     sections: sectionsResult,
     total_duration_sec: totalDuration,
     gap_sec: gapSec,
+    lead_in_sec: leadIn,
   }
 }
