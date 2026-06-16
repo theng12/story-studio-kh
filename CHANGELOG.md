@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.395 — 2026-06-15
+
+### Added — Local Whisper option in the B-Roll subtitle transcriber
+The B-Roll page's "🎙 Transcribe (Whisper)" tab was hardwired to the **paid OpenAI Whisper API**. It now has the same **engine selector** the Subtitles workspace already had: choose **💻 Voice Studio (local · free)** or **☁︎ OpenAI Whisper (paid)**. Pick local and your own Whisper model — surfaced live from your running Voice Studio modal (`/v1` transcribe catalog), tagged with size / recommended / not-downloaded — runs on your Mac, **free, no API charge, offline**. The engine defaults to local so you stop burning OpenAI credit by accident; if the modal isn't reachable you get a clear "configure/start it" hint (and can switch to OpenAI). A not-yet-downloaded model can be fetched inline before transcribing.
+
+Backend was already engine-aware (the transcribe route, generator, and availability endpoint all accept `{ engine, model }`) — this just surfaces the choice on the B-Roll page and passes the fields through, mirroring the Subtitles workspace. The B-Roll assembler itself is unchanged: it still burns whatever SRT lands in the episode's subtitles folder.
+
+### Files
+- `frontend/pages/projects/[slug]/broll.vue` (engine selector + local-model dropdown + availability load/download in the Whisper tab; `transcribeBrollWithWhisper` now sends `engine`/`model`)
+
+---
+
 ## v1.0.394 — 2026-06-15
 
 ### Improved — cross-device file paths now survive Mac-to-Mac project handoff much better

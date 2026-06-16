@@ -468,19 +468,75 @@
 
       <!-- Whisper -->
       <div v-if="subtitlesSource === 'whisper'" class="mt-2">
-        <p class="text-muted text-sm">
-          Transcribes the merged audio via the <strong>OpenAI Whisper API</strong>
-          directly — uses the OpenAI key configured in <strong>App Settings →
-          API Keys</strong> (not kie.ai, not fal.ai). Produces word-level cues.
-          Costs ~$0.006/min on the <code>whisper-1</code> model; OpenAI
-          handles billing on your account.
-        </p>
-        <p
-          v-if="subtitlesStatus && !subtitlesStatus.has_openai_key"
-          class="validation-msg text-sm"
-        >
-          OpenAI API key not set. Add one under App Settings → API Keys.
-        </p>
+        <!-- v1.0.395 — engine: local Voice Studio Whisper (free) vs OpenAI (paid). -->
+        <div class="flex gap-2 flex-wrap">
+          <button
+            type="button"
+            :class="['btn btn-sm', brollWhisperEngine === 'voicestudio' ? 'btn-primary' : 'btn-secondary']"
+            @click="brollWhisperEngine = 'voicestudio'"
+          >💻 Voice Studio (local · free)</button>
+          <button
+            type="button"
+            :class="['btn btn-sm', brollWhisperEngine === 'openai' ? 'btn-primary' : 'btn-secondary']"
+            @click="brollWhisperEngine = 'openai'"
+          >☁︎ OpenAI Whisper (paid)</button>
+        </div>
+
+        <!-- Local Voice Studio engine -->
+        <template v-if="brollWhisperEngine === 'voicestudio'">
+          <p class="text-muted text-sm mt-2">
+            Transcribes the merged audio with a <strong>local Whisper model</strong> on your
+            own Mac via Voice Studio — free, no API charge, fully offline.
+          </p>
+          <div v-if="brollVsAvailLoading" class="text-muted text-sm">Checking Voice Studio…</div>
+          <template v-else-if="!brollVsAvail?.available">
+            <p class="validation-msg text-sm">
+              ⚠ Voice Studio transcription isn't reachable.
+              <template v-if="!brollVsAvail?.configured">
+                Set the URL in
+                <NuxtLink :to="`/projects/${slug}/settings`" style="color: var(--accent)">Settings → Local Models</NuxtLink>,
+                then start the modal.
+              </template>
+              <template v-else>Start the Voice Studio modal (and load a Whisper model), then re-check.</template>
+            </p>
+            <button class="btn btn-sm btn-ghost mt-1" :disabled="brollVsAvailLoading" @click="loadBrollVsAvailability">
+              ↻ Re-check
+            </button>
+          </template>
+          <template v-else>
+            <div class="form-group mt-2">
+              <label class="text-muted text-xs">Whisper model · on {{ brollVsAvail.device || 'mps' }}</label>
+              <select v-model="brollVsModel" class="select select-sm">
+                <option v-for="m in (brollVsAvail.models || [])" :key="m.repo" :value="m.repo">
+                  {{ m.label || m.repo }}{{ m.size_gb ? ` · ${m.size_gb} GB` : '' }}{{ m.recommended ? ' · recommended' : '' }}{{ m.cached ? '' : ' · not downloaded' }}
+                </option>
+              </select>
+            </div>
+            <div v-if="brollVsSelectedNotCached" class="mt-1 text-sm">
+              <button class="btn btn-sm btn-secondary" :disabled="downloadingBrollModel" @click="downloadBrollVsModel">
+                {{ downloadingBrollModel ? 'Downloading…' : 'Download this model' }}
+              </button>
+              <span class="text-muted text-xs ml-1">Not on the modal yet — download once, then transcribe.</span>
+            </div>
+          </template>
+        </template>
+
+        <!-- OpenAI engine -->
+        <template v-else>
+          <p class="text-muted text-sm mt-2">
+            Transcribes the merged audio via the <strong>OpenAI Whisper API</strong> —
+            uses the OpenAI key in <strong>App Settings → API Keys</strong>. Costs
+            ~$0.006/min on the <code>whisper-1</code> model, billed to your OpenAI account.
+          </p>
+          <p
+            v-if="subtitlesStatus && !subtitlesStatus.has_openai_key"
+            class="validation-msg text-sm"
+          >
+            OpenAI API key not set. Add one under App Settings → API Keys.
+          </p>
+        </template>
+
+        <!-- Shared: merged-audio guard + existing-SRT reuse + go button -->
         <p
           v-if="subtitlesStatus && !subtitlesStatus.has_merged_audio"
           class="validation-msg text-sm"
@@ -489,19 +545,18 @@
         </p>
         <p v-if="brollHasExistingWhisperSrt" class="text-muted text-sm">
           <strong>{{ brollExistingWhisperSrtName }}</strong> already exists — the
-          job will skip the (paid) Whisper API and reuse it. Tick below to
-          re-run with a fresh charge.
+          job reuses it unless you tick re-run below.
         </p>
         <label
           v-if="brollHasExistingWhisperSrt"
           class="flex items-center gap-1 mt-1 text-sm"
         >
           <input type="checkbox" v-model="brollWhisperForce" />
-          Re-run transcription (charges Whisper API again)
+          Re-run transcription{{ brollWhisperEngine === 'openai' ? ' (charges Whisper API again)' : '' }}
         </label>
         <button
           class="btn btn-sm btn-secondary mt-1"
-          :disabled="subtitlesGenerating || !form.episode_id || !subtitlesStatus?.has_merged_audio || !subtitlesStatus?.has_openai_key"
+          :disabled="subtitlesGenerating || !canTranscribeBroll"
           @click="transcribeBrollWithWhisper"
         >
           {{ subtitlesGenerating ? 'Queuing…' : (brollHasExistingWhisperSrt && !brollWhisperForce ? 'Reuse existing transcript' : 'Transcribe now') }}
@@ -711,6 +766,19 @@ const subtitlesStatus = ref<{
 const brollSubtitleUploadPath = ref('')
 const brollWhisperForce = ref(false)
 
+// v1.0.395 — B-Roll Whisper engine: local Voice Studio (free) vs OpenAI (paid).
+// Defaults to the local engine — the whole point of this control is to stop
+// burning OpenAI credits. The backend transcribe route + generator already
+// accept { engine, model }; this just surfaces the choice on the B-Roll page
+// (mirrors the Subtitles workspace, which already had it).
+interface BrollVsModel { repo: string; label?: string; size_gb?: number; recommended?: boolean; cached?: boolean }
+interface BrollVsAvail { available: boolean; configured?: boolean; device?: string; default_model?: string; models?: BrollVsModel[] }
+const brollWhisperEngine = ref<'voicestudio' | 'openai'>('voicestudio')
+const brollVsAvail = ref<BrollVsAvail | null>(null)
+const brollVsAvailLoading = ref(false)
+const brollVsModel = ref('')
+const downloadingBrollModel = ref(false)
+
 // Persistent subtitle config — saved to config.broll_subtitles. Default
 // shape matches what broll-assemble.ts expects on the wire + the
 // VideoSubtitleStyle interface. `gap_sec` controls subtitle cue
@@ -791,6 +859,18 @@ const brollExistingWhisperSrtName = computed(() => {
   return found?.filename || ''
 })
 
+// The selected local model exists in the modal's catalog but isn't downloaded yet.
+const brollVsSelectedNotCached = computed(() => {
+  const m = (brollVsAvail.value?.models || []).find(x => x.repo === brollVsModel.value)
+  return !!m && m.cached === false
+})
+// Engine-aware "can we transcribe" gate for the button.
+const canTranscribeBroll = computed(() => {
+  if (!form.episode_id || !subtitlesStatus.value?.has_merged_audio) return false
+  if (brollWhisperEngine.value === 'openai') return !!subtitlesStatus.value?.has_openai_key
+  return !!brollVsAvail.value?.available && !!brollVsModel.value
+})
+
 async function loadBrollSubtitlesStatus(): Promise<void> {
   if (!form.episode_id) {
     subtitlesStatus.value = null
@@ -844,18 +924,72 @@ async function importBrollSubtitles(): Promise<void> {
   }
 }
 
+// Load the local Voice Studio Whisper catalog (which models the modal has
+// cached + ready). Mirrors the Subtitles workspace's loader: prefer the
+// already-selected model, then the modal default, then a recommended/cached one.
+async function loadBrollVsAvailability(): Promise<void> {
+  brollVsAvailLoading.value = true
+  try {
+    const a = await get<BrollVsAvail>('/voicestudio/transcribe-availability')
+    brollVsAvail.value = a
+    const models = a.models || []
+    const cached = new Set(models.filter(m => m.cached).map(m => m.repo))
+    const pick =
+      (brollVsModel.value && models.some(m => m.repo === brollVsModel.value)) ? brollVsModel.value :
+      (a.default_model && cached.has(a.default_model)) ? a.default_model! :
+      (models.find(m => m.recommended && m.cached)?.repo) ||
+      (models.find(m => m.cached)?.repo) ||
+      (models.find(m => m.recommended)?.repo) ||
+      (models[0]?.repo) || ''
+    if (pick) brollVsModel.value = pick
+  } catch {
+    brollVsAvail.value = { available: false }
+  } finally {
+    brollVsAvailLoading.value = false
+  }
+}
+
+async function downloadBrollVsModel(): Promise<void> {
+  if (!brollVsModel.value) return
+  downloadingBrollModel.value = true
+  try {
+    await post('/voicestudio/download-model', { repo: brollVsModel.value })
+    success('Model download started on the modal — re-checking availability…')
+    await loadBrollVsAvailability()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to start model download')
+  } finally {
+    downloadingBrollModel.value = false
+  }
+}
+
+// Lazy-load the local-model catalog the first time the user lands on the
+// Whisper tab with the local engine selected (and when switching to it).
+watch([subtitlesSource, brollWhisperEngine], ([src, eng]) => {
+  if (src === 'whisper' && eng === 'voicestudio' && !brollVsAvail.value && !brollVsAvailLoading.value) {
+    void loadBrollVsAvailability()
+  }
+})
+
 async function transcribeBrollWithWhisper(): Promise<void> {
   if (!form.episode_id) return
   subtitlesGenerating.value = true
   try {
     await post(
       `/projects/${slug.value}/video-editor/subtitles/transcribe/${form.episode_id}`,
-      { language: 'en', force: brollWhisperForce.value },
+      {
+        language: 'en',
+        force: brollWhisperForce.value,
+        engine: brollWhisperEngine.value,
+        model: brollWhisperEngine.value === 'voicestudio' ? brollVsModel.value : undefined,
+      },
     )
     success(
       brollHasExistingWhisperSrt.value && !brollWhisperForce.value
-        ? 'Existing transcript will be reused — no Whisper charge'
-        : 'Whisper transcription queued — check Jobs panel for progress',
+        ? 'Existing transcript will be reused — no transcription run'
+        : brollWhisperEngine.value === 'voicestudio'
+          ? 'Local Whisper transcription queued — check Jobs panel for progress'
+          : 'OpenAI Whisper transcription queued — check Jobs panel for progress',
     )
     // No immediate srt_path set — the transcribe job is async. The user
     // pops back here later (or the status refreshes after the job 'done'
