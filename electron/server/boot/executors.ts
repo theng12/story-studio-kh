@@ -29,6 +29,7 @@ import { normalizeBroll } from '../generators/broll-normalize.js'
 import { generateBrollAssemble } from '../generators/broll-assemble.js'
 import { generateBrollAutotag } from '../generators/broll-autotag.js'
 import { fetchBroll } from '../generators/broll-fetch.js'
+import { generateImagePoolImages } from '../generators/image-pool-generate.js'
 import { runResearchJob } from '../generators/research.js'
 import { runScenePlanJob } from '../generators/scene-plan.js'
 import { generateSceneImageJob } from '../generators/scene-image.js'
@@ -90,6 +91,8 @@ export function registerAllExecutors(): void {
   // routes/broll-fetch.ts; the per-pool queue endpoint lives in
   // routes/broll-pools.ts alongside normalize/autotag.
   registerExecutor('broll_fetch', fetchBroll)
+  // v1.0.410+ — generate stills into an Image Pool (grow the pool).
+  registerExecutor('image_pool_generate', generateImagePoolImages)
   // v1.0.142+ — Research phase for the timestamp-driven pipeline.
   registerExecutor('research_run', runResearchJob)
   // v1.0.143+ — Scene planner for the timestamp-driven pipeline.

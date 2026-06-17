@@ -339,6 +339,97 @@ router.post('/projects/:slug/image-pool/pick', async (req, res) => {
   }
 })
 
+// ── POST /image-pool/generate ──────────────────────────────────────────
+// v1.0.410 — grow an Image Pool by generating new stills from prompts and
+// dropping them into the pool folder (then indexing them). Runs in this
+// project's context so config.image_models + API keys resolve.
+router.post('/projects/:slug/image-pool/generate', async (req, res) => {
+  const { slug } = req.params
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const body = req.body || {}
+    const poolId = typeof body.pool_id === 'string' ? body.pool_id : ''
+    const model = typeof body.model === 'string' ? body.model.trim() : ''
+    const prompts = Array.isArray(body.prompts)
+      ? body.prompts.map((p: any) => String(p || '').trim()).filter(Boolean)
+      : []
+    if (!poolId) return res.status(400).json({ detail: 'pool_id is required' })
+    if (!model) return res.status(400).json({ detail: 'model is required' })
+    if (!prompts.length) return res.status(400).json({ detail: 'At least one prompt is required' })
+
+    const pool = await bp.getPool(poolId)
+    if (!pool) return res.status(404).json({ detail: `Pool '${poolId}' not found` })
+    if (bp.poolMedia(pool) !== 'image') return res.status(400).json({ detail: `Pool '${poolId}' is not an image pool` })
+    if (!existsSync(pool.folder_path)) {
+      return res.status(409).json({ detail: `Pool folder offline — connect ${pool.folder_path} first.` })
+    }
+    // One generate run per pool at a time (it appends files + rescans).
+    if (jq.isDuplicate(slug, poolId, 'image_pool_generate' as JobType)) {
+      return res.status(409).json({ detail: `Generation already running for pool ${pool.name}` })
+    }
+
+    const job = jq.enqueue({
+      project_slug: slug,
+      type: 'image_pool_generate' as JobType,
+      episode_id: poolId,  // pool id threaded via the episode slot (app-level target)
+      title: `Generate ${prompts.length} image(s) → ${pool.name}`,
+      params: {
+        pool_id: poolId,
+        prompts,
+        model,
+        aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+        variants: Number.isFinite(Number(body.variants)) ? Number(body.variants) : 1,
+      },
+    })
+    res.status(201).json(job)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Image generation failed to queue'))
+  }
+})
+
+// ── POST /image-pool/suggest-prompts ───────────────────────────────────
+// v1.0.410 — LLM helper: turn a short topic into a list of image prompts the
+// user can review/edit before generating. Uses the project's text-model key
+// resolution (callAi tiers). Returns { prompts: string[] }.
+router.post('/projects/:slug/image-pool/suggest-prompts', async (req, res) => {
+  const { slug } = req.params
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const body = req.body || {}
+    const topic = typeof body.topic === 'string' ? body.topic.trim() : ''
+    const model = typeof body.model === 'string' ? body.model.trim() : ''
+    const count = Math.max(1, Math.min(50, Math.floor(Number(body.count) || 10)))
+    if (!topic) return res.status(400).json({ detail: 'topic is required' })
+    if (!model) return res.status(400).json({ detail: 'model is required' })
+
+    const { callAi } = await import('../lib/ai-client.js')
+    const system = 'You write concise, vivid text-to-image prompts. Output ONLY a JSON array of strings — no prose, no numbering, no code fence.'
+    const user = `Write ${count} distinct text-to-image prompts for: "${topic}". `
+      + `Each prompt is one self-contained sentence describing a single image (subject, setting, mood, lighting). `
+      + `Vary the scenes so a slideshow of them feels diverse. Return a JSON array of ${count} strings.`
+    const raw = await callAi(model, system, user, {}, false, { slug })
+
+    // Tolerant parse: JSON array if present, else split lines.
+    let prompts: string[] = []
+    const s = String(raw || '').trim()
+    const a = s.indexOf('['); const b = s.lastIndexOf(']')
+    if (a >= 0 && b > a) {
+      try {
+        const arr = JSON.parse(s.slice(a, b + 1))
+        if (Array.isArray(arr)) prompts = arr.filter((x: any) => typeof x === 'string')
+      } catch { /* fall through to line split */ }
+    }
+    if (!prompts.length) {
+      prompts = s.split('\n').map(l => l.replace(/^\s*(?:\d+[.)]|[-*])\s*/, '').trim()).filter(Boolean)
+    }
+    prompts = prompts.map(p => p.trim()).filter(Boolean).slice(0, count)
+    if (!prompts.length) return res.status(502).json({ detail: 'The model returned no usable prompts — try again or a different model.' })
+    res.json({ prompts })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Prompt suggestion failed'))
+  }
+})
+
 // ── POST /image-pool/assemble ──────────────────────────────────────────
 // v1.0.407 — assemble the Image Pool slideshow. Reuses the broll_assemble
 // executor (the sidecar's media:'image' stamp makes it loop stills + crop-fill

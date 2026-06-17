@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.410 — 2026-06-17
+
+### Added — Generate images into a pool (P5) — grow the Image Pool with AI
+The Image Slideshow tab gets a **"Grow this pool"** panel: generate new stills straight into the pool and index them, so the pool you randomize from keeps expanding.
+
+- **Prompts → images:** paste image prompts (one per line), pick any image model (cloud or local Image Studio), choose variants-per-prompt, and **✨ Generate into pool**. Each result downloads into the pool folder with a `gen-…` name and the pool is re-scanned (indexed + thumbnailed) automatically — immediately selectable by the slideshow.
+- **💡 Suggest prompts (optional):** give a topic + count + an LLM, and it drafts that many diverse image prompts into the box for you to edit before generating (your "scene-prompt-style" step). Uses your project's text model.
+- Runs as a background job (`image_pool_generate`) in the project's context, so its image-model config + API keys resolve like the per-scene generator. One generate run per pool at a time.
+
+This completes the Image Pool feature (P1–P5): media-aware pools → tagging → selection + cross-episode dedup → still-image assembler → format/UI → and now AI pool-expansion.
+
+### Files
+- `electron/server/generators/image-pool-generate.ts` (new generator), `electron/server/boot/executors.ts` + `services/job-queue.ts` + `models/types.ts` (job type/queue/executor)
+- `electron/server/routes/broll-project.ts` (`image-pool/generate` + `image-pool/suggest-prompts`)
+- `frontend/pages/projects/[slug]/image-pool.vue` (Grow-pool panel: prompts, image model, variants, LLM suggester)
+
+---
+
 ## v1.0.409 — 2026-06-17
 
 ### Changed — Image Slideshow is a tab under Video Assembly (not a separate nav item)

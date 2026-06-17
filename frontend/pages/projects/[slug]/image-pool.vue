@@ -109,6 +109,66 @@
         then <NuxtLink :to="`/projects/${slug}/subtitles`" class="text-accent">Subtitles</NuxtLink>. The slideshow is sized to the narration.
       </p>
     </section>
+
+    <!-- 4. Grow the pool by generating images (optional) -->
+    <section v-if="poolId" class="card mt-3">
+      <h3 class="ip-grow-head" @click="showGrow = !showGrow">
+        <span>4. Grow this pool — generate images (optional)</span>
+        <span class="text-muted text-sm">{{ showGrow ? '▾' : '▸' }}</span>
+      </h3>
+      <template v-if="showGrow">
+        <p class="text-muted text-sm mt-1">
+          Generate new images straight into <strong>{{ selectedPool?.name }}</strong> and index them —
+          a fast way to expand the pool. Uses your project's image model + key.
+        </p>
+
+        <!-- Optional: LLM-suggest prompts from a topic -->
+        <div class="ip-grow-sub mt-2">
+          <label class="ip-label">Suggest prompts from a topic (optional)</label>
+          <div class="ip-row mt-1">
+            <input v-model="suggestTopic" class="input ip-topic" placeholder="e.g. a capybara doing everyday human chores" />
+            <input type="number" min="1" max="50" step="1" class="input ip-num" v-model.number="suggestCount" title="How many prompts to suggest" />
+            <div class="ip-model-pick"><ModelSelector v-model="suggestModel" :project-slug="slug" /></div>
+            <button class="btn btn-secondary btn-sm" :disabled="suggesting || !suggestTopic.trim() || !suggestModel" @click="suggestPrompts">
+              {{ suggesting ? 'Thinking…' : '💡 Suggest' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Prompts -->
+        <div class="mt-3">
+          <label class="ip-label">Prompts — one per line</label>
+          <textarea v-model="genPrompts" class="input ip-prompts mt-1" rows="6" placeholder="One image prompt per line…"></textarea>
+          <span class="text-muted text-xs">{{ promptLines.length }} prompt(s) × {{ genVariants }} = {{ promptLines.length * genVariants }} image(s)</span>
+        </div>
+
+        <!-- Image model + variants + go -->
+        <div class="ip-row mt-2">
+          <div class="ip-model-pick">
+            <ImageModelPicker
+              v-model="genModel"
+              :project-slug="slug"
+              :image-models="config?.image_models || {}"
+              image-mode="text2img"
+              default-label="Pick an image model…"
+            />
+          </div>
+          <label class="ip-inline-label" title="Images to generate per prompt.">
+            Variants
+            <input type="number" min="1" max="4" step="1" class="input ip-num" v-model.number="genVariants" />
+          </label>
+        </div>
+        <div class="ip-actions mt-3">
+          <button class="btn btn-primary" :disabled="generating || !genModel || !promptLines.length || !selectedPool?.online" @click="generateIntoPool">
+            {{ generating ? 'Queuing…' : `✨ Generate ${promptLines.length * genVariants || ''} into pool` }}
+          </button>
+          <span class="text-muted text-sm">
+            Runs in the background — images land in the pool + get indexed. Watch the
+            <NuxtLink :to="`/projects/${slug}/jobs`" class="text-accent">Jobs</NuxtLink> panel, then Re-pick.
+          </span>
+        </div>
+      </template>
+    </section>
   </div>
 </template>
 
@@ -144,6 +204,18 @@ interface PickResult {
   warnings?: string[]
 }
 const lastPick = ref<PickResult | null>(null)
+
+// v1.0.410 — "Grow this pool" (generate images into the pool).
+const showGrow = ref(false)
+const genPrompts = ref('')
+const genModel = ref('')
+const genVariants = ref<number>(1)
+const generating = ref(false)
+const suggestTopic = ref('')
+const suggestCount = ref<number>(10)
+const suggestModel = ref('')
+const suggesting = ref(false)
+const promptLines = computed(() => genPrompts.value.split('\n').map(l => l.trim()).filter(Boolean))
 
 const imagePools = computed(() => (broll.pools.value || []).filter((p: any) => p.media === 'image'))
 const selectedPool = computed(() => imagePools.value.find((p: any) => p.id === poolId.value) || null)
@@ -214,6 +286,45 @@ async function assemble(): Promise<void> {
   }
 }
 
+async function suggestPrompts(): Promise<void> {
+  if (!suggestTopic.value.trim() || !suggestModel.value) return
+  suggesting.value = true
+  try {
+    const r = await post<{ prompts: string[] }>(`/projects/${slug.value}/image-pool/suggest-prompts`, {
+      topic: suggestTopic.value.trim(),
+      count: suggestCount.value,
+      model: suggestModel.value,
+    })
+    const lines = (r.prompts || []).join('\n')
+    // Append to whatever's already there rather than clobbering.
+    genPrompts.value = genPrompts.value.trim() ? `${genPrompts.value.trim()}\n${lines}` : lines
+    success(`Added ${r.prompts.length} suggested prompt(s) — edit before generating.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to suggest prompts')
+  } finally {
+    suggesting.value = false
+  }
+}
+
+async function generateIntoPool(): Promise<void> {
+  if (!poolId.value || !genModel.value || !promptLines.value.length) return
+  generating.value = true
+  try {
+    await post(`/projects/${slug.value}/image-pool/generate`, {
+      pool_id: poolId.value,
+      prompts: promptLines.value,
+      model: genModel.value,
+      aspect_ratio: '16:9',
+      variants: genVariants.value,
+    })
+    success(`Queued generation of ${promptLines.value.length * genVariants.value} image(s) → watch the Jobs panel.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to queue generation')
+  } finally {
+    generating.value = false
+  }
+}
+
 // A fresh pick is required per episode (the selection sidecar is per-episode).
 watch(episodeId, () => { lastPick.value = null; hasSelection.value = false })
 
@@ -237,4 +348,10 @@ onMounted(async () => {
 .ip-warn { color: #c97a4a; font-size: 13px; }
 .ip-warn-list { margin: 0; padding-left: 18px; color: #c97a4a; font-size: 12px; }
 .text-accent { color: var(--accent); }
+/* Grow-pool panel */
+.ip-grow-head { display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; margin: 0; }
+.ip-grow-sub { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-tertiary); }
+.ip-topic { flex: 1 1 280px; min-width: 200px; }
+.ip-prompts { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; resize: vertical; }
+.ip-model-pick { min-width: 220px; max-width: 340px; flex: 0 1 300px; }
 </style>
