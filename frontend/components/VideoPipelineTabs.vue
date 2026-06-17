@@ -31,20 +31,21 @@ const slug = computed(() => route.params.slug as string)
 
 // v1.0.412 — the Image Pool slideshow was unified into the Scenes editor (load
 // pool images as scenes in Step 1), so it no longer has its own tab.
+// v1.0.414 — B-Roll was unified the same way (load pool clips as scenes in
+// Step 1), so its tab is retired too. The /broll page still exists for
+// pool-only workflows but is no longer surfaced here.
 const tabs = computed(() => [
   { id: 'scenes', label: '🎞 Scenes', to: `/projects/${slug.value}/video-assembly` },
-  { id: 'broll', label: '🎬 B-Roll', to: `/projects/${slug.value}/broll` },
   { id: 'timestamps', label: '🕐 Timestamps', to: `/projects/${slug.value}/timestamp-assemble` },
 ])
 
-const activeTab = computed<'scenes' | 'broll' | 'timestamps'>(() => {
+const activeTab = computed<'scenes' | 'timestamps'>(() => {
   if (route.path.endsWith('/timestamp-assemble')) return 'timestamps'
-  if (route.path.endsWith('/broll')) return 'broll'
   return 'scenes'
 })
 
 // Which tab this project's pipeline actually uses. null = unknown (leave all on).
-const applicableTab = ref<'scenes' | 'broll' | 'timestamps' | null>(null)
+const applicableTab = ref<'scenes' | 'timestamps' | null>(null)
 const pipelineLabel = ref('')
 
 async function loadPipeline(): Promise<void> {
@@ -55,7 +56,7 @@ async function loadPipeline(): Promise<void> {
     // v1.0.280+ — normalize the unified `scenes` format (visualSource
     // 'scene-images' + sceneAlignment) onto the pipeline vocabulary.
     const vs = normalizeVisualSource(fmt?.visualSource, fmt?.sceneAlignment)
-    if (vs === 'broll') { applicableTab.value = 'broll'; pipelineLabel.value = 'Stock Footage' }
+    if (vs === 'broll') { applicableTab.value = 'scenes'; pipelineLabel.value = 'B-Roll (loaded as scenes)' }
     else if (vs === 'image-pool') { applicableTab.value = 'scenes'; pipelineLabel.value = 'Image Pool (loaded as scenes)' }
     else if (vs === 'timestamp-driven' || vs === 'continuity-chain' || vs === 'narrated-scenes') { applicableTab.value = 'scenes'; pipelineLabel.value = 'full scene editor' }
     else { applicableTab.value = 'scenes'; pipelineLabel.value = 'chapter-distributed scenes' }

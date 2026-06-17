@@ -387,11 +387,15 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
     skip_chapters: false,
   }
 
-  // Scan scene images
+  // Scan scene images. Video extensions are included too (v1.0.414): the
+  // B-Roll pivot materializes pool clips as scene_NNNN.mp4 in this folder so
+  // the Scenes editor treats them as scenes (overlays/logo/effects/subtitles/
+  // transitions/export all apply). prepareSceneClips branches on the file's
+  // extension to prepare a still vs a looped/trimmed video clip.
   if (imagesDir) {
     const files = await safeReaddir(imagesDir)
     for (const file of files) {
-      if (!/\.(png|jpg|jpeg|webp)$/i.test(file)) continue
+      if (!/\.(png|jpg|jpeg|webp|mp4|mov|webm|mkv|m4v)$/i.test(file)) continue
       const num = extractSceneNumber(file)
       if (num !== null) {
         result.scenes.push({
@@ -1846,17 +1850,29 @@ async function prepareSceneClips(
           : defaultDuration
     const duration = Math.max(0.5, durationCandidate)
 
+    // v1.0.414 — a scene whose source is a video (materialized B-Roll clip)
+    // is normalised to the canvas by crop-fill and plays for the same uniform
+    // per-scene `duration` as a still; it does NOT get Ken Burns (it already
+    // moves) and its own audio is dropped (narration carries the soundtrack).
+    // Everything downstream (cycling, xfade transitions, effect gate,
+    // subtitles, logo, overlays, export) is identical to a still scene.
+    const isVideoScene = /\.(mp4|mov|webm|mkv|m4v)$/i.test(scene.image_path || '')
+
     const pickedType = picks[i]
     const durLog = Math.abs(duration - defaultDuration) > 0.05 ? ` [dur=${duration.toFixed(2)}s]` : ''
-    job.output_lines.push(`Preparing scene clips: ${i + 1}/${scenes.length}${pickedType !== sceneAnimation.type ? ` [anim=${pickedType}]` : ''}${durLog}`)
+    job.output_lines.push(`Preparing scene clips: ${i + 1}/${scenes.length}${isVideoScene ? ' [video]' : (pickedType !== sceneAnimation.type ? ` [anim=${pickedType}]` : '')}${durLog}`)
 
-    const vfParts = buildAnimationFilter({
-      type: pickedType,
-      params: sceneAnimation,
-      w, h,
-      fps: quality.fps,
-      duration,
-    })
+    const vfParts = isVideoScene
+      // crop-fill: scale up to cover the canvas, then centre-crop the overflow
+      // (matches the B-Roll/Image-Pool fill behaviour). No Ken Burns.
+      ? [`scale=${w}:${h}:force_original_aspect_ratio=increase`, `crop=${w}:${h}`]
+      : buildAnimationFilter({
+          type: pickedType,
+          params: sceneAnimation,
+          w, h,
+          fps: quality.fps,
+          duration,
+        })
 
     // Chapter title overlay. v1.0.56+ optionally animates entry via
     // drawtext's `alpha=` (fade) or `x=` / `y=` (slide) expressions.
@@ -1925,9 +1941,15 @@ async function prepareSceneClips(
     // switch mid-file, which libx265 rejects at final composition init with
     // exit code 183 / return code -22 (EINVAL). See docs/history/
     // fal-model-audit-2026-04.md? no — investigation trail in plan file.
+    // Stills loop a single frame (`-loop 1`); video scenes stream-loop the
+    // source so a clip shorter than `duration` repeats to fill it, and the
+    // trailing `-t` trims a longer clip — either way the output is exactly
+    // `duration` seconds, keeping it interchangeable with a still scene.
+    const inputArgs = isVideoScene
+      ? ['-stream_loop', '-1', '-i', scene.image_path]
+      : ['-loop', '1', '-t', duration.toString(), '-i', scene.image_path]
     const args = [
-      '-y', '-loop', '1', '-t', duration.toString(),
-      '-i', scene.image_path,
+      '-y', ...inputArgs,
       '-vf', vfParts.join(','),
       '-c:v', 'libx264', '-crf', quality.crf.toString(),
       '-preset', 'ultrafast', '-r', quality.fps.toString(),

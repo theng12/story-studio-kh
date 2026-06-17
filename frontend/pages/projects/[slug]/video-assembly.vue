@@ -204,6 +204,44 @@
         </p>
       </div>
 
+      <!-- v1.0.414 — B-Roll source: load pool video clips as this episode's
+           scenes, then use the full editor below. Twin of the Image Pool panel. -->
+      <div v-if="isBrollFormat" class="imgpool-source mt-3">
+        <h4>🎬 B-Roll source</h4>
+        <p class="text-muted text-sm mt-1">
+          Load random clips from a B-Roll pool as this episode's scenes (sized to the narration,
+          no-repeat across recent episodes). Each clip is crop-filled to frame and plays for the
+          per-scene duration. Then continue below to apply overlays / logo / effects / subtitles
+          and render.
+        </p>
+        <template v-if="videoPools.length">
+          <div class="imgpool-row mt-2">
+            <select v-model="brollPoolId" class="select imgpool-select">
+              <option value="" disabled>Pick a B-Roll pool…</option>
+              <option v-for="p in videoPools" :key="p.id" :value="p.id">
+                {{ p.name }}{{ p.online ? '' : ' (offline)' }}
+              </option>
+            </select>
+            <label class="imgpool-inline" title="Drives how many clips are loaded (narration ÷ this). On-screen pacing is set by the Scene Recycling control in Step 3.">
+              Seconds / clip
+              <input type="number" min="1" max="60" step="1" class="input imgpool-num" v-model.number="brollSeconds" />
+            </label>
+            <button
+              class="btn btn-sm btn-primary"
+              :disabled="brollLoading || !brollPoolId || !episodeId || (selectedBrollPool && !selectedBrollPool.online)"
+              @click="loadClipsAsScenes"
+            >
+              {{ brollLoading ? 'Loading…' : '📥 Load clips as scenes' }}
+            </button>
+          </div>
+        </template>
+        <p v-else class="text-muted text-sm mt-2">
+          No B-Roll (video) pools yet — create one in the
+          <NuxtLink to="/broll-library" class="ffmpeg-inline-link">B-Roll Library</NuxtLink>
+          (＋ Register pool → 🎬 Video clips).
+        </p>
+      </div>
+
       <div v-if="scanning" class="scanning-status mt-2">
         <span class="gen-label">Scanning assets...</span>
         <div class="progress-bar"><div class="progress-fill" /></div>
@@ -2414,15 +2452,20 @@ const isSentenceTimed = ref(false)
 // v1.0.412 — image-pool format: Step 1 surfaces an "Image Pool source" panel
 // to load pool images as this episode's scenes (the unify-on-Scenes pivot).
 const isImagePoolFormat = ref(false)
+// v1.0.414 — broll format: Step 1 surfaces a "B-Roll source" panel to load
+// pool video clips as this episode's scenes (the unify-on-Scenes pivot).
+const isBrollFormat = ref(false)
 async function loadSceneTimingMode() {
   try {
     const fmt = await get<{ imagePrompts?: any; visualSource?: string }>(`/projects/${slug.value}/effective-format`)
     isSentenceTimed.value = fmt?.imagePrompts?.alignment === 'sentence'
     isImagePoolFormat.value = fmt?.visualSource === 'image-pool'
+    isBrollFormat.value = fmt?.visualSource === 'broll'
   } catch {
     // Best-effort — default to the recycling UI on any lookup failure.
     isSentenceTimed.value = false
     isImagePoolFormat.value = false
+    isBrollFormat.value = false
   }
 }
 
@@ -2450,6 +2493,31 @@ async function loadImagesAsScenes() {
     showError(e?.data?.detail || e?.message || 'Failed to load images from pool')
   } finally {
     imgPoolLoading.value = false
+  }
+}
+
+// ── B-Roll source (Step 1) — load pool video clips as this episode's scenes ──
+const brollPoolId = ref('')
+const brollSeconds = ref<number>(8)
+const brollLoading = ref(false)
+const videoPools = computed(() => (broll.pools.value || []).filter((p: any) => p.media === 'video'))
+const selectedBrollPool = computed(() => videoPools.value.find((p: any) => p.id === brollPoolId.value) || null)
+
+async function loadClipsAsScenes() {
+  if (!brollPoolId.value || !episodeId.value) return
+  brollLoading.value = true
+  try {
+    const r = await post<{ count: number }>(`/projects/${slug.value}/broll/materialize`, {
+      episode_id: episodeId.value,
+      pool_id: brollPoolId.value,
+      seconds_per_clip: brollSeconds.value,
+    })
+    success(`Loaded ${r.count} clip(s) as scenes — they'll appear below.`)
+    await scanAssets()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to load clips from pool')
+  } finally {
+    brollLoading.value = false
   }
 }
 // Shared job-queue state. The dashboard layout already starts the SSE

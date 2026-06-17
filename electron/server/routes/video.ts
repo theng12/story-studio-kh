@@ -1139,8 +1139,13 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
         args.push('-f', 'lavfi', '-t', DURATION.toString(),
           '-i', `gradients=size=${W}x${H}:type=linear:c0=0x1a1a2e:c1=0x16213e:r=${FPS}`)
       }
+      // v1.0.413 — original_size=1920x1080 makes libass interpret FontSize in a
+      // fixed 1080 reference and scale down to this small preview frame, so the
+      // preview matches the final 1080p render proportionally (the old code let
+      // FontSize be relative to the 360p preview frame → text looked far bigger
+      // here than in the actual video).
       args.push('-vf',
-        `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,subtitles=filename='${escapedSrt}':force_style='${ass}',format=yuv420p`,
+        `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,subtitles=filename='${escapedSrt}':original_size=1920x1080:force_style='${ass}',format=yuv420p`,
       )
       args.push('-c:v', 'libvpx-vp9', '-crf', '35', '-b:v', '0', '-deadline', 'realtime', '-row-mt', '1')
       args.push('-pix_fmt', 'yuv420p', '-r', FPS.toString(), '-an')

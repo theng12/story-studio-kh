@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.414 — 2026-06-17
+
+**B-Roll unified into the Scenes editor.** B-Roll now works exactly like the Image Pool: in Video Assembly → Step 1, a new **🎬 B-Roll source** panel lets you load random clips from a video pool as the episode's scenes (sized to narration, no-repeat across recent episodes). Each clip is crop-filled to frame and plays for the per-scene duration — and because they're loaded as scenes, B-Roll now inherits the **full editor**: overlays, logo, transitions, colour grade / vignette / grain, subtitles, export options, and the standard video-assembly production-board status. The separate **B-Roll tab is retired** (the `/broll` page still exists for pool-only workflows). Scene clips whose source is a video are stream-looped + trimmed to the uniform per-scene duration with their own audio dropped (narration carries the soundtrack); stills are unchanged.
+
 ## v1.0.413 — 2026-06-17
 
 ### Fixed — subtitle preview now matches the rendered video (font sizing)
