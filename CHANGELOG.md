@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.409 — 2026-06-17
+
+### Changed — Image Slideshow is a tab under Video Assembly (not a separate nav item)
+Following feedback: the sidebar keeps **Video Assembly** (unchanged), and the Image Pool slideshow now lives **as a tab in the same assembler tab bar** as Scenes / B-Roll / Timestamps — a new **🖼 Image Slideshow** tab. Consistent with how B-Roll's picker is surfaced. The standalone "Image Slideshow" sidebar entry from 1.0.408 is gone; reach it via Video Assembly → 🖼 Image Slideshow tab (it's the active/default tab for image-pool projects).
+
+### Files
+- `frontend/components/VideoPipelineTabs.vue` (new Image Slideshow tab + active/applicable detection)
+- `frontend/layouts/dashboard.vue` (revert the nav swap — Video Assembly stays for all formats)
+- `frontend/pages/projects/[slug]/image-pool.vue` (renders the shared tab bar; header reads "Video Assembly")
+
+---
+
 ## v1.0.408 — 2026-06-17
 
 ### Added — "Image Pool" format + Image Slideshow page (P4) — usable end-to-end

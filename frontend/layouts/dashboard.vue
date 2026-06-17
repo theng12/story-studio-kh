@@ -179,19 +179,7 @@
              Timestamps tab inside the editor area, but the main nav should not
              strand them on the simplified assembler when they need timeline,
              effects, filters, and subtitle controls. -->
-        <!-- v1.0.408 — image-pool projects assemble on the Image Slideshow page,
-             not the clip/scene Video Assembly editor. -->
         <NuxtLink
-          v-if="isImagePool"
-          :to="`/projects/${slug}/image-pool`"
-          class="nav-item"
-          active-class="active"
-          title="Pick images from an Image Pool (random, cross-episode no-repeat) and assemble the slideshow with subtitles + your narration."
-        >
-          <span class="nav-icon">&#128444;</span> Image Slideshow <span v-if="videoAssemblyGenerating" class="nav-pulse" />
-        </NuxtLink>
-        <NuxtLink
-          v-else
           :to="`/projects/${slug}/video-assembly`"
           class="nav-item"
           active-class="active"

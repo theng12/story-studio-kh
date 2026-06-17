@@ -10,8 +10,11 @@
   <div>
     <div class="page-header">
       <Breadcrumb />
-      <h1 class="page-title">Image Slideshow</h1>
+      <h1 class="page-title">Video Assembly</h1>
     </div>
+
+    <!-- Shared assembler tab bar (Scenes / B-Roll / Image Slideshow / Timestamps). -->
+    <VideoPipelineTabs />
 
     <div class="card mt-2">
       <label class="ip-label">Episode</label>
