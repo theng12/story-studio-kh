@@ -143,10 +143,14 @@ const FLOW_NARRATED_SCENES: FlowStep[] = [
 // v1.0.408 — image-pool: same single-narration flow as broll, but the final
 // visual step is the Image Slideshow page (pick images + assemble) instead of
 // the clip-oriented Video Assembly.
+// v1.0.411 — image-pool ends at the unified Video Assembly (the Scenes editor):
+// pool images are loaded as scenes on the 🖼 Image Slideshow tab, then assembled
+// there. Ending at videoAssembly gives the standard video_assembly status — so
+// the Production Board shows the final-video column and "Pending only" works.
 const FLOW_IMAGE_POOL: FlowStep[] = [
   STEP.ideas, STEP.script, STEP.metadata,
   STEP.thumbPrompts, STEP.thumbnails,
-  STEP.audio, STEP.audioMerge, STEP.subtitles, STEP.imagePool,
+  STEP.audio, STEP.audioMerge, STEP.subtitles, STEP.videoAssembly,
 ]
 
 export function flowForVisualSource(vs: VisualSource): FlowStep[] {

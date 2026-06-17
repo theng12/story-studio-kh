@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.411 — 2026-06-17
+
+### Changed — Image Pool feeds the full Video Assembly editor (pivot, step 1) + status fixes
+Per the decision to unify on one assembler: the Image Slideshow tab now **loads pool images as the episode's scenes** instead of running a separate, feature-poor slideshow renderer. New **📥 Load images as scenes** (`POST /image-pool/materialize`) picks images (random, sized to narration, cross-episode no-repeat) and writes them as `scene_NNNN` into the episode's images folder — so the **Scenes** tab's full editor (Ken Burns, transitions, overlays, logo, title card, colour grading/vignette/grain, subtitles, export, asset check, presets) applies, and assembly produces the **standard final video**.
+
+Because of that, the two things you flagged are fixed:
+- **"Pending only" now works** on the Image Slideshow episode picker (it filters on the real `video_assembly` status — which already detects a manually-overwritten/placed final video *and* a YouTube upload). So EP0001–15 (done/uploaded) drop out of the pending list.
+- **The Production Board shows the final-video column** for image-pool projects — the format's flow now ends at the unified Video Assembly step (mapped to `video_assembly`).
+
+Flow: pick pool → **📥 Load images as scenes** → open the **🎞 Scenes** tab → effects/overlays/render. (The bespoke pick/assemble slideshow path is retired; B-Roll-clip unification + removing the standalone tabs is the next step.)
+
+### Files
+- `electron/server/routes/broll-project.ts` (`image-pool/materialize`)
+- `frontend/pages/projects/[slug]/image-pool.vue` (load-as-scenes UI; `filter-field="video_assembly"`; bespoke assemble removed)
+- `frontend/composables/useProjectFlow.ts` (image-pool flow ends at Video Assembly → board column + pending filter)
+
+---
+
 ## v1.0.410 — 2026-06-17
 
 ### Added — Generate images into a pool (P5) — grow the Image Pool with AI

@@ -1,10 +1,11 @@
 <!--
-  v1.0.408 — Image Pool (slideshow) project page. The visual step for the
-  `image-pool` format: pick still images from an Image Pool (random, sized to
-  the narration, cross-episode no-repeat), then assemble the slideshow
-  (crop-fill + Ken Burns + crossfade + burned-in subtitles + narration/music).
-  Calls the backend's /image-pool/pick + /image-pool/assemble (built in
-  v1.0.404 / v1.0.407); the heavy lifting reuses the proven B-Roll assembler.
+  v1.0.411 — Image Pool (slideshow) page, now the "load images" front door for
+  the unified Video Assembly pivot. Picks still images from an Image Pool
+  (random, sized to narration, cross-episode no-repeat) and materializes them as
+  the episode's SCENE IMAGES (`POST /image-pool/materialize`), so the full Scenes
+  Video Assembly editor handles motion/overlays/logo/effects/subtitles/export and
+  the standard video_assembly status. Also hosts "Grow this pool" (generate
+  images). The bespoke slideshow assembler (pick/assemble) is retired.
 -->
 <template>
   <div>
@@ -18,15 +19,14 @@
 
     <div class="card mt-2">
       <label class="ip-label">Episode</label>
-      <EpisodeSelector v-model="episodeId" :project-slug="slug" />
+      <EpisodeSelector v-model="episodeId" :project-slug="slug" filter-field="video_assembly" />
     </div>
 
     <p class="text-muted mt-2 mb-2" style="font-size: 13px;">
-      Builds a slideshow from your <strong>Image Pool</strong>: random images sized to the
-      narration length, each held a few seconds with a slow Ken-Burns motion + crossfades,
-      no image reused within the pool's no-repeat window. Subtitles (from the
-      <NuxtLink :to="`/projects/${slug}/subtitles`" class="text-accent">Subtitles</NuxtLink>
-      step) are burned in; audio is your merged narration + intro music.
+      Loads random images from your <strong>Image Pool</strong> (sized to the narration, no image
+      reused within the pool's no-repeat window) as this episode's <strong>scenes</strong> — then
+      you finish in the <strong>Scenes</strong> tab with the full editor (Ken Burns, transitions,
+      overlays, logo, effects, subtitles, export). Audio is your merged narration + intro music.
     </p>
 
     <!-- 1. Pool subscription -->
@@ -58,11 +58,16 @@
       </p>
     </section>
 
-    <!-- 2. Slideshow settings + pick -->
+    <!-- 2. Load images into Video Assembly (the pivot bridge) -->
     <section v-if="poolId && episodeId" class="card mt-3">
-      <h3>2. Pick images</h3>
+      <h3>2. Load images into Video Assembly</h3>
+      <p class="text-muted text-sm mt-1">
+        Picks the images and sets them as this episode's <strong>scenes</strong>. Then open the
+        <strong>🎞 Scenes</strong> tab above to add motion / overlays / logo / effects / subtitles and render —
+        the slideshow gets the full editor (and the standard final video shows on the board + upload).
+      </p>
       <div class="ip-row mt-2">
-        <label class="ip-inline-label" title="How long each image holds on screen. Defaults to the pool's setting.">
+        <label class="ip-inline-label" title="Drives how many images are loaded (narration ÷ this). You set the actual on-screen pacing in the Scenes tab's recycling control.">
           Seconds / image
           <input type="number" min="1" max="60" step="1" class="input ip-num" v-model.number="secondsPerImage" />
         </label>
@@ -72,48 +77,25 @@
         </label>
       </div>
       <div class="ip-actions mt-3">
-        <button class="btn btn-primary" :disabled="picking || !selectedPool?.online" @click="pickImages">
-          {{ picking ? 'Picking…' : '🎲 Pick images' }}
+        <button class="btn btn-primary" :disabled="loadingScenes || !selectedPool?.online" @click="loadIntoVideoAssembly">
+          {{ loadingScenes ? 'Loading…' : '📥 Load images as scenes' }}
         </button>
-        <span v-if="lastPick" class="text-muted text-sm">
-          ✓ {{ lastPick.images }} image(s) · {{ lastPick.seconds_per_image }}s each
-          · ~{{ Math.round(lastPick.target_duration) }}s total
-          · avoided last {{ lastPick.dedup_lookback }} eps
-          <template v-if="lastPick.pool_size_after_filter"> · pool {{ lastPick.pool_size_after_filter }}</template>
-        </span>
-      </div>
-      <ul v-if="lastPick?.warnings?.length" class="ip-warn-list mt-2">
-        <li v-for="(w, i) in lastPick.warnings" :key="i">⚠ {{ w }}</li>
-      </ul>
-    </section>
-
-    <!-- 3. Assemble -->
-    <section v-if="poolId && episodeId" class="card mt-3">
-      <h3>3. Assemble slideshow</h3>
-      <label class="ip-inline-label mt-2" title="Burn the episode's subtitle file (from the Subtitles step) into the video.">
-        <input type="checkbox" v-model="burnSubtitles" /> Burn subtitles
-      </label>
-      <div class="ip-actions mt-3">
-        <button class="btn btn-primary" :disabled="assembling || !hasSelection" @click="assemble">
-          {{ assembling ? 'Queuing…' : '🎬 Assemble slideshow' }}
-        </button>
-        <span v-if="!hasSelection" class="text-muted text-sm">Pick images first.</span>
-        <span v-else class="text-muted text-sm">
-          Renders in the background — watch the
-          <NuxtLink :to="`/projects/${slug}/jobs`" class="text-accent">Jobs</NuxtLink> panel.
+        <span v-if="lastLoad" class="text-muted text-sm">
+          ✓ Loaded {{ lastLoad.count }} image(s) (~{{ Math.round(lastLoad.target_duration) }}s of narration).
+          <NuxtLink :to="`/projects/${slug}/video-assembly`" class="text-accent">Open the Scenes tab →</NuxtLink>
         </span>
       </div>
       <p class="text-muted text-xs mt-2">
         Need narration first? Run <NuxtLink :to="`/projects/${slug}/audio`" class="text-accent">Audio</NuxtLink>
         (+ <NuxtLink :to="`/projects/${slug}/audio-merge`" class="text-accent">Assembly</NuxtLink> if multi-part),
-        then <NuxtLink :to="`/projects/${slug}/subtitles`" class="text-accent">Subtitles</NuxtLink>. The slideshow is sized to the narration.
+        then <NuxtLink :to="`/projects/${slug}/subtitles`" class="text-accent">Subtitles</NuxtLink>. The count is sized to the narration.
       </p>
     </section>
 
     <!-- 4. Grow the pool by generating images (optional) -->
     <section v-if="poolId" class="card mt-3">
       <h3 class="ip-grow-head" @click="showGrow = !showGrow">
-        <span>4. Grow this pool — generate images (optional)</span>
+        <span>3. Grow this pool — generate images (optional)</span>
         <span class="text-muted text-sm">{{ showGrow ? '▾' : '▸' }}</span>
       </h3>
       <template v-if="showGrow">
@@ -189,21 +171,9 @@ const episodeId = ref('')
 const poolId = ref('')
 const secondsPerImage = ref<number>(8)
 const dedupLookback = ref<number>(20)
-const burnSubtitles = ref(true)
-const picking = ref(false)
-const assembling = ref(false)
 const poolImageCount = ref<number | null>(null)
-const hasSelection = ref(false)
-
-interface PickResult {
-  images: number
-  seconds_per_image: number
-  dedup_lookback: number
-  target_duration: number
-  pool_size_after_filter?: number
-  warnings?: string[]
-}
-const lastPick = ref<PickResult | null>(null)
+const loadingScenes = ref(false)
+const lastLoad = ref<{ count: number; target_duration: number } | null>(null)
 
 // v1.0.410 — "Grow this pool" (generate images into the pool).
 const showGrow = ref(false)
@@ -250,39 +220,25 @@ async function saveSubscription(): Promise<void> {
   }
 }
 
-async function pickImages(): Promise<void> {
+async function loadIntoVideoAssembly(): Promise<void> {
   if (!poolId.value || !episodeId.value) return
-  picking.value = true
+  loadingScenes.value = true
   try {
-    const r = await post<PickResult>(`/projects/${slug.value}/image-pool/pick`, {
-      episode_id: episodeId.value,
-      pool_id: poolId.value,
-      seconds_per_image: secondsPerImage.value,
-      dedup_lookback: dedupLookback.value,
-    })
-    lastPick.value = r
-    hasSelection.value = (r.images || 0) > 0
-    success(`Picked ${r.images} image(s) for ${episodeId.value}.`)
+    const r = await post<{ count: number; target_duration: number }>(
+      `/projects/${slug.value}/image-pool/materialize`,
+      {
+        episode_id: episodeId.value,
+        pool_id: poolId.value,
+        seconds_per_image: secondsPerImage.value,
+        dedup_lookback: dedupLookback.value,
+      },
+    )
+    lastLoad.value = { count: r.count, target_duration: r.target_duration }
+    success(`Loaded ${r.count} image(s) as scenes for ${episodeId.value} — open the Scenes tab to finish.`)
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to pick images')
+    showError(e?.data?.detail || e?.message || 'Failed to load images')
   } finally {
-    picking.value = false
-  }
-}
-
-async function assemble(): Promise<void> {
-  if (!episodeId.value) return
-  assembling.value = true
-  try {
-    await post(`/projects/${slug.value}/image-pool/assemble`, {
-      episode_id: episodeId.value,
-      subtitles_enabled: burnSubtitles.value,
-    })
-    success('Slideshow assembly queued — watch the Jobs panel.')
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to queue assembly')
-  } finally {
-    assembling.value = false
+    loadingScenes.value = false
   }
 }
 
@@ -325,8 +281,8 @@ async function generateIntoPool(): Promise<void> {
   }
 }
 
-// A fresh pick is required per episode (the selection sidecar is per-episode).
-watch(episodeId, () => { lastPick.value = null; hasSelection.value = false })
+// Per-episode load state resets when the episode changes.
+watch(episodeId, () => { lastLoad.value = null })
 
 onMounted(async () => {
   await broll.loadPools().catch(() => {})

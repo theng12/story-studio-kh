@@ -339,6 +339,98 @@ router.post('/projects/:slug/image-pool/pick', async (req, res) => {
   }
 })
 
+// ── POST /image-pool/materialize ───────────────────────────────────────
+// v1.0.411 — the pivot bridge: pick pool images (random, sized to narration,
+// cross-episode no-repeat) and write them as the episode's SCENE IMAGES
+// (scene_0001.<ext> …) in the images folder. The full Scenes Video Assembly
+// editor then scans them as scenes — so overlays, logo, Ken Burns, transitions,
+// effects, subtitles, export, and the standard video_assembly status all apply.
+// Replaces the bespoke slideshow assembler (retired once the pivot lands).
+router.post('/projects/:slug/image-pool/materialize', async (req, res) => {
+  const { slug } = req.params
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const config = await pm.getConfig(slug)
+    if (!config) return res.status(404).json({ detail: 'Project config not found' })
+    const { episode_id, pool_id, seconds_per_image, dedup_lookback } = req.body || {}
+    if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
+
+    const effectivePoolId = pool_id || (config as any).image_pool_id
+    if (!effectivePoolId) return res.status(400).json({ detail: 'No image pool selected.' })
+    const pool = await bp.getPool(effectivePoolId)
+    if (!pool) return res.status(404).json({ detail: `Pool '${effectivePoolId}' not found` })
+    if (bp.poolMedia(pool) !== 'image') return res.status(400).json({ detail: `Pool '${effectivePoolId}' is not an image pool.` })
+    if (!existsSync(pool.folder_path)) {
+      return res.status(409).json({ detail: `Pool folder offline — connect ${pool.folder_path} first.` })
+    }
+
+    const ss = pool.slideshow || bp.defaultSlideshowSettings()
+    const perImage = Math.max(1, Number(seconds_per_image) || ss.seconds_per_image)
+    const lookback = Math.max(0, typeof dedup_lookback === 'number' ? dedup_lookback : ss.dedup_lookback)
+
+    const title = await resolveTitle(slug, episode_id)
+    const narrationSec = await readNarrationDurationSec(slug, episode_id, title)
+    if (!narrationSec) {
+      return res.status(400).json({ detail: `No narration audio for ${episode_id}. Run the Audio Generator first — the count is sized to narration length.` })
+    }
+
+    const clips = await bp.listClips(effectivePoolId, { includeMissing: false })
+    const usageLog: BrollUsageEntry[] = Array.isArray((config as any).image_pool_usage_log)
+      ? (config as any).image_pool_usage_log : []
+    const recentShas = lookback > 0
+      ? Array.from(new Set(usageLog.slice(-lookback).map(e => e.clip_sha))) : []
+
+    const result = selectBroll({
+      pool: clips.map(c => ({ filename: c.filename, duration: c.duration || perImage, sha256: c.sha256, tags: c.tags || [], normalized: c.normalized, missing: c.missing })),
+      target_duration: narrationSec,
+      selection_mode: 'random',
+      pacing_mode: 'timed',
+      segment_seconds: perImage,
+      exclude_shas: recentShas,
+    })
+    if (!result.selection.length) {
+      return res.status(400).json({ detail: 'No images selected — the pool may be empty or everything was used too recently.' })
+    }
+
+    // Write the selection into the episode's images folder as scene_NNNN.<ext>
+    // so scanEpisodeAssets surfaces them as scenes to the Scenes editor.
+    const fsp = await import('fs/promises')
+    const path = await import('path')
+    const paths = await resolveEpisodePaths(slug, episode_id, title || '')
+    const imagesDir = paths.bg_dir
+    await fsp.mkdir(imagesDir, { recursive: true })
+    // Replace any previously-materialized scene_* files so a re-load is clean.
+    const existing = await fsp.readdir(imagesDir).catch(() => [] as string[])
+    for (const f of existing) {
+      if (/^scene[_ ]?\d+\.(png|jpe?g|webp)$/i.test(f)) await fsp.rm(path.join(imagesDir, f), { force: true }).catch(() => {})
+    }
+    let n = 0
+    for (const entry of result.selection) {
+      const src = path.join(pool.folder_path, entry.filename)
+      if (!existsSync(src)) continue
+      n++
+      const ext = (path.extname(entry.filename) || '.png').toLowerCase()
+      await fsp.copyFile(src, path.join(imagesDir, `scene_${String(n).padStart(4, '0')}${ext}`))
+    }
+    if (!n) return res.status(500).json({ detail: 'Could not copy any images into the episode.' })
+
+    // Record usage (separate image log) so cross-episode no-repeat holds.
+    const seen = new Set<string>()
+    const additions: BrollUsageEntry[] = []
+    const now = new Date().toISOString()
+    for (const s of result.selection) {
+      if (seen.has(s.sha256)) continue
+      seen.add(s.sha256)
+      additions.push({ clip_sha: s.sha256, clip_filename: s.filename, episode_code: episode_id, used_at: now })
+    }
+    await pm.updateConfig(slug, { image_pool_usage_log: [...usageLog, ...additions].slice(-300) } as any)
+
+    res.json({ count: n, images_dir: imagesDir, target_duration: narrationSec, seconds_per_image: perImage })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to load images into Video Assembly'))
+  }
+})
+
 // ── POST /image-pool/generate ──────────────────────────────────────────
 // v1.0.410 — grow an Image Pool by generating new stills from prompts and
 // dropping them into the pool folder (then indexing them). Runs in this
