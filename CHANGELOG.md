@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.407 — 2026-06-17
+
+### Added — Image Pool still-image assembler (P3) — the slideshow renders
+The piece that turns an image selection into a video. The B-Roll assembler now handles **still-image** selections (driven by the sidecar's `media:'image'` stamp): each image is **looped for its on-screen seconds**, **crop-filled to 1920×1080** (or letterboxed if fit='fit'), given a slow **Ken Burns** zoom/pan, **crossfaded** into the next, with the **transcript subtitles burned in** and your **narration + intro music** as the audio bed. Stills are silent, so there's no clip-audio mixing.
+
+New route **`POST /projects/:slug/image-pool/assemble`** queues it (reusing the proven broll_assemble executor + xfade/motion/subtitle/external-output machinery). Image dedup is logged to its own `image_pool_usage_log` so it never collides with B-Roll.
+
+Verified the exact generated ffmpeg graph (crop-fill + zoom + xfade + the real encoder flags) on the live Capi image pool — clean 1920×1080 H.264/AAC output.
+
+**End-to-end now works via API:** `image-pool/pick` → `image-pool/assemble`. The picker/assemble buttons + the "Image Pool" format wiring land in P4.
+
+### Files
+- `electron/server/generators/broll-assemble.ts` (image branch: looped stills, crop-fill/letterbox prefix, no clip audio, image usage log)
+- `electron/server/routes/broll-project.ts` (`image-pool/assemble` route)
+
+---
+
 ## v1.0.406 — 2026-06-17
 
 ### Added — Pick the vision model for auto-tagging (incl. free local LM Studio)

@@ -339,6 +339,48 @@ router.post('/projects/:slug/image-pool/pick', async (req, res) => {
   }
 })
 
+// ── POST /image-pool/assemble ──────────────────────────────────────────
+// v1.0.407 — assemble the Image Pool slideshow. Reuses the broll_assemble
+// executor (the sidecar's media:'image' stamp makes it loop stills + crop-fill
+// + Ken Burns instead of playing clips). Stills are silent, so no broll_volume.
+router.post('/projects/:slug/image-pool/assemble', async (req, res) => {
+  const { slug } = req.params
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const { episode_id, subtitles_enabled, subtitles_style } = req.body || {}
+    if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
+
+    const title = await resolveTitle(slug, episode_id)
+    const sidecar = await getSelectionSidecar(slug, episode_id, title)
+    if (!sidecar || !sidecar.selection?.length) {
+      return res.status(400).json({ detail: 'No image selection on disk for this episode. Click "Pick images" first.' })
+    }
+    if ((sidecar as any).media !== 'image') {
+      return res.status(400).json({ detail: 'This episode\'s selection is a video B-Roll selection — use B-Roll assemble, or re-pick from an image pool.' })
+    }
+    if (jq.isDuplicate(slug, episode_id, 'broll_assemble' as JobType)) {
+      return res.status(409).json({ detail: `Assembly already queued/running for ${episode_id}` })
+    }
+
+    const job = jq.enqueue({
+      project_slug: slug,
+      type: 'broll_assemble' as JobType,
+      episode_id,
+      title: `Assemble Image Slideshow — ${episode_id}`,
+      params: {
+        episode_id,
+        title,
+        broll_volume: 0,  // stills are silent
+        ...(typeof subtitles_enabled === 'boolean' ? { subtitles_enabled } : {}),
+        ...(subtitles_style ? { subtitles_style } : {}),
+      },
+    })
+    res.status(201).json(job)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Image slideshow assembly failed to queue'))
+  }
+})
+
 // ── POST /broll/assemble ───────────────────────────────────────────────
 
 router.post('/projects/:slug/broll/assemble', async (req, res) => {

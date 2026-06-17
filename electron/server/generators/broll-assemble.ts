@@ -93,8 +93,13 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
 
   const sidecar = await getSelectionSidecar(project_slug, episode_id, title)
   if (!sidecar || !sidecar.selection?.length) {
-    throw new Error('No B-Roll selection sidecar — run /broll/pick before assembling.')
+    throw new Error('No selection sidecar — run /broll/pick (or /image-pool/pick) before assembling.')
   }
+  // v1.0.407 — Image Pool slideshow: same assembler, but each input is a
+  // looped still (crop-filled to the frame) instead of a video clip, and
+  // there's no clip audio to mix. Driven by the sidecar's media stamp.
+  const isImage = (sidecar as any).media === 'image'
+  const fitMode: 'crop' | 'fit' | 'blur' = ((sidecar as any).fit === 'fit' || (sidecar as any).fit === 'blur') ? (sidecar as any).fit : 'crop'
   const pool = await bp.getPool(sidecar.pool_id)
   if (!pool) throw new Error(`Pool '${sidecar.pool_id}' missing from registry`)
   if (!existsSync(pool.folder_path)) {
@@ -178,7 +183,7 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   // audio track get a generated silence stream of the same target
   // duration so concat + amix work uniformly.
   const clipHasAudio: boolean[] = []
-  if (broll_volume > 0) {
+  if (broll_volume > 0 && !isImage) {
     for (const c of clipPaths) clipHasAudio.push(await hasAudioStream(c.src))
   }
 
@@ -266,13 +271,21 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   //
   // Then: [vbase] subtitles='…' → [vout]   (only when an SRT exists)
   const targetFps = pool.fps_target
+  // v1.0.407 — still images aren't frame-sized like normalized clips, so
+  // bring each one to the 1920×1080 frame BEFORE motion: crop = fill +
+  // slight crop (the chosen default), fit = letterbox. After this prefix the
+  // source is exactly frame-sized, so buildBrollMotion's zoom/pan (and its
+  // static pad case) behave identically to a normalized clip.
+  const imagePrefix = fitMode === 'fit'
+    ? `scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,`
+    : `scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,setsar=1,`
   const filterParts: string[] = []
   for (let i = 0; i < clipPaths.length; i++) {
     const c = clipPaths[i]!
     const motionFilter = buildBrollMotion({ motion: perSegmentMotion[i]!, duration: c.duration })
     filterParts.push(
       `[${i}:v]trim=duration=${c.duration},setpts=PTS-STARTPTS,` +
-      `${motionFilter},fps=${targetFps},setsar=1[v${i}]`,
+      `${isImage ? imagePrefix : ''}${motionFilter},fps=${targetFps},setsar=1[v${i}]`,
     )
   }
 
@@ -313,13 +326,18 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
 
   const narrationInputIdx = clipPaths.length // first non-clip input
   const args: string[] = ['-y']
-  for (const c of clipPaths) args.push('-i', c.src)
+  // v1.0.407 — still images must be looped + bounded to their on-screen
+  // seconds (`-loop 1 -t N`); video clips are read as-is.
+  for (const c of clipPaths) {
+    if (isImage) args.push('-loop', '1', '-t', String(c.duration), '-i', c.src)
+    else args.push('-i', c.src)
+  }
   args.push('-i', narrationPath)
 
   // Build the audio filtergraph branch only when we're actually mixing
   // B-Roll audio in. Below volume 1% it's inaudible vs the narration
   // floor — fall through to narration-only to skip the amix overhead.
-  const wantMix = broll_volume >= 1
+  const wantMix = broll_volume >= 1 && !isImage  // stills are silent — narration only
   let audioMapTarget = `${narrationInputIdx}:a`
   if (wantMix) {
     for (let i = 0; i < clipPaths.length; i++) {
@@ -366,7 +384,7 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   if (subPath) {
     job.output_lines.push(`Subtitles: burning ${path.basename(subPath)} into the final frame.`)
   }
-  job.output_lines.push(`Encoding ${clipPaths.length} clip(s) → ${outFilename}…`)
+  job.output_lines.push(`Encoding ${clipPaths.length} ${isImage ? 'image(s)' : 'clip(s)'} → ${outFilename}…`)
 
   const ffmpeg = await getFFmpegPath()
   try {
@@ -415,7 +433,8 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   job.output_dir = finalDir
 
   // Append usage log (per-channel) — for cross-episode repeat avoidance.
-  await appendUsageLog(project_slug, episode_id, sidecar.selection)
+  // Image pools use a SEPARATE log so their dedup never collides with B-Roll's.
+  await appendUsageLog(project_slug, episode_id, sidecar.selection, isImage)
 }
 
 async function findNarrationPath(mergedDir: string, audioDir: string): Promise<string | null> {
@@ -443,11 +462,15 @@ async function appendUsageLog(
   slug: string,
   episodeCode: string,
   selection: Array<{ filename: string; sha256: string }>,
+  isImage = false,
 ): Promise<void> {
   const cfg = await pm.getConfig(slug)
   if (!cfg) return
-  const existing: BrollUsageEntry[] = Array.isArray((cfg as any).broll_usage_log)
-    ? (cfg as any).broll_usage_log
+  // v1.0.407 — image pools log to image_pool_usage_log (read by /image-pool/pick);
+  // video B-Roll keeps broll_usage_log. Independent so the two never interfere.
+  const logKey = isImage ? 'image_pool_usage_log' : 'broll_usage_log'
+  const existing: BrollUsageEntry[] = Array.isArray((cfg as any)[logKey])
+    ? (cfg as any)[logKey]
     : []
   const now = new Date().toISOString()
   // One entry per unique sha in this selection — duplicates within one
@@ -459,9 +482,9 @@ async function appendUsageLog(
     seen.add(s.sha256)
     additions.push({ clip_sha: s.sha256, clip_filename: s.filename, episode_code: episodeCode, used_at: now })
   }
-  // Truncate to 3× the configured lookback (default 30 entries) so a
-  // future lookback bump still has history to consult.
-  const cap = Math.max(30, ((cfg as any).broll_lookback ?? 10) * 3)
+  // Keep a generous tail so a future lookback bump still has history. Image
+  // pools default to a 20-episode window, so 300 entries is plenty of runway.
+  const cap = isImage ? 300 : Math.max(30, ((cfg as any).broll_lookback ?? 10) * 3)
   const merged = [...existing, ...additions].slice(-cap)
-  await pm.updateConfig(slug, { broll_usage_log: merged } as any)
+  await pm.updateConfig(slug, { [logKey]: merged } as any)
 }
