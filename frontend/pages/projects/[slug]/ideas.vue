@@ -985,7 +985,7 @@
 
     <!-- Paste ideas from LLM modal -->
     <div v-if="pasteOpen" class="modal-overlay" @click.self="pasteOpen = false">
-      <div class="modal" style="max-width: 760px;">
+      <div class="modal modal-wide">
         <h2>Paste Ideas from LLM</h2>
         <p class="text-muted text-md mt-1">
           Copy the prompt below into ChatGPT, Claude, or any LLM. Paste the JSON array it produces into the box below and click <strong>Preview</strong>.
@@ -3121,8 +3121,14 @@ async function confirmCompact() {
 .btn-icon { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 13px; padding: 3px 6px; border-radius: 4px; }
 .btn-icon.danger:hover { color: var(--error); background: rgba(248,113,113,0.1); }
 
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-.modal { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 32px; width: 520px; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 24px; }
+/* v1.0.402 — modals are responsive + internally scrollable so the footer
+   buttons are always reachable on any window size (was a fixed 520px with no
+   max-height, which cut off the Import button on the paste-ideas modal). */
+.modal { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 32px; width: min(520px, 92vw); box-sizing: border-box; max-height: calc(100vh - 48px); overflow-y: auto; }
+/* Wide variant for content-heavy modals (e.g. the paste-ideas preview table).
+   Scales with the window instead of a fixed cap. */
+.modal.modal-wide { width: min(1100px, 94vw); }
 .modal h2 { margin-bottom: 20px; }
 .accept-preview { background: var(--bg-tertiary); border-radius: var(--radius-md); padding: 16px; }
 .accept-preview h3 { color: var(--accent); margin-bottom: 4px; }
@@ -3541,8 +3547,11 @@ async function confirmCompact() {
   text-align: left;
 }
 .paste-preview-table {
-  max-height: 260px;
+  max-height: 40vh;
   overflow-y: auto;
+  /* v1.0.402 — scroll sideways on a narrow window instead of crushing columns
+     to one word per line. */
+  overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
@@ -3567,14 +3576,17 @@ async function confirmCompact() {
   top: 0;
 }
 /* Paste-preview column shape — matches the per-row layout. */
-.paste-preview-row .ppr-num      { min-width: 24px; color: var(--text-muted); font-size: 11px; }
-.paste-preview-row .ppr-title    { flex: 1.5; font-weight: 600; }
-.paste-preview-row .ppr-logline  { flex: 2; }
-.paste-preview-row .ppr-themes   { flex: 1; }
-.paste-preview-row .ppr-chapters { width: 70px; text-align: center; }
-.paste-preview-row .ppr-length   { width: 80px; }
-.paste-preview-row .ppr-mood     { flex: 1; }
-.paste-preview-row .ppr-remove   { width: 28px; }
+/* v1.0.402 — min-widths so flexible columns keep readable width (no
+   one-word-per-line crush); the table scrolls sideways if the window is too
+   narrow to fit them all. */
+.paste-preview-row .ppr-num      { flex: 0 0 auto; min-width: 24px; color: var(--text-muted); font-size: 11px; }
+.paste-preview-row .ppr-title    { flex: 1.5 1 0; min-width: 150px; font-weight: 600; }
+.paste-preview-row .ppr-logline  { flex: 2 1 0; min-width: 220px; }
+.paste-preview-row .ppr-themes   { flex: 1 1 0; min-width: 120px; }
+.paste-preview-row .ppr-chapters { flex: 0 0 auto; width: 70px; text-align: center; }
+.paste-preview-row .ppr-length   { flex: 0 0 auto; width: 80px; }
+.paste-preview-row .ppr-mood     { flex: 1 1 0; min-width: 120px; }
+.paste-preview-row .ppr-remove   { flex: 0 0 auto; width: 28px; }
 /* In header row: the title-column override above (font-weight 600) shouldn't
    stack on top of the header's own font-weight; keep it clean. */
 .paste-preview-header .ppr-num,

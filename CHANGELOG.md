@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.402 — 2026-06-17
+
+### Fixed — "Paste ideas from LLM" modal: couldn't scroll to Import + cramped table
+The paste-ideas modal (Ideas Generator → Paste from an LLM) was a fixed **520 px** box with **no max-height**, so on a normal window the bottom — including the **Import** button — was cut off with no way to scroll to it. The narrow width also crushed the preview table's flexible columns, wrapping loglines to one word per line.
+
+Now the modal is **responsive and scrollable**:
+- Width scales with the window — `min(1100px, 94vw)` instead of a fixed 520 px (wider, and adapts to any size).
+- The modal body has `max-height: calc(100vh − 48px)` + internal scroll, so the **Cancel / Import** footer is always reachable no matter how many rows you paste.
+- Preview columns got sensible min-widths and the table scrolls **sideways** on a narrow window instead of squeezing text to one word per line. The preview list also grows to `40vh`.
+
+These apply to the base `.modal` in the Ideas page, so the page's other modals get the same always-reachable-footer behavior.
+
+### Files
+- `frontend/pages/projects/[slug]/ideas.vue` (responsive + scrollable modal; `.modal-wide` variant; preview-table column min-widths + horizontal scroll)
+
+---
+
 ## v1.0.401 — 2026-06-17
 
 ### Changed — builds no longer auto-copy the DMG to iCloud
