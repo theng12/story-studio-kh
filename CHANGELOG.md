@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.408 — 2026-06-17
+
+### Added — "Image Pool" format + Image Slideshow page (P4) — usable end-to-end
+The new format is now selectable and drivable from the UI:
+
+- **New format "Image Pool (slideshow)"** — pick it in the project's format picker (e.g. set the Capi project to it). Like Stock Footage, it's a single-continuous-narration shell that hides Scene Prompts / Scene Generator / Character Sheet — the visuals come from an Image Pool, not per-scene AI stills.
+- **New "🖼 Image Slideshow" sidebar page** (replaces "Video Assembly" for this format): choose your image pool, set seconds-per-image + no-repeat window (seeded from the pool defaults), **🎲 Pick images** (random, sized to the narration, cross-episode no-repeat), then **🎬 Assemble slideshow** (burns subtitles, uses your narration + intro music). Saves the pool subscription to the project (`image_pool_id`).
+
+So the full flow now works from the app: set format → write script → audio → subtitles → pick images → assemble. Verified the render path on the live Capi pool in P3.
+
+### Files
+- `electron/server/formats/image-pool.json` (new format; `visualSource: "image-pool"`)
+- `frontend/composables/useProjectFlow.ts` (visualSource union + `image-pool` flow + normalize case), `frontend/composables/useFormats.ts` (type)
+- `frontend/layouts/dashboard.vue` (hide scene pages for image-pool; Image Slideshow nav entry)
+- `frontend/pages/projects/[slug]/image-pool.vue` (new — pick + assemble UI)
+
+---
+
 ## v1.0.407 — 2026-06-17
 
 ### Added — Image Pool still-image assembler (P3) — the slideshow renders

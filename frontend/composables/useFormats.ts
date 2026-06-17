@@ -25,7 +25,7 @@ export interface Format {
   builtin: boolean
   schemaVersion: 1
   /** v1.0.280+ — presentation mechanism. Drives the "how it's built" line. */
-  visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
+  visualSource?: 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes' | 'image-pool'
   /** v1.0.280+ — scene→script pairing for the unified scenes format. */
   sceneAlignment?: 'chapter' | 'sentence'
   idea: {

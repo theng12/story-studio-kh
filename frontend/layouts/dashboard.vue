@@ -179,7 +179,19 @@
              Timestamps tab inside the editor area, but the main nav should not
              strand them on the simplified assembler when they need timeline,
              effects, filters, and subtitle controls. -->
+        <!-- v1.0.408 — image-pool projects assemble on the Image Slideshow page,
+             not the clip/scene Video Assembly editor. -->
         <NuxtLink
+          v-if="isImagePool"
+          :to="`/projects/${slug}/image-pool`"
+          class="nav-item"
+          active-class="active"
+          title="Pick images from an Image Pool (random, cross-episode no-repeat) and assemble the slideshow with subtitles + your narration."
+        >
+          <span class="nav-icon">&#128444;</span> Image Slideshow <span v-if="videoAssemblyGenerating" class="nav-pulse" />
+        </NuxtLink>
+        <NuxtLink
+          v-else
           :to="`/projects/${slug}/video-assembly`"
           class="nav-item"
           active-class="active"
@@ -503,6 +515,9 @@ const isContinuityChain = computed(() => visualSource.value === 'continuity-chai
 // NO Character Sheet (see usesScenePlan; Research + Character Sheet nav stay
 // gated on their own flags below, which narrated-scenes deliberately fails).
 const isNarratedScenes = computed(() => visualSource.value === 'narrated-scenes')
+// v1.0.408 — image-pool: single-narration slideshow of still images. Hides the
+// scene pages (like broll) and surfaces its own Image Slideshow page.
+const isImagePool = computed(() => visualSource.value === 'image-pool')
 /** True when the active pipeline plans scenes against the actual audio
  *  timeline (timestamp-driven, continuity-chain, OR narrated-scenes) — these
  *  share the Scene Plan / Scene Review pages and route assembly to
@@ -513,7 +528,7 @@ const usesScenePlan = computed(() => isTimestampDriven.value || isContinuityChai
  *  classic scene-images pipeline. Used by sidebar entries that the
  *  same way for both alternative pipelines (Scene Prompts / Scene
  *  Generator / Video Generator are all hidden when this is true). */
-const hidesScenePages = computed(() => isBroll.value || isTimestampDriven.value || isContinuityChain.value || isNarratedScenes.value)
+const hidesScenePages = computed(() => isBroll.value || isImagePool.value || isTimestampDriven.value || isContinuityChain.value || isNarratedScenes.value)
 watch(slug, () => { void loadVisualSource() }, { immediate: true })
 // v1.0.146+ — also re-fetch the effective format when the project's
 // format_id / brand_id / niche_id changes, even while staying on the

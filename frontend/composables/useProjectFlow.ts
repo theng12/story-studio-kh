@@ -33,7 +33,7 @@ import { useRoute } from 'vue-router'
  * Library/Jobs/Settings are intentionally NOT steps — they're tools, not
  * stages of the creation chain.
  */
-export type VisualSource = 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
+export type VisualSource = 'scene-images' | 'broll' | 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes' | 'image-pool'
 
 export type SceneAlignment = 'chapter' | 'sentence'
 
@@ -60,6 +60,7 @@ export function normalizeVisualSource(
 ): VisualSource {
   switch (visualSource) {
     case 'broll': return 'broll'
+    case 'image-pool': return 'image-pool'
     case 'continuity-chain': return 'continuity-chain'
     case 'timestamp-driven': return 'timestamp-driven'
     case 'narrated-scenes': return 'narrated-scenes'
@@ -102,6 +103,8 @@ const STEP = {
   sceneReview:  { key: 'scene-review', label: 'Scene Review',   icon: '✅', path: '/scene-review' },
   videoAssembly:    { key: 'video-assembly',     label: 'Video Assembly',     icon: '🎞', path: '/video-assembly' },
   timestampAssemble: { key: 'timestamp-assemble', label: 'Timestamp Assemble', icon: '🎞', path: '/timestamp-assemble' },
+  // v1.0.408 — Image Pool slideshow: pick images + assemble the slideshow.
+  imagePool:        { key: 'image-pool',         label: 'Image Slideshow',    icon: '🖼', path: '/image-pool' },
 } satisfies Record<string, FlowStep>
 
 const FLOW_SCENE_IMAGES: FlowStep[] = [
@@ -137,8 +140,18 @@ const FLOW_NARRATED_SCENES: FlowStep[] = [
   STEP.characterSheet, STEP.scenePlan, STEP.sceneReview, STEP.videoAssembly,
 ]
 
+// v1.0.408 — image-pool: same single-narration flow as broll, but the final
+// visual step is the Image Slideshow page (pick images + assemble) instead of
+// the clip-oriented Video Assembly.
+const FLOW_IMAGE_POOL: FlowStep[] = [
+  STEP.ideas, STEP.script, STEP.metadata,
+  STEP.thumbPrompts, STEP.thumbnails,
+  STEP.audio, STEP.audioMerge, STEP.subtitles, STEP.imagePool,
+]
+
 export function flowForVisualSource(vs: VisualSource): FlowStep[] {
   if (vs === 'broll') return FLOW_BROLL
+  if (vs === 'image-pool') return FLOW_IMAGE_POOL
   if (vs === 'timestamp-driven') return FLOW_TIMESTAMP
   if (vs === 'continuity-chain') return FLOW_CONTINUITY
   if (vs === 'narrated-scenes') return FLOW_NARRATED_SCENES
