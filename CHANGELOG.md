@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.405 — 2026-06-17
+
+### Added — Edit / rename / repoint pools (B-Roll + Image), and a media filter
+Pool management was missing — you could Unregister a pool but not **rename** it or **repoint** it to a different folder (applies to video B-Roll pools too). Added:
+
+- **✎ Edit pool** button on the selected pool: rename it and/or **repoint the folder path** (with Browse). Repoint is for when you move the drive — because tags live in a sidecar *inside* the folder, a moved-intact folder keeps its tags; an empty new folder starts fresh until you Re-scan. Files are never modified. (Backend `updatePool` now accepts `folder_path`, validated to exist.)
+- **Pool media filter** at the top of the list — **All / 🎞 Video / 🖼 Images** — so image pools have an obvious "tab." Each shows a count.
+
+Note: creating an **Image Pool** is the 🖼 Still images option in the **+ Register pool** dialog (shipped in 1.0.403) — make sure you're on this build to see it.
+
+### Files
+- `electron/server/services/broll-pool-manager.ts` + `electron/server/routes/broll-pools.ts` (repoint: `folder_path` in updatePool, validated)
+- `frontend/pages/broll-library.vue` + `frontend/composables/useBrollPools.ts` (Edit modal + media filter)
+
+---
+
 ## v1.0.404 — 2026-06-17
 
 ### Added — Image Pool selection + cross-episode dedup (P2)

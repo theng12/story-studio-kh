@@ -239,11 +239,21 @@ export async function createPool(input: {
   return pool
 }
 
-export async function updatePool(id: string, patch: Partial<Pick<BrollPool, 'name' | 'auto_normalize' | 'fps_target' | 'slideshow'>>): Promise<BrollPool> {
+export async function updatePool(id: string, patch: Partial<Pick<BrollPool, 'name' | 'auto_normalize' | 'fps_target' | 'slideshow' | 'folder_path'>>): Promise<BrollPool> {
   const reg = await readRegistry()
   const idx = reg.pools.findIndex(p => p.id === id)
   if (idx < 0) throw new Error(`Pool '${id}' not found`)
   const prev = reg.pools[idx]!
+  // v1.0.405 — repoint: changing folder_path moves the pool to a new folder
+  // (e.g. you relocated the drive). The clip sidecar lives INSIDE the folder,
+  // so a moved-intact folder keeps its tags; a brand-new folder starts empty
+  // until the next scan. Validate it exists so we don't point at nothing.
+  if (typeof patch.folder_path === 'string') {
+    const next = patch.folder_path.trim()
+    if (!next) throw new Error('folder_path cannot be empty')
+    if (!existsSync(next)) throw new Error(`Folder does not exist: ${next}. Connect the drive or pick a different path.`)
+    patch.folder_path = next
+  }
   // Merge slideshow settings field-by-field so a partial patch (e.g. just
   // seconds_per_image) doesn't wipe the other slideshow defaults.
   const slideshow = patch.slideshow

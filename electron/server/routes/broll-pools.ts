@@ -68,11 +68,13 @@ router.post('/broll-pools', async (req, res) => {
 
 router.put('/broll-pools/:id', async (req, res) => {
   try {
-    const { name, auto_normalize, fps_target, slideshow } = req.body || {}
+    const { name, auto_normalize, fps_target, slideshow, folder_path } = req.body || {}
     const patch: any = {}
     if (typeof name === 'string' && name.trim()) patch.name = name.trim()
     if (typeof auto_normalize === 'boolean') patch.auto_normalize = auto_normalize
     if (fps_target === 24 || fps_target === 30) patch.fps_target = fps_target
+    // v1.0.405 — repoint the pool to a different folder (validated in updatePool).
+    if (typeof folder_path === 'string' && folder_path.trim()) patch.folder_path = folder_path.trim()
     // v1.0.403 — per-pool slideshow defaults (Image Pool format). Merged
     // field-by-field in updatePool so a partial patch keeps the rest.
     if (slideshow && typeof slideshow === 'object') patch.slideshow = slideshow

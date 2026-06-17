@@ -40,8 +40,18 @@
     <div v-else class="broll-layout">
       <!-- Pool list (left rail) -->
       <aside class="pool-rail">
+        <!-- v1.0.405 — filter pools by media so image pools have a clear home. -->
+        <div class="pool-filter">
+          <button :class="['pool-filter-btn', { active: poolFilter === 'all' }]" @click="poolFilter = 'all'">All ({{ pools.length }})</button>
+          <button :class="['pool-filter-btn', { active: poolFilter === 'video' }]" @click="poolFilter = 'video'">🎞 Video ({{ videoPoolCount }})</button>
+          <button :class="['pool-filter-btn', { active: poolFilter === 'image' }]" @click="poolFilter = 'image'">🖼 Images ({{ imagePoolCount }})</button>
+        </div>
+        <p v-if="!filteredPools.length" class="muted pool-filter-empty">
+          No {{ poolFilter === 'image' ? 'image' : poolFilter === 'video' ? 'video' : '' }} pools yet —
+          <button class="link-btn" @click="openCreateModal()">register one</button>.
+        </p>
         <button
-          v-for="p in pools"
+          v-for="p in filteredPools"
           :key="p.id"
           :class="['pool-card', { active: p.id === selectedPoolId }]"
           @click="selectPool(p.id)"
@@ -110,6 +120,7 @@
             >
               auto-normalize: {{ selectedPool.auto_normalize ? 'ON' : 'OFF' }}
             </button>
+            <button class="btn btn-ghost btn-sm" title="Rename this pool or repoint it to a different folder (e.g. you moved the drive)." @click="openEditModal">✎ Edit</button>
             <button class="btn btn-ghost btn-sm danger" @click="confirmDeletePool">✕ Unregister</button>
           </div>
         </div>
@@ -569,6 +580,42 @@
       </div>
     </div>
 
+    <!-- ── Edit pool modal (v1.0.405) — rename + repoint folder ──────────── -->
+    <div v-if="editModalOpen" class="modal-overlay" @click.self="editModalOpen = false">
+      <div class="modal">
+        <h3>Edit pool</h3>
+        <div class="form-group">
+          <label>Pool name <span class="req">*</span></label>
+          <input v-model="editDraft.name" class="input" placeholder="Prayer images (DAS)" />
+        </div>
+        <div class="form-group">
+          <label>Folder path <span class="req">*</span></label>
+          <div class="path-input-row">
+            <input v-model="editDraft.folder_path" class="input" placeholder="/Volumes/HDD-2TB/capi-images" />
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="picking" @click="onBrowseEditFolder">
+              📁 {{ picking ? 'Opening…' : 'Browse…' }}
+            </button>
+          </div>
+          <span class="hint">
+            <strong>Repoint</strong> to a different folder if you moved the drive. The clip/image tags live
+            <em>inside</em> the folder, so a moved-intact folder keeps its tags; an empty new folder starts
+            fresh until you Re-scan. Files are never modified.
+          </span>
+        </div>
+        <div v-if="editError" class="create-error">⚠ {{ editError }}</div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" @click="editModalOpen = false">Cancel</button>
+          <button
+            class="btn btn-primary"
+            :disabled="!editDraft.name.trim() || !editDraft.folder_path.trim() || editing"
+            @click="submitEdit"
+          >
+            {{ editing ? 'Saving…' : 'Save changes' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Rename (single clip) modal ────────────────────────────────────
          Lightweight: just a text input + Save. We re-validate client-side
          (extension required, no path separators) so the user gets immediate
@@ -762,6 +809,54 @@ async function onBrowseFolder() {
   }
 }
 
+// ── Edit pool (rename + repoint folder) — v1.0.405 ──────────────────────
+const editModalOpen = ref(false)
+const editing = ref(false)
+const editError = ref('')
+const editDraft = ref({ name: '', folder_path: '' })
+
+function openEditModal(): void {
+  if (!selectedPool.value) return
+  editDraft.value = { name: selectedPool.value.name, folder_path: selectedPool.value.folder_path }
+  editError.value = ''
+  editModalOpen.value = true
+}
+
+async function onBrowseEditFolder() {
+  picking.value = true
+  try {
+    const picked = await pickFolder({
+      title: 'Repoint pool to folder',
+      initial_path: editDraft.value.folder_path || undefined,
+      button_label: 'Use this folder',
+    })
+    if (picked) editDraft.value.folder_path = picked
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Folder picker failed')
+  } finally {
+    picking.value = false
+  }
+}
+
+async function submitEdit(): Promise<void> {
+  if (!selectedPool.value) return
+  editing.value = true
+  editError.value = ''
+  try {
+    const repointed = editDraft.value.folder_path.trim() !== selectedPool.value.folder_path
+    await broll.updatePool(selectedPool.value.id, {
+      name: editDraft.value.name.trim(),
+      folder_path: editDraft.value.folder_path.trim(),
+    })
+    editModalOpen.value = false
+    success(repointed ? 'Pool updated — click ↻ Re-scan to index the new folder.' : 'Pool updated.')
+  } catch (e: any) {
+    editError.value = e?.data?.detail || e?.message || 'Failed to update pool'
+  } finally {
+    editing.value = false
+  }
+}
+
 // Live app-level jobs (broll_normalize + broll_autotag). The standard
 // /projects/:slug/jobs feed filters by project_slug, so app-level
 // jobs (project_slug='_app_') never show there — this composable
@@ -773,6 +868,15 @@ const loading = broll.loading
 
 const selectedPoolId = ref<string>('')
 const selectedPool = computed(() => pools.value.find(p => p.id === selectedPoolId.value) || null)
+
+// v1.0.405 — media filter so image pools have a clear "tab".
+const poolFilter = ref<'all' | 'video' | 'image'>('all')
+const poolMediaOf = (p: { media?: 'video' | 'image' }) => (p.media === 'image' ? 'image' : 'video')
+const videoPoolCount = computed(() => pools.value.filter(p => poolMediaOf(p) === 'video').length)
+const imagePoolCount = computed(() => pools.value.filter(p => poolMediaOf(p) === 'image').length)
+const filteredPools = computed(() =>
+  poolFilter.value === 'all' ? pools.value : pools.value.filter(p => poolMediaOf(p) === poolFilter.value),
+)
 
 const clips = ref<any[]>([])
 const clipsLoading = ref(false)
@@ -1671,6 +1775,17 @@ function onThumbError(e: Event): void {
   color: inherit;
 }
 .pool-card:hover { border-color: var(--accent, #6c8fff); }
+/* v1.0.405 — pool media filter (All / Video / Images). */
+.pool-filter { display: flex; gap: 4px; margin-bottom: 8px; }
+.pool-filter-btn {
+  flex: 1; padding: 5px 6px; font-size: 11.5px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius-sm, 6px);
+  background: transparent; color: var(--text-secondary); white-space: nowrap;
+}
+.pool-filter-btn:hover { color: var(--text-primary); }
+.pool-filter-btn.active { background: var(--accent, #6c8fff); color: #fff; border-color: var(--accent, #6c8fff); }
+.pool-filter-empty { font-size: 12px; padding: 8px 2px; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--accent, #6c8fff); cursor: pointer; font: inherit; text-decoration: underline; }
 .pool-card.active { border-color: var(--accent, #6c8fff); background: rgba(108,143,255,0.06); }
 .pool-card-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
 .pool-card-meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 11px; margin-bottom: 4px; }

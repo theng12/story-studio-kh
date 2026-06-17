@@ -88,7 +88,7 @@ export function useBrollPools() {
     return pools.value.find(p => p.id === created.id) || created
   }
 
-  async function updatePool(id: string, patch: Partial<Pick<BrollPool, 'name' | 'auto_normalize' | 'fps_target'>>): Promise<BrollPool> {
+  async function updatePool(id: string, patch: Partial<Pick<BrollPool, 'name' | 'auto_normalize' | 'fps_target' | 'folder_path' | 'slideshow'>>): Promise<BrollPool> {
     const updated = await put<BrollPool>(`/broll-pools/${encodeURIComponent(id)}`, patch)
     pools.value = pools.value.map(p => p.id === id ? { ...p, ...updated } : p)
     return updated
