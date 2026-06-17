@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.404 — 2026-06-17
+
+### Added — Image Pool selection + cross-episode dedup (P2)
+Second slice of the Image Pool slideshow format. New endpoint **`POST /projects/:slug/image-pool/pick`** builds a per-episode slideshow selection:
+- Sizes the sequence to the **narration length** (same as B-Roll), at the pool's **seconds-per-image** (timed pacing — default 8s).
+- **Random** order from the whole pool (tag filtering optional), reusing the B-Roll selector.
+- **Cross-episode no-repeat** from a **separate image usage log** + the pool's own dedup window (default 20 episodes) — independent of B-Roll's dedup so the two never interfere.
+- Writes the shared selection sidecar **stamped `media:'image'`** (plus fit + Ken-Burns motion + crossfade defaults from the pool) so the P3 assembler knows to use the still-image path. Usage is recorded at assemble time (P3).
+
+Backend only — the picker UI + the still-image assembler land in P3/P4. (Verifiable now via the endpoint against an image pool created in 1.0.403.)
+
+### Files
+- `electron/server/routes/broll-project.ts` (new `image-pool/pick` route, reusing the narration-sizing + selector + sidecar helpers)
+- `electron/server/services/broll-selection-sidecar.ts` (`media` + `fit` on the sidecar)
+
+---
+
 ## v1.0.403 — 2026-06-17
 
 ### Added — Image Pool foundation (P1 of the new still-image slideshow format)

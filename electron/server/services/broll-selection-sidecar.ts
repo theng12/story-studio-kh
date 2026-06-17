@@ -18,6 +18,11 @@ export interface BrollSelectionSidecar {
   schema_version: 1
   episode_code: string
   pool_id: string
+  /** v1.0.404 — 'image' = Image Pool slideshow (still-image assembler);
+   *  absent/'video' = B-Roll clips. Lets the assembler pick the right path. */
+  media?: 'video' | 'image'
+  /** v1.0.404 — image-pool fit mode (crop/fit/blur); ignored for video. */
+  fit?: 'crop' | 'fit' | 'blur'
   selection_mode: string
   pacing_mode: string
   segment_seconds?: number
