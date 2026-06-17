@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.419 — 2026-06-18
+
+### Changed — Video export defaults to Apple hardware acceleration on capable Macs
+On Macs whose FFmpeg build exposes Apple's Media Engine encoder (`h264_videotoolbox` — i.e. Apple Silicon and other modern Macs), Video Assembly now **defaults to the hardware-accelerated H.264 path** instead of the CPU encoder. For the renders this app produces — ~20-minute videos from ~300 stills — that's roughly **8–15× faster** (a render that took ~30–40 min on libx264 `medium` finishes in a few minutes) with **no visible quality loss** on mostly-static footage. The output format is unchanged: still 1920×1080 H.264 MP4 with `-pix_fmt yuv420p`, `-movflags +faststart`, and AAC 192k audio. Constant-quality `-q:v` is preserved (no switch to fixed bitrate). The encoder presence **is** the platform check — where `h264_videotoolbox` isn't in the build (Linux/Windows, older Macs, brewed builds without VideoToolbox) the libx264 default is left untouched. This only seeds the form default: a saved export preset / bundle still wins, and you can drop to any CPU preset in one click.
+
+### Changed — Hardware-encode failures now fall back without losing effects
+If a hardware (VideoToolbox) encode fails to initialise mid-render, the recovery chain now re-encodes the **full filter graph** on the CPU with libx264 (matching the quality tier's preset) before resorting to the bare-bones "minimal" recovery. Previously a transient VideoToolbox failure dropped straight to the minimal tier and stripped every post effect (grain/grade/chroma/subtitles/logo); now those are preserved — the fallback is just slower, not degraded.
+
+### Files
+- `frontend/pages/projects/[slug]/video-assembly.vue` (`applyHardwareExportDefaultIfAvailable` seeds `encoding_effort: 'hardware'` in `onMounted` before presets load; `ffmpegStatus` ref type now carries `hw_encoders`)
+- `electron/server/generators/video.ts` (`encoderArgs`/`buildFullArgs` accept an effort override; new "hardware → libx264 full effects" recovery tier in `runFinalComposition`)
+
+---
+
 ## v1.0.418 — 2026-06-17
 
 ### Changed — Video Assembly auto-selects the stitched subtitle by default

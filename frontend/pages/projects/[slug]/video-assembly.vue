@@ -2548,7 +2548,7 @@ const selectedEpisode = ref<any>(null)
 // v1.0.307 — keep Generate disabled for the WHOLE queued render, not just the
 // brief enqueue POST that flips `generating` (see useJobs.isJobActiveFor).
 const assemblyJobActiveForEpisode = computed(() => isJobActiveFor(episodeId.value, ['video_assembly']))
-const ffmpegStatus = ref<{ installed: boolean; version?: string; has_drawtext?: boolean; has_libass?: boolean; check_error?: string } | null>(null)
+const ffmpegStatus = ref<{ installed: boolean; version?: string; has_drawtext?: boolean; has_libass?: boolean; hw_encoders?: { h264: boolean; h265: boolean }; check_error?: string } | null>(null)
 const scannedAssets = ref<any>(null)
 const scanning = ref(false)
 
@@ -4309,6 +4309,32 @@ function applyQuickPreset(preset: QuickExportPreset) {
   success(`Applied ${preset.label} preset`)
 }
 
+/**
+ * v1.0.419 — On Macs whose FFmpeg build exposes `h264_videotoolbox`
+ * (Apple Silicon and any Mac with a Media Engine), default the export to
+ * the hardware-accelerated H.264 path. This is the single biggest speed
+ * win for the renders this app produces — ~20-min, ~300-still videos —
+ * where videotoolbox runs roughly 8-15× faster than libx264 `medium`
+ * with no visible quality loss on mostly-static footage.
+ *
+ * The encoder-presence flag IS the platform check: `h264_videotoolbox`
+ * only exists in macOS ffmpeg builds, so when it's absent (Linux/Windows,
+ * an older Mac, a brewed build without videotoolbox) we leave the libx264
+ * default in place and the CPU path runs exactly as before.
+ *
+ * "UI default only" — this just seeds the form's `encoding_effort`. It
+ * runs in onMounted BEFORE saved export presets / bundles load, so a user
+ * with their own preset keeps their chosen effort, and scripted / bundle
+ * exports are unaffected. The quality tier (default `high` → q:v ~80) is
+ * left untouched, so the seeded default is effectively the High-Quality
+ * 1080p hardware path; users can drop to a faster tier in one click.
+ */
+function applyHardwareExportDefaultIfAvailable() {
+  if (ffmpegStatus.value?.hw_encoders?.h264 && exportSettings.codec !== 'h265') {
+    exportSettings.encoding_effort = 'hardware'
+  }
+}
+
 const activeQuickPreset = computed(() => {
   const s = exportSettings
   return EXPORT_QUICK_PRESETS.find(p =>
@@ -4947,7 +4973,11 @@ async function applyVideoFormatDefaultsIfNoPreset() {
 }
 
 onMounted(async () => {
-  checkFfmpeg()
+  // Kick off the ffmpeg probe immediately but keep the promise — we need
+  // its `hw_encoders` result to seed the hardware export default below,
+  // and that must happen BEFORE saved presets/bundles load so the user's
+  // own presets still win.
+  const ffmpegReady = checkFfmpeg()
   loadTransitionsCatalog()
   loadAnimationsCatalog()
   loadSceneTimingMode()
@@ -4964,6 +4994,12 @@ onMounted(async () => {
   // crossfade values that the user had to dial down by hand every
   // time.
   await applyVideoFormatDefaultsIfNoPreset()
+  // Seed the hardware-accelerated export default on capable Macs. Awaiting
+  // the probe here (rather than the fire-and-forget above) guarantees
+  // `hw_encoders` is populated before we read it. Runs before the preset
+  // loads below so saved export presets / bundles override it.
+  await ffmpegReady
+  applyHardwareExportDefaultIfAvailable()
   // Slots must finish loading before the bundle runs its auto-apply, since
   // the bundle looks up preset IDs inside each slot's list. Doing them
   // sequentially (cheap parallel fetches) before triggering the bundle

@@ -3435,12 +3435,16 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // H.264 fallback applies there. Delegates to the pure top-level
   // `buildEncoderArgs` so the codec/CRF/preset shape is snapshot-testable
   // without spawning ffmpeg.
-  function encoderArgs(useCodec: 'h264' | 'h265'): string[] {
+  // `effortOverride` lets the recovery chain re-encode with a different
+  // effort than the user picked — specifically to drop a failed `hardware`
+  // (videotoolbox) attempt down to a software libx264 preset while keeping
+  // the full filter graph intact. Defaults to the user's `effort`.
+  function encoderArgs(useCodec: 'h264' | 'h265', effortOverride?: string): string[] {
     return buildEncoderArgs({
       codec: useCodec,
       format,
       crf: quality.crf,
-      effort,
+      effort: effortOverride ?? effort,
     })
   }
 
@@ -3452,10 +3456,10 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // codec-dependent.
   const preEncoderArgs = [...args]
 
-  function buildFullArgs(useCodec: 'h264' | 'h265'): string[] {
+  function buildFullArgs(useCodec: 'h264' | 'h265', effortOverride?: string): string[] {
     return [
       ...preEncoderArgs,
-      ...encoderArgs(useCodec),
+      ...encoderArgs(useCodec, effortOverride),
       '-t', targetDuration.toString(),
       outputFile,
     ]
@@ -3667,6 +3671,22 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     {
       label: codecLabel(effectiveCodec),
       build: () => buildFullArgs(effectiveCodec),
+    },
+    {
+      // Hardware (videotoolbox) → software libx264, FULL filter graph intact.
+      // Without this tier a transient videotoolbox init failure (no Media
+      // Engine session available, an old Intel Mac that advertises the
+      // encoder but can't open it, a quirky brewed build) dropped straight
+      // to the tier-3 "minimal" recovery, which strips every post effect.
+      // Re-encoding the same full graph on the CPU is the correct fallback:
+      // the user keeps grain/grade/chroma/subtitles/logo, just slower. Uses
+      // the quality tier's CPU preset (e.g. high→slow, medium→medium) so the
+      // output quality matches what a non-hardware pick would have produced.
+      label: `H.264 · libx264 ${quality.preset} (hardware fallback, full effects)`,
+      note: '(retry, libx264 software)',
+      degraded: 'hardware encoder unavailable — re-encoded on CPU (same effects, slower)',
+      shouldRun: () => effort === 'hardware',
+      build: () => buildFullArgs('h264', quality.preset),
     },
     {
       label: codecLabel('h264') + ' (fallback)',
