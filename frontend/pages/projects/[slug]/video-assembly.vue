@@ -3433,6 +3433,18 @@ async function loadSubtitlesStatus() {
   if (!episodeId.value) return
   try {
     subtitlesStatus.value = await get(`/projects/${slug.value}/video-editor/subtitles/status/${episodeId.value}`)
+    // v1.0.418 — auto-default the burn-in SRT to the full STITCHED transcript
+    // (then the merged-audio Whisper SRT) when the user hasn't already picked
+    // one (and no preset set it). Per-chapter partials are NEVER auto-picked —
+    // they're short fragments, exactly the wrong default. The user can still
+    // override via the file list, and the ✕ clear is respected (we only fill an
+    // EMPTY selection).
+    if (!subtitles.srt_path) {
+      const list = subtitlesStatus.value?.existing_srts || []
+      const pick = list.find(s => /_stitched\.(srt|ass|vtt)$/i.test(s.filename))
+        || list.find(s => /_whisper\.(srt|ass|vtt)$/i.test(s.filename))
+      if (pick) pickSubtitlePath(pick.path)
+    }
   } catch { /* non-fatal */ }
 }
 

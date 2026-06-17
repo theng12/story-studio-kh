@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.418 — 2026-06-17
+
+### Changed — Video Assembly auto-selects the stitched subtitle by default
+When you open Video Assembly's subtitle section and haven't already picked a file, it now **auto-selects the full `_stitched.srt`** transcript (falling back to the merged-audio `_whisper.srt`) instead of leaving the field blank. Per-chapter partials (`_Chapter_NN.srt`) are **never** auto-picked — they're short fragments and the wrong default. You can still pick any file from the list, a saved preset's choice still wins, and clearing the selection (✕) is respected (auto-default only fills an empty selection).
+
+### Files
+- `frontend/pages/projects/[slug]/video-assembly.vue` (`loadSubtitlesStatus` defaults the burn-in SRT to stitched/whisper when empty)
+
+---
+
 ## v1.0.417 — 2026-06-17
 
 ### Added — create a composite thumbnail template from scratch, in-app
