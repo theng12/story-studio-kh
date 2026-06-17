@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.406 — 2026-06-17
+
+### Added — Pick the vision model for auto-tagging (incl. free local LM Studio)
+Auto-tag was hardwired to GPT-4o. Now there's a **vision-model picker** in the B-Roll Library's tag toolbar, for **both** pool types:
+
+- **OpenAI** — GPT-4o, or **GPT-4o mini** (cheaper).
+- **LM Studio (local · free)** — any vision-capable model you have loaded (Llava, Qwen-VL, Gemma-VL…), surfaced live from your server. No OpenAI key needed when you pick one of these.
+
+The choice persists, and applies to the per-clip "Auto-tag" and the bulk "Auto-tag untagged". (`analyzeStyle` now honors the chosen model and routes local models through the LM Studio provider; the OpenAI key is only required for the OpenAI options.)
+
+And to answer the "how does video even get tagged?" question 😄 — the indexer caches a **midpoint frame** of each clip as a JPEG, and *that image* is what the vision model sees. Image pools tag the image directly. Same code path, so the model picker covers both.
+
+### Files
+- `electron/server/lib/vision-client.ts` (model-routed `analyzeStyle`: OpenAI vision + local LM Studio vision)
+- `electron/server/generators/broll-autotag.ts` (pass the chosen model; gate OpenAI-key only for OpenAI models)
+- `frontend/pages/broll-library.vue` + `frontend/composables/useBrollPools.ts` (vision-model picker, persisted; local models fetched from `/lmstudio/models`)
+
+---
+
 ## v1.0.405 — 2026-06-17
 
 ### Added — Edit / rename / repoint pools (B-Roll + Image), and a media filter

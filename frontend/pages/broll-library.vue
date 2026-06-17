@@ -97,10 +97,19 @@
             >
               ⚡ Normalize all{{ unnormalizedCount ? ` (${unnormalizedCount})` : '' }}
             </button>
+            <!-- v1.0.406 — vision model for auto-tagging (both clips + images).
+                 OpenAI (paid) or a local LM Studio vision model (free). -->
+            <select
+              v-model="autotagModel"
+              class="select select-sm autotag-model-select"
+              title="Which vision model tags your clips/images. Local LM Studio models are free; OpenAI is paid. Video clips tag from a midpoint frame; images tag directly."
+            >
+              <option v-for="m in visionModelOptions" :key="m.id" :value="m.id">{{ m.label }}</option>
+            </select>
             <button
               class="btn btn-sm btn-secondary"
               :disabled="!selectedPool.online || autotagging || !untaggedCount"
-              :title="!selectedPool.online ? 'Pool offline' : !untaggedCount ? 'Every clip already has at least one tag' : `Queue vision-LLM auto-tag jobs for the ${untaggedCount} clip(s) with no tags yet. ~$0.002/clip on GPT-4o-mini.`"
+              :title="!selectedPool.online ? 'Pool offline' : !untaggedCount ? 'Every clip/image already has at least one tag' : `Queue vision auto-tag jobs for the ${untaggedCount} item(s) with no tags yet, using ${autotagModel}.`"
               @click="runAutotagUntagged"
             >
               ✨ Auto-tag untagged{{ untaggedCount ? ` (${untaggedCount})` : '' }}
@@ -892,6 +901,30 @@ const untaggedCount = computed(() =>
 )
 const autotagging = ref(false)
 
+// v1.0.406 — user-selectable vision model for auto-tagging (both clips + images).
+// OpenAI vision (paid) + any local LM Studio vision model (free), fetched live.
+const autotagModel = ref<string>('gpt-4o')
+const visionModelOptions = ref<Array<{ id: string; label: string }>>([
+  { id: 'gpt-4o', label: 'GPT-4o (OpenAI)' },
+  { id: 'gpt-4o-mini', label: 'GPT-4o mini (OpenAI · cheaper)' },
+])
+onMounted(async () => {
+  try {
+    const saved = window.localStorage.getItem('brollAutotagModel')
+    if (saved) autotagModel.value = saved
+  } catch { /* no storage */ }
+  // Surface local LM Studio models as free vision options (if configured).
+  try {
+    const r = await apiGet<{ models: string[] }>('/lmstudio/models')
+    for (const slug of (r.models || [])) {
+      visionModelOptions.value.push({ id: `lmstudio:${slug}`, label: `${slug} (LM Studio · local · free)` })
+    }
+  } catch { /* LM Studio not configured — OpenAI options only */ }
+})
+watch(autotagModel, (v) => {
+  try { window.localStorage.setItem('brollAutotagModel', v) } catch { /* no storage */ }
+})
+
 // ── Pool jobs panel + auto-refresh ────────────────────────────────────
 const poolJobsExpanded = ref(true)
 
@@ -1414,7 +1447,7 @@ async function normalizeOne(filename: string): Promise<void> {
 async function autotagOne(filename: string): Promise<void> {
   if (!selectedPoolId.value) return
   try {
-    await broll.autotagClip(selectedPoolId.value, filename)
+    await broll.autotagClip(selectedPoolId.value, filename, { model: autotagModel.value || undefined })
     success(`Queued auto-tag for ${filename}`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to queue auto-tag')
@@ -1425,7 +1458,7 @@ async function runAutotagUntagged(): Promise<void> {
   if (!selectedPoolId.value || autotagging.value) return
   autotagging.value = true
   try {
-    const r = await broll.autotagUntagged(selectedPoolId.value)
+    const r = await broll.autotagUntagged(selectedPoolId.value, { model: autotagModel.value || undefined })
     success(`Queued ${r.queued} auto-tag job(s) (${r.total_targets} candidate clips).`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to queue bulk auto-tag')
@@ -1786,6 +1819,8 @@ function onThumbError(e: Event): void {
 .pool-filter-btn.active { background: var(--accent, #6c8fff); color: #fff; border-color: var(--accent, #6c8fff); }
 .pool-filter-empty { font-size: 12px; padding: 8px 2px; }
 .link-btn { background: none; border: 0; padding: 0; color: var(--accent, #6c8fff); cursor: pointer; font: inherit; text-decoration: underline; }
+/* v1.0.406 — compact vision-model picker in the autotag toolbar. */
+.autotag-model-select { max-width: 230px; font-size: 12px; }
 .pool-card.active { border-color: var(--accent, #6c8fff); background: rgba(108,143,255,0.06); }
 .pool-card-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
 .pool-card-meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 11px; margin-bottom: 4px; }

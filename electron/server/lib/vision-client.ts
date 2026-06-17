@@ -206,22 +206,67 @@ export async function visionKeyAvailable(): Promise<boolean> {
   return !!openai
 }
 
+/** v1.0.406 — drive a local LM Studio vision model (e.g. Llava / Qwen-VL /
+ *  Gemma-VL) for the same image-analysis prompts. Free + offline. Reuses the
+ *  lmstudio text provider, which packs `images` into the OpenAI multimodal
+ *  content array. The "apiKey" slot carries the LM Studio base URL. */
+async function callLmStudioVision(model: string, buffer: Buffer, mime: string, input: AnalyzeStyleInput): Promise<string> {
+  const { getApiKey } = await import('../services/app-secrets-store.js')
+  const baseUrl = await getApiKey('lmstudio').catch(() => '')
+  if (!baseUrl) {
+    throw new Error('No LM Studio URL configured for local vision tagging. Set it in Settings → Local Models → LM Studio, then load a vision-capable model.')
+  }
+  const { registry } = await import('../providers/registry.js')
+  const provider = registry.getTextProvider('lmstudio')
+  if (!provider) throw new Error('LM Studio provider not registered')
+  const basePrompt =
+    input.mode === 'character' ? CHARACTER_PROMPT :
+    input.mode === 'tags'      ? TAGS_PROMPT      :
+    STYLE_PROMPT
+  const userPrompt = input.focus ? `${basePrompt}\n\nFocus hint: ${input.focus}` : basePrompt
+  const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`
+  const text = await provider.callText({
+    model,
+    system: '',
+    userMessage: userPrompt,
+    apiKey: baseUrl,
+    images: [dataUrl],
+  } as any)
+  if (typeof text !== 'string' || !text.trim()) {
+    throw new Error('LM Studio vision returned no text — is the loaded model vision-capable (e.g. Llava, Qwen-VL)?')
+  }
+  return text.trim()
+}
+
 /**
- * Analyse a reference image with GPT-4o vision. (v1.0.248 dropped the kie.ai
- * Claude vision path — kie's chat/vision endpoint was Cloudflare-blocked and
- * its image support was never documented; GPT-4o is the reliable route.)
+ * Analyse a reference image. Default is OpenAI GPT-4o vision; the caller can
+ * pick another route via `input.model`:
+ *   - 'gpt-4o' | 'gpt-4o-mini'  → OpenAI vision (uses the OpenAI key)
+ *   - 'lmstudio:<slug>'         → a LOCAL LM Studio vision model (free)
+ * Unknown/absent models fall back to gpt-4o, preserving the original behaviour
+ * for callers (character sheet, image-prompts) that don't pass a model.
  */
 export async function analyzeStyle(input: AnalyzeStyleInput): Promise<AnalyzeStyleResult> {
   if (!input.imagePath || !existsSync(input.imagePath)) {
     throw new Error(`Reference image not found: ${input.imagePath}`)
   }
+  const requested = (input.model || '').trim()
+  const { buffer, mime } = await downscaleToBuffer(input.imagePath)
+
+  // Local LM Studio vision — no OpenAI key needed.
+  if (requested.startsWith('lmstudio:')) {
+    const text = await callLmStudioVision(requested, buffer, mime, input)
+    return { style_text: text, model_used: requested }
+  }
+
+  // OpenAI vision. Only gpt-4o / gpt-4o-mini are accepted here; anything else
+  // (incl. absent) falls back to gpt-4o.
   const { getApiKey } = await import('../services/app-secrets-store.js')
   const openaiKey = await getApiKey('openai').catch(() => '')
   if (!openaiKey) {
-    throw new Error('No vision-capable API key configured. Add an OpenAI key in Settings → API Keys.')
+    throw new Error('No vision-capable API key configured. Add an OpenAI key in Settings → API Keys, or pick a local LM Studio vision model.')
   }
-
-  const { buffer, mime } = await downscaleToBuffer(input.imagePath)
-  const text = await callOpenAi({ ...input, model: 'gpt-4o', apiKey: openaiKey }, buffer, mime)
-  return { style_text: text, model_used: 'gpt-4o' }
+  const model = (requested === 'gpt-4o' || requested === 'gpt-4o-mini') ? requested : 'gpt-4o'
+  const text = await callOpenAi({ ...input, model, apiKey: openaiKey }, buffer, mime)
+  return { style_text: text, model_used: model }
 }

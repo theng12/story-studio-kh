@@ -128,17 +128,17 @@ export function useBrollPools() {
     )
   }
 
-  async function autotagClip(id: string, filename: string, opts?: { replace_tags?: boolean }): Promise<{ job_id: string }> {
+  async function autotagClip(id: string, filename: string, opts?: { replace_tags?: boolean; model?: string }): Promise<{ job_id: string }> {
     return await post<{ job_id: string }>(
       `/broll-pools/${encodeURIComponent(id)}/clips/${encodeURIComponent(filename)}/autotag`,
-      { replace_tags: !!opts?.replace_tags },
+      { replace_tags: !!opts?.replace_tags, ...(opts?.model ? { model: opts.model } : {}) },
     )
   }
 
-  async function autotagUntagged(id: string, opts?: { force?: boolean }): Promise<{ queued: number; total_targets: number }> {
+  async function autotagUntagged(id: string, opts?: { force?: boolean; model?: string }): Promise<{ queued: number; total_targets: number }> {
     return await post<{ queued: number; total_targets: number }>(
       `/broll-pools/${encodeURIComponent(id)}/autotag-untagged`,
-      { force: !!opts?.force },
+      { force: !!opts?.force, ...(opts?.model ? { model: opts.model } : {}) },
     )
   }
 

@@ -48,7 +48,8 @@ function parseTagsResponse(raw: string): string[] {
 }
 
 export async function generateBrollAutotag(job: Job): Promise<void> {
-  const { pool_id, filename, replace_tags } = job.params as AutotagParams
+  const { pool_id, filename, replace_tags, model } = job.params as AutotagParams
+  const visionModel = (model || '').trim()
   if (!pool_id || !filename) throw new Error('pool_id and filename are required')
 
   const pool = await bp.getPool(pool_id)
@@ -65,14 +66,21 @@ export async function generateBrollAutotag(job: Job): Promise<void> {
 
   job.output_lines.push(`Clip: ${filename} (${clip.width}×${clip.height} · ${clip.fps}fps)`)
 
-  // Vision auto-routes (kie.ai Claude → GPT-4o fallback) inside analyzeStyle.
-  if (!(await visionKeyAvailable())) {
-    throw new Error('No vision-capable API key configured. Add a kie.ai OR OpenAI key in Settings → API Keys.')
+  // v1.0.406 — vision model is user-selectable. Local LM Studio models tag for
+  // free (no OpenAI key); OpenAI vision (gpt-4o / gpt-4o-mini) needs the key.
+  // Gate only the OpenAI path on the key — analyzeStyle validates the LM Studio
+  // URL itself. Works for both video clips (midpoint frame) and image pools
+  // (the image itself), since both reduce to a cached thumbnail JPEG.
+  const isLocal = visionModel.startsWith('lmstudio:')
+  if (!isLocal && !(await visionKeyAvailable())) {
+    throw new Error('No vision-capable API key configured. Add an OpenAI key in Settings → API Keys, or pick a local LM Studio vision model.')
   }
+  if (visionModel) job.output_lines.push(`Requested vision model: ${visionModel}`)
 
   const result = await analyzeStyle({
     imagePath: thumbPath,
     mode: 'tags',
+    model: visionModel || undefined,
   })
   job.output_lines.push(`Vision model: ${result.model_used}`)
 
