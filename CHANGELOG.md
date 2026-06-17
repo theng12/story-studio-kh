@@ -4,6 +4,28 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.400 — 2026-06-17
+
+### Fixed — Subtitles: "audio_chapters.json not found — Run Audio Assembly first" now self-heals
+Episodes merged on an older build (before the chapter-duration sidecar was written reliably) could **never stitch their subtitles** — Stitch and auto-stitch both dead-ended with *"audio_chapters.json not found"*, even though every per-chapter audio file and per-chapter SRT was sitting right there. Re-running Audio Assembly would write the sidecar, but it also **re-creates the merged audio**, which risks desyncing scenes you've already rendered.
+
+Now the stitcher **rebuilds the missing sidecar from the chapter audio on disk** instead of forcing a re-merge:
+- It measures each chapter file (folding multi-part chapters into one section, like Audio Assembly does) and **derives the inter-chapter gap** from `merged duration − sum of chapters`. That's exact to a few hundredths of a second across a whole episode, so the stitched timing lines up.
+- It writes the reconstructed `audio_chapters.json` (tagged `"reconstructed": true`) so it's healed for next time and the chapter-aligned video assembler finds it too.
+- Falls back to a 5 s gap only if the merged audio is also gone, and stays a no-op when the sidecar already exists.
+
+Both the **Stitch subtitles** button and the **auto-stitch after transcribe** use it, so old episodes recover on the next stitch with no re-merge. (For a perfectly exact gap you can still re-run Audio Assembly — but you no longer have to.)
+
+This was never the recent updates' fault, and it isn't format-specific — the sidecar code runs for every merge; these episodes just predate a clean write.
+
+### Files
+- `electron/server/lib/audio-chapters-reconstruct.ts` (new — `buildReconstructedSidecar` / `reconstructAudioChapters` / `ensureAudioChaptersSidecar`)
+- `electron/server/routes/scene-plan.ts` (stitch route self-heals first)
+- `electron/server/generators/subtitles.ts` (auto-stitch self-heals first)
+- `electron/server/__tests__/audio-chapters-reconstruct.test.ts`
+
+---
+
 ## v1.0.399 — 2026-06-16
 
 ### Fixed — effects, logo overlay, and subtitles silently dropped from the final video

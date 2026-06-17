@@ -462,6 +462,20 @@ async function transcribePerChapter(
   // audio not merged yet) logs a note but never fails the transcribe job.
   try {
     const epaths = await resolveEpisodePathsByCode(projectSlug, episodeId)
+    // v1.0.398 — self-heal a missing audio_chapters.json (episodes merged
+    // before the sidecar was written reliably) by rebuilding it from the
+    // per-chapter audio on disk, so both the lead-in read below AND the stitch
+    // succeed without forcing a re-merge. No-op when the sidecar exists.
+    try {
+      const { ensureAudioChaptersSidecar } = await import('../lib/audio-chapters-reconstruct.js')
+      const note = await ensureAudioChaptersSidecar({
+        episodeDir: epaths.episode_dir,
+        audioDir: epaths.audio_dir,
+        mergedAudioDir: epaths.merged_audio_dir,
+        episodeCode: code,
+      })
+      if (note) job.output_lines.push(`ℹ ${note}`)
+    } catch { /* best-effort; the stitch below will report if the sidecar is still missing */ }
     // v1.0.397 — offset the stitched timeline by the intro lead-in so the
     // burned captions line up with the merged audio (which plays the intro
     // before any narration). Read-only against the merged file + sidecar.

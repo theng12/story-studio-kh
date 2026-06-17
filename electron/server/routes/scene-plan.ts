@@ -31,6 +31,18 @@ router.post('/projects/:slug/scene-plan/:episodeId/stitch-subtitles', async (req
   const { slug, episodeId } = req.params
   try {
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    // v1.0.398 — self-heal: episodes merged before audio_chapters.json was
+    // written (or where it was lost) would dead-end here with "Run Audio
+    // Assembly first" even though the per-chapter audio is on disk. Rebuild the
+    // sidecar from that audio instead of forcing a re-merge (which would desync
+    // already-rendered scenes). No-op when the sidecar already exists.
+    const { ensureAudioChaptersSidecar } = await import('../lib/audio-chapters-reconstruct.js')
+    await ensureAudioChaptersSidecar({
+      episodeDir: paths.episode_dir,
+      audioDir: paths.audio_dir,
+      mergedAudioDir: paths.merged_audio_dir,
+      episodeCode: episodeId.toUpperCase(),
+    }).catch(() => null)
     const result = await stitchSubtitles({
       episode_dir: paths.episode_dir,
       subtitles_dir: paths.subtitles_dir,
