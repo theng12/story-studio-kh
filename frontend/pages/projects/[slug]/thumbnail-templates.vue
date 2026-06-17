@@ -44,13 +44,24 @@
       </div>
     </div>
 
-    <h2 class="tt-section-head">All templates</h2>
+    <div class="tt-section-headrow">
+      <h2 class="tt-section-head">All templates</h2>
+      <button
+        v-if="!editingId"
+        type="button"
+        class="btn btn-sm btn-primary"
+        @click="onCreateTemplate"
+      >
+        + New template
+      </button>
+    </div>
     <p class="text-muted tt-section-hint">
       ★ marks templates recommended for this project's niche
       <template v-if="nicheId"> (<strong>{{ nicheId }}</strong>)</template>.
       Click any card to set it as the project default — the next time you open the Compose dialog it'll
       load with that template already selected. Or hit <strong>Edit</strong> on any card to open the
-      visual editor (built-ins fork to your user library on first save).
+      visual editor. Use <strong>+ New template</strong> to build one from scratch in your library
+      (built-ins fork to your user library on first save).
     </p>
 
     <ThumbnailTemplatePicker
@@ -189,6 +200,13 @@ function onEditTemplate(id: string) {
   editingId.value = id
 }
 
+// v1.0.417 — open the editor on a blank template. The editor recognises the
+// sentinel 'new', starts from defaults, and POSTs a new user-library template
+// on save (onEditorSaved then sets it as the project default).
+function onCreateTemplate() {
+  editingId.value = 'new'
+}
+
 async function onEditorSaved(savedId: string) {
   editingId.value = ''
   // The save may have forked a built-in to a new id. Switch the
@@ -264,6 +282,16 @@ onMounted(loadAll)
 .tt-active-source {
   font-size: 12px;
   color: var(--text-muted, #b3b3bb);
+}
+.tt-section-headrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 24px;
+}
+.tt-section-headrow .tt-section-head {
+  margin: 0;
 }
 .tt-section-head {
   margin: 24px 0 4px;

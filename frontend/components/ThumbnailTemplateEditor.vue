@@ -2,12 +2,27 @@
   <div class="tte-root">
     <div class="tte-header">
       <div>
-        <h3 class="tte-title">{{ workingTemplate?.name || 'Loading…' }}</h3>
-        <p class="text-muted tte-subtitle">
-          <span v-if="isFork" class="tte-pill tte-pill-fork">forked copy</span>
-          <code class="tte-mono">{{ workingTemplate?.id }}</code>
-          <template v-if="dirty"> · <span class="tte-pill tte-pill-dirty">unsaved changes</span></template>
-        </p>
+        <template v-if="isNew && workingTemplate">
+          <input
+            v-model="workingTemplate.name"
+            class="input input-sm tte-name-input"
+            placeholder="Template name (e.g. Bold Left Title)"
+          />
+          <input
+            v-model="workingTemplate.description"
+            class="input input-sm tte-desc-input"
+            placeholder="Short description (optional)"
+          />
+          <p class="text-muted tte-subtitle"><span class="tte-pill tte-pill-fork">new template</span> saves to your library</p>
+        </template>
+        <template v-else>
+          <h3 class="tte-title">{{ workingTemplate?.name || 'Loading…' }}</h3>
+          <p class="text-muted tte-subtitle">
+            <span v-if="isFork" class="tte-pill tte-pill-fork">forked copy</span>
+            <code class="tte-mono">{{ workingTemplate?.id }}</code>
+            <template v-if="dirty"> · <span class="tte-pill tte-pill-dirty">unsaved changes</span></template>
+          </p>
+        </template>
       </div>
       <div class="tte-header-actions">
         <button type="button" class="btn btn-sm btn-secondary" @click="cancel">Cancel</button>
@@ -251,10 +266,46 @@ const forkedId = computed(() =>
   props.templateId.endsWith('-custom') ? props.templateId : `${props.templateId}-custom`,
 )
 
+// v1.0.417 — creating a brand-new template (parent passes templateId='new').
+const isNew = computed(() => props.templateId === 'new')
+
 const dirty = computed(() => {
-  if (!originalTemplate.value || !workingTemplate.value) return false
+  if (!workingTemplate.value) return false
+  if (isNew.value) return true   // a fresh template is always saveable
+  if (!originalTemplate.value) return false
   return JSON.stringify(originalTemplate.value) !== JSON.stringify(workingTemplate.value)
 })
+
+/** A sensible blank starting point for a new template: one centered title
+ *  over a full dim, plus a top-left logo slot. The user repositions/styles
+ *  from here. `{episode_title}` is substituted at compose time. */
+function blankTemplate(): Template {
+  return {
+    id: 'new',
+    name: 'My Thumbnail Template',
+    description: '',
+    builtin: false,
+    schemaVersion: 1,
+    aspectRatio: '16:9',
+    canvas: { width: 1920, height: 1080 },
+    backgroundDimGradient: { side: 'full', coverage: 1, color: '#000000', strength: 0.45 },
+    textZones: [
+      {
+        name: 'title',
+        defaultText: '{episode_title}',
+        x: 'center', y: 'middle', xOffset: 0, yOffset: 0,
+        maxWidth: 1500,
+        fontFamily: "Impact, 'Arial Black', 'Helvetica Neue', sans-serif",
+        fontSize: 150, fontWeight: 900, fill: '#ffffff',
+        letterSpacing: 2, uppercase: true, lineHeight: 1.05,
+        textAnchor: 'middle',
+        shadow: { dx: 0, dy: 4, blur: 20, color: '#000000' },
+      },
+    ],
+    accentStrokes: [],
+    logoSlot: { x: 'left', y: 'top', xOffset: 56, yOffset: 56, width: 132 },
+  }
+}
 
 const selectedZone = computed(() => {
   const zones = workingTemplate.value?.textZones || []
@@ -393,6 +444,13 @@ function updateZone(patch: Partial<TextZone>) {
 // ── Save / cancel / load ─────────────────────────────────────────────────
 
 async function load() {
+  // New template: start from a blank default, no fetch.
+  if (isNew.value) {
+    originalTemplate.value = null
+    workingTemplate.value = blankTemplate()
+    selectedIdx.value = 0
+    return
+  }
   try {
     const t = await get<Template>(`/thumbnail-templates/${encodeURIComponent(props.templateId)}`)
     originalTemplate.value = JSON.parse(JSON.stringify(t))
@@ -404,6 +462,24 @@ async function load() {
 
 async function save() {
   if (!workingTemplate.value || !dirty.value) return
+  // New template → create in the user library (server slugs the id from name).
+  if (isNew.value) {
+    if (!workingTemplate.value.name?.trim()) {
+      toastError('Give the template a name before saving.')
+      return
+    }
+    saving.value = true
+    try {
+      const r = await post<{ template: Template }>(`/thumbnail-templates`, workingTemplate.value)
+      toastSuccess(`Created "${r.template.name}"`)
+      emit('saved', r.template.id)
+    } catch (e: any) {
+      toastError(e?.data?.detail || 'Failed to create template')
+    } finally {
+      saving.value = false
+    }
+    return
+  }
   saving.value = true
   try {
     let saveId = props.templateId
@@ -487,6 +563,17 @@ onBeforeUnmount(() => {
 .tte-title {
   margin: 0;
   font-size: 16px;
+}
+.tte-name-input {
+  font-size: 15px;
+  font-weight: 600;
+  min-width: 320px;
+  margin-bottom: 6px;
+}
+.tte-desc-input {
+  font-size: 12px;
+  min-width: 320px;
+  display: block;
 }
 .tte-subtitle {
   margin: 4px 0 0;

@@ -101,6 +101,46 @@ router.post('/thumbnail-templates/:id/fork', async (req, res) => {
 })
 
 /**
+ * POST /thumbnail-templates  — create a brand-new user-library template
+ * (v1.0.417). Lets the user build a template in-app instead of hand-dropping a
+ * JSON file. The id is slugged from `name` (or an explicit `body.id`); on
+ * collision with an existing built-in OR user template we suffix `-2`, `-3`, …
+ * so a new template never silently overwrites another. Always lands in the
+ * user library with `builtin: false`.
+ */
+router.post('/thumbnail-templates', async (req, res) => {
+  try {
+    const body = req.body || {}
+    if (!body || typeof body !== 'object') return res.status(400).json({ detail: 'Body must be a JSON object' })
+    if (typeof body.name !== 'string' || !body.name.trim()) {
+      return res.status(400).json({ detail: 'name is required' })
+    }
+    const slugify = (s: string) => s.toLowerCase().trim()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'template'
+    const baseId = (typeof body.id === 'string' && body.id.trim()) ? slugify(body.id) : slugify(body.name)
+    // Find a free id (don't clobber a built-in or an existing user template).
+    let id = baseId
+    for (let n = 2; await tl.loadTemplate(id); n++) id = `${baseId}-${n}`
+
+    const created: ThumbnailTemplate = {
+      ...body,
+      id,
+      builtin: false,
+      schemaVersion: 1,
+      name: body.name.trim(),
+      description: typeof body.description === 'string' ? body.description : '',
+    }
+    await tl.ensureTemplatesDir()
+    const filePath = tl.templateFilePath(id)
+    await fs.writeFile(filePath, JSON.stringify(created, null, 2) + '\n')
+    tl.invalidateTemplateCache(id)
+    res.status(201).json({ template: created, created: true })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to create template'))
+  }
+})
+
+/**
  * PUT /thumbnail-templates/:id  — save edits to a user-library
  * template. Refuses to overwrite a built-in (builtin: true) to keep
  * the bundle pristine — the frontend should fork first, then PUT to

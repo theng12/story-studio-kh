@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.417 — 2026-06-17
+
+### Added — create a composite thumbnail template from scratch, in-app
+Until now the only way to add a new composite thumbnail template was to hand-drop a JSON file into `~/Documents/Story Studio KH/.thumbnail-templates/`. The **Thumbnail Templates** gallery now has a **"+ New template"** button: it opens the visual editor on a sensible blank layout (one centered title over a full dim + a top-left logo slot), where you **name it**, drag/position the title and text zones, tune fonts/colors, and **Save**. The template is written to your user library — id slugged from the name and collision-safe (`-2`, `-3`… if needed) — set as the project default, and appears as a card with a live preview. No JSON, no restart. (Editing a built-in still forks-on-save as before; this just adds a blank starting point.)
+
+### Files
+- `electron/server/routes/thumbnail-templates.ts` (new `POST /thumbnail-templates` — create in the user library; slug id from name; never clobbers a built-in or existing template)
+- `frontend/components/ThumbnailTemplateEditor.vue` (recognises the `new` sentinel: blank default, editable name/description, POST-on-save)
+- `frontend/pages/projects/[slug]/thumbnail-templates.vue` ("+ New template" button + handler)
+
+---
+
 ## v1.0.416 — 2026-06-17
 
 ### Fixed / Added — thumbnails now always carry the title + ratio, plus inline render guidance
