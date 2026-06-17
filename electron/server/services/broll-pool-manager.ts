@@ -77,17 +77,49 @@ export function normalizedSubdir(folderPath: string): string {
 
 // ── Types ───────────────────────────────────────────────────────────────
 
+/** v1.0.403 — per-pool slideshow defaults for IMAGE pools (the "Image Pool"
+ *  format). Each is overridable per-episode at assemble time. */
+export interface PoolSlideshowSettings {
+  /** Seconds each image is held on screen. Default 8. */
+  seconds_per_image: number
+  /** How a non-16:9 image fills the frame. crop = fill + slight crop (default),
+   *  fit = letterbox, blur = blurred-background fill. */
+  fit: 'crop' | 'fit' | 'blur'
+  /** Apply a slow Ken-Burns zoom/pan so stills don't feel static. Default true. */
+  motion: boolean
+  /** Crossfade duration between images (seconds). 0 = hard cut. Default 0.5. */
+  transition_sec: number
+  /** Cross-episode no-repeat window (how many recent episodes to avoid). Default 20. */
+  dedup_lookback: number
+}
+
+export function defaultSlideshowSettings(): PoolSlideshowSettings {
+  return { seconds_per_image: 8, fit: 'crop', motion: true, transition_sec: 0.5, dedup_lookback: 20 }
+}
+
 export interface BrollPool {
   id: string
   name: string
   folder_path: string
+  /** v1.0.403 — what the pool holds. 'video' = stock-footage clips (B-Roll,
+   *  the original + default when absent). 'image' = still images for the
+   *  Image Pool slideshow format. Drives which file extensions are indexed,
+   *  how thumbnails are made, and which picker surfaces the pool. */
+  media?: 'video' | 'image'
   /** Auto-queue normalize jobs for newly-indexed clips. Default ON. */
   auto_normalize: boolean
   /** Target fps for normalized output. 24 (cinematic, our default) or 30. */
   fps_target: 24 | 30
   /** Target resolution; 1920x1080 (1080p, our default). Future: 3840x2160. */
   resolution_target: '1920x1080'
+  /** v1.0.403 — slideshow defaults; only meaningful for media:'image' pools. */
+  slideshow?: PoolSlideshowSettings
   created_at: string
+}
+
+/** Media kind of a pool, defaulting legacy (field-absent) pools to 'video'. */
+export function poolMedia(pool: Pick<BrollPool, 'media'>): 'video' | 'image' {
+  return pool.media === 'image' ? 'image' : 'video'
 }
 
 interface PoolRegistry {
@@ -161,6 +193,10 @@ export async function createPool(input: {
   folder_path: string
   auto_normalize?: boolean
   fps_target?: 24 | 30
+  /** v1.0.403 — 'image' for an Image Pool (slideshow), 'video' (default) for B-Roll. */
+  media?: 'video' | 'image'
+  /** v1.0.403 — initial slideshow defaults for an image pool (merged over defaults). */
+  slideshow?: Partial<PoolSlideshowSettings>
 }): Promise<BrollPool> {
   if (!input.name?.trim()) throw new Error('Pool name is required')
   if (!input.folder_path) throw new Error('folder_path is required')
@@ -174,10 +210,13 @@ export async function createPool(input: {
   let n = 2
   while (reg.pools.some(p => p.id === id)) { id = `${base}-${n}`; n += 1 }
 
+  const media: 'video' | 'image' = input.media === 'image' ? 'image' : 'video'
   const pool: BrollPool = {
     id,
     name: input.name.trim(),
     folder_path: input.folder_path,
+    media,
+    ...(media === 'image' ? { slideshow: { ...defaultSlideshowSettings(), ...(input.slideshow || {}) } } : {}),
     // v1.0.92+ — default OFF. Auto-normalize was previously default-on,
     // which silently kicked a queue of long ffmpeg encodes the moment
     // the user registered a fresh pool. For a 200-clip library on
@@ -200,11 +239,17 @@ export async function createPool(input: {
   return pool
 }
 
-export async function updatePool(id: string, patch: Partial<Pick<BrollPool, 'name' | 'auto_normalize' | 'fps_target'>>): Promise<BrollPool> {
+export async function updatePool(id: string, patch: Partial<Pick<BrollPool, 'name' | 'auto_normalize' | 'fps_target' | 'slideshow'>>): Promise<BrollPool> {
   const reg = await readRegistry()
   const idx = reg.pools.findIndex(p => p.id === id)
   if (idx < 0) throw new Error(`Pool '${id}' not found`)
-  reg.pools[idx] = { ...reg.pools[idx]!, ...patch }
+  const prev = reg.pools[idx]!
+  // Merge slideshow settings field-by-field so a partial patch (e.g. just
+  // seconds_per_image) doesn't wipe the other slideshow defaults.
+  const slideshow = patch.slideshow
+    ? { ...(prev.slideshow || defaultSlideshowSettings()), ...patch.slideshow }
+    : prev.slideshow
+  reg.pools[idx] = { ...prev, ...patch, ...(slideshow ? { slideshow } : {}) }
   await writeRegistry(reg)
   return reg.pools[idx]!
 }

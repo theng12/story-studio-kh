@@ -9,13 +9,25 @@
 import { ref, computed } from 'vue'
 import { useApi } from './useApi.js'
 
+export interface PoolSlideshowSettings {
+  seconds_per_image: number
+  fit: 'crop' | 'fit' | 'blur'
+  motion: boolean
+  transition_sec: number
+  dedup_lookback: number
+}
+
 export interface BrollPool {
   id: string
   name: string
   folder_path: string
+  /** v1.0.403 — 'image' = Image Pool (slideshow); absent/'video' = B-Roll clips. */
+  media?: 'video' | 'image'
   auto_normalize: boolean
   fps_target: 24 | 30
   resolution_target: '1920x1080'
+  /** v1.0.403 — per-pool slideshow defaults (image pools only). */
+  slideshow?: PoolSlideshowSettings
   created_at: string
   /** Server derives this from `existsSync(folder_path)` on every list call. */
   online: boolean
@@ -63,6 +75,9 @@ export function useBrollPools() {
     folder_path: string
     auto_normalize?: boolean
     fps_target?: 24 | 30
+    // v1.0.403 — Image Pool (slideshow) support.
+    media?: 'video' | 'image'
+    slideshow?: { seconds_per_image?: number; dedup_lookback?: number; fit?: 'crop' | 'fit' | 'blur'; motion?: boolean; transition_sec?: number }
   }): Promise<BrollPool> {
     const created = await post<BrollPool>(`/broll-pools`, input)
     // POST returns the raw pool entity without the `online` boolean (that

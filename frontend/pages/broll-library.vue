@@ -51,7 +51,7 @@
             <span :class="['pool-online', p.online ? 'is-online' : 'is-offline']">
               {{ p.online ? '● online' : '○ offline' }}
             </span>
-            <span class="text-muted text-xs">{{ p.fps_target }}fps · 1080p</span>
+            <span class="text-muted text-xs">{{ p.media === 'image' ? '🖼 image pool' : `${p.fps_target}fps · 1080p` }}</span>
           </div>
           <div class="pool-card-path" :title="p.folder_path">{{ p.folder_path }}</div>
         </button>
@@ -203,8 +203,9 @@
         <div v-if="clipsLoading" class="muted">Loading clips…</div>
 
         <div v-else-if="!clips.length" class="empty">
-          No clips indexed yet. Drop video files into <code>{{ selectedPool.folder_path }}</code> via
-          Finder and click <strong>↻ Re-scan</strong>.
+          No {{ selectedPool.media === 'image' ? 'images' : 'clips' }} indexed yet. Drop
+          {{ selectedPool.media === 'image' ? 'image files (jpg/png/webp…)' : 'video files' }} into
+          <code>{{ selectedPool.folder_path }}</code> via Finder and click <strong>↻ Re-scan</strong>.
         </div>
 
         <div v-else class="clip-grid">
@@ -502,27 +503,58 @@
             Tip: open the folder in Finder, right-click → Get Info, copy the "Where:" value.
           </span>
         </div>
+        <!-- v1.0.403 — pool media type. 'image' makes an Image Pool (slideshow). -->
         <div class="form-group">
-          <label>Normalize target fps</label>
+          <label>Pool type</label>
           <div class="radio-row">
-            <label><input type="radio" :value="24" v-model="createDraft.fps_target" /> 24 fps (cinematic, default)</label>
-            <label><input type="radio" :value="30" v-model="createDraft.fps_target" /> 30 fps (YouTube-native)</label>
+            <label><input type="radio" value="video" v-model="createDraft.media" /> 🎞 Video clips (B-Roll)</label>
+            <label><input type="radio" value="image" v-model="createDraft.media" /> 🖼 Still images (slideshow)</label>
           </div>
-        </div>
-        <div class="form-group">
-          <label>
-            <input type="checkbox" v-model="createDraft.auto_normalize" />
-            Auto-normalize new clips on import
-          </label>
           <span class="hint">
-            <strong>Off by default.</strong> When on, every newly-indexed clip gets a queued
-            normalize job to re-encode to 1080p at the target fps. For a fresh 200-clip pool that's
-            1–3&nbsp;hours of CPU + disk, so leaving this off and clicking
-            <em>⚡&nbsp;Normalize all</em> on the pool when you're ready is usually the safer
-            choice. The original files are never modified — normalized variants live alongside
-            them in a <code>.broll-normalized/</code> sidecar folder.
+            <strong>Still images</strong> = a pool of your own pictures, shown as a paced slideshow
+            (configurable seconds each, randomized with cross-episode no-repeat, subtitles burned in).
+            Naming doesn't matter — selection is random by content.
           </span>
         </div>
+
+        <!-- Video-only: normalize controls -->
+        <template v-if="createDraft.media === 'video'">
+          <div class="form-group">
+            <label>Normalize target fps</label>
+            <div class="radio-row">
+              <label><input type="radio" :value="24" v-model="createDraft.fps_target" /> 24 fps (cinematic, default)</label>
+              <label><input type="radio" :value="30" v-model="createDraft.fps_target" /> 30 fps (YouTube-native)</label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" v-model="createDraft.auto_normalize" />
+              Auto-normalize new clips on import
+            </label>
+            <span class="hint">
+              <strong>Off by default.</strong> When on, every newly-indexed clip gets a queued
+              normalize job to re-encode to 1080p at the target fps. For a fresh 200-clip pool that's
+              1–3&nbsp;hours of CPU + disk, so leaving this off and clicking
+              <em>⚡&nbsp;Normalize all</em> on the pool when you're ready is usually the safer
+              choice. The original files are never modified — normalized variants live alongside
+              them in a <code>.broll-normalized/</code> sidecar folder.
+            </span>
+          </div>
+        </template>
+
+        <!-- Image-only: slideshow defaults (overridable per episode later) -->
+        <template v-else>
+          <div class="form-group">
+            <label>Seconds per image (default)</label>
+            <input type="number" min="1" max="60" step="1" class="input" v-model.number="createDraft.seconds_per_image" />
+            <span class="hint">How long each image holds on screen. ~8s is a calm default; you can override per episode.</span>
+          </div>
+          <div class="form-group">
+            <label>No-repeat window (episodes)</label>
+            <input type="number" min="0" max="200" step="1" class="input" v-model.number="createDraft.dedup_lookback" />
+            <span class="hint">Avoid reusing an image used within this many recent episodes. 20 = good variety across a long run. Stills are never normalized or re-encoded.</span>
+          </div>
+        </template>
         <div v-if="createError" class="create-error">⚠ {{ createError }}</div>
         <div class="modal-actions">
           <button class="btn btn-ghost" @click="createModalOpen = false">Cancel</button>
@@ -1548,12 +1580,16 @@ const createDraft = ref({
   // re-encode queue (can be hours for a 200-clip pool on an external
   // drive). User opts in explicitly via the "⚡ Normalize all" button.
   auto_normalize: false,
+  // v1.0.403 — Image Pool (slideshow) support.
+  media: 'video' as 'video' | 'image',
+  seconds_per_image: 8,
+  dedup_lookback: 20,
 })
 const creating = ref(false)
 const createError = ref('')
 
 function openCreateModal(): void {
-  createDraft.value = { name: '', folder_path: '', fps_target: 24, auto_normalize: false }
+  createDraft.value = { name: '', folder_path: '', fps_target: 24, auto_normalize: false, media: 'video', seconds_per_image: 8, dedup_lookback: 20 }
   createError.value = ''
   createModalOpen.value = true
 }
@@ -1562,11 +1598,17 @@ async function submitCreate(): Promise<void> {
   creating.value = true
   createError.value = ''
   try {
+    const isImage = createDraft.value.media === 'image'
     const created = await broll.createPool({
       name: createDraft.value.name.trim(),
       folder_path: createDraft.value.folder_path.trim(),
       fps_target: createDraft.value.fps_target,
       auto_normalize: createDraft.value.auto_normalize,
+      media: createDraft.value.media,
+      ...(isImage ? { slideshow: {
+        seconds_per_image: Math.max(1, Number(createDraft.value.seconds_per_image) || 8),
+        dedup_lookback: Math.max(0, Number(createDraft.value.dedup_lookback) || 20),
+      } } : {}),
     })
     createModalOpen.value = false
     selectedPoolId.value = created.id

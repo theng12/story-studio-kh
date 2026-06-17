@@ -47,7 +47,7 @@ router.get('/broll-pools', async (_req, res) => {
 
 router.post('/broll-pools', async (req, res) => {
   try {
-    const { name, folder_path, auto_normalize, fps_target } = req.body || {}
+    const { name, folder_path, auto_normalize, fps_target, media, slideshow } = req.body || {}
     const pool = await bp.createPool({
       name: String(name || '').trim(),
       folder_path: String(folder_path || '').trim(),
@@ -56,6 +56,9 @@ router.post('/broll-pools', async (req, res) => {
       // of CPU/disk and shouldn't fire without explicit consent).
       auto_normalize: auto_normalize === true,
       fps_target: fps_target === 30 ? 30 : 24,
+      // v1.0.403 — 'image' creates an Image Pool (slideshow); default 'video'.
+      media: media === 'image' ? 'image' : 'video',
+      slideshow: (slideshow && typeof slideshow === 'object') ? slideshow : undefined,
     })
     res.status(201).json(pool)
   } catch (e: any) {
@@ -65,11 +68,14 @@ router.post('/broll-pools', async (req, res) => {
 
 router.put('/broll-pools/:id', async (req, res) => {
   try {
-    const { name, auto_normalize, fps_target } = req.body || {}
+    const { name, auto_normalize, fps_target, slideshow } = req.body || {}
     const patch: any = {}
     if (typeof name === 'string' && name.trim()) patch.name = name.trim()
     if (typeof auto_normalize === 'boolean') patch.auto_normalize = auto_normalize
     if (fps_target === 24 || fps_target === 30) patch.fps_target = fps_target
+    // v1.0.403 — per-pool slideshow defaults (Image Pool format). Merged
+    // field-by-field in updatePool so a partial patch keeps the rest.
+    if (slideshow && typeof slideshow === 'object') patch.slideshow = slideshow
     const pool = await bp.updatePool(req.params.id, patch)
     res.json(pool)
   } catch (e: any) {
@@ -95,12 +101,14 @@ router.post('/broll-pools/:id/scan', async (req, res) => {
     if (!existsSync(pool.folder_path)) {
       return res.status(409).json({ detail: `Pool folder offline — plug in the SSD at ${pool.folder_path} and retry.` })
     }
-    const result = await scanPoolFolder(pool.folder_path)
+    const media = bp.poolMedia(pool)
+    const result = await scanPoolFolder(pool.folder_path, undefined, media)
 
     // Auto-normalize: queue a job per newly-discovered or freshly-changed
     // clip that hasn't been normalized yet. User toggles this off on the
-    // pool if they want manual control over re-encodes.
-    if (pool.auto_normalize) {
+    // pool if they want manual control over re-encodes. Image pools never
+    // normalize (stills need no re-encode).
+    if (pool.auto_normalize && media === 'video') {
       const clips = await bp.listClips(pool.id, { includeMissing: false })
       const unnormalized = clips.filter(c => !c.normalized).map(c => c.filename)
       // Only queue clips that scan TOUCHED this round — don't blast every

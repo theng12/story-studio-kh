@@ -32,6 +32,10 @@ import {
 } from '../services/broll-pool-manager.js'
 
 const VIDEO_EXTENSIONS = /\.(mp4|mov|webm|mkv|m4v)$/i
+// v1.0.403 — Image Pool format: still images indexed the same way (sha + sidecar
+// + thumbnail), but probed for dimensions only (no duration/fps/audio) and held
+// for a configured number of seconds at assemble time.
+const IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|gif|bmp|tiff?|heic)$/i
 
 // ── ffprobe (one shot per clip, only on content change) ────────────────
 
@@ -83,20 +87,21 @@ async function ffprobeClip(filePath: string): Promise<ProbeResult> {
 
 // ── Thumbnail extraction (one JPG at midpoint, cached by content hash) ──
 
-async function generateThumbnail(filePath: string, sha256: string, durationSec: number): Promise<void> {
+async function generateThumbnail(filePath: string, sha256: string, durationSec: number, isImage = false): Promise<void> {
   const ffmpeg = await getFFmpegPath()
   const outPath = thumbnailPath(sha256)
   if (existsSync(outPath)) return // already cached for this content hash
 
   await fs.mkdir(thumbnailDir(), { recursive: true })
 
-  // Seek to midpoint for a representative frame. Some clips have a black
+  // Images are a single frame — no seek (a midpoint -ss past a 1-frame input
+  // produces nothing). Videos seek to midpoint: some clips have a black
   // first second (fade-in) so frame 0 isn't always meaningful. -ss BEFORE
   // -i is the fast input-seek path; accurate enough for thumbnails.
   const seek = Math.max(0.5, Math.min(durationSec / 2, durationSec - 0.5))
   const args = [
     '-y',
-    '-ss', String(seek),
+    ...(isImage ? [] : ['-ss', String(seek)]),
     '-i', filePath,
     '-frames:v', '1',
     '-vf', 'scale=320:-2', // 320px wide, height auto-preserves aspect
@@ -137,10 +142,13 @@ export interface ScanResult {
 export async function scanPoolFolder(
   folderPath: string,
   onProgress?: (info: { filename: string; index: number; total: number; status: 'probed' | 'skipped' | 'error' }) => void,
+  media: 'video' | 'image' = 'video',
 ): Promise<ScanResult> {
   if (!existsSync(folderPath)) {
     throw new Error(`Folder not found: ${folderPath}`)
   }
+  const isImage = media === 'image'
+  const matchExt = isImage ? IMAGE_EXTENSIONS : VIDEO_EXTENSIONS
 
   const sidecar = await loadSidecarForScan(folderPath)
   // Reset `missing` on every scan — anything that's still missing after
@@ -148,13 +156,13 @@ export async function scanPoolFolder(
   for (const clip of Object.values(sidecar.clips)) clip.missing = false
 
   const entries = await fs.readdir(folderPath)
-  const videoFiles = entries.filter(f => VIDEO_EXTENSIONS.test(f) && !f.startsWith('.'))
+  const files = entries.filter(f => matchExt.test(f) && !f.startsWith('.'))
 
   const result: ScanResult = { added: [], updated: [], unchanged: [], missing: [], errors: [] }
   const seenFilenames = new Set<string>()
 
-  for (let i = 0; i < videoFiles.length; i++) {
-    const filename = videoFiles[i]!
+  for (let i = 0; i < files.length; i++) {
+    const filename = files[i]!
     const filePath = path.join(folderPath, filename)
     seenFilenames.add(filename)
 
@@ -167,10 +175,10 @@ export async function scanPoolFolder(
         // Verify thumbnail still cached; regenerate if user wiped the
         // cache dir manually.
         if (!existsSync(thumbnailPath(existing.sha256))) {
-          await generateThumbnail(filePath, existing.sha256, existing.duration).catch(() => {})
+          await generateThumbnail(filePath, existing.sha256, existing.duration, isImage).catch(() => {})
         }
         result.unchanged.push(filename)
-        onProgress?.({ filename, index: i, total: videoFiles.length, status: 'skipped' })
+        onProgress?.({ filename, index: i, total: files.length, status: 'skipped' })
         continue
       }
 
@@ -192,16 +200,19 @@ export async function scanPoolFolder(
         delete sidecar.clips[oldName]
         result.updated.push(`${oldName} → ${filename}`)
       } else {
+        // ffprobe returns width/height for images too; duration/fps are
+        // meaningless for a still (the slideshow sets the on-screen seconds
+        // at assemble time), so they land as 0 — that's expected.
         const probe = await ffprobeClip(filePath)
         clip = {
           filename,
-          duration: probe.duration,
+          duration: isImage ? 0 : probe.duration,
           width: probe.width,
           height: probe.height,
-          fps: probe.fps,
+          fps: isImage ? 0 : probe.fps,
           size_bytes: stat.size,
           sha256: sha,
-          normalized: false,
+          normalized: isImage ? true : false,  // images need no normalize pass
           tags: existing?.tags || [],
           indexed_at: new Date().toISOString(),
         }
@@ -211,13 +222,13 @@ export async function scanPoolFolder(
 
       // Generate the thumbnail (cheap — single ffmpeg frame). Failure is
       // non-fatal; the UI shows a placeholder.
-      await generateThumbnail(filePath, clip.sha256, clip.duration).catch(() => {})
+      await generateThumbnail(filePath, clip.sha256, clip.duration, isImage).catch(() => {})
 
       sidecar.clips[filename] = clip
-      onProgress?.({ filename, index: i, total: videoFiles.length, status: 'probed' })
+      onProgress?.({ filename, index: i, total: files.length, status: 'probed' })
     } catch (e: any) {
       result.errors.push({ filename, error: e?.message || String(e) })
-      onProgress?.({ filename, index: i, total: videoFiles.length, status: 'error' })
+      onProgress?.({ filename, index: i, total: files.length, status: 'error' })
     }
   }
 

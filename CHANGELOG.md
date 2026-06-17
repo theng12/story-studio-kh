@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.403 — 2026-06-17
+
+### Added — Image Pool foundation (P1 of the new still-image slideshow format)
+First slice of the new **Image Pool** visual format (a pool of your own still images, shown as a paced slideshow — the plan we scoped for the Capi channel). This release makes **pools media-aware** so a pool can hold **still images** instead of stock-video clips, reusing the entire B-Roll Library machinery (folder + sidecar, content-hash dedup, thumbnails, manual + vision tagging):
+
+- **Create an Image Pool** in the B-Roll Library: a new **Pool type** toggle (🎞 Video clips / 🖼 Still images). Point it at any folder of images — messy filenames are fine (selection is random by content hash).
+- **Image indexing**: scan reads image dimensions (jpg/png/webp/gif/bmp/tiff/heic), generates a thumbnail per image, and carries tags across renames — same as clips. Stills are never normalized/re-encoded (no fps pass).
+- **Per-pool slideshow defaults** stored on the pool: seconds-per-image (default 8) and cross-episode no-repeat window (default 20) — so 2–3 pools can each have their own cadence. (Fit/motion/transition defaults are stored too; surfaced in a later phase.)
+
+This is foundation only — selection, the still-image assembler (crop-fill + Ken Burns + crossfade + subtitles), and the format wiring land in P2–P4. Existing B-Roll/video pools are unchanged (media defaults to 'video').
+
+### Files
+- `electron/server/services/broll-pool-manager.ts` (pool `media` + `slideshow` settings; `poolMedia`/`defaultSlideshowSettings`)
+- `electron/server/lib/broll-indexer.ts` (image extensions, dimensions-only probe, image thumbnail, media-aware scan)
+- `electron/server/routes/broll-pools.ts` (create/update/scan carry media + slideshow)
+- `frontend/pages/broll-library.vue` + `frontend/composables/useBrollPools.ts` (pool-type toggle + image-pool display)
+
+---
+
 ## v1.0.402 — 2026-06-17
 
 ### Fixed — "Paste ideas from LLM" modal: couldn't scroll to Import + cramped table
