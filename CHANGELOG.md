@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.401 — 2026-06-17
+
+### Changed — builds no longer auto-copy the DMG to iCloud
+`npm run dist` used to fire a `postdist` hook (`scripts/copy-shared-dmg.mjs`) that copied the freshly-built ~210 MB DMG into the iCloud "Business - YouTube" folder, which iCloud then uploaded — a real bandwidth hit on every build, especially on a slow connection. Removed the `postdist` hook and deleted the script. Builds now just leave the DMG in `dist/`; grab or share it manually if/when you want. (Distribution across Macs already happens via `git pull` + local rebuild, so the iCloud copy wasn't load-bearing.)
+
+### Files
+- `package.json` (drop the `postdist` script)
+- `scripts/copy-shared-dmg.mjs` (deleted)
+
+---
+
 ## v1.0.400 — 2026-06-17
 
 ### Fixed — Subtitles: "audio_chapters.json not found — Run Audio Assembly first" now self-heals
