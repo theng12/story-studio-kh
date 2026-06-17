@@ -2412,6 +2412,14 @@ export interface VideoSceneRecycling {
   seconds_per_scene: number  // default 10
   shuffle: boolean
   excluded_scenes: number[]
+  /**
+   * v1.0.415+ — when true, B-roll *video* scenes play for their own full
+   * natural length (probed with ffprobe) instead of being trimmed/looped to
+   * `seconds_per_scene`. Still images are unaffected (they have no natural
+   * length and keep using the per-scene duration). Default false/undefined to
+   * preserve the uniform "seconds per scene" behaviour for existing presets.
+   */
+  broll_natural_duration?: boolean
 }
 
 export interface VideoMusicConfig {

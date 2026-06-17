@@ -259,6 +259,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
         seconds_per_scene: s.sceneRecycling.seconds_per_scene,
         shuffle: s.sceneRecycling.shuffle,
         excluded_scenes: s.sceneRecycling.excluded_scenes,
+        broll_natural_duration: s.sceneRecycling.broll_natural_duration,
       },
       // v1.0.354 — Target Duration removed. Length follows the narration;
       // the post-audio tail (post_audio) is the only intentional extension.

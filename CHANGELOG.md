@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.415 — 2026-06-17
+
+### Added — B-roll clips can play their full natural length
+Until now every scene — stills **and** B-roll video clips — was held on screen for the uniform **Seconds Per Scene** (Step 3 → Scene Recycling): a video clip was stream-looped and trimmed to that length rather than playing for its own duration.
+
+There's now a tick in **Scene Recycling**: **"Play B-roll clips at their full natural length."** When on, each B-roll **video** scene is probed and plays for its **own natural duration** (once, no loop); **still images are unaffected** and keep the per-scene length. The render log reports how many video scenes used their natural length. It's **off by default** (existing presets are byte-for-byte unchanged), saved with your Video Assembly presets, and honoured by Pipeline batch runs.
+
+Note: with it on, B-roll no longer syncs to narration timing (it plays whole clips, and the usual cycling still repeats scenes to fill the narration). If your natural clips are very short, keep crossfades short — transitions are clamped to `Seconds Per Scene − 0.5`.
+
+### Files
+- `electron/server/models/types.ts` (`VideoSceneRecycling.broll_natural_duration`)
+- `electron/server/generators/video.ts` (probe natural duration for video scenes when on; play once without `-stream_loop`)
+- `frontend/pages/projects/[slug]/video-assembly.vue` (toggle + reactive state)
+- `frontend/composables/useVideoAssemblyIo.ts` (flag added to the render payload)
+
+---
+
 ## v1.0.414 — 2026-06-17
 
 **B-Roll unified into the Scenes editor.** B-Roll now works exactly like the Image Pool: in Video Assembly → Step 1, a new **🎬 B-Roll source** panel lets you load random clips from a video pool as the episode's scenes (sized to narration, no-repeat across recent episodes). Each clip is crop-filled to frame and plays for the per-scene duration — and because they're loaded as scenes, B-Roll now inherits the **full editor**: overlays, logo, transitions, colour grade / vignette / grain, subtitles, export options, and the standard video-assembly production-board status. The separate **B-Roll tab is retired** (the `/broll` page still exists for pool-only workflows). Scene clips whose source is a video are stream-looped + trimmed to the uniform per-scene duration with their own audio dropped (narration carries the soundtrack); stills are unchanged.

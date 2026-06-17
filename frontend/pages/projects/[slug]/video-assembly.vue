@@ -656,6 +656,17 @@
           </div>
         </div>
 
+        <div class="form-group mt-2">
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="sceneRecycling.broll_natural_duration" />
+            Play B-roll clips at their full natural length
+          </label>
+          <p class="text-muted text-xs hint-line-tight">
+            Off = every scene (stills <em>and</em> video clips) uses the “Seconds Per Scene” length above.
+            On = B-roll <strong>video</strong> clips play for their own natural duration instead; still images are unaffected.
+          </p>
+        </div>
+
         <!-- Scene Exclude Cards -->
         <div v-if="scenes.length" class="mt-2">
           <label class="sub-section-label">
@@ -2814,6 +2825,9 @@ const sceneRecycling = reactive({
   seconds_per_scene: 10,
   shuffle: false,
   excluded_scenes: [] as number[],
+  // v1.0.415+ — when on, B-roll video scenes play their full natural length
+  // instead of the uniform seconds_per_scene. Saved/loaded with presets.
+  broll_natural_duration: false,
 })
 
 const postAudio = reactive({

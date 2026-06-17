@@ -1147,7 +1147,22 @@ export async function generateVideo(job: Job): Promise<void> {
     }
 
     const defaultSceneDuration = req.scene_recycling?.seconds_per_scene || 10
-    const sceneClipDurations = req.scenes.map((scene, i) => {
+    // v1.0.415+ — optional "B-roll plays its full natural length" mode. When on,
+    // a VIDEO scene uses its own probed duration instead of the uniform
+    // per-scene length; still images are unaffected (no natural length). A probe
+    // failure falls back to the normal cascade so a bad clip never zeroes out.
+    const brollNaturalDuration = !!req.scene_recycling?.broll_natural_duration
+    const isVideoScenePath = (p?: string) => /\.(mp4|mov|webm|mkv|m4v)$/i.test(p || '')
+    let naturalBrollCount = 0
+    const sceneClipDurations = await Promise.all(req.scenes.map(async (scene, i) => {
+      if (brollNaturalDuration && isVideoScenePath(scene.image_path)) {
+        const natural = await getAudioDuration(scene.image_path).catch(() => undefined)
+        if (typeof natural === 'number' && Number.isFinite(natural) && natural > 0) {
+          naturalBrollCount++
+          return Math.max(0.5, natural)
+        }
+        // probe failed → fall through to the uniform cascade below
+      }
       const hasTimestampPlanDuration = !!(scene as any).__timestamp_plan_duration
       const sceneOverride = sentenceDurations?.[i]
       const explicitSceneDuration = scene?.duration
@@ -1159,7 +1174,13 @@ export async function generateVideo(job: Job): Promise<void> {
             ? explicitSceneDuration
             : defaultSceneDuration
       return Math.max(0.5, durationCandidate)
-    })
+    }))
+    if (brollNaturalDuration) {
+      job.output_lines.push(
+        `B-roll natural length: ON — ${naturalBrollCount} video scene(s) play their full clip duration; ` +
+        `still images keep the ${defaultSceneDuration}s per-scene length.`,
+      )
+    }
 
     const sceneClips = await prepareSceneClips(
       req.scenes, sceneAnimation, req.chapter_titles, resW, resH, quality, tempDir, canDrawtext, req.scene_recycling, job,
@@ -1945,8 +1966,17 @@ async function prepareSceneClips(
     // source so a clip shorter than `duration` repeats to fill it, and the
     // trailing `-t` trims a longer clip — either way the output is exactly
     // `duration` seconds, keeping it interchangeable with a still scene.
+    //
+    // v1.0.415+ — B-roll natural-length mode: when on, `duration` is already the
+    // clip's own probed length, so we DON'T stream-loop (a probe that overshoots
+    // the real length by a hair would otherwise wrap back to a stuttered
+    // restart). The clip just plays once to its own end; the trailing `-t` is a
+    // harmless safety cap.
+    const naturalVideo = isVideoScene && !!recycling.broll_natural_duration
     const inputArgs = isVideoScene
-      ? ['-stream_loop', '-1', '-i', scene.image_path]
+      ? (naturalVideo
+          ? ['-i', scene.image_path]
+          : ['-stream_loop', '-1', '-i', scene.image_path])
       : ['-loop', '1', '-t', duration.toString(), '-i', scene.image_path]
     const args = [
       '-y', ...inputArgs,
