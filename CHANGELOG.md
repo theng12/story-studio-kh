@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.416 — 2026-06-17
+
+### Fixed / Added — thumbnails now always carry the title + ratio, plus inline render guidance
+Two thumbnail problems addressed:
+
+**1. Prompts that ignored the title and aspect ratio.** The LLM was *already* told to include the literal title, the aspect ratio, and "this is a YouTube cover, not a scene still" — but models routinely paraphrased it ("Title text in monospace font…" with no actual title words) or dropped the ratio entirely, so ~half the renders came out with random/no text. The generator now **enforces these deterministically**: after the model returns each thumbnail prompt, the chosen **aspect ratio + "YouTube thumbnail" framing** is guaranteed, and in **AI (baked-text) mode** the **literal episode title in quotes** is guaranteed — appending only what the model left out (no bloat when it already complied). **Composite (text-free) mode is untouched** so its background stays clean for the overlay. Applied to both first-generation **and** per-row Reprompt/Regenerate; the instruction wording was tightened too.
+
+**2. No way to nudge a render without reprompting.** The **Thumbnail Generator** tab now has an **"Extra details for this render"** box. Whatever you type is appended to the prompt for that generation — per-row or "Generate All" — e.g. *"push the subject closer, bigger title, warmer lighting"* — with no prompt-edit / reprompt round-trip.
+
+### Files
+- `electron/server/generators/image-prompts.ts` (new `enforceThumbnailPromptElements`, applied post-parse; tightened directive + requirements)
+- `electron/server/routes/image-prompts-edit.ts` (enforce on Reprompt/Regenerate, with safe composite inference)
+- `electron/server/generators/images.ts`, `contracts/index.ts`, `models/types.ts` (`extra_details` appended at render time)
+- `frontend/components/ImageGeneratorPanel.vue` ("Extra details" field; sent on per-row + bulk renders)
+
+---
+
 ## v1.0.415 — 2026-06-17
 
 ### Added — B-roll clips can play their full natural length

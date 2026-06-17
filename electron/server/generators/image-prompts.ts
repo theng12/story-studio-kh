@@ -282,12 +282,81 @@ function buildThumbnailDirective(opts: {
     const fontPhrase = resolveFontStyle(opts.fontStyle, opts.fontStyleCustom)
     const textPhrase = resolveTextStyle(opts.textStyle, opts.textStyleCustom)
     lines.push(
-      `TITLE TEXT: The episode title "${opts.title}" must appear in ${fontPhrase}, ${textPhrase}, ` +
+      `TITLE TEXT (MANDATORY — every thumbnail prompt): write the EXACT title words "${opts.title}" verbatim, in quotes, inside the prompt — do NOT paraphrase as "title text" or describe the treatment only. ` +
+      `State that this text is rendered IN the image as ${fontPhrase}, ${textPhrase}, ` +
       `positioned at the ${opts.textPosition || 'center'} of the frame — large, bold, and legible with strong contrast against the background. ` +
-      `Treat the title as a core design element, not an afterthought: the prompt should explain how the composition, lighting, and negative space make the words feel premium and easy to read.`,
+      `Treat the title as a core design element, not an afterthought: explain how the composition, lighting, and negative space make the words feel premium and easy to read.`,
     )
   }
   return lines.join('\n\n')
+}
+
+// Aspect-ratio → human phrase. Shared by buildPrompt (LLM instruction) and
+// enforceThumbnailPromptElements (deterministic post-processing) so both speak
+// the same language.
+const RATIO_DESCRIPTIONS: Record<string, string> = {
+  '16:9': 'wide 16:9 landscape format with cinematic framing',
+  '1:1': 'square 1:1 format with centered composition',
+  '9:16': 'tall 9:16 portrait format with vertical composition',
+  '4:3': 'classic 4:3 format',
+  '3:4': 'portrait 3:4 format',
+  '21:9': 'ultrawide 21:9 cinematic format',
+}
+
+/**
+ * v1.0.416 — GUARANTEE the non-negotiable thumbnail elements are present in a
+ * generated prompt, regardless of whether the LLM obeyed the instructions.
+ *
+ * The instructions in buildThumbnailDirective/buildPrompt already ask for the
+ * literal title, the aspect ratio, and "this is a YouTube thumbnail" framing —
+ * but models routinely paraphrase ("Title text in monospace font…" with no
+ * actual title words) or drop the ratio entirely, so ~half the renders came out
+ * with random/no text. Rather than trust compliance, we append the missing
+ * pieces deterministically:
+ *   - the aspect ratio + "YouTube thumbnail" framing (always),
+ *   - in AI (baked-text) mode only, the LITERAL episode title in quotes when it
+ *     isn't already in the prompt.
+ * Composite (text-free) mode never gets a title clause — its background must
+ * stay clean for the overlay. A clause is only appended when actually missing,
+ * so a well-behaved prompt isn't bloated.
+ */
+export function enforceThumbnailPromptElements(prompt: string, opts: {
+  title: string
+  titleMode: 'ai' | 'composite'
+  aspectRatio: string
+  fontStyle: string
+  fontStyleCustom?: string
+  textStyle: string
+  textStyleCustom?: string
+  textPosition: string
+}): string {
+  const out = (prompt || '').trim()
+  if (!out) return out
+  const ratio = opts.aspectRatio || '16:9'
+  const ratioPhrase = RATIO_DESCRIPTIONS[ratio] || `${ratio} format`
+  const clauses: string[] = []
+
+  // Always: chosen ratio + explicit "YouTube thumbnail" framing.
+  if (!out.includes(ratio)) {
+    clauses.push(`Rendered as a ${ratioPhrase} — this is a YouTube thumbnail (${ratio}).`)
+  } else if (!/thumbnail/i.test(out)) {
+    clauses.push(`This is a YouTube thumbnail.`)
+  }
+
+  // AI mode only: the literal title must be in the image.
+  if (opts.titleMode !== 'composite') {
+    const title = (opts.title || '').trim()
+    if (title && !out.toLowerCase().includes(title.toLowerCase())) {
+      const fontPhrase = resolveFontStyle(opts.fontStyle, opts.fontStyleCustom)
+      const textPhrase = resolveTextStyle(opts.textStyle, opts.textStyleCustom)
+      clauses.push(
+        `The title text "${title}" must be clearly rendered in the image as ${fontPhrase}, ${textPhrase}, ` +
+        `positioned at the ${opts.textPosition || 'center'} — large, bold, and legible with strong contrast even at small preview sizes.`,
+      )
+    }
+  }
+
+  return clauses.length ? `${out}\n\n${clauses.join(' ')}` : out
 }
 
 function buildPrompt(args: {
@@ -305,15 +374,7 @@ function buildPrompt(args: {
 }): string {
   const { episode_id, title, storyContext, castBlock, sceneCount, thumbs, style_tag, aspect_ratio, thumbnailDirective } = args
 
-  const ratioDescriptions: Record<string, string> = {
-    '16:9': 'wide 16:9 landscape format with cinematic framing',
-    '1:1': 'square 1:1 format with centered composition',
-    '9:16': 'tall 9:16 portrait format with vertical composition',
-    '4:3': 'classic 4:3 format',
-    '3:4': 'portrait 3:4 format',
-    '21:9': 'ultrawide 21:9 cinematic format',
-  }
-  const ratioInstruction = ratioDescriptions[aspect_ratio] || 'wide landscape format'
+  const ratioInstruction = RATIO_DESCRIPTIONS[aspect_ratio] || 'wide landscape format'
 
   const requirements: string[] = []
   if (sceneCount > 0) requirements.push(`Generate exactly ${sceneCount} scene prompts.`)
@@ -338,7 +399,10 @@ function buildPrompt(args: {
     )
   }
   requirements.push(`Every prompt must end with this style tag: "${style_tag}"`)
-  requirements.push(`Every prompt must specify composition for ${ratioInstruction}.`)
+  requirements.push(`Every prompt must specify composition for ${ratioInstruction}, and state the "${aspect_ratio}" aspect ratio explicitly.`)
+  if (thumbs > 0) {
+    requirements.push(`Every THUMBNAIL prompt must explicitly say it is a YouTube thumbnail in the "${aspect_ratio}" aspect ratio.`)
+  }
   requirements.push(`Every prompt must include inline character descriptions.`)
 
   return `Generate image prompts for a story episode.
@@ -744,6 +808,31 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   }
 
   job.output_lines.push(`Parsed ${scenes.length} scene(s), ${thumbnails.length} thumbnail(s).`)
+
+  // v1.0.416 — GUARANTEE every thumbnail prompt carries the aspect ratio, the
+  // "YouTube thumbnail" framing, and (AI mode) the literal title — appending
+  // only what the LLM left out. Stops the "random image, no text" renders.
+  if (thumbnails.length > 0) {
+    let enforced = 0
+    thumbnails = thumbnails.map((t: any) => {
+      const original = String(t?.prompt || '')
+      const fixed = enforceThumbnailPromptElements(original, {
+        title,
+        titleMode,
+        aspectRatio: req.aspect_ratio || '16:9',
+        fontStyle: req.thumb_font_style || thumbFmt?.defaultFontStyle || 'serif',
+        fontStyleCustom: req.thumb_font_style_custom,
+        textStyle: req.thumb_text_style || thumbFmt?.defaultTextStyle || 'gold',
+        textStyleCustom: req.thumb_text_style_custom,
+        textPosition: req.thumb_text_position || 'center',
+      })
+      if (fixed !== original) enforced++
+      return { ...t, prompt: fixed }
+    })
+    if (enforced > 0) {
+      job.output_lines.push(`Enforced ratio/title on ${enforced} thumbnail prompt(s) (${titleMode} mode).`)
+    }
+  }
 
   // v1.0.108+ — image-prompts-scope recency. Scan the joined text of
   // every generated prompt for matches and append to the log. Fail-

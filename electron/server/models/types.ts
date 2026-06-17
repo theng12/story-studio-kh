@@ -2110,6 +2110,13 @@ export interface GenerateImagesRequest {
    */
   width?: number
   height?: number
+  /**
+   * v1.0.416+ — optional extra guidance appended to the THUMBNAIL prompt at
+   * render time (Thumbnail Generator tab). Lets the user nudge a render
+   * ("bigger title", "push subject closer") without editing/reprompting the
+   * stored prompt. Ignored for scenes.
+   */
+  extra_details?: string
 }
 
 export interface GenerateAudioRequest {

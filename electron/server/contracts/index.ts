@@ -435,6 +435,11 @@ export const GenerateImagesSchema = z.object({
   scene_number: z.number().int().nonnegative().optional(),
   thumb_number: z.number().int().nonnegative().optional(),
   force: z.boolean().optional(),
+  // v1.0.416 — optional extra guidance appended to the thumbnail prompt at
+  // RENDER time (Thumbnail Generator tab). Lets the user nudge a render
+  // ("push the subject closer, bigger title") without the prompt-reprompt
+  // round-trip. Applies to thumbnails only.
+  extra_details: z.string().max(2000).optional(),
 }).passthrough()
 export type GenerateImagesBody = z.infer<typeof GenerateImagesSchema>
 

@@ -646,7 +646,12 @@ export async function generateImages(job: Job): Promise<void> {
         number: thumb.number, prompt: thumb.prompt,
       })
       const styleKeywords = resolveSceneStyleKeywords(thumb.prompt)
-      const finalPrompt = applyStyleKeywords(thumb.prompt, styleKeywords)
+      // v1.0.416 — optional render-time guidance from the generator tab,
+      // appended before style keywords so it influences the image without
+      // editing the stored prompt.
+      const extra = (req.extra_details || '').trim()
+      const promptWithExtra = extra ? `${thumb.prompt}\n\n${extra}` : thumb.prompt
+      const finalPrompt = applyStyleKeywords(promptWithExtra, styleKeywords)
       const result = await imageProvider!.generateImage({
         prompt: finalPrompt, apiKey, aspectRatio, modelId: modelName, providerParams,
         width: renderWidth, height: renderHeight,

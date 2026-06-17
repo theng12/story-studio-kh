@@ -47,6 +47,20 @@
       </button>
     </div>
 
+    <!-- v1.0.416 — Thumbnail-only: optional render-time guidance appended to the
+         prompt for THIS generation (per-row or bulk), no prompt-reprompt needed. -->
+    <div v-if="kind === 'thumbnail'" class="igp-extra">
+      <label class="igp-extra-label">
+        Extra details for this render <span class="text-muted text-xs">(optional — applied to every thumbnail you generate below)</span>
+      </label>
+      <textarea
+        v-model="extraDetails"
+        class="textarea textarea-sm"
+        rows="2"
+        placeholder="e.g. push the subject closer, make the title bigger and higher-contrast, warmer lighting"
+      ></textarea>
+    </div>
+
     <!-- Loading / error / empty states -->
     <div v-if="loading" class="igp-status">
       <LoadingSpinner size="sm" /> Loading prompts…
@@ -157,6 +171,10 @@ const { success, error: showError } = useToast()
 // .toLowerCase() / String capitalization in template expressions.
 const kindLabel = computed(() => props.kind === 'scene' ? 'Scene' : 'Thumbnail')
 const kindLabelLower = computed(() => kindLabel.value.toLowerCase())
+
+// v1.0.416 — optional render-time guidance for thumbnails (see template).
+// Appended to the prompt server-side for both per-row and bulk renders.
+const extraDetails = ref('')
 
 // ── Prompt list (text from /episodes/:id/image-prompts) ────────────────────
 
@@ -306,6 +324,11 @@ function sharedJobParams() {
     // (local model + sub-Full tier); cloud models omit them and use the aspect.
     ...(typeof props.renderWidth === 'number' && typeof props.renderHeight === 'number'
       ? { width: props.renderWidth, height: props.renderHeight }
+      : {}),
+    // v1.0.416 — thumbnail-only render-time guidance, appended to the prompt
+    // server-side (generators/images.ts). Sent on per-row + bulk alike.
+    ...(props.kind === 'thumbnail' && extraDetails.value.trim()
+      ? { extra_details: extraDetails.value.trim() }
       : {}),
     // For 'skip' generation_mode the executor honours its own skip
     // logic (don't overwrite existing files unless force). Per-row
