@@ -397,7 +397,13 @@ router.post('/projects/:slug/image-pool/materialize', async (req, res) => {
     const fsp = await import('fs/promises')
     const path = await import('path')
     const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-    const imagesDir = paths.bg_dir
+    // Write to the SAME folder scanEpisodeAssets reads (resolveSubfolder may
+    // return a "✅ …"-prefixed variant if the user marked it done), so the
+    // Scenes editor's scan picks the images up.
+    const { resolveSubfolder } = await import('../lib/folder-resolver.js')
+    const { resolveSubfolderNames } = await import('../services/utils.js')
+    const names = await resolveSubfolderNames(slug, episode_id)
+    const imagesDir = await resolveSubfolder(paths.episode_dir, names.images)
     await fsp.mkdir(imagesDir, { recursive: true })
     // Replace any previously-materialized scene_* files so a re-load is clean.
     const existing = await fsp.readdir(imagesDir).catch(() => [] as string[])

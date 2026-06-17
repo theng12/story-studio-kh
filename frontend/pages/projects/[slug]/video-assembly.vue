@@ -164,6 +164,46 @@
         </p>
       </div>
 
+      <!-- v1.0.412 — Image Pool source: load pool images as this episode's
+           scenes, then use the full editor below. -->
+      <div v-if="isImagePoolFormat" class="imgpool-source mt-3">
+        <h4>🖼 Image Pool source</h4>
+        <p class="text-muted text-sm mt-1">
+          Load random images from a pool as this episode's scenes (sized to the narration,
+          no-repeat across recent episodes). Then continue below to apply motion / overlays /
+          logo / effects / subtitles and render.
+        </p>
+        <template v-if="imagePools.length">
+          <div class="imgpool-row mt-2">
+            <select v-model="imgPoolId" class="select imgpool-select">
+              <option value="" disabled>Pick an image pool…</option>
+              <option v-for="p in imagePools" :key="p.id" :value="p.id">
+                {{ p.name }}{{ p.online ? '' : ' (offline)' }}
+              </option>
+            </select>
+            <label class="imgpool-inline" title="Drives how many images are loaded (narration ÷ this). On-screen pacing is set by the Scene Recycling control in Step 3.">
+              Seconds / image
+              <input type="number" min="1" max="60" step="1" class="input imgpool-num" v-model.number="imgPoolSeconds" />
+            </label>
+            <button
+              class="btn btn-sm btn-primary"
+              :disabled="imgPoolLoading || !imgPoolId || !episodeId || (selectedImagePool && !selectedImagePool.online)"
+              @click="loadImagesAsScenes"
+            >
+              {{ imgPoolLoading ? 'Loading…' : '📥 Load images as scenes' }}
+            </button>
+          </div>
+          <p class="text-muted text-xs mt-1">
+            Need more images? <NuxtLink :to="`/projects/${slug}/image-pool`" class="ffmpeg-inline-link">Generate into the pool →</NuxtLink>
+          </p>
+        </template>
+        <p v-else class="text-muted text-sm mt-2">
+          No image pools yet — create one in the
+          <NuxtLink to="/broll-library" class="ffmpeg-inline-link">B-Roll Library</NuxtLink>
+          (＋ Register pool → 🖼 Still images).
+        </p>
+      </div>
+
       <div v-if="scanning" class="scanning-status mt-2">
         <span class="gen-label">Scanning assets...</span>
         <div class="progress-bar"><div class="progress-fill" /></div>
@@ -2349,7 +2389,7 @@ const { confirmGeneration } = useConfirmation()
 // rebind through this composable so a bound-explainer project sees
 // "Per-scene reason assignments", a listicle project sees "Per-scene
 // topic assignments", etc. Reactive on project meta change.
-const { project: vaProject } = useProject()
+const { project: vaProject, config: vaConfig } = useProject()
 const vaFormatId = ref<string>('scenes')
 watch(vaProject, (p) => {
   if (!p) return
@@ -2371,13 +2411,45 @@ const sectionLabel = useSectionLabel(vaFormatId)
 // scene already holds for its own planned span, so seconds-per-scene /
 // shuffle / per-scene exclusion don't apply. Transitions + animations stay.
 const isSentenceTimed = ref(false)
+// v1.0.412 — image-pool format: Step 1 surfaces an "Image Pool source" panel
+// to load pool images as this episode's scenes (the unify-on-Scenes pivot).
+const isImagePoolFormat = ref(false)
 async function loadSceneTimingMode() {
   try {
-    const fmt = await get(`/projects/${slug.value}/effective-format`)
+    const fmt = await get<{ imagePrompts?: any; visualSource?: string }>(`/projects/${slug.value}/effective-format`)
     isSentenceTimed.value = fmt?.imagePrompts?.alignment === 'sentence'
+    isImagePoolFormat.value = fmt?.visualSource === 'image-pool'
   } catch {
     // Best-effort — default to the recycling UI on any lookup failure.
     isSentenceTimed.value = false
+    isImagePoolFormat.value = false
+  }
+}
+
+// ── Image Pool source (Step 1) — load pool images as this episode's scenes ──
+const broll = useBrollPools()
+const imgPoolId = ref('')
+const imgPoolSeconds = ref<number>(8)
+const imgPoolLoading = ref(false)
+const imagePools = computed(() => (broll.pools.value || []).filter((p: any) => p.media === 'image'))
+const selectedImagePool = computed(() => imagePools.value.find((p: any) => p.id === imgPoolId.value) || null)
+watch(selectedImagePool, (p) => { if (p?.slideshow?.seconds_per_image) imgPoolSeconds.value = p.slideshow.seconds_per_image })
+
+async function loadImagesAsScenes() {
+  if (!imgPoolId.value || !episodeId.value) return
+  imgPoolLoading.value = true
+  try {
+    const r = await post<{ count: number }>(`/projects/${slug.value}/image-pool/materialize`, {
+      episode_id: episodeId.value,
+      pool_id: imgPoolId.value,
+      seconds_per_image: imgPoolSeconds.value,
+    })
+    success(`Loaded ${r.count} image(s) as scenes — they'll appear below.`)
+    await scanAssets()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to load images from pool')
+  } finally {
+    imgPoolLoading.value = false
   }
 }
 // Shared job-queue state. The dashboard layout already starts the SSE
@@ -4785,6 +4857,13 @@ onMounted(async () => {
   loadTransitionsCatalog()
   loadAnimationsCatalog()
   loadSceneTimingMode()
+  // v1.0.412 — load image pools for the Step-1 "Image Pool source" panel + seed
+  // the dropdown from the project's saved subscription (or the only pool).
+  broll.loadPools().then(() => {
+    const saved = (vaConfig?.value as any)?.image_pool_id
+    if (saved && imagePools.value.some((p: any) => p.id === saved)) imgPoolId.value = saved
+    else if (imagePools.value.length === 1) imgPoolId.value = imagePools.value[0].id
+  }).catch(() => {})
   // Format-aware seeding runs FIRST so saved presets (loaded right
   // after) can still override these defaults. Without this, listicle
   // projects opened the page with sleep-story 10 s/scene + 1.5 s
@@ -5072,6 +5151,14 @@ onUnmounted(() => {
 .output-line { color: var(--text-secondary); line-height: 1.6; }
 
 /* Scanning status */
+/* v1.0.412 — Image Pool source panel (Step 1). */
+.imgpool-source { padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
+.imgpool-source h4 { margin: 0; }
+.imgpool-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.imgpool-select { min-width: 220px; max-width: 340px; }
+.imgpool-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.imgpool-num { width: 80px; }
+
 .scanning-status { display: flex; flex-direction: column; gap: 4px; }
 
 /* Checkbox */

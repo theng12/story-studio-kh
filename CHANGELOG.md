@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.412 — 2026-06-17
+
+### Changed — Image Pool fully folded into the Scenes editor; Image Slideshow tab retired
+The pivot for image pools is complete: loading pool images now happens **inside the Video Assembly (Scenes) editor itself**, and the separate **🖼 Image Slideshow tab is gone**.
+
+- **Step 1 of Video Assembly** now shows an **"🖼 Image Pool source"** panel for image-pool projects: pick a pool + seconds-per-image, **📥 Load images as scenes**, and they're scanned in as this episode's scenes — then the whole editor (motion/overlays/logo/title card/effects/transitions/subtitles/export/presets) applies, one place, one render. A "Generate into the pool →" link reaches the pool generator.
+- **Removed the Image Slideshow tab** from the Scenes / B-Roll / Timestamps bar. (The B-Roll tab stays for now — B-roll-clip unification, which works differently from images-as-scenes, is the remaining step.)
+- Hardened `image-pool/materialize` to write images into the exact folder the scene scan reads (handles the "✅ done"-prefixed folder variant), so the loaded images reliably appear as scenes.
+
+### Files
+- `frontend/pages/projects/[slug]/video-assembly.vue` (Step-1 Image Pool source panel + load handler)
+- `frontend/components/VideoPipelineTabs.vue` (remove the Image Slideshow tab; image-pool → Scenes)
+- `electron/server/routes/broll-project.ts` (materialize writes to the resolved scan folder)
+
+---
+
 ## v1.0.411 — 2026-06-17
 
 ### Changed — Image Pool feeds the full Video Assembly editor (pivot, step 1) + status fixes
