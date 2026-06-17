@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.413 — 2026-06-17
+
+### Fixed — subtitle preview now matches the rendered video (font sizing)
+The subtitle preview looked different from the final render — especially **font size**. Root cause: libass interprets `FontSize` relative to the *frame's own resolution*, but the "Render exact preview" rendered at **640×360** while the final video renders at **1080p**, so the same size looked much bigger in the preview than in the export. The CSS live preview also used a fixed `0.42` fudge factor unrelated to the actual preview size.
+
+Fixes:
+- **Pinned libass to a fixed 1080 reference** (`original_size=1920x1080`) in the final render *and* the exact preview, so `FontSize` means "pixels at 1080" everywhere. The exact preview now matches the final render proportionally, and subtitle sizing is now **consistent across export resolutions** (720p/1080p/4k). For 1080p exports (the default) the rendered output is unchanged.
+- **CSS live preview** now scales the font by the preview frame's *actual measured height ÷ 1080* (via a ResizeObserver) instead of the hardcoded factor — so what you see tracks the real size.
+
+Net: the preview — both the instant CSS one and "Render exact preview" — now reflects the burned-in result, font size included.
+
+### Files
+- `electron/server/generators/video.ts` (final render + exact-preview: `original_size=1920x1080`)
+- `electron/server/generators/broll-assemble.ts` (final render: `original_size=1920x1080`)
+- `frontend/components/SubtitleStylePicker.vue` (CSS preview scales by measured frame height ÷ 1080)
+
+---
+
 ## v1.0.412 — 2026-06-17
 
 ### Changed — Image Pool fully folded into the Scenes editor; Image Slideshow tab retired

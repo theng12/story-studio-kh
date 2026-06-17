@@ -109,7 +109,7 @@
 
     <!-- Live preview: CSS approximation + optional "Exact render" via FFmpeg -->
     <div class="ssp-preview mt-2">
-      <div class="ssp-preview-frame" :style="previewFrameStyle">
+      <div ref="frameEl" class="ssp-preview-frame" :style="previewFrameStyle">
         <div class="ssp-caption-layer" :style="captionLayerStyle">
           <span class="ssp-caption" :style="captionStyle">{{ sampleText }}</span>
         </div>
@@ -209,6 +209,20 @@ function update<K extends keyof SubtitleStyle>(key: K, value: SubtitleStyle[K]) 
   emit('update:style', { ...props.style, [key]: value })
 }
 
+// v1.0.413 — track the live preview frame's pixel height so the caption font
+// scales to match the 1080-referenced render (see captionStyle).
+const frameEl = ref<HTMLElement | null>(null)
+const frameHeight = ref(360)
+let frameRO: ResizeObserver | null = null
+onMounted(() => {
+  if (frameEl.value) {
+    frameHeight.value = frameEl.value.clientHeight || 360
+    frameRO = new ResizeObserver(() => { frameHeight.value = frameEl.value?.clientHeight || frameHeight.value })
+    frameRO.observe(frameEl.value)
+  }
+})
+onBeforeUnmount(() => { frameRO?.disconnect(); frameRO = null })
+
 const previewFrameStyle = computed(() => {
   return props.backdropUrl
     ? { backgroundImage: `url("${props.backdropUrl}")`, backgroundSize: 'cover', backgroundPosition: 'center' }
@@ -241,8 +255,11 @@ const captionStyle = computed(() => {
   else if (props.style.background === 'semi') background = 'rgba(0, 0, 0, 0.5)'
   else background = 'transparent'
 
-  // Scale font_size down — our preview frame is smaller than 1080p.
-  const previewFactor = 0.42
+  // v1.0.413 — scale font by the REAL preview-frame height ÷ 1080. The render
+  // pins libass to a 1080 reference (original_size=1920x1080), so font_size_px is
+  // "px at 1080"; a preview frame of height H shows it at font_size_px·(H/1080).
+  // Replaces the old fixed 0.42 guess that didn't track the actual frame size.
+  const previewFactor = (frameHeight.value || 360) / 1080
   return {
     fontFamily: props.style.font_family,
     fontSize: `${Math.round(props.style.font_size_px * previewFactor)}px`,

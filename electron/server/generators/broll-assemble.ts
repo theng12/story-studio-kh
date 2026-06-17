@@ -317,7 +317,7 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   let finalVideoLabel = stitchLabel
   if (subPath) {
     filterParts.push(
-      `${stitchLabel}subtitles='${escapeForSubtitlesFilter(subPath)}'${forceStyleClause}[vout]`,
+      `${stitchLabel}subtitles='${escapeForSubtitlesFilter(subPath)}':original_size=1920x1080${forceStyleClause}[vout]`,
     )
     finalVideoLabel = '[vout]'
   } else if (!subtitles_enabled) {
