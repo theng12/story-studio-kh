@@ -3022,7 +3022,14 @@ async function confirmCompact() {
 .generator-actions { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 10px; }
 .generator-actions-primary { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .generator-actions-secondary { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.other-ways-toggle { color: var(--text-muted); }
+/* Disclosure toggle is a borderless/background-less .btn, so its only
+ * affordance is the text colour. `--text-muted` (#6b7280) reads fine on the
+ * light bg but only hits ~3.9:1 on the dark page bg (#0f1117) — under the
+ * 4.5:1 floor, which is why it was nearly invisible in dark mode. Use the
+ * theme-aware `--text-secondary` (good contrast in both themes, still lighter
+ * than the primary actions) and brighten to primary on hover for affordance. */
+.other-ways-toggle { color: var(--text-secondary); }
+.other-ways-toggle:hover { color: var(--text-primary); }
 
 /* v1.0.171 — grouped form sections. Each fieldset is a labelled box so the
    long field list reads as three distinct decisions instead of one wall. */

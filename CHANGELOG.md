@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.420 — 2026-06-18
+
+### Fixed — "Other ways to add" toggle was nearly invisible in dark mode
+On the Ideas Generator, the **▸ Other ways to add** disclosure button (which reveals "Add idea manually / Paste from an LLM / Import episode folder") was painted in `--text-muted` grey on a transparent button. That grey reads fine on the light background but only hits ~3.9:1 contrast on the dark page background — under the 4.5:1 floor — so it was hard to see in dark mode. Switched it to the theme-aware `--text-secondary` (good contrast in both themes, still visually lighter than the primary actions) and added a hover-to-brighten affordance. Light mode is unchanged.
+
+### Files
+- `frontend/pages/projects/[slug]/ideas.vue` (`.other-ways-toggle` colour → `--text-secondary` + hover state)
+
+---
+
 ## v1.0.419 — 2026-06-18
 
 ### Changed — Video export defaults to Apple hardware acceleration on capable Macs
