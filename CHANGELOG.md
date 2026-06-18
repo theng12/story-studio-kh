@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.421 — 2026-06-18
+
+### Changed — Production Board no longer shows a Research column
+Research is an **optional** step — it's never required to ship an episode (and was already excluded from an episode's "all done" calculation). It no longer earns a column on the **Production Board**, so the grid only tracks steps that actually gate a finished video. This applies across every format/flow that previously showed it (timestamp-driven, continuity-chain, narrated-scenes). The Research step still appears in the top flow stepper and the sidebar, so you can still run it whenever you want — it's just no longer tracked as a board column.
+
+### Files
+- `frontend/pages/projects/[slug]/board.vue` (removed `research` from `STEP_FIELD`, which drops it from the board's derived `columns`)
+
+---
+
 ## v1.0.420 — 2026-06-18
 
 ### Fixed — "Other ways to add" toggle was nearly invisible in dark mode

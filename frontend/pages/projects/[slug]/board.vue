@@ -249,8 +249,13 @@ function onImported() {
 // without a detectable per-episode status (Ideas — implicit; Subtitles +
 // Character Sheet — no per-episode signal) are intentionally omitted so every
 // cell is a real, meaningful status.
+//
+// Research is intentionally NOT mapped here: it's an optional step that's never
+// required to ship an episode (and already excluded from `all_done`), so it
+// doesn't earn a Production Board column. Omitting it from STEP_FIELD drops it
+// from `columns` below for every format/flow while leaving the Research step in
+// the top flow stepper and the sidebar untouched.
 const STEP_FIELD: Record<string, string> = {
-  research: 'research',
   script: 'script',
   metadata: 'metadata',
   'thumb-prompts': 'thumb_prompts',
