@@ -73,6 +73,14 @@
         </p>
       </article>
     </div>
+
+    <ProjectStyleLibrary
+      :project-slug="slug"
+      :image-models="imageModels"
+      title="Custom styles for this project"
+      :show-apply="true"
+      @apply="applyCustomStyle"
+    />
   </div>
 </template>
 
@@ -86,7 +94,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'apply', data: { style_bible: string; negative_prompt: string }, style: BuiltInStyle): void
+  (e: 'apply', data: { style_bible: string; negative_prompt: string }, style?: BuiltInStyle): void
 }>()
 
 const { post } = useApi()
@@ -128,6 +136,10 @@ function onBundledPreviewError(id: string) {
 
 function applyStyle(style: BuiltInStyle) {
   emit('apply', { style_bible: style.data.style_bible || '', negative_prompt: style.data.negative_prompt || '' }, style)
+}
+
+function applyCustomStyle(data: { style_bible: string; negative_prompt: string }) {
+  emit('apply', data)
 }
 
 async function generatePreview(style: BuiltInStyle) {

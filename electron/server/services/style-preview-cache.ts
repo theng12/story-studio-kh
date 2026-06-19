@@ -37,6 +37,7 @@ interface IndexEntry {
   model_id: string
   aspect_ratio: string
   tier: string
+  variant_id: string
   created_at: string
   filename: string
   size_bytes: number
@@ -86,10 +87,12 @@ export function hashStylePreviewKey(opts: {
   modelId: string
   aspectRatio: string
   tier?: string
+  variantId?: string
 }): string {
   const norm = opts.styleTag.replace(/\s+/g, ' ').trim().toLowerCase()
   const tier = opts.tier || ''
-  const blob = `${norm}|${opts.modelId}|${opts.aspectRatio}|${tier}`
+  const variantId = opts.variantId || 'default'
+  const blob = `${norm}|${opts.modelId}|${opts.aspectRatio}|${tier}|${variantId}`
   return createHash('sha256').update(blob).digest('hex').slice(0, 16)
 }
 
@@ -117,6 +120,7 @@ export interface CachedStylePreview {
   model_id: string
   aspect_ratio: string
   tier: string
+  variant_id: string
   created_at: string
   filename: string
   abs_path: string
@@ -128,6 +132,7 @@ export async function getCachedStylePreview(opts: {
   modelId: string
   aspectRatio: string
   tier?: string
+  variantId?: string
 }): Promise<CachedStylePreview | null> {
   const hash = hashStylePreviewKey(opts)
   const idx = await readIndex()
@@ -145,6 +150,7 @@ export async function getCachedStylePreview(opts: {
     model_id: entry.model_id,
     aspect_ratio: entry.aspect_ratio,
     tier: entry.tier,
+    variant_id: entry.variant_id || 'default',
     created_at: entry.created_at,
     filename: entry.filename,
     abs_path: abs,
@@ -157,6 +163,7 @@ export async function saveStylePreview(opts: {
   modelId: string
   aspectRatio: string
   tier?: string
+  variantId?: string
   imageBytes: Buffer
 }): Promise<CachedStylePreview> {
   const hash = hashStylePreviewKey(opts)
@@ -173,6 +180,7 @@ export async function saveStylePreview(opts: {
     model_id: opts.modelId,
     aspect_ratio: opts.aspectRatio,
     tier: opts.tier || '',
+    variant_id: opts.variantId || 'default',
     created_at: now,
     filename,
     size_bytes: opts.imageBytes.length,
@@ -184,6 +192,7 @@ export async function saveStylePreview(opts: {
     model_id: opts.modelId,
     aspect_ratio: opts.aspectRatio,
     tier: opts.tier || '',
+    variant_id: opts.variantId || 'default',
     created_at: now,
     filename,
     abs_path: abs,
@@ -219,6 +228,7 @@ export async function getCachedStylePreviewByHash(hash: string): Promise<CachedS
     model_id: entry.model_id,
     aspect_ratio: entry.aspect_ratio,
     tier: entry.tier || '',
+    variant_id: entry.variant_id || 'default',
     created_at: entry.created_at,
     filename: entry.filename,
     abs_path: abs,

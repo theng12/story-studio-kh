@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.432 — 2026-06-19
+
+### Added — Project style library with saved custom styles and five live samples
+Custom styles now have a proper home inside the app. The Style Picker now includes a project style library, and Settings adds a dedicated **Styles** tab where custom looks can be written, previewed, saved, reloaded, applied, and deleted cleanly.
+
+Instead of a single one-off style test, the preview system now renders **five fixed sample scenes** for each custom style: landscape, character, interior, action, and close-up. This gives a much more reliable feel for how a style actually behaves before you commit to scene generation.
+
+Saved custom styles now keep their prompt text plus a bundled multi-image sample gallery inside the project, so the style travels with the project across Macs and stays visible without needing to regenerate on every machine.
+
+### Files
+- `frontend/components/ProjectStyleLibrary.vue` (new custom style management and five-sample preview UI)
+- `frontend/components/StylePicker.vue` (embedded project style library inside the Style Picker)
+- `frontend/pages/projects/[slug]/settings.vue` (new Settings → Styles tab)
+- `electron/server/routes/style-preview.ts` (multi-variant style preview rendering and multi-image preset saving)
+- `electron/server/services/style-preview-cache.ts` (cache keys now include preview variant id)
+- `electron/server/models/types.ts` and `electron/server/contracts/index.ts` (saved multi-preview style preset metadata)
+
+---
+
 ## v1.0.431 — 2026-06-19
 
 ### Added — Built-in prehistoric stick-cartoon style and bundled style previews

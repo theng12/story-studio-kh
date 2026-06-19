@@ -297,6 +297,14 @@
       </Modal>
     </div>
 
+    <div v-if="activeTab === 'styles'" class="card mt-2">
+      <ProjectStyleLibrary
+        :project-slug="slug"
+        :image-models="config?.image_models || {}"
+        title="Project style library"
+      />
+    </div>
+
     <!-- Format -->
     <div v-if="activeTab === 'format'" class="card mt-2">
       <div class="format-tab-header">
@@ -4230,6 +4238,7 @@ const tabZones = [
       { title: 'Generation', tabs: [
         { id: 'models', label: 'Models' },
         { id: 'voices', label: 'Voices' },
+        { id: 'styles', label: 'Styles' },
         { id: 'performance', label: 'Performance' },
       ] },
       { title: 'Files', tabs: [

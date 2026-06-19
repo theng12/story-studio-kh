@@ -321,6 +321,12 @@ export interface SafeProjectConfigResponse {
     source_model?: string
     source_reference?: string
     created_at: string
+    preview_filename?: string
+    preview_files?: string[]
+    preview_model?: string
+    preview_aspect_ratio?: string
+    preview_tier?: string
+    preview_saved_at?: string
   }>
   audio_models: Record<string, any>
   video_models?: Record<string, any>

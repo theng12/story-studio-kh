@@ -31,12 +31,18 @@ import type { ImageModelConfig } from '../models/types.js'
 
 export const router = Router()
 
-// Neutral baseline scene — same every render so the cache key is the
-// (style + model + aspect + tier) tuple and not the prompt. Picked to
-// exercise composition + lighting + a recognisable element scale so
-// styles read cleanly in the thumbnail.
-const BASELINE_SCENE = 'A solitary path winding through autumn trees at golden hour, ' +
-  'with a small wooden bench beside it and warm natural light filtering through the leaves.'
+// Fixed sample scenes for "show me how this style behaves" previews.
+// They stay stable across rerenders so cache hits remain deterministic
+// while still exercising different compositions, subjects, and framing.
+const STYLE_PREVIEW_VARIANTS = {
+  landscape: 'A solitary path winding through autumn trees at golden hour, with a small wooden bench beside it and warm natural light filtering through the leaves.',
+  character: 'A friendly explorer standing on a rocky overlook at sunrise, facing the viewer with clear silhouette separation and simple readable body language.',
+  interior: 'A cozy reading room with a glowing lamp, bookshelves, a window with evening light, and a cup of tea on a wooden table.',
+  action: 'A small group crossing a windswept snowy valley with dynamic movement, clear foreground and background separation, and one large focal animal in the distance.',
+  closeup: 'A calm protagonist in close-up, expressive face, clean eye line, gentle side lighting, and a softly simplified background.',
+} as const
+
+type StylePreviewVariantId = keyof typeof STYLE_PREVIEW_VARIANTS
 
 const StylePreviewSchema = z.object({
   style_tag: z.string().min(1).max(2000),
@@ -44,6 +50,7 @@ const StylePreviewSchema = z.object({
   aspect_ratio: z.string().min(1),
   /** Tier id for variable-priced models (nano-banana high/low etc.). */
   tier: z.string().optional(),
+  variant_id: z.enum(['landscape', 'character', 'interior', 'action', 'closeup']).optional(),
 })
 
 router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), async (req, res) => {
@@ -56,9 +63,10 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
   const modelName = req.body.model as string
   const aspectRatio = req.body.aspect_ratio as string
   const tier = (req.body.tier as string | undefined) || ''
+  const variantId = ((req.body.variant_id as StylePreviewVariantId | undefined) || 'landscape')
 
   // Cache lookup short-circuits the provider entirely on hit.
-  const cached = await getCachedStylePreview({ styleTag, modelId: modelName, aspectRatio, tier })
+  const cached = await getCachedStylePreview({ styleTag, modelId: modelName, aspectRatio, tier, variantId })
   if (cached) {
     return res.json({
       hash: cached.hash,
@@ -67,6 +75,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
       model_id: cached.model_id,
       aspect_ratio: cached.aspect_ratio,
       tier: cached.tier,
+      variant_id: cached.variant_id,
       created_at: cached.created_at,
       size_bytes: cached.size_bytes,
     })
@@ -109,7 +118,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
 
   // Style as the leading clause matches how scene prompts thread it in
   // production — keeps the preview faithful to the eventual renders.
-  const prompt = `${styleTag}. ${BASELINE_SCENE}`
+  const prompt = `${styleTag}. ${STYLE_PREVIEW_VARIANTS[variantId]}`
 
   let urls: string[]
   try {
@@ -133,7 +142,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
   }
 
   const saved = await saveStylePreview({
-    styleTag, modelId: modelName, aspectRatio, tier, imageBytes,
+    styleTag, modelId: modelName, aspectRatio, tier, variantId, imageBytes,
   })
   res.json({
     hash: saved.hash,
@@ -142,6 +151,7 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
     model_id: saved.model_id,
     aspect_ratio: saved.aspect_ratio,
     tier: saved.tier,
+    variant_id: saved.variant_id,
     created_at: saved.created_at,
     size_bytes: saved.size_bytes,
   })
@@ -205,6 +215,8 @@ const StylePresetSaveSchema = z.object({
   description: z.string().min(1).max(8000),
   /** Optional — hash of an app-wide cache entry to seed the preview from. */
   hash: z.string().regex(/^[0-9a-f]{16}$/).optional(),
+  /** Optional — multiple cached preview hashes for a richer style gallery. */
+  hashes: z.array(z.string().regex(/^[0-9a-f]{16}$/)).max(8).optional(),
   preview_model: z.string().optional(),
   preview_aspect_ratio: z.string().optional(),
   preview_tier: z.string().optional(),
@@ -225,8 +237,23 @@ router.post('/projects/:slug/style-presets', validateBody(StylePresetSaveSchema)
     const config = await pm.getConfig(slug)
     if (!config) return res.status(404).json({ detail: 'Project config not found' })
 
-    const { name, description, hash, preview_model, preview_aspect_ratio, preview_tier } =
-      req.body as { name: string; description: string; hash?: string; preview_model?: string; preview_aspect_ratio?: string; preview_tier?: string }
+    const {
+      name,
+      description,
+      hash,
+      hashes,
+      preview_model,
+      preview_aspect_ratio,
+      preview_tier,
+    } = req.body as {
+      name: string
+      description: string
+      hash?: string
+      hashes?: string[]
+      preview_model?: string
+      preview_aspect_ratio?: string
+      preview_tier?: string
+    }
 
     const existing = Array.isArray((config as any).style_presets) ? (config as any).style_presets : []
     const baseSlug = slugify(name)
@@ -245,16 +272,31 @@ router.post('/projects/:slug/style-presets', validateBody(StylePresetSaveSchema)
     const fsp = await import('fs/promises')
     const pathMod = await import('path')
     let preview_filename: string | undefined
+    let preview_files: string[] | undefined
     let preview_saved_at: string | undefined
-    if (hash) {
-      const cachedAbs = await pathForStylePreviewHash(hash)
-      if (cachedAbs && fsMod.existsSync(cachedAbs)) {
+    const requestedHashes = Array.from(new Set(
+      (Array.isArray(hashes) && hashes.length ? hashes : (hash ? [hash] : [])).filter(Boolean),
+    ))
+    if (requestedHashes.length) {
+      const existingHashes: string[] = []
+      for (const previewHash of requestedHashes) {
+        const cachedAbs = await pathForStylePreviewHash(previewHash)
+        if (cachedAbs && fsMod.existsSync(cachedAbs)) existingHashes.push(previewHash)
+      }
+      if (existingHashes.length) {
         const projDir = pm.getProjectDir(slug)
         if (projDir) {
           const previewsDir = pathMod.join(projDir, 'style-previews')
           if (!fsMod.existsSync(previewsDir)) await fsp.mkdir(previewsDir, { recursive: true })
-          preview_filename = `${id}.png`
-          await fsp.copyFile(cachedAbs, pathMod.join(previewsDir, preview_filename))
+          preview_files = []
+          for (const [index, previewHash] of existingHashes.entries()) {
+            const cachedAbs = await pathForStylePreviewHash(previewHash)
+            if (!cachedAbs) continue
+            const filename = index === 0 ? `${id}.png` : `${id}-${index + 1}.png`
+            await fsp.copyFile(cachedAbs, pathMod.join(previewsDir, filename))
+            preview_files.push(filename)
+          }
+          preview_filename = preview_files[0]
           preview_saved_at = new Date().toISOString()
         }
       }
@@ -266,6 +308,7 @@ router.post('/projects/:slug/style-presets', validateBody(StylePresetSaveSchema)
     }
     if (preview_filename) {
       preset.preview_filename = preview_filename
+      preset.preview_files = preview_files
       preset.preview_model = preview_model
       preset.preview_aspect_ratio = preview_aspect_ratio
       preset.preview_tier = preview_tier
@@ -291,16 +334,22 @@ router.delete('/projects/:slug/style-presets/:id', async (req, res) => {
     const target = existing.find((p: any) => p.id === id)
     if (!target) return res.status(404).json({ detail: `Preset '${id}' not found` })
 
-    // Remove the project-local preview PNG (if any). Best-effort — a
+    // Remove the project-local preview PNGs (if any). Best-effort — a
     // missing file shouldn't block the config update; the user's intent
     // is "drop this preset from the list."
-    if (target.preview_filename) {
+    const previewFiles = Array.from(new Set([
+      ...(Array.isArray(target.preview_files) ? target.preview_files : []),
+      ...(target.preview_filename ? [target.preview_filename] : []),
+    ]))
+    if (previewFiles.length) {
       try {
         const projDir = pm.getProjectDir(slug)
         if (projDir) {
           const fsp = await import('fs/promises')
           const pathMod = await import('path')
-          await fsp.unlink(pathMod.join(projDir, 'style-previews', target.preview_filename)).catch(() => {})
+          for (const file of previewFiles) {
+            await fsp.unlink(pathMod.join(projDir, 'style-previews', file)).catch(() => {})
+          }
         }
       } catch { /* tolerate */ }
     }
@@ -321,7 +370,16 @@ router.get('/projects/:slug/style-presets/:id/preview', async (req, res) => {
 
     const existing = Array.isArray((config as any).style_presets) ? (config as any).style_presets : []
     const target = existing.find((p: any) => p.id === id)
-    if (!target?.preview_filename) return res.status(404).json({ detail: 'No preview saved for this preset' })
+    const requestedFile = typeof req.query.file === 'string' ? req.query.file : ''
+    const previewFiles = Array.from(new Set([
+      ...(Array.isArray(target?.preview_files) ? target.preview_files : []),
+      ...(target?.preview_filename ? [target.preview_filename] : []),
+    ]))
+    const selectedFile = requestedFile || target?.preview_filename || previewFiles[0]
+    if (!selectedFile) return res.status(404).json({ detail: 'No preview saved for this preset' })
+    if (!previewFiles.includes(selectedFile)) {
+      return res.status(404).json({ detail: 'Requested preview file is not attached to this preset' })
+    }
 
     const projDir = pm.getProjectDir(slug)
     if (!projDir) return res.status(404).json({ detail: 'Project directory not found' })
@@ -329,7 +387,7 @@ router.get('/projects/:slug/style-presets/:id/preview', async (req, res) => {
     const fsMod = await import('fs')
     const fsp = await import('fs/promises')
     const pathMod = await import('path')
-    const abs = pathMod.join(projDir, 'style-previews', target.preview_filename)
+    const abs = pathMod.join(projDir, 'style-previews', selectedFile)
     if (!fsMod.existsSync(abs)) return res.status(404).json({ detail: 'Preview file missing on disk' })
 
     const stat = await fsp.stat(abs)

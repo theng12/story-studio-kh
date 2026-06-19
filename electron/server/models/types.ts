@@ -1648,6 +1648,8 @@ export interface StylePreset {
    * presets that were imported from text-only sources (e.g. /analyze-style).
    */
   preview_filename?: string
+  /** v1.0.432+ — optional multi-sample gallery copied into the project. */
+  preview_files?: string[]
   /** Image model the preview PNG was rendered against. Surfaced as a hint
    *  so users know the saved sample may not match a render under different
    *  model/aspect/tier settings. */
