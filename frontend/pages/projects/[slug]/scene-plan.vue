@@ -133,6 +133,15 @@
         No <code>research.json</code> sidecar found. The planner will run without research context.
       </p>
 
+      <!-- v1.0.423 — sleep-story intro skip (per-project default). -->
+      <label class="flex items-center gap-1 mt-2 text-sm" title="For sleep-story formats whose first audio chapter is the Introduction (welcome / context / CTA / breathing). Plans scenes only from the first story chapter.">
+        <input type="checkbox" :checked="skipIntro" @change="setSkipIntro(($event.target as HTMLInputElement).checked)" />
+        Skip the <strong>Introduction</strong> chapter when planning scenes
+      </label>
+      <p class="text-muted text-xs mt-1" v-if="skipIntro">
+        Project-wide. Scenes are planned from the first story chapter onward. At render, the title (thumbnail) card is auto-held through the intro and intro captions are hidden by default — so story scenes line up with their narration.
+      </p>
+
       <!-- v1.0.242 — visual-prompt detail slider. Controls how richly the LLM
            writes each scene's visual_prompt (length + which elements to cover). -->
       <div class="form-group mt-3">
@@ -580,6 +589,26 @@ const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 // v1.0.364 — project config (image_models) for the StylePicker preview models.
 const { config: projectConfig } = useProject()
+
+// v1.0.423 — sleep-story intro skip (per-project default). Persisted to project
+// config so it applies to every episode and is read by BOTH the planner (skips
+// the Introduction chapter) and the renderer (holds the title card + hides intro
+// captions). No per-call plumbing — the backend reads config.skip_intro_scenes.
+const skipIntro = ref<boolean>(!!(projectConfig.value as any)?.skip_intro_scenes)
+watch(projectConfig, (c) => { skipIntro.value = !!(c as any)?.skip_intro_scenes })
+async function setSkipIntro(v: boolean) {
+  skipIntro.value = v
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { skip_intro_scenes: v })
+    if (projectConfig.value) (projectConfig.value as any).skip_intro_scenes = v
+    success(v
+      ? 'Scenes will skip the Introduction chapter for this project.'
+      : 'Scenes will be planned for the full transcript.')
+  } catch (e: any) {
+    skipIntro.value = !v
+    showError(e?.data?.detail || e?.message || 'Could not save the setting')
+  }
+}
 
 const episodeId = ref('')
 

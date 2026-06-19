@@ -1987,6 +1987,14 @@
           ⚠ This FFmpeg build doesn't include libass — subtitles can't be burned in.
           Install a build with libass (e.g. <code>brew install ffmpeg</code> with freetype+libass).
         </p>
+        <!-- v1.0.423 — hide intro captions (sleep-story). -->
+        <label v-if="subtitles.enabled" class="checkbox-label mt-2" title="Drops caption cues before the first story chapter from the burned-in track (welcome / context / CTA / breathing stay silent on screen). The full SRT sidecar for YouTube upload is left intact. Needs an 'Introduction' audio chapter.">
+          <input type="checkbox" v-model="subtitles.hide_during_intro" />
+          <span class="ml-1-tight">Hide captions during the intro</span>
+        </label>
+        <p v-if="subtitles.enabled && subtitles.hide_during_intro" class="text-muted text-xs mt-1">
+          Captions start when the story does (after the Introduction chapter). The uploaded SRT file is unchanged — only the burned-in captions are trimmed.
+        </p>
       </div>
 
       <div v-if="subtitles.enabled" class="mt-2">
@@ -3393,6 +3401,10 @@ const subtitles = reactive({
   enabled: false,
   source: 'chapters' as 'chapters' | 'upload' | 'whisper',
   srt_path: '',
+  // v1.0.423 — hide captions during the intro (sleep-story). Defaults to the
+  // project's skip-intro setting; user can override per episode. The full SRT
+  // sidecar is untouched — only the burned-in copy is trimmed.
+  hide_during_intro: false,
   style: {
     font_family: 'Helvetica',
     font_size_px: 28,
@@ -3408,6 +3420,17 @@ const subtitles = reactive({
     animation: 'none' as 'none' | 'fade' | 'pop' | 'slide-up',
   },
 })
+
+// v1.0.423 — default "hide captions during intro" to the project's skip-intro
+// setting, once, when config first loads. The user can still toggle it per
+// episode in the Subtitles step.
+let introSubDefaulted = false
+watch(vaConfig, (c) => {
+  if (!introSubDefaulted && c) {
+    subtitles.hide_during_intro = !!(c as any).skip_intro_scenes
+    introSubDefaulted = true
+  }
+}, { immediate: true })
 
 const subtitlesStatus = ref<{
   has_libass: boolean

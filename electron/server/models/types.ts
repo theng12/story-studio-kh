@@ -2642,6 +2642,11 @@ export interface VideoSubtitleConfig {
    *  file when source = 'upload'. */
   srt_path?: string
   style: VideoSubtitleStyle
+  /** v1.0.423 — drop caption cues before the story starts (sleep-story intro:
+   *  welcome / CTA / breathing) so the burned-in track has no intro captions.
+   *  The full SRT sidecar (for YouTube upload) is untouched — only the burn is
+   *  trimmed. Requires the episode to have an "Introduction" chapter. */
+  hide_during_intro?: boolean
 }
 
 export type SceneAnimationType = 'ken-burns' | 'parallax-drift' | 'breathe' | 'fade-in' | 'none'
@@ -2761,6 +2766,12 @@ export interface GenerateVideoRequest {
   letterbox?: VideoLetterbox
   subtitles?: VideoSubtitleConfig
   exclude_intro_from_effects?: boolean  // default true — don't apply grading/vignette to intro
+  /** v1.0.423 — sleep-story intro handling. When on, the title (thumbnail) card
+   *  is auto-held until the story chapter begins (intro video + title tile to
+   *  story_start) so the first matched story scene lands on its narration. Pairs
+   *  with the Scene Plan "skip Introduction" option (both derive story_start the
+   *  same way). Per-project default lives in config.skip_intro_scenes. */
+  skip_intro_scenes?: boolean
 }
 
 // ── Audio Merge ─────────────────────────────────────────────────────────────
@@ -3261,6 +3272,13 @@ export interface ScenePlanRunOptions {
    *  overlapping [start_sec, end_sec] are planned and the returned scenes cover
    *  exactly that span; the caller splices them back into the existing plan. */
   range?: { start_sec: number; end_sec: number }
+  /** v1.0.423 — skip everything before this timeline position when planning
+   *  (sleep-story "Introduction" chapter). Unlike `range`, this only sets the
+   *  START: cues ending at/before it are dropped, the chain seeds here, and
+   *  coverage still runs to the full episode end. Computed by the caller as the
+   *  story-start (lead-in + Introduction duration + gap) via computeStoryStartSec.
+   *  Ignored when `range` is set (re-plan wins). */
+  skip_until_sec?: number
   /** v1.0.245 — non-fatal warning callback (e.g. "window 3 failed twice — split
    *  into N cue-aligned scenes with empty prompts"). The generator surfaces
    *  these in the Jobs log so a degraded window is never silent. */

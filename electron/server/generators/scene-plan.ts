@@ -16,6 +16,8 @@ import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { getConfig } from '../services/project-manager.js'
+import { computeStoryStartSec } from '../lib/intro-lead-in.js'
+import { scanEpisodeAssets } from './video.js'
 import type { Job, ScenePlan } from '../models/types.js'
 
 /**
@@ -83,6 +85,10 @@ interface ScenePlanRunParams {
    *  See ScenePlanRunOptions.neighbor_context_{back,forward}. */
   neighbor_context_back?: number
   neighbor_context_forward?: number
+  /** v1.0.423 — skip the leading "Introduction" chapter (sleep-story welcome /
+   *  CTA / breathing) so scenes are planned only for the story. Per-episode
+   *  override; falls back to the project default (config.skip_intro_scenes). */
+  skip_intro?: boolean
 }
 
 export const SCENE_PLAN_FILENAME = 'scene_plan.json'
@@ -293,8 +299,42 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     params.style_prompt, paths.episode_dir,
     () => job.output_lines.push('No style prompt set — using the episode Style Bible for the plan.'),
   )
+
+  // v1.0.423 — sleep-story intro skip. When on (per-episode override, else the
+  // project default), drop the leading "Introduction" chapter so scenes are
+  // planned only for the story. story_start is computed the SAME way the video
+  // render holds the title card, so the two stay in lockstep.
+  let skipUntilSec = 0
+  let wantSkipIntro = params.skip_intro
+  if (wantSkipIntro == null) {
+    try { wantSkipIntro = !!(await getConfig(job.project_slug) as any)?.skip_intro_scenes } catch { wantSkipIntro = false }
+  }
+  if (wantSkipIntro) {
+    try {
+      const chaptersPath = path.join(paths.episode_dir, 'audio_chapters.json')
+      if (existsSync(chaptersPath)) {
+        const sc = JSON.parse(await fs.readFile(chaptersPath, 'utf-8'))
+        const gap = typeof sc.gap_duration_s === 'number' ? sc.gap_duration_s : 0
+        const assets = await scanEpisodeAssets(job.project_slug, episode_id).catch(() => null)
+        const merged = assets?.merged_audio?.[0]?.path || null
+        const story = await computeStoryStartSec(merged, sc.sections || [], gap)
+        if (story) {
+          skipUntilSec = story.story_start_sec
+          job.output_lines.push(`Intro skip: ON — planning from ${skipUntilSec.toFixed(1)}s (after the "${story.intro_label}" chapter). Earlier cues are excluded.`)
+        } else {
+          job.output_lines.push('Intro skip: ON but no "Introduction" chapter found in audio_chapters.json — planning the full transcript.')
+        }
+      } else {
+        job.output_lines.push('Intro skip: ON but audio_chapters.json is missing — run Audio Assembly first; planning the full transcript.')
+      }
+    } catch (e: any) {
+      job.output_lines.push(`Intro skip: could not compute story start (${e?.message || e}) — planning the full transcript.`)
+    }
+  }
+
   const plan: ScenePlan = await planner({
     stitched_srt_path: stitchedSrt,
+    skip_until_sec: skipUntilSec,
     research_path: useResearch ? researchPath : undefined,
     narration_docx_path: resolveReadPath(paths.narration_docx),
     model,

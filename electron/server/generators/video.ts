@@ -32,6 +32,7 @@ import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
+import { computeStoryStartSec } from '../lib/intro-lead-in.js'
 import type {
   GenerateVideoRequest, Job, VideoLogoConfig, VideoIntroConfig,
   VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
@@ -621,6 +622,19 @@ export async function generateVideo(job: Job): Promise<void> {
   const req = params as GenerateVideoRequest
   const code = episode_id.toUpperCase()
 
+  // v1.0.423 — sleep-story intro handling falls back to the per-project default
+  // (config.skip_intro_scenes) when the request didn't set it explicitly, so the
+  // only UI needed is one project-level toggle. Intro-caption hiding defaults to
+  // the same setting unless the Subtitles step explicitly overrides it.
+  try {
+    const cfg = await pm.getConfig(project_slug)
+    const projSkip = !!(cfg as any)?.skip_intro_scenes
+    if (req.skip_intro_scenes == null) req.skip_intro_scenes = projSkip
+    if (req.subtitles && req.subtitles.hide_during_intro == null) {
+      req.subtitles.hide_during_intro = !!req.skip_intro_scenes
+    }
+  } catch { /* no config — leave request values as-is */ }
+
   // 1. Validate FFmpeg
   const ffmpegCheck = await checkFfmpeg()
   if (!ffmpegCheck.installed) {
@@ -1199,6 +1213,69 @@ export async function generateVideo(job: Job): Promise<void> {
       },
       sceneClipDurations,
     )
+
+    // v1.0.423 — sleep-story intro handling. Compute where the STORY begins on
+    // the final-video timeline (lead-in + "Introduction" chapter + gap), the
+    // SAME value the Scene Plan used to skip the intro. Used to (a) auto-hold the
+    // title card until the story starts, and (b) trim intro captions from the
+    // burn. Computed once; 0 when not requested / no Introduction chapter.
+    let storyStartSec = 0
+    if ((req.skip_intro_scenes || req.subtitles?.hide_during_intro) && req.merged_audio_path) {
+      try {
+        const chaptersPath = path.join(episodeDir, 'audio_chapters.json')
+        if (existsSync(chaptersPath)) {
+          const sc = JSON.parse(await fs.readFile(chaptersPath, 'utf-8'))
+          const gap = typeof sc.gap_duration_s === 'number' ? sc.gap_duration_s : 0
+          const story = await computeStoryStartSec(req.merged_audio_path, sc.sections || [], gap)
+          if (story) storyStartSec = story.story_start_sec
+        }
+      } catch { /* leave 0 — falls back to configured title duration / full captions */ }
+    }
+
+    // Auto-hold the title (thumbnail) card so intro video + title tile exactly to
+    // the story start. Longer intro video → shorter hold. Assumes no before/after-
+    // intro timeline clips (the sleep-story flow doesn't use them).
+    if (req.skip_intro_scenes && storyStartSec > 0 && req.title_image?.enabled && req.title_image.image_path) {
+      let introVideoDur = 0
+      if (req.intro?.enabled && req.intro.video_path && existsSync(req.intro.video_path)) {
+        introVideoDur = (await getAudioDuration(req.intro.video_path)) || 0
+      }
+      const hold = Math.round((storyStartSec - introVideoDur) * 100) / 100
+      if (hold >= 1) {
+        req.title_image.duration = hold
+        job.output_lines.push(
+          `Intro hold: title card held ${hold.toFixed(1)}s (story starts ${storyStartSec.toFixed(1)}s − intro video ${introVideoDur.toFixed(1)}s) so the first story scene lands on its narration.`,
+        )
+      } else {
+        job.output_lines.push(
+          `⚠ Intro hold: intro video (${introVideoDur.toFixed(1)}s) covers ~all of the pre-story span (${storyStartSec.toFixed(1)}s) — keeping the configured title duration. Shorten the intro video if scenes drift early.`,
+        )
+      }
+    }
+
+    // Optional: drop intro captions from the BURN copy (welcome / CTA / breathing).
+    // The full SRT sidecar (YouTube upload) is left untouched — we burn a trimmed
+    // copy that keeps each story cue at its original (audio-aligned) timestamp and
+    // simply omits everything before the story start.
+    if (req.subtitles?.enabled && req.subtitles.hide_during_intro && storyStartSec > 0
+        && req.subtitles.srt_path && existsSync(req.subtitles.srt_path)) {
+      try {
+        const { parseSrt, formatSrtTime } = await import('../lib/subtitle-builder.js')
+        const cues = parseSrt(await fs.readFile(req.subtitles.srt_path, 'utf-8'))
+        const kept = cues.filter(c => c.end_sec > storyStartSec + 0.001)
+        if (kept.length && kept.length < cues.length) {
+          const body = kept
+            .map((c, i) => `${i + 1}\n${formatSrtTime(c.start_sec)} --> ${formatSrtTime(c.end_sec)}\n${c.text}`)
+            .join('\n\n') + '\n'
+          const trimmedPath = path.join(tempDir, 'subtitles_story_only.srt')
+          await fs.writeFile(trimmedPath, body, 'utf-8')
+          job.output_lines.push(`Intro captions: hidden — burning ${kept.length}/${cues.length} cue(s) (dropped ${cues.length - kept.length} before ${storyStartSec.toFixed(1)}s). Full SRT sidecar unchanged.`)
+          req.subtitles = { ...req.subtitles, srt_path: trimmedPath }
+        }
+      } catch (e: any) {
+        job.output_lines.push(`Intro captions: could not trim (${e?.message || e}) — burning the full SRT.`)
+      }
+    }
 
     // 6. Prepare title image clip (if provided)
     let titleClipPath: string | undefined
@@ -2402,7 +2479,12 @@ async function buildConcatList(
   // Add title image clip
   if (titleClipPath) {
     lines.push(esc(titleClipPath))
-    accumulatedDuration += 5
+    // v1.0.423 — probe the title clip's REAL duration instead of assuming 5s.
+    // The sleep-story intro hold can set a long title (e.g. 60s+); the old
+    // hardcoded 5 mis-placed the effect gate (preSceneDuration tracker) for any
+    // non-5s title. Mirrors how the intro clip's duration is probed above.
+    const titleDur = await getAudioDuration(titleClipPath)
+    accumulatedDuration += titleDur || 5
   }
 
   // Bucket 2 of 4 — after_intro: after intro/title, before the first scene.

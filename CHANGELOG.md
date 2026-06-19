@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.423 — 2026-06-19
+
+**Sleep-story intro handling — scenes skip the Introduction, title card holds through it.** For formats whose first audio chapter is the spoken **Introduction** (welcome / context / CTA / breathing), there's now a per-project toggle on the **Scene Plan** page: *"Skip the Introduction chapter when planning scenes."* When on:
+- **Scene planning** ignores the Introduction transcript, so scenes are generated only for the actual story — no more off-topic intro scenes.
+- **Video render** auto-holds your **title (thumbnail) card** through the intro: it computes where the story starts (lead-in + Introduction + gap) and holds the card for exactly `story_start − intro-video length`. Make your intro video longer and the title hold shrinks to match — the first story scene always lands on its narration.
+- **Intro captions are hidden by default** (you wanted the welcome/CTA/breathing uncaptioned). The burned-in track drops cues before the story; the full SRT sidecar for YouTube upload is untouched. Toggle it per episode in Video Assembly → Subtitles → *"Hide captions during the intro."*
+
+The skip point and the title hold derive from the **same** computed story-start, so visuals, captions, and audio stay in lockstep. Also fixes a latent bug where the effects-gate start assumed a fixed 5s title duration (it now reads the title clip's real length, which matters once the card is held for 60s+).
+
 ## v1.0.422 — 2026-06-19
 
 **Title-image picker now shows every thumbnail.** In Video Assembly → Step 3 → Title Image, the thumbnail picker previously only listed files named `scene_NN` / `thumb_NN`, so in-app composed templates (`*_composed_vN.png`) and title-based thumbnails were invisible. It now surfaces **every image** in the episode's Thumbnail Images folder, each shown as a clickable preview card. The selected one is marked with a ✓ badge and an accent border, and each card is labelled with its filename so multiple similar thumbnails are easy to tell apart. (First of a few changes toward per-project intro handling for sleep-story formats.)

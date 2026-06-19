@@ -817,11 +817,17 @@ export async function planScenesTwoPass(opts: ScenePlanRunOptions): Promise<Scen
 
   // v1.0.245 — range plan only the cues overlapping [start, end] when
   // requested. Same shape as single-pass.
+  // v1.0.423 — skip_until_sec drops the leading "Introduction" cues so the
+  // story is planned from there (range wins if both are set).
   const range = opts.range
+  const skipUntil = (!range && typeof opts.skip_until_sec === 'number' && opts.skip_until_sec > 0)
+    ? opts.skip_until_sec : 0
   const planCues = range
     ? cues.filter(c => c.end_sec > range.start_sec + 0.001 && c.start_sec < range.end_sec - 0.001)
-    : cues
-  const initialStart = range ? range.start_sec : 0
+    : skipUntil > 0
+      ? cues.filter(c => c.end_sec > skipUntil + 0.001)
+      : cues
+  const initialStart = range ? range.start_sec : skipUntil
 
   // ── PASS 1: deterministic split ───────────────────────────────────────
   const scenes = splitScenesDeterministically({
@@ -1037,11 +1043,17 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
   // v1.0.245 — range re-plan: plan ONLY the cues overlapping [start, end], seed
   // the chain at range.start, and clamp coverage to range.end. The full-episode
   // path leaves these at their defaults (all cues, start 0, total duration).
+  // v1.0.423 — skip_until_sec: drop the leading "Introduction" cues and seed the
+  // chain at the story start, but still cover to the real episode end (range wins).
   const range = opts.range
+  const skipUntil = (!range && typeof opts.skip_until_sec === 'number' && opts.skip_until_sec > 0)
+    ? opts.skip_until_sec : 0
   const planCues = range
     ? cues.filter(c => c.end_sec > range.start_sec + 0.001 && c.start_sec < range.end_sec - 0.001)
-    : cues
-  const initialPrevEnd = range ? range.start_sec : 0
+    : skipUntil > 0
+      ? cues.filter(c => c.end_sec > skipUntil + 0.001)
+      : cues
+  const initialPrevEnd = range ? range.start_sec : skipUntil
   const coverEnd = range ? range.end_sec : totalDuration
   const windows = buildWindows(planCues, windowSec)
 

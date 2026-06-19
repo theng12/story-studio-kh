@@ -380,6 +380,8 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
         enabled: true,
         source: s.subtitles.source,
         srt_path: s.subtitles.srt_path,
+        // v1.0.423 — trim intro captions from the burn when on (sleep-story).
+        hide_during_intro: !!s.subtitles.hide_during_intro,
         style: { ...s.subtitles.style },
       }
     }
