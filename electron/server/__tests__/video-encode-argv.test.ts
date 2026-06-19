@@ -22,9 +22,12 @@ import {
   buildEncoderArgs,
   buildLoopingMediaInputArgs,
   buildTitleMediaInputArgs,
+  computeXfadeTimelineDuration,
   computeWatchdogMs,
   checkTimelineDurationSanity,
   crfToVideotoolboxQ,
+  extendDurationsForXfadeCoverage,
+  fitSceneDurationsToTarget,
 } from '../generators/video.js'
 
 describe('buildTitleMediaInputArgs — still and video title assets', () => {
@@ -55,6 +58,53 @@ describe('buildLoopingMediaInputArgs — post-audio tail assets', () => {
       buildLoopingMediaInputArgs('/tmp/scene_0027.jpg'),
       ['-loop', '1', '-i', '/tmp/scene_0027.jpg'],
     )
+  })
+
+  test('treats animated or unknown visual formats as stream inputs', () => {
+    assert.deepEqual(
+      buildLoopingMediaInputArgs('/tmp/overlay.gif'),
+      ['-stream_loop', '-1', '-i', '/tmp/overlay.gif'],
+    )
+  })
+})
+
+describe('crossfade scene coverage', () => {
+  test('accounts for overlap and chunk-boundary hard cuts', () => {
+    assert.equal(computeXfadeTimelineDuration([10, 10, 10], 1.5, 48), 27)
+    assert.equal(computeXfadeTimelineDuration([10, 10, 10], 1.5, 2), 28.5)
+  })
+
+  test('adds clips until visuals cover narration after xfade overlap', () => {
+    const durations = extendDurationsForXfadeCoverage(
+      [10, 10, 10],
+      [10, 10],
+      35,
+      1.5,
+      48,
+    )
+    assert.deepEqual(durations, [10, 10, 10, 10])
+    assert.ok(computeXfadeTimelineDuration(durations, 1.5, 48) >= 35)
+  })
+
+  test('removes surplus clips and trims the final span to the narration boundary', () => {
+    const fitted = fitSceneDurationsToTarget(
+      [20, 20, 20, 20],
+      50,
+      1.5,
+      48,
+    )
+    assert.deepEqual(fitted, [20, 20, 13])
+    assert.equal(computeXfadeTimelineDuration(fitted, 1.5, 48), 50)
+  })
+
+  test('keeps the final clip above the transition duration', () => {
+    const fitted = fitSceneDurationsToTarget(
+      [10, 10],
+      10.05,
+      1.5,
+      48,
+    )
+    assert.ok(fitted[1]! > 1.5)
   })
 })
 

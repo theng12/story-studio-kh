@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.430 — 2026-06-19
+
+### Audited — Video Assembly still/video handling and timeline duration
+Video Assembly's complete visual path was audited after the B-Roll loop failures: scene preparation, title input, transitions, recycling, exclusions, chapter alignment, post-audio tails, overlays, concat, and final duration.
+
+The audit fixed four connected issues:
+
+- **Post-audio tails now use the real last played scene.** Fade and hold previously used the last numbered request scene, which could be wrong after exclusions, shuffle, chapter alignment, or extra transition-coverage clips.
+- **Fade and hold freeze the actual final frame.** Video scenes no longer restart from their beginning during the post-audio tail.
+- **Crossfades cannot end visuals before narration.** Transition overlap is included in coverage calculations; extra clips are added only when needed, surplus repeats are removed, and only the final played clip is trimmed to the exact narration boundary. This preserves the configured fade/hold tail instead of letting scene overshoot hide it.
+- **Looping overlays are media-aware.** PNG/JPEG overlays use FFmpeg's still-image loop option, while video, GIF, and other stream inputs use `-stream_loop`.
+
+Verification covered 53 Video Assembly/FFmpeg regression tests, production frontend and Electron builds, exact EP0075 duration math, and real FFmpeg smoke renders for scene trimming, final-frame extraction, fade generation, still overlay looping, and variable-duration crossfades.
+
+### Files
+- `electron/server/generators/video.ts` (timeline fitting, actual final-frame tails, shared media classification, overlay input handling)
+- `electron/server/__tests__/video-encode-argv.test.ts` (media and transition-duration regression coverage)
+
+---
+
 ## v1.0.429 — 2026-06-19
 
 ### Fixed — B-Roll video works in post-audio fade and hold tails

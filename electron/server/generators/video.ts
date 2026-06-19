@@ -1527,11 +1527,10 @@ export async function generateVideo(job: Job): Promise<void> {
     const postAudio = req.post_audio ?? { behavior: 'fade-to-black' as const, fade_duration: 5 }
 
     // 10. Build concat list — scenes match narration duration, post-audio fills the rest
-    const lastSceneImagePath = req.scenes[req.scenes.length - 1]?.image_path
     const { listPath: concatListPath, sceneEndTime } = await buildConcatList(
       tempDir, introClipPath, titleClipPath, sceneClips,
       targetDuration, narrationDuration, postAudio,
-      req.scene_recycling, resW, resH, quality, lastSceneImagePath, job,
+      req.scene_recycling, resW, resH, quality, job,
       sceneClipDurations,
       req.transition && req.transition !== 'none' ? {
         primaryId: req.transition,
@@ -2161,9 +2160,73 @@ export function buildTitleMediaInputArgs(mediaPath: string): string[] {
  * `-stream_loop -1`. The caller supplies the output `-t` safety cap.
  */
 export function buildLoopingMediaInputArgs(mediaPath: string): string[] {
-  return /\.(mp4|mov|webm|mkv|m4v)$/i.test(mediaPath)
-    ? ['-stream_loop', '-1', '-i', mediaPath]
-    : ['-loop', '1', '-i', mediaPath]
+  return isStaticImagePath(mediaPath)
+    ? ['-loop', '1', '-i', mediaPath]
+    : ['-stream_loop', '-1', '-i', mediaPath]
+}
+
+export function isStaticImagePath(mediaPath: string): boolean {
+  return /\.(png|jpe?g|webp|bmp|tiff?)$/i.test(mediaPath)
+}
+
+export function computeXfadeTimelineDuration(
+  durations: number[],
+  transitionDuration: number,
+  chunkSize: number,
+): number {
+  if (!durations.length) return 0
+  const chunks = Math.ceil(durations.length / Math.max(2, chunkSize))
+  const hardCuts = Math.max(0, chunks - 1)
+  const xfades = Math.max(0, durations.length - 1 - hardCuts)
+  return durations.reduce((sum, duration) => sum + duration, 0)
+    - xfades * Math.max(0, transitionDuration)
+}
+
+export function extendDurationsForXfadeCoverage(
+  initialDurations: number[],
+  cycleDurations: number[],
+  targetDuration: number,
+  transitionDuration: number,
+  chunkSize: number,
+): number[] {
+  const result = [...initialDurations]
+  if (!cycleDurations.length || targetDuration <= 0) return result
+
+  let added = 0
+  while (computeXfadeTimelineDuration(result, transitionDuration, chunkSize) + 0.001 < targetDuration) {
+    result.push(cycleDurations[added % cycleDurations.length]!)
+    added++
+    if (added > 10_000) throw new Error('Could not extend scene timeline to cover narration')
+  }
+  return result
+}
+
+export function fitSceneDurationsToTarget(
+  inputDurations: number[],
+  targetDuration: number,
+  transitionDuration: number,
+  chunkSize: number,
+): number[] {
+  const result = [...inputDurations]
+  if (!result.length || targetDuration <= 0) return result
+
+  while (
+    result.length > 1
+    && computeXfadeTimelineDuration(result.slice(0, -1), transitionDuration, chunkSize) >= targetDuration
+  ) {
+    result.pop()
+  }
+
+  const beforeLast = computeXfadeTimelineDuration(result.slice(0, -1), transitionDuration, chunkSize)
+  const boundaryIsHardCut = result.length <= 1
+    || Math.floor((result.length - 1) / Math.max(2, chunkSize)) > Math.floor((result.length - 2) / Math.max(2, chunkSize))
+  const overlap = boundaryIsHardCut ? 0 : transitionDuration
+  const requiredLastDuration = Math.max(
+    overlap > 0 ? overlap + 0.1 : 0.5,
+    targetDuration - beforeLast + overlap,
+  )
+  result[result.length - 1] = Math.min(result[result.length - 1]!, requiredLastDuration)
+  return result
 }
 
 // ── Prepare Intro Clip (re-encode to match resolution) ────────────────────
@@ -2455,7 +2518,6 @@ async function buildConcatList(
   recycling: VideoSceneRecycling,
   w: number, h: number,
   quality: { crf: number; preset: string; fps: number },
-  lastSceneImagePath: string | undefined,
   job: Job,
   sceneClipDurations?: number[],
   /** Optional scene-to-scene transition settings. When the primary id resolves
@@ -2686,14 +2748,11 @@ async function buildConcatList(
     }
   }
 
-  const totalClips = scenePlayOrder.length
-  const totalScenePlayDuration = scenePlayOrder.reduce((sum, clip) => sum + clip.duration, 0)
-
   // Decide whether to pre-xfade the scenes into a single fused MP4.
   // Pre-xfade runs only when: more than one clip, a primary transition was
   // picked, and that transition resolves to a known xfade keyword.
   const primaryTransition = transitionOpts ? getTransition(transitionOpts.primaryId) : null
-  const xfadeEnabled = !!(transitionOpts && primaryTransition && primaryTransition.xfade && totalClips >= 2)
+  const xfadeEnabled = !!(transitionOpts && primaryTransition && primaryTransition.xfade && scenePlayOrder.length >= 2)
 
   // Hard limit on how many scene clips we pass to a single FFmpeg xfade
   // invocation. FFmpeg opens one decoder per input, and macOS's soft fd
@@ -2711,6 +2770,73 @@ async function buildConcatList(
       128,
     ),
   )
+
+  if (xfadeEnabled && transitionOpts) {
+    const shortestClip = Math.min(...scenePlayOrder.map(c => c.duration))
+    const effectiveTransitionDuration = Math.min(
+      transitionOpts.durationSec,
+      Math.max(0.1, shortestClip - 0.1),
+    )
+    const coveredDurations = extendDurationsForXfadeCoverage(
+      scenePlayOrder.map(c => c.duration),
+      availableDurations,
+      sceneFillDuration,
+      effectiveTransitionDuration,
+      XFADE_CHUNK_SIZE,
+    )
+    const added = coveredDurations.length - scenePlayOrder.length
+    for (let i = 0; i < added; i++) {
+      const idx = i % availableClips.length
+      scenePlayOrder.push({
+        path: availableClips[idx]!,
+        duration: availableDurations[idx] || sceneDuration,
+      })
+    }
+    if (added > 0) {
+      job.output_lines.push(
+        `Transition coverage: added ${added} scene clip(s) so crossfade overlaps do not end visuals before narration.`,
+      )
+    }
+  }
+
+  const effectiveTransitionDuration = xfadeEnabled && transitionOpts
+    ? Math.min(
+        transitionOpts.durationSec,
+        Math.max(0.1, Math.min(...scenePlayOrder.map(c => c.duration)) - 0.1),
+      )
+    : 0
+  const fittedDurations = fitSceneDurationsToTarget(
+    scenePlayOrder.map(c => c.duration),
+    sceneFillDuration,
+    effectiveTransitionDuration,
+    XFADE_CHUNK_SIZE,
+  )
+  if (fittedDurations.length < scenePlayOrder.length) {
+    const removed = scenePlayOrder.length - fittedDurations.length
+    scenePlayOrder.splice(fittedDurations.length)
+    job.output_lines.push(`Timeline fit: removed ${removed} surplus repeated scene clip(s).`)
+  }
+  const finalIdx = fittedDurations.length - 1
+  const fittedFinalDuration = fittedDurations[finalIdx]
+  if (finalIdx >= 0 && fittedFinalDuration != null) {
+    const finalClip = scenePlayOrder[finalIdx]!
+    if (fittedFinalDuration + 0.01 < finalClip.duration) {
+      finalClip.path = await trimPreparedSceneClip(
+        finalClip.path,
+        fittedFinalDuration,
+        quality,
+        tempDir,
+      )
+      finalClip.duration = fittedFinalDuration
+      job.output_lines.push(
+        `Timeline fit: trimmed final scene to ${fittedFinalDuration.toFixed(2)}s so the post-audio tail starts after narration.`,
+      )
+    }
+  }
+
+  const totalClips = scenePlayOrder.length
+  const totalScenePlayDuration = scenePlayOrder.reduce((sum, clip) => sum + clip.duration, 0)
+  const lastPlayedSceneClip = scenePlayOrder[scenePlayOrder.length - 1]?.path
 
   let xfadeHardCuts = 0
   if (xfadeEnabled && transitionOpts) {
@@ -2869,9 +2995,10 @@ async function buildConcatList(
         lines.push(esc(blackClip))
         job.output_lines.push(`Post-audio: black screen for ${postDuration.toFixed(0)}s`)
 
-      } else if (behavior === 'fade-to-black' && lastSceneImagePath && existsSync(lastSceneImagePath)) {
+      } else if (behavior === 'fade-to-black' && lastPlayedSceneClip && existsSync(lastPlayedSceneClip)) {
         const fadeDur = Math.min(postAudio.fade_duration || 5, postDuration)
         const holdDur = Math.max(0, postDuration - fadeDur)
+        const finalFrame = await extractFinalFrame(lastPlayedSceneClip, tempDir)
 
         const fadeClip = path.join(tempDir, 'post_fade.mp4')
         // Normalise via the shared helper, then splice `fade` in BEFORE the
@@ -2887,7 +3014,7 @@ async function buildConcatList(
           frame[frame.length - 1],                // `format=yuv420p`
         ].join(',')
         await runFfmpeg([
-          '-y', ...buildLoopingMediaInputArgs(lastSceneImagePath),
+          '-y', ...buildLoopingMediaInputArgs(finalFrame),
           '-vf', fadeVf,
           ...commonPostArgs, '-t', fadeDur.toString(), fadeClip,
         ])
@@ -2904,10 +3031,11 @@ async function buildConcatList(
         }
         job.output_lines.push(`Post-audio: ${fadeDur.toFixed(0)}s fade to black + ${holdDur.toFixed(0)}s hold`)
 
-      } else if (behavior === 'hold-last-scene' && lastSceneImagePath && existsSync(lastSceneImagePath)) {
+      } else if (behavior === 'hold-last-scene' && lastPlayedSceneClip && existsSync(lastPlayedSceneClip)) {
+        const finalFrame = await extractFinalFrame(lastPlayedSceneClip, tempDir)
         const holdClip = path.join(tempDir, 'post_hold.mp4')
         await runFfmpeg([
-          '-y', ...buildLoopingMediaInputArgs(lastSceneImagePath),
+          '-y', ...buildLoopingMediaInputArgs(finalFrame),
           '-vf', `${normalizeVf}`,
           ...commonPostArgs, '-t', postDuration.toString(), holdClip,
         ])
@@ -2935,6 +3063,37 @@ async function buildConcatList(
 
   await fs.writeFile(listPath, lines.join('\n') + '\n')
   return { listPath, sceneEndTime }
+}
+
+async function extractFinalFrame(sceneClipPath: string, tempDir: string): Promise<string> {
+  const finalFramePath = path.join(tempDir, 'post_last_scene.png')
+  await runFfmpeg([
+    '-y', '-sseof', '-0.2', '-i', sceneClipPath,
+    '-frames:v', '1', '-update', '1',
+    finalFramePath,
+  ])
+  return finalFramePath
+}
+
+async function trimPreparedSceneClip(
+  sceneClipPath: string,
+  duration: number,
+  quality: { crf: number; preset: string; fps: number },
+  tempDir: string,
+): Promise<string> {
+  const trimmedPath = path.join(tempDir, 'scene_final_trimmed.mp4')
+  await runFfmpeg([
+    '-y', '-i', sceneClipPath,
+    '-t', duration.toString(),
+    '-c:v', 'libx264', '-crf', quality.crf.toString(),
+    '-preset', 'ultrafast', '-r', quality.fps.toString(),
+    '-fps_mode', 'cfr', '-pix_fmt', 'yuv420p',
+    '-color_range', 'tv', '-colorspace', 'bt709',
+    '-color_primaries', 'bt709', '-color_trc', 'bt709',
+    '-an',
+    trimmedPath,
+  ])
+  return trimmedPath
 }
 
 // ── Pre-Mix Audio (Step 1 of 2) ──────────────────────────────────────────
@@ -3262,8 +3421,8 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       overlayInputIdxs.push(-1)
       continue
     }
-    if (layer.loop !== false) args.push('-stream_loop', '-1')
-    args.push('-i', layer.source_path)
+    if (layer.loop !== false) args.push(...buildLoopingMediaInputArgs(layer.source_path))
+    else args.push('-i', layer.source_path)
     overlayInputIdxs.push(nextInputIdx++)
   }
 
