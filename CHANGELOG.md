@@ -4,6 +4,28 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.426 — 2026-06-19
+
+### Fixed — Video Assembly can use Classic and Scene Plan images after a format change
+Episodes that had both classic numbered scene images and reviewed Scene Plan renders only exposed the classic folder in Video Assembly. The scanner treated Scene Plan as a fallback and loaded it only when the classic scene folder was empty, so changing a finished episode to the Scenes format hid hundreds of approved planned renders.
+
+Video Assembly now scans both sources without moving or copying their files:
+
+- **Scene Plan** uses the approved reviewed renders and preserves their exact planned durations.
+- **Classic** uses the numbered images from the episode's Scene Images folder.
+- **Combined** exposes both sources in one scene pool with unique pool numbers.
+- When both exist, Video Assembly defaults to Scene Plan so an existing reviewed timeline is not silently changed.
+
+For Dozing Knight DK0026 this exposes 12 Classic scenes, 536 approved Scene Plan scenes, and 548 scenes in Combined mode.
+
+### Files
+- `electron/server/generators/video.ts` (merge and tag both scene sources)
+- `frontend/composables/useVideoAssemblyIo.ts` (source-aware pool selection)
+- `frontend/pages/projects/[slug]/video-assembly.vue` (Scene Plan / Classic / Combined selector)
+- `electron/server/__tests__/video-scene-plan-pool.test.ts` (mixed-source regression)
+
+---
+
 ## v1.0.425 — 2026-06-19
 
 **Fixed B-Roll Video Assembly for legacy video pools.** B-Roll pools created before Image Pool support do not have a `media` field; the B-Roll Library correctly treated those as video pools, but Video Assembly filtered them out and incorrectly reported that no video pools existed. Voice-over-stock projects such as Abiding Faith can now select those pools, load clips as scenes, and complete assembly. The project’s saved B-Roll pool is selected automatically, or the sole available video pool is selected when no subscription exists. Step 1 also gives a B-Roll-specific instruction instead of claiming an AI scene image is required.

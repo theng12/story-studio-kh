@@ -253,6 +253,32 @@
         <!-- Scene Images -->
         <div class="asset-section mt-1">
           <label>Scene Images ({{ scannedAssets.scenes?.length || 0 }})</label>
+          <div v-if="hasMixedSceneSources" class="scene-source-control mt-1">
+            <button
+              type="button"
+              :class="{ active: effectiveScenePoolMode === 'scene_plan' }"
+              @click="scenePoolMode = 'scene_plan'"
+            >
+              Scene Plan ({{ sceneSourceCounts.scene_plan }})
+            </button>
+            <button
+              type="button"
+              :class="{ active: effectiveScenePoolMode === 'classic' }"
+              @click="scenePoolMode = 'classic'"
+            >
+              Classic ({{ sceneSourceCounts.classic }})
+            </button>
+            <button
+              type="button"
+              :class="{ active: effectiveScenePoolMode === 'combined' }"
+              @click="scenePoolMode = 'combined'"
+            >
+              Combined ({{ sceneSourceCounts.classic + sceneSourceCounts.scene_plan }})
+            </button>
+          </div>
+          <p v-if="hasMixedSceneSources" class="text-muted text-xs hint-line">
+            Scene Plan preserves reviewed timing. Combined adds the classic generated scenes to the same pool.
+          </p>
           <div class="thumb-grid mt-1" v-if="scannedAssets.scenes?.length">
             <div
               v-for="(img, i) in scannedAssets.scenes"
@@ -2576,6 +2602,19 @@ const assemblyJobActiveForEpisode = computed(() => isJobActiveFor(episodeId.valu
 const ffmpegStatus = ref<{ installed: boolean; version?: string; has_drawtext?: boolean; has_libass?: boolean; hw_encoders?: { h264: boolean; h265: boolean }; check_error?: string } | null>(null)
 const scannedAssets = ref<any>(null)
 const scanning = ref(false)
+const scenePoolMode = ref<'auto' | 'scene_plan' | 'classic' | 'combined'>('auto')
+const sceneSourceCounts = computed(() => ({
+  classic: Number(scannedAssets.value?.scene_sources?.classic || 0),
+  scene_plan: Number(scannedAssets.value?.scene_sources?.scene_plan || 0),
+}))
+const hasMixedSceneSources = computed(() =>
+  sceneSourceCounts.value.classic > 0 && sceneSourceCounts.value.scene_plan > 0,
+)
+const effectiveScenePoolMode = computed(() =>
+  scenePoolMode.value === 'auto'
+    ? (sceneSourceCounts.value.scene_plan > 0 ? 'scene_plan' : 'classic')
+    : scenePoolMode.value,
+)
 
 // --------------- Step 2: Branding ---------------
 const logo = reactive({
@@ -4810,8 +4849,8 @@ async function normalizeVideoAssemblyPathsInState(): Promise<void> {
 // logic with no rendering concerns — they now live in `useVideoAssemblyIo`.
 // The composable mutates the reactive state we pass in, so the template below
 // still binds to the same refs.
-const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo } = useVideoAssemblyIo({
-  slug, episodeId, selectedEpisode, ffmpegStatus, scannedAssets, scanning, scenes,
+const { checkFfmpeg, scanAssets, applyScenePoolMode, generateVideo: runGenerateVideo } = useVideoAssemblyIo({
+  slug, episodeId, selectedEpisode, ffmpegStatus, scannedAssets, scanning, scenePoolMode, scenes,
   excludeIntroFromEffects,
   logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, postAudio,
   colorGrading, vignette, filmGrain, letterbox, chromaKey,
@@ -4832,6 +4871,7 @@ const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo } = useVideoAss
   // passed at call-time so the composable doesn't duplicate those imports.
   subtitles, generating, jobOutput, activeJobId,
 })
+watch(scenePoolMode, () => { applyScenePoolMode() })
 
 function onEpisodeSelected(ep: any) {
   selectedEpisode.value = ep
@@ -4917,6 +4957,7 @@ function handleWizardShortcut(e: KeyboardEvent) {
 // wouldn't, because `activeJobId` was still pointing at the old job).
 watch(episodeId, (newEp, oldEp) => {
   if (newEp === oldEp) return
+  scenePoolMode.value = 'auto'
   generating.value = false
   activeJobId.value = null
   jobOutput.value = []
@@ -5206,6 +5247,28 @@ onUnmounted(() => {
 /* Asset thumbnails */
 .thumb-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 .scene-thumb-small { width: 40px; height: 40px; border-radius: 4px; background: var(--bg-tertiary); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text-muted); font-weight: 600; }
+.scene-source-control {
+  display: inline-grid;
+  grid-template-columns: repeat(3, minmax(110px, 1fr));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.scene-source-control button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.scene-source-control button:last-child { border-right: 0; }
+.scene-source-control button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.scene-source-control button.active { background: var(--accent-dim); color: var(--accent); }
 
 /* Thumbnail picker with image previews */
 .thumb-picker-images { display: flex; flex-wrap: wrap; gap: 10px; }

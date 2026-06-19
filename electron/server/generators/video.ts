@@ -327,7 +327,16 @@ function resolveAssetPathsInPlace(req: GenerateVideoRequest, outputRoot: string,
 // ── Scanned Assets Interface ───────────────────────────────────────────────
 
 interface ScannedAssets {
-  scenes: Array<{ filename: string; path: string; number: number; width?: number; height?: number }>
+  scenes: Array<{
+    filename: string
+    path: string
+    number: number
+    width?: number
+    height?: number
+    source?: 'classic' | 'scene_plan'
+    planned_scene_index?: number
+  }>
+  scene_sources?: { classic: number; scene_plan: number }
   thumbnails: Array<{ filename: string; path: string; number: number }>
   audio_sections: Array<{ filename: string; path: string; label: string; duration?: number }>
   narration_full?: { path: string; duration: number }
@@ -377,6 +386,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
 
   const result: ScannedAssets = {
     scenes: [],
+    scene_sources: { classic: 0, scene_plan: 0 },
     thumbnails: [],
     audio_sections: [],
     merged_audio: [],
@@ -403,36 +413,47 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
           filename: file,
           path: path.join(imagesDir, file),
           number: num,
+          source: 'classic',
         })
       }
     }
     result.scenes.sort((a, b) => a.number - b.number)
+    result.scene_sources!.classic = result.scenes.length
   }
 
   // Timestamp-driven / continuity projects render reviewed images into
   // <episode>/scene_images/<scene-id>.png and track timing in scene_plan.json,
-  // not the classic numbered scene-image folder. Surface those images to the
-  // rich scene editor too, so users can use its timeline/effects/subtitle
-  // controls without abandoning the reviewed timestamp plan.
-  if (result.scenes.length === 0) {
-    const planPath = path.join(episodeDir, SCENE_PLAN_FILENAME)
-    const timestampImagesDir = path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER)
-    if (existsSync(planPath) && existsSync(timestampImagesDir)) {
-      try {
-        const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-        for (const scene of plan.scenes || []) {
-          const plannedPath = scene.image_path || path.join(timestampImagesDir, `${scene.id}.png`)
-          if (!scene.approved || !existsSync(plannedPath)) continue
-          result.scenes.push({
-            filename: path.basename(plannedPath),
-            path: plannedPath,
-            number: scene.scene_index,
-          })
-        }
-        result.scenes.sort((a, b) => a.number - b.number)
-      } catch {
-        // Invalid or mid-write plan: leave the classic scan result unchanged.
+  // not the classic numbered scene-image folder. Merge approved plan renders
+  // into the editor's scene pool even when classic images also exist. The
+  // frontend defaults to the exact Scene Plan timeline and lets the user
+  // explicitly choose Classic or Combined; source files remain untouched.
+  const planPath = path.join(episodeDir, SCENE_PLAN_FILENAME)
+  const timestampImagesDir = path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER)
+  if (existsSync(planPath) && existsSync(timestampImagesDir)) {
+    try {
+      const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      const seenPaths = new Set(result.scenes.map(s => path.resolve(s.path)))
+      let nextNumber = result.scenes.length
+        ? Math.max(...result.scenes.map(s => s.number)) + 1
+        : 1
+      let plannedCount = 0
+      for (const scene of plan.scenes || []) {
+        const plannedPath = scene.image_path || path.join(timestampImagesDir, `${scene.id}.png`)
+        const resolvedPath = path.resolve(plannedPath)
+        if (!scene.approved || !existsSync(plannedPath) || seenPaths.has(resolvedPath)) continue
+        seenPaths.add(resolvedPath)
+        result.scenes.push({
+          filename: path.basename(plannedPath),
+          path: plannedPath,
+          number: nextNumber++,
+          source: 'scene_plan',
+          planned_scene_index: scene.scene_index,
+        })
+        plannedCount++
       }
+      result.scene_sources!.scene_plan = plannedCount
+    } catch {
+      // Invalid or mid-write plan: leave the classic scan result unchanged.
     }
   }
 

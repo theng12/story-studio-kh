@@ -53,6 +53,7 @@ export interface VideoAssemblyIoState {
   } | null>
   scannedAssets: Ref<any>
   scanning: Ref<boolean>
+  scenePoolMode?: Ref<'auto' | 'scene_plan' | 'classic' | 'combined'>
   scenes: Ref<Array<{
     image_path: string
     filename: string
@@ -163,15 +164,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       s.scannedAssets.value = await get(
         `/projects/${s.slug.value}/video-editor/scan/${s.episodeId.value}`,
       )
-      if (s.scannedAssets.value?.scenes?.length) {
-        s.scenes.value = s.scannedAssets.value.scenes.map((img: any, i: number) => ({
-          image_path: img.path || '',
-          filename: img.filename || `scene_${i + 1}.png`,
-          number: img.number || i + 1,
-          title: img.title || '',
-          enabled: true,
-        }))
-      }
+      applyScenePoolMode()
       if (s.selectedEpisode.value?.title) {
         s.titleCard.text = s.selectedEpisode.value.title
       }
@@ -184,6 +177,31 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     } finally {
       s.scanning.value = false
     }
+  }
+
+  function applyScenePoolMode() {
+    const all = Array.isArray(s.scannedAssets.value?.scenes)
+      ? s.scannedAssets.value.scenes
+      : []
+    const planned = all.filter((img: any) => img.source === 'scene_plan')
+    const classic = all.filter((img: any) => img.source !== 'scene_plan')
+    const requested = s.scenePoolMode?.value || 'auto'
+    const mode = requested === 'auto'
+      ? (planned.length ? 'scene_plan' : 'classic')
+      : requested
+    const selected = mode === 'scene_plan'
+      ? planned
+      : mode === 'classic'
+        ? classic
+        : all
+
+    s.scenes.value = selected.map((img: any, i: number) => ({
+      image_path: img.path || '',
+      filename: img.filename || `scene_${i + 1}.png`,
+      number: img.number || i + 1,
+      title: img.title || '',
+      enabled: true,
+    }))
   }
 
 
@@ -419,5 +437,5 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     // output panel within milliseconds of clicking Generate.
   }
 
-  return { checkFfmpeg, scanAssets, generateVideo }
+  return { checkFfmpeg, scanAssets, applyScenePoolMode, generateVideo }
 }
