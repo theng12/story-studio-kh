@@ -20,6 +20,7 @@ import assert from 'node:assert/strict'
 
 import {
   buildEncoderArgs,
+  buildLoopingMediaInputArgs,
   buildTitleMediaInputArgs,
   computeWatchdogMs,
   checkTimelineDurationSanity,
@@ -38,6 +39,22 @@ describe('buildTitleMediaInputArgs — still and video title assets', () => {
     const args = buildTitleMediaInputArgs('/tmp/scene_0029.mp4')
     assert.deepEqual(args, ['-stream_loop', '-1', '-i', '/tmp/scene_0029.mp4'])
     assert.equal(args.includes('-loop'), false)
+  })
+})
+
+describe('buildLoopingMediaInputArgs — post-audio tail assets', () => {
+  test('uses stream_loop when fade-to-black or hold-last-scene receives B-Roll video', () => {
+    assert.deepEqual(
+      buildLoopingMediaInputArgs('/tmp/scene_0027.mp4'),
+      ['-stream_loop', '-1', '-i', '/tmp/scene_0027.mp4'],
+    )
+  })
+
+  test('preserves still-image looping for classic scene images', () => {
+    assert.deepEqual(
+      buildLoopingMediaInputArgs('/tmp/scene_0027.jpg'),
+      ['-loop', '1', '-i', '/tmp/scene_0027.jpg'],
+    )
   })
 })
 

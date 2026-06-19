@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.429 — 2026-06-19
+
+### Fixed — B-Roll video works in post-audio fade and hold tails
+The `v1.0.428` title fix allowed MP4 scenes to be used as title assets, but Video Assembly had two additional still-image assumptions after scene concatenation. The **Fade to black** and **Hold last scene** post-audio modes reopened the final B-Roll scene with FFmpeg's image-only `-loop 1` option, causing `Option loop not found` after several minutes of successful scene preparation.
+
+All bounded looping visual inputs now share media-aware argument generation: still images use `-loop 1`, while MP4, MOV, WebM, MKV, and M4V files use `-stream_loop -1`. This fixes EP0075 and other B-Roll assemblies whose final scene is a video.
+
+### Files
+- `electron/server/generators/video.ts` (media-aware post-audio fade/hold inputs)
+- `electron/server/__tests__/video-encode-argv.test.ts` (post-audio video-loop regression coverage)
+
+---
+
 ## v1.0.428 — 2026-06-19
 
 ### Fixed — MP4 B-Roll can be used as the Video Assembly title

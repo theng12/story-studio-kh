@@ -2152,6 +2152,15 @@ async function prepareTitleClip(
  * an image-demuxer option and fails with "Option loop not found" for MP4/MOV.
  */
 export function buildTitleMediaInputArgs(mediaPath: string): string[] {
+  return buildLoopingMediaInputArgs(mediaPath)
+}
+
+/**
+ * Build a looping input for any visual asset that must fill a bounded output
+ * duration. `-loop 1` belongs to still-image demuxers; video containers require
+ * `-stream_loop -1`. The caller supplies the output `-t` safety cap.
+ */
+export function buildLoopingMediaInputArgs(mediaPath: string): string[] {
   return /\.(mp4|mov|webm|mkv|m4v)$/i.test(mediaPath)
     ? ['-stream_loop', '-1', '-i', mediaPath]
     : ['-loop', '1', '-i', mediaPath]
@@ -2878,8 +2887,7 @@ async function buildConcatList(
           frame[frame.length - 1],                // `format=yuv420p`
         ].join(',')
         await runFfmpeg([
-          '-y', '-loop', '1', '-t', fadeDur.toString(),
-          '-i', lastSceneImagePath,
+          '-y', ...buildLoopingMediaInputArgs(lastSceneImagePath),
           '-vf', fadeVf,
           ...commonPostArgs, '-t', fadeDur.toString(), fadeClip,
         ])
@@ -2899,8 +2907,7 @@ async function buildConcatList(
       } else if (behavior === 'hold-last-scene' && lastSceneImagePath && existsSync(lastSceneImagePath)) {
         const holdClip = path.join(tempDir, 'post_hold.mp4')
         await runFfmpeg([
-          '-y', '-loop', '1', '-t', postDuration.toString(),
-          '-i', lastSceneImagePath,
+          '-y', ...buildLoopingMediaInputArgs(lastSceneImagePath),
           '-vf', `${normalizeVf}`,
           ...commonPostArgs, '-t', postDuration.toString(), holdClip,
         ])
