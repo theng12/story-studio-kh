@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900">
+  <rect width="1600" height="900" fill="#87b6ff"/>
+  <polygon points="0,520 250,340 470,500 690,300 950,470 1220,290 1600,500 1600,900 0,900" fill="#76974a" stroke="#000" stroke-width="12"/>
+  <polygon points="0,650 260,520 510,660 790,470 1050,650 1320,500 1600,660 1600,900 0,900" fill="#4f6f31" stroke="#000" stroke-width="12"/>
+  <polygon points="710,900 660,720 760,570 930,570 1010,720 940,900" fill="#c9b070" stroke="#000" stroke-width="12"/>
+  <circle cx="1260" cy="170" r="84" fill="#ffd94d" stroke="#000" stroke-width="12"/>
+  <g fill="#2f5c2c" stroke="#000" stroke-width="12">
+    <rect x="210" y="340" width="28" height="260"/>
+    <circle cx="225" cy="310" r="86" fill="#4e873f"/>
+    <rect x="320" y="380" width="24" height="220"/>
+    <circle cx="332" cy="350" r="74" fill="#4e873f"/>
+    <rect x="1290" y="330" width="28" height="270"/>
+    <circle cx="1304" cy="300" r="92" fill="#4e873f"/>
+    <rect x="1380" y="370" width="24" height="230"/>
+    <circle cx="1392" cy="344" r="70" fill="#4e873f"/>
+  </g>
+  <g fill="#8d5f3a" stroke="#000" stroke-width="10">
+    <rect x="560" y="620" width="24" height="120"/>
+    <rect x="592" y="620" width="24" height="120"/>
+    <rect x="500" y="560" width="180" height="28"/>
+    <rect x="510" y="520" width="160" height="26"/>
+  </g>
+  <path d="M0 0L1600 900" stroke="#ffffff" stroke-opacity=".18" stroke-width="10"/>
+</svg>

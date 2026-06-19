@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900">
+  <defs>
+    <filter id="paper">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" result="n"/>
+      <feColorMatrix in="n" type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0 .09"/>
+      </feComponentTransfer>
+    </filter>
+  </defs>
+  <rect width="1600" height="900" fill="#e7dcc7"/>
+  <rect width="1600" height="900" filter="url(#paper)"/>
+  <path d="M0 520C170 430 315 390 530 450C760 516 920 324 1175 378C1320 408 1445 440 1600 520V900H0Z" fill="#b7aca0" fill-opacity=".6"/>
+  <path d="M0 652C220 596 390 574 600 630C780 678 972 532 1168 570C1335 603 1459 622 1600 680V900H0Z" fill="#8f8275" fill-opacity=".52"/>
+  <path d="M714 900C690 800 688 742 730 650C780 560 842 552 908 586C958 614 990 674 1004 760C1014 822 1000 868 980 900Z" fill="#c8b496" fill-opacity=".82"/>
+  <g stroke="#4f463d" stroke-width="8" stroke-linecap="round" fill="none">
+    <path d="M200 598V344"/>
+    <path d="M140 358C168 292 222 248 286 246C256 206 214 190 170 194C116 198 88 226 86 270C50 272 28 298 24 330C18 386 70 414 116 416C130 472 182 510 244 504C314 498 358 450 354 392C398 366 420 322 408 274C394 218 346 188 296 194"/>
+    <path d="M1318 604V330"/>
+    <path d="M1262 338C1282 280 1328 236 1390 228C1360 188 1318 174 1278 176C1220 180 1186 214 1180 262C1144 264 1120 288 1112 324C1100 384 1148 420 1198 424C1218 478 1272 512 1332 506C1402 500 1448 452 1444 394C1482 366 1504 322 1492 278C1476 222 1428 188 1382 192"/>
+    <path d="M528 706H706"/>
+    <path d="M548 668H688"/>
+    <path d="M560 706V816"/>
+    <path d="M650 706V816"/>
+  </g>
+  <circle cx="1238" cy="170" r="72" fill="#c6aa6e" fill-opacity=".58"/>
+</svg>

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900">
+  <defs>
+    <filter id="canvas">
+      <feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="8"/>
+    </filter>
+  </defs>
+  <rect width="1600" height="900" fill="#251a14"/>
+  <g filter="url(#canvas)">
+    <rect width="1600" height="900" fill="#3b281b"/>
+    <path d="M0 500C190 450 330 380 516 408C730 442 924 278 1130 342C1290 392 1440 448 1600 520V900H0Z" fill="#6e5134"/>
+    <path d="M0 660C214 618 384 606 592 646C808 688 992 532 1208 576C1370 608 1484 646 1600 706V900H0Z" fill="#2a2118"/>
+    <path d="M708 900C698 840 712 770 758 680C816 564 888 536 962 592C1030 644 1060 728 1040 822C1032 860 1020 886 1010 900Z" fill="#aa8454"/>
+    <circle cx="1162" cy="182" r="92" fill="#c08a44" fill-opacity=".7"/>
+    <g fill="#20170f">
+      <path d="M188 620V350H224V620Z"/>
+      <ellipse cx="206" cy="324" rx="110" ry="96"/>
+      <path d="M1290 630V334H1328V630Z"/>
+      <ellipse cx="1308" cy="308" rx="120" ry="104"/>
+    </g>
+    <g fill="#7f5839">
+      <rect x="514" y="594" width="178" height="24"/>
+      <rect x="530" y="556" width="146" height="22"/>
+      <rect x="550" y="618" width="16" height="118"/>
+      <rect x="640" y="618" width="16" height="118"/>
+    </g>
+  </g>
+</svg>

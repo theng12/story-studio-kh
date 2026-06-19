@@ -43,6 +43,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'photorealism, realistic anatomy, cinematic realism, ultra detailed rendering, 3D render, smooth skin, glossy realism, centered composition',
     },
+    preview_image: '/builtin-style-previews/ms-paint-fantasy.svg',
   },
   {
     id: 'builtin-pixel-art-story',
@@ -55,6 +56,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'photorealism, painterly brushwork, smooth gradients, ultra detailed rendering, 3D render, soft airbrush shading, realistic skin texture, centered static composition',
     },
+    preview_image: '/builtin-style-previews/pixel-art-story.svg',
   },
   {
     // v1.0.364 — user-requested from a Shackleton / Antarctic-expedition study reference.
@@ -68,6 +70,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'vivid saturated colours, neon, photorealism, 3D render, glossy CGI, clean flat vector, bright cheerful palette, hard digital edges, anime, lens flare',
     },
+    preview_image: '/builtin-style-previews/sepia-ink-wash.svg',
   },
   {
     id: 'builtin-watercolor-storybook',
@@ -80,6 +83,20 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'photorealism, 3D render, harsh contrast, neon colours, hard vector edges, gritty texture, horror, heavy black outlines',
     },
+    preview_image: '/builtin-style-previews/watercolor-storybook.svg',
+  },
+  {
+    id: 'builtin-prehistoric-stick-cartoon',
+    name: 'Prehistoric Stick Cartoon',
+    builtin: true,
+    blurb: 'Playful history-explainer cartoon with stick-limbed cave people, mammoths, flat snowy scenes, and bold black outlines.',
+    data: {
+      style_bible:
+        'simple 2D educational cartoon, prehistoric explainer animation style, white round faces with tiny dot eyes and simple smiles, thin stick-limbed human bodies, shaggy brown cave-hair silhouettes, thick clean black outlines, flat digital colors, soft limited palette, pale icy blues and warm browns, friendly mammoths and primitive camp scenes, uncluttered wide composition, readable storytelling silhouettes, light playful tone, minimal shading, smooth clean fills, YouTube explainer thumbnail energy',
+      negative_prompt:
+        'photorealism, painterly brushwork, 3D render, realistic anatomy, cinematic lighting, detailed textures, gritty darkness, heavy gradients, anime rendering, realistic skin pores, horror mood, complex background clutter',
+    },
+    preview_image: '/builtin-style-previews/prehistoric-stick-cartoon.svg',
   },
   {
     id: 'builtin-cinematic-photoreal',
@@ -92,6 +109,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'cartoon, illustration, flat colours, hard outlines, lowres, oversaturated, plastic CGI look, harsh on-camera flash, text, watermark',
     },
+    preview_image: '/builtin-style-previews/cinematic-photoreal.svg',
   },
   {
     id: 'builtin-flat-vector-explainer',
@@ -104,6 +122,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'photorealism, 3D render, painterly brushwork, texture, gradients, film grain, busy clutter, realistic shading, sketchy lines',
     },
+    preview_image: '/builtin-style-previews/flat-vector-explainer.svg',
   },
   {
     id: 'builtin-oil-painting-classical',
@@ -116,6 +135,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'flat vector, pixel art, cartoon, neon colours, 3D CGI render, hard digital edges, lowres, modern clip-art, text, watermark',
     },
+    preview_image: '/builtin-style-previews/oil-painting-classical.svg',
   },
   {
     id: 'builtin-anime-cel',
@@ -128,5 +148,6 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
       negative_prompt:
         'photorealism, 3D render, western cartoon, muddy colours, sketchy unfinished lines, heavy film grain, realistic skin pores, text, watermark',
     },
+    preview_image: '/builtin-style-previews/anime-cel.svg',
   },
 ]

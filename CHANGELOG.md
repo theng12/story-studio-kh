@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.431 — 2026-06-19
+
+### Added — Built-in prehistoric stick-cartoon style and bundled style previews
+The built-in style gallery now ships with baked preview artwork inside the app, so every machine can show sample images immediately without needing to render them first.
+
+This release also adds a new built-in look inspired by simple prehistoric explainer channels: **Prehistoric Stick Cartoon**. It captures the white-faced stick figures, shaggy cave-hair silhouettes, mammoths, flat snowy landscapes, bold black outlines, and playful educational-history tone shown in the reference channel.
+
+The Style Picker now prefers these shipped preview assets first and only falls back to on-demand rendering if a bundled preview is ever missing.
+
+### Files
+- `frontend/composables/useBuiltInStyles.ts` (built-in style library, bundled preview paths, new prehistoric stick-cartoon style)
+- `frontend/components/StylePicker.vue` (bundled-preview-first gallery behavior and clearer copy)
+- `frontend/public/builtin-style-previews/` (shipped style sample artwork)
+
+---
+
 ## v1.0.430 — 2026-06-19
 
 ### Audited — Video Assembly still/video handling and timeline duration

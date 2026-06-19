@@ -4,7 +4,7 @@
       <div>
         <label>Built-in style gallery</label>
         <p class="text-muted text-xs mt-1">
-          Pick a look to apply it (sets the Style Bible + negative prompt). Bundled previews show the look instantly; styles without one render a sample preview on demand so you can compare directly.
+          Pick a look to apply it (sets the Style Bible + negative prompt). Built-in styles now ship with baked sample previews, and the on-demand renderer stays as a fallback if a bundled asset is ever missing.
         </p>
       </div>
       <div class="sp-builtins-controls">
@@ -30,7 +30,7 @@
 
         <div class="sp-style-preview">
           <img
-            v-if="style.preview_image"
+            v-if="style.preview_image && !bundledFailed[style.id]"
             :src="style.preview_image"
             :alt="`${style.name} preview`"
             class="sp-style-preview-img"
