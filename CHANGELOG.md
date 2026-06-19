@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.425 — 2026-06-19
+
+**Fixed B-Roll Video Assembly for legacy video pools.** B-Roll pools created before Image Pool support do not have a `media` field; the B-Roll Library correctly treated those as video pools, but Video Assembly filtered them out and incorrectly reported that no video pools existed. Voice-over-stock projects such as Abiding Faith can now select those pools, load clips as scenes, and complete assembly. The project’s saved B-Roll pool is selected automatically, or the sole available video pool is selected when no subscription exists. Step 1 also gives a B-Roll-specific instruction instead of claiming an AI scene image is required.
+
+### Files
+- `frontend/composables/useBrollPools.ts` (shared legacy-pool media normalization)
+- `frontend/pages/projects/[slug]/video-assembly.vue` (pool filtering, auto-selection, and format-aware validation copy)
+- `frontend/__tests__/useBrollPools.test.ts` (legacy-pool regression coverage)
+
 ## v1.0.424 — 2026-06-19
 
 **See the title-card auto-hold before you render.** When "Skip the Introduction chapter" is on, Video Assembly → Step 3 → Title Image now shows a read-only line — e.g. *"⏱ Auto-held ~62s through the intro (story starts 97s − 35s intro video)"* — so you can confirm the hold without digging through the render log. It updates live as you change the intro video. The Duration slider is noted as overridden while the setting is on. Backed by a new `video-editor/intro-hold` endpoint that computes the same story-start the render uses.

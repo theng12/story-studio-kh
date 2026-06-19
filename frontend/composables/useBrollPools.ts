@@ -33,6 +33,12 @@ export interface BrollPool {
   online: boolean
 }
 
+/** Match the backend's `poolMedia()` compatibility rule: pools created before
+ *  the media field existed are B-Roll video pools, not untyped/hidden pools. */
+export function poolMediaOf(pool: Pick<BrollPool, 'media'>): 'video' | 'image' {
+  return pool.media === 'image' ? 'image' : 'video'
+}
+
 export interface BrollClip {
   filename: string
   duration: number

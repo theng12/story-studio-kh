@@ -313,7 +313,11 @@
 
         <!-- Validation Messages -->
         <div v-if="!step1Valid" class="validation-msg mt-2">
-          <span v-if="!scannedAssets.scenes?.length">* At least 1 scene image is required</span>
+          <span v-if="!scannedAssets.scenes?.length">
+            {{ isBrollFormat
+              ? '* Load at least 1 B-Roll clip as a scene using the B-Roll source above'
+              : '* At least 1 scene image is required' }}
+          </span>
           <span v-if="!hasMergedAudio">* Merged audio file is required (run Audio Assembly first)</span>
         </div>
       </div>
@@ -2442,6 +2446,8 @@
 </template>
 
 <script setup lang="ts">
+import { poolMediaOf } from '~/composables/useBrollPools'
+
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Video Assembly')
 
@@ -2530,7 +2536,7 @@ async function loadImagesAsScenes() {
 const brollPoolId = ref('')
 const brollSeconds = ref<number>(8)
 const brollLoading = ref(false)
-const videoPools = computed(() => (broll.pools.value || []).filter((p: any) => p.media === 'video'))
+const videoPools = computed(() => (broll.pools.value || []).filter(p => poolMediaOf(p) === 'video'))
 const selectedBrollPool = computed(() => videoPools.value.find((p: any) => p.id === brollPoolId.value) || null)
 
 async function loadClipsAsScenes() {
@@ -5039,9 +5045,16 @@ onMounted(async () => {
   // v1.0.412 — load image pools for the Step-1 "Image Pool source" panel + seed
   // the dropdown from the project's saved subscription (or the only pool).
   broll.loadPools().then(() => {
-    const saved = (vaConfig?.value as any)?.image_pool_id
-    if (saved && imagePools.value.some((p: any) => p.id === saved)) imgPoolId.value = saved
+    const savedImagePool = (vaConfig?.value as any)?.image_pool_id
+    if (savedImagePool && imagePools.value.some((p: any) => p.id === savedImagePool)) imgPoolId.value = savedImagePool
     else if (imagePools.value.length === 1) imgPoolId.value = imagePools.value[0].id
+
+    // Legacy pools have no `media` field and therefore count as video pools.
+    // Prefer the project's saved B-Roll subscription, otherwise select the
+    // only available video pool so a one-pool setup is ready immediately.
+    const savedBrollPool = (vaConfig?.value as any)?.broll_pool_id
+    if (savedBrollPool && videoPools.value.some(p => p.id === savedBrollPool)) brollPoolId.value = savedBrollPool
+    else if (videoPools.value.length === 1) brollPoolId.value = videoPools.value[0].id
   }).catch(() => {})
   // Format-aware seeding runs FIRST so saved presets (loaded right
   // after) can still override these defaults. Without this, listicle
