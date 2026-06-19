@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.427 — 2026-06-19
+
+### Added — Use complete B-Roll clips in Video Assembly
+Voice-over-stock projects can now load B-Roll using each source clip's full natural duration instead of forcing every clip into a fixed seconds-per-clip segment. This mode is enabled by default and selects only enough native-duration clips to cover the narration, reducing surplus clip copying, artificial looping, trimming, and scene preparation work.
+
+Uncheck **Use full clip length** to restore the existing fixed-duration pacing control. Loading clips in natural mode also enables the matching Scene Recycling option automatically, so the selected clips remain full length during rendering.
+
+### Files
+- `electron/server/lib/broll-selector.ts` (uncapped natural-duration selection mode)
+- `electron/server/routes/broll-project.ts` (materialization API support)
+- `frontend/pages/projects/[slug]/video-assembly.vue` (full-length loading control and automatic render setting)
+- `electron/server/__tests__/broll-selector-natural.test.ts` (native-duration regression coverage)
+
+---
+
 ## v1.0.426 — 2026-06-19
 
 ### Fixed — Video Assembly can use Classic and Scene Plan images after a format change

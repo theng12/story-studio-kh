@@ -210,9 +210,8 @@
         <h4>🎬 B-Roll source</h4>
         <p class="text-muted text-sm mt-1">
           Load random clips from a B-Roll pool as this episode's scenes (sized to the narration,
-          no-repeat across recent episodes). Each clip is crop-filled to frame and plays for the
-          per-scene duration. Then continue below to apply overlays / logo / effects / subtitles
-          and render.
+          no-repeat across recent episodes). Use each clip's full length for fewer cuts, or choose
+          fixed pacing. Then continue below to apply overlays / logo / effects / subtitles and render.
         </p>
         <template v-if="videoPools.length">
           <div class="imgpool-row mt-2">
@@ -222,7 +221,11 @@
                 {{ p.name }}{{ p.online ? '' : ' (offline)' }}
               </option>
             </select>
-            <label class="imgpool-inline" title="Drives how many clips are loaded (narration ÷ this). On-screen pacing is set by the Scene Recycling control in Step 3.">
+            <label class="imgpool-inline" title="Select only enough clips, using their native durations, to cover the narration.">
+              <input type="checkbox" v-model="brollUseNaturalDuration" />
+              Use full clip length
+            </label>
+            <label v-if="!brollUseNaturalDuration" class="imgpool-inline" title="Drives how many clips are loaded (narration ÷ this). On-screen pacing is set by the Scene Recycling control in Step 3.">
               Seconds / clip
               <input type="number" min="1" max="60" step="1" class="input imgpool-num" v-model.number="brollSeconds" />
             </label>
@@ -2561,6 +2564,7 @@ async function loadImagesAsScenes() {
 // ── B-Roll source (Step 1) — load pool video clips as this episode's scenes ──
 const brollPoolId = ref('')
 const brollSeconds = ref<number>(8)
+const brollUseNaturalDuration = ref(true)
 const brollLoading = ref(false)
 const videoPools = computed(() => (broll.pools.value || []).filter(p => poolMediaOf(p) === 'video'))
 const selectedBrollPool = computed(() => videoPools.value.find((p: any) => p.id === brollPoolId.value) || null)
@@ -2573,7 +2577,9 @@ async function loadClipsAsScenes() {
       episode_id: episodeId.value,
       pool_id: brollPoolId.value,
       seconds_per_clip: brollSeconds.value,
+      use_natural_duration: brollUseNaturalDuration.value,
     })
+    sceneRecycling.broll_natural_duration = brollUseNaturalDuration.value
     success(`Loaded ${r.count} clip(s) as scenes — they'll appear below.`)
     await scanAssets()
   } catch (e: any) {

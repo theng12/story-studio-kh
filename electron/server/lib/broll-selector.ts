@@ -19,6 +19,8 @@
  *   - 'rotate': each clip plays for its full native duration (subject to
  *     a per-clip cap to avoid one giant clip dominating the video).
  *     Total cumulative duration >= target_duration.
+ *   - 'natural': each clip plays for its complete native duration with no
+ *     pacing cap. Intended for Video Assembly's "full clip length" mode.
  *   - 'timed':  every segment is exactly segment_seconds long. Short
  *     clips loop within their segment; long clips are truncated. Number
  *     of segments = ceil(target / segment_seconds).
@@ -40,7 +42,7 @@ export interface SelectionInput {
   selection_mode: 'random' | 'tagged' | 'themed' | 'manual'
   /** Tags filter — required when mode is tagged or themed. */
   tags?: string[]
-  pacing_mode: 'rotate' | 'timed'
+  pacing_mode: 'rotate' | 'natural' | 'timed'
   /** Segment length when pacing=timed. Ignored when pacing=rotate. */
   segment_seconds?: number
   /** Clip shas to exclude (cross-episode repeat avoidance). */
@@ -180,12 +182,14 @@ export function selectBroll(input: SelectionInput): SelectionResult {
     }
     cumulative = selection.length * seg
   } else {
-    // rotate: take each clip for min(native, ROTATE_MAX_SEGMENT_SEC)
-    // until cumulative covers the target.
+    // rotate caps long clips to maintain cadence; natural uses the complete
+    // source duration so Video Assembly can avoid selecting surplus clips.
     while (cumulative < target) {
       const pick = pickNext(candidates, usedInThisEpisode, rnd)
       if (!pick) break
-      const dur = Math.min(pick.duration, ROTATE_MAX_SEGMENT_SEC)
+      const dur = input.pacing_mode === 'natural'
+        ? pick.duration
+        : Math.min(pick.duration, ROTATE_MAX_SEGMENT_SEC)
       selection.push({ filename: pick.filename, sha256: pick.sha256, target_duration: dur })
       usedInThisEpisode.add(pick.sha256)
       cumulative += dur

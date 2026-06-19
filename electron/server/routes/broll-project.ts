@@ -451,7 +451,7 @@ router.post('/projects/:slug/broll/materialize', async (req, res) => {
     if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const config = await pm.getConfig(slug)
     if (!config) return res.status(404).json({ detail: 'Project config not found' })
-    const { episode_id, pool_id, seconds_per_clip, dedup_lookback, tags = [] } = req.body || {}
+    const { episode_id, pool_id, seconds_per_clip, use_natural_duration, dedup_lookback, tags = [] } = req.body || {}
     if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
 
     const effectivePoolId = pool_id || (config as any).broll_pool_id
@@ -484,7 +484,7 @@ router.post('/projects/:slug/broll/materialize', async (req, res) => {
       target_duration: narrationSec,
       selection_mode: 'random',
       tags,
-      pacing_mode: 'timed',
+      pacing_mode: use_natural_duration ? 'natural' : 'timed',
       segment_seconds: perClip,
       exclude_shas: recentShas,
     })
@@ -529,7 +529,13 @@ router.post('/projects/:slug/broll/materialize', async (req, res) => {
     }
     await pm.updateConfig(slug, { broll_usage_log: [...usageLog, ...additions].slice(-300) } as any)
 
-    res.json({ count: n, images_dir: imagesDir, target_duration: narrationSec, seconds_per_clip: perClip })
+    res.json({
+      count: n,
+      images_dir: imagesDir,
+      target_duration: narrationSec,
+      pacing_mode: use_natural_duration ? 'natural' : 'timed',
+      seconds_per_clip: use_natural_duration ? undefined : perClip,
+    })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to load clips into Video Assembly'))
   }
