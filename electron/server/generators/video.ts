@@ -2127,22 +2127,34 @@ async function prepareTitleClip(
   // frame rate, so we strip the `fps=` token from the chain (same trick
   // `prepareIntroClip` uses).
   const titleVf = normalizeFrame(w, h, quality.fps).filter(f => !f.startsWith('fps='))
+  const inputArgs = buildTitleMediaInputArgs(titleImage.image_path)
 
   const args = [
-    '-y', '-loop', '1', '-t', duration.toString(),
-    '-i', titleImage.image_path,
+    '-y', ...inputArgs,
     '-vf', titleVf.join(','),
     '-c:v', 'libx264', '-crf', quality.crf.toString(),
     '-preset', 'ultrafast', '-r', quality.fps.toString(),
     '-fps_mode', 'cfr', '-pix_fmt', 'yuv420p',
     '-color_range', 'tv', '-colorspace', 'bt709',
     '-color_primaries', 'bt709', '-color_trc', 'bt709',
+    '-t', duration.toString(),
     '-an',
     clipPath,
   ]
 
   await runFfmpeg(args)
   return clipPath
+}
+
+/**
+ * Title assets normally come from still thumbnails, but B-Roll projects may
+ * auto-seed this field from a materialized scene video. FFmpeg's `-loop 1` is
+ * an image-demuxer option and fails with "Option loop not found" for MP4/MOV.
+ */
+export function buildTitleMediaInputArgs(mediaPath: string): string[] {
+  return /\.(mp4|mov|webm|mkv|m4v)$/i.test(mediaPath)
+    ? ['-stream_loop', '-1', '-i', mediaPath]
+    : ['-loop', '1', '-i', mediaPath]
 }
 
 // ── Prepare Intro Clip (re-encode to match resolution) ────────────────────

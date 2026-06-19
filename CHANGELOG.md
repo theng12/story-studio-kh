@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.428 — 2026-06-19
+
+### Fixed — MP4 B-Roll can be used as the Video Assembly title
+Video Assembly could automatically seed its Title Image field from a materialized B-Roll scene. When that asset was an MP4, the title preparation stage still passed FFmpeg's still-image-only `-loop 1` option, causing assembly to fail with `Option loop not found`.
+
+Title preparation is now media-aware: still images use the image loop option, while MP4, MOV, WebM, MKV, and M4V sources use `-stream_loop -1` and are trimmed to the configured title duration. This fixes EP0075 and other voice-over-stock episodes whose title asset resolves to a video scene.
+
+### Files
+- `electron/server/generators/video.ts` (media-aware title input arguments)
+- `electron/server/__tests__/video-encode-argv.test.ts` (still/video title regression coverage)
+
+---
+
 ## v1.0.427 — 2026-06-19
 
 ### Added — Use complete B-Roll clips in Video Assembly

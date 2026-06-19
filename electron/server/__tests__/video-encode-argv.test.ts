@@ -18,7 +18,28 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { buildEncoderArgs, computeWatchdogMs, checkTimelineDurationSanity, crfToVideotoolboxQ } from '../generators/video.js'
+import {
+  buildEncoderArgs,
+  buildTitleMediaInputArgs,
+  computeWatchdogMs,
+  checkTimelineDurationSanity,
+  crfToVideotoolboxQ,
+} from '../generators/video.js'
+
+describe('buildTitleMediaInputArgs — still and video title assets', () => {
+  test('uses the image demuxer loop option for still images', () => {
+    assert.deepEqual(
+      buildTitleMediaInputArgs('/tmp/title.png'),
+      ['-loop', '1', '-i', '/tmp/title.png'],
+    )
+  })
+
+  test('uses stream_loop instead of the invalid image loop option for MP4', () => {
+    const args = buildTitleMediaInputArgs('/tmp/scene_0029.mp4')
+    assert.deepEqual(args, ['-stream_loop', '-1', '-i', '/tmp/scene_0029.mp4'])
+    assert.equal(args.includes('-loop'), false)
+  })
+})
 
 describe('buildEncoderArgs — codec/format matrix', () => {
   test('mp4 + h264 + medium → libx264 with aac/yuv420p/+faststart', () => {
