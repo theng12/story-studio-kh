@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.433 — 2026-06-20
+
+### Improved — Custom style presets can now be edited and built from built-in styles
+The project style library now supports real editing instead of create-only saves. Loading a saved custom style brings it back into the editor with its existing preview gallery, so you can tweak the prompt, regenerate samples, and update the same preset in place.
+
+There is also now a clean way to start from the app's built-in styles inside **Settings → Styles**. Built-in looks can be loaded straight into the editor, turned into project presets, and then customized from there.
+
+This also adds a safer preset workflow with two clear paths when editing: **Update saved style** to overwrite the current preset, or **Save as new style** to fork it.
+
+### Files
+- `frontend/components/ProjectStyleLibrary.vue` (edit mode, load saved previews back into the editor, built-in starter gallery, save-as-new flow)
+- `frontend/pages/projects/[slug]/settings.vue` (built-in starter access from the Styles tab)
+- `electron/server/routes/style-preview.ts` (update route for existing style presets and preview replacement handling)
+
+---
+
 ## v1.0.432 — 2026-06-19
 
 ### Added — Project style library with saved custom styles and five live samples

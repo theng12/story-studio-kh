@@ -1,5 +1,28 @@
 <template>
   <div class="psl">
+    <div v-if="showBuiltInStarters" class="psl-builtins card">
+      <div class="psl-saved-head">
+        <label>Start from a built-in style</label>
+        <span class="text-muted text-xs">{{ BUILT_IN_STYLES.length }} built-in looks</span>
+      </div>
+      <div class="psl-builtins-grid">
+        <article v-for="style in BUILT_IN_STYLES" :key="style.id" class="psl-builtin-card">
+          <div class="psl-builtin-top">
+            <div>
+              <h4>{{ style.name }}</h4>
+              <p class="text-muted text-xs mt-1">{{ style.blurb }}</p>
+            </div>
+            <span class="psl-sample-chip">Built-in</span>
+          </div>
+          <img v-if="style.preview_image" :src="style.preview_image" :alt="style.name" class="psl-builtin-img" />
+          <div class="psl-preset-actions">
+            <button class="btn btn-ghost btn-sm" @click="loadBuiltInStyle(style)">Load into editor</button>
+            <button v-if="showApply" class="btn btn-ghost btn-sm" @click="applyBuiltInStyle(style)">Apply</button>
+          </div>
+        </article>
+      </div>
+    </div>
+
     <div class="psl-head">
       <div>
         <label>{{ title }}</label>
@@ -34,6 +57,17 @@
           />
         </div>
       </div>
+      <div class="psl-editor-state">
+        <span v-if="editingPresetId" class="psl-state-pill">Editing saved style</span>
+        <span v-else-if="editorOriginLabel" class="psl-state-pill">{{ editorOriginLabel }}</span>
+        <button
+          v-if="editingPresetId || draftName || draftDescription || liveSamples.some(sample => sample.url)"
+          class="btn btn-ghost btn-sm"
+          @click="resetEditor()"
+        >
+          New blank style
+        </button>
+      </div>
       <div class="psl-actions">
         <button
           class="btn btn-secondary btn-sm"
@@ -46,10 +80,21 @@
         <button
           class="btn btn-primary btn-sm"
           :disabled="saving || !draftName.trim() || !draftDescription.trim()"
-          :title="'Save this style into the project library. If live samples exist, they are saved too.'"
+          :title="editingPresetId
+            ? 'Update this saved style. If you rendered new samples, they replace the old preview gallery.'
+            : 'Save this style into the project library. If live samples exist, they are saved too.'"
           @click="saveStyle"
         >
-          {{ saving ? 'Saving…' : 'Save style to project' }}
+          {{ saving ? 'Saving…' : (editingPresetId ? 'Update saved style' : 'Save style to project') }}
+        </button>
+        <button
+          v-if="editingPresetId"
+          class="btn btn-ghost btn-sm"
+          :disabled="saving || !draftName.trim() || !draftDescription.trim()"
+          :title="'Fork this into a new saved style instead of overwriting the current one.'"
+          @click="saveAsNewStyle"
+        >
+          {{ saving ? 'Saving…' : 'Save as new style' }}
         </button>
         <button
           v-if="showApply"
@@ -99,7 +144,7 @@
               </p>
             </div>
             <div class="psl-preset-actions">
-              <button class="btn btn-ghost btn-sm" @click="loadPreset(preset)">Load</button>
+              <button class="btn btn-ghost btn-sm" @click="loadPreset(preset)">Edit</button>
               <button v-if="showApply" class="btn btn-ghost btn-sm" @click="applyPreset(preset)">Apply</button>
               <button class="btn btn-ghost btn-sm psl-delete" @click="deletePreset(preset)">Delete</button>
             </div>
@@ -121,6 +166,8 @@
 </template>
 
 <script setup lang="ts">
+import { BUILT_IN_STYLES, type BuiltInStyle } from '~/composables/useBuiltInStyles'
+
 interface PresetEntry {
   id: string
   name: string
@@ -149,16 +196,18 @@ const props = withDefaults(defineProps<{
   imageModels?: Record<string, any>
   title?: string
   showApply?: boolean
+  showBuiltInStarters?: boolean
 }>(), {
   title: 'Project style library',
   showApply: false,
+  showBuiltInStarters: false,
 })
 
 const emit = defineEmits<{
   (e: 'apply', data: { style_bible: string; negative_prompt: string }): void
 }>()
 
-const { get, post, del } = useApi()
+const { get, post, put, del } = useApi()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 
@@ -180,6 +229,8 @@ const saving = ref(false)
 const renderingAll = ref(false)
 const renderError = ref<string | null>(null)
 const liveSamples = ref<LiveSampleState[]>(SAMPLE_VARIANTS.map(defaultSampleState))
+const editingPresetId = ref<string | null>(null)
+const editorOriginLabel = ref<string | null>(null)
 
 const modelOptions = computed(() =>
   Object.keys(props.imageModels || {}).map(id => ({ value: id, label: id })),
@@ -212,6 +263,8 @@ function defaultSampleState(variant: typeof SAMPLE_VARIANTS[number]): LiveSample
 }
 
 function resetEditor(): void {
+  editingPresetId.value = null
+  editorOriginLabel.value = null
   draftName.value = ''
   draftDescription.value = ''
   renderError.value = null
@@ -289,20 +342,33 @@ function patchSample(variantId: string, patch: Partial<LiveSampleState>): void {
   )
 }
 
+function savePayload() {
+  const hashes = liveSamples.value.map(s => s.hash).filter((v): v is string => !!v)
+  return {
+    name: draftName.value.trim(),
+    description: draftDescription.value.trim(),
+    ...(hashes.length ? { hashes } : {}),
+    ...(previewModel.value ? { preview_model: previewModel.value } : {}),
+    ...(previewAspect.value ? { preview_aspect_ratio: previewAspect.value } : {}),
+  }
+}
+
 async function saveStyle(): Promise<void> {
   if (!draftName.value.trim() || !draftDescription.value.trim() || saving.value) return
   saving.value = true
   try {
-    const hashes = liveSamples.value.map(s => s.hash).filter((v): v is string => !!v)
-    const saved = await post<PresetEntry>(`/projects/${props.projectSlug}/style-presets`, {
-      name: draftName.value.trim(),
-      description: draftDescription.value.trim(),
-      ...(hashes.length ? { hashes } : {}),
-      ...(previewModel.value ? { preview_model: previewModel.value } : {}),
-      ...(previewAspect.value ? { preview_aspect_ratio: previewAspect.value } : {}),
-    })
-    presets.value = [...presets.value, saved]
-    success(`Saved style "${saved.name}"`)
+    let saved: PresetEntry
+    if (editingPresetId.value) {
+      saved = await put<PresetEntry>(`/projects/${props.projectSlug}/style-presets/${encodeURIComponent(editingPresetId.value)}`, savePayload())
+      presets.value = presets.value.map(p => p.id === saved.id ? saved : p)
+      success(`Updated style "${saved.name}"`)
+    } else {
+      saved = await post<PresetEntry>(`/projects/${props.projectSlug}/style-presets`, savePayload())
+      presets.value = [...presets.value, saved]
+      editingPresetId.value = saved.id
+      success(`Saved style "${saved.name}"`)
+    }
+    loadPreset(saved)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to save style')
   } finally {
@@ -310,14 +376,36 @@ async function saveStyle(): Promise<void> {
   }
 }
 
+async function saveAsNewStyle(): Promise<void> {
+  if (!draftName.value.trim() || !draftDescription.value.trim() || saving.value) return
+  const previousEditingId = editingPresetId.value
+  editingPresetId.value = null
+  try {
+    await saveStyle()
+  } finally {
+    if (!editingPresetId.value) editingPresetId.value = previousEditingId
+  }
+}
+
 function loadPreset(preset: PresetEntry): void {
+  editingPresetId.value = preset.id
+  editorOriginLabel.value = null
   draftName.value = preset.name
   draftDescription.value = preset.description
   if (preset.preview_model) previewModel.value = preset.preview_model
   if (preset.preview_aspect_ratio && ASPECT_OPTIONS.includes(preset.preview_aspect_ratio as any)) {
     previewAspect.value = preset.preview_aspect_ratio as (typeof ASPECT_OPTIONS)[number]
   }
-  liveSamples.value = SAMPLE_VARIANTS.map(defaultSampleState)
+  const previewFiles = presetPreviewFiles(preset)
+  liveSamples.value = SAMPLE_VARIANTS.map((variant, index) => {
+    const file = previewFiles[index]
+    if (!file) return defaultSampleState(variant)
+    return {
+      ...defaultSampleState(variant),
+      url: previewUrlForPreset(preset, file),
+      cached: true,
+    }
+  })
 }
 
 function emitApply(): void {
@@ -327,6 +415,18 @@ function emitApply(): void {
 
 function applyPreset(preset: PresetEntry): void {
   emit('apply', { style_bible: preset.description, negative_prompt: '' })
+}
+
+function loadBuiltInStyle(style: BuiltInStyle): void {
+  editingPresetId.value = null
+  editorOriginLabel.value = `Loaded from built-in: ${style.name}`
+  draftName.value = style.name
+  draftDescription.value = style.data.style_bible
+  liveSamples.value = SAMPLE_VARIANTS.map(defaultSampleState)
+}
+
+function applyBuiltInStyle(style: BuiltInStyle): void {
+  emit('apply', { style_bible: style.data.style_bible, negative_prompt: style.data.negative_prompt || '' })
 }
 
 async function deletePreset(preset: PresetEntry): Promise<void> {
@@ -340,6 +440,7 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   try {
     await del(`/projects/${props.projectSlug}/style-presets/${encodeURIComponent(preset.id)}`)
     presets.value = presets.value.filter(p => p.id !== preset.id)
+    if (editingPresetId.value === preset.id) resetEditor()
     success(`Deleted style "${preset.name}"`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Delete failed')
@@ -356,7 +457,9 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
 .psl-head,
 .psl-saved-head,
 .psl-preset-top,
-.psl-sample-head {
+.psl-sample-head,
+.psl-builtin-top,
+.psl-editor-state {
   display: flex;
   justify-content: space-between;
   gap: 10px;
@@ -373,7 +476,9 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
 }
 .psl-editor,
 .psl-empty,
-.psl-preset-card {
+.psl-preset-card,
+.psl-builtins,
+.psl-builtin-card {
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -390,10 +495,41 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   color: var(--text-muted);
 }
 .psl-samples-grid,
-.psl-preset-grid {
+.psl-preset-grid,
+.psl-builtins-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
+}
+.psl-builtin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background:
+    radial-gradient(circle at top right, rgba(240, 198, 116, 0.12), transparent 34%),
+    var(--bg-primary);
+}
+.psl-builtin-card h4 {
+  margin: 0;
+  font-size: 14px;
+}
+.psl-builtin-img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+.psl-state-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(108, 143, 255, 0.14);
+  color: var(--accent);
 }
 .psl-sample-card {
   display: flex;

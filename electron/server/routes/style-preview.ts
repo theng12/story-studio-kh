@@ -222,6 +222,50 @@ const StylePresetSaveSchema = z.object({
   preview_tier: z.string().optional(),
 })
 
+async function materializePresetPreviewFiles(opts: {
+  slug: string
+  presetId: string
+  hashes?: string[]
+  hash?: string
+}): Promise<{
+  preview_filename?: string
+  preview_files?: string[]
+  preview_saved_at?: string
+}> {
+  const { slug, presetId, hashes, hash } = opts
+  const fsMod = await import('fs')
+  const fsp = await import('fs/promises')
+  const pathMod = await import('path')
+  let preview_filename: string | undefined
+  let preview_files: string[] | undefined
+  let preview_saved_at: string | undefined
+  const requestedHashes = Array.from(new Set(
+    (Array.isArray(hashes) && hashes.length ? hashes : (hash ? [hash] : [])).filter(Boolean),
+  ))
+  if (!requestedHashes.length) return {}
+  const existingHashes: string[] = []
+  for (const previewHash of requestedHashes) {
+    const cachedAbs = await pathForStylePreviewHash(previewHash)
+    if (cachedAbs && fsMod.existsSync(cachedAbs)) existingHashes.push(previewHash)
+  }
+  if (!existingHashes.length) return {}
+  const projDir = pm.getProjectDir(slug)
+  if (!projDir) return {}
+  const previewsDir = pathMod.join(projDir, 'style-previews')
+  if (!fsMod.existsSync(previewsDir)) await fsp.mkdir(previewsDir, { recursive: true })
+  preview_files = []
+  for (const [index, previewHash] of existingHashes.entries()) {
+    const cachedAbs = await pathForStylePreviewHash(previewHash)
+    if (!cachedAbs) continue
+    const filename = index === 0 ? `${presetId}.png` : `${presetId}-${index + 1}.png`
+    await fsp.copyFile(cachedAbs, pathMod.join(previewsDir, filename))
+    preview_files.push(filename)
+  }
+  preview_filename = preview_files[0]
+  preview_saved_at = new Date().toISOString()
+  return { preview_filename, preview_files, preview_saved_at }
+}
+
 function slugify(name: string): string {
   return name
     .toLowerCase()
@@ -264,43 +308,12 @@ router.post('/projects/:slug/style-presets', validateBody(StylePresetSaveSchema)
       n += 1
     }
 
-    // Copy the cached PNG into the project's style-previews folder if a
-    // hash was provided AND the cached file still exists. We never block
-    // preset creation on a missing cache entry — users can save text-only
-    // presets too (matches the existing Image Prompts flow).
-    const fsMod = await import('fs')
-    const fsp = await import('fs/promises')
-    const pathMod = await import('path')
-    let preview_filename: string | undefined
-    let preview_files: string[] | undefined
-    let preview_saved_at: string | undefined
-    const requestedHashes = Array.from(new Set(
-      (Array.isArray(hashes) && hashes.length ? hashes : (hash ? [hash] : [])).filter(Boolean),
-    ))
-    if (requestedHashes.length) {
-      const existingHashes: string[] = []
-      for (const previewHash of requestedHashes) {
-        const cachedAbs = await pathForStylePreviewHash(previewHash)
-        if (cachedAbs && fsMod.existsSync(cachedAbs)) existingHashes.push(previewHash)
-      }
-      if (existingHashes.length) {
-        const projDir = pm.getProjectDir(slug)
-        if (projDir) {
-          const previewsDir = pathMod.join(projDir, 'style-previews')
-          if (!fsMod.existsSync(previewsDir)) await fsp.mkdir(previewsDir, { recursive: true })
-          preview_files = []
-          for (const [index, previewHash] of existingHashes.entries()) {
-            const cachedAbs = await pathForStylePreviewHash(previewHash)
-            if (!cachedAbs) continue
-            const filename = index === 0 ? `${id}.png` : `${id}-${index + 1}.png`
-            await fsp.copyFile(cachedAbs, pathMod.join(previewsDir, filename))
-            preview_files.push(filename)
-          }
-          preview_filename = preview_files[0]
-          preview_saved_at = new Date().toISOString()
-        }
-      }
-    }
+    const { preview_filename, preview_files, preview_saved_at } = await materializePresetPreviewFiles({
+      slug,
+      presetId: id,
+      hashes,
+      hash,
+    })
 
     const now = new Date().toISOString()
     const preset: any = {
@@ -320,6 +333,90 @@ router.post('/projects/:slug/style-presets', validateBody(StylePresetSaveSchema)
     res.json(preset)
   } catch (e: any) {
     res.status(500).json({ detail: e?.message || 'Failed to save style preset' })
+  }
+})
+
+router.put('/projects/:slug/style-presets/:id', validateBody(StylePresetSaveSchema), async (req, res) => {
+  const { slug, id } = req.params
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const config = await pm.getConfig(slug)
+    if (!config) return res.status(404).json({ detail: 'Project config not found' })
+
+    const existing = Array.isArray((config as any).style_presets) ? (config as any).style_presets : []
+    const target = existing.find((p: any) => p.id === id)
+    if (!target) return res.status(404).json({ detail: `Preset '${id}' not found` })
+
+    const {
+      name,
+      description,
+      hash,
+      hashes,
+      preview_model,
+      preview_aspect_ratio,
+      preview_tier,
+    } = req.body as {
+      name: string
+      description: string
+      hash?: string
+      hashes?: string[]
+      preview_model?: string
+      preview_aspect_ratio?: string
+      preview_tier?: string
+    }
+
+    const hasNewPreviewPayload = !!((hash && hash.trim()) || (Array.isArray(hashes) && hashes.length))
+    if (hasNewPreviewPayload) {
+      const previewFiles = Array.from(new Set([
+        ...(Array.isArray(target.preview_files) ? target.preview_files : []),
+        ...(target.preview_filename ? [target.preview_filename] : []),
+      ]))
+      if (previewFiles.length) {
+        try {
+          const projDir = pm.getProjectDir(slug)
+          if (projDir) {
+            const fsp = await import('fs/promises')
+            const pathMod = await import('path')
+            for (const file of previewFiles) {
+              await fsp.unlink(pathMod.join(projDir, 'style-previews', file)).catch(() => {})
+            }
+          }
+        } catch { /* tolerate */ }
+      }
+    }
+
+    const replacementPreview = hasNewPreviewPayload
+      ? await materializePresetPreviewFiles({ slug, presetId: id, hashes, hash })
+      : {}
+
+    const updated: any = {
+      ...target,
+      name,
+      description,
+    }
+    if (hasNewPreviewPayload) {
+      if (replacementPreview.preview_filename) {
+        updated.preview_filename = replacementPreview.preview_filename
+        updated.preview_files = replacementPreview.preview_files
+        updated.preview_model = preview_model
+        updated.preview_aspect_ratio = preview_aspect_ratio
+        updated.preview_tier = preview_tier
+        updated.preview_saved_at = replacementPreview.preview_saved_at
+      } else {
+        delete updated.preview_filename
+        delete updated.preview_files
+        delete updated.preview_model
+        delete updated.preview_aspect_ratio
+        delete updated.preview_tier
+        delete updated.preview_saved_at
+      }
+    }
+
+    const nextPresets = existing.map((preset: any) => preset.id === id ? updated : preset)
+    await pm.updateConfig(slug, { style_presets: nextPresets } as any)
+    res.json(updated)
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to update style preset' })
   }
 })
 

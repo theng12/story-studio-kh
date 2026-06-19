@@ -302,6 +302,7 @@
         :project-slug="slug"
         :image-models="config?.image_models || {}"
         title="Project style library"
+        :show-built-in-starters="true"
       />
     </div>
 
