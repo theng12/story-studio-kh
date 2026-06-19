@@ -581,6 +581,16 @@
             <p class="text-muted text-xs hint-line">This image will display for {{ titleImage.duration }}s before scenes begin</p>
           </div>
 
+          <!-- v1.0.424 — sleep-story auto-hold preview. When "Skip the Introduction
+               chapter" is on for the project, the render overrides the Duration below
+               and holds the card until the story starts. -->
+          <div v-if="introHold?.skip_intro_scenes && introHold?.has_intro_chapter" class="intro-hold-note mt-2">
+            ⏱ <strong>Auto-held ~{{ Math.round(introHold.hold_sec) }}s</strong> through the intro
+            (story starts {{ Math.round(introHold.story_start_sec) }}s<span v-if="introHold.intro_video_sec"> − {{ Math.round(introHold.intro_video_sec) }}s intro video</span>).
+            The Duration slider below is <em>overridden</em> while “Skip the Introduction chapter” is on
+            (set on the <NuxtLink :to="`/projects/${slug}/scene-plan`" class="ffmpeg-inline-link">Scene Plan</NuxtLink> page).
+          </div>
+
           <div class="grid-3 mt-1">
             <div class="form-group">
               <label>Duration ({{ titleImage.duration }}s)</label>
@@ -2579,6 +2589,27 @@ const intro = reactive({
   video_path: '',
   save_as_default: false,
 })
+
+// v1.0.424 — read-only preview of the sleep-story title-card auto-hold so Step 3
+// can show how long the thumbnail is held through the intro before render. The
+// render computes the same value; this just surfaces it.
+const introHold = ref<{
+  skip_intro_scenes: boolean
+  has_intro_chapter: boolean
+  story_start_sec: number
+  intro_video_sec: number
+  hold_sec: number
+  intro_label: string | null
+} | null>(null)
+async function loadIntroHold() {
+  if (!episodeId.value) { introHold.value = null; return }
+  try {
+    const q = new URLSearchParams({ episode_id: episodeId.value })
+    if (intro.enabled && intro.video_path) q.set('intro_video_path', intro.video_path)
+    introHold.value = await get(`/projects/${slug.value}/video-editor/intro-hold?${q.toString()}`)
+  } catch { introHold.value = null }
+}
+watch([() => episodeId.value, () => intro.enabled, () => intro.video_path], () => { loadIntroHold() })
 
 const outro = reactive({
   enabled: false,
@@ -5171,6 +5202,7 @@ onUnmounted(() => {
 .thumb-preview { width: 100%; height: 100%; object-fit: cover; }
 .thumb-label { position: absolute; bottom: 4px; left: 4px; right: 4px; background: rgba(0,0,0,0.7); color: white; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .thumb-check { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: var(--accent); color: white; font-size: 12px; font-weight: 700; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+.intro-hold-note { font-size: 12px; line-height: 1.5; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--text-secondary); }
 
 /* Title image preview */
 .title-image-preview { }

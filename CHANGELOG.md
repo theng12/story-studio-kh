@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.424 — 2026-06-19
+
+**See the title-card auto-hold before you render.** When "Skip the Introduction chapter" is on, Video Assembly → Step 3 → Title Image now shows a read-only line — e.g. *"⏱ Auto-held ~62s through the intro (story starts 97s − 35s intro video)"* — so you can confirm the hold without digging through the render log. It updates live as you change the intro video. The Duration slider is noted as overridden while the setting is on. Backed by a new `video-editor/intro-hold` endpoint that computes the same story-start the render uses.
+
 ## v1.0.423 — 2026-06-19
 
 **Sleep-story intro handling — scenes skip the Introduction, title card holds through it.** For formats whose first audio chapter is the spoken **Introduction** (welcome / context / CTA / breathing), there's now a per-project toggle on the **Scene Plan** page: *"Skip the Introduction chapter when planning scenes."* When on:

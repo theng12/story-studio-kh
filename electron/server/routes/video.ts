@@ -309,6 +309,50 @@ router.get('/projects/:slug/video-editor/audio-chapters', async (req, res) => {
   }
 })
 
+// v1.0.424 — read-only preview of the sleep-story title-card auto-hold so the
+// Video Assembly UI can show "Auto-held ~Ns through the intro" before render.
+// hold = story_start (lead-in + Introduction chapter + gap) − intro-video length;
+// the render computes the same value. Pass the chosen intro video as a query
+// param so the hold reflects it. Returns zeros when skip-intro is off or there's
+// no "Introduction" chapter.
+router.get('/projects/:slug/video-editor/intro-hold', async (req, res) => {
+  const { slug } = req.params
+  const episodeId = String(req.query.episode_id || '').trim()
+  const introVideoPath = String(req.query.intro_video_path || '').trim()
+  if (!episodeId) return res.status(400).json({ detail: 'episode_id query parameter required' })
+  try {
+    const cfg = await pm.getConfig(slug)
+    const skip_intro_scenes = !!(cfg as any)?.skip_intro_scenes
+    const episodeDir = await findEpisodeDirForRoute(slug, episodeId)
+    const sidecarPath = episodeDir ? path.join(episodeDir, 'audio_chapters.json') : ''
+    if (!episodeDir || !sidecarPath || !existsSync(sidecarPath)) {
+      return res.json({ skip_intro_scenes, has_intro_chapter: false, story_start_sec: 0, intro_video_sec: 0, hold_sec: 0, intro_label: null })
+    }
+    const sc = JSON.parse(await fs.readFile(sidecarPath, 'utf-8'))
+    const gap = typeof sc.gap_duration_s === 'number' ? sc.gap_duration_s : 0
+    const assets = await scanEpisodeAssets(slug, episodeId).catch(() => null)
+    const merged = assets?.merged_audio?.[0]?.path || null
+    const { computeStoryStartSec } = await import('../lib/intro-lead-in.js')
+    const story = await computeStoryStartSec(merged, sc.sections || [], gap)
+    let intro_video_sec = 0
+    if (introVideoPath && existsSync(introVideoPath)) {
+      intro_video_sec = (await getAudioDuration(introVideoPath).catch(() => 0)) || 0
+    }
+    const story_start_sec = story?.story_start_sec || 0
+    const hold_sec = Math.max(0, Math.round((story_start_sec - intro_video_sec) * 100) / 100)
+    res.json({
+      skip_intro_scenes,
+      has_intro_chapter: !!story,
+      intro_label: story?.intro_label || null,
+      story_start_sec,
+      intro_video_sec,
+      hold_sec,
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not compute the intro title-card hold'))
+  }
+})
+
 // GET / PUT the scene_chapter_assignments.json sidecar — per-scene
 // chapter overrides for the per-scene clip-swap UI (v1.0.57+). The
 // PUT validates that every chapter_slug exists in audio_chapters.json
