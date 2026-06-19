@@ -51,6 +51,8 @@ const StylePreviewSchema = z.object({
   /** Tier id for variable-priced models (nano-banana high/low etc.). */
   tier: z.string().optional(),
   variant_id: z.enum(['landscape', 'character', 'interior', 'action', 'closeup']).optional(),
+  /** Explicit reroll: bypass the free cache hit and ask the provider for new pixels. */
+  force: z.boolean().optional(),
 })
 
 router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), async (req, res) => {
@@ -64,9 +66,12 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
   const aspectRatio = req.body.aspect_ratio as string
   const tier = (req.body.tier as string | undefined) || ''
   const variantId = ((req.body.variant_id as StylePreviewVariantId | undefined) || 'landscape')
+  const force = req.body.force === true
 
   // Cache lookup short-circuits the provider entirely on hit.
-  const cached = await getCachedStylePreview({ styleTag, modelId: modelName, aspectRatio, tier, variantId })
+  const cached = force
+    ? null
+    : await getCachedStylePreview({ styleTag, modelId: modelName, aspectRatio, tier, variantId })
   if (cached) {
     return res.json({
       hash: cached.hash,
@@ -217,6 +222,13 @@ const StylePresetSaveSchema = z.object({
   hash: z.string().regex(/^[0-9a-f]{16}$/).optional(),
   /** Optional — multiple cached preview hashes for a richer style gallery. */
   hashes: z.array(z.string().regex(/^[0-9a-f]{16}$/)).max(8).optional(),
+  /** Existing project-local previews to keep while replacing individual gallery slots. */
+  retained_preview_files: z.array(z.string().regex(/^[a-zA-Z0-9._-]+$/)).max(8).optional(),
+  /** Ordered gallery sources, allowing one generated slot to replace one saved slot safely. */
+  gallery_items: z.array(z.union([
+    z.object({ hash: z.string().regex(/^[0-9a-f]{16}$/) }),
+    z.object({ source_file: z.string().regex(/^[a-zA-Z0-9._-]+$/) }),
+  ])).max(8).optional(),
   preview_model: z.string().optional(),
   preview_aspect_ratio: z.string().optional(),
   preview_tier: z.string().optional(),
@@ -227,12 +239,14 @@ async function materializePresetPreviewFiles(opts: {
   presetId: string
   hashes?: string[]
   hash?: string
+  retainedFiles?: string[]
+  galleryItems?: Array<{ hash: string } | { source_file: string }>
 }): Promise<{
   preview_filename?: string
   preview_files?: string[]
   preview_saved_at?: string
 }> {
-  const { slug, presetId, hashes, hash } = opts
+  const { slug, presetId, hashes, hash, retainedFiles, galleryItems } = opts
   const fsMod = await import('fs')
   const fsp = await import('fs/promises')
   const pathMod = await import('path')
@@ -242,23 +256,36 @@ async function materializePresetPreviewFiles(opts: {
   const requestedHashes = Array.from(new Set(
     (Array.isArray(hashes) && hashes.length ? hashes : (hash ? [hash] : [])).filter(Boolean),
   ))
-  if (!requestedHashes.length) return {}
-  const existingHashes: string[] = []
-  for (const previewHash of requestedHashes) {
-    const cachedAbs = await pathForStylePreviewHash(previewHash)
-    if (cachedAbs && fsMod.existsSync(cachedAbs)) existingHashes.push(previewHash)
-  }
-  if (!existingHashes.length) return {}
+  const sourceBuffers: Buffer[] = []
   const projDir = pm.getProjectDir(slug)
   if (!projDir) return {}
+  if (galleryItems !== undefined) {
+    for (const item of galleryItems) {
+      if ('source_file' in item) {
+        const retainedAbs = pathMod.join(projDir, 'style-previews', item.source_file)
+        if (fsMod.existsSync(retainedAbs)) sourceBuffers.push(await fsp.readFile(retainedAbs))
+      } else {
+        const cachedAbs = await pathForStylePreviewHash(item.hash)
+        if (cachedAbs && fsMod.existsSync(cachedAbs)) sourceBuffers.push(await fsp.readFile(cachedAbs))
+      }
+    }
+  } else {
+    for (const retainedFile of Array.from(new Set(retainedFiles || []))) {
+      const retainedAbs = pathMod.join(projDir, 'style-previews', retainedFile)
+      if (fsMod.existsSync(retainedAbs)) sourceBuffers.push(await fsp.readFile(retainedAbs))
+    }
+    for (const previewHash of requestedHashes) {
+      const cachedAbs = await pathForStylePreviewHash(previewHash)
+      if (cachedAbs && fsMod.existsSync(cachedAbs)) sourceBuffers.push(await fsp.readFile(cachedAbs))
+    }
+  }
+  if (!sourceBuffers.length) return {}
   const previewsDir = pathMod.join(projDir, 'style-previews')
   if (!fsMod.existsSync(previewsDir)) await fsp.mkdir(previewsDir, { recursive: true })
   preview_files = []
-  for (const [index, previewHash] of existingHashes.entries()) {
-    const cachedAbs = await pathForStylePreviewHash(previewHash)
-    if (!cachedAbs) continue
+  for (const [index, imageBytes] of sourceBuffers.entries()) {
     const filename = index === 0 ? `${presetId}.png` : `${presetId}-${index + 1}.png`
-    await fsp.copyFile(cachedAbs, pathMod.join(previewsDir, filename))
+    await fsp.writeFile(pathMod.join(previewsDir, filename), imageBytes)
     preview_files.push(filename)
   }
   preview_filename = preview_files[0]
@@ -286,6 +313,8 @@ router.post('/projects/:slug/style-presets', validateBody(StylePresetSaveSchema)
       description,
       hash,
       hashes,
+      retained_preview_files,
+      gallery_items,
       preview_model,
       preview_aspect_ratio,
       preview_tier,
@@ -294,6 +323,8 @@ router.post('/projects/:slug/style-presets', validateBody(StylePresetSaveSchema)
       description: string
       hash?: string
       hashes?: string[]
+      retained_preview_files?: string[]
+      gallery_items?: Array<{ hash: string } | { source_file: string }>
       preview_model?: string
       preview_aspect_ratio?: string
       preview_tier?: string
@@ -313,6 +344,8 @@ router.post('/projects/:slug/style-presets', validateBody(StylePresetSaveSchema)
       presetId: id,
       hashes,
       hash,
+      retainedFiles: retained_preview_files,
+      galleryItems: gallery_items,
     })
 
     const now = new Date().toISOString()
@@ -352,6 +385,8 @@ router.put('/projects/:slug/style-presets/:id', validateBody(StylePresetSaveSche
       description,
       hash,
       hashes,
+      retained_preview_files,
+      gallery_items,
       preview_model,
       preview_aspect_ratio,
       preview_tier,
@@ -360,34 +395,53 @@ router.put('/projects/:slug/style-presets/:id', validateBody(StylePresetSaveSche
       description: string
       hash?: string
       hashes?: string[]
+      retained_preview_files?: string[]
+      gallery_items?: Array<{ hash: string } | { source_file: string }>
       preview_model?: string
       preview_aspect_ratio?: string
       preview_tier?: string
     }
 
-    const hasNewPreviewPayload = !!((hash && hash.trim()) || (Array.isArray(hashes) && hashes.length))
-    if (hasNewPreviewPayload) {
-      const previewFiles = Array.from(new Set([
-        ...(Array.isArray(target.preview_files) ? target.preview_files : []),
-        ...(target.preview_filename ? [target.preview_filename] : []),
-      ]))
-      if (previewFiles.length) {
-        try {
-          const projDir = pm.getProjectDir(slug)
-          if (projDir) {
-            const fsp = await import('fs/promises')
-            const pathMod = await import('path')
-            for (const file of previewFiles) {
+    const currentPreviewFiles = Array.from(new Set([
+      ...(Array.isArray(target.preview_files) ? target.preview_files : []),
+      ...(target.preview_filename ? [target.preview_filename] : []),
+    ]))
+    const requestedRetainedFiles = Array.isArray(retained_preview_files)
+      ? retained_preview_files.filter(file => currentPreviewFiles.includes(file))
+      : undefined
+    const requestedGalleryItems = Array.isArray(gallery_items)
+      ? gallery_items.filter(item => 'hash' in item || currentPreviewFiles.includes(item.source_file))
+      : undefined
+    const hasNewPreviewPayload = hash !== undefined ||
+      hashes !== undefined ||
+      retained_preview_files !== undefined ||
+      gallery_items !== undefined
+    const replacementPreview = hasNewPreviewPayload
+      ? await materializePresetPreviewFiles({
+          slug,
+          presetId: id,
+          hashes,
+          hash,
+          retainedFiles: requestedRetainedFiles,
+          galleryItems: requestedGalleryItems,
+        })
+      : {}
+
+    if (hasNewPreviewPayload && currentPreviewFiles.length) {
+      const replacementFiles = new Set(replacementPreview.preview_files || [])
+      try {
+        const projDir = pm.getProjectDir(slug)
+        if (projDir) {
+          const fsp = await import('fs/promises')
+          const pathMod = await import('path')
+          for (const file of currentPreviewFiles) {
+            if (!replacementFiles.has(file)) {
               await fsp.unlink(pathMod.join(projDir, 'style-previews', file)).catch(() => {})
             }
           }
-        } catch { /* tolerate */ }
-      }
+        }
+      } catch { /* tolerate */ }
     }
-
-    const replacementPreview = hasNewPreviewPayload
-      ? await materializePresetPreviewFiles({ slug, presetId: id, hashes, hash })
-      : {}
 
     const updated: any = {
       ...target,

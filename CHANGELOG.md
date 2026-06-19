@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.434 — 2026-06-20
+
+### Improved — Style samples can be previewed, generated individually, and curated
+Style sample images are now clickable throughout the style library. Built-in previews, freshly generated samples, and saved style galleries all open in a large fullscreen viewer with keyboard navigation.
+
+Each of the five sample types can now be generated independently, so testing one composition no longer requires spending credits on all five. An existing sample can also be deliberately regenerated as a fresh paid reroll; first-time generation still reuses the free cache when an identical sample already exists.
+
+Generated and saved samples now have an explicit gallery toggle. You can choose exactly which images belong in the saved style viewer, replace one sample without losing the untouched saved samples, remove unwanted samples, and preserve their display order when updating or forking a style.
+
+### Files
+- `frontend/components/ProjectStyleLibrary.vue` (fullscreen preview viewer, per-sample generation, gallery selection and ordered save state)
+- `electron/server/routes/style-preview.ts` (explicit rerolls and safe ordered mixing of newly generated and existing saved gallery images)
+
+---
+
 ## v1.0.433 — 2026-06-20
 
 ### Improved — Custom style presets can now be edited and built from built-in styles
