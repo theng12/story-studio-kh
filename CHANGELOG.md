@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.422 — 2026-06-19
+
+**Title-image picker now shows every thumbnail.** In Video Assembly → Step 3 → Title Image, the thumbnail picker previously only listed files named `scene_NN` / `thumb_NN`, so in-app composed templates (`*_composed_vN.png`) and title-based thumbnails were invisible. It now surfaces **every image** in the episode's Thumbnail Images folder, each shown as a clickable preview card. The selected one is marked with a ✓ badge and an accent border, and each card is labelled with its filename so multiple similar thumbnails are easy to tell apart. (First of a few changes toward per-project intro handling for sleep-story formats.)
+
 ## v1.0.421 — 2026-06-18
 
 ### Changed — Production Board no longer shows a Research column

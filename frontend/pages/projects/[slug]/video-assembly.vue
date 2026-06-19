@@ -533,7 +533,7 @@
         <div v-if="titleImage.enabled" class="mt-2">
           <!-- Thumbnail picker with image previews -->
           <div v-if="scannedAssets?.thumbnails?.length" class="form-group">
-            <label>Select Thumbnail</label>
+            <label>Select Thumbnail ({{ scannedAssets.thumbnails.length }})</label>
             <div class="thumb-picker-images mt-1">
               <div
                 v-for="(thumb, i) in scannedAssets.thumbnails"
@@ -543,7 +543,8 @@
                 :title="thumb.filename"
               >
                 <img :src="getImagePreviewUrl(thumb.path)" :alt="thumb.filename" class="thumb-preview" />
-                <span class="thumb-label">T{{ Number(i) + 1 }}</span>
+                <span v-if="titleImage.image_path === thumb.path" class="thumb-check">✓</span>
+                <span class="thumb-label">{{ thumb.filename.replace(/\.[^.]+$/, '') }}</span>
               </div>
             </div>
           </div>
@@ -5145,7 +5146,8 @@ onUnmounted(() => {
 .thumb-card-img:hover { border-color: var(--text-secondary); transform: scale(1.02); }
 .thumb-card-img.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 .thumb-preview { width: 100%; height: 100%; object-fit: cover; }
-.thumb-label { position: absolute; bottom: 4px; left: 4px; background: rgba(0,0,0,0.7); color: white; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 3px; }
+.thumb-label { position: absolute; bottom: 4px; left: 4px; right: 4px; background: rgba(0,0,0,0.7); color: white; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thumb-check { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: var(--accent); color: white; font-size: 12px; font-weight: 700; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
 
 /* Title image preview */
 .title-image-preview { }

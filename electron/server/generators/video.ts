@@ -435,21 +435,29 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
     }
   }
 
-  // Scan thumbnails
+  // Scan thumbnails — surface EVERY image in the folder so the title-image
+  // picker shows all of them (v1.0.422). In-app composed templates
+  // (`*_composed_vN.png`) and title-based names don't match the scene_NN /
+  // thumb_NN pattern, so they used to be invisible to the picker. Numbered
+  // files keep their number for ordering; the rest are appended in filename
+  // order with sequential numbers after the highest, so the list is stable.
   if (thumbsDir) {
     const files = await safeReaddir(thumbsDir)
+    const numbered: Array<{ filename: string; path: string; number: number }> = []
+    const unnumbered: Array<{ filename: string; path: string }> = []
     for (const file of files) {
       if (!/\.(png|jpg|jpeg|webp)$/i.test(file)) continue
       const num = extractSceneNumber(file)
-      if (num !== null) {
-        result.thumbnails.push({
-          filename: file,
-          path: path.join(thumbsDir, file),
-          number: num,
-        })
-      }
+      if (num !== null) numbered.push({ filename: file, path: path.join(thumbsDir, file), number: num })
+      else unnumbered.push({ filename: file, path: path.join(thumbsDir, file) })
     }
-    result.thumbnails.sort((a, b) => a.number - b.number)
+    numbered.sort((a, b) => a.number - b.number)
+    unnumbered.sort((a, b) => a.filename.localeCompare(b.filename))
+    let next = (numbered.length ? Math.max(...numbered.map(t => t.number)) : 0) + 1
+    result.thumbnails = [
+      ...numbered,
+      ...unnumbered.map(t => ({ filename: t.filename, path: t.path, number: next++ })),
+    ]
   }
 
   // Scan audio files. Legacy projects store both chapter clips and the
