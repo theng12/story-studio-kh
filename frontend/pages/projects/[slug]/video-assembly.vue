@@ -110,7 +110,7 @@
     <!-- ============ STEP 1: Select & Validate Assets ============ -->
     <div v-if="currentStep === 1" class="card mt-2">
       <h3>Step 1: Select &amp; Validate Assets</h3>
-      <p class="text-muted mt-1">Choose an episode and scan for available scene images and audio</p>
+      <p class="text-muted mt-1">Choose an episode and scan for available scene media and audio</p>
 
       <div class="ffmpeg-status mt-2" v-if="ffmpegStatus">
         <span v-if="ffmpegStatus.installed" class="badge badge-success">
@@ -253,9 +253,22 @@
       <div v-if="scannedAssets && !scanning" class="assets-overview mt-2">
         <h4>Found Assets</h4>
 
-        <!-- Scene Images -->
+        <!-- Scene assets -->
         <div class="asset-section mt-1">
-          <label>Scene Images ({{ scannedAssets.scenes?.length || 0 }})</label>
+          <div class="asset-section-header">
+            <label>Scene Assets ({{ scannedAssets.scenes?.length || 0 }})</label>
+            <button
+              type="button"
+              class="btn btn-sm btn-secondary"
+              :disabled="importingSceneAssets || !episodeId"
+              @click="importAdditionalSceneAssets"
+            >
+              {{ importingSceneAssets ? 'Importing…' : '＋ Add images/videos' }}
+            </button>
+          </div>
+          <p class="text-muted text-xs hint-line">
+            Adds copies to this episode's reusable scene pool. Images and video clips use the normal shuffle and recycling settings.
+          </p>
           <div v-if="hasMixedSceneSources" class="scene-source-control mt-1">
             <button
               type="button"
@@ -292,7 +305,7 @@
               {{ img.number || Number(i) + 1 }}
             </div>
           </div>
-          <p v-else class="text-muted text-md">No scene images found</p>
+          <p v-else class="text-muted text-md">No scene assets found</p>
         </div>
 
         <!-- Thumbnails -->
@@ -2476,6 +2489,7 @@
 
 <script setup lang="ts">
 import { poolMediaOf } from '~/composables/useBrollPools'
+import { buildSceneAssetImportItems } from '~/utils/video-assembly-assets'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Video Assembly')
@@ -2608,6 +2622,7 @@ const assemblyJobActiveForEpisode = computed(() => isJobActiveFor(episodeId.valu
 const ffmpegStatus = ref<{ installed: boolean; version?: string; has_drawtext?: boolean; has_libass?: boolean; hw_encoders?: { h264: boolean; h265: boolean }; check_error?: string } | null>(null)
 const scannedAssets = ref<any>(null)
 const scanning = ref(false)
+const importingSceneAssets = ref(false)
 const scenePoolMode = ref<'auto' | 'scene_plan' | 'classic' | 'combined'>('auto')
 const sceneSourceCounts = computed(() => ({
   classic: Number(scannedAssets.value?.scene_sources?.classic || 0),
@@ -4879,6 +4894,49 @@ const { checkFfmpeg, scanAssets, applyScenePoolMode, generateVideo: runGenerateV
 })
 watch(scenePoolMode, () => { applyScenePoolMode() })
 
+async function importAdditionalSceneAssets() {
+  if (importingSceneAssets.value || !episodeId.value) return
+  importingSceneAssets.value = true
+  try {
+    const picked = await post<{ paths: string[] }>('/system/pick-files', {
+      title: 'Add scene images and video clips',
+      buttonLabel: 'Add to scene pool',
+      filters: [
+        { name: 'Images and videos', extensions: ['png', 'jpg', 'jpeg', 'webp', 'mp4', 'mov', 'webm', 'mkv', 'm4v'] },
+      ],
+    })
+    const paths = picked.paths || []
+    if (!paths.length) return
+
+    const items = buildSceneAssetImportItems(scannedAssets.value?.scenes, paths)
+    if (!items.length) {
+      showError('No supported image or video files were selected.')
+      return
+    }
+
+    const result = await post<any>(`/projects/${slug.value}/episodes/${episodeId.value}/import-assets`, {
+      mode: 'copy',
+      items,
+    })
+    const imported = Number(result?.summary?.copied || 0) + Number(result?.summary?.moved || 0)
+    const skipped = paths.length - items.length
+    success(
+      `Added ${imported} scene asset${imported === 1 ? '' : 's'}`
+      + (skipped > 0 ? ` (${skipped} unsupported or duplicate file${skipped === 1 ? '' : 's'} skipped)` : ''),
+    )
+    // Imported files land in the classic scene folder. If this episode also
+    // has Scene Plan renders, switch to Combined so the new files are used
+    // immediately instead of remaining hidden behind the auto-selected
+    // Scene Plan-only pool.
+    scenePoolMode.value = 'combined'
+    await scanAssets()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to import scene assets')
+  } finally {
+    importingSceneAssets.value = false
+  }
+}
+
 function onEpisodeSelected(ep: any) {
   selectedEpisode.value = ep
   if (ep?.title) {
@@ -5309,6 +5367,13 @@ onUnmounted(() => {
 
 /* Asset section */
 .asset-section label { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.asset-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 
 /* Validation */
 .validation-msg { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--error); }
