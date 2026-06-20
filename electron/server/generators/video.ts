@@ -335,6 +335,9 @@ interface ScannedAssets {
     height?: number
     source?: 'classic' | 'scene_plan'
     planned_scene_index?: number
+    /** v1.0.435 — scene_plan renders are surfaced regardless of approval; this
+     *  carries the flag so the UI can still distinguish reviewed vs not. */
+    approved?: boolean
   }>
   scene_sources?: { classic: number; scene_plan: number }
   thumbnails: Array<{ filename: string; path: string; number: number }>
@@ -423,10 +426,14 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
 
   // Timestamp-driven / continuity projects render reviewed images into
   // <episode>/scene_images/<scene-id>.png and track timing in scene_plan.json,
-  // not the classic numbered scene-image folder. Merge approved plan renders
-  // into the editor's scene pool even when classic images also exist. The
-  // frontend defaults to the exact Scene Plan timeline and lets the user
-  // explicitly choose Classic or Combined; source files remain untouched.
+  // not the classic numbered scene-image folder. Merge every plan scene that has
+  // a RENDERED image on disk into the editor's scene pool — regardless of the
+  // `approved` flag — even when classic images also exist. v1.0.435: dropped the
+  // approval gate so these behave like classic images (which were never approval-
+  // gated): if it's rendered, it shows. This lets a project that switched formats
+  // mid-way (continuity → scene-prompts) still use its continuity renders without
+  // manually approving hundreds of scenes. The frontend's Scene Plan / Classic /
+  // Combined toggle picks which set actually renders; source files are untouched.
   const planPath = path.join(episodeDir, SCENE_PLAN_FILENAME)
   const timestampImagesDir = path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER)
   if (existsSync(planPath) && existsSync(timestampImagesDir)) {
@@ -440,7 +447,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       for (const scene of plan.scenes || []) {
         const plannedPath = scene.image_path || path.join(timestampImagesDir, `${scene.id}.png`)
         const resolvedPath = path.resolve(plannedPath)
-        if (!scene.approved || !existsSync(plannedPath) || seenPaths.has(resolvedPath)) continue
+        if (!existsSync(plannedPath) || seenPaths.has(resolvedPath)) continue
         seenPaths.add(resolvedPath)
         result.scenes.push({
           filename: path.basename(plannedPath),
@@ -448,6 +455,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
           number: nextNumber++,
           source: 'scene_plan',
           planned_scene_index: scene.scene_index,
+          approved: !!scene.approved,
         })
         plannedCount++
       }

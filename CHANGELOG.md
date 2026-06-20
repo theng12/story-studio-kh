@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.435 — 2026-06-20
+
+**Continuity scene renders now show in Video Assembly without needing approval.** Video Assembly merges scene-plan renders (`scene_images/<id>.png`) into the scene pool alongside classic numbered images — but it used to skip any scene not marked *approved* in Scene Review. Classic images were never approval-gated, so this was inconsistent: a project that rendered hundreds of continuity scenes but never clicked through approval saw none of them. Now **any plan scene with a rendered image on disk shows up** (the Scene Plan / Classic / Combined toggle still picks which set renders, and Auto defaults to the plan renders). This is what unblocks projects that switched format mid-way — e.g. Dozing Knight, which had 366 continuity renders invisible because they weren't approved.
+
 ## v1.0.434 — 2026-06-20
 
 ### Improved — Style samples can be previewed, generated individually, and curated
