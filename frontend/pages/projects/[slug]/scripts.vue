@@ -829,6 +829,7 @@
 </template>
 
 <script setup lang="ts">
+import { resolveEpisodeScriptSizing } from '~/utils/scriptSizing'
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Script Generator')
 const route = useRoute()
@@ -1440,6 +1441,10 @@ const scriptPresets = usePresets<any>({
     if (data.intro) Object.assign(intro, data.intro)
     if (Array.isArray(data.introBeats)) introBeats.value = data.introBeats.map((b: any) => ({ ...b }))
     if (typeof data.customStyleText === 'string') customStyleText.value = data.customStyleText
+    // A saved script preset is explicit sizing intent. Without this flag,
+    // the next episode-selected event replaced values such as 3 × 1,000
+    // with that episode's older generated suggestion.
+    userTouchedSizing.value = true
   },
 })
 
@@ -2053,11 +2058,16 @@ function onEpisodeSelected(ep: any) {
   // suggested duration so a fresh pick lands on a sensible per-chapter size;
   // after that the user owns both numbers.
   if (!userTouchedSizing.value) {
-    const ch = ep.suggested_chapters || 10
-    form.chapters = ch
-    const dur = ep.suggested_length === '60 min' ? 60 : 45
-    const seededTotal = Math.round(dur * wordsPerMinute.value)
-    form.words_per_chapter = ch > 0 ? Math.round(seededTotal / ch) : seededTotal
+    const sizing = resolveEpisodeScriptSizing({
+      suggestedChapters: ep.suggested_chapters,
+      suggestedLength: ep.suggested_length,
+      formatDefaultChapters: formatContext.value?.defaultChapterCount,
+      formatDefaultLengthMinutes: formatContext.value?.defaultLengthMinutes,
+      chapterCountRange: formatContext.value?.chapterCountRange,
+      wordsPerMinute: wordsPerMinute.value,
+    })
+    form.chapters = sizing.chapters
+    form.words_per_chapter = sizing.wordsPerChapter
     // total_words + length recompute via the sizing watcher.
   }
 }

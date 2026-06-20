@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.443 — 2026-06-21
+
+**Fixed: selecting an episode could overwrite the Script preset with one enormous chapter.** Episode suggestions such as `10 min` were only checked for an exact `60 min` value, so every other duration silently became 45 minutes. Abiding Faith's older one-chapter episode records therefore became `1 × 5,850 words` at 130 words/minute, replacing the intended `3 × 1,000` Script preset. Saved preset sizing is now treated as explicit user intent, real minute values are parsed correctly, and stale episode chapter counts outside the active format/niche range fall back to the current effective structure.
+
 ## v1.0.442 — 2026-06-20
 
 **Fixed: fade-to-black could still create a microscopic black hold after the v1.0.440 timing fix.** The total post-audio tail was already clamped to whole video frames, but subtracting an exact 5-second fade from a value such as `5.000000000000455` seconds left a second floating-point remainder for the derived black hold. That inner hold duration is now frame-clamped too, preventing the DK0027 `color=black...d=4.547e-13` failure after a long render.
