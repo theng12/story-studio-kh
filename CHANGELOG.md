@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.444 — 2026-06-21
+
+**Fixed: Metadata presets did not save or restore their AI model.** The preset name could say Local or DeepSeek, but only the description sections and title settings were stored; batch generation then hardcoded `deepseek-v4-flash` regardless of the model shown on the Metadata page. New and re-saved presets now include the shared AI model, Apply restores it in the picker, and Pipeline jobs use that saved model. Older presets remain valid and keep the existing DeepSeek fallback until re-saved.
+
 ## v1.0.443 — 2026-06-21
 
 **Fixed: selecting an episode could overwrite the Script preset with one enormous chapter.** Episode suggestions such as `10 min` were only checked for an exact `60 min` value, so every other duration silently became 45 minutes. Abiding Faith's older one-chapter episode records therefore became `1 × 5,850 words` at 130 words/minute, replacing the intended `3 × 1,000` Script preset. Saved preset sizing is now treated as explicit user intent, real minute values are parsed correctly, and stale episode chapter counts outside the active format/niche range fall back to the current effective structure.

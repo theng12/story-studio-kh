@@ -1139,6 +1139,8 @@ async function bulkSrc(mode: 'all' | 'verified' | 'none'): Promise<void> {
 // so the user never loses their saved layouts.
 interface MetadataPresetSnapshot {
   sections: Section[]
+  /** Shared LLM used by title, description, and tag generation. */
+  model?: string
   /**
    * Title-generation config. Persisted alongside sections so picking a
    * preset restores BOTH the description layout AND the title strategy
@@ -1163,6 +1165,7 @@ const metadataPresets = usePresets<MetadataPresetSnapshot>({
   configKey: 'metadata',
   snapshot: () => ({
     sections: JSON.parse(JSON.stringify(sections.value)),
+    model: model.value,
     titleConfig: {
       preset: titleConfig.preset,
       maxLength: titleConfig.maxLength,
@@ -1183,6 +1186,9 @@ const metadataPresets = usePresets<MetadataPresetSnapshot>({
     // info toast fires once per migrated preset (keyed in localStorage).
     const { migrated, didMigrate } = migrateSections(JSON.parse(JSON.stringify(data.sections)))
     sections.value = migrated
+    if (typeof data.model === 'string' && data.model.trim()) {
+      model.value = data.model
+    }
     // Apply titleConfig if the preset has it (older presets won't —
     // leave the user's current settings alone in that case).
     const tc = data.titleConfig

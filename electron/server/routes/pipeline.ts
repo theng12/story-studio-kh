@@ -480,10 +480,9 @@ export function resolveStepParams(
     }
   }
   if (step === 'metadata') {
-    // metadata preset shape: { sections: [...] } from metadata.vue. Everything
-    // else (model, counts, max_chars) isn't persisted per-project today, so
-    // we supply batch-mode defaults that map to the Metadata page's own
-    // UI defaults.
+    // metadata preset shape: { sections, model?, titleConfig? } from
+    // metadata.vue. Older presets omit model, so keep DeepSeek as the
+    // backwards-compatible batch fallback until the user re-saves them.
     //
     // Format-aware defaults (v1.0.69+): pull description size, title count,
     // title length, and tag count from the project's effective Format
@@ -496,7 +495,9 @@ export function resolveStepParams(
     return {
       episode_id: episodeId,
       title: title || '',
-      model: 'deepseek-v4-flash',
+      model: typeof data.model === 'string' && data.model.trim()
+        ? data.model
+        : 'deepseek-v4-flash',
       sections: Array.isArray(data.sections) ? data.sections : [],
       max_chars: fmtMeta?.defaultMaxChars ?? 5000,
       title_count: fmtMeta?.defaultTitleCount ?? 5,

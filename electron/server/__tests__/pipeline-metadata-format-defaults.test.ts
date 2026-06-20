@@ -75,6 +75,21 @@ function makeFormat(metadataDefaults: Partial<Format['metadata']>): Format {
 const fakePreset = { id: 'p1', name: 'Test preset', data: { sections: [] } }
 
 describe('resolveStepParams — metadata batch defaults', () => {
+  test('uses the AI model saved in the metadata preset', () => {
+    const preset = {
+      id: 'p-local',
+      name: 'Local metadata',
+      data: { sections: [], model: 'gemma-4-e2b-it-mlx' },
+    }
+    const params = resolveStepParams('metadata', 'EP0001', 'My Episode', preset, null)
+    assert.equal(params.model, 'gemma-4-e2b-it-mlx')
+  })
+
+  test('legacy presets without a model retain the DeepSeek fallback', () => {
+    const params = resolveStepParams('metadata', 'EP0001', 'My Episode', fakePreset, null)
+    assert.equal(params.model, 'deepseek-v4-flash')
+  })
+
   test('listicle defaults (3500 / 5 / 70 / 12) win over hardcoded sleep-story numbers', () => {
     const listicle = makeFormat({
       defaultMaxChars: 3500,
