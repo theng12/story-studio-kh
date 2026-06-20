@@ -36,6 +36,23 @@ export function isVisionCapable(modelId: string | undefined | null): boolean {
   return VISION_CAPABLE_MODELS.has(modelId)
 }
 
+/** Models the B-Roll tagger can safely send an image to. DeepSeek and the
+ * reasoning-only OpenAI models are intentionally excluded: they are text-only
+ * in the providers currently registered by Story Studio. */
+export function isBrollVisionModelSupported(modelId: string | undefined | null): boolean {
+  if (!modelId) return false
+  if (modelId.startsWith('lmstudio:')) return true
+  const model = modelId.toLowerCase()
+  return model === 'gpt-4o'
+    || model.startsWith('gpt-4o-')
+    || model === 'gpt-4-turbo'
+    || model.startsWith('gpt-4-turbo-')
+    || model === 'gpt-4.1'
+    || model.startsWith('gpt-4.1-')
+    || model === 'gpt-5'
+    || model.startsWith('gpt-5-')
+}
+
 /** Pick the best vision-capable model from a caller's preference + sane default. */
 export function resolveVisionModel(preferred?: string | null): string {
   if (preferred && isVisionCapable(preferred)) return preferred
@@ -241,10 +258,10 @@ async function callLmStudioVision(model: string, buffer: Buffer, mime: string, i
 /**
  * Analyse a reference image. Default is OpenAI GPT-4o vision; the caller can
  * pick another route via `input.model`:
- *   - 'gpt-4o' | 'gpt-4o-mini'  → OpenAI vision (uses the OpenAI key)
+ *   - supported GPT vision model → OpenAI vision (uses the OpenAI key)
  *   - 'lmstudio:<slug>'         → a LOCAL LM Studio vision model (free)
- * Unknown/absent models fall back to gpt-4o, preserving the original behaviour
- * for callers (character sheet, image-prompts) that don't pass a model.
+ * An absent model defaults to gpt-4o for legacy callers. An explicit text-only
+ * or unknown model fails clearly instead of silently spending OpenAI credit.
  */
 export async function analyzeStyle(input: AnalyzeStyleInput): Promise<AnalyzeStyleResult> {
   if (!input.imagePath || !existsSync(input.imagePath)) {
@@ -259,14 +276,21 @@ export async function analyzeStyle(input: AnalyzeStyleInput): Promise<AnalyzeSty
     return { style_text: text, model_used: requested }
   }
 
-  // OpenAI vision. Only gpt-4o / gpt-4o-mini are accepted here; anything else
-  // (incl. absent) falls back to gpt-4o.
+  if (requested && !isBrollVisionModelSupported(requested)) {
+    const detail = requested.startsWith('deepseek')
+      ? 'DeepSeek models are text-only and cannot inspect B-Roll images or video frames.'
+      : `Model "${requested}" is not configured for image input.`
+    throw new Error(`${detail} Pick a vision-capable OpenAI or LM Studio model.`)
+  }
+
+  // OpenAI vision. No explicit selection preserves the historical GPT-4o
+  // default used by character/style analysis callers.
   const { getApiKey } = await import('../services/app-secrets-store.js')
   const openaiKey = await getApiKey('openai').catch(() => '')
   if (!openaiKey) {
     throw new Error('No vision-capable API key configured. Add an OpenAI key in Settings → API Keys, or pick a local LM Studio vision model.')
   }
-  const model = (requested === 'gpt-4o' || requested === 'gpt-4o-mini') ? requested : 'gpt-4o'
+  const model = requested || 'gpt-4o'
   const text = await callOpenAi({ ...input, model, apiKey: openaiKey }, buffer, mime)
   return { style_text: text, model_used: model }
 }

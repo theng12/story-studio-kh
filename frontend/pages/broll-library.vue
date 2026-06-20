@@ -97,14 +97,25 @@
             >
               ⚡ Normalize all{{ unnormalizedCount ? ` (${unnormalizedCount})` : '' }}
             </button>
-            <!-- v1.0.406 — vision model for auto-tagging (both clips + images).
-                 OpenAI (paid) or a local LM Studio vision model (free). -->
+            <!-- Vision model for auto-tagging (both clips + images). -->
             <select
               v-model="autotagModel"
               class="select select-sm autotag-model-select"
-              title="Which vision model tags your clips/images. Local LM Studio models are free; OpenAI is paid. Video clips tag from a midpoint frame; images tag directly."
+              :disabled="autotagModelsLoading || !usableAutotagModels.length"
+              title="Which vision model tags your clips/images. Local LM Studio models are free; cloud models use their configured API key. Video clips tag from a midpoint frame; images tag directly."
             >
-              <option v-for="m in visionModelOptions" :key="m.id" :value="m.id">{{ m.label }}</option>
+              <option v-if="autotagModelsLoading" value="" disabled>Loading models…</option>
+              <optgroup v-for="group in autotagModelGroups" :key="group.provider" :label="group.label">
+                <option
+                  v-for="m in group.items"
+                  :key="m.id"
+                  :value="m.id"
+                  :disabled="!isUsableAutotagModel(m.data)"
+                  :title="autotagModelTooltip(m.data)"
+                >
+                  {{ m.data.label }}{{ autotagModelSuffix(m.data) }}
+                </option>
+              </optgroup>
             </select>
             <button
               class="btn btn-sm btn-secondary"
@@ -901,25 +912,74 @@ const untaggedCount = computed(() =>
 )
 const autotagging = ref(false)
 
-// v1.0.406 — user-selectable vision model for auto-tagging (both clips + images).
-// OpenAI vision (paid) + any local LM Studio vision model (free), fetched live.
+interface AutotagModelRow {
+  id: string
+  label: string
+  provider: string
+  available: boolean
+  disabled_reason?: string | null
+  supports_vision: boolean
+}
+
+// Use the shared model catalog so B-Roll sees the same cloud + local choices
+// as every other LLM picker. Text-only models remain visible but disabled:
+// they cannot inspect the cached thumbnail frame that auto-tagging requires.
 const autotagModel = ref<string>('gpt-4o')
-const visionModelOptions = ref<Array<{ id: string; label: string }>>([
-  { id: 'gpt-4o', label: 'GPT-4o (OpenAI)' },
-  { id: 'gpt-4o-mini', label: 'GPT-4o mini (OpenAI · cheaper)' },
-])
+const autotagModels = ref<AutotagModelRow[]>([])
+const autotagModelsLoading = ref(false)
+const usableAutotagModels = computed(() => autotagModels.value.filter(isUsableAutotagModel))
+const autotagModelGroups = computed(() => {
+  const rows: Record<string, AutotagModelRow> = {}
+  for (const model of autotagModels.value) rows[model.id] = model
+  return groupModels(rows, (_id, model) => model.provider || 'other')
+})
+
+function isUsableAutotagModel(model: AutotagModelRow): boolean {
+  return model.available && !model.disabled_reason && model.supports_vision
+}
+
+function autotagModelSuffix(model: AutotagModelRow): string {
+  if (model.disabled_reason) return ' (unavailable)'
+  if (!model.available) return model.provider === 'lmstudio' ? ' (offline)' : ' (no key)'
+  if (!model.supports_vision) return ' (text-only)'
+  if (model.provider === 'lmstudio') return ' (local · free)'
+  return ''
+}
+
+function autotagModelTooltip(model: AutotagModelRow): string {
+  if (model.disabled_reason) return model.disabled_reason
+  if (!model.available) {
+    return model.provider === 'lmstudio'
+      ? 'Start LM Studio and load this model.'
+      : 'No API key configured for this provider.'
+  }
+  if (!model.supports_vision) {
+    return model.provider === 'deepseek'
+      ? 'DeepSeek is text-only and cannot inspect B-Roll images or video frames.'
+      : 'This text-only model cannot inspect B-Roll images or video frames.'
+  }
+  return model.provider === 'lmstudio'
+    ? 'Runs locally for free. The loaded model must support image input.'
+    : 'Vision-capable cloud model.'
+}
+
 onMounted(async () => {
   try {
     const saved = window.localStorage.getItem('brollAutotagModel')
     if (saved) autotagModel.value = saved
   } catch { /* no storage */ }
-  // Surface local LM Studio models as free vision options (if configured).
+  autotagModelsLoading.value = true
   try {
-    const r = await apiGet<{ models: string[] }>('/lmstudio/models')
-    for (const slug of (r.models || [])) {
-      visionModelOptions.value.push({ id: `lmstudio:${slug}`, label: `${slug} (LM Studio · local · free)` })
+    autotagModels.value = await apiGet<AutotagModelRow[]>('/models')
+    const selected = autotagModels.value.find(model => model.id === autotagModel.value)
+    if (!selected || !isUsableAutotagModel(selected)) {
+      autotagModel.value = usableAutotagModels.value[0]?.id || ''
     }
-  } catch { /* LM Studio not configured — OpenAI options only */ }
+  } catch {
+    autotagModels.value = []
+  } finally {
+    autotagModelsLoading.value = false
+  }
 })
 watch(autotagModel, (v) => {
   try { window.localStorage.setItem('brollAutotagModel', v) } catch { /* no storage */ }

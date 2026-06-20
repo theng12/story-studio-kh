@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.441 — 2026-06-20
+
+**Expanded: B-Roll auto-tagging now uses the full shared AI model catalog.** The model picker is grouped by provider and includes every available OpenAI vision model plus all live LM Studio models, so local vision models can tag images and video frames for free. Models without a configured key and text-only models remain visible with a clear disabled reason. DeepSeek is shown as text-only because its current API models cannot inspect images; the backend now rejects an explicit text-only selection instead of silently falling back to GPT-4o.
+
 ## v1.0.440 — 2026-06-20
 
 **Fixed: Video Assembly could fail after a long render when timeline math left a microscopic post-audio remainder.** A scene timeline that matched the target duration could differ by a tiny floating-point amount (such as `4.5e-13` seconds), causing FFmpeg to reject an effectively zero-length black, fade, or hold clip. Post-audio durations shorter than one video frame are now treated as zero, so correctly fitted timelines proceed directly to final composition.
