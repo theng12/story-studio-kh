@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.440 — 2026-06-20
+
+**Fixed: Video Assembly could fail after a long render when timeline math left a microscopic post-audio remainder.** A scene timeline that matched the target duration could differ by a tiny floating-point amount (such as `4.5e-13` seconds), causing FFmpeg to reject an effectively zero-length black, fade, or hold clip. Post-audio durations shorter than one video frame are now treated as zero, so correctly fitted timelines proceed directly to final composition.
+
 ## v1.0.439 — 2026-06-20
 
 **Added: import extra images and video clips directly into Video Assembly.** Step 1 now has an **Add images/videos** action that copies selected media into the episode's reusable scene pool, assigns safe scene numbers, rescans immediately, and uses the normal shuffle and recycling behavior. Episodes with Scene Plan renders automatically switch to the Combined pool so imported assets are available without episode-specific code or timeline changes.

@@ -22,6 +22,7 @@ import {
   buildEncoderArgs,
   buildLoopingMediaInputArgs,
   buildTitleMediaInputArgs,
+  clampVideoDurationToFrame,
   computeXfadeTimelineDuration,
   computeWatchdogMs,
   checkTimelineDurationSanity,
@@ -29,6 +30,26 @@ import {
   extendDurationsForXfadeCoverage,
   fitSceneDurationsToTarget,
 } from '../generators/video.js'
+
+describe('clampVideoDurationToFrame — post-audio floating-point tails', () => {
+  test('drops microscopic positive remainders that cannot produce a frame', () => {
+    assert.equal(clampVideoDurationToFrame(4.547473508864641e-13, 24), 0)
+  })
+
+  test('drops any positive duration shorter than one frame', () => {
+    assert.equal(clampVideoDurationToFrame(0.04, 24), 0)
+  })
+
+  test('preserves a real one-frame-or-longer tail', () => {
+    assert.equal(clampVideoDurationToFrame(1 / 24, 24), 1 / 24)
+    assert.equal(clampVideoDurationToFrame(5, 24), 5)
+  })
+
+  test('rejects invalid durations and frame rates', () => {
+    assert.equal(clampVideoDurationToFrame(NaN, 24), 0)
+    assert.equal(clampVideoDurationToFrame(1, 0), 0)
+  })
+})
 
 describe('buildTitleMediaInputArgs — still and video title assets', () => {
   test('uses the image demuxer loop option for still images', () => {

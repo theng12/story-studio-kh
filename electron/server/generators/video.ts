@@ -153,6 +153,16 @@ export function computeWatchdogMs(
 }
 
 /**
+ * FFmpeg cannot emit a meaningful video segment shorter than one frame.
+ * Timeline subtraction can still leave a tiny positive IEEE-754 remainder
+ * (for example 4.5e-13s), which lavfi rejects when used as `color=...:d=`.
+ */
+export function clampVideoDurationToFrame(durationSec: number, fps: number): number {
+  if (!Number.isFinite(durationSec) || !Number.isFinite(fps) || durationSec <= 0 || fps <= 0) return 0
+  return durationSec + Number.EPSILON >= 1 / fps ? durationSec : 0
+}
+
+/**
  * Map a libx264 CRF value to an h264_videotoolbox `-q:v` value.
  *
  * libx264 uses CRF on a 0-51 scale (lower = better). videotoolbox uses
@@ -2976,7 +2986,13 @@ async function buildConcatList(
   // after the narration). 'hard-cut' and legacy 'continue-cycling' carry no
   // tail — the video ends with the narration.
   if (behavior !== 'continue-cycling' && behavior !== 'hard-cut') {
-    const postDuration = Math.max(0, targetDuration - sceneEndTime)
+    // Treat sub-frame remainders as zero. The fitted scene timeline often
+    // equals targetDuration mathematically but differs by ~1e-13 in binary
+    // floating point; passing that value to lavfi's color duration fails.
+    const postDuration = clampVideoDurationToFrame(
+      Math.max(0, targetDuration - sceneEndTime),
+      quality.fps,
+    )
 
     if (postDuration > 0) {
       // Pinning codec/colourspace on every post-audio clip so it can be
