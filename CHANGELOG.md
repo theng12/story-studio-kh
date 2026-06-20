@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.442 — 2026-06-20
+
+**Fixed: fade-to-black could still create a microscopic black hold after the v1.0.440 timing fix.** The total post-audio tail was already clamped to whole video frames, but subtracting an exact 5-second fade from a value such as `5.000000000000455` seconds left a second floating-point remainder for the derived black hold. That inner hold duration is now frame-clamped too, preventing the DK0027 `color=black...d=4.547e-13` failure after a long render.
+
 ## v1.0.441 — 2026-06-20
 
 **Expanded: B-Roll auto-tagging now uses the full shared AI model catalog.** The model picker is grouped by provider and includes every available OpenAI vision model plus all live LM Studio models, so local vision models can tag images and video frames for free. Models without a configured key and text-only models remain visible with a clear disabled reason. DeepSeek is shown as text-only because its current API models cannot inspect images; the backend now rejects an explicit text-only selection instead of silently falling back to GPT-4o.

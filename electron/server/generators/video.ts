@@ -162,6 +162,18 @@ export function clampVideoDurationToFrame(durationSec: number, fps: number): num
   return durationSec + Number.EPSILON >= 1 / fps ? durationSec : 0
 }
 
+export function splitFadeToBlackDuration(
+  postDuration: number,
+  requestedFadeDuration: number,
+  fps: number,
+): { fadeDuration: number; holdDuration: number } {
+  const fadeDuration = Math.min(requestedFadeDuration, postDuration)
+  return {
+    fadeDuration,
+    holdDuration: clampVideoDurationToFrame(Math.max(0, postDuration - fadeDuration), fps),
+  }
+}
+
 /**
  * Map a libx264 CRF value to an h264_videotoolbox `-q:v` value.
  *
@@ -3020,8 +3032,11 @@ async function buildConcatList(
         job.output_lines.push(`Post-audio: black screen for ${postDuration.toFixed(0)}s`)
 
       } else if (behavior === 'fade-to-black' && lastPlayedSceneClip && existsSync(lastPlayedSceneClip)) {
-        const fadeDur = Math.min(postAudio.fade_duration || 5, postDuration)
-        const holdDur = Math.max(0, postDuration - fadeDur)
+        const { fadeDuration: fadeDur, holdDuration: holdDur } = splitFadeToBlackDuration(
+          postDuration,
+          postAudio.fade_duration || 5,
+          quality.fps,
+        )
         const finalFrame = await extractFinalFrame(lastPlayedSceneClip, tempDir)
 
         const fadeClip = path.join(tempDir, 'post_fade.mp4')

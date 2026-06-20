@@ -29,6 +29,7 @@ import {
   crfToVideotoolboxQ,
   extendDurationsForXfadeCoverage,
   fitSceneDurationsToTarget,
+  splitFadeToBlackDuration,
 } from '../generators/video.js'
 
 describe('clampVideoDurationToFrame — post-audio floating-point tails', () => {
@@ -48,6 +49,29 @@ describe('clampVideoDurationToFrame — post-audio floating-point tails', () => 
   test('rejects invalid durations and frame rates', () => {
     assert.equal(clampVideoDurationToFrame(NaN, 24), 0)
     assert.equal(clampVideoDurationToFrame(1, 0), 0)
+  })
+})
+
+describe('splitFadeToBlackDuration — derived hold segment', () => {
+  test('drops the exact microscopic hold remainder seen in DK0027', () => {
+    assert.deepEqual(
+      splitFadeToBlackDuration(5.000000000000455, 5, 24),
+      { fadeDuration: 5, holdDuration: 0 },
+    )
+  })
+
+  test('preserves a real black hold after the fade', () => {
+    assert.deepEqual(
+      splitFadeToBlackDuration(30, 5, 24),
+      { fadeDuration: 5, holdDuration: 25 },
+    )
+  })
+
+  test('uses the whole short tail as the fade with no hold', () => {
+    assert.deepEqual(
+      splitFadeToBlackDuration(3, 5, 24),
+      { fadeDuration: 3, holdDuration: 0 },
+    )
   })
 })
 
