@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.437 — 2026-06-20
+
+**Fixed: turning a Mac OFF in Settings now actually removes it from the render/audio pool — including mid-render.** The per-Mac on/off switch was only honoured by the single-image path. The parallel batch generators (Scene Generator's multi-Mac pool, the continuity renderer, and the Voice Studio audio pool) built their pool from *network reachability only* — so a Mac you switched off but left powered on kept getting work. Now all of them build the pool from **enabled** endpoints, and the periodic re-probe (every ~20s) re-reads the switch each cycle, so a Mac you disable **during** a long generation is dropped from rotation within one probe cycle (a disabled Mac is also never contacted). Re-enabling a still-running pool's Mac brings it back when it's reachable.
+
 ## v1.0.436 — 2026-06-20
 
 **Fixed: Scene/Thumbnail generation could read a stale Word file instead of the current Markdown prompts.** The prompts-file resolver was supposed to prefer the modern `.md` over a legacy `.docx`, but it actually returned whichever file the OS listed first — and `.docx` sorts before `.md` alphabetically. So if an episode had *both* `<code>_Scene_Prompts.md` (the up-to-date prompts) and an old `<code>_Scene_Prompts.docx` left over from an earlier run, the generator parsed the **stale `.docx`** and only generated that many scenes. This is exactly why Dozing Knight DK0028 generated only 12 scenes despite having 240 prompts in the `.md`. The resolver now honours the preference order (`.md` always wins) for both scene prompts and thumbnail prompts. Re-run Scene Generator and it'll pick up the full prompt set.

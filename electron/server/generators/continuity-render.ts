@@ -25,7 +25,7 @@ import path from 'path'
 import { registry } from '../providers/registry.js'
 import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
-import { parseEndpoints, healthyEndpoints, createDispatcher, runOnPool, type Dispatcher } from '../lib/endpoint-pool.js'
+import { parseEndpoints, parseEnabledEndpoints, healthyEndpoints, createDispatcher, runOnPool, type Dispatcher } from '../lib/endpoint-pool.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -216,7 +216,10 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // Cloud providers keep their single real key (no pool).
   let dispatcher: Dispatcher | null = null
   if (providerId === 'imagestudio') {
-    const eps = parseEndpoints(apiKey)
+    // v1.0.437 — only build the pool over USER-ENABLED endpoints (drops Macs
+    // switched off in Settings); enabled-but-offline ones still rejoin via the
+    // re-probe below when they come online.
+    const eps = parseEnabledEndpoints(apiKey)
     if (eps.length > 1) {
       const { health: imgHealth } = await import('../lib/imagestudio-client.js')
       const { healthy, offline } = await healthyEndpoints(eps, async (u) => (await imgHealth(u)).ok)
@@ -589,14 +592,19 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           void (async () => {
             try {
               const { health: imgHealth } = await import('../lib/imagestudio-client.js')
-              const probeEps = parseEndpoints(apiKey)
+              // v1.0.437 — enabled-aware re-probe: only contact still-enabled
+              // endpoints, and force any Mac switched off mid-render DOWN so it
+              // stops receiving work even though it's still reachable.
+              const probeEps = parseEnabledEndpoints(apiKey)
+              const enabledSet = new Set(probeEps)
               const { healthy, offline } = await healthyEndpoints(probeEps, async (u) => (await imgHealth(u)).ok)
               const before = dispatcher!.liveCount()
               for (const u of healthy) dispatcher!.markUp(u)
               for (const u of offline) dispatcher!.markDown(u)
+              for (const u of parseEndpoints(apiKey)) if (!enabledSet.has(u)) dispatcher!.markDown(u)
               const after = dispatcher!.liveCount()
-              if (after > before) {
-                job.output_lines.push(`Pool grew: ${after}/${probeEps.length} Macs online — adding workers.`)
+              if (after !== before) {
+                job.output_lines.push(`Pool now ${after}/${probeEps.length} Macs online (enabled + reachable) — adjusting workers.`)
               }
               ensureWorkers()
             } catch { /* transient probe failure — keep the current workers */ }

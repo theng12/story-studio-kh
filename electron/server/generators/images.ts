@@ -761,12 +761,20 @@ export async function generateImages(job: Job): Promise<void> {
         void (async () => {
           try {
             const { health: imgHealth } = await import('../lib/imagestudio-client.js')
-            const { healthy, offline } = await healthyEndpoints(poolEndpoints, async (u) => (await imgHealth(u, 4000)).ok)
+            // v1.0.437 — re-read the per-Mac on/off switch every cycle so a Mac
+            // the user disables MID-RENDER is dropped. A reachability probe alone
+            // wouldn't catch it (the Mac is still powered on and answers), so we
+            // probe only the still-enabled endpoints and force the rest DOWN.
+            const enabledNow = new Set(parseEnabledEndpoints(apiKey))
+            const probeEps = poolEndpoints.filter(u => enabledNow.has(u))
+            const disabledNow = poolEndpoints.filter(u => !enabledNow.has(u))
+            const { healthy, offline } = await healthyEndpoints(probeEps, async (u) => (await imgHealth(u, 4000)).ok)
+            const downNow = [...offline, ...disabledNow]
             const joined = healthy.filter(u => !lastHealthyPool.has(u))
-            const dropped = offline.filter(u => lastHealthyPool.has(u))
+            const dropped = downNow.filter(u => lastHealthyPool.has(u))
             const before = dispatcher!.liveCount()
             for (const u of healthy) dispatcher!.markUp(u)
-            for (const u of offline) dispatcher!.markDown(u)
+            for (const u of downNow) dispatcher!.markDown(u)
             lastHealthyPool = new Set(healthy)
             const after = dispatcher!.liveCount()
             if (joined.length || dropped.length || after !== before) {

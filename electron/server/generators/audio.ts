@@ -25,7 +25,7 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { resolveApiKeyForProviderId } from '../providers/registry.js'
-import { parseEndpoints, healthyEndpoints, createDispatcher, runOnPool, type Dispatcher } from '../lib/endpoint-pool.js'
+import { parseEnabledEndpoints, healthyEndpoints, createDispatcher, runOnPool, type Dispatcher } from '../lib/endpoint-pool.js'
 import { newLatencyStats, recordCall as recordLatency, summarize as summarizeLatency } from '../lib/endpoint-latency-stats.js'
 import { assertBalanceAvailable } from '../services/utils.js'
 import { sleepCancellable, fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
@@ -701,7 +701,9 @@ export async function generateAudio(job: Job): Promise<void> {
   let audioDispatcher: Dispatcher | null = null
   let voicePoolSize = 1
   if (isLocalAudioProvider) {
-    const eps = parseEndpoints(apiKey)
+    // v1.0.437 — honour the per-Mac on/off switch: build the pool over enabled
+    // endpoints only, so a Mac switched off in Settings is never used.
+    const eps = parseEnabledEndpoints(apiKey)
     if (eps.length > 1) {
       const { health: voiceHealth } = await import('../lib/voicestudio-client.js')
       const { healthy, offline } = await healthyEndpoints(eps, async (u) => (await voiceHealth(u)).ok)
