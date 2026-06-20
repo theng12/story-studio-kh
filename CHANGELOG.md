@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.438 — 2026-06-20
+
+**Fixed: animated subtitles truncated long lines with "…" and dropped the rest of the sentence.** When caption animation is on (fade / pop / slide-up), each cue was wrapped to your `max_lines × max_chars` and any overflow was cut off with an ellipsis — so a line like *"you are invited into the refuge of God's…"* lost everything after "God's", and that text never appeared anywhere in the video. Now an over-long cue is **split into multiple sequential captions** across its own time window instead of truncated, so every spoken word is shown (the line/char limits are still respected per caption). The non-animated path was already fine (libass wraps without dropping text).
+
 ## v1.0.437 — 2026-06-20
 
 **Fixed: turning a Mac OFF in Settings now actually removes it from the render/audio pool — including mid-render.** The per-Mac on/off switch was only honoured by the single-image path. The parallel batch generators (Scene Generator's multi-Mac pool, the continuity renderer, and the Voice Studio audio pool) built their pool from *network reachability only* — so a Mac you switched off but left powered on kept getting work. Now all of them build the pool from **enabled** endpoints, and the periodic re-probe (every ~20s) re-reads the switch each cycle, so a Mac you disable **during** a long generation is dropped from rotation within one probe cycle (a disabled Mac is also never contacted). Re-enabling a still-running pool's Mac brings it back when it's reachable.

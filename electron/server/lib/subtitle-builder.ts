@@ -127,6 +127,38 @@ export function wrapText(text: string, maxChars: number, maxLines: number): stri
 }
 
 /**
+ * v1.0.438 — like wrapText, but NEVER drops text. Word-wraps into lines of
+ * ≤ maxChars, then groups those lines into chunks of ≤ maxLines lines each.
+ * A cue that's too long to fit `maxLines` lines becomes MULTIPLE chunks
+ * (the caller shows them sequentially across the cue's time window) instead of
+ * being truncated with an ellipsis. Each returned chunk is its lines joined by
+ * '\n'. Always returns at least one chunk.
+ */
+export function wrapTextToChunks(text: string, maxChars: number, maxLines: number): string[] {
+  const words = text.trim().split(/\s+/).filter(Boolean)
+  const lines: string[] = []
+  let current = ''
+  for (const w of words) {
+    const candidate = current ? `${current} ${w}` : w
+    // `!current` keeps a single word longer than maxChars on its own line
+    // rather than dropping it.
+    if (candidate.length <= maxChars || !current) {
+      current = candidate
+    } else {
+      lines.push(current)
+      current = w
+    }
+  }
+  if (current) lines.push(current)
+  const safeMaxLines = Math.max(1, maxLines)
+  const chunks: string[] = []
+  for (let i = 0; i < lines.length; i += safeMaxLines) {
+    chunks.push(lines.slice(i, i + safeMaxLines).join('\n'))
+  }
+  return chunks.length ? chunks : ['']
+}
+
+/**
  * Build the libass `force_style=...` fragment for the `subtitles=` filter.
  * Colours are encoded as `&HBBGGRR&` (yes, reversed — that's an ASS quirk).
  * Alignment / outline / background controls map to libass's Style Override
@@ -257,13 +289,23 @@ export function srtToAss(
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
   ]
 
-  const events = cues.map(c => {
+  const events: string[] = []
+  for (const c of cues) {
     const tag = animationTag(opts.animation, style, w, h)
-    // Wrap to the style's width, hard-break with \N, and neutralise any braces
-    // in the source text so they can't be read as override blocks.
-    const text = wrapText(c.text, maxChars, maxLines).replace(/\r?\n/g, '\\N').replace(/\{/g, '(').replace(/\}/g, ')')
-    return `Dialogue: 0,${assTime(c.start_sec)},${assTime(c.end_sec)},Default,,0,0,0,,${tag}${text}`
-  })
+    // v1.0.438 — split (don't truncate) a cue that's too long for maxLines so
+    // no spoken words are lost. Each chunk gets an equal slice of the cue's
+    // [start,end] window and shows sequentially. Hard-break lines with \N and
+    // neutralise braces so source text can't be read as ASS override blocks.
+    const chunks = wrapTextToChunks(c.text, maxChars, maxLines)
+    const n = chunks.length
+    const span = Math.max(0, c.end_sec - c.start_sec)
+    chunks.forEach((chunk, i) => {
+      const start = n === 1 ? c.start_sec : c.start_sec + (span * i) / n
+      const end = n === 1 ? c.end_sec : c.start_sec + (span * (i + 1)) / n
+      const text = chunk.replace(/\r?\n/g, '\\N').replace(/\{/g, '(').replace(/\}/g, ')')
+      events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Default,,0,0,0,,${tag}${text}`)
+    })
+  }
 
   return [...header, ...events].join('\n') + '\n'
 }
