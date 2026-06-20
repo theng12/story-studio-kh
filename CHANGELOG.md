@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.436 — 2026-06-20
+
+**Fixed: Scene/Thumbnail generation could read a stale Word file instead of the current Markdown prompts.** The prompts-file resolver was supposed to prefer the modern `.md` over a legacy `.docx`, but it actually returned whichever file the OS listed first — and `.docx` sorts before `.md` alphabetically. So if an episode had *both* `<code>_Scene_Prompts.md` (the up-to-date prompts) and an old `<code>_Scene_Prompts.docx` left over from an earlier run, the generator parsed the **stale `.docx`** and only generated that many scenes. This is exactly why Dozing Knight DK0028 generated only 12 scenes despite having 240 prompts in the `.md`. The resolver now honours the preference order (`.md` always wins) for both scene prompts and thumbnail prompts. Re-run Scene Generator and it'll pick up the full prompt set.
+
 ## v1.0.435 — 2026-06-20
 
 **Continuity scene renders now show in Video Assembly without needing approval.** Video Assembly merges scene-plan renders (`scene_images/<id>.png`) into the scene pool alongside classic numbered images — but it used to skip any scene not marked *approved* in Scene Review. Classic images were never approval-gated, so this was inconsistent: a project that rendered hundreds of continuity scenes but never clicked through approval saw none of them. Now **any plan scene with a rendered image on disk shows up** (the Scene Plan / Classic / Combined toggle still picks which set renders, and Auto defaults to the plan renders). This is what unblocks projects that switched format mid-way — e.g. Dozing Knight, which had 366 continuity renders invisible because they weren't approved.

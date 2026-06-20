@@ -40,19 +40,32 @@ const POOL_REPROBE_MS = 20_000
  * Search recursively for a file matching any of the candidate filenames.
  * Returns the first match found.
  */
+// Find the highest-PRIORITY candidate present anywhere under `dir`. `candidates`
+// is an ordered preference list (e.g. .md before legacy .docx). v1.0.436: the
+// previous implementation returned whichever match it hit first in directory
+// order, which broke the preference — when both `${code}_Scene_Prompts.md` (240
+// scenes) and a stale `${code}_Scene_Prompts.docx` (12 scenes) sit in the same
+// folder, readdir lists ".docx" before ".md" (alphabetical), so the stale Word
+// file won and only 12 scenes generated. Now we collect ALL matches and return
+// the one with the best (lowest) rank in `candidates`, so the .md always wins.
 async function findFileRecursive(dir: string, candidates: string[]): Promise<string | null> {
-  try {
-    const entries = await fs.readdir(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name)
-      if (entry.isFile() && candidates.includes(entry.name)) return fullPath
-      if (entry.isDirectory()) {
-        const found = await findFileRecursive(fullPath, candidates)
-        if (found) return found
+  const ref: { path: string; rank: number } = { path: '', rank: Infinity }
+  const walk = async (d: string): Promise<void> => {
+    try {
+      const entries = await fs.readdir(d, { withFileTypes: true })
+      for (const entry of entries) {
+        const fullPath = path.join(d, entry.name)
+        if (entry.isFile()) {
+          const rank = candidates.indexOf(entry.name)
+          if (rank >= 0 && rank < ref.rank) { ref.path = fullPath; ref.rank = rank }
+        } else if (entry.isDirectory()) {
+          await walk(fullPath)
+        }
       }
-    }
-  } catch { /* skip inaccessible dirs */ }
-  return null
+    } catch { /* skip inaccessible dirs */ }
+  }
+  await walk(dir)
+  return ref.rank === Infinity ? null : ref.path
 }
 
 export async function findScenePromptsFile(slug: string, episodeId: string): Promise<string> {
