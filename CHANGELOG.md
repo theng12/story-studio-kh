@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.439 — 2026-06-20
+
+**Added: import extra images and video clips directly into Video Assembly.** Step 1 now has an **Add images/videos** action that copies selected media into the episode's reusable scene pool, assigns safe scene numbers, rescans immediately, and uses the normal shuffle and recycling behavior. Episodes with Scene Plan renders automatically switch to the Combined pool so imported assets are available without episode-specific code or timeline changes.
+
 ## v1.0.438 — 2026-06-20
 
 **Fixed: animated subtitles truncated long lines with "…" and dropped the rest of the sentence.** When caption animation is on (fade / pop / slide-up), each cue was wrapped to your `max_lines × max_chars` and any overflow was cut off with an ellipsis — so a line like *"you are invited into the refuge of God's…"* lost everything after "God's", and that text never appeared anywhere in the video. Now an over-long cue is **split into multiple sequential captions** across its own time window instead of truncated, so every spoken word is shown (the line/char limits are still respected per caption). The non-animated path was already fine (libass wraps without dropping text).
