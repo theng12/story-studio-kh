@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.453 — 2026-06-21
+
+### Fixed — Stale test for unapproved Scene Plan renders
+The backend test `video-scene-plan-pool.test.ts` had been failing since v1.0.435, when the approval gate on Scene Plan renders was *deliberately* dropped (so format-switched projects with hundreds of unapproved continuity renders could still use them in Video Assembly — the same way classic numbered images were never approval-gated). The test still asserted the old "approved-only" counts (`scene_plan: 1`), so it broke once both rendered plan scenes correctly began surfacing (`scene_plan: 2`). The scan logic is behaving as intended; the test expectation was stale. Updated it to pin the current contract: every plan scene with a rendered image on disk surfaces, each carrying its `approved` flag so the UI can still distinguish reviewed vs. unreviewed.
+
+### Files
+- `electron/server/__tests__/video-scene-plan-pool.test.ts` (expects `scene_sources = { classic: 1, scene_plan: 2 }`, 3 scenes, and asserts the per-scene `approved` flag is carried through)
+
+---
+
 ## v1.0.452 — 2026-06-21
 
 ### Added — Settings UI to set a project's external media root
