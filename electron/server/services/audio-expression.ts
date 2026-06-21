@@ -165,12 +165,11 @@ export async function markupSectionText(
   return trimmed.length ? trimmed : sectionText
 }
 
-/** Local endpoint pools can use the machine's full text concurrency. Cloud
- * providers stay at three parallel calls to avoid provider rate-limit bursts. */
+/** Expression tagging follows the machine's text-generation concurrency.
+ * The user controls the provider-appropriate value in Settings. */
 export async function expressionTagConcurrency(model: string, itemCount: number): Promise<number> {
   const configured = await getScriptConcurrency()
-  const providerCap = model.startsWith('lmstudio:') ? configured : Math.min(configured, 3)
-  return Math.max(1, Math.min(itemCount, providerCap))
+  return Math.max(1, Math.min(itemCount, configured))
 }
 
 /** Small bounded worker pool shared by background Tag All and audio auto-tag. */

@@ -94,7 +94,7 @@ export async function setAppSetting(key: string, value: any): Promise<void> {
 export const SCRIPT_CONCURRENCY_KEY = 'script_concurrency'
 export const SCRIPT_CONCURRENCY_DEFAULT = 2
 export const SCRIPT_CONCURRENCY_MIN = 1
-export const SCRIPT_CONCURRENCY_MAX = 8
+export const SCRIPT_CONCURRENCY_MAX = 50
 
 function clampScriptConcurrency(n: unknown): number {
   const v = Math.floor(Number(n))

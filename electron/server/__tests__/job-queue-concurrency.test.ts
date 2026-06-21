@@ -59,6 +59,11 @@ async function waitFor(cond: () => boolean, ms = 3000): Promise<void> {
 const settle = () => new Promise(r => setTimeout(r, 40))
 
 describe('LLM-group concurrency', () => {
+  test('accepts a text concurrency ceiling of 50', () => {
+    jq.setLlmConcurrency(50)
+    assert.equal(jq.getLlmConcurrency(), 50)
+  })
+
   test('limit=2 runs two different-episode text jobs at once; 3rd waits', async () => {
     const proj = await pm.createProject({ name: 'JQCC1' })
     const b = makeBlocker()

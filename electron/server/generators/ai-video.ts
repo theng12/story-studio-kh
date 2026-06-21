@@ -233,10 +233,10 @@ export async function generateAiVideo(job: Job): Promise<void> {
   // ── Concurrency pool ───────────────────────────────────────────────────
   // Video clips are expensive ($0.50–$2 each on Veo/Sora). Default to 2
   // in flight — matches fal.ai's starting credit tier — user can bump up
-  // to 8 via Settings → Video → Concurrency once their provider account
+  // up to 50 via Settings → Video → Concurrency once their provider account
   // has the credits / quota to handle it.
   const rawConcurrency = Number((config as any).video_concurrency) || 0
-  const concurrency = Math.max(1, Math.min(8, rawConcurrency || 2))
+  const concurrency = Math.max(1, Math.min(50, rawConcurrency || 2))
   // Launch stagger: delay each pool worker's FIRST submit by `i * staggerMs`
   // so all workers don't hit Veo / fal / Kie in the same millisecond.
   // Default 0 (no stagger) — opt-in via Settings → Video → Launch stagger.

@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.446 — 2026-06-21
+
+**Expanded: every generator concurrency control can now be raised to 50 without changing existing defaults.** Text/LLM jobs and expression tagging were capped at 8, video at 8, Audio settings reloaded values above 15 back down, and subtitle queue plumbing capped cross-job transcription at 3. Those ceilings now accept up to 50, matching the existing Image, Audio runtime, Subtitle per-job, and continuity-render pools. Defaults remain conservative: Text 2, Images 5, Audio 3, Video 2, and Subtitles Auto. Expression tagging now follows the selected global text concurrency for both local and cloud models, so a 12–15 chapter project can tag more than three chapters concurrently when configured.
+
 ## v1.0.445 — 2026-06-21
 
 **Faster: Audio expression tagging now runs chapters concurrently and can spread local work across the LM Studio server pool.** Abiding Faith's three short prayer sections previously tagged one after another, so the least-busy local dispatcher never had simultaneous requests to distribute. Local models now use the machine's configured text concurrency (up to the number of chapters), while cloud models remain capped at three parallel requests. Background Tag All still saves each completed chapter through a serialized sidecar write, and hands-off Audio/Pipeline tagging uses the same bounded worker pool. The expression-tagging model is now part of the Audio preset, so selecting Gemma and saving the preset also carries that choice into unattended Pipeline audio instead of falling back to DeepSeek.

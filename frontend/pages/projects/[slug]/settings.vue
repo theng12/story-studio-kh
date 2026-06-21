@@ -1311,15 +1311,14 @@
       </p>
       <div class="form-group" style="max-width: 360px;">
         <label>Concurrent text jobs ({{ scriptConcurrency }})</label>
-        <SliderWithNumber v-model="scriptConcurrency" :min="1" :max="8" :step="1" />
+        <SliderWithNumber v-model="scriptConcurrency" :min="1" :max="50" :step="1" />
         <div class="flex gap-2 mt-1" style="font-size: 11px;">
           <span class="text-muted">1 (serial)</span>
-          <span class="text-muted" style="margin-left:auto">8 (max)</span>
+          <span class="text-muted" style="margin-left:auto">50 (max)</span>
         </div>
         <p class="text-muted mt-1" style="font-size: 12px;">
           A good value is roughly the number of LM&nbsp;Studio endpoints you run.
-          Per-machine setting. Image, audio, video, and upload jobs are unaffected —
-          those always run one at a time to avoid overloading the machine.
+          Per-machine setting. Choose a value your provider or local server pool can sustain.
         </p>
       </div>
 
@@ -1363,7 +1362,7 @@
         <SliderWithNumber v-model="audioConcurrency" :min="1" :max="50" :step="1" />
         <div class="flex gap-2 mt-1" style="font-size: 11px;">
           <span class="text-muted">1 (serial — slow)</span>
-          <span class="text-muted" style="margin-left:auto">15 (Scale tier)</span>
+          <span class="text-muted" style="margin-left:auto">50 (max)</span>
         </div>
       </div>
 
@@ -1389,10 +1388,10 @@
       </p>
       <div class="form-group" style="max-width: 360px;">
         <label>Concurrency ({{ videoConcurrency }})</label>
-        <SliderWithNumber v-model="videoConcurrency" :min="1" :max="8" :step="1" />
+        <SliderWithNumber v-model="videoConcurrency" :min="1" :max="50" :step="1" />
         <div class="flex gap-2 mt-1" style="font-size: 11px;">
           <span class="text-muted">1 (serial)</span>
-          <span class="text-muted" style="margin-left:auto">8 (heavy)</span>
+          <span class="text-muted" style="margin-left:auto">50 (max)</span>
         </div>
       </div>
 
@@ -5362,7 +5361,7 @@ watch(activeTab, async (tab) => {
 const imageConcurrency = ref(5)
 const audioConcurrency = ref(3)   // ElevenLabs Starter-tier safe default
 const videoConcurrency = ref(2)   // fal.ai new-account safe default
-const subtitleConcurrency = ref<string>('auto') // 'auto' (match live pool) or '1'..'16'
+const subtitleConcurrency = ref<string>('auto') // 'auto' (match live pool) or '1'..'50'
 
 // v1.0.391 — one-click local-server pool health (Local Models tab).
 interface PoolEndpoint { url: string; online: boolean }
@@ -5420,10 +5419,10 @@ watch(config, (c) => {
     imageConcurrency.value = Math.max(1, Math.min(50, Number((c as any).image_concurrency) || 5))
   }
   if (c && (c as any).audio_concurrency) {
-    audioConcurrency.value = Math.max(1, Math.min(15, Number((c as any).audio_concurrency) || 3))
+    audioConcurrency.value = Math.max(1, Math.min(50, Number((c as any).audio_concurrency) || 3))
   }
   if (c && (c as any).video_concurrency) {
-    videoConcurrency.value = Math.max(1, Math.min(8, Number((c as any).video_concurrency) || 2))
+    videoConcurrency.value = Math.max(1, Math.min(50, Number((c as any).video_concurrency) || 2))
   }
   if (c && (c as any).subtitle_concurrency != null) {
     subtitleConcurrency.value = String((c as any).subtitle_concurrency)  // 'auto' or a number
@@ -5476,7 +5475,7 @@ async function loadScriptConcurrency() {
   try {
     const r = await get<{ value: number }>('/app-settings/script-concurrency')
     if (r && typeof r.value === 'number') {
-      scriptConcurrency.value = Math.max(1, Math.min(8, Math.round(r.value)))
+      scriptConcurrency.value = Math.max(1, Math.min(50, Math.round(r.value)))
     }
   } catch { /* keep default */ }
 }

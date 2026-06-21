@@ -308,13 +308,13 @@ const groupActive: Record<string, number> = {}
 let llmConcurrency = 2
 let subtitleTranscribeConcurrency = 1
 export function setLlmConcurrency(n: number): void {
-  llmConcurrency = Math.max(1, Math.min(8, Math.floor(Number(n)) || 1))
+  llmConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
 }
 export function getLlmConcurrency(): number {
   return llmConcurrency
 }
 export function setSubtitleTranscribeConcurrency(n: number): void {
-  subtitleTranscribeConcurrency = Math.max(1, Math.min(3, Math.floor(Number(n)) || 1))
+  subtitleTranscribeConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
   pump('subtitles_transcribe')
 }
 export function getSubtitleTranscribeConcurrency(): number {
