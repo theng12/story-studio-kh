@@ -325,7 +325,10 @@ router.post('/projects/:slug/episodes/:code/expression/generate', async (req, re
     const narrationPath = await resolveNarrationOr404(slug, code, res)
     if (!narrationPath) return
     const { parseNarrationDocx } = await import('../lib/docx-parser.js')
-    const { readExpression, writeExpression, markupSectionText, dialectForModel } = await import('../services/audio-expression.js')
+    const {
+      readExpression, writeExpression, markupSectionText, dialectForModel,
+      expressionTagConcurrency, mapExpressionConcurrent,
+    } = await import('../services/audio-expression.js')
     const dialect = dialectForModel(req.body?.audio_model) || 'fish'
     const parsed = await parseNarrationDocx(narrationPath)
     const targets = requestedSlugs && requestedSlugs.length
@@ -341,9 +344,10 @@ router.post('/projects/:slug/episodes/:code/expression/generate', async (req, re
     // Drop tags from a different dialect so Fish + ElevenLabs tags never mix.
     const reusable = existing && (existing.dialect ?? 'fish') === dialect
     const sectionsOut: Record<string, string> = { ...(reusable ? existing!.sections : {}) }
-    for (const s of targets) {
+    const concurrency = await expressionTagConcurrency(model, targets.length)
+    await mapExpressionConcurrent(targets, concurrency, async (s) => {
       sectionsOut[s.slug] = await markupSectionText(model, s.text, apiKeys, slug, dialect)
-    }
+    })
     const generated_at = new Date().toISOString()
     await writeExpression(narrationPath, { schema_version: 1, model, dialect, generated_at, sections: sectionsOut })
     const sections = parsed.map(s => ({ slug: s.slug, label: s.label, original: s.text, expressive: sectionsOut[s.slug] || '' }))

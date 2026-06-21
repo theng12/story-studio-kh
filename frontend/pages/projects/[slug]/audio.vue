@@ -278,6 +278,7 @@
         <label>Expression <span class="field-hint">— emotion &amp; performance tags</span></label>
         <FishExpressionPanel
           v-model="form.use_expression"
+          v-model:expression-model="form.expression_model"
           :project-slug="slug"
           :episode-id="form.episode_id || null"
           :audio-model="form.model"
@@ -488,6 +489,9 @@ const form = reactive({
   generation_mode: 'skip' as 'skip' | 'regenerate' | 'new_version',
   // Fish Audio S2-Pro only — render the saved expressive (tagged) narration.
   use_expression: false,
+  // Text LLM used to insert emotion/performance tags. Saved with the audio
+  // preset so unattended Pipeline runs use the same local/cloud choice.
+  expression_model: 'deepseek-v4-flash',
   // Fish Audio delivery controls. 0.8 starts a touch above Fish's own 0.7
   // default for livelier (less monotone) delivery; autopace inserts pause tags
   // so the voice doesn't rush through periods.
@@ -503,7 +507,7 @@ useRememberedForm('audio', slug, form, {
   // v1.0.314 — max_chunk_chars removed from the allowlist. It's no longer
   // user-settable on this page (per-model cap lives in Settings), so there's
   // nothing to remember.
-  include: ['model', 'voice', 'speed', 'stability', 'similarity', 'generation_mode', 'fish_temperature', 'fish_autopace'],
+  include: ['model', 'voice', 'speed', 'stability', 'similarity', 'generation_mode', 'fish_temperature', 'fish_autopace', 'expression_model'],
 })
 
 // v1.0.150+ — resolve the provider of the currently-picked audio model so

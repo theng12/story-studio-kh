@@ -283,7 +283,10 @@ export async function generateAudio(job: Job): Promise<void> {
   // tags are generated/reused in THAT model's dialect so Fish tags never reach
   // ElevenLabs (or vice versa), which would otherwise be read aloud.
   if (req.use_expression === true) {
-    const { dialectForModel, readExpression, writeExpression, markupSectionText } = await import('../services/audio-expression.js')
+    const {
+      dialectForModel, readExpression, writeExpression, markupSectionText,
+      expressionTagConcurrency, mapExpressionConcurrent,
+    } = await import('../services/audio-expression.js')
     const exprDialect = dialectForModel(req.model)
     if (exprDialect) {
       const expr = await readExpression(narrationPath)
@@ -299,19 +302,22 @@ export async function generateAudio(job: Job): Promise<void> {
       }
       let applied = 0
       let generated = 0
+      const missing = allSections.filter(s => !(typeof sectionsOut[s.slug] === 'string' && sectionsOut[s.slug].trim()))
+      const concurrency = await expressionTagConcurrency(markupModel, missing.length)
+      if (missing.length) {
+        job.output_lines.push(`Expression (${exprDialect}): tagging ${missing.length} section(s) at concurrency ${concurrency}.`)
+      }
+      await mapExpressionConcurrent(missing, concurrency, async (s) => {
+        try {
+          job.output_lines.push(`Expression (${exprDialect}): auto-tagging "${s.label}" with ${markupModel}…`)
+          sectionsOut[s.slug] = await markupSectionText(markupModel, s.text, apiKeys, project_slug, exprDialect)
+          generated++
+        } catch (e: any) {
+          job.output_lines.push(`  ⚠ auto-tag failed for ${s.label} (${e?.message || e}) — using plain text`)
+        }
+      })
       for (const s of allSections) {
         let tagged = sectionsOut[s.slug]
-        if (!(typeof tagged === 'string' && tagged.trim())) {
-          try {
-            job.output_lines.push(`Expression (${exprDialect}): auto-tagging "${s.label}" with ${markupModel}…`)
-            tagged = await markupSectionText(markupModel, s.text, apiKeys, project_slug, exprDialect)
-            sectionsOut[s.slug] = tagged
-            generated++
-          } catch (e: any) {
-            job.output_lines.push(`  ⚠ auto-tag failed for ${s.label} (${e?.message || e}) — using plain text`)
-            tagged = ''
-          }
-        }
         if (typeof tagged === 'string' && tagged.trim()) { s.text = tagged; applied++ }
       }
       if (generated > 0) {

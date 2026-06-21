@@ -98,10 +98,15 @@ const props = defineProps<{
   episodeId: string | null
   /** Bound to form.use_expression. */
   modelValue: boolean
+  /** Text model used to write the expression tags. */
+  expressionModel?: string
   /** The selected audio (TTS) model — picks the tag dialect. */
   audioModel?: string
 }>()
-defineEmits<{ (e: 'update:modelValue', v: boolean): void }>()
+const emit = defineEmits<{
+  (e: 'update:modelValue', v: boolean): void
+  (e: 'update:expressionModel', v: string): void
+}>()
 
 const { get, post, put } = useApi()
 
@@ -115,7 +120,10 @@ const dialectLabel = computed(() => dialect.value === 'elevenlabs' ? 'ElevenLabs
 // configured provider (DeepSeek, OpenAI/ChatGPT, OpenRouter, kie Claude/GPT/
 // Gemini, LM Studio) is offered, grouped + labelled. Models without a key show
 // disabled. Defaults to the cheap DeepSeek Flash when it's available.
-const markupModel = ref('deepseek-v4-flash')
+const markupModel = computed<string>({
+  get: () => props.expressionModel || 'deepseek-v4-flash',
+  set: (value) => emit('update:expressionModel', value),
+})
 const modelGroups = ref<Array<{ provider: string; label: string; items: ModelRow[] }>>([])
 const PROV_ORDER = ['deepseek', 'openrouter', 'openai', 'kie', 'lmstudio']
 

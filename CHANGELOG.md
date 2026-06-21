@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.445 — 2026-06-21
+
+**Faster: Audio expression tagging now runs chapters concurrently and can spread local work across the LM Studio server pool.** Abiding Faith's three short prayer sections previously tagged one after another, so the least-busy local dispatcher never had simultaneous requests to distribute. Local models now use the machine's configured text concurrency (up to the number of chapters), while cloud models remain capped at three parallel requests. Background Tag All still saves each completed chapter through a serialized sidecar write, and hands-off Audio/Pipeline tagging uses the same bounded worker pool. The expression-tagging model is now part of the Audio preset, so selecting Gemma and saving the preset also carries that choice into unattended Pipeline audio instead of falling back to DeepSeek.
+
 ## v1.0.444 — 2026-06-21
 
 **Fixed: Metadata presets did not save or restore their AI model.** The preset name could say Local or DeepSeek, but only the description sections and title settings were stored; batch generation then hardcoded `deepseek-v4-flash` regardless of the model shown on the Metadata page. New and re-saved presets now include the shared AI model, Apply restores it in the picker, and Pipeline jobs use that saved model. Older presets remain valid and keep the existing DeepSeek fallback until re-saved.

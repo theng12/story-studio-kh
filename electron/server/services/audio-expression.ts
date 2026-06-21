@@ -17,6 +17,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { callAi } from '../lib/ai-client.js'
 import type { Job } from '../models/types.js'
+import { getScriptConcurrency } from './app-settings.js'
 
 /** Filename of the per-episode sidecar, stored next to the narration file. */
 export const EXPRESSION_SIDECAR = 'audio_expression.json'
@@ -164,6 +165,33 @@ export async function markupSectionText(
   return trimmed.length ? trimmed : sectionText
 }
 
+/** Local endpoint pools can use the machine's full text concurrency. Cloud
+ * providers stay at three parallel calls to avoid provider rate-limit bursts. */
+export async function expressionTagConcurrency(model: string, itemCount: number): Promise<number> {
+  const configured = await getScriptConcurrency()
+  const providerCap = model.startsWith('lmstudio:') ? configured : Math.min(configured, 3)
+  return Math.max(1, Math.min(itemCount, providerCap))
+}
+
+/** Small bounded worker pool shared by background Tag All and audio auto-tag. */
+export async function mapExpressionConcurrent<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out = new Array<R>(items.length)
+  let next = 0
+  const run = async () => {
+    while (true) {
+      const index = next++
+      if (index >= items.length) return
+      out[index] = await worker(items[index]!, index)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, run))
+  return out
+}
+
 export interface ExpressionMarkupParams {
   episode_id: string
   title?: string
@@ -207,23 +235,33 @@ export async function runExpressionMarkupJob(job: Job): Promise<void> {
     openai_api_key: (config as any).openai_api_key,
     kie_api_key: (config as any).kie_api_key,
   }
-  job.output_lines.push(`Tagging ${targets.length} section(s) with ${model} (${dialect})…`)
+  const concurrency = await expressionTagConcurrency(model, targets.length)
+  job.output_lines.push(`Tagging ${targets.length} section(s) with ${model} (${dialect}) — concurrency ${concurrency}…`)
 
   // If the saved sidecar was tagged in a DIFFERENT dialect, don't carry its
   // tags forward — start fresh so we never mix Fish + ElevenLabs tags.
   const existing = await readExpression(narrationPath)
   const reusable = existing && (existing.dialect ?? 'fish') === dialect
   const sectionsOut: Record<string, string> = { ...(reusable ? existing!.sections : {}) }
-  for (let i = 0; i < targets.length; i++) {
-    if (isCancelled(job.job_id)) { job.output_lines.push('Cancelled by user.'); return }
-    const s = targets[i]!
-    job.output_lines.push(`  ${s.label} (${i + 1}/${targets.length})`)
-    sectionsOut[s.slug] = await markupSectionText(model, s.text, apiKeys, job.project_slug, dialect)
-    // Persist after every section so partial progress is never lost.
-    await writeExpression(narrationPath, {
-      schema_version: 1, model, dialect, generated_at: new Date().toISOString(), sections: sectionsOut,
-    })
-    job.progress = Math.round(((i + 1) / targets.length) * 100)
-  }
+  let completed = 0
+  let cancelled = false
+  let writeChain = Promise.resolve()
+  await mapExpressionConcurrent(targets, concurrency, async (s, index) => {
+    if (isCancelled(job.job_id)) { cancelled = true; return '' }
+    job.output_lines.push(`  ${s.label} (${index + 1}/${targets.length})`)
+    const tagged = await markupSectionText(model, s.text, apiKeys, job.project_slug, dialect)
+    if (isCancelled(job.job_id)) { cancelled = true; return tagged }
+    sectionsOut[s.slug] = tagged
+    completed++
+    const snapshot = { ...sectionsOut }
+    // Serialize sidecar writes even when LLM requests finish together.
+    writeChain = writeChain.then(() => writeExpression(narrationPath, {
+      schema_version: 1, model, dialect, generated_at: new Date().toISOString(), sections: snapshot,
+    }))
+    await writeChain
+    job.progress = Math.round((completed / targets.length) * 100)
+    return tagged
+  })
+  if (cancelled) { job.output_lines.push('Cancelled by user.'); return }
   job.output_lines.push('Expression markup complete.')
 }
