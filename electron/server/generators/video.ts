@@ -21,6 +21,7 @@ import { resolveSubfolderNames } from '../services/utils.js'
 // folder-resolver (this file used to carry private copies; the ✅-prefix
 // and title-hint semantics moved there verbatim).
 import { findEpisodeDir, findSubfolder as resolveSubfolder } from '../lib/folder-resolver.js'
+import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services/media-root.js'
 import { runFfmpeg, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
@@ -403,11 +404,14 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
   const episodeDir = await findEpisodeDir(outputRoot, code, { titleHint })
   if (!episodeDir) throw new Error(`Episode directory not found for ${code}`)
 
-  const imagesDir = await resolveSubfolder(episodeDir, names.images)
-  const thumbsDir = await resolveSubfolder(episodeDir, names.thumbnails)
-  const audioDir = await resolveSubfolder(episodeDir, names.audio)
-  const mergedAudioDir = await resolveSubfolder(episodeDir, names.merged_audio)
-  const videoDir = await resolveSubfolder(episodeDir, names.video)
+  // Media-aware (Level B): heavy subfolders may live under an external media
+  // root when the project opts in; for non-split projects these resolve to the
+  // same iCloud episodeDir as before (non-creating, null when missing).
+  const imagesDir = await findEpisodeSubfolderDir(slug, code, 'images', episodeDir, names.images)
+  const thumbsDir = await findEpisodeSubfolderDir(slug, code, 'thumbnails', episodeDir, names.thumbnails)
+  const audioDir = await findEpisodeSubfolderDir(slug, code, 'audio', episodeDir, names.audio)
+  const mergedAudioDir = await findEpisodeSubfolderDir(slug, code, 'merged_audio', episodeDir, names.merged_audio)
+  const videoDir = await findEpisodeSubfolderDir(slug, code, 'video', episodeDir, names.video)
 
   const result: ScannedAssets = {
     scenes: [],
@@ -762,7 +766,7 @@ export async function generateVideo(job: Job): Promise<void> {
   const episodeDir = await findEpisodeDir(outputRoot, code, { titleHint })
   if (!episodeDir) throw new Error(`Episode directory not found for ${code}`)
 
-  const videoDir = await resolveSubfolder(episodeDir, names.video) || path.join(episodeDir, names.video)
+  const videoDir = await resolveEpisodeSubfolderDir(project_slug, code, 'video', episodeDir, names.video)
   await fs.mkdir(videoDir, { recursive: true })
 
   // Workstream B — chapter alignment auto-load. When the flag is on

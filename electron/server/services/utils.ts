@@ -87,6 +87,14 @@ export async function resolveEpisodePaths(slug: string, code: string, title: str
 
   const episodeDir = path.join(outputRoot, episodeRel)
 
+  // Level B (opt-in): when `media_root` is set, HEAVY subfolders live under a
+  // separate root (typically an external SSD, off iCloud) mirroring the same
+  // episodeRel; light subfolders stay under output_root. `mediaBase` falls back
+  // to `episodeDir` when media_root is absent or unresolvable here, so the
+  // default path is byte-for-byte unchanged. See services/media-root.ts.
+  const { resolveMediaBase } = await import('./media-root.js')
+  const mediaBase = resolveMediaBase(meta.media_root, episodeRel, outputRoot) ?? episodeDir
+
   const { DEFAULT_SUBFOLDER_NAMES } = await import('../models/types.js')
   const d = DEFAULT_SUBFOLDER_NAMES
   const scriptName = (subfolder.script || d.script).replace('{code}', code)
@@ -100,16 +108,18 @@ export async function resolveEpisodePaths(slug: string, code: string, title: str
   const subtitlesName = (subfolder.subtitles || d.subtitles).replace('{code}', code)
   const videoName = (subfolder.video || d.video).replace('{code}', code)
 
+  // Light artifacts (always under output_root / iCloud).
   const scriptDir = path.join(episodeDir, scriptName)
   const scenePromptsDir = path.join(episodeDir, scenePromptsName)
   const thumbPromptsDir = path.join(episodeDir, thumbPromptsName)
   const metadataDir = path.join(episodeDir, metadataName)
-  const bgDir = path.join(episodeDir, imagesName)
-  const thumbDir = path.join(episodeDir, thumbsName)
-  const audioDir = path.join(episodeDir, audioName)
-  const mergedAudioDir = path.join(episodeDir, mergedAudioName)
   const subtitlesDir = path.join(episodeDir, subtitlesName)
-  const videoDir = path.join(episodeDir, videoName)
+  // Heavy media (under mediaBase when media_root is set; == episodeDir otherwise).
+  const bgDir = path.join(mediaBase, imagesName)
+  const thumbDir = path.join(mediaBase, thumbsName)
+  const audioDir = path.join(mediaBase, audioName)
+  const mergedAudioDir = path.join(mediaBase, mergedAudioName)
+  const videoDir = path.join(mediaBase, videoName)
 
   return {
     output_root: outputRoot,

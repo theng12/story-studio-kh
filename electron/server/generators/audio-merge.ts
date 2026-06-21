@@ -18,6 +18,7 @@ import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
 import { trackChild } from '../services/job-queue.js'
 import { resolveSubfolderNames } from '../services/utils.js'
+import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import { runFfmpeg, getAudioDuration, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
@@ -396,8 +397,11 @@ export async function generateAudioMerge(job: Job): Promise<void> {
   if (!episodeDir) throw new Error(`Episode directory not found for ${code}`)
 
   const mergedAudioName = await resolveMergedAudioName(project_slug, code)
-  const mergedDir = await resolveSubfolder(episodeDir, mergedAudioName)
-    || path.join(episodeDir, mergedAudioName)
+  // Level B (opt-in): merged audio is heavy media — route to the external
+  // media root when configured, else the iCloud episodeDir as before.
+  const mergedBase = (await mediaEpisodeBaseForCode(project_slug, code)) ?? episodeDir
+  const mergedDir = await resolveSubfolder(mergedBase, mergedAudioName)
+    || path.join(mergedBase, mergedAudioName)
   await fs.mkdir(mergedDir, { recursive: true })
 
   // Create temp directory under os.tmpdir() so iCloud doesn't watch the
@@ -1049,8 +1053,11 @@ export async function scanEpisodeAudioAssets(
   const episodeDir = await findEpisodeDir(outputRoot, code)
   if (!episodeDir) throw new Error(`Episode directory not found for ${code}`)
 
-  const audioDir = await resolveSubfolder(episodeDir, names.audio)
-  const mergedAudioDir = await resolveSubfolder(episodeDir, mergedAudioName)
+  // Level B (opt-in): audio + merged audio are heavy — route to the external
+  // media root when configured, else the iCloud episodeDir as before.
+  const mediaBase = (await mediaEpisodeBaseForCode(slug, code)) ?? episodeDir
+  const audioDir = await resolveSubfolder(mediaBase, names.audio)
+  const mergedAudioDir = await resolveSubfolder(mediaBase, mergedAudioName)
 
   const result: ScannedAudioAssets = {
     chapters: [],

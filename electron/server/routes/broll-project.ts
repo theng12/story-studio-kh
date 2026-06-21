@@ -400,10 +400,12 @@ router.post('/projects/:slug/image-pool/materialize', async (req, res) => {
     // Write to the SAME folder scanEpisodeAssets reads (resolveSubfolder may
     // return a "✅ …"-prefixed variant if the user marked it done), so the
     // Scenes editor's scan picks the images up.
-    const { resolveSubfolder } = await import('../lib/folder-resolver.js')
     const { resolveSubfolderNames } = await import('../services/utils.js')
+    const { resolveEpisodeSubfolderDir } = await import('../services/media-root.js')
     const names = await resolveSubfolderNames(slug, episode_id)
-    const imagesDir = await resolveSubfolder(paths.episode_dir, names.images)
+    // Media-aware (Level B): when the project has an external media_root, the
+    // materialized scene_NNNN files land on that root (e.g. SSD), not iCloud.
+    const imagesDir = await resolveEpisodeSubfolderDir(slug, episode_id, 'images', paths.episode_dir, names.images)
     await fsp.mkdir(imagesDir, { recursive: true })
     // Replace any previously-materialized scene_* files so a re-load is clean.
     const existing = await fsp.readdir(imagesDir).catch(() => [] as string[])
@@ -497,10 +499,12 @@ router.post('/projects/:slug/broll/materialize', async (req, res) => {
     const fsp = await import('fs/promises')
     const path = await import('path')
     const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-    const { resolveSubfolder } = await import('../lib/folder-resolver.js')
     const { resolveSubfolderNames } = await import('../services/utils.js')
+    const { resolveEpisodeSubfolderDir } = await import('../services/media-root.js')
     const names = await resolveSubfolderNames(slug, episode_id)
-    const imagesDir = await resolveSubfolder(paths.episode_dir, names.images)
+    // Media-aware (Level B): when the project has an external media_root, the
+    // materialized scene_NNNN files land on that root (e.g. SSD), not iCloud.
+    const imagesDir = await resolveEpisodeSubfolderDir(slug, episode_id, 'images', paths.episode_dir, names.images)
     await fsp.mkdir(imagesDir, { recursive: true })
     // Replace any previously-materialized scene_* files (image OR video) so a
     // re-load is clean.

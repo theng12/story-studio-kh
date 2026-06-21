@@ -24,6 +24,7 @@ import {
   resolveEpisodePathsByCodeWithSidecar,
   resolveSubfolderNames,
 } from './utils.js'
+import { resolveEpisodeSubfolderDir } from './media-root.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
@@ -410,7 +411,7 @@ export async function getVideoStatus(slug: string, episodeId: string): Promise<V
     const names = await resolveSubfolderNames(slug, code)
     const epDir = await findEpisodeDir(outputRoot, code)
     if (!epDir) return { total: 0, present: 0, missing: [] }
-    const videoDir = path.join(epDir, names.video)
+    const videoDir = await resolveEpisodeSubfolderDir(slug, code, 'video', epDir, names.video, false)
     const files = await safeReaddir(videoDir)
     const re = new RegExp(`^${code}_Video(\\d{1,3})_v\\d+\\.mp4$`, 'i')
     const buckets = new Map<number, string[]>()
@@ -442,7 +443,7 @@ export async function getVideoStatus(slug: string, episodeId: string): Promise<V
   const names = await resolveSubfolderNames(slug, code)
   const epDir = await findEpisodeDir(outputRoot, code)
   if (!epDir) return { total: expected.length, present: 0, missing: expected }
-  const videoDir = path.join(epDir, names.video)
+  const videoDir = await resolveEpisodeSubfolderDir(slug, code, 'video', epDir, names.video, false)
 
   const presentFiles = await safeReaddir(videoDir)
   const missing: number[] = []

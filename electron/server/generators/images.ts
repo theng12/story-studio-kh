@@ -162,6 +162,17 @@ export async function resolveImageDirs(projectSlug: string, promptsPath: string,
     }
   } catch { /* fall back to config defaults */ }
 
+  // Level B (opt-in): if the project routes heavy media to an external root,
+  // redirect the image/thumbnail dirs there. Non-split projects keep the
+  // iCloud dirs resolved above (incl. the legacy-name fallbacks).
+  const { mediaEpisodeBaseForCode } = await import('../services/media-root.js')
+  const mediaBase = await mediaEpisodeBaseForCode(projectSlug, code)
+  if (mediaBase) {
+    const { resolveSubfolder } = await import('../lib/folder-resolver.js')
+    bgDir = await resolveSubfolder(mediaBase, bgConfigName)
+    thumbDir = await resolveSubfolder(mediaBase, thumbConfigName)
+  }
+
   return { bgDir, thumbDir, episodeDir }
 }
 

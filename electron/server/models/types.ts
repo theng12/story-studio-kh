@@ -75,6 +75,15 @@ export interface ProjectMeta {
   folder_template: string
   subfolder_names: SubfolderNames
   output_root: string
+  /**
+   * Optional (Level B, opt-in). When set — a portable Named-Root token like
+   * `${MEDIA}` or an absolute path — the HEAVY media subfolders (scene images,
+   * thumbnails, audio, merged audio, final video) are written under this root
+   * instead of `output_root`, while light artifacts stay in the iCloud project
+   * tree. Absent (the default) = everything under `output_root`, unchanged.
+   * See services/media-root.ts + docs/external-media-root-spec.md.
+   */
+  media_root?: string
   created_at: string
   youtube_channel_url?: string
 

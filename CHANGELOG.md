@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.451 — 2026-06-21
+
+### Added — opt-in external media root (foundation): heavy media can live off iCloud
+Projects can now (optionally) keep their **light artifacts** — scripts, metadata, prompts, subtitles, sidecars, `project.json` — in the iCloud project tree while routing **heavy media** — scene images, thumbnails, audio, merged audio, final video — to a separate **media root**, typically an external SSD that isn't iCloud-synced. This stops episodes' 200–300 scene images (~300 MB+/episode) from filling iCloud, and lands b-roll/image-pool "load as scenes" files on the media root instead of duplicating into iCloud.
+
+**Fully opt-in / default-off.** It's enabled per project by a new optional `media_root` in `project.json` — a portable Named-Root token like `${MEDIA}` (resolved per machine via Settings → Named Roots, so the same project works across Macs when you carry the SSD). **With no `media_root` set (the default), behavior is byte-for-byte unchanged** — everything stays under `output_root`. Anyone who wants everything on iCloud does nothing.
+
+This release lands the **foundation** (steps 1–2 of the spec): the media-aware path resolver plus the main content-flow call sites (scene images, audio, merged audio, final video, the asset scan, status, and b-roll/image-pool materialize). The Settings UI, the one-time migration tool for existing episodes, fail-loud "drive not plugged in" preflight, and a few peripheral read sites (AI-video clips, manifest audit, reconciler) are tracked follow-ups. Until those land + a `media_root` is set, no behavior changes. See `docs/external-media-root-spec.md`.
+
+### Files
+- `electron/server/services/media-root.ts` (new — `HEAVY_SUBFOLDERS`, `resolveMediaBase`, `mediaEpisodeBaseForCode`, `resolveEpisodeSubfolderDir`/`findEpisodeSubfolderDir`)
+- `electron/server/services/utils.ts` (`resolveEpisodePaths` routes heavy subfolders through `mediaBase`)
+- `electron/server/models/types.ts` (`ProjectMeta.media_root?`)
+- `electron/server/generators/{video,images,audio,audio-merge}.ts`, `services/asset-status.ts`, `routes/broll-project.ts` (call sites → media-aware)
+- `electron/server/__tests__/media-root.test.ts` (new)
+
+---
+
 ## v1.0.450 — 2026-06-21
 
 **Fixed: manually clicking Re-stitch on the Subtitles page discarded an Audio Assembly intro offset.** Automatic stitching after transcription already measured the merged audio and shifted chapter cues past a prepended intro or music lead-in, but the manual route called the stitcher without that value and overwrote the correct timeline starting at zero. Both paths now share the same episode-level lead-in calculation, and the completion message reports the applied intro offset. Brain Wise EP0012 was repaired to begin captions at `27.989s`, matching its 26-second intro plus 2-second gap and the measured merged-audio timeline.
