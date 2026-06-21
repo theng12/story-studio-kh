@@ -44,6 +44,7 @@ import {
   findScenePromptsFile, findThumbPromptsFile, resolveImageDirs,
 } from '../generators/images.js'
 import { resolveSubfolderNames } from './utils.js'
+import { resolveEpisodeSubfolderDir } from './media-root.js'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import { readManifest as readTaskManifest } from './task-manifest.js'
@@ -262,7 +263,7 @@ async function auditVideo(slug: string, code: string): Promise<StageAudit> {
   if (!epDir) return notStarted('video')
 
   const names = await resolveSubfolderNames(slug, code)
-  const videoDir = path.join(epDir, names.video)
+  const videoDir = await resolveEpisodeSubfolderDir(slug, code, 'video', epDir, names.video, false)
   const manifest = await readTaskManifest(videoDir)
   const expected = Object.keys(manifest.tasks)
   if (expected.length === 0) return notStarted('video', videoDir)

@@ -401,7 +401,10 @@ router.post('/projects/:slug/image-pool/materialize', async (req, res) => {
     // return a "✅ …"-prefixed variant if the user marked it done), so the
     // Scenes editor's scan picks the images up.
     const { resolveSubfolderNames } = await import('../services/utils.js')
-    const { resolveEpisodeSubfolderDir } = await import('../services/media-root.js')
+    const { resolveEpisodeSubfolderDir, assertMediaRootReady } = await import('../services/media-root.js')
+    // Fail loud (clear message) if this project routes media to an external
+    // root that isn't reachable right now, rather than copying into iCloud.
+    await assertMediaRootReady(slug)
     const names = await resolveSubfolderNames(slug, episode_id)
     // Media-aware (Level B): when the project has an external media_root, the
     // materialized scene_NNNN files land on that root (e.g. SSD), not iCloud.
@@ -500,7 +503,10 @@ router.post('/projects/:slug/broll/materialize', async (req, res) => {
     const path = await import('path')
     const paths = await resolveEpisodePaths(slug, episode_id, title || '')
     const { resolveSubfolderNames } = await import('../services/utils.js')
-    const { resolveEpisodeSubfolderDir } = await import('../services/media-root.js')
+    const { resolveEpisodeSubfolderDir, assertMediaRootReady } = await import('../services/media-root.js')
+    // Fail loud (clear message) if this project routes media to an external
+    // root that isn't reachable right now, rather than copying into iCloud.
+    await assertMediaRootReady(slug)
     const names = await resolveSubfolderNames(slug, episode_id)
     // Media-aware (Level B): when the project has an external media_root, the
     // materialized scene_NNNN files land on that root (e.g. SSD), not iCloud.

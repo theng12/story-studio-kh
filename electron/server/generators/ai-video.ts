@@ -16,11 +16,11 @@
  */
 
 import fs from 'fs/promises'
-import { existsSync } from 'fs'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { resolveSubfolderNames, assertBalanceAvailable } from '../services/utils.js'
+import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services/media-root.js'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
 import { downloadVideo } from '../lib/download-video.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
@@ -101,17 +101,9 @@ async function loadSceneImages(slug: string, episodeId: string): Promise<Array<{
   const epDir = await findEpisodeDir(outputRoot, code)
   if (!epDir) return []
 
-  // Find the scene images folder (config-driven, honours ✅ prefix)
-  let imagesDir: string | null = null
-  try {
-    const entries = await fs.readdir(epDir)
-    for (const entry of entries) {
-      if (entry.replace(/^✅\s*/, '') === names.images) {
-        imagesDir = path.join(epDir, entry)
-        break
-      }
-    }
-  } catch {}
+  // Find the scene images folder (media-aware; honours ✅ prefix). Routes to
+  // the external media root for a split project, else the iCloud episode dir.
+  const imagesDir = await findEpisodeSubfolderDir(slug, code, 'images', epDir, names.images)
   if (!imagesDir) return []
 
   const result: Array<{ number: number; path: string }> = []
@@ -216,7 +208,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
   if (!outputRoot) throw new Error('Project directory not found')
   const epDir = await findEpisodeDir(outputRoot, code)
   if (!epDir) throw new Error(`Episode folder not found for ${code}. Create the episode (via script or ideas) first.`)
-  const videoDir = path.join(epDir, names.video)
+  const videoDir = await resolveEpisodeSubfolderDir(project_slug, code, 'video', epDir, names.video)
   await fs.mkdir(videoDir, { recursive: true })
   // Read the per-folder task manifest once so we can attempt free recovery
   // (existing-task poll) before issuing fresh submits. Covers both kie and

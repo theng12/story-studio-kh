@@ -649,7 +649,7 @@ export async function migrateMediaToExternal(
   try {
     mediaRootAbs = resolveAssetPath(String(mediaRootRaw).trim(), outputRoot)
   } catch (e: any) {
-    throw new Error(`Media root ${mediaRootRaw} can't be resolved on this machine — define it in Settings → Named Roots. ${e?.message || ''}`.trim())
+    throw new Error(`Media root ${mediaRootRaw} can't be resolved on this machine — define it in Settings → Named Roots. ${e?.message || ''}`.trim(), { cause: e })
   }
   if (!mediaRootAbs || /^\$\{/.test(mediaRootAbs)) {
     throw new Error(`Media root ${mediaRootRaw} can't be resolved on this machine — define it in Settings → Named Roots.`)
@@ -744,31 +744,14 @@ export async function migrateMediaToExternal(
       }
     }
 
-    // Rewrite scene_plan.json's absolute image_path values to the new images
-    // location (the only persisted media path; everything else self-heals).
-    if (!dryRun) {
-      try {
-        const planPath = path.join(iCloudEpisodeDir, 'scene_plan.json')
-        if (existsSync(planPath)) {
-          const plan = JSON.parse(await fs.readFile(planPath, 'utf-8'))
-          const newImagesDir = destPaths.bg_dir
-          let changed = 0
-          for (const sc of (plan?.scenes || [])) {
-            if (sc && typeof sc.image_path === 'string' && sc.image_path) {
-              const rebased = path.join(newImagesDir, path.basename(sc.image_path))
-              if (rebased !== sc.image_path) { sc.image_path = rebased; changed++ }
-            }
-          }
-          if (changed > 0) {
-            const { writeJsonAtomic } = await import('../lib/atomic-store.js')
-            await writeJsonAtomic(planPath, plan)
-            result.scene_plan_rewrites += changed
-          }
-        }
-      } catch (e: any) {
-        result.errors.push({ episode_code: code, reason: `scene_plan rewrite failed: ${e?.message || e}` })
-      }
-    }
+    // NB: scene_plan.json image_path values are intentionally NOT rewritten.
+    // Those scene-plan / timestamp renders live in `episode_dir/scene_images`
+    // (a flat folder, not one of the named HEAVY subfolders), which this tool
+    // does not move — so the stored paths stay valid. Classic scene images,
+    // thumbnails, and audio (the folders we DO move) self-heal via the
+    // media-aware re-scan, so there's nothing to rewrite. (Routing the
+    // timestamp `scene_images` folder to the media root is a separate, later
+    // change — see docs/external-media-root-spec.md.)
   }
 
   if (!dryRun) {

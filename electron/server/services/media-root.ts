@@ -16,6 +16,7 @@
  * Settings → Named Roots. An absolute path is also accepted.
  */
 
+import { existsSync } from 'fs'
 import path from 'path'
 import { resolveAssetPath } from './path-resolver.js'
 
@@ -104,6 +105,34 @@ export async function mediaEpisodeBaseForCode(slug: string, code: string): Promi
   const mediaBase = path.dirname(paths.bg_dir)
   // No media_root (or unresolvable here) ⇒ bg_dir sits under episode_dir.
   return path.resolve(mediaBase) === path.resolve(paths.episode_dir) ? null : mediaBase
+}
+
+/**
+ * Fail-loud preflight for media-WRITING operations. No-op for projects without
+ * a `media_root` (the default). When media_root IS set, throws a clear,
+ * actionable error if the root can't be resolved on this machine (`${NAME}`
+ * undefined) or the resolved folder doesn't exist (drive unplugged) — so we
+ * never silently write heavy media back into the iCloud tree (split-brain).
+ * Light operations don't call this, so they keep working without the drive.
+ */
+export async function assertMediaRootReady(slug: string): Promise<void> {
+  const pm = await import('./project-manager.js')
+  const meta = await pm.getProject(slug)
+  const raw = (meta as any)?.media_root
+  if (!raw || !String(raw).trim()) return // not a split project — nothing to check
+  const outputRoot = (await pm.getProjectOutputRoot(slug)) || undefined
+  let abs: string
+  try {
+    abs = resolveAssetPath(String(raw).trim(), outputRoot)
+  } catch {
+    throw new Error(`This project's external media root ${raw} isn't defined on this machine. Define ${raw} under Settings → Named Roots (and connect the drive) before generating or rendering media.`)
+  }
+  if (!abs || /^\$\{/.test(abs)) {
+    throw new Error(`This project's external media root ${raw} isn't defined on this machine. Define it under Settings → Named Roots.`)
+  }
+  if (!existsSync(abs)) {
+    throw new Error(`This project's external media root isn't available: ${abs}. Connect the drive (or fix ${raw} under Settings → Named Roots) before generating or rendering media.`)
+  }
 }
 
 async function baseEpisodeDirForKey(

@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.455 — 2026-06-22
+
+### Changed — external media root: fail-loud safety + fuller coverage (polish)
+Polish on the external-media-root feature so a split project behaves correctly everywhere:
+
+- **Fail-loud preflight.** Media-writing jobs (scene/thumbnail images, audio, audio merge, AI video, Video Assembly, B-Roll assemble, timestamp assemble) and the b-roll/image-pool "load as scenes" action now refuse to run with a clear message — "connect the drive / define `${MEDIA}` in Named Roots" — when the project's media root isn't reachable, instead of silently writing media back into iCloud. Light steps (script, metadata, prompts) keep working without the drive.
+- **Peripheral read sites made media-aware.** AI-video clip generation + its scene-image/prompt routes, the manifest audit, and the video reconciler now resolve the images/video folders from the media root too (previously they only checked the iCloud tree).
+- **Migration correctness fix.** The media migration no longer rewrites `scene_plan.json` image paths — those timestamp/continuity renders live in `episode_dir/scene_images` (which the tool doesn't move), so the stored paths stay valid as-is. (Routing that folder to the media root remains a separate, future change.)
+
+Still fully opt-in / default-off.
+
+### Files
+- `electron/server/services/media-root.ts` (`assertMediaRootReady`)
+- `electron/server/boot/executors.ts` (guard media-writing executors)
+- `electron/server/routes/broll-project.ts` (preflight on materialize)
+- `electron/server/generators/ai-video.ts`, `routes/ai-video.ts`, `services/manifest-audit.ts`, `services/video-reconciler.ts` (media-aware resolution)
+- `electron/server/services/storage-audit.ts` (drop incorrect scene_plan rewrite)
+
+---
+
 ## v1.0.454 — 2026-06-21
 
 ### Added — migrate existing media to the external media root (one-click)

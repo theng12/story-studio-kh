@@ -28,6 +28,7 @@ import { readManifest, type TaskManifestEntry } from './task-manifest.js'
 import { findFileCaseInsensitive } from './fs-case-insensitive.js'
 import * as pm from '../services/project-manager.js'
 import { resolveSubfolderNames } from '../services/utils.js'
+import { resolveEpisodeSubfolderDir } from '../services/media-root.js'
 import type { Job } from '../models/types.js'
 
 const KIE_BASE_URL = 'https://api.kie.ai/api/v1'
@@ -224,7 +225,7 @@ async function findVideoDir(slug: string, episodeId: string): Promise<string> {
   }
   const epDir = await walk(outputRoot)
   if (!epDir) throw new Error(`Episode directory not found for ${code}`)
-  return path.join(epDir, names.video)
+  return await resolveEpisodeSubfolderDir(slug, code, 'video', epDir, names.video, false)
 }
 
 export async function reconcileVideos(

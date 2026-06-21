@@ -15,7 +15,8 @@ import { callAi } from '../lib/ai-client.js'
 import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js'
 import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
-import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
+import { resolveEpisodeDir } from '../lib/folder-resolver.js'
+import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services/media-root.js'
 import { getVideoStatus } from '../services/asset-status.js'
 import { BUILT_IN_VIDEO_PROMPTS } from '../models/video-prompts-builtin.js'
 import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-error.js'
@@ -117,7 +118,7 @@ router.post('/projects/:slug/generate/video-prompts/save', async (req, res) => {
     const actualDir = await resolveEpisodeDir(seasonDir, episode_id)
     if (actualDir) episodeDir = actualDir
 
-    const videoDir = await resolveSubfolder(episodeDir, names.video)
+    const videoDir = await resolveEpisodeSubfolderDir(slug, episode_id, 'video', episodeDir, names.video)
     let text = `# Video Prompts\n\n`
     for (const s of (prompts?.scenes || [])) {
       text += `## Scene ${s.number}: ${s.title}\n\n${s.prompt}\n\n`
@@ -227,15 +228,8 @@ router.get('/projects/:slug/:episodeId/scene-images', async (req, res) => {
     const epDir = await walk(outputRoot, 0)
     if (!epDir) return res.json({ images: [] })
 
-    // Find images subfolder
-    let imagesDir: string | null = null
-    const entries = await fs.readdir(epDir).catch(() => [] as string[])
-    for (const entry of entries) {
-      if (entry.replace(/^✅\s*/, '') === names.images) {
-        imagesDir = path.join(epDir, entry)
-        break
-      }
-    }
+    // Find images subfolder (media-aware; honours ✅ prefix).
+    const imagesDir = await findEpisodeSubfolderDir(slug, code, 'images', epDir, names.images)
     if (!imagesDir) return res.json({ images: [] })
 
     const files = await fs.readdir(imagesDir).catch(() => [] as string[])
