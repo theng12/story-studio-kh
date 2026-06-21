@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.450 — 2026-06-21
+
+**Fixed: manually clicking Re-stitch on the Subtitles page discarded an Audio Assembly intro offset.** Automatic stitching after transcription already measured the merged audio and shifted chapter cues past a prepended intro or music lead-in, but the manual route called the stitcher without that value and overwrote the correct timeline starting at zero. Both paths now share the same episode-level lead-in calculation, and the completion message reports the applied intro offset. Brain Wise EP0012 was repaired to begin captions at `27.989s`, matching its 26-second intro plus 2-second gap and the measured merged-audio timeline.
+
 ## v1.0.449 — 2026-06-21
 
 **Fixed: Pipeline chapter expansion could silently drop the Script preset's POV and narrator style after producing the correct outline.** Outline sidecars now lock the selected perspective, custom POV note, and resolved narrator style alongside the model and word targets. Expand Chapters restores those settings before building its system prompt, and the Script page mirrors them back into the visible form and “Locked at outline build” summary instead of showing a misleading format default. This keeps presets such as Brain Wise's second-person immersive narration consistent from outline through every generated or resumed chapter.

@@ -481,11 +481,12 @@ async function transcribePerChapter(
     // before any narration). Read-only against the merged file + sidecar.
     let leadIn = 0
     try {
-      const { computeIntroLeadInSec } = await import('../lib/intro-lead-in.js')
-      const assets = await scanEpisodeAssets(projectSlug, episodeId)
-      const merged = assets.merged_audio[0]?.path || null
-      const sc = JSON.parse(await fs.readFile(path.join(epaths.episode_dir, 'audio_chapters.json'), 'utf-8'))
-      leadIn = await computeIntroLeadInSec(merged, sc.sections || [], typeof sc.gap_duration_s === 'number' ? sc.gap_duration_s : 0)
+      const { computeEpisodeIntroLeadInSec } = await import('../lib/intro-lead-in.js')
+      leadIn = await computeEpisodeIntroLeadInSec(
+        epaths.episode_dir,
+        epaths.merged_audio_dir,
+        code,
+      )
     } catch { /* no merged audio / sidecar — leadIn stays 0 (intro-less timeline) */ }
     const r = await stitchSubtitles({
       episode_dir: epaths.episode_dir,

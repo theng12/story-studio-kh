@@ -22,6 +22,8 @@
  */
 
 import { getAudioDuration } from './ffmpeg-utils.js'
+import fs from 'fs/promises'
+import path from 'path'
 
 /** Σ section durations + (n−1) inter-section gaps. Section durations already
  *  include inter-part chunk silences (see audio-merge v1.0.317). */
@@ -53,6 +55,33 @@ export async function computeIntroLeadInSec(
   const lead = dur - extent
   // Ignore sub-0.3s noise (encoder padding / rounding); round to ms.
   return lead > 0.3 ? Math.round(lead * 1000) / 1000 : 0
+}
+
+/**
+ * Resolve the lead-in directly from an episode's merge folder + sidecar.
+ * Shared by automatic transcription stitching and the manual Re-stitch
+ * button so both paths use identical timing.
+ */
+export async function computeEpisodeIntroLeadInSec(
+  episodeDir: string,
+  mergedAudioDir: string,
+  episodeCode: string,
+): Promise<number> {
+  const sidecar = JSON.parse(
+    await fs.readFile(path.join(episodeDir, 'audio_chapters.json'), 'utf-8'),
+  )
+  const entries = await fs.readdir(mergedAudioDir).catch(() => [] as string[])
+  const code = episodeCode.toLowerCase()
+  const mergedName = entries.find(name => {
+    const lower = name.toLowerCase()
+    return lower.startsWith(`${code}_merged_audio.`) && !lower.endsWith('.icloud')
+  })
+  if (!mergedName) return 0
+  return computeIntroLeadInSec(
+    path.join(mergedAudioDir, mergedName),
+    sidecar.sections || [],
+    typeof sidecar.gap_duration_s === 'number' ? sidecar.gap_duration_s : 0,
+  )
 }
 
 /**

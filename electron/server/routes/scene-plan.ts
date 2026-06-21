@@ -43,10 +43,17 @@ router.post('/projects/:slug/scene-plan/:episodeId/stitch-subtitles', async (req
       mergedAudioDir: paths.merged_audio_dir,
       episodeCode: episodeId.toUpperCase(),
     }).catch(() => null)
+    const { computeEpisodeIntroLeadInSec } = await import('../lib/intro-lead-in.js')
+    const leadIn = await computeEpisodeIntroLeadInSec(
+      paths.episode_dir,
+      paths.merged_audio_dir,
+      episodeId.toUpperCase(),
+    ).catch(() => 0)
     const result = await stitchSubtitles({
       episode_dir: paths.episode_dir,
       subtitles_dir: paths.subtitles_dir,
       episode_code: episodeId.toUpperCase(),
+      lead_in_sec: leadIn,
     })
     res.json(result)
   } catch (e: any) {

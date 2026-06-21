@@ -414,10 +414,13 @@ async function stitchSubtitles(): Promise<void> {
   stitching.value = true
   stitchError.value = ''
   try {
-    const r = await post<{ total_cues: number; total_duration_sec: number; sections: any[] }>(
+    const r = await post<{ total_cues: number; total_duration_sec: number; lead_in_sec: number; sections: any[] }>(
       `/projects/${slug.value}/scene-plan/${episodeId.value}/stitch-subtitles`, {},
     )
-    success(`Stitched ${r.total_cues} cue(s) across ${r.sections?.length ?? '?'} section(s) — ready for Scene Plan.`)
+    success(
+      `Stitched ${r.total_cues} cue(s) across ${r.sections?.length ?? '?'} section(s)` +
+      `${r.lead_in_sec > 0 ? ` with ${r.lead_in_sec.toFixed(1)}s intro offset` : ''} — ready for Scene Plan.`,
+    )
     await loadStitchStatus()
   } catch (e: any) {
     // The stitcher now fails loudly with a diagnostic message (e.g. which
