@@ -332,6 +332,50 @@ function parseOutlineText(text: string): Array<{ title: string; synopsis?: strin
   }).filter(o => o.title)
 }
 
+/**
+ * Resolve the on-disk Script subfolder to write an imported/pasted script or
+ * outline into, preferring the EXISTING episode folder over a freshly built
+ * path.
+ *
+ * `resolveEpisodePaths` constructs the folder name from the *request* title, so
+ * a pasted script whose title differs even slightly from the title the folder
+ * was originally created with (a rename that never reached disk, copy-paste
+ * drift, or a "✅ " done-marker prefix on the folder) would otherwise land in a
+ * brand-new phantom folder right next to the real one — exactly the "it made a
+ * new folder instead of using mine" bug, and a mess at bulk-import scale.
+ *
+ * Fix: match the real folder by `${code} - ` prefix (✅-tolerant) the same way
+ * `image-prompts/save` does, then find/create the Script subfolder inside it.
+ * Only when no folder matches the code do we fall back to creating the computed
+ * path — a genuinely new episode. This converges every writer on one on-disk
+ * folder per episode.
+ */
+async function resolveScriptDirForImport(slug: string, episodeId: string, title: string): Promise<string> {
+  const paths = await resolveEpisodePaths(slug, episodeId, title)
+  const computedEpisodeDir = paths.episode_dir.replace(/\/$/, '')
+  const seasonDir = pathMod.dirname(computedEpisodeDir)
+  const actualDir = await resolveEpisodeDir(seasonDir, episodeId)
+  if (!actualDir) {
+    console.warn(
+      `[script-import] episode ${slug}/${episodeId}: no existing folder under ${seasonDir} ` +
+      `matches "${episodeId} - " prefix — creating "${pathMod.basename(computedEpisodeDir)}". ` +
+      `(Expected when importing a script for an episode whose folder was never generated.)`,
+    )
+    await fs.mkdir(paths.script_dir, { recursive: true })
+    return paths.script_dir
+  }
+  if (actualDir !== computedEpisodeDir) {
+    console.log(
+      `[script-import] episode ${slug}/${episodeId}: request title yielded ` +
+      `"${pathMod.basename(computedEpisodeDir)}" but on-disk folder is ` +
+      `"${pathMod.basename(actualDir)}". Writing into the existing folder.`,
+    )
+  }
+  // Find/create the Script subfolder inside the real episode dir (✅-tolerant,
+  // never duplicates a "✅ "-marked subfolder).
+  return resolveSubfolder(actualDir, pathMod.basename(paths.script_dir), true)
+}
+
 // POST import-script — paste a finished script; written as per-chapter files +
 // the unified narration so Audio/Subtitles/Scene Plan run on it directly.
 router.post('/projects/:slug/episodes/:episodeId/import-script', async (req, res) => {
@@ -343,9 +387,7 @@ router.post('/projects/:slug/episodes/:episodeId/import-script', async (req, res
     const title = typeof req.body?.title === 'string' ? req.body.title : ''
     if (!text.trim()) return res.status(400).json({ detail: 'Paste your script in `text`.' })
 
-    const paths = await resolveEpisodePaths(slug, episodeId, title)
-    const scriptDir = paths.script_dir
-    await fs.mkdir(scriptDir, { recursive: true })
+    const scriptDir = await resolveScriptDirForImport(slug, episodeId, title)
 
     const { splitNarrationIntoChapters, writeChapterFiles, assembleUnifiedNarration } =
       await import('../lib/narration-assembly.js')
@@ -401,12 +443,11 @@ router.post('/projects/:slug/episodes/:episodeId/import-outline', async (req, re
     }
     if (!outline.length) return res.status(400).json({ detail: 'Provide `outline[]` or `text` (one chapter per line).' })
 
-    const paths = await resolveEpisodePaths(slug, episodeId, title)
-    await fs.mkdir(paths.script_dir, { recursive: true })
+    const scriptDir = await resolveScriptDirForImport(slug, episodeId, title)
     const fmt = await getEffectiveFormat(slug).catch(() => null as any)
     const mode = fmt?.id === 'listicle' ? 'listicle' : 'narrative'
     const { writeImportedOutline } = await import('../lib/chunked-narration.js')
-    const sidecar = await writeImportedOutline(paths.script_dir, episodeId, outline, { mode })
+    const sidecar = await writeImportedOutline(scriptDir, episodeId, outline, { mode })
 
     const { episodeStatusCache } = await import('../services/episode-status-cache.js')
     episodeStatusCache.invalidate(slug, episodeId)

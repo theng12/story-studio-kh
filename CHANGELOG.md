@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.448 — 2026-06-21
+
+### Fixed — Pasting/importing a script now writes into the existing episode folder
+When you used **Bring your own → Import script** (or Import outline) in the Script Generator, the destination folder was built from the *title in the form*. If that title didn't exactly match the title the episode folder was created with — a rename that never reached disk, copy-paste drift, or a `✅` done-marker prefix on the folder — the app created a **brand-new phantom folder** next to the real one instead of writing into it. At bulk-import scale that's a folder for every mismatch. Both import endpoints now resolve the real folder by **episode code** (`EP0110 - …`, `✅`-tolerant) the same way the image-prompt save path does, and only create a new folder when no episode matches that code.
+
+### Files
+- `electron/server/routes/scripts.ts` (new `resolveScriptDirForImport` helper used by `import-script` + `import-outline`; matches the on-disk folder by code via `resolveEpisodeDir` + `resolveSubfolder`)
+
+---
+
 ## v1.0.447 — 2026-06-21
 
 **Added: Thumbnail Prompts now combine a shared Visual Style with an independent Thumbnail Treatment.** The same built-in style gallery used by Character Sheet and Scene Plan can now define the artwork medium for thumbnails, while separate Bold Explainer, Cinematic Minimal, Cozy Story, Documentary Impact, and Text-Free Compose starters control composition, title treatment, hierarchy, and title-safe space. Existing Thumbnail Prompt presets save the exact final mix, so styles and treatments can be freely combined without merging thumbnail and scene settings.
