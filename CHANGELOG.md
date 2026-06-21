@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.454 — 2026-06-21
+
+### Added — migrate existing media to the external media root (one-click)
+Completes the external-media-root feature (v1.0.451–452). Settings → Storage → **External media root** now has a **"Migrate existing media here →"** button. It first runs a **dry-run preview** (shows how many files / how much data would move), asks you to confirm, then moves your existing episodes' heavy media — scene images, thumbnails, audio, merged audio, final video — from the project/iCloud tree to the configured media root (e.g. your SSD).
+
+The move is **copy → verify size → delete source** (iCloud→SSD is cross-volume), **resumable** if interrupted (a same-size file already at the destination is skipped), and it rewrites `scene_plan.json` image paths to the new location. Classic scene images, thumbnails, and audio self-heal via the media-aware re-scan, so nothing else needs touching. Fails loud with a clear message if the media root isn't defined on this machine or the drive isn't connected. Still per-project and opt-in.
+
+### Files
+- `electron/server/services/storage-audit.ts` (`migrateMediaToExternal` — dry-run + copy-verify-delete + scene_plan rewrite + cache invalidation)
+- `electron/server/routes/projects.ts` (`POST /projects/:slug/storage/migrate-media-to-external`, `{ dry_run }`)
+- `frontend/pages/projects/[slug]/settings.vue` (Migrate button → dry-run preview → confirm → run, with a result summary)
+
+---
+
 ## v1.0.453 — 2026-06-21
 
 ### Fixed — Stale test for unapproved Scene Plan renders

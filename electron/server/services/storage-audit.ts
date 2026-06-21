@@ -600,3 +600,191 @@ export async function migrateFinalsToExternal(slug: string): Promise<{
 
   return { moved, errors, bytes_moved: bytesMoved }
 }
+
+// ── External media root migration (Level B) ──────────────────────────────────
+
+export interface MediaMigrationResult {
+  dry_run: boolean
+  /** Per heavy-subfolder summary of what moved (or would move, on dry-run). */
+  folders: Array<{ episode_code: string; key: string; from: string; to: string; files: number; bytes: number }>
+  /** scene_plan.json image_path values rewritten to the new media location. */
+  scene_plan_rewrites: number
+  errors: Array<{ episode_code: string; reason: string }>
+  bytes_moved: number
+  files_moved: number
+}
+
+/**
+ * Move a project's existing HEAVY media subfolders (scene images, thumbnails,
+ * audio, merged audio, final video) from the iCloud/project tree to the
+ * configured `media_root` (e.g. an external SSD). iCloud→SSD is cross-volume,
+ * so this is copy-verify-delete; it's resumable (a same-size file already at the
+ * destination is treated as done) and reversible (clear media_root + run again
+ * after swapping the source, or move the folders back by hand).
+ *
+ * Only `scene_plan.json`'s absolute `image_path` values need rewriting after the
+ * move — classic scene images, thumbnails, and audio all self-heal via the
+ * media-aware re-scan. Pass `{ dryRun: true }` to preview counts/bytes without
+ * touching anything.
+ */
+export async function migrateMediaToExternal(
+  slug: string,
+  opts: { dryRun?: boolean } = {},
+): Promise<MediaMigrationResult> {
+  const dryRun = !!opts.dryRun
+  const meta = await pm.getProject(slug)
+  if (!meta) throw new Error('Project not found')
+  const mediaRootRaw = (meta as any).media_root
+  if (!mediaRootRaw || !String(mediaRootRaw).trim()) {
+    throw new Error('No external media root is configured for this project. Set it in Settings → Storage first.')
+  }
+  const outputRoot = await pm.getProjectOutputRoot(slug)
+  if (!outputRoot) throw new Error('Project output root not found')
+
+  // Resolve the media root up front so an undefined ${NAME} or unplugged drive
+  // fails loud here, rather than silently no-op'ing (resolveEpisodePaths would
+  // fall back to the iCloud tree, making source === dest and migrating nothing).
+  const { resolveAssetPath } = await import('./path-resolver.js')
+  let mediaRootAbs: string
+  try {
+    mediaRootAbs = resolveAssetPath(String(mediaRootRaw).trim(), outputRoot)
+  } catch (e: any) {
+    throw new Error(`Media root ${mediaRootRaw} can't be resolved on this machine — define it in Settings → Named Roots. ${e?.message || ''}`.trim())
+  }
+  if (!mediaRootAbs || /^\$\{/.test(mediaRootAbs)) {
+    throw new Error(`Media root ${mediaRootRaw} can't be resolved on this machine — define it in Settings → Named Roots.`)
+  }
+
+  const { findEpisodeDir, findSubfolder } = await import('../lib/folder-resolver.js')
+  const { resolveSubfolderNames } = await import('./utils.js')
+
+  const HEAVY: Array<{ key: string; destField: keyof EpisodePathsLike }> = [
+    { key: 'images', destField: 'bg_dir' },
+    { key: 'thumbnails', destField: 'thumb_dir' },
+    { key: 'audio', destField: 'audio_dir' },
+    { key: 'merged_audio', destField: 'merged_audio_dir' },
+    { key: 'video', destField: 'video_dir' },
+  ]
+
+  const result: MediaMigrationResult = {
+    dry_run: dryRun, folders: [], scene_plan_rewrites: 0, errors: [], bytes_moved: 0, files_moved: 0,
+  }
+  const ideas = await im.getIdeas(slug, 'accepted')
+
+  for (const idea of ideas) {
+    const code = idea.episode_code
+    if (!code) continue
+    const title = idea.title || ''
+    let iCloudEpisodeDir: string | null
+    let destPaths: EpisodePathsLike
+    try {
+      iCloudEpisodeDir = await findEpisodeDir(outputRoot, code, { titleHint: title })
+      destPaths = await resolveEpisodePaths(slug, code, title) as unknown as EpisodePathsLike
+    } catch (e: any) {
+      result.errors.push({ episode_code: code, reason: e?.message || 'path resolve failed' })
+      continue
+    }
+    if (!iCloudEpisodeDir) continue
+    const names = await resolveSubfolderNames(slug, code) as unknown as Record<string, string>
+
+    for (const { key, destField } of HEAVY) {
+      const subName = names[key]
+      const destDir = destPaths[destField]
+      if (!subName || !destDir) continue
+      let sourceDir: string | null
+      try { sourceDir = await findSubfolder(iCloudEpisodeDir, subName) } catch { sourceDir = null }
+      if (!sourceDir) continue
+      // Nothing to do if dest is the same place (media root inactive) or if the
+      // source already lives outside the project tree (already migrated).
+      if (path.resolve(sourceDir) === path.resolve(destDir)) continue
+      if (!path.resolve(sourceDir).startsWith(path.resolve(outputRoot))) continue
+
+      let files: string[]
+      try { files = await fs.readdir(sourceDir) } catch { continue }
+      let folderBytes = 0
+      let folderFiles = 0
+      if (!dryRun) {
+        try { await fs.mkdir(destDir, { recursive: true }) } catch (e: any) {
+          result.errors.push({ episode_code: code, reason: `mkdir ${destDir} failed: ${e?.message || e}` })
+          continue
+        }
+      }
+      for (const name of files) {
+        const from = path.join(sourceDir, name)
+        let st
+        try { st = await fs.stat(from) } catch { continue }
+        if (!st.isFile()) continue   // heavy subfolders are flat; skip stray dirs
+        folderBytes += st.size
+        folderFiles++
+        if (dryRun) continue
+        const to = path.join(destDir, name)
+        try {
+          // Resumable: a same-size file already at the dest counts as copied.
+          let needCopy = true
+          try { if ((await fs.stat(to)).size === st.size) needCopy = false } catch { /* not there */ }
+          if (needCopy) {
+            await fs.copyFile(from, to)
+            if ((await fs.stat(to)).size !== st.size) {
+              result.errors.push({ episode_code: code, reason: `size mismatch copying ${name}` })
+              continue
+            }
+          }
+          await fs.rm(from, { force: true })
+          result.bytes_moved += st.size
+          result.files_moved++
+        } catch (e: any) {
+          result.errors.push({ episode_code: code, reason: `move ${name} failed: ${e?.message || e}` })
+        }
+      }
+      if (folderFiles > 0) {
+        result.folders.push({ episode_code: code, key, from: sourceDir, to: destDir, files: folderFiles, bytes: folderBytes })
+      }
+      if (!dryRun) {
+        try { if (!(await fs.readdir(sourceDir)).length) await fs.rmdir(sourceDir) } catch { /* keep non-empty */ }
+      }
+    }
+
+    // Rewrite scene_plan.json's absolute image_path values to the new images
+    // location (the only persisted media path; everything else self-heals).
+    if (!dryRun) {
+      try {
+        const planPath = path.join(iCloudEpisodeDir, 'scene_plan.json')
+        if (existsSync(planPath)) {
+          const plan = JSON.parse(await fs.readFile(planPath, 'utf-8'))
+          const newImagesDir = destPaths.bg_dir
+          let changed = 0
+          for (const sc of (plan?.scenes || [])) {
+            if (sc && typeof sc.image_path === 'string' && sc.image_path) {
+              const rebased = path.join(newImagesDir, path.basename(sc.image_path))
+              if (rebased !== sc.image_path) { sc.image_path = rebased; changed++ }
+            }
+          }
+          if (changed > 0) {
+            const { writeJsonAtomic } = await import('../lib/atomic-store.js')
+            await writeJsonAtomic(planPath, plan)
+            result.scene_plan_rewrites += changed
+          }
+        }
+      } catch (e: any) {
+        result.errors.push({ episode_code: code, reason: `scene_plan rewrite failed: ${e?.message || e}` })
+      }
+    }
+  }
+
+  if (!dryRun) {
+    try {
+      const { episodeStatusCache } = await import('./episode-status-cache.js')
+      episodeStatusCache.invalidateProject(slug)
+    } catch { /* non-fatal */ }
+  }
+  return result
+}
+
+/** Subset of EpisodePaths this migration reads (avoids importing the full type). */
+interface EpisodePathsLike {
+  bg_dir: string
+  thumb_dir: string
+  audio_dir: string
+  merged_audio_dir: string
+  video_dir: string
+}

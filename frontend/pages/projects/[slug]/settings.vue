@@ -1037,11 +1037,32 @@
           {{ mediaRootStatus }}
         </p>
         <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
-          ⚠ Advanced &amp; experimental. <strong>Existing media isn't moved automatically yet</strong> —
-          new media for this project is written here going forward; a one-click migration
-          for existing episodes is coming. Keep the drive connected when generating
-          images/audio or rendering.
+          ⚠ Advanced &amp; experimental. New media is written here going forward. To move your
+          <strong>existing</strong> episodes' media onto this root, use the button below.
+          Keep the drive connected during generation / rendering / migration.
         </p>
+        <div class="external-root-row" style="margin-top: 8px;">
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="!mediaRootSavedValue || mediaMigrateRunning || mediaRootInput.trim() !== mediaRootSavedValue"
+            :title="!mediaRootSavedValue ? 'Save a media root first' : (mediaRootInput.trim() !== mediaRootSavedValue ? 'Save your change first' : 'Preview, then move existing media to the media root')"
+            @click="migrateMediaToRoot"
+          >
+            {{ mediaMigrateRunning ? 'Migrating…' : 'Migrate existing media here →' }}
+          </button>
+        </div>
+        <div v-if="lastMediaMigration" class="storage-result">
+          <strong>Media migration:</strong>
+          {{ lastMediaMigration.files_moved }} file(s) moved
+          ({{ formatBytes(lastMediaMigration.bytes_moved) }} off the project tree)
+          across {{ lastMediaMigration.folders.length }} folder(s).
+          <span v-if="lastMediaMigration.scene_plan_rewrites">
+            {{ lastMediaMigration.scene_plan_rewrites }} scene-plan path(s) updated.
+          </span>
+          <span v-if="lastMediaMigration.errors.length" class="error-text">
+            {{ lastMediaMigration.errors.length }} error(s): {{ lastMediaMigration.errors[0]?.reason }}
+          </span>
+        </div>
       </div>
 
       <!-- ── Per-episode storage breakdown ───────────────────────── -->
@@ -3426,6 +3447,14 @@ interface MigrationResult {
   errors: Array<{ episode_code: string; reason: string }>
   bytes_moved: number
 }
+interface MediaMigrationResult {
+  dry_run: boolean
+  folders: Array<{ episode_code: string; key: string; from: string; to: string; files: number; bytes: number }>
+  scene_plan_rewrites: number
+  errors: Array<{ episode_code: string; reason: string }>
+  bytes_moved: number
+  files_moved: number
+}
 interface CleanupResult {
   deleted_count: number; skipped_count: number; failed_count: number
   bytes_freed: number
@@ -3457,6 +3486,8 @@ const mediaRootSaving = ref(false)
 const mediaRootChecking = ref(false)
 const mediaRootStatus = ref('')
 const mediaRootOk = ref(false)
+const mediaMigrateRunning = ref(false)
+const lastMediaMigration = ref<MediaMigrationResult | null>(null)
 const lastMigration = ref<MigrationResult | null>(null)
 const bulkRunning = ref(false)
 const lastBulkCleanup = ref<CleanupResult | null>(null)
@@ -3844,6 +3875,40 @@ async function runMigration() {
     alert(e?.data?.detail || e?.message || 'Migration failed')
   } finally {
     migrateRunning.value = false
+  }
+}
+
+// Move existing HEAVY media to the project's media root. Previews via a dry-run
+// first, shows the totals in a confirm, then executes for real.
+async function migrateMediaToRoot() {
+  if (!mediaRootSavedValue.value) { showError('Set + save an external media root first.'); return }
+  if (mediaRootInput.value.trim() !== mediaRootSavedValue.value) { showError('Save your media root change before migrating.'); return }
+  mediaMigrateRunning.value = true
+  try {
+    const plan = await post<MediaMigrationResult>(
+      `/projects/${slug.value}/storage/migrate-media-to-external`, { dry_run: true },
+    )
+    const totalFiles = plan.folders.reduce((s, f) => s + f.files, 0)
+    const totalBytes = plan.folders.reduce((s, f) => s + f.bytes, 0)
+    if (totalFiles === 0) { info('Nothing to migrate — no media found in the project tree.'); return }
+    const ok = confirm(
+      `Move ${totalFiles} media file(s) (${formatBytes(totalBytes)}) across ${plan.folders.length} folder(s) ` +
+      `from the project tree to:\n\n${mediaRootSavedValue.value}\n\n` +
+      `Files are copied, verified, then removed from the project tree. ` +
+      `Keep the drive connected until it finishes. This is resumable if interrupted.`,
+    )
+    if (!ok) return
+    const r = await post<MediaMigrationResult>(
+      `/projects/${slug.value}/storage/migrate-media-to-external`, { dry_run: false },
+    )
+    lastMediaMigration.value = r
+    if (r.errors.length) showError(`Migrated with ${r.errors.length} error(s) — see details below.`)
+    else success(`Migrated ${r.files_moved} file(s) (${formatBytes(r.bytes_moved)}) to the media root.`)
+    if (storage.value) await loadStorageAudit()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Media migration failed')
+  } finally {
+    mediaMigrateRunning.value = false
   }
 }
 

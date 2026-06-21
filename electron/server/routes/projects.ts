@@ -668,3 +668,18 @@ router.post('/projects/:slug/storage/migrate-finals-to-external', async (req, re
     res.status(status).json(humanizeBackendError(e, 'Migration failed'))
   }
 })
+
+// Level B — move existing HEAVY media (images/thumbnails/audio/merged/video)
+// to the project's configured media_root. `{ dry_run: true }` previews only.
+router.post('/projects/:slug/storage/migrate-media-to-external', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const dryRun = req.body?.dry_run === true
+    const { migrateMediaToExternal } = await import('../services/storage-audit.js')
+    const result = await migrateMediaToExternal(req.params.slug, { dryRun })
+    res.json(result)
+  } catch (e: any) {
+    const status = /not configured|can't be resolved|not found/i.test(e?.message || '') ? 400 : 500
+    res.status(status).json(humanizeBackendError(e, 'Media migration failed'))
+  }
+})
