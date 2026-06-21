@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.447 — 2026-06-21
+
+**Added: Thumbnail Prompts now combine a shared Visual Style with an independent Thumbnail Treatment.** The same built-in style gallery used by Character Sheet and Scene Plan can now define the artwork medium for thumbnails, while separate Bold Explainer, Cinematic Minimal, Cozy Story, Documentary Impact, and Text-Free Compose starters control composition, title treatment, hierarchy, and title-safe space. Existing Thumbnail Prompt presets save the exact final mix, so styles and treatments can be freely combined without merging thumbnail and scene settings.
+
+**Added: Thumbnail Generator can adapt an external thumbnail through img2img.** Upload a reference thumbnail, choose loose, balanced, or strong structural influence, and optionally attach matching character references. The renderer borrows visual grammar such as framing, hierarchy, palette, lighting, contrast, and title-safe spacing while explicitly replacing the source people, objects, wording, logos, branding, and story content. References are stored inside the episode as `img2img-references/thumbnail.png`, keeping them project-portable across Macs and separate from Scene Generator's master reference.
+
 ## v1.0.446 — 2026-06-21
 
 **Expanded: every generator concurrency control can now be raised to 50 without changing existing defaults.** Text/LLM jobs and expression tagging were capped at 8, video at 8, Audio settings reloaded values above 15 back down, and subtitle queue plumbing capped cross-job transcription at 3. Those ceilings now accept up to 50, matching the existing Image, Audio runtime, Subtitle per-job, and continuity-render pools. Defaults remain conservative: Text 2, Images 5, Audio 3, Video 2, and Subtitles Auto. Expression tagging now follows the selected global text concurrency for both local and cloud models, so a 12–15 chapter project can tag more than three chapters concurrently when configured.

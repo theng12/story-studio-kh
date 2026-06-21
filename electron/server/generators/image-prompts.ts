@@ -244,7 +244,8 @@ function buildThumbnailDirective(opts: {
   const lines: string[] = []
   lines.push(
     `THUMBNAIL ART DIRECTION — the thumbnail is the single most important asset for click-through. ` +
-    `It is a COVER, not a scene still: do NOT reuse the scene style tag for thumbnails. Follow the direction below.`,
+    `It is a COVER, not a scene still. Preserve the selected visual style as the artwork medium, ` +
+    `then apply the thumbnail-specific composition and title treatment below.`,
   )
   lines.push(
     `THUMBNAIL GOAL: design a professional YouTube cover that feels intentional, premium, and instantly clickable. ` +

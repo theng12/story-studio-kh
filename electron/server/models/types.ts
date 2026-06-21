@@ -2119,6 +2119,17 @@ export interface GenerateImagesRequest {
    * stored prompt. Ignored for scenes.
    */
   extra_details?: string
+  /** Thumbnail img2img adaptation strength. Strong preserves more layout,
+   *  loose uses the source as broad inspiration. */
+  reference_strength?: 'loose' | 'balanced' | 'strong'
+  image_mode?: 'text2img' | 'img2img'
+  reference_sources?: {
+    master?: boolean
+    per_scene?: boolean
+    characters?: boolean
+    chain?: boolean
+    thumbnail?: boolean
+  }
 }
 
 export interface GenerateAudioRequest {

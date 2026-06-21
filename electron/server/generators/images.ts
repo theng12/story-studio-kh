@@ -36,6 +36,23 @@ import fs from 'fs/promises'
 // worker count can grow back when a machine comes online.
 const POOL_REPROBE_MS = 20_000
 
+export type ThumbnailReferenceStrength = 'loose' | 'balanced' | 'strong'
+
+export function thumbnailReferenceGuidance(strength: ThumbnailReferenceStrength): string {
+  return {
+    loose:
+      'Use the attached thumbnail only as loose inspiration for mood, palette, contrast, and visual energy. Create a clearly new composition for this episode. Do not copy its people, objects, words, logo, branding, or story details.',
+    balanced:
+      'Adapt the attached thumbnail’s composition, focal hierarchy, camera distance, color balance, lighting, contrast, and title-safe negative space to this episode. Replace all original people, objects, words, branding, and story details with the prompt content.',
+    strong:
+      'Closely follow the attached thumbnail’s structural layout, framing, subject scale, focal hierarchy, lighting pattern, contrast, and title-safe spacing, while fully replacing its people, objects, text, logo, branding, and narrative content with this episode.',
+  }[strength]
+}
+
+export function thumbnailReferenceStrengthValue(strength: ThumbnailReferenceStrength): number {
+  return { loose: 0.3, balanced: 0.6, strong: 0.85 }[strength]
+}
+
 /**
  * Search recursively for a file matching any of the candidate filenames.
  * Returns the first match found.
@@ -376,13 +393,20 @@ export async function generateImages(job: Job): Promise<void> {
     // unchanged — character refs are auto-attached as today.
     characters: imageMode === 'img2img' ? refSourcesRaw.characters !== false : true,
     chain: imageMode === 'img2img' && !!refSourcesRaw.chain,
+    thumbnail: imageMode === 'img2img' && !!refSourcesRaw.thumbnail,
   }
+  const referenceStrength: ThumbnailReferenceStrength = (req.reference_strength === 'loose' || req.reference_strength === 'strong')
+    ? req.reference_strength
+    : 'balanced'
 
   function img2imgRefsDir(): string {
     return path.join(resolvedEpDir, 'img2img-references')
   }
   function masterRefPath(): string {
     return path.join(img2imgRefsDir(), 'master.png')
+  }
+  function thumbnailRefPath(): string {
+    return path.join(img2imgRefsDir(), 'thumbnail.png')
   }
   function perSceneRefPath(n: number): string {
     return path.join(img2imgRefsDir(), `scene-${String(n).padStart(2, '0')}.png`)
@@ -658,15 +682,27 @@ export async function generateImages(job: Job): Promise<void> {
       const referenceImagePaths = resolveSceneReferenceImages({
         number: thumb.number, prompt: thumb.prompt,
       })
+      if (refSources.thumbnail && existsSync(thumbnailRefPath())) {
+        referenceImagePaths.unshift(thumbnailRefPath())
+      }
       const styleKeywords = resolveSceneStyleKeywords(thumb.prompt)
       // v1.0.416 — optional render-time guidance from the generator tab,
       // appended before style keywords so it influences the image without
       // editing the stored prompt.
       const extra = (req.extra_details || '').trim()
-      const promptWithExtra = extra ? `${thumb.prompt}\n\n${extra}` : thumb.prompt
+      const hasThumbnailReference = refSources.thumbnail && existsSync(thumbnailRefPath())
+      const referenceGuidance = hasThumbnailReference
+        ? thumbnailReferenceGuidance(referenceStrength)
+        : ''
+      const renderGuidance = [extra, referenceGuidance].filter(Boolean).join('\n\n')
+      const promptWithExtra = renderGuidance ? `${thumb.prompt}\n\n${renderGuidance}` : thumb.prompt
       const finalPrompt = applyStyleKeywords(promptWithExtra, styleKeywords)
+      const strengthValue = thumbnailReferenceStrengthValue(referenceStrength)
+      const thumbProviderParams = hasThumbnailReference
+        ? { ...providerParams, image_strength: strengthValue }
+        : providerParams
       const result = await imageProvider!.generateImage({
-        prompt: finalPrompt, apiKey, aspectRatio, modelId: modelName, providerParams,
+        prompt: finalPrompt, apiKey, aspectRatio, modelId: modelName, providerParams: thumbProviderParams,
         width: renderWidth, height: renderHeight,
         referenceImagePaths: referenceImagePaths.length ? referenceImagePaths : undefined,
         isCancelled: () => jq.isCancelled(job.job_id),

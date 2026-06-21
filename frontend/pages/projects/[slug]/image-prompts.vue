@@ -78,8 +78,13 @@
       <!-- Style preset -->
       <div class="grid-2">
         <div class="form-group">
-          <label>Art Style</label>
+          <label>{{ formTab === 'thumbnails' ? 'Visual Style' : 'Art Style' }}</label>
           <select v-model="activeForm.style_preset" class="select" @change="onStyleChange">
+            <optgroup v-if="formTab === 'thumbnails'" label="Shared Style Gallery">
+              <option v-for="style in BUILT_IN_STYLES" :key="style.id" :value="`shared:${style.id}`">
+                {{ style.name }}
+              </option>
+            </optgroup>
             <optgroup label="Built-in Presets">
               <option value="storybook">Storybook Illustration</option>
               <option value="3d-render">3D Render</option>
@@ -97,6 +102,14 @@
             </optgroup>
             <option value="custom">+ Write custom style...</option>
           </select>
+          <button
+            v-if="formTab === 'thumbnails'"
+            type="button"
+            class="btn btn-secondary btn-sm mt-1"
+            @click="showVisualStyleGallery = !showVisualStyleGallery"
+          >
+            {{ showVisualStyleGallery ? 'Hide visual style gallery' : 'Browse visual style gallery…' }}
+          </button>
         </div>
         <div class="form-group">
           <label>Aspect Ratio</label>
@@ -109,6 +122,14 @@
             <option value="21:9">21:9 — Ultrawide</option>
           </select>
         </div>
+      </div>
+
+      <div v-if="formTab === 'thumbnails' && showVisualStyleGallery" class="card mt-2">
+        <StylePicker
+          :slug="slug"
+          :image-models="config?.image_models || {}"
+          @apply="applyThumbnailVisualStyle"
+        />
       </div>
 
       <!-- Style pill — always visible when style_tag has content. Shows
@@ -376,6 +397,15 @@
           <span class="text-muted text-xs">{{ safeThumbCount }} thumbnail variations</span>
         </div>
         <div class="grid-2">
+          <div class="form-group">
+            <label>Thumbnail Treatment</label>
+            <select v-model="form.thumbnail.thumb_treatment_preset" class="select" @change="applyThumbnailTreatment">
+              <option v-for="t in THUMBNAIL_TREATMENTS" :key="t.id" :value="t.id">{{ t.label }}</option>
+            </select>
+            <p class="text-muted text-xs hint-line">
+              A starting recipe for composition and title treatment. Adjust the controls below freely; your Thumbnail Prompt preset saves the final mix.
+            </p>
+          </div>
           <div class="form-group">
             <label>Thumbnail Count</label>
             <input v-model.number="form.thumbnail.thumb_count" class="input" type="number" min="1" max="10" />
@@ -706,6 +736,7 @@
 </template>
 
 <script setup lang="ts">
+import { BUILT_IN_STYLES } from '~/composables/useBuiltInStyles'
 definePageMeta({ layout: 'dashboard' })
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -964,6 +995,7 @@ type SharedFormFields = {
 }
 type ThumbnailForm = SharedFormFields & {
   thumb_count: number
+  thumb_treatment_preset: string
   thumb_text_style: string
   thumb_text_style_custom: string
   thumb_text_position: string
@@ -991,6 +1023,7 @@ const form = reactive({
     character_ids: [] as string[],
     force: false,
     thumb_count: 5,
+    thumb_treatment_preset: 'custom',
     thumb_text_style: 'gold',
     thumb_text_style_custom: '',
     thumb_text_position: 'center',
@@ -1012,6 +1045,68 @@ const form = reactive({
     chapter_count_override: null as number | null,
   } as SceneForm,
 })
+
+const showVisualStyleGallery = ref(false)
+
+const THUMBNAIL_TREATMENTS = [
+  { id: 'custom', label: 'Custom mix' },
+  { id: 'bold-explainer', label: 'Bold Explainer' },
+  { id: 'cinematic-minimal', label: 'Cinematic Minimal' },
+  { id: 'cozy-story', label: 'Cozy Story' },
+  { id: 'documentary-impact', label: 'Documentary Impact' },
+  { id: 'text-free-compose', label: 'Text-Free Compose' },
+] as const
+
+function applyThumbnailVisualStyle(data: { style_bible: string; negative_prompt: string }): void {
+  form.thumbnail.style_preset = 'custom'
+  form.thumbnail.style_tag = data.style_bible || ''
+  showStyleEditor.value = true
+  showVisualStyleGallery.value = false
+  success('Visual style applied to Thumbnail Prompts')
+}
+
+function applyThumbnailTreatment(): void {
+  const id = form.thumbnail.thumb_treatment_preset
+  if (id === 'custom') return
+  const treatments: Record<string, Partial<ThumbnailForm>> = {
+    'bold-explainer': {
+      thumb_title_mode: 'ai',
+      thumb_text_style: 'comic',
+      thumb_font_style: 'display',
+      thumb_text_position: 'center',
+      thumb_art_direction: 'One dominant hero subject at large scale, immediate emotional readability, bold foreground/background separation, high contrast, clean title-safe negative space, energetic YouTube explainer composition.',
+    },
+    'cinematic-minimal': {
+      thumb_title_mode: 'ai',
+      thumb_text_style: 'white',
+      thumb_font_style: 'condensed',
+      thumb_text_position: 'bottom',
+      thumb_art_direction: 'Premium cinematic key art with one unmistakable focal subject, controlled negative space, restrained palette, dramatic directional light, minimal clutter, sophisticated high-contrast title placement.',
+    },
+    'cozy-story': {
+      thumb_title_mode: 'ai',
+      thumb_text_style: 'pastel',
+      thumb_font_style: 'playful',
+      thumb_text_position: 'top',
+      thumb_art_direction: 'Warm inviting storybook thumbnail, friendly expressive focal character, soft depth layers, comforting light, gentle color contrast, uncluttered composition and generous title-safe space.',
+    },
+    'documentary-impact': {
+      thumb_title_mode: 'ai',
+      thumb_text_style: 'shadow',
+      thumb_font_style: 'bold',
+      thumb_text_position: 'bottom',
+      thumb_art_direction: 'High-impact documentary cover with a strong factual focal image, clear visual stakes, dramatic but credible lighting, restrained annotation energy, sharp silhouette separation and mobile-readable hierarchy.',
+    },
+    'text-free-compose': {
+      thumb_title_mode: 'composite',
+      thumb_text_style: 'white',
+      thumb_font_style: 'bold',
+      thumb_text_position: 'center',
+      thumb_art_direction: 'Text-free thumbnail background designed for later title compositing, one strong focal subject, clean uncluttered negative-space region, high subject/background separation and no lettering inside the generated image.',
+    },
+  }
+  Object.assign(form.thumbnail, treatments[id] || {})
+}
 
 // v1.0.259 — remember each tab's prompt settings (model / style / aspect /
 // art-direction / cast) across reloads. `force` is a per-run regenerate flag,
@@ -1661,6 +1756,15 @@ watch(referenceImagePath, (v) => {
 onMounted(() => { void loadPersistedReferencePath() })
 
 function onStyleChange() {
+  if (activeForm.value.style_preset.startsWith('shared:')) {
+    const id = activeForm.value.style_preset.slice('shared:'.length)
+    const style = BUILT_IN_STYLES.find(item => item.id === id)
+    if (style) {
+      activeForm.value.style_tag = style.data.style_bible
+      showStyleEditor.value = true
+    }
+    return
+  }
   if (activeForm.value.style_preset in STYLE_PRESETS) {
     activeForm.value.style_tag = STYLE_PRESETS[activeForm.value.style_preset] || ''
     showStyleEditor.value = false

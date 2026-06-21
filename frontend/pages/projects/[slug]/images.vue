@@ -229,12 +229,15 @@
          + the upload UI for the file-backed sources. Toggles bind to
          activeForm.reference_sources which is sent to the backend on submit. -->
     <Img2ImgReferencesCard
-      v-if="form.mode === 'scenes' && activeForm.image_mode === 'img2img' && form.episode_id"
+      v-if="activeForm.image_mode === 'img2img' && form.episode_id"
       :project-slug="slug"
       :episode-id="form.episode_id"
       :title="ep2imgTitle"
+      :kind="form.mode === 'thumbs' ? 'thumbnail' : 'scene'"
       :value="activeForm.reference_sources"
+      :reference-strength="activeForm.reference_strength"
       @update:value="activeForm.reference_sources = $event"
+      @update:reference-strength="activeForm.reference_strength = $event"
     />
 
     <!-- ── Style Preview card ──────────────────────────────────────────────
@@ -275,6 +278,7 @@
       :image-mode="form.thumbnail.image_mode"
       :tier="form.thumbnail.tier"
       :reference-sources="form.thumbnail.reference_sources"
+      :reference-strength="form.thumbnail.reference_strength"
       :render-width="thumbnailRenderSize?.width"
       :render-height="thumbnailRenderSize?.height"
       :refresh-key="igPanelRefreshKey"
@@ -295,6 +299,7 @@
       :image-mode="form.scene.image_mode"
       :tier="form.scene.tier"
       :reference-sources="form.scene.reference_sources"
+      :reference-strength="form.scene.reference_strength"
       :render-width="sceneRenderSize?.width"
       :render-height="sceneRenderSize?.height"
       :refresh-key="igPanelRefreshKey"
@@ -685,7 +690,7 @@ const specificNum = ref<number | null>(null)
 type Mode = 'scenes' | 'thumbs'
 
 type ImageMode = 'text2img' | 'img2img'
-interface ReferenceSources { master: boolean; per_scene: boolean; characters: boolean; chain: boolean }
+interface ReferenceSources { master: boolean; per_scene: boolean; characters: boolean; chain: boolean; thumbnail: boolean }
 
 // v1.0.88+: form is split into two completely independent per-kind
 // sub-objects (form.thumbnail + form.scene). Each carries its own model,
@@ -707,6 +712,7 @@ type ImagesSubForm = {
   tier: string
   image_mode: ImageMode
   reference_sources: ReferenceSources
+  reference_strength: 'loose' | 'balanced' | 'strong'
   // v1.0.308 — render-size tier for LOCAL Image Studio models (100 = Full,
   // 75 = Balanced, 50 = Light). Scales the aspect's base pixels; cloud models
   // ignore it (they use the aspect string). Default 100 = no change.
@@ -740,7 +746,9 @@ const defaultSubForm = (): ImagesSubForm => ({
     per_scene: false,
     characters: true,
     chain: false,
+    thumbnail: false,
   },
+  reference_strength: 'balanced',
   // Local render size: Full by default so existing behaviour is unchanged.
   render_scale: 100,
 })
@@ -1663,6 +1671,7 @@ async function submit() {
   if (activeForm.value.image_mode === 'img2img') {
     params.image_mode = 'img2img'
     params.reference_sources = { ...activeForm.value.reference_sources }
+    params.reference_strength = activeForm.value.reference_strength
   }
 
   // Send the right optional # field per mode

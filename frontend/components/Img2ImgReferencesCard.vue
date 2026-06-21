@@ -15,10 +15,64 @@
 <template>
   <div class="card mt-2 i2i">
     <div class="i2i-head">
-      <h3 class="i2i-title">🖼️ Reference Images (img2img sources)</h3>
-      <span class="text-muted text-xs">All four sources stack — toggle individually.</span>
+      <h3 class="i2i-title">🖼️ {{ kind === 'thumbnail' ? 'Reference Thumbnail' : 'Reference Images (img2img sources)' }}</h3>
+      <span class="text-muted text-xs">
+        {{ kind === 'thumbnail'
+          ? 'Replicate its visual grammar while adapting the content to this episode.'
+          : 'Reference sources can stack — toggle each one independently.' }}
+      </span>
     </div>
 
+    <template v-if="kind === 'thumbnail'">
+      <div class="i2i-section">
+        <label class="i2i-toggle">
+          <input type="checkbox" :checked="value.thumbnail" @change="setSource('thumbnail', ($event.target as HTMLInputElement).checked)" />
+          <span class="i2i-toggle-label">
+            <strong>Use external thumbnail as reference</strong> — borrow composition, palette, hierarchy, lighting, and title-safe spacing
+          </span>
+        </label>
+        <div v-if="value.thumbnail" class="i2i-section-body">
+          <div class="i2i-dropzone" :class="{ 'has-file': thumbnailUrl }">
+            <img v-if="thumbnailUrl" :src="thumbnailUrl" alt="Reference thumbnail" class="i2i-thumb" />
+            <div class="i2i-dropzone-controls">
+              <button type="button" class="btn btn-sm btn-secondary" :disabled="thumbnailUploading" @click="pickThumbnail">
+                <LoadingSpinner v-if="thumbnailUploading" size="sm" />
+                {{ thumbnailUrl ? 'Replace thumbnail…' : 'Pick thumbnail…' }}
+              </button>
+              <button v-if="thumbnailUrl" type="button" class="btn btn-sm btn-ghost" :disabled="thumbnailUploading" @click="removeThumbnail">
+                Remove
+              </button>
+            </div>
+          </div>
+          <div class="i2i-strength mt-2">
+            <label>Reference influence</label>
+            <select
+              :value="referenceStrength"
+              class="select"
+              @change="$emit('update:referenceStrength', ($event.target as HTMLSelectElement).value as ReferenceStrength)"
+            >
+              <option value="loose">Loose inspiration — mood, palette, and energy</option>
+              <option value="balanced">Balanced adaptation — composition and hierarchy</option>
+              <option value="strong">Strong structure — closely follow layout and framing</option>
+            </select>
+            <p class="text-muted text-xs i2i-hint">
+              The episode subject, characters, title, branding, and story details are always replaced. The reference is guidance, not content to copy.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="i2i-section">
+        <label class="i2i-toggle">
+          <input type="checkbox" :checked="value.characters" @change="setSource('characters', ($event.target as HTMLInputElement).checked)" />
+          <span class="i2i-toggle-label">
+            <strong>Auto character references</strong> — attach matching project-character images when their names appear in the thumbnail prompt
+          </span>
+        </label>
+      </div>
+    </template>
+
+    <template v-else>
     <!-- ── Master reference ───────────────────────────────────────── -->
     <div class="i2i-section">
       <label class="i2i-toggle">
@@ -113,6 +167,7 @@
         </p>
       </div>
     </div>
+    </template>
 
     <!-- Hidden file input — programmatically clicked from the buttons above. -->
     <input ref="fileInputEl" type="file" accept="image/png,image/jpeg" class="i2i-file-input"
@@ -128,7 +183,9 @@ interface ReferenceSources {
   per_scene: boolean
   characters: boolean
   chain: boolean
+  thumbnail: boolean
 }
+type ReferenceStrength = 'loose' | 'balanced' | 'strong'
 interface SceneRow { number: number; title: string }
 
 const props = defineProps<{
@@ -136,10 +193,15 @@ const props = defineProps<{
   episodeId: string
   /** Episode title — required by resolveEpisodePaths backend-side. */
   title?: string
+  kind?: 'scene' | 'thumbnail'
   /** v-model bound four-source toggle state. */
   value: ReferenceSources
+  referenceStrength?: ReferenceStrength
 }>()
-const emit = defineEmits<{ (e: 'update:value', v: ReferenceSources): void }>()
+const emit = defineEmits<{
+  (e: 'update:value', v: ReferenceSources): void
+  (e: 'update:referenceStrength', v: ReferenceStrength): void
+}>()
 
 const { get, post, del } = useApi()
 const { error: showError, success } = useToast()
@@ -151,6 +213,8 @@ function setSource(key: keyof ReferenceSources, v: boolean): void {
 // ── Master + per-scene file state ───────────────────────────────────────
 const masterUrl = ref<string | null>(null)
 const masterUploading = ref(false)
+const thumbnailUrl = ref<string | null>(null)
+const thumbnailUploading = ref(false)
 const sceneRefMap = ref<Record<number, string>>({})
 const sceneUploading = ref<Set<number>>(new Set())
 
@@ -180,25 +244,31 @@ async function loadRefs(): Promise<void> {
   try {
     const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
     const data = await get<{
-      master?: { url: string }; scenes: { number: number; url: string }[]
+      master?: { url: string }; thumbnail?: { url: string }; scenes: { number: number; url: string }[]
     }>(`/projects/${props.projectSlug}/episodes/${props.episodeId}/img2img-references${titleParam}`)
     masterUrl.value = data?.master?.url ? data.master.url : null
+    thumbnailUrl.value = data?.thumbnail?.url ? data.thumbnail.url : null
     const map: Record<number, string> = {}
     for (const s of (data?.scenes || [])) map[s.number] = s.url
     sceneRefMap.value = map
   } catch {
     masterUrl.value = null
+    thumbnailUrl.value = null
     sceneRefMap.value = {}
   }
 }
 
 // ── File picker plumbing ────────────────────────────────────────────────
 const fileInputEl = ref<HTMLInputElement | null>(null)
-type PickTarget = { kind: 'master' } | { kind: 'scene'; number: number }
+type PickTarget = { kind: 'master' } | { kind: 'thumbnail' } | { kind: 'scene'; number: number }
 let pendingTarget: PickTarget | null = null
 
 function pickMaster(): void {
   pendingTarget = { kind: 'master' }
+  fileInputEl.value?.click()
+}
+function pickThumbnail(): void {
+  pendingTarget = { kind: 'thumbnail' }
   fileInputEl.value?.click()
 }
 function pickScene(n: number): void {
@@ -226,6 +296,16 @@ async function onFilePicked(ev: Event): Promise<void> {
         masterUrl.value = r.url
         success('Master reference uploaded')
       } finally { masterUploading.value = false }
+    } else if (target.kind === 'thumbnail') {
+      thumbnailUploading.value = true
+      try {
+        const r = await post<{ url: string }>(
+          `/projects/${props.projectSlug}/episodes/${props.episodeId}/img2img-references/thumbnail`,
+          { filename: file.name, data_base64, title: props.title || '' },
+        )
+        thumbnailUrl.value = r.url
+        success('Reference thumbnail uploaded')
+      } finally { thumbnailUploading.value = false }
     } else {
       sceneUploading.value = new Set([...sceneUploading.value, target.number])
       try {
@@ -244,6 +324,18 @@ async function onFilePicked(ev: Event): Promise<void> {
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Upload failed')
   }
+}
+
+async function removeThumbnail(): Promise<void> {
+  thumbnailUploading.value = true
+  try {
+    const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
+    await del(`/projects/${props.projectSlug}/episodes/${props.episodeId}/img2img-references/thumbnail${titleParam}`)
+    thumbnailUrl.value = null
+    success('Reference thumbnail removed')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to remove reference thumbnail')
+  } finally { thumbnailUploading.value = false }
 }
 
 async function removeMaster(): Promise<void> {
@@ -299,6 +391,7 @@ watch(() => [props.episodeId, props.title], () => {
     void loadScenes()
   } else {
     masterUrl.value = null
+    thumbnailUrl.value = null
     sceneRefMap.value = {}
     scenes.value = []
   }

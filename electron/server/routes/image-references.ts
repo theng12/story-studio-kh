@@ -33,6 +33,7 @@ export const router = Router()
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024 // 10 MB — img2img refs can be larger than char portraits.
 const MASTER_FILENAME = 'master.png'
+const THUMBNAIL_FILENAME = 'thumbnail.png'
 const STYLE_FILENAME = 'style.png'  // v1.0.229 — continuity style reference
 const COMPOSITION_FILENAME = 'composition.png'  // v1.0.260 — explainer layout template
 
@@ -101,6 +102,29 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/master', asy
     })
   } catch (e: any) {
     res.status(500).json({ detail: e?.message || 'Failed to save master reference' })
+  }
+})
+
+// ── POST thumbnail reference ─────────────────────────────────────────────
+// Dedicated to Thumbnail Generator so its channel/reference cover never
+// overwrites the Scene Generator's episode-wide master reference.
+router.post('/projects/:slug/episodes/:episodeId/img2img-references/thumbnail', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const titleParam = (req.body?.title as string | undefined) || (req.query.title as string) || ''
+  try {
+    const project = await pm.getProject(slug)
+    if (!project) return res.status(404).json({ detail: 'Project not found' })
+    const buf = decodeUploadBuffer(req.body)
+    if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
+    const dir = await refsDir(slug, episodeId, titleParam, { create: true })
+    await fs.writeFile(path.join(dir, THUMBNAIL_FILENAME), buf.data)
+    res.json({
+      ok: true,
+      url: fileUrl(slug, episodeId, THUMBNAIL_FILENAME),
+      size_bytes: buf.data.length,
+    })
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to save thumbnail reference' })
   }
 })
 
@@ -181,6 +205,19 @@ router.delete('/projects/:slug/episodes/:episodeId/img2img-references/master', a
     res.json({ ok: true })
   } catch (e: any) {
     res.status(500).json({ detail: e?.message || 'Failed to delete master reference' })
+  }
+})
+
+router.delete('/projects/:slug/episodes/:episodeId/img2img-references/thumbnail', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const titleParam = (req.query.title as string) || ''
+  try {
+    const dir = await refsDir(slug, episodeId, titleParam)
+    const target = path.join(dir, THUMBNAIL_FILENAME)
+    if (existsSync(target)) await fs.rm(target)
+    res.json({ ok: true })
+  } catch (e: any) {
+    res.status(500).json({ detail: e?.message || 'Failed to delete thumbnail reference' })
   }
 })
 
@@ -266,6 +303,7 @@ router.get('/projects/:slug/episodes/:episodeId/img2img-references', async (req,
     try { entries = await fs.readdir(dir) } catch { entries = [] }
     const out: {
       master?: { url: string; size_bytes: number }
+      thumbnail?: { url: string; size_bytes: number }
       style?: { url: string; size_bytes: number }
       composition?: { url: string; size_bytes: number }
       scenes: { number: number; url: string; size_bytes: number }[]
@@ -276,6 +314,8 @@ router.get('/projects/:slug/episodes/:episodeId/img2img-references', async (req,
       try { size = (await fs.stat(abs)).size } catch { /* skip */ }
       if (name === MASTER_FILENAME) {
         out.master = { url: fileUrl(slug, episodeId, name), size_bytes: size }
+      } else if (name === THUMBNAIL_FILENAME) {
+        out.thumbnail = { url: fileUrl(slug, episodeId, name), size_bytes: size }
       } else if (name === STYLE_FILENAME) {
         out.style = { url: fileUrl(slug, episodeId, name), size_bytes: size }
       } else if (name === COMPOSITION_FILENAME) {
@@ -304,7 +344,7 @@ router.get('/projects/:slug/episodes/:episodeId/img2img-references/file/:filenam
   // Restrict to known filename shapes to block path traversal.
   // v1.0.237 — include style.png (was missing, so the style-reference preview
   // 400'd and showed a broken image even though the file exists + renders).
-  if (filename !== MASTER_FILENAME && filename !== STYLE_FILENAME && filename !== COMPOSITION_FILENAME && !/^scene-\d+\.png$/.test(filename)) {
+  if (filename !== MASTER_FILENAME && filename !== THUMBNAIL_FILENAME && filename !== STYLE_FILENAME && filename !== COMPOSITION_FILENAME && !/^scene-\d+\.png$/.test(filename)) {
     return res.status(400).json({ detail: 'Invalid reference filename' })
   }
   const titleParam = (req.query.title as string) || ''

@@ -138,6 +138,7 @@ const props = defineProps<{
   imageMode?: 'text2img' | 'img2img'
   tier?: string
   referenceSources?: Record<string, any>
+  referenceStrength?: 'loose' | 'balanced' | 'strong'
   /** v1.0.308 — explicit render dimensions for LOCAL models. Set by the parent
    *  only when the model is an Image Studio model + a sub-Full size is picked;
    *  undefined for cloud models (which render from the aspect string). Sent on
@@ -320,6 +321,7 @@ function sharedJobParams() {
     tier: props.tier,
     image_mode: props.imageMode,
     reference_sources: props.referenceSources,
+    reference_strength: props.referenceStrength,
     // v1.0.308 — local render size. Only included when the parent supplies both
     // (local model + sub-Full tier); cloud models omit them and use the aspect.
     ...(typeof props.renderWidth === 'number' && typeof props.renderHeight === 'number'
