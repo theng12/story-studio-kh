@@ -967,7 +967,6 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   const standards = await pm.getStandards(project_slug) || ''
   let format = await getEffectiveFormat(project_slug)
   format = await applyRecencyToFormat(format, project_slug)
-  format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
   const title = req.title
   const length = req.length || format.script.defaultLengthMinutes
   const style = req.style || format.script.defaultNarratorStyleId
@@ -1207,6 +1206,13 @@ async function setupChunkedJobContext(
   const wordsPerChapter = snapshot?.words_per_chapter ?? req.words_per_chapter
     ?? (snapshot?.total_words ?? req.total_words ? Math.floor((snapshot?.total_words ?? req.total_words!) / chapters) : 550)
   const totalWords = snapshot?.total_words ?? req.total_words ?? (wordsPerChapter * chapters)
+  const requestedStyle = snapshot?.style ?? req.style ?? format.script.defaultNarratorStyleId
+  const style = requestedStyle === 'auto'
+    ? autoSelectStyle(format, episode_id)
+    : requestedStyle
+  const perspective = snapshot?.perspective ?? (req as any).perspective
+  const customPerspective = snapshot?.custom_perspective ?? (req as any).custom_perspective
+  format = applyPerspectiveToFormat(format, resolvePerspective(perspective, format), customPerspective)
   const characterIds = snapshot?.character_ids ?? req.character_ids
   const customStyleText = snapshot?.custom_style_text ?? (req as any).custom_style_text
   // v1.0.297 — optional free-text producer guidance. Prefer the sidecar
@@ -1235,7 +1241,11 @@ async function setupChunkedJobContext(
     kie_api_key: config.kie_api_key,
   }
   const brand = await getEffectiveBrand(project_slug)
-  const sysPrompt = systemPrompt(format, standards, brand)
+  const narratorStyle = customStyleText || narratorStyleFor(format, style).description
+  const sysPrompt = `${systemPrompt(format, standards, brand)}
+
+NARRATOR STYLE — binding for both outline and chapter prose:
+${narratorStyle}`
 
   const controller = new AbortController()
   const cancelWatcher = setInterval(() => {
@@ -1251,6 +1261,9 @@ async function setupChunkedJobContext(
     length,
     total_words: totalWords,
     words_per_chapter: wordsPerChapter,
+    style,
+    perspective: typeof perspective === 'string' ? perspective : undefined,
+    custom_perspective: typeof customPerspective === 'string' ? customPerspective : undefined,
     character_ids: characterIds,
     custom_style_text: customStyleText,
     manual_guidance: manualGuidance,

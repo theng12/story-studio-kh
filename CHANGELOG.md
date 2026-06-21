@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.449 — 2026-06-21
+
+**Fixed: Pipeline chapter expansion could silently drop the Script preset's POV and narrator style after producing the correct outline.** Outline sidecars now lock the selected perspective, custom POV note, and resolved narrator style alongside the model and word targets. Expand Chapters restores those settings before building its system prompt, and the Script page mirrors them back into the visible form and “Locked at outline build” summary instead of showing a misleading format default. This keeps presets such as Brain Wise's second-person immersive narration consistent from outline through every generated or resumed chapter.
+
+**Fixed: renumbering an episode could create a second stale outline sidecar under the old episode code.** Renames now update the chunked-progress file's embedded episode ID, and sidecar reads defensively normalize older mismatched IDs to the filename being requested. Later expansion progress therefore continues writing only to the current episode sidecar instead of recreating an old-code duplicate.
+
 ## v1.0.448 — 2026-06-21
 
 ### Fixed — Pasting/importing a script now writes into the existing episode folder

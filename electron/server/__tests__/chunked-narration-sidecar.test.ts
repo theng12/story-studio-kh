@@ -61,6 +61,9 @@ describe('chunked-narration sidecar JSON shape', () => {
         length: 30,
         total_words: 7500,
         words_per_chapter: 250,
+        style: 'A',
+        perspective: 'second-immersive',
+        custom_perspective: 'Keep the viewer inside the scene.',
         character_ids: ['char-narrator'],
       },
       chapters_done: [1, 2, 3, 4, 5],
@@ -76,6 +79,8 @@ describe('chunked-narration sidecar JSON shape', () => {
     assert.equal(parsed.generation_params?.model, 'claude-sonnet-4-6',
       'persisted generation_params.model must round-trip — that field is the load-bearing fix for the EP0002 expand crash')
     assert.equal(parsed.generation_params?.words_per_chapter, 250)
+    assert.equal(parsed.generation_params?.perspective, 'second-immersive')
+    assert.equal(parsed.generation_params?.style, 'A')
     assert.deepEqual(parsed.generation_params?.character_ids, ['char-narrator'])
     assert.equal(parsed.mode, 'narrative')
     assert.equal(parsed.total_chapters, 30)
@@ -87,6 +92,27 @@ describe('chunked-narration sidecar JSON shape', () => {
     assert.equal(parsed.outline_approved_at, '2026-05-06T01:05:00.000Z')
     assert.equal(parsed.outline_edited_at, null)
     assert.equal(parsed.params_hash, 'abc123def456abcd')
+  })
+
+  test('normalizes a stale embedded episode id to the requested filename id', async () => {
+    const raw = {
+      schema_version: 3,
+      episode_id: 'EP0012',
+      mode: 'narrative',
+      total_chapters: 1,
+      outline: [{ n: 1, title: 'Renamed outline' }],
+      outline_completed_at: '2026-06-21T00:00:00.000Z',
+      outline_approved_at: null,
+      outline_edited_at: null,
+      generation_params: null,
+      chapters_done: [],
+      params_hash: 'rename-test',
+      last_updated: '2026-06-21T00:00:00.000Z',
+    }
+    await fs.writeFile(sidecarPath(tmpDir, 'EP0016'), JSON.stringify(raw), 'utf-8')
+    const { readSidecar } = await import('../lib/chunked-narration.js')
+    const sidecar = await readSidecar(tmpDir, 'EP0016')
+    assert.equal(sidecar?.episode_id, 'EP0016')
   })
 
   test('listicle sidecar uses hook_line + key_facts shape on outline entries', async () => {

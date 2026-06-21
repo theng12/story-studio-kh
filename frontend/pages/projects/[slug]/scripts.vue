@@ -959,6 +959,9 @@ function onOutlineLoaded(payload: {
   wordsPerChapter: number | null
   totalWords: number | null
   lengthMinutes: number | null
+  style: string | null
+  perspective: string | null
+  customPerspective: string | null
 }) {
   // v1.0.105+ — capture the outline's chapter count so the mismatch
   // banner can compare it to the niche's recommended default. Without
@@ -979,6 +982,9 @@ function onOutlineLoaded(payload: {
     form.length = payload.lengthMinutes
     durationSelect.value = standardDurationSet.value.has(form.length) ? String(form.length) : 'custom'
   }
+  if (payload.style) form.style = payload.style
+  if (payload.perspective) form.perspective = payload.perspective
+  if (payload.customPerspective !== null) form.custom_perspective = payload.customPerspective
   userTouchedSizing.value = true
 }
 // Tracks the full episode object selected via EpisodeSelector — needed so

@@ -11,9 +11,39 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { findActivePreset } from '../routes/pipeline.js'
+import { findActivePreset, resolveStepParams } from '../routes/pipeline.js'
 
 describe('findActivePreset — script-only / introduction-only', () => {
+  test('script params preserve the preset POV and narrator style', () => {
+    const params = resolveStepParams(
+      'script-only',
+      'EP0016',
+      'Volcanic Winter',
+      {
+        id: 'bw-script',
+        name: 'BW - Script',
+        type: 'script',
+        data: {
+          form: {
+            episode_id: 'EP0012',
+            title: 'Stale preset title',
+            model: 'deepseek-v4-flash',
+            style: 'A',
+            perspective: 'second-immersive',
+            custom_perspective: 'Keep the viewer inside the scene.',
+            chapters: 5,
+            words_per_chapter: 500,
+          },
+        },
+      },
+    )
+    assert.equal(params.episode_id, 'EP0016')
+    assert.equal(params.title, 'Volcanic Winter')
+    assert.equal(params.perspective, 'second-immersive')
+    assert.equal(params.custom_perspective, 'Keep the viewer inside the scene.')
+    assert.equal(params.style, 'A')
+  })
+
   test('typed active pointer wins when it resolves', () => {
     const config = {
       script_presets: [

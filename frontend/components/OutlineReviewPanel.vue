@@ -49,6 +49,12 @@
         🔒 Locked at outline build:
         <span class="op-locked-pill">{{ generationParams.model }}</span>
         <span class="op-locked-pill">~{{ generationParams.words_per_chapter.toLocaleString() }} words/chapter</span>
+        <span v-if="generationParams.perspective" class="op-locked-pill">
+          POV: {{ perspectiveLabel(generationParams.perspective) }}
+        </span>
+        <span v-if="generationParams.style" class="op-locked-pill">
+          style: {{ generationParams.style }}
+        </span>
         <span v-if="generationParams.character_ids?.length" class="op-locked-pill">
           cast: {{ generationParams.character_ids.length }}
         </span>
@@ -312,6 +318,9 @@ interface GenerationParams {
   length?: number
   total_words?: number
   words_per_chapter: number
+  style?: string
+  perspective?: string
+  custom_perspective?: string
   character_ids?: string[]
   custom_style_text?: string
 }
@@ -361,6 +370,9 @@ const emit = defineEmits<{
     wordsPerChapter: number | null
     totalWords: number | null
     lengthMinutes: number | null
+    style: string | null
+    perspective: string | null
+    customPerspective: string | null
   }): void
 }>()
 
@@ -432,11 +444,29 @@ const lockedParamsTooltip = computed(() => {
   ]
   if (gp.length) parts.push(`Length: ${gp.length} min`)
   if (gp.total_words) parts.push(`Total words: ${gp.total_words.toLocaleString()}`)
+  if (gp.perspective) parts.push(`POV: ${perspectiveLabel(gp.perspective)}`)
+  if (gp.style) parts.push(`Narrator style: ${gp.style}`)
+  if (gp.custom_perspective) parts.push(`Custom POV: ${gp.custom_perspective}`)
   if (gp.character_ids?.length) parts.push(`Cast: ${gp.character_ids.length} character(s)`)
   return parts.join(' · ') +
     '\n\nExpand-chapters reads these from the outline sidecar, not the form above. ' +
     'To change model/words/cast, regenerate the outline.'
 })
+
+function perspectiveLabel(value: string): string {
+  return {
+    auto: 'Auto',
+    none: 'None',
+    first: 'First person',
+    'first-subject': 'First person as subject',
+    'first-plural': 'First person plural',
+    second: 'Second person',
+    'second-immersive': 'Second person immersive',
+    third: 'Third person limited',
+    'third-omniscient': 'Third person omniscient',
+    'third-documentary': 'Third person documentary',
+  }[value] || value
+}
 
 // SSE-driven view of the queue: any chapter-only or expand_chapters job
 // for THIS episode that's still queued/running. Combined with the local
@@ -613,6 +643,9 @@ async function loadOutline() {
       wordsPerChapter: data.generation_params?.words_per_chapter ?? null,
       totalWords: data.generation_params?.total_words ?? null,
       lengthMinutes: data.generation_params?.length ?? null,
+      style: data.generation_params?.style ?? null,
+      perspective: data.generation_params?.perspective ?? null,
+      customPerspective: data.generation_params?.custom_perspective ?? null,
     })
     // Prune (don't wipe) selectedNs: keep selections of chapters that are
     // still pending in the refreshed outline. Wiping on every refresh

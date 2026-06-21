@@ -283,6 +283,9 @@ describe('v3 generation_params snapshot (persist + read-back)', () => {
       length: 30,
       total_words: 7500,
       words_per_chapter: 400,
+      style: 'B',
+      perspective: 'second-immersive',
+      custom_perspective: 'Keep every beat in present tense.',
       character_ids: ['char-narrator'],
       custom_style_text: 'wry, observational',
     }

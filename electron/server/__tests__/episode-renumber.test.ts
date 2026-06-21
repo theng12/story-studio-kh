@@ -63,10 +63,24 @@ async function seedAcceptedEpisode(code: string): Promise<SeededEpisode> {
   // can target a known starting point without depending on the next
   // counter's state.
   const r = await im.acceptIdea(SLUG, created.id, false, { override_code: code })
-  // Drop a sample asset file in each subfolder to verify cascading rename.
-  const epDir = r.episode_dir
-  const inSub = (sub: string, name: string) => path.join(epDir, sub, name)
-  await fs.writeFile(inSub(`${code} - 01 Script`, `${code}_Chapter_01.docx`), 'chap1')
+    // Drop a sample asset file in each subfolder to verify cascading rename.
+    const epDir = r.episode_dir
+    const inSub = (sub: string, name: string) => path.join(epDir, sub, name)
+    await fs.writeFile(inSub(`${code} - 01 Script`, `${code}_Chapter_01.docx`), 'chap1')
+    await fs.writeFile(inSub(`${code} - 01 Script`, `${code}_chunked-progress.json`), JSON.stringify({
+      schema_version: 3,
+      episode_id: code,
+      mode: 'narrative',
+      total_chapters: 1,
+      outline: [{ n: 1, title: 'Opening' }],
+      outline_completed_at: '2026-06-21T00:00:00.000Z',
+      outline_approved_at: null,
+      outline_edited_at: null,
+      generation_params: null,
+      chapters_done: [],
+      params_hash: 'renumber-test',
+      last_updated: '2026-06-21T00:00:00.000Z',
+    }))
   await fs.writeFile(inSub(`${code} - 05 Scene Images`, `${code}_Scene01_v1.png`), 'png')
   await fs.writeFile(inSub(`${code} - 07 Audio Assets`, `${code}_Chapter_01.mp3`), 'mp3')
   await fs.writeFile(path.join(epDir, `${code}_final_video.mp4`), 'video')
@@ -112,6 +126,12 @@ describe('episode-renumber: renameAcceptedEpisode', () => {
     const scriptFiles = await fs.readdir(path.join(r.new_dir, 'TN0099 - 01 Script'))
     assert.ok(scriptFiles.includes('TN0099_Chapter_01.docx'),
       `chapter file should rename: got ${JSON.stringify(scriptFiles)}`)
+    const sidecar = JSON.parse(await fs.readFile(
+      path.join(r.new_dir, 'TN0099 - 01 Script', 'TN0099_chunked-progress.json'),
+      'utf-8',
+    ))
+    assert.equal(sidecar.episode_id, 'TN0099',
+      'renamed sidecar must update its embedded id so later writes do not recreate TN0005')
     const audioFiles = await fs.readdir(path.join(r.new_dir, 'TN0099 - 07 Audio Assets'))
     assert.ok(audioFiles.includes('TN0099_Chapter_01.mp3'))
     const sceneFiles = await fs.readdir(path.join(r.new_dir, 'TN0099 - 05 Scene Images'))

@@ -134,6 +134,22 @@ export async function renameAcceptedEpisode(
     }
   }
 
+  // The chunked sidecar filename is code-scoped and was renamed above, but
+  // its embedded episode_id also drives future write paths. Leaving the old
+  // id in JSON makes expansion recreate an old-code sidecar, which appears
+  // as a second outline after renumbering.
+  const scriptDir = newPaths.script_dir
+  const sidecarFile = path.join(scriptDir, `${canonicalNew}_chunked-progress.json`)
+  if (existsSync(sidecarFile)) {
+    try {
+      const sidecar = JSON.parse(await fs.readFile(sidecarFile, 'utf-8'))
+      sidecar.episode_id = canonicalNew
+      await writeJsonAtomic(sidecarFile, sidecar)
+    } catch (e: any) {
+      warnings.push(`chunked-progress episode id update failed: ${e?.message || e}`)
+    }
+  }
+
   // 6. Update episode_info.json. The file's episode_code field would
   //    otherwise stay stale; downstream code that re-reads it (manifest
   //    sync, project-inference) would see a code mismatch.

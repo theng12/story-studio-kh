@@ -195,6 +195,9 @@ export interface GenerationParams {
   length?: number
   total_words?: number
   words_per_chapter: number
+  style?: string
+  perspective?: string
+  custom_perspective?: string
   character_ids?: string[]
   custom_style_text?: string
   /** v1.0.297 — optional free-text producer guidance (character names,
@@ -1063,6 +1066,7 @@ export async function readSidecar(scriptDir: string, episode_id: string): Promis
     if (parsed?.schema_version === 1) {
       return {
         ...parsed,
+        episode_id,
         schema_version: 3,
         outline_approved_at: parsed.outline_completed_at || null,
         outline_edited_at: null,
@@ -1072,12 +1076,16 @@ export async function readSidecar(scriptDir: string, episode_id: string): Promis
     if (parsed?.schema_version === 2) {
       return {
         ...parsed,
+        episode_id,
         schema_version: 3,
         generation_params: null,
       } as ChunkedSidecar
     }
     if (parsed?.schema_version === 3) {
-      return parsed as ChunkedSidecar
+      // Episode renumbering changes the filename but older releases left the
+      // embedded id untouched. Normalize it on read so the next progress
+      // write cannot recreate the old-code sidecar beside the renamed one.
+      return { ...parsed, episode_id } as ChunkedSidecar
     }
     // Unknown schema version — fail safe, treat as no sidecar.
     return null
