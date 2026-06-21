@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.452 — 2026-06-21
+
+### Added — Settings UI to set a project's external media root
+Building on v1.0.451's foundation, **Settings → Storage** now has an **External media root** control. Enter a portable token like `${MEDIA}` (or an absolute path), hit **Check** to confirm it resolves on this machine, and **Save** — and this project's heavy media (scene images, thumbnails, audio, merged audio, final video) will be written there going forward, while scripts/metadata/prompts stay in the project tree. A **Clear** button reverts to the default (everything under the output folder). The control links to **Named Roots** for defining where `${MEDIA}` points on each Mac.
+
+Still **opt-in / default-off** — leaving it blank changes nothing. Note: existing media isn't moved automatically yet (the one-click migration is the next step); the control writes new media to the root going forward and reminds you to keep the drive connected.
+
+### Files
+- `electron/server/contracts/index.ts` (`UpdateProjectSchema` accepts `media_root`)
+- `frontend/pages/projects/[slug]/settings.vue` (External media root section in the Storage tab: input + Check via `/system/resolve-asset-path` + Save/Clear via `PUT /projects/:slug`; seeded on load)
+
+---
+
 ## v1.0.451 — 2026-06-21
 
 ### Added — opt-in external media root (foundation): heavy media can live off iCloud

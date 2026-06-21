@@ -86,6 +86,9 @@ export const UpdateProjectSchema = z.object({
   // v1.0.270 — 'freeform' makes the format drive visuals only; idea + script
   // use neutral prompts. Empty/absent = 'format' (current behavior).
   content_mode: z.enum(['format', 'freeform']).optional(),
+  // Level B (opt-in) external media root — a portable ${NAME} token or absolute
+  // path. Empty string clears it (back to everything under output_root).
+  media_root: z.string().max(512).optional(),
 }).strict()
 export type UpdateProjectBody = z.infer<typeof UpdateProjectSchema>
 

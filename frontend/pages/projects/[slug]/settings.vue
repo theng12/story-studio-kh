@@ -989,6 +989,61 @@
         </div>
       </div>
 
+      <!-- ── External media root (Level B, per-project, opt-in) ──── -->
+      <div id="media-root-section" class="storage-section storage-section--bordered">
+        <h4>
+          <span class="storage-section-icon" aria-hidden="true">💽</span>
+          External media root
+          <span class="optional-tag">(per-project, optional)</span>
+        </h4>
+        <p class="text-muted hint">
+          Route this project's <strong>heavy media</strong> — scene images,
+          thumbnails, audio, merged audio, final video — to a separate root
+          (typically an external SSD), keeping the light artifacts (scripts,
+          metadata, prompts, subtitles) in the project / iCloud tree. Use a
+          portable token like <code>${MEDIA}</code> so the same project works
+          across Macs — set where it points on each machine under
+          <a href="#" @click.prevent="activeTab = 'roots'">Named Roots</a>.
+          Leave blank to keep everything under the project's output folder (the default).
+        </p>
+        <div class="external-root-row">
+          <input
+            v-model="mediaRootInput"
+            class="input"
+            placeholder="(not set — media stays in the project tree)   e.g. ${MEDIA}"
+            spellcheck="false"
+          />
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="!mediaRootInput.trim() || mediaRootChecking"
+            title="Check that this token/path resolves on this machine"
+            @click="checkMediaRoot"
+          >
+            {{ mediaRootChecking ? 'Checking…' : '🔍 Check' }}
+          </button>
+          <button
+            v-if="mediaRootInput.trim() !== mediaRootSavedValue"
+            class="btn btn-primary btn-sm"
+            :disabled="mediaRootSaving"
+            @click="saveMediaRoot"
+          >
+            {{ mediaRootSaving ? 'Saving…' : '💾 Save' }}
+          </button>
+          <button v-if="mediaRootInput" class="btn btn-ghost btn-sm" :disabled="mediaRootSaving" @click="clearMediaRoot">
+            Clear
+          </button>
+        </div>
+        <p v-if="mediaRootStatus" :class="['external-root-status', mediaRootOk ? 'ok' : 'warn']">
+          {{ mediaRootStatus }}
+        </p>
+        <p class="text-muted" style="font-size: 11px; margin-top: 4px;">
+          ⚠ Advanced &amp; experimental. <strong>Existing media isn't moved automatically yet</strong> —
+          new media for this project is written here going forward; a one-click migration
+          for existing episodes is coming. Keep the drive connected when generating
+          images/audio or rendering.
+        </p>
+      </div>
+
       <!-- ── Per-episode storage breakdown ───────────────────────── -->
       <div id="per-episode-section" class="storage-section storage-section--bordered">
         <div class="flex items-center" style="justify-content: space-between; gap: 12px;">
@@ -3391,6 +3446,17 @@ const externalRootStatus = ref('')
 const externalRootPickerHelp = ref('')
 const externalRootReachable = ref(false)
 const migrateRunning = ref(false)
+
+// ── External media root (Level B, per-project, opt-in) ───────────────────────
+// Routes heavy media (images/thumbnails/audio/merged audio/video) to a separate
+// root (e.g. an external SSD) while light artifacts stay in the project tree.
+// Stored in project.json as `media_root` (a ${NAME} token or absolute path).
+const mediaRootInput = ref('')
+const mediaRootSavedValue = ref('')
+const mediaRootSaving = ref(false)
+const mediaRootChecking = ref(false)
+const mediaRootStatus = ref('')
+const mediaRootOk = ref(false)
 const lastMigration = ref<MigrationResult | null>(null)
 const bulkRunning = ref(false)
 const lastBulkCleanup = ref<CleanupResult | null>(null)
@@ -3503,6 +3569,49 @@ async function saveExternalRoot() {
   } finally {
     externalRootSaving.value = false
   }
+}
+
+// Verify the media_root token/path resolves on THIS machine (does not check
+// that the drive is currently plugged in — just that ${MEDIA} is defined).
+async function checkMediaRoot() {
+  const val = mediaRootInput.value.trim()
+  if (!val) { mediaRootStatus.value = ''; mediaRootOk.value = false; return }
+  mediaRootChecking.value = true
+  try {
+    const r = await post<{ output: string; is_portable: boolean }>(
+      '/system/resolve-asset-path', { path: val },
+    )
+    mediaRootOk.value = true
+    mediaRootStatus.value = `✓ Resolves to ${r.output} — keep this drive connected when generating media.`
+  } catch (e: any) {
+    mediaRootOk.value = false
+    mediaRootStatus.value = `⚠ ${e?.data?.detail || e?.message || 'Could not resolve this path on this machine. Define it under Named Roots.'}`
+  } finally {
+    mediaRootChecking.value = false
+  }
+}
+
+async function saveMediaRoot() {
+  mediaRootSaving.value = true
+  try {
+    const val = mediaRootInput.value.trim()
+    await put(`/projects/${slug.value}`, { media_root: val })
+    mediaRootSavedValue.value = val
+    stampSaved('mediaRoot')
+    if (val) { await checkMediaRoot() } else { mediaRootStatus.value = ''; mediaRootOk.value = false }
+    success(val
+      ? 'External media root saved — new media for this project will be written there.'
+      : 'External media root cleared — media stays in the project tree.')
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to save external media root')
+  } finally {
+    mediaRootSaving.value = false
+  }
+}
+
+async function clearMediaRoot() {
+  mediaRootInput.value = ''
+  await saveMediaRoot()
 }
 
 /**
@@ -5494,6 +5603,11 @@ watch(project, (p) => {
     projectForm.season_size = p.season_size || 20
     serverSeasonSize.value = p.season_size || 20
     projectForm.youtube_channel_url = (p as any).youtube_channel_url || ''
+    // Level B external media root (lives on project meta). Seed the Storage-tab
+    // control + verify it resolves on this machine for the status line.
+    mediaRootInput.value = (p as any).media_root || ''
+    mediaRootSavedValue.value = mediaRootInput.value
+    if (mediaRootInput.value) void checkMediaRoot()
     // Item J — category_id lives on ProjectConfig (not project meta), so
     // it's hydrated from `config` after refreshConfig fires (see watch
     // below). The initial undefined here means "show the default option
