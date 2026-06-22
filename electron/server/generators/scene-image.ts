@@ -26,12 +26,56 @@ import path from 'path'
 import { registry } from '../providers/registry.js'
 import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
-import { resolveEpisodePathsByCode } from '../services/utils.js'
+import { resolveEpisodePathsByCode, resolveSubfolderNames } from '../services/utils.js'
+import { findSubfolder } from '../lib/folder-resolver.js'
+import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import * as pm from '../services/project-manager.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type { Job, ImageModelConfig, ScenePlan } from '../models/types.js'
 
+/** Legacy flat folder at the episode root where continuity / scene-review
+ *  renders USED to live. v1.0.457 unified them into the named "NN Scene Images"
+ *  folder (see resolveSceneImagesDir); this constant is now only used as a READ
+ *  fallback for episodes not yet consolidated. */
 export const SCENE_IMAGES_SUBFOLDER = 'scene_images'
+
+/**
+ * v1.0.457 — canonical scene-image directory: the named "{code} - NN Scene
+ * Images" folder (same one the Scene Generator uses), media-root-aware and
+ * "✅ "-prefix tolerant. Continuity / scene-review renders now WRITE here too,
+ * so there's a single scene-image location per episode and it migrates to the
+ * external media root with everything else. Returns the existing on-disk folder
+ * when present, else the canonical path (callers mkdir before writing).
+ */
+export async function resolveSceneImagesDir(slug: string, code: string, episodeDir: string): Promise<string> {
+  const names = await resolveSubfolderNames(slug, code)
+  const mediaBase = await mediaEpisodeBaseForCode(slug, code).catch(() => null)
+  const parent = mediaBase || episodeDir
+  const found = await findSubfolder(parent, names.images)
+  return found || path.join(parent, names.images)
+}
+
+/**
+ * v1.0.457 — resolve a single scene's image path for READING. Prefers the
+ * unified named folder, falls back to the legacy flat scene_images/ folder, then
+ * to the stored absolute image_path (which may be stale across Macs). Returns
+ * the first that exists on disk, or null when none do.
+ */
+export async function resolveSceneImageReadPath(
+  slug: string,
+  code: string,
+  episodeDir: string,
+  sceneId: string,
+  storedImagePath?: string | null,
+): Promise<string | null> {
+  const namedDir = await resolveSceneImagesDir(slug, code, episodeDir)
+  const named = path.join(namedDir, `${sceneId}.png`)
+  if (existsSync(named)) return named
+  const flat = path.join(episodeDir, SCENE_IMAGES_SUBFOLDER, `${sceneId}.png`)
+  if (existsSync(flat)) return flat
+  if (storedImagePath && existsSync(storedImagePath)) return storedImagePath
+  return null
+}
 
 interface SceneImageGenerateParams {
   episode_id: string
@@ -147,7 +191,10 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   // Use the first URL only — one image per scene (no variant
   // proliferation; the user re-rolls if unhappy).
   const url = result.urls[0]!
-  const outDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+  // v1.0.457 — write into the unified named "NN Scene Images" folder (not the
+  // legacy flat scene_images/), so there's one scene-image location per episode
+  // and it migrates to the external media root with everything else.
+  const outDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, `${scene_id}.png`)
   await downloadImage(url, outPath)

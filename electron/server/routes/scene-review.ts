@@ -24,7 +24,7 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { downloadImage } from '../lib/kie-client.js'
 import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
-import { SCENE_IMAGES_SUBFOLDER } from '../generators/scene-image.js'
+import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir, resolveSceneImageReadPath } from '../generators/scene-image.js'
 import { decodeUploadBuffer } from './image-references.js'
 import { readManifest } from '../services/task-manifest.js'
 import { resolveApiKeyForProvider } from '../providers/registry.js'
@@ -65,14 +65,17 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     }
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
 
-    // Annotate each scene with whether its image exists on disk.
-    const imageDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+    // Annotate each scene with whether its image exists on disk. v1.0.457 —
+    // check the unified named folder first, then the legacy flat scene_images/,
+    // so both consolidated and not-yet-consolidated episodes show their renders.
+    const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+    const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
     const scenes: ReviewSceneAugmented[] = []
     let approvedCount = 0
     let withImageCount = 0
     for (const s of plan.scenes) {
       const filename = `${s.id}.png`
-      const exists = existsSync(path.join(imageDir, filename))
+      const exists = existsSync(path.join(namedDir, filename)) || existsSync(path.join(legacyDir, filename))
       if (exists) withImageCount++
       if (s.approved) approvedCount++
       scenes.push({
@@ -244,13 +247,16 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
 
-    const imageDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+    // v1.0.457 — "missing" means missing from BOTH the unified named folder and
+    // the legacy flat folder, so an un-consolidated episode isn't re-queued.
+    const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+    const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
     let queued = 0
     let skipped = 0
     const queuedIds: string[] = []
     for (const s of plan.scenes) {
       const filename = `${s.id}.png`
-      if (existsSync(path.join(imageDir, filename))) { skipped++; continue }
+      if (existsSync(path.join(namedDir, filename)) || existsSync(path.join(legacyDir, filename))) { skipped++; continue }
       if (jq.isDuplicate(slug, episodeId, 'scene_image_generate' as JobType, (p: any) => p?.scene_id === s.id)) {
         skipped++
         continue
@@ -386,9 +392,12 @@ router.post('/projects/:slug/scene-review/:episodeId/repair-image/:sceneId', asy
     const scene = plan.scenes.find(s => s.id === sceneId)
     if (!scene) return res.status(404).json({ detail: `scene ${sceneId} not found in scene_plan.json` })
 
-    const outDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+    // v1.0.457 — recover into the unified named folder; treat an image in either
+    // the named or legacy flat folder as "already has one".
+    const outDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
     const outPath = path.join(outDir, `${sceneId}.png`)
-    const hasImage = existsSync(outPath)
+    const legacyOut = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER, `${sceneId}.png`)
+    const hasImage = existsSync(outPath) || existsSync(legacyOut)
     if (hasImage) {
       return res.status(400).json({ detail: 'Scene already has an image. Use Regenerate to create a fresh one.' })
     }
@@ -449,7 +458,8 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
     const scene = plan.scenes.find(s => s.id === sceneId)
     if (!scene) return res.status(404).json({ detail: `scene ${sceneId} not found in scene_plan.json` })
 
-    const outDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+    // v1.0.457 — save uploads into the unified named folder.
+    const outDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
     await fs.mkdir(outDir, { recursive: true })
     const outPath = path.join(outDir, `${sceneId}.png`)
     await fs.writeFile(outPath, buf.data)
@@ -482,9 +492,10 @@ router.put('/projects/:slug/scene-review/:episodeId/approve', async (req, res) =
       // Bulk path. Only approve scenes that have an image on disk —
       // approving a scene without an image is meaningless (the
       // assembler in 1.0.145 will reject it).
-      const imageDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+      const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+      const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
       for (const s of plan.scenes) {
-        const hasImage = existsSync(path.join(imageDir, `${s.id}.png`))
+        const hasImage = existsSync(path.join(namedDir, `${s.id}.png`)) || existsSync(path.join(legacyDir, `${s.id}.png`))
         const target = body.all && hasImage  // bulk-deny works regardless
         const final = body.all ? target : false
         if (s.approved !== final) {
@@ -528,8 +539,10 @@ router.get('/projects/:slug/scene-review/:episodeId/image/:sceneId', async (req,
   }
   try {
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
-    const imagePath = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER, `${sceneId}.png`)
-    if (!existsSync(imagePath)) return res.status(404).json({ detail: 'Image not found' })
+    // v1.0.457 — serve from the unified named folder, falling back to the legacy
+    // flat folder so both consolidated and not-yet-consolidated episodes work.
+    const imagePath = await resolveSceneImageReadPath(slug, episodeId.toUpperCase(), paths.episode_dir, sceneId)
+    if (!imagePath) return res.status(404).json({ detail: 'Image not found' })
     res.setHeader('Content-Type', 'image/png')
     // No-cache so regen + reload picks up the new file without
     // a query-string buster on every request.

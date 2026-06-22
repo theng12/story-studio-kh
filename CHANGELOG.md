@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.457 — 2026-06-22
+
+**Unified scene-image storage — Phase 1.** Continuity / Scene Review renders used to save into a separate flat `scene_images/` folder at the episode root, while the Scene Generator saved into the named "{code} - NN Scene Images" folder — two locations, bad UX, and the flat one got **left behind in iCloud** when media migrated to an external root (it wasn't in the migrated folder set). Now **both paths write into the named "NN Scene Images" folder** (media-root-aware, so it migrates with everything else), and every reader (Video Assembly scan + duration bridge, Scene Review list/serve/approve/regenerate/upload, the Timestamp assembler, and the pending-approvals badge) resolves the **named folder first with a fallback to the legacy flat folder** — so existing un-consolidated episodes keep working untouched. No new `scene_images/` folders are created going forward. (Phase 2 — consolidating existing flat folders — is a manual copy you can do per episode, then delete the old folder once confirmed.)
+
 ## v1.0.456 — 2026-06-22
 
 **Fixed: continuity scene images didn't show in Video Assembly when the project was made on another Mac/user.** Each scene in `scene_plan.json` stores an absolute `image_path` baked in at render time. On a different machine or macOS user that path points at a stale home directory (e.g. `/Users/theng/…` when this Mac is `/build/…`), so the existence check failed and **every** scene was silently dropped from Video Assembly — even though `scene_images/<id>.png` was sitting right there. Video Assembly now falls back to the local id-based path whenever the stored absolute path is missing (both when listing scenes and when applying the Scene-Plan durations), matching how Scene Review already resolved images. Affected KH Boundless EP13/14/15 and any project moved between Macs.

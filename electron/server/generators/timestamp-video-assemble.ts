@@ -30,7 +30,7 @@ import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
-import { SCENE_IMAGES_SUBFOLDER } from './scene-image.js'
+import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from './scene-image.js'
 import type { Job, ScenePlan } from '../models/types.js'
 
 interface TimestampAssembleParams {
@@ -120,12 +120,18 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
     )
   }
 
-  // Verify every scene has a real image on disk.
-  const imageDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+  // Verify every scene has a real image on disk. v1.0.457 — images now live in
+  // the unified named folder; resolve each per-scene (named first, legacy flat
+  // fallback) so both consolidated and not-yet-consolidated episodes assemble.
+  const namedSceneDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
+  const legacySceneDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+  const imgFor = (id: string): string => {
+    const n = path.join(namedSceneDir, `${id}.png`)
+    return existsSync(n) ? n : path.join(legacySceneDir, `${id}.png`)
+  }
   const missingImages: string[] = []
   for (const s of plan.scenes) {
-    const imgPath = path.join(imageDir, `${s.id}.png`)
-    if (!existsSync(imgPath)) missingImages.push(`#${s.scene_index} (${s.id})`)
+    if (!existsSync(imgFor(s.id))) missingImages.push(`#${s.scene_index} (${s.id})`)
   }
   if (missingImages.length > 0) {
     throw new Error(`Missing images for: ${missingImages.join(', ')}. Regenerate before assembling.`)
@@ -275,12 +281,12 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   if (!useXfade) {
     const concatLines: string[] = []
     for (const s of plan.scenes) {
-      const imgPath = path.join(imageDir, `${s.id}.png`)
+      const imgPath = imgFor(s.id)
       concatLines.push(`file '${imgPath.replace(/'/g, `'\\''`)}'`)
       concatLines.push(`duration ${durOf(s).toFixed(3)}`)
     }
     const last = plan.scenes[plan.scenes.length - 1]!
-    concatLines.push(`file '${path.join(imageDir, `${last.id}.png`).replace(/'/g, `'\\''`)}'`)
+    concatLines.push(`file '${imgFor(last.id).replace(/'/g, `'\\''`)}'`)
     concatListPath = path.join(finalDir, `.tmp-${Date.now()}-concat-list.txt`)
     await fs.writeFile(concatListPath, concatLines.join('\n') + '\n', 'utf-8')
     job.output_lines.push(`Built concat list with ${plan.scenes.length} scene(s)`)
@@ -354,7 +360,7 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
         if (slice.length === 1) {
           // Lone trailing scene — a still at the export size (no xfade possible).
           await runFfmpeg([
-            '-y', '-loop', '1', '-t', durOf(slice[0]!).toFixed(3), '-i', path.join(imageDir, `${slice[0]!.id}.png`),
+            '-y', '-loop', '1', '-t', durOf(slice[0]!).toFixed(3), '-i', imgFor(slice[0]!.id),
             '-vf', `${vBase},fps=${fps},format=yuv420p`,
             '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', String(fps), chunkPath,
           ], `chunk ${c + 1}/${chunkCount} `)
@@ -365,7 +371,7 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
         let lcum = 0; const lstarts: number[] = []
         for (let i = 0; i < slice.length; i++) {
           lstarts.push(lcum); lcum += durOf(slice[i]!)
-          inputs.push('-loop', '1', '-t', (durOf(slice[i]!) + transDur).toFixed(3), '-i', path.join(imageDir, `${slice[i]!.id}.png`))
+          inputs.push('-loop', '1', '-t', (durOf(slice[i]!) + transDur).toFixed(3), '-i', imgFor(slice[i]!.id))
           vp.push(`[${i}:v]${vBase},fps=${fps},format=yuv420p,settb=AVTB[v${i}]`)
         }
         // Variable-offset xfade chain (local to the chunk). offset of the i-th

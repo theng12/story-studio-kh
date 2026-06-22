@@ -22,7 +22,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
-import { SCENE_IMAGES_SUBFOLDER } from '../generators/scene-image.js'
+import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from '../generators/scene-image.js'
 import {
   estimateRunBatchBytes,
   getFreeBytes,
@@ -871,12 +871,14 @@ router.get('/projects/:slug/pipeline/pending-approvals', async (req, res) => {
       if (!scenes.length) continue
       const approved = scenes.filter(s => s.approved).length
       if (approved >= scenes.length) continue   // fully approved — nothing to do
-      const imageDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
-      let withImage = 0
-      if (existsSync(imageDir)) {
-        const files = new Set(await fs.readdir(imageDir).catch(() => [] as string[]))
-        withImage = scenes.filter(s => files.has(`${s.id}.png`)).length
-      }
+      // v1.0.457 — count renders in the unified named folder OR the legacy flat
+      // folder, so consolidated and not-yet-consolidated episodes both count.
+      const namedDir = await resolveSceneImagesDir(slug, code, paths.episode_dir).catch(() => '')
+      const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+      const files = new Set<string>()
+      if (namedDir && existsSync(namedDir)) for (const f of await fs.readdir(namedDir).catch(() => [] as string[])) files.add(f)
+      if (existsSync(legacyDir)) for (const f of await fs.readdir(legacyDir).catch(() => [] as string[])) files.add(f)
+      const withImage = scenes.filter(s => files.has(`${s.id}.png`)).length
       if (withImage === 0) continue              // nothing rendered yet — can't approve
       pending.push({ episode_id: code, title: (idea as any).title || code, total: scenes.length, approved, with_image: withImage })
     }

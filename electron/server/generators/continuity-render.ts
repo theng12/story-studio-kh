@@ -32,7 +32,7 @@ import * as jq from '../services/job-queue.js'
 import { recordTask, hashInput } from '../services/task-manifest.js'
 import { getCharacter, referenceImagePath } from '../services/character-manager.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
-import { SCENE_IMAGES_SUBFOLDER } from './scene-image.js'
+import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from './scene-image.js'
 import type { Job, ImageModelConfig, ScenePlan, ScenePlanEntry } from '../models/types.js'
 
 interface ContinuityRenderParams {
@@ -316,8 +316,17 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     )
   }
 
-  const outDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+  // v1.0.457 — unified scene-image location (named "NN Scene Images" folder),
+  // shared with the Scene Generator + media-root-aware.
+  const outDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
   await fs.mkdir(outDir, { recursive: true })
+
+  // v1.0.457 — resume/skip-existing must also see the LEGACY flat scene_images/
+  // folder, so an episode that hasn't been consolidated yet isn't needlessly
+  // re-rendered from scratch (it already has its images, just in the old place).
+  const legacySceneDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+  const hasRenderedImage = (id: string): boolean =>
+    existsSync(path.join(outDir, `${id}.png`)) || existsSync(path.join(legacySceneDir, `${id}.png`))
 
   const aspectRatio = params.aspect_ratio || '16:9'
   // v1.0.261 — explicit render size (local Image Studio only). When provided,
@@ -473,14 +482,13 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     const toRender = scenes.filter(scene => {
       if (!scene.visual_prompt?.trim()) return false
       if (sceneIdSet) return sceneIdSet.has(scene.id)   // selection re-renders the chosen scenes
-      const outPath = path.join(outDir, `${scene.id}.png`)
       return singleIndex > 0
         ? scene.scene_index === singleIndex
         : force
           ? true
           : fromIndex > 0
             ? scene.scene_index >= fromIndex
-            : !existsSync(outPath)
+            : !hasRenderedImage(scene.id)
     })
     skipped = scenes.length - toRender.length
 
@@ -651,7 +659,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
         ? true
         : fromIndex > 0
           ? scene.scene_index >= fromIndex
-          : !existsSync(outPath)
+          : !hasRenderedImage(scene.id)
 
     if (!renderThis) {
       // Skipped — but an existing CHARACTER render still seeds the guide chain.

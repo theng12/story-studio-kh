@@ -34,6 +34,7 @@ import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { computeStoryStartSec } from '../lib/intro-lead-in.js'
+import { resolveSceneImagesDir } from './scene-image.js'
 import type {
   GenerateVideoRequest, Job, VideoLogoConfig, VideoIntroConfig,
   VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
@@ -461,8 +462,14 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
   // manually approving hundreds of scenes. The frontend's Scene Plan / Classic /
   // Combined toggle picks which set actually renders; source files are untouched.
   const planPath = path.join(episodeDir, SCENE_PLAN_FILENAME)
-  const timestampImagesDir = path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER)
-  if (existsSync(planPath) && existsSync(timestampImagesDir)) {
+  // v1.0.457 — continuity renders now live in the unified named "NN Scene Images"
+  // folder (legacy flat scene_images/ kept as a read fallback). Only the plan is
+  // required; the named/flat dirs are resolved per scene below.
+  const namedSceneDir = existsSync(planPath)
+    ? await resolveSceneImagesDir(slug, code, episodeDir).catch(() => path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER))
+    : ''
+  const legacySceneDir = path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER)
+  if (existsSync(planPath)) {
     try {
       const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
       const seenPaths = new Set(result.scenes.map(s => path.resolve(s.path)))
@@ -471,15 +478,17 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
         : 1
       let plannedCount = 0
       for (const scene of plan.scenes || []) {
-        // v1.0.456 — resolve the render robustly. scene.image_path is an ABSOLUTE
-        // path baked in at render time; on a different Mac / macOS user it points
-        // at a stale home dir (e.g. /Users/theng/… when this Mac is
-        // /build/…) and existsSync fails, which silently dropped
-        // EVERY scene from Video Assembly even though scene_images/<id>.png is
-        // right here. Always prefer the stored path when it exists, but fall back
-        // to the local id-based path so a stale absolute path never hides a render.
-        const localPath = path.join(timestampImagesDir, `${scene.id}.png`)
-        const plannedPath = (scene.image_path && existsSync(scene.image_path)) ? scene.image_path : localPath
+        // v1.0.456/457 — resolve robustly: unified named folder first, then the
+        // stored absolute image_path (which can be stale across Macs/users —
+        // /Users/theng/… vs /build/…), then the legacy flat folder.
+        // This keeps continuity renders visible in Video Assembly regardless of
+        // where they physically live.
+        const namedPath = namedSceneDir ? path.join(namedSceneDir, `${scene.id}.png`) : ''
+        const flatPath = path.join(legacySceneDir, `${scene.id}.png`)
+        const plannedPath =
+          (namedPath && existsSync(namedPath)) ? namedPath
+          : (scene.image_path && existsSync(scene.image_path)) ? scene.image_path
+          : flatPath
         const resolvedPath = path.resolve(plannedPath)
         if (!existsSync(plannedPath) || seenPaths.has(resolvedPath)) continue
         seenPaths.add(resolvedPath)
@@ -867,14 +876,14 @@ export async function generateVideo(job: Job): Promise<void> {
     if (existsSync(planPath)) {
       const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
       const byImagePath = new Map<string, ScenePlan['scenes'][number]>()
-      const timestampImagesDir = path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER)
+      const legacyDir = path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER)
+      const namedDir = await resolveSceneImagesDir(project_slug, code, episodeDir).catch(() => legacyDir)
       for (const scene of plan.scenes || []) {
-        // v1.0.456 — key by BOTH the stored absolute image_path AND the local
-        // id-based path. The scan now feeds req.scenes the local path when the
-        // stored one is stale (different Mac/user), so we must match on it here
-        // too or the planned durations silently wouldn't apply.
-        const localPath = path.resolve(path.join(timestampImagesDir, `${scene.id}.png`))
-        byImagePath.set(localPath, scene)
+        // v1.0.456/457 — key by the unified named path, the legacy flat path, AND
+        // the stored absolute image_path, so the scan-fed req.scenes (which may
+        // carry any of these) still matches and gets its planned duration.
+        byImagePath.set(path.resolve(path.join(namedDir, `${scene.id}.png`)), scene)
+        byImagePath.set(path.resolve(path.join(legacyDir, `${scene.id}.png`)), scene)
         if (scene.image_path) byImagePath.set(path.resolve(scene.image_path), scene)
       }
       let stamped = 0
