@@ -471,7 +471,15 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
         : 1
       let plannedCount = 0
       for (const scene of plan.scenes || []) {
-        const plannedPath = scene.image_path || path.join(timestampImagesDir, `${scene.id}.png`)
+        // v1.0.456 — resolve the render robustly. scene.image_path is an ABSOLUTE
+        // path baked in at render time; on a different Mac / macOS user it points
+        // at a stale home dir (e.g. /Users/theng/… when this Mac is
+        // /build/…) and existsSync fails, which silently dropped
+        // EVERY scene from Video Assembly even though scene_images/<id>.png is
+        // right here. Always prefer the stored path when it exists, but fall back
+        // to the local id-based path so a stale absolute path never hides a render.
+        const localPath = path.join(timestampImagesDir, `${scene.id}.png`)
+        const plannedPath = (scene.image_path && existsSync(scene.image_path)) ? scene.image_path : localPath
         const resolvedPath = path.resolve(plannedPath)
         if (!existsSync(plannedPath) || seenPaths.has(resolvedPath)) continue
         seenPaths.add(resolvedPath)
@@ -861,8 +869,13 @@ export async function generateVideo(job: Job): Promise<void> {
       const byImagePath = new Map<string, ScenePlan['scenes'][number]>()
       const timestampImagesDir = path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER)
       for (const scene of plan.scenes || []) {
-        const plannedPath = path.resolve(scene.image_path || path.join(timestampImagesDir, `${scene.id}.png`))
-        byImagePath.set(plannedPath, scene)
+        // v1.0.456 — key by BOTH the stored absolute image_path AND the local
+        // id-based path. The scan now feeds req.scenes the local path when the
+        // stored one is stale (different Mac/user), so we must match on it here
+        // too or the planned durations silently wouldn't apply.
+        const localPath = path.resolve(path.join(timestampImagesDir, `${scene.id}.png`))
+        byImagePath.set(localPath, scene)
+        if (scene.image_path) byImagePath.set(path.resolve(scene.image_path), scene)
       }
       let stamped = 0
       for (const scene of req.scenes) {

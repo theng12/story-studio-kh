@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.456 — 2026-06-22
+
+**Fixed: continuity scene images didn't show in Video Assembly when the project was made on another Mac/user.** Each scene in `scene_plan.json` stores an absolute `image_path` baked in at render time. On a different machine or macOS user that path points at a stale home directory (e.g. `/Users/theng/…` when this Mac is `/build/…`), so the existence check failed and **every** scene was silently dropped from Video Assembly — even though `scene_images/<id>.png` was sitting right there. Video Assembly now falls back to the local id-based path whenever the stored absolute path is missing (both when listing scenes and when applying the Scene-Plan durations), matching how Scene Review already resolved images. Affected KH Boundless EP13/14/15 and any project moved between Macs.
+
 ## v1.0.455 — 2026-06-22
 
 ### Changed — external media root: fail-loud safety + fuller coverage (polish)
