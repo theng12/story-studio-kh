@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.458 — 2026-06-23
+
+**Bulk "Regen N prompts only" now fans out across your whole LM Studio pool — and transient disconnects retry instead of leaving prompts blank.** Two fixes to scene-plan prompt regeneration:
+
+- **Parallel bulk regen.** The "✨ Regen N prompts only" button used to fire **one job per scene and wait for each before queuing the next** — so reprompting 47 empty scenes pushed them serially through a single endpoint, leaving the rest of your model pool idle and taking far longer than it should. It now submits a **single job** that regenerates every empty prompt **in parallel across all configured LM Studio endpoints** (one scene per endpoint, chunked at pool size), exactly like the two-pass planner's prompt pass. On a 3-endpoint setup that's roughly 3× faster. Cancel now stops the backend job (it polls between chunks), not just the frontend loop.
+- **Retry on transient failures.** When a local model briefly drops the connection mid-generation, that scene's prompt used to be left **permanently empty** for you to reprompt by hand. Per-scene generation now **retries up to 3 attempts** (short backoff, re-picking a pool endpoint each time) before giving up — so a momentary disconnect self-heals instead of leaving a hole. This applies to both the initial two-pass plan and the bulk regen.
+
+Shared one code path (`generatePromptsForScenes`) so the initial plan and the bulk regen behave identically. Prompts that already exist are kept and used as continuity context; time ranges and transcripts are never touched.
+
 ## v1.0.457 — 2026-06-22
 
 **Unified scene-image storage — Phase 1.** Continuity / Scene Review renders used to save into a separate flat `scene_images/` folder at the episode root, while the Scene Generator saved into the named "{code} - NN Scene Images" folder — two locations, bad UX, and the flat one got **left behind in iCloud** when media migrated to an external root (it wasn't in the migrated folder set). Now **both paths write into the named "NN Scene Images" folder** (media-root-aware, so it migrates with everything else), and every reader (Video Assembly scan + duration bridge, Scene Review list/serve/approve/regenerate/upload, the Timestamp assembler, and the pending-approvals badge) resolves the **named folder first with a fallback to the legacy flat folder** — so existing un-consolidated episodes keep working untouched. No new `scene_images/` folders are created going forward. (Phase 2 — consolidating existing flat folders — is a manual copy you can do per episode, then delete the old folder once confirmed.)

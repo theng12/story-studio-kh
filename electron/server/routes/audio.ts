@@ -11,6 +11,7 @@ import { parseEndpoints } from '../lib/endpoint-pool.js'
 import { getAudioStatus, reconcileAudioViaGenaipro } from '../services/audio-reconciler.js'
 import { TtlCache, swrFetch } from '../lib/ttl-cache.js'
 import type { AudioModelConfig } from '../models/types.js'
+import { resolveApiKeyForProviderId } from '../providers/registry.js'
 
 export const router = Router()
 
@@ -66,13 +67,15 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
     // (set in App Settings → Local Models). If the URL is missing OR the
     // modal is offline we fail fast at generation time with a clear error
     // from the client rather than refusing the queue request here.
-  } else {
-    const apiKey = providerId === 'elevenlabs' ? ((config as any).elevenlabs_api_key || '')
-      : providerId === 'genaipro' ? ((config as any).genaipro_api_key || '')
-      : (config.fal_api_key || '')
+  } else if (providerId !== 'macos') {
+    const apiKey = await resolveApiKeyForProviderId(slug, providerId, {
+      model: req.body.model,
+    })
     if (!apiKey) {
       const label = providerId === 'elevenlabs' ? 'ElevenLabs'
-        : providerId === 'genaipro' ? 'GenAIPro' : 'fal.ai'
+        : providerId === 'genaipro' ? 'GenAIPro'
+          : providerId === 'fishaudio' ? 'Fish Audio'
+            : 'fal.ai'
       return res.status(400).json({ detail: `No ${label} API key configured. Add one in Settings → API Keys.` })
     }
   }

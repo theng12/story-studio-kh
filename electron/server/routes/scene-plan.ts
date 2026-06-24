@@ -221,6 +221,51 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
   res.status(201).json(job)
 })
 
+// ── POST /scene-plan/:ep/regenerate-empty-prompts ─────────────────────
+// v1.0.458 — bulk-regenerate EVERY empty visual_prompt in ONE job that fans
+// out across the LM Studio pool (concurrency = pool size) and retries
+// transient connection failures. Replaces the old frontend loop that fired
+// one regenerate-prompt job per scene, serially, through a single endpoint —
+// which wasted the pool and the user's time on a 47-scene reprompt. Shares
+// the scene_plan_run lane, so it won't run alongside a full plan / re-plan.
+router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', async (req, res) => {
+  const { slug, episodeId } = req.params
+
+  const body = req.body || {}
+  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  if (!model) return res.status(400).json({ detail: 'model is required' })
+  // Scene planning/rewrite is an LLM task — reject IMAGE models up front.
+  if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
+    return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
+  }
+
+  const detailLevel = typeof body.detail_level === 'number'
+    ? Math.min(4, Math.max(1, Math.round(body.detail_level)))
+    : undefined
+  const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
+  const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
+
+  if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
+    return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
+  }
+
+  const job = jq.enqueue({
+    project_slug: slug,
+    type: 'scene_plan_run' as JobType,
+    episode_id: episodeId,
+    title: `Regen empty prompts — ${episodeId}`,
+    params: {
+      episode_id: episodeId,
+      model,
+      regenerate_empty_prompts: true,
+      detail_level: detailLevel,
+      style_prompt: stylePrompt || undefined,
+      custom_instructions: customInstructions || undefined,
+    },
+  })
+  res.status(201).json(job)
+})
+
 // ── POST /scene-plan/:ep/set-prompt ───────────────────────────────────
 // v1.0.342 — save ONE scene's hand-edited visual_prompt. Powers the inline
 // prompt fix in Scene Review's preview lightbox (the LLM sometimes writes a

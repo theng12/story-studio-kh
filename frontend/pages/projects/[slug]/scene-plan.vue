@@ -412,9 +412,16 @@
               ></div>
             </div>
             <div class="bulk-progress-text">
-              Re-planning scene #{{ bulkReplan.currentSceneIndex ?? '?' }} ·
-              {{ bulkReplan.completed }}/{{ bulkReplan.total }} done
-              <button class="link-btn-danger" @click="cancelBulkReplan">Cancel after this scene</button>
+              <template v-if="bulkReplan.parallel">
+                Regenerating {{ bulkReplan.total }} prompt{{ bulkReplan.total === 1 ? '' : 's' }} in parallel across your model pool ·
+                {{ bulkReplan.completed }}/{{ bulkReplan.total }} done
+                <button class="link-btn-danger" @click="cancelBulkReplan">Cancel</button>
+              </template>
+              <template v-else>
+                Re-planning scene #{{ bulkReplan.currentSceneIndex ?? '?' }} ·
+                {{ bulkReplan.completed }}/{{ bulkReplan.total }} done
+                <button class="link-btn-danger" @click="cancelBulkReplan">Cancel after this scene</button>
+              </template>
             </div>
           </div>
 
@@ -979,9 +986,16 @@ async function planScenes(): Promise<void> {
   }
 }
 
-async function pollUntilPlanLanded(ep: string, opts?: { previousGeneratedAt?: string | null }): Promise<void> {
+async function pollUntilPlanLanded(
+  ep: string,
+  opts?: { previousGeneratedAt?: string | null; timeoutMs?: number; trackJobId?: string | null },
+): Promise<void> {
   const start = Date.now()
-  const timeoutMs = 120_000
+  // v1.0.458 — bulk parallel regen is one long job, so callers can extend the
+  // deadline past the 120s default; trackJobId drives the progress bar and
+  // detects a terminal (error/cancelled) job so we don't wait out the timeout.
+  const timeoutMs = opts?.timeoutMs ?? 120_000
+  const trackJobId = opts?.trackJobId ?? null
   // v1.0.287 — `previousGeneratedAt` lets callers wait specifically for a
   // NEW plan to land, not any-existing-recent plan. Bulk re-plan (v1.0.286)
   // hit this: on iteration 2+, the previous replan's generated_at was still
@@ -996,6 +1010,22 @@ async function pollUntilPlanLanded(ep: string, opts?: { previousGeneratedAt?: st
   while (Date.now() - start < timeoutMs) {
     await new Promise(r => setTimeout(r, 3000))
     if (episodeId.value !== ep) return  // switched away — stop; the new episode's own load owns its state
+    // v1.0.458 — drive the bulk progress bar from the job's % and bail early
+    // if the job terminated (error/cancelled) instead of waiting for the
+    // generated_at advance that will never come.
+    if (trackJobId) {
+      try {
+        const j = await get<{ status: string; progress?: number }>(`/projects/${slug.value}/jobs/${trackJobId}`)
+        if (j && typeof j.progress === 'number' && bulkReplan.value.active && bulkReplan.value.total > 0) {
+          const frac = Math.max(0, Math.min(1, (j.progress - 10) / 85))
+          bulkReplan.value.completed = Math.round(bulkReplan.value.total * frac)
+        }
+        if (j && (j.status === 'done' || j.status === 'error' || j.status === 'cancelled')) {
+          await loadStatus()
+          return
+        }
+      } catch { /* transient job-poll error — keep waiting on generated_at */ }
+    }
     await loadStatus()
     if (plan.value && plan.value.generated_at) {
       if (prev !== null) {
@@ -1007,7 +1037,7 @@ async function pollUntilPlanLanded(ep: string, opts?: { previousGeneratedAt?: st
       }
     }
   }
-  if (episodeId.value === ep) showError('Scene planner taking longer than 120s — check the Jobs panel.')
+  if (episodeId.value === ep) showError('Scene planner taking longer than expected — check the Jobs panel.')
 }
 
 // ── v1.0.245 — Plan health + per-scene re-plan ──────────────────────────
@@ -1079,10 +1109,14 @@ async function regenerateScenePrompt(scene: ScenePlanEntry): Promise<void> {
 }
 
 /**
- * v1.0.288 — bulk regenerate prompts for every empty-prompt scene. Same
- * shape as replanAllEmpty but calls the cheaper regenerate-prompt endpoint.
- * Reuses the bulkReplan state object so the existing progress strip works
- * for either bulk mode.
+ * v1.0.458 — bulk regenerate prompts for every empty-prompt scene in ONE
+ * backend job that fans the work out across the whole LM Studio pool (one
+ * scene per endpoint, in parallel) and retries transient disconnects.
+ *
+ * This replaces the old v1.0.288 loop that fired one regenerate-prompt job
+ * per scene and awaited each before queuing the next — which forced 47 empty
+ * scenes through a single endpoint, serially, wasting the rest of the pool
+ * and the user's time. Now a 3-endpoint setup regenerates ~3 scenes at once.
  */
 async function regenAllEmptyPrompts(): Promise<void> {
   if (!form.value.model) { showError('Pick a model above first'); return }
@@ -1098,75 +1132,51 @@ async function regenAllEmptyPrompts(): Promise<void> {
   const ok = await ask({
     title: `Regenerate ${empty.length} visual prompt${empty.length === 1 ? '' : 's'}?`,
     message:
-      `Rewrites the visual_prompt for each empty-prompt scene, ONE AT A TIME. Time boundaries + transcript_segment stay exactly as-is. `
-      + `Each call is small (prose output, no JSON) so this is much more reliable on local models than full Re-plan. `
-      + `Estimated ~${Math.ceil(empty.length * 0.3)}-${Math.ceil(empty.length * 0.8)}min depending on your model. `
-      + `You can cancel between scenes.${dirty.value ? ' Unsaved edits to the plan will be discarded first.' : ''}`,
+      `Rewrites the visual_prompt for every empty-prompt scene in a SINGLE job that fans out across your LM Studio pool `
+      + `(one scene per endpoint, in parallel) and retries transient disconnects. Time boundaries + transcript_segment stay exactly as-is. `
+      + `Much faster than the old one-at-a-time loop when you have more than one endpoint configured.`
+      + `${dirty.value ? ' Unsaved edits to the plan will be discarded first.' : ''}`,
     confirmLabel: `Regen all ${empty.length}`,
   })
   if (!ok) return
 
   bulkReplan.value = {
-    active: true, completed: 0, total: empty.length,
-    currentSceneIndex: null, cancelRequested: false,
+    active: true, parallel: true, completed: 0, total: empty.length,
+    currentSceneIndex: null, cancelRequested: false, jobId: null,
   }
 
-  const skipIds = new Set<string>()
-  let safetyCap = 200
-  let succeeded = 0
-  let failed = 0
-  while (safetyCap-- > 0 && !bulkReplan.value.cancelRequested) {
-    if (episodeId.value !== ep) break
-    const next = (plan.value?.scenes || []).find(
-      s => !skipIds.has(s.id)
-        && (!s.visual_prompt || !s.visual_prompt.trim())
-        && (s.transcript_segment && s.transcript_segment.trim()),
-    )
-    if (!next) break
-    bulkReplan.value.currentSceneIndex = next.scene_index
-    const previousGeneratedAt = plan.value?.generated_at || null
-    try {
-      await post(`/projects/${slug.value}/scene-plan/${ep}/regenerate-prompt`, {
-        scene_id: next.id,
-        model: form.value.model,
-        detail_level: form.value.detail_level,
-        style_prompt: form.value.style_prompt.trim() || undefined,
-        custom_instructions: form.value.custom_instructions.trim() || undefined,
-      })
-      await pollUntilPlanLanded(ep, { previousGeneratedAt })
-      // Verify the prompt actually landed — model can still return empty
-      // on a truly degenerate input (e.g. transcript with no usable content).
-      const stillEmpty = (plan.value?.scenes || []).some(
-        s => s.id === next.id && (!s.visual_prompt || !s.visual_prompt.trim()),
-      )
-      if (stillEmpty) {
-        failed++
-        skipIds.add(next.id)
-      } else {
-        succeeded++
-      }
-    } catch (e: any) {
-      failed++
-      skipIds.add(next.id)
-      if (failed <= 3) {
-        showError(`Scene #${next.scene_index} regen failed: ${e?.data?.detail || e?.message || 'unknown'}`)
-      } else if (failed === 4) {
-        showError(`Multiple regens failing — suppressing further toasts. See the final summary for counts.`)
-      }
+  const previousGeneratedAt = plan.value?.generated_at || null
+  try {
+    const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-plan/${ep}/regenerate-empty-prompts`, {
+      model: form.value.model,
+      detail_level: form.value.detail_level,
+      style_prompt: form.value.style_prompt.trim() || undefined,
+      custom_instructions: form.value.custom_instructions.trim() || undefined,
+    })
+    bulkReplan.value.jobId = job?.job_id || null
+    success('Bulk prompt regen queued — fanning out across your model pool. Watch the Jobs panel for detail.')
+    // One long job: extend the deadline well past the 120s default and let the
+    // job's % drive the progress bar.
+    await pollUntilPlanLanded(ep, { previousGeneratedAt, timeoutMs: 1_800_000, trackJobId: job?.job_id || null })
+    if (episodeId.value !== ep) return  // user switched episodes mid-run
+
+    const stillEmpty = (plan.value?.scenes || []).filter(
+      s => (!s.visual_prompt || !s.visual_prompt.trim()) && (s.transcript_segment && s.transcript_segment.trim()),
+    ).length
+    const filled = Math.max(0, empty.length - stillEmpty)
+    if (bulkReplan.value.cancelRequested) {
+      success(`Bulk regen cancelled. Filled ${filled} of ${empty.length} before stopping.`)
+    } else if (stillEmpty > 0 && filled > 0) {
+      success(`Bulk regen finished. Filled ${filled}, ${stillEmpty} still empty. Re-run the button to retry, or fill the rest in manually.`)
+    } else if (stillEmpty > 0 && filled === 0) {
+      showError(`Bulk regen finished with 0 prompts filled. Your model couldn't produce prompts — try a stronger model (qwen3-coder, claude-sonnet, gpt-4o) or check your LM Studio endpoints are reachable.`)
+    } else {
+      success(`Regenerated ${filled} visual prompt${filled === 1 ? '' : 's'} across your pool.`)
     }
-    bulkReplan.value.completed++
-  }
-
-  const wasCancelled = bulkReplan.value.cancelRequested
-  bulkReplan.value = { active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false }
-  if (wasCancelled) {
-    success(`Bulk regen cancelled. Regenerated ${succeeded}, ${failed} skipped (model couldn't produce a prompt).`)
-  } else if (failed > 0 && succeeded > 0) {
-    success(`Bulk regen finished. Succeeded: ${succeeded}. Skipped: ${failed}. Re-run the button to retry, or fill the rest in manually.`)
-  } else if (failed > 0 && succeeded === 0) {
-    showError(`Bulk regen finished with ${failed} failure${failed === 1 ? '' : 's'} and 0 successes. Your selected model can't produce prompts even for the simpler regen call. Try a stronger model (qwen3-coder, claude-sonnet, gpt-4o) or fill the prompts in by hand.`)
-  } else {
-    success(`Regenerated ${succeeded} visual prompt${succeeded === 1 ? '' : 's'}.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to start bulk regen')
+  } finally {
+    bulkReplan.value = { active: false, parallel: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false, jobId: null }
   }
 }
 
@@ -1180,6 +1190,12 @@ const bulkReplan = ref<{
   total: number
   currentSceneIndex: number | null
   cancelRequested: boolean
+  /** v1.0.458 — true when the run is a single parallel pool job (bulk regen
+   *  prompts) rather than the legacy one-scene-at-a-time loop (full re-plan).
+   *  The progress strip + cancel behave differently for each. */
+  parallel?: boolean
+  /** v1.0.458 — backend job id for the parallel run, so Cancel can stop it. */
+  jobId?: string | null
 }>({ active: false, completed: 0, total: 0, currentSceneIndex: null, cancelRequested: false })
 
 /**
@@ -1300,7 +1316,16 @@ async function replanAllEmpty(): Promise<void> {
 }
 
 function cancelBulkReplan(): void {
-  if (bulkReplan.value.active) bulkReplan.value.cancelRequested = true
+  if (!bulkReplan.value.active) return
+  bulkReplan.value.cancelRequested = true
+  // v1.0.458 — the parallel bulk regen is a single backend job; cancelling the
+  // frontend poll alone would leave it churning. Tell the server to stop it
+  // (the generator polls isCancelled() between chunks). The legacy full-re-plan
+  // loop has no job to cancel — it just stops between scenes.
+  const jobId = bulkReplan.value.jobId
+  if (bulkReplan.value.parallel && jobId) {
+    void del(`/projects/${slug.value}/jobs/${jobId}`).catch(() => { /* already finished — harmless */ })
+  }
 }
 
 // v1.0.286 — Back-to-top floating button. Tracks scroll position on the

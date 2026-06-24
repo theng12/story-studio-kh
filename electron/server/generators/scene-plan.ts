@@ -9,7 +9,8 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { planScenes, planScenesTwoPass, generateVisualPromptOnly, assignDensityToUntagged } from '../services/scene-planner.js'
+import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, assignDensityToUntagged } from '../services/scene-planner.js'
+import { isCancelled } from '../services/job-queue.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
@@ -76,6 +77,13 @@ interface ScenePlanRunParams {
    *  structured JSON output) — works reliably on smaller local models
    *  that fail full-planner JSON. Mutually exclusive with replan_scene_id. */
   regenerate_prompt_scene_id?: string
+  /** v1.0.458 — BULK regenerate EVERY empty visual_prompt in one job that
+   *  fans out across the LM Studio pool (concurrency = pool size) and
+   *  retries transient connection failures. Replaces the old frontend loop
+   *  that fired one regenerate-prompt job per scene through a single
+   *  endpoint. Time ranges + transcripts are untouched. Mutually exclusive
+   *  with regenerate_prompt_scene_id / replan_scene_id. */
+  regenerate_empty_prompts?: boolean
   /** v1.0.291 — planning strategy. 'single-pass' (default) uses the
    *  historical windowed LLM planner; 'two-pass' splits cues deterministic-
    *  ally then generates prompts per-scene as plain prose. The two-pass
@@ -229,6 +237,72 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     job.output_dir = paths.episode_dir
     job.progress = 100
     job.output_lines.push(`✓ Prompt regenerated (${newPrompt.length} chars). Other scenes untouched.`)
+    return
+  }
+
+  // ── v1.0.458 — BULK regenerate every empty visual_prompt in ONE job ─────
+  // Same per-scene prose call as the single regenerate above, but it finds
+  // EVERY empty-prompt scene (with a non-empty transcript) and generates them
+  // in one job that fans out across the LM Studio pool — replacing the old
+  // frontend loop that fired one job per scene serially through a single
+  // endpoint. Transient connection failures are retried, so a brief local-
+  // model hiccup no longer leaves prompts permanently blank.
+  if (params.regenerate_empty_prompts) {
+    if (!existsSync(outPath)) throw new Error('No scene_plan.json to regenerate prompts for — run the full planner first.')
+    const existing = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+    const targetIndices: number[] = []
+    existing.scenes.forEach((s, i) => {
+      const noPrompt = !s.visual_prompt || !s.visual_prompt.trim()
+      const hasTranscript = !!(s.transcript_segment && s.transcript_segment.trim())
+      if (noPrompt && hasTranscript) targetIndices.push(i)
+    })
+    if (!targetIndices.length) {
+      job.progress = 100
+      job.output_lines.push('No empty prompts to regenerate — every scene with a transcript already has a prompt.')
+      job.output_dir = paths.episode_dir
+      return
+    }
+    job.output_lines.push(
+      `Bulk-regenerating ${targetIndices.length} empty visual prompt(s) of ${existing.scenes.length} scene(s) — `
+      + `time ranges + transcripts unchanged, prompts that already exist serve as continuity context.`,
+    )
+    const [anthropic_api_key, openai_api_key, kie_api_key] = await Promise.all([
+      getApiKey('anthropic').catch(() => ''),
+      getApiKey('openai').catch(() => ''),
+      getApiKey('kie').catch(() => ''),
+    ])
+    // Keep the rewrites ON-STYLE — same Style Bible fallback the single
+    // regenerate and the full plan use (v1.0.364).
+    const stylePromptForRewrite = await resolveEffectiveStyle(
+      params.style_prompt, paths.episode_dir,
+      () => job.output_lines.push('Using the episode Style Bible to keep the rewrites on-style.'),
+    )
+    const failed = await generatePromptsForScenes(existing.scenes, targetIndices, {
+      model,
+      detail_level: params.detail_level,
+      style_prompt: stylePromptForRewrite,
+      custom_instructions: params.custom_instructions,
+      neighbor_context_back: params.neighbor_context_back,
+      neighbor_context_forward: params.neighbor_context_forward,
+      apiKeys: { anthropic_api_key, openai_api_key, kie_api_key },
+      slug: job.project_slug,
+      should_cancel: () => isCancelled(job.job_id),
+      onWarn: (m) => job.output_lines.push(m),
+      onProgress: (done, total) => {
+        // Map into the 10–95 band the job reserves for the work.
+        job.progress = 10 + Math.round((done / Math.max(1, total)) * 85)
+      },
+    })
+    existing.generated_at = new Date().toISOString()
+    await fs.mkdir(paths.episode_dir, { recursive: true })
+    await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
+    job.output_dir = paths.episode_dir
+    job.progress = 100
+    const succeeded = targetIndices.length - failed
+    job.output_lines.push(
+      `✓ Bulk regen complete — ${succeeded} prompt(s) filled`
+      + (failed ? `, ${failed} still empty (re-run the button to retry, or fill them in manually).` : '.'),
+    )
     return
   }
 
