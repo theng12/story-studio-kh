@@ -4,9 +4,8 @@ Living roadmaps and backlogs. Items here change state as work happens — `[ ]` 
 
 ## Contents
 
-| File | Purpose |
-|---|---|
-| [`upload-backlog.md`](upload-backlog.md) | Prioritized follow-ups from the upload-feature audit (2026-05-03). Banded into P0 / P1 / P2 ROI tiers, each item has acceptance criteria and starting-point files. |
+*No backlogs currently open. The upload-feature backlog (2026-05-03) shipped
+in full and moved to [`../history/upload-backlog-2026-05-03.md`](../history/upload-backlog-2026-05-03.md).*
 
 ## When to update
 

@@ -1,8 +1,10 @@
-# Upload Center backlog
+# Upload Center backlog (completed)
 
 Prioritized list of follow-ups from the upload-feature audit on 2026-05-03.
-Items are grouped by ROI band so you can pick a bundle and ship; discussion
-notes live under each item as we work through them.
+Every item below shipped between v1.0.35 and v1.0.48 — moved here from
+`planning/` per the docs convention (a backlog whose items are all `[x]`
+becomes a history record, not an active plan). Nothing here is open work;
+read it as "what we did and why," not as a roadmap.
 
 ## How to read this
 

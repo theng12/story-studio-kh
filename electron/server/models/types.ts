@@ -1703,7 +1703,7 @@ export interface ProjectConfig {
    * YouTube videoCategories.list ID applied to every fresh upload
    * + metadata-only PATCH for this project. Default 24 ("Entertainment")
    * as of v1.0.77 (was 22 "People & Blogs"). Set per-project on
-   * Settings → Project. See [docs/upload-backlog.md] item J.
+   * Settings → Project.
    */
   category_id?: number
   /**
