@@ -49,7 +49,7 @@ import { router as researchRouter } from './research.js'
 import { router as scenePlanRouter } from './scene-plan.js'
 import { router as sceneReviewRouter } from './scene-review.js'
 import { router as continuityRouter } from './continuity.js'
-import { router as lmstudioRouter } from './lmstudio.js'
+import { router as chatstudioRouter } from './chatstudio.js'
 import { requireProject } from './middleware.js'
 
 export function mountRoutes(app: Express): void {
@@ -101,5 +101,5 @@ export function mountRoutes(app: Express): void {
   app.use('/api', scenePlanRouter)
   app.use('/api', sceneReviewRouter)
   app.use('/api', continuityRouter)
-  app.use('/api', lmstudioRouter)
+  app.use('/api', chatstudioRouter)
 }

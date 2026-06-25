@@ -535,7 +535,7 @@
               class="btn btn-sm btn-ghost"
               :disabled="!textModel || rewritingId === previewScene.id || bulkRewriting"
               @click.stop="rewritePromptAI(previewScene)"
-              :title="!textModel ? 'Pick a Rewrite LLM in the toolbar first (or set an API key / LM Studio in Settings → Models)' : `Re-write this scene's prompt with ${textModel} (kept on-style via the episode Style Bible), then Regenerate to apply it`"
+              :title="!textModel ? 'Pick a Rewrite LLM in the toolbar first (or set an API key / Chat Studio in Settings → Models)' : `Re-write this scene's prompt with ${textModel} (kept on-style via the episode Style Bible), then Regenerate to apply it`"
             >{{ rewritingId === previewScene.id ? '⏳ Rewriting…' : '✏️ Rewrite with AI' }}</button>
             <button
               v-if="promptDirty"
@@ -1013,7 +1013,7 @@ async function rewriteOneAndWait(scene: ReviewScene): Promise<boolean> {
 
 async function rewritePromptAI(scene: ReviewScene): Promise<void> {
   if (!textModel.value) {
-    showError('No rewrite model selected — pick one from the LLM dropdown (or set an API key / LM Studio in Settings → Models).')
+    showError('No rewrite model selected — pick one from the LLM dropdown (or set an API key / Chat Studio in Settings → Models).')
     return
   }
   rewritingId.value = scene.id

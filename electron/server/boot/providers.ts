@@ -37,7 +37,7 @@ import '../providers/video/kie.js'
 import '../providers/text/openai.js'
 import '../providers/text/deepseek.js'
 import '../providers/text/openrouter.js'
-// v1.0.280+ — LM Studio (local OpenAI-compatible LLM server on the user's own
-// machine). Sibling of Image/Voice Studio: the apiKey slot carries the base
+// Chat Studio (local Apple-Silicon MLX OpenAI-compatible LLM server, self-
+// healing). Sibling of Image/Voice Studio: the apiKey slot carries the base
 // URL, models surface dynamically from the running server's /v1/models.
-import '../providers/text/lmstudio.js'
+import '../providers/text/chatstudio.js'

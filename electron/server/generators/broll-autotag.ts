@@ -71,9 +71,9 @@ export async function generateBrollAutotag(job: Job): Promise<void> {
   // Gate only the OpenAI path on the key — analyzeStyle validates the LM Studio
   // URL itself. Works for both video clips (midpoint frame) and image pools
   // (the image itself), since both reduce to a cached thumbnail JPEG.
-  const isLocal = visionModel.startsWith('lmstudio:')
+  const isLocal = visionModel.startsWith('chatstudio:')
   if (!isLocal && !(await visionKeyAvailable())) {
-    throw new Error('No vision-capable API key configured. Add an OpenAI key in Settings → API Keys, or pick a local LM Studio vision model.')
+    throw new Error('No vision-capable API key configured. Add an OpenAI key in Settings → API Keys, or pick a local Chat Studio vision model.')
   }
   if (visionModel) job.output_lines.push(`Requested vision model: ${visionModel}`)
 

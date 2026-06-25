@@ -18,8 +18,8 @@ describe('B-Roll vision model routing', () => {
     }
   })
 
-  test('accepts dynamically discovered LM Studio models', () => {
-    assert.equal(isBrollVisionModelSupported('lmstudio:qwen2.5-vl-7b'), true)
+  test('accepts dynamically discovered Chat Studio models', () => {
+    assert.equal(isBrollVisionModelSupported('chatstudio:qwen2.5-vl-7b'), true)
   })
 
   test('rejects text-only and reasoning model selections', () => {

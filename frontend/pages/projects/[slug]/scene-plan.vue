@@ -175,7 +175,7 @@
 
       <!-- v1.0.291 — planning mode. Two-pass is only meaningful for local
            models (cloud LLMs handle structured JSON fine), so the
-           two-pass radio is only enabled when an lmstudio:* model is
+           two-pass radio is only enabled when a chatstudio:* model is
            selected. -->
       <div class="form-group mt-3">
         <label>
@@ -193,7 +193,7 @@
           <label
             class="planning-mode-radio"
             :class="{ active: form.planning_mode === 'two-pass', disabled: !isLocalModel }"
-            :title="isLocalModel ? '' : 'Only available for local LM Studio models. Pick a local model above to enable.'"
+            :title="isLocalModel ? '' : 'Only available for local Chat Studio models. Pick a local model above to enable.'"
           >
             <input type="radio" v-model="form.planning_mode" value="two-pass" :disabled="!isLocalModel" />
             <div>
@@ -894,7 +894,7 @@ const detailMeta = computed(() => DETAIL_LEVELS.find(d => d.value === form.value
 
 // v1.0.285 — flagged for the window-size "Auto" tooltip so the user sees which
 // branch will fire (10 scenes for local, 30 for cloud) before they hit Plan.
-const isLocalModel = computed(() => (form.value.model || '').startsWith('lmstudio:'))
+const isLocalModel = computed(() => (form.value.model || '').startsWith('chatstudio:'))
 
 // v1.0.291 — neighbor-context preset → {back, forward} mapping. Sent to the
 // backend as numeric fields; surfaced as a 3-option dropdown so the user
@@ -1132,7 +1132,7 @@ async function regenAllEmptyPrompts(): Promise<void> {
   const ok = await ask({
     title: `Regenerate ${empty.length} visual prompt${empty.length === 1 ? '' : 's'}?`,
     message:
-      `Rewrites the visual_prompt for every empty-prompt scene in a SINGLE job that fans out across your LM Studio pool `
+      `Rewrites the visual_prompt for every empty-prompt scene in a SINGLE job that fans out across your Chat Studio pool `
       + `(one scene per endpoint, in parallel) and retries transient disconnects. Time boundaries + transcript_segment stay exactly as-is. `
       + `Much faster than the old one-at-a-time loop when you have more than one endpoint configured.`
       + `${dirty.value ? ' Unsaved edits to the plan will be discarded first.' : ''}`,
@@ -1169,7 +1169,7 @@ async function regenAllEmptyPrompts(): Promise<void> {
     } else if (stillEmpty > 0 && filled > 0) {
       success(`Bulk regen finished. Filled ${filled}, ${stillEmpty} still empty. Re-run the button to retry, or fill the rest in manually.`)
     } else if (stillEmpty > 0 && filled === 0) {
-      showError(`Bulk regen finished with 0 prompts filled. Your model couldn't produce prompts — try a stronger model (qwen3-coder, claude-sonnet, gpt-4o) or check your LM Studio endpoints are reachable.`)
+      showError(`Bulk regen finished with 0 prompts filled. Your model couldn't produce prompts — try a stronger model (qwen3-coder, claude-sonnet, gpt-4o) or check your Chat Studio endpoints are reachable.`)
     } else {
       success(`Regenerated ${filled} visual prompt${filled === 1 ? '' : 's'} across your pool.`)
     }

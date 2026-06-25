@@ -249,17 +249,17 @@ router.get('/models', async (req, res) => {
   // (rather than blocking the whole picker). Mirrors the dynamic image/voice
   // local-model surfacing.
   try {
-    const lmBaseRaw = await getApiKey('lmstudio').catch(() => '')
+    const lmBaseRaw = await getApiKey('chatstudio').catch(() => '')
     if (lmBaseRaw) {
-      // v1.0.304 — union models across ALL configured endpoints, not just the
-      // first, so a sleeping endpoints[0] no longer empties the dropdown.
-      const { listModelsPooled } = await import('../lib/lmstudio-client.js')
+      // Union models across ALL configured endpoints, not just the first, so a
+      // sleeping endpoints[0] no longer empties the dropdown.
+      const { listModelsPooled } = await import('../lib/chatstudio-client.js')
       const ids = await listModelsPooled(lmBaseRaw, 2000)
       for (const slug of ids) {
         models.push({
-          id: `lmstudio:${slug}`,
-          label: `${slug} [LM Studio · local]`,
-          provider: 'lmstudio',
+          id: `chatstudio:${slug}`,
+          label: `${slug} [Chat Studio · local]`,
+          provider: 'chatstudio',
           available: true,
           disabled_reason: null,
           hint: 'Runs locally on your machine — free, no rate limits.',

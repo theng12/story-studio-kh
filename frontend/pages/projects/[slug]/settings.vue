@@ -1729,43 +1729,43 @@
 
       <hr style="border: 0; border-top: 1px solid var(--border); margin: 28px 0 18px;" />
 
-      <!-- ─── LM Studio (v1.0.280+) ─────────────────────────────────────
-           Local OpenAI-compatible LLM server on the user's own machine.
-           Sibling of Voice/Image Studio: the URL slot carries the server
-           base URL; text models surface dynamically from /v1/models. Works
-           with any OpenAI-compatible local server (LM Studio, Ollama's
-           OpenAI shim, llama.cpp server). -->
-      <h3>LM Studio (local LLM)</h3>
+      <!-- ─── Chat Studio (local LLM) ───────────────────────────────────
+           Local Apple-Silicon MLX OpenAI-compatible LLM server on the user's
+           own machine — part of the Studio family (Voice/Image/Music Studio)
+           and self-healing across crashes/hangs. The URL slot carries the
+           server base URL; text models surface dynamically from /v1/models. -->
+      <h3>Chat Studio (local LLM)</h3>
       <p class="text-muted mt-1" style="font-size: 12px;">
-        Script, metadata, scene-plan and idea text generation via a
-        <strong>local LLM</strong> you run yourself — LM Studio, Ollama's
-        OpenAI shim, or any OpenAI-compatible server (e.g. a Gemma / Llama /
-        Qwen model). Set the server URL below — no default host, it's your
-        machine. The LLM model dropdown surfaces whichever models your server
-        currently has loaded (queried live from <code>/v1/models</code>). No
-        per-token cost, no rate limits, fully offline. The URL is per-machine —
-        every project on this Mac shares it.
+        Script, metadata, scene-plan and idea text generation via
+        <strong>Chat Studio</strong> — the local Apple-Silicon MLX LLM server
+        you run yourself (sibling of Voice/Image Studio, self-healing). Set the
+        server URL below — no default host, it's your machine. The LLM model
+        dropdown surfaces whichever models the server currently has
+        (queried live from <code>/v1/models</code>); Chat Studio auto-loads the
+        chosen model on demand. No per-token cost, no rate limits, fully
+        offline. The URL is per-machine — every project on this Mac shares it.
       </p>
 
       <div class="local-tts-row mt-3">
         <label class="local-tts-label">Server URL (per machine)</label>
-        <EndpointListEditor route-prefix="/lmstudio" placeholder="http://localhost:1234" />
+        <EndpointListEditor route-prefix="/chatstudio" placeholder="http://localhost:47871" />
         <p class="text-muted mt-1" style="font-size: 11px;">
-          Your local server's base URL — e.g. <code>http://localhost:1234</code>
-          (LM Studio's default), <code>http://your-mac.local:1234</code> (Bonjour),
+          Your Chat Studio base URL — e.g. <code>http://localhost:47871</code>
+          (the default port), <code>http://your-mac.local:47871</code> (Bonjour),
           or a LAN / Tailscale address. The <code>/v1</code> path is added
-          automatically. In LM Studio: load a model, then start the local server
-          (Developer tab → Start Server). Re-test after starting it.
+          automatically. Start Chat Studio (or run it as a background service),
+          then Save &amp; Test here. Add several URLs (comma/space separated) to
+          fan scene-planning out across multiple Macs in parallel.
         </p>
       </div>
 
       <p class="text-muted mt-3" style="font-size: 11px;">
         Once the URL is set and the server is running, pick any
-        <strong>[LM Studio · local]</strong> model from the LLM model dropdown
+        <strong>[Chat Studio · local]</strong> model from the LLM model dropdown
         wherever text is generated (Script, Scene Plan, Ideas, Metadata). The
-        list reflects whatever your server currently has loaded — load a
-        different model in LM Studio and it appears here after a refresh. No
-        per-project enable flag.
+        list reflects whatever the server currently has — download a different
+        model in Chat Studio and it appears here after a refresh. No per-project
+        enable flag.
       </p>
 
     </div>

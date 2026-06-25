@@ -43,11 +43,11 @@
         </div>
 
         <!-- Soft-warn when images are attached and the picked model is a
-             local LM Studio one (since we can't verify vision capability
+             local Chat Studio one (since we can't verify vision capability
              from the slug alone — assume true, but tell the user). -->
         <div v-if="attachments.length > 0 && isLocalModel" class="cw-vision-note">
-          ⚠ Local LM Studio models are assumed vision-capable. If your loaded model is text-only,
-          you'll see an error from the server — switch to a vision model in LM Studio and reload here.
+          ⚠ Local Chat Studio models are assumed vision-capable. If your loaded model is text-only,
+          you'll see an error from the server — switch to a vision model in Chat Studio and reload here.
         </div>
 
         <div ref="threadEl" class="cw-thread">
@@ -410,9 +410,9 @@ async function commitArtifact(a: CowriterArtifact) {
 }
 
 // v1.0.283 — model awareness for vision soft-warn.
-const isLocalModel = computed(() => model.value.startsWith('lmstudio:'))
+const isLocalModel = computed(() => model.value.startsWith('chatstudio:'))
 
-// v1.0.283 — cost estimate for the next Send. Per-image USD; LM Studio free.
+// v1.0.283 — cost estimate for the next Send. Per-image USD; Chat Studio free.
 // Numbers are approximate (true cost varies with image dimensions); good
 // enough for an order-of-magnitude hint on the Send button. Updates reactively
 // when model or attachments change.
@@ -429,7 +429,7 @@ const VISION_COST_PER_IMAGE_USD: Record<string, number> = {
 }
 function estimateImageCost(modelId: string, count: number): number {
   if (!count) return 0
-  if (modelId.startsWith('lmstudio:')) return 0
+  if (modelId.startsWith('chatstudio:')) return 0
   const base = modelId.toLowerCase()
   for (const prefix in VISION_COST_PER_IMAGE_USD) {
     if (base === prefix || base.startsWith(prefix + '-')) {

@@ -102,7 +102,7 @@
               v-model="autotagModel"
               class="select select-sm autotag-model-select"
               :disabled="autotagModelsLoading || !usableAutotagModels.length"
-              title="Which vision model tags your clips/images. Local LM Studio models are free; cloud models use their configured API key. Video clips tag from a midpoint frame; images tag directly."
+              title="Which vision model tags your clips/images. Local Chat Studio models are free; cloud models use their configured API key. Video clips tag from a midpoint frame; images tag directly."
             >
               <option v-if="autotagModelsLoading" value="" disabled>Loading models…</option>
               <optgroup v-for="group in autotagModelGroups" :key="group.provider" :label="group.label">
@@ -940,17 +940,17 @@ function isUsableAutotagModel(model: AutotagModelRow): boolean {
 
 function autotagModelSuffix(model: AutotagModelRow): string {
   if (model.disabled_reason) return ' (unavailable)'
-  if (!model.available) return model.provider === 'lmstudio' ? ' (offline)' : ' (no key)'
+  if (!model.available) return model.provider === 'chatstudio' ? ' (offline)' : ' (no key)'
   if (!model.supports_vision) return ' (text-only)'
-  if (model.provider === 'lmstudio') return ' (local · free)'
+  if (model.provider === 'chatstudio') return ' (local · free)'
   return ''
 }
 
 function autotagModelTooltip(model: AutotagModelRow): string {
   if (model.disabled_reason) return model.disabled_reason
   if (!model.available) {
-    return model.provider === 'lmstudio'
-      ? 'Start LM Studio and load this model.'
+    return model.provider === 'chatstudio'
+      ? 'Start Chat Studio and load this model.'
       : 'No API key configured for this provider.'
   }
   if (!model.supports_vision) {
@@ -958,7 +958,7 @@ function autotagModelTooltip(model: AutotagModelRow): string {
       ? 'DeepSeek is text-only and cannot inspect B-Roll images or video frames.'
       : 'This text-only model cannot inspect B-Roll images or video frames.'
   }
-  return model.provider === 'lmstudio'
+  return model.provider === 'chatstudio'
     ? 'Runs locally for free. The loaded model must support image input.'
     : 'Vision-capable cloud model.'
 }

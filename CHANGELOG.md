@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.459 — 2026-06-22
+
+### Changed — Local LLM provider switched from LM Studio to Chat Studio
+The local-LLM text provider is now **Chat Studio** (the self-healing Apple-Silicon MLX server, sibling to Voice/Image Studio) and **LM Studio support has been removed entirely**. Chat Studio is OpenAI-compatible and auto-loads the requested model on demand, so it's a cleaner drop-in: set its URL in **Settings → Models → Chat Studio (local LLM)** (default port **47871**), and its models surface in every LLM dropdown as **[Chat Studio · local]**. The multi-endpoint pool is preserved, so the two-pass scene planner still fans out across several Chat Studio Macs in parallel. Local vision tagging (B-Roll autotag, Co-writer image input) now routes through Chat Studio too.
+
+**Breaking:** any saved LM Studio URL/model selection no longer applies — re-enter your Chat Studio server URL in Settings and re-pick the model. Model ids changed from `lmstudio:<repo>` to `chatstudio:<repo>`.
+
+### Files
+- Added `electron/server/lib/chatstudio-client.ts`, `providers/text/chatstudio.ts`, `routes/chatstudio.ts`
+- Removed `lib/lmstudio-client.ts`, `providers/text/lmstudio.ts`, `routes/lmstudio.ts`
+- Rewired: `boot/providers.ts`, `routes/index.ts`, `services/scene-planner.ts`, `generators/scene-plan.ts`, `generators/broll-autotag.ts`, `lib/vision-client.ts`, `routes/health.ts`, `services/app-secrets-store.ts`
+- Frontend: `settings.vue` (Chat Studio panel, `/chatstudio` route-prefix, :47871), `composables/useModelGroups.ts`, `scene-plan.vue`, `cowriter.vue`, `broll-library.vue`, `scene-review.vue`, `FishExpressionPanel.vue`
+
+---
+
 ## v1.0.458 — 2026-06-23
 
 **Bulk "Regen N prompts only" now fans out across your whole LM Studio pool — and transient disconnects retry instead of leaving prompts blank.** Two fixes to scene-plan prompt regeneration:

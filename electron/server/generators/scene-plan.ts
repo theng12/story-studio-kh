@@ -161,7 +161,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // v1.0.285 — surface the chosen window size + the resolved count so the
   // user can see whether 'auto' picked Full or Small for their model.
   const wsMode = params.window_size || 'auto'
-  const wsIsLocal = model.startsWith('lmstudio:')
+  const wsIsLocal = model.startsWith('chatstudio:')
   const wsCount = wsMode === 'small' ? 10 : wsMode === 'full' ? 30 : (wsIsLocal ? 10 : 30)
   job.output_lines.push(
     `Window size: ${wsMode}${wsMode === 'auto' ? ` → ${wsCount} scenes/call (${wsIsLocal ? 'local model' : 'cloud model'})` : ` (${wsCount} scenes/call)`}`,

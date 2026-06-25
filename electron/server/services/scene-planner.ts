@@ -26,8 +26,8 @@ import { callAi } from '../lib/ai-client.js'
 import { parseSrt, formatSrtTime, type SrtCue } from '../lib/subtitle-builder.js'
 import { getApiKey } from './app-secrets-store.js'
 import { parseEndpoints } from '../lib/endpoint-pool.js'
-import { resetLmstudioDispatcher } from '../lib/lmstudio-client.js'
-import { LMSTUDIO_MODEL_PREFIX } from '../providers/text/lmstudio.js'
+import { resetChatstudioDispatcher } from '../lib/chatstudio-client.js'
+import { CHATSTUDIO_MODEL_PREFIX } from '../providers/text/chatstudio.js'
 import type {
   ResearchOutput,
   ScenePlan,
@@ -710,20 +710,20 @@ export async function generatePromptsForScenes(
   const forward = Math.max(0, Math.min(10, ctx.neighbor_context_forward ?? 1))
   const maxRetries = Math.max(0, ctx.max_retries ?? 2)
 
-  // Derive concurrency from the LM Studio pool size when the model is local.
+  // Derive concurrency from the Chat Studio pool size when the model is local.
   // Cloud models stay sequential (no pool to spread across; cloud rate-limits
-  // make free parallelism risky). Single-endpoint LM Studio also stays at 1.
+  // make free parallelism risky). Single-endpoint Chat Studio also stays at 1.
   let concurrency = 1
-  if (ctx.model.startsWith(LMSTUDIO_MODEL_PREFIX)) {
-    const lmsStored = await getApiKey('lmstudio').catch(() => '')
+  if (ctx.model.startsWith(CHATSTUDIO_MODEL_PREFIX)) {
+    const csStored = await getApiKey('chatstudio').catch(() => '')
     // Clear stale "marked down" state so endpoints that recovered since the
     // last connection error get a fair retry at the start of this workload.
-    resetLmstudioDispatcher(lmsStored)
-    concurrency = Math.max(1, parseEndpoints(lmsStored).length)
+    resetChatstudioDispatcher(csStored)
+    concurrency = Math.max(1, parseEndpoints(csStored).length)
     if (concurrency > 1) {
       ctx.onWarn?.(
         `Generating ${targetIndices.length} prompt(s) ${concurrency}× parallel across `
-        + `${concurrency} LM Studio endpoints (assuming each has the model loaded).`,
+        + `${concurrency} Chat Studio endpoints (assuming each has the model loaded).`,
       )
     }
   }
@@ -1090,7 +1090,7 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
   // long-context model). See ScenePlanRunOptions.window_size for the
   // user-facing description.
   const avgSceneSec = (minSec + maxSec) / 2
-  const isLocalModel = typeof opts.model === 'string' && opts.model.startsWith('lmstudio:')
+  const isLocalModel = typeof opts.model === 'string' && opts.model.startsWith('chatstudio:')
   const sizeMode = opts.window_size || 'auto'
   const TARGET_SCENES_PER_WINDOW =
     sizeMode === 'small' ? 10

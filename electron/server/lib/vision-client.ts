@@ -41,7 +41,7 @@ export function isVisionCapable(modelId: string | undefined | null): boolean {
  * in the providers currently registered by Story Studio. */
 export function isBrollVisionModelSupported(modelId: string | undefined | null): boolean {
   if (!modelId) return false
-  if (modelId.startsWith('lmstudio:')) return true
+  if (modelId.startsWith('chatstudio:')) return true
   const model = modelId.toLowerCase()
   return model === 'gpt-4o'
     || model.startsWith('gpt-4o-')
@@ -223,19 +223,19 @@ export async function visionKeyAvailable(): Promise<boolean> {
   return !!openai
 }
 
-/** v1.0.406 — drive a local LM Studio vision model (e.g. Llava / Qwen-VL /
- *  Gemma-VL) for the same image-analysis prompts. Free + offline. Reuses the
- *  lmstudio text provider, which packs `images` into the OpenAI multimodal
- *  content array. The "apiKey" slot carries the LM Studio base URL. */
-async function callLmStudioVision(model: string, buffer: Buffer, mime: string, input: AnalyzeStyleInput): Promise<string> {
+/** Drive a local Chat Studio vision model (when a vision-capable model is
+ *  loaded) for the same image-analysis prompts. Free + offline. Reuses the
+ *  chatstudio text provider, which packs `images` into the OpenAI multimodal
+ *  content array. The "apiKey" slot carries the Chat Studio base URL. */
+async function callChatStudioVision(model: string, buffer: Buffer, mime: string, input: AnalyzeStyleInput): Promise<string> {
   const { getApiKey } = await import('../services/app-secrets-store.js')
-  const baseUrl = await getApiKey('lmstudio').catch(() => '')
+  const baseUrl = await getApiKey('chatstudio').catch(() => '')
   if (!baseUrl) {
-    throw new Error('No LM Studio URL configured for local vision tagging. Set it in Settings → Local Models → LM Studio, then load a vision-capable model.')
+    throw new Error('No Chat Studio URL configured for local vision tagging. Set it in Settings → Local Models → Chat Studio, then load a vision-capable model.')
   }
   const { registry } = await import('../providers/registry.js')
-  const provider = registry.getTextProvider('lmstudio')
-  if (!provider) throw new Error('LM Studio provider not registered')
+  const provider = registry.getTextProvider('chatstudio')
+  if (!provider) throw new Error('Chat Studio provider not registered')
   const basePrompt =
     input.mode === 'character' ? CHARACTER_PROMPT :
     input.mode === 'tags'      ? TAGS_PROMPT      :
@@ -250,7 +250,7 @@ async function callLmStudioVision(model: string, buffer: Buffer, mime: string, i
     images: [dataUrl],
   } as any)
   if (typeof text !== 'string' || !text.trim()) {
-    throw new Error('LM Studio vision returned no text — is the loaded model vision-capable (e.g. Llava, Qwen-VL)?')
+    throw new Error('Chat Studio vision returned no text — is the loaded model vision-capable (e.g. Llava, Qwen-VL)?')
   }
   return text.trim()
 }
@@ -259,7 +259,7 @@ async function callLmStudioVision(model: string, buffer: Buffer, mime: string, i
  * Analyse a reference image. Default is OpenAI GPT-4o vision; the caller can
  * pick another route via `input.model`:
  *   - supported GPT vision model → OpenAI vision (uses the OpenAI key)
- *   - 'lmstudio:<slug>'         → a LOCAL LM Studio vision model (free)
+ *   - 'chatstudio:<slug>'       → a LOCAL Chat Studio vision model (free)
  * An absent model defaults to gpt-4o for legacy callers. An explicit text-only
  * or unknown model fails clearly instead of silently spending OpenAI credit.
  */
@@ -270,9 +270,9 @@ export async function analyzeStyle(input: AnalyzeStyleInput): Promise<AnalyzeSty
   const requested = (input.model || '').trim()
   const { buffer, mime } = await downscaleToBuffer(input.imagePath)
 
-  // Local LM Studio vision — no OpenAI key needed.
-  if (requested.startsWith('lmstudio:')) {
-    const text = await callLmStudioVision(requested, buffer, mime, input)
+  // Local Chat Studio vision — no OpenAI key needed.
+  if (requested.startsWith('chatstudio:')) {
+    const text = await callChatStudioVision(requested, buffer, mime, input)
     return { style_text: text, model_used: requested }
   }
 
@@ -280,7 +280,7 @@ export async function analyzeStyle(input: AnalyzeStyleInput): Promise<AnalyzeSty
     const detail = requested.startsWith('deepseek')
       ? 'DeepSeek models are text-only and cannot inspect B-Roll images or video frames.'
       : `Model "${requested}" is not configured for image input.`
-    throw new Error(`${detail} Pick a vision-capable OpenAI or LM Studio model.`)
+    throw new Error(`${detail} Pick a vision-capable OpenAI or Chat Studio model.`)
   }
 
   // OpenAI vision. No explicit selection preserves the historical GPT-4o
@@ -288,7 +288,7 @@ export async function analyzeStyle(input: AnalyzeStyleInput): Promise<AnalyzeSty
   const { getApiKey } = await import('../services/app-secrets-store.js')
   const openaiKey = await getApiKey('openai').catch(() => '')
   if (!openaiKey) {
-    throw new Error('No vision-capable API key configured. Add an OpenAI key in Settings → API Keys, or pick a local LM Studio vision model.')
+    throw new Error('No vision-capable API key configured. Add an OpenAI key in Settings → API Keys, or pick a local Chat Studio vision model.')
   }
   const model = requested || 'gpt-4o'
   const text = await callOpenAi({ ...input, model, apiKey: openaiKey }, buffer, mime)

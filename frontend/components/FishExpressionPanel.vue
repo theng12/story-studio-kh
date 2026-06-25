@@ -125,7 +125,7 @@ const markupModel = computed<string>({
   set: (value) => emit('update:expressionModel', value),
 })
 const modelGroups = ref<Array<{ provider: string; label: string; items: ModelRow[] }>>([])
-const PROV_ORDER = ['deepseek', 'openrouter', 'openai', 'kie', 'lmstudio']
+const PROV_ORDER = ['deepseek', 'openrouter', 'openai', 'kie', 'chatstudio']
 
 async function loadModels() {
   try {
