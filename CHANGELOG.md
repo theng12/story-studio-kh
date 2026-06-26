@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.463 — 2026-06-26
+
+**Fix "Bad control character in JSON" crash from small local models.** Gemma 3 4B and similar models occasionally emit literal control characters (raw newlines, tabs, etc.) inside JSON string values, which made `JSON.parse` throw and fail the outline/scene-plan job after all 3 retries. Added `sanitizeJsonControlChars` (exported from `ai-client.ts`) that replaces those characters with their escape sequences *only inside string literals* so structural whitespace is preserved. Applied to the outline JSON parser in `chunked-narration.ts` and both parse sites in `parsePlannerJson` / `salvageScenes` in `scene-planner.ts`.
+
+---
+
 ## v1.0.462 — 2026-06-26
 
 **Transient-retry sweep — every LLM call in the app now retries on connection errors.** Extended `callAiWithRetry` (3 attempts, 1s/2s backoff) to all remaining bare `callAi` sites that lacked any retry protection: chunked narration, scripts (interactive metadata/title/tag), co-writer, idea generation, B-roll prompt generator, upload reply drafter, image-prompt inline edit, ai-video, projects, docx normalizer, audio expression, and research. Calls that already had their own outer retry loops (`image-prompts.ts`, `prompt-director.ts`, `scene-planner.ts`) are left unchanged to avoid stacking retries.

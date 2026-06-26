@@ -44,7 +44,7 @@ import fs from 'fs/promises'
 import { existsSync, statSync } from 'fs'
 import path from 'path'
 import { createHash } from 'crypto'
-import { callAi, callAiWithRetry } from './ai-client.js'
+import { callAi, callAiWithRetry, sanitizeJsonControlChars } from './ai-client.js'
 import { writeJsonAtomic } from './atomic-store.js'
 import { resolveResearchPaths } from './research-paths.js'
 import {
@@ -1248,7 +1248,8 @@ async function callForJsonArray(
       continue
     }
     try {
-      const parsed = JSON.parse(text.slice(start, end + 1))
+      const json = sanitizeJsonControlChars(text.slice(start, end + 1))
+      const parsed = JSON.parse(json)
       if (Array.isArray(parsed)) return parsed
       lastErr = 'JSON value is not an array'
     } catch (e: any) {

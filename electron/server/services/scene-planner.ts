@@ -22,7 +22,7 @@
 
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
-import { callAi } from '../lib/ai-client.js'
+import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import { parseSrt, formatSrtTime, type SrtCue } from '../lib/subtitle-builder.js'
 import { getApiKey } from './app-secrets-store.js'
 import { parseEndpoints } from '../lib/endpoint-pool.js'
@@ -302,7 +302,7 @@ export function parsePlannerJson(raw: string): { scenes?: Array<{
   const last = cleaned.lastIndexOf('}')
   if (first >= 0 && last > first) {
     try {
-      return JSON.parse(cleaned.slice(first, last + 1))
+      return JSON.parse(sanitizeJsonControlChars(cleaned.slice(first, last + 1)))
     } catch { /* fall through to salvage — output was likely truncated */ }
   }
   // v1.0.225 — salvage. A long episode's plan can exceed the model's output
@@ -337,7 +337,7 @@ function salvageScenes(text: string): Array<any> {
       else if (ch === '}') { depth--; if (depth === 0) break }
     }
     if (depth !== 0 || j >= text.length) break  // truncated object — stop here
-    try { out.push(JSON.parse(text.slice(objStart, j + 1))) } catch { /* skip one bad object */ }
+    try { out.push(JSON.parse(sanitizeJsonControlChars(text.slice(objStart, j + 1)))) } catch { /* skip one bad object */ }
     i = j + 1
     if (/^\s*\]/.test(text.slice(i))) break  // reached the array close
   }

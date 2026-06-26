@@ -148,6 +148,23 @@ export async function callAi(
 const CONNECTION_ERROR_RE = /Connection error|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|fetch failed|socket hang up|timed out|timeout/i
 
 /**
+ * Small local models (Gemma, Llama 3B, etc.) sometimes emit literal control
+ * characters (raw \n, \r, \t, 0x01–0x1F) inside JSON string values, which
+ * makes JSON.parse throw "Bad control character in string literal".
+ * This sanitizer replaces them with their escape sequences — but only inside
+ * string literals, so structural whitespace between tokens is left alone.
+ */
+export function sanitizeJsonControlChars(s: string): string {
+  return s.replace(/"(?:[^"\\]|\\.)*"/g, (str) =>
+    str
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t')
+      .replace(/[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]/g, ''),
+  )
+}
+
+/**
  * callAi with up to 3 attempts on transient connection errors (Tailscale
  * blips, Chat Studio briefly restarting, etc.).  Non-connection errors
  * (bad API key, content policy, malformed prompt) are re-thrown immediately
