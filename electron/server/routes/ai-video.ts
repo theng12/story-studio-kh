@@ -11,7 +11,7 @@ import { Router } from 'express'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import { callAi } from '../lib/ai-client.js'
+import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js'
 import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
@@ -87,7 +87,7 @@ RETURN ONLY THIS JSON (no markdown):
 }`
 
   try {
-    const raw = await callAi(model || 'deepseek-v4-flash', sys, userPrompt, {
+    const raw = await callAiWithRetry(model || 'deepseek-v4-flash', sys, userPrompt, {
       anthropic_api_key: config.anthropic_api_key,
       openai_api_key: config.openai_api_key,
       kie_api_key: config.kie_api_key,

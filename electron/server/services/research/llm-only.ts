@@ -26,7 +26,7 @@
  */
 
 import { getApiKey } from '../app-secrets-store.js'
-import { callAi } from '../../lib/ai-client.js'
+import { callAi, callAiWithRetry } from '../../lib/ai-client.js'
 import type { ResearchAdapter } from './types.js'
 import type {
   ResearchOutput,
@@ -69,7 +69,7 @@ class LlmOnlyAdapter implements ResearchAdapter {
     ])
 
     const { system, user } = buildResearchPrompt(opts, 'llm-only')
-    const raw = await callAi(
+    const raw = await callAiWithRetry(
       model,
       system,
       user,

@@ -44,7 +44,7 @@ import fs from 'fs/promises'
 import { existsSync, statSync } from 'fs'
 import path from 'path'
 import { createHash } from 'crypto'
-import { callAi } from './ai-client.js'
+import { callAi, callAiWithRetry } from './ai-client.js'
 import { writeJsonAtomic } from './atomic-store.js'
 import { resolveResearchPaths } from './research-paths.js'
 import {
@@ -735,7 +735,7 @@ async function expandNarrativeSequential(
 
     job.output_lines.push(`[chunked] Batch ${bi + 1}/${batches.length} — chapters ${firstN}-${lastN}…`)
     const ctx = { slug: job.project_slug, jobId: job.job_id, signal: params.signal }
-    const text = await callAi(params.model, params.systemPrompt, prompt, params.apiKeys, true, ctx)
+    const text = await callAiWithRetry(params.model, params.systemPrompt, prompt, params.apiKeys, true, ctx)
 
     // Parse + write.
     const wrote = await parseAndWriteBatch(params, batch, text)
@@ -855,7 +855,7 @@ async function expandListicleParallel(
       try {
         const prompt = listicleBatchPrompt(params, batch)
         const ctx = { slug: job.project_slug, jobId: job.job_id, signal: params.signal }
-        const text = await callAi(params.model, params.systemPrompt, prompt, params.apiKeys, true, ctx)
+        const text = await callAiWithRetry(params.model, params.systemPrompt, prompt, params.apiKeys, true, ctx)
         const wrote = await parseAndWriteBatch(params, batch, text)
         // Sidecar updates need serialisation — atomic write is fine but we
         // don't want two workers reading-then-writing concurrently and
@@ -1236,7 +1236,7 @@ async function callForJsonArray(
   let lastErr = ''
   for (let attempt = 0; attempt <= retries; attempt++) {
     if (ctx.signal?.aborted) throw new Error('Cancelled by user')
-    const raw = await callAi(model, system, user, apiKeys, false, ctx)
+    const raw = await callAiWithRetry(model, system, user, apiKeys, false, ctx)
     let text = raw.trim()
     if (text.startsWith('```')) {
       text = text.split('\n').filter(l => !l.trim().startsWith('```')).join('\n').trim()

@@ -28,7 +28,7 @@ import * as playlistsSvc from '../services/upload-playlists.js'
 import * as orphans from '../services/upload-orphans.js'
 import * as renumberUndo from '../services/upload-renumber-undo.js'
 import { updateVideoMetadata, createPlaylist, listVideoStatuses, listVideoSnippetStatus } from '../lib/youtube-client.js'
-import { callAi } from '../lib/ai-client.js'
+import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { getYoutubeDefaults } from '../services/app-settings.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import type { JobType } from '../models/types.js'
@@ -142,7 +142,7 @@ Write a description that:
 
 Target ~${targetLength} characters. Plain prose — no bullet lists, no all-caps, no excessive emoji (one max, only if it fits the channel voice).`
 
-    const text = await callAi(model, system, userMsg, apiKeys, false, { slug })
+    const text = await callAiWithRetry(model, system, userMsg, apiKeys, false, { slug })
     res.json({ description: text.trim(), model, length: text.trim().length })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to generate playlist description'))
@@ -273,7 +273,7 @@ router.post('/projects/:slug/upload/comments/draft', async (req, res) => {
     const { callAi } = await import('../lib/ai-client.js')
     // Pass an empty system so callAi's brand-persona auto-injection kicks
     // in when applicable. The reply-draft prompt is the user message.
-    const raw = await callAi(model, '', prompt, apiKeys, false, { slug })
+    const raw = await callAiWithRetry(model, '', prompt, apiKeys, false, { slug })
     const drafts = parseReplyDrafts(raw, count)
     res.json({ comment_id: commentId, drafts })
   } catch (e: any) {

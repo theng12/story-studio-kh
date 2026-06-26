@@ -614,12 +614,12 @@ router.post('/projects/:slug/image-pool/suggest-prompts', async (req, res) => {
     if (!topic) return res.status(400).json({ detail: 'topic is required' })
     if (!model) return res.status(400).json({ detail: 'model is required' })
 
-    const { callAi } = await import('../lib/ai-client.js')
+    const { callAi, callAiWithRetry } = await import('../lib/ai-client.js')
     const system = 'You write concise, vivid text-to-image prompts. Output ONLY a JSON array of strings — no prose, no numbering, no code fence.'
     const user = `Write ${count} distinct text-to-image prompts for: "${topic}". `
       + `Each prompt is one self-contained sentence describing a single image (subject, setting, mood, lighting). `
       + `Vary the scenes so a slideshow of them feels diverse. Return a JSON array of ${count} strings.`
-    const raw = await callAi(model, system, user, {}, false, { slug })
+    const raw = await callAiWithRetry(model, system, user, {}, false, { slug })
 
     // Tolerant parse: JSON array if present, else split lines.
     let prompts: string[] = []

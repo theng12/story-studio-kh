@@ -17,7 +17,7 @@ import { existsSync } from 'fs'
 import { Router } from 'express'
 import { z } from 'zod'
 import { validateBody } from '../lib/validate.js'
-import { callAi } from '../lib/ai-client.js'
+import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import * as pm from '../services/project-manager.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { resolveReadPath, toMdPath } from '../lib/episode-artifacts.js'
@@ -128,7 +128,7 @@ router.post(
         openai_api_key: config.openai_api_key,
         kie_api_key: config.kie_api_key,
       }
-      const raw = await callAi(model, '', llmPrompt, apiKeys, false, { slug })
+      const raw = await callAiWithRetry(model, '', llmPrompt, apiKeys, false, { slug })
       const next = parseSinglePromptResponse(raw, target)
       if (!next.prompt || next.prompt.trim().length < 10) {
         return res.status(502).json({ detail: 'LLM returned an empty or too-short prompt' })

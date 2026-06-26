@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.462 — 2026-06-26
+
+**Transient-retry sweep — every LLM call in the app now retries on connection errors.** Extended `callAiWithRetry` (3 attempts, 1s/2s backoff) to all remaining bare `callAi` sites that lacked any retry protection: chunked narration, scripts (interactive metadata/title/tag), co-writer, idea generation, B-roll prompt generator, upload reply drafter, image-prompt inline edit, ai-video, projects, docx normalizer, audio expression, and research. Calls that already had their own outer retry loops (`image-prompts.ts`, `prompt-director.ts`, `scene-planner.ts`) are left unchanged to avoid stacking retries.
+
+---
+
 ## v1.0.461 — 2026-06-26
 
 **Retry on Tailscale / Chat Studio blips — now covers every generator.** The retry-on-transient-failure fix previously only covered scene-plan prompt generation. A brief Tailscale hiccup or Chat Studio restart would permanently fail metadata, episode script, chapter, introduction, and image-prompt generation jobs with a "Can't reach Chat Studio" error and no recovery. Added `callAiWithRetry` (up to 3 attempts, 1s/2s backoff) to `ai-client.ts` and wired it into every unprotected `callAi` call in `metadata.ts` and `episode.ts` (the other two generators — `image-prompts.ts` and `prompt-director.ts` — already had their own retry loops).

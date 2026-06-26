@@ -6,7 +6,7 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
-import { callAi, hasAnyTextProviderKey } from '../lib/ai-client.js'
+import { callAi, callAiWithRetry, hasAnyTextProviderKey } from '../lib/ai-client.js'
 import { SUPPORTED_MODELS } from '../models/types.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { resolveReadPath, readArtifactRawText, resolveArtifact, matchChapterFile } from '../lib/episode-artifacts.js'
@@ -994,7 +994,7 @@ router.post('/projects/:slug/generate/metadata/description', async (req, res) =>
   )
 
   try {
-    const raw = await callAi(model, '', prompt, aiCreds(config), false, { slug })
+    const raw = await callAiWithRetry(model, '', prompt, aiCreds(config), false, { slug })
     await trackGeneration(slug, 'description')
     // Scan the freshly-generated description for any tracked items
     // and append to the recency log. Fail-soft analytics-style write.
@@ -1073,7 +1073,7 @@ ${hookRules}
 Output exactly ${count || 5} title options, one per line.`
 
   try {
-    const raw = await callAi(model, '', prompt, aiCreds(config), false, { slug })
+    const raw = await callAiWithRetry(model, '', prompt, aiCreds(config), false, { slug })
     await trackGeneration(slug, 'description')
     const rawTitles = raw
       .split('\n')
@@ -1126,7 +1126,7 @@ ${tagRules}
 Output exactly ${count || 15} tags, one per line.`
 
   try {
-    const raw = await callAi(model, '', prompt, aiCreds(config), false, { slug })
+    const raw = await callAiWithRetry(model, '', prompt, aiCreds(config), false, { slug })
     await trackGeneration(slug, 'description')
     const tags = raw
       .split('\n')
@@ -1195,7 +1195,7 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
       'metadata',
       buildDescriptionPrompt(episode_id, title, storyContext, sections || [], effectiveMaxChars, format),
     )
-    const descRaw = await callAi(model, '', descPrompt, aiCreds(config), false, { slug })
+    const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false, { slug })
     const description = descRaw.trim()
     await recordUsageForScope(slug, episode_id, 'metadata', descRaw).catch(() => null)
 
@@ -1230,7 +1230,7 @@ Requirements:
 - Tone: ${format.metadata.titleStyleHint}.
 - One per line. No numbering, quotes, or commentary.`
       const titlePromptWithAvoidance = await prependAvoidanceToPrompt(slug, 'titles', titlePrompt)
-      const titleRaw = await callAi(model, '', titlePromptWithAvoidance, aiCreds(config), false, { slug })
+      const titleRaw = await callAiWithRetry(model, '', titlePromptWithAvoidance, aiCreds(config), false, { slug })
       const rawTitles = titleRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, title_count || 5)
       titles = (title_prefix || title_suffix) ? rawTitles.map(wrapAllTitle) : rawTitles
       await recordUsageForScope(slug, episode_id, 'titles', titleRaw).catch(() => null)
@@ -1246,7 +1246,7 @@ Requirements:
 - 1-4 words per tag, no "#" prefix.
 - Broad keywords to draw from: ${format.metadata.broadKeywords.join(', ')}.
 - One per line, no numbering or commentary.`
-    const tagRaw = await callAi(model, '', tagPrompt, aiCreds(config), false, { slug })
+    const tagRaw = await callAiWithRetry(model, '', tagPrompt, aiCreds(config), false, { slug })
     const tags = tagRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, tag_count || 15)
 
     await trackGeneration(slug, 'description')

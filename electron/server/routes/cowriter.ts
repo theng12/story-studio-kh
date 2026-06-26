@@ -24,7 +24,7 @@
 
 import { Router } from 'express'
 import * as pm from '../services/project-manager.js'
-import { callAi } from '../lib/ai-client.js'
+import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
@@ -85,7 +85,7 @@ router.post('/projects/:slug/cowriter/chat', async (req, res) => {
     // v1.0.283 — images forwarded via the callAi context. Providers that
     // don't implement vision ignore the field; we trust the frontend's
     // model gating to not route images to text-only models.
-    const reply = await callAi(model, CHAT_SYSTEM, userMsg, await apiKeys(), false, {
+    const reply = await callAiWithRetry(model, CHAT_SYSTEM, userMsg, await apiKeys(), false, {
       slug,
       images: images.length > 0 ? images : undefined,
     })
@@ -105,7 +105,7 @@ router.post('/projects/:slug/cowriter/finalize', async (req, res) => {
   if (!target) return res.status(400).json({ detail: 'target must be script | outline | idea' })
   try {
     const sys = `${CHAT_SYSTEM}\n\n${FINALIZE[target]}`
-    const out = ((await callAi(model, sys, renderHistory(messages), await apiKeys(), false, { slug })) || '').trim()
+    const out = ((await callAiWithRetry(model, sys, renderHistory(messages), await apiKeys(), false, { slug })) || '').trim()
     if (target === 'idea') {
       let idea = { title: '', logline: '', themes: [] as string[] }
       try {

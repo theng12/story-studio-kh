@@ -15,7 +15,7 @@
 
 import fs from 'fs/promises'
 import path from 'path'
-import { callAi } from '../lib/ai-client.js'
+import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import type { Job } from '../models/types.js'
 import { getScriptConcurrency } from './app-settings.js'
 
@@ -160,7 +160,7 @@ export async function markupSectionText(
   slug: string,
   dialect: TagDialect = 'fish',
 ): Promise<string> {
-  const out = await callAi(model, systemFor(dialect), sectionText, apiKeys, false, { slug })
+  const out = await callAiWithRetry(model, systemFor(dialect), sectionText, apiKeys, false, { slug })
   const trimmed = (out || '').trim()
   return trimmed.length ? trimmed : sectionText
 }

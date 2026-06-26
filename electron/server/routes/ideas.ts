@@ -7,7 +7,7 @@ import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
 import { trackGeneration } from '../services/session-tracker.js'
-import { callAi } from '../lib/ai-client.js'
+import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { resolveSubfolderNames } from '../services/utils.js'
 import { SUPPORTED_MODELS, type Format } from '../models/types.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
@@ -477,7 +477,7 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
     const tLen = format.idea.titleLengthRange ? `${format.idea.titleLengthRange[0]}-${format.idea.titleLengthRange[1]}w` : '-'
     const variety = format.idea.structuralVariety || 'free'
     console.log(`[ideas-gen] effective: format=${project.format_id || '(fallback:sleep-story)'} niche=${effectiveNicheId} examples=${format.idea.exampleIdeas?.length || 0} title{rules=${tRules},len=${tLen}} logline{rules=${lRules}} themes{rules=${thRules}} variety=${variety} prefix=${JSON.stringify(titlePrefix || '')} suffix=${JSON.stringify(titleSuffix || '')}`)
-    const firstRaw = await callAi(body.model, '', firstPrompt, apiKeys, false, { slug })
+    const firstRaw = await callAiWithRetry(body.model, '', firstPrompt, apiKeys, false, { slug })
     const firstBatch = normalizeIdeas(parseIdeas(firstRaw))
 
     // Filter against the project's history + within-batch dupes.
@@ -504,7 +504,7 @@ router.post('/projects/:slug/generate/ideas', async (req, res) => {
       ]
       const retryPrompt = buildPrompt(retryReq, format, standards, retryAvoid, rejectedTitles, titleTemplate, topBlock)
       try {
-        const retryRaw = await callAi(body.model, '', retryPrompt, apiKeys, false, { slug })
+        const retryRaw = await callAiWithRetry(body.model, '', retryPrompt, apiKeys, false, { slug })
         const retryBatch = normalizeIdeas(parseIdeas(retryRaw))
         const retryPass = filterGenerated<StoryIdea>(
           retryBatch,

@@ -26,7 +26,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
 import { splitNarrationIntoChapters, writeChapterFiles, assembleUnifiedNarration } from '../lib/narration-assembly.js'
-import { callAi } from '../lib/ai-client.js'
+import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { resolveEpisodePaths } from './utils.js'
 import * as im from './idea-manager.js'
 
@@ -172,7 +172,7 @@ export async function normalizeNarrationDocx(
     if (opts._callAiOverride) {
       restructured = await opts._callAiOverride(opts.model, SYSTEM_PROMPT, userPrompt, opts.apiKeys)
     } else {
-      restructured = await callAi(opts.model, SYSTEM_PROMPT, userPrompt, opts.apiKeys, false, { slug })
+      restructured = await callAiWithRetry(opts.model, SYSTEM_PROMPT, userPrompt, opts.apiKeys, false, { slug })
     }
   } catch (e: any) {
     throw new Error(`LLM normalisation failed: ${e?.message || 'unknown error'}`)

@@ -15,7 +15,7 @@ import { auditAssets } from '../services/manifest-audit.js'
 import { getSecretsProvenanceStatus, resetSecretsForCurrentMachine } from '../services/secrets-store.js'
 import { listFormats, loadFormat, getEffectiveFormat, _clearFormatCaches } from '../services/format-loader.js'
 import { buildFormatExtractionPrompt, parseExtractedFormatJson } from '../lib/format-extraction-prompt.js'
-import { callAi } from '../lib/ai-client.js'
+import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-error.js'
 import type { ProjectMeta } from '../models/types.js'
@@ -110,7 +110,7 @@ router.post('/projects/:slug/formats/from-sample', async (req, res) => {
   })
 
   try {
-    const raw = await callAi(model, '', prompt, apiKeys, false, { slug })
+    const raw = await callAiWithRetry(model, '', prompt, apiKeys, false, { slug })
     const parsed = parseExtractedFormatJson(raw)
     res.json({ format: parsed })
   } catch (e: any) {
