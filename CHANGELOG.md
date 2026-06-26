@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.464 — 2026-06-26
+
+**New `audio-ingest` endpoint — accept narration audio generated outside the app.** Adds `POST /api/projects/:slug/episodes/:code/audio-ingest`, which takes a base64 audio blob plus a chapter number (or section slug) and writes it into the episode's real "07 Audio Assets" folder as `{CODE}_Chapter_NN.mp3` — exactly what Audio Assembly produces — then rebuilds `audio_chapters.json` from the per-chapter files on disk so merge / subtitles / video pick it up. Reuses the audio generator's own path resolution (`findNarrationFile` + `resolveAudioDir`), so naming and media-root routing stay identical to native generation. Built for the companion **Fish TTS Chrome extension**, which generates narration on the user's fish.audio *web* plan (no per-character API cost) and hands the bytes back here.
+
+---
+
 ## v1.0.463 — 2026-06-26
 
 **Fix "Bad control character in JSON" crash from small local models.** Gemma 3 4B and similar models occasionally emit literal control characters (raw newlines, tabs, etc.) inside JSON string values, which made `JSON.parse` throw and fail the outline/scene-plan job after all 3 retries. Added `sanitizeJsonControlChars` (exported from `ai-client.ts`) that replaces those characters with their escape sequences *only inside string literals* so structural whitespace is preserved. Applied to the outline JSON parser in `chunked-narration.ts` and both parse sites in `parsePlannerJson` / `salvageScenes` in `scene-planner.ts`.

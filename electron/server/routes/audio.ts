@@ -588,6 +588,106 @@ router.post('/projects/:slug/episodes/:code/audio-repair', async (req, res) => {
   }
 })
 
+// ── Ingest externally-generated chapter audio ──────────────────────────────
+//
+// Lets an external tool (the Fish TTS Chrome extension) hand back narration
+// it generated with the user's fish.audio WEB plan, so the bytes land in the
+// episode's real "07 Audio Assets" folder as `{CODE}_{slug}.mp3` — exactly
+// what Audio Assembly would have written. We then rebuild audio_chapters.json
+// from the per-chapter files on disk so merge / subtitles / video pick it up.
+//
+// Reuses the generator's own path resolution (findNarrationFile +
+// resolveAudioDir) so naming + media-root routing stay identical to native
+// generation. The request carries a base64 audio blob (≤10 MB JSON body).
+//
+// Body: { chapterNumber?: number, slug?: string, audioBase64: string,
+//         format?: 'mp3' | 'wav', rebuildSidecar?: boolean }
+// Either `chapterNumber` (→ slug "Chapter_NN") or an explicit `slug` is required.
+router.post('/projects/:slug/episodes/:code/audio-ingest', async (req, res) => {
+  const { slug } = req.params
+  const code = req.params.code.toUpperCase()
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+    const audioBase64 = req.body?.audioBase64
+    const n = Number(req.body?.chapterNumber)
+    const sectionSlug =
+      typeof req.body?.slug === 'string' && req.body.slug.trim()
+        ? req.body.slug.trim()
+        : Number.isFinite(n)
+          ? `Chapter_${String(n).padStart(2, '0')}`
+          : ''
+    if (!sectionSlug) return res.status(400).json({ detail: 'Provide chapterNumber or slug.' })
+    if (typeof audioBase64 !== 'string' || !audioBase64) {
+      return res.status(400).json({ detail: 'audioBase64 is required.' })
+    }
+    const ext = req.body?.format === 'wav' ? 'wav' : 'mp3'
+
+    const fs = await import('fs/promises')
+    const path = await import('path')
+    const { findNarrationFile, resolveAudioDir } = await import('../generators/audio.js')
+
+    let narrationPath: string
+    try {
+      narrationPath = await findNarrationFile(slug, code)
+    } catch {
+      return res.status(404).json({ detail: 'No narration found for this episode. Generate the script first.' })
+    }
+    const audioDir = await resolveAudioDir(slug, narrationPath, code)
+    await fs.mkdir(audioDir, { recursive: true })
+
+    const buf = Buffer.from(audioBase64, 'base64')
+    if (!buf.length) return res.status(400).json({ detail: 'Decoded audio is empty.' })
+    const filename = `${code}_${sectionSlug}.${ext}`
+    await fs.writeFile(path.join(audioDir, filename), buf)
+
+    // Rebuild audio_chapters.json from every chapter file on disk so the new
+    // file's duration is folded in. The sidecar lives at the episode root
+    // (sibling of the audio folder); derive it the same way resolveAudioDir
+    // derives the episode dir from the narration path.
+    let sections: number | null = null
+    if (req.body?.rebuildSidecar !== false) {
+      const parent = path.dirname(narrationPath)
+      const isScript = path.basename(parent).replace(/^✅\s*/, '').toLowerCase().includes('script')
+      const episodeDir = isScript ? path.dirname(parent) : parent
+      const { reconstructAudioChapters } = await import('../lib/audio-chapters-reconstruct.js')
+      const rebuilt = await reconstructAudioChapters({ audioDir, episodeCode: code })
+      if (rebuilt) {
+        await fs.writeFile(
+          path.join(episodeDir, 'audio_chapters.json'),
+          JSON.stringify(
+            {
+              sections: rebuilt.sections.map((s) => ({
+                slug: s.slug,
+                duration_s: s.duration_s,
+                source_file: s.source_file,
+              })),
+              gap_duration_s: rebuilt.gap_duration_s,
+              reconstructed: true,
+            },
+            null,
+            2,
+          ),
+          'utf-8',
+        )
+        sections = rebuilt.sections.length
+      }
+    }
+
+    // Drop the cached episode status so audio-sections reflects the new file.
+    try {
+      const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+      episodeStatusCache.invalidate(slug, code)
+    } catch {
+      /* cache is best-effort */
+    }
+
+    res.json({ ok: true, saved_as: filename, audio_dir: audioDir, sections })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Audio ingest failed'))
+  }
+})
+
 // ── Voice Studio KH (v1.0.149+) ───────────────────────────────────────────
 //
 // Local TTS modal launched via Pinokio, reached over Tailscale. The
