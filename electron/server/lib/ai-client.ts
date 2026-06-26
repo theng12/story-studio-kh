@@ -145,6 +145,37 @@ export async function callAi(
   return result
 }
 
+const CONNECTION_ERROR_RE = /Connection error|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|fetch failed|socket hang up|timed out|timeout/i
+
+/**
+ * callAi with up to 3 attempts on transient connection errors (Tailscale
+ * blips, Chat Studio briefly restarting, etc.).  Non-connection errors
+ * (bad API key, content policy, malformed prompt) are re-thrown immediately
+ * on the first attempt — no point retrying those.
+ */
+export async function callAiWithRetry(
+  model: string,
+  system: string,
+  userMsg: string,
+  apiKeys: { anthropic_api_key?: string; openai_api_key?: string; kie_api_key?: string },
+  stream = false,
+  ctx: CallAiContext = {},
+  maxAttempts = 3,
+): Promise<string> {
+  let lastErr: unknown
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (ctx.signal?.aborted) throw new Error('Aborted')
+    try {
+      return await callAi(model, system, userMsg, apiKeys, stream, ctx)
+    } catch (e: any) {
+      if (!CONNECTION_ERROR_RE.test(e?.message ?? '')) throw e
+      lastErr = e
+      if (attempt < maxAttempts) await new Promise(r => setTimeout(r, attempt * 1000))
+    }
+  }
+  throw lastErr
+}
+
 /**
  * True when ANY text-generation provider has a usable key — either merged
  * into the project config (per-project openai/kie) or in the app-level

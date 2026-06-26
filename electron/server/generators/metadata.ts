@@ -15,7 +15,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import { callAi } from '../lib/ai-client.js'
+import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { prependAvoidanceToPrompt, recordUsageForScope } from '../services/recency-tracker.js'
 import { SUPPORTED_MODELS } from '../models/types.js'
 import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js'
@@ -179,7 +179,7 @@ export async function generateMetadata(job: Job): Promise<void> {
       let llmValues: Record<string, string> = {}
       if (llmKeys.length) {
         const extractPrompt = buildExtractionPrompt({ episodeCode: episode_id, title, storyContext, placeholders: llmKeys })
-        const raw = await callAi(model, '', extractPrompt, aiCreds(config), false,
+        const raw = await callAiWithRetry(model, '', extractPrompt, aiCreds(config), false,
           { slug: project_slug, jobId: job.job_id, signal: controller.signal })
         llmValues = parseExtractionResponse(raw, llmKeys)
       }
@@ -205,7 +205,7 @@ export async function generateMetadata(job: Job): Promise<void> {
         'metadata',
         buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, format),
       )
-      const descRaw = await callAi(model, '', descPrompt, aiCreds(config), false,
+      const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
       description = descRaw.trim()
       job.output_lines.push(`  → ${description.length} chars`)
@@ -290,7 +290,7 @@ Requirements:
 - Tone: ${titleTone}.
 - One per line. No numbering, quotes, or commentary.`
       const titlePromptWithAvoidance = await prependAvoidanceToPrompt(project_slug, 'titles', titlePrompt)
-      const titleRaw = await callAi(model, '', titlePromptWithAvoidance, aiCreds(config), false,
+      const titleRaw = await callAiWithRetry(model, '', titlePromptWithAvoidance, aiCreds(config), false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
       const rawTitles = titleRaw.split('\n')
         .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim())
@@ -330,7 +330,7 @@ Requirements:
 - 1-4 words per tag, no "#" prefix.
 - Mix of broad and episode-specific keywords.${broadKeywordsLine}
 - One per line, no numbering or commentary.`
-      const tagRaw = await callAi(model, '', tagPrompt, aiCreds(config), false,
+      const tagRaw = await callAiWithRetry(model, '', tagPrompt, aiCreds(config), false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
       tags = tagRaw.split('\n')
         .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim())

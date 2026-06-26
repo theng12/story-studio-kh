@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.461 — 2026-06-26
+
+**Retry on Tailscale / Chat Studio blips — now covers every generator.** The retry-on-transient-failure fix previously only covered scene-plan prompt generation. A brief Tailscale hiccup or Chat Studio restart would permanently fail metadata, episode script, chapter, introduction, and image-prompt generation jobs with a "Can't reach Chat Studio" error and no recovery. Added `callAiWithRetry` (up to 3 attempts, 1s/2s backoff) to `ai-client.ts` and wired it into every unprotected `callAi` call in `metadata.ts` and `episode.ts` (the other two generators — `image-prompts.ts` and `prompt-director.ts` — already had their own retry loops).
+
+---
+
 ## v1.0.460 — 2026-06-22
 
 ### Added — Fish Audio S2.1-Pro + audio models are now data-driven (no code change to add one)

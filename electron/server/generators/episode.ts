@@ -6,7 +6,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { callAi } from '../lib/ai-client.js'
+import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { buildNarrationDocx, buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { matchChapterFile, introMarkerPath } from '../lib/episode-artifacts.js'
 import { resolveEpisodePaths } from '../services/utils.js'
@@ -647,7 +647,7 @@ async function generateEpisode(job: Job): Promise<void> {
     let imageText: string | null = null
     if (!skipImages && !jq.isCancelled(job.job_id)) {
       job.output_lines.push('Generating image prompts...')
-      imageText = await callAi(req.model, sysPrompt,
+      imageText = await callAiWithRetry(req.model, sysPrompt,
         imagePromptsPrompt(format, episode_id, title, storySummary, styleTag, characters), apiKeys, false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
       const promptCount = (imageText.match(/^##\s/gm) || []).length
@@ -658,7 +658,7 @@ async function generateEpisode(job: Job): Promise<void> {
     let ytText: string | null = null
     if (!skipYoutube && !jq.isCancelled(job.job_id)) {
       job.output_lines.push('Generating YouTube description...')
-      ytText = await callAi(req.model, sysPrompt,
+      ytText = await callAiWithRetry(req.model, sysPrompt,
         youtubePrompt(format, episode_id, title, storySummary), apiKeys, false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
       job.output_lines.push('YouTube description: done')
@@ -932,7 +932,7 @@ Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${s
     if (jq.isCancelled(job.job_id)) controller.abort()
   }, 500)
   try {
-    const chapterText = await callAi(req.model, sysPrompt, chapterPrompt, apiKeys, true,
+    const chapterText = await callAiWithRetry(req.model, sysPrompt, chapterPrompt, apiKeys, true,
       { slug: project_slug, jobId: job.job_id, signal: controller.signal })
 
     // Parse out the title from the heading the model produced. Fall back
@@ -1081,7 +1081,7 @@ Output ONLY the introduction text. No meta-commentary. No story chapters.`
     if (jq.isCancelled(job.job_id)) controller.abort()
   }, 500)
   try {
-    const introText = await callAi(style === 'custom' ? 'deepseek-v4-flash' : req.model, sysPrompt, introPrompt, apiKeys, true,
+    const introText = await callAiWithRetry(style === 'custom' ? 'deepseek-v4-flash' : req.model, sysPrompt, introPrompt, apiKeys, true,
       { slug: project_slug, jobId: job.job_id, signal: controller.signal })
     const wordCount = introText.split(/\s+/).length
     job.output_lines.push(`Introduction: ${wordCount.toLocaleString()} words`)
