@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.460 — 2026-06-22
+
+### Added — Fish Audio S2.1-Pro + audio models are now data-driven (no code change to add one)
+Fish Audio's new **`s2.1-pro`** engine (their current production recommendation) is now the Fish default, with **`s2.1-pro-free`** for testing; **S2-Pro and S1 stay** as options. More importantly, you no longer need a code change every time a TTS provider ships a new model:
+
+- **Pass-through model ids.** The hard model whitelists are gone. Fish sends whatever engine id you configure straight through (it has no list-models API to validate against); fal accepts a known short id **or** a full `fal-ai/...` queue path. So a new engine just needs a catalog row or a Custom Model entry.
+- **Add Fish models from the UI.** Settings → **Add Custom Model** now lists **Fish Audio (direct)** as an audio provider (alongside fal / GenAIPro / ElevenLabs), with format hints per provider. Adding a future Fish/fal/ElevenLabs model is now a few clicks — no code edit.
+
+(Voices were already dynamic where the provider exposes them — ElevenLabs live+cached, Voice/Chat Studio live, macOS via `say`, Fish via free-text reference IDs.)
+
+### Files
+- `electron/server/lib/fishaudio-client.ts` (default → `s2.1-pro`; `resolveFishModel` pass-through, whitelist removed)
+- `electron/server/lib/fal-client.ts` (accept full `fal-ai/...` paths)
+- `electron/server/models/defaults.ts` (S2.1-Pro / S2.1-Pro-Free catalog rows)
+- `frontend/components/AddCustomModelForm.vue` (Fish Audio audio provider + per-provider id hints)
+
+---
+
 ## v1.0.459 — 2026-06-22
 
 ### Changed — Local LLM provider switched from LM Studio to Chat Studio

@@ -19,18 +19,18 @@ import path from 'path'
 import { pipeline } from 'stream/promises'
 import { Readable, Transform } from 'stream'
 
-/** Default TTS model when the caller doesn't pin one. s2-pro is the flagship. */
-export const DEFAULT_FISHAUDIO_MODEL = 's2-pro'
-
-/** The only valid values for the Fish `model` request header. */
-const FISH_MODELS = new Set(['s1', 's2-pro'])
+/** Default TTS model when the caller doesn't pin one. `s2.1-pro` is Fish's
+ *  current production-recommended engine (S1 / S2-Pro remain valid choices). */
+export const DEFAULT_FISHAUDIO_MODEL = 's2.1-pro'
 
 export interface FishAudioTtsOptions {
   /**
-   * Catalog model id ('fishaudio-s2-pro' / 'fishaudio-s1') or a bare Fish
-   * model header value ('s2-pro' / 's1'). The 'fishaudio-' prefix is stripped
-   * and the result is validated against the known set; anything unknown falls
-   * back to the default so a stale catalog id can never 400 the request.
+   * Catalog model id ('fishaudio-s2.1-pro' / 'fishaudio-s2-pro' / 'fishaudio-s1')
+   * or a bare Fish model header value ('s2.1-pro' / 's2-pro' / 's1'). The
+   * 'fishaudio-' prefix is stripped and the bare value is passed straight
+   * through to Fish — there's no whitelist, so any current/future engine id
+   * the user configures works without a code change (Fish has no list-models
+   * API to validate against). Empty → the default.
    */
   model?: string
   /** reference_id — the Fish voice/model id (including your cloned voices). */
@@ -50,11 +50,13 @@ export interface FishAudioTtsOptions {
   onProgress?: (bytesReceived: number, totalBytes?: number) => void
 }
 
-/** Map a catalog/model id to the Fish `model` header value. */
+/** Map a catalog/model id to the Fish `model` header value. Pass-through: strip
+ *  the catalog `fishaudio-` prefix and send the bare string as-is (no whitelist
+ *  — see the `model` option doc). Falls back to the default for an empty value. */
 function resolveFishModel(model?: string): string {
   if (!model) return DEFAULT_FISHAUDIO_MODEL
   const bare = model.startsWith('fishaudio-') ? model.slice('fishaudio-'.length) : model
-  return FISH_MODELS.has(bare) ? bare : DEFAULT_FISHAUDIO_MODEL
+  return bare.trim() || DEFAULT_FISHAUDIO_MODEL
 }
 
 /** Shared POST helper — both the file writer and the buffer reader call this. */
@@ -90,7 +92,8 @@ async function callTts(text: string, apiKey: string, opts: FishAudioTtsOptions):
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
-      // Selects the TTS model. Only 's1' / 's2-pro' are valid.
+      // Selects the TTS engine (e.g. s2.1-pro / s2-pro / s1). Passed through
+      // from config — Fish has no list-models API, so we don't whitelist.
       model: resolveFishModel(opts.model),
     },
     body: JSON.stringify(body),

@@ -208,6 +208,7 @@ const PROVIDERS_BY_TYPE: Record<ModelType, Array<{ id: string; label: string }>>
     { id: 'fal', label: 'fal.ai (ElevenLabs)' },
     { id: 'genaipro', label: 'GenAIPro (ElevenLabs)' },
     { id: 'elevenlabs', label: 'ElevenLabs (direct)' },
+    { id: 'fishaudio', label: 'Fish Audio (direct)' },
   ],
   video: [
     { id: 'fal-video', label: 'fal.ai Video' },
@@ -264,7 +265,14 @@ const idCollision = computed(() => {
 const idPlaceholder = computed(() => {
   switch (form.type) {
     case 'image': return 'e.g. my-image-v1'
-    case 'audio': return 'e.g. my-tts-v1'
+    case 'audio':
+      // Audio ids ARE the provider's model slug. Fish: the engine id (fishaudio-
+      // s2.1-pro); fal: a known id or full queue path; ElevenLabs: eleven_*.
+      return form.provider === 'fishaudio'
+        ? 'e.g. fishaudio-s2.1-pro'
+        : form.provider === 'fal'
+          ? 'e.g. turbo-v2.5 or fal-ai/elevenlabs/tts/<model>'
+          : 'e.g. eleven_turbo_v2_5'
     case 'video': return 'e.g. my-veo-fast'
     case 'text':  return 'e.g. gpt-4.1-mini'
   }

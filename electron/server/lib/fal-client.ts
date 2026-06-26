@@ -53,15 +53,18 @@ export async function generateTts(
   } = {},
 ): Promise<string> {
   const requestedId = opts.model || 'turbo-v2.5'
+  // Pass-through: a known short id maps to its queue slug; otherwise a full
+  // fal queue path (e.g. "fal-ai/elevenlabs/tts/<new-model>") is used as-is,
+  // so a new fal model only needs a Custom Model row in Settings — no code
+  // change. A bare unknown id (neither known nor a fal path) still fails loud
+  // so a typo doesn't silently run the wrong model.
   const falModel = FAL_MODELS[requestedId]
+    || (requestedId.startsWith('fal-ai/') ? requestedId : '')
   if (!falModel) {
-    // Previous behavior silently routed unknown ids to turbo-v2.5, which
-    // masked typos and deprecated slugs. Fail loudly so the user sees the
-    // bad model id in the generator error instead of a surprise turbo run.
     throw new Error(
       `Unknown fal.ai TTS model "${requestedId}". ` +
-      `Known ids: ${Object.keys(FAL_MODELS).join(', ')}. ` +
-      `Pick a different model in Settings → Models or the Audio panel.`,
+      `Use a known id (${Object.keys(FAL_MODELS).join(', ')}) or a full fal queue path ` +
+      `like "fal-ai/elevenlabs/tts/<model>". Set it in Settings → Models or the Audio panel.`,
     )
   }
   const headers = {
