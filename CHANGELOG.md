@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.477 — 2026-06-28
+
+**Honor Image Studio's "needs API key" signal for cloud models.** A cloud model whose required credential isn't configured (Cloudflare / Together) is now shown as **"needs key"** and is unselectable, instead of appearing ready and failing at generate time. Story Studio reads this **defensively** — a cloud model is treated as not-ready if Image Studio reports either `cloud_credentials_ok: false` **or** `fit.state: "needs_key"`. Pollinations (no key required) stays always-available. Backward-compatible: on an Image Studio build that doesn't send either signal yet, cloud models behave as before (ready) — so this quietly activates once you update Image Studio.
+
 ## v1.0.476 — 2026-06-28
 
 **Image Studio cloud models are now selectable, and the picker is decluttered.**

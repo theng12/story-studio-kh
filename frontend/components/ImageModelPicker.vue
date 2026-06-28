@@ -179,6 +179,7 @@
               </span>
               <span class="imp-row-meta">
                 <span class="imp-chip imp-cost free">{{ m.isCloud ? 'cloud · free' : 'free' }}</span>
+                <span v-if="m.needsKey" class="imp-chip warn" title="Set this provider's API key in Image Studio settings, then refresh.">needs key</span>
                 <span v-if="imageMode === 'img2img' && !m.supportsImgImg" class="imp-chip warn">no refs</span>
               </span>
             </button>
@@ -238,6 +239,7 @@ interface ImageStudioModelInfo {
   is_cloud?: boolean        // v1.0.476 — cloud-proxied (Together/Cloudflare/Pollinations)
   cloud_provider?: string
   downloaded?: boolean      // local files present (or cloud — nothing to download)
+  needs_credentials?: boolean // v1.0.477 — cloud model whose required API key is missing
 }
 
 const props = withDefaults(defineProps<{
@@ -335,6 +337,7 @@ interface DisplayRow {
   providerName?: string
   isCloud?: boolean
   cloudProvider?: string
+  needsKey?: boolean
 }
 
 /** Friendly provider name shown as the leading chip on each cloud row, so
@@ -386,13 +389,19 @@ const localModels = computed<DisplayRow[]>(() => {
     .map(m => {
       const caps = m.capabilities || []
       const supportsImgImg = caps.includes('img2img') || caps.includes('edit')
-      // Cloud models are always runnable; local ones need their engine ready + to fit.
-      const available = m.is_cloud ? true : (m.ready && m.fits_memory)
-      const unavailableReason = m.is_cloud ? '' : (!m.fits_memory
-        ? 'Needs more unified memory than this Mac has'
-        : !m.ready
-          ? 'This engine family is not loaded/ready on the modal'
-          : '')
+      // v1.0.477 — uniform availability: the backend folds the cloud credential
+      // check into `ready` (a keyless cloud model comes back ready:false), so
+      // cloud and local both gate on ready + fits.
+      const available = m.ready && m.fits_memory
+      const unavailableReason = m.is_cloud
+        ? (m.needs_credentials || !m.ready
+            ? `Add the ${m.cloud_provider || 'cloud'} API key in Image Studio settings to use this model`
+            : '')
+        : (!m.fits_memory
+            ? 'Needs more unified memory than this Mac has'
+            : !m.ready
+              ? 'This engine family is not loaded/ready on the modal'
+              : '')
       return {
         id: m.id,
         label: m.label,
@@ -405,6 +414,7 @@ const localModels = computed<DisplayRow[]>(() => {
         supportsTxt2img: caps.includes('txt2img'),
         isCloud: !!m.is_cloud,
         cloudProvider: m.cloud_provider,
+        needsKey: m.is_cloud && (m.needs_credentials || !m.ready),
       }
     })
 })
