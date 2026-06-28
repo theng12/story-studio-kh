@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.475 — 2026-06-28
+
+**UI for the image-to-video / animation settings (no more config-file editing).**
+- **Scene Plan** now has motion controls: a **"Generate motion prompts"** toggle and a **Motion level (1–4)** picker (persist to project config — `motion_prompts_enabled` / `default_motion_level`, previously settable only via the API).
+- **Scene Review** now has a **"≥ sec" minimum-animation-length** field next to the Animate model picker (`animate_min_seconds`). Bulk "Animate missing" only animates scenes that are approved, have a motion prompt, and are at least this long — short beats stay stills. Its tooltip now spells out that gating, so skipped scenes aren't a mystery.
+- **Manual "⬆ Clip"** button per scene in Scene Review — drop in an externally-made `.mp4` as that scene's clip (raw upload to the existing `upload-clip` endpoint), mirroring the existing manual image upload.
+
 ## v1.0.474 — 2026-06-28
 
 **Animation gating — approve first, and only animate scenes worth animating.** Bulk clip generation ("render missing clips") now skips a scene unless it's **approved** AND has a **motion prompt** AND its window is **≥ `animate_min_seconds`** (a new per-project setting, default 0 = no floor). This means you never spend a clip on an image you haven't greenlit, and short beats (e.g. 2–3s) stay stills instead of being needlessly animated — set `animate_min_seconds` (e.g. 4) per project to tune how much gets animated. Clearing a scene's motion prompt remains the per-scene "don't animate this one" override. The `GET …/scene-review/:episodeId` response now also returns `animate_min_seconds` so external animators (the Chrome i2v extension) apply the exact same rule. Single per-scene "generate clip" stays a deliberate, ungated action.

@@ -134,6 +134,14 @@
               <option v-for="m in i2vModels" :key="m.id" :value="m.id">{{ m.label }}</option>
             </select>
           </div>
+          <!-- v1.0.475 — duration floor for bulk animation. Scenes shorter than
+               this stay stills; 0 = animate every eligible scene. Per-project. -->
+          <div v-if="i2vModels.length" class="sr-llm-pick" title="Bulk 'Animate missing' only animates scenes whose on-screen time is at least this many seconds (and that are approved + have a motion prompt). Short beats stay stills. 0 = no minimum.">
+            <span class="sr-llm-label">≥ sec</span>
+            <input type="number" min="0" max="60" step="1" :value="animateMinSeconds"
+              @change="setAnimateMinSeconds(Number(($event.target as HTMLInputElement).value))"
+              class="input input-sm" style="width: 64px;" />
+          </div>
           <button
             class="btn btn-sm btn-secondary"
             :disabled="approvingAll || stats.with_image === 0"
@@ -149,7 +157,7 @@
             class="btn btn-sm btn-secondary"
             :disabled="animatingAll || stats.with_image === 0"
             @click="animateMissing"
-            title="Animate every scene that has an image + a motion prompt but no clip yet (or whose clip is stale). One job per scene, queued."
+            title="Animate every scene that is APPROVED, has an image + a motion prompt, is at least the '≥ sec' length, and has no fresh clip. Short / unapproved / promptless scenes are skipped. One job per scene, queued."
           >
             {{ animatingAll ? '⏳ Queuing…' : '🎬 Animate missing' }}
           </button>
@@ -529,6 +537,13 @@
             >
               {{ animatingId === scene.id ? '⏳ Animating…' : (scene.clip_exists ? '🎬 Re-animate' : '🎬 Animate') }}
             </button>
+            <!-- v1.0.475 — manually drop in an externally-made clip for this scene. -->
+            <button
+              class="btn btn-sm btn-ghost"
+              :disabled="animatingId === scene.id"
+              @click="uploadClipOne(scene)"
+              title="Upload an .mp4 you made elsewhere as this scene's animated clip (saved to '11 Video Assets' as the scene's clip)."
+            >⬆ Clip</button>
           </div>
         </li>
       </ul>
@@ -675,6 +690,25 @@ const slug = computed(() => route.params.slug as string)
 const { config } = useProject()
 const { get, post, put, del } = useApi()
 const { success, error: showError } = useToast()
+
+// v1.0.475 — per-project duration floor for bulk animation (config-backed). The
+// backend (generate-missing-clips) reads config.animate_min_seconds; the GET
+// scene-review response echoes it so this control reflects the saved value.
+const animateMinSeconds = ref<number>(Math.max(0, Number((config.value as any)?.animate_min_seconds) || 0))
+watch(config, (c) => { animateMinSeconds.value = Math.max(0, Number((c as any)?.animate_min_seconds) || 0) })
+async function setAnimateMinSeconds(v: number) {
+  const n = Math.max(0, Math.min(60, Math.round(v) || 0))
+  const prev = animateMinSeconds.value
+  animateMinSeconds.value = n
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { animate_min_seconds: n })
+    if (config.value) (config.value as any).animate_min_seconds = n
+    success(n > 0 ? `Bulk animate now skips scenes shorter than ${n}s.` : 'Bulk animate has no minimum length.')
+  } catch (e: any) {
+    animateMinSeconds.value = prev
+    showError(e?.data?.detail || e?.message || 'Could not save the setting')
+  }
+}
 
 const episodeId = ref('')
 
@@ -1339,6 +1373,38 @@ async function uploadOne(scene: ReviewScene): Promise<void> {
       showError(e?.data?.detail || e?.message || 'Failed to upload image')
     } finally {
       regeneratingId.value = null
+    }
+  }
+  input.click()
+}
+
+// v1.0.475 — set a scene's animated CLIP directly from an externally-made mp4
+// (manual parity with the extension's upload-clip). Raw-binary POST because the
+// app-wide JSON limit is 10mb; the endpoint takes a 256mb raw body.
+async function uploadClipOne(scene: ReviewScene): Promise<void> {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'video/mp4'
+  input.onchange = async () => {
+    const file = input.files?.[0]
+    if (!file) return
+    animatingId.value = scene.id
+    try {
+      const resp = await fetch(
+        `/api/projects/${slug.value}/scene-review/${episodeId.value}/upload-clip/${scene.id}`,
+        { method: 'POST', headers: { 'Content-Type': 'video/mp4' }, body: file },
+      )
+      if (!resp.ok) {
+        const j = await resp.json().catch(() => ({} as any))
+        throw new Error(j.detail || `Upload failed (${resp.status})`)
+      }
+      success(`Uploaded clip for scene ${scene.scene_index}`)
+      cacheBuster.value = Date.now()
+      await loadReview()
+    } catch (e: any) {
+      showError(e?.message || 'Failed to upload clip')
+    } finally {
+      animatingId.value = null
     }
   }
   input.click()

@@ -142,6 +142,21 @@
         Project-wide. Scenes are planned from the first story chapter onward. At render, the title (thumbnail) card is auto-held through the intro and intro captions are hidden by default — so story scenes line up with their narration.
       </p>
 
+      <!-- v1.0.475 — image-to-video (motion) planning settings (per-project). -->
+      <label class="flex items-center gap-1 mt-3 text-sm" title="When on, the planner writes a per-scene motion_prompt (image-to-video instruction) alongside each visual_prompt. Turn off if this channel never animates scenes.">
+        <input type="checkbox" :checked="motionEnabled" @change="setMotionEnabled(($event.target as HTMLInputElement).checked)" />
+        Generate <strong>motion prompts</strong> for image-to-video
+      </label>
+      <div v-if="motionEnabled" class="flex items-center gap-2 mt-1 text-sm" title="Baseline motion intensity for generated motion prompts. 1 = barely-there drift, 4 = livelier (still smooth). Sleep stories ~2.">
+        <span class="text-muted">Motion level</span>
+        <select :value="motionLevel" @change="setMotionLevel(Number(($event.target as HTMLSelectElement).value))" class="select select-sm" style="max-width: 220px;">
+          <option :value="1">1 — Minimal drift</option>
+          <option :value="2">2 — Gentle (sleep-story)</option>
+          <option :value="3">3 — Moderate</option>
+          <option :value="4">4 — Lively</option>
+        </select>
+      </div>
+
       <!-- v1.0.242 — visual-prompt detail slider. Controls how richly the LLM
            writes each scene's visual_prompt (length + which elements to cover). -->
       <div class="form-group mt-3">
@@ -673,6 +688,41 @@ async function setSkipIntro(v: boolean) {
       : 'Scenes will be planned for the full transcript.')
   } catch (e: any) {
     skipIntro.value = !v
+    showError(e?.data?.detail || e?.message || 'Could not save the setting')
+  }
+}
+
+// v1.0.475 — image-to-video (motion) planning settings, persisted to project
+// config. motion_prompts_enabled (default true) toggles whether the planner
+// writes a per-scene motion_prompt; default_motion_level (1–4) sets the baseline
+// intensity. Both are read by the scene planner.
+const motionEnabled = ref<boolean>(((projectConfig.value as any)?.motion_prompts_enabled) !== false)
+const motionLevel = ref<number>(Number((projectConfig.value as any)?.default_motion_level) || 2)
+watch(projectConfig, (c) => {
+  motionEnabled.value = ((c as any)?.motion_prompts_enabled) !== false
+  motionLevel.value = Number((c as any)?.default_motion_level) || 2
+})
+async function setMotionEnabled(v: boolean) {
+  motionEnabled.value = v
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { motion_prompts_enabled: v })
+    if (projectConfig.value) (projectConfig.value as any).motion_prompts_enabled = v
+    success(v ? 'Motion prompts will be generated for new scene plans.' : 'Motion prompts are off for this project.')
+  } catch (e: any) {
+    motionEnabled.value = !v
+    showError(e?.data?.detail || e?.message || 'Could not save the setting')
+  }
+}
+async function setMotionLevel(v: number) {
+  const lvl = Math.max(1, Math.min(4, Math.round(v) || 2))
+  const prev = motionLevel.value
+  motionLevel.value = lvl
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { default_motion_level: lvl })
+    if (projectConfig.value) (projectConfig.value as any).default_motion_level = lvl
+    success(`Motion level set to ${lvl}.`)
+  } catch (e: any) {
+    motionLevel.value = prev
     showError(e?.data?.detail || e?.message || 'Could not save the setting')
   }
 }
