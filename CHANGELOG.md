@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.474 — 2026-06-28
+
+**Animation gating — approve first, and only animate scenes worth animating.** Bulk clip generation ("render missing clips") now skips a scene unless it's **approved** AND has a **motion prompt** AND its window is **≥ `animate_min_seconds`** (a new per-project setting, default 0 = no floor). This means you never spend a clip on an image you haven't greenlit, and short beats (e.g. 2–3s) stay stills instead of being needlessly animated — set `animate_min_seconds` (e.g. 4) per project to tune how much gets animated. Clearing a scene's motion prompt remains the per-scene "don't animate this one" override. The `GET …/scene-review/:episodeId` response now also returns `animate_min_seconds` so external animators (the Chrome i2v extension) apply the exact same rule. Single per-scene "generate clip" stays a deliberate, ungated action.
+
 ## v1.0.473 — 2026-06-28
 
 **Ingest externally-generated clips (and images) into the planned scenes.** You can now build scene images *and* animated clips outside the app (e.g. a Chrome-extension image→motion-prompt→video flow) and feed them straight into the scene plan — fully interchangeable with the in-app fal/kie generators.

@@ -156,6 +156,13 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       activeJob = null
     }
 
+    // v1.0.474 — surface the per-project animation duration floor so external
+    // animators (e.g. the Chrome i2v extension) apply the SAME rule the in-app
+    // bulk clip generator does: animate a scene only if approved + has a motion
+    // prompt + (end_sec − start_sec) ≥ animate_min_seconds + no fresh clip.
+    const cfg = await pm.getConfig(slug).catch(() => null)
+    const animateMinSeconds = Math.max(0, Number((cfg as any)?.animate_min_seconds) || 0)
+
     res.json({
       scene_plan: {
         schema_version: plan.schema_version,
@@ -168,6 +175,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       audio_path: audioPath,
       render_status: renderStatus,
       active_render_job: activeJob,
+      animate_min_seconds: animateMinSeconds,
       stats: {
         total_scenes: plan.scenes.length,
         approved: approvedCount,
@@ -348,17 +356,25 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
     const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
     const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
     const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+    // v1.0.474 — animation gating:
+    //  • approved-only: never spend a clip on an image you haven't greenlit.
+    //  • duration floor (animate_min_seconds, per-project): short scenes (e.g.
+    //    2–3s beats) stay stills — no point animating them.
+    //  • motion_prompt presence stays the per-scene include/exclude override.
+    const cfg = await pm.getConfig(slug).catch(() => null)
+    const animateMinSeconds = Math.max(0, Number((cfg as any)?.animate_min_seconds) || 0)
     let queued = 0
     let skipped = 0
     const queuedIds: string[] = []
     for (const s of plan.scenes) {
       const hasImage = existsSync(path.join(namedDir, `${s.id}.png`)) || existsSync(path.join(legacyDir, `${s.id}.png`))
       const hasMotion = !!(s.motion_prompt && s.motion_prompt.trim())
+      const longEnough = (s.end_sec - s.start_sec) >= animateMinSeconds
       const clipExists = existsSync(path.join(clipsDir, `${s.id}.mp4`))
       const clipStale = clipExists && typeof s.rendered_motion_prompt === 'string' && s.rendered_motion_prompt !== (s.motion_prompt || '')
-      // Animate scenes that are ready (image + motion) and not already clipped
-      // (or whose clip is stale). Skip in-flight.
-      if (!hasImage || !hasMotion || (clipExists && !clipStale)) { skipped++; continue }
+      // Animate scenes that are approved + ready (image + motion) + long enough,
+      // and not already freshly clipped. Skip in-flight.
+      if (!s.approved || !hasImage || !hasMotion || !longEnough || (clipExists && !clipStale)) { skipped++; continue }
       if (jq.isDuplicate(slug, episodeId, 'scene_clip_generate' as JobType, (p: any) => p?.scene_id === s.id)) { skipped++; continue }
       jq.enqueue({
         project_slug: slug,
