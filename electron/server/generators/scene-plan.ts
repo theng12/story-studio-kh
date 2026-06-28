@@ -9,7 +9,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, assignDensityToUntagged } from '../services/scene-planner.js'
+import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, resolveMotionLevel, assignDensityToUntagged } from '../services/scene-planner.js'
 import { isCancelled } from '../services/job-queue.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
@@ -58,6 +58,19 @@ interface ScenePlanRunParams {
   /** v1.0.242 — visual-prompt detail level (1–4); see DETAIL_SPECS in the
    *  scene-planner service. */
   detail_level?: number
+  /** v1.0.468 — image-to-video motion intensity (1–4); see MOTION_SPECS.
+   *  Falls back to the project default (config.default_motion_level), then 2. */
+  motion_level?: number
+  /** v1.0.468 — generate a per-scene motion_prompt alongside each visual_prompt
+   *  (for animating the image into a clip later). Default: project setting
+   *  config.motion_prompts_enabled, else true. */
+  generate_motion_prompts?: boolean
+  /** v1.0.468 — REGENERATE just this scene's motion_prompt (keeps visual_prompt
+   *  and everything else). Mutually exclusive with the other regenerate flags. */
+  regenerate_motion_prompt_scene_id?: string
+  /** v1.0.468 — BULK regenerate every EMPTY motion_prompt (scenes that already
+   *  have a visual_prompt). Fans out across the Chat Studio pool. */
+  regenerate_empty_motion_prompts?: boolean
   /** v1.0.242 — global visual-style guidance woven into every visual_prompt. */
   style_prompt?: string
   /** v1.0.242 — extra free-text planner instructions for all scenes. */
@@ -309,6 +322,100 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     return
   }
 
+  // ── v1.0.468 — REGENERATE just one scene's motion_prompt ────────────────
+  // Keeps visual_prompt + everything else; rewrites only the motion instruction.
+  if (params.regenerate_motion_prompt_scene_id) {
+    if (!existsSync(outPath)) throw new Error('No scene_plan.json to regenerate a motion prompt for — run the full planner first.')
+    const existing = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+    const targetIdx = existing.scenes.findIndex(s => s.id === params.regenerate_motion_prompt_scene_id)
+    if (targetIdx < 0) throw new Error(`Scene ${params.regenerate_motion_prompt_scene_id} not found in scene_plan.json`)
+    const target = existing.scenes[targetIdx]!
+    if (!target.visual_prompt || !target.visual_prompt.trim()) {
+      throw new Error(`Scene #${target.scene_index} has no visual_prompt to animate — write the image prompt first.`)
+    }
+    let projDefaultMotion: number | undefined
+    try { projDefaultMotion = (await getConfig(job.project_slug) as any)?.default_motion_level } catch { /* default applies */ }
+    const motionLevel = resolveMotionLevel(params.motion_level, projDefaultMotion)
+    job.output_lines.push(`Regenerating motion prompt for scene #${target.scene_index} (intensity level ${motionLevel}) — visual prompt + timing unchanged.`)
+    const [a, o, k] = await Promise.all([
+      getApiKey('anthropic').catch(() => ''),
+      getApiKey('openai').catch(() => ''),
+      getApiKey('kie').catch(() => ''),
+    ])
+    const motionStyle = await resolveEffectiveStyle(params.style_prompt, paths.episode_dir)
+    const newMotion = await generateMotionPromptOnly({
+      transcript_segment: target.transcript_segment,
+      visual_prompt: target.visual_prompt,
+      model,
+      motion_level: motionLevel,
+      style_prompt: motionStyle,
+      custom_instructions: params.custom_instructions,
+      apiKeys: { anthropic_api_key: a, openai_api_key: o, kie_api_key: k },
+      slug: job.project_slug,
+    })
+    if (!newMotion || !newMotion.trim()) {
+      throw new Error('Model returned an empty motion prompt. Try a stronger model or fill it in manually.')
+    }
+    target.motion_prompt = newMotion
+    existing.generated_at = new Date().toISOString()
+    await fs.mkdir(path.dirname(outPath), { recursive: true })
+    await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
+    job.output_dir = paths.episode_dir
+    job.progress = 100
+    job.output_lines.push(`✓ Motion prompt regenerated (${newMotion.length} chars). Other scenes untouched.`)
+    return
+  }
+
+  // ── v1.0.468 — BULK regenerate every EMPTY motion_prompt ────────────────
+  if (params.regenerate_empty_motion_prompts) {
+    if (!existsSync(outPath)) throw new Error('No scene_plan.json to regenerate motion prompts for — run the full planner first.')
+    const existing = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+    const targetIndices: number[] = []
+    existing.scenes.forEach((s, i) => {
+      const hasVisual = !!(s.visual_prompt && s.visual_prompt.trim())
+      const noMotion = !s.motion_prompt || !s.motion_prompt.trim()
+      if (hasVisual && noMotion) targetIndices.push(i)
+    })
+    if (!targetIndices.length) {
+      job.progress = 100
+      job.output_lines.push('No empty motion prompts to regenerate — every scene with a visual prompt already has one.')
+      job.output_dir = paths.episode_dir
+      return
+    }
+    let projDefaultMotion: number | undefined
+    try { projDefaultMotion = (await getConfig(job.project_slug) as any)?.default_motion_level } catch { /* default applies */ }
+    const motionLevel = resolveMotionLevel(params.motion_level, projDefaultMotion)
+    job.output_lines.push(`Bulk-regenerating ${targetIndices.length} empty motion prompt(s) — intensity level ${motionLevel}; visual prompts + timing unchanged.`)
+    const [a, o, k] = await Promise.all([
+      getApiKey('anthropic').catch(() => ''),
+      getApiKey('openai').catch(() => ''),
+      getApiKey('kie').catch(() => ''),
+    ])
+    const motionStyle = await resolveEffectiveStyle(params.style_prompt, paths.episode_dir)
+    const failed = await generateMotionPromptsForScenes(existing.scenes, targetIndices, {
+      model,
+      motion_level: motionLevel,
+      style_prompt: motionStyle,
+      custom_instructions: params.custom_instructions,
+      apiKeys: { anthropic_api_key: a, openai_api_key: o, kie_api_key: k },
+      slug: job.project_slug,
+      should_cancel: () => isCancelled(job.job_id),
+      onWarn: (m) => job.output_lines.push(m),
+      onProgress: (done, total) => { job.progress = 10 + Math.round((done / Math.max(1, total)) * 85) },
+    })
+    existing.generated_at = new Date().toISOString()
+    await fs.mkdir(path.dirname(outPath), { recursive: true })
+    await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
+    job.output_dir = paths.episode_dir
+    job.progress = 100
+    const succeeded = targetIndices.length - failed
+    job.output_lines.push(
+      `✓ Bulk motion regen complete — ${succeeded} prompt(s) filled`
+      + (failed ? `, ${failed} still empty (re-run to retry, or fill them in manually).` : '.'),
+    )
+    return
+  }
+
   // ── v1.0.245 — targeted RE-PLAN of one scene's range ────────────────────
   // Fixes an over-long / auto-filled blob without touching the rest of the
   // plan (or any already-rendered images). Plans only that scene's [start,end]
@@ -470,6 +577,47 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       `The model's output was likely truncated — the planned scenes are valid, but the rest of the ` +
       `episode isn't covered. Re-run with a larger-output model, or widen the pacing band to reduce scene count.`,
     )
+  }
+
+  // ── v1.0.468 — motion-prompt pass ───────────────────────────────────────
+  // Generate a per-scene image-to-video motion_prompt, seeded with each scene's
+  // just-written visual_prompt so the two are cohesive. Runs for BOTH planning
+  // modes (the planner has already produced visual_prompts by here). Opt-out via
+  // params.generate_motion_prompts === false or the project's motion_prompts_enabled.
+  let wantMotion = params.generate_motion_prompts
+  if (wantMotion == null) {
+    try { wantMotion = (await getConfig(job.project_slug) as any)?.motion_prompts_enabled !== false } catch { wantMotion = true }
+  }
+  if (wantMotion) {
+    let projDefaultMotion: number | undefined
+    try { projDefaultMotion = (await getConfig(job.project_slug) as any)?.default_motion_level } catch { /* default applies */ }
+    const motionLevel = resolveMotionLevel(params.motion_level, projDefaultMotion)
+    const targets = plan.scenes.map((s, i) => (s.visual_prompt?.trim() ? i : -1)).filter(i => i >= 0)
+    if (targets.length) {
+      const [a, o, k] = await Promise.all([
+        getApiKey('anthropic').catch(() => ''),
+        getApiKey('openai').catch(() => ''),
+        getApiKey('kie').catch(() => ''),
+      ])
+      const MOTION_LABELS: Record<number, string> = { 1: 'Still', 2: 'Gentle', 3: 'Moderate', 4: 'Lively' }
+      job.output_lines.push(`Generating motion prompts for ${targets.length} scene(s) — intensity ${MOTION_LABELS[motionLevel] ?? motionLevel} (level ${motionLevel})…`)
+      const failed = await generateMotionPromptsForScenes(plan.scenes, targets, {
+        model,
+        motion_level: motionLevel,
+        style_prompt: effectiveStyle,
+        custom_instructions: params.custom_instructions,
+        apiKeys: { anthropic_api_key: a, openai_api_key: o, kie_api_key: k },
+        slug: job.project_slug,
+        should_cancel: () => isCancelled(job.job_id),
+        onWarn: (m) => job.output_lines.push(m),
+      })
+      const made = targets.length - failed
+      job.output_lines.push(
+        failed
+          ? `✓ Motion prompts: ${made}/${targets.length} written (${failed} left empty — use "Regen empty motion prompts").`
+          : `✓ Motion prompts: ${made}/${targets.length} written.`,
+      )
+    }
   }
 
   await fs.mkdir(path.dirname(outPath), { recursive: true })

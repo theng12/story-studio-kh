@@ -78,6 +78,15 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
     : undefined
   const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
   const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
+  // v1.0.468 — image-to-video motion-prompt controls. motion_level 1–4 (omitted
+  // → planner falls back to the project default, then 2). generate_motion_prompts
+  // defaults to the project setting when omitted (handled in the generator).
+  const motionLevel = typeof body.motion_level === 'number'
+    ? Math.min(4, Math.max(1, Math.round(body.motion_level)))
+    : undefined
+  const generateMotionPrompts = typeof body.generate_motion_prompts === 'boolean'
+    ? body.generate_motion_prompts
+    : undefined
   // v1.0.285 — per-window scene count tuning. Validated against the three
   // allowed enum values; anything else (including missing) falls back to
   // 'auto' so the planner uses its model-aware default.
@@ -109,6 +118,8 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       target_scene_count: targetSceneCount,
       use_research: useResearch,
       detail_level: detailLevel,
+      motion_level: motionLevel,
+      generate_motion_prompts: generateMotionPrompts,
       style_prompt: stylePrompt || undefined,
       custom_instructions: customInstructions || undefined,
       window_size: windowSize,
@@ -301,6 +312,93 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-prompt', async (req, res)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save prompt'))
   }
+})
+
+// ── POST /scene-plan/:ep/set-motion-prompt ────────────────────────────
+// v1.0.468 — save ONE scene's hand-edited motion_prompt. Synchronous file edit.
+// Does NOT touch approval — the motion prompt drives a (future) clip, not the
+// still image, so editing it doesn't invalidate the rendered image. Allows an
+// empty string to clear the motion prompt.
+router.post('/projects/:slug/scene-plan/:episodeId/set-motion-prompt', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+  const sceneId = typeof req.body?.scene_id === 'string' ? req.body.scene_id.trim() : ''
+  const motionPrompt = typeof req.body?.motion_prompt === 'string' ? req.body.motion_prompt.trim() : ''
+  if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
+
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(sidecarPath)) {
+      return res.status(404).json({ detail: 'No scene_plan.json — run Scene Plan first.' })
+    }
+    const plan = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+    const scene = plan.scenes.find(s => s.id === sceneId)
+    if (!scene) return res.status(404).json({ detail: `Scene ${sceneId} not found in scene_plan.json` })
+
+    scene.motion_prompt = motionPrompt
+    await fs.writeFile(sidecarPath, JSON.stringify(plan, null, 2), 'utf-8')
+    res.json({ ok: true, scene_id: sceneId, motion_prompt: motionPrompt })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save motion prompt'))
+  }
+})
+
+// ── POST /scene-plan/:ep/regenerate-motion-prompt ─────────────────────
+// v1.0.468 — regenerate JUST one scene's motion_prompt (keeps visual_prompt).
+router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const body = req.body || {}
+  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  if (!model) return res.status(400).json({ detail: 'model is required' })
+  if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
+    return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
+  }
+  const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
+  if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
+  const motionLevel = typeof body.motion_level === 'number'
+    ? Math.min(4, Math.max(1, Math.round(body.motion_level))) : undefined
+
+  if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
+    return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
+  }
+  const job = jq.enqueue({
+    project_slug: slug,
+    type: 'scene_plan_run' as JobType,
+    episode_id: episodeId,
+    title: `Regen motion prompt — ${episodeId}`,
+    params: { episode_id: episodeId, model, regenerate_motion_prompt_scene_id: sceneId, motion_level: motionLevel },
+  })
+  res.status(201).json(job)
+})
+
+// ── POST /scene-plan/:ep/regenerate-empty-motion-prompts ──────────────
+// v1.0.468 — bulk-regenerate EVERY empty motion_prompt (scenes that have a
+// visual_prompt), fanning out across the Chat Studio pool. Mirrors the
+// visual-prompt bulk regen.
+router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-motion-prompts', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const body = req.body || {}
+  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  if (!model) return res.status(400).json({ detail: 'model is required' })
+  if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
+    return res.status(400).json({ detail: `"${model}" is an image model — this needs a text/LLM model. Pick one in Settings → Models.` })
+  }
+  const motionLevel = typeof body.motion_level === 'number'
+    ? Math.min(4, Math.max(1, Math.round(body.motion_level))) : undefined
+
+  if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
+    return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
+  }
+  const job = jq.enqueue({
+    project_slug: slug,
+    type: 'scene_plan_run' as JobType,
+    episode_id: episodeId,
+    title: `Regen empty motion prompts — ${episodeId}`,
+    params: { episode_id: episodeId, model, regenerate_empty_motion_prompts: true, motion_level: motionLevel },
+  })
+  res.status(201).json(job)
 })
 
 // ── GET /scene-plan/:ep ───────────────────────────────────────────────

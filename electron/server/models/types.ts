@@ -2794,6 +2794,13 @@ export interface GenerateVideoRequest {
    *  with the Scene Plan "skip Introduction" option (both derive story_start the
    *  same way). Per-project default lives in config.skip_intro_scenes. */
   skip_intro_scenes?: boolean
+  /** v1.0.468 — per-project image-to-video defaults. `default_motion_level`
+   *  (1–4, see MOTION_SPECS) sets this channel's baseline motion intensity for
+   *  generated motion prompts — e.g. 2 (Gentle) for sleep stories, higher for
+   *  more dynamic channels. `motion_prompts_enabled` (default true) toggles
+   *  whether the scene planner generates a motion_prompt per scene at all. */
+  default_motion_level?: number
+  motion_prompts_enabled?: boolean
 }
 
 // ── Audio Merge ─────────────────────────────────────────────────────────────
@@ -3210,6 +3217,14 @@ export interface ScenePlanEntry {
    *  reverted idempotently. Absent on plans made before the recipe ran — treat
    *  `visual_prompt` as the raw source in that case. */
   visual_prompt_raw?: string
+  /** v1.0.468 — image-to-video motion instruction for animating this scene's
+   *  generated image into a short clip. Generated cohesively with
+   *  `visual_prompt` (the planner sees the image prompt as context) and biased
+   *  by the motion-intensity level (see MOTION_SPECS). Slight motion only —
+   *  slow camera drift / gentle ambient / subtle script-driven subject motion.
+   *  User-editable in Scene Plan + Scene Review. Phase 1: text only; the clip
+   *  itself (Phase 2) will be generated from image_path + this prompt. */
+  motion_prompt?: string
   /** v1.0.260 — the guide character's expression for this scene (e.g. curiosity,
    *  wonder, care, concern), auto-derived by the Prompt Director from the beat
    *  and user-overridable in the Scene Plan / Scene Review UI. */

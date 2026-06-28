@@ -173,6 +173,44 @@
         <p class="text-muted text-xs mt-1">{{ detailMeta?.hint }}</p>
       </div>
 
+      <!-- v1.0.468 — motion-prompt controls. The planner also writes a per-scene
+           motion_prompt (image-to-video instruction) cohesive with the visual
+           prompt. Intensity biases how lively the motion is — always slow/smooth. -->
+      <div class="form-group mt-3">
+        <label class="flex items-center gap-1">
+          <input v-model="form.generate_motion_prompts" type="checkbox" />
+          Also write motion prompts (for animating scenes into clips)
+        </label>
+        <div v-if="form.generate_motion_prompts" class="mt-2">
+          <label>
+            Motion intensity
+            <span class="detail-pill">{{ motionMeta?.label }}</span>
+          </label>
+          <input
+            v-model.number="form.motion_level"
+            type="range"
+            min="1"
+            max="4"
+            step="1"
+            class="detail-slider"
+            list="motion-stops"
+          />
+          <datalist id="motion-stops">
+            <option value="1" label="Still"></option>
+            <option value="2" label="Gentle"></option>
+            <option value="3" label="Moderate"></option>
+            <option value="4" label="Lively"></option>
+          </datalist>
+          <div class="detail-ticks">
+            <span :class="{ on: form.motion_level === 1 }">Still</span>
+            <span :class="{ on: form.motion_level === 2 }">Gentle</span>
+            <span :class="{ on: form.motion_level === 3 }">Moderate</span>
+            <span :class="{ on: form.motion_level === 4 }">Lively</span>
+          </div>
+          <p class="text-muted text-xs mt-1">{{ motionMeta?.hint }}</p>
+        </div>
+      </div>
+
       <!-- v1.0.291 — planning mode. Two-pass is only meaningful for local
            models (cloud LLMs handle structured JSON fine), so the
            two-pass radio is only enabled when a chatstudio:* model is
@@ -497,6 +535,28 @@
                 rows="2"
               />
             </div>
+            <!-- v1.0.468 — per-scene motion prompt (image-to-video instruction).
+                 Editable inline; saved via set-motion-prompt; regen via the LLM. -->
+            <div class="form-group mt-1">
+              <label class="text-xs text-muted">🎬 Motion prompt (how this scene animates)</label>
+              <textarea
+                v-model="scene.motion_prompt"
+                class="textarea scene-textarea"
+                rows="2"
+                placeholder="e.g. Slow push-in as mist drifts across the valley; the lantern flame flickers gently."
+                @blur="saveMotionPrompt(scene)"
+              />
+              <button
+                class="btn-icon mt-1"
+                :disabled="!form.model || regenMotionId === scene.id || planning || !scene.visual_prompt?.trim()"
+                :title="!form.model
+                  ? 'Pick a model above first'
+                  : !scene.visual_prompt?.trim()
+                    ? 'Write the visual prompt first — the motion prompt animates that image'
+                    : 'Regenerate this scene\'s motion prompt with the LLM (visual prompt + timing untouched)'"
+                @click="regenMotionPrompt(scene)"
+              >{{ regenMotionId === scene.id ? '⏳ Motion…' : '🎬 Regen motion' }}</button>
+            </div>
             <!-- v1.0.260 — when the recipe composed this scene, show the planner's
                  original as the source + an overridable guide emotion. -->
             <div v-if="scene.visual_prompt_raw" class="scene-raw mt-1">
@@ -648,6 +708,8 @@ interface ScenePlanEntry {
   approved?: boolean
   image_path?: string
   boundary_reason?: string
+  // v1.0.468 — image-to-video motion instruction for this scene.
+  motion_prompt?: string
   // v1.0.260 — Visual Recipe fields.
   visual_prompt_raw?: string
   emotion?: string
@@ -855,6 +917,10 @@ const form = ref({
   // v1.0.242 — visual-prompt richness (1=Concise … 4=Cinematic). 2 = the
   // historical default, so existing behaviour is unchanged until changed.
   detail_level: 2,
+  // v1.0.468 — image-to-video motion prompt: whether to generate one per scene,
+  // and how lively the motion is (1=Still … 4=Lively). 2 = Gentle (sleep-tuned).
+  generate_motion_prompts: true,
+  motion_level: 2,
   // Global style woven into every scene's visual_prompt, + free-text planner
   // instructions. Both optional.
   style_prompt: '',
@@ -891,6 +957,16 @@ const DETAIL_LEVELS = [
   { value: 4, label: 'Cinematic', hint: '4–5 vivid sentences (~110–150 words): full shot, lighting setup, palette, atmosphere.' },
 ]
 const detailMeta = computed(() => DETAIL_LEVELS.find(d => d.value === form.value.detail_level) ?? DETAIL_LEVELS[1])
+
+// v1.0.468 — labels for the motion-intensity slider stops. Every level stays
+// slow/smooth; the scale only controls how much movement is allowed.
+const MOTION_LEVELS = [
+  { value: 1, label: 'Still', hint: 'Almost a living photo — faint ambient drift only, no subject motion.' },
+  { value: 2, label: 'Gentle', hint: 'Slow pan / push-in + soft ambient motion. Calm and hypnotic — the sleep-story default.' },
+  { value: 3, label: 'Moderate', hint: 'Subtle script-driven subject motion (walking, turning, pointing) + gentle camera.' },
+  { value: 4, label: 'Lively', hint: 'Clear but smooth movement and more active ambient elements — never fast or abrupt.' },
+]
+const motionMeta = computed(() => MOTION_LEVELS.find(m => m.value === form.value.motion_level) ?? MOTION_LEVELS[1])
 
 // v1.0.285 — flagged for the window-size "Auto" tooltip so the user sees which
 // branch will fire (10 scenes for local, 30 for cloud) before they hit Plan.
@@ -965,6 +1041,9 @@ async function planScenes(): Promise<void> {
       target_scene_count: form.value.target_scene_count || undefined,
       use_research: form.value.use_research,
       detail_level: form.value.detail_level,
+      // v1.0.468 — image-to-video motion prompts (off → planner skips them).
+      generate_motion_prompts: form.value.generate_motion_prompts,
+      motion_level: form.value.generate_motion_prompts ? form.value.motion_level : undefined,
       style_prompt: form.value.style_prompt.trim() || undefined,
       custom_instructions: form.value.custom_instructions.trim() || undefined,
       // v1.0.285 — only send when not 'auto'; the backend defaults to auto
@@ -1105,6 +1184,41 @@ async function regenerateScenePrompt(scene: ScenePlanEntry): Promise<void> {
     showError(e?.data?.detail || e?.message || 'Failed to start prompt regen')
   } finally {
     regenPromptId.value = null
+  }
+}
+
+// v1.0.468 — motion-prompt: inline save (on blur) + LLM regen for one scene.
+const regenMotionId = ref<string | null>(null)
+async function saveMotionPrompt(scene: ScenePlanEntry): Promise<void> {
+  const ep = episodeId.value
+  if (!ep) return
+  try {
+    await post(`/projects/${slug.value}/scene-plan/${ep}/set-motion-prompt`, {
+      scene_id: scene.id,
+      motion_prompt: (scene.motion_prompt || '').trim(),
+    })
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to save motion prompt')
+  }
+}
+async function regenMotionPrompt(scene: ScenePlanEntry): Promise<void> {
+  if (!form.value.model) { showError('Pick a model above first'); return }
+  if (!scene.visual_prompt?.trim()) { showError('Write the visual prompt first — the motion prompt animates that image.'); return }
+  const ep = episodeId.value
+  regenMotionId.value = scene.id
+  const previousGeneratedAt = plan.value?.generated_at || null
+  try {
+    await post(`/projects/${slug.value}/scene-plan/${ep}/regenerate-motion-prompt`, {
+      scene_id: scene.id,
+      model: form.value.model,
+      motion_level: form.value.motion_level,
+    })
+    success('Motion regen queued — the prompt updates when the job lands.')
+    await pollUntilPlanLanded(ep, { previousGeneratedAt })
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to start motion regen')
+  } finally {
+    regenMotionId.value = null
   }
 }
 

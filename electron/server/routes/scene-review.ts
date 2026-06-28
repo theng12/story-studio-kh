@@ -40,6 +40,8 @@ interface ReviewSceneAugmented {
   end_sec: number
   transcript_segment: string
   visual_prompt: string
+  /** v1.0.468 — image-to-video motion instruction (read-only in Scene Review). */
+  motion_prompt?: string
   approved: boolean
   /** Filename in scene_images/ if present; null otherwise. UI uses this
    *  + the image streaming endpoint to render the thumbnail. */
@@ -85,6 +87,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         end_sec: s.end_sec,
         transcript_segment: s.transcript_segment,
         visual_prompt: s.visual_prompt,
+        motion_prompt: s.motion_prompt,  // v1.0.468 — image-to-video instruction
         approved: !!s.approved,
         image_filename: exists ? filename : null,
         boundary_reason: s.boundary_reason,

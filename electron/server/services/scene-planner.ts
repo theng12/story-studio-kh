@@ -91,6 +91,52 @@ const DETAIL_SPECS: Record<number, { length: string; cover: string }> = {
   },
 }
 
+/**
+ * v1.0.468 — image-to-video motion-intensity scale (1–4) for the per-scene
+ * `motion_prompt`. Mirrors DETAIL_SPECS. EVERY level forbids fast, jittery, or
+ * frantic motion — the clips animate a still image with restraint. `allow`
+ * describes what kind of movement is permitted at that level; `camera` suggests
+ * the camera feel. The LLM is told to ground all motion in THIS scene's image
+ * prompt + narration, so a character only "walks/points" if the scene depicts
+ * one. Level 2 (Gentle) is the sleep-story default.
+ */
+export const MOTION_SPECS: Record<number, { label: string; allow: string; camera: string }> = {
+  1: {
+    label: 'Still',
+    allow: 'almost no movement — only the faintest ambient life (a slow drift of mist, a subtle shimmer of water or light). No subject motion. A living photo.',
+    camera: 'a barely-perceptible slow push-in or hold; essentially static.',
+  },
+  2: {
+    label: 'Gentle',
+    allow: 'soft ambient motion (drifting clouds, gentle ripples, swaying foliage, floating dust in light) and the smallest natural sways. No deliberate subject action.',
+    camera: 'a slow, smooth pan or push-in/pull-back — calm and hypnotic.',
+  },
+  3: {
+    label: 'Moderate',
+    allow: 'subtle subject motion that the narration actually implies — a character slowly walking, turning their head, gesturing or pointing, hair or clothing moving — plus the ambient motion of lower levels.',
+    camera: 'a gentle pan, tilt, or dolly that follows the subject; unhurried.',
+  },
+  4: {
+    label: 'Lively',
+    allow: 'clear but smooth movement — the subject walks, reaches, or interacts; more active ambient elements (flowing water, rustling leaves, flickering flame) — all of it flowing, never abrupt.',
+    camera: 'a confident but smooth move (slow orbit, tracking push-in); energetic yet graceful.',
+  },
+}
+
+/**
+ * v1.0.468 — resolve the effective motion-intensity level: an explicit per-run
+ * value wins, else the project default, else 2 (Gentle). Always clamped to the
+ * 1–4 range MOTION_SPECS defines; non-finite inputs fall through to the default.
+ */
+export function resolveMotionLevel(explicit?: number | null, projectDefault?: number | null): number {
+  const pick = (v: unknown): number | null => {
+    if (v == null || v === '') return null  // unset — fall through (Number(null) is 0, which would wrongly clamp to 1)
+    const n = Number(v)
+    return Number.isFinite(n) ? Math.min(4, Math.max(1, Math.round(n))) : null
+  }
+  return pick(explicit) ?? pick(projectDefault) ?? 2
+}
+
 function freshId(): string {
   return `scene_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
@@ -104,6 +150,13 @@ function buildScenePlannerPrompt(opts: {
   total_duration_sec: number
   /** v1.0.242 — visual-prompt richness (1–4); see DETAIL_SPECS below. */
   detail_level?: number
+  /** v1.0.468 — image-to-video motion intensity (1–4); see MOTION_SPECS.
+   *  Drives the per-scene motion_prompt. Higher = livelier (still smooth,
+   *  never fast). Default 2 (Gentle). */
+  motion_level?: number
+  /** v1.0.468 — when false, skip motion-prompt generation entirely (plan only
+   *  produces visual prompts). Default true. */
+  generate_motion_prompts?: boolean
   /** v1.0.242 — global style woven into every visual_prompt. */
   style_prompt?: string
   /** v1.0.242 — extra free-text planner instructions. */
@@ -898,6 +951,155 @@ export async function generateVisualPromptOnly(opts: {
   // Strip surrounding quotes (smart + straight)
   cleaned = cleaned.replace(/^["'`“‘]+|["'`”’]+$/g, '').trim()
   return cleaned
+}
+
+/**
+ * v1.0.468 — generate the image-to-video MOTION prompt for a single scene.
+ *
+ * Cohesive-by-construction: it's seeded with the scene's already-written
+ * `visual_prompt` (the exact image it will animate) plus the narration, so the
+ * motion always matches what's on screen — a character only "walks/points" if
+ * the image depicts one. The `motion_level` (1–4, see MOTION_SPECS) controls
+ * how lively the movement is; every level stays slow and smooth (no fast/
+ * frantic motion). Returns a SHORT instruction (one or two sentences) as plain
+ * prose — model-agnostic, ready to feed any i2v model alongside the start image.
+ */
+export async function generateMotionPromptOnly(opts: {
+  transcript_segment: string
+  visual_prompt: string
+  model: string
+  motion_level?: number
+  style_prompt?: string
+  custom_instructions?: string
+  apiKeys: { anthropic_api_key?: string; openai_api_key?: string; kie_api_key?: string }
+  slug?: string
+}): Promise<string> {
+  const spec = MOTION_SPECS[opts.motion_level ?? 2] || MOTION_SPECS[2]!
+  const sysParts: string[] = [
+    'You write a SHORT motion instruction for animating a single still image into a brief video clip (image-to-video).',
+    'The image already exists and defines the look — describe ONLY what MOVES and HOW: camera movement, any subject motion, and ambient motion.',
+    'Output ONLY the motion instruction as natural prose (one or two short sentences). No JSON, no labels, no quotes, no preamble.',
+    `Motion intensity — ${spec.label}: ${spec.allow}`,
+    `Camera: ${spec.camera}`,
+    'HARD RULE: slight, slow, smooth motion only. Never fast, frantic, shaky, or whip-pan. Ground every movement in what the image + narration actually depict — do not invent action that is not in the scene.',
+  ]
+  if (opts.style_prompt && opts.style_prompt.trim()) {
+    sysParts.push(`Keep the motion in keeping with the visual style: ${opts.style_prompt.trim()}`)
+  }
+  if (opts.custom_instructions && opts.custom_instructions.trim()) {
+    sysParts.push(`Additional rules: ${opts.custom_instructions.trim()}`)
+  }
+  const system = sysParts.join('\n\n')
+
+  const userParts: string[] = [
+    `The image being animated (its visual prompt):\n${opts.visual_prompt.trim()}`,
+  ]
+  if (opts.transcript_segment && opts.transcript_segment.trim()) {
+    userParts.push(`Narration for this scene (for motion cues only):\n${opts.transcript_segment.trim()}`)
+  }
+  userParts.push('Write the motion instruction (one or two short sentences, no quotes):')
+  const user = userParts.join('\n\n')
+
+  const raw = await callAi(opts.model, system, user, opts.apiKeys, false, { slug: opts.slug })
+  let cleaned = (raw || '').trim()
+  cleaned = cleaned.replace(/^```[a-z]*\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+  cleaned = cleaned.replace(/^(motion\s*prompt|motion\s*instruction|motion|camera|animation)\s*[:\-]\s*/i, '').trim()
+  cleaned = cleaned.replace(/^["'`“‘]+|["'`”’]+$/g, '').trim()
+  return cleaned
+}
+
+/**
+ * v1.0.468 — bulk-generate motion prompts for the given scene indices, in
+ * parallel across the Chat Studio pool with per-scene retry. A sibling of
+ * generatePromptsForScenes (visual prompts), sharing the same concurrency +
+ * failover behaviour. Each target scene must already have a non-empty
+ * `visual_prompt` (the motion prompt is generated to match it); scenes without
+ * one are skipped. Writes `scene.motion_prompt`. Returns the count that failed.
+ */
+export async function generateMotionPromptsForScenes(
+  scenes: ScenePlanEntry[],
+  targetIndices: number[],
+  ctx: {
+    model: string
+    motion_level?: number
+    style_prompt?: string
+    custom_instructions?: string
+    apiKeys: { anthropic_api_key: string; openai_api_key: string; kie_api_key: string }
+    slug?: string
+    max_retries?: number
+    should_cancel?: () => boolean
+    onProgress?: (done: number, total: number) => void
+    onWarn?: (msg: string) => void
+  },
+): Promise<number> {
+  if (!targetIndices.length) return 0
+  const maxRetries = Math.max(0, ctx.max_retries ?? 2)
+
+  // Same pool-derived concurrency as the visual-prompt pass.
+  let concurrency = 1
+  if (ctx.model.startsWith(CHATSTUDIO_MODEL_PREFIX)) {
+    const csStored = await getApiKey('chatstudio').catch(() => '')
+    resetChatstudioDispatcher(csStored)
+    concurrency = Math.max(1, parseEndpoints(csStored).length)
+    if (concurrency > 1) {
+      ctx.onWarn?.(
+        `Generating ${targetIndices.length} motion prompt(s) ${concurrency}× parallel across `
+        + `${concurrency} Chat Studio endpoints.`,
+      )
+    }
+  }
+
+  let failed = 0
+  let done = 0
+  for (let chunkStart = 0; chunkStart < targetIndices.length; chunkStart += concurrency) {
+    if (ctx.should_cancel?.()) break
+    const chunk = targetIndices.slice(chunkStart, chunkStart + concurrency)
+    const tasks = chunk.map(i => (async () => {
+      const scene = scenes[i]!
+      if (!scene.visual_prompt || !scene.visual_prompt.trim()) {
+        // No image prompt to animate — skip (not a failure).
+        return
+      }
+      let lastErr: any = null
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          const prompt = await generateMotionPromptOnly({
+            transcript_segment: scene.transcript_segment,
+            visual_prompt: scene.visual_prompt,
+            model: ctx.model,
+            motion_level: ctx.motion_level,
+            style_prompt: ctx.style_prompt,
+            custom_instructions: ctx.custom_instructions,
+            apiKeys: ctx.apiKeys,
+            slug: ctx.slug,
+          })
+          if (prompt && prompt.trim()) {
+            scene.motion_prompt = prompt
+            return
+          }
+          lastErr = new Error('model returned an empty motion prompt')
+        } catch (e: any) {
+          lastErr = e
+        }
+        if (attempt < maxRetries) {
+          ctx.onWarn?.(
+            `Scene #${i + 1}: motion-prompt attempt ${attempt + 1}/${maxRetries + 1} failed `
+            + `(${lastErr?.message || 'unknown'}) — retrying…`,
+          )
+          await new Promise(r => setTimeout(r, 1200 * (attempt + 1)))
+        }
+      }
+      failed++
+      ctx.onWarn?.(
+        `Scene #${i + 1}: motion prompt failed after ${maxRetries + 1} attempt(s) `
+        + `(${lastErr?.message || 'unknown'}) — left empty for manual fill / bulk regen.`,
+      )
+    })())
+    await Promise.all(tasks)
+    done += chunk.length
+    ctx.onProgress?.(done, targetIndices.length)
+  }
+  return failed
 }
 
 /**

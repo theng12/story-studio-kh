@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.468 — 2026-06-28
+
+**Scene planner now writes a per-scene motion prompt for animating images into video (Phase 1).** Every scene already gets an image prompt; now the planner also writes a **motion prompt** — an image-to-video instruction describing how that scene should move (camera drift, gentle ambient motion, subtle script-driven subject motion). It's generated cohesively with the image prompt (the planner sees the visual prompt as context), so the motion always matches what's on screen.
+
+- **Motion-intensity scale (1–4), like the visual-detail scale**, on the Scene Plan page: **Still → Gentle → Moderate → Lively**. Every level stays slow and smooth — never fast or jittery. Defaults to **Gentle** (sleep-tuned), with a per-project default (`default_motion_level`) so each channel sets its own baseline. A checkbox toggles motion-prompt generation on/off.
+- **Stored on each scene** in `scene_plan.json` (the "03 Scene Prompts" folder), **editable inline** in Scene Plan and viewable in Scene Review. Per-scene "🎬 Regen motion" and a bulk "regenerate empty motion prompts" job reuse the same pooled-LLM + retry + failover machinery as visual prompts.
+- **Phase 1 is prompts only** — no clips generated yet. The image-to-video providers (Wan, Hailuo, Sora, Veo, Kling via fal.ai / kie.ai) already exist; Phase 2 will wire a per-scene "Animate" step that feeds the image + motion prompt into one of them and saves the clip.
+
+---
+
 ## v1.0.467 — 2026-06-28
 
 **Scene plan now lives inside the "03 Scene Prompts" folder — the whole prompt pipeline in one place.** `scene_plan.json` (which carries every scene's `visual_prompt`) used to be written loose at the episode root, separate from the human-readable Scene Prompts doc. It now lives **inside the "03 Scene Prompts" folder** alongside everything else prompt-related. Scene Review, Scene Plan, continuity render, scene-image generation, video assembly, and the pipeline cockpit all resolve the new location, with an automatic fallback to the old episode-root location so **nothing breaks for existing episodes**.

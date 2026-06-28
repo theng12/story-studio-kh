@@ -434,6 +434,12 @@
               <summary class="text-muted text-xs">Visual prompt</summary>
               <p class="review-prompt">{{ scene.visual_prompt }}</p>
             </details>
+            <!-- v1.0.468 — motion prompt (image-to-video instruction). Read-only
+                 here; edit/regenerate on the Scene Plan page. -->
+            <details v-if="scene.motion_prompt" class="review-prompt-details">
+              <summary class="text-muted text-xs">🎬 Motion prompt</summary>
+              <p class="review-prompt">{{ scene.motion_prompt }}</p>
+            </details>
           </div>
 
           <div class="review-actions-cell">
@@ -613,6 +619,7 @@ interface ReviewScene {
   end_sec: number
   transcript_segment: string
   visual_prompt: string
+  motion_prompt?: string
   approved: boolean
   image_filename: string | null
   boundary_reason?: string
