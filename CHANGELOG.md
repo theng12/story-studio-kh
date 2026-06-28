@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.476 — 2026-06-28
+
+**Image Studio cloud models are now selectable, and the picker is decluttered.**
+- **Cloud models work now** (Flux Schnell via Together AI / Cloudflare / Pollinations). Image Studio was exposing them all along; Story Studio was wrongly marking them unavailable because it derived "ready" from the *local-engine* diagnostics, which don't cover cloud-proxied models. They're now treated as always-ready (no local engine / download / memory needed) and selectable, tagged with their cloud provider.
+- **The list only shows models you can actually use.** Instead of dumping Image Studio's entire catalog (most of which isn't downloaded), the picker now shows **cloud models + locally downloaded models only** — the not-yet-downloaded long tail is hidden. (Falls back to the old behavior on older Image Studio builds that don't report download state.)
+- **Rows are simplified to the name** + a single cost/cloud tag (dropped the size / MLX / capability / "best for" / engine-status clutter).
+
 ## v1.0.475 — 2026-06-28
 
 **UI for the image-to-video / animation settings (no more config-file editing).**

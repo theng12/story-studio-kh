@@ -237,6 +237,15 @@ export interface ImageStudioCatalogModel {
   aliases?: string[]
   capabilities?: string[]
   best_for?: string
+  // v1.0.476 — cloud-proxied models (Together / Cloudflare / Pollinations).
+  // These run in the cloud, so they have no local engine + need no download/
+  // memory. Image Studio flags them explicitly; Story Studio must treat them as
+  // always-ready (the local-engine diagnostics never cover them).
+  is_cloud?: boolean
+  cloud_provider?: string
+  // Download state — `{ state: 'cached' | 'absent' | … }`. Cloud models report
+  // 'cached'. Used to hide not-yet-downloaded local models from the picker.
+  cache?: { state?: string } | null
 }
 
 export interface ImageStudioFamily {
@@ -450,8 +459,12 @@ export interface ImageStudioModelInfo {
   gated?: boolean
   apple_optimized?: boolean
   best_for?: string
-  ready: boolean              // engine family wired + deps present
-  fits_memory: boolean        // host unified memory meets the model's floor
+  ready: boolean              // engine family wired + deps present (always true for cloud)
+  fits_memory: boolean        // host unified memory meets the model's floor (always true for cloud)
+  // v1.0.476 — cloud-proxied model surfacing.
+  is_cloud?: boolean
+  cloud_provider?: string     // 'together' | 'cloudflare' | 'pollinations' | …
+  downloaded?: boolean        // local model files present (or cloud — nothing to download)
 }
 
 /**
@@ -477,6 +490,10 @@ export async function listAvailableModels(baseUrl: string): Promise<{
     const mem = sys.unified_memory_gb
     const models: ImageStudioModelInfo[] = cat.models.map(m => {
       const floor = typeof m.min_unified_memory_gb === 'number' ? m.min_unified_memory_gb : undefined
+      // v1.0.476 — cloud-proxied models have no local engine + no download, so the
+      // local-engine diagnostics never list them. Treat them as ready + fitting,
+      // else they'd be permanently unselectable in the picker.
+      const isCloud = !!m.is_cloud
       return {
         id: modelIdForRepo(m.repo),
         repo: m.repo,
@@ -488,8 +505,11 @@ export async function listAvailableModels(baseUrl: string): Promise<{
         gated: m.gated,
         apple_optimized: m.apple_optimized,
         best_for: m.best_for,
-        ready: readyByFamily.get(m.family) ?? false,
-        fits_memory: mem === undefined || floor === undefined ? true : floor <= mem,
+        ready: isCloud ? true : (readyByFamily.get(m.family) ?? false),
+        fits_memory: isCloud ? true : (mem === undefined || floor === undefined ? true : floor <= mem),
+        is_cloud: isCloud,
+        cloud_provider: m.cloud_provider,
+        downloaded: isCloud || m.cache?.state === 'cached',
       }
     })
     return { ok: true, models, unified_memory_gb: mem }

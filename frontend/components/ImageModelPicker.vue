@@ -134,7 +134,7 @@
         <!-- 💻 Local section (Image Studio KH) -->
         <div v-if="localModels.length || localCatalogLoading || localCatalogError" class="imp-section imp-section-local">
           <div class="imp-section-heading imp-vs-heading">
-            <span>💻 Image Studio KH — local ({{ filteredLocalModels.length }})</span>
+            <span>💻 Image Studio KH ({{ filteredLocalModels.length }})</span>
             <span class="imp-vs-actions">
               <button
                 type="button"
@@ -173,18 +173,14 @@
               :disabled="!m.available || (imageMode === 'img2img' && !m.supportsImgImg)"
               @click="select(m.id)"
             >
-              <span class="imp-row-name">{{ m.label }}</span>
+              <span class="imp-row-name">
+                <span v-if="m.cloudProvider" class="imp-prov" :class="`prov-${(m.cloudProvider || '').toLowerCase().replace(/[^a-z]/g,'')}`">{{ m.cloudProvider }}</span>
+                {{ m.label }}
+              </span>
               <span class="imp-row-meta">
-                <span class="imp-chip imp-cost free">free</span>
-                <span v-if="m.sizeGb" class="imp-chip subtle">{{ m.sizeGb }} GB</span>
-                <span v-if="m.appleOptimized" class="imp-chip">MLX</span>
-                <span v-for="c in m.capChips" :key="c" class="imp-chip imp-cap-refs">{{ c }}</span>
-                <span v-if="m.gated" class="imp-chip warn" title="Requires a Hugging Face token + license acceptance">gated</span>
-                <span v-if="!m.fitsMemory" class="imp-chip warn" :title="`Needs more unified memory than this Mac has`">needs more RAM</span>
-                <span v-else-if="!m.ready" class="imp-chip warn" title="Engine family not loaded/ready on the modal">engine off</span>
+                <span class="imp-chip imp-cost free">{{ m.isCloud ? 'cloud · free' : 'free' }}</span>
                 <span v-if="imageMode === 'img2img' && !m.supportsImgImg" class="imp-chip warn">no refs</span>
               </span>
-              <span v-if="m.bestFor" class="imp-row-bestfor">{{ m.bestFor }}</span>
             </button>
           </div>
         </div>
@@ -239,6 +235,9 @@ interface ImageStudioModelInfo {
   best_for?: string
   ready: boolean            // engine family loaded/ready on the modal
   fits_memory: boolean      // this Mac's unified memory meets the model's floor
+  is_cloud?: boolean        // v1.0.476 — cloud-proxied (Together/Cloudflare/Pollinations)
+  cloud_provider?: string
+  downloaded?: boolean      // local files present (or cloud — nothing to download)
 }
 
 const props = withDefaults(defineProps<{
@@ -334,6 +333,8 @@ interface DisplayRow {
   unavailableReason?: string
   supportsTxt2img?: boolean
   providerName?: string
+  isCloud?: boolean
+  cloudProvider?: string
 }
 
 /** Friendly provider name shown as the leading chip on each cloud row, so
@@ -374,38 +375,38 @@ const cloudModels = computed<DisplayRow[]>(() => {
  * chip explaining why, so the user sees the full menu without confusion.
  */
 const localModels = computed<DisplayRow[]>(() => {
-  return localCatalog.value.map(m => {
-    const caps = m.capabilities || []
-    const supportsImgImg = caps.includes('img2img') || caps.includes('edit')
-    const available = m.ready && m.fits_memory
-    const unavailableReason = !m.fits_memory
-      ? 'Needs more unified memory than this Mac has'
-      : !m.ready
-        ? 'This engine family is not loaded/ready on the modal'
-        : ''
-    // Capability chips: i2i / edit (txt2img is universal — no chip).
-    const capChips: string[] = []
-    if (caps.includes('img2img')) capChips.push('i2i')
-    if (caps.includes('edit')) capChips.push('edit')
-    return {
-      id: m.id,
-      label: m.label,
-      costChip: 'free',
-      supportsRefs: supportsImgImg,
-      tiered: false,
-      sizeGb: m.size_gb,
-      appleOptimized: m.apple_optimized,
-      gated: m.gated,
-      supportsImgImg,
-      bestFor: m.best_for,
-      capChips,
-      ready: m.ready,
-      fitsMemory: m.fits_memory,
-      available,
-      unavailableReason,
-      supportsTxt2img: caps.includes('txt2img'),
-    }
-  })
+  return localCatalog.value
+    // v1.0.476 — only surface models you can actually use: cloud-proxied ones
+    // (always available) + locally DOWNLOADED ones. Hides the long tail of
+    // catalog models that aren't downloaded yet (cache: absent) — no point
+    // listing what can't be picked. (downloaded may be absent on older Image
+    // Studio builds that don't report cache state → fall back to ready so those
+    // still show.)
+    .filter(m => m.is_cloud || m.downloaded || (m.downloaded === undefined && m.ready))
+    .map(m => {
+      const caps = m.capabilities || []
+      const supportsImgImg = caps.includes('img2img') || caps.includes('edit')
+      // Cloud models are always runnable; local ones need their engine ready + to fit.
+      const available = m.is_cloud ? true : (m.ready && m.fits_memory)
+      const unavailableReason = m.is_cloud ? '' : (!m.fits_memory
+        ? 'Needs more unified memory than this Mac has'
+        : !m.ready
+          ? 'This engine family is not loaded/ready on the modal'
+          : '')
+      return {
+        id: m.id,
+        label: m.label,
+        costChip: 'free',
+        supportsRefs: supportsImgImg,
+        tiered: false,
+        supportsImgImg,
+        available,
+        unavailableReason,
+        supportsTxt2img: caps.includes('txt2img'),
+        isCloud: !!m.is_cloud,
+        cloudProvider: m.cloud_provider,
+      }
+    })
 })
 
 /** Filters: search + capability + img2img mode (handled at the row level via dim). */
