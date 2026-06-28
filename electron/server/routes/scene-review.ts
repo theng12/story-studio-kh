@@ -25,6 +25,7 @@ import { downloadImage } from '../lib/kie-client.js'
 import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir, resolveSceneImageReadPath } from '../generators/scene-image.js'
+import { resolveVideoAssetsDir } from '../generators/scene-clip.js'
 import { decodeUploadBuffer } from './image-references.js'
 import { readManifest } from '../services/task-manifest.js'
 import { resolveApiKeyForProvider } from '../providers/registry.js'
@@ -54,6 +55,10 @@ interface ReviewSceneAugmented {
    *  the renderer stamps alongside image_path. Always false for images rendered
    *  before this shipped (no rendered_prompt recorded) — no false positives. */
   stale: boolean
+  /** v1.0.470 — an animated clip (mp4) exists for this scene in "11 Video Assets". */
+  clip_exists?: boolean
+  /** v1.0.470 — the clip exists but was rendered from a now-changed motion prompt. */
+  clip_stale?: boolean
 }
 
 // ── GET /scene-review/:ep ─────────────────────────────────────────────
@@ -72,6 +77,8 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     // so both consolidated and not-yet-consolidated episodes show their renders.
     const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
     const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+    // v1.0.470 — clips live in the "11 Video Assets" folder as <scene_id>.mp4.
+    const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
     const scenes: ReviewSceneAugmented[] = []
     let approvedCount = 0
     let withImageCount = 0
@@ -80,6 +87,8 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       const exists = existsSync(path.join(namedDir, filename)) || existsSync(path.join(legacyDir, filename))
       if (exists) withImageCount++
       if (s.approved) approvedCount++
+      // v1.0.470 — clip existence + stale (rendered from a now-changed motion prompt).
+      const clipExists = existsSync(path.join(clipsDir, `${s.id}.mp4`))
       scenes.push({
         id: s.id,
         scene_index: s.scene_index,
@@ -97,6 +106,11 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         stale: exists
           && typeof (s as any).rendered_prompt === 'string'
           && (s as any).rendered_prompt !== s.visual_prompt,
+        // v1.0.470 — clip animation status.
+        clip_exists: clipExists,
+        clip_stale: clipExists
+          && typeof s.rendered_motion_prompt === 'string'
+          && s.rendered_motion_prompt !== (s.motion_prompt || ''),
       })
     }
 
@@ -285,6 +299,85 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
     res.json({ ok: true, queued, skipped, queued_scene_ids: queuedIds })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to queue scene-image jobs'))
+  }
+})
+
+// ── POST /scene-review/:ep/generate-clip ──────────────────────────────
+// v1.0.470 — Phase 2: animate ONE scene's image into a clip via an i2v model.
+router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const body = req.body || {}
+  const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
+  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
+  if (!model) return res.status(400).json({ detail: 'model is required' })
+
+  if (jq.isDuplicate(slug, episodeId, 'scene_clip_generate' as JobType, (p: any) => p?.scene_id === sceneId)) {
+    return res.status(409).json({ detail: `Scene ${sceneId} clip already generating` })
+  }
+  const job = jq.enqueue({
+    project_slug: slug,
+    type: 'scene_clip_generate' as JobType,
+    episode_id: episodeId,
+    title: `Scene ${sceneId.slice(0, 12)} clip`,
+    params: {
+      episode_id: episodeId,
+      scene_id: sceneId,
+      model,
+      aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+    },
+  })
+  res.status(201).json(job)
+})
+
+// ── POST /scene-review/:ep/generate-missing-clips ─────────────────────
+// v1.0.470 — bulk-queue scene_clip_generate for every scene that HAS an image
+// + a motion prompt but no clip yet (or whose clip is stale). Skips in-flight.
+router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const body = req.body || {}
+  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  if (!model) return res.status(400).json({ detail: 'model is required' })
+
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+
+    const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+    const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+    const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+    let queued = 0
+    let skipped = 0
+    const queuedIds: string[] = []
+    for (const s of plan.scenes) {
+      const hasImage = existsSync(path.join(namedDir, `${s.id}.png`)) || existsSync(path.join(legacyDir, `${s.id}.png`))
+      const hasMotion = !!(s.motion_prompt && s.motion_prompt.trim())
+      const clipExists = existsSync(path.join(clipsDir, `${s.id}.mp4`))
+      const clipStale = clipExists && typeof s.rendered_motion_prompt === 'string' && s.rendered_motion_prompt !== (s.motion_prompt || '')
+      // Animate scenes that are ready (image + motion) and not already clipped
+      // (or whose clip is stale). Skip in-flight.
+      if (!hasImage || !hasMotion || (clipExists && !clipStale)) { skipped++; continue }
+      if (jq.isDuplicate(slug, episodeId, 'scene_clip_generate' as JobType, (p: any) => p?.scene_id === s.id)) { skipped++; continue }
+      jq.enqueue({
+        project_slug: slug,
+        type: 'scene_clip_generate' as JobType,
+        episode_id: episodeId,
+        title: `Scene ${s.scene_index} clip`,
+        params: {
+          episode_id: episodeId,
+          scene_id: s.id,
+          model,
+          aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+        },
+      })
+      queued++
+      queuedIds.push(s.id)
+    }
+    res.json({ ok: true, queued, skipped, queued_scene_ids: queuedIds })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to queue scene-clip jobs'))
   }
 })
 
@@ -553,6 +646,27 @@ router.get('/projects/:slug/scene-review/:episodeId/image/:sceneId', async (req,
     createReadStream(imagePath).pipe(res)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to serve scene image'))
+  }
+})
+
+// ── GET /scene-review/:ep/clip/:sceneId ───────────────────────────────
+// v1.0.470 — stream a scene's animated clip (mp4) for inline preview. Same
+// strict id whitelist as the image route so it can't escape the clips dir.
+router.get('/projects/:slug/scene-review/:episodeId/clip/:sceneId', async (req, res) => {
+  const { slug, episodeId, sceneId } = req.params
+  if (!/^[A-Za-z0-9_-]+$/.test(sceneId)) {
+    return res.status(400).json({ detail: 'Invalid scene id' })
+  }
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+    const clipPath = path.join(clipsDir, `${sceneId}.mp4`)
+    if (!existsSync(clipPath)) return res.status(404).json({ detail: 'Clip not found' })
+    res.setHeader('Content-Type', 'video/mp4')
+    res.setHeader('Cache-Control', 'no-store')
+    createReadStream(clipPath).pipe(res)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to serve scene clip'))
   }
 })
 

@@ -1964,7 +1964,7 @@ export interface UpdateConfigRequest {
 
 // ── Jobs ────────────────────────────────────────────────────────────────────
 
-export type JobType = 'script-only' | 'introduction-only' | 'chapter-only' | 'outline_only' | 'expand_chapters' | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'images_repair' | 'audio' | 'audio_merge' | 'metadata' | 'video' | 'video_repair' | 'video_assembly' | 'subtitles_transcribe' | 'youtube_upload' | 'youtube_playlist_update' | 'broll_normalize' | 'broll_assemble' | 'broll_autotag' | 'broll_fetch' | 'research_run' | 'scene_plan_run' | 'scene_image_generate' | 'timestamp_video_assemble' | 'continuity_render' | 'prompt_director' | 'composition_generate' | 'expression_markup' | 'image_pool_generate'
+export type JobType = 'script-only' | 'introduction-only' | 'chapter-only' | 'outline_only' | 'expand_chapters' | 'image_prompts' | 'images' | 'scene_images' | 'thumb_images' | 'images_repair' | 'audio' | 'audio_merge' | 'metadata' | 'video' | 'video_repair' | 'video_assembly' | 'subtitles_transcribe' | 'youtube_upload' | 'youtube_playlist_update' | 'broll_normalize' | 'broll_assemble' | 'broll_autotag' | 'broll_fetch' | 'research_run' | 'scene_plan_run' | 'scene_image_generate' | 'scene_clip_generate' | 'timestamp_video_assemble' | 'continuity_render' | 'prompt_director' | 'composition_generate' | 'expression_markup' | 'image_pool_generate'
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
 /**
@@ -3232,6 +3232,15 @@ export interface ScenePlanEntry {
    *  User-editable in Scene Plan + Scene Review. Phase 1: text only; the clip
    *  itself (Phase 2) will be generated from image_path + this prompt. */
   motion_prompt?: string
+  /** v1.0.470 — Phase 2: path to the animated clip (mp4) rendered from
+   *  `image_path` + `motion_prompt` via an image-to-video model. Written by the
+   *  scene-clip generator into the "11 Video Assets" folder. Absent until the
+   *  scene is animated. */
+  clip_path?: string
+  /** v1.0.470 — the `motion_prompt` value the current `clip_path` was rendered
+   *  from. If it later differs from `motion_prompt` (user re-prompted), the clip
+   *  is STALE — Scene Review flags it, mirroring `rendered_prompt` for images. */
+  rendered_motion_prompt?: string
   /** v1.0.260 — the guide character's expression for this scene (e.g. curiosity,
    *  wonder, care, concern), auto-derived by the Prompt Director from the beat
    *  and user-overridable in the Scene Plan / Scene Review UI. */

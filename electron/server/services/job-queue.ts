@@ -248,6 +248,8 @@ const queues: Record<JobType, QueueState> = {
   // v1.0.144+: Per-scene image gen for the timestamp-driven pipeline.
   // One job per scene; bulk "Generate all missing" enqueues N of these.
   scene_image_generate: { pending: [], running: false, executor: null },
+  // v1.0.470 — Phase 2: animate one scene's image into a clip (image-to-video).
+  scene_clip_generate: { pending: [], running: false, executor: null },
   // v1.0.410+: generate stills into an Image Pool (grow the pool).
   image_pool_generate: { pending: [], running: false, executor: null },
   // v1.0.145+: Final ffmpeg render for the timestamp-driven pipeline.

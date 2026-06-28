@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.470 — 2026-06-28
+
+**Animate scenes into video clips — Phase 2 of the motion-prompt feature.** You can now turn a scene's generated image into a short video clip using its motion prompt, right from Scene Review. Picks up where Phase 1 (motion prompts) left off.
+
+- **Per-scene "🎬 Animate"** button in Scene Review feeds the scene's image + motion prompt into an image-to-video model (Wan / Hailuo / Sora / Veo / Kling via fal.ai / kie.ai) and saves the resulting clip to the **"11 Video Assets"** folder. A clip badge appears on the thumbnail; click it to preview the clip inline (looping `<video>`).
+- **Bulk "🎬 Animate missing"** queues every scene that's ready (has an image + a motion prompt) but has no clip yet — or whose clip is **stale** because the motion prompt changed since it was rendered.
+- **i2v model picker** in the Greenlight panel lists your project's video models that support image-to-video (the `frames` mode), auto-selecting the first.
+- New `scene_clip_generate` job (heavy-media-guarded) mirrors the per-scene image generator: re-reads the plan before writing, records `clip_path` + `rendered_motion_prompt` (for stale detection). It passes the model's `provider_params` through to the provider — fixing a latent fal slug bug the older AI-video path has.
+
+This is the full image → motion-prompt → clip pipeline. Next natural step (future): the timestamp video assembler preferring a scene's clip over its still.
+
+---
+
 ## v1.0.469 — 2026-06-28
 
 **New "11 Video Assets" episode folder — home for the per-scene animated clips (Phase 2 prep).** Added an 11th numbered subfolder, `{code} - 11 Video Assets`, as a first-class part of the episode layout: it's scaffolded up-front alongside the other folders, resolvable via `resolveEpisodePaths` (`video_assets_dir`), and treated as **heavy media** so it migrates to an external `media_root` like Scene Images / Video Assembly Output. No clips are written there yet — Phase 2 (per-scene "Animate") will feed each scene's image + motion prompt into the existing image-to-video providers and save the resulting clip here. Also tightened the episode-folder heal + import classifier so "Video Assets" never collides with the "10 Video Assembly Output" folder.

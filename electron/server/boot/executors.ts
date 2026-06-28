@@ -33,6 +33,7 @@ import { generateImagePoolImages } from '../generators/image-pool-generate.js'
 import { runResearchJob } from '../generators/research.js'
 import { runScenePlanJob } from '../generators/scene-plan.js'
 import { generateSceneImageJob } from '../generators/scene-image.js'
+import { generateSceneClipJob } from '../generators/scene-clip.js'
 import { runTimestampVideoAssemble } from '../generators/timestamp-video-assemble.js'
 import { runContinuityRenderJob } from '../generators/continuity-render.js'
 import { runPromptDirectorJob } from '../generators/prompt-director.js'
@@ -111,6 +112,8 @@ export function registerAllExecutors(): void {
   registerExecutor('scene_plan_run', runScenePlanJob)
   // v1.0.144+ — Per-scene image generator (one job per scene).
   registerExecutor('scene_image_generate', generateSceneImageJob)
+  // v1.0.470 — Phase 2: per-scene image-to-video clip. Heavy media → guarded.
+  registerExecutor('scene_clip_generate', guardMedia(generateSceneClipJob))
   registerExecutor('continuity_render', runContinuityRenderJob)
   // v1.0.260 — Prompt Director: rewrites scene prompts into the explainer
   // composition (guide-at-side + framed subject) per the Visual Recipe.

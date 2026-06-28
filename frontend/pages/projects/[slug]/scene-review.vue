@@ -125,6 +125,15 @@
               >{{ m.label || m.id }}{{ (!m.available || m.disabled_reason) ? ' (unavailable)' : '' }}</option>
             </select>
           </div>
+          <!-- v1.0.470 — image-to-video model for "Animate" (per-scene + bulk).
+               Lists project video models that support image-to-video ('frames'). -->
+          <div v-if="i2vModels.length" class="sr-llm-pick" title="The image-to-video model used to animate scene images into clips (per-scene 🎬 Animate + bulk). Clips save to the '11 Video Assets' folder.">
+            <span class="sr-llm-label">🎬 Animate</span>
+            <select v-model="videoModel" class="select sr-llm-select">
+              <option value="" disabled>Pick an i2v model…</option>
+              <option v-for="m in i2vModels" :key="m.id" :value="m.id">{{ m.label }}</option>
+            </select>
+          </div>
           <button
             class="btn btn-sm btn-secondary"
             :disabled="approvingAll || stats.with_image === 0"
@@ -132,6 +141,17 @@
             title="Approves every scene that has an image. Useful after spot-checking the first few."
           >
             ✓ Approve all
+          </button>
+          <!-- v1.0.470 — bulk-animate every ready scene (has image + motion prompt)
+               that has no clip yet (or a stale one). -->
+          <button
+            v-if="videoModel"
+            class="btn btn-sm btn-secondary"
+            :disabled="animatingAll || stats.with_image === 0"
+            @click="animateMissing"
+            title="Animate every scene that has an image + a motion prompt but no clip yet (or whose clip is stale). One job per scene, queued."
+          >
+            {{ animatingAll ? '⏳ Queuing…' : '🎬 Animate missing' }}
           </button>
           <button
             class="btn btn-sm btn-ghost"
@@ -390,6 +410,13 @@
               </div>
               <!-- v1.0.359 — stale corner flag (image older than current prompt). -->
               <span v-if="scene.stale && !isSceneGenerating(scene)" class="review-thumb-stale" title="Stale — rendered from an older prompt">⚠</span>
+              <!-- v1.0.470 — animated-clip badge. Click to preview the clip. -->
+              <span
+                v-if="scene.clip_exists"
+                class="review-thumb-clip"
+                :title="scene.clip_stale ? 'Animated clip exists but the motion prompt changed since — re-animate to refresh' : 'Animated clip ready — click to preview'"
+                @click.stop="openClipPreview(scene)"
+              >{{ scene.clip_stale ? '🎬⚠' : '🎬' }}</span>
             </template>
             <!-- Empty + currently generating (sequential render is on this one). -->
             <div v-else-if="isSceneGenerating(scene)" class="review-thumb-generating" :style="{ aspectRatio: thumbAspect }">
@@ -488,10 +515,49 @@
             >
               {{ approvingId === scene.id ? '⏳' : (scene.approved ? '✓ Approved' : 'Approve') }}
             </button>
+            <!-- v1.0.470 — animate this scene's image into a clip (image-to-video). -->
+            <button
+              v-if="videoModel"
+              class="btn btn-sm btn-ghost"
+              :disabled="!scene.image_filename || !scene.motion_prompt || animatingId === scene.id"
+              @click="animateScene(scene)"
+              :title="!scene.image_filename
+                ? 'Generate the image first'
+                : !scene.motion_prompt
+                  ? 'This scene has no motion prompt — add one on the Scene Plan page'
+                  : (scene.clip_exists ? 'Re-animate this scene (replaces the existing clip)' : 'Animate this image into a clip')"
+            >
+              {{ animatingId === scene.id ? '⏳ Animating…' : (scene.clip_exists ? '🎬 Re-animate' : '🎬 Animate') }}
+            </button>
           </div>
         </li>
       </ul>
     </section>
+
+    <!-- v1.0.470 — animated-clip preview overlay. Plays the scene's mp4. -->
+    <div
+      v-if="clipPreviewScene"
+      class="sr-lightbox"
+      @click.self="clipPreviewScene = null"
+    >
+      <button class="sr-lb-close" @click="clipPreviewScene = null" title="Close (Esc)">✕</button>
+      <div class="sr-lb-stage" @click.self="clipPreviewScene = null">
+        <video
+          :src="clipUrl(clipPreviewScene)"
+          :key="`${clipPreviewScene.id}:${cacheBuster}`"
+          class="review-thumb"
+          :style="{ maxHeight: '80vh', maxWidth: '90vw' }"
+          controls
+          autoplay
+          loop
+        />
+        <div class="sr-lb-meta">
+          <strong>Scene #{{ clipPreviewScene.scene_index }} — animated clip</strong>
+          <span v-if="clipPreviewScene.clip_stale" class="sr-lb-stale" title="The motion prompt changed since this clip was rendered — re-animate to refresh.">⚠ stale — re-animate</span>
+          <p v-if="clipPreviewScene.motion_prompt" class="text-muted text-xs mt-1">🎬 {{ clipPreviewScene.motion_prompt }}</p>
+        </div>
+      </div>
+    </div>
 
     <!-- v1.0.241 — click-to-preview lightbox. Full-size view of a generated
          scene image, with prev/next nav across scenes that have images. -->
@@ -627,6 +693,10 @@ interface ReviewScene {
    *  current visual_prompt (re-prompted in Scene Plan / edited here without
    *  re-rendering). */
   stale?: boolean
+  /** v1.0.470 — an animated clip (mp4) exists for this scene. */
+  clip_exists?: boolean
+  /** v1.0.470 — clip exists but its motion prompt changed since it was rendered. */
+  clip_stale?: boolean
 }
 interface ReviewStats {
   total_scenes: number
@@ -773,6 +843,62 @@ const localSizeBody = computed(() =>
 const audioEl = ref<HTMLAudioElement | null>(null)
 const currentTime = ref(0)
 const cacheBuster = ref(Date.now())
+
+// ── v1.0.470 — image-to-video (Animate) state ───────────────────────────────
+const videoModel = ref('')
+const animatingId = ref<string | null>(null)
+const animatingAll = ref(false)
+const clipPreviewScene = ref<ReviewScene | null>(null)
+// Project video models that support image-to-video (modes includes 'frames').
+const i2vModels = computed(() => {
+  const vm = (config.value as any)?.video_models || {}
+  return Object.entries(vm)
+    .filter(([, m]: [string, any]) => Array.isArray(m?.modes) && m.modes.includes('frames'))
+    .map(([id, m]: [string, any]) => ({ id, label: m.label || id }))
+})
+// Auto-pick the first i2v model so the Animate buttons light up without a manual step.
+watch(i2vModels, (list) => {
+  if (!videoModel.value && list.length) videoModel.value = list[0]!.id
+}, { immediate: true })
+function clipUrl(scene: ReviewScene): string {
+  return `/api/projects/${slug.value}/scene-review/${episodeId.value}/clip/${scene.id}?t=${cacheBuster.value}`
+}
+function openClipPreview(scene: ReviewScene): void { clipPreviewScene.value = scene }
+
+async function animateScene(scene: ReviewScene): Promise<void> {
+  if (!videoModel.value) { showError('Pick an image-to-video model in the Greenlight panel first'); return }
+  if (!scene.image_filename) { showError('Generate the image first — there\'s nothing to animate'); return }
+  if (!scene.motion_prompt) { showError('This scene has no motion prompt. Add one on the Scene Plan page.'); return }
+  animatingId.value = scene.id
+  try {
+    await post(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-clip`, {
+      scene_id: scene.id,
+      model: videoModel.value,
+      aspect_ratio: form.value.aspect_ratio,
+    })
+    success(`Animation queued for scene ${scene.scene_index} — the clip badge appears when it lands.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to queue animation')
+  } finally {
+    animatingId.value = null
+  }
+}
+
+async function animateMissing(): Promise<void> {
+  if (!videoModel.value) { showError('Pick an image-to-video model first'); return }
+  animatingAll.value = true
+  try {
+    const r = await post<{ queued: number; skipped: number }>(
+      `/projects/${slug.value}/scene-review/${episodeId.value}/generate-missing-clips`,
+      { model: videoModel.value, aspect_ratio: form.value.aspect_ratio },
+    )
+    success(`Animation: queued ${r?.queued ?? 0}, skipped ${r?.skipped ?? 0}. Watch the Jobs panel.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to queue animations')
+  } finally {
+    animatingAll.value = false
+  }
+}
 const regeneratingId = ref<string | null>(null)
 const approvingId = ref<string | null>(null)
 const approvingAll = ref(false)
@@ -1600,6 +1726,30 @@ watch(episodeId, () => { void loadReview() })
   color: #1a1205;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
   z-index: 2;
+}
+/* v1.0.470 — animated-clip badge (bottom-right of the thumbnail). */
+.review-thumb-clip {
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px;
+  font-size: 12px;
+  border-radius: 10px;
+  background: rgba(20, 20, 28, 0.82);
+  color: #cfe3ff;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  z-index: 2;
+}
+.review-thumb-clip:hover { background: rgba(40, 40, 56, 0.95); }
+.sr-lb-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
 }
 .btn-warn {
   background: color-mix(in srgb, #e0843a 22%, transparent);
