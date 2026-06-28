@@ -253,6 +253,28 @@ export interface ImageStudioCatalogModel {
   // stays ready (prior behaviour). Pollinations needs no key → never flagged.
   cloud_credentials_ok?: boolean
   fit?: { state?: string; label?: string; hint?: string } | null
+  // v1.0.478 — per-model dimension menu. Story Studio drives the aspect-ratio +
+  // resolution pickers from this instead of a hardcoded table, and resolves a
+  // preset's (aspect ratio + quality tier) to the model's matching size. Absent
+  // on older Image Studio builds → Story Studio falls back to its static table.
+  sizes?: ImageStudioSize[]
+  default_aspect_ratio?: string
+  supports_custom_dimensions?: boolean
+  custom?: { min_px?: number; max_px?: number; step?: number; max_pixels?: number } | null
+  cloud_provider_label?: string
+  cloud_signup_url?: string
+}
+
+/** One concrete output size a model accepts. `tier`: fast | balanced | high |
+ *  ultra. `fixed`: the model ignores width/height (single real output). */
+export interface ImageStudioSize {
+  aspect_ratio: string
+  label?: string
+  width: number
+  height: number
+  tier?: string
+  default?: boolean
+  fixed?: boolean
 }
 
 export interface ImageStudioFamily {
@@ -473,6 +495,13 @@ export interface ImageStudioModelInfo {
   cloud_provider?: string     // 'together' | 'cloudflare' | 'pollinations' | …
   downloaded?: boolean        // local model files present (or cloud — nothing to download)
   needs_credentials?: boolean // v1.0.477 — cloud model whose required API key is missing
+  cloud_provider_label?: string
+  cloud_signup_url?: string
+  // v1.0.478 — per-model dimension menu (passed through from the catalog).
+  sizes?: ImageStudioSize[]
+  default_aspect_ratio?: string
+  supports_custom_dimensions?: boolean
+  custom?: { min_px?: number; max_px?: number; step?: number; max_pixels?: number } | null
 }
 
 /**
@@ -523,6 +552,12 @@ export async function listAvailableModels(baseUrl: string): Promise<{
         cloud_provider: m.cloud_provider,
         downloaded: isCloud || m.cache?.state === 'cached',
         needs_credentials: cloudCredsMissing,
+        cloud_provider_label: m.cloud_provider_label,
+        cloud_signup_url: m.cloud_signup_url,
+        sizes: Array.isArray(m.sizes) ? m.sizes : undefined,
+        default_aspect_ratio: m.default_aspect_ratio,
+        supports_custom_dimensions: m.supports_custom_dimensions,
+        custom: m.custom ?? undefined,
       }
     })
     return { ok: true, models, unified_memory_gb: mem }

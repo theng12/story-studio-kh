@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.478 — 2026-06-29
+
+**Per-model aspect ratios + quality tiers from Image Studio's size menu.** When a selected Image Studio model advertises its own `sizes` menu (new `/imagestudio/models` contract), the **Aspect Ratio** list now comes from that model's real options, and a new **Quality** control (Highest / Balanced / Fast) replaces the old local-only Render Size scale. Quality resolves per model against the menu — **Highest** = the largest size offered for the chosen aspect (`ultra` → `high` → max), **Balanced** = a sensible mid size (e.g. ~1080p for 16:9), **Fast** = the smallest — so a saved preset (aspect + tier) stays usable across different models and suppliers. This also lifts the old local-resolution cap for **cloud** models: a cloud model with a size menu now sends its full higher-res dimensions instead of being limited to the local preset table. Switching to a model that doesn't offer your current aspect snaps it to that model's default aspect so the picker is never blank. **Backward-compatible:** models with no `sizes` menu (kie cloud models, older Image Studio builds) keep the previous behaviour exactly — local models show the Render Size scale, cloud models use the aspect string — so this activates automatically once your Image Studio fleet is updated to serve the new fields.
+
 ## v1.0.477 — 2026-06-28
 
 **Honor Image Studio's "needs API key" signal for cloud models.** A cloud model whose required credential isn't configured (Cloudflare / Together) is now shown as **"needs key"** and is unselectable, instead of appearing ready and failing at generate time. Story Studio reads this **defensively** — a cloud model is treated as not-ready if Image Studio reports either `cloud_credentials_ok: false` **or** `fit.state: "needs_key"`. Pollinations (no key required) stays always-available. Backward-compatible: on an Image Studio build that doesn't send either signal yet, cloud models behave as before (ready) — so this quietly activates once you update Image Studio.

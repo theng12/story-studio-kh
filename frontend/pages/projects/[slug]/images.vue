@@ -154,10 +154,29 @@
             </option>
           </select>
         </div>
-        <!-- v1.0.308 — render-size tier for LOCAL Image Studio models. Hidden
-             for cloud models (they use the aspect string, not pixels). Lower
-             resolution = less GPU/VAE memory, faster renders, smaller files. -->
-        <div v-if="activeIsLocalModel" class="form-group">
+        <!-- v1.0.478 — Quality tier resolved against the model's own size menu
+             (Image Studio /imagestudio/models). Works for local AND cloud models
+             that advertise `sizes`, so cloud can use its full higher-res range. -->
+        <div v-if="activeModelHasSizes" class="form-group">
+          <label>
+            Quality
+            <span
+              class="text-muted text-xs"
+              title="Output resolution from this model's own size menu. Highest = the largest size offered for the aspect (ultra → high → max). Balanced = a sensible mid size. Fast = the smallest. Resolves per model, so a preset stays usable across models."
+            >ⓘ</span>
+          </label>
+          <select v-model="activeForm.render_tier" class="select">
+            <option v-for="t in QUALITY_TIERS" :key="t.value" :value="t.value">{{ t.label }}</option>
+          </select>
+          <p class="text-muted text-xs mt-1">
+            <template v-if="activeTierDimsLabel">Sending {{ activeTierDimsLabel }} px.</template>
+            <template v-else>Resolved from the model's size menu.</template>
+          </p>
+        </div>
+        <!-- v1.0.308 — legacy render-size scale, only for local models on older
+             Image Studio builds that don't advertise a size menu. Hidden for
+             cloud models (they use the aspect string, not pixels). -->
+        <div v-else-if="activeIsLocalModel" class="form-group">
           <label>
             Render Size
             <span
@@ -167,12 +186,12 @@
           </label>
           <select v-model.number="activeForm.render_scale" class="select">
             <option v-for="rs in renderSizes" :key="rs.value" :value="rs.value">
-              {{ rs.label }} — {{ activeDimsLabel(rs.value) }}
+              {{ rs.label }} — {{ activeLegacyDimsLabel(rs.value) }}
             </option>
           </select>
           <p class="text-muted text-xs mt-1">
             Lower = less GPU load + faster on local Macs.
-            <template v-if="activeForm.render_scale !== 100">Sending {{ activeDimsLabel(activeForm.render_scale) }} px.</template>
+            <template v-if="activeForm.render_scale !== 100">Sending {{ activeLegacyDimsLabel(activeForm.render_scale) }} px.</template>
             <template v-else>Full resolution.</template>
           </p>
         </div>
@@ -713,10 +732,14 @@ type ImagesSubForm = {
   image_mode: ImageMode
   reference_sources: ReferenceSources
   reference_strength: 'loose' | 'balanced' | 'strong'
-  // v1.0.308 — render-size tier for LOCAL Image Studio models (100 = Full,
-  // 75 = Balanced, 50 = Light). Scales the aspect's base pixels; cloud models
-  // ignore it (they use the aspect string). Default 100 = no change.
+  // v1.0.308 — LEGACY render-size scale (100 = Full, 75 = Balanced, 50 = Light)
+  // for models that DON'T expose a per-model size menu. Scales the aspect's base
+  // pixels. Superseded by render_tier when the model reports `sizes`.
   render_scale: number
+  // v1.0.478 — quality tier resolved against the selected model's `sizes` menu
+  // (Image Studio). 'highest' = largest size for the AR (ultra→high→max),
+  // 'balanced' = middle/default, 'fast' = smallest. Portable across models.
+  render_tier: 'highest' | 'balanced' | 'fast'
 }
 const defaultSubForm = (): ImagesSubForm => ({
   model: 'grok-imagine',
@@ -751,6 +774,9 @@ const defaultSubForm = (): ImagesSubForm => ({
   reference_strength: 'balanced',
   // Local render size: Full by default so existing behaviour is unchanged.
   render_scale: 100,
+  // v1.0.478 — model-menu quality tier. Balanced = a sensible default (e.g. 1080p
+  // for 16:9 on cloud models); only used when the model reports `sizes`.
+  render_tier: 'balanced',
 })
 const form = reactive({
   episode_id: '',
@@ -877,6 +903,11 @@ const modelTierLabel = computed(() => {
   return 'Tier'
 })
 
+// v1.0.478 — Image Studio per-model size catalog (id → {sizes, default AR}).
+// Declared here (above the model watcher, which fires immediately during setup)
+// so it's initialized before modelArs() reads it. Populated onMounted.
+const isCatalog = ref<Map<string, IsModel>>(new Map())
+
 // When the active model changes, snap the tier selection back to the new
 // model's default_tier (or first tier, or empty). Without this, switching
 // from gpt-image-2 (default '1k') to ideogram-v3 (default 'balanced')
@@ -886,10 +917,20 @@ watch(() => activeForm.value.model, () => {
   const tiers = Array.isArray(m?.tiers) ? m.tiers : []
   if (!tiers.length) {
     activeForm.value.tier = ''
-    return
+  } else {
+    const def = tiers.find((t: any) => t.id === m.default_tier) ?? tiers[0]
+    activeForm.value.tier = def?.id || ''
   }
-  const def = tiers.find((t: any) => t.id === m.default_tier) ?? tiers[0]
-  activeForm.value.tier = def?.id || ''
+  // v1.0.478 — if the new model advertises a size menu and the current aspect
+  // ratio isn't one it offers, snap to its default AR so the select isn't blank
+  // and modelDims resolves cleanly.
+  const ars = modelArs(activeForm.value.model)
+  if (ars && ars.length && !ars.includes(activeForm.value.aspect_ratio)) {
+    const info = isCatalog.value.get(activeForm.value.model)
+    activeForm.value.aspect_ratio = (info?.default_aspect_ratio && ars.includes(info.default_aspect_ratio))
+      ? info.default_aspect_ratio
+      : ars[0]!
+  }
 }, { immediate: true })
 
 // ── Presets ─────────────────────────────────────────────────────────────
@@ -954,6 +995,7 @@ onMounted(async () => {
   await Promise.all([
     thumbnailGeneratorPresets.load(),
     sceneGeneratorPresets.load(),
+    loadImageStudioCatalog(),
   ])
 })
 
@@ -1133,6 +1175,9 @@ function selectImageMode(m: ImageMode) {
 const ep2imgTitle = computed(() => selectedEpisode.value?.title || '')
 
 const aspectRatios = computed(() => {
+  // v1.0.478 — when the selected model advertises a `sizes` menu, its ARs win.
+  const fromModel = modelArs(activeForm.value.model)
+  if (fromModel) return fromModel.map(v => ({ value: v, label: AR_LABELS[v] || v }))
   if (form.mode === 'thumbs') {
     return [
       { value: '16:9', label: 'YouTube Thumbnail' },
@@ -1156,14 +1201,10 @@ const specificPlaceholder = computed(() => {
   return 'All'
 })
 
-// ── v1.0.308 — render-size tier for LOCAL Image Studio models ─────────────
-// Mirrors the Scene Review page. A local model id is `imagestudio:<repo>`;
-// cloud models take an aspect string (not pixels), so the Size control is
-// hidden and width/height are not sent for them. The selected scale% multiplies
-// the aspect's base preset (which mirrors the provider's ASPECT_PRESETS in
-// electron/server/providers/image/imagestudio.ts), rounded to /16. Rendering
-// smaller cuts a local model's GPU/VAE memory, renders faster, and writes
-// smaller files — the whole point the user asked for.
+// ── Render dimensions (v1.0.308 legacy + v1.0.478 model-driven) ───────────
+// LEGACY fallback table — used ONLY when the selected model doesn't report a
+// per-model `sizes` menu (older Image Studio builds; kie cloud models, which
+// take an aspect string, not pixels). Mirrors the provider's ASPECT_PRESETS.
 const LOCAL_ASPECT_PRESETS: Record<string, [number, number]> = {
   '1:1': [1024, 1024], '16:9': [1344, 768], '9:16': [768, 1344],
   '4:3': [1152, 864], '3:4': [864, 1152], '21:9': [1536, 640],
@@ -1175,25 +1216,87 @@ const renderSizes = [
   { value: 75, label: 'Balanced' },
   { value: 50, label: 'Light' },
 ]
+const QUALITY_TIERS = [
+  { value: 'highest', label: 'Highest' },
+  { value: 'balanced', label: 'Balanced' },
+  { value: 'fast', label: 'Fast' },
+] as const
+const AR_LABELS: Record<string, string> = {
+  '16:9': 'Landscape', '1:1': 'Square', '9:16': 'Portrait', '4:3': 'Standard',
+  '3:4': 'Tall', '21:9': 'Ultrawide', '3:2': 'Photo', '2:3': 'Photo tall',
+}
 function isLocalModelId(model: string | undefined): boolean {
   return typeof model === 'string' && model.startsWith('imagestudio:')
 }
-function dimsFor(aspectRatio: string, scale: number): { width: number; height: number } {
-  const base = LOCAL_ASPECT_PRESETS[aspectRatio] || LOCAL_ASPECT_PRESETS['1:1']
+
+// v1.0.478 — Image Studio's per-model size menu (GET /imagestudio/models). When a
+// model reports `sizes`, the AR list + resolution come from it — so cloud models
+// can use their full higher-res range and presets resolve per model. Lazy-fetched;
+// empty (offline / older build) → the legacy table above.
+interface IsSize { aspect_ratio: string; label?: string; width: number; height: number; tier?: string; default?: boolean; fixed?: boolean }
+interface IsModel { id: string; sizes?: IsSize[]; default_aspect_ratio?: string; supports_custom_dimensions?: boolean }
+async function loadImageStudioCatalog() {
+  try {
+    const data = await get<{ models: IsModel[] }>(`/imagestudio/models`)
+    const m = new Map<string, IsModel>()
+    for (const x of (data.models || [])) if (x?.id) m.set(x.id, x)
+    isCatalog.value = m
+  } catch { /* leave empty → legacy fallback */ }
+}
+function modelSizes(modelId: string | undefined): IsSize[] | null {
+  const info = modelId ? isCatalog.value.get(modelId) : undefined
+  return info?.sizes?.length ? info.sizes : null
+}
+/** Distinct aspect ratios the model supports (menu order), or null when no menu. */
+function modelArs(modelId: string | undefined): string[] | null {
+  const sizes = modelSizes(modelId)
+  if (!sizes) return null
+  const out: string[] = []
+  for (const s of sizes) if (!out.includes(s.aspect_ratio)) out.push(s.aspect_ratio)
+  return out
+}
+/** Resolve a model's size for (AR, quality tier) → {width,height}, or null. */
+function modelDims(modelId: string | undefined, ar: string, tier: string): { width: number; height: number } | null {
+  const sizes = modelSizes(modelId)
+  if (!sizes || !modelId) return null
+  const info = isCatalog.value.get(modelId)
+  let forAr = sizes.filter(s => s.aspect_ratio === ar)
+  if (!forAr.length) {
+    const defAr = info?.default_aspect_ratio || sizes[0]!.aspect_ratio
+    forAr = sizes.filter(s => s.aspect_ratio === defAr)
+  }
+  if (!forAr.length) return null
+  const byTier = (t: string) => forAr.find(s => s.tier === t)
+  const ends = (dir: 1 | -1) => [...forAr].sort((a, b) => (a.width - b.width) * dir)[0]!
+  let pick: IsSize | undefined
+  if (tier === 'fast') pick = byTier('fast') || ends(1)
+  else if (tier === 'highest') pick = byTier('ultra') || byTier('high') || ends(-1)
+  else pick = byTier('balanced') || forAr.find(s => s.default) || forAr[Math.floor(forAr.length / 2)]
+  return pick ? { width: pick.width, height: pick.height } : null
+}
+function legacyDimsFor(aspectRatio: string, scale: number): { width: number; height: number } {
+  const base = LOCAL_ASPECT_PRESETS[aspectRatio] || LOCAL_ASPECT_PRESETS['1:1']!
   const s = (scale || 100) / 100
-  return { width: round16(base[0]! * s), height: round16(base[1]! * s) }
+  return { width: round16(base[0] * s), height: round16(base[1] * s) }
 }
-// {width,height} for a subform when it targets a local model; null otherwise
-// (cloud → omit so the backend falls back to the aspect string).
+// {width,height} for a subform: model menu first (incl cloud → full res), then the
+// legacy local table, then null for menu-less cloud models (aspect string).
 function sizeBodyFor(sf: ImagesSubForm): { width: number; height: number } | null {
-  return isLocalModelId(sf.model) ? dimsFor(sf.aspect_ratio, sf.render_scale) : null
+  const d = modelDims(sf.model, sf.aspect_ratio, sf.render_tier)
+  if (d) return d
+  return isLocalModelId(sf.model) ? legacyDimsFor(sf.aspect_ratio, sf.render_scale) : null
 }
-// Active-tab helpers drive the Size <select> shown in the form.
+// Active-tab helpers drive the resolution control shown in the form.
+const activeModelHasSizes = computed(() => !!modelSizes(activeForm.value.model))
 const activeIsLocalModel = computed(() => isLocalModelId(activeForm.value.model))
-function activeDimsLabel(scale: number): string {
-  const d = dimsFor(activeForm.value.aspect_ratio, scale)
+function activeLegacyDimsLabel(scale: number): string {
+  const d = legacyDimsFor(activeForm.value.aspect_ratio, scale)
   return `${d.width}×${d.height}`
 }
+const activeTierDimsLabel = computed(() => {
+  const d = modelDims(activeForm.value.model, activeForm.value.aspect_ratio, activeForm.value.render_tier)
+  return d ? `${d.width}×${d.height}` : ''
+})
 // Per-kind sizes passed down to each ImageGeneratorPanel so its bulk + per-row
 // renders carry the same pixels the form shows.
 const sceneRenderSize = computed(() => sizeBodyFor(form.scene))
@@ -1658,8 +1761,10 @@ async function submit() {
   // log + the cost-confirmation receipt with a meaningless ' · ' suffix.
   if (activeForm.value.tier) params.tier = activeForm.value.tier
 
-  // v1.0.308 — explicit render dimensions for local models. sizeBodyFor returns
-  // null for cloud models, so width/height are only sent for Image Studio.
+  // v1.0.308/478 — explicit render dimensions. sizeBodyFor resolves from the
+  // model's own size menu when it has one (local OR cloud → full higher-res),
+  // falls back to the legacy local table, and returns null for menu-less cloud
+  // models (kie), which keep using the aspect string server-side.
   const sz = sizeBodyFor(activeForm.value)
   if (sz) { params.width = sz.width; params.height = sz.height }
 
