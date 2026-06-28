@@ -170,7 +170,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   if (params.custom_instructions) job.output_lines.push(`Custom instructions: ${params.custom_instructions.slice(0, 120)}${params.custom_instructions.length > 120 ? '…' : ''}`)
   job.progress = 10
 
-  // v1.0.466 — scene_plan.json lives in the "03 Scene Prompts" folder now
+  // v1.0.467 — scene_plan.json lives in the "03 Scene Prompts" folder now
   // (with a legacy episode-root fallback for older episodes). One resolved
   // path drives every read + in-place rewrite below, so they all stay in sync.
   const outPath = await resolveScenePlanPath(job.project_slug, episode_id, paths.episode_dir)

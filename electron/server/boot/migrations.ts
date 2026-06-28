@@ -7,6 +7,7 @@
  */
 
 import { migrateDescriptionToMetadata } from '../services/folder-migration.js'
+import { migrateScenePlanIntoPrompts } from '../services/scene-plan-migration.js'
 import { migrateAppSecrets } from './migrate-app-secrets.js'
 import { cleanOrphanWorkTempDirs, cleanLegacyInProjectTempDirs } from '../lib/work-tempdir.js'
 import * as pm from '../services/project-manager.js'
@@ -50,6 +51,9 @@ export function runBootMigrations(): void {
     for (const [providerId, urls] of Object.entries(all)) setDisabledEndpoints(providerId, urls)
   })()).catch(e => console.error('[migration] disabled-endpoints load failed:', e?.message || e)))
   tasks.push(migrateDescriptionToMetadata().catch(e => console.error('[migration] failed:', e)))
+  // v1.0.467 — move legacy episode-root scene_plan.json into the "03 Scene
+  // Prompts" folder. Idempotent + marker-gated; no-op after one clean pass.
+  tasks.push(migrateScenePlanIntoPrompts().catch(e => console.error('[migration] scene-plan relocation failed:', e)))
   tasks.push(migrateAppSecrets().then((summary) => {
     if (summary.scanned > 0 || summary.liftedProviders.length > 0) {
       console.log(

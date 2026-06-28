@@ -23,6 +23,7 @@ import {
   resolveEpisodePathsByCode,
   resolveEpisodePathsByCodeWithSidecar,
   resolveSubfolderNames,
+  resolveScenePlanPath,
 } from './utils.js'
 import { resolveEpisodeSubfolderDir } from './media-root.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
@@ -954,7 +955,7 @@ export async function computeEpisodeStatus(
       status.character_sheet = await fileHasContent(path.join(byCode.episode_dir, 'continuity.json'))
       // v1.0.362 — broll selection picked for this episode (stock-footage flow).
       status.broll_picked = await fileHasContent(path.join(byCode.episode_dir, 'broll-selection.json'))
-      const planPath = path.join(byCode.episode_dir, 'scene_plan.json')
+      const planPath = await resolveScenePlanPath(slug, code, byCode.episode_dir)
       status.scene_plan = await fileHasContent(planPath)
       if (status.scene_plan) {
         const plan = JSON.parse(await fs.readFile(planPath, 'utf-8'))

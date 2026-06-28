@@ -51,6 +51,12 @@ interface MigrationFlags {
    */
   description_to_metadata_v1_done?: boolean
   /**
+   * v1.0.467 — set once `migrateScenePlanIntoPrompts` has moved every legacy
+   * episode-root scene_plan.json into its "03 Scene Prompts" folder. When true,
+   * the boot-time scan short-circuits across every project.
+   */
+  scene_plan_into_prompts_v1_done?: boolean
+  /**
    * Legacy field from the removed userData → visible-folder migration.
    * Kept in the type so existing on-disk flag files parse without error,
    * but the new code neither reads nor writes it.
@@ -90,6 +96,30 @@ export async function markDescriptionToMetadataDone(): Promise<void> {
   await withLock(flagPath, async () => {
     const flags = await readFlags()
     flags.description_to_metadata_v1_done = true
+    await writeJsonAtomic(flagPath, flags)
+  })
+}
+
+/**
+ * v1.0.467 — True if the "move scene_plan.json into the 03 Scene Prompts folder"
+ * migration has completed cleanly. Checked on every boot so we don't re-scan
+ * every project after the first successful pass.
+ */
+export async function isScenePlanIntoPromptsDone(): Promise<boolean> {
+  const flags = await readFlags()
+  return !!flags.scene_plan_into_prompts_v1_done
+}
+
+/**
+ * Record that the scene_plan-relocation migration finished a clean full pass
+ * (every legacy episode-root scene_plan.json moved into its "03 Scene Prompts"
+ * folder). Only call this after verifying no per-episode failures.
+ */
+export async function markScenePlanIntoPromptsDone(): Promise<void> {
+  const flagPath = resolveFlagPath()
+  await withLock(flagPath, async () => {
+    const flags = await readFlags()
+    flags.scene_plan_into_prompts_v1_done = true
     await writeJsonAtomic(flagPath, flags)
   })
 }

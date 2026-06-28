@@ -153,7 +153,11 @@ async function resolveWatchedFolders(slug: string, code: string, ideas?: Awaited
   // refresh after the first plan was created. (v1.0.276)
   return [
     paths.episode_dir,        // sibling-folder detection for video_assembly
-    path.join(paths.episode_dir, 'scene_plan.json'),  // scene_plan + scene_review (in-place rewrites)
+    path.join(paths.episode_dir, 'scene_plan.json'),  // scene_plan + scene_review (legacy root location, in-place rewrites)
+    // v1.0.467 — scene_plan.json now lives in the "03 Scene Prompts" folder.
+    // In-place rewrites change the FILE's mtime but not the folder's, so we must
+    // watch the file directly (watching scene_prompts_dir alone would miss them).
+    path.join(paths.scene_prompts_dir, 'scene_plan.json'),  // scene_plan + scene_review (new location)
     path.join(paths.episode_dir, 'scene_images'),     // scene_review (per-scene images)
     paths.script_dir,         // script + introduction
     paths.scene_prompts_dir,  // scene_prompts (and bg_dir image counts via docx mtime)

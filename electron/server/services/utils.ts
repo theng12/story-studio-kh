@@ -226,7 +226,7 @@ export async function resolveEpisodePathsByCodeWithSidecar(
 ): Promise<EpisodePaths> {
   const paths = await resolveEpisodePathsByCode(slug, code)
 
-  // v1.0.466 — scene_plan.json moved INTO the "03 Scene Prompts" subfolder.
+  // v1.0.467 — scene_plan.json moved INTO the "03 Scene Prompts" subfolder.
   // The sidecar may sit at the episode root (legacy episodes) OR inside that
   // subfolder (post-migration / fresh). Check both when deciding which
   // same-code sibling folder actually owns the episode's data. Checking the
@@ -267,7 +267,7 @@ export async function resolveEpisodePathsByCodeWithSidecar(
 }
 
 /**
- * v1.0.466 — canonical location of an episode's `scene_plan.json`.
+ * v1.0.467 — canonical location of an episode's `scene_plan.json`.
  *
  * The scene plan carries every scene's `visual_prompt`, so it now lives inside
  * the "03 Scene Prompts" folder alongside the human-readable prompts doc — the

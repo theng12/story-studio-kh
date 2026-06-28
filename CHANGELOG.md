@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.467 — 2026-06-28
+
+**Scene plan now lives inside the "03 Scene Prompts" folder — the whole prompt pipeline in one place.** `scene_plan.json` (which carries every scene's `visual_prompt`) used to be written loose at the episode root, separate from the human-readable Scene Prompts doc. It now lives **inside the "03 Scene Prompts" folder** alongside everything else prompt-related. Scene Review, Scene Plan, continuity render, scene-image generation, video assembly, and the pipeline cockpit all resolve the new location, with an automatic fallback to the old episode-root location so **nothing breaks for existing episodes**.
+
+- **Single resolver.** All ~20 read/write sites now go through one `resolveScenePlanPath` helper (new location preferred, legacy root as fallback, fresh writes land in the 03 folder), mirroring the v1.0.457 scene-images unification. In-place edits (approve / regenerate-prompt) always read and write the same location, so state never splits.
+- **Automatic migration.** On next launch, a boot migration moves every existing `scene_plan.json` from the episode root into its "03 Scene Prompts" folder — idempotent, marker-gated (one clean pass then it's a no-op), and it never clobbers a file already in the new location.
+- **Cache freshness preserved.** The episode-status watcher now watches the file in its new home too, so Scene Plan / Scene Review still refresh immediately after a plan, approval, or re-prompt.
+
+---
+
 ## v1.0.466 — 2026-06-28
 
 ### Added — Image ingest endpoint for scenes + thumbnails (for the Bulk Asset browser extension)

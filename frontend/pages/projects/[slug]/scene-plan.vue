@@ -1410,7 +1410,7 @@ async function deletePlan(): Promise<void> {
   if (!episodeId.value) return
   const ok = await ask({
     title: 'Delete scene plan?',
-    message: 'Removes scene_plan.json from the episode dir. Generated images are NOT deleted — only the planning data.',
+    message: 'Removes scene_plan.json from the "03 Scene Prompts" folder. Generated images are NOT deleted — only the planning data.',
     confirmLabel: 'Delete',
     danger: true,
   })

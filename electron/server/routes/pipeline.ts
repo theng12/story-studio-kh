@@ -20,7 +20,7 @@ import { writeContinuityConfig } from './continuity.js'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { resolveEpisodePathsByCode } from '../services/utils.js'
+import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from '../generators/scene-image.js'
 import {
@@ -864,7 +864,7 @@ router.get('/projects/:slug/pipeline/pending-approvals', async (req, res) => {
       if (!code) continue
       let paths
       try { paths = await resolveEpisodePathsByCode(slug, code) } catch { continue }
-      const planPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
+      const planPath = await resolveScenePlanPath(slug, code, paths.episode_dir)
       if (!existsSync(planPath)) continue
       let scenes: any[]
       try { scenes = JSON.parse(await fs.readFile(planPath, 'utf-8'))?.scenes || [] } catch { continue }
