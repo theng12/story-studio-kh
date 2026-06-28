@@ -10,9 +10,21 @@
         Loading models…
       </span>
     </label>
+    <!-- v1.0.471 — search/filter box. Native <select> can't filter, so this
+         narrows the option list by label / id / provider. Shown once there are
+         enough models to be worth searching. The current selection always stays
+         in the list so the dropdown never goes blank while filtering. -->
+    <input
+      v-if="!loading && allModels.length > SEARCH_THRESHOLD"
+      v-model="query"
+      type="search"
+      class="input ms-search"
+      placeholder="Search models (name / provider)…"
+      aria-label="Search AI models"
+    />
     <select :value="modelValue" :disabled="loading && allModels.length === 0" @change="$emit('update:modelValue', ($event.target as HTMLSelectElement).value)" class="select">
       <option v-if="loading && allModels.length === 0" value="" disabled>Loading AI models… please wait</option>
-      <optgroup v-for="g in groups" :key="g.provider" :label="g.label">
+      <optgroup v-for="g in filteredGroups" :key="g.provider" :label="g.label">
         <option
           v-for="m in g.items"
           :key="m.id"
@@ -24,6 +36,7 @@
         </option>
       </optgroup>
     </select>
+    <p v-if="query.trim() && filteredGroups.length === 0" class="ms-no-match">No models match “{{ query.trim() }}”.</p>
   </div>
 </template>
 
@@ -101,6 +114,31 @@ const groups = computed(() => {
   return groupModels<LlmModelRow>(record, (_id, m) => m.provider || 'other')
 })
 
+// v1.0.471 — only surface the search box once the list is long enough to need it.
+const SEARCH_THRESHOLD = 8
+const query = ref('')
+
+// Filtered groups for rendering. Matches the typed query against the model's
+// label, id, and provider (case-insensitive, all whitespace-separated terms must
+// match somewhere). The currently-selected model is always kept so the native
+// <select> never shows a blank value mid-filter. Empty query → all groups.
+const filteredGroups = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  if (!q) return groups.value
+  const terms = q.split(/\s+/)
+  const matches = (m: { id: string; data: LlmModelRow }): boolean => {
+    if (m.id === props.modelValue) return true
+    const hay = `${m.data.label} ${m.id} ${m.data.provider || ''}`.toLowerCase()
+    return terms.every(t => hay.includes(t))
+  }
+  return groups.value
+    .map(g => ({ ...g, items: g.items.filter(matches) }))
+    .filter(g => g.items.length > 0)
+})
+
+// Reset the filter when the project (and thus the model list) changes.
+watch(() => props.projectSlug, () => { query.value = '' })
+
 async function loadModels() {
   loading.value = true
   try {
@@ -129,6 +167,17 @@ watch(() => props.projectSlug, loadModels, { immediate: true })
 option:disabled {
   color: var(--text-muted);
   font-style: italic;
+}
+
+/* v1.0.471 — model search box sits just above the select. */
+.ms-search {
+  width: 100%;
+  margin-bottom: 6px;
+}
+.ms-no-match {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 /* v1.0.48 — loading-state hint next to the label. Same spinner pattern

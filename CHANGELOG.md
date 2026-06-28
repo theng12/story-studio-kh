@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.472 — 2026-06-28
+
+**Search the AI-model picker.** The LLM model selector now has a search box — type part of a model's name or provider (e.g. "opus", "gemini", "chat studio") to filter the dropdown instead of scrolling every provider's full list. It appears once a project has more than a handful of models, matches across name / id / provider, and always keeps your current selection in the list so the picker never goes blank while filtering. Applies everywhere LLM selection happens (Scene Plan, Scene Review, Scripts, Co-writer, Ideas, Metadata, Research, Image Prompts, and more — they all share the one selector).
+
 ## v1.0.471 — 2026-06-28
 
 **Animated clips now flow into the final video — Phase 3.** The timestamp video assembler now uses a scene's animated clip (from "11 Video Assets") instead of its still whenever one exists, completing the image → motion-prompt → clip → final-video pipeline.
