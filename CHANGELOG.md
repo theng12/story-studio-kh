@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.473 — 2026-06-28
+
+**Ingest externally-generated clips (and images) into the planned scenes.** You can now build scene images *and* animated clips outside the app (e.g. a Chrome-extension image→motion-prompt→video flow) and feed them straight into the scene plan — fully interchangeable with the in-app fal/kie generators.
+
+- **New: `POST /projects/:slug/scene-review/:episodeId/upload-clip/:sceneId`** — saves a raw-binary mp4 (Content-Type `video/mp4`, route-scoped 256 MB cap since the app-wide JSON limit is 10 MB) to `11 Video Assets/<scene-id>.mp4` — the exact location + filename the in-app clip generator writes and the final-video assembler scans for. It validates the scene id (path-traversal-safe), checks the scene exists in `scene_plan.json`, sniffs for a real mp4, writes atomically (tmp→rename so the assembler never reads a half-written file), and stamps `clip_path` + `rendered_motion_prompt`. Because the assembler detects a clip by **file existence** keyed to the scene id, an ingested clip drops into the final video at exactly the planned scene's position/timing — same as a fal/kie clip.
+- **Image ingest** (existing `upload-image/:sceneId`) now also stamps `rendered_prompt`, so an externally-ingested image isn't mis-flagged as stale in Scene Review.
+- Both sources coexist safely: generate via fal/kie **or** ingest externally, per scene, with no conflict.
+
 ## v1.0.472 — 2026-06-28
 
 **Search the AI-model picker.** The LLM model selector now has a search box — type part of a model's name or provider (e.g. "opus", "gemini", "chat studio") to filter the dropdown instead of scrolling every provider's full list. It appears once a project has more than a handful of models, matches across name / id / provider, and always keeps your current selection in the list so the picker never goes blank while filtering. Applies everywhere LLM selection happens (Scene Plan, Scene Review, Scripts, Co-writer, Ideas, Metadata, Research, Image Prompts, and more — they all share the one selector).

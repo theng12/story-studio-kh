@@ -13,7 +13,7 @@
  *      — streams the scene image PNG (kept within episode dir; strict id match)
  */
 
-import { Router } from 'express'
+import express, { Router } from 'express'
 import fs from 'fs/promises'
 import { existsSync, createReadStream } from 'fs'
 import path from 'path'
@@ -561,11 +561,73 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
     await fs.writeFile(outPath, buf.data)
 
     scene.image_path = outPath
+    // v1.0.473 — stamp rendered_prompt = visual_prompt so an externally-ingested
+    // image (made FROM this prompt) isn't mis-flagged stale in Scene Review.
+    scene.rendered_prompt = scene.visual_prompt
     scene.approved = false   // user re-approves after a manual swap
     await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
     res.json({ ok: true, scene_id: sceneId })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save uploaded scene image'))
+  }
+})
+
+// ── POST /scene-review/:ep/upload-clip/:sceneId ───────────────────────
+// v1.0.473 — set a scene's animated CLIP directly from an externally-generated
+// mp4 (e.g. a Chrome-extension image→motion-prompt→video flow), instead of
+// generating it in-app via fal/kie. Saved as <11 Video Assets>/<id>.mp4 — the
+// SAME location + filename the in-app generator writes and the timestamp
+// assembler scans for (it detects a scene's clip by file existence, not by
+// scene_plan.clip_path) — so external clips and fal/kie clips are fully
+// interchangeable per scene, and either makes the clip flow into the final video.
+//
+// Raw binary body (Content-Type: video/mp4 or application/octet-stream) because
+// the app-wide JSON limit is 10mb; this route takes its own 256mb cap. No body
+// metadata needed: scene id is in the URL and the motion prompt is read from the
+// plan.
+const clipUpload = express.raw({ type: ['video/mp4', 'application/octet-stream'], limit: '256mb' })
+router.post('/projects/:slug/scene-review/:episodeId/upload-clip/:sceneId', clipUpload, async (req, res) => {
+  const { slug, episodeId, sceneId } = req.params
+  // Strict id (matches the planner's freshId scheme) — prevents path traversal.
+  if (!/^[A-Za-z0-9_-]+$/.test(sceneId)) return res.status(400).json({ detail: 'invalid scene id' })
+  const buf = req.body
+  if (!Buffer.isBuffer(buf) || buf.length === 0) {
+    return res.status(400).json({ detail: 'Empty body — POST the clip as raw bytes with Content-Type: video/mp4.' })
+  }
+  // Basic mp4 sniff: a standard mp4 carries an "ftyp" box at byte offset 4.
+  if (buf.length < 12 || buf.toString('ascii', 4, 8) !== 'ftyp') {
+    return res.status(400).json({ detail: 'Body is not an mp4 (no ftyp box). Send a valid .mp4 clip.' })
+  }
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    const scene = plan.scenes.find(s => s.id === sceneId)
+    if (!scene) return res.status(404).json({ detail: `scene ${sceneId} not found in scene_plan.json` })
+
+    const outDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+    await fs.mkdir(outDir, { recursive: true })
+    const outPath = path.join(outDir, `${sceneId}.mp4`)
+    // Atomic write (tmp → rename) so the assembler never reads a half-written mp4.
+    const tmp = path.join(outDir, `.tmp_${sceneId}_${process.pid}.mp4`)
+    await fs.writeFile(tmp, buf)
+    await fs.rename(tmp, outPath)
+
+    // Stamp the plan for the Scene Review UI (clip presence + staleness). The
+    // assembler keys off file existence, so the write above is what actually
+    // makes the clip flow into the final video — this just keeps the UI honest.
+    // Re-read to avoid racing a concurrent in-app clip job on the same plan.
+    const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    const target = fresh.scenes.find(s => s.id === sceneId)
+    if (target) {
+      target.clip_path = outPath
+      target.rendered_motion_prompt = target.motion_prompt
+      await fs.writeFile(planPath, JSON.stringify(fresh, null, 2), 'utf-8')
+    }
+    res.json({ ok: true, scene_id: sceneId, saved_as: path.basename(outPath), bytes: buf.length })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save uploaded clip'))
   }
 })
 
