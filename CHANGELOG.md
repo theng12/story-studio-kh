@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.469 — 2026-06-28
+
+**New "11 Video Assets" episode folder — home for the per-scene animated clips (Phase 2 prep).** Added an 11th numbered subfolder, `{code} - 11 Video Assets`, as a first-class part of the episode layout: it's scaffolded up-front alongside the other folders, resolvable via `resolveEpisodePaths` (`video_assets_dir`), and treated as **heavy media** so it migrates to an external `media_root` like Scene Images / Video Assembly Output. No clips are written there yet — Phase 2 (per-scene "Animate") will feed each scene's image + motion prompt into the existing image-to-video providers and save the resulting clip here. Also tightened the episode-folder heal + import classifier so "Video Assets" never collides with the "10 Video Assembly Output" folder.
+
+---
+
 ## v1.0.468 — 2026-06-28
 
 **Scene planner now writes a per-scene motion prompt for animating images into video (Phase 1).** Every scene already gets an image prompt; now the planner also writes a **motion prompt** — an image-to-video instruction describing how that scene should move (camera drift, gentle ambient motion, subtle script-driven subject motion). It's generated cohesively with the image prompt (the planner sees the visual prompt as context), so the motion always matches what's on screen.

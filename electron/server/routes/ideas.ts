@@ -1526,7 +1526,13 @@ router.post('/projects/:slug/episodes/migrate', async (req, res) => {
     }
 
     // 3. Create Video folder if missing
-    const hasVideoFolder = cleanSubs.some(s => s.clean.toLowerCase().includes('video'))
+    // v1.0.469 — exclude "Video Assets" (folder 11) from this loose match, else
+    // an episode that only has the assets folder would skip creating "10 Video
+    // Assembly Output".
+    const hasVideoFolder = cleanSubs.some(s => {
+      const n = s.clean.toLowerCase()
+      return n.includes('video') && !n.includes('video assets')
+    })
     if (!hasVideoFolder) {
       await fsP.mkdir(pathMod.join(epDir, names.video), { recursive: true })
       actions.push('Created Video folder')
@@ -1544,6 +1550,13 @@ router.post('/projects/:slug/episodes/migrate', async (req, res) => {
     if (!hasSubtitlesFolder) {
       await fsP.mkdir(pathMod.join(epDir, names.subtitles), { recursive: true })
       actions.push('Created Subtitles Output folder')
+    }
+    // v1.0.469 — Video Assets (11): per-scene image-to-video clips (Phase 2 of
+    //    the motion-prompt feature). Scaffolded up-front like the rest.
+    const hasVideoAssetsFolder = cleanSubs.some(s => s.clean.toLowerCase().includes('video assets'))
+    if (!hasVideoAssetsFolder) {
+      await fsP.mkdir(pathMod.join(epDir, names.video_assets), { recursive: true })
+      actions.push('Created Video Assets folder')
     }
 
     if (actions.length > 0) {

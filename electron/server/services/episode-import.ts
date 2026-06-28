@@ -119,6 +119,10 @@ export function classifySubfolder(name: string): keyof InspectedAssets | null {
   if (clean.includes('subtitle')) return 'subtitles'
   if (clean.includes('audio')) return 'audio'
   if (clean.includes('metadata') || clean.includes('description')) return 'metadata'
+  // v1.0.469 — "Video Assets" (11, per-scene i2v clips) isn't a recognised import
+  // asset type yet (Phase 2). Don't let its name fall into the loose 'video'
+  // match (the assembly-output folder) — leave it unclassified for now.
+  if (clean.includes('video assets')) return null
   if (clean.includes('video')) return 'video'
   return null
 }

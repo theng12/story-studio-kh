@@ -287,6 +287,7 @@ describe('Subfolder template validation (via updateProject)', () => {
         merged_audio: '{code} - Merged',
         subtitles: '{code} - Subtitles',
         video: '{code} - Video',
+        video_assets: '{code} - Video Assets',
       },
     })
     assert.equal(r?.subfolder_names.script, '{code} - Script')

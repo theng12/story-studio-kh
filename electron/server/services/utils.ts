@@ -47,6 +47,9 @@ export interface EpisodePaths {
   // ignore this field rather than rely on it.
   subtitles_dir: string
   video_dir: string
+  /** v1.0.469 — per-scene image-to-video clips ("11 Video Assets"). Heavy
+   *  media: lives under mediaBase when media_root is set, else episode_dir. */
+  video_assets_dir: string
   narration_docx: string
   scene_prompts_docx: string
   thumb_prompts_docx: string
@@ -107,6 +110,7 @@ export async function resolveEpisodePaths(slug: string, code: string, title: str
   const mergedAudioName = (subfolder.merged_audio || d.merged_audio).replace('{code}', code)
   const subtitlesName = (subfolder.subtitles || d.subtitles).replace('{code}', code)
   const videoName = (subfolder.video || d.video).replace('{code}', code)
+  const videoAssetsName = (subfolder.video_assets || d.video_assets).replace('{code}', code)
 
   // Light artifacts (always under output_root / iCloud).
   const scriptDir = path.join(episodeDir, scriptName)
@@ -120,6 +124,7 @@ export async function resolveEpisodePaths(slug: string, code: string, title: str
   const audioDir = path.join(mediaBase, audioName)
   const mergedAudioDir = path.join(mediaBase, mergedAudioName)
   const videoDir = path.join(mediaBase, videoName)
+  const videoAssetsDir = path.join(mediaBase, videoAssetsName)
 
   return {
     output_root: outputRoot,
@@ -134,6 +139,7 @@ export async function resolveEpisodePaths(slug: string, code: string, title: str
     merged_audio_dir: mergedAudioDir,
     subtitles_dir: subtitlesDir,
     video_dir: videoDir,
+    video_assets_dir: videoAssetsDir,
     // v1.0.228 — artifacts are now Markdown (.md). The `*_docx` KEY names are
     // kept (referenced widely) but the values point at .md. Readers of these
     // constants must go through resolveReadPath()/readArtifactRawText() in
@@ -199,6 +205,7 @@ function rebaseEpisodePaths(paths: EpisodePaths, episodeDir: string): EpisodePat
     merged_audio_dir: rebase(paths.merged_audio_dir),
     subtitles_dir: rebase(paths.subtitles_dir),
     video_dir: rebase(paths.video_dir),
+    video_assets_dir: rebase(paths.video_assets_dir),
     narration_docx: rebase(paths.narration_docx),
     scene_prompts_docx: rebase(paths.scene_prompts_docx),
     thumb_prompts_docx: rebase(paths.thumb_prompts_docx),
@@ -314,6 +321,7 @@ export interface ResolvedSubfolderNames {
   merged_audio: string
   subtitles: string
   video: string
+  video_assets: string
 }
 
 /**
@@ -344,6 +352,7 @@ export async function resolveSubfolderNames(slug: string, code: string): Promise
     merged_audio:  (subfolder.merged_audio || d.merged_audio).replace('{code}', code),
     subtitles:     (subfolder.subtitles || d.subtitles).replace('{code}', code),
     video:         (subfolder.video || d.video).replace('{code}', code),
+    video_assets:  (subfolder.video_assets || d.video_assets).replace('{code}', code),
   }
 }
 

@@ -26,7 +26,7 @@ import { resolveAssetPath } from './path-resolver.js'
  * listed here always stays in the iCloud project tree.
  */
 export const HEAVY_SUBFOLDERS: ReadonlySet<string> = new Set([
-  'images', 'thumbnails', 'audio', 'merged_audio', 'video',
+  'images', 'thumbnails', 'audio', 'merged_audio', 'video', 'video_assets',
 ])
 
 export function isHeavySubfolder(key: string): boolean {

@@ -19,6 +19,11 @@ export interface SubfolderNames {
   // won't carry it) so readers must tolerate `undefined`.
   subtitles: string
   video: string
+  /** v1.0.469 — per-scene image-to-video CLIPS (Phase 2 of the motion-prompt
+   *  feature). Heavy media (mp4s), so it migrates to the external media_root
+   *  like images/video. Optional in stored project.json (older projects won't
+   *  carry it) — readers must tolerate `undefined`. */
+  video_assets: string
 }
 
 /** Linkage metadata: which generator produces which folder */
@@ -33,6 +38,7 @@ export const SUBFOLDER_LINKAGE: Record<keyof SubfolderNames, { label: string; ge
   merged_audio:  { label: 'Audio Merge Output',   generator: 'Audio Assembly',            order: 8 },
   subtitles:     { label: 'Subtitles Output',     generator: 'Video Assembly (Subtitles)', order: 9 },
   video:         { label: 'Video Assembly Output', generator: 'Video Assembly',           order: 10 },
+  video_assets:  { label: 'Video Assets',          generator: 'Scene Animator (i2v)',      order: 11 },
 }
 
 export const DEFAULT_SUBFOLDER_NAMES: SubfolderNames = {
@@ -46,6 +52,7 @@ export const DEFAULT_SUBFOLDER_NAMES: SubfolderNames = {
   merged_audio:  '{code} - 08 Audio Merge Output',
   subtitles:     '{code} - 09 Subtitles Output',
   video:         '{code} - 10 Video Assembly Output',
+  video_assets:  '{code} - 11 Video Assets',
 }
 
 export interface ProjectMeta {
