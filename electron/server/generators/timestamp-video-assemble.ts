@@ -31,6 +31,7 @@ import * as jq from '../services/job-queue.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from './scene-image.js'
+import { resolveVideoAssetsDir } from './scene-clip.js'
 import type { Job, ScenePlan } from '../models/types.js'
 
 interface TimestampAssembleParams {
@@ -136,6 +137,19 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   if (missingImages.length > 0) {
     throw new Error(`Missing images for: ${missingImages.join(', ')}. Regenerate before assembling.`)
   }
+
+  // v1.0.471 — Phase 3: prefer a scene's animated clip over its still when one
+  // exists in "11 Video Assets" (<scene_id>.mp4). When ANY scene has a clip we
+  // switch to a per-scene normalisation path (each scene → a uniform chunk at
+  // the export size, exactly its window long); still-only episodes keep the fast
+  // concat-of-stills path untouched.
+  const clipsDir = await resolveVideoAssetsDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
+  const clipFor = (id: string): string | null => {
+    const c = path.join(clipsDir, `${id}.mp4`)
+    return existsSync(c) ? c : null
+  }
+  const clipCount = plan.scenes.filter(s => clipFor(s.id)).length
+  const clipsMode = clipCount > 0
 
   // ── Locate merged audio ───────────────────────────────────────────
   if (!existsSync(paths.merged_audio_dir)) {
@@ -247,7 +261,13 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   const minWin = plan.scenes.reduce((m, s) => Math.min(m, durOf(s)), Infinity)
   const transDur = Math.min(clamp(params.transition?.duration, 0.1, 3, 0.5), Math.max(0.1, minWin - 0.1))
   // xfade needs ≥2 scenes; otherwise fall back to the (faster) concat path.
-  const useXfade = !!xfadeKw && plan.scenes.length >= 2
+  // v1.0.471 — xfade is skipped when animated clips are present: blending real
+  // motion clips is out of scope for now, so clips render as hard cuts.
+  let useXfade = !!xfadeKw && plan.scenes.length >= 2
+  if (useXfade && clipsMode) {
+    useXfade = false
+    job.output_lines.push(`Transitions (${transType}) skipped — animated clips present; scenes render as hard cuts.`)
+  }
 
   // Subtitle burn fragment (copy SRT to a clean temp path; force_style for
   // placement/size/colour). v1.0.264 temp-copy avoids path-escaping failures.
@@ -276,9 +296,12 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   //   xfade     — per-image inputs + xfade chain (+ optional audio mix)
   const vBase = `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1`
 
-  // Concat list (used by the non-xfade paths).
+  // Concat list of STILLS (used by the non-xfade, non-clips path). In clips mode
+  // the list is built from normalised per-scene chunks inside the try block
+  // below (each chunk needs an ffmpeg pass, so it must run after runFfmpeg is
+  // defined).
   let concatListPath = ''
-  if (!useXfade) {
+  if (!useXfade && !clipsMode) {
     const concatLines: string[] = []
     for (const s of plan.scenes) {
       const imgPath = imgFor(s.id)
@@ -391,6 +414,43 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
       }
       chunkListPath = path.join(finalDir, `.tmp-${Date.now()}-chunklist.txt`)
       await fs.writeFile(chunkListPath, chunkFiles.map(f => `file '${f.replace(/'/g, `'\\''`)}'`).join('\n') + '\n', 'utf-8')
+    } else if (clipsMode) {
+      // ── Clips path: normalise EVERY scene to a uniform chunk at the export
+      // size, exactly its window long. A still is looped; a clip is scaled/padded
+      // then fit to the window — the last frame is frozen to fill a short clip and
+      // the tail trimmed for a long one (tpad clone + -t). Clip audio is dropped
+      // (narration is the audio track). Then concat the chunks (hard cuts).
+      job.output_lines.push(
+        `Animated clips: ${clipCount}/${plan.scenes.length} scene(s) use a clip, ` +
+        `${plan.scenes.length - clipCount} use the still — normalising each scene to ${W}×${H}…`,
+      )
+      const concatLines: string[] = []
+      for (let i = 0; i < plan.scenes.length; i++) {
+        if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
+        const s = plan.scenes[i]!
+        const D = durOf(s)
+        const chunkPath = path.join(finalDir, `.tmp-${Date.now()}-scene-${i}.mp4`)
+        chunkFiles.push(chunkPath)
+        const clip = clipFor(s.id)
+        if (clip) {
+          await runFfmpeg([
+            '-y', '-i', clip, '-an',
+            '-vf', `${vBase},fps=${fps},format=yuv420p,tpad=stop_mode=clone:stop_duration=${D.toFixed(3)}`,
+            '-t', D.toFixed(3),
+            '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', String(fps), chunkPath,
+          ], `scene ${i + 1}/${plan.scenes.length} `)
+        } else {
+          await runFfmpeg([
+            '-y', '-loop', '1', '-t', D.toFixed(3), '-i', imgFor(s.id),
+            '-vf', `${vBase},fps=${fps},format=yuv420p`,
+            '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', String(fps), chunkPath,
+          ], `scene ${i + 1}/${plan.scenes.length} `)
+        }
+        concatLines.push(`file '${chunkPath.replace(/'/g, `'\\''`)}'`)
+        job.progress = 10 + Math.round(((i + 1) / plan.scenes.length) * 60)  // 10→70 band
+      }
+      concatListPath = path.join(finalDir, `.tmp-${Date.now()}-clip-concat.txt`)
+      await fs.writeFile(concatListPath, concatLines.join('\n') + '\n', 'utf-8')
     }
 
     // ── Final mux: ONE video input (images-concat for hard cuts, or the
@@ -401,7 +461,9 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
     const videoInput = useXfade
       ? ['-f', 'concat', '-safe', '0', '-i', chunkListPath]
       : ['-f', 'concat', '-safe', '0', '-i', concatListPath]
-    const needScale = !useXfade
+    // Stills need scaling at mux time; xfade chunks AND clips-mode chunks are
+    // already at export size, so only re-encode them when subtitles must burn in.
+    const needScale = !useXfade && !clipsMode
     const reencodeVideo = needScale || !!subFragment
     const finalArgs: string[] = ['-y', ...videoInput, '-i', audioPath, ...audio.extraInputs]
     if (reencodeVideo) {

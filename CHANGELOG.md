@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.471 — 2026-06-28
+
+**Animated clips now flow into the final video — Phase 3.** The timestamp video assembler now uses a scene's animated clip (from "11 Video Assets") instead of its still whenever one exists, completing the image → motion-prompt → clip → final-video pipeline.
+
+- When **any** scene has a clip, each scene is normalised to a uniform chunk at the export resolution/fps, exactly its window long: a **still is looped** (unchanged behaviour), a **clip is scaled/padded then fit to the window** — its last frame freezes to fill a short clip, and the tail trims for a long one. Clip audio is dropped (narration stays the audio track). Chunks are then concatenated.
+- **Still-only episodes are completely unaffected** — they keep the existing fast concat-of-stills path, so there's zero change (or perf cost) unless you've actually animated scenes.
+- Subtitles burn-in and music/ambient beds work the same in clips mode. **Transitions (crossfade etc.) are skipped when clips are present** (scenes hard-cut) — blending real motion clips is left for a future pass; the assembler logs this clearly.
+
+---
+
 ## v1.0.470 — 2026-06-28
 
 **Animate scenes into video clips — Phase 2 of the motion-prompt feature.** You can now turn a scene's generated image into a short video clip using its motion prompt, right from Scene Review. Picks up where Phase 1 (motion prompts) left off.
