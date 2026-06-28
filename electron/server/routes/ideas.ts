@@ -1532,6 +1532,20 @@ router.post('/projects/:slug/episodes/migrate', async (req, res) => {
       actions.push('Created Video folder')
     }
 
+    // 4. Create Audio Merge (08) + Subtitles (09) folders if missing — these
+    //    used to be created lazily only when those steps ran; scaffold them so
+    //    every stage's folder is visible up-front like the rest.
+    const hasMergedAudioFolder = cleanSubs.some(s => s.clean.toLowerCase().includes('audio merge'))
+    if (!hasMergedAudioFolder) {
+      await fsP.mkdir(pathMod.join(epDir, names.merged_audio), { recursive: true })
+      actions.push('Created Audio Merge Output folder')
+    }
+    const hasSubtitlesFolder = cleanSubs.some(s => s.clean.toLowerCase().includes('subtitle'))
+    if (!hasSubtitlesFolder) {
+      await fsP.mkdir(pathMod.join(epDir, names.subtitles), { recursive: true })
+      actions.push('Created Subtitles Output folder')
+    }
+
     if (actions.length > 0) {
       results.push({ episode: code, actions })
     }

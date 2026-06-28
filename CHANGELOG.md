@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.465 — 2026-06-22
+
+### Changed — Every episode scaffolds all 10 stage folders (incl. 08 Audio Merge + 09 Subtitles)
+Accepting an idea now creates the **full** canonical folder set up-front. Previously it made only 8 (01 Script, 02 Metadata, 03 Scene Prompts, 04 Thumbnail Prompts, 05 Scene Images, 06 Thumbnail Images, 07 Audio Assets, 10 Video Assembly Output) and left **08 Audio Merge Output** and **09 Subtitles Output** to be created lazily when those steps ran — so they were often missing from the folder tree. Now all ten are present immediately. The episode importer and the "organize folders" repair both create the same complete set too (the importer was missing 09; the repair was missing 08 + 09).
+
+### Files
+- `electron/server/services/idea-manager.ts` (`acceptIdea` scaffolds `merged_audio_dir` + `subtitles_dir`)
+- `electron/server/services/episode-import.ts` (import skeleton adds `subtitles`)
+- `electron/server/routes/ideas.ts` (organize-folders repair creates 08 + 09 when missing)
+
+---
+
 ## v1.0.464 — 2026-06-26
 
 **New `audio-ingest` endpoint — accept narration audio generated outside the app.** Adds `POST /api/projects/:slug/episodes/:code/audio-ingest`, which takes a base64 audio blob plus a chapter number (or section slug) and writes it into the episode's real "07 Audio Assets" folder as `{CODE}_Chapter_NN.mp3` — exactly what Audio Assembly produces — then rebuilds `audio_chapters.json` from the per-chapter files on disk so merge / subtitles / video pick it up. Reuses the audio generator's own path resolution (`findNarrationFile` + `resolveAudioDir`), so naming and media-root routing stay identical to native generation. Built for the companion **Fish TTS Chrome extension**, which generates narration on the user's fish.audio *web* plan (no per-character API cost) and hands the bytes back here.

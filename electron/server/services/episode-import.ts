@@ -575,7 +575,7 @@ export async function importEpisodeFolder(slug: string, opts: ImportOptions): Pr
   }
   await fs.mkdir(episodeDir, { recursive: true })
 
-  // 3. Create the 9 canonical subfolders inside the empty episode dir.
+  // 3. Create the 10 canonical subfolders inside the empty episode dir.
   //    These are the destinations the asset-mapping dialog writes into,
   //    and they're what every detection helper expects to find.
   const subfolderNames = meta.subfolder_names || DEFAULT_SUBFOLDER_NAMES
@@ -583,7 +583,8 @@ export async function importEpisodeFolder(slug: string, opts: ImportOptions): Pr
     subfolderNames.script, subfolderNames.metadata,
     subfolderNames.scene_prompts, subfolderNames.thumb_prompts,
     subfolderNames.images, subfolderNames.thumbnails,
-    subfolderNames.audio, subfolderNames.merged_audio, subfolderNames.video,
+    subfolderNames.audio, subfolderNames.merged_audio,
+    subfolderNames.subtitles, subfolderNames.video,
   ].map(t => t.replace('{code}', finalCode))
 
   const foldersCreated: string[] = []

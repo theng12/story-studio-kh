@@ -444,14 +444,17 @@ export async function acceptIdea(
     return { idea, episodeCode }
   })
 
-  // Phase 2 (unlocked): create folder structure (all 8 subfolders).
+  // Phase 2 (unlocked): create the full folder structure (all 10 canonical
+  // subfolders) so every stage's folder is present up-front — including
+  // 08 Audio Merge Output and 09 Subtitles Output, which used to be created
+  // lazily only when those steps ran.
   const paths = await resolveEpisodePaths(slug, episodeCode, idea.title)
   const foldersCreated: string[] = []
 
   for (const dir of [
     paths.script_dir, paths.scene_prompts_dir, paths.thumb_prompts_dir,
     paths.metadata_dir, paths.bg_dir, paths.thumb_dir,
-    paths.audio_dir, paths.video_dir,
+    paths.audio_dir, paths.merged_audio_dir, paths.subtitles_dir, paths.video_dir,
   ]) {
     await fs.mkdir(dir, { recursive: true })
     foldersCreated.push(dir)
