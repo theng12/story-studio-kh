@@ -20,7 +20,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import { resolveEpisodePathsByCode } from '../services/utils.js'
+import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import type { ContinuityConfig, VisualRecipe, JobType, ScenePlan } from '../models/types.js'
@@ -195,7 +195,7 @@ router.post('/projects/:slug/continuity/:episodeId/revert-recipe', async (req, r
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const paths = await resolveEpisodePathsByCode(slug, episodeId)
-    const planPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
+    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     if (!existsSync(planPath)) return res.status(404).json({ detail: 'No scene plan for this episode' })
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
     let reverted = 0

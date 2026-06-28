@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.466 — 2026-06-28
+
+### Added — Image ingest endpoint for scenes + thumbnails (for the Bulk Asset browser extension)
+New `POST /api/projects/:slug/episodes/:code/image-ingest` saves a browser-generated image with the same name + directory the native Image generator produces, so image-status and assembly pick it up:
+- `kind: "scene"` → `{CODE}_Scene{NN}_v1.png` in "05 Scene Images"
+- `kind: "thumbnail"` → `{CODE}_Thumb{NN}_v1.png` in "06 Thumbnail Images"
+
+Mirrors Scene Review's `upload-image` (which serves the **scene_plan** source). For prompt-based episodes the two scene sources are mutually exclusive, so the extension auto-detects which one an episode uses; thumbnails are the parallel track (04 Thumbnail Prompts → 06 Thumbnail Images). Body: `{ kind?, number, data_base64, title? }`.
+
+### Files
+- `electron/server/routes/images.ts` (new `image-ingest` route)
+
+---
+
 ## v1.0.465 — 2026-06-22
 
 ### Changed — Every episode scaffolds all 10 stage folders (incl. 08 Audio Merge + 09 Subtitles)

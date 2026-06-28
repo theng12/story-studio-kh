@@ -28,7 +28,7 @@ import path from 'path'
 import { spawn } from 'child_process'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import * as jq from '../services/job-queue.js'
-import { resolveEpisodePathsByCode } from '../services/utils.js'
+import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from './scene-image.js'
 import type { Job, ScenePlan } from '../models/types.js'
@@ -86,7 +86,7 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   const paths = await resolveEpisodePathsByCode(job.project_slug, episode_id)
 
   // ── Load + validate scene plan ────────────────────────────────────
-  const planPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
+  const planPath = await resolveScenePlanPath(job.project_slug, episode_id, paths.episode_dir)
   if (!existsSync(planPath)) {
     throw new Error('scene_plan.json missing — run Scene Plan first.')
   }

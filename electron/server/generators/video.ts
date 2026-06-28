@@ -16,7 +16,7 @@ import path from 'path'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
 import { trackChild } from '../services/job-queue.js'
-import { resolveSubfolderNames } from '../services/utils.js'
+import { resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.js'
 // v1.0.338 — episode-dir + subfolder lookups consolidated into the shared
 // folder-resolver (this file used to carry private copies; the ✅-prefix
 // and title-hint semantics moved there verbatim).
@@ -461,7 +461,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
   // mid-way (continuity → scene-prompts) still use its continuity renders without
   // manually approving hundreds of scenes. The frontend's Scene Plan / Classic /
   // Combined toggle picks which set actually renders; source files are untouched.
-  const planPath = path.join(episodeDir, SCENE_PLAN_FILENAME)
+  const planPath = await resolveScenePlanPath(slug, code, episodeDir)
   // v1.0.457 — continuity renders now live in the unified named "NN Scene Images"
   // folder (legacy flat scene_images/ kept as a read fallback). Only the plan is
   // required; the named/flat dirs are resolved per scene below.
@@ -872,7 +872,7 @@ export async function generateVideo(job: Job): Promise<void> {
   // durations onto the request so the rich renderer preserves the Scene Plan
   // timeline instead of falling back to a uniform seconds-per-scene cycle.
   try {
-    const planPath = path.join(episodeDir, SCENE_PLAN_FILENAME)
+    const planPath = await resolveScenePlanPath(project_slug, code, episodeDir)
     if (existsSync(planPath)) {
       const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
       const byImagePath = new Map<string, ScenePlan['scenes'][number]>()

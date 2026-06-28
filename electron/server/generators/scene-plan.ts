@@ -12,7 +12,7 @@ import path from 'path'
 import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, assignDensityToUntagged } from '../services/scene-planner.js'
 import { isCancelled } from '../services/job-queue.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { resolveEpisodePathsByCode } from '../services/utils.js'
+import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
@@ -170,7 +170,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   if (params.custom_instructions) job.output_lines.push(`Custom instructions: ${params.custom_instructions.slice(0, 120)}${params.custom_instructions.length > 120 ? '…' : ''}`)
   job.progress = 10
 
-  const outPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
+  // v1.0.466 — scene_plan.json lives in the "03 Scene Prompts" folder now
+  // (with a legacy episode-root fallback for older episodes). One resolved
+  // path drives every read + in-place rewrite below, so they all stay in sync.
+  const outPath = await resolveScenePlanPath(job.project_slug, episode_id, paths.episode_dir)
 
   // ── v1.0.288 — REGENERATE just the visual_prompt for one scene ──────────
   // Keeps time range + transcript_segment + every other scene EXACTLY as-is.
@@ -232,7 +235,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       target.visual_prompt_raw = newPrompt
     }
     existing.generated_at = new Date().toISOString()
-    await fs.mkdir(paths.episode_dir, { recursive: true })
+    await fs.mkdir(path.dirname(outPath), { recursive: true })
     await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
     job.output_dir = paths.episode_dir
     job.progress = 100
@@ -294,7 +297,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       },
     })
     existing.generated_at = new Date().toISOString()
-    await fs.mkdir(paths.episode_dir, { recursive: true })
+    await fs.mkdir(path.dirname(outPath), { recursive: true })
     await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
     job.output_dir = paths.episode_dir
     job.progress = 100
@@ -346,7 +349,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     existing.scenes.splice(targetIdx, 1, ...newScenes)
     existing.scenes.forEach((s, i) => { s.scene_index = i + 1 })
     existing.generated_at = new Date().toISOString()
-    await fs.mkdir(paths.episode_dir, { recursive: true })
+    await fs.mkdir(path.dirname(outPath), { recursive: true })
     await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
     job.output_dir = paths.episode_dir
     job.progress = 100
@@ -469,7 +472,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     )
   }
 
-  await fs.mkdir(paths.episode_dir, { recursive: true })
+  await fs.mkdir(path.dirname(outPath), { recursive: true })
   await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
 
   job.output_dir = paths.episode_dir

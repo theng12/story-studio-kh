@@ -225,7 +225,22 @@ export async function resolveEpisodePathsByCodeWithSidecar(
   sidecarFilename: string,
 ): Promise<EpisodePaths> {
   const paths = await resolveEpisodePathsByCode(slug, code)
-  if (existsSync(path.join(paths.episode_dir, sidecarFilename))) return paths
+
+  // v1.0.466 — scene_plan.json moved INTO the "03 Scene Prompts" subfolder.
+  // The sidecar may sit at the episode root (legacy episodes) OR inside that
+  // subfolder (post-migration / fresh). Check both when deciding which
+  // same-code sibling folder actually owns the episode's data. Checking the
+  // scene_prompts subfolder for any sidecar is harmless — only scene_plan.json
+  // is ever passed here, and other sidecars simply won't be found there.
+  const names = await resolveSubfolderNames(slug, code)
+  const { findSubfolder } = await import('../lib/folder-resolver.js')
+  const hasSidecar = async (dir: string): Promise<boolean> => {
+    if (existsSync(path.join(dir, sidecarFilename))) return true
+    const sp = await findSubfolder(dir, names.scene_prompts)
+    return !!sp && existsSync(path.join(sp, sidecarFilename))
+  }
+
+  if (await hasSidecar(paths.episode_dir)) return paths
 
   const seasonDir = path.dirname(path.resolve(paths.episode_dir))
   let entries: import('fs').Dirent[]
@@ -243,12 +258,47 @@ export async function resolveEpisodePathsByCodeWithSidecar(
     if (name !== wanted && !name.startsWith(`${wanted} - `)) continue
     const candidateDir = path.join(seasonDir, entry.name)
     if (path.resolve(candidateDir) === path.resolve(paths.episode_dir)) continue
-    if (existsSync(path.join(candidateDir, sidecarFilename))) {
+    if (await hasSidecar(candidateDir)) {
       return rebaseEpisodePaths(paths, candidateDir)
     }
   }
 
   return paths
+}
+
+/**
+ * v1.0.466 — canonical location of an episode's `scene_plan.json`.
+ *
+ * The scene plan carries every scene's `visual_prompt`, so it now lives inside
+ * the "03 Scene Prompts" folder alongside the human-readable prompts doc — the
+ * whole prompt pipeline in one place. Episodes created before this change keep
+ * the file at the episode root; this resolver returns whichever location
+ * actually holds it, falling back to the new location for fresh writes. The
+ * boot migration (scene-plan-migration.ts) moves legacy files forward, after
+ * which only the new location is ever used.
+ *
+ * Resolution order (same path for reads AND writes, so in-place edits like
+ * approve / regenerate-prompt never split state across the two locations):
+ *   1. <scene_prompts_dir>/scene_plan.json exists → use it (new, preferred)
+ *   2. <episode_dir>/scene_plan.json     exists → use it (legacy, in place)
+ *   3. neither (fresh plan)                       → new location
+ *
+ * Mirrors resolveSceneImagesDir's "✅ "-prefix-tolerant findSubfolder lookup.
+ * Callers that WRITE must `mkdir(path.dirname(result))` first (the folder may
+ * not exist yet when Scene Plan runs before Image Prompts).
+ */
+export const SCENE_PLAN_SIDECAR = 'scene_plan.json'
+
+export async function resolveScenePlanPath(slug: string, code: string, episodeDir: string): Promise<string> {
+  const names = await resolveSubfolderNames(slug, code)
+  const { findSubfolder } = await import('../lib/folder-resolver.js')
+  const scenePromptsDir =
+    (await findSubfolder(episodeDir, names.scene_prompts)) || path.join(episodeDir, names.scene_prompts)
+  const newPath = path.join(scenePromptsDir, SCENE_PLAN_SIDECAR)
+  if (existsSync(newPath)) return newPath
+  const legacyPath = path.join(episodeDir, SCENE_PLAN_SIDECAR)
+  if (existsSync(legacyPath)) return legacyPath
+  return newPath
 }
 
 // ── Resolve subfolder names from project config ────────────────────────────

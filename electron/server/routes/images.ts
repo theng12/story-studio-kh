@@ -30,6 +30,52 @@ router.get('/projects/:slug/episodes/:code/image-status', async (req, res) => {
   }
 })
 
+// ── Scene / thumbnail image ingest (for the Bulk Asset browser extension) ──
+// Save a browser-generated image for the PROMPTS source with the same name +
+// directory the native Image generator produces, so status/assembly pick it up:
+//   kind 'scene'     → {CODE}_Scene{NN}_v1.png in "05 Scene Images"
+//   kind 'thumbnail' → {CODE}_Thumb{NN}_v1.png in "06 Thumbnail Images"
+// Mirrors scene-review's upload-image (which is for the scene_plan source).
+// Body: { kind?: 'scene'|'thumbnail', number (1-based), data_base64, title? }.
+// (`scene_number` accepted as an alias for `number`, back-compat.)
+router.post('/projects/:slug/episodes/:code/image-ingest', async (req, res) => {
+  const { slug } = req.params
+  const code = req.params.code.toUpperCase()
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const kind = req.body?.kind === 'thumbnail' ? 'thumbnail' : 'scene'
+    const n = Number(req.body?.number ?? req.body?.scene_number)
+    if (!Number.isFinite(n) || n < 1) return res.status(400).json({ detail: 'number (>= 1) is required.' })
+
+    const { decodeUploadBuffer } = await import('./image-references.js')
+    const buf = decodeUploadBuffer(req.body)
+    if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
+
+    const title = typeof req.body?.title === 'string' ? req.body.title : ''
+    const idea = (await im.getIdeas(slug, 'accepted')).find(i => i.episode_code === code)
+    const paths = await resolveEpisodePaths(slug, code, title || idea?.title || '')
+    const promptsPath = kind === 'thumbnail' ? paths.thumb_prompts_docx : paths.scene_prompts_docx
+    const { resolveImageDirs } = await import('../generators/images.js')
+    const dirs = await resolveImageDirs(slug, promptsPath || paths.scene_prompts_docx || '', code)
+    const outDir = kind === 'thumbnail' ? dirs.thumbDir : dirs.bgDir
+
+    await fsp.mkdir(outDir, { recursive: true })
+    const stem = kind === 'thumbnail' ? 'Thumb' : 'Scene'
+    const filename = `${code}_${stem}${String(n).padStart(2, '0')}_v1.png`
+    await fsp.writeFile(path.join(outDir, filename), buf.data)
+
+    try {
+      const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+      episodeStatusCache.invalidate(slug, code)
+    } catch {
+      /* cache is best-effort */
+    }
+    res.json({ ok: true, saved_as: filename, image_dir: outDir })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Image ingest failed'))
+  }
+})
+
 router.post('/projects/:slug/generate/images', validateBody(GenerateImagesSchema), async (req, res) => {
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })

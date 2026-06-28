@@ -26,7 +26,7 @@ import path from 'path'
 import { registry } from '../providers/registry.js'
 import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
-import { resolveEpisodePathsByCode, resolveSubfolderNames } from '../services/utils.js'
+import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import * as pm from '../services/project-manager.js'
@@ -105,7 +105,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   if (!model) throw new Error('model is required')
 
   const paths = await resolveEpisodePathsByCode(job.project_slug, episode_id)
-  const planPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
+  const planPath = await resolveScenePlanPath(job.project_slug, episode_id, paths.episode_dir)
   if (!existsSync(planPath)) {
     throw new Error(`No scene_plan.json at ${planPath}. Run Scene Plan first.`)
   }

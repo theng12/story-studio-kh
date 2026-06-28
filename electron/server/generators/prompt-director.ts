@@ -23,7 +23,7 @@ import path from 'path'
 import { callAi } from '../lib/ai-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { getCharacter } from '../services/character-manager.js'
-import { resolveEpisodePathsByCode } from '../services/utils.js'
+import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type { Job, ScenePlan, ScenePlanEntry, VisualRecipe } from '../models/types.js'
 
@@ -98,7 +98,7 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
   if (!model) throw new Error('model is required')
 
   const paths = await resolveEpisodePathsByCode(job.project_slug, episode_id)
-  const planPath = path.join(paths.episode_dir, SCENE_PLAN_FILENAME)
+  const planPath = await resolveScenePlanPath(job.project_slug, episode_id, paths.episode_dir)
   if (!existsSync(planPath)) {
     throw new Error(`No scene_plan.json at ${planPath}. Run Scene Plan first.`)
   }
