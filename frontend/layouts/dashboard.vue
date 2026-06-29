@@ -205,9 +205,11 @@
         <NuxtLink :to="`/projects/${slug}/presets`" class="nav-item" active-class="active" title="Manage every saved preset in this project — rename, duplicate, export, delete.">
           <span class="nav-icon">&#128194;</span> Presets
         </NuxtLink>
-        <NuxtLink :to="`/projects/${slug}/assets`" class="nav-item" active-class="active" title="Audit every episode's assets and one-click repair provider-completed jobs that didn't persist locally.">
-          <span class="nav-icon">&#128193;</span> Assets
-        </NuxtLink>
+        <!-- v1.0.481 — the per-project "Assets" tab was retired. Its audit
+             matrix is redundant with the Production Board; its unique Repair
+             action (re-pull provider-completed jobs that didn't persist
+             locally) moved into the Production Board (↻ Repair… button). -->
+
 
         <div class="nav-divider" />
         <NuxtLink :to="`/projects/${slug}/jobs`" class="nav-item" active-class="active">
@@ -224,7 +226,7 @@
              all-projects index, where no project Settings page is available. -->
 
         <div class="nav-divider" />
-        <div class="nav-section-label">Library</div>
+        <div class="nav-section-label">Shared Library</div>
         <NuxtLink to="/character-library" class="nav-item" active-class="active" title="App-level character library shared across all projects on this machine. Save characters here to reuse across channels.">
           <span class="nav-icon">&#127991;</span> Character Library
         </NuxtLink>

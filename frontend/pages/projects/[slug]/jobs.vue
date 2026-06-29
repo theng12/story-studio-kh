@@ -9,11 +9,11 @@
         <span class="badge badge-done">{{ stats.done }} done</span>
         <span v-if="stats.error" class="badge badge-error">{{ stats.error }} errors</span>
         <NuxtLink
-          :to="`/projects/${slug}/assets`"
+          :to="`/projects/${slug}/board?repair=1`"
           class="btn btn-sm btn-secondary"
-          title="After a bulk pipeline run, open the Assets tab to see what's missing — and one-click repair any provider-completed output that didn't persist locally (no credits consumed)."
+          title="After a bulk pipeline run, open Repair (on the Production Board) to one-click recover any provider-completed output that didn't persist locally (no credits consumed)."
         >
-          🗂 Check Assets
+          🗂 Repair assets
         </NuxtLink>
         <button
           v-if="finishedCount > 0"
@@ -141,7 +141,7 @@
            — "Review failures" filters the History list below to the failed
              jobs for retry decisions (operator needs the full error body
              and the retry button each job card already has).
-           — "Open Assets" navigates to the project Assets tab where
+           — "Repair" opens the Production Board's Repair dialog where
              provider-completed outputs that didn't persist locally can
              be re-fetched in one click (no credits consumed). -->
       <div class="bbf-actions">
@@ -152,11 +152,11 @@
           @click="reviewFailures"
         >Review failures →</button>
         <NuxtLink
-          :to="`/projects/${slug}/assets`"
+          :to="`/projects/${slug}/board?repair=1`"
           class="btn btn-sm btn-primary"
-          title="Open the Assets tab — lists provider-completed outputs that didn't land on disk (e.g. network drop after upload). One-click repair does NOT consume credits; it only re-downloads what the provider already produced."
+          title="Open Repair (on the Production Board) — lists provider-completed outputs that didn't land on disk (e.g. network drop after upload). One-click repair does NOT consume credits; it only re-downloads what the provider already produced."
           @click="bulkBannerDismissed = true"
-        >Open Assets →</NuxtLink>
+        >Repair →</NuxtLink>
       </div>
 
       <!-- Inline explainer: what does "needs repair" actually mean and
@@ -165,7 +165,7 @@
         <strong>What "needs repair" means:</strong>
         A provider finished the generation (so you were billed) but the bytes
         didn't land on disk (network drop, kill mid-download, etc.).
-        <b>Open Assets</b> re-fetches those files with no extra credits.
+        <b>Repair</b> re-fetches those files with no extra credits.
         <b>Review failures</b> is for jobs that truly errored — the provider
         never produced a usable result, so retrying will spend credits again.
       </div>

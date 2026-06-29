@@ -81,6 +81,17 @@
         >
           {{ loading || isRevalidating ? '…' : '↻' }} Refresh
         </button>
+        <!-- v1.0.481 — Repair moved here from the retired Assets tab. Re-pulls
+             provider-completed jobs (images/video/audio) that finished on the
+             provider but never persisted locally. No credits consumed. -->
+        <button
+          type="button"
+          class="board-filter"
+          title="Re-download provider-completed images/video/audio that didn't persist locally (crash, network blip, timeout). Reads provider history — no credits consumed."
+          @click="repairOpen = true"
+        >
+          ↻ Repair…
+        </button>
       </div>
     </header>
 
@@ -212,12 +223,24 @@
       @close="importEp = null"
       @imported="onImported"
     />
+
+    <!-- Repair dialog — re-pulls provider-completed jobs that didn't persist
+         locally. Relocated here when the per-project Assets tab was retired
+         (v1.0.481). Lazily scans on open; refresh the board after closing so
+         any recovered files flip their step done. -->
+    <RepairAssetsDialog
+      v-if="repairOpen"
+      :visible="true"
+      :slug="slug"
+      @close="onRepairClosed"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { normalizeVisualSource, flowForVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
 import AssetImportDialog from '~/components/AssetImportDialog.vue'
+import RepairAssetsDialog from '~/components/RepairAssetsDialog.vue'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Production Board')
@@ -236,8 +259,19 @@ const { jobs } = useJobs()
 const mode = ref<'open' | 'mark'>('open')
 const busyCell = ref('') // `${code}:${field}` while a PATCH is in flight
 const importEp = ref<any | null>(null) // episode row whose import dialog is open
+// Repair dialog (re-pull provider-completed jobs). Auto-opens when the board
+// is reached via ?repair=1 — the entry point used by the dashboard + Jobs
+// "Repair" CTAs that previously deep-linked to the retired Assets tab.
+const repairOpen = ref(route.query.repair === '1')
 
 function openImport(ep: any) { importEp.value = ep }
+
+// After closing Repair, re-read status from disk — any recovered file should
+// flip its step done on the board.
+function onRepairClosed() {
+  repairOpen.value = false
+  void revalidate()
+}
 function onImported() {
   // Backend invalidated this episode's status cache on import; pull the fresh
   // status so the relevant step flips done. Dialog stays open for staging more.

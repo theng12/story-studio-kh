@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.483 — 2026-06-29
+
+### Changed — Retired the per-project "Assets" tab; Repair moved into the Production Board
+The sidebar **Assets** tab did two things: a per-episode asset **audit matrix** and a unique **Repair** action. The audit matrix is now redundant with the **Production Board** (same episode × step coverage), so the tab is gone. The valuable part — **Repair**, which re-pulls provider-completed images/video/audio jobs that finished on the provider but never persisted locally (app crash, network blip, timeout; **no credits consumed**) — moved into the Production Board behind a **↻ Repair…** button (opens a scan + repair dialog).
+
+Every previous entry point now lands on the new dialog via `…/board?repair=1`: the dashboard "Repair" banner button, the Jobs page header + post-bulk "Repair" CTA, and the Missing-assets dialog. The repair endpoints themselves are unchanged.
+
+### Files
+- `frontend/components/RepairAssetsDialog.vue` (new — the relocated Repair UI; calls `/assets/repair-all` + per-episode `images-repair` / `video-repair` / `audio-repair`, computed off `/assets-audit`)
+- `frontend/pages/projects/[slug]/board.vue` (↻ Repair… button + dialog; auto-opens on `?repair=1`; revalidates status on close)
+- `frontend/pages/projects/[slug]/assets.vue` (deleted)
+- `frontend/layouts/dashboard.vue` (removed the Assets nav link)
+- `frontend/pages/projects/[slug]/index.vue`, `frontend/pages/projects/[slug]/jobs.vue`, `frontend/components/MissingAssetsDialog.vue` (re-pointed Repair links to `…/board?repair=1`)
+- `frontend/pages/projects/[slug]/settings.vue` (stale comment refresh)
+
+---
+
 ## v1.0.482 — 2026-06-29
 
 ### Changed — Settings "Voices" heading + sidebar "Library" grouping (cosmetic)
