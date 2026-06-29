@@ -1,6 +1,11 @@
 # Sound / SFX layer — universal, in Video Assembly — spec (draft)
 
-Status: proposed. A **format-agnostic** sound layer that applies sound effects to
+Status: **v1 shipped (v1.0.485)** — narration-driven director + SFX-pool
+resolution + ffmpeg mix + review UI in Video Assembly. Queued: Freesound/
+ElevenLabs auto-fill for unmatched cues, visual-driven cues, credits roll-up,
+dynamic sidechain ducking, in-browser scrub preview.
+
+A **format-agnostic** sound layer that applies sound effects to
 the finished video: **ambient beds** + **spot one-shots**, placed by timing and
 mixed under the narration. An LLM "sound director" reads the **subtitle track**
 (the one timing backbone every format produces) to propose cues; the user reviews
