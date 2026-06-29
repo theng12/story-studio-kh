@@ -92,25 +92,20 @@ export const DEFAULT_IMAGE_MODELS: Record<string, ImageModelConfig> = {
     provider: 'openai-image',
     supports_reference_images: true,
   },
-  // v1.0.236+ — Google Gemini "Nano Banana" image models via OpenRouter (your
-  // own OpenRouter credit, token-billed — watch spend on openrouter.ai). Both
-  // do text-to-image AND image-to-image/edits (references sent as image_url
-  // blocks). credits_per_image 0 since OpenRouter prices by tokens.
-  'gemini-2-5-flash-image-openrouter': {
-    label: 'Gemini 2.5 Flash Image (Nano Banana)',
+  // GPT Image 2 via OpenRouter (your own OpenRouter credit, token-billed —
+  // watch spend on openrouter.ai). OpenRouter serves GPT Image 2 through the
+  // GPT-5.4 multimodal chat model (`openai/gpt-5.4-image-2`); the image comes
+  // back in the chat response. Does text-to-image AND image-to-image/edits
+  // (references sent as image_url blocks). credits_per_image 0 since OpenRouter
+  // prices by tokens. NOTE: aspect ratio is hinted in the prompt on the
+  // chat-image path (no hard size param) — for strict ratio control use
+  // 'GPT Image 2 (direct)' above, which sends a real size to the OpenAI Images API.
+  'gpt-image-2-openrouter': {
+    label: 'GPT Image 2 (OpenRouter)',
     credits_per_image: 0,
     prompt_char_cap: 4000,
     endpoint: '', poll: '', type: 'openrouter',
-    api_model: 'google/gemini-2.5-flash-image',
-    provider: 'openrouter-image',
-    supports_reference_images: true,
-  },
-  'gemini-3-1-flash-image-openrouter': {
-    label: 'Gemini 3.1 Flash Image',
-    credits_per_image: 0,
-    prompt_char_cap: 4000,
-    endpoint: '', poll: '', type: 'openrouter',
-    api_model: 'google/gemini-3.1-flash-image-preview',
+    api_model: 'openai/gpt-5.4-image-2',
     provider: 'openrouter-image',
     supports_reference_images: true,
   },

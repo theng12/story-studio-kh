@@ -872,10 +872,16 @@ function mergeCatalog<T extends Record<string, any>>(
     }
     out[id] = merged as T
   }
-  // Carry user-added custom entries that aren't in defaults.
+  // Carry user-added custom entries that aren't in defaults. Entries in `saved`
+  // that are NOT in defaults and are NOT user customs are orphaned former-
+  // defaults (e.g. a model removed from DEFAULT_*_MODELS) — drop them so a
+  // removed default actually disappears from existing projects instead of being
+  // carried forever from the seeded copy. In-memory only (the merge is never
+  // written to disk), so non-destructive. `is_custom` is set by the Add Custom
+  // Model form; seeded defaults never carry it.
   if (saved) {
     for (const [id, m] of Object.entries(saved)) {
-      if (!(id in out)) out[id] = m
+      if (!(id in out) && (m as any)?.is_custom) out[id] = m
     }
   }
   return out

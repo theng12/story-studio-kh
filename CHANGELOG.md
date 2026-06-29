@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.479 — 2026-06-29
+
+### Changed — Image generators: dropped both Gemini (OpenRouter) models, added GPT Image 2 (OpenRouter)
+Removed the two OpenRouter Gemini image models (Gemini 2.5 Flash Image / Gemini 3.1 Flash Image) — they didn't reliably honour aspect ratio — and replaced them with **GPT Image 2 (OpenRouter)**, served via OpenRouter's `openai/gpt-5.4-image-2` multimodal model on your own OpenRouter credit. (GPT Image 2 was already available direct-OpenAI / kie / fal; this adds the OpenRouter route.)
+
+Also: removing a model from the default catalog now actually removes it from **existing** projects too. Previously a removed default lingered because each project kept a seeded copy; `mergeCatalog` now drops orphaned former-defaults (anything in a project's catalog that isn't a default and isn't a user-added Custom Model). This is in-memory only — Custom Models you added are untouched.
+
+> Ratio note: the OpenRouter chat-image path hints aspect ratio in the prompt (no hard size param). For strict ratio control, **GPT Image 2 (direct)** sends a real size to the OpenAI Images API.
+
+### Files
+- `electron/server/models/defaults.ts` (swap Gemini→`gpt-image-2-openrouter`)
+- `electron/server/providers/image/openrouter-image.ts` (default model + labels)
+- `electron/server/services/project-manager.ts` (`mergeCatalog` drops orphaned former-defaults)
+
+---
+
 ## v1.0.478 — 2026-06-29
 
 **Per-model aspect ratios + quality tiers from Image Studio's size menu.** When a selected Image Studio model advertises its own `sizes` menu (new `/imagestudio/models` contract), the **Aspect Ratio** list now comes from that model's real options, and a new **Quality** control (Highest / Balanced / Fast) replaces the old local-only Render Size scale. Quality resolves per model against the menu — **Highest** = the largest size offered for the chosen aspect (`ultra` → `high` → max), **Balanced** = a sensible mid size (e.g. ~1080p for 16:9), **Fast** = the smallest — so a saved preset (aspect + tier) stays usable across different models and suppliers. This also lifts the old local-resolution cap for **cloud** models: a cloud model with a size menu now sends its full higher-res dimensions instead of being limited to the local preset table. Switching to a model that doesn't offer your current aspect snaps it to that model's default aspect so the picker is never blank. **Backward-compatible:** models with no `sizes` menu (kie cloud models, older Image Studio builds) keep the previous behaviour exactly — local models show the Render Size scale, cloud models use the aspect string — so this activates automatically once your Image Studio fleet is updated to serve the new fields.

@@ -1,20 +1,23 @@
 /**
- * OpenRouter image provider (Google Gemini "Nano Banana" image models) — v1.0.236.
+ * OpenRouter image provider — v1.0.236.
  *
  * OpenRouter exposes image-generation models through its OpenAI-compatible
  * CHAT COMPLETIONS endpoint (not a dedicated images route). You ask for image
  * output via `modalities: ["image","text"]`; the generated image comes back
  * base64-encoded in `choices[0].message.images[]`. Image-to-image works by
  * including the input image(s) as `image_url` content blocks in the user
- * message — Gemini Flash Image supports multi-image edits.
+ * message.
  *
  * Billed on the user's OWN OpenRouter credit (the same key used for the
  * OpenRouter LLM models). Token-based, so credits_per_image is 0 in the
  * catalog — watch spend on openrouter.ai.
  *
  * Models wired (see models/defaults.ts):
- *   - google/gemini-2.5-flash-image          (Nano Banana, GA)
- *   - google/gemini-3.1-flash-image-preview  (Gemini 3.1 Flash Image)
+ *   - openai/gpt-5.4-image-2   (GPT Image 2, via OpenRouter's GPT-5.4 multimodal)
+ *
+ * NOTE: this chat-image path has no hard size param — aspect ratio is hinted in
+ * the prompt. For strict ratio control use the direct OpenAI Images provider
+ * (gpt-image-2-openai), which sends a real size.
  */
 
 import fs from 'fs/promises'
@@ -55,7 +58,7 @@ function extractImageUrl(data: any): string | undefined {
 const openrouterImageProvider: ImageProvider = {
   meta: {
     id: 'openrouter-image',
-    name: 'OpenRouter (Gemini image)',
+    name: 'OpenRouter (image)',
     apiKeyField: 'openrouter_api_key', // → providerId 'openrouter'
   },
 
@@ -66,7 +69,7 @@ const openrouterImageProvider: ImageProvider = {
   async generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
     const { prompt, apiKey, aspectRatio, providerParams, referenceImagePaths, isCancelled } = request
     if (!apiKey) throw new Error('No OpenRouter API key configured. Add one in Settings → API Keys.')
-    const model = (providerParams?.api_model as string) || 'google/gemini-2.5-flash-image'
+    const model = (providerParams?.api_model as string) || 'openai/gpt-5.4-image-2'
     if (isCancelled?.()) throw new Error('Cancelled by user')
 
     // The user message: prompt text + (for img2img) the reference images.
