@@ -4,6 +4,27 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.485 — 2026-06-29
+
+### Added — Sound / SFX layer in Video Assembly (universal, all formats)
+A new **Sound / SFX** section in Video Assembly (Step 5, under Subtitles) adds sound effects to any narrated video, regardless of format. An LLM **sound director** reads the episode's stitched **subtitle timing** and proposes a *sparse* set of cues — **ambient beds** (atmosphere over a span) and **spot one-shots** (a sound at a moment) — which are matched to clips from your **SFX pools** (the v1.0.481 audio pools) and mixed under the narration at render time.
+
+- **Generate from narration** — pick a director model + density (minimal / moderate / rich) and the LLM proposes beds + spots from the timed transcript. Needs the episode's stitched subtitles (run the Subtitles step first).
+- **Review + edit** — each cue is a row: label, timing, gain, the matched clip (swap to any pool clip), mute, or remove. Add beds/spots manually too. "Re-match to pools" re-runs matching after you add clips; spots are no-repeat.
+- **Safe + reversible** — the whole feature is opt-in via a master toggle. With no plan, the toggle off, or no cue resolved to a clip, the video renders **exactly as before**. The mixer writes a *new* audio file consumed through the renderer's existing merged-audio path, so the core composition is untouched; any mix failure falls back to the original audio.
+
+Resolution is **SFX-pool only** for now; auto-fetch from Freesound / auto-generate with ElevenLabs for unmatched cues, visual-driven cues, and a Freesound credits roll-up are the queued follow-ups (see `docs/sfx-sound-layer-spec.md`).
+
+### Files
+- `electron/server/services/sfx-plan.ts` (sfx_plan.json sidecar: types, defensive normalize, opt-in gate, I/O), `electron/server/lib/sfx-mixer.ts` (pure ffmpeg arg builder + runner: beds loop/trim/gain/delay, spots gain/delay, amix over the base)
+- `electron/server/services/sfx-director.ts` (subtitle→cues LLM: prompt, tolerant parse, unresolved-plan mapping), `electron/server/services/sfx-resolver.ts` (label↔tag matcher, no-repeat, pool adapters, plan→mix cues)
+- `electron/server/routes/sfx.ts` (+ `routes/index.ts`) — read/save/delete plan, generate, resolve, candidates
+- `electron/server/generators/video.ts` — one guarded hook: mix SFX into merged audio + repoint merged_audio_path when an enabled plan has live cues
+- `frontend/composables/useSfxPlan.ts`, `frontend/components/SfxSoundSection.vue`, `frontend/pages/projects/[slug]/video-assembly.vue` (Sound section in Step 5)
+- Tests: `sfx-plan.test.ts`, `sfx-mixer.test.ts`, `sfx-director.test.ts`, `sfx-resolver.test.ts` (32 assertions; defensive-parse, opt-in gate, argv shape, matcher/no-repeat, render-safety)
+
+---
+
 ## v1.0.484 — 2026-06-29
 
 ### Added — Characters: one app-level library, assignable per project
