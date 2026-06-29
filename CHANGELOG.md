@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.481 — 2026-06-29
+
+### Changed — Settings "Voices" heading + sidebar "Library" grouping (cosmetic)
+Two small label/nav cleanups, no behaviour change:
+
+- **Settings → Voices tab**: the section heading was **"Voice Presets"**, which read confusingly like the separate generation-**Presets** page. It's just your named ElevenLabs voice list for TTS, so the heading, the **Save** button, the catalog-picker copy, and the save toast now say **"Voices"** instead of "voice preset(s)". The persisted `voice_presets` config key is unchanged.
+- **Sidebar**: the two app-level library links (**Character Library**, **Assets Library**) sat loose near "All Projects". They're now grouped under a **Library** section divider so the app-level libraries read as one area. The project-scoped Library section (Characters / Presets) is unchanged.
+
+### Files
+- `frontend/pages/projects/[slug]/settings.vue` ("Voices" heading + Save button + picker copy + toast)
+- `frontend/layouts/dashboard.vue` (app-level Library section divider)
+
+---
+
 ## v1.0.480 — 2026-06-29
 
 ### Added — Sound-effects (SFX) pools + the library is now the "Assets Library"

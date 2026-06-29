@@ -222,6 +222,9 @@
              Settings page under the "This Mac" zone, so a single "Settings"
              entry is the one front door. The modal still exists for the
              all-projects index, where no project Settings page is available. -->
+
+        <div class="nav-divider" />
+        <div class="nav-section-label">Library</div>
         <NuxtLink to="/character-library" class="nav-item" active-class="active" title="App-level character library shared across all projects on this machine. Save characters here to reuse across channels.">
           <span class="nav-icon">&#127991;</span> Character Library
         </NuxtLink>
