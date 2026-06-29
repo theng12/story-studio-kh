@@ -32,6 +32,11 @@
       </button>
     </div>
 
+    <label class="sfx-autofetch" title="For cues your pools don't cover, download a matching effect from Freesound into your SFX pool — so the pool grows with every video. First videos are slower; later ones mostly reuse what's already there.">
+      <input type="checkbox" v-model="autoFetch" />
+      <span>Auto-fetch missing effects from Freesound (seeds your SFX pool)</span>
+    </label>
+
     <p v-if="message" :class="['sfx-msg', messageKind]">{{ message }}</p>
 
     <div v-if="loading" class="text-muted text-sm">Loading sound plan…</div>
@@ -101,7 +106,7 @@
         <button class="btn btn-sm btn-secondary" @click="addBed">+ Bed</button>
         <button class="btn btn-sm btn-secondary" @click="addSpot">+ Spot</button>
         <span class="sfx-spacer" />
-        <button class="btn btn-sm" :disabled="!candidates.length" title="Re-match unresolved cues against your SFX pools" @click="rematch">↻ Re-match to pools</button>
+        <button class="btn btn-sm" :disabled="generating || (!candidates.length && !autoFetch)" title="Re-match unresolved cues against your SFX pools (and auto-fetch missing ones if enabled)" @click="rematch">↻ Re-match{{ autoFetch ? ' + fetch' : '' }}</button>
         <button class="btn btn-sm btn-primary" :disabled="!dirty || saving" @click="save">{{ saving ? 'Saving…' : (dirty ? 'Save plan' : 'Saved') }}</button>
         <button class="btn btn-sm btn-icon danger" title="Delete the plan (reverts to no SFX)" @click="clearPlan">🗑</button>
       </div>
@@ -121,6 +126,7 @@ const plan = reactive<SfxPlan>({ schema_version: 1, enabled: false, beds: [], sp
 const candidates = ref<SfxCandidate[]>([])
 const model = ref('')
 const intensity = ref('moderate')
+const autoFetch = ref(true)
 const loading = ref(false)
 const generating = ref(false)
 const saving = ref(false)
@@ -171,15 +177,21 @@ async function load() {
   }
 }
 
+function fetchNote(res: { fetched?: string[]; fetch_skipped_reason?: string }): string {
+  if (res.fetch_skipped_reason) return ` (auto-fetch skipped: ${res.fetch_skipped_reason})`
+  if (res.fetched && res.fetched.length) return ` Fetched ${res.fetched.length} new sound(s) from Freesound into your pool.`
+  return ''
+}
+
 async function generate() {
   generating.value = true
   message.value = ''
   try {
-    const res = await api.generate(props.slug, props.episodeCode, { model: model.value, intensity: intensity.value })
+    const res = await api.generate(props.slug, props.episodeCode, { model: model.value, intensity: intensity.value, auto_fetch: autoFetch.value })
     applyPlan(res.plan)
+    if (res.fetched?.length) await reloadCandidates()
     dirty.value = false
-    const live = liveCount.value
-    setMsg(`Directed ${plan.beds.length} bed(s) + ${plan.spots.length} spot(s); ${live} matched to your ${res.candidate_count} pool clip(s).`, 'ok')
+    setMsg(`Directed ${plan.beds.length} bed(s) + ${plan.spots.length} spot(s); ${liveCount.value} matched.${fetchNote(res)}`, 'ok')
   } catch (e) {
     setMsg(errOf(e), 'err')
   } finally {
@@ -188,15 +200,26 @@ async function generate() {
 }
 
 async function rematch() {
+  generating.value = true
   message.value = ''
   try {
-    const res = await api.resolvePlan(props.slug, props.episodeCode, { ...plan } as SfxPlan)
+    const res = await api.resolvePlan(props.slug, props.episodeCode, { ...plan } as SfxPlan, { auto_fetch: autoFetch.value })
     applyPlan(res.plan)
+    if (res.fetched?.length) await reloadCandidates()
     dirty.value = false
-    setMsg(`Re-matched against ${res.candidate_count} pool clip(s).`, 'ok')
+    setMsg(`Re-matched against ${res.candidate_count} pool clip(s); ${liveCount.value} live.${fetchNote(res)}`, 'ok')
   } catch (e) {
     setMsg(errOf(e), 'err')
+  } finally {
+    generating.value = false
   }
+}
+
+async function reloadCandidates() {
+  try {
+    const c = await api.candidates(props.slug, props.episodeCode)
+    candidates.value = c.candidates || []
+  } catch { /* keep existing */ }
 }
 
 async function save() {

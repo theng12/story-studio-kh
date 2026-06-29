@@ -27,7 +27,8 @@ import {
   emptyPlan,
 } from '../services/sfx-plan.js'
 import { runSfxDirector, type SfxIntensity } from '../services/sfx-director.js'
-import { resolvePlan, gatherSfxCandidates } from '../services/sfx-resolver.js'
+import { gatherSfxCandidates } from '../services/sfx-resolver.js'
+import { resolveWithFetch } from '../services/sfx-autofetch.js'
 
 export const router = Router()
 
@@ -124,11 +125,14 @@ router.post('/projects/:slug/episodes/:code/sfx-plan/generate', async (req, res)
       visual_hints: Array.isArray(body.visual_hints) ? body.visual_hints : undefined,
       slug,
     })
-    // Resolve against the SFX pools so the returned plan is render-ready.
-    const candidates = await gatherSfxCandidates()
-    const resolved = resolvePlan(proposed, candidates)
-    await writePlan(slug, code, paths.episode_dir, resolved)
-    res.json({ ok: true, plan: resolved, candidate_count: candidates.length })
+    // Resolve against the SFX pools; optionally auto-fetch missing cues from
+    // Freesound (this is what seeds the pool over time).
+    const r = await resolveWithFetch(proposed, {
+      autoFetch: body.auto_fetch === true,
+      fetchPoolId: typeof body.fetch_pool_id === 'string' ? body.fetch_pool_id : undefined,
+    })
+    await writePlan(slug, code, paths.episode_dir, r.plan)
+    res.json({ ok: true, plan: r.plan, candidate_count: r.candidate_count, fetched: r.fetched, fetch_skipped_reason: r.fetch_skipped_reason })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'SFX director failed'))
   }
@@ -141,13 +145,16 @@ router.post('/projects/:slug/episodes/:code/sfx-plan/resolve', async (req, res) 
     const slug = req.params.slug
     const code = req.params.code.toUpperCase()
     const paths = await resolveEpisodePathsByCode(slug, code)
-    const current = req.body && (req.body.beds || req.body.spots)
-      ? normalizePlan(req.body)
+    const body = req.body || {}
+    const current = body && (body.beds || body.spots)
+      ? normalizePlan(body)
       : (await readPlan(slug, code, paths.episode_dir)) ?? emptyPlan()
-    const candidates = await gatherSfxCandidates()
-    const resolved = resolvePlan(current, candidates)
-    await writePlan(slug, code, paths.episode_dir, resolved)
-    res.json({ ok: true, plan: resolved, candidate_count: candidates.length })
+    const r = await resolveWithFetch(current, {
+      autoFetch: body.auto_fetch === true,
+      fetchPoolId: typeof body.fetch_pool_id === 'string' ? body.fetch_pool_id : undefined,
+    })
+    await writePlan(slug, code, paths.episode_dir, r.plan)
+    res.json({ ok: true, plan: r.plan, candidate_count: r.candidate_count, fetched: r.fetched, fetch_skipped_reason: r.fetch_skipped_reason })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'SFX resolve failed'))
   }

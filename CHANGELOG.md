@@ -4,6 +4,27 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.486 — 2026-06-30
+
+### Added — SFX auto-fetch from Freesound (seeds your sound pool)
+The Sound / SFX layer can now **fill the cues your pools don't cover by downloading them from Freesound** — straight into your SFX pool, tagged and ready to reuse. Turn on **"Auto-fetch missing effects from Freesound"** in the Sound section; when you Generate (or hit "Re-match + fetch"), any unmatched bed/spot is searched on Freesound, the best preview is downloaded into your audio pool, given provenance + tags, and matched to the cue.
+
+This is what **bootstraps the library**: the first few videos fetch a lot, but every fetch lands permanently in the pool, so later videos increasingly match locally (instant + free) and only reach out for genuinely novel sounds. The pool is a compounding asset.
+
+- Reuses the existing Freesound adapter + provenance + indexer (same path as manual B-Roll Fetch). Downloads target the first online SFX (audio) pool, or a specific one via `fetch_pool_id`.
+- Already-fetched sounds are de-duplicated by Freesound id, never re-downloaded. Spot one-shots stay no-repeat within an episode.
+- Best-effort + safe: no Freesound key, no audio pool, or any network error just leaves the cue empty (a clear note is surfaced) — it never blocks generation or the render.
+
+Auto-generate with ElevenLabs for cues even Freesound can't cover remains a queued follow-up.
+
+### Files
+- `electron/server/services/sfx-autofetch.ts` (new — `resolveWithFetch`, `autoFetchForLabel`, target-pool pick, `distinctEmptyLabels`)
+- `electron/server/routes/sfx.ts` (generate + resolve accept `auto_fetch` / `fetch_pool_id`, return `fetched` / `fetch_skipped_reason`)
+- `frontend/composables/useSfxPlan.ts`, `frontend/components/SfxSoundSection.vue` (auto-fetch toggle + fetch feedback)
+- `electron/server/__tests__/sfx-autofetch.test.ts`
+
+---
+
 ## v1.0.485 — 2026-06-29
 
 ### Added — Sound / SFX layer in Video Assembly (universal, all formats)

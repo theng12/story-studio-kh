@@ -37,6 +37,13 @@ export interface SfxCandidate {
   filename: string
   tags: string[]
 }
+export interface SfxResolveResult {
+  ok: boolean
+  plan: SfxPlan
+  candidate_count: number
+  fetched?: string[]
+  fetch_skipped_reason?: string
+}
 
 export function useSfxPlan() {
   const { get, post, put, del } = useApi()
@@ -48,10 +55,10 @@ export function useSfxPlan() {
     savePlan: (slug: string, code: string, plan: SfxPlan) =>
       put<{ ok: boolean; plan: SfxPlan }>(`${base(slug, code)}/sfx-plan`, plan),
     deletePlan: (slug: string, code: string) => del(`${base(slug, code)}/sfx-plan`),
-    generate: (slug: string, code: string, body: { model: string; intensity?: string }) =>
-      post<{ ok: boolean; plan: SfxPlan; candidate_count: number }>(`${base(slug, code)}/sfx-plan/generate`, body),
-    resolvePlan: (slug: string, code: string, plan?: SfxPlan) =>
-      post<{ ok: boolean; plan: SfxPlan; candidate_count: number }>(`${base(slug, code)}/sfx-plan/resolve`, plan ?? {}),
+    generate: (slug: string, code: string, body: { model: string; intensity?: string; auto_fetch?: boolean }) =>
+      post<SfxResolveResult>(`${base(slug, code)}/sfx-plan/generate`, body),
+    resolvePlan: (slug: string, code: string, plan?: SfxPlan, opts?: { auto_fetch?: boolean }) =>
+      post<SfxResolveResult>(`${base(slug, code)}/sfx-plan/resolve`, { ...(plan ?? {}), ...(opts ?? {}) }),
     candidates: (slug: string, code: string) =>
       get<{ candidates: SfxCandidate[] }>(`${base(slug, code)}/sfx-candidates`),
   }
