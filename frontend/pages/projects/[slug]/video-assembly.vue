@@ -245,6 +245,9 @@
         </p>
       </div>
 
+      <!-- Scripted B-Roll (beta) — narration → per-beat targeted stock clips -->
+      <ScriptedBrollSection :slug="slug" :episode-code="episodeId" />
+
       <div v-if="scanning" class="scanning-status mt-2">
         <span class="gen-label">Scanning assets...</span>
         <div class="progress-bar"><div class="progress-fill" /></div>

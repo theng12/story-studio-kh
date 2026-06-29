@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.487 — 2026-06-30
+
+### Added — Scripted B-Roll (beta): narration → targeted stock footage
+A new **Scripted B-Roll** section in Video Assembly (Step 1) builds a video where each line of narration is illustrated by a *matching* stock clip, instead of random pool footage. An LLM **shot director** reads the episode's stitched subtitles, splits them into timed beats, and writes **filmable search queries** per beat (the craft: "economic uncertainty" → "stock market ticker red", "worried trader at desk"). Each beat's clip is then pulled from **Pexels/Pixabay** into your B-Roll pool and lined up to the narration timing.
+
+- **Generate shot plan** — pick a director model, beat length, and optional style hint; get a per-beat plan (line + queries). Tick "Download clips now" to immediately search + fetch a clip for every beat.
+- **Download / re-match** — searches each beat's queries across Pexels/Pixabay, downloads the pick into your video pool (provenance + index, no-repeat across beats), and records it on the beat. Clips compound in the pool just like SFX.
+- **Assemble** — bridges the resolved plan to the existing B-Roll selection sidecar and queues the **existing** assembler, so beats render in order at their narration timing (stock-clip audio muted; narration + the SFX layer own the sound). The **universal SFX sound layer rides on top for free.**
+
+Safe + additive: the plan is its own `broll_plan.json` sidecar with an opt-in gate; the existing "load random clips" path and every other format are untouched. This is **Phase 1** — storyboard swap/regenerate UI, the styled AI-gen fallback for beats stock can't cover, and extra providers (Storyblocks / logos) are queued (see `docs/scripted-broll-format-spec.md`).
+
+### Files
+- `electron/server/services/broll-plan.ts` (broll_plan.json sidecar), `broll-shot-director.ts` (cues→beats + query LLM), `broll-shot-resolver.ts` (per-beat search/download + plan→selection-sidecar bridge)
+- `electron/server/routes/broll-shots.ts` (+ `routes/index.ts`) — get/save/delete/generate/resolve/assemble
+- `frontend/composables/useBrollPlan.ts`, `frontend/components/ScriptedBrollSection.vue`, `frontend/pages/projects/[slug]/video-assembly.vue` (Scripted B-Roll section in Step 1)
+- Tests: `broll-plan.test.ts`, `broll-shot-director.test.ts`, `broll-shot-resolver.test.ts` (16 assertions: defensive parse, opt-in gate, beat grouping, prompt/parse, selection bridge)
+
+---
+
 ## v1.0.486 — 2026-06-30
 
 ### Added — SFX auto-fetch from Freesound (seeds your sound pool)
