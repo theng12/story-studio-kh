@@ -57,5 +57,28 @@ export function useCharacterLibrary() {
     )
   }
 
-  return { list, getOne, update, remove, saveProjectCharacter, importToProject }
+  /** Library characters assigned to a given project (unified-library model). */
+  async function listForProject(projectSlug: string): Promise<Character[]> {
+    return await get<Character[]>(`/projects/${encodeURIComponent(projectSlug)}/library-characters`)
+  }
+
+  /** Assign a library character to a project (idempotent). Returns the updated record. */
+  async function assignToProject(libraryId: string, projectSlug: string): Promise<Character> {
+    return await post<Character>(
+      `/character-library/${encodeURIComponent(libraryId)}/assign/${encodeURIComponent(projectSlug)}`,
+      {},
+    )
+  }
+
+  /** Unassign a library character from a project (reversible; keeps the library entry). */
+  async function unassignFromProject(libraryId: string, projectSlug: string): Promise<Character> {
+    return await del<Character>(
+      `/character-library/${encodeURIComponent(libraryId)}/assign/${encodeURIComponent(projectSlug)}`,
+    )
+  }
+
+  return {
+    list, getOne, update, remove, saveProjectCharacter, importToProject,
+    listForProject, assignToProject, unassignFromProject,
+  }
 }

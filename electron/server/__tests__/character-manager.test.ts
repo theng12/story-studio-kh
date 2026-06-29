@@ -39,9 +39,11 @@ describe('character-manager', () => {
   })
 
   beforeEach(async () => {
-    // Wipe characters dir between tests so each starts fresh.
+    // Wipe characters dir + the app-level library between tests so each
+    // starts fresh (the unified-merge tests create library entries).
     const dir = path.join(pm.PROJECTS_ROOT, SLUG, 'characters')
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
+    await fs.rm(path.join(pm.PROJECTS_ROOT, '.character-library'), { recursive: true, force: true }).catch(() => {})
     await makeProject()
   })
 
@@ -169,5 +171,60 @@ describe('character-manager', () => {
     await cm.createCharacter(SLUG, { name: 'Mab', description: 'd', scope: 'episode', episode_codes: ['EP001'] })
     const list = await cm.listCharacters(SLUG, { episodeCode: 'EP001' })
     assert.deepEqual(list.map(c => c.id), ['aria', 'zara', 'mab'])
+  })
+
+  // ── Unified-library merge (character-unification) ──────────────────────────
+
+  test('listCharacters: merges library characters assigned to this project', async () => {
+    const cl = await import('../services/character-library.js')
+    // A native project character + a library character assigned to SLUG.
+    await cm.createCharacter(SLUG, { name: 'Native', description: 'on disk', scope: 'project' })
+    await cm.createCharacter(SLUG, { name: 'Seed', description: 'lib seed', scope: 'project' })
+    await cl.saveToLibrary(SLUG, 'seed')        // auto-assigned to SLUG
+    await cm.deleteCharacter(SLUG, 'seed')      // remove the on-disk copy → library-only, still assigned
+
+    const own = await cm.listOwnCharacters(SLUG)
+    assert.deepEqual(own.map(c => c.id), ['native'], 'listOwnCharacters stays project-only')
+
+    const unified = await cm.listCharacters(SLUG)
+    assert.deepEqual(unified.map(c => c.id).sort(), ['native', 'seed'])
+    const seed = unified.find(c => c.id === 'seed')
+    assert.equal(seed?.source, 'library', 'assigned-from-library marked source=library')
+  })
+
+  test('listCharacters: dedups by id, on-disk project character wins', async () => {
+    const cl = await import('../services/character-library.js')
+    await cm.createCharacter(SLUG, { name: 'Aria', description: 'project version', scope: 'project' })
+    await cl.saveToLibrary(SLUG, 'aria')  // library copy assigned to SLUG, same id
+    const unified = await cm.listCharacters(SLUG)
+    const arias = unified.filter(c => c.id === 'aria')
+    assert.equal(arias.length, 1, 'no duplicate when both stores hold the id')
+    assert.equal(arias[0].description, 'project version', 'on-disk project copy wins')
+    assert.equal(arias[0].source, 'project')
+  })
+
+  test('getCharacter: falls back to an assigned library character', async () => {
+    const cl = await import('../services/character-library.js')
+    await cm.createCharacter(SLUG, { name: 'Lib', description: 'd', scope: 'project' })
+    await cl.saveToLibrary(SLUG, 'lib')   // assigned to SLUG
+    await cm.deleteCharacter(SLUG, 'lib') // drop the on-disk copy
+    const got = await cm.getCharacter(SLUG, 'lib')
+    assert.equal(got?.name, 'Lib')
+    assert.equal(got?.source, 'library')
+    // Not assigned anywhere → not visible from a different project.
+    await cl.unassignFromProject('lib', SLUG)
+    assert.equal(await cm.getCharacter(SLUG, 'lib'), null)
+  })
+
+  test('referenceImagePath: falls back to the library folder', async () => {
+    const cl = await import('../services/character-library.js')
+    await cm.createCharacter(SLUG, { name: 'Ref', description: 'd', scope: 'project' })
+    await cm.addReferenceImage(SLUG, 'ref', Buffer.from('img-bytes'), 'face.png')
+    await cl.saveToLibrary(SLUG, 'ref')
+    await cm.deleteCharacter(SLUG, 'ref')  // project copy gone; library copy remains
+    const p = cm.referenceImagePath(SLUG, 'ref', 'face.png')
+    assert.ok(p.includes('.character-library'), `expected library path, got ${p}`)
+    const onDisk = await fs.readFile(p)
+    assert.equal(onDisk.toString(), 'img-bytes')
   })
 })

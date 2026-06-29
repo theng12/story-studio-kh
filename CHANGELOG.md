@@ -4,6 +4,31 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.481 — 2026-06-29
+
+### Added — Characters: one app-level library, assignable per project
+The two character systems are being unified into **one app-level library** where each character can be **assigned (tagged) to one or more projects** — instead of the old split between per-project characters and snapshot-only library copies. A project's **Characters** page is now a filtered view: it shows the project's own characters **plus** every library character assigned to it, and a new **"📚 Assign from library"** button lets you attach an existing library character to the project. Library-assigned rows show a **From library** badge and an **Unassign** action (which leaves the library entry untouched). The **Character Library** page now shows how many projects each character is assigned to.
+
+This ships **safely and non-destructively** — nothing is deleted or rewritten:
+- The change is **additive**: a new optional `projects: string[]` tag set on the library record records assignments. Records without it behave exactly as before.
+- The unification happens at the **read layer** — `character-manager`'s `listCharacters` / `getCharacter` / `resolveCharacters` / `referenceImagePath` now merge in assigned library characters (deduped by id, the on-disk project copy winning), so **every consumer** (script gen, image gen, image-prompts, audio/voice routing, continuity render, the picker) sees the unified view with no per-consumer change.
+- A one-time consolidation migration is provided **copy-only, dry-run-by-default, verified, and reversible** — `GET /api/character-migration/plan` (dry run, writes nothing) and `POST /api/character-migration/run` (requires `{ confirm: true }`). It copies per-project characters into the library tagged with their slug, verifies each copy, **never deletes the originals**, and skips id conflicts rather than overwriting.
+
+See `docs/character-unification-spec.md` for the full design, safety contract, and rollback.
+
+### Files
+- `docs/character-unification-spec.md` (new — spec + safety + migration plan)
+- `electron/server/models/types.ts` (`Character.projects?: string[]`; `source` gains `'library'`)
+- `electron/server/services/character-library.ts` (`assignToProject` / `unassignFromProject` / `setProjects` / `listForProject` / `libraryCharacterDir`; `saveToLibrary` auto-assigns source project; `projects` preserved on update; dropped on snapshot import)
+- `electron/server/services/character-manager.ts` (`listOwnCharacters` project-only vs unified `listCharacters`; `getCharacter` + `referenceImagePath` library fallback)
+- `electron/server/services/character-migration.ts` (new — `planMigration` / `runMigration`)
+- `electron/server/routes/character-library.ts`, `electron/server/routes/character-migration.ts`, `electron/server/routes/index.ts` (assign/unassign + migration routes)
+- `frontend/composables/useCharacterLibrary.ts`, `frontend/composables/useCharacters.ts` (assignment methods + `projects` field)
+- `frontend/pages/projects/[slug]/characters.vue` (Assign-from-library picker, Unassign, From-library badge), `frontend/pages/character-library.vue` (assignment count chip)
+- `electron/server/__tests__/character-library.test.ts`, `character-manager.test.ts`, `character-migration.test.ts` (new) — assignment, unified-merge dedup, fallback, and copy-only/reversible migration coverage
+
+---
+
 ## v1.0.480 — 2026-06-29
 
 ### Added — Sound-effects (SFX) pools + the library is now the "Assets Library"
