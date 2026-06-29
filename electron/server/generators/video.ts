@@ -783,6 +783,33 @@ export async function generateVideo(job: Job): Promise<void> {
   const episodeDir = await findEpisodeDir(outputRoot, code, { titleHint })
   if (!episodeDir) throw new Error(`Episode directory not found for ${code}`)
 
+  // ── Universal SFX sound layer (opt-in, fully reversible) ───────────────────
+  // If this episode has an enabled sfx_plan.json with resolved cues, mix the
+  // SFX over the merged audio and point the render at the mixed file via the
+  // merged_audio_path the renderer already consumes. No plan / disabled / no
+  // live cues / any failure ⇒ the render uses the original audio unchanged.
+  try {
+    if (req.merged_audio_path && existsSync(req.merged_audio_path)) {
+      const { readPlan, planAffectsRender } = await import('../services/sfx-plan.js')
+      const plan = await readPlan(project_slug, code, episodeDir)
+      if (planAffectsRender(plan)) {
+        const { planToMixCues } = await import('../services/sfx-resolver.js')
+        const { mixSfxIntoAudio } = await import('../lib/sfx-mixer.js')
+        const cues = await planToMixCues(plan!)
+        if (cues.length) {
+          const outPath = path.join(path.dirname(req.merged_audio_path), `${code}_sfx_mixed.mp3`)
+          const mixed = await mixSfxIntoAudio({ basePath: req.merged_audio_path, cues, outPath })
+          if (mixed !== req.merged_audio_path) {
+            job.output_lines.push(`SFX: mixed ${cues.length} cue(s) into the audio → ${path.basename(mixed)}`)
+            req.merged_audio_path = mixed
+          }
+        }
+      }
+    }
+  } catch (e: any) {
+    job.output_lines.push(`SFX mix skipped (${e?.message || e}); rendering with the original audio.`)
+  }
+
   const videoDir = await resolveEpisodeSubfolderDir(project_slug, code, 'video', episodeDir, names.video)
   await fs.mkdir(videoDir, { recursive: true })
 

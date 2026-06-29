@@ -51,6 +51,7 @@ import { router as scenePlanRouter } from './scene-plan.js'
 import { router as sceneReviewRouter } from './scene-review.js'
 import { router as continuityRouter } from './continuity.js'
 import { router as chatstudioRouter } from './chatstudio.js'
+import { router as sfxRouter } from './sfx.js'
 import { requireProject } from './middleware.js'
 
 export function mountRoutes(app: Express): void {
@@ -69,6 +70,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', imagesRouter)
   app.use('/api', audioRouter)
   app.use('/api', videoAssemblyRouter)
+  app.use('/api', sfxRouter)
   app.use('/api', aiVideoRouter)
   app.use('/api', audioMergeRouter)
   app.use('/api', ideasRouter)
