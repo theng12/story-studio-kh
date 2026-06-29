@@ -1,9 +1,10 @@
 # Sound / SFX layer — universal, in Video Assembly — spec (draft)
 
-Status: **v1 shipped (v1.0.485)** — narration-driven director + SFX-pool
-resolution + ffmpeg mix + review UI in Video Assembly. Queued: Freesound/
-ElevenLabs auto-fill for unmatched cues, visual-driven cues, credits roll-up,
-dynamic sidechain ducking, in-browser scrub preview.
+Status: **shipped** — narration-driven director + SFX-pool resolution + ffmpeg
+mix + review UI in Video Assembly (v1.0.485), plus **Freesound auto-fetch** that
+seeds the pool for unmatched cues (v1.0.486). Queued: ElevenLabs auto-generate
+for cues Freesound can't cover, visual-driven cues, credits roll-up, dynamic
+sidechain ducking, in-browser scrub preview.
 
 A **format-agnostic** sound layer that applies sound effects to
 the finished video: **ambient beds** + **spot one-shots**, placed by timing and
