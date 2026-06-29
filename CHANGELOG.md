@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.488 — 2026-06-30
+
+### Added — Scripted B-Roll Phase 2: storyboard review (swap / re-query / edit)
+The Scripted B-Roll section is now an editable storyboard, so you can fix any beat before rendering instead of re-generating the whole plan:
+
+- **Edit queries** — each beat's search queries are editable inline (comma-separated); **Save edits** persists them.
+- **Nudge timing** — each beat's start/end seconds are editable.
+- **↻ Re-query** — ask the LLM for fresh filmable queries for a single beat (without touching the rest).
+- **⇄ Swap clip** — search Pexels/Pixabay for the beat's queries and pick from a **thumbnail grid**; the chosen clip is downloaded into the pool and pinned to the beat (`user-swapped`, which the batch resolver then leaves alone).
+
+### Files
+- `electron/server/services/broll-shot-director.ts` (`requeryBeat` — single-beat queries), `broll-shot-resolver.ts` (`searchCandidates` for the picker, extracted `downloadResultToPool` reused by batch + swap)
+- `electron/server/routes/broll-shots.ts` (`/requery-beat`, `/search`, `/swap-beat`)
+- `frontend/composables/useBrollPlan.ts`, `frontend/components/ScriptedBrollSection.vue` (editable beats + re-query + swap picker + Save)
+
+---
+
 ## v1.0.487 — 2026-06-30
 
 ### Added — Scripted B-Roll (beta): narration → targeted stock footage

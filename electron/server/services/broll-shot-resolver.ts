@@ -62,6 +62,52 @@ async function searchPick(
   return null
 }
 
+/**
+ * Download one search result into a pool (provenance recorded). Returns the
+ * indexed filename. Reused by both batch resolve and single-beat swap. Skips the
+ * download when a file with the deterministic name already exists.
+ */
+export async function downloadResultToPool(
+  pool: bp.BrollPool,
+  result: FetchResult,
+  provider: FetchProvider,
+  keywords: string[],
+): Promise<string> {
+  const filename = suggestFilename(provider, result.source_id, keywords.length ? keywords : [result.source_id], 'mp4')
+  const destPath = path.join(pool.folder_path, filename)
+  if (!existsSync(destPath)) {
+    await getAdapter(provider).download(result, destPath, { quality: 'hd' })
+    const stat = await fs.stat(destPath).catch(() => null)
+    if (!stat || stat.size === 0) { await fs.unlink(destPath).catch(() => {}); throw new Error('Download produced no bytes') }
+    const dl = result.files.find(f => f.quality === 'hd') || result.files[0]
+    const rec = recordFromResult(result, filename, dl?.width ?? result.width, dl?.height ?? result.height, keywords)
+    await writeProvenance(pool.folder_path, rec)
+  }
+  return filename
+}
+
+/** Search candidates across configured providers for the swap picker (no download). */
+export async function searchCandidates(queries: string[], limit = 12): Promise<Array<{ provider: FetchProvider; result: FetchResult }>> {
+  const providers = await configuredVideoProviders()
+  const out: Array<{ provider: FetchProvider; result: FetchResult }> = []
+  const seen = new Set<string>()
+  for (const q of queries) {
+    if (!q.trim()) continue
+    for (const provider of providers) {
+      const results = await getAdapter(provider).search(q, { perPage: 8 }).catch(() => [] as FetchResult[])
+      for (const r of results) {
+        if (!r.files?.length) continue
+        const key = `${provider}#${r.source_id}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push({ provider, result: r })
+        if (out.length >= limit) return out
+      }
+    }
+  }
+  return out
+}
+
 export interface ResolveBeatsResult {
   plan: BrollPlan
   downloaded: number
@@ -100,18 +146,10 @@ export async function resolveBeats(plan: BrollPlan, opts: { poolId?: string } = 
     const pick = await searchPick(beat.queries, providers, used)
     if (!pick) { beat.source = ''; beat.clip = ''; beat.pool_id = undefined; beat.status = 'empty'; continue }
 
-    const filename = suggestFilename(pick.provider, pick.result.source_id, [beat.queries[0] || beat.line], 'mp4')
-    const destPath = path.join(pool.folder_path, filename)
+    const existsAlready = existsSync(path.join(pool.folder_path, suggestFilename(pick.provider, pick.result.source_id, [beat.queries[0] || beat.line], 'mp4')))
     try {
-      if (!existsSync(destPath)) {
-        await getAdapter(pick.provider).download(pick.result, destPath, { quality: 'hd' })
-        const stat = await fs.stat(destPath).catch(() => null)
-        if (!stat || stat.size === 0) { await fs.unlink(destPath).catch(() => {}); throw new Error('empty download') }
-        const dl = pick.result.files.find(f => f.quality === 'hd') || pick.result.files[0]
-        const rec = recordFromResult(pick.result, filename, dl?.width ?? pick.result.width, dl?.height ?? pick.result.height, beat.queries)
-        await writeProvenance(pool.folder_path, rec)
-        downloaded++
-      }
+      const filename = await downloadResultToPool(pool, pick.result, pick.provider, [beat.queries[0] || beat.line])
+      if (!existsAlready) downloaded++
       beat.source = pick.provider as BrollSource // VIDEO_PROVIDERS ⊂ BrollSource
       beat.pool_id = pool.id
       beat.clip = filename

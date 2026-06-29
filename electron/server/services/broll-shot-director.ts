@@ -146,6 +146,26 @@ export function shotJsonToPlan(
   return normalizePlan({ schema_version: 1, enabled: true, broll_style: opts.broll_style ?? '', beats: planBeats })
 }
 
+/** Re-suggest queries for a SINGLE beat (storyboard "re-query" action). */
+export async function requeryBeat(opts: {
+  line: string
+  start_sec?: number
+  end_sec?: number
+  model: string
+  apiKeys: { anthropic_api_key?: string; openai_api_key?: string; kie_api_key?: string }
+  style_hint?: string
+  slug?: string
+}): Promise<string[]> {
+  const beat: Beat = { start_sec: opts.start_sec ?? 0, end_sec: opts.end_sec ?? 0, line: opts.line }
+  const { system, user } = buildShotPrompt([beat], { style_hint: opts.style_hint })
+  const raw = await callAi(opts.model, system, user, opts.apiKeys, false, { slug: opts.slug })
+  const parsed = parseShotJson(raw)
+  const entry = Array.isArray(parsed.beats) ? parsed.beats[0] : undefined
+  return Array.isArray(entry?.queries)
+    ? entry!.queries.map((q: any) => (typeof q === 'string' ? q.trim() : '')).filter(Boolean)
+    : []
+}
+
 /** Orchestration: cues → beats → LLM → unresolved plan. */
 export async function runShotDirector(opts: {
   cues: SrtCue[]

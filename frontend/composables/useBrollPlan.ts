@@ -49,5 +49,20 @@ export function useBrollPlan() {
       post<GenerateResult>(`${base(slug, code)}/broll-plan/resolve`, plan ?? {}),
     assemble: (slug: string, code: string) =>
       post<{ ok: boolean; job: any; beats: number }>(`${base(slug, code)}/broll-plan/assemble`, {}),
+    requeryBeat: (slug: string, code: string, body: { beat_index: number; model: string; style_hint?: string }) =>
+      post<{ ok: boolean; plan: BrollPlan; queries: string[] }>(`${base(slug, code)}/broll-plan/requery-beat`, body),
+    search: (slug: string, code: string, queries: string[]) =>
+      post<{ candidates: BrollCandidate[] }>(`${base(slug, code)}/broll-plan/search`, { queries }),
+    swapBeat: (slug: string, code: string, body: { beat_index: number; provider: string; result: any }) =>
+      post<{ ok: boolean; plan: BrollPlan; filename: string }>(`${base(slug, code)}/broll-plan/swap-beat`, body),
   }
+}
+
+export interface BrollCandidate {
+  provider: string
+  source_id: string
+  source_url: string
+  thumbnail_url: string
+  duration: number
+  result: any
 }

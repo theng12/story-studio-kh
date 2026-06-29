@@ -21,8 +21,9 @@ import * as jq from '../services/job-queue.js'
 import {
   readPlan, writePlan, resolveBrollPlanPath, deletePlanAt, normalizePlan, emptyPlan,
 } from '../services/broll-plan.js'
-import { runShotDirector } from '../services/broll-shot-director.js'
-import { resolveBeats, planToSelectionSidecar } from '../services/broll-shot-resolver.js'
+import { runShotDirector, requeryBeat } from '../services/broll-shot-director.js'
+import { resolveBeats, planToSelectionSidecar, searchCandidates, downloadResultToPool, pickVideoPool } from '../services/broll-shot-resolver.js'
+import { scanPoolFolder } from '../lib/broll-indexer.js'
 import { saveSelectionSidecar } from '../services/broll-selection-sidecar.js'
 import type { JobType } from '../models/types.js'
 
@@ -143,6 +144,89 @@ router.post('/projects/:slug/episodes/:code/broll-plan/resolve', async (req, res
     res.json({ ok: true, plan: r.plan, downloaded: r.downloaded, matched: r.matched, pool_id: r.pool_id, resolve_skipped_reason: r.skipped_reason })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'B-Roll resolve failed'))
+  }
+})
+
+// ── Storyboard (Phase 2): re-query one beat, search alternatives, swap clip ───
+
+router.post('/projects/:slug/episodes/:code/broll-plan/requery-beat', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const code = req.params.code.toUpperCase()
+    const body = req.body || {}
+    const idx = Number(body.beat_index)
+    const model = typeof body.model === 'string' ? body.model.trim() : ''
+    if (!model) return res.status(400).json({ detail: 'model is required' })
+    if (IMAGE_MODEL.test(model)) return res.status(400).json({ detail: `"${model}" is an image model.` })
+
+    const paths = await resolveEpisodePathsByCode(slug, code)
+    const plan = (await readPlan(slug, code, paths.episode_dir)) ?? emptyPlan()
+    const beat = plan.beats[idx]
+    if (!beat) return res.status(404).json({ detail: `Beat ${idx} not found` })
+
+    const apiKeys = await collectApiKeys()
+    const queries = await requeryBeat({
+      line: beat.line, start_sec: beat.start_sec, end_sec: beat.end_sec, model, apiKeys,
+      style_hint: typeof body.style_hint === 'string' ? body.style_hint : undefined, slug,
+    })
+    if (queries.length) beat.queries = queries
+    await writePlan(slug, code, paths.episode_dir, plan)
+    res.json({ ok: true, plan, queries })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Re-query failed'))
+  }
+})
+
+router.post('/projects/:slug/episodes/:code/broll-plan/search', async (req, res) => {
+  try {
+    const body = req.body || {}
+    const queries = Array.isArray(body.queries) ? body.queries.map((q: any) => String(q)).filter(Boolean) : []
+    if (!queries.length) return res.status(400).json({ detail: 'queries is required' })
+    const found = await searchCandidates(queries, Number(body.limit) > 0 ? Number(body.limit) : 12)
+    // Trim to what the picker needs (thumbnail + ids); keep the full result for swap.
+    const candidates = found.map(f => ({
+      provider: f.provider,
+      source_id: f.result.source_id,
+      source_url: f.result.source_url,
+      thumbnail_url: f.result.thumbnail_url,
+      duration: f.result.duration,
+      result: f.result,
+    }))
+    res.json({ candidates })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Search failed'))
+  }
+})
+
+router.post('/projects/:slug/episodes/:code/broll-plan/swap-beat', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const code = req.params.code.toUpperCase()
+    const body = req.body || {}
+    const idx = Number(body.beat_index)
+    const provider = body.provider
+    const result = body.result
+    if (!result || !provider) return res.status(400).json({ detail: 'provider and result are required' })
+
+    const paths = await resolveEpisodePathsByCode(slug, code)
+    const plan = (await readPlan(slug, code, paths.episode_dir)) ?? emptyPlan()
+    const beat = plan.beats[idx]
+    if (!beat) return res.status(404).json({ detail: `Beat ${idx} not found` })
+
+    const pool = await pickVideoPool(typeof body.pool_id === 'string' ? body.pool_id : beat.pool_id)
+    if (!pool) return res.status(409).json({ detail: 'No online video pool to download into.' })
+
+    const filename = await downloadResultToPool(pool, result, provider, [beat.queries[0] || beat.line])
+    try { await scanPoolFolder(pool.folder_path, undefined, 'video') } catch { /* index best-effort */ }
+    beat.source = provider
+    beat.pool_id = pool.id
+    beat.clip = filename
+    beat.in_point_sec = 0
+    beat.status = 'user-swapped'
+    await writePlan(slug, code, paths.episode_dir, plan)
+    res.json({ ok: true, plan, filename })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Swap failed'))
   }
 })
 

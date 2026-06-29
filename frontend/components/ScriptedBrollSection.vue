@@ -46,20 +46,43 @@
 
       <div class="sbr-beats">
         <div v-for="(b, i) in plan.beats" :key="i" class="sbr-beat">
-          <span class="sbr-time">{{ b.start_sec.toFixed(1) }}–{{ b.end_sec.toFixed(1) }}s</span>
+          <span class="sbr-time">
+            <input type="number" v-model.number="b.start_sec" class="input sbr-tnum" min="0" step="0.1" @input="dirty = true" />–
+            <input type="number" v-model.number="b.end_sec" class="input sbr-tnum" min="0" step="0.1" @input="dirty = true" />s
+          </span>
           <div class="sbr-beat-main">
             <div class="sbr-line">{{ b.line || '—' }}</div>
-            <div class="sbr-queries">
-              <span v-for="(q, qi) in b.queries" :key="qi" class="sbr-query">{{ q }}</span>
-              <span v-if="!b.queries.length" class="text-muted">no queries</span>
-            </div>
+            <input
+              class="input sbr-qedit"
+              :value="b.queries.join(', ')"
+              placeholder="comma-separated search queries"
+              @input="onQueryEdit(b, ($event.target as HTMLInputElement).value)"
+            />
             <div v-if="b.clip" class="sbr-clip">🎞 {{ b.clip }}</div>
+            <div class="sbr-beat-actions">
+              <button class="sbr-mini" :disabled="!!busyBeat || !model" title="Ask the LLM for fresh queries" @click="requery(i)">{{ busyBeat === 'rq' + i ? '…' : '↻ re-query' }}</button>
+              <button class="sbr-mini" :disabled="!!busyBeat || !b.queries.length" title="Search alternatives + pick a clip" @click="openSwap(i)">{{ busyBeat === 'sw' + i ? '…' : '⇄ swap clip' }}</button>
+              <span :class="['sbr-status', 'st-' + b.status]">{{ b.status === 'matched' || b.status === 'user-swapped' ? '✓ clip' : (b.status === 'empty' ? 'none' : 'pending') }}</span>
+            </div>
+
+            <!-- Swap candidate picker -->
+            <div v-if="swapOpen === i" class="sbr-swap">
+              <div v-if="swapLoading" class="text-muted text-xs">Searching…</div>
+              <div v-else-if="!swapCandidates.length" class="text-muted text-xs">No results for these queries.</div>
+              <div v-else class="sbr-swap-grid">
+                <button v-for="c in swapCandidates" :key="c.provider + c.source_id" class="sbr-cand" :title="`${c.provider} · ${c.duration?.toFixed?.(0) || '?'}s`" @click="doSwap(i, c)">
+                  <img :src="c.thumbnail_url" alt="" loading="lazy" />
+                  <span class="sbr-cand-prov">{{ c.provider }}</span>
+                </button>
+              </div>
+              <button class="sbr-mini" @click="swapOpen = -1">close</button>
+            </div>
           </div>
-          <span :class="['sbr-status', 'st-' + b.status]">{{ b.status === 'matched' || b.status === 'user-swapped' ? '✓ clip' : (b.status === 'empty' ? 'none' : 'pending') }}</span>
         </div>
       </div>
 
       <div class="sbr-actions">
+        <button class="btn btn-sm btn-primary" :disabled="busy || !dirty" @click="saveEdits">{{ dirty ? 'Save edits' : 'Saved' }}</button>
         <button class="btn btn-sm" :disabled="busy" @click="resolve">{{ busy === 'res' ? 'Downloading…' : '⬇ Download / re-match clips' }}</button>
         <span class="sbr-spacer" />
         <button class="btn btn-sm btn-icon danger" title="Delete the shot plan" @click="clearPlan">🗑</button>
@@ -75,7 +98,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
-import { useBrollPlan, type BrollPlan, type GenerateResult } from '../composables/useBrollPlan.js'
+import { useBrollPlan, type BrollPlan, type BrollBeat, type BrollCandidate, type GenerateResult } from '../composables/useBrollPlan.js'
 
 const props = defineProps<{ slug: string; episodeCode: string }>()
 const api = useBrollPlan()
@@ -87,6 +110,11 @@ const styleHint = ref('')
 const resolveNow = ref(true)
 const loading = ref(false)
 const busy = ref<'' | 'gen' | 'res' | 'asm'>('')
+const busyBeat = ref('')
+const dirty = ref(false)
+const swapOpen = ref(-1)
+const swapLoading = ref(false)
+const swapCandidates = ref<BrollCandidate[]>([])
 const message = ref('')
 const messageKind = ref<'ok' | 'err'>('ok')
 
@@ -99,6 +127,7 @@ function applyPlan(p: BrollPlan) {
   plan.enabled = !!p.enabled
   plan.broll_style = p.broll_style || ''
   plan.beats = p.beats || []
+  dirty.value = false // every applyPlan reflects the persisted server state
 }
 function resolveNote(r: GenerateResult): string {
   if (r.resolve_skipped_reason) return ` (download skipped: ${r.resolve_skipped_reason})`
@@ -149,6 +178,57 @@ async function assemble() {
   finally { busy.value = '' }
 }
 
+function onQueryEdit(b: BrollBeat, val: string) {
+  b.queries = val.split(',').map(s => s.trim()).filter(Boolean)
+  dirty.value = true
+}
+
+async function saveEdits() {
+  busy.value = 'gen'
+  try {
+    const r = await api.savePlan(props.slug, props.episodeCode, { ...plan } as BrollPlan)
+    applyPlan(r.plan)
+    dirty.value = false
+    setMsg('Shot plan saved.', 'ok')
+  } catch (e) { setMsg(errOf(e), 'err') }
+  finally { busy.value = '' }
+}
+
+async function requery(i: number) {
+  if (!model.value) { setMsg('Pick a director model first.', 'err'); return }
+  busyBeat.value = 'rq' + i
+  try {
+    const r = await api.requeryBeat(props.slug, props.episodeCode, { beat_index: i, model: model.value, style_hint: styleHint.value || undefined })
+    applyPlan(r.plan)
+    setMsg(`Beat ${i + 1}: ${r.queries.length} fresh quer${r.queries.length === 1 ? 'y' : 'ies'}.`, 'ok')
+  } catch (e) { setMsg(errOf(e), 'err') }
+  finally { busyBeat.value = '' }
+}
+
+async function openSwap(i: number) {
+  if (swapOpen.value === i) { swapOpen.value = -1; return }
+  swapOpen.value = i
+  swapCandidates.value = []
+  swapLoading.value = true
+  busyBeat.value = 'sw' + i
+  try {
+    const r = await api.search(props.slug, props.episodeCode, plan.beats[i]!.queries)
+    swapCandidates.value = r.candidates || []
+  } catch (e) { setMsg(errOf(e), 'err'); swapOpen.value = -1 }
+  finally { swapLoading.value = false; busyBeat.value = '' }
+}
+
+async function doSwap(i: number, c: BrollCandidate) {
+  busyBeat.value = 'sw' + i
+  try {
+    const r = await api.swapBeat(props.slug, props.episodeCode, { beat_index: i, provider: c.provider, result: c.result })
+    applyPlan(r.plan)
+    swapOpen.value = -1
+    setMsg(`Beat ${i + 1}: swapped to ${r.filename}.`, 'ok')
+  } catch (e) { setMsg(errOf(e), 'err') }
+  finally { busyBeat.value = '' }
+}
+
 async function clearPlan() {
   try {
     await api.deletePlan(props.slug, props.episodeCode)
@@ -184,6 +264,18 @@ watch(() => props.episodeCode, load, { immediate: true })
 .sbr-queries { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
 .sbr-query { font-size: 11px; background: var(--surface-2, #1e1e1e); border: 1px solid var(--border, #333); border-radius: 4px; padding: 1px 6px; }
 .sbr-clip { font-size: 11px; color: var(--accent, #6ab0f3); margin-top: 3px; }
+.sbr-tnum { width: 56px; }
+.sbr-qedit { width: 100%; margin-top: 3px; font-size: 12px; }
+.sbr-beat-actions { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.sbr-mini { background: none; border: 1px solid var(--border, #333); border-radius: 4px; cursor: pointer; padding: 1px 7px; font-size: 11px; color: var(--text, inherit); }
+.sbr-mini:hover:not(:disabled) { border-color: var(--accent, #6ab0f3); }
+.sbr-mini:disabled { opacity: 0.5; cursor: default; }
+.sbr-swap { margin-top: 6px; padding: 6px; border: 1px solid var(--border, #333); border-radius: 6px; }
+.sbr-swap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 6px; margin-bottom: 6px; }
+.sbr-cand { position: relative; border: 1px solid var(--border, #333); border-radius: 4px; overflow: hidden; cursor: pointer; padding: 0; background: none; aspect-ratio: 16/9; }
+.sbr-cand:hover { border-color: var(--accent, #6ab0f3); }
+.sbr-cand img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sbr-cand-prov { position: absolute; bottom: 0; left: 0; right: 0; font-size: 9px; background: rgba(0,0,0,0.6); color: #fff; padding: 1px 3px; }
 .sbr-status { font-size: 11px; white-space: nowrap; }
 .sbr-status.st-matched, .sbr-status.st-user-swapped { color: #98c379; }
 .sbr-status.st-empty { color: #e06c75; }
