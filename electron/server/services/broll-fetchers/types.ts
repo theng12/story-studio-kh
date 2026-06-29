@@ -25,7 +25,10 @@
  *     matching `provider + source_id` pair before returning.
  */
 
-export type FetchProvider = 'pexels' | 'pixabay' | 'nasa'
+// Audio (SFX) providers — Freesound — search/download mp3 previews into an
+// `audio` pool. Video providers (Pexels/Pixabay/NASA) and audio providers are
+// gated by pool media at the route + UI layer, never mixed in one search.
+export type FetchProvider = 'pexels' | 'pixabay' | 'nasa' | 'freesound'
 
 export type FetchQuality = 'uhd' | 'hd' | 'sd' | 'tiny'
 
@@ -66,6 +69,11 @@ export interface FetchResult {
   license_url: string
   /** Downloadable files at multiple qualities, sorted best → worst. */
   files: FetchFile[]
+  /** Provider-supplied tags, when the API returns them (Freesound does).
+   *  The fetch executor applies these to the indexed clip so SFX land
+   *  pre-tagged. Video providers leave this undefined (their clips are
+   *  tagged via the vision-LLM auto-tag pass instead). */
+  tags?: string[]
 }
 
 export interface SearchOptions {

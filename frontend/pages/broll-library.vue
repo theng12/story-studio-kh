@@ -164,8 +164,8 @@
             :class="['form-tab', { active: poolTab === 'fetch' }]"
             @click="poolTab = 'fetch'"
           >
-            🔎 Fetch
-            <span class="text-muted text-xs ml-1">(Pexels · Pixabay)</span>
+            🔎 {{ isAudioPool ? 'Fetch / Generate' : 'Fetch' }}
+            <span class="text-muted text-xs ml-1">{{ isAudioPool ? '(Freesound · ElevenLabs)' : '(Pexels · Pixabay)' }}</span>
           </button>
           <button
             type="button"
@@ -343,9 +343,50 @@
 
         <!-- ── Fetch tab ──────────────────────────────────────────────── -->
         <div v-show="poolTab === 'fetch'">
+
+          <!-- Audio pools: generate a sound effect from a text prompt via
+               ElevenLabs. Saves the MP3 into the pool folder + re-scans. -->
+          <div v-if="isAudioPool" class="sfx-gen">
+            <div class="sfx-gen-title">🎛 Generate a sound effect <span class="text-muted text-xs">· ElevenLabs</span></div>
+            <div class="sfx-gen-row">
+              <input
+                v-model="sfxPrompt"
+                class="input sfx-gen-prompt"
+                placeholder="e.g. distant thunder rumble, glass shatter, retro coin pickup…"
+                :disabled="sfxGenerating"
+                @keydown.enter="generateSfx"
+              />
+              <input
+                v-model.number="sfxDuration"
+                type="number"
+                min="0.5"
+                max="22"
+                step="0.5"
+                class="input sfx-gen-duration"
+                title="Optional length in seconds (0.5–22). Leave blank to let ElevenLabs pick."
+                placeholder="auto"
+                :disabled="sfxGenerating"
+              />
+              <button
+                class="btn btn-primary"
+                :disabled="!sfxPrompt.trim() || sfxGenerating || !selectedPool?.online"
+                :title="!selectedPool?.online ? 'Pool offline — plug in the SSD first' : 'Generate via ElevenLabs and add to this pool'"
+                @click="generateSfx"
+              >
+                <LoadingSpinner v-if="sfxGenerating" size="sm" />
+                {{ sfxGenerating ? 'Generating…' : '✨ Generate' }}
+              </button>
+            </div>
+            <p class="fetch-hint text-muted text-xs">
+              Needs an <strong>ElevenLabs</strong> API key (App Settings → API Keys). The clip lands tagged
+              with your prompt keywords and plays inline under the <strong>🎞 Clips</strong> tab.
+            </p>
+            <div v-if="sfxGenError" class="fetch-error">⚠ {{ sfxGenError }}</div>
+          </div>
+
           <div class="fetch-controls">
             <div class="fetch-providers" role="group" aria-label="Search providers">
-              <label v-for="p in providersState" :key="p.provider" :class="['fetch-provider', { 'is-unconfigured': !p.configured }]">
+              <label v-for="p in visibleProviders" :key="p.provider" :class="['fetch-provider', { 'is-unconfigured': !p.configured }]">
                 <input
                   type="checkbox"
                   :checked="enabledProviders[p.provider]"
@@ -360,10 +401,10 @@
               <input
                 v-model="fetchQuery"
                 class="input"
-                placeholder="ocean sunset, calm beach, slow motion clouds…"
+                :placeholder="isAudioPool ? 'rain, footsteps, sci-fi whoosh, applause…' : 'ocean sunset, calm beach, slow motion clouds…'"
                 @keydown.enter="runFetchSearch"
               />
-              <select v-model="fetchQuality" class="select" title="Quality preference. Falls back to next-best when the requested isn't available. HD matches normalize target (1080p) — UHD costs bandwidth + storage with no render benefit.">
+              <select v-if="!isAudioPool" v-model="fetchQuality" class="select" title="Quality preference. Falls back to next-best when the requested isn't available. HD matches normalize target (1080p) — UHD costs bandwidth + storage with no render benefit.">
                 <option value="hd">HD (1080p)</option>
                 <option value="uhd">UHD (4K)</option>
                 <option value="sd">SD</option>
@@ -377,7 +418,12 @@
                 {{ fetchLoading ? 'Searching…' : 'Search' }}
               </button>
             </div>
-            <p v-if="!anyProviderConfigured" class="fetch-hint text-warn">
+            <p v-if="!anyProviderConfigured && isAudioPool" class="fetch-hint text-warn">
+              No SFX provider configured. Add a free <strong>Freesound</strong> API token under
+              <strong>App Settings → API Keys</strong> to search Creative-Commons sound effects,
+              or use <strong>Generate</strong> above (ElevenLabs) to make one from a text prompt.
+            </p>
+            <p v-else-if="!anyProviderConfigured" class="fetch-hint text-warn">
               No fetch providers configured. Add a Pexels or Pixabay API key under
               <strong>App Settings → API Keys</strong> (both free, no attribution required),
               or tick the <strong>NASA</strong> checkbox above for key-free public-domain
@@ -419,14 +465,27 @@
                 />
               </label>
               <div class="fetch-thumb-wrap">
-                <img :src="r.thumbnail_url" :alt="`${r.provider} ${r.source_id}`" loading="lazy" class="fetch-thumb" />
+                <!-- Audio results have no still — preview the CC-licensed
+                     mp3 inline straight from the provider's CDN URL. -->
+                <div v-if="isAudioPool" class="fetch-audio-wrap">
+                  <audio
+                    v-if="r.files[0]?.url"
+                    controls
+                    preload="none"
+                    class="fetch-audio"
+                    :src="r.files[0].url"
+                  ></audio>
+                  <div v-else class="clip-audio-offline">🔊 no preview</div>
+                </div>
+                <img v-else :src="r.thumbnail_url" :alt="`${r.provider} ${r.source_id}`" loading="lazy" class="fetch-thumb" />
                 <span class="fetch-duration">{{ formatDuration(r.duration) }}</span>
                 <span :class="['fetch-provider-pill', `source-${r.provider}`]">{{ r.provider }}</span>
                 <span v-if="r.already_have" class="fetch-have-badge" title="A clip from this provider with this source_id is already in this pool.">✓ in pool</span>
               </div>
               <div class="fetch-card-body">
                 <div class="fetch-card-meta text-muted text-xs">
-                  {{ r.width }}×{{ r.height }} · by {{ r.author || 'Unknown' }}
+                  <template v-if="isAudioPool">by {{ r.author || 'Unknown' }}</template>
+                  <template v-else>{{ r.width }}×{{ r.height }} · by {{ r.author || 'Unknown' }}</template>
                 </div>
                 <div class="fetch-card-license text-muted text-xs">
                   <a :href="r.license_url" target="_blank" rel="noopener noreferrer">{{ r.license }}</a> ·
@@ -438,6 +497,12 @@
 
           <div v-else-if="!fetchLoading && fetchQuery && !fetchError" class="muted">
             No results. Try different keywords, or enable another provider above.
+          </div>
+
+          <div v-else-if="!fetchQuery && isAudioPool" class="empty">
+            Type keywords above and hit <strong>Search</strong> to find free Creative-Commons sound
+            effects on Freesound — or <strong>Generate</strong> a bespoke one with ElevenLabs.
+            Clips already in this pool are flagged automatically.
           </div>
 
           <div v-else-if="!fetchQuery" class="empty">
@@ -457,8 +522,14 @@
             />
             <select v-model="logSourceFilter" class="select select-sm">
               <option value="all">All sources</option>
-              <option value="pexels">Pexels</option>
-              <option value="pixabay">Pixabay</option>
+              <template v-if="isAudioPool">
+                <option value="freesound">Freesound</option>
+              </template>
+              <template v-else>
+                <option value="pexels">Pexels</option>
+                <option value="pixabay">Pixabay</option>
+                <option value="nasa">NASA</option>
+              </template>
             </select>
             <button
               class="btn btn-sm btn-secondary"
@@ -1121,13 +1192,16 @@ watch(poolTab, (v) => {
 })
 
 // ── v1.0.122+ Fetch state ───────────────────────────────────────────────
+type FetchProviderId = 'pexels' | 'pixabay' | 'nasa' | 'freesound'
 interface ConfiguredProvider {
-  provider: 'pexels' | 'pixabay' | 'nasa'
+  provider: FetchProviderId
   name: string
   configured: boolean
+  /** Pool media this provider feeds — used to gate which providers show. */
+  media: 'video' | 'image' | 'audio'
 }
 interface FetchResultUi {
-  provider: 'pexels' | 'pixabay' | 'nasa'
+  provider: FetchProviderId
   source_id: string
   source_url: string
   thumbnail_url: string
@@ -1139,12 +1213,13 @@ interface FetchResultUi {
   license: string
   license_url: string
   files: Array<{ quality: string; url: string; width: number; height: number }>
+  tags?: string[]
   already_have: boolean
 }
 const { get: apiGet, post: apiPost } = useApi()
 
 const providersState = ref<ConfiguredProvider[]>([])
-const enabledProviders = reactive<Record<'pexels' | 'pixabay' | 'nasa', boolean>>({
+const enabledProviders = reactive<Record<FetchProviderId, boolean>>({
   pexels: true,
   pixabay: true,
   // v1.0.136+ — NASA Image & Video Library (public domain, no API key).
@@ -1152,8 +1227,16 @@ const enabledProviders = reactive<Record<'pexels' | 'pixabay' | 'nasa', boolean>
   // footage, not space telescope archives — NASA's catalog is niche
   // (space, science, missions). Users who want it tick the checkbox.
   nasa: false,
+  // Freesound — the lone SFX provider, so it's on by default for audio pools.
+  freesound: true,
 })
-const anyProviderConfigured = computed(() => providersState.value.some(p => p.configured))
+// Only providers matching the selected pool's media are shown/searched —
+// Freesound for audio (SFX) pools, Pexels/Pixabay/NASA for video pools.
+const visibleProviders = computed<ConfiguredProvider[]>(() => {
+  const media = poolMediaOf(selectedPool.value || {})
+  return providersState.value.filter(p => p.media === media)
+})
+const anyProviderConfigured = computed(() => visibleProviders.value.some(p => p.configured))
 const fetchQuery = ref('')
 const fetchQuality = ref<'hd' | 'uhd' | 'sd'>('hd')
 const fetchResults = ref<FetchResultUi[]>([])
@@ -1162,12 +1245,19 @@ const fetchError = ref<string | null>(null)
 const selectedFetchKeys = ref<Set<string>>(new Set())
 const queueingFetch = ref(false)
 
+// ── SFX generation (ElevenLabs sound-generation, audio pools only) ───────
+const sfxPrompt = ref('')
+const sfxDuration = ref<number | null>(null)
+const sfxGenerating = ref(false)
+const sfxGenError = ref<string | null>(null)
+
 const canFetchSearch = computed(() => {
   if (fetchLoading.value) return false
   if (!fetchQuery.value.trim()) return false
   if (!anyProviderConfigured.value) return false
-  // At least one enabled-AND-configured provider needs to be ticked.
-  return providersState.value.some(p => p.configured && enabledProviders[p.provider])
+  // At least one enabled-AND-configured provider (matching this pool's
+  // media) needs to be ticked.
+  return visibleProviders.value.some(p => p.configured && enabledProviders[p.provider])
 })
 
 const alreadyHaveCount = computed(() => fetchResults.value.filter(r => r.already_have).length)
@@ -1226,8 +1316,8 @@ async function runFetchSearch(): Promise<void> {
   fetchResults.value = []
   selectedFetchKeys.value = new Set()
   try {
-    // Fan out to enabled+configured providers in parallel.
-    const providers = providersState.value
+    // Fan out to enabled+configured providers (matching pool media) in parallel.
+    const providers = visibleProviders.value
       .filter(p => p.configured && enabledProviders[p.provider])
       .map(p => p.provider)
     const responses = await Promise.allSettled(
@@ -1268,12 +1358,13 @@ async function queueSelectedFetches(): Promise<void> {
   try {
     // Group picks by provider so the backend gets one request per
     // provider with its full result list — fewer roundtrips than per-
-    // clip POSTs, and the queue dedupe runs once per call.
-    const byProvider: Record<string, FetchResultUi[]> = { pexels: [], pixabay: [] }
+    // clip POSTs, and the queue dedupe runs once per call. Built
+    // dynamically so every provider (incl. nasa / freesound) is covered.
+    const byProvider: Record<string, FetchResultUi[]> = {}
     for (const r of fetchResults.value) {
       if (!selectedFetchKeys.value.has(fetchKey(r))) continue
       if (r.already_have) continue
-      if (byProvider[r.provider]) byProvider[r.provider]!.push(r)
+      ;(byProvider[r.provider] ??= []).push(r)
     }
     let totalQueued = 0
     for (const [provider, results] of Object.entries(byProvider)) {
@@ -1312,10 +1403,39 @@ async function queueSelectedFetches(): Promise<void> {
   }
 }
 
+async function generateSfx(): Promise<void> {
+  const text = sfxPrompt.value.trim()
+  if (!text || sfxGenerating.value || !selectedPoolId.value) return
+  sfxGenerating.value = true
+  sfxGenError.value = null
+  try {
+    const body: { text: string; duration_seconds?: number } = { text }
+    if (typeof sfxDuration.value === 'number' && sfxDuration.value > 0) {
+      body.duration_seconds = sfxDuration.value
+    }
+    const resp = await apiPost<{ ok: boolean; filename: string }>(
+      `/broll-pools/${selectedPoolId.value}/generate-sfx`,
+      body,
+    )
+    success(`Generated ${resp.filename} — added to pool.`)
+    sfxPrompt.value = ''
+    sfxDuration.value = null
+    // The route already re-scanned server-side; refresh the grid + provenance
+    // so the new clip shows up immediately under the Clips tab.
+    const fresh = await broll.listClips(selectedPoolId.value)
+    clips.value = fresh.clips
+    void loadProvenance()
+  } catch (e: any) {
+    sfxGenError.value = e?.data?.detail || e?.message || 'Failed to generate sound effect'
+  } finally {
+    sfxGenerating.value = false
+  }
+}
+
 // ── v1.0.122+ Provenance state ──────────────────────────────────────────
 interface ProvenanceRow {
   filename: string
-  source: 'pexels' | 'pixabay' | 'nasa'
+  source: FetchProviderId
   source_id: string
   source_url: string
   author: string
@@ -1378,7 +1498,7 @@ watch(selectedPoolId, () => { void loadProvenance() }, { immediate: false })
 
 // ── v1.0.122+ Asset Log filtering + sorting ─────────────────────────────
 const logSearch = ref('')
-const logSourceFilter = ref<'all' | 'pexels' | 'pixabay' | 'nasa'>('all')
+const logSourceFilter = ref<'all' | FetchProviderId>('all')
 const logSort = ref<{ key: 'filename' | 'source' | 'author' | 'fetched_at'; dir: 'asc' | 'desc' }>({ key: 'fetched_at', dir: 'desc' })
 function setLogSort(key: 'filename' | 'source' | 'author' | 'fetched_at'): void {
   if (logSort.value.key === key) {
@@ -2238,6 +2358,7 @@ function onThumbError(e: Event): void {
 }
 .clip-source-pill.source-pexels { background: rgba(5, 168, 122, 0.18); color: #5fd9b1; }
 .clip-source-pill.source-pixabay { background: rgba(46, 192, 84, 0.18); color: #6fd58a; }
+.clip-source-pill.source-freesound { background: rgba(232, 120, 24, 0.18); color: #f0a35e; }
 .clip-source-pill.source-local { background: rgba(127, 127, 127, 0.18); color: var(--text-muted); }
 .clip-source-link {
   font-size: 11px;
@@ -2317,6 +2438,26 @@ function onThumbError(e: Event): void {
 }
 .fetch-thumb-wrap { position: relative; aspect-ratio: 16 / 9; background: #000; }
 .fetch-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Audio (SFX) fetch results preview inline instead of a still thumbnail. */
+.fetch-audio-wrap {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  padding: 8px; background: var(--bg-tertiary);
+}
+.fetch-audio { width: 100%; }
+
+/* SFX generation panel (audio pools, Fetch/Generate tab) */
+.sfx-gen {
+  margin: 12px 0;
+  padding: 12px 14px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.sfx-gen-title { font-size: 14px; font-weight: 600; }
+.sfx-gen-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sfx-gen-prompt { flex: 1 1 320px; min-width: 240px; }
+.sfx-gen-duration { flex: 0 0 92px; width: 92px; }
 .fetch-duration {
   position: absolute;
   bottom: 6px;

@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.481 — 2026-06-29
+
+### Added — SFX pools get fetch (Freesound) + generate (ElevenLabs)
+Audio (SFX) pools can now be **filled without leaving the app**, mirroring the B-Roll Fetch flow:
+
+- **Fetch from Freesound** — search free Creative-Commons sound effects and add the picks straight into an SFX pool. Each result previews inline (plays the HQ-mp3 right in the Fetch grid), lands tagged with the Freesound tags, and writes the usual provenance sidecar (per-clip CC license + source link captured in the Asset Log). Needs a free **Freesound** API token under App Settings → API Keys (token-only — no OAuth2; we pull the 128 kbps preview).
+- **Generate with ElevenLabs** — type a prompt (e.g. "distant thunder rumble"), optionally set a length (0.5–22 s), and ElevenLabs' sound-generation API renders an MP3 into the pool. Re-scans + tags automatically so it shows up under Clips immediately. Needs an **ElevenLabs** API key.
+
+The Fetch panel now **gates providers by pool media**: SFX pools see Freesound + Generate; video pools see Pexels / Pixabay / NASA. You can't accidentally drop video into an audio pool (or vice-versa) — the search route rejects a media mismatch.
+
+### Files
+- `electron/server/services/broll-fetchers/freesound.ts` (new adapter), `…/types.ts` (`freesound` provider + per-result `tags`), `…/index.ts` (registered)
+- `electron/server/routes/broll-fetch.ts` (provider→media map; `/providers` exposes `media`; search route gates by pool media)
+- `electron/server/generators/broll-fetch.ts` (audio: `.mp3` ext, media-aware re-scan, apply provider tags)
+- `electron/server/lib/elevenlabs-client.ts` (`generateSoundEffectToFile`), `electron/server/routes/broll-pools.ts` (`POST …/generate-sfx`)
+- `frontend/pages/broll-library.vue` (media-gated providers, inline audio preview in Fetch grid, Generate SFX panel)
+
+---
+
 ## v1.0.480 — 2026-06-29
 
 ### Added — Sound-effects (SFX) pools + the library is now the "Assets Library"

@@ -22,17 +22,34 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
 export const router = Router()
 
+type PoolMedia = 'video' | 'image' | 'audio'
+
 interface ConfiguredProvider {
   provider: FetchProvider
   configured: boolean
   /** Human-readable display name for the UI dropdown / chips. */
   name: string
+  /** Pool media this provider feeds. The Fetch panel only shows a provider
+   *  when it matches the selected pool's media (Freesound → audio pools;
+   *  Pexels/Pixabay/NASA → video pools). */
+  media: PoolMedia
 }
 
 const DISPLAY_NAMES: Record<FetchProvider, string> = {
   pexels: 'Pexels',
   pixabay: 'Pixabay',
   nasa: 'NASA',
+  freesound: 'Freesound',
+}
+
+// Which pool media each provider feeds. Video providers serve `video` pools;
+// Freesound serves `audio` (SFX) pools. (No fetch provider targets `image`
+// pools yet — those are hand-curated.)
+const PROVIDER_MEDIA: Record<FetchProvider, PoolMedia> = {
+  pexels: 'video',
+  pixabay: 'video',
+  nasa: 'video',
+  freesound: 'audio',
 }
 
 router.get('/broll-fetch/providers', async (_req, res) => {
@@ -42,6 +59,7 @@ router.get('/broll-fetch/providers', async (_req, res) => {
       out.push({
         provider: id,
         name: DISPLAY_NAMES[id],
+        media: PROVIDER_MEDIA[id],
         configured: await adapter.isConfigured(),
       })
     }
@@ -109,6 +127,23 @@ router.get('/broll-fetch/search', async (req, res) => {
       })
     }
 
+    // Gate by pool media — a provider only feeds pools of its media type
+    // (Freesound → audio, Pexels/Pixabay/NASA → video). Refuse a mismatch
+    // up front so the UI can't accidentally drop video into an SFX pool.
+    let pool = null as Awaited<ReturnType<typeof bp.getPool>>
+    if (poolId) {
+      pool = await bp.getPool(poolId)
+      if (!pool) return res.status(404).json({ detail: `Pool not found: ${poolId}` })
+      const poolMedia = bp.poolMedia(pool)
+      if (PROVIDER_MEDIA[provider] !== poolMedia) {
+        return res.status(400).json({
+          detail: `${DISPLAY_NAMES[provider]} provides ${PROVIDER_MEDIA[provider]} clips, but this is a ${poolMedia} pool.`,
+          code: 'PROVIDER_MEDIA_MISMATCH',
+          provider,
+        })
+      }
+    }
+
     // v1.0.134+ — Cache check before hitting upstream. `cached: true` is
     // surfaced on the response so the Network tab + frontend can see
     // which searches were served locally vs round-tripped.
@@ -131,14 +166,9 @@ router.get('/broll-fetch/search', async (req, res) => {
       _searchCache.set(cacheKey, { results, cachedAt: Date.now() })
     }
 
-    // Annotate against the target pool. Skip the pool lookup when none
-    // was given — the user is browsing without committing to a pool yet.
-    let pool = null as Awaited<ReturnType<typeof bp.getPool>>
-    if (poolId) {
-      pool = await bp.getPool(poolId)
-      if (!pool) return res.status(404).json({ detail: `Pool not found: ${poolId}` })
-    }
-
+    // Annotate against the target pool (already resolved above when a
+    // pool_id was supplied). When browsing without a pool, every result is
+    // `already_have: false`.
     const annotated: AnnotatedResult[] = []
     if (pool) {
       // Single sidecar-listing call, then in-memory check per result.

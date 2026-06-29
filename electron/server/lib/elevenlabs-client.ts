@@ -128,6 +128,72 @@ export async function generateTtsBuffer(
   return Buffer.from(arr)
 }
 
+// ── Sound effects (text → SFX) ──────────────────────────────────────────
+//
+// Endpoint:  POST https://api.elevenlabs.io/v1/sound-generation
+// Auth:      `xi-api-key` header (same credential as TTS).
+// Body:      { text, duration_seconds?, prompt_influence?, loop?, model_id? }
+// Response:  binary MP3 (default output_format mp3_44100_128).
+// Docs:      https://elevenlabs.io/docs/api-reference/text-to-sound-effects/convert
+// (The docs path moved from /sound-generation; the API endpoint is unchanged.)
+
+export interface ElevenLabsSfxOptions {
+  /** 0.5–22 s. Omit to let ElevenLabs auto-pick the length from the prompt. */
+  durationSeconds?: number
+  /** 0..1 — how literally the model follows the prompt vs. adds variety.
+   *  API default is 0.3; we pass through and let the API default when omitted. */
+  promptInfluence?: number
+  /** Generate a seamlessly-loopable effect. Defaults to false. */
+  loop?: boolean
+  /** Abort signal for caller-level timeouts. */
+  signal?: AbortSignal
+}
+
+/**
+ * Generate a sound effect from a text prompt and write the MP3 bytes directly
+ * to `outPath`. Creates parent directories as needed. Throws on non-2xx or
+ * network error, removing any partial file.
+ */
+export async function generateSoundEffectToFile(
+  text: string,
+  apiKey: string,
+  outPath: string,
+  opts: ElevenLabsSfxOptions = {},
+): Promise<void> {
+  if (!apiKey) throw new Error('No ElevenLabs API key configured')
+  const prompt = text.trim()
+  if (!prompt) throw new Error('Sound-effect prompt text is required')
+
+  const body: Record<string, unknown> = { text: prompt }
+  if (typeof opts.durationSeconds === 'number') body.duration_seconds = opts.durationSeconds
+  if (typeof opts.promptInfluence === 'number') body.prompt_influence = opts.promptInfluence
+  if (opts.loop) body.loop = true
+
+  const resp = await fetch('https://api.elevenlabs.io/v1/sound-generation', {
+    method: 'POST',
+    headers: {
+      'xi-api-key': apiKey,
+      'Content-Type': 'application/json',
+      Accept: 'audio/mpeg',
+    },
+    body: JSON.stringify(body),
+    // SFX generation is short but can spike; 120s is a generous ceiling.
+    signal: opts.signal ?? AbortSignal.timeout(120000),
+  })
+  if (!resp.ok || !resp.body) {
+    const errText = await resp.text().catch(() => '')
+    throw new Error(`ElevenLabs sound-generation failed (${resp.status}): ${errText.slice(0, 300)}`)
+  }
+  await fs.mkdir(path.dirname(outPath), { recursive: true })
+  const out = createWriteStream(outPath)
+  try {
+    await pipeline(Readable.fromWeb(resp.body as any), out)
+  } catch (e) {
+    await fs.rm(outPath, { force: true }).catch(() => {})
+    throw e
+  }
+}
+
 /**
  * Quick connectivity + auth probe. Used by Settings → API Keys → Test.
  * Returns the subscription tier + character quota if valid.

@@ -67,7 +67,12 @@ export async function fetchBroll(job: Job): Promise<void> {
   // Construct a stable filename. `suggestFilename` derives a slug from
   // the first keyword so the filename is human-scannable in Finder,
   // but the source+id pair in the prefix is what guarantees uniqueness.
-  const filename = suggestFilename(provider, result.source_id, search_keywords)
+  // Extension follows the pool media: audio (SFX) previews are mp3, video
+  // clips are mp4. Passing the right ext is what makes the post-fetch scan
+  // actually index the file (the audio-pool scan only matches audio exts).
+  const media = bp.poolMedia(pool)
+  const ext = media === 'audio' ? 'mp3' : 'mp4'
+  const filename = suggestFilename(provider, result.source_id, search_keywords, ext)
   const destPath = path.join(pool.folder_path, filename)
 
   // Don't overwrite an existing file with the same name — extremely
@@ -130,9 +135,23 @@ export async function fetchBroll(job: Job): Promise<void> {
   // Re-scan so the new clip lands in `.story-studio-broll.json`
   // (filename + duration + dimensions + sha256). Without this the clip
   // is on disk but invisible to the pool's clip list until the user
-  // hits "Scan" manually.
+  // hits "Scan" manually. Pass the pool media so an audio pool scans for
+  // audio extensions (a default 'video' scan would skip the mp3).
   job.output_lines.push(`Re-scanning pool…`)
-  await scanPoolFolder(pool.folder_path)
+  await scanPoolFolder(pool.folder_path, undefined, media)
+
+  // Apply provider-supplied tags (Freesound returns them) to the freshly
+  // indexed clip so fetched SFX land pre-tagged. The scan re-creates the
+  // clip with empty tags; setting them after the scan is what sticks.
+  // Best-effort — a tag-write failure shouldn't fail an otherwise-good fetch.
+  if (Array.isArray(result.tags) && result.tags.length) {
+    try {
+      await bp.setClipTags(pool.id, filename, result.tags)
+      job.output_lines.push(`Tagged: ${result.tags.slice(0, 8).join(', ')}${result.tags.length > 8 ? '…' : ''}`)
+    } catch (e: any) {
+      job.output_lines.push(`(tagging skipped: ${e?.message || e})`)
+    }
+  }
   // The scan rebuilds .story-studio-broll.json from disk. Persist that
   // updated index via the pool manager's exposed save helper so any
   // open UI sees the new clip on the next /clips poll.

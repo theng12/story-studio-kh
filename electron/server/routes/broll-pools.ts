@@ -25,6 +25,8 @@ import * as bp from '../services/broll-pool-manager.js'
 import * as jq from '../services/job-queue.js'
 import { scanPoolFolder } from '../lib/broll-indexer.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { generateSoundEffectToFile } from '../lib/elevenlabs-client.js'
 import type { JobType } from '../models/types.js'
 
 export const router = Router()
@@ -241,6 +243,89 @@ router.get('/broll-pools/:id/clips/:filename/audio', async (req, res) => {
     stream.pipe(res)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to serve audio'))
+  }
+})
+
+// ── Generate SFX (ElevenLabs sound-generation) ─────────────────────────
+//
+// Generate a sound effect from a text prompt and drop the MP3 into an audio
+// (SFX) pool, then re-scan so it indexes immediately. Synchronous (not a
+// queued job) — generation is a single short API call, and the user wants the
+// clip to appear in the pool right away.
+//
+// Body: { text, duration_seconds?, prompt_influence? }
+
+/** Build a Finder-friendly, collision-resistant filename for a generated SFX:
+ *  `sfx-<slug>-<ts>.mp3`. The timestamp keeps repeated prompts distinct. */
+function suggestSfxFilename(prompt: string): string {
+  const slug = prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'sfx'
+  // Compact timestamp (yymmdd-hhmmss) — unique enough for hand-paced clicks.
+  const ts = new Date().toISOString().replace(/[-:T]/g, '').slice(2, 15)
+  return `sfx-${slug}-${ts}.mp3`
+}
+
+router.post('/broll-pools/:id/generate-sfx', async (req, res) => {
+  try {
+    const pool = await bp.getPool(req.params.id)
+    if (!pool) return res.status(404).json({ detail: 'Pool not found' })
+    if (bp.poolMedia(pool) !== 'audio') {
+      return res.status(400).json({ detail: 'Generate SFX is only available on audio (SFX) pools.' })
+    }
+    if (!existsSync(pool.folder_path)) {
+      return res.status(409).json({
+        detail: `Pool folder offline — plug in the SSD at ${pool.folder_path} before generating.`,
+        code: 'POOL_OFFLINE',
+      })
+    }
+
+    const text = String(req.body?.text || '').trim()
+    if (!text) return res.status(400).json({ detail: 'text (the sound-effect prompt) is required' })
+    // duration_seconds: optional, clamp to the ElevenLabs-supported 0.5–22 s.
+    const rawDur = req.body?.duration_seconds
+    const durationSeconds = Number.isFinite(rawDur) ? Math.min(Math.max(Number(rawDur), 0.5), 22) : undefined
+    const rawInfluence = req.body?.prompt_influence
+    const promptInfluence = Number.isFinite(rawInfluence) ? Math.min(Math.max(Number(rawInfluence), 0), 1) : undefined
+
+    const apiKey = await getApiKey('elevenlabs')
+    if (!apiKey) {
+      return res.status(400).json({
+        detail: 'ElevenLabs API key not configured. Add it under App Settings → API Keys.',
+        code: 'PROVIDER_NOT_CONFIGURED',
+      })
+    }
+
+    const filename = suggestSfxFilename(text)
+    const destPath = path.join(pool.folder_path, filename)
+    if (existsSync(destPath)) {
+      // Astronomically unlikely given the timestamp, but never clobber.
+      return res.status(409).json({ detail: `Filename collision: ${filename} already exists. Retry.` })
+    }
+
+    await generateSoundEffectToFile(text, apiKey, destPath, { durationSeconds, promptInfluence })
+
+    const stat = await fs.stat(destPath).catch(() => null)
+    if (!stat || stat.size === 0) {
+      await fs.unlink(destPath).catch(() => {})
+      return res.status(502).json({ detail: 'Generation produced no audio — nothing saved.' })
+    }
+
+    // Re-scan (audio media) so the clip lands in the index, then tag it with
+    // the prompt keywords + provenance markers so it's findable.
+    await scanPoolFolder(pool.folder_path, undefined, 'audio')
+    const tags = Array.from(new Set([
+      'generated',
+      'elevenlabs',
+      ...text.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2),
+    ])).slice(0, 12)
+    await bp.setClipTags(pool.id, filename, tags).catch(() => {})
+
+    res.status(201).json({ ok: true, filename, bytes: stat.size, tags })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to generate sound effect'))
   }
 })
 
