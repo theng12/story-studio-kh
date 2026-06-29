@@ -11,7 +11,7 @@
       <p class="dialog-sub text-muted" style="margin-top: 6px;">
         Nothing has been regenerated. This is a read-only report — fix by
         opening the matching <strong>Repair</strong> button on each page,
-        or the <NuxtLink :to="`/projects/${slug}/assets`" @click="emit('close')">Assets</NuxtLink> page.
+        or <NuxtLink :to="`/projects/${slug}/board?repair=1`" @click="emit('close')">Repair</NuxtLink> on the Production Board.
       </p>
     </div>
 
@@ -74,9 +74,9 @@
       <button class="btn btn-secondary" @click="emit('close')">Close</button>
       <NuxtLink
         class="btn btn-primary"
-        :to="`/projects/${slug}/assets`"
+        :to="`/projects/${slug}/board?repair=1`"
         @click="emit('close')"
-      >Open Assets page</NuxtLink>
+      >Open Repair</NuxtLink>
     </div>
   </Modal>
 </template>
@@ -87,9 +87,10 @@
  *
  * By design this dialog never kicks off a repair — per the portability-audit
  * P7 fix: "Don't auto-repair. Don't auto-regenerate. Just inform." The user
- * navigates to the Assets page or the matching generator page to act on the
- * report. Silent auto-repair would mask the root cause (incomplete sync /
- * rsync interruption) which is the whole reason this audit exists.
+ * navigates to Repair (on the Production Board) or the matching generator page
+ * to act on the report. Silent auto-repair would mask the root cause
+ * (incomplete sync / rsync interruption) which is the whole reason this audit
+ * exists.
  */
 import type { AuditStage, ProjectAudit, EpisodeAudit, StageAudit } from '~/types/audit'
 
@@ -136,7 +137,7 @@ function jumpTo(code: string, stage: AuditStage): string {
     case 'thumbnails': return `/projects/${props.slug}/images?episode=${code}`
     case 'video': return `/projects/${props.slug}/video?episode=${code}`
     case 'merged_audio': return `/projects/${props.slug}/audio-merge?episode=${code}`
-    default: return `/projects/${props.slug}/assets`
+    default: return `/projects/${props.slug}/board?repair=1`
   }
 }
 </script>

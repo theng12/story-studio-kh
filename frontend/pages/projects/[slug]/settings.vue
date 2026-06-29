@@ -721,9 +721,10 @@
       </p>
     </div>
 
-    <!-- Assets tab moved to its own top-level page — see
-         frontend/pages/projects/[slug]/assets.vue. The old tab content
-         lived here before the extraction; delete-only refactor. -->
+    <!-- (The Assets audit/repair UI once lived in this Settings tab, then in a
+         standalone /assets page. v1.0.481 retired both: the audit matrix is
+         redundant with the Production Board, and Repair moved into the board's
+         ↻ Repair… dialog — see frontend/components/RepairAssetsDialog.vue.) -->
 
     <!-- Storage — per-episode disk usage + cleanup of uploaded final
          videos + external-root configuration. The pain point this

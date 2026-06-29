@@ -79,7 +79,7 @@
         <NuxtLink
           v-if="auditBannerVisible"
           class="btn btn-sm btn-primary"
-          :to="`/projects/${slug}/assets`"
+          :to="`/projects/${slug}/board?repair=1`"
         >Repair</NuxtLink>
         <button
           class="btn btn-sm"
@@ -527,8 +527,8 @@ function reportReadiness() {
       key: 'assets',
       severity: 'warning',
       title: `${audit.value.total_missing} asset${audit.value.total_missing === 1 ? '' : 's'} missing across ${audit.value.episodes_with_missing} episode${audit.value.episodes_with_missing === 1 ? '' : 's'}`,
-      detail: 'Likely a partial transfer or interrupted sync. The Repair buttons on each asset page can re-download without spending credits.',
-      to: `/projects/${s}/assets`,
+      detail: 'Likely a partial transfer or interrupted sync. Repair (on the Production Board) can re-download without spending credits.',
+      to: `/projects/${s}/board?repair=1`,
     })
   } else {
     notif.clear(s, 'assets')
