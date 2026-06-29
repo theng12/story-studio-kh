@@ -9,7 +9,10 @@
           to specific episodes; project-scoped characters appear for every episode (the brand cast).
         </p>
       </div>
-      <button class="btn btn-primary" @click="openCreate()">+ New character</button>
+      <div class="header-actions">
+        <button class="btn btn-secondary" :title="'Assign an existing character from the app-level library to this project'" @click="openAssign()">📚 Assign from library</button>
+        <button class="btn btn-primary" @click="openCreate()">+ New character</button>
+      </div>
     </header>
 
     <div v-if="loading" class="muted">Loading…</div>
@@ -29,16 +32,64 @@
         :thumbnail-url="cardThumb(c)"
       >
         <template #actions>
-          <button v-if="c.scope === 'episode'" class="btn btn-ghost btn-sm" :title="'Make this character available to every episode in the project'" @click="promote(c)">
-            Promote to project
-          </button>
-          <button class="btn btn-ghost btn-sm" :title="'Snapshot copy into the global character library — reusable across all your projects on this machine'" @click="saveToLibrary(c)">
-            Save to library
-          </button>
-          <button class="btn btn-ghost btn-sm" @click="openEdit(c)">Edit</button>
-          <button class="btn btn-ghost btn-sm danger" @click="confirmDelete(c)">Delete</button>
+          <!-- Library-assigned characters (unified-library model) live in the
+               app-level library, not this project's folder. Edit them in the
+               Character Library; here you can only Unassign (reversible — the
+               library entry is untouched). -->
+          <template v-if="c.source === 'library'">
+            <span class="lib-badge" title="Assigned from the app-level character library">📚 From library</span>
+            <button class="btn btn-ghost btn-sm" :title="'Remove this project from the library character\'s assignments. The library entry is kept.'" @click="unassign(c)">
+              Unassign
+            </button>
+          </template>
+          <template v-else>
+            <button v-if="c.scope === 'episode'" class="btn btn-ghost btn-sm" :title="'Make this character available to every episode in the project'" @click="promote(c)">
+              Promote to project
+            </button>
+            <button class="btn btn-ghost btn-sm" :title="'Snapshot copy into the global character library — reusable across all your projects on this machine'" @click="saveToLibrary(c)">
+              Save to library
+            </button>
+            <button class="btn btn-ghost btn-sm" @click="openEdit(c)">Edit</button>
+            <button class="btn btn-ghost btn-sm danger" @click="confirmDelete(c)">Delete</button>
+          </template>
         </template>
       </CharacterCard>
+    </div>
+
+    <!-- Assign-from-library modal -->
+    <div v-if="assignOpen" class="editor-backdrop" @click.self="assignOpen = false">
+      <div class="editor assign-modal">
+        <header class="ed-header">
+          <h3>Assign from library</h3>
+          <button class="btn btn-ghost btn-sm" @click="assignOpen = false">✕</button>
+        </header>
+        <div class="ed-body">
+          <p class="text-muted assign-intro">
+            Pick a character from the app-level library to make available in this project. It stays a
+            single shared record — edits in the library flow to every project it's assigned to.
+            Already-assigned characters are hidden.
+          </p>
+          <div v-if="assignLoading" class="muted">Loading library…</div>
+          <EmptyState
+            v-else-if="!assignableLibrary.length"
+            icon="&#128218;"
+            title="Nothing to assign"
+            message="Every library character is already assigned to this project — or the library is empty. Use Save to library on a character to add one."
+          />
+          <div v-else class="assign-list">
+            <div v-for="lc in assignableLibrary" :key="lc.id" class="assign-row">
+              <div class="assign-meta">
+                <strong>{{ lc.name }}</strong>
+                <span v-if="lc.archetype" class="assign-arch">{{ lc.archetype }}</span>
+                <span class="assign-desc">{{ shortTitle(lc.description, 80) }}</span>
+              </div>
+              <button class="btn btn-primary btn-sm" :disabled="assigningId === lc.id" @click="assignFromLibrary(lc)">
+                {{ assigningId === lc.id ? 'Assigning…' : 'Assign' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Editor modal -->
@@ -548,6 +599,62 @@ async function saveToLibrary(c: Character) {
   }
 }
 
+// ── Assign-from-library modal (unified-library model) ──────────────────────
+const assignOpen = ref(false)
+const assignLoading = ref(false)
+const assigningId = ref<string | null>(null)
+const libraryChars = ref<Character[]>([])
+
+// Library characters not already visible in this project (by id), so the
+// picker never offers a duplicate of something already here.
+const assignableLibrary = computed(() => {
+  const present = new Set(characters.value.map(c => c.id))
+  return libraryChars.value.filter(lc => !present.has(lc.id))
+})
+
+async function openAssign() {
+  assignOpen.value = true
+  assignLoading.value = true
+  try {
+    libraryChars.value = await cl.list()
+  } catch (e: any) {
+    showError(`Failed to load library: ${e?.data?.detail || e?.message || e}`)
+  } finally {
+    assignLoading.value = false
+  }
+}
+
+async function assignFromLibrary(lc: Character) {
+  assigningId.value = lc.id
+  try {
+    await cl.assignToProject(lc.id, slug.value)
+    success(`Assigned "${lc.name}" to this project`)
+    assignOpen.value = false
+    await load()  // refresh the unified list so the assigned character appears
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Assign failed')
+  } finally {
+    assigningId.value = null
+  }
+}
+
+async function unassign(c: Character) {
+  const ok = await ask({
+    title: `Unassign "${c.name}" from this project?`,
+    body: 'Removes this project from the library character\'s assignments. The library entry and its data are kept — re-assign any time. No per-project files are deleted.',
+    confirmLabel: 'Unassign',
+    danger: false,
+  })
+  if (!ok) return
+  try {
+    await cl.unassignFromProject(c.id, slug.value)
+    characters.value = characters.value.filter(x => !(x.id === c.id && x.source === 'library'))
+    success(`Unassigned "${c.name}"`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Unassign failed')
+  }
+}
+
 async function promote(c: Character) {
   try {
     const updated = await cm.promote(c.id)
@@ -820,12 +927,41 @@ async function uploadFiles(files: File[]) {
 
 .page-header h1 { margin: 0 0 4px; font-size: 20px; }
 .page-header .text-muted { font-size: 12px; line-height: 1.5; max-width: 720px; }
+.header-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
 
 .char-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
+
+/* ── Library-assigned characters + assign modal ─────────────────── */
+.lib-badge {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-secondary, rgba(127,127,127,0.08));
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  align-self: center;
+  white-space: nowrap;
+}
+.assign-modal { width: min(620px, 100%); }
+.assign-intro { font-size: 12px; line-height: 1.5; margin: 0 0 12px; }
+.assign-list { display: flex; flex-direction: column; gap: 8px; }
+.assign-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.assign-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.assign-meta strong { font-size: 13px; }
+.assign-arch { font-size: 11px; color: var(--text-muted); text-transform: capitalize; }
+.assign-desc { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .btn-ghost.danger { color: var(--error, #e25c5c); }
 .btn-ghost.danger:hover { background: rgba(226, 92, 92, 0.08); }

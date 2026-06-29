@@ -1313,8 +1313,23 @@ export interface Character {
   speech?: CharacterSpeech
   references?: CharacterReferences
 
-  /** Provenance — purely informational, set on create + persists across edits. */
-  source: 'project' | 'imported'
+  /**
+   * Unified-library assignment tags. On an app-level library record, lists the
+   * project slugs this character is assigned to (the "taggable/assignable per
+   * project" model). Undefined/empty = library-only, not assigned anywhere.
+   * Per-project on-disk characters leave this undefined — their folder
+   * location IS their assignment. See docs/character-unification-spec.md.
+   */
+  projects?: string[]
+
+  /**
+   * Provenance — purely informational, set on create + persists across edits.
+   *   'project'  — authored in a project (or the canonical library record).
+   *   'imported' — snapshot-copied into a project via import-to/:slug.
+   *   'library'  — surfaced into a project's unified view by assignment
+   *                (lives in the app-level library, tagged with this slug).
+   */
+  source: 'project' | 'imported' | 'library'
   schemaVersion: 1
   created_at: string
 }

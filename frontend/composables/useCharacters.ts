@@ -31,7 +31,9 @@ export interface Character {
   episode_codes?: string[]
   speech?: CharacterSpeech
   references?: CharacterReferences
-  source: 'project' | 'imported'
+  /** Unified-library assignment tags — project slugs this library character is assigned to. */
+  projects?: string[]
+  source: 'project' | 'imported' | 'library'
   schemaVersion: 1
   created_at: string
 }

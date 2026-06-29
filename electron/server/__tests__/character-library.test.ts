@@ -166,6 +166,60 @@ describe('character-library', () => {
     assert.equal(updated?.source, 'project')
   })
 
+  test('saveToLibrary: auto-assigns the source project into projects[]', async () => {
+    await cm.createCharacter(SLUG_A, { name: 'Aria', description: 'd', scope: 'project' })
+    const lib = await cl.saveToLibrary(SLUG_A, 'aria')
+    assert.deepEqual(lib.projects, [SLUG_A], 'source project auto-assigned on save')
+  })
+
+  test('assign/unassign: idempotent add + remove of project tags', async () => {
+    await cm.createCharacter(SLUG_A, { name: 'Aria', description: 'd', scope: 'project' })
+    await cl.saveToLibrary(SLUG_A, 'aria')
+    // Assign B; idempotent re-assign keeps a single entry.
+    await cl.assignToProject('aria', SLUG_B)
+    const twice = await cl.assignToProject('aria', SLUG_B)
+    assert.deepEqual(twice?.projects, [SLUG_A, SLUG_B])
+    // Unassign A.
+    const removed = await cl.unassignFromProject('aria', SLUG_A)
+    assert.deepEqual(removed?.projects, [SLUG_B])
+    // Unassigning a slug that isn't there is a no-op (idempotent).
+    const noop = await cl.unassignFromProject('aria', SLUG_A)
+    assert.deepEqual(noop?.projects, [SLUG_B])
+  })
+
+  test('assign/unassign: missing library character returns null', async () => {
+    assert.equal(await cl.assignToProject('ghost', SLUG_A), null)
+    assert.equal(await cl.unassignFromProject('ghost', SLUG_A), null)
+  })
+
+  test('listForProject: returns assigned chars marked source=library', async () => {
+    await cm.createCharacter(SLUG_A, { name: 'Aria', description: 'd', scope: 'project' })
+    await cm.createCharacter(SLUG_A, { name: 'Bond', description: 'd', scope: 'project' })
+    await cl.saveToLibrary(SLUG_A, 'aria')   // auto-assigned to A
+    await cl.saveToLibrary(SLUG_A, 'bond')   // auto-assigned to A
+    await cl.unassignFromProject('bond', SLUG_A)  // now bond is library-only
+    const forA = await cl.listForProject(SLUG_A)
+    assert.deepEqual(forA.map(c => c.id), ['aria'])
+    assert.equal(forA[0].source, 'library')
+    assert.equal((await cl.listForProject(SLUG_B)).length, 0)
+  })
+
+  test('updateLibraryCharacter: preserves projects[] across edits', async () => {
+    await cm.createCharacter(SLUG_A, { name: 'Aria', description: 'old', scope: 'project' })
+    await cl.saveToLibrary(SLUG_A, 'aria')
+    await cl.assignToProject('aria', SLUG_B)
+    const updated = await cl.updateLibraryCharacter('aria', { description: 'new' })
+    assert.deepEqual(updated?.projects, [SLUG_A, SLUG_B], 'edits must not drop assignments')
+  })
+
+  test('importFromLibrary: snapshot copy drops projects[] tags', async () => {
+    await cm.createCharacter(SLUG_A, { name: 'Aria', description: 'd', scope: 'project' })
+    await cl.saveToLibrary(SLUG_A, 'aria')
+    await cl.assignToProject('aria', SLUG_B)
+    const imported = await cl.importFromLibrary('aria', SLUG_B, { targetId: 'aria-copy' })
+    assert.equal(imported.projects, undefined, 'per-project snapshot carries no assignment tags')
+  })
+
   test('reference images copy on save + on import', async () => {
     await cm.createCharacter(SLUG_A, { name: 'Aria', description: 'd', scope: 'project' })
     await cm.addReferenceImage(SLUG_A, 'aria', Buffer.from('fake-png'), 'portrait.png')

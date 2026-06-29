@@ -42,6 +42,15 @@ function libraryDir(characterId: string): string {
   return path.join(libraryRoot(), characterId)
 }
 
+/**
+ * Public helper — absolute path to a library character's folder. Used by
+ * character-manager.referenceImagePath so a library character assigned to a
+ * project can resolve its reference images from the library folder.
+ */
+export function libraryCharacterDir(characterId: string): string {
+  return libraryDir(characterId)
+}
+
 function libraryJsonPath(characterId: string): string {
   return path.join(libraryDir(characterId), 'character.json')
 }
@@ -105,11 +114,18 @@ export async function saveToLibrary(
     throw e
   }
 
+  // Auto-assign the source project so "Save to library" also keeps the
+  // character assigned to the project it came from (unified-library model).
+  // On overwrite, merge the existing assignment set so we never drop tags.
+  const existing = await getLibraryCharacter(libraryId)
+  const projects = mergeProjects(existing?.projects, [slug])
+
   const libraryRecord: Character = {
     ...source,
     id: libraryId,
     scope: 'project',
     episode_codes: undefined,
+    projects,
     source: 'project',
     schemaVersion: SCHEMA_VERSION,
   }
@@ -195,6 +211,9 @@ export async function importFromLibrary(
     id: targetId,
     scope,
     episode_codes: scope === 'episode' ? opts!.episode_codes!.slice() : undefined,
+    // Assignment tags belong to the library record, not the per-project
+    // snapshot copy — drop them so the project copy stands on its own.
+    projects: undefined,
     source: 'imported',
     created_at: new Date().toISOString(),
     schemaVersion: SCHEMA_VERSION,
@@ -247,6 +266,9 @@ export async function updateLibraryCharacter(
       description: patch.description?.trim() ?? current.description,
       speech: patch.speech !== undefined ? patch.speech : current.speech,
       references: patch.references !== undefined ? patch.references : current.references,
+      // Assignment tags are managed via assign/unassign, not generic edits —
+      // but allow an explicit patch.projects through (e.g. bulk reassign UI).
+      projects: patch.projects !== undefined ? normalizeProjects(patch.projects) : current.projects,
       // Library entries are always project-scoped + canonical.
       scope: 'project',
       episode_codes: undefined,
@@ -259,4 +281,98 @@ export async function updateLibraryCharacter(
     result = merged
   })
   return result
+}
+
+// ── Project assignment (unified-library model) ─────────────────────────────
+//
+// A library character carries a `projects: string[]` tag set listing the
+// project slugs it's assigned to. The per-project Characters page reads the
+// unified view (character-manager.listCharacters) which merges in every
+// library character assigned to that slug. Assignment is additive and fully
+// reversible — it never copies or mutates the per-project store.
+
+function normalizeProjects(slugs: string[] | undefined): string[] {
+  // Dedupe + drop empties; keep order stable for readable diffs on disk.
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const s of slugs || []) {
+    const t = String(s || '').trim()
+    if (t && !seen.has(t)) { seen.add(t); out.push(t) }
+  }
+  return out
+}
+
+function mergeProjects(current: string[] | undefined, add: string[]): string[] {
+  return normalizeProjects([...(current || []), ...add])
+}
+
+/**
+ * Assign a library character to a project (idempotent). Adds `slug` to its
+ * `projects[]` tag set. Returns the updated record, or null if the library
+ * character doesn't exist.
+ */
+export async function assignToProject(characterId: string, slug: string): Promise<Character | null> {
+  const cleanSlug = String(slug || '').trim()
+  if (!cleanSlug) throw new Error('slug is required')
+  const file = libraryJsonPath(characterId)
+  if (!existsSync(file)) return null
+  let result: Character | null = null
+  await withLock(file, async () => {
+    const current = JSON.parse(await fs.readFile(file, 'utf-8')) as Character
+    const merged: Character = { ...current, projects: mergeProjects(current.projects, [cleanSlug]) }
+    await writeJsonAtomic(file, merged)
+    result = merged
+  })
+  return result
+}
+
+/**
+ * Unassign a library character from a project (idempotent). Removes `slug`
+ * from its `projects[]`. Returns the updated record, or null if missing.
+ * Does NOT delete the library entry or touch any per-project copy.
+ */
+export async function unassignFromProject(characterId: string, slug: string): Promise<Character | null> {
+  const cleanSlug = String(slug || '').trim()
+  const file = libraryJsonPath(characterId)
+  if (!existsSync(file)) return null
+  let result: Character | null = null
+  await withLock(file, async () => {
+    const current = JSON.parse(await fs.readFile(file, 'utf-8')) as Character
+    const merged: Character = {
+      ...current,
+      projects: normalizeProjects(current.projects).filter(s => s !== cleanSlug),
+    }
+    await writeJsonAtomic(file, merged)
+    result = merged
+  })
+  return result
+}
+
+/** Replace a library character's entire assignment set. Returns null if missing. */
+export async function setProjects(characterId: string, slugs: string[]): Promise<Character | null> {
+  const file = libraryJsonPath(characterId)
+  if (!existsSync(file)) return null
+  let result: Character | null = null
+  await withLock(file, async () => {
+    const current = JSON.parse(await fs.readFile(file, 'utf-8')) as Character
+    const merged: Character = { ...current, projects: normalizeProjects(slugs) }
+    await writeJsonAtomic(file, merged)
+    result = merged
+  })
+  return result
+}
+
+/**
+ * List the library characters assigned to a given project. The unified
+ * per-project view (character-manager.listCharacters) merges these in. Each
+ * record is normalised to `source: 'library'` so the UI can distinguish an
+ * assigned-from-library character from a native project character.
+ */
+export async function listForProject(slug: string): Promise<Character[]> {
+  const cleanSlug = String(slug || '').trim()
+  if (!cleanSlug) return []
+  const all = await listLibrary()
+  return all
+    .filter(c => normalizeProjects(c.projects).includes(cleanSlug))
+    .map(c => ({ ...c, source: 'library' as const }))
 }

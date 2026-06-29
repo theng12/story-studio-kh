@@ -48,7 +48,17 @@ function characterDir(slug: string, characterId: string): string {
  * route so it doesn't have to redo path arithmetic.
  */
 export function referenceImagePath(slug: string, characterId: string, filename: string): string {
-  return path.join(characterDir(slug, characterId), filename)
+  const projectPath = path.join(characterDir(slug, characterId), filename)
+  if (existsSync(projectPath)) return projectPath
+  // Unified-library fallback: a character assigned from the app-level library
+  // keeps its reference images in the library folder, not the project folder.
+  // Resolve the path inline (sync) to avoid an async import here — the
+  // library layout is a stable constant shared with character-library.ts.
+  const libraryPath = path.join(pm.PROJECTS_ROOT, '.character-library', characterId, filename)
+  if (existsSync(libraryPath)) return libraryPath
+  // Neither exists — preserve legacy behaviour (the project path; callers
+  // existsSync-check before reading).
+  return projectPath
 }
 
 function characterJsonPath(slug: string, characterId: string): string {
@@ -59,21 +69,37 @@ function characterJsonPath(slug: string, characterId: string): string {
  * Read one character. Returns null on missing file. Throws on malformed
  * JSON so callers can surface the corruption rather than silently using
  * a stale or missing character.
+ *
+ * Unified-library fallback: when the project has no on-disk character with
+ * this id, we look for a library character assigned to this project (its
+ * `projects[]` includes `slug`). This keeps every consumer that calls
+ * getCharacter (prompt-director, continuity-render, resolveCharacters →
+ * episode/image-prompts) working for assigned-from-library characters with
+ * no per-consumer change. See docs/character-unification-spec.md.
  */
 export async function getCharacter(slug: string, characterId: string): Promise<Character | null> {
   const p = characterJsonPath(slug, characterId)
-  if (!existsSync(p)) return null
-  const raw = await fs.readFile(p, 'utf-8')
-  const parsed = JSON.parse(raw) as Character
-  return normalize(parsed)
+  if (existsSync(p)) {
+    const raw = await fs.readFile(p, 'utf-8')
+    const parsed = JSON.parse(raw) as Character
+    return normalize(parsed)
+  }
+  // Fall back to an assigned library character.
+  const cl = await import('./character-library.js')
+  const lib = await cl.getLibraryCharacter(characterId)
+  if (lib && (lib.projects || []).includes(slug)) {
+    return normalize({ ...lib, source: 'library' })
+  }
+  return null
 }
 
 /**
- * List all characters for a project. Optional filter by current episode_code
- * narrows to project-scoped + episode-scoped-matching characters (the
- * picker calls this per episode).
+ * List the project's OWN on-disk characters only (no library merge). The
+ * old `listCharacters` body — kept separate so the migration and the unified
+ * reader can see the un-merged per-project store. Optional filter by current
+ * episode_code narrows to project-scoped + episode-scoped-matching characters.
  */
-export async function listCharacters(slug: string, opts?: { episodeCode?: string }): Promise<Character[]> {
+export async function listOwnCharacters(slug: string, opts?: { episodeCode?: string }): Promise<Character[]> {
   const dir = projectCharactersDir(slug)
   if (!existsSync(dir)) return []
 
@@ -107,6 +133,44 @@ export async function listCharacters(slug: string, opts?: { episodeCode?: string
     return a.name.localeCompare(b.name)
   })
   return out
+}
+
+/**
+ * List all characters visible to a project — the UNIFIED view. This is what
+ * every consumer (the Characters page, the picker, the image/audio generators)
+ * sees. It is the project's own on-disk characters PLUS every library
+ * character assigned to this project (`projects[]` includes `slug`),
+ * de-duplicated by id with the on-disk project character winning.
+ *
+ * Library characters carry project-scope semantics, so they appear for every
+ * episode regardless of the `episodeCode` filter (same as a scope:'project'
+ * character). Dedup-by-id (project wins) means a character that has been both
+ * migrated into the library AND left on disk shows up exactly once — running
+ * the migration never produces duplicates. See docs/character-unification-spec.md.
+ */
+export async function listCharacters(slug: string, opts?: { episodeCode?: string }): Promise<Character[]> {
+  const own = await listOwnCharacters(slug, opts)
+  let assigned: Character[] = []
+  try {
+    const cl = await import('./character-library.js')
+    assigned = await cl.listForProject(slug)
+  } catch (e: any) {
+    console.warn(`[character-manager] could not merge library characters for '${slug}': ${e.message}`)
+  }
+  if (!assigned.length) return own
+
+  const ownIds = new Set(own.map(c => c.id))
+  const merged = own.slice()
+  for (const lib of assigned) {
+    if (ownIds.has(lib.id)) continue  // project copy wins on id collision
+    merged.push(normalize({ ...lib, source: 'library' }))
+  }
+  // Re-apply the stable picker order across the merged set.
+  merged.sort((a, b) => {
+    if (a.scope !== b.scope) return a.scope === 'project' ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+  return merged
 }
 
 /**

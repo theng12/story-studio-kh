@@ -27,6 +27,13 @@
         :character="c"
       >
         <template #actions>
+          <span
+            v-if="c.projects && c.projects.length"
+            class="assigned-chip"
+            :title="`Assigned to: ${c.projects.join(', ')}`"
+          >
+            🔗 Assigned to {{ c.projects.length }} project{{ c.projects.length === 1 ? '' : 's' }}
+          </span>
           <button class="btn btn-secondary btn-sm" @click="openImport(c)">
             Import to project →
           </button>
@@ -215,6 +222,17 @@ async function confirmDelete(c: Character) {
 
 .btn-ghost.danger { color: var(--error, #e25c5c); }
 .btn-ghost.danger:hover { background: rgba(226, 92, 92, 0.08); }
+
+.assigned-chip {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-secondary, rgba(127,127,127,0.08));
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  align-self: center;
+  white-space: nowrap;
+}
 
 /* ── Import modal ─────────────────────────────────────────────── */
 .import-backdrop {
