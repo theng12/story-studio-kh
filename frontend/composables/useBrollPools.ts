@@ -152,6 +152,12 @@ export function useBrollPools() {
     return `/api/broll-pools/${encodeURIComponent(poolId)}/clips/${encodeURIComponent(filename)}/thumbnail`
   }
 
+  // Audio (SFX) pools have no thumbnail — this serves the clip bytes for the
+  // inline <audio> player in the Library.
+  function audioUrl(poolId: string, filename: string): string {
+    return `/api/broll-pools/${encodeURIComponent(poolId)}/clips/${encodeURIComponent(filename)}/audio`
+  }
+
   // v1.0.92+ rename helpers. Single rename returns the updated BrollClip
   // (its `filename` carries the new name). Bulk rename returns per-row
   // status so the caller can render a "23 renamed, 2 skipped, 1 error"
@@ -195,6 +201,7 @@ export function useBrollPools() {
     autotagClip,
     autotagUntagged,
     thumbnailUrl,
+    audioUrl,
     renameClip,
     renameClipsBulk,
   }

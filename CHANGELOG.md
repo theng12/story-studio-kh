@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.480 — 2026-06-29
+
+### Added — Sound-effects (SFX) pools + the library is now the "Assets Library"
+The app-level pool library now holds **three media types** — B-Roll video, still images, and **sound effects (SFX)** — so it's been renamed **Assets Library** (sidebar + page). Register a folder of audio (typically on your SSD) as an **SFX pool**: it's indexed (mp3/wav/m4a/aac/flac/ogg/opus), tagged (tags travel on the drive), shared across every project, and each clip plays inline in the library. Like the other pools, it's one-time curation that grows over time and lives off iCloud on your SSD.
+
+This ships the **drop-in foundation** (register → index → tag → play → share). Fetching SFX from **Freesound** and generating them via **ElevenLabs sound-generation** are wired as follow-ups (the `freesound` API-key slot is already in place).
+
+### Files
+- `electron/server/lib/broll-indexer.ts` (audio branch: index audio files, duration-only, no thumbnail/normalize)
+- `electron/server/services/broll-pool-manager.ts` (pool `media: 'audio'`)
+- `electron/server/routes/broll-pools.ts` (create accepts `audio`; new `…/clips/:file/audio` serve route for inline preview)
+- `electron/server/services/app-secrets-store.ts` (`freesound` secret slot)
+- `frontend/pages/broll-library.vue`, `frontend/composables/useBrollPools.ts`, `frontend/layouts/dashboard.vue` (SFX filter + create option + inline `<audio>` player + "Assets Library" rename)
+
+---
+
 ## v1.0.479 — 2026-06-29
 
 ### Changed — Image generators: dropped both Gemini (OpenRouter) models, added GPT Image 2 (OpenRouter)

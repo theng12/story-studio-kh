@@ -14,7 +14,7 @@
   <div class="broll-page">
     <header class="page-header">
       <div>
-        <h1>B-Roll Library</h1>
+        <h1>Assets Library</h1>
         <p class="text-muted">
           App-level pool of stock footage shared across every project on this machine. Register a
           folder (typically your portable SSD) once; the app indexes clips, generates thumbnails,
@@ -45,6 +45,7 @@
           <button :class="['pool-filter-btn', { active: poolFilter === 'all' }]" @click="poolFilter = 'all'">All ({{ pools.length }})</button>
           <button :class="['pool-filter-btn', { active: poolFilter === 'video' }]" @click="poolFilter = 'video'">🎞 Video ({{ videoPoolCount }})</button>
           <button :class="['pool-filter-btn', { active: poolFilter === 'image' }]" @click="poolFilter = 'image'">🖼 Images ({{ imagePoolCount }})</button>
+          <button :class="['pool-filter-btn', { active: poolFilter === 'audio' }]" @click="poolFilter = 'audio'">🔊 SFX ({{ audioPoolCount }})</button>
         </div>
         <p v-if="!filteredPools.length" class="muted pool-filter-empty">
           No {{ poolFilter === 'image' ? 'image' : poolFilter === 'video' ? 'video' : '' }} pools yet —
@@ -61,7 +62,7 @@
             <span :class="['pool-online', p.online ? 'is-online' : 'is-offline']">
               {{ p.online ? '● online' : '○ offline' }}
             </span>
-            <span class="text-muted text-xs">{{ p.media === 'image' ? '🖼 image pool' : `${p.fps_target}fps · 1080p` }}</span>
+            <span class="text-muted text-xs">{{ p.media === 'image' ? '🖼 image pool' : p.media === 'audio' ? '🔊 sfx pool' : `${p.fps_target}fps · 1080p` }}</span>
           </div>
           <div class="pool-card-path" :title="p.folder_path">{{ p.folder_path }}</div>
         </button>
@@ -234,29 +235,47 @@
         <div v-if="clipsLoading" class="muted">Loading clips…</div>
 
         <div v-else-if="!clips.length" class="empty">
-          No {{ selectedPool.media === 'image' ? 'images' : 'clips' }} indexed yet. Drop
-          {{ selectedPool.media === 'image' ? 'image files (jpg/png/webp…)' : 'video files' }} into
+          No {{ selectedPool.media === 'image' ? 'images' : selectedPool.media === 'audio' ? 'sound effects' : 'clips' }} indexed yet. Drop
+          {{ selectedPool.media === 'image' ? 'image files (jpg/png/webp…)' : selectedPool.media === 'audio' ? 'audio files (mp3/wav/m4a/ogg…)' : 'video files' }} into
           <code>{{ selectedPool.folder_path }}</code> via Finder and click <strong>↻ Re-scan</strong>.
         </div>
 
         <div v-else class="clip-grid">
           <article v-for="clip in clips" :key="clip.filename" :class="['clip-card', { 'is-missing': clip.missing }]">
             <div class="clip-thumb-wrap">
-              <img
-                :src="thumbnailUrl(selectedPoolId!, clip.filename)"
-                :alt="clip.filename"
-                class="clip-thumb"
-                loading="lazy"
-                @error="onThumbError"
-              />
-              <span class="clip-duration">{{ formatDuration(clip.duration) }}</span>
-              <span v-if="clip.normalized" class="clip-normalized" :title="`Normalized to ${selectedPool.fps_target}fps 1080p`">✓ {{ selectedPool.fps_target }}fps</span>
-              <span v-if="clip.missing" class="clip-missing-badge">missing</span>
+              <!-- Audio (SFX) pools have no thumbnail — play the clip inline. -->
+              <template v-if="isAudioPool">
+                <div class="clip-audio-wrap">
+                  <audio
+                    v-if="selectedPool.online && !clip.missing"
+                    controls
+                    preload="none"
+                    class="clip-audio"
+                    :src="audioUrl(selectedPoolId!, clip.filename)"
+                  ></audio>
+                  <div v-else class="clip-audio-offline">🔊 {{ clip.missing ? 'missing' : 'offline' }}</div>
+                </div>
+                <span class="clip-duration">{{ formatDuration(clip.duration) }}</span>
+                <span v-if="clip.missing" class="clip-missing-badge">missing</span>
+              </template>
+              <template v-else>
+                <img
+                  :src="thumbnailUrl(selectedPoolId!, clip.filename)"
+                  :alt="clip.filename"
+                  class="clip-thumb"
+                  loading="lazy"
+                  @error="onThumbError"
+                />
+                <span class="clip-duration">{{ formatDuration(clip.duration) }}</span>
+                <span v-if="clip.normalized" class="clip-normalized" :title="`Normalized to ${selectedPool.fps_target}fps 1080p`">✓ {{ selectedPool.fps_target }}fps</span>
+                <span v-if="clip.missing" class="clip-missing-badge">missing</span>
+              </template>
             </div>
             <div class="clip-body">
               <div class="clip-filename" :title="clip.filename">{{ clip.filename }}</div>
               <div class="clip-meta text-muted text-xs">
-                {{ clip.width }}×{{ clip.height }} · {{ clip.fps }}fps · {{ formatBytes(clip.size_bytes) }}
+                <template v-if="isAudioPool">{{ formatDuration(clip.duration) }} · {{ formatBytes(clip.size_bytes) }}</template>
+                <template v-else>{{ clip.width }}×{{ clip.height }} · {{ clip.fps }}fps · {{ formatBytes(clip.size_bytes) }}</template>
               </div>
               <ChipInput
                 :model-value="clip.tags"
@@ -276,6 +295,7 @@
                   ⚡ Normalize
                 </button>
                 <button
+                  v-if="!isAudioPool"
                   class="btn btn-ghost btn-sm"
                   :disabled="!selectedPool.online"
                   :title="'Vision-LLM tag suggestion from this clip thumbnail. Unioned with existing tags. ~$0.002 per call.'"
@@ -540,6 +560,7 @@
           <div class="radio-row">
             <label><input type="radio" value="video" v-model="createDraft.media" /> 🎞 Video clips (B-Roll)</label>
             <label><input type="radio" value="image" v-model="createDraft.media" /> 🖼 Still images (slideshow)</label>
+            <label><input type="radio" value="audio" v-model="createDraft.media" /> 🔊 Sound effects (SFX)</label>
           </div>
           <span class="hint">
             <strong>Still images</strong> = a pool of your own pictures, shown as a paced slideshow
@@ -889,14 +910,19 @@ const loading = broll.loading
 const selectedPoolId = ref<string>('')
 const selectedPool = computed(() => pools.value.find(p => p.id === selectedPoolId.value) || null)
 
-// v1.0.405 — media filter so image pools have a clear "tab".
-const poolFilter = ref<'all' | 'video' | 'image'>('all')
-const poolMediaOf = (p: { media?: 'video' | 'image' }) => (p.media === 'image' ? 'image' : 'video')
+// v1.0.405 — media filter so image / audio pools have a clear "tab".
+const poolFilter = ref<'all' | 'video' | 'image' | 'audio'>('all')
+const poolMediaOf = (p: { media?: 'video' | 'image' | 'audio' }) =>
+  (p.media === 'image' ? 'image' : p.media === 'audio' ? 'audio' : 'video')
 const videoPoolCount = computed(() => pools.value.filter(p => poolMediaOf(p) === 'video').length)
 const imagePoolCount = computed(() => pools.value.filter(p => poolMediaOf(p) === 'image').length)
+const audioPoolCount = computed(() => pools.value.filter(p => poolMediaOf(p) === 'audio').length)
 const filteredPools = computed(() =>
   poolFilter.value === 'all' ? pools.value : pools.value.filter(p => poolMediaOf(p) === poolFilter.value),
 )
+// True when the selected pool holds audio (SFX) — drives the inline <audio>
+// player + hides video-only controls (thumbnail, normalize, vision auto-tag).
+const isAudioPool = computed(() => poolMediaOf(selectedPool.value || {}) === 'audio')
 
 const clips = ref<any[]>([])
 const clipsLoading = ref(false)
@@ -1778,7 +1804,7 @@ const createDraft = ref({
   // drive). User opts in explicitly via the "⚡ Normalize all" button.
   auto_normalize: false,
   // v1.0.403 — Image Pool (slideshow) support.
-  media: 'video' as 'video' | 'image',
+  media: 'video' as 'video' | 'image' | 'audio',
   seconds_per_image: 8,
   dedup_lookback: 20,
 })
@@ -1821,6 +1847,10 @@ async function submitCreate(): Promise<void> {
 
 function thumbnailUrl(poolId: string, filename: string): string {
   return broll.thumbnailUrl(poolId, filename)
+}
+
+function audioUrl(poolId: string, filename: string): string {
+  return broll.audioUrl(poolId, filename)
 }
 
 function formatDuration(sec: number): string {
@@ -1935,6 +1965,10 @@ function onThumbError(e: Event): void {
   background: var(--bg-tertiary);
 }
 .clip-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Audio (SFX) pools: an inline player instead of a thumbnail. */
+.clip-audio-wrap { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; padding: 8px; }
+.clip-audio { width: 100%; height: 36px; }
+.clip-audio-offline { color: var(--text-muted); font-size: 12px; }
 .clip-duration {
   position: absolute; bottom: 6px; right: 6px;
   background: rgba(0, 0, 0, 0.65);

@@ -225,8 +225,8 @@
         <NuxtLink to="/character-library" class="nav-item" active-class="active" title="App-level character library shared across all projects on this machine. Save characters here to reuse across channels.">
           <span class="nav-icon">&#127991;</span> Character Library
         </NuxtLink>
-        <NuxtLink to="/broll-library" class="nav-item" active-class="active" title="App-level B-Roll pool library. Register a folder (typically your portable SSD) holding stock footage clips. Indexes, thumbnails, tags, and optional 1080p normalize for fast video assembly.">
-          <span class="nav-icon">&#127909;</span> B-Roll Library
+        <NuxtLink to="/broll-library" class="nav-item" active-class="active" title="App-level Assets Library. Register folders (typically your portable SSD) holding B-Roll video clips, still images, or sound effects (SFX). Indexes, tags, and shares them across every project on this machine.">
+          <span class="nav-icon">&#127909;</span> Assets Library
         </NuxtLink>
         <!-- v1.0.96+ — Niches sidebar link removed. The full niche library
              (browse / create custom / delete custom) now lives inside each

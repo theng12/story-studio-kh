@@ -36,6 +36,10 @@ const VIDEO_EXTENSIONS = /\.(mp4|mov|webm|mkv|m4v)$/i
 // + thumbnail), but probed for dimensions only (no duration/fps/audio) and held
 // for a configured number of seconds at assemble time.
 const IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|gif|bmp|tiff?|heic)$/i
+// SFX / sound-effect pools: audio files indexed by sha + sidecar (tags travel on
+// the SSD), probed for DURATION only — no thumbnail, no width/height/fps, no
+// normalize pass. Shared across projects like the other pool media types.
+const AUDIO_EXTENSIONS = /\.(mp3|wav|m4a|aac|flac|ogg|opus)$/i
 
 // ── ffprobe (one shot per clip, only on content change) ────────────────
 
@@ -142,13 +146,14 @@ export interface ScanResult {
 export async function scanPoolFolder(
   folderPath: string,
   onProgress?: (info: { filename: string; index: number; total: number; status: 'probed' | 'skipped' | 'error' }) => void,
-  media: 'video' | 'image' = 'video',
+  media: 'video' | 'image' | 'audio' = 'video',
 ): Promise<ScanResult> {
   if (!existsSync(folderPath)) {
     throw new Error(`Folder not found: ${folderPath}`)
   }
   const isImage = media === 'image'
-  const matchExt = isImage ? IMAGE_EXTENSIONS : VIDEO_EXTENSIONS
+  const isAudio = media === 'audio'
+  const matchExt = isAudio ? AUDIO_EXTENSIONS : isImage ? IMAGE_EXTENSIONS : VIDEO_EXTENSIONS
 
   const sidecar = await loadSidecarForScan(folderPath)
   // Reset `missing` on every scan — anything that's still missing after
@@ -173,8 +178,8 @@ export async function scanPoolFolder(
       // Fast path — mtime + size unchanged → no re-probe.
       if (existing && existing.size_bytes === stat.size && !existing.missing) {
         // Verify thumbnail still cached; regenerate if user wiped the
-        // cache dir manually.
-        if (!existsSync(thumbnailPath(existing.sha256))) {
+        // cache dir manually. (Audio pools have no thumbnails.)
+        if (!isAudio && !existsSync(thumbnailPath(existing.sha256))) {
           await generateThumbnail(filePath, existing.sha256, existing.duration, isImage).catch(() => {})
         }
         result.unchanged.push(filename)
@@ -203,16 +208,19 @@ export async function scanPoolFolder(
         // ffprobe returns width/height for images too; duration/fps are
         // meaningless for a still (the slideshow sets the on-screen seconds
         // at assemble time), so they land as 0 — that's expected.
+        // ffprobe returns width/height for video/images; for audio the v:0
+        // stream is absent so those land as 0 and duration comes from the
+        // container (format.duration) — exactly what we want for an SFX clip.
         const probe = await ffprobeClip(filePath)
         clip = {
           filename,
           duration: isImage ? 0 : probe.duration,
           width: probe.width,
           height: probe.height,
-          fps: isImage ? 0 : probe.fps,
+          fps: (isImage || isAudio) ? 0 : probe.fps,
           size_bytes: stat.size,
           sha256: sha,
-          normalized: isImage ? true : false,  // images need no normalize pass
+          normalized: (isImage || isAudio) ? true : false,  // images/audio need no normalize pass
           tags: existing?.tags || [],
           indexed_at: new Date().toISOString(),
         }
@@ -221,8 +229,8 @@ export async function scanPoolFolder(
       }
 
       // Generate the thumbnail (cheap — single ffmpeg frame). Failure is
-      // non-fatal; the UI shows a placeholder.
-      await generateThumbnail(filePath, clip.sha256, clip.duration, isImage).catch(() => {})
+      // non-fatal; the UI shows a placeholder. Audio pools have no thumbnail.
+      if (!isAudio) await generateThumbnail(filePath, clip.sha256, clip.duration, isImage).catch(() => {})
 
       sidecar.clips[filename] = clip
       onProgress?.({ filename, index: i, total: files.length, status: 'probed' })

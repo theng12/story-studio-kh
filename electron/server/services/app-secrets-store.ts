@@ -80,6 +80,9 @@ export const SECRET_PROVIDERS = [
   // are personal (one per Mac) and never shipped with the binary.
   'pexels',
   'pixabay',
+  // Freesound — free/CC sound-effects library API (token auth). Powers SFX
+  // fetch into an audio (SFX) pool. Optional; drop-in folders work without it.
+  'freesound',
   // v1.0.142+ — Perplexity API. Powers the live-web-search source of the
   // Research phase in the timestamp-driven pipeline. Optional — the
   // LLM-only research source works with any configured text-provider key.

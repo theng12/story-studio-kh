@@ -20,6 +20,7 @@
 import { Router } from 'express'
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
+import path from 'path'
 import * as bp from '../services/broll-pool-manager.js'
 import * as jq from '../services/job-queue.js'
 import { scanPoolFolder } from '../lib/broll-indexer.js'
@@ -56,8 +57,8 @@ router.post('/broll-pools', async (req, res) => {
       // of CPU/disk and shouldn't fire without explicit consent).
       auto_normalize: auto_normalize === true,
       fps_target: fps_target === 30 ? 30 : 24,
-      // v1.0.403 — 'image' creates an Image Pool (slideshow); default 'video'.
-      media: media === 'image' ? 'image' : 'video',
+      // 'image' = Image Pool (slideshow), 'audio' = SFX library; default 'video'.
+      media: media === 'image' ? 'image' : media === 'audio' ? 'audio' : 'video',
       slideshow: (slideshow && typeof slideshow === 'object') ? slideshow : undefined,
     })
     res.status(201).json(pool)
@@ -212,6 +213,34 @@ router.get('/broll-pools/:id/clips/:filename/thumbnail', async (req, res) => {
     stream.pipe(res)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to serve thumbnail'))
+  }
+})
+
+// Serve an audio clip's bytes for in-browser preview (SFX / audio pools).
+// Audio pools have no thumbnail, so the Library plays the file directly via
+// an <audio> element pointed here. basename() guards against path traversal.
+const AUDIO_MIME: Record<string, string> = {
+  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac', '.flac': 'audio/flac', '.ogg': 'audio/ogg', '.opus': 'audio/ogg',
+}
+router.get('/broll-pools/:id/clips/:filename/audio', async (req, res) => {
+  try {
+    const pool = await bp.getPool(req.params.id)
+    if (!pool) return res.status(404).json({ detail: `Pool '${req.params.id}' not found` })
+    const safe = path.basename(req.params.filename)
+    const abs = path.join(pool.folder_path, safe)
+    if (!existsSync(abs)) return res.status(404).json({ detail: 'Clip not found on disk (SSD unplugged?)' })
+    const stat = await fs.stat(abs)
+    const fsMod = await import('fs')
+    res.setHeader('Cache-Control', 'public, max-age=3600')
+    res.setHeader('Content-Type', AUDIO_MIME[path.extname(safe).toLowerCase()] || 'application/octet-stream')
+    res.setHeader('Content-Length', String(stat.size))
+    res.setHeader('Accept-Ranges', 'none')
+    const stream = fsMod.createReadStream(abs)
+    stream.on('error', () => { if (!res.headersSent) res.status(500).json({ detail: 'Read failed' }) })
+    stream.pipe(res)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to serve audio'))
   }
 })
 

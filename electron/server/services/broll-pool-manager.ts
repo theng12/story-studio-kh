@@ -103,9 +103,10 @@ export interface BrollPool {
   folder_path: string
   /** v1.0.403 — what the pool holds. 'video' = stock-footage clips (B-Roll,
    *  the original + default when absent). 'image' = still images for the
-   *  Image Pool slideshow format. Drives which file extensions are indexed,
-   *  how thumbnails are made, and which picker surfaces the pool. */
-  media?: 'video' | 'image'
+   *  Image Pool slideshow format. 'audio' = sound effects (SFX library).
+   *  Drives which file extensions are indexed, how thumbnails are made (none
+   *  for audio), and which picker surfaces the pool. */
+  media?: 'video' | 'image' | 'audio'
   /** Auto-queue normalize jobs for newly-indexed clips. Default ON. */
   auto_normalize: boolean
   /** Target fps for normalized output. 24 (cinematic, our default) or 30. */
@@ -118,8 +119,8 @@ export interface BrollPool {
 }
 
 /** Media kind of a pool, defaulting legacy (field-absent) pools to 'video'. */
-export function poolMedia(pool: Pick<BrollPool, 'media'>): 'video' | 'image' {
-  return pool.media === 'image' ? 'image' : 'video'
+export function poolMedia(pool: Pick<BrollPool, 'media'>): 'video' | 'image' | 'audio' {
+  return pool.media === 'image' ? 'image' : pool.media === 'audio' ? 'audio' : 'video'
 }
 
 interface PoolRegistry {
@@ -193,8 +194,8 @@ export async function createPool(input: {
   folder_path: string
   auto_normalize?: boolean
   fps_target?: 24 | 30
-  /** v1.0.403 — 'image' for an Image Pool (slideshow), 'video' (default) for B-Roll. */
-  media?: 'video' | 'image'
+  /** 'image' = Image Pool (slideshow), 'audio' = SFX library, 'video' (default) = B-Roll. */
+  media?: 'video' | 'image' | 'audio'
   /** v1.0.403 — initial slideshow defaults for an image pool (merged over defaults). */
   slideshow?: Partial<PoolSlideshowSettings>
 }): Promise<BrollPool> {
@@ -210,7 +211,7 @@ export async function createPool(input: {
   let n = 2
   while (reg.pools.some(p => p.id === id)) { id = `${base}-${n}`; n += 1 }
 
-  const media: 'video' | 'image' = input.media === 'image' ? 'image' : 'video'
+  const media: 'video' | 'image' | 'audio' = input.media === 'image' ? 'image' : input.media === 'audio' ? 'audio' : 'video'
   const pool: BrollPool = {
     id,
     name: input.name.trim(),
