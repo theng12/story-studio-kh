@@ -199,7 +199,7 @@
 
     <!-- Voices (Editable) -->
     <div v-if="activeTab === 'voices'" class="card mt-2">
-      <h3>Voice Presets</h3>
+      <h3>Voices</h3>
       <p class="text-muted mt-1 mb-2">
         Save ElevenLabs voice IDs for quick access from the Audio Generator.
         These show up as <strong>My Custom Voices</strong> in the picker.
@@ -266,7 +266,7 @@
         >
           {{ catalogLoading ? 'Loading…' : '+ Add from catalog…' }}
         </button>
-        <button class="btn btn-primary btn-sm" @click="saveVoices">Save Voice Presets</button>
+        <button class="btn btn-primary btn-sm" @click="saveVoices">Save Voices</button>
         <SaveIndicator v-bind="savedHintProps('voices')" />
       </div>
 
@@ -276,7 +276,7 @@
       <Modal v-if="showCatalogPicker" :visible="showCatalogPicker" size="md" labelledby="vp-add-from-catalog-title" @close="showCatalogPicker = false">
         <h3 id="vp-add-from-catalog-title">Add from your ElevenLabs catalog</h3>
         <p class="text-muted text-sm mt-1 mb-2">
-          Pick any voice from your current ElevenLabs library — we'll fill the name and voice ID on a new preset row for you.
+          Pick any voice from your current ElevenLabs library — we'll fill the name and voice ID on a new voice row for you.
         </p>
         <VoicePicker
           v-model="pendingCatalogPick"
@@ -291,7 +291,7 @@
             :disabled="!pendingCatalogPick"
             @click="confirmCatalogPick"
           >
-            Add as preset
+            Add voice
           </button>
         </div>
       </Modal>
@@ -5866,7 +5866,7 @@ async function saveVoices() {
     await put(`/projects/${slug.value}/settings/config`, { voice_presets: valid })
     await refreshConfig(slug.value)
     stampSaved('voices')
-    success('Voice presets saved!')
+    success('Voices saved!')
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to save')
   }
