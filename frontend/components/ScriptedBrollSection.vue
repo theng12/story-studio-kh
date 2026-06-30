@@ -84,10 +84,13 @@
       <div class="sbr-actions">
         <button class="btn btn-sm btn-primary" :disabled="busy || !dirty" @click="saveEdits">{{ dirty ? 'Save edits' : 'Saved' }}</button>
         <button class="btn btn-sm" :disabled="busy" @click="resolve">{{ busy === 'res' ? 'Downloading…' : '⬇ Download / re-match clips' }}</button>
+        <button class="btn btn-sm" :disabled="!matchedCount" :title="matchedCount ? 'Scrub the cut in your browser (no render)' : 'Resolve clips first'" @click="previewOpen = !previewOpen">{{ previewOpen ? '▲ Hide preview' : '▶ Preview cut' }}</button>
         <span class="sbr-spacer" />
         <button class="btn btn-sm btn-icon danger" title="Delete the shot plan" @click="clearPlan">🗑</button>
         <button class="btn btn-sm btn-primary" :disabled="busy || !matchedCount" @click="assemble">{{ busy === 'asm' ? 'Queuing…' : '🎬 Assemble video' }}</button>
       </div>
+
+      <BrollPreviewPlayer v-if="previewOpen && matchedCount" :slug="slug" :episode-code="episodeCode" :plan="plan" />
     </template>
 
     <div v-else-if="!loading" class="text-muted text-sm sbr-empty">
@@ -115,6 +118,7 @@ const dirty = ref(false)
 const swapOpen = ref(-1)
 const swapLoading = ref(false)
 const swapCandidates = ref<BrollCandidate[]>([])
+const previewOpen = ref(false)
 const message = ref('')
 const messageKind = ref<'ok' | 'err'>('ok')
 

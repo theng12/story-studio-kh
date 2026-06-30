@@ -147,6 +147,45 @@ router.post('/projects/:slug/episodes/:code/broll-plan/resolve', async (req, res
   }
 })
 
+// ── Preview (Phase 3): stream the episode's merged narration audio ───────────
+
+router.get('/projects/:slug/episodes/:code/narration-audio', async (req, res) => {
+  try {
+    const code = req.params.code.toUpperCase()
+    const paths = await resolveEpisodePathsByCode(req.params.slug, code)
+    if (!existsSync(paths.merged_audio_dir)) return res.status(404).json({ detail: 'No merged audio — run Audio Assembly first.' })
+    let audioPath: string | null = null
+    let best = 0
+    for (const f of await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])) {
+      if (!/\.(mp3|wav|m4a)$/i.test(f) || f.startsWith('.tmp_')) continue
+      const st = await fs.stat(path.join(paths.merged_audio_dir, f)).catch(() => null)
+      if (st && st.size > best) { best = st.size; audioPath = path.join(paths.merged_audio_dir, f) }
+    }
+    if (!audioPath) return res.status(404).json({ detail: 'No merged audio file.' })
+    const ext = path.extname(audioPath).toLowerCase()
+    const mime = ext === '.wav' ? 'audio/wav' : ext === '.m4a' ? 'audio/mp4' : 'audio/mpeg'
+    const stat = await fs.stat(audioPath)
+    const fsMod = await import('fs')
+    res.setHeader('Content-Type', mime)
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Accept-Ranges', 'bytes')
+    const m = req.headers.range ? /bytes=(\d+)-(\d*)/.exec(req.headers.range) : null
+    if (m) {
+      const start = parseInt(m[1]!, 10)
+      const end = m[2] ? parseInt(m[2], 10) : stat.size - 1
+      res.status(206)
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`)
+      res.setHeader('Content-Length', String(end - start + 1))
+      fsMod.createReadStream(audioPath, { start, end }).pipe(res)
+    } else {
+      res.setHeader('Content-Length', String(stat.size))
+      fsMod.createReadStream(audioPath).pipe(res)
+    }
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to serve narration audio'))
+  }
+})
+
 // ── Storyboard (Phase 2): re-query one beat, search alternatives, swap clip ───
 
 router.post('/projects/:slug/episodes/:code/broll-plan/requery-beat', async (req, res) => {

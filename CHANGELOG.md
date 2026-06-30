@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.489 — 2026-06-30
+
+### Added — Scripted B-Roll Phase 3: in-browser preview (scrub before render)
+A **▶ Preview cut** button in the Scripted B-Roll storyboard plays the cut **right in the browser, with zero ffmpeg / zero render cost** — so you can catch a wrong clip or bad timing before paying for a full render.
+
+- The episode's **narration audio is the master clock**; the active beat's clip plays (muted) in a `<video>` and swaps at each beat boundary, seeked to the beat's in-point.
+- A **scrubber** + a clickable **beat strip** (segments sized by duration) let you jump anywhere in the cut.
+- **SFX preview** (toggle): the universal sound layer is layered in too — ambient beds loop under their spans and spot effects fire at their timestamps (gains from the plan), so you preview the *full* mix, not just the visuals.
+
+Approximate by design (exact trims/transitions/encode happen at render), but close enough to catch mismatches. Streamed via new Range-capable endpoints; nothing is downloaded or rendered.
+
+### Files
+- `electron/server/routes/broll-pools.ts` (`GET …/clips/:filename/video` — Range-capable clip stream), `electron/server/routes/broll-shots.ts` (`GET …/narration-audio` — Range-capable merged-audio stream)
+- `frontend/components/BrollPreviewPlayer.vue` (new — narration-clocked player + clip swap + scrub + beat strip + SFX layering), `frontend/composables/useBrollPlan.ts` (media URL helpers), `frontend/components/ScriptedBrollSection.vue` (Preview cut toggle)
+
+---
+
 ## v1.0.488 — 2026-06-30
 
 ### Added — Scripted B-Roll Phase 2: storyboard review (swap / re-query / edit)

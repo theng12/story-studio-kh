@@ -55,6 +55,14 @@ export function useBrollPlan() {
       post<{ candidates: BrollCandidate[] }>(`${base(slug, code)}/broll-plan/search`, { queries }),
     swapBeat: (slug: string, code: string, body: { beat_index: number; provider: string; result: any }) =>
       post<{ ok: boolean; plan: BrollPlan; filename: string }>(`${base(slug, code)}/broll-plan/swap-beat`, body),
+
+    // Raw media URLs for the preview player's <video>/<audio> elements.
+    videoUrl: (poolId: string, filename: string) =>
+      `/api/broll-pools/${encodeURIComponent(poolId)}/clips/${encodeURIComponent(filename)}/video`,
+    sfxAudioUrl: (poolId: string, filename: string) =>
+      `/api/broll-pools/${encodeURIComponent(poolId)}/clips/${encodeURIComponent(filename)}/audio`,
+    narrationUrl: (slug: string, code: string) =>
+      `/api/projects/${encodeURIComponent(slug)}/episodes/${encodeURIComponent(code)}/narration-audio`,
   }
 }
 

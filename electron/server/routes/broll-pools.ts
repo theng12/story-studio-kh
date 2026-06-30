@@ -246,6 +246,51 @@ router.get('/broll-pools/:id/clips/:filename/audio', async (req, res) => {
   }
 })
 
+// v1.0.x — stream a pool clip's VIDEO bytes with HTTP Range support, so the
+// Scripted B-Roll preview player can seek each beat's clip in a <video>.
+const VIDEO_MIME: Record<string, string> = {
+  '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime',
+  '.webm': 'video/webm', '.mkv': 'video/x-matroska',
+}
+router.get('/broll-pools/:id/clips/:filename/video', async (req, res) => {
+  try {
+    const pool = await bp.getPool(req.params.id)
+    if (!pool) return res.status(404).json({ detail: `Pool '${req.params.id}' not found` })
+    const safe = path.basename(req.params.filename)
+    const abs = path.join(pool.folder_path, safe)
+    if (!existsSync(abs)) return res.status(404).json({ detail: 'Clip not found on disk (SSD unplugged?)' })
+    const stat = await fs.stat(abs)
+    const fsMod = await import('fs')
+    const mime = VIDEO_MIME[path.extname(safe).toLowerCase()] || 'video/mp4'
+    res.setHeader('Content-Type', mime)
+    res.setHeader('Cache-Control', 'public, max-age=3600')
+    res.setHeader('Accept-Ranges', 'bytes')
+    const range = req.headers.range
+    const m = range ? /bytes=(\d+)-(\d*)/.exec(range) : null
+    if (m) {
+      const start = parseInt(m[1]!, 10)
+      const end = m[2] ? parseInt(m[2], 10) : stat.size - 1
+      if (start >= stat.size || end >= stat.size || start > end) {
+        res.setHeader('Content-Range', `bytes */${stat.size}`)
+        return res.status(416).end()
+      }
+      res.status(206)
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`)
+      res.setHeader('Content-Length', String(end - start + 1))
+      const stream = fsMod.createReadStream(abs, { start, end })
+      stream.on('error', () => { if (!res.headersSent) res.status(500).end() })
+      stream.pipe(res)
+    } else {
+      res.setHeader('Content-Length', String(stat.size))
+      const stream = fsMod.createReadStream(abs)
+      stream.on('error', () => { if (!res.headersSent) res.status(500).end() })
+      stream.pipe(res)
+    }
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to serve video'))
+  }
+})
+
 // ── Generate SFX (ElevenLabs sound-generation) ─────────────────────────
 //
 // Generate a sound effect from a text prompt and drop the MP3 into an audio
