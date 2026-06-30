@@ -4,6 +4,26 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.490 — 2026-06-30
+
+### Added — Scripted B-Roll Phase 4: styled AI-gen fallback
+For beats that **no stock clip** covers, Scripted B-Roll can now **generate a channel-styled clip** instead of leaving them empty. Tick **"AI-generate clips for beats with no stock match"**, set a **channel style** (e.g. "flat editorial illustration", "muted 2D vector") and pick an **image model** — then during Resolve, every still-empty beat gets a styled still (subject prefixed with your style), converted to a 1080p clip and dropped into the **same video pool**, so it concatenates seamlessly with the stock footage. No separate render path.
+
+- Reuses your project's existing image-generation stack (same providers/keys as the Image Pool generator). The style prefix keeps fallbacks visually consistent and clearly stylised — they read as "our channel's b-roll", never as fake real footage.
+- Stock-first: AI-gen only runs for beats stock couldn't fill, and only when you opt in (it costs image credits). Works even with no Pexels/Pixabay key (pure AI-gen mode).
+- Best-effort: a generation or conversion failure just leaves that beat empty; it never breaks Resolve.
+
+This completes the Scripted B-Roll sourcing chain (stock → AI-gen) from the spec. Extra paid providers (Storyblocks) + a logo side-channel remain optional follow-ups.
+
+### Files
+- `electron/server/services/broll-aigen.ts` (new — image-provider resolution, style-prefixed prompt, pure image→clip ffmpeg argv, `aiGenFallbackForBeat`)
+- `electron/server/services/broll-shot-resolver.ts` (`resolveBeats` runs an AI-gen pass for still-empty beats when `aiFallback` is set; reports `aigen` count)
+- `electron/server/routes/broll-shots.ts` (`ai_fallback` + `image_model` on generate/resolve)
+- `frontend/composables/useBrollPlan.ts`, `frontend/components/ScriptedBrollSection.vue` (AI-fallback toggle + channel-style field + image model picker)
+- `electron/server/__tests__/broll-aigen.test.ts` (prompt + image→clip argv)
+
+---
+
 ## v1.0.489 — 2026-06-30
 
 ### Added — Scripted B-Roll Phase 3: in-browser preview (scrub before render)

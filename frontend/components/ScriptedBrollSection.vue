@@ -34,6 +34,22 @@
       </button>
     </div>
 
+    <div class="sbr-aigen">
+      <label class="sbr-check" title="For beats with no stock match, generate a channel-styled clip with your image model (costs image credits).">
+        <input type="checkbox" v-model="aiFallback" /> <span>AI-generate clips for beats with no stock match</span>
+      </label>
+      <div v-if="aiFallback" class="sbr-aigen-fields">
+        <div class="sbr-aigen-field">
+          <label class="sbr-lbl">Channel style for AI clips</label>
+          <input v-model="plan.broll_style" class="input" placeholder="e.g. flat editorial illustration, muted 2D vector" @input="dirty = true" />
+        </div>
+        <div class="sbr-aigen-field">
+          <label class="sbr-lbl">Image model</label>
+          <ImageModelPicker v-model="imageModel" :project-slug="slug" />
+        </div>
+      </div>
+    </div>
+
     <p v-if="message" :class="['sbr-msg', messageKind]">{{ message }}</p>
 
     <div v-if="loading" class="text-muted text-sm">Loading shot plan…</div>
@@ -111,6 +127,8 @@ const model = ref('')
 const beatSec = ref(5)
 const styleHint = ref('')
 const resolveNow = ref(true)
+const aiFallback = ref(false)
+const imageModel = ref('')
 const loading = ref(false)
 const busy = ref<'' | 'gen' | 'res' | 'asm'>('')
 const busyBeat = ref('')
@@ -135,7 +153,10 @@ function applyPlan(p: BrollPlan) {
 }
 function resolveNote(r: GenerateResult): string {
   if (r.resolve_skipped_reason) return ` (download skipped: ${r.resolve_skipped_reason})`
-  if (typeof r.matched === 'number') return ` Downloaded ${r.downloaded ?? 0}, ${r.matched} beat(s) now have a clip.`
+  if (typeof r.matched === 'number') {
+    const ai = r.aigen ? ` (${r.aigen} AI-generated)` : ''
+    return ` Downloaded ${r.downloaded ?? 0}, ${r.matched} beat(s) now have a clip${ai}.`
+  }
   return ''
 }
 
@@ -154,6 +175,8 @@ async function generate() {
   try {
     const r = await api.generate(props.slug, props.episodeCode, {
       model: model.value, style_hint: styleHint.value || undefined, target_beat_sec: beatSec.value, resolve: resolveNow.value,
+      broll_style: plan.broll_style || undefined,
+      ai_fallback: aiFallback.value, image_model: aiFallback.value ? imageModel.value : undefined,
     })
     applyPlan(r.plan)
     setMsg(`Directed ${r.beat_count} beat(s).${resolveNote(r)}`, 'ok')
@@ -165,7 +188,9 @@ async function resolve() {
   busy.value = 'res'
   message.value = ''
   try {
-    const r = await api.resolve(props.slug, props.episodeCode, { ...plan } as BrollPlan)
+    const r = await api.resolve(props.slug, props.episodeCode, { ...plan } as BrollPlan, {
+      ai_fallback: aiFallback.value, image_model: aiFallback.value ? imageModel.value : undefined,
+    })
     applyPlan(r.plan)
     setMsg(`${r.matched} beat(s) have a clip.${resolveNote(r)}`, 'ok')
   } catch (e) { setMsg(errOf(e), 'err') }
@@ -255,6 +280,9 @@ watch(() => props.episodeCode, load, { immediate: true })
 .sbr-num { width: 60px; }
 .sbr-actions-top { display: flex; gap: 12px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
 .sbr-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.sbr-aigen { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border, #2a2a2a); }
+.sbr-aigen-fields { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.sbr-aigen-field { flex: 1; min-width: 220px; }
 .sbr-msg { font-size: 13px; margin-top: 8px; }
 .sbr-msg.ok { color: var(--accent, #6ab0f3); }
 .sbr-msg.err { color: var(--danger, #e06c75); }

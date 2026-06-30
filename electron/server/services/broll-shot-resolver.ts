@@ -112,25 +112,32 @@ export interface ResolveBeatsResult {
   plan: BrollPlan
   downloaded: number
   matched: number
+  /** Beats filled by the styled AI-gen fallback. */
+  aigen: number
   pool_id?: string
   skipped_reason?: string
 }
 
 /**
  * Resolve every unresolved beat: search → pick (no-repeat) → download into the
- * target video pool → record on the beat. Re-scans the pool once at the end.
+ * target video pool → record on the beat. When `aiFallback` is set, beats that
+ * stock couldn't fill get a styled AI-generated clip. Re-scans the pool once at
+ * the end.
  */
-export async function resolveBeats(plan: BrollPlan, opts: { poolId?: string } = {}): Promise<ResolveBeatsResult> {
+export async function resolveBeats(
+  plan: BrollPlan,
+  opts: { poolId?: string; aiFallback?: { slug: string; model: string } } = {},
+): Promise<ResolveBeatsResult> {
   const pool = await pickVideoPool(opts.poolId)
   if (!pool) {
-    return { plan, downloaded: 0, matched: 0, skipped_reason: 'No online video B-Roll pool to download into. Register one in the Assets Library first.' }
+    return { plan, downloaded: 0, matched: 0, aigen: 0, skipped_reason: 'No online video B-Roll pool to download into. Register one in the Assets Library first.' }
   }
   const providers = await configuredVideoProviders()
-  if (!providers.length) {
-    return { plan, downloaded: 0, matched: 0, pool_id: pool.id, skipped_reason: 'No Pexels/Pixabay API key. Add one under App Settings → API Keys.' }
+  if (!providers.length && !opts.aiFallback) {
+    return { plan, downloaded: 0, matched: 0, aigen: 0, pool_id: pool.id, skipped_reason: 'No Pexels/Pixabay API key. Add one under App Settings → API Keys.' }
   }
   if (!existsSync(pool.folder_path)) {
-    return { plan, downloaded: 0, matched: 0, pool_id: pool.id, skipped_reason: `Pool folder offline — plug in the SSD at ${pool.folder_path}.` }
+    return { plan, downloaded: 0, matched: 0, aigen: 0, pool_id: pool.id, skipped_reason: `Pool folder offline — plug in the SSD at ${pool.folder_path}.` }
   }
 
   const used = new Set<string>()
@@ -162,9 +169,29 @@ export async function resolveBeats(plan: BrollPlan, opts: { poolId?: string } = 
     }
   }
 
+  // Styled AI-gen fallback: fill beats stock couldn't, with a channel-styled clip.
+  let aigen = 0
+  if (opts.aiFallback) {
+    const { aiGenFallbackForBeat } = await import('./broll-aigen.js')
+    for (const beat of plan.beats) {
+      if (beat.clip) continue
+      if (!(beat.queries.length || beat.line)) continue
+      const filename = await aiGenFallbackForBeat(opts.aiFallback.slug, beat, pool, plan.broll_style, opts.aiFallback.model)
+      if (filename) {
+        beat.source = 'ai-gen'
+        beat.pool_id = pool.id
+        beat.clip = filename
+        beat.in_point_sec = 0
+        beat.status = 'matched'
+        matched++
+        aigen++
+      }
+    }
+  }
+
   // One scan so every new clip lands in the pool index (filename+sha+duration).
   try { await scanPoolFolder(pool.folder_path, undefined, 'video') } catch { /* index best-effort */ }
-  return { plan, downloaded, matched, pool_id: pool.id }
+  return { plan, downloaded, matched, aigen, pool_id: pool.id }
 }
 
 // ── Bridge: plan → existing broll-selection sidecar ─────────────────────────

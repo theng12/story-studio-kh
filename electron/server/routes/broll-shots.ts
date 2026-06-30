@@ -40,6 +40,15 @@ async function collectApiKeys() {
   return { anthropic_api_key: a, openai_api_key: o, kie_api_key: k }
 }
 
+/** Build the AI-gen fallback option from a request body (opt-in + needs an image model).
+ *  The model string is validated downstream against config.image_models (a bad
+ *  model just yields null per-beat, never an error). */
+function aiFallbackFrom(body: any, slug: string): { slug: string; model: string } | undefined {
+  if (body?.ai_fallback !== true) return undefined
+  const model = typeof body.image_model === 'string' ? body.image_model.trim() : ''
+  return model ? { slug, model } : undefined
+}
+
 async function resolveTitle(slug: string, code: string): Promise<string> {
   try {
     const ideas = await im.getIdeas(slug, 'accepted')
@@ -116,9 +125,12 @@ router.post('/projects/:slug/episodes/:code/broll-plan/generate', async (req, re
 
     let resolveInfo: any = {}
     if (body.resolve === true) {
-      const r = await resolveBeats(plan, { poolId: typeof body.pool_id === 'string' ? body.pool_id : undefined })
+      const r = await resolveBeats(plan, {
+        poolId: typeof body.pool_id === 'string' ? body.pool_id : undefined,
+        aiFallback: aiFallbackFrom(body, slug),
+      })
       plan = r.plan
-      resolveInfo = { downloaded: r.downloaded, matched: r.matched, pool_id: r.pool_id, resolve_skipped_reason: r.skipped_reason }
+      resolveInfo = { downloaded: r.downloaded, matched: r.matched, aigen: r.aigen, pool_id: r.pool_id, resolve_skipped_reason: r.skipped_reason }
     }
 
     await writePlan(slug, code, paths.episode_dir, plan)
@@ -139,9 +151,12 @@ router.post('/projects/:slug/episodes/:code/broll-plan/resolve', async (req, res
     const current = body && Array.isArray(body.beats)
       ? normalizePlan(body)
       : (await readPlan(slug, code, paths.episode_dir)) ?? emptyPlan()
-    const r = await resolveBeats(current, { poolId: typeof body.pool_id === 'string' ? body.pool_id : undefined })
+    const r = await resolveBeats(current, {
+      poolId: typeof body.pool_id === 'string' ? body.pool_id : undefined,
+      aiFallback: aiFallbackFrom(body, slug),
+    })
     await writePlan(slug, code, paths.episode_dir, r.plan)
-    res.json({ ok: true, plan: r.plan, downloaded: r.downloaded, matched: r.matched, pool_id: r.pool_id, resolve_skipped_reason: r.skipped_reason })
+    res.json({ ok: true, plan: r.plan, downloaded: r.downloaded, matched: r.matched, aigen: r.aigen, pool_id: r.pool_id, resolve_skipped_reason: r.skipped_reason })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'B-Roll resolve failed'))
   }

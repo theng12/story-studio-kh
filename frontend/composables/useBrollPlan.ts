@@ -29,6 +29,7 @@ export interface GenerateResult {
   beat_count: number
   downloaded?: number
   matched?: number
+  aigen?: number
   pool_id?: string
   resolve_skipped_reason?: string
 }
@@ -43,10 +44,10 @@ export function useBrollPlan() {
     savePlan: (slug: string, code: string, plan: BrollPlan) =>
       put<{ ok: boolean; plan: BrollPlan }>(`${base(slug, code)}/broll-plan`, plan),
     deletePlan: (slug: string, code: string) => del(`${base(slug, code)}/broll-plan`),
-    generate: (slug: string, code: string, body: { model: string; broll_style?: string; style_hint?: string; target_beat_sec?: number; resolve?: boolean }) =>
+    generate: (slug: string, code: string, body: { model: string; broll_style?: string; style_hint?: string; target_beat_sec?: number; resolve?: boolean; ai_fallback?: boolean; image_model?: string }) =>
       post<GenerateResult>(`${base(slug, code)}/broll-plan/generate`, body),
-    resolve: (slug: string, code: string, plan?: BrollPlan) =>
-      post<GenerateResult>(`${base(slug, code)}/broll-plan/resolve`, plan ?? {}),
+    resolve: (slug: string, code: string, plan?: BrollPlan, opts?: { ai_fallback?: boolean; image_model?: string }) =>
+      post<GenerateResult>(`${base(slug, code)}/broll-plan/resolve`, { ...(plan ?? {}), ...(opts ?? {}) }),
     assemble: (slug: string, code: string) =>
       post<{ ok: boolean; job: any; beats: number }>(`${base(slug, code)}/broll-plan/assemble`, {}),
     requeryBeat: (slug: string, code: string, body: { beat_index: number; model: string; style_hint?: string }) =>
