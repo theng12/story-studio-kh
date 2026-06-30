@@ -1,13 +1,15 @@
 # Scripted Stock B-Roll format — spec (draft)
 
-Status: **Phases 1-2 shipped (v1.0.487-488).** Phase 1: shot director
+Status: **Phases 1-3 shipped (v1.0.487-489).** Phase 1: shot director
 (cues→beats + filmable query LLM), per-beat Pexels/Pixabay search+download into
 the pool, bridge to the existing broll-selection sidecar so the existing
 assembler renders beats at narration timing. Phase 2: storyboard review — per-beat
-editable queries + timing, single-beat LLM re-query, and clip swap via a
-thumbnail picker. UI: Video Assembly → Step 1 "Scripted B-Roll". Queued:
-in-browser timeline player (Phase 3), styled AI-gen fallback (Phase 4), extra
-providers (Storyblocks / logos). The universal SFX sound layer already rides on top.
+editable queries + timing, single-beat LLM re-query, clip swap via a thumbnail
+picker. Phase 3: in-browser preview player — narration-clocked, swaps the active
+beat's muted clip, scrubber + beat strip, SFX layered (zero render cost). UI:
+Video Assembly → Step 1 "Scripted B-Roll". Queued: styled AI-gen fallback
+(Phase 4), extra providers (Storyblocks / logos). The universal SFX sound layer
+already rides on top.
 
 A video format for current-events / explainer videos where a
 simple (often question-style) script is illustrated by **real stock footage**
