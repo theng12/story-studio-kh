@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.491 — 2026-06-30
+
+**Fix: Assets Library filter tabs no longer overlap the pool header.** The four pool-media filters (All / Video / Images / SFX) were laid out as a single flex row inside the 240px-wide left rail. Because each button refused to shrink below its text, the row overflowed the rail and the **SFX** tab spilled rightward underneath the selected pool's title ("Prayer B-roll" etc.), making it unclickable. The filters are now a contained 2×2 grid that always stays within the rail.
+
 ## v1.0.490 — 2026-06-30
 
 ### Added — Scripted B-Roll Phase 4: styled AI-gen fallback

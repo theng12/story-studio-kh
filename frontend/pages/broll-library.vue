@@ -2018,12 +2018,17 @@ function onThumbError(e: Event): void {
   color: inherit;
 }
 .pool-card:hover { border-color: var(--accent, #6c8fff); }
-/* v1.0.405 — pool media filter (All / Video / Images). */
-.pool-filter { display: flex; gap: 4px; margin-bottom: 8px; }
+/* v1.0.405 — pool media filter (All / Video / Images / SFX).
+   2×2 grid: four nowrap buttons can't fit one row inside the 240px rail, and a
+   flex row let them overflow rightward over the pool-main header (the "Prayer
+   B-roll" <h2>). The grid keeps them contained; min-width:0 lets a long label
+   ellipsize inside its cell instead of spilling out. */
+.pool-filter { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 8px; }
 .pool-filter-btn {
-  flex: 1; padding: 5px 6px; font-size: 11.5px; cursor: pointer;
+  padding: 5px 6px; font-size: 11.5px; cursor: pointer;
   border: 1px solid var(--border); border-radius: var(--radius-sm, 6px);
   background: transparent; color: var(--text-secondary); white-space: nowrap;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
 .pool-filter-btn:hover { color: var(--text-primary); }
 .pool-filter-btn.active { background: var(--accent, #6c8fff); color: #fff; border-color: var(--accent, #6c8fff); }
