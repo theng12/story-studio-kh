@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.492 — 2026-06-30
+
+**Fix: "Edit pool" modal had no background.** The Edit pool dialog (rename / repoint a pool in the Assets Library) used a `.modal` class that had no CSS rule, so the form rendered with no card behind it — the fields floated transparently over the dimmed page. It now uses the same `.create-modal` card styling as every other modal (solid background, border, padding, shadow).
+
 ## v1.0.491 — 2026-06-30
 
 **Fix: Assets Library filter tabs no longer overlap the pool header.** The four pool-media filters (All / Video / Images / SFX) were laid out as a single flex row inside the 240px-wide left rail. Because each button refused to shrink below its text, the row overflowed the rail and the **SFX** tab spilled rightward underneath the selected pool's title ("Prayer B-roll" etc.), making it unclickable. The filters are now a contained 2×2 grid that always stays within the rail.

@@ -694,7 +694,7 @@
 
     <!-- ── Edit pool modal (v1.0.405) — rename + repoint folder ──────────── -->
     <div v-if="editModalOpen" class="modal-overlay" @click.self="editModalOpen = false">
-      <div class="modal">
+      <div class="create-modal">
         <h3>Edit pool</h3>
         <div class="form-group">
           <label>Pool name <span class="req">*</span></label>
