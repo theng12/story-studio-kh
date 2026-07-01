@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.494 — 2026-07-01
+
+**Preview generated subtitles in the Subtitles tab.** Each file in the "Subtitle files" list now has a 👁 button that opens an inline preview of the actual cues — every line's timestamp (`start → end`) and text — so you can verify transcription accuracy without opening Finder or a text editor. Click the eye again (or ✕) to close; the panel header shows the cue count and total duration. Deleting the previewed file or switching episodes closes it automatically. Backed by a new read endpoint that parses the `.srt`/`.vtt` cues (`.ass` files show their raw text), with the same strict filename validation as delete (no path traversal, subtitle extensions only) and a 2000-cue cap on the response.
+
 ## v1.0.493 — 2026-07-01
 
 **Fix: Chat Studio (local LLM) no longer keeps hammering an offline server, and its Settings status stays fresh.** Two issues fixed:

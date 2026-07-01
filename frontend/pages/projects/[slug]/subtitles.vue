@@ -218,9 +218,47 @@
           <li v-for="srt in status.existing_srts" :key="srt.path" class="sub-file-row">
             <span class="sub-file-name">{{ srt.filename }}</span>
             <span v-if="srt.drifts_from_current_merge" class="sub-file-warn" :title="srt.drift_note">⚠ gap drift</span>
+            <button
+              class="btn-icon"
+              :class="{ active: previewFilename === srt.filename }"
+              :title="previewFilename === srt.filename ? 'Hide preview' : 'Preview subtitle text'"
+              @click="viewSrt(srt.filename)"
+            >👁</button>
             <button class="btn-icon" title="Delete this subtitle file" @click="deleteSrt(srt.filename)">✕</button>
           </li>
         </ul>
+
+        <!-- v1.0.494 — inline preview of the generated cues so accuracy can be
+             verified without opening Finder / a text editor. -->
+        <div v-if="previewFilename" class="sub-preview mt-3">
+          <div class="sub-preview-head">
+            <strong>{{ previewFilename }}</strong>
+            <span v-if="previewMeta && !previewLoading" class="text-muted text-xs">
+              {{ previewMeta.cue_count }} cue{{ previewMeta.cue_count === 1 ? '' : 's' }} · {{ fmtDur(previewMeta.total_duration_sec) }}
+            </span>
+            <span class="sub-preview-spacer" />
+            <button class="btn-icon" title="Close preview" @click="closePreview">✕</button>
+          </div>
+          <div v-if="previewLoading" class="text-muted text-sm mt-2">
+            <LoadingSpinner size="sm" /> Loading subtitle text…
+          </div>
+          <template v-else-if="previewMeta?.is_ass">
+            <pre class="sub-preview-raw mt-2">{{ previewRaw }}</pre>
+          </template>
+          <template v-else-if="previewCues.length">
+            <div class="sub-cue-list mt-2">
+              <div v-for="c in previewCues" :key="c.index" class="sub-cue">
+                <span class="sub-cue-time">{{ fmtTime(c.start_sec) }} → {{ fmtTime(c.end_sec) }}</span>
+                <span class="sub-cue-text">{{ c.text }}</span>
+              </div>
+            </div>
+            <p v-if="previewMeta?.truncated" class="text-muted text-xs mt-1">
+              Showing the first {{ previewCues.length }} cues (file has more).
+            </p>
+          </template>
+          <p v-else class="text-muted text-sm mt-2">No cues found in this file.</p>
+        </div>
+
         <p class="text-muted text-xs mt-2">Folder: <code class="sub-dir">{{ status?.subtitles_dir }}</code></p>
       </section>
 
@@ -313,6 +351,70 @@ const fromChaptersBusy = ref(false)
 const importPath = ref('')
 const importing = ref(false)
 
+// ── Subtitle preview (v1.0.494) — read a file's cues so accuracy can be
+// verified in-app. Inline panel toggled per file. ─────────────────────────
+interface SrtCuePreview { index: number; start_sec: number; end_sec: number; text: string }
+interface SubtitleContent {
+  filename: string; is_ass: boolean; cue_count: number; truncated: boolean;
+  total_duration_sec: number; cues: SrtCuePreview[]; raw?: string
+}
+const previewFilename = ref('')
+const previewCues = ref<SrtCuePreview[]>([])
+const previewRaw = ref('')
+const previewMeta = ref<SubtitleContent | null>(null)
+const previewLoading = ref(false)
+
+function closePreview(): void {
+  previewFilename.value = ''
+  previewCues.value = []
+  previewRaw.value = ''
+  previewMeta.value = null
+  previewLoading.value = false
+}
+
+async function viewSrt(filename: string): Promise<void> {
+  // Clicking the open file's eye toggles the panel closed.
+  if (previewFilename.value === filename) { closePreview(); return }
+  previewFilename.value = filename
+  previewLoading.value = true
+  previewCues.value = []
+  previewRaw.value = ''
+  previewMeta.value = null
+  try {
+    const r = await get<SubtitleContent>(
+      `/projects/${slug.value}/video-editor/subtitles/content/${episodeId.value}/${encodeURIComponent(filename)}`,
+    )
+    // Guard against a fast toggle/episode-switch superseding this fetch.
+    if (previewFilename.value !== filename) return
+    previewMeta.value = r
+    previewCues.value = r.cues || []
+    previewRaw.value = r.raw || ''
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not load subtitle content')
+    closePreview()
+  } finally {
+    if (previewFilename.value === filename) previewLoading.value = false
+  }
+}
+
+/** SRT-style `MM:SS.mmm` (or `H:MM:SS.mmm` past an hour) for the cue list. */
+function fmtTime(sec: number): string {
+  if (!isFinite(sec) || sec < 0) sec = 0
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = Math.floor(sec % 60)
+  const ms = Math.round((sec - Math.floor(sec)) * 1000)
+  const pad = (n: number, w = 2) => String(n).padStart(w, '0')
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}.${pad(ms, 3)}` : `${pad(m)}:${pad(s)}.${pad(ms, 3)}`
+}
+/** Coarse duration for the header, e.g. "3m 12s". */
+function fmtDur(sec: number): string {
+  if (!isFinite(sec) || sec <= 0) return '0s'
+  const m = Math.floor(sec / 60)
+  const s = Math.round(sec % 60)
+  return m > 0 ? `${m}m ${s}s` : `${s}s`
+}
+
 const codeUpper = computed(() => episodeId.value.toUpperCase())
 const srtNames = computed(() => new Set((status.value?.existing_srts || []).map(s => s.filename.toLowerCase())))
 function chapterHasSrt(secSlug: string): boolean {
@@ -386,6 +488,7 @@ async function loadStatus(): Promise<void> {
 // episode's Transcribe button stuck on "Queuing…" / disabled.
 watch(episodeId, () => {
   transcribing.value = false
+  closePreview()   // don't show the previous episode's cues under a new episode
   void loadStatus()
 })
 
@@ -558,6 +661,7 @@ async function deleteSrt(filename: string): Promise<void> {
   try {
     const r = await del<{ existing_srts: ExistingSrt[] }>(`/projects/${slug.value}/video-editor/subtitles/${episodeId.value}/${encodeURIComponent(filename)}`)
     if (status.value) status.value.existing_srts = r.existing_srts || []
+    if (previewFilename.value === filename) closePreview()
     success(`Deleted ${filename}`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Delete failed')
@@ -637,4 +741,17 @@ onMounted(async () => {
 .sub-file-name { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .sub-file-warn { font-size: 11px; color: rgb(180, 83, 9); }
 .sub-dir { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; word-break: break-all; }
+
+/* Subtitle cue preview (v1.0.494) */
+.btn-icon.active { color: var(--accent); }
+.sub-preview { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 12px; background: var(--bg-secondary); }
+.sub-preview-head { display: flex; align-items: center; gap: 10px; }
+.sub-preview-head strong { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.sub-preview-spacer { flex: 1; }
+.sub-cue-list { max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.sub-cue { display: flex; gap: 12px; padding: 4px 6px; border-radius: 4px; font-size: 13px; line-height: 1.4; }
+.sub-cue:nth-child(odd) { background: var(--bg-tertiary); }
+.sub-cue-time { flex: 0 0 auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--text-muted); white-space: nowrap; padding-top: 1px; }
+.sub-cue-text { flex: 1; color: var(--text-primary); white-space: pre-wrap; }
+.sub-preview-raw { max-height: 360px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: pre-wrap; margin: 0; color: var(--text-secondary); }
 </style>

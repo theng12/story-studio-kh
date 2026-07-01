@@ -15,7 +15,7 @@ import { buildAnimationFilter } from '../lib/animation-filters.js'
 import { getOrRender } from '../services/preview-cache.js'
 import { resolveAssetPath } from '../services/path-resolver.js'
 import { runFfmpeg, hasLibass, getAudioDuration } from '../lib/ffmpeg-utils.js'
-import { chaptersFromDurations, chaptersToSrt, normalizeSrtOrVtt, buildAssStyle } from '../lib/subtitle-builder.js'
+import { chaptersFromDurations, chaptersToSrt, normalizeSrtOrVtt, buildAssStyle, parseSrt } from '../lib/subtitle-builder.js'
 import { resolveSubtitlesDir } from '../generators/subtitles.js'
 import { readSelectedSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -1086,6 +1086,59 @@ router.delete('/projects/:slug/video-editor/subtitles/:episodeId/:filename', asy
     res.json({ existing_srts: existingSrts, deleted: filename })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not delete subtitle file'))
+  }
+})
+
+/** v1.0.494 — Read a subtitle file's parsed cues so the Subtitles tab can PREVIEW
+ *  the generated text + timings and the user can verify accuracy without opening
+ *  Finder. Same strict basename/extension validation as the delete route (no
+ *  traversal, only .srt/.vtt/.ass). Returns { filename, cue_count, total_duration_sec,
+ *  cues: [{ index, start_sec, end_sec, text }] }. Caps cues returned so a huge
+ *  file can't balloon the response — `truncated` flags when the cap was hit. */
+router.get('/projects/:slug/video-editor/subtitles/content/:episodeId/:filename', async (req, res) => {
+  const { slug, episodeId, filename } = req.params
+
+  if (
+    !filename ||
+    filename.includes('/') ||
+    filename.includes('\\') ||
+    filename.startsWith('.') ||
+    !/\.(srt|vtt|ass)$/i.test(filename)
+  ) {
+    return res.status(400).json({ detail: `Invalid subtitle filename: ${filename}` })
+  }
+
+  try {
+    const subtitlesDir = await resolveSubtitlesDir(slug, episodeId)
+    const target = path.join(subtitlesDir, filename)
+    let raw: string
+    try {
+      raw = await fs.readFile(target, 'utf-8')
+    } catch (e: any) {
+      if (e?.code === 'ENOENT') return res.status(404).json({ detail: `Subtitle file not found: ${filename}` })
+      throw e
+    }
+
+    // .ass isn't cue-parseable here — return the raw text so the UI can still
+    // show it; .srt/.vtt parse into structured cues (parseSrt handles both the
+    // `,` and `.` millisecond separators VTT/SRT use).
+    const isAss = /\.ass$/i.test(filename)
+    const allCues = isAss ? [] : parseSrt(raw)
+    const MAX_CUES = 2000
+    const cues = allCues.slice(0, MAX_CUES)
+    const totalDuration = allCues.length ? Math.max(...allCues.map(c => c.end_sec)) : 0
+
+    res.json({
+      filename,
+      is_ass: isAss,
+      cue_count: allCues.length,
+      truncated: allCues.length > MAX_CUES,
+      total_duration_sec: totalDuration,
+      cues,
+      raw: isAss ? raw.slice(0, 20000) : undefined,
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not read subtitle file'))
   }
 })
 
