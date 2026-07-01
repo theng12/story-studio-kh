@@ -60,6 +60,54 @@ export interface ChatStudioHealth {
   error?: string
 }
 
+// ── Short-lived health cache ──────────────────────────────────────────────
+// Without this, a single-endpoint setup (dispatcher === null → no pool
+// down-state) re-ran the full ~4s pre-flight probe on EVERY generation call
+// against an offline Chat Studio, so a batch run "kept trying" and hung for
+// seconds per attempt. The cache remembers a just-failed endpoint as offline
+// for NEG_TTL and a healthy one for POS_TTL, keyed by the normalized /v1 base.
+// Complements the pool's 30s down-state (which only covers multi-endpoint).
+const HEALTH_CACHE_NEG_TTL_MS = 12_000
+const HEALTH_CACHE_POS_TTL_MS = 5_000
+const healthCache = new Map<string, { at: number; result: ChatStudioHealth }>()
+
+/**
+ * Cached wrapper around `health()`. Used by the generation pre-flight so
+ * repeated attempts against the same (often offline) endpoint short-circuit
+ * instead of each paying the probe timeout. The Settings "Test" and the
+ * /models catalog stay on the uncached `health()` so a manual test / dropdown
+ * refresh always reflects reality.
+ */
+export async function healthCached(baseUrl: string, timeoutMs = 2500): Promise<ChatStudioHealth> {
+  const base = chatstudioApiBase(baseUrl)
+  if (!base) return { ok: false, error: 'No Chat Studio URL set.' }
+  const now = Date.now()
+  const hit = healthCache.get(base)
+  if (hit) {
+    const ttl = hit.result.ok ? HEALTH_CACHE_POS_TTL_MS : HEALTH_CACHE_NEG_TTL_MS
+    if (now - hit.at < ttl) return hit.result
+  }
+  const result = await health(baseUrl, timeoutMs)
+  healthCache.set(base, { at: now, result })
+  return result
+}
+
+/** Force an endpoint's cached health to "offline" — call when a live request
+ *  dies with a connection error so the next pre-flight short-circuits without
+ *  re-probing. */
+export function markHealthDown(baseUrl: string, error = 'Connection lost.'): void {
+  const base = chatstudioApiBase(baseUrl)
+  if (!base) return
+  healthCache.set(base, { at: Date.now(), result: { ok: false, error } })
+}
+
+/** Clear cached health for an endpoint list (or all if omitted) so a fresh
+ *  long-running workload re-probes recovered servers immediately. */
+export function clearHealthCache(stored?: string | null): void {
+  if (stored == null) { healthCache.clear(); return }
+  for (const u of parseEndpoints(stored)) healthCache.delete(chatstudioApiBase(u))
+}
+
 /**
  * Reachability + available-model probe in one GET. Short timeout so the
  * Settings "Test" round-trip and the /models catalog call never hang when
@@ -176,4 +224,7 @@ export function resetChatstudioDispatcher(stored: string | null | undefined): vo
   const eps = parseEnabledEndpoints(stored)
   if (eps.length === 0) return
   dispatcherCache.delete(endpointsKey(eps))
+  // Also drop cached health so a recovered server is re-probed at run start
+  // rather than staying "offline" from a stale negative-cache entry.
+  clearHealthCache(stored)
 }

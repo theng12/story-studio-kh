@@ -101,7 +101,25 @@ function derivedName(url: string): string {
   }
 }
 
-onMounted(load)
+// Auto-refresh the online/offline dots so they don't go stale after the server
+// is powered up/down. Probes only enabled rows, quietly (no ⋯ flicker / no
+// lastDetail spam). Runs on mount and every 30s while the Settings tab is
+// mounted; cleared on unmount.
+const AUTO_REFRESH_MS = 30_000
+let pollTimer: ReturnType<typeof setInterval> | null = null
+async function autoRefresh(): Promise<void> {
+  if (testingAll.value || saving.value) return
+  for (let i = 0; i < rows.value.length; i++) {
+    const r = rows.value[i]
+    if (r && r.url.trim() && r.enabled && r.status !== 'testing') await testRow(i, { quiet: true })
+  }
+}
+onMounted(async () => {
+  await load()
+  await autoRefresh()
+  pollTimer = setInterval(autoRefresh, AUTO_REFRESH_MS)
+})
+onBeforeUnmount(() => { if (pollTimer) { clearInterval(pollTimer); pollTimer = null } })
 async function load(): Promise<void> {
   try {
     const r = await get<{ baseUrl: string; labels?: Record<string, string>; disabled?: string[] }>(`${props.routePrefix}/base-url`)
@@ -131,24 +149,26 @@ function describe(res: any): string {
   return bits.join(' · ')
 }
 
-async function testRow(i: number): Promise<void> {
+async function testRow(i: number, opts: { quiet?: boolean } = {}): Promise<void> {
   const row = rows.value[i]
   const url = row.url.trim()
   if (!url) return
   const who = row.name.trim() || derivedName(url) || url
-  row.status = 'testing'; row.detail = ''
+  // Quiet (auto-refresh) runs don't flip to the ⋯ testing state or clobber the
+  // manual lastDetail line — they just update the dot in place.
+  if (!opts.quiet) { row.status = 'testing'; row.detail = '' }
   try {
     const res: any = await post(`${props.routePrefix}/test`, { baseUrl: url })
     if (res.ok) {
       row.status = 'online'; row.detail = describe(res)
-      lastDetail.value = `${who} — online${row.detail ? ' · ' + row.detail : ''}`
+      if (!opts.quiet) lastDetail.value = `${who} — online${row.detail ? ' · ' + row.detail : ''}`
     } else {
       row.status = 'offline'; row.detail = res.error || 'unreachable'
-      lastDetail.value = `${who} — ${row.detail}`
+      if (!opts.quiet) lastDetail.value = `${who} — ${row.detail}`
     }
   } catch (e: any) {
     row.status = 'offline'; row.detail = e?.data?.detail || e?.message || 'test failed'
-    lastDetail.value = `${who} — ${row.detail}`
+    if (!opts.quiet) lastDetail.value = `${who} — ${row.detail}`
   }
 }
 

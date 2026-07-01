@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.493 — 2026-07-01
+
+**Fix: Chat Studio (local LLM) no longer keeps hammering an offline server, and its Settings status stays fresh.** Two issues fixed:
+
+- **Repeated hangs on an offline endpoint.** Every generation attempt ran a fresh ~4-second reachability probe before dispatching. A single-endpoint setup has no pool "down-state" to lean on, so a batch run (scene plan, ideas, cowriter) re-paid that 4s on *every* call against a powered-down Chat Studio. There's now a short-lived **health cache** — a just-failed endpoint is remembered as offline for ~12s (and a healthy one trusted for ~5s), so repeated attempts short-circuit instantly instead of stacking up timeouts. A live request that dies mid-call marks its endpoint offline too, and a fresh long run (e.g. a new scene-plan job) clears the cache so a recovered server is re-probed immediately.
+- **Stale online/offline dot in Settings → Local Models.** The ●/○ indicator only updated when you manually clicked "Test", so it drifted out of sync after the server was started/stopped. It now **auto-refreshes every 30 seconds** (quietly, enabled endpoints only) for all local Studios (Chat / Image / Voice), so what you see matches reality.
+
+Note: this is a Story-Studio-side fix — Chat Studio being offline is normal; the app just handles it far better now.
+
 ## v1.0.492 — 2026-06-30
 
 **Fix: "Edit pool" modal had no background.** The Edit pool dialog (rename / repoint a pool in the Assets Library) used a `.modal` class that had no CSS rule, so the form rendered with no card behind it — the fields floated transparently over the dimmed page. It now uses the same `.create-modal` card styling as every other modal (solid background, border, padding, shadow).

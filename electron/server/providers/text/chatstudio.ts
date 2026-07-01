@@ -20,7 +20,7 @@
 import OpenAI from 'openai'
 import { registry } from '../registry.js'
 import { redactSecrets } from '../../lib/redact-secrets.js'
-import { chatstudioApiBase, getChatstudioDispatcher, health } from '../../lib/chatstudio-client.js'
+import { chatstudioApiBase, getChatstudioDispatcher, healthCached, markHealthDown } from '../../lib/chatstudio-client.js'
 import { runOnPool } from '../../lib/endpoint-pool.js'
 import type { TextProvider, TextGenerationRequest } from '../types.js'
 
@@ -96,7 +96,11 @@ const chatstudioProvider: TextProvider = {
       // short-timeout GET fails in ~4s and throws a connection error that
       // runOnPool recognises, so we fail over to a healthy endpoint (or fail
       // fast on a single endpoint) instead of blocking for minutes.
-      const probe = await health(endpointUrl, CHATSTUDIO_PREFLIGHT_PROBE_MS)
+      // healthCached short-circuits when this endpoint failed its probe within
+      // the last few seconds, so a batch run against an offline server no longer
+      // re-pays the ~4s timeout on every chunk (single-endpoint setups have no
+      // pool down-state to lean on).
+      const probe = await healthCached(endpointUrl, CHATSTUDIO_PREFLIGHT_PROBE_MS)
       if (!probe.ok) {
         throw new Error(
           `Chat Studio at ${endpointUrl} is unreachable: ${probe.error || 'no response'}. ` +
@@ -141,6 +145,9 @@ const chatstudioProvider: TextProvider = {
         // Connection-refused / fetch-failed → that endpoint is down. Rethrow
         // with regex-matchable phrasing so runOnPool's matcher fails over.
         if (/ECONNREFUSED|fetch failed|ENOTFOUND|EHOSTUNREACH|network|Connection error|socket hang up|timed?\s*out|timeout/i.test(msg)) {
+          // The endpoint died between the pre-flight probe and this call — cache
+          // it offline so the next attempt short-circuits instead of re-probing.
+          markHealthDown(endpointUrl, msg)
           throw new Error(
             `Can't reach Chat Studio at ${endpointUrl}: ${msg}. Connection error — failing over if other endpoints are configured.`,
             { cause: err },
