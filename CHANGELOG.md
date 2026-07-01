@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.495 — 2026-07-01
+
+**Fix: Chrome extensions couldn't reach the server-mode API from another machine (Private Network Access).** The `story-studio-tts` and `story-studio-bulk-asset` extensions worked from `localhost` but failed with a generic `TypeError: Failed to fetch` when the browser ran on a different machine than Story Studio KH (e.g. an iMac reaching this Mac mini over Tailscale) — even though the server was reachable and host permissions were granted. Chrome's Private Network Access policy blocks such fetches before they leave the browser unless the server answers the CORS preflight with `Access-Control-Allow-Private-Network: true`, which the `cors` package doesn't send. Added a tiny middleware (server mode only) that sets that header when the preflight requests private-network access. `localhost`/`127.0.0.1` are exempt from PNA, so desktop-loopback mode was never affected and is unchanged.
+
+---
+
 ## v1.0.494 — 2026-07-01
 
 **Preview generated subtitles in the Subtitles tab.** Each file in the "Subtitle files" list now has a 👁 button that opens an inline preview of the actual cues — every line's timestamp (`start → end`) and text — so you can verify transcription accuracy without opening Finder or a text editor. Click the eye again (or ✕) to close; the panel header shows the cue count and total duration. Deleting the previewed file or switching episodes closes it automatically. Backed by a new read endpoint that parses the `.srt`/`.vtt` cues (`.ass` files show their raw text), with the same strict filename validation as delete (no path traversal, subtitle extensions only) and a 2000-cue cap on the response.

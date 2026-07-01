@@ -38,6 +38,26 @@ const SERVER_MODE = isServerMode()
 // session-cookie auth carries the security weight instead. See lib/server-mode.ts.
 app.use(requireAllowedHost(SERVER_MODE))
 
+// v1.0.472 — Chrome Private Network Access (PNA) preflight support (server mode).
+// When a browser/extension on ANOTHER machine (e.g. the iMac reaching this Mac
+// mini over Tailscale) fetches this server-mode API, Chrome sends a CORS
+// preflight carrying `Access-Control-Request-Private-Network: true` and then
+// SILENTLY blocks the fetch unless the response echoes
+// `Access-Control-Allow-Private-Network: true`. The `cors` package doesn't set
+// this header, so we add it ourselves — BEFORE cors() runs, so it's present on
+// the 204 that cors() ends the OPTIONS preflight with. localhost / 127.0.0.1 are
+// exempt from PNA (that's why desktop-loopback mode already works), so this is
+// scoped to server mode only. Only requests that actually ask for private-network
+// access get the header.
+if (SERVER_MODE) {
+  app.use((req, res, next) => {
+    if (req.headers['access-control-request-private-network'] === 'true') {
+      res.setHeader('Access-Control-Allow-Private-Network', 'true')
+    }
+    next()
+  })
+}
+
 // In production (packaged Electron), frontend is served from the same Express
 // server so CORS isn't needed. In dev, allow the Nuxt dev server origin.
 const isDev = !process.env.ELECTRON_RUN_AS_NODE || process.env.NODE_ENV === 'development'
