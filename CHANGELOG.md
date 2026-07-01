@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.496 — 2026-07-01
+
+**Preview the stitched timeline subtitles too.** Building on the per-chapter cue preview (v1.0.494), the "Stitch into the timeline" section now has a **👁 Preview stitched** button that shows the unified `<code>_stitched.srt` — the exact file Scene Plan reads and Video Assembly burns in — with every cue's timestamp and text on the global timeline. The preview panel is now a shared component (`SubtitleCuePreview`) rendered next to whichever button opened it, so per-chapter files preview in the file list and the stitched file previews in the stitch section.
+
 ## v1.0.495 — 2026-07-01
 
 **Fix: Chrome extensions couldn't reach the server-mode API from another machine (Private Network Access).** The `story-studio-tts` and `story-studio-bulk-asset` extensions worked from `localhost` but failed with a generic `TypeError: Failed to fetch` when the browser ran on a different machine than Story Studio KH (e.g. an iMac reaching this Mac mini over Tailscale) — even though the server was reachable and host permissions were granted. Chrome's Private Network Access policy blocks such fetches before they leave the browser unless the server answers the CORS preflight with `Access-Control-Allow-Private-Network: true`, which the `cors` package doesn't send. Added a tiny middleware (server mode only) that sets that header when the preflight requests private-network access. `localhost`/`127.0.0.1` are exempt from PNA, so desktop-loopback mode was never affected and is unchanged.
