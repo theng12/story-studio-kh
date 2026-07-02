@@ -289,8 +289,13 @@ ${schemaBlock}`
   // (medium / art style / rendering / colour), not echoed verbatim each time.
   const style = opts.style_prompt?.trim()
   if (style) {
+    // v1.0.499 — the style is prepended to the FRONT of every visual_prompt
+    // deterministically after parsing (see the finalize pass in planScenes), so
+    // the model doesn't need to restate it — asking a weak model to "weave it in"
+    // just buried it at the end where image models under-apply it. Shown here as
+    // context so scene content suits the style.
     userParts.push(
-      `\nGLOBAL VISUAL STYLE — apply to EVERY scene's visual_prompt (the medium, art style, rendering, lighting feel, and colour treatment), weaving it in naturally rather than copying it word-for-word:\n${style}`,
+      `\nGLOBAL VISUAL STYLE (context only) — this exact clause is placed at the START of every scene's visual_prompt automatically, so DON'T restate it; just describe each scene's content (subject, action, setting, framing, lighting, mood) to suit this style:\n${style}`,
     )
   }
   // v1.0.242 — extra planner instructions the user wants honoured throughout.
@@ -868,6 +873,26 @@ export async function generatePromptsForScenes(
 }
 
 /**
+ * v1.0.499 — put the art style FIRST. Image models (and CLIP-style text
+ * encoders) weight leading tokens far more than trailing ones, so a style
+ * clause buried at the end of the description gets under-applied — especially
+ * by smaller / local models. We prepend the exact style clause to the front of
+ * the scene description rather than relying on the LLM to "weave it in". No-op
+ * when there's no style, and skips prepending if the description already opens
+ * with the style (so a model that restated it doesn't double it up).
+ */
+export function leadWithStyle(description: string, style: string | undefined): string {
+  const desc = (description || '').trim()
+  const st = (style || '').trim()
+  if (!st) return desc
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  const stKey = norm(st).slice(0, 40)
+  if (stKey && norm(desc).startsWith(stKey)) return desc   // already leads with it
+  const sep = /[.!?…,;:]$/.test(st) ? '' : '.'
+  return `${st}${sep} ${desc}`
+}
+
+/**
  * v1.0.288 — generate JUST the `visual_prompt` for a single scene, without
  * touching its time boundaries or transcript. Returns the prompt as a
  * plain string — no JSON, no structure.
@@ -912,8 +937,16 @@ export async function generateVisualPromptOnly(opts: {
     `Length: ${detail.length}.`,
     `Cover: ${detail.cover}.`,
   ]
-  if (opts.style_prompt && opts.style_prompt.trim()) {
-    sysParts.push(`Visual style to apply: ${opts.style_prompt.trim()}`)
+  // v1.0.499 — the art style is prepended to the FRONT of the final prompt
+  // deterministically (see leadWithStyle below), so the model doesn't need to
+  // restate it — that only risks a weak model burying it mid-sentence where
+  // image models under-apply it. We still SHOW it as context so the model picks
+  // scene details that suit the style.
+  const styleForLead = opts.style_prompt?.trim() || ''
+  if (styleForLead) {
+    sysParts.push(
+      `ART STYLE / MEDIUM (context only): "${styleForLead}". This exact clause is placed automatically at the START of the final prompt, so do NOT restate the style — just describe the scene content (subject, action, setting, framing, lighting, mood) in a way that suits that style.`,
+    )
   }
   if (opts.custom_instructions && opts.custom_instructions.trim()) {
     sysParts.push(`Additional rules: ${opts.custom_instructions.trim()}`)
@@ -962,7 +995,8 @@ export async function generateVisualPromptOnly(opts: {
   cleaned = cleaned.replace(/^(visual\s*prompt|visual\s*description|scene\s*description|description|prompt)\s*[:\-]\s*/i, '').trim()
   // Strip surrounding quotes (smart + straight)
   cleaned = cleaned.replace(/^["'`“‘]+|["'`”’]+$/g, '').trim()
-  return cleaned
+  // v1.0.499 — front-load the art style so image models apply it reliably.
+  return leadWithStyle(cleaned, styleForLead)
 }
 
 /**
@@ -1441,6 +1475,13 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
   const finalScenes: ScenePlanEntry[] = []
   for (const s of allScenes) {
     s.transcript_segment = transcriptForRange(cues, s.start_sec, s.end_sec) || s.transcript_segment
+    // v1.0.499 — front-load the art style so image models apply it reliably
+    // (leading tokens carry more weight). Applied before the long-scene split
+    // so split children inherit the prefixed prompt; empty placeholders stay
+    // empty. leadWithStyle no-ops if the prompt already opens with the style.
+    if (s.visual_prompt && s.visual_prompt.trim()) {
+      s.visual_prompt = leadWithStyle(s.visual_prompt, opts.style_prompt)
+    }
     if (s.end_sec - s.start_sec > maxSec + 0.5) {
       finalScenes.push(...splitLongScene(s, cues, maxSec))
     } else {
