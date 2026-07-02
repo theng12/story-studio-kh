@@ -766,8 +766,12 @@ export async function generatePromptsForScenes(
   // Derive concurrency from the Chat Studio pool size when the model is local.
   // Cloud models stay sequential (no pool to spread across; cloud rate-limits
   // make free parallelism risky). Single-endpoint Chat Studio also stays at 1.
+  // v1.0.497 — Chat Studio's cloud-PROXIED models (chatstudio:provider:*) also
+  // stay sequential: every endpoint proxies the same upstream free tier, so
+  // fanning out across the pool just multiplies 429s.
+  const isChatstudioCloudProxy = ctx.model.startsWith(`${CHATSTUDIO_MODEL_PREFIX}provider:`)
   let concurrency = 1
-  if (ctx.model.startsWith(CHATSTUDIO_MODEL_PREFIX)) {
+  if (ctx.model.startsWith(CHATSTUDIO_MODEL_PREFIX) && !isChatstudioCloudProxy) {
     const csStored = await getApiKey('chatstudio').catch(() => '')
     // Clear stale "marked down" state so endpoints that recovered since the
     // last connection error get a fair retry at the start of this workload.
@@ -839,7 +843,15 @@ export async function generatePromptsForScenes(
             + `(${lastErr?.message || 'unknown'}) — retrying…`,
           )
           // Short backoff so a momentarily-down endpoint has time to wake.
-          await new Promise(r => setTimeout(r, 1200 * (attempt + 1)))
+          // v1.0.497 — rate-limited free cloud tiers need MUCH longer than the
+          // 1.2s connection-blip backoff; hammering them every second just
+          // extends the limit window and fails every remaining scene.
+          const rateLimited = /rate.?limit|\b429\b/i.test(String(lastErr?.message || ''))
+          const backoffMs = rateLimited ? Math.min(45_000, 15_000 * (attempt + 1)) : 1200 * (attempt + 1)
+          if (rateLimited) {
+            ctx.onWarn?.(`Scene #${i + 1}: provider rate-limited — waiting ${Math.round(backoffMs / 1000)}s before retrying.`)
+          }
+          await new Promise(r => setTimeout(r, backoffMs))
         }
       }
       failed++

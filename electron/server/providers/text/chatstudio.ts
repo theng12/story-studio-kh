@@ -141,7 +141,32 @@ const chatstudioProvider: TextProvider = {
         if (err?.name === 'AbortError' || signal?.aborted) {
           throw new Error('Cancelled by user', { cause: err })
         }
-        const msg = redactSecrets(err instanceof Error ? err.message : String(err), apiKey)
+        // v1.0.497 — Chat Studio (FastAPI) returns errors as {"detail": "..."}
+        // rather than OpenAI's {"error": {...}} shape, so the OpenAI SDK reports
+        // a useless "502 status code (no body)" and swallows the real diagnostic
+        // ("OpenRouter returned HTTP 429: … rate-limited upstream, retry
+        // shortly"). The SDK still parses the JSON body onto err.error — pull
+        // the detail out and prefer it as the message.
+        const apiDetail = typeof err?.error?.detail === 'string' ? err.error.detail.trim() : ''
+        const httpStatus = typeof err?.status === 'number' ? err.status : undefined
+        const msg = redactSecrets(apiDetail || (err instanceof Error ? err.message : String(err)), apiKey)
+        // Cloud-provider rate limit proxied through Chat Studio. The ENDPOINT is
+        // healthy — phrased so endpoint-pool's isConnectionError does NOT match:
+        // no failover (other endpoints proxy the same upstream), no mark-down,
+        // no health-cache poisoning. The scene planner's retry loop backs off
+        // longer when it sees this phrasing.
+        if (httpStatus === 429 || /\brate.?limit/i.test(msg)) {
+          throw new Error(
+            `Chat Studio's cloud provider rate-limited this request: ${msg} ` +
+            `— wait a minute and retry, or switch to a different provider/model in the dropdown.`,
+            { cause: err },
+          )
+        }
+        // Other upstream cloud-provider failure surfaced by Chat Studio with a
+        // real diagnostic (5xx + detail). Same reasoning: the endpoint is up.
+        if (apiDetail && httpStatus && httpStatus >= 500) {
+          throw new Error(`Chat Studio cloud-provider request failed: ${apiDetail}`, { cause: err })
+        }
         // Connection-refused / fetch-failed → that endpoint is down. Rethrow
         // with regex-matchable phrasing so runOnPool's matcher fails over.
         if (/ECONNREFUSED|fetch failed|ENOTFOUND|EHOSTUNREACH|network|Connection error|socket hang up|timed?\s*out|timeout/i.test(msg)) {

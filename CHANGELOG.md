@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.497 — 2026-07-02
+
+**Scene planner: the mystery "502 (no body)" is fixed — and Chat Studio's new free cloud providers get their own picker group.** Three related changes after diagnosing the two-pass run that finished with only pacing:
+
+- **Real error messages instead of "502 status code (no body)".** Chat Studio returns errors as `{"detail": "…"}` (FastAPI style), which the OpenAI SDK can't parse — so the actual diagnostic ("OpenRouter returned HTTP 429: model is temporarily rate-limited upstream, retry shortly") was swallowed and every failure looked like a dead server. The provider now extracts the detail and surfaces it verbatim. What actually happened to your run: the free-tier cloud model was **rate-limited upstream**, pass 1 (deterministic pacing split) needs no LLM so it succeeded, and pass 2's per-scene calls all failed.
+- **Rate-limit-aware retries.** A rate-limited free tier now backs off 15–45s between attempts instead of hammering it every 1.2s (which just extends the limit window), and Chat Studio **cloud-proxied** models stay sequential even with multiple endpoints configured — every endpoint proxies the same upstream, so fanning out only multiplies 429s. A rate-limit error also no longer marks the (healthy) endpoint as down. Tip: after a partial run, use **"✨ Regen N empty prompts only"** — it keeps the pacing and fills just the missing prompts.
+- **Cloud/local split for Chat Studio models.** Chat Studio ≥1.15 proxies free cloud LLM providers (OpenRouter, NVIDIA NIM, Groq, Cerebras, Gemini, Hugging Face Router, SambaNova, GitHub Models) and its raw model list ballooned to ~450 entries flooding the picker. Story Studio now reads Chat Studio's curated `/api/providers` catalog instead: local MLX models stay under **"Chat Studio (local)"**, and the curated free cloud models appear under a new **"Chat Studio (cloud · free APIs)"** group (~74 entries, each labeled with its provider). Providers whose API key isn't configured in Chat Studio show disabled with an "add key in Chat Studio" note. Old Chat Studio builds without the catalog endpoint keep the previous behaviour (locals only).
+
 ## v1.0.496 — 2026-07-01
 
 **Preview the stitched timeline subtitles too.** Building on the per-chapter cue preview (v1.0.494), the "Stitch into the timeline" section now has a **👁 Preview stitched** button that shows the unified `<code>_stitched.srt` — the exact file Scene Plan reads and Video Assembly burns in — with every cue's timestamp and text on the global timeline. The preview panel is now a shared component (`SubtitleCuePreview`) rendered next to whichever button opened it, so per-chapter files preview in the file list and the stitched file previews in the stitch section.

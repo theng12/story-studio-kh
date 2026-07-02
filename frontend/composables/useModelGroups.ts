@@ -35,6 +35,10 @@ export const PROVIDER_DISPLAY: Record<string, string> = {
   openai: 'OpenAI',
   // Chat Studio (local Apple-Silicon MLX OpenAI-compatible LLM, self-healing).
   chatstudio: 'Chat Studio (local)',
+  // v1.0.497 — Chat Studio also proxies FREE cloud LLM providers (OpenRouter,
+  // NVIDIA NIM, Groq, Gemini, HF Router, …). Separate group so local vs cloud
+  // is obvious in the picker.
+  'chatstudio-cloud': 'Chat Studio (cloud · free APIs)',
 }
 
 /**
@@ -53,7 +57,7 @@ const DEFAULT_ORDER = [
   // then OpenAI, then the local Chat Studio group at the bottom (advanced;
   // requires a running local server). (kie.ai's Claude/GPT/Gemini group sorts
   // under 'kie' above.)
-  'deepseek', 'openrouter', 'openai', 'chatstudio',
+  'deepseek', 'openrouter', 'openai', 'chatstudio', 'chatstudio-cloud',
 ]
 
 export interface ModelGroup<T> {

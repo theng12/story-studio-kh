@@ -178,6 +178,110 @@ export async function listModelsPooled(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Catalog (v1.0.497) — cloud/local split.
+//
+// Chat Studio ≥1.15 proxies FREE cloud LLM providers (OpenRouter, NVIDIA NIM,
+// Groq, Cerebras, Gemini, HF Router, SambaNova, GitHub Models) and its
+// /v1/models now dumps EVERY upstream model (~450 rows) — far too much for a
+// dropdown, and indistinguishable from the local MLX models. The native
+// /api/providers endpoint carries the CURATED per-provider model list
+// (label, free flag, `repo` = the id to send) plus `key_set` (credential
+// configured). We surface: all local models + the curated cloud models,
+// and skip the raw provider:* dump entirely.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Model-id prefix Chat Studio uses for cloud-proxied models. */
+export const CHATSTUDIO_CLOUD_ID_PREFIX = 'provider:'
+
+export interface ChatStudioCatalogEntry {
+  /** Raw Chat Studio model id (local repo, or `provider:<key>:<model>`). */
+  id: string
+  /** Human label ("Llama 3.3 70B Instruct (free)" or the local repo id). */
+  label: string
+  cloud: boolean
+  /** Cloud provider key/name ('openrouter' / 'OpenRouter') — cloud only. */
+  provider_key?: string
+  provider_name?: string
+  free?: boolean
+  /** False when the provider's API key isn't configured in Chat Studio yet. */
+  key_set?: boolean
+}
+
+/** Root API base (no /v1) for Chat Studio's native /api/* endpoints. */
+function chatstudioRootBase(url: string): string {
+  return chatstudioApiBase(url).replace(/\/v1$/i, '')
+}
+
+/**
+ * Cloud/local model catalog for ONE endpoint. Locals come from /v1/models
+ * (ids without the `provider:` prefix); clouds come from /api/providers'
+ * curated lists. Providers without a key still surface (key_set:false) so the
+ * picker can show them as "needs key" — same pattern as Image Studio v1.0.477.
+ * Old Chat Studio builds without /api/providers → locals only (their
+ * /v1/models had no provider:* ids anyway).
+ */
+export async function listCatalog(baseUrl: string, timeoutMs = 2500): Promise<ChatStudioCatalogEntry[]> {
+  const root = chatstudioRootBase(baseUrl)
+  if (!root) return []
+  const entries: ChatStudioCatalogEntry[] = []
+
+  const h = await health(baseUrl, timeoutMs)
+  if (!h.ok) return []
+  for (const id of h.models || []) {
+    if (id.startsWith(CHATSTUDIO_CLOUD_ID_PREFIX)) continue // curated below
+    entries.push({ id, label: id, cloud: false })
+  }
+
+  try {
+    const res = await fetchWithTimeout(`${root}/api/providers`, timeoutMs)
+    if (res.ok) {
+      const json: any = await res.json().catch(() => null)
+      for (const p of Array.isArray(json?.providers) ? json.providers : []) {
+        const keySet = !!p?.key_set
+        for (const m of Array.isArray(p?.models) ? p.models : []) {
+          const repo = typeof m?.repo === 'string' ? m.repo : ''
+          if (!repo) continue
+          entries.push({
+            id: repo,
+            label: typeof m?.label === 'string' && m.label ? m.label : (m?.id || repo),
+            cloud: true,
+            provider_key: typeof p?.key === 'string' ? p.key : undefined,
+            provider_name: typeof p?.name === 'string' ? p.name : undefined,
+            free: m?.free !== false,
+            key_set: keySet,
+          })
+        }
+      }
+    }
+  } catch { /* old build / endpoint missing — locals only */ }
+
+  return entries
+}
+
+/**
+ * Catalog across the WHOLE enabled endpoint pool (union by id, first seen
+ * wins) — mirrors listModelsPooled so a sleeping endpoints[0] doesn't hide
+ * everything. Cloud entries are endpoint-independent, so the union is cheap.
+ */
+export async function listCatalogPooled(
+  stored: string | null | undefined,
+  timeoutMs = 2500,
+): Promise<ChatStudioCatalogEntry[]> {
+  const eps = parseEnabledEndpoints(stored)
+  if (eps.length === 0) return []
+  if (eps.length === 1) return listCatalog(eps[0]!, timeoutMs)
+  const lists = await Promise.all(eps.map(u => listCatalog(u, timeoutMs).catch(() => [])))
+  const seen = new Set<string>()
+  const out: ChatStudioCatalogEntry[] = []
+  for (const list of lists) {
+    for (const e of list) {
+      if (!seen.has(e.id)) { seen.add(e.id); out.push(e) }
+    }
+  }
+  return out
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Multi-endpoint dispatcher.
 //
 // Mirrors the pool pattern from Image Studio / Voice Studio: same module

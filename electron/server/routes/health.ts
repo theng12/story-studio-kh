@@ -251,20 +251,33 @@ router.get('/models', async (req, res) => {
   try {
     const lmBaseRaw = await getApiKey('chatstudio').catch(() => '')
     if (lmBaseRaw) {
-      // Union models across ALL configured endpoints, not just the first, so a
-      // sleeping endpoints[0] no longer empties the dropdown.
-      const { listModelsPooled } = await import('../lib/chatstudio-client.js')
-      const ids = await listModelsPooled(lmBaseRaw, 2000)
-      for (const slug of ids) {
+      // v1.0.497 — catalog instead of the raw /v1/models dump: Chat Studio now
+      // proxies free cloud LLM providers (OpenRouter / NVIDIA / Groq / Gemini /
+      // HF Router / …) and its /v1/models lists ~450 upstream models. The
+      // catalog keeps all LOCAL models + each provider's CURATED cloud list,
+      // split into two picker groups (chatstudio / chatstudio-cloud). Providers
+      // without a key configured surface disabled with a "add key in Chat
+      // Studio" reason (Image Studio v1.0.477 precedent). Union across ALL
+      // configured endpoints so a sleeping endpoints[0] doesn't empty the list.
+      const { listCatalogPooled } = await import('../lib/chatstudio-client.js')
+      const entries = await listCatalogPooled(lmBaseRaw, 2000)
+      for (const e of entries) {
+        const needsKey = e.cloud && e.key_set === false
         models.push({
-          id: `chatstudio:${slug}`,
-          label: `${slug} [Chat Studio · local]`,
-          provider: 'chatstudio',
-          available: true,
-          disabled_reason: null,
-          hint: 'Runs locally on your machine — free, no rate limits.',
-          // v1.0.283 — see isVisionCapableCloud comment above; local models
-          // assumed vision-capable per user preference.
+          id: `chatstudio:${e.id}`,
+          label: e.cloud
+            ? `${e.label} [${e.provider_name || e.provider_key || 'cloud'}]`
+            : `${e.label} [Chat Studio · local]`,
+          provider: e.cloud ? 'chatstudio-cloud' : 'chatstudio',
+          available: !needsKey,
+          disabled_reason: needsKey
+            ? `Add your ${e.provider_name || e.provider_key} API key in Chat Studio first (free tier available).`
+            : null,
+          hint: e.cloud
+            ? `Free cloud API proxied through Chat Studio (${e.provider_name || e.provider_key}).`
+            : 'Runs locally on your machine — free, no rate limits.',
+          // v1.0.283 — see isVisionCapableCloud comment above; Chat Studio
+          // models assumed vision-capable per user preference.
           supports_vision: true,
         })
       }
