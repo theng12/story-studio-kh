@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.498 — 2026-07-02
+
+**Model picker: Local / Cloud·free / Cloud·paid tabs so you can't spend by accident.** Every LLM model now carries a cost tier, and the AI-model dropdown shows filter tabs — **All · Local · Cloud · free · Cloud · paid** (with counts) — that narrow the list to just that tier. Pick "Cloud · free" and no paid model can be selected; the tabs appear only when your list actually spans more than one tier (i.e. once Chat Studio is configured). Paid models are also flagged inline with a **💲 paid** marker and a tooltip ("uses your credits") in the "All" view, so an accidental click stands out even without switching tabs. Tiers: local Chat Studio MLX models → **Local**; Chat Studio's free cloud providers (NVIDIA NIM, Groq, Gemini free, HF Router, …) → **Cloud · free**; anything that spends credits (OpenAI, DeepSeek, OpenRouter-direct, and Chat Studio's paid providers like Anthropic / OpenAI / xAI / Together) → **Cloud · paid**. Applies everywhere the model picker appears (Scene Plan, Scene Review, Co-writer, Scripts, Ideas, Research, Metadata, …). The tier is read from Chat Studio's per-model `free` flag, so it stays accurate as you add providers on that side.
+
 ## v1.0.497 — 2026-07-02
 
 **Scene planner: the mystery "502 (no body)" is fixed — and Chat Studio's new free cloud providers get their own picker group.** Three related changes after diagnosing the two-pass run that finished with only pacing:

@@ -10,6 +10,21 @@
         Loading models…
       </span>
     </label>
+    <!-- v1.0.498 — cost-tier tabs. Filter the dropdown to Local / Cloud-free /
+         Cloud-paid so a paid model can't be picked by accident. Only shown when
+         the list spans more than one tier (e.g. Chat Studio configured). -->
+    <div v-if="!loading && tierTabs.length" class="ms-tier-tabs" role="tablist">
+      <button
+        v-for="t in tierTabs"
+        :key="t.key"
+        type="button"
+        role="tab"
+        :aria-selected="activeTier === t.key"
+        :class="['ms-tier-tab', { active: activeTier === t.key, paid: t.key === 'paid' }]"
+        :title="t.key === 'paid' ? 'Models that spend paid API credits' : t.key === 'free' ? 'Free cloud APIs (rate-limited)' : t.key === 'local' ? 'Runs on your machine — free' : 'All models'"
+        @click="activeTier = t.key"
+      >{{ t.label }} <span class="ms-tier-count">{{ t.count }}</span></button>
+    </div>
     <!-- v1.0.471 — search/filter box. Native <select> can't filter, so this
          narrows the option list by label / id / provider. Shown once there are
          enough models to be worth searching. The current selection always stays
@@ -59,6 +74,10 @@ interface LlmModelRow {
   // when the user has attached an image). Local LM Studio models claim true
   // unconditionally — see the comment in routes/health.ts.
   supports_vision?: boolean
+  // v1.0.498 — cost tier for the picker tabs. 'local' = on-machine (free),
+  // 'free' = free cloud API, 'paid' = uses paid credits. Absent → treated as
+  // 'paid' (safe default; older backends only served paid cloud models).
+  cost_tier?: 'local' | 'free' | 'paid'
 }
 
 const props = defineProps<{
@@ -91,10 +110,16 @@ function isDisabled(m: LlmModelRow) {
   if (props.requireVision && m.supports_vision === false) return true
   return false
 }
+function tierOf(m: LlmModelRow): 'local' | 'free' | 'paid' {
+  return m.cost_tier || 'paid'
+}
 function suffixFor(m: LlmModelRow) {
   if (m.disabled_reason) return ' (unavailable)'
   if (!m.available) return ' (no key)'
   if (props.requireVision && m.supports_vision === false) return ' (text-only)'
+  // v1.0.498 — flag paid models in the option text so an accidental pick in the
+  // "All" tab is visible even without reading the tooltip. Free/local stay clean.
+  if (tierOf(m) === 'paid') return ' · 💲 paid'
   return ''
 }
 function tooltipFor(m: LlmModelRow) {
@@ -118,16 +143,40 @@ const groups = computed(() => {
 const SEARCH_THRESHOLD = 8
 const query = ref('')
 
-// Filtered groups for rendering. Matches the typed query against the model's
-// label, id, and provider (case-insensitive, all whitespace-separated terms must
-// match somewhere). The currently-selected model is always kept so the native
-// <select> never shows a blank value mid-filter. Empty query → all groups.
+// v1.0.498 — cost-tier tabs (All / Local / Cloud free / Cloud paid). Lets the
+// user hide paid models so they can't be picked by accident (wasting credits).
+// The tabs only appear when the model list actually spans more than one tier —
+// otherwise they'd be noise (e.g. a fresh install with only paid cloud models).
+type Tier = 'all' | 'local' | 'free' | 'paid'
+const activeTier = ref<Tier>('all')
+const tierCounts = computed(() => {
+  const c = { local: 0, free: 0, paid: 0 }
+  for (const m of allModels.value) c[tierOf(m)]++
+  return c
+})
+const tierTabs = computed(() => {
+  const c = tierCounts.value
+  const tabs: Array<{ key: Tier; label: string; count: number }> = [
+    { key: 'all', label: 'All', count: allModels.value.length },
+  ]
+  if (c.local) tabs.push({ key: 'local', label: 'Local', count: c.local })
+  if (c.free) tabs.push({ key: 'free', label: 'Cloud · free', count: c.free })
+  if (c.paid) tabs.push({ key: 'paid', label: 'Cloud · paid', count: c.paid })
+  // Only worth showing when models span >1 tier (2 tabs = All + one tier).
+  return tabs.length > 2 ? tabs : []
+})
+
+// Filtered groups for rendering. Applies BOTH the tier tab and the search query.
+// The currently-selected model is always kept (matches either filter) so the
+// native <select> never goes blank mid-filter. Empty query + 'all' tab → all.
 const filteredGroups = computed(() => {
   const q = query.value.trim().toLowerCase()
-  if (!q) return groups.value
-  const terms = q.split(/\s+/)
+  const terms = q ? q.split(/\s+/) : []
+  const tier = activeTier.value
   const matches = (m: { id: string; data: LlmModelRow }): boolean => {
-    if (m.id === props.modelValue) return true
+    if (m.id === props.modelValue) return true   // never hide the active selection
+    if (tier !== 'all' && tierOf(m.data) !== tier) return false
+    if (!terms.length) return true
     const hay = `${m.data.label} ${m.id} ${m.data.provider || ''}`.toLowerCase()
     return terms.every(t => hay.includes(t))
   }
@@ -136,8 +185,8 @@ const filteredGroups = computed(() => {
     .filter(g => g.items.length > 0)
 })
 
-// Reset the filter when the project (and thus the model list) changes.
-watch(() => props.projectSlug, () => { query.value = '' })
+// Reset filters when the project (and thus the model list) changes.
+watch(() => props.projectSlug, () => { query.value = ''; activeTier.value = 'all' })
 
 async function loadModels() {
   loading.value = true
@@ -168,6 +217,28 @@ option:disabled {
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* v1.0.498 — cost-tier tabs above the search box. */
+.ms-tier-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.ms-tier-tab {
+  padding: 3px 10px;
+  font-size: 11.5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.ms-tier-tab:hover { color: var(--text-primary); }
+.ms-tier-tab.active { background: var(--accent, #6c8fff); color: #fff; border-color: var(--accent, #6c8fff); }
+.ms-tier-tab.paid.active { background: #b4530a; border-color: #b4530a; }
+.ms-tier-count { opacity: 0.7; font-size: 10px; }
 
 /* v1.0.471 — model search box sits just above the select. */
 .ms-search {

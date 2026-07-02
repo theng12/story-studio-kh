@@ -228,10 +228,17 @@ router.get('/models', async (req, res) => {
     return false
   }
 
+  // v1.0.498 — cost tier per model so the picker can tab into
+  // Local / Cloud (free) / Cloud (paid) and the user avoids accidentally
+  // spending on a paid API. Every static cloud provider (OpenAI, DeepSeek,
+  // OpenRouter-direct) uses the user's own paid key → 'paid'. Chat Studio
+  // models are tagged below from the catalog (local / free / paid).
+  type CostTier = 'local' | 'free' | 'paid'
+
   const models: Array<{
     id: string; label: string; provider: string; available: boolean;
     disabled_reason: string | null; hint: string | null;
-    supports_vision: boolean
+    supports_vision: boolean; cost_tier: CostTier
   }> = Object.entries(MODEL_LABELS).map(([id, label]) => ({
     id,
     label,
@@ -240,6 +247,7 @@ router.get('/models', async (req, res) => {
     disabled_reason: KNOWN_UNAVAILABLE_REASONS[id] ?? null,
     hint: null,
     supports_vision: isVisionCapableCloud(id),
+    cost_tier: 'paid',
   }))
 
   // v1.0.280+ — dynamically surface LOCAL LM Studio models. When the user has
@@ -263,22 +271,28 @@ router.get('/models', async (req, res) => {
       const entries = await listCatalogPooled(lmBaseRaw, 2000)
       for (const e of entries) {
         const needsKey = e.cloud && e.key_set === false
+        // Tier: local MLX → 'local'; cloud free tier → 'free'; cloud paid → 'paid'.
+        const tier: CostTier = !e.cloud ? 'local' : (e.free === false ? 'paid' : 'free')
+        const provName = e.provider_name || e.provider_key || 'cloud'
         models.push({
           id: `chatstudio:${e.id}`,
           label: e.cloud
-            ? `${e.label} [${e.provider_name || e.provider_key || 'cloud'}]`
+            ? `${e.label} [${provName}]`
             : `${e.label} [Chat Studio · local]`,
           provider: e.cloud ? 'chatstudio-cloud' : 'chatstudio',
           available: !needsKey,
           disabled_reason: needsKey
-            ? `Add your ${e.provider_name || e.provider_key} API key in Chat Studio first (free tier available).`
+            ? `Add your ${provName} API key in Chat Studio first${tier === 'free' ? ' (free tier available)' : ''}.`
             : null,
           hint: e.cloud
-            ? `Free cloud API proxied through Chat Studio (${e.provider_name || e.provider_key}).`
+            ? (tier === 'paid'
+                ? `Paid cloud API proxied through Chat Studio (${provName}) — uses your ${provName} credits.`
+                : `Free cloud API proxied through Chat Studio (${provName}).`)
             : 'Runs locally on your machine — free, no rate limits.',
           // v1.0.283 — see isVisionCapableCloud comment above; Chat Studio
           // models assumed vision-capable per user preference.
           supports_vision: true,
+          cost_tier: tier,
         })
       }
     }
