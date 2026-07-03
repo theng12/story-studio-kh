@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.501 — 2026-07-03
+
+**Upload Center: a persistent operation report + one clear banner for expired YouTube sessions.** The two highest-impact trust fixes from the Upload Center review:
+
+- **Operation report card.** Applying a plan (or Apply + Upload) now leaves a persistent per-episode receipt below the tabs — every episode with what happened (`Scheduled on YouTube`, `Scheduled locally`, `Scheduled + upload queued`, `Skipped — already public / no final video`) and, for failures, the **actual reason** plus a per-row **Retry** button (retries the YouTube schedule update or the upload for just that episode). Failures sort to the top with a "N need attention" chip. Toasts remain as the one-line summary; the card is the detailed record that doesn't vanish after 5 seconds.
+- **"YouTube session expired" banner.** When Google expires or revokes an account's token (`invalid_grant`), every panel on the page (playlists, orphans, sync, statuses) used to fail independently with six identical raw-stack error toasts. The backend now tags this error class (`code: youtube_auth_expired`, friendly message + hint), and the Upload page collapses all of them into **one** banner: what happened, how to fix it (Accounts → Disconnect → Connect), an "Open Accounts" shortcut, and an "I've reconnected — retry" button that reloads the affected panels. The silent auto-sync also raises the banner instead of failing invisibly.
+
 ## v1.0.500 — 2026-07-03
 
 **Upload Center: schedule errors now say WHY, slots follow episode order, and the queue stops defaulting to old uploaded rows.** Three fixes from the capi session:

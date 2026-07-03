@@ -48,6 +48,49 @@
       </button>
     </div>
 
+    <!-- v1.0.501 — ONE banner for an expired/revoked YouTube token, instead of
+         six identical raw-stack error toasts from every panel that touches the
+         API. Visible on every tab until reconnected or dismissed. -->
+    <div v-if="ytAuthBroken" class="yt-auth-banner mt-2">
+      <span class="yt-auth-icon" aria-hidden="true">🔑</span>
+      <div class="yt-auth-text">
+        <strong>YouTube session expired.</strong>
+        Google expired or revoked this account's token — sync, playlists, scheduling, and uploads will all fail until it's reconnected.
+        <span class="yt-auth-hint">Accounts tab → Disconnect → Connect again, then hit retry.</span>
+      </div>
+      <button class="btn btn-sm btn-primary" @click="activeTab = 'accounts'">Open Accounts</button>
+      <button class="btn btn-sm btn-secondary" @click="retryAfterReconnect">I've reconnected — retry</button>
+      <button class="btn-icon" title="Dismiss (it will reappear on the next failed call)" @click="ytAuthBroken = false">✕</button>
+    </div>
+
+    <!-- v1.0.501 — operation report: the persistent per-episode receipt for the
+         last plan Apply / Apply+Upload. Failures sort first and carry a Retry. -->
+    <div v-if="opReport" class="op-report card mt-2">
+      <div class="op-report-head">
+        <strong>Last operation</strong>
+        <span class="op-report-title">{{ opReport.title }}</span>
+        <span class="text-muted text-xs">{{ opReport.at }}</span>
+        <span v-if="opReportFailCount" class="op-report-failchip">{{ opReportFailCount }} need attention</span>
+        <span class="op-report-spacer" />
+        <button class="btn-icon" title="Dismiss report" @click="opReport = null">✕</button>
+      </div>
+      <div class="op-report-rows">
+        <div v-for="row in opReport.rows" :key="row.episode_code + row.action" class="op-report-row" :class="{ bad: !row.ok }">
+          <span class="op-mark" aria-hidden="true">{{ row.ok ? '✓' : '⚠' }}</span>
+          <span class="op-code">{{ row.episode_code }}</span>
+          <span class="op-action">{{ row.action }}</span>
+          <span class="op-detail" :title="row.detail">{{ row.detail }}</span>
+          <button
+            v-if="row.retry"
+            class="btn btn-sm btn-secondary op-retry"
+            :disabled="row.busy"
+            :title="row.retry === 'patch' ? 'Retry the YouTube schedule update for this episode' : 'Retry queueing this upload'"
+            @click="retryOpRow(row)"
+          >{{ row.busy ? 'Retrying…' : 'Retry' }}</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Accounts tab ─────────────────────────────────────────────── -->
     <div v-if="activeTab === 'accounts'" class="card mt-2">
       <h3 style="margin: 0">Platforms & Connected Accounts</h3>
@@ -4510,6 +4553,115 @@ async function doActivatePlan(plan: any) {
   }
 }
 
+// ── v1.0.501 — YouTube auth-expiry banner ──────────────────────────────
+// One expired/revoked token used to surface as SIX independent raw-stack
+// error toasts (playlists, orphans, sync, statuses, …) per page visit.
+// Detect the signature once (backend tags it code:'youtube_auth_expired'
+// via humanizeBackendError) and collapse everything into a single banner
+// with a "reconnect" path; individual toasts for this class are suppressed.
+const ytAuthBroken = ref(false)
+function isYtAuthError(e: any): boolean {
+  if (e?.data?.code === 'youtube_auth_expired') return true
+  const msg = String(e?.data?.detail || e?.message || '')
+  return /youtube_auth_expired|invalid_grant|expired or revoked|YouTube session expired|Token refresh failed/i.test(msg)
+}
+/** showError, unless it's the auth-expiry class — then raise the banner instead. */
+function noteYtError(e: any, fallback: string): void {
+  if (isYtAuthError(e)) { ytAuthBroken.value = true; return }
+  showError(e?.data?.detail || e?.message || fallback)
+}
+// The auto-fired panel loaders (orphans / playlists) keep their errors in
+// composable refs rather than throwing to a page catch — watch those for
+// the same signature so the banner also raises on page load.
+watch([() => orphansError.value, () => playlistsError.value], ([o, p]) => {
+  const s = `${o || ''} ${p || ''}`
+  if (/youtube_auth_expired|invalid_grant|expired or revoked|YouTube session expired|Token refresh failed/i.test(s)) {
+    ytAuthBroken.value = true
+  }
+})
+async function retryAfterReconnect(): Promise<void> {
+  ytAuthBroken.value = false
+  await Promise.all([
+    loadQueue('youtube'),
+    loadOrphans().catch(() => {}),
+    loadPlaylists(true).catch(() => {}),
+  ])
+  success('Retried — if the banner stays gone, the account is healthy again.')
+}
+
+// ── v1.0.501 — operation report ────────────────────────────────────────
+// A persistent per-episode outcome card for plan Apply / Apply+Upload,
+// replacing vanishing multi-clause toasts as the detailed record: what got
+// scheduled, what YouTube accepted, what failed and WHY — with per-row
+// retry. Toasts stay as the one-line summary; this card is the receipt.
+interface OpRow {
+  episode_code: string
+  ok: boolean
+  action: string
+  detail: string
+  retry?: 'patch' | 'upload'
+  publish_at?: string
+  busy?: boolean
+}
+const opReport = ref<{ title: string; at: string; rows: OpRow[] } | null>(null)
+const opReportFailCount = computed(() => (opReport.value?.rows || []).filter(r => !r.ok).length)
+function openOpReport(title: string, rows: OpRow[]): void {
+  // Failures first so the actionable rows are visible without scrolling.
+  const sorted = [...rows].sort((a, b) => Number(a.ok) - Number(b.ok))
+  opReport.value = { title, at: new Date().toLocaleTimeString(), rows: sorted }
+}
+/** Rows for an apply result: assignments × patched × skipped_public. */
+function buildApplyReportRows(r: any): OpRow[] {
+  const rows: OpRow[] = []
+  const patchByCode = new Map((r.patched || []).map((p: any) => [p.episode_code, p]))
+  for (const a of (r.assignments || [])) {
+    const when = new Date(a.publishAt).toLocaleString()
+    const p: any = patchByCode.get(a.episode_code)
+    if (p && p.ok === false) {
+      rows.push({
+        episode_code: a.episode_code, ok: false,
+        action: 'YouTube update failed',
+        detail: `${p.error || 'unknown error'} — wanted ${when}`,
+        retry: 'patch', publish_at: a.publishAt,
+      })
+    } else if (p) {
+      rows.push({ episode_code: a.episode_code, ok: true, action: 'Scheduled on YouTube', detail: when })
+    } else {
+      rows.push({ episode_code: a.episode_code, ok: true, action: 'Scheduled locally', detail: `${when} — applies when uploaded` })
+    }
+  }
+  for (const s of (r.skipped_public || [])) {
+    const code = typeof s === 'string' ? s : s?.episode_code
+    if (code) rows.push({ episode_code: code, ok: true, action: 'Skipped', detail: 'Already public — left untouched' })
+  }
+  return rows
+}
+async function retryOpRow(row: OpRow): Promise<void> {
+  if (row.busy || !row.retry) return
+  row.busy = true
+  try {
+    if (row.retry === 'patch' && row.publish_at) {
+      const r = await editSchedule(row.episode_code, row.publish_at)
+      if (r.patched) {
+        row.ok = true; row.action = 'Scheduled on YouTube'
+        row.detail = new Date(row.publish_at).toLocaleString(); row.retry = undefined
+      } else {
+        row.detail = `${r.patch_error || 'YouTube update failed again'} — wanted ${new Date(row.publish_at).toLocaleString()}`
+      }
+    } else if (row.retry === 'upload') {
+      await triggerUpload({ episode_id: row.episode_code, platform: 'youtube', privacy_status: 'private' })
+      row.ok = true; row.action = 'Upload queued'
+      row.detail = 'YouTube publishes it at the scheduled time'; row.retry = undefined
+    }
+    await loadQueue('youtube')
+  } catch (e: any) {
+    row.detail = e?.data?.detail || e?.message || 'Retry failed'
+    if (isYtAuthError(e)) ytAuthBroken.value = true
+  } finally {
+    row.busy = false
+  }
+}
+
 /**
  * v1.0.500 — human-readable note for per-item YouTube patch failures.
  * The apply endpoint returns the REAL failure reason per episode in
@@ -4549,9 +4701,11 @@ async function doApplyPlan(plan: any, episode_codes: string[]) {
     // green success that buries them.
     if (failNote) showError(msg)
     else success(msg)
+    // v1.0.501 — persistent per-episode receipt (with retry on failures).
+    openOpReport(`Applied "${plan.name}" to ${episode_codes.length} episode(s)`, buildApplyReportRows(r))
     await loadQueue('youtube')
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to apply plan')
+    noteYtError(e, 'Failed to apply plan')
   } finally {
     applying.value = false
     scopeBusyPlanId.value = ''
@@ -4680,7 +4834,15 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
     // disk. queueItems already filters to publishable rows.
     const codeToItem = new Map(queueItems.value.map((i: any) => [i.episode_code, i]))
     const ready = notYetUploaded.filter((a: any) => codeToItem.has(a.episode_code))
-    const skipped = notYetUploaded.length - ready.length
+    const skippedRows = notYetUploaded.filter((a: any) => !codeToItem.has(a.episode_code))
+    const skipped = skippedRows.length
+    // v1.0.501 — merged per-episode receipt built as the run progresses.
+    const reportRows = buildApplyReportRows(r)
+    const reportByCode = new Map(reportRows.map(x => [x.episode_code, x]))
+    for (const a of skippedRows) {
+      const row = reportByCode.get(a.episode_code)
+      if (row) { row.ok = false; row.action = 'Skipped'; row.detail = 'No final video on disk — assemble it first' }
+    }
 
     if (ready.length === 0) {
       // Nothing to fan out — surface what just happened so the toast
@@ -4694,6 +4856,7 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
       ].filter(Boolean)
       if (failNote) showError(parts.join(' · '))
       else success(parts.join(' · '))
+      openOpReport(`Applied "${plan.name}" — nothing needed uploading`, reportRows)
       await loadQueue('youtube')
       return
     }
@@ -4716,6 +4879,7 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
       ].filter(Boolean)
       if (failNote) showError(`${parts.join(' · ')} · upload step cancelled`)
       else success(`${parts.join(' · ')} · upload step cancelled`)
+      openOpReport(`Applied "${plan.name}" — upload step cancelled`, reportRows)
       await loadQueue('youtube')
       return
     }
@@ -4727,6 +4891,7 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
     let failed = 0
     const failures: string[] = []
     for (const a of ready) {
+      const row = reportByCode.get(a.episode_code)
       try {
         await triggerUpload({
           episode_id: a.episode_code,
@@ -4734,10 +4899,18 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
           privacy_status: 'private',
         })
         uploaded++
+        if (row) {
+          row.ok = true
+          row.action = 'Scheduled + upload queued'
+          row.detail = `${new Date(a.publishAt).toLocaleString()} — YouTube publishes it automatically`
+          row.retry = undefined
+        }
       } catch (e: any) {
         failed++
         const detail = e?.data?.detail || e?.message || 'unknown error'
         failures.push(`${a.episode_code}: ${detail}`)
+        if (row) { row.ok = false; row.action = 'Upload failed'; row.detail = detail; row.retry = 'upload' }
+        if (isYtAuthError(e)) ytAuthBroken.value = true
       }
     }
 
@@ -4761,12 +4934,13 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
     } else {
       success(summaryParts)
     }
+    openOpReport(`Applied + uploaded "${plan.name}" (${episode_codes.length} episode(s))`, reportRows)
     await loadQueue('youtube')
   } catch (e: any) {
     // applyPlan failure (most likely past-slot validation) — abort
     // before any uploads. The detail message from the backend is
     // already actionable ("Edit the plan's start_date to today or later").
-    showError(e?.data?.detail || e?.message || 'Failed to apply plan')
+    noteYtError(e, 'Failed to apply plan')
   } finally {
     applyAndUploading.value = false
     scopeBusyPlanId.value = ''
@@ -5958,7 +6132,11 @@ async function doSyncFromYoutube(opts: { silent?: boolean } = {}) {
       showError(`🪦 ${r.tombstoned.length} video(s) gone from YouTube and tombstoned: ${codes}${more}. Filter by "Deleted upstream" to review.`)
     }
   } catch (e: any) {
-    if (!silent) showError(e?.data?.detail || 'Sync from YouTube failed')
+    // v1.0.501 — auth expiry raises the banner even on silent auto-sync
+    // (it's the whole reason the sync failed); other errors keep the
+    // silent-mode suppression.
+    if (isYtAuthError(e)) ytAuthBroken.value = true
+    else if (!silent) showError(e?.data?.detail || e?.message || 'Sync from YouTube failed')
   } finally {
     ytSyncing.value = false
   }
@@ -7686,6 +7864,44 @@ td.col-actions > a.btn {
   border-color: var(--border);
   color: var(--text-primary);
 }
+
+/* ── v1.0.501 — YouTube auth-expiry banner ─────────────────────────── */
+.yt-auth-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border: 1px solid rgba(226, 92, 92, 0.5);
+  border-radius: var(--radius-md, 8px);
+  background: rgba(226, 92, 92, 0.08);
+}
+.yt-auth-icon { font-size: 18px; flex: 0 0 auto; }
+.yt-auth-text { flex: 1 1 260px; font-size: 12.5px; line-height: 1.45; }
+.yt-auth-hint { display: block; color: var(--text-muted); font-size: 11.5px; margin-top: 2px; }
+
+/* ── v1.0.501 — operation report card ──────────────────────────────── */
+.op-report { padding: 10px 14px; }
+.op-report-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.op-report-title { font-size: 12.5px; color: var(--text-secondary); }
+.op-report-failchip {
+  font-size: 10.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px;
+  background: rgba(226, 92, 92, 0.14); color: rgb(200, 74, 74);
+}
+.op-report-spacer { flex: 1; }
+.op-report-rows { max-height: 240px; overflow-y: auto; margin-top: 8px; display: flex; flex-direction: column; }
+.op-report-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 6px; font-size: 12.5px; border-radius: 4px;
+}
+.op-report-row:nth-child(odd) { background: var(--bg-tertiary); }
+.op-report-row.bad { background: rgba(226, 92, 92, 0.07); }
+.op-mark { width: 16px; text-align: center; color: rgb(34, 197, 94); flex: 0 0 auto; }
+.op-report-row.bad .op-mark { color: rgb(200, 74, 74); }
+.op-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; flex: 0 0 auto; min-width: 72px; }
+.op-action { flex: 0 0 auto; font-weight: 600; font-size: 12px; }
+.op-detail { flex: 1; color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-retry { flex: 0 0 auto; }
 </style>
 
 <!-- Unscoped — applies to the row-kebab menu after it teleports to <body>. -->

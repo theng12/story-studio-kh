@@ -108,6 +108,21 @@ export function humanizeBackendError(e: unknown, fallback?: string): HumanizedEr
   const syscall = extractSyscall(e)
   const path = extractPath(e)
 
+  // ── YouTube OAuth expiry (v1.0.501) ──────────────────────────────────
+  // youtube-client's refreshAndPersist throws when Google returns
+  // invalid_grant ("Token has been expired or revoked"). EVERY panel on the
+  // Upload page (playlists, orphans, sync, statuses, analytics) hits this
+  // independently, so a stable machine-matchable `code` lets the frontend
+  // collapse the flood into ONE "reconnect the account" banner instead of
+  // six identical raw-stack error toasts.
+  if (/invalid_grant|Token has been expired or revoked|Token refresh failed/i.test(rawMessage)) {
+    return {
+      detail: 'YouTube session expired — the account\'s token was expired or revoked by Google.',
+      hint: 'Open Upload Center → Accounts, Disconnect the account, then Connect it again. Everything else resumes automatically.',
+      code: 'youtube_auth_expired',
+    }
+  }
+
   // ── Spawn errors (child_process) ─────────────────────────────────────
   // Most commonly bubbles up as "spawn ENOENT" when the bundled FFmpeg
   // binary is missing or its path is wrong.
