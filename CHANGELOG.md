@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.502 — 2026-07-03
+
+**Fix: "No tokens for this account" after reconnecting YouTube.** Disconnecting and reconnecting the SAME channel minted a fresh internal account id (the disconnect wiped the record before the reconnect could match it), which orphaned every schedule plan and episode sidecar still pointing at the old id — so every reschedule failed with "No tokens for this account — reconnect YouTube" even though the account was freshly connected. Three-part fix: (1) reconnecting the same channel now **reuses the previous account id** (disconnect stashes the removed account's identity; a different channel still gets a fresh id); (2) plan apply and the per-row schedule/unschedule now **self-heal stale bindings** — when the stored account id is orphaned, they resolve to the project's current (single) account, persist the fix back to the plan and sidecars, and proceed; (3) since projects are single-account by design, this can never route to a wrong channel — an account that still exists but lost its tokens keeps the explicit "reconnect" error. Your stuck episodes fix themselves on the next Apply / Retry.
+
 ## v1.0.501 — 2026-07-03
 
 **Upload Center: a persistent operation report + one clear banner for expired YouTube sessions.** The two highest-impact trust fixes from the Upload Center review:

@@ -1824,6 +1824,15 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
     await plans.writeItemSchedule(slug, nextMap)
     const patched: Array<{ episode_code: string; video_id: string; ok: boolean; error?: string }> = []
     const skipped_public: Array<{ episode_code: string; video_id: string }> = []
+    // v1.0.502 — heal a stale plan→account binding. Disconnect→reconnect used
+    // to mint a fresh account id, orphaning plan.account_id and failing every
+    // patch with "No tokens for this account" even though the (single)
+    // account is healthy. Resolve once for the batch; persist the fix back to
+    // the plan so future applies don't need the fallback.
+    const patchAccountId = await store.resolveUsableAccountId(slug, plan.platform, plan.account_id)
+    if (patchAccountId !== plan.account_id) {
+      try { await plans.upsertPlan(slug, { ...plan, account_id: patchAccountId }) } catch { /* best-effort heal */ }
+    }
     // PATCH calls stay sequential — they hit YouTube's API and benefit
     // from natural rate limiting; per-row error reporting also expects
     // ordered execution.
@@ -1850,7 +1859,7 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
         })
         await updateVideoMetadata({
           slug,
-          accountId: plan.account_id,
+          accountId: patchAccountId,
           videoId: sidecar.video_id,
           snippet: snippetFromMeta(meta, undefined, await resolveCategoryIdForSlug(slug)),
           status: { privacyStatus: plan.defaults.privacy_status, publishAt: a.publishAt },
@@ -1860,6 +1869,7 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
         const { writeSidecar } = await import('../services/upload-sidecar.js')
         await writeSidecar(slug, a.episode_code, idea.title || '', {
           ...sidecar,
+          account_id: patchAccountId,   // v1.0.502 — heal stale binding in place
           scheduled_for: a.publishAt,
           last_sync_at: new Date().toISOString(),
         })
@@ -1871,7 +1881,7 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
 
     // Mark this plan active for the platform/account combo so future
     // uploads default to it without an extra UI step.
-    await plans.setActivePlanId(slug, plan.platform, plan.account_id, plan.id)
+    await plans.setActivePlanId(slug, plan.platform, patchAccountId, plan.id)
 
     res.json({ assignments, patched, skipped_public })
   } catch (e: any) {
@@ -2601,9 +2611,11 @@ router.patch('/projects/:slug/upload/queue/:episode_code/schedule', async (req, 
     if (sidecar?.video_id && idea) {
       try {
         const meta = await resolveUploadMetadata({ slug, episode_code: code, fallback_title: idea.title, platform: 'youtube' })
+        // v1.0.502 — heal a stale sidecar→account binding (see resolveUsableAccountId).
+        const accountId = await store.resolveUsableAccountId(slug, 'youtube', sidecar.account_id)
         await updateVideoMetadata({
           slug,
-          accountId: sidecar.account_id,
+          accountId,
           videoId: sidecar.video_id,
           snippet: snippetFromMeta(meta, undefined, await resolveCategoryIdForSlug(slug)),
           status: { privacyStatus: 'private', publishAt: publish_at },
@@ -2612,6 +2624,7 @@ router.patch('/projects/:slug/upload/queue/:episode_code/schedule', async (req, 
         const { writeSidecar } = await import('../services/upload-sidecar.js')
         await writeSidecar(slug, code, idea.title || '', {
           ...sidecar,
+          account_id: accountId,
           scheduled_for: publish_at,
           privacy_status: 'private',
           last_sync_at: new Date().toISOString(),
@@ -2649,9 +2662,11 @@ router.delete('/projects/:slug/upload/queue/:episode_code/schedule', async (req,
     if (sidecar?.video_id && idea) {
       try {
         const meta = await resolveUploadMetadata({ slug, episode_code: code, fallback_title: idea.title, platform: 'youtube' })
+        // v1.0.502 — heal a stale sidecar→account binding (see resolveUsableAccountId).
+        const accountId = await store.resolveUsableAccountId(slug, 'youtube', sidecar.account_id)
         await updateVideoMetadata({
           slug,
-          accountId: sidecar.account_id,
+          accountId,
           videoId: sidecar.video_id,
           snippet: snippetFromMeta(meta, undefined, await resolveCategoryIdForSlug(slug)),
           // No publishAt → video detaches from its scheduled publish. Privacy
@@ -2661,6 +2676,7 @@ router.delete('/projects/:slug/upload/queue/:episode_code/schedule', async (req,
         const { writeSidecar } = await import('../services/upload-sidecar.js')
         await writeSidecar(slug, code, idea.title || '', {
           ...sidecar,
+          account_id: accountId,
           scheduled_for: null,
           privacy_status: make,
           last_sync_at: new Date().toISOString(),

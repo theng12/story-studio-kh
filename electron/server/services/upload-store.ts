@@ -190,7 +190,19 @@ export async function addAccount(slug: string, platform: UploadPlatform, partial
     // record is being replaced.
     try { await deleteTokens(slug, platform, existing[0].id) } catch { /* non-fatal */ }
   } else {
-    id = `acc_${randomUUID()}`
+    // v1.0.502 — Disconnect → Connect of the SAME channel used to mint a
+    // fresh id here (removeAccount had already wiped the list, so
+    // matchByRemote couldn't match), orphaning every plan + sidecar that
+    // referenced the old account id — the "No tokens for this account"
+    // error right after a reconnect that the auth banner itself
+    // recommends. removeAccount now stashes the removed account's
+    // (id, remote_id); when the user reconnects the SAME channel we
+    // reuse the old id so all existing references keep working. A
+    // different channel still gets a fresh id.
+    const last = (config?.upload_last_removed_account || {})[platform]
+    id = (last && typeof last.id === 'string' && last.remote_id === partial.remote_id)
+      ? last.id
+      : `acc_${randomUUID()}`
   }
   const record: UploadAccount = {
     id,
@@ -240,11 +252,50 @@ export async function removeAccount(slug: string, platform: UploadPlatform, acco
   if (nextDefault[platform] === accountId) {
     nextDefault[platform] = nextList[0]?.id || ''
   }
+  // v1.0.502 — remember the removed account's identity so a reconnect of the
+  // SAME channel can reuse its id (see addAccount) instead of orphaning every
+  // plan/sidecar that references it.
+  const removed = existing.find(a => a.id === accountId)
+  const nextLastRemoved = {
+    ...(config?.upload_last_removed_account || {}),
+    [platform]: removed ? { id: removed.id, remote_id: removed.remote_id } : undefined,
+  }
   await pm.updateConfig(slug, {
     upload_accounts: nextAccounts,
     upload_default_account: nextDefault,
+    upload_last_removed_account: nextLastRemoved,
   } as any)
   // Drop tokens too.
   await deleteTokens(slug, platform, accountId)
   return true
+}
+
+/**
+ * v1.0.502 — resolve a possibly-STALE account id to one that actually has
+ * tokens. Projects are single-account-per-platform by design (see addAccount),
+ * so when a stored reference (plan.account_id / sidecar.account_id) points at
+ * an account that no longer exists — the disconnect→reconnect flow used to
+ * mint a fresh id — falling back to the project's current (only) account is
+ * safe and is what the user means. Returns `preferredId` unchanged when its
+ * tokens exist OR when no healthier fallback is available (callers then hit
+ * the friendly "No tokens" error as before).
+ */
+export async function resolveUsableAccountId(
+  slug: string,
+  platform: UploadPlatform,
+  preferredId: string | null | undefined,
+): Promise<string> {
+  const preferred = preferredId || ''
+  if (preferred && await readTokens(slug, platform, preferred)) return preferred
+  const config = (await pm.getConfig(slug)) as any
+  const accounts: UploadAccount[] = Array.isArray(config?.upload_accounts?.[platform])
+    ? config.upload_accounts[platform]
+    : []
+  // Only fall back when the preferred account is GONE from the list — if it
+  // still exists but merely lost its tokens, "reconnect" is the right fix and
+  // silently rerouting could cross channels.
+  if (accounts.some(a => a.id === preferred)) return preferred
+  const currentId = (config?.upload_default_account?.[platform] as string) || accounts[0]?.id || ''
+  if (currentId && await readTokens(slug, platform, currentId)) return currentId
+  return preferred
 }
