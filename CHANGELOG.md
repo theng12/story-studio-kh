@@ -4,6 +4,33 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.507 — 2026-07-04
+
+### Fixed — Scene Plan: motion prompts now get the same crash protection as image prompts
+The scene planner writes image (visual) prompts in time-chunked segments, but the whole plan was only saved to disk **once, after** the motion-prompt phase — so if motion generation crashed, was cancelled, or the app restarted, the (expensive) **image scenes were lost too**. Now:
+- The plan is **saved right after the visual-prompt phase**, before motion generation starts — so image scenes always survive.
+- **Motion prompts save incrementally** (every ~10 scenes) during their phase, so finished ones survive a mid-phase interruption too.
+- **Phase-specific progress**: the log now reads *"Planned segment 5/8 — 122 image scene(s) so far…"* during planning, then *"120/122 motion prompt(s) so far…"* during the motion phase, so you can see which phase is running.
+
+### Fixed — kie.ai audio recovers for free on re-run (retry-then-repair)
+Re-running Generate already auto-recovers completed-but-lost work for free before paying to regenerate — but this was wired for GenAIPro/fal audio and kie **images**, not kie **audio**. So re-running a kie-audio episode would *regenerate* (re-charge) instead of recovering. **kie audio is now in the recover-before-regenerate path**, so re-running an episode skips what's present, free-recovers completed kie chunks, and only re-pays for the genuinely-missing.
+
+### Added — Jobs tab: status filter, "Repair all failed", and per-card repair result
+- **Status filter** — new chips (All · Running · Queued · Failed · Done · Cancelled, with counts) to show just the jobs you care about. Complements the existing type tabs + sort.
+- **🔧 Repair all failed (N)** — one button that repairs *every* failed/cancelled job that can be repaired (free — polls each provider + downloads, never re-submits). The true "recover everything the providers already finished" action. Previously the bulk button only covered app-restart-interrupted jobs.
+- **Per-card repair result** — Repair used to only flash a toast, so the card stayed red and you couldn't tell which you'd clicked. Each card now shows a persistent chip (`✓ recovered 3 — all present`, `0 recovered, 8 left — Retry`, etc.).
+
+### Fixed — Repair reconciler messaging is provider-aware
+A kie/fal episode's Repair no longer misleadingly logs *"Text-matching against GenAIPro history"* — the GenAIPro-only fallback runs only for GenAIPro episodes; others get a clear provider-appropriate "regenerate" note.
+
+### Files
+- `electron/server/generators/scene-plan.ts` (pre-motion save + incremental motion save + phase progress)
+- `electron/server/lib/manifest-recovery.ts`, `electron/server/generators/audio.ts` (kie audio retry-then-repair)
+- `electron/server/services/audio-reconciler.ts` (provider-aware fallback messaging)
+- `frontend/pages/projects/[slug]/jobs.vue` (status filter, Repair-all-failed, per-card chip)
+
+---
+
 ## v1.0.506 — 2026-07-04
 
 ### Fixed — kie.ai audio: transient "fetch failed" no longer kills 1–2 chunks per batch

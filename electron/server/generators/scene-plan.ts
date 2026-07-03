@@ -539,7 +539,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     // v1.0.226 — chunked planner: it plans the episode in time-windows so the
     // model's output never truncates regardless of length. Surface progress.
     onProgress: (done, totalWindows, scenesSoFar) => {
-      job.output_lines.push(`Planned segment ${done}/${totalWindows} — ${scenesSoFar} scene(s) so far…`)
+      job.output_lines.push(`Planned segment ${done}/${totalWindows} — ${scenesSoFar} image scene(s) so far…`)
       // Map window progress into the 10–80 band the job reserves for planning.
       job.progress = 10 + Math.round((done / Math.max(1, totalWindows)) * 70)
     },
@@ -579,6 +579,14 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     )
   }
 
+  // Persist the plan with visual prompts BEFORE the motion pass. Motion
+  // generation is a second, potentially long LLM phase — if it crashes, is
+  // cancelled, or the app restarts, the (expensive) image scenes are already on
+  // disk instead of being lost with it. Same partial-progress protection the
+  // visual planner's chunking gives.
+  await fs.mkdir(path.dirname(outPath), { recursive: true })
+  await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
+
   // ── v1.0.468 — motion-prompt pass ───────────────────────────────────────
   // Generate a per-scene image-to-video motion_prompt, seeded with each scene's
   // just-written visual_prompt so the two are cohesive. Runs for BOTH planning
@@ -601,6 +609,18 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       ])
       const MOTION_LABELS: Record<number, string> = { 1: 'Still', 2: 'Gentle', 3: 'Moderate', 4: 'Lively' }
       job.output_lines.push(`Generating motion prompts for ${targets.length} scene(s) — intensity ${MOTION_LABELS[motionLevel] ?? motionLevel} (level ${motionLevel})…`)
+      // Throttled incremental save so finished motion prompts survive a
+      // mid-phase crash / cancel (mirrors the visual planner's protection).
+      let saveInFlight = false
+      let lastSavedAt = 0
+      const persist = async (done: number, total: number) => {
+        if (saveInFlight) return
+        if (done - lastSavedAt < 10 && done < total) return // save every 10, and at the end
+        saveInFlight = true
+        lastSavedAt = done
+        try { await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8') } catch { /* best-effort */ }
+        finally { saveInFlight = false }
+      }
       const failed = await generateMotionPromptsForScenes(plan.scenes, targets, {
         model,
         motion_level: motionLevel,
@@ -610,6 +630,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         slug: job.project_slug,
         should_cancel: () => isCancelled(job.job_id),
         onWarn: (m) => job.output_lines.push(m),
+        onProgress: (done, total) => {
+          if (done % 10 === 0 || done === total) job.output_lines.push(`${done}/${total} motion prompt(s) so far…`)
+          job.progress = 80 + Math.round((done / Math.max(1, total)) * 18) // 80→98 band
+          void persist(done, total)
+        },
       })
       const made = targets.length - failed
       job.output_lines.push(
@@ -620,7 +645,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     }
   }
 
-  await fs.mkdir(path.dirname(outPath), { recursive: true })
+  // Final save — captures the last batch of motion prompts.
   await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
 
   job.output_dir = paths.episode_dir

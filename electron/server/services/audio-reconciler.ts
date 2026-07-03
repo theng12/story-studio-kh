@@ -43,6 +43,10 @@ export interface AudioStatus {
   expected: ExpectedChunk[]
   present: string[]       // filenames on disk with size > 0
   missing: string[]       // filenames absent OR zero-byte
+  /** Provider that made this episode's audio (from the last audio job's model).
+   *  '' when unknown. Drives which recovery path the reconciler uses for chunks
+   *  that have no sidecar task id. */
+  provider: string
 }
 
 export interface ReconcileOutcome {
@@ -85,6 +89,7 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
   // job's model. Dynamic imports avoid an import cycle (this module is a
   // static dep of the job-queue's executor graph). Fail-quiet → chunker default.
   let ttsChunkCap: number | undefined
+  let provider = ''
   try {
     const { getJobs } = await import('./job-queue.js')
     const jobs = await getJobs(slug)
@@ -95,8 +100,19 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
     if (model) {
       const pm = await import('./project-manager.js')
       const config = await pm.getConfig(slug)
-      const cap = (config as any)?.audio_models?.[model]?.tts_soft_max_chars
+      const entry = (config as any)?.audio_models?.[model]
+      const cap = entry?.tts_soft_max_chars
       if (typeof cap === 'number' && cap > 0) ttsChunkCap = cap
+      // Resolve the provider that made this episode (catalog field first, then
+      // prefix) — used to pick the right recovery path for no-sidecar chunks.
+      provider = entry?.provider
+        || (model.startsWith('eleven_') ? 'elevenlabs'
+          : model.startsWith('genaipro-') ? 'genaipro'
+          : model.startsWith('kie-') ? 'kie'
+          : model.startsWith('fishaudio-') ? 'fishaudio'
+          : model.startsWith('voicestudio-') ? 'voicestudio'
+          : model.startsWith('macos-') ? 'macos'
+          : 'fal')
     }
   } catch { /* fall back to the chunker's default cap */ }
 
@@ -166,7 +182,7 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
   }
 
   const missing = expected.filter(e => !present.includes(e.filename)).map(e => e.filename)
-  return { audio_dir: audioDir, expected, present, missing }
+  return { audio_dir: audioDir, expected, present, missing, provider }
 }
 
 /**
@@ -284,13 +300,31 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
     }
   }
 
-  // Chunks with no re-fetchable task record. GenAIPro can still text-match its
-  // 1-day history (legacy losses); otherwise these must be regenerated.
+  // Chunks with no re-fetchable task record. The GenAIPro text-match over its
+  // 1-day history is a GenAIPro-ONLY fallback (only GenAIPro exposes a
+  // list-by-input history) — so run it only when this episode was actually made
+  // with GenAIPro. For any other provider, these chunks can't be re-fetched
+  // (kie/fal keep no text-searchable history; streaming providers have no task
+  // at all) → report a clear regenerate note instead of misleadingly probing
+  // GenAIPro's history.
+  const STREAMING = new Set(['elevenlabs', 'fishaudio', 'voicestudio', 'macos'])
+  const regenReason = (): string => {
+    if (STREAMING.has(status.provider)) {
+      return `Made with a streaming provider (${status.provider}) — no re-fetchable task exists. Regenerate (Skip existing remakes only the missing ones).`
+    }
+    if (status.provider === 'kie' || status.provider === 'fal') {
+      return `No task id recorded for this chunk (generated before task-id recording, or the task failed on ${status.provider}'s side — nothing completed to recover). Regenerate (Skip existing remakes only the missing ones).`
+    }
+    return 'No recoverable task for this chunk — regenerate it (Skip existing remakes only the missing ones).'
+  }
+
   if (missingWithoutSidecar.length > 0) {
-    const apiKey = await providerKey('genaipro')
-    if (!apiKey) {
+    const genaiproKey = status.provider === 'genaipro' ? await providerKey('genaipro') : ''
+    if (status.provider !== 'genaipro' || !genaiproKey) {
       for (const filename of missingWithoutSidecar) {
-        fail(filename, undefined, 'No recoverable task for this chunk — regenerate it (streaming providers like direct ElevenLabs / Fish / Voice Studio / macOS can\'t be repaired).')
+        fail(filename, undefined, status.provider === 'genaipro'
+          ? 'No GenAIPro API key — add one in Settings → API Keys.'
+          : regenReason())
       }
       const still = status.missing.length - recovered
       logs.push(`Done: recovered ${recovered}, still missing ${still}.`)
@@ -299,7 +333,7 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
     logs.push(`Text-matching ${missingWithoutSidecar.length} remaining chunk(s) against GenAIPro history…`)
     let tasks: LabsTask[] = []
     try {
-      tasks = await listAllLabsTasks(apiKey)
+      tasks = await listAllLabsTasks(genaiproKey)
     } catch (e: any) {
       for (const filename of missingWithoutSidecar) {
         outcomes.push({

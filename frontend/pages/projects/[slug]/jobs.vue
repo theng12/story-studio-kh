@@ -185,6 +185,30 @@
       </button>
     </div>
 
+    <!-- Status Filter + bulk repair -->
+    <div class="status-bar">
+      <div class="status-filters">
+        <button
+          v-for="s in statusFilters"
+          :key="s.key"
+          class="status-chip"
+          :class="{ active: statusFilter === s.key, [`sc-${s.key}`]: true }"
+          @click="statusFilter = s.key"
+        >
+          {{ s.label }}<span v-if="s.count > 0" class="status-count">{{ s.count }}</span>
+        </button>
+      </div>
+      <button
+        v-if="repairableFailedJobs.length > 0"
+        class="btn btn-sm btn-primary repair-all-btn"
+        :disabled="repairingAllFailed"
+        title="Recover every failed/cancelled job that CAN be repaired — polls each provider for completed tasks and downloads them for free. Never re-submits (no charge). Genuinely-missing items stay failed for you to Retry."
+        @click="repairAllFailed"
+      >
+        {{ repairingAllFailed ? 'Repairing…' : `🔧 Repair all failed (${repairableFailedJobs.length})` }}
+      </button>
+    </div>
+
     <!-- Sort Bar -->
     <div class="sort-bar">
       <span class="text-muted sort-label">Sort by:</span>
@@ -257,6 +281,9 @@
             >
               Repair
             </button>
+            <span v-if="repairOutcome[job.job_id]" class="repair-chip" :class="`rc-${repairOutcome[job.job_id].kind}`">
+              {{ repairOutcome[job.job_id].text }}
+            </span>
             <button
               v-if="job.status === 'error' || job.status === 'cancelled'"
               class="btn btn-xs btn-secondary"
@@ -420,6 +447,9 @@
               >
                 Repair
               </button>
+              <span v-if="repairOutcome[job.job_id]" class="repair-chip" :class="`rc-${repairOutcome[job.job_id].kind}`">
+                {{ repairOutcome[job.job_id].text }}
+              </span>
               <button
                 v-if="job.status === 'error' || job.status === 'cancelled'"
                 class="btn btn-xs btn-secondary"
@@ -535,6 +565,9 @@ function providerDisplay(providerId: string): string {
 
 const expanded = ref<string | null>(null)
 const errorExpanded = ref<string | null>(null)
+// Persistent per-job repair result so the user can see WHICH cards they've
+// repaired and the outcome (the toast is transient; the card stays red).
+const repairOutcome = ref<Record<string, { text: string; kind: string }>>({})
 const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
 
@@ -635,6 +668,36 @@ async function repairAllInterrupted() {
   }
 }
 
+// v1.0.x — bulk "Repair all failed": every failed/cancelled job whose type has
+// a repair path (audio/images/video). Free (poll + download only, never
+// re-submits), so it's the safe "recover everything the providers already
+// finished" one-click. Genuinely-missing items stay failed for a later Retry.
+const repairingAllFailed = ref(false)
+const repairableFailedJobs = computed(() =>
+  jobs.value.filter((j: RJob) => (j.status === 'error' || j.status === 'cancelled') && jobCanBeRepaired(j.type))
+)
+async function repairAllFailed() {
+  const snapshot = [...repairableFailedJobs.value]
+  if (snapshot.length === 0) return
+  repairingAllFailed.value = true
+  try {
+    const CONCURRENCY = 3
+    let cursor = 0
+    async function worker() {
+      while (cursor < snapshot.length) {
+        const idx = cursor++
+        if (idx >= snapshot.length) return
+        try { await repairJobOnly(snapshot[idx]!) }
+        catch (e: any) { console.warn('[repair-all-failed] repair failed:', e?.message || e) }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, snapshot.length) }, () => worker()))
+    success('Repair-all finished. Cards show each result; anything still failed needs a Retry (regenerate).')
+  } finally {
+    repairingAllFailed.value = false
+  }
+}
+
 // The aggregator handles "no batch / still mid-flight" by returning null,
 // which the banner treats as "don't render". This keeps the template
 // trivial and the aggregation logic pure / unit-testable.
@@ -704,6 +767,22 @@ function jobDisplayLabel(job: Pick<RJob, 'type' | 'params'>): string {
 // ── Filter tabs ─────────────────────────────────────────────────────────
 
 const activeFilter = ref('all')
+// v1.0.x — status filter (independent of the type tabs). 'all' | running | queued | error | done | cancelled.
+const statusFilter = ref<'all' | 'running' | 'queued' | 'error' | 'done' | 'cancelled'>('all')
+const STATUS_FILTERS: Array<{ key: typeof statusFilter.value; label: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'running', label: 'Running' },
+  { key: 'queued', label: 'Queued' },
+  { key: 'error', label: 'Failed' },
+  { key: 'done', label: 'Done' },
+  { key: 'cancelled', label: 'Cancelled' },
+]
+const statusFilters = computed(() => STATUS_FILTERS.map(s => ({
+  ...s,
+  count: s.key === 'all'
+    ? jobs.value.length
+    : jobs.value.filter(j => j.status === s.key).length,
+})))
 
 // Filter tabs at the top of the Jobs page. Order matches the production
 // pipeline so a user scanning left-to-right sees the same flow as the
@@ -784,6 +863,9 @@ const filteredJobs = computed(() => {
   if (activeFilter.value !== 'all') {
     list = list.filter(j => j.type === activeFilter.value)
   }
+  if (statusFilter.value !== 'all') {
+    list = list.filter(j => j.status === statusFilter.value)
+  }
   return list
 })
 
@@ -832,8 +914,9 @@ const paginatedHistory = computed(() => {
   return historyJobs.value.slice(start, start + PAGE_SIZE)
 })
 
-// Reset page when filter changes
+// Reset page when either filter changes
 watch(activeFilter, () => { currentPage.value = 1 })
+watch(statusFilter, () => { currentPage.value = 1 })
 
 const finishedCount = computed(() =>
   jobs.value.filter(j => ['done', 'error', 'cancelled'].includes(j.status)).length
@@ -1134,6 +1217,7 @@ async function repairJobOnly(job: RJob) {
   )
 
   info(`Recovering in-flight ${jobTypeLabel(job.type)} tasks for ${job.episode_id} (no charge)…`)
+  repairOutcome.value = { ...repairOutcome.value, [job.job_id]: { text: 'Repairing…', kind: 'busy' } }
   try {
     const resp = await post<{
       job_id?: string
@@ -1151,33 +1235,41 @@ async function repairJobOnly(job: RJob) {
     // until we re-fetch the job, so we just say "done" for those.
     const recovered = typeof resp?.recovered === 'number' ? resp.recovered : null
     const missing = typeof resp?.still_missing === 'number' ? resp.still_missing : null
+    let chip: { text: string; kind: string }
     if (recovered !== null && missing !== null) {
       if (missing === 0 && recovered > 0) {
         success(
           `Recovered ${recovered} task(s) from the provider. ` +
           `Everything is on disk — you can dismiss this failed job now.`
         )
+        chip = { text: `✓ recovered ${recovered} — all present, dismiss`, kind: 'ok' }
       } else if (missing === 0 && recovered === 0) {
         success(
           `Nothing to recover — all assets were already on disk. ` +
           `The original failure was likely transient; you can dismiss this job.`
         )
+        chip = { text: '✓ all present — dismiss', kind: 'ok' }
       } else if (missing > 0 && recovered > 0) {
         info(
           `Recovered ${recovered} task(s). ${missing} still missing — ` +
           `click Retry to re-submit only the missing chunks.`
         )
+        chip = { text: `recovered ${recovered}, ${missing} left — Retry`, kind: 'warn' }
       } else {
         info(
           `Provider had nothing completed to recover (${missing} chunks still missing). ` +
           `Click Retry to re-submit them.`
         )
+        chip = { text: `0 recovered, ${missing} left — Retry`, kind: 'warn' }
       }
     } else {
       success(`Repair complete for ${jobTypeLabel(job.type)} on ${job.episode_id}.`)
+      chip = { text: '✓ repaired', kind: 'ok' }
     }
+    repairOutcome.value = { ...repairOutcome.value, [job.job_id]: chip }
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Repair failed')
+    repairOutcome.value = { ...repairOutcome.value, [job.job_id]: { text: 'repair failed', kind: 'warn' } }
   }
 }
 
@@ -1710,6 +1802,18 @@ async function clearFinished() {
 
 /* Button sizes */
 .btn-xs { padding: 3px 10px; font-size: 11px; }
+.status-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+.status-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.status-chip { font-size: 12px; padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border, #333); background: none; color: var(--text-muted, #999); cursor: pointer; }
+.status-chip:hover { border-color: var(--accent, #6ab0f3); }
+.status-chip.active { background: var(--accent, #6ab0f3); color: #fff; border-color: var(--accent, #6ab0f3); }
+.status-chip.active.sc-error { background: #e06c75; border-color: #e06c75; }
+.status-count { margin-left: 5px; opacity: 0.8; font-variant-numeric: tabular-nums; }
+.repair-all-btn { white-space: nowrap; }
+.repair-chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border, #333); white-space: nowrap; }
+.repair-chip.rc-ok { color: #98c379; border-color: rgba(152, 195, 121, 0.4); }
+.repair-chip.rc-warn { color: #e5c07b; border-color: rgba(229, 192, 123, 0.4); }
+.repair-chip.rc-busy { color: var(--text-muted, #888); }
 .btn-icon {
   background: none; border: none; color: var(--text-muted);
   cursor: pointer; font-size: 13px; padding: 3px 6px; border-radius: 4px;

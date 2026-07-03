@@ -37,6 +37,7 @@ import {
 import { pollForImageUrls } from './kie-client.js'
 import { pollExistingTask as pollExistingGenaiproTask } from './genaipro-client.js'
 import { pollExistingFalAudio } from './fal-client.js'
+import { fetchKieAudioUrlByTaskId } from './kie-tts-client.js'
 import { sleepCancellable } from './http-retry.js'
 import type { ImageModelConfig } from '../models/types.js'
 
@@ -116,6 +117,20 @@ export async function tryRecoverAudioFromManifest(
     })
     if (!url) return null
     return { url, taskId: entry.task_id, provider: entry.provider }
+  }
+  if (entry.provider === 'kie') {
+    // Poll kie's task history until the in-flight task lands (or fails/expires).
+    // Recovering a completed task is free; only the fresh submit below charges.
+    const deadline = Date.now() + (timeoutMs || DEFAULT_POLL_DEADLINE_MS)
+    while (Date.now() < deadline) {
+      if (isCancelled?.()) return null
+      let r: Awaited<ReturnType<typeof fetchKieAudioUrlByTaskId>>
+      try { r = await fetchKieAudioUrlByTaskId(entry.task_id, apiKey) } catch { return null }
+      if (r.status === 'success' && r.url) return { url: r.url, taskId: entry.task_id, provider: 'kie' }
+      if (r.status === 'failed' || r.status === 'expired') return null
+      await sleepCancellable(4000, isCancelled) // pending — wait + re-poll
+    }
+    return null // still pending at deadline → fall through to fresh submit
   }
   return null
 }

@@ -943,10 +943,10 @@ export async function generateAudio(job: Job): Promise<void> {
         // Auto-recovery: before issuing a fresh submit, see if the task
         // sidecar has a stored task_id from a previous run. If the provider
         // still has the result, polling it is free; only the fresh submit
-        // below would charge a second time. Covers GenAIPro (task_id) and
-        // fal (statusUrl + responseUrl pair). ElevenLabs streams direct —
-        // no task_id, no recovery possible.
-        if ((providerId === 'genaipro' || providerId === 'fal') && !req.force) {
+        // below would charge a second time. Covers GenAIPro (task_id), fal
+        // (statusUrl + responseUrl pair), and kie.ai (task_id → recordInfo).
+        // ElevenLabs / Fish stream direct — no task_id, no recovery possible.
+        if ((providerId === 'genaipro' || providerId === 'fal' || providerId === 'kie') && !req.force) {
           const recovered = await tryRecoverAudioFromManifest(
             audioManifest.tasks[chunkFilename] || null,
             apiKey, isCancelled, timeoutMs,
