@@ -8,7 +8,7 @@ import { GenerateAudioSchema } from '../schemas/index.js'
 import { generateTtsBuffer } from '../lib/elevenlabs-client.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { parseEndpoints } from '../lib/endpoint-pool.js'
-import { getAudioStatus, reconcileAudioViaGenaipro } from '../services/audio-reconciler.js'
+import { getAudioStatus, reconcileAudio } from '../services/audio-reconciler.js'
 import { TtlCache, swrFetch } from '../lib/ttl-cache.js'
 import type { AudioModelConfig } from '../models/types.js'
 import { resolveApiKeyForProviderId } from '../providers/registry.js'
@@ -594,12 +594,10 @@ router.post('/projects/:slug/episodes/:code/audio-repair', async (req, res) => {
     const config = await pm.getConfig(req.params.slug)
     if (!config) return res.status(400).json({ detail: 'Project config missing' })
 
-    const provider = typeof req.body?.provider === 'string' ? req.body.provider : 'genaipro'
-    if (provider !== 'genaipro') {
-      return res.status(400).json({ detail: `Recovery for provider "${provider}" is not supported yet. Only GenAIPro can reconcile via task history.` })
-    }
-    const apiKey = (config as any).genaipro_api_key || ''
-    const result = await reconcileAudioViaGenaipro(req.params.slug, req.params.code, apiKey)
+    // Provider-aware: the reconciler re-fetches each missing chunk from whatever
+    // task-based gateway made it (GenAIPro / kie.ai / fal.ai), resolving keys
+    // itself. Streaming-provider chunks are reported as "regenerate".
+    const result = await reconcileAudio(req.params.slug, req.params.code)
     res.json(result)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Repair failed'))

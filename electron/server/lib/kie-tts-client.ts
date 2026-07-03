@@ -43,6 +43,9 @@ export interface KieTtsOptions {
   speed?: number
   signal?: AbortSignal
   isCancelled?: () => boolean
+  /** Called with the kie taskId right after createTask, before polling — lets
+   *  the caller persist it for later repair (recover a completed-but-lost download). */
+  onTaskSubmitted?: (taskId: string) => void | Promise<void>
 }
 
 export function buildKieTtsInput(kieModel: string, text: string, opts: KieTtsOptions): Record<string, any> {
@@ -141,5 +144,36 @@ async function pollAudioUrl(taskId: string, apiKey: string, opts: KieTtsOptions)
 /** Submit + poll; returns the finished audio file URL (caller downloads it). */
 export async function generateTtsToUrl(text: string, apiKey: string, opts: KieTtsOptions): Promise<string> {
   const taskId = await submitTask(text, apiKey, opts)
+  await opts.onTaskSubmitted?.(taskId)
   return pollAudioUrl(taskId, apiKey, opts)
+}
+
+/**
+ * Single-shot task lookup for the audio reconciler: given a stored taskId,
+ * return the finished audio URL if the task completed on kie's side (and is
+ * still in kie's history), else a status. Never loops.
+ */
+export async function fetchKieAudioUrlByTaskId(
+  taskId: string,
+  apiKey: string,
+): Promise<{ status: 'success' | 'failed' | 'pending' | 'expired' | 'unknown'; url?: string; message?: string }> {
+  const resp = await fetch(`${KIE_BASE_URL}/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`, {
+    headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(30_000),
+  }).catch((e) => { throw new Error(`kie.ai recordInfo: ${e?.message || e}`) })
+  if (resp.status === 404) return { status: 'expired', message: 'Task not found (aged out of kie history)' }
+  if (!resp.ok) return { status: 'unknown', message: `HTTP ${resp.status}` }
+  const data = (await resp.json()) as any
+  const taskData = data.data || data
+  let status: string
+  const flag = taskData.successFlag
+  if (flag !== undefined && flag !== null) status = flag === 1 ? 'success' : flag >= 2 ? 'failed' : 'pending'
+  else status = String(taskData.state || taskData.status || '').toLowerCase()
+  if (['success', 'completed', 'finished', 'succeed'].includes(status)) {
+    const url = extractAudioUrl(taskData)
+    return url ? { status: 'success', url } : { status: 'unknown', message: 'succeeded but no audio URL' }
+  }
+  if (['failed', 'error', 'fail'].includes(status)) {
+    return { status: 'failed', message: taskData.errorMessage || taskData.error || 'provider reported failure' }
+  }
+  return { status: 'pending', message: `status: ${status || 'unknown'}` }
 }

@@ -842,6 +842,16 @@ export async function generateAudio(job: Job): Promise<void> {
           similarity: req.similarity,
           signal: controller.signal,
           isCancelled,
+          // Persist the kie taskId so a completed-but-lost download can be
+          // repaired later (re-fetched from kie's task history) without paying again.
+          onTaskSubmitted: async (taskId) => {
+            await recordTask(audioDir, path.basename(task.outputPath), {
+              provider: 'kie',
+              task_id: taskId,
+              submitted_at: new Date().toISOString(),
+              input_hash: hashInput(task.chunkText),
+            })
+          },
         })
         await downloadAudio(audioUrl, task.outputPath, makeChunkCb())
       } else if (providerId === 'macos') {

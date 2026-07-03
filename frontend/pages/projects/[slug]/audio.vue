@@ -326,10 +326,12 @@
     <div v-if="form.episode_id" class="card mt-2" aria-labelledby="audio-integrity-heading">
       <h3 id="audio-integrity-heading" class="integrity-title">Audio integrity</h3>
       <p class="text-muted text-sm integrity-blurb">
-        Check whether every expected audio chunk is on disk. If GenAIPro
-        completed tasks but the download was lost (e.g. 5-minute client
-        timeout), <strong>Repair missing</strong> re-fetches them from
-        GenAIPro's task history.
+        Check whether every expected audio chunk is on disk. If a cloud gateway
+        (GenAIPro, kie.ai, or fal.ai) completed a task but the download was lost
+        (e.g. a network blip or timeout), <strong>Repair missing</strong>
+        re-fetches it from that provider's task history — no credits re-spent.
+        Chunks made with a streaming provider (direct ElevenLabs, Fish, Voice
+        Studio, macOS) have no re-fetchable task — regenerate those instead.
       </p>
 
       <div v-if="audioStatus.loading" class="text-muted text-md">
@@ -381,9 +383,10 @@
           Recovered <strong>{{ repairResult.recovered }}</strong> /
           {{ repairResult.recovered + repairResult.still_missing }} missing chunk(s).
           <span v-if="repairResult.still_missing > 0">
-            {{ repairResult.still_missing }} still missing — they may be outside
-            GenAIPro's 1-day history window, or were generated with a different
-            provider. You'll need to re-generate those manually.
+            {{ repairResult.still_missing }} still missing — the task may have
+            aged out of the provider's history, failed on the provider side, or
+            was made with a streaming provider (no re-fetchable task).
+            Re-generate those (Skip existing will remake only the missing ones).
           </span>
         </div>
         <details class="mt-1">

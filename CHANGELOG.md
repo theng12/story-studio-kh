@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.504 — 2026-07-03
+
+### Fixed — Audio "Repair missing" now works for kie.ai and fal.ai (not just GenAIPro)
+The Audio-integrity **Repair missing** recovery was hard-wired to GenAIPro — it rejected every other provider ("only GenAIPro can reconcile"), so a kie.ai (or fal.ai) job that completed on the provider but lost the download couldn't be recovered. Repair is now **provider-aware**:
+
+- **kie.ai** — the kie taskId is now recorded when each chunk is submitted, and Repair re-fetches the finished audio from kie's task history (`recordInfo`). *(Only losses from this version on are recoverable — older kie chunks recorded no taskId.)*
+- **fal.ai** — Repair re-polls the stored fal status/result URLs (fal already recorded them; the reconciler just wasn't using them).
+- **GenAIPro** — unchanged, including the text-match fallback across its 1-day history.
+- **Streaming providers** (direct ElevenLabs, Fish Audio, Voice Studio, macOS) have **no server-side task** to re-fetch — Repair now says so plainly and points you to **Regenerate** (Skip existing remakes only the missing chunk).
+
+The reconciler resolves each provider's key the same way the generator does (accounts + app-secrets). The panel copy is generalized from "GenAIPro" to "the provider".
+
+### Files
+- `electron/server/services/audio-reconciler.ts` (provider-aware `reconcileAudio`; per-provider re-fetch dispatch; GenAIPro text-match kept)
+- `electron/server/lib/kie-tts-client.ts` (`onTaskSubmitted` + `fetchKieAudioUrlByTaskId`), `electron/server/generators/audio.ts` (record kie taskId on submit)
+- `electron/server/routes/audio.ts` (repair route no longer blocks non-GenAIPro), `frontend/pages/projects/[slug]/audio.vue` (generalized copy)
+
+---
+
 ## v1.0.503 — 2026-07-03
 
 ### Added — kie.ai as an ElevenLabs TTS gateway (cheapest per-character)
