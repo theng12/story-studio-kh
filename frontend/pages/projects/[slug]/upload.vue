@@ -2829,8 +2829,28 @@ const queueFilterString = computed(() => {
  * session. The auto-activate logic (G) won't re-enable the chip while
  * this is true — toggling it back on resets the flag. Avoids the chip
  * fighting the user when they say "yes I see the tombstones, hide them".
+ *
+ * v1.0.500 — the dismissal now ALSO persists per project in localStorage,
+ * keyed by a hash of the current tombstone set. Previously this was a
+ * plain session ref that reset on every page mount, so each visit
+ * re-activated the chip and merged old uploaded-then-deleted rows into
+ * the default "Ready" view (sorted code_asc → ancient codes on top) —
+ * the "why does it default to already-uploaded oldest stuff" complaint.
+ * Hashing the SET (not a boolean) keeps the safety property: when a NEW
+ * takedown appears the hash changes and the chip auto-activates again.
  */
 const tombstoneChipManuallyDismissed = ref(false)
+const lastTombstoneHash = ref('')
+function tombstoneDismissKey(): string { return `uploadTombstoneDismissed:${slug.value}` }
+function readDismissedTombstoneHash(): string {
+  try { return localStorage.getItem(tombstoneDismissKey()) || '' } catch { return '' }
+}
+function persistDismissedTombstoneHash(h: string): void {
+  try { localStorage.setItem(tombstoneDismissKey(), h) } catch { /* private mode etc. */ }
+}
+function clearDismissedTombstoneHash(): void {
+  try { localStorage.removeItem(tombstoneDismissKey()) } catch { /* ignore */ }
+}
 
 /**
  * Auto-activate the 🪦 "Deleted upstream" chip when the project has at
@@ -2850,7 +2870,14 @@ async function detectTombstonedAndAutoActivateChip() {
   if (queueStateFilters.has('deleted_upstream')) return
   try {
     const r = await fetchQueueEpisodeCodes({ filter: 'deleted_upstream' })
-    if ((r.episode_codes?.length || 0) > 0) {
+    const codes = r.episode_codes || []
+    if (codes.length > 0) {
+      // v1.0.500 — respect a persisted dismissal for this exact tombstone
+      // set. A previously-dismissed set stays hidden across visits; any NEW
+      // tombstone changes the hash and re-activates the chip.
+      const hash = [...codes].sort().join('|')
+      lastTombstoneHash.value = hash
+      if (readDismissedTombstoneHash() === hash) return
       queueStateFilters.add('deleted_upstream')
     }
   } catch { /* tolerate — chip stays off, user can toggle manually */ }
@@ -2885,10 +2912,18 @@ function toggleQueueFilter(chip: FilterChip) {
     // Track manual-off for the tombstone chip so the auto-activate logic
     // (G) doesn't immediately re-enable it after the user explicitly
     // dismissed it. Re-arms when the user manually turns it back on.
-    if (chip.id === 'deleted_upstream') tombstoneChipManuallyDismissed.value = true
+    // v1.0.500 — also persist the dismissal (keyed by the tombstone-set
+    // hash) so the chip doesn't come back on every page visit.
+    if (chip.id === 'deleted_upstream') {
+      tombstoneChipManuallyDismissed.value = true
+      if (lastTombstoneHash.value) persistDismissedTombstoneHash(lastTombstoneHash.value)
+    }
   } else {
     set.add(chip.id)
-    if (chip.id === 'deleted_upstream') tombstoneChipManuallyDismissed.value = false
+    if (chip.id === 'deleted_upstream') {
+      tombstoneChipManuallyDismissed.value = false
+      clearDismissedTombstoneHash()
+    }
     // v1.0.46 — `public` and `not_public` are mutually exclusive (a row
     // can't be both at once). Turning one on auto-untoggles the other
     // so the user doesn't accidentally AND them into an empty list.
@@ -4428,7 +4463,7 @@ async function savePlanForm() {
     editing.value = null
     success('Plan saved.')
   } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to save plan')
+    showError(e?.data?.detail || e?.message || 'Failed to save plan')
   }
 }
 
@@ -4475,6 +4510,23 @@ async function doActivatePlan(plan: any) {
   }
 }
 
+/**
+ * v1.0.500 — human-readable note for per-item YouTube patch failures.
+ * The apply endpoint returns the REAL failure reason per episode in
+ * `patched[].error`, but the toasts used to collapse them into an opaque
+ * "N patch failure(s)" — the user's "silent error with no reason". Surface
+ * the first couple of reasons inline (episode: reason) + an overflow count.
+ */
+function patchFailureNote(patched: any[]): string {
+  const fails = (patched || []).filter((p: any) => p && p.ok === false)
+  if (!fails.length) return ''
+  const preview = fails.slice(0, 2)
+    .map((p: any) => `${p.episode_code}: ${p.error || 'unknown error'}`)
+    .join('; ')
+  const overflow = fails.length > 2 ? `; +${fails.length - 2} more` : ''
+  return `${fails.length} YouTube update failure(s) — ${preview}${overflow}`
+}
+
 async function doApplyPlan(plan: any, episode_codes: string[]) {
   if (!episode_codes.length) {
     showError('No episodes in the chosen scope. Pick a different scope or assemble more videos first.')
@@ -4485,18 +4537,21 @@ async function doApplyPlan(plan: any, episode_codes: string[]) {
   try {
     const r = await applyPlan(plan.id, episode_codes)
     const patchedOk = r.patched.filter((p: any) => p.ok).length
-    const patchedFail = r.patched.length - patchedOk
+    const failNote = patchFailureNote(r.patched)
     const skippedPublic = r.skipped_public?.length || 0
     const msg = [
       `${r.assignments.length - skippedPublic} items scheduled`,
       patchedOk ? `${patchedOk} live video(s) patched` : '',
-      patchedFail ? `${patchedFail} patch failure(s)` : '',
+      failNote,
       skippedPublic ? `${skippedPublic} public video(s) skipped` : '',
     ].filter(Boolean).join(' · ')
-    success(msg)
+    // Partial failures surface as an error toast (with the reasons), not a
+    // green success that buries them.
+    if (failNote) showError(msg)
+    else success(msg)
     await loadQueue('youtube')
   } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to apply plan')
+    showError(e?.data?.detail || e?.message || 'Failed to apply plan')
   } finally {
     applying.value = false
     scopeBusyPlanId.value = ''
@@ -4614,7 +4669,7 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
     // Step 1 — apply schedule + PATCH already-uploaded.
     const r = await applyPlan(plan.id, episode_codes)
     const patchedOk = r.patched.filter((p: any) => p.ok).length
-    const patchedFail = r.patched.length - patchedOk
+    const failNote = patchFailureNote(r.patched)
     const skippedPublic = r.skipped_public?.length || 0
 
     // Step 2 — derive the set that needs a fresh upload.
@@ -4633,11 +4688,12 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
       const parts = [
         `${r.assignments.length - skippedPublic} item(s) scheduled`,
         patchedOk ? `${patchedOk} live video(s) patched` : '',
-        patchedFail ? `${patchedFail} patch failure(s)` : '',
+        failNote,
         skipped ? `${skipped} skipped (no final video on disk)` : '',
         skippedPublic ? `${skippedPublic} public video(s) skipped` : '',
       ].filter(Boolean)
-      success(parts.join(' · '))
+      if (failNote) showError(parts.join(' · '))
+      else success(parts.join(' · '))
       await loadQueue('youtube')
       return
     }
@@ -4655,10 +4711,11 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
       const parts = [
         `${r.assignments.length - skippedPublic} item(s) scheduled`,
         patchedOk ? `${patchedOk} live video(s) patched` : '',
-        patchedFail ? `${patchedFail} patch failure(s)` : '',
+        failNote,
         skippedPublic ? `${skippedPublic} public video(s) skipped` : '',
       ].filter(Boolean)
-      success(`${parts.join(' · ')} · upload step cancelled`)
+      if (failNote) showError(`${parts.join(' · ')} · upload step cancelled`)
+      else success(`${parts.join(' · ')} · upload step cancelled`)
       await loadQueue('youtube')
       return
     }
@@ -4688,6 +4745,7 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
     const summaryParts = [
       `📅 Scheduled ${r.assignments.length}`,
       patchedOk ? `↻ Patched ${patchedOk}` : '',
+      failNote,
       uploaded ? `☁️ Queued ${uploaded} upload(s) — YouTube will publish at scheduled time` : '',
       failed ? `⚠ ${failed} failed` : '',
       skipped ? `${skipped} skipped` : '',
@@ -4698,6 +4756,8 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
       const preview = failures.slice(0, 3).join('; ')
       const overflow = failed > 3 ? `; +${failed - 3} more` : ''
       showError(`${summaryParts} — ${preview}${overflow}`)
+    } else if (failNote) {
+      showError(summaryParts)
     } else {
       success(summaryParts)
     }
@@ -4706,7 +4766,7 @@ async function doApplyAndUpload(plan: any, episode_codes: string[]) {
     // applyPlan failure (most likely past-slot validation) — abort
     // before any uploads. The detail message from the backend is
     // already actionable ("Edit the plan's start_date to today or later").
-    showError(e?.data?.detail || 'Failed to apply plan')
+    showError(e?.data?.detail || e?.message || 'Failed to apply plan')
   } finally {
     applyAndUploading.value = false
     scopeBusyPlanId.value = ''
@@ -5125,6 +5185,13 @@ const scopeOptions = computed<ScopeOption[]>(() => {
 
   const wrap = (id: ScopeOption['id'], label: string, codes: string[], tooltip: string): ScopeOption => {
     const capped = uploadCapForCodes(codes)
+    // v1.0.500 — assign schedule slots in EPISODE order, not click/upload
+    // order. The Selection set iterates in check order (and "This page" in
+    // list-sort order), so a later episode checked/uploaded first used to
+    // grab the earlier slot. WHICH episodes are in scope is decided above
+    // (quota cap included); the ORDER they map onto consecutive slots is
+    // always natural episode-code order (numeric-aware: EP2 < EP10).
+    const ordered = [...capped].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
     const isUploadFiring = scopePicker.verb === 'upload' || scopePicker.verb === 'apply_upload'
     const cappedNote = isUploadFiring && capped.length < codes.length
       ? ` (${codes.length - capped.length} skipped to respect today’s quota)`
@@ -5132,8 +5199,8 @@ const scopeOptions = computed<ScopeOption[]>(() => {
     return {
       id,
       label,
-      count: capped.length,
-      episodeCodes: capped,
+      count: ordered.length,
+      episodeCodes: ordered,
       tooltip: tooltip + cappedNote,
     }
   }
@@ -5628,7 +5695,7 @@ async function saveEditSchedule(item: any) {
     }
     await loadQueue('youtube')
   } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to save schedule')
+    showError(e?.data?.detail || e?.message || 'Failed to save schedule')
   }
 }
 function cancelEditSchedule() {
@@ -5658,7 +5725,7 @@ async function doUnschedule(item: any, make: 'private' | 'public') {
     success(msg)
     await loadQueue('youtube')
   } catch (e: any) {
-    showError(e?.data?.detail || 'Unschedule failed')
+    showError(e?.data?.detail || e?.message || 'Unschedule failed')
   } finally {
     unschedulingFor.value = null
   }
@@ -5745,13 +5812,19 @@ async function doApplySchedule() {
   scheduleApplyError.value = ''
   try {
     const r = await editSchedule(item.episode_code, iso)
-    success(r.patched
-      ? `Scheduled ${item.episode_code} for ${new Date(iso).toLocaleString()}.`
-      : `Local schedule saved for ${item.episode_code}${r.patch_error ? ` (YouTube update failed: ${r.patch_error})` : ''}`)
+    // v1.0.500 — a failed YouTube patch is an ERROR toast, not a green
+    // success with the reason buried in parentheses.
+    if (r.patched) {
+      success(`Scheduled ${item.episode_code} for ${new Date(iso).toLocaleString()}.`)
+    } else if (r.patch_error) {
+      showError(`Local schedule saved for ${item.episode_code}, but the YouTube update failed: ${r.patch_error}`)
+    } else {
+      success(`Local schedule saved for ${item.episode_code} (applies at upload time).`)
+    }
     closeSchedulePopoverForce()
     await loadQueue('youtube')
   } catch (e: any) {
-    scheduleApplyError.value = e?.data?.detail || 'Apply failed'
+    scheduleApplyError.value = e?.data?.detail || e?.message || 'Apply failed'
   } finally {
     schedulePopoverBusy.value = null
   }
@@ -5763,13 +5836,17 @@ async function doClearScheduleFromPopover() {
   schedulePopoverBusy.value = 'clear'
   try {
     const r = await unschedule(item.episode_code, 'private')
-    success(r.patched
-      ? `Cleared schedule; ${item.episode_code} is private on YouTube.`
-      : `Cleared local schedule for ${item.episode_code}${r.patch_error ? ` (YouTube update failed: ${r.patch_error})` : ''}`)
+    if (r.patched) {
+      success(`Cleared schedule; ${item.episode_code} is private on YouTube.`)
+    } else if (r.patch_error) {
+      showError(`Cleared local schedule for ${item.episode_code}, but the YouTube update failed: ${r.patch_error}`)
+    } else {
+      success(`Cleared local schedule for ${item.episode_code}.`)
+    }
     closeSchedulePopoverForce()
     await loadQueue('youtube')
   } catch (e: any) {
-    scheduleApplyError.value = e?.data?.detail || 'Clear failed'
+    scheduleApplyError.value = e?.data?.detail || e?.message || 'Clear failed'
   } finally {
     schedulePopoverBusy.value = null
   }
@@ -5781,13 +5858,17 @@ async function doPublishNowFromPopover() {
   schedulePopoverBusy.value = 'publish'
   try {
     const r = await unschedule(item.episode_code, 'public')
-    success(r.patched
-      ? `Published ${item.episode_code}.`
-      : `Local schedule cleared${r.patch_error ? ` (YouTube update failed: ${r.patch_error})` : ''}`)
+    if (r.patched) {
+      success(`Published ${item.episode_code}.`)
+    } else if (r.patch_error) {
+      showError(`Local schedule cleared, but the YouTube update failed: ${r.patch_error}`)
+    } else {
+      success('Local schedule cleared.')
+    }
     closeSchedulePopoverForce()
     await loadQueue('youtube')
   } catch (e: any) {
-    scheduleApplyError.value = e?.data?.detail || 'Publish failed'
+    scheduleApplyError.value = e?.data?.detail || e?.message || 'Publish failed'
   } finally {
     schedulePopoverBusy.value = null
   }

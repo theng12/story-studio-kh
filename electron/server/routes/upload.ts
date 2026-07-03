@@ -1711,6 +1711,11 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
       ? req.body.episode_codes.filter((c: any) => typeof c === 'string' && c)
       : []
     if (!episode_codes.length) return res.status(400).json({ detail: 'episode_codes (ordered) required' })
+    // v1.0.500 — consecutive slots always map onto EPISODE order, regardless of
+    // the order the caller sent (the UI's Selection scope used to arrive in
+    // click order, handing an earlier slot to a later episode). Numeric-aware
+    // so EP2 sorts before EP10.
+    episode_codes.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
 
     // Find the latest FUTURE scheduled time across all other accepted
     // episodes so computeSlots can resume the walk past the existing

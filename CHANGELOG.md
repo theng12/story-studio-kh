@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.500 — 2026-07-03
+
+**Upload Center: schedule errors now say WHY, slots follow episode order, and the queue stops defaulting to old uploaded rows.** Three fixes from the capi session:
+
+- **No more silent "patch failure(s)".** When applying a plan, YouTube's per-video update failures were counted but their reasons thrown away — you saw "2 patch failure(s)" with no clue why. The apply toasts now include the actual reasons per episode (e.g. `CAPI0003: The video is already public — publishAt rejected`), partial failures surface as an error toast instead of a green success, and the per-row schedule popover shows a failed YouTube update as an error (with the reason) rather than a green "saved" with the failure buried in parentheses. Every catch also falls back to the underlying message instead of a bare "Apply failed".
+- **Schedule slots now map onto episode order.** Slots were assigned in the order episodes were selected/uploaded, so a later episode uploaded first grabbed the earlier publish slot. Both the scope picker and the backend apply endpoint now sort the batch by episode code (numeric-aware, EP2 < EP10) before pairing with consecutive slots — earliest episode always publishes first, regardless of click or upload order.
+- **Queue stops re-adding old uploaded rows on every visit.** The 🪦 "Deleted upstream" chip auto-activates when takedowns exist — but its dismissal only lasted the session, so every page visit re-merged years-old uploaded-then-deleted rows into the default "Ready" view, sorted oldest-first on top. Dismissing the chip is now remembered per project (keyed by the tombstone set, so a NEW takedown still auto-surfaces). The default view is back to what it says: ready-to-upload episodes only.
+
 ## v1.0.499 — 2026-07-02
 
 **Scene planner: the art style now leads the prompt, so weaker image models actually apply it.** Previously the global visual style was handed to the prompt-writing LLM with a "weave it in naturally" instruction — which smaller / local models often ignored or buried at the end of the description, where image models under-weight it (leading tokens carry far more weight than trailing ones). Now the exact style clause is placed deterministically at the **front** of every scene's `visual_prompt` (e.g. *"Soft watercolor illustration. A deer stands in a misty forest…"*), regardless of what the model does. The planner is told the style is context-only and not to restate it, so scene content still suits the style without duplicating it; if a prompt already opens with the style it isn't doubled. Applies to both the two-pass planner (and "Regen empty prompts" / per-scene re-plan) and the single-pass windowed planner. Existing plans are unchanged — re-plan or regen a scene to apply the new ordering.
