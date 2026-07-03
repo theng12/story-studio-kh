@@ -853,7 +853,18 @@ export async function generateAudio(job: Job): Promise<void> {
             })
           },
         })
-        await downloadAudio(audioUrl, task.outputPath, makeChunkCb())
+        // Retry the download itself — re-fetching the same kie CDN URL is
+        // idempotent (no re-charge), so a transient "fetch failed" here
+        // shouldn't kill an already-generated chunk.
+        {
+          let dlErr: any = null
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            if (isCancelled()) throw new Error('Cancelled by user')
+            try { await downloadAudio(audioUrl, task.outputPath, makeChunkCb()); dlErr = null; break }
+            catch (e: any) { dlErr = e; if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt)) }
+          }
+          if (dlErr) throw dlErr
+        }
       } else if (providerId === 'macos') {
         // macOS built-in `say` — local, single-machine, no pool. Renders the
         // chunk to AIFF then transcodes to MP3 at task.outputPath. `speed`

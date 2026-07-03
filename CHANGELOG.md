@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.506 — 2026-07-04
+
+### Fixed — kie.ai audio: transient "fetch failed" no longer kills 1–2 chunks per batch
+The kie.ai TTS client had **no retry** (unlike every other provider), so a single transient network blip — a dropped/reset connection under concurrent batch load — on *any* of a chunk's requests failed the whole chunk. That's why batch audio kept losing 1–2 random chapters per episode with "fetch failed" on `kie-eleven-turbo-v2.5`.
+
+Now the kie client is resilient, matching the other providers:
+- **Submit** (`createTask`) retries up to 4× on network errors / 429 / 5xx with exponential backoff (honoring `Retry-After`). Only retried on a *thrown* fetch (no response), so it won't double-charge.
+- **Poll** (`recordInfo`) no longer dies on a transient error — it backs off and keeps polling (the task is still running on kie's side), giving up only after 6 consecutive failures.
+- **Download** of the finished audio URL retries up to 3× (re-fetching the same URL is free, no re-charge).
+
+Net effect: occasional kie hiccups are absorbed instead of failing chunks. If kie is genuinely rate-limiting, the backoff respects it. Re-run any affected episodes (Skip existing remakes only the missing chapters).
+
+### Files
+- `electron/server/lib/kie-tts-client.ts` (retry + backoff on submit/poll), `electron/server/generators/audio.ts` (download retry in the kie branch)
+
+---
+
 ## v1.0.505 — 2026-07-04
 
 ### Improved — clearer error when an OpenAI image model blocks a prompt

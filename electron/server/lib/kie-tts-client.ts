@@ -16,6 +16,33 @@ import { redactSecrets } from './redact-secrets.js'
 const KIE_BASE_URL = 'https://api.kie.ai/api/v1'
 const POLL_INTERVAL = 2000
 const MAX_WAIT = 5 * 60 * 1000
+// Resilience: transient network errors ("fetch failed" — dropped connection /
+// reset / TLS blip under concurrent load) and 429/5xx are retried with backoff
+// rather than failing the chunk. Without this, one blip on any of a chunk's many
+// poll requests kills the whole chunk (the batch-audio 1-2-fail-per-episode bug).
+const MAX_SUBMIT_ATTEMPTS = 4
+const MAX_CONSECUTIVE_POLL_FAILURES = 6
+
+/** Exponential backoff (capped), honoring Retry-After when present. */
+function backoffMs(attempt: number, resp?: Response): number {
+  const ra = resp?.headers.get('Retry-After')
+  if (ra) {
+    const secs = Number(ra)
+    if (Number.isFinite(secs) && secs > 0) return Math.min(secs * 1000, 60_000)
+  }
+  return Math.min(1000 * 2 ** Math.min(attempt, 5), 30_000)
+}
+const isRetriableStatus = (s: number) => s === 429 || s === 408 || (s >= 500 && s < 600)
+function sleepCancellable(ms: number, isCancelled?: () => boolean): Promise<void> {
+  return new Promise(res => {
+    const step = 200
+    let waited = 0
+    const t = setInterval(() => {
+      waited += step
+      if (waited >= ms || isCancelled?.()) { clearInterval(t); res() }
+    }, step)
+  })
+}
 
 /** Catalog key → kie.ai model string. */
 const KIE_TTS_MODELS: Record<string, string> = {
@@ -69,24 +96,44 @@ async function submitTask(text: string, apiKey: string, opts: KieTtsOptions): Pr
   const kieModel = kieTtsModelFor(opts.model)
   if (!kieModel) throw new Error(`Unknown kie.ai TTS model: ${opts.model}`)
   if (!opts.voiceId) throw new Error('A voice is required for kie.ai ElevenLabs TTS.')
+  const body = JSON.stringify({ model: kieModel, input: buildKieTtsInput(kieModel, text, opts) })
 
-  const resp = await fetch(`${KIE_BASE_URL}/jobs/createTask`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: kieModel, input: buildKieTtsInput(kieModel, text, opts) }),
-    signal: opts.signal ?? AbortSignal.timeout(30_000),
-  })
-  if (!resp.ok) {
-    const t = await resp.text().catch(() => '')
-    throw new Error(`kie.ai createTask ${resp.status}: ${redactSecrets(t, apiKey).slice(0, 200)}`)
+  let lastErr: Error | null = null
+  for (let attempt = 1; attempt <= MAX_SUBMIT_ATTEMPTS; attempt++) {
+    if (opts.isCancelled?.()) throw new Error('Cancelled by user')
+    let resp: Response
+    try {
+      resp = await fetch(`${KIE_BASE_URL}/jobs/createTask`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body,
+        signal: opts.signal ?? AbortSignal.timeout(30_000),
+      })
+    } catch (e: any) {
+      // Network-layer failure ("fetch failed") — no response, so the task almost
+      // certainly wasn't created. Safe to retry.
+      lastErr = new Error(`kie.ai createTask network error: ${e?.message || e}`)
+      if (attempt < MAX_SUBMIT_ATTEMPTS) { await sleepCancellable(backoffMs(attempt), opts.isCancelled); continue }
+      break
+    }
+    if (isRetriableStatus(resp.status)) {
+      lastErr = new Error(`kie.ai createTask ${resp.status}`)
+      if (attempt < MAX_SUBMIT_ATTEMPTS) { await sleepCancellable(backoffMs(attempt, resp), opts.isCancelled); continue }
+      break
+    }
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '')
+      throw new Error(`kie.ai createTask ${resp.status}: ${redactSecrets(t, apiKey).slice(0, 200)}`) // 4xx — not retriable
+    }
+    const data = (await resp.json()) as any
+    if (data?.code && data.code !== 200 && data.code !== '200') {
+      throw new Error(`kie.ai createTask error: ${redactSecrets(data.msg || JSON.stringify(data), apiKey).slice(0, 200)}`)
+    }
+    const taskId = data?.data?.taskId || data?.taskId || data?.data?.task_id
+    if (!taskId) throw new Error(`kie.ai: no taskId in response: ${redactSecrets(JSON.stringify(data), apiKey).slice(0, 200)}`)
+    return String(taskId)
   }
-  const data = (await resp.json()) as any
-  if (data?.code && data.code !== 200 && data.code !== '200') {
-    throw new Error(`kie.ai createTask error: ${redactSecrets(data.msg || JSON.stringify(data), apiKey).slice(0, 200)}`)
-  }
-  const taskId = data?.data?.taskId || data?.taskId || data?.data?.task_id
-  if (!taskId) throw new Error(`kie.ai: no taskId in response: ${redactSecrets(JSON.stringify(data), apiKey).slice(0, 200)}`)
-  return String(taskId)
+  throw lastErr || new Error('kie.ai createTask failed')
 }
 
 function extractAudioUrl(taskData: any): string | null {
@@ -107,36 +154,57 @@ function extractAudioUrl(taskData: any): string | null {
   return typeof single === 'string' && single ? single : null
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(res => setTimeout(res, ms))
-}
 
 async function pollAudioUrl(taskId: string, apiKey: string, opts: KieTtsOptions): Promise<string> {
   const deadline = Date.now() + MAX_WAIT
   const headers = { Authorization: `Bearer ${apiKey}` }
+  let consecutiveFailures = 0
   while (Date.now() < deadline) {
     if (opts.isCancelled?.()) throw new Error('Cancelled by user')
-    const resp = await fetch(`${KIE_BASE_URL}/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`, {
-      headers, signal: AbortSignal.timeout(30_000),
-    })
-    if (resp.ok) {
-      const data = (await resp.json()) as any
-      const taskData = data.data || data
-      let status: string
-      const flag = taskData.successFlag
-      if (flag !== undefined && flag !== null) status = flag === 1 ? 'success' : flag >= 2 ? 'failed' : 'pending'
-      else status = String(taskData.state || taskData.status || '').toLowerCase()
 
-      if (['success', 'completed', 'finished', 'succeed'].includes(status)) {
-        const url = extractAudioUrl(taskData)
-        if (url) return url
-        throw new Error('kie.ai TTS succeeded but no audio URL in response')
+    let resp: Response
+    try {
+      resp = await fetch(`${KIE_BASE_URL}/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`, {
+        headers, signal: AbortSignal.timeout(30_000),
+      })
+    } catch (e: any) {
+      // Transient network error on a poll — DON'T fail the chunk; the task is
+      // still running on kie's side. Back off and retry; only give up after a
+      // sustained run of failures.
+      consecutiveFailures++
+      if (consecutiveFailures > MAX_CONSECUTIVE_POLL_FAILURES) {
+        throw new Error(`kie.ai poll failed ${consecutiveFailures}× in a row: ${e?.message || e}`)
       }
-      if (['failed', 'error', 'fail'].includes(status)) {
-        throw new Error(`kie.ai TTS failed: ${redactSecrets(taskData.errorMessage || taskData.error || 'provider reported failure', apiKey)}`)
-      }
+      await sleepCancellable(backoffMs(consecutiveFailures), opts.isCancelled)
+      continue
     }
-    await sleep(POLL_INTERVAL)
+
+    if (!resp.ok) {
+      consecutiveFailures++
+      if (consecutiveFailures > MAX_CONSECUTIVE_POLL_FAILURES) {
+        throw new Error(`kie.ai poll HTTP ${resp.status} ${consecutiveFailures}× in a row`)
+      }
+      await sleepCancellable(backoffMs(consecutiveFailures, resp), opts.isCancelled)
+      continue
+    }
+
+    consecutiveFailures = 0
+    const data = (await resp.json()) as any
+    const taskData = data.data || data
+    let status: string
+    const flag = taskData.successFlag
+    if (flag !== undefined && flag !== null) status = flag === 1 ? 'success' : flag >= 2 ? 'failed' : 'pending'
+    else status = String(taskData.state || taskData.status || '').toLowerCase()
+
+    if (['success', 'completed', 'finished', 'succeed'].includes(status)) {
+      const url = extractAudioUrl(taskData)
+      if (url) return url
+      throw new Error('kie.ai TTS succeeded but no audio URL in response')
+    }
+    if (['failed', 'error', 'fail'].includes(status)) {
+      throw new Error(`kie.ai TTS failed: ${redactSecrets(taskData.errorMessage || taskData.error || 'provider reported failure', apiKey)}`)
+    }
+    await sleepCancellable(POLL_INTERVAL, opts.isCancelled)
   }
   throw new Error(`kie.ai TTS did not complete within ${MAX_WAIT / 1000}s`)
 }
