@@ -168,6 +168,11 @@ export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {
   'genaipro-turbo-v2.5':      { label: 'ElevenLabs Turbo v2.5 [GenAIPro]',      cost_per_1k_chars: 0.05, provider: 'genaipro' },
   'genaipro-flash-v2.5':      { label: 'ElevenLabs Flash v2.5 [GenAIPro]',      cost_per_1k_chars: 0.03, provider: 'genaipro' },
   'genaipro-v3':              { label: 'ElevenLabs v3 [GenAIPro]',              cost_per_1k_chars: 0.10, provider: 'genaipro' },
+  // kie.ai models (same ElevenLabs voices, cheapest gateway). Voice = ElevenLabs
+  // voice id; v3 uses kie's text-to-dialogue endpoint (single-turn for narration).
+  'kie-eleven-turbo-v2.5':      { label: 'ElevenLabs Turbo v2.5 [kie.ai]',       cost_per_1k_chars: 0.03, provider: 'kie' },
+  'kie-eleven-multilingual-v2': { label: 'ElevenLabs Multilingual v2 [kie.ai]',  cost_per_1k_chars: 0.06, provider: 'kie' },
+  'kie-eleven-v3':              { label: 'ElevenLabs v3 (dialogue) [kie.ai]',     cost_per_1k_chars: 0.07, provider: 'kie' },
   // Fish Audio (direct cloud TTS). Cheapest cloud option: ~$0.015/1k chars
   // ($15 / 1M UTF-8 bytes). Voices are reference_ids (incl. your cloned
   // voices), entered free-text in the Audio Generator — there's no curated

@@ -4,6 +4,27 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.503 — 2026-07-03
+
+### Added — kie.ai as an ElevenLabs TTS gateway (cheapest per-character)
+The Audio Generator can now route ElevenLabs voices through **kie.ai** — a fourth gateway alongside direct / fal / GenAIPro, and the **cheapest per character**. Three models appear in the audio model picker (Cloud paid), using the same ElevenLabs voice ids you already use:
+
+- **ElevenLabs Turbo v2.5 [kie.ai]** — $0.03 / 1k chars
+- **ElevenLabs Multilingual v2 [kie.ai]** — $0.06 / 1k chars
+- **ElevenLabs v3 (dialogue) [kie.ai]** — $0.07 / 1k chars
+
+Uses your existing **kie.ai API key** (App Settings → API Keys — the same key as kie image/video). Why it wasn't there before: kie.ai was only wired as an *image* provider; the audio generator had no kie TTS path, so ElevenLabs was reachable only via the direct/fal/GenAIPro gateways.
+
+Under the hood it's kie's unified jobs API (createTask → poll → download the finished audio), mirroring the existing kie image client and the genaipro/fal audio path. v3 uses kie's text-to-dialogue endpoint as a single narration turn. Voice previews work too.
+
+### Files
+- `electron/server/lib/kie-tts-client.ts` (new — createTask/poll client, catalog-key→model map, input builder incl. v3 dialogue form)
+- `electron/server/generators/audio.ts` (kie provider routing + dispatch), `electron/server/routes/audio.ts` (kie key + voice-preview branch)
+- `electron/server/models/defaults.ts` (3 kie models), `electron/server/models/types.ts` (`'kie'` on `AudioModelConfig.provider`)
+- `electron/server/__tests__/kie-tts-client.test.ts`
+
+---
+
 ## v1.0.502 — 2026-07-03
 
 **Fix: "No tokens for this account" after reconnecting YouTube.** Disconnecting and reconnecting the SAME channel minted a fresh internal account id (the disconnect wiped the record before the reconnect could match it), which orphaned every schedule plan and episode sidecar still pointing at the old id — so every reschedule failed with "No tokens for this account — reconnect YouTube" even though the account was freshly connected. Three-part fix: (1) reconnecting the same channel now **reuses the previous account id** (disconnect stashes the removed account's identity; a different channel still gets a fresh id); (2) plan apply and the per-row schedule/unschedule now **self-heal stale bindings** — when the stored account id is orphaned, they resolve to the project's current (single) account, persist the fix back to the plan and sidecars, and proceed; (3) since projects are single-account by design, this can never route to a wrong channel — an account that still exists but lost its tokens keeps the explicit "reconnect" error. Your stuck episodes fix themselves on the next Apply / Retry.

@@ -12,6 +12,7 @@ import { generateTts as generateTtsFal, downloadAudio } from '../lib/fal-client.
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { generateTts as generateTtsGenaipro } from '../lib/genaipro-client.js'
 import { generateTtsToFile as generateTtsElevenLabs } from '../lib/elevenlabs-client.js'
+import { generateTtsToUrl as generateTtsKie } from '../lib/kie-tts-client.js'
 // v1.0.149+ — Voice Studio KH (Pinokio FastAPI wrapper, multi-engine).
 // v1.0.150+ — superseded the standalone Chatterbox helper entirely;
 // Chatterbox-mlx is reachable through Voice Studio's family list now.
@@ -36,7 +37,7 @@ import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
 import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
 import type { GenerateAudioRequest, Job, AudioModelConfig } from '../models/types.js'
 
-type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' | 'fishaudio'
+type AudioProviderId = 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' | 'fishaudio' | 'kie'
 
 /**
  * Pick the TTS provider for a given model. Prefers the explicit `provider`
@@ -55,6 +56,7 @@ function resolveAudioProvider(
     if (modelId.startsWith('voicestudio-')) return 'voicestudio'
     if (modelId.startsWith('macos-')) return 'macos'
     if (modelId.startsWith('fishaudio-')) return 'fishaudio'
+    if (modelId.startsWith('kie-')) return 'kie'
   }
   return 'fal'
 }
@@ -219,6 +221,7 @@ export async function generateAudio(job: Job): Promise<void> {
     : providerId === 'voicestudio' ? 'Voice Studio (Local)'
     : providerId === 'macos' ? 'macOS say (Local)'
     : providerId === 'fishaudio' ? 'Fish Audio'
+    : providerId === 'kie' ? 'ElevenLabs (kie.ai)'
     : 'fal.ai'
 
   // Voice Studio KH is special — there is no API key. The "key" we resolve
@@ -827,6 +830,20 @@ export async function generateAudio(job: Job): Promise<void> {
           signal: controller.signal,
           onProgress: makeChunkCb(),
         })
+      } else if (providerId === 'kie') {
+        // kie.ai ElevenLabs gateway: submit → poll → download the finished
+        // audio URL (mirrors the genaipro/fal URL-download path). Same
+        // ElevenLabs voices; cheapest per-character pricing of the gateways.
+        const audioUrl = await generateTtsKie(task.chunkText, apiKey, {
+          model: req.model,
+          voiceId: effectiveVoice,
+          speed: req.speed,
+          stability: req.stability,
+          similarity: req.similarity,
+          signal: controller.signal,
+          isCancelled,
+        })
+        await downloadAudio(audioUrl, task.outputPath, makeChunkCb())
       } else if (providerId === 'macos') {
         // macOS built-in `say` — local, single-machine, no pool. Renders the
         // chunk to AIFF then transcodes to MP3 at task.outputPath. `speed`

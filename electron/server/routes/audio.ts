@@ -35,7 +35,7 @@ const macosVoicesCache = new TtlCache<object>(10 * 60_000) // changes only when 
 function resolveAudioProvider(
   modelId: string | undefined,
   audioModels: Record<string, AudioModelConfig> | undefined,
-): 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' | 'fishaudio' {
+): 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'macos' | 'fishaudio' | 'kie' {
   if (!modelId) return 'fal'
   const entry = audioModels?.[modelId]
   if (entry?.provider) return entry.provider
@@ -47,6 +47,8 @@ function resolveAudioProvider(
   if (modelId.startsWith('macos-')) return 'macos'
   // v1.0.378+ — Fish Audio (direct cloud TTS).
   if (modelId.startsWith('fishaudio-')) return 'fishaudio'
+  // kie.ai ElevenLabs gateway (cheapest per-character).
+  if (modelId.startsWith('kie-')) return 'kie'
   return 'fal'
 }
 
@@ -144,6 +146,13 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
     if (!apiKey) {
       return res.status(400).json({ detail: 'No Fish Audio API key configured. Add one in Settings → API Keys.' })
     }
+  } else if (providerId === 'kie') {
+    // kie.ai ElevenLabs gateway — key in the app-secrets store (same as images).
+    const { getApiKey } = await import('../services/app-secrets-store.js')
+    apiKey = await getApiKey('kie')
+    if (!apiKey) {
+      return res.status(400).json({ detail: 'No kie.ai API key configured. Add one in Settings → API Keys.' })
+    }
   } else if (providerId !== 'voicestudio' && providerId !== 'macos') {
     apiKey = providerId === 'elevenlabs' ? ((config as any).elevenlabs_api_key || '')
       : providerId === 'genaipro' ? ((config as any).genaipro_api_key || '')
@@ -228,6 +237,15 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
       })
       const dataUrl = `data:audio/mpeg;base64,${buf.toString('base64')}`
       return res.json({ audio_url: dataUrl })
+    }
+
+    if (providerId === 'kie') {
+      // kie.ai returns a hosted audio URL the browser can play directly.
+      const { generateTtsToUrl } = await import('../lib/kie-tts-client.js')
+      const audioUrl = await generateTtsToUrl(sample, apiKey, {
+        model, voiceId: resolvedVoiceId || undefined, speed, stability, similarity,
+      })
+      return res.json({ audio_url: audioUrl })
     }
 
     const provider = registry.getAudioProvider(providerId)
