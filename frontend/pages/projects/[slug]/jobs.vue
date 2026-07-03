@@ -1046,8 +1046,11 @@ async function removeJob(jobId: string) {
 // considering the repair "done" (otherwise the retry races it).
 const REPAIR_ENDPOINTS: Record<string, { url: string; body: any; mode: 'sync' | 'queued' }> = {
   audio: {
+    // Provider-aware since v1.0.504 — the route reconciles every chunk from
+    // whatever gateway made it (GenAIPro / kie.ai / fal.ai) via the task-manifest
+    // sidecar; no provider hint needed.
     url: `/projects/${slug.value}/episodes/__EPISODE__/audio-repair`,
-    body: { provider: 'genaipro' },
+    body: {},
     mode: 'sync',
   },
   images: {

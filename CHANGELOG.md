@@ -4,6 +4,24 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.505 — 2026-07-04
+
+### Improved — clearer error when an OpenAI image model blocks a prompt
+kie.ai relays OpenAI GPT-Image / DALL·E content-policy rejections as a bare `state:fail` with **no reason**, so a blocked thumbnail/scene prompt used to fail with the unhelpful "kie.ai reported a failed task with no error message." Now, when the failing model is a GPT-Image / GPT-4o / DALL·E model and kie returned no reason, the error says so plainly and points you at the fix:
+
+> *Image generation blocked — gpt-image-2 returned no reason, which almost always means OpenAI's content policy rejected the prompt (graphic violence, gore, open wounds, injury, etc.). Soften the prompt, or switch this step to a less-restrictive image model (e.g. Flux, Seedream, or nano-banana).*
+
+Also reads a couple more kie error fields (`failMsg`, `failReason`) before falling back, and applies the same hint to the image repair-by-task path.
+
+### Also — Jobs-tab audio Repair confirmed provider-aware
+The per-job **Repair** button on an audio job (Jobs page) calls the same `/audio-repair` route that became provider-aware in v1.0.504, so it now recovers **kie.ai and fal.ai** chunks (from the task-manifest sidecar), not just GenAIPro. Removed a stale `provider: 'genaipro'` hint from the request (the route ignores it now).
+
+### Files
+- `electron/server/lib/kie-client.ts` (content-policy hint for GPT-Image failures; extra error fields)
+- `frontend/pages/projects/[slug]/jobs.vue` (drop stale provider hint from audio repair)
+
+---
+
 ## v1.0.504 — 2026-07-03
 
 ### Fixed — Audio "Repair missing" now works for kie.ai and fal.ai (not just GenAIPro)

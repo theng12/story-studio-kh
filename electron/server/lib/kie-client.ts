@@ -241,7 +241,7 @@ export async function fetchImageUrlsByTaskId(
       : { urls: [], status: 'unknown', message: 'Task succeeded but no URLs in response' }
   }
   if (['failed', 'error', 'fail'].includes(status)) {
-    return { urls: [], status: 'failed', message: taskData.errorMessage || taskData.error || 'Provider reported failure' }
+    return { urls: [], status: 'failed', message: taskData.failReason || taskData.errorMessage || taskData.error || taskData.failMsg || taskData.msg || 'Provider reported failure (often an OpenAI content-policy block on gpt-image models — no reason returned)' }
   }
   return { urls: [], status: 'pending', message: `Task status: ${status || 'unknown'}` }
 }
@@ -350,6 +350,7 @@ export async function pollForImageUrls(
           taskData.failReason,
           taskData.error,
           taskData.errorMessage,
+          taskData.failMsg,
           taskData.msg,
           taskData.message,
           taskData.errMsg,
@@ -364,9 +365,18 @@ export async function pollForImageUrls(
         if (reason) {
           throw new Error(`Image generation failed: ${reason}`)
         }
-        // No structured field carried a reason — dump a snippet of the
-        // raw task body (secrets redacted) so the user can copy + report.
+        // No structured field carried a reason. OpenAI's GPT-Image / DALL·E
+        // models (via kie) fail exactly this way on a content-policy block — kie
+        // relays `state:fail` without the moderation reason. When the model is
+        // one of those, give an actionable hint instead of a bare raw dump.
         const snippet = redactSecrets(JSON.stringify(taskData), apiKey).slice(0, 400)
+        const modelStr = String(taskData.model || (modelConfig as any).api_model || modelConfig.label || '').toLowerCase()
+        if (/gpt-?image|gpt-?4o|dall/.test(modelStr)) {
+          throw new Error(
+            `Image generation blocked — ${taskData.model || 'the OpenAI image model'} returned no reason, which almost always means OpenAI's content policy rejected the prompt (graphic violence, gore, open wounds, injury, etc.). ` +
+            `Soften the prompt, or switch this step to a less-restrictive image model (e.g. Flux, Seedream, or nano-banana). Raw: ${snippet}`,
+          )
+        }
         throw new Error(`Image generation failed (kie.ai reported a failed task with no error message). Raw response: ${snippet}`)
       }
 
