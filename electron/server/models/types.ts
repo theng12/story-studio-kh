@@ -3376,6 +3376,22 @@ export interface ScenePlanRunOptions {
    */
   window_size?: 'auto' | 'full' | 'small'
   /**
+   * v1.0.508 — cross-window narrative continuity ("story so far").
+   *
+   * true (default) — each window's prompt carries a rolling recap of scenes
+   *   planned in earlier windows, so visual continuity (recurring characters,
+   *   setting, tone) carries across window seams. Because window N depends on
+   *   window N-1's output, the windows MUST be planned SEQUENTIALLY.
+   *
+   * false — drop the recap; each window is planned purely from its own cues +
+   *   fixed time bounds, so the windows are INDEPENDENT and are planned in
+   *   PARALLEL (big speedup on multi-window episodes). The trade-off is weaker
+   *   continuity across seams (the model can't see what earlier windows chose).
+   *   Parallelism is gated by model: direct paid cloud fans out; free/proxy
+   *   tiers stay serial to avoid 429 storms.
+   */
+  cross_window_context?: boolean
+  /**
    * v1.0.291 — planning architecture.
    *
    *   'single-pass' (default) — the historical flow: chunked LLM windows

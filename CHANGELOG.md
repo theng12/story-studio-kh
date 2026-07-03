@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.508 — 2026-07-04
+
+### Added — Scene Plan: “Story so far” continuity toggle → parallel segment planning (much faster)
+The scene planner splits long episodes into time-segments and, until now, **always** planned them **sequentially** — because each segment carried a rolling *"story so far"* recap of earlier segments for cross-seam visual continuity. That recap is exactly what forced the sequence, and it's the main reason a long video's plan takes so long.
+
+There's now a **“Story so far” continuity** toggle on the Scene Plan page (single-pass mode):
+- **On (default)** — unchanged: segments plan one-after-another with the rolling recap, so recurring characters/setting/tone carry across seams.
+- **Off** — segments are planned **in parallel** (each purely from its own cues + fixed time bounds), a large speedup on multi-segment episodes. The trade-off is weaker continuity *across* segment seams (within a segment is unchanged).
+
+Parallelism is model-gated for safety: **direct paid cloud models fan out** (4× by default); a local Chat Studio pool uses its endpoints; free/proxy tiers stay serial (parallel there would just multiply 429s). The setting **saves into scene-plan presets** (along with motion-prompt + window-size toggles), so you can keep a "fast" preset and a "max-continuity" preset.
+
+Progress now reads *"Story-so-far OFF — planning 8 segments 4× in parallel"* when enabled.
+
+### Files
+- `electron/server/models/types.ts` (`cross_window_context`), `electron/server/services/scene-planner.ts` (parallel vs chained window planning), `electron/server/generators/scene-plan.ts` + `electron/server/routes/scene-plan.ts` (thread the flag)
+- `frontend/pages/projects/[slug]/scene-plan.vue` (toggle + preset persistence)
+
+---
+
 ## v1.0.507 — 2026-07-04
 
 ### Fixed — Scene Plan: motion prompts now get the same crash protection as image prompts

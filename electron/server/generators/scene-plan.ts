@@ -84,6 +84,10 @@ interface ScenePlanRunParams {
    *  → small, cloud → full); 'full' = 30/window; 'small' = 10/window.
    *  Passed straight to the planner — see ScenePlanRunOptions.window_size. */
   window_size?: 'auto' | 'full' | 'small'
+  /** v1.0.508 — cross-window "story so far" continuity. true (default) plans
+   *  windows sequentially with a rolling recap; false plans them in PARALLEL
+   *  (faster, weaker cross-seam continuity). See ScenePlanRunOptions. */
+  cross_window_context?: boolean
   /** v1.0.288 — when set, REGENERATE just this scene's visual_prompt
    *  without touching its time range, transcript_segment, or any other
    *  scene. Much cheaper than replan_scene_id (simple prose LLM call, no
@@ -532,6 +536,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     // cloud→full). See ScenePlanRunOptions.window_size for the rationale.
     // Ignored by planScenesTwoPass.
     window_size: params.window_size,
+    // v1.0.508 — story-so-far continuity toggle (default true = sequential).
+    cross_window_context: params.cross_window_context,
     // v1.0.291 — two-pass-specific; ignored by planScenes (single-pass).
     neighbor_context_back: params.neighbor_context_back,
     neighbor_context_forward: params.neighbor_context_forward,

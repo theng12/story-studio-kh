@@ -1380,9 +1380,16 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
 
   const allScenes: ScenePlanEntry[] = []
   let prevEnd = initialPrevEnd
-  let lastError: Error | null = null
+  // Holder (not a bare `let`) so the per-window closure can record failures
+  // without TS's control-flow analysis narrowing the outer variable to `null`.
+  const errRef: { last: Error | null } = { last: null }
 
-  for (let w = 0; w < windows.length; w++) {
+  // Per-window planner (retry + graceful subdivide). Pure w.r.t. its args so it
+  // runs either chained (sequential, with a story-so-far recap) or independent
+  // (parallel, no recap). `lowerBound` is where this window's scenes must start
+  // (the previous window's fixed end); `storySoFar` is the rolling recap or
+  // undefined when continuity is off.
+  const planOneWindow = async (w: number, lowerBound: number, storySoFar: string | undefined): Promise<ScenePlanEntry[]> => {
     const win = windows[w]!
     const { system, user } = buildScenePlannerPrompt({
       stitched_srt: cuesToSrt(win.cues),
@@ -1400,9 +1407,8 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
         total: windows.length,
         start_sec: win.start,
         end_sec: win.end,
-        prev_scene_end_sec: prevEnd,
-        // Rolling continuity recap from earlier segments (empty for the first).
-        story_so_far: w > 0 ? buildStorySoFar(allScenes, !!opts.pacing) : undefined,
+        prev_scene_end_sec: lowerBound,
+        story_so_far: storySoFar,
       },
     })
 
@@ -1415,39 +1421,81 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
       try {
         const raw = await callAi(opts.model, system, user, apiKeys, false, { maxTokens: 16000 })
         const parsed = parsePlannerJson(raw)
-        // Clamp this window's scenes to [prevEnd, win.end] so they stay in-segment
-        // and don't overlap the next window; seed prevEnd for cross-window order.
-        winScenes = normalizeScenes(parsed.scenes || [], dedupedBoundaries, win.end, minSec, maxSec, prevEnd)
+        // Clamp this window's scenes to [lowerBound, win.end] so they stay
+        // in-segment and don't overlap the neighbouring windows.
+        winScenes = normalizeScenes(parsed.scenes || [], dedupedBoundaries, win.end, minSec, maxSec, lowerBound)
         if (winScenes.length === 0 && attempt < MAX_ATTEMPTS) {
           opts.onWarn?.(`Segment ${w + 1}/${windows.length} (${win.start.toFixed(0)}–${win.end.toFixed(0)}s) returned no usable scenes — retrying…`)
         }
       } catch (e: any) {
-        lastError = e instanceof Error ? e : new Error(String(e))
+        errRef.last = e instanceof Error ? e : new Error(String(e))
         if (attempt < MAX_ATTEMPTS) {
-          opts.onWarn?.(`Segment ${w + 1}/${windows.length} failed (${lastError.message}) — retrying…`)
+          opts.onWarn?.(`Segment ${w + 1}/${windows.length} failed (${errRef.last.message}) — retrying…`)
         }
       }
     }
 
-    // Contiguity: a window must fully cover [prevEnd, win.end] so the video
-    // never has a gap with no image. Extend the last scene to the window end.
-    // If the window failed every attempt, SUBDIVIDE it into cue-aligned
-    // ≤maxSec scenes (empty prompts, flagged) rather than one giant blob —
-    // so a failed window degrades gracefully and is easy to spot + fix.
+    // Contiguity: a window must fully cover [lowerBound, win.end]. Extend the
+    // last scene to the window end; on total failure, subdivide into cue-aligned
+    // placeholder scenes rather than one giant blob.
     if (winScenes.length) {
       const last = winScenes[winScenes.length - 1]!
       if (last.end_sec < win.end) last.end_sec = win.end
-    } else if (win.end > prevEnd) {
-      winScenes = subdivideWindow(win.cues, prevEnd, win.end, maxSec)
+    } else if (win.end > lowerBound) {
+      winScenes = subdivideWindow(win.cues, lowerBound, win.end, maxSec)
       opts.onWarn?.(
         `⚠ Segment ${w + 1}/${windows.length} (${win.start.toFixed(0)}–${win.end.toFixed(0)}s) failed after ${MAX_ATTEMPTS} tries — ` +
         `split into ${winScenes.length} placeholder scene(s) with empty prompts. Use "Re-plan this scene" or write prompts for them.`,
       )
     }
+    return winScenes
+  }
 
-    allScenes.push(...winScenes)
-    prevEnd = win.end
-    opts.onProgress?.(w + 1, windows.length, allScenes.length)
+  // Each window's lower bound is deterministic — the previous window's FIXED
+  // end (windows are cut at cue boundaries), so it's known without running the
+  // previous window. This is what lets the "no continuity" mode parallelize.
+  const lowerBoundFor = (w: number): number => (w === 0 ? initialPrevEnd : windows[w - 1]!.end)
+
+  if (opts.cross_window_context === false && windows.length > 1) {
+    // ── Independent windows → PARALLEL (story-so-far OFF) ──────────────────
+    // No rolling recap + fixed per-window bounds ⇒ windows don't depend on each
+    // other, so plan them concurrently. Concurrency is model-gated: direct paid
+    // cloud fans out; a local Chat Studio pool uses its endpoints; free/proxy
+    // tiers stay at 1 (parallel would just multiply 429s).
+    const isProxy = opts.model.startsWith(`${CHATSTUDIO_MODEL_PREFIX}provider:`)
+    let conc = 4
+    if (opts.model.startsWith(CHATSTUDIO_MODEL_PREFIX)) {
+      if (isProxy) conc = 1
+      else {
+        const csStored = await getApiKey('chatstudio').catch(() => '')
+        resetChatstudioDispatcher(csStored)
+        conc = Math.max(1, parseEndpoints(csStored).length)
+      }
+    }
+    opts.onWarn?.(
+      `Story-so-far continuity OFF — planning ${windows.length} segments ` +
+      `${conc > 1 ? `${conc}× in parallel` : 'independently'} (faster; slightly weaker cross-seam continuity).`,
+    )
+    const results: ScenePlanEntry[][] = new Array(windows.length)
+    let completed = 0
+    for (let s = 0; s < windows.length; s += conc) {
+      const batch: number[] = []
+      for (let w = s; w < Math.min(s + conc, windows.length); w++) batch.push(w)
+      await Promise.all(batch.map(async (w) => {
+        results[w] = await planOneWindow(w, lowerBoundFor(w), undefined)
+        completed++
+        opts.onProgress?.(completed, windows.length, results.reduce((n, r) => n + (r?.length || 0), 0))
+      }))
+    }
+    for (const r of results) if (r) allScenes.push(...r)
+  } else {
+    // ── Chained windows → SEQUENTIAL (default; story-so-far ON) ────────────
+    for (let w = 0; w < windows.length; w++) {
+      const winScenes = await planOneWindow(w, prevEnd, w > 0 ? buildStorySoFar(allScenes, !!opts.pacing) : undefined)
+      allScenes.push(...winScenes)
+      prevEnd = windows[w]!.end
+      opts.onProgress?.(w + 1, windows.length, allScenes.length)
+    }
   }
 
   // v1.0.245 — range re-plan must fully cover [range.start, range.end] so the
@@ -1460,7 +1508,7 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
   if (allScenes.length === 0) {
     throw new Error(
       `Scene planner produced no usable scenes across ${windows.length} segment(s). ` +
-      (lastError ? `Last error: ${lastError.message}` : 'Check the model output in the Jobs panel.'),
+      (errRef.last ? `Last error: ${errRef.last.message}` : 'Check the model output in the Jobs panel.'),
     )
   }
 

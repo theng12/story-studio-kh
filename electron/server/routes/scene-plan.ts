@@ -101,6 +101,9 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   const ncForward = typeof body.neighbor_context_forward === 'number'
     ? Math.max(0, Math.min(10, Math.round(body.neighbor_context_forward)))
     : undefined
+  // v1.0.508 — "story so far" continuity. Default true (sequential, current
+  // behaviour); false plans windows in parallel (faster, weaker continuity).
+  const crossWindowContext = body.cross_window_context === false ? false : true
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `Scene plan already running for ${episodeId}` })
@@ -123,6 +126,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       style_prompt: stylePrompt || undefined,
       custom_instructions: customInstructions || undefined,
       window_size: windowSize,
+      cross_window_context: crossWindowContext,
       planning_mode: planningMode,
       neighbor_context_back: ncBack,
       neighbor_context_forward: ncForward,

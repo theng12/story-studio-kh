@@ -275,6 +275,18 @@
           the planner fell back to cue-aligned splits because the JSON output failed to parse twice.
           Smaller windows = smaller per-call output = less likely to hit truncation.
         </p>
+
+        <!-- v1.0.508 — "story so far" continuity toggle. ON = sequential with
+             a rolling recap (better cross-seam continuity). OFF = parallel
+             segments (much faster on long episodes). -->
+        <label class="flex items-center gap-2 mt-3" style="cursor: pointer;">
+          <input type="checkbox" v-model="form.cross_window_context" />
+          <span>“Story so far” continuity across segments</span>
+        </label>
+        <p class="text-muted text-xs mt-1">
+          <strong>On</strong> (default): each segment sees a recap of earlier ones, so recurring characters/setting carry across seams — but segments must plan <em>one after another</em>.
+          <strong>Off</strong>: segments plan <strong>in parallel</strong> (much faster on long videos) at the cost of weaker cross-seam continuity. Great when each scene stands on its own; save it in a preset either way.
+        </p>
       </div>
 
       <!-- v1.0.291 — neighbor-context dropdown for two-pass. Only shown when
@@ -983,6 +995,10 @@ const form = ref({
   // when they hit the empty-visual_prompts fallback, without sacrificing
   // the cloud's more efficient batched output.
   window_size: 'auto' as 'auto' | 'full' | 'small',
+  // v1.0.508 — "story so far" cross-window continuity. true (default) plans
+  // segments sequentially with a rolling recap; false plans them in parallel
+  // (much faster on multi-segment episodes, weaker cross-seam continuity).
+  cross_window_context: true,
   // v1.0.291 — planning architecture toggle.
   //   'single-pass' — historical windowed LLM (default; works great on cloud)
   //   'two-pass'    — deterministic split + per-scene prompts (best for
@@ -1099,6 +1115,8 @@ async function planScenes(): Promise<void> {
       // v1.0.285 — only send when not 'auto'; the backend defaults to auto
       // anyway, so omitting keeps the request payload tidy.
       window_size: form.value.window_size === 'auto' ? undefined : form.value.window_size,
+      // v1.0.508 — story-so-far continuity (false = parallel segments).
+      cross_window_context: form.value.cross_window_context,
       // v1.0.291 — planning mode + neighbor context. Only send when two-pass
       // is explicitly selected; single-pass is the backend default and we'd
       // rather omit the field than send a redundant value.
@@ -1653,6 +1671,12 @@ const planPresets = usePresets<any>({
     detail_level: form.value.detail_level,
     style_prompt: form.value.style_prompt,
     custom_instructions: form.value.custom_instructions,
+    // v1.0.508 — persist the run-shaping toggles so a preset captures the
+    // speed/quality config (story-so-far continuity, motion prompts, window size).
+    cross_window_context: form.value.cross_window_context,
+    generate_motion_prompts: form.value.generate_motion_prompts,
+    motion_level: form.value.motion_level,
+    window_size: form.value.window_size,
   }),
   apply: (data) => { Object.assign(form.value, data) },
 })
