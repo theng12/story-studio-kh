@@ -2823,6 +2823,15 @@ export interface GenerateVideoRequest {
    *  whether the scene planner generates a motion_prompt per scene at all. */
   default_motion_level?: number
   motion_prompts_enabled?: boolean
+  /**
+   * v1.0.509 — fast "prompt model" for SHORT prompt-generation tasks (per-scene
+   * motion prompts, thumbnail prompts). These are simple, short outputs that
+   * don't need the strong planning/script model, so pointing them at a fast /
+   * cheap model (Haiku, a mini, or a fast local) speeds up the phases with the
+   * most calls. Empty/unset → each task falls back to its own model (the scene
+   * plan model for motion; the Thumbnail Prompts page's picker for thumbnails).
+   */
+  prompt_model?: string
 }
 
 // ── Audio Merge ─────────────────────────────────────────────────────────────

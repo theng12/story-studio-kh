@@ -4,6 +4,22 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.509 — 2026-07-04
+
+### Added — fast "prompt model" for motion + thumbnail prompts (big scene-plan speedup)
+Per-scene **motion prompts** and **thumbnail prompts** are short, simple LLM outputs — they don't need your strong planning/script model. But motion prompts were forced to reuse the scene-plan model, and that phase is one call *per scene* (and sequential on cloud), so it dominated long scene-plan runs.
+
+New **"Use a separate fast model for prompts"** toggle on the Scene Plan page (motion section): pick a fast/cheap model (Haiku, a mini, or a fast local) and it's used for **motion prompts** and as the default for **thumbnail prompts**, while your planning model stays strong. Off = each step uses its own model (unchanged). Saved to project config (`prompt_model`).
+
+Pairs with the v1.0.508 "story so far" parallel planning: Phase 1 (visual) parallelizes, Phase 2 (motion) runs on a fast model — together they cut scene-plan time substantially.
+
+### Files
+- `electron/server/models/types.ts` (`Config.prompt_model`)
+- `electron/server/generators/scene-plan.ts` (motion prompts use `prompt_model` when set), `electron/server/generators/image-prompts.ts` (thumbnail prompts fall back to `prompt_model`)
+- `frontend/pages/projects/[slug]/scene-plan.vue` (toggle + model picker, persisted to config)
+
+---
+
 ## v1.0.508 — 2026-07-04
 
 ### Added — Scene Plan: “Story so far” continuity toggle → parallel segment planning (much faster)

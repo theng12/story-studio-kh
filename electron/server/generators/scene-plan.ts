@@ -604,7 +604,16 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   }
   if (wantMotion) {
     let projDefaultMotion: number | undefined
-    try { projDefaultMotion = (await getConfig(job.project_slug) as any)?.default_motion_level } catch { /* default applies */ }
+    let promptModel = ''
+    try {
+      const cfg = await getConfig(job.project_slug) as any
+      projDefaultMotion = cfg?.default_motion_level
+      // v1.0.509 — use the fast "prompt model" for motion prompts when set;
+      // else fall back to the planner model. Short, simple outputs → a fast
+      // model here cuts the (sequential-on-cloud) motion phase substantially.
+      if (typeof cfg?.prompt_model === 'string' && cfg.prompt_model.trim()) promptModel = cfg.prompt_model.trim()
+    } catch { /* defaults apply */ }
+    const motionModel = promptModel || model
     const motionLevel = resolveMotionLevel(params.motion_level, projDefaultMotion)
     const targets = plan.scenes.map((s, i) => (s.visual_prompt?.trim() ? i : -1)).filter(i => i >= 0)
     if (targets.length) {
@@ -614,7 +623,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         getApiKey('kie').catch(() => ''),
       ])
       const MOTION_LABELS: Record<number, string> = { 1: 'Still', 2: 'Gentle', 3: 'Moderate', 4: 'Lively' }
-      job.output_lines.push(`Generating motion prompts for ${targets.length} scene(s) — intensity ${MOTION_LABELS[motionLevel] ?? motionLevel} (level ${motionLevel})…`)
+      job.output_lines.push(
+        `Generating motion prompts for ${targets.length} scene(s) — intensity ${MOTION_LABELS[motionLevel] ?? motionLevel} (level ${motionLevel})` +
+        (promptModel ? ` · fast prompt model: ${motionModel}` : '') + '…',
+      )
       // Throttled incremental save so finished motion prompts survive a
       // mid-phase crash / cancel (mirrors the visual planner's protection).
       let saveInFlight = false
@@ -628,7 +640,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         finally { saveInFlight = false }
       }
       const failed = await generateMotionPromptsForScenes(plan.scenes, targets, {
-        model,
+        model: motionModel,
         motion_level: motionLevel,
         style_prompt: effectiveStyle,
         custom_instructions: params.custom_instructions,

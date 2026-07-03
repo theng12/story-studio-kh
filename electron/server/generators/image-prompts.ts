@@ -434,7 +434,9 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
 
-  const model = req.model || 'deepseek-v4-flash'
+  // v1.0.509 — prefer the request's model; else the project's fast "prompt
+  // model" (motion + thumbnail prompts share it); else the historical default.
+  const model = req.model || ((config as any).prompt_model || '').trim() || 'deepseek-v4-flash'
   const credErr = checkProvider(model, config)
   if (credErr) throw new Error(credErr)
 
