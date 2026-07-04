@@ -12,10 +12,9 @@
  *   - Optional sections (logo, intro, outro, title image, color grading, vignette,
  *     chroma key, film grain, letterbox, subtitles, title/outro card) only
  *     appear in the payload when their `.enabled` flag is true.
- *   - Cost-confirmation gate: cancel short-circuits before any POST.
  *   - Flag lifecycle: `generating` / `videoGenerating` must flip correctly
  *     on success AND on error (else the sidebar pulse stays stuck).
- *   - Return value: true on submit, false on cancel or submit-error.
+ *   - Return value: true on submit, false on submit-error.
  *
  * A full-fidelity state bag would be tedious to build inline per test, so
  * `makeState()` produces a sensible baseline that individual tests tweak.
@@ -96,19 +95,9 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     videoGenerating = ref(false)
   })
 
-  test('cancelled confirmation short-circuits — no POST, returns false', async () => {
-    const { generateVideo } = useVideoAssemblyIo(state as any)
-    let postCalls = 0
-    const ok = await generateVideo({
-      post: async () => { postCalls++ },
-      confirmGeneration: async () => false, // user cancels the cost dialog
-      videoAssemblyGenerating: videoGenerating,
-    })
-    assert.equal(ok, false, 'cancel should return false')
-    assert.equal(postCalls, 0, 'cancel must not POST')
-    assert.equal(state.generating.value, false, 'generating flag stays false after cancel')
-    assert.equal(videoGenerating.value, false, 'videoGenerating stays false after cancel')
-  })
+  // v1.0.514 — video assembly no longer shows a cost/duration confirmation
+  // (free local render), so there's no cancel gate to test; a click enqueues
+  // straight away. The submit-error path (below) still returns false.
 
   test('happy path — POSTs correct payload shape, returns true, flips flags', async () => {
     const { generateVideo } = useVideoAssemblyIo(state as any)
@@ -116,7 +105,6 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     let capturedBody: any = null
     const ok = await generateVideo({
       post: async (url, body) => { capturedUrl = url; capturedBody = body },
-      confirmGeneration: async () => true,
       videoAssemblyGenerating: videoGenerating,
     })
 
@@ -193,7 +181,6 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     let body: any
     await generateVideo({
       post: async (_u, b) => { body = b },
-      confirmGeneration: async () => true,
       videoAssemblyGenerating: videoGenerating,
     })
     assert.equal(body.scenes.length, 2)
@@ -208,7 +195,6 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     let body: any
     await generateVideo({
       post: async (_u, b) => { body = b },
-      confirmGeneration: async () => true,
       videoAssemblyGenerating: videoGenerating,
     })
     assert.equal(body.narration_path, '/m/full.mp3',
@@ -223,7 +209,6 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     let body: any
     await generateVideo({
       post: async (_u, b) => { body = b },
-      confirmGeneration: async () => true,
       videoAssemblyGenerating: videoGenerating,
     })
     assert.equal(body.narration_path, '/m/section-1.mp3')
@@ -258,7 +243,6 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     let body: any
     await generateVideo({
       post: async (_u, b) => { body = b },
-      confirmGeneration: async () => true,
       videoAssemblyGenerating: videoGenerating,
     })
 
@@ -288,7 +272,6 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     let body: any
     await generateVideo({
       post: async (_u, b) => { body = b },
-      confirmGeneration: async () => true,
       videoAssemblyGenerating: videoGenerating,
     })
     assert.ok(Array.isArray(body.timeline_clips), 'timeline_clips included when at least one valid row exists')
@@ -311,7 +294,6 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     let body: any
     await generateVideo({
       post: async (_u, b) => { body = b },
-      confirmGeneration: async () => true,
       videoAssemblyGenerating: videoGenerating,
     })
     assert.equal(body.timeline_clips, undefined, 'empty list → key absent, not an empty array')
@@ -324,7 +306,6 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     let body: any
     await generateVideo({
       post: async (_u, b) => { body = b },
-      confirmGeneration: async () => true,
       videoAssemblyGenerating: videoGenerating,
     })
     assert.equal(body.chroma_key, undefined,
@@ -335,7 +316,6 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     const { generateVideo } = useVideoAssemblyIo(state as any)
     const ok = await generateVideo({
       post: async () => { throw new Error('backend down') },
-      confirmGeneration: async () => true,
       videoAssemblyGenerating: videoGenerating,
     })
     assert.equal(ok, false)
@@ -351,7 +331,6 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     let body: any
     await generateVideo({
       post: async (_u, b) => { body = b },
-      confirmGeneration: async () => true,
       videoAssemblyGenerating: videoGenerating,
     })
     for (const scene of body.scenes) {

@@ -207,16 +207,19 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
 
   /**
    * Build the video-assembly generate payload from the page's reactive state,
-   * run the cost-confirmation prompt, then POST to the queue. Returns true
-   * if the job was enqueued, false if the user cancelled or a submit error
-   * occurred. The page is free to read `s.generating` / `videoAssemblyGenerating`
-   * for its own UI feedback.
+   * then POST to the queue. Returns true if the job was enqueued, false on a
+   * submit error. The page is free to read `s.generating` /
+   * `videoAssemblyGenerating` for its own UI feedback.
+   *
+   * v1.0.514 — no cost-confirmation prompt. Video assembly is a FREE local
+   * ffmpeg render (no API spend), so there's nothing to confirm cost-wise, and
+   * the old estimate was meaningless for cost and wildly inaccurate for
+   * duration. Removing it also drops the estimate-cost round-trip that made the
+   * dialog slow to appear.
    *
    * Callers supply:
    *   - `post` — the useApi().post helper (re-injected so the composable
    *     doesn't have to import it twice if the caller already has it).
-   *   - `confirmGeneration` — the useConfirmation().confirmGeneration
-   *     function, injected the same way.
    *   - `videoAssemblyGenerating` — the sidebar's cross-tab "video assembly
    *     is running" flag that useGenerating exposes. This is the Video
    *     *Assembly* pulse, distinct from the AI Video Generator's
@@ -224,7 +227,6 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
    */
   async function generateVideo(opts: {
     post: (path: string, body: any) => Promise<any>
-    confirmGeneration: (slug: string, type: string, params: Record<string, any>) => Promise<boolean>
     videoAssemblyGenerating: Ref<boolean>
   }): Promise<boolean> {
     const enabledScenes = s.scenes.value.filter(
@@ -407,9 +409,8 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     if (s.titleCard.enabled) payload.title_card = { ...s.titleCard }
     if (s.outroCard.enabled) payload.outro_card = { ...s.outroCard }
 
-    const confirmed = await opts.confirmGeneration(s.slug.value, 'video', payload)
-    if (!confirmed) return false
-
+    // v1.0.514 — straight to enqueue; no cost/duration confirmation dialog
+    // (free local render — see the function doc).
     if (s.generating) s.generating.value = true
     if (opts.videoAssemblyGenerating) opts.videoAssemblyGenerating.value = true
     if (s.jobOutput) s.jobOutput.value = []

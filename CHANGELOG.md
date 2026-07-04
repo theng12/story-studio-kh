@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.514 — 2026-07-04
+
+**Video Assembly: no more cost/duration confirmation dialog — Generate just goes.** Video assembly is a **free local ffmpeg render** (no API spend), so the cost-confirmation gate had nothing to confirm, and its duration estimate was never accurate anyway. Removed it entirely: clicking **Generate Video** now enqueues the render immediately instead of pausing on a dialog. This also eliminates the `estimate-cost` round-trip that made the dialog slow to appear. (Paid generators — scripts, images, audio, uploads — keep their confirmation, since those actually spend.)
+
 ## v1.0.513 — 2026-07-04
 
 **Harden the SFX audio-mix on the render path (can no longer hang or look frozen).** When an episode has an enabled SFX plan, the render mixes the effects into the narration in a separate ffmpeg pass before the video render begins. Two problems: that pass ran with **no timeout** (a wedged input — e.g. a cue clip on a stalled/unplugged SSD — would hang the whole render forever with no progress), and it emitted **no status line**, so the Jobs panel sat at 0% during the mix and looked stuck. Now the mix is bounded to 10 minutes (generous — audio-only mixing is fast even on multi-hour narration; on timeout it falls back to the original un-mixed audio via the existing safety catch), and it logs `SFX: mixing N cue(s) into the audio…` before starting. Episodes **without** an SFX plan are unaffected — that path was already an instant no-op. Note: this is separate from the SFX *director* (the LLM that proposes cues), which is opt-in and button-triggered; a slow first response there is a local model loading, not the render.

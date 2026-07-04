@@ -2505,7 +2505,7 @@ const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
 const { success, error: showError } = useToast()
 const { videoAssemblyGenerating } = useGenerating()
-const { confirmGeneration } = useConfirmation()
+// v1.0.514 — no cost/duration confirmation for video assembly (free local render).
 
 // v1.0.83+: format-aware section vocabulary. Sections that show
 // "Chapter X" / "X chapter(s)" / "Per-scene chapter assignments" all
@@ -4894,8 +4894,8 @@ const { checkFfmpeg, scanAssets, applyScenePoolMode, generateVideo: runGenerateV
   },
   titleCard, chapterTitles, outroCard, exportSettings,
   normalizePath: collapseToPortablePath,
-  // generateVideo() needs these three plus post+confirmGeneration+videoAssemblyGenerating
-  // passed at call-time so the composable doesn't duplicate those imports.
+  // generateVideo() needs these plus post+videoAssemblyGenerating passed at
+  // call-time so the composable doesn't duplicate those imports.
   subtitles, generating, jobOutput, activeJobId,
 })
 watch(scenePoolMode, () => { applyScenePoolMode() })
@@ -4974,15 +4974,12 @@ function goToStep(n: number) {
 async function generateVideo() {
   // v1.0.47 — defensive harness. `runGenerateVideo` has its own
   // try/catch but only around the final POST; anything thrown earlier
-  // (during payload build, inside confirmGeneration, in the cost-
-  // estimate POST, etc.) used to escape silently — symptom: "click
-  // Generate, nothing happens, no dialog, no toast" (reported when
-  // the YouTube Fast preset's fps=30 combo failed to surface a
-  // dialog). Any throw from anywhere in the click chain now becomes
-  // a visible toast + a console.error so the next user-side incident
-  // is debuggable from devtools instead of opaque.
+  // (during payload build, etc.) used to escape silently — symptom:
+  // "click Generate, nothing happens, no toast". Any throw from anywhere
+  // in the click chain now becomes a visible toast + a console.error so
+  // the next user-side incident is debuggable from devtools.
   try {
-    await runGenerateVideo({ post, confirmGeneration, videoAssemblyGenerating })
+    await runGenerateVideo({ post, videoAssemblyGenerating })
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Generate failed unexpectedly — see console for details (Cmd+Option+I).')
     console.error('[video-assembly] generateVideo threw:', e)
