@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.510 — 2026-07-04
+
+**Video Assembly: the optional Sound/SFX step no longer gets in the way (or makes you wait on a model you didn't want).** Generating your video never uses an LLM — the render path has zero AI calls. The sound director's local model only loads when you click "🎬 Generate from narration", and what felt like "the AI model is stuck loading" was Chat Studio cold-loading that model's weights into memory on first use. Two changes so this stops surprising you:
+
+- **The Sound/SFX section is now collapsed by default** and clearly marked skippable ("leave it closed to render with your original audio — no AI, nothing to load"). It auto-opens only when the episode already has SFX enabled or a saved plan. So the tempting primary "Generate" button (which triggers the slow local cold-load) is no longer sitting in the render flow for the common case of not wanting SFX. Click "▸ set up" only if you want it.
+- **A loading expectation while directing.** When the chosen director is a local Chat Studio model, generating now shows "Loading the local model into memory — the first run can take 30–60s; later runs are fast," with a tip that a free cloud model directs almost instantly (SFX cue placement is a light task). No more mystery wait.
+
 ## v1.0.509 — 2026-07-04
 
 ### Added — fast "prompt model" for motion + thumbnail prompts (big scene-plan speedup)

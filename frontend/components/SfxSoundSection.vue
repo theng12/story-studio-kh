@@ -1,12 +1,28 @@
 <template>
   <div class="settings-section sfx-section mt-2">
     <div class="flex gap-2 items-center justify-between flex-wrap">
-      <h4 class="m-0">Sound / SFX <span class="sfx-badge">optional</span></h4>
+      <h4 class="m-0">
+        Sound / SFX <span class="sfx-badge">optional</span>
+        <button type="button" class="sfx-toggle" @click="expanded = !expanded">
+          {{ expanded ? '▾ hide' : '▸ set up' }}
+        </button>
+      </h4>
       <label class="sfx-enable" title="Master switch. Off = the render is exactly as it is today.">
-        <input type="checkbox" v-model="enabled" @change="markDirty" />
+        <input type="checkbox" v-model="enabled" @change="onEnableToggle" />
         <span>Apply SFX to this video</span>
       </label>
     </div>
+
+    <!-- v1.0.510 — collapsed by default. Video generation NEVER uses the sound
+         director LLM; this whole section is opt-in. Collapsing it keeps the
+         slow "Generate from narration" button (which cold-loads a local LLM)
+         out of the render flow for the common case of not wanting SFX. -->
+    <p v-if="!expanded" class="text-muted text-sm hint-line">
+      Optional layer — leave it closed to render with your original audio (no AI, nothing to load).
+      Open it only if you want ambient beds + spot effects mixed under the narration.
+    </p>
+
+    <template v-if="expanded">
     <p class="text-muted text-sm hint-line">
       An LLM sound director reads this episode's <strong>subtitle timing</strong> and proposes ambient beds + spot
       effects, drawn from your <NuxtLink to="/broll-library" class="ffmpeg-inline-link">SFX pools</NuxtLink>.
@@ -31,6 +47,14 @@
         {{ generating ? 'Directing…' : '🎬 Generate from narration' }}
       </button>
     </div>
+
+    <!-- v1.0.510 — set the expectation for the local-model cold-load, which is
+         what "the AI model is taking forever" actually is: Chat Studio loading
+         the weights into memory on first use. Cloud/free models skip this. -->
+    <p v-if="generating && directorIsLocal" class="text-muted text-sm sfx-loadnote">
+      ⏳ Loading the local model into memory (Chat Studio). The <strong>first</strong> run can take 30–60s;
+      later runs are fast. Tip: for this light task a free cloud model directs almost instantly.
+    </p>
 
     <label class="sfx-autofetch" title="For cues your pools don't cover, download a matching effect from Freesound into your SFX pool — so the pool grows with every video. First videos are slower; later ones mostly reuse what's already there.">
       <input type="checkbox" v-model="autoFetch" />
@@ -111,6 +135,7 @@
         <button class="btn btn-sm btn-icon danger" title="Delete the plan (reverts to no SFX)" @click="clearPlan">🗑</button>
       </div>
     </template>
+    </template>
   </div>
 </template>
 
@@ -133,6 +158,14 @@ const saving = ref(false)
 const dirty = ref(false)
 const message = ref('')
 const messageKind = ref<'ok' | 'err'>('ok')
+// v1.0.510 — collapsed by default; auto-opens only when this episode already
+// has SFX enabled or a saved plan (see load()). Keeps the slow, opt-in
+// director button out of the render flow for the common no-SFX case.
+const expanded = ref(false)
+// Local LLMs (chatstudio:*) cold-load into memory on first use — that's the
+// "model taking forever" the user sees. Cloud/free models don't. Drives the
+// loading-expectation note.
+const directorIsLocal = computed(() => model.value.startsWith('chatstudio:'))
 
 // enabled proxied so toggling marks dirty + writes back into the reactive plan
 const enabled = computed({
@@ -148,6 +181,12 @@ const emptyCount = computed(() =>
 )
 
 function markDirty() { dirty.value = true }
+// Turning SFX on from the collapsed header expands the setup so the controls
+// are visible; turning it off leaves whatever the user had open.
+function onEnableToggle() {
+  markDirty()
+  if (plan.enabled) expanded.value = true
+}
 function setMsg(text: string, kind: 'ok' | 'err' = 'ok') { message.value = text; messageKind.value = kind }
 function errOf(e: any): string { return e?.data?.detail || e?.message || String(e) }
 
@@ -170,6 +209,8 @@ async function load() {
     applyPlan(p)
     candidates.value = c.candidates || []
     dirty.value = false
+    // Open the section only if this episode is actually using SFX.
+    expanded.value = plan.enabled || plan.beds.length > 0 || plan.spots.length > 0
   } catch (e) {
     setMsg(`Couldn't load the sound plan: ${errOf(e)}`, 'err')
   } finally {
@@ -288,6 +329,9 @@ watch(() => props.episodeCode, load, { immediate: true })
 <style scoped>
 .sfx-section { border-top: 1px solid var(--border, #2a2a2a); padding-top: 12px; }
 .sfx-badge { font-size: 11px; font-weight: 400; color: var(--text-muted, #888); border: 1px solid var(--border, #333); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; }
+.sfx-toggle { background: none; border: none; color: var(--accent, #6ab0f3); cursor: pointer; font-size: 12px; margin-left: 8px; padding: 0; vertical-align: middle; }
+.sfx-toggle:hover { text-decoration: underline; }
+.sfx-loadnote { margin-top: 6px; padding: 6px 10px; border-left: 2px solid var(--accent, #6ab0f3); background: rgba(106, 176, 243, 0.06); border-radius: 0 4px 4px 0; }
 .sfx-enable { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
 .sfx-gen-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 8px; }
 .sfx-gen-model { min-width: 220px; flex: 1; }
