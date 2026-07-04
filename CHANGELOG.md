@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.511 — 2026-07-04
+
+**Fix + diagnose the main-process crash (heap out-of-memory).** The 2026-07-04 crash was a V8 `EXC_BREAKPOINT` abort in the main process during a burst of scene-image uploads — a JavaScript **heap OOM**, which aborts V8 directly and bypasses the app's `uncaughtException` handler (so nothing was logged, and the crash report had no JS stack). The tell-tale sign was the project `/health` latency climbing 1.8s → 5s as garbage collection thrashed against a filling heap, right before the abort. Two changes: (1) the main process now runs with a **larger heap ceiling** (`--max-old-space-size`, default 4 GB, overridable via `SS_MAX_OLD_SPACE_MB`) so the same workload has real headroom; (2) a **memory watchdog** logs heap/RSS every 60s (grep `mem-watch` in the `main-*.log`) and, if heap usage ever crosses 80% of the limit, writes a one-time **heap snapshot** to the logs folder — so if it ever approaches the edge again, the exact retaining objects are captured for a proper fix instead of a silent crash. Contributing factor noted for follow-up: `scene-review/upload-image` accepts base64 in a JSON body (raw body + parsed string + decoded buffer all in heap per request); moving it to raw-binary like the clip-upload endpoint would cut the per-upload footprint.
+
 ## v1.0.510 — 2026-07-04
 
 **Video Assembly: the optional Sound/SFX step no longer gets in the way (or makes you wait on a model you didn't want).** Generating your video never uses an LLM — the render path has zero AI calls. The sound director's local model only loads when you click "🎬 Generate from narration", and what felt like "the AI model is stuck loading" was Chat Studio cold-loading that model's weights into memory on first use. Two changes so this stops surprising you:

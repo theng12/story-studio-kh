@@ -11,6 +11,7 @@ import { app as expressApp } from './server/app.js'
 import http from 'http'
 import path from 'path'
 import fs from 'fs'
+import v8 from 'v8'
 import { fileURLToPath } from 'url'
 import { killAllTrackedChildren, jobEvents, getJobs } from './server/services/job-queue.js'
 import { reapFfmpegOrphans } from './server/services/orphan-reaper.js'
@@ -36,6 +37,21 @@ if (!gotLock) {
   // Another instance is already running — let it handle the user.
   electronApp.quit()
   process.exit(0)
+}
+
+// ── Main-process heap headroom (v1.0.510) ───────────────────────────────────
+// The Express backend runs IN this main process. A burst of base64 image
+// uploads (scene-review upload-image buffers raw body + parsed string +
+// decoded Buffer per request) can spike the main-process JS heap. On
+// 2026-07-04 it reached V8's default old-space limit and aborted with
+// EXC_BREAKPOINT — a heap OOM aborts V8 directly, BYPASSING our
+// uncaughtException handler, so nothing was logged. Give the isolate more
+// room (default 4 GB; override with SS_MAX_OLD_SPACE_MB). Must run before the
+// app is ready. See the memory watchdog below, which captures a heap snapshot
+// before the limit is hit next time so the real retainer is diagnosable.
+{
+  const mb = Math.max(1024, Number(process.env.SS_MAX_OLD_SPACE_MB) || 4096)
+  electronApp.commandLine.appendSwitch('js-flags', `--max-old-space-size=${mb}`)
 }
 electronApp.on('second-instance', () => {
   if (mainWindow) {
@@ -504,6 +520,50 @@ function logCrash(source: string, err: unknown) {
 }
 
 /**
+ * v1.0.510 — main-process memory watchdog. Diagnostic + early-warning for the
+ * heap-OOM class of crash (which aborts V8 before any JS handler runs, so it's
+ * otherwise invisible). Logs heap/RSS every 60s; when heapUsed first crosses
+ * 80% of the V8 heap limit, writes a single heap snapshot to the logs dir so
+ * the retaining objects can be inspected after the fact. One snapshot per
+ * session (they're large + writing under pressure is expensive).
+ */
+function startMemoryWatchdog(): void {
+  let snapshotTaken = false
+  const logsDir = path.join(electronApp.getPath('userData'), 'logs')
+  const tick = () => {
+    try {
+      const mem = process.memoryUsage()
+      const limit = v8.getHeapStatistics().heap_size_limit || 0
+      const pct = limit ? mem.heapUsed / limit : 0
+      const mb = (n: number) => Math.round(n / 1048576)
+      // Lightweight heartbeat — grep `mem-watch` in main-*.log to see the climb.
+      try {
+        fs.mkdirSync(logsDir, { recursive: true })
+        fs.appendFileSync(
+          path.join(logsDir, `main-${new Date().toISOString().slice(0, 10)}.log`),
+          JSON.stringify({
+            ts: new Date().toISOString(), level: 'info', source: 'main-process:mem-watch',
+            heapUsedMb: mb(mem.heapUsed), heapLimitMb: mb(limit), rssMb: mb(mem.rss),
+            externalMb: mb(mem.external), pct: Math.round(pct * 100),
+          }) + '\n',
+        )
+      } catch { /* best effort */ }
+      if (!snapshotTaken && limit && pct >= 0.8) {
+        snapshotTaken = true
+        try {
+          const snapPath = path.join(logsDir, `heap-${new Date().toISOString().replace(/[:.]/g, '-')}.heapsnapshot`)
+          v8.writeHeapSnapshot(snapPath)
+          logCrash('mem-watch', new Error(`heapUsed reached ${Math.round(pct * 100)}% of limit (${mb(mem.heapUsed)}/${mb(limit)} MB) — wrote heap snapshot ${snapPath} for diagnosis.`))
+        } catch (e) { logCrash('mem-watch-snapshot', e) }
+      }
+    } catch { /* never let the watchdog crash the app */ }
+  }
+  const timer = setInterval(tick, 60_000)
+  timer.unref?.()  // don't keep the event loop alive on shutdown
+  tick()           // one immediate reading at boot
+}
+
+/**
  * Some errors are routine I/O hiccups, not bugs:
  *   • EPIPE on stdout/stderr — usually means a downstream pipe (terminal,
  *     parent shell, log forwarder) closed its read end. Benign.
@@ -629,6 +689,14 @@ electronApp.whenReady().then(async () => {
     // completed batches pop an OS notification. Runs after createWindow so
     // the click handler has a window to focus. See job-notifier.ts.
     installJobNotifier()
+
+    // ── Memory watchdog (v1.0.510) ───────────────────────────────────────
+    // A heap OOM aborts V8 directly (EXC_BREAKPOINT), bypassing our
+    // uncaughtException handler — so the 2026-07-04 crash left no JS log. This
+    // (a) logs heap/RSS every 60s so a climb is visible in the logs, and (b)
+    // writes ONE heap snapshot to the logs dir when heapUsed first crosses 80%
+    // of the heap limit, capturing the actual retainer BEFORE the next OOM.
+    startMemoryWatchdog()
 
     // Daily digest scheduler (v1.0.62+). Ticks every minute; fires
     // the digest at the user's configured local time once per day.
