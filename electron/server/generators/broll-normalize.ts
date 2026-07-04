@@ -23,6 +23,7 @@ import path from 'path'
 import { existsSync } from 'fs'
 import fsp from 'fs/promises'
 import { spawn } from 'child_process'
+import { appendCappedTail } from '../lib/ffmpeg-utils.js'
 import * as bp from '../services/broll-pool-manager.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -93,7 +94,7 @@ export async function normalizeBroll(job: Job): Promise<void> {
     let stderr = ''
     proc.stderr.on('data', (d) => {
       const s = String(d)
-      stderr += s
+      stderr = appendCappedTail(stderr, s)
       // ffmpeg reports progress on stderr (frame=, fps=, time=). Surface
       // a tiny periodic update so the Jobs panel shows liveness.
       const tMatch = /time=([\d:.]+)/.exec(s)

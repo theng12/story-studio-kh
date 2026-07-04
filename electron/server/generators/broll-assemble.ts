@@ -30,6 +30,7 @@ import path from 'path'
 import { existsSync } from 'fs'
 import fsp from 'fs/promises'
 import { spawn } from 'child_process'
+import { appendCappedTail } from '../lib/ffmpeg-utils.js'
 import * as pm from '../services/project-manager.js'
 import * as bp from '../services/broll-pool-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -393,7 +394,7 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
       let stderr = ''
       proc.stderr.on('data', (d) => {
         const s = String(d)
-        stderr += s
+        stderr = appendCappedTail(stderr, s)
         const tMatch = /time=([\d:.]+)/.exec(s)
         if (tMatch) {
           const last = job.output_lines[job.output_lines.length - 1] || ''

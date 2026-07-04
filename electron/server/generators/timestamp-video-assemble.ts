@@ -25,6 +25,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import os from 'os'
 import path from 'path'
+import { appendCappedTail } from '../lib/ffmpeg-utils.js'
 import { spawn } from 'child_process'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -348,7 +349,7 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
       const proc = spawn(ffmpeg, ffargs)
       let stderr = ''
       proc.stderr.on('data', (d) => {
-        const s = String(d); stderr += s
+        const s = String(d); stderr = appendCappedTail(stderr, s)
         const tMatch = /time=([\d:.]+)/.exec(s)
         if (tMatch) {
           const line = `  ${progressLabel}progress: ${tMatch[1]}`

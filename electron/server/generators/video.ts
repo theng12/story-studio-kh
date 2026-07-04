@@ -22,7 +22,7 @@ import { resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.j
 // and title-hint semantics moved there verbatim).
 import { findEpisodeDir, findSubfolder as resolveSubfolder } from '../lib/folder-resolver.js'
 import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services/media-root.js'
-import { runFfmpeg, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
+import { runFfmpeg, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail } from '../lib/ffmpeg-utils.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
 import { planTransitions, buildXfadeFilterComplex, buildVariableXfadeFilterComplex } from '../lib/transition-filters.js'
@@ -3931,7 +3931,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
 
       proc.stderr.on('data', (data: Buffer) => {
         const line = data.toString()
-        stderr += line
+        stderr = appendCappedTail(stderr, line)
 
         const timeMatch = line.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/)
         if (timeMatch) {

@@ -89,6 +89,20 @@ export function formatConcatFileLine(p: string): string {
   return `file '${p.replace(/'/g, "'\\''")}'`
 }
 
+// ── Bounded stderr accumulation (v1.0.512) ──────────────────────────────
+// FFmpeg emits a LOT of stderr over a long render (per-frame progress lines,
+// verbose warnings). Accumulating it into one string with `stderr += chunk`
+// grew UNBOUNDED and, on a long enough render, exceeded V8's maximum string
+// length (~512 MB) → `RangeError: Invalid string length` thrown from the
+// socket 'data' handler, ballooning the main-process heap to GBs first (the
+// 2026-07-04 crash). We only ever need the TAIL for error diagnosis, so keep
+// the last N KB. Every FFmpeg runner uses this instead of `+=`.
+export const FFMPEG_LOG_TAIL_MAX = 256 * 1024
+export function appendCappedTail(current: string, chunk: string, max = FFMPEG_LOG_TAIL_MAX): string {
+  const next = current + chunk
+  return next.length > max ? next.slice(next.length - max) : next
+}
+
 // ── Run FFmpeg Command ──────────────────────────────────────────────────
 
 export async function runFfmpeg(args: string[], opts: { timeoutMs?: number } = {}): Promise<void> {
@@ -103,7 +117,7 @@ export async function runFfmpeg(args: string[], opts: { timeoutMs?: number } = {
     trackChild(proc)
 
     let stderr = ''
-    proc.stderr.on('data', (data: Buffer) => { stderr += data.toString() })
+    proc.stderr.on('data', (data: Buffer) => { stderr = appendCappedTail(stderr, data.toString()) })
 
     const watchdog = timeoutMs && timeoutMs > 0 ? armWatchdog(proc, timeoutMs) : null
 

@@ -19,7 +19,7 @@ import * as pm from '../services/project-manager.js'
 import { trackChild } from '../services/job-queue.js'
 import { resolveSubfolderNames } from '../services/utils.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
-import { runFfmpeg, getAudioDuration, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
+import { runFfmpeg, getAudioDuration, formatConcatFileLine, appendCappedTail } from '../lib/ffmpeg-utils.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import type {
@@ -57,7 +57,7 @@ async function runFfmpegWithStderr(args: string[], opts: { timeoutMs?: number } 
     trackChild(proc)
 
     let stderr = ''
-    proc.stderr.on('data', (data: Buffer) => { stderr += data.toString() })
+    proc.stderr.on('data', (data: Buffer) => { stderr = appendCappedTail(stderr, data.toString()) })
 
     let watchdogKilled = false
     const termTimer = timeoutMs && timeoutMs > 0
