@@ -66,6 +66,12 @@ export function buildSfxMixArgs(opts: { basePath: string; cues: MixCue[]; outPat
   return args
 }
 
+// v1.0.513 — hard ceiling for the SFX audio mix. Audio-only ffmpeg is fast
+// even on multi-hour narration; 10 min only ever trips on a genuine wedge
+// (stalled SSD clip, pathological input), converting an infinite render hang
+// into a caught error that falls back to the original audio.
+const SFX_MIX_TIMEOUT_MS = 10 * 60_000
+
 /**
  * Resolve each live cue to an absolute clip path, mix onto `basePath`, and write
  * `outPath`. Returns the path the render should use:
@@ -95,6 +101,13 @@ export async function mixSfxIntoAudio(opts: {
   if (usable.length === 0) return basePath
 
   const args = buildSfxMixArgs({ basePath, cues: usable, outPath })
-  await runFfmpeg(args, { timeoutMs: opts.timeoutMs })
+  // v1.0.513 — ALWAYS bound the mix. Without a timeout, runFfmpeg arms no
+  // watchdog, so a wedged ffmpeg (e.g. a cue clip on a stalled/unplugged SSD,
+  // or a pathological input) would hang the whole render job forever with no
+  // progress — the "video assembly keeps not progressing" report. Mixing
+  // audio-only is fast even for multi-hour narration, so 10 min is generous;
+  // on timeout runFfmpeg throws and video.ts's try/catch falls back to the
+  // original un-mixed audio.
+  await runFfmpeg(args, { timeoutMs: opts.timeoutMs ?? SFX_MIX_TIMEOUT_MS })
   return outPath
 }

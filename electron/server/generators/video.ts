@@ -797,6 +797,10 @@ export async function generateVideo(job: Job): Promise<void> {
         const { mixSfxIntoAudio } = await import('../lib/sfx-mixer.js')
         const cues = await planToMixCues(plan!)
         if (cues.length) {
+          // v1.0.513 — announce the mix BEFORE it runs. It's a separate ffmpeg
+          // pass ahead of the video render's own progress, so without this the
+          // Jobs panel sat at 0% with no line during the mix ("not progressing").
+          job.output_lines.push(`SFX: mixing ${cues.length} cue(s) into the audio…`)
           const outPath = path.join(path.dirname(req.merged_audio_path), `${code}_sfx_mixed.mp3`)
           const mixed = await mixSfxIntoAudio({ basePath: req.merged_audio_path, cues, outPath })
           if (mixed !== req.merged_audio_path) {
