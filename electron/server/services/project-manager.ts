@@ -1009,6 +1009,13 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     style_presets: Array.isArray((config as any).style_presets)
       ? (config as any).style_presets
       : [],
+    // v1.0.518 — the project's active art style id. Echoed so a GET after a
+    // save round-trips the value (updateConfig persists it via passthrough,
+    // but without this echo the next GET would strip it and the picker's
+    // v-model would reset to blank — same trap as generation_timeouts below).
+    active_style_preset_id: typeof (config as any).active_style_preset_id === 'string'
+      ? (config as any).active_style_preset_id
+      : undefined,
     // Concurrency knobs (undefined = generator uses its safe default).
     audio_concurrency: typeof (config as any).audio_concurrency === 'number' ? (config as any).audio_concurrency : undefined,
     video_concurrency: typeof (config as any).video_concurrency === 'number' ? (config as any).video_concurrency : undefined,

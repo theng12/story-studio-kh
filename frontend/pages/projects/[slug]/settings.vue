@@ -2536,6 +2536,22 @@
         <span v-if="brandSaveMessage" class="text-muted" style="font-size:11px">{{ brandSaveMessage }}</span>
       </div>
 
+      <div class="form-group">
+        <label>Art Style <span class="text-muted" style="font-weight:normal">(auto-applied to every image prompt for this project; the style's preview image also feeds img2img renders. Overridable per run on the Image Prompts page.)</span></label>
+        <div class="brand-picker">
+          <select v-model="artStyleSelection" class="input">
+            <option value="">— None (use format / niche default) —</option>
+            <optgroup v-if="savedStylePresets.length" label="Saved styles">
+              <option v-for="s in savedStylePresets" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </optgroup>
+            <optgroup label="Built-in styles">
+              <option v-for="s in BUILT_IN_STYLES" :key="s.id" :value="`builtin:${s.id}`">{{ s.name }}</option>
+            </optgroup>
+          </select>
+        </div>
+        <span v-if="artStyleSaveMessage" class="text-muted" style="font-size:11px">{{ artStyleSaveMessage }}</span>
+      </div>
+
       <!-- Per-project cloud-sync mode toggle removed alongside the
            legacy manifest-sync feature. There's now only one mode —
            cloud sync is configured app-wide via Settings → Storage →
@@ -2944,6 +2960,10 @@
 // FileBrowserModal (server mode / remote tailnet browser). Not auto-imported
 // — it's a bare named export, not a useX composable.
 import { pickFolder as pickFolderShared } from '~/composables/usePathPicker'
+// Built-in art styles offered in the per-project Art Style selector below.
+// Bare named export (not a useX composable), so import it explicitly —
+// mirrors image-prompts.vue.
+import { BUILT_IN_STYLES } from '~/composables/useBuiltInStyles'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Settings')
@@ -5166,6 +5186,65 @@ watch(brandSelection, async (next, prev) => {
     brandSaveMessage.value = e?.data?.detail || e?.message || 'Failed to save brand selection'
     // Roll back the visible value so the dropdown matches what's persisted.
     brandSelection.value = prev || ''
+  }
+})
+
+// ── Per-project Art Style (v1.0.518) ──────────────────────────────────────
+// The project's active art style is persisted as config.active_style_preset_id
+// (an id in config.style_presets). The generator auto-applies it to every
+// image prompt and feeds its preview image into img2img renders. Selecting a
+// built-in style first materialises it into config.style_presets, then marks
+// it active — the resolver only looks styles up in that array.
+const artStyleSelection = ref('')
+const artStyleSaveMessage = ref('')
+let artStyleSelectionInitialized = false
+const savedStylePresets = computed(() =>
+  Array.isArray((config.value as any)?.style_presets) ? (config.value as any).style_presets : [])
+
+watch(config, (c) => {
+  if (!c) return
+  if (!artStyleSelectionInitialized) {
+    artStyleSelection.value = (c as any).active_style_preset_id || ''
+    artStyleSelectionInitialized = true
+  }
+}, { immediate: true })
+
+watch(artStyleSelection, async (next, prev) => {
+  if (!artStyleSelectionInitialized) return
+  if (next === prev) return
+  artStyleSaveMessage.value = 'Saving…'
+  try {
+    const payload: Record<string, any> = {}
+    let activeId = next
+    if (next.startsWith('builtin:')) {
+      const builtinId = next.slice('builtin:'.length)
+      const bs = BUILT_IN_STYLES.find(b => b.id === builtinId)
+      if (!bs) throw new Error('Unknown built-in style')
+      activeId = bs.id
+      // Materialise the built-in into style_presets if it isn't there yet
+      // (idempotent — re-selecting the same built-in won't duplicate it).
+      const existing = Array.isArray((config.value as any)?.style_presets)
+        ? [...(config.value as any).style_presets]
+        : []
+      if (!existing.some((p: any) => p && p.id === bs.id)) {
+        existing.push({
+          id: bs.id,
+          name: bs.name,
+          description: bs.data.style_bible,
+          created_at: new Date().toISOString(),
+        })
+        payload.style_presets = existing
+      }
+    }
+    payload.active_style_preset_id = activeId
+    await put(`/projects/${slug.value}/settings/config`, payload)
+    await refreshConfig(slug.value)
+    artStyleSaveMessage.value = activeId ? 'Art style applied to this project' : 'Art style cleared'
+    setTimeout(() => { artStyleSaveMessage.value = '' }, 2500)
+  } catch (e: any) {
+    artStyleSaveMessage.value = e?.data?.detail || e?.message || 'Failed to save art style'
+    // Roll back the visible value so the dropdown matches what's persisted.
+    artStyleSelection.value = prev || ''
   }
 })
 // (Removed: per-project enable/disable cloud-sync handlers + portable

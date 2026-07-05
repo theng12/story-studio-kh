@@ -291,6 +291,7 @@ export const UpdateConfigSchema = z.object({
   image_models: z.record(z.string(), z.any()).optional(),
   voice_presets: z.array(z.any()).optional(),
   style_presets: z.array(z.any()).optional(),
+  active_style_preset_id: z.string().max(200).optional(),
   audio_models: z.record(z.string(), z.any()).optional(),
   video_models: z.record(z.string(), z.any()).optional(),
   confirmation_preferences: z.record(z.string(), z.any()).optional(),
@@ -331,6 +332,8 @@ export interface SafeProjectConfigResponse {
     preview_tier?: string
     preview_saved_at?: string
   }>
+  /** v1.0.518 — id of the active art style (see ProjectConfig.active_style_preset_id). */
+  active_style_preset_id?: string
   audio_models: Record<string, any>
   video_models?: Record<string, any>
   /** Unified catalog — mirror of the three typed dicts plus any custom entries. */

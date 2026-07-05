@@ -18,6 +18,7 @@ import { fileExistsWithContent, isCloudEvictedPlaceholder, sleepCancellable } fr
 import { tryRecoverImageFromManifest } from '../lib/manifest-recovery.js'
 import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
+import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import { parseEnabledEndpoints, healthyEndpoints, createDispatcher, type Dispatcher } from '../lib/endpoint-pool.js'
 import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
@@ -345,6 +346,14 @@ export async function generateImages(job: Job): Promise<void> {
     )
   }
 
+  // v1.0.518 — art-style reference image. The project's active art style
+  // (services/art-style-resolver.ts) can carry a rendered preview image; we
+  // feed it as an img2img style reference so renders match the picked look.
+  // Resolved once here; attached per-scene as the fifth reference source
+  // below. Empty for text-only styles / the brand fallback.
+  const artStyle = await resolveProjectArtStyle(project_slug).catch(() => null)
+  const artStyleRefPaths = (artStyle?.referenceImagePaths || []).filter(p => existsSync(p))
+
   /**
    * Auto-detect which characters appear in a scene by scanning the prompt
    * text for their names (delegated to findReferencedCharacters for the
@@ -405,6 +414,17 @@ export async function generateImages(job: Job): Promise<void> {
     characters: imageMode === 'img2img' ? refSourcesRaw.characters !== false : true,
     chain: imageMode === 'img2img' && !!refSourcesRaw.chain,
     thumbnail: imageMode === 'img2img' && !!refSourcesRaw.thumbnail,
+    // v1.0.518 — the project's art-style reference image (5th source).
+    // Defaults ON in img2img mode when the active art style has a preview
+    // image; can be toggled off via reference_sources.art_style: false.
+    art_style: imageMode === 'img2img' && artStyleRefPaths.length > 0 && refSourcesRaw.art_style !== false,
+  }
+  if (imageMode === 'img2img' && refSources.art_style) {
+    const supports = providerParams?.supports_reference_images === true
+    job.output_lines.push(
+      `Art-style reference image attached (${artStyle?.name || artStyle?.source || 'active style'})` +
+      (supports ? '' : ` — but model '${modelName}' ignores references; style still applies via the prompt text`),
+    )
   }
   const referenceStrength: ThumbnailReferenceStrength = (req.reference_strength === 'loose' || req.reference_strength === 'strong')
     ? req.reference_strength
@@ -441,7 +461,10 @@ export async function generateImages(job: Job): Promise<void> {
       const prev = previousSceneRenderPath(scene.number)
       if (prev && existsSync(prev)) out.push(prev)
     }
-    // De-dup in case the same character image gets attached multiple ways.
+    // v1.0.518 — the project art-style reference image (already existence-
+    // filtered) reinforces every scene/thumbnail render.
+    if (refSources.art_style) out.push(...artStyleRefPaths)
+    // De-dup in case the same image gets attached multiple ways.
     return Array.from(new Set(out))
   }
 

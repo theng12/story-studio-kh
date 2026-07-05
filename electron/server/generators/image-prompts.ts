@@ -23,6 +23,7 @@ import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
+import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import type { Job } from '../models/types.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
 import { matchChapterFile, readArtifactRawText } from '../lib/episode-artifacts.js'
@@ -572,6 +573,34 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     )
   }
 
+  // v1.0.518 — unified Project Art Style. Style-tag precedence:
+  //   1. Explicit per-run override (req.style_tag typed/picked in the page).
+  //   2. The project's active art style (a saved preset, or the brand
+  //      imagePrompts block folded in) — auto-applied to every prompt, and
+  //      it REPLACES the format+niche merged tag rather than stacking with it.
+  //   3. The effective format+niche merged `defaultStyleTag` (legacy).
+  // An explicit override is treated as a full replace: it also skips the
+  // project art style's negatives + reference image (the reference is
+  // applied later at image-generation time, generators/images.ts).
+  const explicitStyleTag = (req.style_tag || '').trim()
+  const artStyle = explicitStyleTag ? null : await resolveProjectArtStyle(project_slug)
+  let styleTag = explicitStyleTag || artStyle?.description || ''
+  if (!styleTag) {
+    // No override + no project art style → fall back to the format+niche
+    // merged tag (what routes/pipeline.ts used to inject for batch runs).
+    try {
+      const { getEffectiveFormat } = await import('../services/format-loader.js')
+      const fmt = await getEffectiveFormat(project_slug)
+      styleTag = (((fmt?.imagePrompts as any)?.defaultStyleTag) || '').trim()
+    } catch { /* fall through to empty style tag */ }
+  }
+  if (artStyle) {
+    job.output_lines.push(
+      `Art style applied (${artStyle.source}${artStyle.name ? `: ${artStyle.name}` : ''}) — replaces format/niche style` +
+      (artStyle.referenceImagePaths.length ? '; reference image will reinforce img2img renders' : ''),
+    )
+  }
+
   const basePrompt = buildPrompt({
     episode_id,
     title,
@@ -579,34 +608,20 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     castBlock,
     sceneCount,
     thumbs,
-    style_tag: req.style_tag || '',
+    style_tag: styleTag,
     aspect_ratio: req.aspect_ratio || '16:9',
     thumbnailDirective,
   })
 
-  // Brand-level image styling: prepend channel keywords + append the
-  // long-form style sheet so every generated prompt inherits the look.
-  // Per-project format overrides on `defaultStyleTag` still apply to
-  // individual scene/thumb prompts above; brand keywords are an additive
-  // channel-wide layer.
+  // v1.0.518 — negatives come from the unified art style (a preset's future
+  // negatives slot, or the brand imagePrompts fallback). Replaces the old
+  // standalone brand keyword/sheet/negatives block, whose keywords + sheet
+  // now flow through the style tag above.
   let prompt = basePrompt
-  try {
-    const { getEffectiveBrand } = await import('../services/brand-loader.js')
-    const brand = await getEffectiveBrand(project_slug)
-    const keywords = brand?.imagePrompts?.style_keywords
-    if (keywords?.length) {
-      prompt = `${prompt}\n\nBrand style keywords (include on every image prompt you produce): ${keywords.join(', ')}`
-      job.output_lines.push(`Brand style keywords applied: ${keywords.join(', ')}`)
-    }
-    const sheet = brand?.imagePrompts?.style_sheet?.trim()
-    if (sheet) {
-      prompt = `${prompt}\n\nStyle reference:\n${sheet}`
-    }
-    const negatives = brand?.imagePrompts?.negative_prompts
-    if (negatives?.length) {
-      prompt = `${prompt}\n\nAvoid in all images: ${negatives.join(', ')}`
-    }
-  } catch { /* brand layer must never break image-prompt generation */ }
+  const negatives = artStyle?.negatives || []
+  if (negatives.length) {
+    prompt = `${prompt}\n\nAvoid in all images: ${negatives.join(', ')}`
+  }
 
   // v1.0.108+ — image-prompts-scope recency. Prepends the niche's
   // avoidance instruction when its rule covers 'image_prompts'. No-op

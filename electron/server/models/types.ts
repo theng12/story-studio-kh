@@ -1743,6 +1743,16 @@ export interface ProjectConfig {
   voice_favourites?: string[]
   /** User-saved image-style descriptions (typically from `/analyze-style`). */
   style_presets?: StylePreset[]
+  /**
+   * v1.0.518 — the project's ACTIVE art style. Id of the `style_presets`
+   * entry (or a built-in style id the frontend seeds into `style_presets`)
+   * that is auto-applied to every generated image prompt for this project.
+   * When set, it fully replaces the format+niche style tag; the style's
+   * preview image is also fed into img2img generation as a reference. Unset
+   * = fall back to brand imagePrompts, then the format+niche merged tag
+   * (legacy behaviour). Resolved via services/art-style-resolver.ts.
+   */
+  active_style_preset_id?: string
   audio_models: Record<string, AudioModelConfig>
   audio_pricing_last_updated: string
   video_models?: Record<string, VideoModelConfig>

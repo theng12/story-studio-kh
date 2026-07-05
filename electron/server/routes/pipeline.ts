@@ -362,10 +362,12 @@ export function resolveStepParams(
           fmtIp.recommendedAspect) {
         ;(rest as any).aspect_ratio = fmtIp.recommendedAspect
       }
-      if (!(rest as any).style_tag && typeof fmtIp.defaultStyleTag === 'string' &&
-          fmtIp.defaultStyleTag.trim()) {
-        ;(rest as any).style_tag = fmtIp.defaultStyleTag
-      }
+      // v1.0.518 — style_tag is intentionally NOT auto-filled from the
+      // format default here anymore. The generator (generators/image-prompts.ts)
+      // now owns the full precedence: explicit override → project art style
+      // → format+niche merged tag. Pre-filling the format default here would
+      // masquerade as a user override and suppress the project art style on
+      // batch/pipeline runs.
     }
     return {
       ...rest,
