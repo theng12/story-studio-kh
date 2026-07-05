@@ -25,7 +25,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import os from 'os'
 import path from 'path'
-import { appendCappedTail } from '../lib/ffmpeg-utils.js'
+import { appendCappedTail, stillDecoderArgs } from '../lib/ffmpeg-utils.js'
 import { spawn } from 'child_process'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -384,7 +384,7 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
         if (slice.length === 1) {
           // Lone trailing scene — a still at the export size (no xfade possible).
           await runFfmpeg([
-            '-y', '-loop', '1', '-t', durOf(slice[0]!).toFixed(3), '-i', imgFor(slice[0]!.id),
+            '-y', ...(await stillDecoderArgs(imgFor(slice[0]!.id))), '-loop', '1', '-t', durOf(slice[0]!).toFixed(3), '-i', imgFor(slice[0]!.id),
             '-vf', `${vBase},fps=${fps},format=yuv420p`,
             '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', String(fps), chunkPath,
           ], `chunk ${c + 1}/${chunkCount} `)
@@ -395,7 +395,7 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
         let lcum = 0; const lstarts: number[] = []
         for (let i = 0; i < slice.length; i++) {
           lstarts.push(lcum); lcum += durOf(slice[i]!)
-          inputs.push('-loop', '1', '-t', (durOf(slice[i]!) + transDur).toFixed(3), '-i', imgFor(slice[i]!.id))
+          inputs.push(...(await stillDecoderArgs(imgFor(slice[i]!.id))), '-loop', '1', '-t', (durOf(slice[i]!) + transDur).toFixed(3), '-i', imgFor(slice[i]!.id))
           vp.push(`[${i}:v]${vBase},fps=${fps},format=yuv420p,settb=AVTB[v${i}]`)
         }
         // Variable-offset xfade chain (local to the chunk). offset of the i-th
@@ -442,7 +442,7 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
           ], `scene ${i + 1}/${plan.scenes.length} `)
         } else {
           await runFfmpeg([
-            '-y', '-loop', '1', '-t', D.toFixed(3), '-i', imgFor(s.id),
+            '-y', ...(await stillDecoderArgs(imgFor(s.id))), '-loop', '1', '-t', D.toFixed(3), '-i', imgFor(s.id),
             '-vf', `${vBase},fps=${fps},format=yuv420p`,
             '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', String(fps), chunkPath,
           ], `scene ${i + 1}/${plan.scenes.length} `)

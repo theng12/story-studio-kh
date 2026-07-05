@@ -12,6 +12,7 @@ import http from 'http'
 import path from 'path'
 import fs from 'fs'
 import v8 from 'v8'
+import os from 'os'
 import { fileURLToPath } from 'url'
 import { killAllTrackedChildren, jobEvents, getJobs } from './server/services/job-queue.js'
 import { reapFfmpegOrphans } from './server/services/orphan-reaper.js'
@@ -671,7 +672,14 @@ electronApp.whenReady().then(async () => {
     // opens so the user doesn't see a "failed" job whose file is still
     // growing. macOS-only; no-ops on other platforms.
     try {
-      const result = await reapFfmpegOrphans(PROJECTS_ROOT)
+      // v1.0.515 — also reap preview-cache renders (userData) and scene-prep
+      // chunk encoders (os tmpdir): their argv never mentions PROJECTS_ROOT,
+      // so crashes used to leave them running forever as zombies.
+      const result = await reapFfmpegOrphans([
+        PROJECTS_ROOT,
+        path.join(electronApp.getPath('userData'), 'preview-cache'),
+        path.join(os.tmpdir(), 'story-studio-kh'),
+      ])
       if (result.scanned && result.reaped.length > 0) {
         for (const o of result.reaped) {
           console.log(`[orphan-reap] Killed leaked ffmpeg pid=${o.pid} cmd=${o.command}`)

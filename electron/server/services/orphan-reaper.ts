@@ -39,7 +39,12 @@ export interface OrphanInfo {
  * user from /Applications/Whatever doesn't reference a project directory and
  * is left alone.
  */
-export function parsePsOutput(psOutput: string, projectsRoot: string): OrphanInfo[] {
+export function parsePsOutput(psOutput: string, projectsRoot: string | string[]): OrphanInfo[] {
+  // v1.0.515 — accept multiple roots. Preview-cache renders (userData) and
+  // scene-prep chunks (os.tmpdir()/story-studio-kh) are ffmpeg children whose
+  // argv never references PROJECTS_ROOT, so a crash used to leave them running
+  // as true zombies (five preview ffmpegs survived 30+ min on 2026-07-05).
+  const roots = Array.isArray(projectsRoot) ? projectsRoot.filter(Boolean) : [projectsRoot]
   const lines = psOutput.split('\n')
   const orphans: OrphanInfo[] = []
   for (const raw of lines) {
@@ -55,7 +60,7 @@ export function parsePsOutput(psOutput: string, projectsRoot: string): OrphanInf
     const command = match[3]
     if (ppid !== '1') continue
     if (!/ffmpeg/i.test(command)) continue
-    if (!command.includes(projectsRoot)) continue
+    if (!roots.some(r => command.includes(r))) continue
     orphans.push({ pid, command })
   }
   return orphans
@@ -89,7 +94,7 @@ export interface ReapResult {
  * on non-darwin platforms — see module header.
  */
 export async function reapFfmpegOrphans(
-  projectsRoot: string,
+  projectsRoot: string | string[],
   options: { killAfterMs?: number; platform?: NodeJS.Platform } = {},
 ): Promise<ReapResult> {
   const platform = options.platform ?? process.platform

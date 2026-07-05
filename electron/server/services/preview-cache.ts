@@ -51,6 +51,29 @@ export function cachePath(key: string, ext: string): string {
  * and return the produced path. `render` must write to `targetPath` — the
  * cache confirms the file exists and is non-empty before returning.
  */
+// ── Render concurrency gate (v1.0.515) ──────────────────────────────────
+// The preview pickers fire several renders at once (the animation strip
+// requested 5 simultaneously), each an ffmpeg spawn. Unbounded, they compete
+// with real render jobs for CPU — and on 2026-07-05 five of them wedged
+// side-by-side for 30+ minutes. Cap concurrent preview renders at 2; extra
+// requests queue here (cache hits above skip the gate entirely). Also
+// dedupes: concurrent requests for the SAME key await one render instead of
+// racing to write the same target file.
+const MAX_CONCURRENT_RENDERS = 2
+let activeRenders = 0
+const renderWaiters: Array<() => void> = []
+const inFlightByTarget = new Map<string, Promise<void>>()
+
+async function acquireRenderSlot(): Promise<void> {
+  if (activeRenders < MAX_CONCURRENT_RENDERS) { activeRenders++; return }
+  await new Promise<void>(resolve => renderWaiters.push(resolve))
+  activeRenders++
+}
+function releaseRenderSlot(): void {
+  activeRenders--
+  renderWaiters.shift()?.()
+}
+
 export async function getOrRender(
   key: string,
   ext: string,
@@ -67,7 +90,26 @@ export async function getOrRender(
     }
   } catch { /* not cached yet */ }
 
-  await render(target)
+  // Same-key dedupe: piggyback on an in-flight render of this exact target.
+  const existing = inFlightByTarget.get(target)
+  if (existing) {
+    await existing
+  } else {
+    const p = (async () => {
+      await acquireRenderSlot()
+      try {
+        await render(target)
+      } finally {
+        releaseRenderSlot()
+      }
+    })()
+    inFlightByTarget.set(target, p)
+    try {
+      await p
+    } finally {
+      inFlightByTarget.delete(target)
+    }
+  }
 
   const stat = fs.statSync(target)
   if (!stat.isFile() || stat.size === 0) {

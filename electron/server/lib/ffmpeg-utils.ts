@@ -4,6 +4,7 @@
  */
 
 import { spawn, type ChildProcess } from 'child_process'
+import { existsSync } from 'fs'
 import { getFFmpegPath, getFFprobePath, getFFmpegStatus } from '../services/ffmpeg-manager.js'
 import { trackChild } from '../services/job-queue.js'
 
@@ -87,6 +88,65 @@ export function formatConcatFileLine(p: string): string {
     )
   }
   return `file '${p.replace(/'/g, "'\\''")}'`
+}
+
+// ── Still-image decoder sniffing (v1.0.515) ─────────────────────────────
+// FFmpeg 8.x's image2 demuxer picks the decoder by FILE EXTENSION. Nearly
+// every scene image in the wild is a JPEG saved as `.png` (image providers
+// return JPEG; ingest paths stored the bytes verbatim) — so ffmpeg selects
+// the PNG decoder, decode fails, and with `-loop 1` it RETRIES FOREVER:
+// zero frames out, job stuck at "1/160" with no progress (the 2026-07-05
+// EP0012 wedge, reproduced in isolation). Sniffing the real magic bytes and
+// passing an explicit `-c:v <decoder>` input option makes the same file
+// decode instantly regardless of its extension.
+
+import { open as fsOpen } from 'fs/promises'
+
+/** Identify a still image's real format from magic bytes (value = the ffmpeg
+ *  decoder name). Null = not a decodable still image (corrupt / html error
+ *  page / wrong file). */
+export async function sniffStillFormat(filePath: string): Promise<'mjpeg' | 'png' | 'webp' | 'gif' | 'bmp' | 'tiff' | null> {
+  let fh: Awaited<ReturnType<typeof fsOpen>> | null = null
+  try {
+    fh = await fsOpen(filePath, 'r')
+    const buf = Buffer.alloc(12)
+    const { bytesRead } = await fh.read(buf, 0, 12, 0)
+    if (bytesRead < 12) return null
+    if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'mjpeg'
+    if (buf.readUInt32BE(0) === 0x89504e47) return 'png'
+    if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'webp'
+    if (buf.toString('ascii', 0, 3) === 'GIF') return 'gif'
+    if (buf[0] === 0x42 && buf[1] === 0x4d) return 'bmp'                                   // 'BM'
+    if (buf.readUInt32LE(0) === 0x002a4949 || buf.readUInt32BE(0) === 0x4d4d002a) return 'tiff' // II*\0 / MM\0*
+    return null
+  } catch {
+    return null
+  } finally {
+    await fh?.close().catch(() => {})
+  }
+}
+
+/**
+ * Input args that pin the correct decoder for a still image, e.g.
+ * `['-c:v','mjpeg']`. Place BEFORE the `-i`. Throws a clear, actionable
+ * error when the file isn't a recognizable image — infinitely better than
+ * ffmpeg's silent retry loop.
+ */
+export async function stillDecoderArgs(filePath: string): Promise<string[]> {
+  // Missing file → no hint. ffmpeg fails INSTANTLY on a missing input with a
+  // clear "No such file or directory" (no wedge risk) — and unit tests /
+  // callers with not-yet-materialized paths keep the legacy arg shape.
+  if (!existsSync(filePath)) return []
+  const fmt = await sniffStillFormat(filePath)
+  if (!fmt) {
+    // Existing file with an unrecognizable signature WOULD wedge ffmpeg's
+    // loop — refuse loudly with the fix in hand.
+    throw new Error(
+      `Image is not a decodable PNG/JPEG/WebP (corrupt or wrong file type): ${filePath}. ` +
+      `Regenerate or replace this image, then retry.`,
+    )
+  }
+  return ['-c:v', fmt]
 }
 
 // ── Bounded stderr accumulation (v1.0.512) ──────────────────────────────

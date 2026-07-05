@@ -547,6 +547,13 @@ function splitLongScene(scene: ScenePlanEntry, cues: SrtCue[], maxSec: number): 
       start_sec: segStart,
       end_sec: end,
       transcript_segment: segCues.map(c => c.text.trim()).filter(Boolean).join(' ').trim(),
+      // v1.0.515 — only the FIRST split part keeps the source prompt. Children
+      // used to inherit it verbatim, so an over-long LLM scene chopped into N
+      // parts rendered N IDENTICAL images back-to-back (EP0012: scenes 95–116,
+      // 22 copies of one prompt). Children start empty and are filled from
+      // their own transcripts by the post-plan regen pass in planScenes.
+      visual_prompt: out.length === 0 ? scene.visual_prompt : '',
+      rendered_prompt: undefined,
     })
     segStart = end
     segCues = []
@@ -1538,6 +1545,33 @@ export async function planScenes(opts: ScenePlanRunOptions): Promise<ScenePlan> 
   }
   // Re-index into a single ordered list.
   finalScenes.forEach((s, i) => { s.scene_index = i + 1 })
+
+  // v1.0.515 — fill EMPTY prompts (split-children above + failed-window
+  // placeholders from subdivideWindow) with per-scene generated prompts, each
+  // from its OWN transcript with neighbor context. Previously placeholders
+  // stayed empty behind a "use Regen" warning, and split children silently
+  // cloned one prompt across N scenes — the "22 near-identical images" bug.
+  const emptyIdx = finalScenes
+    .map((s, i) => (s.visual_prompt && s.visual_prompt.trim() ? -1 : i))
+    .filter(i => i >= 0)
+  if (emptyIdx.length) {
+    opts.onWarn?.(`Generating ${emptyIdx.length} per-scene prompt(s) for split/placeholder scenes…`)
+    try {
+      const stillEmpty = await generatePromptsForScenes(finalScenes, emptyIdx, {
+        model: opts.model,
+        detail_level: opts.detail_level,
+        style_prompt: opts.style_prompt,
+        custom_instructions: opts.custom_instructions,
+        apiKeys,
+        onWarn: opts.onWarn,
+      })
+      if (stillEmpty > 0) {
+        opts.onWarn?.(`${stillEmpty} scene prompt(s) still empty — use "✨ Regen empty prompts" to retry.`)
+      }
+    } catch (e: any) {
+      opts.onWarn?.(`Post-plan prompt fill failed (${e?.message || e}) — use "✨ Regen empty prompts".`)
+    }
+  }
 
   return {
     schema_version: 1,

@@ -30,7 +30,7 @@ import path from 'path'
 import { existsSync } from 'fs'
 import fsp from 'fs/promises'
 import { spawn } from 'child_process'
-import { appendCappedTail } from '../lib/ffmpeg-utils.js'
+import { appendCappedTail, stillDecoderArgs } from '../lib/ffmpeg-utils.js'
 import * as pm from '../services/project-manager.js'
 import * as bp from '../services/broll-pool-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -330,7 +330,7 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   // v1.0.407 — still images must be looped + bounded to their on-screen
   // seconds (`-loop 1 -t N`); video clips are read as-is.
   for (const c of clipPaths) {
-    if (isImage) args.push('-loop', '1', '-t', String(c.duration), '-i', c.src)
+    if (isImage) args.push(...(await stillDecoderArgs(c.src)), '-loop', '1', '-t', String(c.duration), '-i', c.src)
     else args.push('-i', c.src)
   }
   args.push('-i', narrationPath)

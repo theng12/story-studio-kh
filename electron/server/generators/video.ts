@@ -22,12 +22,12 @@ import { resolveSubfolderNames, resolveScenePlanPath } from '../services/utils.j
 // and title-hint semantics moved there verbatim).
 import { findEpisodeDir, findSubfolder as resolveSubfolder } from '../lib/folder-resolver.js'
 import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services/media-root.js'
-import { runFfmpeg, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail } from '../lib/ffmpeg-utils.js'
+import { runFfmpeg, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail, stillDecoderArgs } from '../lib/ffmpeg-utils.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
 import { planTransitions, buildXfadeFilterComplex, buildVariableXfadeFilterComplex } from '../lib/transition-filters.js'
 import { getTransition } from '../models/transitions.js'
-import { buildAnimationFilter, supersampleMultiplier, normalizeFrame } from '../lib/animation-filters.js'
+import { buildAnimationFilter, supersampleMultiplier, normalizeFrame, isZoompanAnimation } from '../lib/animation-filters.js'
 import { getAnimation } from '../models/animations.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
@@ -1850,7 +1850,7 @@ async function prepareCompilationBackground(
     // Stills: -loop 1 + -t target. Frame rate is provided by the
     // output -r flag; ffmpeg synthesises a stream of frames from the
     // single image.
-    args.push('-loop', '1', '-i', plate.source_path)
+    args.push(...(await stillDecoderArgs(plate.source_path)), '-loop', '1', '-i', plate.source_path)
   } else {
     // Videos: -stream_loop -1 wraps the input infinitely; -t below
     // caps the output. We accept the small perf cost of reading the
@@ -2030,7 +2030,8 @@ async function prepareSceneClips(
    *  to a sane floor (0.5s) to avoid sub-frame clips. */
   perSceneDurations?: number[],
 ): Promise<string[]> {
-  const clipPaths: string[] = []
+  // v1.0.515 — filled by index (scenes render in a parallel pool; order must hold).
+  const clipPaths: string[] = new Array(scenes.length)
   const defaultDuration = recycling.seconds_per_scene || 10
 
   // Pre-pick an animation type for each scene. 'off' = use the primary type;
@@ -2043,7 +2044,15 @@ async function prepareSceneClips(
     animationOpts?.seed,
   )
 
-  for (let i = 0; i < scenes.length; i++) {
+  // v1.0.515 — scenes render through a small parallel pool instead of a strict
+  // serial loop. Each clip's ffmpeg (zoompan) is effectively single-threaded,
+  // so 4 concurrent clips ≈ 4× the wall-clock on Apple Silicon while leaving
+  // cores for the rest of the app. Per-clip work + errors stay per-scene.
+  const PREP_CONCURRENCY = Math.max(2, Math.min(4, os.cpus().length - 2))
+  let preparedCount = 0
+  job.output_lines.push(`Preparing ${scenes.length} scene clip(s) — up to ${PREP_CONCURRENCY} in parallel…`)
+
+  const prepOne = async (i: number): Promise<void> => {
     const scene = scenes[i]
     const clipPath = path.join(tempDir, `scene_${String(i).padStart(4, '0')}.mp4`)
 
@@ -2073,7 +2082,7 @@ async function prepareSceneClips(
 
     const pickedType = picks[i]
     const durLog = Math.abs(duration - defaultDuration) > 0.05 ? ` [dur=${duration.toFixed(2)}s]` : ''
-    job.output_lines.push(`Preparing scene clips: ${i + 1}/${scenes.length}${isVideoScene ? ' [video]' : (pickedType !== sceneAnimation.type ? ` [anim=${pickedType}]` : '')}${durLog}`)
+    const tagLog = `${isVideoScene ? ' [video]' : (pickedType !== sceneAnimation.type ? ` [anim=${pickedType}]` : '')}${durLog}`
 
     const vfParts = isVideoScene
       // crop-fill: scale up to cover the canvas, then centre-crop the overflow
@@ -2165,11 +2174,22 @@ async function prepareSceneClips(
     // restart). The clip just plays once to its own end; the trailing `-t` is a
     // harmless safety cap.
     const naturalVideo = isVideoScene && !!recycling.broll_natural_duration
+    // v1.0.515 — two wedge-killers for still scenes:
+    //   1. Pin the REAL decoder from magic bytes (most scene "PNGs" are JPEG;
+    //      FFmpeg 8 picks the decoder by extension and `-loop 1` then retries
+    //      the failed decode FOREVER — the "stuck at 1/160" hang).
+    //   2. zoompan-based animations get the image ONCE (no -loop): zoompan
+    //      builds the whole clip from a single frame; looping made ffmpeg
+    //      re-decode + supersample-upscale the same image ~25×duration times.
+    const stillDecoder = isVideoScene ? [] : await stillDecoderArgs(scene.image_path)
+    const singleFrameStill = !isVideoScene && isZoompanAnimation(pickedType)
     const inputArgs = isVideoScene
       ? (naturalVideo
           ? ['-i', scene.image_path]
           : ['-stream_loop', '-1', '-i', scene.image_path])
-      : ['-loop', '1', '-t', duration.toString(), '-i', scene.image_path]
+      : singleFrameStill
+        ? [...stillDecoder, '-i', scene.image_path]
+        : [...stillDecoder, '-loop', '1', '-t', duration.toString(), '-i', scene.image_path]
     const args = [
       '-y', ...inputArgs,
       '-vf', vfParts.join(','),
@@ -2183,8 +2203,31 @@ async function prepareSceneClips(
       clipPath,
     ]
 
-    await runFfmpeg(args)
-    clipPaths.push(clipPath)
+    // Hard per-clip ceiling: a healthy clip renders in seconds; only a genuine
+    // wedge (bad input, dead disk) trips this — fail THAT scene loudly instead
+    // of hanging the whole job silently.
+    await runFfmpeg(args, { timeoutMs: 10 * 60_000 })
+    clipPaths[i] = clipPath
+    preparedCount++
+    job.output_lines.push(`Scene clips: ${preparedCount}/${scenes.length} done${tagLog}`)
+  }
+
+  // Worker pool over scene indices. An error in any scene aborts the pool and
+  // surfaces WITH the scene number + file so the user knows what to fix.
+  {
+    let nextIndex = 0
+    const workers = Array.from({ length: Math.min(PREP_CONCURRENCY, scenes.length) }, async () => {
+      while (true) {
+        const i = nextIndex++
+        if (i >= scenes.length) return
+        try {
+          await prepOne(i)
+        } catch (e: any) {
+          throw new Error(`Scene ${i + 1}/${scenes.length}: ${e?.message || e}`, { cause: e })
+        }
+      }
+    })
+    await Promise.all(workers)
   }
 
   return clipPaths
@@ -2213,7 +2256,7 @@ async function prepareTitleClip(
   // frame rate, so we strip the `fps=` token from the chain (same trick
   // `prepareIntroClip` uses).
   const titleVf = normalizeFrame(w, h, quality.fps).filter(f => !f.startsWith('fps='))
-  const inputArgs = buildTitleMediaInputArgs(titleImage.image_path)
+  const inputArgs = await buildTitleMediaInputArgs(titleImage.image_path)
 
   const args = [
     '-y', ...inputArgs,
@@ -2237,7 +2280,7 @@ async function prepareTitleClip(
  * auto-seed this field from a materialized scene video. FFmpeg's `-loop 1` is
  * an image-demuxer option and fails with "Option loop not found" for MP4/MOV.
  */
-export function buildTitleMediaInputArgs(mediaPath: string): string[] {
+export async function buildTitleMediaInputArgs(mediaPath: string): Promise<string[]> {
   return buildLoopingMediaInputArgs(mediaPath)
 }
 
@@ -2246,9 +2289,10 @@ export function buildTitleMediaInputArgs(mediaPath: string): string[] {
  * duration. `-loop 1` belongs to still-image demuxers; video containers require
  * `-stream_loop -1`. The caller supplies the output `-t` safety cap.
  */
-export function buildLoopingMediaInputArgs(mediaPath: string): string[] {
+// v1.0.515 — async: sniffs the still's real decoder (JPEG-as-.png wedge fix).
+export async function buildLoopingMediaInputArgs(mediaPath: string): Promise<string[]> {
   return isStaticImagePath(mediaPath)
-    ? ['-loop', '1', '-i', mediaPath]
+    ? [...(await stillDecoderArgs(mediaPath)), '-loop', '1', '-i', mediaPath]
     : ['-stream_loop', '-1', '-i', mediaPath]
 }
 
@@ -2438,7 +2482,7 @@ async function prepareStaticTimelineClip(
   // (encoder-bound on output muxing, not ratecontrol).
   const args = [
     '-y',
-    '-loop', '1', '-t', clip.duration_sec.toString(), '-i', clip.image_path,
+    ...(await stillDecoderArgs(clip.image_path)), '-loop', '1', '-t', clip.duration_sec.toString(), '-i', clip.image_path,
     '-vf', frame.join(','),
     '-c:v', 'libx264', '-crf', quality.crf.toString(),
     '-preset', 'ultrafast',
@@ -3110,7 +3154,7 @@ async function buildConcatList(
           frame[frame.length - 1],                // `format=yuv420p`
         ].join(',')
         await runFfmpeg([
-          '-y', ...buildLoopingMediaInputArgs(finalFrame),
+          '-y', ...(await buildLoopingMediaInputArgs(finalFrame)),
           '-vf', fadeVf,
           ...commonPostArgs, '-t', fadeDur.toString(), fadeClip,
         ])
@@ -3131,7 +3175,7 @@ async function buildConcatList(
         const finalFrame = await extractFinalFrame(lastPlayedSceneClip, tempDir)
         const holdClip = path.join(tempDir, 'post_hold.mp4')
         await runFfmpeg([
-          '-y', ...buildLoopingMediaInputArgs(finalFrame),
+          '-y', ...(await buildLoopingMediaInputArgs(finalFrame)),
           '-vf', `${normalizeVf}`,
           ...commonPostArgs, '-t', postDuration.toString(), holdClip,
         ])
@@ -3517,7 +3561,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       overlayInputIdxs.push(-1)
       continue
     }
-    if (layer.loop !== false) args.push(...buildLoopingMediaInputArgs(layer.source_path))
+    if (layer.loop !== false) args.push(...(await buildLoopingMediaInputArgs(layer.source_path)))
     else args.push('-i', layer.source_path)
     overlayInputIdxs.push(nextInputIdx++)
   }

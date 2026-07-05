@@ -52,9 +52,32 @@ export function normalizeFrame(w: number, h: number, fps: number): string[] {
   ]
 }
 
-/** Pick a supersampling multiplier that balances quality vs memory cost. */
-export function supersampleMultiplier(w: number, h: number): number {
-  return (w <= 1920 && h <= 1080) ? 4 : 2
+/** Pick a supersampling multiplier that balances quality vs memory cost.
+ *  v1.0.515 — was 4× at ≤1080p, which upscaled every source to 7680×4320
+ *  (33 MP) before zoompan. zoompan is single-threaded and its per-frame cost
+ *  scales with canvas area, so 4× cost ~4× the wall-clock of 2× for no
+ *  visible gain (sources are typically 1–2 MP — there's no extra detail to
+ *  sample past ~2×). 2× (3840×2160 at 1080p) is the standard anti-jitter
+ *  level and renders scenes in seconds instead of minutes. */
+export function supersampleMultiplier(_w: number, _h: number): number {
+  return 2
+}
+
+/**
+ * v1.0.515 — animation types whose filter chain is driven by `zoompan`.
+ * zoompan generates the ENTIRE clip from a single input frame (`d` frames
+ * per input frame), so callers should feed the image ONCE — using
+ * `-loop 1 -t D` made ffmpeg decode + supersample-upscale the same PNG
+ * ~25×D times for frames zoompan never consumed (~90% of scene-prep time).
+ */
+const ZOOMPAN_TYPES = new Set([
+  'ken-burns', 'ken-burns-reverse', 'zoom-in', 'zoom-out', 'slow-push',
+  'slow-pull', 'dolly-in', 'parallax-drift', 'pan-left', 'pan-right',
+  'pan-up', 'pan-down', 'pan-diag-tl', 'pan-diag-tr', 'pan-diag-bl',
+  'pan-diag-br', 'breathe', 'pulse',
+])
+export function isZoompanAnimation(type: string): boolean {
+  return ZOOMPAN_TYPES.has(type)
 }
 
 /** Entry point — dispatches to per-type builders. Unknown types fall back to static. */

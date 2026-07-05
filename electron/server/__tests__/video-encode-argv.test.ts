@@ -76,38 +76,38 @@ describe('splitFadeToBlackDuration — derived hold segment', () => {
 })
 
 describe('buildTitleMediaInputArgs — still and video title assets', () => {
-  test('uses the image demuxer loop option for still images', () => {
+  test('uses the image demuxer loop option for still images', async () => {
     assert.deepEqual(
-      buildTitleMediaInputArgs('/tmp/title.png'),
+      await buildTitleMediaInputArgs('/tmp/title.png'),
       ['-loop', '1', '-i', '/tmp/title.png'],
     )
   })
 
-  test('uses stream_loop instead of the invalid image loop option for MP4', () => {
-    const args = buildTitleMediaInputArgs('/tmp/scene_0029.mp4')
+  test('uses stream_loop instead of the invalid image loop option for MP4', async () => {
+    const args = await buildTitleMediaInputArgs('/tmp/scene_0029.mp4')
     assert.deepEqual(args, ['-stream_loop', '-1', '-i', '/tmp/scene_0029.mp4'])
     assert.equal(args.includes('-loop'), false)
   })
 })
 
 describe('buildLoopingMediaInputArgs — post-audio tail assets', () => {
-  test('uses stream_loop when fade-to-black or hold-last-scene receives B-Roll video', () => {
+  test('uses stream_loop when fade-to-black or hold-last-scene receives B-Roll video', async () => {
     assert.deepEqual(
-      buildLoopingMediaInputArgs('/tmp/scene_0027.mp4'),
+      await buildLoopingMediaInputArgs('/tmp/scene_0027.mp4'),
       ['-stream_loop', '-1', '-i', '/tmp/scene_0027.mp4'],
     )
   })
 
-  test('preserves still-image looping for classic scene images', () => {
+  test('preserves still-image looping for classic scene images', async () => {
     assert.deepEqual(
-      buildLoopingMediaInputArgs('/tmp/scene_0027.jpg'),
+      await buildLoopingMediaInputArgs('/tmp/scene_0027.jpg'),
       ['-loop', '1', '-i', '/tmp/scene_0027.jpg'],
     )
   })
 
-  test('treats animated or unknown visual formats as stream inputs', () => {
+  test('treats animated or unknown visual formats as stream inputs', async () => {
     assert.deepEqual(
-      buildLoopingMediaInputArgs('/tmp/overlay.gif'),
+      await buildLoopingMediaInputArgs('/tmp/overlay.gif'),
       ['-stream_loop', '-1', '-i', '/tmp/overlay.gif'],
     )
   })

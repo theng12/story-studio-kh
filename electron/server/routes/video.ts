@@ -14,7 +14,7 @@ import { ANIMATIONS, groupedAnimations, getAnimation } from '../models/animation
 import { buildAnimationFilter } from '../lib/animation-filters.js'
 import { getOrRender } from '../services/preview-cache.js'
 import { resolveAssetPath } from '../services/path-resolver.js'
-import { runFfmpeg, hasLibass, getAudioDuration } from '../lib/ffmpeg-utils.js'
+import { runFfmpeg, hasLibass, getAudioDuration, stillDecoderArgs } from '../lib/ffmpeg-utils.js'
 import { chaptersFromDurations, chaptersToSrt, normalizeSrtOrVtt, buildAssStyle, parseSrt } from '../lib/subtitle-builder.js'
 import { resolveSubtitlesDir } from '../generators/subtitles.js'
 import { readSelectedSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
@@ -633,14 +633,14 @@ router.get('/projects/:slug/video-editor/preview-transition', async (req, res) =
       const args: string[] = ['-y']
       // Input A
       if (imgA && existsSync(imgA)) {
-        args.push('-loop', '1', '-t', clipSec.toString(), '-i', imgA)
+        args.push(...(await stillDecoderArgs(imgA)), '-loop', '1', '-t', clipSec.toString(), '-i', imgA)
       } else {
         args.push('-f', 'lavfi', '-t', clipSec.toString(),
           '-i', `color=c=0xD38B5D:s=${W}x${H}:r=${FPS}`)
       }
       // Input B
       if (imgB && existsSync(imgB)) {
-        args.push('-loop', '1', '-t', clipSec.toString(), '-i', imgB)
+        args.push(...(await stillDecoderArgs(imgB)), '-loop', '1', '-t', clipSec.toString(), '-i', imgB)
       } else {
         args.push('-f', 'lavfi', '-t', clipSec.toString(),
           '-i', `color=c=0x5D8FD3:s=${W}x${H}:r=${FPS}`)
@@ -657,7 +657,9 @@ router.get('/projects/:slug/video-editor/preview-transition', async (req, res) =
       args.push('-pix_fmt', 'yuv420p', '-an')
       args.push('-t', totalSec.toString())
       args.push(outPath)
-      await runFfmpeg(args)
+      // v1.0.515 — previews are ~1-2s clips; 90s only trips on a genuine wedge
+      // (the 5 zombie preview ffmpegs of 2026-07-05 ran 30+ min unbounded).
+      await runFfmpeg(args, { timeoutMs: 90_000 })
     })
 
     const stat = await fs.stat(cached)
@@ -710,7 +712,7 @@ router.get('/projects/:slug/video-editor/preview-animation', async (req, res) =>
     const cached = await getOrRender(key, 'webm', async (outPath) => {
       const args: string[] = ['-y']
       if (srcImage && existsSync(srcImage)) {
-        args.push('-loop', '1', '-t', DURATION.toString(), '-i', srcImage)
+        args.push(...(await stillDecoderArgs(srcImage)), '-loop', '1', '-t', DURATION.toString(), '-i', srcImage)
       } else {
         // Use a gradient so motion is visually obvious on synthetic input.
         args.push(
@@ -732,7 +734,9 @@ router.get('/projects/:slug/video-editor/preview-animation', async (req, res) =>
       args.push('-pix_fmt', 'yuv420p', '-r', FPS.toString(), '-an')
       args.push('-t', DURATION.toString())
       args.push(outPath)
-      await runFfmpeg(args)
+      // v1.0.515 — previews are ~1-2s clips; 90s only trips on a genuine wedge
+      // (the 5 zombie preview ffmpegs of 2026-07-05 ran 30+ min unbounded).
+      await runFfmpeg(args, { timeoutMs: 90_000 })
     })
 
     const stat = await fs.stat(cached)
@@ -1231,7 +1235,7 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
       const escapedSrt = srtFile.replace(/\\/g, '/').replace(/:/g, '\\:')
       const args: string[] = ['-y']
       if (bg && existsSync(bg)) {
-        args.push('-loop', '1', '-t', DURATION.toString(), '-i', bg)
+        args.push(...(await stillDecoderArgs(bg)), '-loop', '1', '-t', DURATION.toString(), '-i', bg)
       } else {
         args.push('-f', 'lavfi', '-t', DURATION.toString(),
           '-i', `gradients=size=${W}x${H}:type=linear:c0=0x1a1a2e:c1=0x16213e:r=${FPS}`)
@@ -1248,7 +1252,9 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
       args.push('-pix_fmt', 'yuv420p', '-r', FPS.toString(), '-an')
       args.push('-t', DURATION.toString())
       args.push(outPath)
-      await runFfmpeg(args)
+      // v1.0.515 — previews are ~1-2s clips; 90s only trips on a genuine wedge
+      // (the 5 zombie preview ffmpegs of 2026-07-05 ran 30+ min unbounded).
+      await runFfmpeg(args, { timeoutMs: 90_000 })
       // Clean up the one-cue SRT now that the preview is encoded.
       try { await fs.unlink(srtFile) } catch {}
     })
