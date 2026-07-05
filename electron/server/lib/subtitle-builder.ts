@@ -159,14 +159,44 @@ export function wrapTextToChunks(text: string, maxChars: number, maxLines: numbe
 }
 
 /**
+ * v1.0.517 — the user-facing style contract: every pixel value in
+ * VideoSubtitleStyle (font_size_px, outline_px) means "pixels at a
+ * 1920×1080 reference frame". The CSS preview in SubtitleStylePicker
+ * renders on that assumption, so both render paths must translate into
+ * whatever coordinate space libass actually uses:
+ *
+ *   - `subtitles=` filter on an SRT (buildAssStyle): ffmpeg synthesizes an
+ *     ASS script with the libass default PlayRes of 384×288, and
+ *     force_style values are interpreted in THAT space, then scaled up to
+ *     the output frame. (`original_size=` does NOT change this — it only
+ *     corrects aspect-ratio distortion.) So "px at 1080" values must be
+ *     pre-scaled by 288/1080 ≈ 0.267 or they render 3.75× too big — the
+ *     v1.0.413→516 bug where FontSize=35 burned in at ~131px.
+ *   - `ass=` filter on a generated document (srtToAss): we control PlayRes
+ *     directly, so values scale by playResY/1080 (a no-op at 1080p).
+ *
+ * Both factors verified empirically against the bundled ffmpeg: FontSize=35
+ * unscaled renders an 80px-tall cap height at 1080p; scaled, 21px — identical
+ * to an explicit PlayRes-1080 ASS document. Outline and margins scale the
+ * same way (the synthesized header has ScaledBorderAndShadow: yes).
+ */
+const SRT_DEFAULT_PLAYRES_Y = 288
+const REFERENCE_HEIGHT = 1080
+
+/** Round to 2 decimals — libass parses Fontsize/Outline as floats. */
+function round2(n: number): number { return Math.round(n * 100) / 100 }
+
+/**
  * Build the libass `force_style=...` fragment for the `subtitles=` filter.
  * Colours are encoded as `&HBBGGRR&` (yes, reversed — that's an ASS quirk).
  * Alignment / outline / background controls map to libass's Style Override
- * parameter names.
+ * parameter names. Pixel values are pre-scaled from the 1080 reference into
+ * the SRT-default 384×288 PlayRes space (see the scaling note above).
  */
 export function buildAssStyle(style: VideoSubtitleStyle): string {
   const fontName = style.font_family || 'Helvetica'
-  const fontSize = style.font_size_px || 28
+  const scale = SRT_DEFAULT_PLAYRES_Y / REFERENCE_HEIGHT
+  const fontSize = round2((style.font_size_px || 28) * scale)
 
   // Libass numeric alignment: 1=bottom-left, 2=bottom-center, 3=bottom-right,
   // 4=middle-left, 5=middle-center, 6=middle-right,
@@ -183,7 +213,8 @@ export function buildAssStyle(style: VideoSubtitleStyle): string {
       ? '&H80000000&'  // 50% black
       : '&H00000000&'  // invisible (outlined mode ignores BackColour anyway)
 
-  const outline = Math.max(0, Math.min(style.outline_px ?? 2, 6))
+  const outline = round2(Math.max(0, Math.min(style.outline_px ?? 2, 6)) * scale)
+  const margin = Math.round(40 * scale)
 
   const parts: Record<string, string | number> = {
     FontName: fontName,
@@ -195,9 +226,9 @@ export function buildAssStyle(style: VideoSubtitleStyle): string {
     Outline: outline,
     Shadow: 0,
     Alignment: alignment,
-    MarginV: 40,
-    MarginL: 40,
-    MarginR: 40,
+    MarginV: margin,
+    MarginL: margin,
+    MarginR: margin,
   }
 
   return Object.entries(parts).map(([k, v]) => `${k}=${v}`).join(',')
@@ -239,10 +270,13 @@ function animationTag(animation: SubtitleAnimation, style: VideoSubtitleStyle, w
   if (animation === 'fade') return '{\\fad(180,180)}'
   if (animation === 'pop') return '{\\fad(60,60)\\fscx72\\fscy72\\t(0,150,\\fscx100\\fscy100)}'
   if (animation === 'slide-up') {
-    const marginV = 40
-    const x = style.align === 'left' ? 40 : style.align === 'right' ? Math.max(40, w - 40) : Math.round(w / 2)
+    const scale = h / REFERENCE_HEIGHT
+    const marginV = Math.round(40 * scale)
+    const marginH = marginV
+    const rise = Math.round(36 * scale)
+    const x = style.align === 'left' ? marginH : style.align === 'right' ? Math.max(marginH, w - marginH) : Math.round(w / 2)
     const yEnd = style.position === 'top' ? marginV : style.position === 'center' ? Math.round(h / 2) : Math.max(marginV, h - marginV)
-    const yStart = style.position === 'top' ? Math.max(0, yEnd - 36) : yEnd + 36
+    const yStart = style.position === 'top' ? Math.max(0, yEnd - rise) : yEnd + rise
     return `{\\fad(160,80)\\move(${x},${yStart},${x},${yEnd})}`
   }
   return ''
@@ -261,13 +295,17 @@ export function srtToAss(
   const w = Math.max(2, Math.round(opts.width || 1920))
   const h = Math.max(2, Math.round(opts.height || 1080))
   const fontName = style.font_family || 'Helvetica'
-  const fontSize = style.font_size_px || 28
+  // PlayRes below is the real output size, so "px at 1080" values scale by
+  // h/1080 — a no-op for 1080p exports, proportional for 720p/4K.
+  const scale = h / REFERENCE_HEIGHT
+  const fontSize = round2((style.font_size_px || 28) * scale)
   const vBase = style.position === 'top' ? 7 : style.position === 'center' ? 4 : 1
   const hOffset = style.align === 'center' ? 1 : style.align === 'right' ? 2 : 0
   const alignment = vBase + hOffset
   const borderStyle = (style.background === 'full' || style.background === 'semi') ? 3 : 1
   const backColour = style.background === 'full' ? '&H00000000' : style.background === 'semi' ? '&H80000000' : '&H00000000'
-  const outline = Math.max(0, Math.min(style.outline_px ?? 2, 6))
+  const outline = round2(Math.max(0, Math.min(style.outline_px ?? 2, 6)) * scale)
+  const margin = Math.round(40 * scale)
   const primary = hexToAss(style.color_hex || '#FFFFFF').replace(/&$/, '')
   const outlineCol = hexToAss(style.outline_color_hex || '#000000').replace(/&$/, '')
   const maxChars = style.max_chars_per_line ?? 42
@@ -283,7 +321,7 @@ export function srtToAss(
     '',
     '[V4+ Styles]',
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-    `Style: Default,${fontName},${fontSize},${primary},${primary},${outlineCol},${backColour},0,0,0,0,100,100,0,0,${borderStyle},${outline},0,${alignment},40,40,40,1`,
+    `Style: Default,${fontName},${fontSize},${primary},${primary},${outlineCol},${backColour},0,0,0,0,100,100,0,0,${borderStyle},${outline},0,${alignment},${margin},${margin},${margin},1`,
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',

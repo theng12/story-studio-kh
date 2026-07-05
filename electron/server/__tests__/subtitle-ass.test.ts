@@ -1,11 +1,12 @@
 /**
- * Tests for srtToAss — the animated-caption ASS generator (v1.0.353).
+ * Tests for srtToAss — the animated-caption ASS generator (v1.0.353) — and
+ * the v1.0.517 "px at 1080" scaling contract shared with buildAssStyle.
  * A malformed ASS silently drops subtitles, so lock the structure + the
  * per-animation override tags.
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { srtToAss, parseSrt } from '../lib/subtitle-builder.js'
+import { srtToAss, parseSrt, buildAssStyle } from '../lib/subtitle-builder.js'
 
 const baseStyle: any = {
   font_family: 'Avenir Next', font_size_px: 32, color_hex: '#FFEE00',
@@ -62,5 +63,27 @@ describe('srtToAss — animated captions (v1.0.353)', () => {
     const ass = srtToAss(parseSrt(srt), baseStyle, { width: 1920, height: 1080, animation: 'fade' })
     assert.match(ass, /Hi there/)
     assert.match(ass, /Dialogue: 0,0:00:00\.00,0:00:02\.50,/)
+  })
+})
+
+// v1.0.517 — font_size_px / outline_px mean "px at a 1080 reference" in BOTH
+// render paths. Regressing either scale factor silently blows fonts up (or
+// shrinks them) in final renders, so pin the numbers.
+describe('"px at 1080" scaling contract (v1.0.517)', () => {
+  test('buildAssStyle pre-scales into the SRT-default 384×288 PlayRes space', () => {
+    // ffmpeg's subtitles filter interprets force_style against a synthesized
+    // 384×288 script, then scales to the output — so values must shrink by
+    // 288/1080 or they render 3.75× too big (the v1.0.413–516 bug).
+    const s = buildAssStyle({ ...baseStyle, font_size_px: 35, outline_px: 2 })
+    assert.match(s, /FontSize=9\.33/, '35px @1080 → 35·(288/1080) ≈ 9.33')
+    assert.match(s, /Outline=0\.53/, '2px @1080 → 2·(288/1080) ≈ 0.53')
+    assert.match(s, /MarginV=11/, '40px @1080 → ≈ 11')
+  })
+
+  test('srtToAss is a no-op at 1080p and proportional at other heights', () => {
+    const at1080 = srtToAss(cues, baseStyle, { width: 1920, height: 1080, animation: 'none' })
+    assert.match(at1080, /Style: Default,Avenir Next,32,/, '1080p keeps px values as-is')
+    const at720 = srtToAss(cues, baseStyle, { width: 1280, height: 720, animation: 'none' })
+    assert.match(at720, /Style: Default,Avenir Next,21\.33,/, '720p scales by 720/1080')
   })
 })

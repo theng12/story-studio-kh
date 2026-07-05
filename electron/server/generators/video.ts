@@ -3798,9 +3798,12 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       // No `gateEnable` — same FFmpeg libass limitation as the `ass` filter
       // above (timeline `enable` is unsupported and breaks the whole graph).
       // Intro suppression comes from the cue timestamps, not a filter gate.
-      // v1.0.413 — pin libass to a fixed 1080 reference so FontSize means
-      // "px at 1080" regardless of the export resolution (consistent sizing
-      // across 720p/1080p/4k) AND so the small preview render can match exactly.
+      // v1.0.517 — "px at 1080" semantics live in buildAssStyle, which
+      // pre-scales values into the SRT-default 384×288 PlayRes space that
+      // force_style is interpreted in. (`original_size=` does NOT set that
+      // reference — it only corrects aspect-ratio distortion; the v1.0.413
+      // assumption that it pinned a 1080 reference is why rendered fonts
+      // came out 3.75× larger than the preview.)
       filterParts.push(`${vLabel}subtitles=filename='${escFor(subtitles.srt_path)}':original_size=1920x1080:force_style='${ass}'${st}`)
       job.output_lines.push(`Burning in subtitles: ${path.basename(subtitles.srt_path)}`)
     }

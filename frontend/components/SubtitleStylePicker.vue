@@ -241,7 +241,14 @@ const captionLayerStyle = computed(() => {
 })
 
 const captionStyle = computed(() => {
-  const outline = props.style.outline_px || 0
+  // v1.0.413 — scale by the REAL preview-frame height ÷ 1080: every px value
+  // in the style means "px at a 1080 reference", so a preview frame of height
+  // H shows it at value·(H/1080).
+  const previewFactor = (frameHeight.value || 360) / 1080
+  // v1.0.517 — outline_px scales like font_size_px (before, a 2px outline drew
+  // 2 raw px on the small preview frame — ~3× thicker relative to the text
+  // than the real render).
+  const outline = Math.round((props.style.outline_px || 0) * previewFactor * 10) / 10
   // CSS can't do a true libass-style stroke, so emulate with layered text-shadow.
   const shadow = outline > 0
     ? `-${outline}px -${outline}px 0 ${props.style.outline_color_hex},` +
@@ -255,11 +262,6 @@ const captionStyle = computed(() => {
   else if (props.style.background === 'semi') background = 'rgba(0, 0, 0, 0.5)'
   else background = 'transparent'
 
-  // v1.0.413 — scale font by the REAL preview-frame height ÷ 1080. The render
-  // pins libass to a 1080 reference (original_size=1920x1080), so font_size_px is
-  // "px at 1080"; a preview frame of height H shows it at font_size_px·(H/1080).
-  // Replaces the old fixed 0.42 guess that didn't track the actual frame size.
-  const previewFactor = (frameHeight.value || 360) / 1080
   return {
     fontFamily: props.style.font_family,
     fontSize: `${Math.round(props.style.font_size_px * previewFactor)}px`,

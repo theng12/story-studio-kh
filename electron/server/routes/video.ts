@@ -1216,7 +1216,9 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
 
   const W = 640, H = 360, FPS = 24, DURATION = 1.5
   const key = [
-    'subtitle-v1', sampleText.slice(0, 64), bg || 'synthetic',
+    // v2: cache-buster for the v1.0.517 font-size scaling fix — v1 entries
+    // were rendered with the 3.75×-too-big force_style values.
+    'subtitle-v2', sampleText.slice(0, 64), bg || 'synthetic',
     style.font_family, style.font_size_px, style.color_hex, style.outline_color_hex,
     style.outline_px, style.background, style.position, style.align,
     style.max_chars_per_line, style.max_lines,
@@ -1240,11 +1242,11 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
         args.push('-f', 'lavfi', '-t', DURATION.toString(),
           '-i', `gradients=size=${W}x${H}:type=linear:c0=0x1a1a2e:c1=0x16213e:r=${FPS}`)
       }
-      // v1.0.413 — original_size=1920x1080 makes libass interpret FontSize in a
-      // fixed 1080 reference and scale down to this small preview frame, so the
-      // preview matches the final 1080p render proportionally (the old code let
-      // FontSize be relative to the 360p preview frame → text looked far bigger
-      // here than in the actual video).
+      // v1.0.517 — proportional sizing comes from buildAssStyle pre-scaling
+      // values into the SRT-default 384×288 PlayRes space, which libass then
+      // scales to this 360p frame exactly like it scales to the 1080p render.
+      // (original_size= does NOT pin a 1080 reference as the v1.0.413 comment
+      // claimed — it only corrects aspect-ratio distortion.)
       args.push('-vf',
         `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,subtitles=filename='${escapedSrt}':original_size=1920x1080:force_style='${ass}',format=yuv420p`,
       )
