@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.516 — 2026-07-05
+
+**Fix a server hang when a route fails mid-stream (also unstuck the backend test suite).** If a route had already started sending a response and *then* threw an error, the error boundary silently swallowed it — leaving the connection open forever, so the client (the app's frontend, or a stalled download) would hang waiting for a body that never finishes. The boundary now hands these cases to Express's default handler, which closes the connection immediately so the client detects the failure instead of waiting. This same hang was what froze `npm run test:backend` at `error-boundary.test.ts` — the suite's sixth test exercised exactly this path and never completed. The test now pins the corrected behavior, and the test script also got `--test-force-exit` as a backstop so a future stray open handle can't wedge the run after all tests have finished.
+
 ## v1.0.515 — 2026-07-05
 
 **Video Assembly "stuck at 1/160" — root cause found, reproduced, and fixed (plus renders are now dramatically faster).** Diagnosed live against the wedged EP0012 render:

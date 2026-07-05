@@ -8,7 +8,11 @@
  * stack-trace HTML page to the client.
  *
  * Contract:
- *   - Already responded (headersSent) → do nothing (can't change a sent response).
+ *   - Already responded (headersSent) → delegate to Express's default handler,
+ *     which destroys the socket. We can't change a sent response, and quietly
+ *     returning would leave the request open forever (the client would hang
+ *     waiting for a body that never ends); destroying lets it detect the
+ *     truncation immediately.
  *   - `err.status` (or `.statusCode`) sets the HTTP status; default 500.
  *   - `err.expose === true` → the real message is returned in `detail`
  *     (used for deliberate, client-safe errors). Otherwise `detail` is the
@@ -19,14 +23,14 @@
 import type { Request, Response, NextFunction } from 'express'
 import { logLine } from '../services/logger.js'
 
-export function errorBoundary(err: any, req: Request, res: Response, _next: NextFunction): void {
+export function errorBoundary(err: any, req: Request, res: Response, next: NextFunction): void {
   logLine('error', 'unhandled-error', {
     method: req.method,
     path: req.path,
     error: String(err?.message || err),
     stack: err?.stack,
   })
-  if (res.headersSent) return
+  if (res.headersSent) return next(err)
   const status = Number(err?.status || err?.statusCode) || 500
   res.status(status).json({
     detail: err?.expose ? String(err.message) : 'Internal server error',

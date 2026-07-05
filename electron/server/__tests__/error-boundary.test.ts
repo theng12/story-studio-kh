@@ -68,12 +68,14 @@ describe('errorBoundary', () => {
   test('does not double-respond once headers are sent', async () => {
     // Handler streams a partial response, THEN throws. The boundary must
     // not try to set a status on an already-sent response (which would
-    // throw ERR_HTTP_HEADERS_SENT and crash the process).
+    // throw ERR_HTTP_HEADERS_SENT and crash the process). It delegates to
+    // Express's finalhandler, which destroys the socket — so the client
+    // sees an aborted request (detectable truncation) rather than a
+    // connection that hangs forever waiting for the body to end.
     const app = appWith((_req, res) => {
       res.status(200).write('partial')
       throw new Error('late failure')
     })
-    const res = await request(app).get('/boom')
-    assert.equal(res.status, 200) // original status preserved; no crash
+    await assert.rejects(request(app).get('/boom'))
   })
 })
