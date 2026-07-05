@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.515 — 2026-07-05
+
+**Fix a server hang when a route fails mid-stream (also unstuck the backend test suite).** If a route had already started sending a response and *then* threw an error, the error boundary silently swallowed it — leaving the connection open forever, so the client (the app's frontend, or a stalled download) would hang waiting for a body that never finishes. The boundary now hands these cases to Express's default handler, which closes the connection immediately so the client detects the failure instead of waiting. This same hang was what froze `npm run test:backend` at `error-boundary.test.ts` — the suite's sixth test exercised exactly this path and never completed. The test now pins the corrected behavior, and the test script also got `--test-force-exit` as a backstop so a future stray open handle can't wedge the run after all tests have finished.
+
 ## v1.0.514 — 2026-07-04
 
 **Video Assembly: no more cost/duration confirmation dialog — Generate just goes.** Video assembly is a **free local ffmpeg render** (no API spend), so the cost-confirmation gate had nothing to confirm, and its duration estimate was never accurate anyway. Removed it entirely: clicking **Generate Video** now enqueues the render immediately instead of pausing on a dialog. This also eliminates the `estimate-cost` round-trip that made the dialog slow to appear. (Paid generators — scripts, images, audio, uploads — keep their confirmation, since those actually spend.)
