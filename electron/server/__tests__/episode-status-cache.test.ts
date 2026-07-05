@@ -131,11 +131,24 @@ describe('episode-status-cache', () => {
     assert.ok(watchedKeys.includes(scriptDir),
       `scriptDir (${scriptDir}) must be in watched folders, got: ${JSON.stringify(watchedKeys)}`)
 
-    // Bump scriptDir's mtime by writing a new file inside it.
-    // Sleep 50ms first so the new mtime is > old mtime even on FSes with
-    // millisecond resolution and very fast tests.
-    await new Promise(r => setTimeout(r, 50))
+    // Bump scriptDir's mtime. The old approach (sleep 50ms + write a file and
+    // let the DIRECTORY mtime advance on its own) flaked under full-suite load:
+    // when the bumped mtime landed inside the same filesystem timestamp
+    // granularity as the stored one, the cache saw no change (observed
+    // intermittently in full-suite runs, passes in isolation). Set an
+    // explicitly DIFFERENT mtime (+2s in the future) with fs.utimes so the
+    // change is unambiguous regardless of FS resolution or wall clock.
     await fs.writeFile(path.join(scriptDir, 'extra.txt'), 'cache-bust')
+    // Base the bump on the SNAPSHOT's mtime (not wall clock) so it's
+    // guaranteed to differ from what the cache stored, and assert the stat
+    // visibly changed before the staleness check (fail here = FS issue, not
+    // a cache bug).
+    const storedMtime = stored.watchedMtimes[scriptDir]
+    const bumped = new Date(storedMtime + 2_000)
+    await fs.utimes(scriptDir, bumped, bumped)
+    const st = await fs.stat(scriptDir)
+    assert.notEqual(st.mtimeMs, storedMtime,
+      'scriptDir mtime must differ from the snapshot before the staleness check')
 
     await cache.get(SLUG, CODE)  // should be STALE
     const after = cache.getStats()
