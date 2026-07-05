@@ -32,6 +32,7 @@ import * as im from './idea-manager.js'
 import {
   findScenePromptsFile, findThumbPromptsFile, resolveImageDirs,
 } from '../generators/images.js'
+import { resolveSceneImagesDir, SCENE_IMAGES_SUBFOLDER } from '../generators/scene-image.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { getAudioStatus } from './audio-reconciler.js'
 
@@ -960,9 +961,27 @@ export async function computeEpisodeStatus(
       if (status.scene_plan) {
         const plan = JSON.parse(await fs.readFile(planPath, 'utf-8'))
         const scenes = Array.isArray(plan?.scenes) ? plan.scenes : []
-        // Scene Review done = plan exists AND every scene has a generated image.
-        status.scene_review = scenes.length > 0
-          && scenes.every((s: any) => typeof s?.image_path === 'string' && s.image_path.length > 0)
+        // Scene Review done = plan exists AND every scene has a generated image
+        // ON DISK. v1.0.519 — detect by FILE EXISTENCE (`<scene_id>.png` in the
+        // named or legacy scene-images folder), which is exactly how the Scene
+        // Review page (routes/scene-review.ts) and the timestamp assembler
+        // (generators/timestamp-video-assemble.ts) already resolve scene images.
+        // Previously this keyed off the plan's `image_path` field, which is only
+        // written by the IN-APP renderer — so images produced externally (e.g. a
+        // browser extension) and dropped into the folder with the correct
+        // `<scene_id>.png` name left `image_path` empty and the episode stuck at
+        // "pending" even though every image was present. The `image_path` check
+        // is kept as a fallback so this is a strict superset of the old rule
+        // (nothing that was complete before becomes pending).
+        const namedDir = await resolveSceneImagesDir(slug, code.toUpperCase(), byCode.episode_dir)
+        const legacyDir = path.join(byCode.episode_dir, SCENE_IMAGES_SUBFOLDER)
+        const hasImage = (s: any) =>
+          (typeof s?.id === 'string' && (
+            existsSync(path.join(namedDir, `${s.id}.png`))
+            || existsSync(path.join(legacyDir, `${s.id}.png`))
+          ))
+          || (typeof s?.image_path === 'string' && s.image_path.length > 0)
+        status.scene_review = scenes.length > 0 && scenes.every(hasImage)
       }
     } catch { /* unresolved / unreadable plan → leave both false */ }
 
