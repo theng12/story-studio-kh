@@ -934,6 +934,57 @@ export async function transcribeAvailability(baseUrl: string): Promise<VoiceStud
 }
 
 /**
+ * v1.0.520 — POOL-WIDE transcription availability. Probes EVERY enabled Voice
+ * Studio endpoint (not just the first) and merges the results, so the
+ * Subtitles/B-roll UI enable-gate matches what the JOB path
+ * (`runOnTranscribePool`) can actually do: transcription is available when ANY
+ * configured Mac is online with the STT engine loaded, and a model counts as
+ * `cached` if it's downloaded on ANY of them.
+ *
+ * Before this, GET /voicestudio/transcribe-availability probed only
+ * `endpoints[0]` (`voicestudioFirst`), so the "Transcribe (local)" button
+ * stayed disabled whenever the FIRST-listed Mac was offline — even though
+ * other online Macs held the model and the job would have run fine on them.
+ * Probes run in parallel; an unreachable endpoint is skipped, not fatal.
+ */
+export async function pooledTranscribeAvailability(
+  stored: string | null | undefined,
+): Promise<VoiceStudioTranscribeAvailability & { endpoint_count: number; ready_count: number }> {
+  const endpoints = parseEnabledEndpoints(stored)
+  if (endpoints.length === 0) {
+    return { available: false, models: [], endpoint_count: 0, ready_count: 0 }
+  }
+  const results = await Promise.all(endpoints.map(async (baseUrl) => {
+    try { return await transcribeAvailability(baseUrl) } catch { return null }
+  }))
+  const oks = results.filter((a): a is VoiceStudioTranscribeAvailability => !!a)
+  const readyCount = oks.filter(a => a.available).length
+  // Merge model catalogs by repo. `cached`/`recommended` are OR'd across
+  // endpoints — a model the pool can use if it's ready on ANY one Mac.
+  const byRepo = new Map<string, VoiceStudioTranscribeModel>()
+  for (const a of oks) {
+    for (const m of (a.models || [])) {
+      const prev = byRepo.get(m.repo)
+      byRepo.set(m.repo, {
+        ...prev,
+        ...m,
+        cached: !!(prev?.cached || m.cached),
+        recommended: !!(prev?.recommended || m.recommended),
+      })
+    }
+  }
+  return {
+    available: readyCount > 0,
+    mlx_audio: oks.some(a => a.mlx_audio),
+    device: oks.find(a => a.device)?.device,
+    default_model: oks.find(a => a.default_model)?.default_model,
+    models: [...byRepo.values()],
+    endpoint_count: endpoints.length,
+    ready_count: readyCount,
+  }
+}
+
+/**
  * v1.0.290 — walk a stored comma/space-separated URL list and return the
  * FIRST endpoint that responds to the transcribe-availability probe AND
  * reports `available: true`. Returns null if none are reachable + ready.

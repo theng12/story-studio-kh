@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.520 — 2026-07-07
+
+**Local subtitle transcription now works whenever *any* of your Macs is online — not just the first one.** With several Voice Studio Macs configured, the "Transcribe (local)" button was disabled unless the *first-listed* Mac was reachable — even though the transcription job itself already runs on whichever Mac is free. The mismatch: the availability check the button reads only ever probed endpoint #0, while the actual job path probes the whole pool. Now the availability check probes every configured Mac in parallel and reports the feature available when **any** of them is online with the Whisper model downloaded (a model counts as ready if it's cached on any one Mac; their model lists are merged). So the first Mac can be off and you can still transcribe on the others. The same shared check gates B-roll transcription, so that's fixed too.
+
 ## v1.0.519 — 2026-07-05
 
 **Scene-planning no longer shows "pending" when your scene images were made outside the app.** The pipeline's Scene Review status counted a scene as done only if the app *itself* had rendered its image — it read the `image_path` field the in-app renderer writes into `scene_plan.json`. Images you generate elsewhere (e.g. via a browser extension) and drop into the "05 Scene Images" folder with the correct `<scene_id>.png` name never set that field, so episodes stayed stuck at "pending" even though every image was already on disk. Status now detects scene images by **file existence** (`<scene_id>.png` in the Scene Images folder) — exactly how the Scene Review page and the video assembler already resolve them — so externally-produced images register automatically, with no manual re-link step. The new check is a strict superset of the old one, so nothing that was already complete flips back to pending. (Also repaired the two affected BrainWise episodes' plans directly, so they show complete on the current build too.)

@@ -944,13 +944,18 @@ router.get('/voicestudio/models', async (req, res) => {
 // missing URL / offline modal (the tab falls back to OpenAI).
 router.get('/voicestudio/transcribe-availability', async (req, res) => {
   try {
-    const { transcribeAvailability, DEFAULT_VOICESTUDIO_BASE_URL } = await import('../lib/voicestudio-client.js')
+    // v1.0.520 — probe the WHOLE pool, not just endpoints[0]. Transcription is
+    // available when ANY configured Mac is online + model-cached, which is
+    // exactly what the job path (runOnTranscribePool) uses. The old code gated
+    // the "Transcribe (local)" button on the first-listed Mac's health, so it
+    // wrongly disabled the feature whenever that one Mac was offline even
+    // though other online Macs could run it.
+    const { pooledTranscribeAvailability } = await import('../lib/voicestudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
-    const baseUrl = vsFirst(await getApiKey('voicestudio')) || DEFAULT_VOICESTUDIO_BASE_URL
-    if (!baseUrl) { res.json({ available: false, configured: false, models: [] }); return }
-    const r = await swrFetch(vsTranscribeCache, `vs-transcribe:${baseUrl}`, async () => {
-      const avail = await transcribeAvailability(baseUrl)
-      return { ...avail, configured: true }
+    const stored = await getApiKey('voicestudio')
+    const r = await swrFetch(vsTranscribeCache, `vs-transcribe-pool:${stored || ''}`, async () => {
+      const avail = await pooledTranscribeAvailability(stored)
+      return { ...avail, configured: avail.endpoint_count > 0 }
     }, { forceRefresh: req.query.refresh === '1' })
     res.json({ ...r.value, stale: r.stale || undefined })
   } catch (e: any) {
