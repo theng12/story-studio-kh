@@ -247,6 +247,17 @@ When a field doesn't seem to be doing anything, find it in this table to know wh
 
 ---
 
+## Scene-plan timing contract (v1.0.521)
+
+An episode that has a `scene_plan.json` (Scene Plan page) gets **plan-exact order and timing in BOTH assemblers**:
+
+- **Timestamp assembler** (`generators/timestamp-video-assemble.ts`, Scene Review → Assemble / `timestamp_assemble` pipeline step): always plan-exact — one image/clip per scene, `end_sec − start_sec` windows, hard-fail on missing images, window-anchored crossfades.
+- **Video Assembly page** (`generators/video.ts`, `video_assembly` job): when the scene pool is the Scene Plan renders and **every** request scene matches a plan scene id (matched by id / image basename, not absolute path), the render enters **plan-strict mode** — plan order, exact windows, no recycling/shuffle/chapter-align, no scene reuse, crossfades anchored on plan boundaries (prepared clips carry a +transition tail so dissolves never shorten a scene). A narration longer than the plan is covered by the post-audio fade/hold tail, never by repeating scenes.
+
+**Recycling, shuffle, seconds-per-scene, and chapter alignment apply ONLY to classic / combined / image-pool / broll pools** — pools whose filenames never match plan scene ids, so plan-strict cannot trip on them. Switching the pool selector to Classic/Combined is the explicit opt-out back to recycled pacing. The ordering contract is pinned by `__tests__/video-plan-order.test.ts`; the decoder-safe stills concat by `__tests__/timestamp-still-concat.test.ts`.
+
+---
+
 ## Common pitfalls
 
 - **Forgetting to set `visualSource`** — defaults to `scene-images`. If your format is meant for stock footage, you MUST set `'broll'` explicitly, otherwise the user lands on the wrong pages

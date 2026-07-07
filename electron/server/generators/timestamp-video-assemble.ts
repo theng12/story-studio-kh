@@ -25,7 +25,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import os from 'os'
 import path from 'path'
-import { appendCappedTail, stillDecoderArgs } from '../lib/ffmpeg-utils.js'
+import { appendCappedTail, stillDecoderArgs, sniffStillFormat } from '../lib/ffmpeg-utils.js'
 import { spawn } from 'child_process'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -55,6 +55,54 @@ interface TimestampAssembleParams {
 }
 
 const MIN_SCENE_DURATION_SEC = 0.5
+
+/**
+ * v1.0.521 — plan the plain-stills concat list with decoder safety.
+ *
+ * The concat DEMUXER picks each file's decoder by extension; a JPEG saved as
+ * `.png` (what browser-extension image flows produce) hits the FFmpeg-8
+ * wrong-decoder wedge/flash class that v1.0.515 fixed everywhere else — but
+ * a concat list can't carry per-file `-c:v` pins. So: files whose magic
+ * bytes really are PNG pass through verbatim; anything else decodable is
+ * transcoded ONCE to a true temp PNG the list references instead; an
+ * unrecognizable file throws the same actionable error stillDecoderArgs
+ * throws. Pure (no I/O): callers pre-sniff and run the returned transcodes.
+ */
+export function planStillConcat(
+  entries: Array<{ path: string; durationSec: number; sniffed: string | null }>,
+  makeTranscodePath: (index: number) => string,
+): { lines: string[]; transcodes: Array<{ src: string; dest: string; decoder: string }> } {
+  const lines: string[] = []
+  const transcodes: Array<{ src: string; dest: string; decoder: string }> = []
+  const escq = (p: string) => p.replace(/'/g, `'\\''`)
+  const listPathFor = new Map<string, string>()
+  entries.forEach((e, i) => {
+    if (e.sniffed === 'png') {
+      listPathFor.set(e.path, e.path)
+      return
+    }
+    if (!e.sniffed) {
+      throw new Error(
+        `Image is not a decodable PNG/JPEG/WebP (corrupt or wrong file type): ${e.path}. ` +
+        `Regenerate or replace this image, then retry.`,
+      )
+    }
+    if (!listPathFor.has(e.path)) {
+      const dest = makeTranscodePath(i)
+      transcodes.push({ src: e.path, dest, decoder: e.sniffed })
+      listPathFor.set(e.path, dest)
+    }
+  })
+  for (const e of entries) {
+    lines.push(`file '${escq(listPathFor.get(e.path)!)}'`)
+    lines.push(`duration ${e.durationSec.toFixed(3)}`)
+  }
+  // Concat-demuxer idiom: re-state the last file once (single frame) so the
+  // final `duration` directive is honored.
+  const last = entries[entries.length - 1]
+  if (last) lines.push(`file '${escq(listPathFor.get(last.path)!)}'`)
+  return { lines, transcodes }
+}
 
 // v1.0.265 — export resolution presets (w, h). Default 1080p matches the prior
 // hardcoded 1920×1080.
@@ -297,24 +345,10 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   //   xfade     — per-image inputs + xfade chain (+ optional audio mix)
   const vBase = `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1`
 
-  // Concat list of STILLS (used by the non-xfade, non-clips path). In clips mode
-  // the list is built from normalised per-scene chunks inside the try block
-  // below (each chunk needs an ffmpeg pass, so it must run after runFfmpeg is
-  // defined).
+  // Concat list of STILLS (used by the non-xfade, non-clips path). v1.0.521 —
+  // now built INSIDE the try block below (like clips mode), because sniffing
+  // may require transcode passes that need runFfmpeg defined first.
   let concatListPath = ''
-  if (!useXfade && !clipsMode) {
-    const concatLines: string[] = []
-    for (const s of plan.scenes) {
-      const imgPath = imgFor(s.id)
-      concatLines.push(`file '${imgPath.replace(/'/g, `'\\''`)}'`)
-      concatLines.push(`duration ${durOf(s).toFixed(3)}`)
-    }
-    const last = plan.scenes[plan.scenes.length - 1]!
-    concatLines.push(`file '${imgFor(last.id).replace(/'/g, `'\\''`)}'`)
-    concatListPath = path.join(finalDir, `.tmp-${Date.now()}-concat-list.txt`)
-    await fs.writeFile(concatListPath, concatLines.join('\n') + '\n', 'utf-8')
-    job.output_lines.push(`Built concat list with ${plan.scenes.length} scene(s)`)
-  }
 
   // Audio-mix fragment + map target (shared by beds-enabled paths). The final
   // mux always has ONE video input (input 0) — images-concat for hard cuts, or
@@ -452,6 +486,42 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
       }
       concatListPath = path.join(finalDir, `.tmp-${Date.now()}-clip-concat.txt`)
       await fs.writeFile(concatListPath, concatLines.join('\n') + '\n', 'utf-8')
+    } else {
+      // ── Plain stills path (no transitions, no clips). v1.0.521 — decoder-
+      // safe: sniff every still's real bytes; any file whose bytes are NOT
+      // PNG (JPEG saved as `.png` — the browser-extension image flow) is
+      // transcoded once to a true temp PNG, because the concat DEMUXER picks
+      // decoders by file extension and can't take per-file `-c:v` pins (the
+      // FFmpeg-8 wrong-decoder wedge/flash class v1.0.515 fixed on the other
+      // paths). True PNGs pass through verbatim — zero extra work for the
+      // common case.
+      const entries = await Promise.all(plan.scenes.map(async (s) => ({
+        path: imgFor(s.id),
+        durationSec: durOf(s),
+        sniffed: await sniffStillFormat(imgFor(s.id)),
+      })))
+      const stamp = Date.now()
+      const { lines: concatLines, transcodes } = planStillConcat(
+        entries,
+        (i) => path.join(finalDir, `.tmp-${stamp}-still-${i}.png`),
+      )
+      for (let t = 0; t < transcodes.length; t++) {
+        if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
+        const tr = transcodes[t]!
+        chunkFiles.push(tr.dest)  // registered for the shared temp cleanup
+        await runFfmpeg(
+          ['-y', '-c:v', tr.decoder, '-i', tr.src, '-frames:v', '1', tr.dest],
+          `normalize ${t + 1}/${transcodes.length} `,
+        )
+      }
+      if (transcodes.length) {
+        job.output_lines.push(
+          `Normalized ${transcodes.length} still(s) whose bytes weren't PNG (decoder-safe concat).`,
+        )
+      }
+      concatListPath = path.join(finalDir, `.tmp-${stamp}-concat-list.txt`)
+      await fs.writeFile(concatListPath, concatLines.join('\n') + '\n', 'utf-8')
+      job.output_lines.push(`Built concat list with ${plan.scenes.length} scene(s)`)
     }
 
     // ── Final mux: ONE video input (images-concat for hard cuts, or the

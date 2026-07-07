@@ -2193,7 +2193,11 @@ export interface GenerateAudioRequest {
 
 export interface VideoScene {
   image_path: string
-  duration: number
+  /** Per-scene seconds. v1.0.521 — optional: plan-sourced scenes omit it (the
+   *  backend's timestamp-plan bridge stamps the exact planned window); the
+   *  duration cascade in video.ts already guards non-numeric values and falls
+   *  back to scene_recycling.seconds_per_scene. */
+  duration?: number
   title?: string
   show_title: boolean
   /** Per-scene chapter assignment for chapter-aligned video assembly
@@ -2207,6 +2211,12 @@ export interface VideoScene {
   /** Echoed-through scene number (1-based) so the backend can quote
    *  it in alignment plan logs without re-deriving from index. */
   scene_number?: number
+  /** v1.0.521 — scene_plan.json scene id this image renders (set by the
+   *  frontend for Scene Plan pool entries). Lets the backend's timestamp-plan
+   *  bridge match by ID instead of absolute-path equality, which broke across
+   *  machines / renamed folders. Optional — when absent the backend derives it
+   *  from the image filename (`<scene_id>.png`). */
+  plan_scene_id?: string
 }
 
 export interface VideoTitleCard {
@@ -2746,6 +2756,13 @@ export interface GenerateVideoRequest {
   timeline_clips?: VideoTimelineClip[]
   title_image?: VideoTitleImageConfig
   scene_recycling: VideoSceneRecycling
+  /** v1.0.521 — which pool the frontend's scene list came from. When the
+   *  effective pool is 'scene_plan' and every scene matches a plan id, the
+   *  backend enters plan-strict mode: plan-exact order + durations, no
+   *  recycling/shuffle/chapter-align, no scene reuse. 'classic'/'combined'
+   *  explicitly opt OUT of plan-strict even if filenames happen to match.
+   *  Optional — old presets without it rely on the all-scenes-matched check. */
+  scene_pool_mode?: 'auto' | 'scene_plan' | 'classic' | 'combined'
   music?: VideoMusicConfig
   /** @deprecated v1.0.354 — Target Duration removed. The video body always
    *  equals the narration; an optional post-audio tail is the only extension.

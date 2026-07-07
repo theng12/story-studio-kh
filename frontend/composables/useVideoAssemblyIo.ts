@@ -179,16 +179,27 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     }
   }
 
+  /** Effective pool mode after 'auto' resolution — shared by the pool
+   *  selector AND the generate payload so the backend knows whether the
+   *  scene list is plan-sourced (v1.0.521 plan-strict timing). */
+  function effectiveScenePoolMode(): 'scene_plan' | 'classic' | 'combined' {
+    const all = Array.isArray(s.scannedAssets.value?.scenes)
+      ? s.scannedAssets.value.scenes
+      : []
+    const planned = all.filter((img: any) => img.source === 'scene_plan')
+    const requested = s.scenePoolMode?.value || 'auto'
+    return requested === 'auto'
+      ? (planned.length ? 'scene_plan' : 'classic')
+      : requested as 'scene_plan' | 'classic' | 'combined'
+  }
+
   function applyScenePoolMode() {
     const all = Array.isArray(s.scannedAssets.value?.scenes)
       ? s.scannedAssets.value.scenes
       : []
     const planned = all.filter((img: any) => img.source === 'scene_plan')
     const classic = all.filter((img: any) => img.source !== 'scene_plan')
-    const requested = s.scenePoolMode?.value || 'auto'
-    const mode = requested === 'auto'
-      ? (planned.length ? 'scene_plan' : 'classic')
-      : requested
+    const mode = effectiveScenePoolMode()
     const selected = mode === 'scene_plan'
       ? planned
       : mode === 'classic'
@@ -201,6 +212,14 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       number: img.number || i + 1,
       title: img.title || '',
       enabled: true,
+      // v1.0.521 — keep the pool source + plan scene id on each entry so the
+      // generate payload can tell the backend this is a plan-sourced list.
+      // Plan renders are always named `<scene_id>.<ext>`, so the basename
+      // stem IS the id.
+      source: img.source || undefined,
+      plan_scene_id: img.source === 'scene_plan'
+        ? String(img.filename || img.path || '').split('/').pop()!.replace(/\.[^.]+$/, '')
+        : undefined,
     }))
   }
 
@@ -249,11 +268,19 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     // assignment exists for the scene_number — backend then defaults
     // to positional even-split for that scene.
     const assignmentMap = s.sceneAssignmentSaved?.value || {}
+    // v1.0.521 — plan-sourced pools don't stamp the uniform seconds-per-scene
+    // onto every scene: the backend's timestamp-plan bridge is the single
+    // source of truth for plan durations, and a stamped uniform value used to
+    // masquerade as an explicit per-scene duration. The effective pool mode is
+    // sent so the backend can enter plan-strict timing (no recycling/reuse).
+    const poolMode = effectiveScenePoolMode()
     const payload: Record<string, any> = {
       episode_id: s.episodeId.value,
+      scene_pool_mode: poolMode,
       scenes: enabledScenes.map(sc => ({
         image_path: sc.image_path,
-        duration: s.sceneRecycling.seconds_per_scene,
+        duration: poolMode === 'scene_plan' ? undefined : s.sceneRecycling.seconds_per_scene,
+        plan_scene_id: (sc as any).plan_scene_id || undefined,
         title: sc.title || `Scene ${sc.number}`,
         show_title: s.chapterTitles.enabled,
         scene_number: sc.number,
@@ -438,5 +465,5 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     // output panel within milliseconds of clicking Generate.
   }
 
-  return { checkFfmpeg, scanAssets, applyScenePoolMode, generateVideo }
+  return { checkFfmpeg, scanAssets, applyScenePoolMode, generateVideo, effectiveScenePoolMode }
 }

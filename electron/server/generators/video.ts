@@ -902,24 +902,29 @@ export async function generateVideo(job: Job): Promise<void> {
   // <episode>/scene_images/<scene-id>.png files. Stamp their exact planned
   // durations onto the request so the rich renderer preserves the Scene Plan
   // timeline instead of falling back to a uniform seconds-per-scene cycle.
+  //
+  // v1.0.521 — match by SCENE ID, not absolute-path equality. Plan renders are
+  // always named `<scene_id>.<ext>`, and the id survives to the backend as the
+  // image's basename even when the stored absolute path is stale (made on
+  // another Mac, folder renamed — the v1.0.456 bug class). The frontend also
+  // sends an explicit `plan_scene_id` per scene; the basename is the fallback
+  // for old presets. When EVERY request scene matches a plan id (and the pool
+  // isn't explicitly classic/combined), the render enters PLAN-STRICT mode:
+  // plan-exact order + durations, no recycling/shuffle/chapter-align — the fix
+  // for "scenes rush by and get reused" on scene-plan episodes.
+  let planStrict = false
   try {
     const planPath = await resolveScenePlanPath(project_slug, code, episodeDir)
     if (existsSync(planPath)) {
       const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-      const byImagePath = new Map<string, ScenePlan['scenes'][number]>()
-      const legacyDir = path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER)
-      const namedDir = await resolveSceneImagesDir(project_slug, code, episodeDir).catch(() => legacyDir)
+      const planById = new Map<string, ScenePlan['scenes'][number]>()
       for (const scene of plan.scenes || []) {
-        // v1.0.456/457 — key by the unified named path, the legacy flat path, AND
-        // the stored absolute image_path, so the scan-fed req.scenes (which may
-        // carry any of these) still matches and gets its planned duration.
-        byImagePath.set(path.resolve(path.join(namedDir, `${scene.id}.png`)), scene)
-        byImagePath.set(path.resolve(path.join(legacyDir, `${scene.id}.png`)), scene)
-        if (scene.image_path) byImagePath.set(path.resolve(scene.image_path), scene)
+        if (scene?.id) planById.set(scene.id, scene)
       }
       let stamped = 0
       for (const scene of req.scenes) {
-        const planned = byImagePath.get(path.resolve(scene.image_path))
+        const id = (scene.plan_scene_id || '').trim() || path.parse(scene.image_path || '').name
+        const planned = id ? planById.get(id) : undefined
         if (!planned) continue
         const plannedDuration = planned.end_sec - planned.start_sec
         if (Number.isFinite(plannedDuration) && plannedDuration > 0) {
@@ -930,7 +935,17 @@ export async function generateVideo(job: Job): Promise<void> {
           stamped++
         }
       }
-      if (stamped > 0) {
+      const poolMode = (req.scene_pool_mode || 'auto')
+      planStrict = stamped > 0
+        && stamped === req.scenes.length
+        && poolMode !== 'classic'
+        && poolMode !== 'combined'
+      if (planStrict) {
+        job.output_lines.push(
+          `Scene Plan strict mode: ${stamped} scene(s), plan-exact order + timing; ` +
+          `recycling/shuffle/chapter-align disabled`,
+        )
+      } else if (stamped > 0) {
         job.output_lines.push(`Timestamp plan bridge: using exact durations for ${stamped} scene(s) from ${SCENE_PLAN_FILENAME}`)
       }
     }
@@ -1312,6 +1327,26 @@ export async function generateVideo(job: Job): Promise<void> {
       )
     }
 
+    // v1.0.521 — plan-strict xfade tail. In plan mode with a crossfade
+    // transition, each clip renders (window + T) long so dissolves can anchor
+    // at plan boundaries without eating scene time. T is clamped against the
+    // SHORTEST plan window (same rule the timestamp assembler uses at
+    // timestamp-video-assemble.ts:262) — the old clamp against
+    // seconds_per_scene is meaningless when durations come from the plan.
+    let planTransitionTail = 0
+    // (>= 2 scenes AFTER exclusions: a single-clip body never xfades, and the
+    // non-xfade concat path uses the clip verbatim — a baked tail there would
+    // overrun the window.)
+    const planExcluded = new Set(req.scene_recycling?.excluded_scenes || [])
+    const planEffectiveScenes = req.scenes.filter((_, i) => !planExcluded.has(i + 1)).length
+    if (planStrict && planEffectiveScenes >= 2 && req.transition && req.transition !== 'none' && getTransition(req.transition)?.xfade) {
+      const minWindow = Math.min(...sceneClipDurations)
+      planTransitionTail = Math.min(
+        Math.max(0.1, req.transition_duration || 1.5),
+        Math.max(0.1, minWindow - 0.1),
+      )
+    }
+
     const sceneClips = await prepareSceneClips(
       req.scenes, sceneAnimation, req.chapter_titles, resW, resH, quality, tempDir, canDrawtext, req.scene_recycling, job,
       {
@@ -1320,6 +1355,7 @@ export async function generateVideo(job: Job): Promise<void> {
         seed: (req as any).animation_seed,
       },
       sceneClipDurations,
+      planTransitionTail,
     )
 
     // v1.0.423 — sleep-story intro handling. Compute where the STORY begins on
@@ -1623,7 +1659,12 @@ export async function generateVideo(job: Job): Promise<void> {
         primaryId: req.transition,
         pool: (req as any).transition_pool || [],
         randomizeMode: ((req as any).transition_randomize || 'off') as 'off' | 'single' | 'per-scene',
-        durationSec: Math.max(0.2, Math.min(req.transition_duration || 1.5, req.scene_recycling.seconds_per_scene - 0.5)),
+        // v1.0.521 — plan-strict clamps T against the shortest PLAN window
+        // (matches the +T tail baked into the prepared clips); the legacy
+        // clamp against seconds_per_scene only applies to recycled pools.
+        durationSec: planStrict && planTransitionTail > 0
+          ? planTransitionTail
+          : Math.max(0.2, Math.min(req.transition_duration || 1.5, req.scene_recycling.seconds_per_scene - 0.5)),
         seed: (req as any).transition_seed,
       } : undefined,
       outroClipPath,
@@ -1639,6 +1680,7 @@ export async function generateVideo(job: Job): Promise<void> {
       // unassigned) still produces a valid render — the alignment
       // branch falls back to positional placement for unmapped clips.
       req.scenes.map(s => s.chapter_slug),
+      planStrict,
     )
 
     // 11. Pre-mix all audio into a single WAV file. Length must match the
@@ -2029,6 +2071,12 @@ async function prepareSceneClips(
    *  back to the uniform default when an entry is 0/undefined. Clamped
    *  to a sane floor (0.5s) to avoid sub-frame clips. */
   perSceneDurations?: number[],
+  /** v1.0.521 — plan-strict xfade tail. When set (> 0), each clip is rendered
+   *  extraTailSec LONGER than its planned window so window-anchored dissolves
+   *  have overlap material that doesn't eat the scene's on-screen time. All
+   *  timeline math elsewhere keeps using the plain window duration; only the
+   *  physical clip is longer (the xfade chunk caps its output at ΣD). */
+  extraTailSec?: number,
 ): Promise<string[]> {
   // v1.0.515 — filled by index (scenes render in a parallel pool; order must hold).
   const clipPaths: string[] = new Array(scenes.length)
@@ -2071,6 +2119,9 @@ async function prepareSceneClips(
           ? explicitSceneDuration
           : defaultDuration
     const duration = Math.max(0.5, durationCandidate)
+    // v1.0.521 — plan-strict xfade tail: the physical clip renders longer than
+    // its planned window; the window itself stays `duration` everywhere else.
+    const renderDuration = duration + Math.max(0, extraTailSec || 0)
 
     // v1.0.414 — a scene whose source is a video (materialized B-Roll clip)
     // is normalised to the canvas by crop-fill and plays for the same uniform
@@ -2093,7 +2144,10 @@ async function prepareSceneClips(
           params: sceneAnimation,
           w, h,
           fps: quality.fps,
-          duration,
+          // Pace Ken Burns over the FULL rendered length (window + xfade
+          // tail) so motion continues smoothly through a dissolve instead
+          // of freezing on the overlap.
+          duration: renderDuration,
         })
 
     // Chapter title overlay. v1.0.56+ optionally animates entry via
@@ -2189,7 +2243,7 @@ async function prepareSceneClips(
           : ['-stream_loop', '-1', '-i', scene.image_path])
       : singleFrameStill
         ? [...stillDecoder, '-i', scene.image_path]
-        : [...stillDecoder, '-loop', '1', '-t', duration.toString(), '-i', scene.image_path]
+        : [...stillDecoder, '-loop', '1', '-t', renderDuration.toString(), '-i', scene.image_path]
     const args = [
       '-y', ...inputArgs,
       '-vf', vfParts.join(','),
@@ -2198,7 +2252,7 @@ async function prepareSceneClips(
       '-fps_mode', 'cfr', '-pix_fmt', 'yuv420p',
       '-color_range', 'tv', '-colorspace', 'bt709',
       '-color_primaries', 'bt709', '-color_trc', 'bt709',
-      '-t', duration.toString(),  // Guarantee exact output duration
+      '-t', renderDuration.toString(),  // Guarantee exact output duration (window + optional xfade tail)
       '-an',
       clipPath,
     ]
@@ -2358,6 +2412,181 @@ export function fitSceneDurationsToTarget(
   )
   result[result.length - 1] = Math.min(result[result.length - 1]!, requiredLastDuration)
   return result
+}
+
+export type ScenePlayClip = { path: string; duration: number }
+
+/**
+ * v1.0.521 — pure scene-body planner, extracted from buildConcatList so the
+ * ordering/duration/reuse contract is directly testable. Three modes:
+ *
+ *   1. PLAN-STRICT (scene-plan episodes): one entry per clip, plan order,
+ *      exact per-scene durations. NO cycling, NO shuffle, NO chapter-align —
+ *      the scene body mirrors scene_plan.json 1:1. If the plan total differs
+ *      from the narration window by >2s a diagnostic line is emitted (a
+ *      longer narration is covered by the post-audio fade/hold tail, never by
+ *      repeating scenes).
+ *   2. Chapter-aligned (Workstream B): partition scenes across chapter
+ *      durations; each bucket cycles within its own chapter window.
+ *   3. Legacy uniform cycling: the whole bag repeats until the narration
+ *      window is filled; optional shuffle per cycle.
+ *
+ * `random` is injectable so shuffle behavior is deterministic under test.
+ */
+export function buildScenePlayOrder(opts: {
+  availableClips: string[]
+  availableDurations: number[]
+  availableSlugs: Array<string | undefined>
+  /** Uniform fallback seconds (recycling.seconds_per_scene). */
+  sceneDuration: number
+  /** Seconds of narration the scene body must cover (post-intro). */
+  sceneFillDuration: number
+  /** Sum of availableDurations — one full pass through the bag. */
+  durationPerCycle: number
+  shuffle: boolean
+  planStrict: boolean
+  chapterAlignment?: {
+    enabled: boolean
+    chapterDurations: Array<{ slug: string; duration_s: number }>
+  }
+  random?: () => number
+}): { scenePlayOrder: ScenePlayClip[]; logLines: string[]; chapterAlignActive: boolean } {
+  const {
+    availableClips, availableDurations, availableSlugs,
+    sceneDuration, sceneFillDuration, durationPerCycle,
+    shuffle, planStrict, chapterAlignment,
+  } = opts
+  const random = opts.random ?? Math.random
+  const scenePlayOrder: ScenePlayClip[] = []
+  const logLines: string[] = []
+
+  // Mode 1 — plan-strict: the scene body IS the plan. Nothing cycles.
+  if (planStrict) {
+    for (let i = 0; i < availableClips.length; i++) {
+      scenePlayOrder.push({ path: availableClips[i]!, duration: availableDurations[i] ?? sceneDuration })
+    }
+    const total = scenePlayOrder.reduce((sum, c) => sum + c.duration, 0)
+    if (Math.abs(total - sceneFillDuration) > 2) {
+      logLines.push(
+        `Scene Plan strict: plan total ${total.toFixed(1)}s vs narration window ${sceneFillDuration.toFixed(1)}s — ` +
+        (total < sceneFillDuration
+          ? 'the post-audio tail (fade/hold) covers the remainder; scenes are NOT repeated.'
+          : 'the video keeps every planned scene; any excess past the target is clipped at the end.'),
+      )
+    }
+    return { scenePlayOrder, logLines, chapterAlignActive: false }
+  }
+
+  const chapterAlignActive = !!(chapterAlignment?.enabled
+    && chapterAlignment.chapterDurations.length > 0
+    && availableClips.length > 0)
+
+  if (chapterAlignActive) {
+    const chapters = chapterAlignment!.chapterDurations
+    const C = chapters.length
+    const S = availableClips.length
+
+    // Two ways to partition. Explicit-slug mode beats positional when
+    // ANY scene carries a chapter_slug — assumes the user opened the
+    // per-scene swap UI and edited assignments. Positional even-split
+    // is the legacy Workstream B behaviour and the safe fallback when
+    // no slugs are set.
+    const hasExplicitSlugs = availableSlugs.some(s => typeof s === 'string' && s.length > 0)
+    type ChapterBucket = { ch: typeof chapters[number]; clips: ScenePlayClip[] }
+    const buckets: ChapterBucket[] = chapters.map(ch => ({ ch, clips: [] }))
+    const bucketIdxBySlug = new Map<string, number>()
+    chapters.forEach((ch, i) => bucketIdxBySlug.set(ch.slug, i))
+
+    if (hasExplicitSlugs) {
+      // Explicit assignments. For each clip, look up its slug; if it
+      // resolves to a known chapter, drop into that bucket. Clips
+      // without a slug (or with an unknown one) fall back to positional
+      // assignment in their natural index — they get bucketed by the
+      // same baseSpc / extra split we use in even-split mode below.
+      const baseSpc = Math.floor(S / C)
+      const extra = S - baseSpc * C
+      const positionalBucket = (clipIdx: number): number => {
+        // Reverse the cumulative-sum table so we can map clip index
+        // directly to bucket without iterating chapters per clip.
+        let acc = 0
+        for (let ci = 0; ci < C; ci++) {
+          const sz = baseSpc + (ci < extra ? 1 : 0)
+          if (clipIdx < acc + sz) return ci
+          acc += sz
+        }
+        return C - 1
+      }
+      for (let i = 0; i < availableClips.length; i++) {
+        const slug = availableSlugs[i]
+        let bIdx = -1
+        if (slug && bucketIdxBySlug.has(slug)) bIdx = bucketIdxBySlug.get(slug)!
+        if (bIdx < 0) bIdx = positionalBucket(i)
+        buckets[bIdx]!.clips.push({ path: availableClips[i]!, duration: availableDurations[i] || sceneDuration })
+      }
+      logLines.push(
+        `Chapter alignment: ON · explicit per-scene assignments (any unmapped scene falls to positional default)`,
+      )
+    } else {
+      // Positional even-split (legacy Workstream B behaviour).
+      const baseSpc = Math.floor(S / C)
+      const extra = S - baseSpc * C
+      let cursor = 0
+      for (let ci = 0; ci < C; ci++) {
+        const chapterScenes = baseSpc + (ci < extra ? 1 : 0)
+        const sliceClips = availableClips.slice(cursor, cursor + chapterScenes)
+        buckets[ci]!.clips.push(...sliceClips.map((clip, i) => ({
+          path: clip,
+          duration: availableDurations[cursor + i] || sceneDuration,
+        })))
+        cursor += chapterScenes
+      }
+    }
+
+    // Cycle each bucket within its chapter's audio duration. Empty
+    // buckets borrow the previous bucket's last clip so the chapter
+    // doesn't render as a silent gap (covers S < C and odd skews).
+    let lastNonEmpty: ScenePlayClip | null = null
+    const chapterPlanLog: string[] = []
+    for (let ci = 0; ci < C; ci++) {
+      const b = buckets[ci]!
+      if (b.clips.length === 0) {
+        const fallback = lastNonEmpty
+          ?? buckets.find(o => o.clips.length > 0)?.clips[0]
+          ?? { path: availableClips[0]!, duration: availableDurations[0] || sceneDuration }
+        b.clips.push(fallback)
+      }
+      lastNonEmpty = b.clips[b.clips.length - 1]!
+      let chapterVisualSec = 0
+      let clipsNeeded = 0
+      while (chapterVisualSec < b.ch.duration_s || clipsNeeded === 0) {
+        const pick = b.clips[clipsNeeded % b.clips.length]!
+        scenePlayOrder.push(pick)
+        chapterVisualSec += pick.duration
+        clipsNeeded++
+      }
+      chapterPlanLog.push(`${b.ch.slug}: ${b.clips.length} scene(s) × ${clipsNeeded} cycle(s) = ${b.ch.duration_s.toFixed(1)}s`)
+    }
+    logLines.push(
+      `Chapter alignment: ${C} chapter(s), ${S} scene(s) total — ${chapterPlanLog.join(' | ')}`,
+    )
+  } else {
+    const cyclesNeeded = Math.max(1, Math.ceil(sceneFillDuration / durationPerCycle))
+    for (let cycle = 0; cycle < cyclesNeeded; cycle++) {
+      let cycleClips = [...availableClips]
+      if (shuffle) {
+        for (let i = cycleClips.length - 1; i > 0; i--) {
+          const j = Math.floor(random() * (i + 1));
+          [cycleClips[i], cycleClips[j]] = [cycleClips[j], cycleClips[i]]
+        }
+      }
+      for (const clip of cycleClips) {
+        const originalIdx = availableClips.indexOf(clip)
+        scenePlayOrder.push({ path: clip, duration: availableDurations[originalIdx] || sceneDuration })
+      }
+    }
+  }
+
+  return { scenePlayOrder, logLines, chapterAlignActive }
 }
 
 // ── Prepare Intro Clip (re-encode to match resolution) ────────────────────
@@ -2682,6 +2911,12 @@ async function buildConcatList(
    *  back to positional placement so a half-edited assignment file
    *  still produces a valid render. */
   sceneChapterSlugs?: Array<string | undefined>,
+  /** v1.0.521 — plan-strict mode (scene-plan episode with every scene
+   *  matched to a plan id): plan-exact order + durations, no cycling /
+   *  shuffle / chapter-align / fit-trim; xfades are window-anchored (the
+   *  prepared clips carry a +transition tail) so transitions never eat
+   *  into a scene's planned window. */
+  planStrict?: boolean,
 ): Promise<{ listPath: string; sceneEndTime: number }> {
   const listPath = path.join(tempDir, 'concat_list.txt')
   const lines: string[] = []
@@ -2768,116 +3003,24 @@ async function buildConcatList(
   //     ordering must follow chapter order to preserve the alignment.
   //  B) Legacy uniform cycling: every scene gets the same duration and
   //     the whole bag cycles to fill `sceneFillDuration`.
-  type ScenePlayClip = { path: string; duration: number }
-  const scenePlayOrder: ScenePlayClip[] = []
-  const chapterAlignActive = !!(chapterAlignment?.enabled
-    && chapterAlignment.chapterDurations.length > 0
-    && availableClips.length > 0)
-
-  if (chapterAlignActive) {
-    const chapters = chapterAlignment!.chapterDurations
-    const C = chapters.length
-    const S = availableClips.length
-
-    // Two ways to partition. Explicit-slug mode beats positional when
-    // ANY scene carries a chapter_slug — assumes the user opened the
-    // per-scene swap UI and edited assignments. Positional even-split
-    // is the legacy Workstream B behaviour and the safe fallback when
-    // no slugs are set.
-    const hasExplicitSlugs = availableSlugs.some(s => typeof s === 'string' && s.length > 0)
-    type ChapterBucket = { ch: typeof chapters[number]; clips: ScenePlayClip[] }
-    const buckets: ChapterBucket[] = chapters.map(ch => ({ ch, clips: [] }))
-    const bucketIdxBySlug = new Map<string, number>()
-    chapters.forEach((ch, i) => bucketIdxBySlug.set(ch.slug, i))
-
-    if (hasExplicitSlugs) {
-      // Explicit assignments. For each clip, look up its slug; if it
-      // resolves to a known chapter, drop into that bucket. Clips
-      // without a slug (or with an unknown one) fall back to positional
-      // assignment in their natural index — they get bucketed by the
-      // same baseSpc / extra split we use in even-split mode below.
-      const baseSpc = Math.floor(S / C)
-      const extra = S - baseSpc * C
-      const positionalBucket = (clipIdx: number): number => {
-        // Reverse the cumulative-sum table so we can map clip index
-        // directly to bucket without iterating chapters per clip.
-        let acc = 0
-        for (let ci = 0; ci < C; ci++) {
-          const sz = baseSpc + (ci < extra ? 1 : 0)
-          if (clipIdx < acc + sz) return ci
-          acc += sz
-        }
-        return C - 1
-      }
-      for (let i = 0; i < availableClips.length; i++) {
-        const slug = availableSlugs[i]
-        let bIdx = -1
-        if (slug && bucketIdxBySlug.has(slug)) bIdx = bucketIdxBySlug.get(slug)!
-        if (bIdx < 0) bIdx = positionalBucket(i)
-        buckets[bIdx]!.clips.push({ path: availableClips[i]!, duration: availableDurations[i] || sceneDuration })
-      }
-      job.output_lines.push(
-        `Chapter alignment: ON · explicit per-scene assignments (any unmapped scene falls to positional default)`,
-      )
-    } else {
-      // Positional even-split (legacy Workstream B behaviour).
-      const baseSpc = Math.floor(S / C)
-      const extra = S - baseSpc * C
-      let cursor = 0
-      for (let ci = 0; ci < C; ci++) {
-        const chapterScenes = baseSpc + (ci < extra ? 1 : 0)
-        const sliceClips = availableClips.slice(cursor, cursor + chapterScenes)
-        buckets[ci]!.clips.push(...sliceClips.map((clip, i) => ({
-          path: clip,
-          duration: availableDurations[cursor + i] || sceneDuration,
-        })))
-        cursor += chapterScenes
-      }
-    }
-
-    // Cycle each bucket within its chapter's audio duration. Empty
-    // buckets borrow the previous bucket's last clip so the chapter
-    // doesn't render as a silent gap (covers S < C and odd skews).
-    let lastNonEmpty: ScenePlayClip | null = null
-    const chapterPlanLog: string[] = []
-    for (let ci = 0; ci < C; ci++) {
-      const b = buckets[ci]!
-      if (b.clips.length === 0) {
-        const fallback = lastNonEmpty
-          ?? buckets.find(o => o.clips.length > 0)?.clips[0]
-          ?? { path: availableClips[0]!, duration: availableDurations[0] || sceneDuration }
-        b.clips.push(fallback)
-      }
-      lastNonEmpty = b.clips[b.clips.length - 1]!
-      let chapterVisualSec = 0
-      let clipsNeeded = 0
-      while (chapterVisualSec < b.ch.duration_s || clipsNeeded === 0) {
-        const pick = b.clips[clipsNeeded % b.clips.length]!
-        scenePlayOrder.push(pick)
-        chapterVisualSec += pick.duration
-        clipsNeeded++
-      }
-      chapterPlanLog.push(`${b.ch.slug}: ${b.clips.length} scene(s) × ${clipsNeeded} cycle(s) = ${b.ch.duration_s.toFixed(1)}s`)
-    }
-    job.output_lines.push(
-      `Chapter alignment: ${C} chapter(s), ${S} scene(s) total — ${chapterPlanLog.join(' | ')}`,
-    )
-  } else {
-    const cyclesNeeded = Math.max(1, Math.ceil(sceneFillDuration / durationPerCycle))
-    for (let cycle = 0; cycle < cyclesNeeded; cycle++) {
-      let cycleClips = [...availableClips]
-      if (recycling.shuffle) {
-        for (let i = cycleClips.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [cycleClips[i], cycleClips[j]] = [cycleClips[j], cycleClips[i]]
-        }
-      }
-      for (const clip of cycleClips) {
-        const originalIdx = availableClips.indexOf(clip)
-        scenePlayOrder.push({ path: clip, duration: availableDurations[originalIdx] || sceneDuration })
-      }
-    }
-  }
+  // v1.0.521 — the ordering/duration/reuse decision lives in the exported
+  // pure planner (buildScenePlayOrder) so tests can pin the contract:
+  // plan-strict = plan-exact 1:1, chapter-align = per-chapter cycling,
+  // legacy = uniform bag cycling.
+  const planned = buildScenePlayOrder({
+    availableClips,
+    availableDurations,
+    availableSlugs,
+    sceneDuration,
+    sceneFillDuration,
+    durationPerCycle,
+    shuffle: !!recycling.shuffle,
+    planStrict: !!planStrict,
+    chapterAlignment,
+  })
+  const scenePlayOrder = planned.scenePlayOrder
+  const chapterAlignActive = planned.chapterAlignActive
+  for (const line of planned.logLines) job.output_lines.push(line)
 
   // Decide whether to pre-xfade the scenes into a single fused MP4.
   // Pre-xfade runs only when: more than one clip, a primary transition was
@@ -2902,7 +3045,13 @@ async function buildConcatList(
     ),
   )
 
-  if (xfadeEnabled && transitionOpts) {
+  // v1.0.521 — coverage-extension and fit-trim are RECYCLING mechanisms:
+  // they add repeated clips (reuse!) or drop/trim clips to make a cycled bag
+  // meet the narration window. In plan-strict mode the scene body is the plan
+  // verbatim — never extended with repeats, never trimmed to fit — so both
+  // blocks are skipped. Plan-mode xfades are window-anchored instead (the
+  // prepared clips carry a +transition tail; see the chunk loop below).
+  if (!planStrict && xfadeEnabled && transitionOpts) {
     const shortestClip = Math.min(...scenePlayOrder.map(c => c.duration))
     const effectiveTransitionDuration = Math.min(
       transitionOpts.durationSec,
@@ -2936,32 +3085,34 @@ async function buildConcatList(
         Math.max(0.1, Math.min(...scenePlayOrder.map(c => c.duration)) - 0.1),
       )
     : 0
-  const fittedDurations = fitSceneDurationsToTarget(
-    scenePlayOrder.map(c => c.duration),
-    sceneFillDuration,
-    effectiveTransitionDuration,
-    XFADE_CHUNK_SIZE,
-  )
-  if (fittedDurations.length < scenePlayOrder.length) {
-    const removed = scenePlayOrder.length - fittedDurations.length
-    scenePlayOrder.splice(fittedDurations.length)
-    job.output_lines.push(`Timeline fit: removed ${removed} surplus repeated scene clip(s).`)
-  }
-  const finalIdx = fittedDurations.length - 1
-  const fittedFinalDuration = fittedDurations[finalIdx]
-  if (finalIdx >= 0 && fittedFinalDuration != null) {
-    const finalClip = scenePlayOrder[finalIdx]!
-    if (fittedFinalDuration + 0.01 < finalClip.duration) {
-      finalClip.path = await trimPreparedSceneClip(
-        finalClip.path,
-        fittedFinalDuration,
-        quality,
-        tempDir,
-      )
-      finalClip.duration = fittedFinalDuration
-      job.output_lines.push(
-        `Timeline fit: trimmed final scene to ${fittedFinalDuration.toFixed(2)}s so the post-audio tail starts after narration.`,
-      )
+  if (!planStrict) {
+    const fittedDurations = fitSceneDurationsToTarget(
+      scenePlayOrder.map(c => c.duration),
+      sceneFillDuration,
+      effectiveTransitionDuration,
+      XFADE_CHUNK_SIZE,
+    )
+    if (fittedDurations.length < scenePlayOrder.length) {
+      const removed = scenePlayOrder.length - fittedDurations.length
+      scenePlayOrder.splice(fittedDurations.length)
+      job.output_lines.push(`Timeline fit: removed ${removed} surplus repeated scene clip(s).`)
+    }
+    const finalIdx = fittedDurations.length - 1
+    const fittedFinalDuration = fittedDurations[finalIdx]
+    if (finalIdx >= 0 && fittedFinalDuration != null) {
+      const finalClip = scenePlayOrder[finalIdx]!
+      if (fittedFinalDuration + 0.01 < finalClip.duration) {
+        finalClip.path = await trimPreparedSceneClip(
+          finalClip.path,
+          fittedFinalDuration,
+          quality,
+          tempDir,
+        )
+        finalClip.duration = fittedFinalDuration
+        job.output_lines.push(
+          `Timeline fit: trimmed final scene to ${fittedFinalDuration.toFixed(2)}s so the post-audio tail starts after narration.`,
+        )
+      }
     }
   }
 
@@ -3014,16 +3165,38 @@ async function buildConcatList(
     for (let c = 0; c < chunks.length; c++) {
       const chunk = chunks[c]
       const chunkPath = path.join(tempDir, `scenes_xfaded_${String(c).padStart(2, '0')}.mp4`)
+      // v1.0.521 — plan-strict: each prepared clip physically carries a
+      // +transition tail (rendered D_i + T long; see prepareSceneClips), so
+      // feeding the EXTENDED lengths to the offset math anchors every
+      // dissolve at the plan boundary (offset_i = ΣD_0..i) and no scene's
+      // window is eaten. The chunk is then capped at ΣD (its window sum) to
+      // trim the final clip's tail overshoot. Non-plan mode keeps the legacy
+      // behavior (windows shrink by T per boundary, compensated upstream by
+      // recycled coverage clips).
+      const chunkWindowSum = chunk.reduce((sum, o) => sum + o.duration, 0)
 
       if (chunk.length === 1) {
-        // A singleton chunk can't xfade anything. Stream-copy it so the
-        // output has a stable filename and the concat list shape is uniform.
-        await runFfmpeg(['-y', '-i', chunk[0]!.path, '-c:v', 'copy', '-an', chunkPath])
+        if (planStrict) {
+          // Singleton clip still carries the +T tail — re-encode with a hard
+          // -t cap so the chunk is exactly its planned window.
+          await runFfmpeg([
+            '-y', '-i', chunk[0]!.path,
+            '-t', chunkWindowSum.toFixed(3),
+            '-c:v', 'libx264', '-crf', quality.crf.toString(), '-preset', 'ultrafast',
+            '-r', quality.fps.toString(), '-fps_mode', 'cfr', '-pix_fmt', 'yuv420p', '-an', chunkPath,
+          ])
+        } else {
+          // A singleton chunk can't xfade anything. Stream-copy it so the
+          // output has a stable filename and the concat list shape is uniform.
+          await runFfmpeg(['-y', '-i', chunk[0]!.path, '-c:v', 'copy', '-an', chunkPath])
+        }
       } else {
         const internalBoundaries = chunk.length - 1
         const keywordsForChunk = plan.xfadeKeywords.slice(keywordCursor, keywordCursor + internalBoundaries)
-        const chunkDurations = chunk.map(o => o.duration)
-        const variableDurations = chunkDurations.some(d => Math.abs(d - sceneDuration) > 0.01)
+        const chunkDurations = planStrict
+          ? chunk.map(o => o.duration + plan.durationSec)
+          : chunk.map(o => o.duration)
+        const variableDurations = planStrict || chunkDurations.some(d => Math.abs(d - sceneDuration) > 0.01)
         const filter = variableDurations
           ? buildVariableXfadeFilterComplex({
               inputDurations: chunkDurations,
@@ -3040,6 +3213,7 @@ async function buildConcatList(
         for (const clip of chunk) args.push('-i', clip.path)
         args.push('-filter_complex', filter)
         args.push('-map', '[vout]')
+        if (planStrict) args.push('-t', chunkWindowSum.toFixed(3))
         args.push('-c:v', 'libx264', '-crf', quality.crf.toString(), '-preset', 'ultrafast')
         args.push('-r', quality.fps.toString(), '-fps_mode', 'cfr', '-pix_fmt', 'yuv420p', '-an', chunkPath)
         await runFfmpeg(args)
@@ -3073,16 +3247,22 @@ async function buildConcatList(
   // at each xfade overlap. With chunking, chunk boundaries are hard cuts
   // (no overlap), so savings = (xfades actually performed) × t.
   // Actual xfades = (totalClips - 1) - hardCuts.
-  const xfadeSavings = xfadeEnabled && transitionOpts
+  //
+  // v1.0.521 — plan-strict has NO savings: dissolves are window-anchored
+  // (each prepared clip carries a +T tail), so the scene body's on-screen
+  // length is exactly the plan total.
+  const xfadeSavings = !planStrict && xfadeEnabled && transitionOpts
     ? Math.max(0, (totalClips - 1 - xfadeHardCuts)) * Math.min(transitionOpts.durationSec, Math.max(0.1, Math.min(...scenePlayOrder.map(c => c.duration)) - 0.1))
     : 0
   const sceneEndTime = accumulatedDuration + totalScenePlayDuration - xfadeSavings
   // `cyclesNeeded` only makes sense in legacy uniform-cycling mode. The
   // chapter-aligned path doesn't have a single global cycle count, so
   // we report a derived round-trip number for diagnostics either way.
-  const reportedCycles = chapterAlignActive
-    ? `${chapterAlignment!.chapterDurations.length}-chapter aligned`
-    : `${Math.max(1, Math.ceil(sceneFillDuration / durationPerCycle))} cycle(s)`
+  const reportedCycles = planStrict
+    ? 'plan-strict (single pass, no recycling)'
+    : chapterAlignActive
+      ? `${chapterAlignment!.chapterDurations.length}-chapter aligned`
+      : `${Math.max(1, Math.ceil(sceneFillDuration / durationPerCycle))} cycle(s)`
   job.output_lines.push(`Scene clips: ${reportedCycles}, ${totalClips} clips (${sceneEndTime.toFixed(0)}s)`)
 
   // Bucket 3 of 4 — after_scenes: between the last scene cycle and the

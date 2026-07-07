@@ -688,6 +688,18 @@
         </p>
       </div>
 
+      <!-- v1.0.521 — Scene Plan pool: plan-exact timing, recycling disabled. -->
+      <div v-else-if="isPlanStrict" class="settings-section mt-2">
+        <h4>Scene Pacing</h4>
+        <p class="text-muted text-sm hint-line">
+          <strong>Scene Plan timing</strong> — every scene plays for exactly its planned window from
+          <em>scene_plan.json</em>, in plan order, with no repeats. Recycling and shuffle don't apply.
+          Transitions crossfade <em>on</em> the plan boundaries (they never shorten a scene), and
+          if the narration runs past the last scene the post-audio tail (fade/hold) covers the rest.
+          To use recycled pacing instead, switch the scene pool above to <em>Classic</em> or <em>Combined</em>.
+        </p>
+      </div>
+
       <!-- Scene Recycling (recycled formats only) -->
       <div v-else class="settings-section mt-2">
         <h4>Scene Recycling</h4>
@@ -883,7 +895,7 @@
         <h4>Video Length</h4>
         <div class="summary-bar mt-1">
           <template v-if="totalAudioDuration > 0">
-            Follows the narration — ~{{ formatDurationLong(totalAudioDuration) }}{{ isSentenceTimed ? '' : ` (scenes cycle ~${estimatedCycles}×)` }}.
+            Follows the narration — ~{{ formatDurationLong(totalAudioDuration) }}{{ (isSentenceTimed || isPlanStrict) ? '' : ` (scenes cycle ~${estimatedCycles}×)` }}.
           </template>
           <template v-else>
             Follows the narration — scan an episode with merged audio to see the exact length.
@@ -893,7 +905,9 @@
           The old Target Duration control is gone — there's no padding or random range.
           {{ isSentenceTimed
             ? 'Scenes are transcript-timed, so each holds for exactly its planned span.'
-            : 'Scenes loop in order until the audio finishes.' }}
+            : isPlanStrict
+              ? 'Scenes follow the Scene Plan — each holds for exactly its planned window, no repeats.'
+              : 'Scenes loop in order until the audio finishes.' }}
           To add a clean ending, use “After Narration Ends” below.
         </p>
       </div>
@@ -2641,6 +2655,12 @@ const effectiveScenePoolMode = computed(() =>
   scenePoolMode.value === 'auto'
     ? (sceneSourceCounts.value.scene_plan > 0 ? 'scene_plan' : 'classic')
     : scenePoolMode.value,
+)
+// v1.0.521 — plan-strict: the scene pool is the Scene Plan renders, so the
+// backend uses plan-exact order + timing (no recycling/shuffle/reuse). The
+// recycling panel is replaced with an explanatory note in this mode.
+const isPlanStrict = computed(() =>
+  effectiveScenePoolMode.value === 'scene_plan' && sceneSourceCounts.value.scene_plan > 0,
 )
 
 // --------------- Step 2: Branding ---------------
