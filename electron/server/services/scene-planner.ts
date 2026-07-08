@@ -579,6 +579,127 @@ export function repairPlanCoverage(
   return { scenes: out, changes, coverageBefore }
 }
 
+// ── Reconcile plan timings to the current subtitles (v1.0.523) ──────────────
+// When the audio is re-generated / re-stitched AFTER a plan was made (e.g.
+// files added, an intro chapter dropped), the plan's start/end become stale —
+// the scenes drift out of sync with the voice (measured: a uniform 28s shift
+// on brain-wise EP0022/24 after the intro-skip offset changed). Re-anchor each
+// existing scene to WHERE ITS NARRATION ACTUALLY IS NOW by text-matching its
+// transcript_segment against the current stitched-SRT cues — preserving every
+// scene id, image, and prompt (no re-plan, no forfeited images).
+
+/** Normalize a chunk of narration to comparable word tokens (lowercase,
+ *  alphanumeric-only, whitespace-collapsed). */
+function normalizeWords(text: string): string[] {
+  return (text || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+}
+
+export interface ReconcileResult {
+  scenes: ScenePlanEntry[]
+  matchedCount: number
+  unmatchedIds: string[]
+  /** Median start-time delta (newStart − oldStart) across matched scenes — the
+   *  effective shift, for the summary line. */
+  medianShiftSec: number
+  changes: string[]
+}
+
+/**
+ * Re-anchor a plan's scene timings to the current stitched-SRT cues by
+ * matching each scene's transcript_segment text, in order. Starts come from
+ * the matched cue; ends are made contiguous (end = next scene's start; the
+ * last scene ends at the audio/SRT end) so the result is gap-free and fully
+ * covering by construction. Scenes whose text can't be found are linearly
+ * interpolated between their matched neighbours (and reported). Pure: input
+ * scenes are untouched; a new array is returned.
+ */
+export function reconcilePlanToSubtitles(
+  scenes: ScenePlanEntry[],
+  cues: SrtCue[],
+  audioDurationSec?: number,
+): ReconcileResult {
+  const out = scenes.map(s => ({ ...s }))
+  const changes: string[] = []
+  if (!out.length || !cues.length) {
+    return { scenes: out, matchedCount: 0, unmatchedIds: out.map(s => s.id), medianShiftSec: 0, changes }
+  }
+
+  // Flatten cues → per-word timing stream (each word carries its cue's window).
+  const words: Array<{ w: string; start: number; end: number }> = []
+  for (const c of cues) {
+    for (const w of normalizeWords(c.text)) words.push({ w, start: c.start_sec, end: c.end_sec })
+  }
+  const srtEnd = cues[cues.length - 1]!.end_sec
+  const timelineEnd = (typeof audioDurationSec === 'number' && audioDurationSec > srtEnd)
+    ? audioDurationSec
+    : srtEnd
+
+  const ANCHOR = 6          // opening words used to locate a scene
+  const MATCH_RATIO = 0.6   // tolerate minor narration/SRT wording drift
+  const newStart: Array<number | null> = new Array(out.length).fill(null)
+  let cursor = 0
+  const shifts: number[] = []
+
+  for (let i = 0; i < out.length; i++) {
+    const anchor = normalizeWords(out[i]!.transcript_segment).slice(0, ANCHOR)
+    if (!anchor.length) continue   // no text → interpolate later
+    const need = Math.max(1, Math.ceil(anchor.length * MATCH_RATIO))
+    let found = -1
+    for (let p = cursor; p <= words.length - 1; p++) {
+      let score = 0
+      for (let j = 0; j < anchor.length && p + j < words.length; j++) {
+        if (words[p + j]!.w === anchor[j]) score++
+      }
+      if (score >= need) { found = p; break }
+    }
+    if (found >= 0) {
+      newStart[i] = words[found]!.start
+      shifts.push(words[found]!.start - out[i]!.start_sec)
+      cursor = found + 1   // next scene must start later in the stream
+    }
+  }
+
+  // Interpolate any scene we couldn't match, between its matched neighbours.
+  const unmatchedIds: string[] = []
+  for (let i = 0; i < out.length; i++) {
+    if (newStart[i] != null) continue
+    unmatchedIds.push(out[i]!.id)
+    let lo = i - 1; while (lo >= 0 && newStart[lo] == null) lo--
+    let hi = i + 1; while (hi < out.length && newStart[hi] == null) hi++
+    const loT = lo >= 0 ? newStart[lo]! : 0
+    const hiT = hi < out.length ? newStart[hi]! : timelineEnd
+    const span = (hi < out.length ? hi : out.length) - (lo >= 0 ? lo : -1)
+    const step = (hiT - loT) / Math.max(1, span)
+    newStart[i] = loT + step * (i - (lo >= 0 ? lo : -1))
+  }
+
+  // Enforce monotonic non-decreasing starts, then derive contiguous ends.
+  for (let i = 1; i < out.length; i++) {
+    if (newStart[i]! < newStart[i - 1]!) newStart[i] = newStart[i - 1]!
+  }
+  for (let i = 0; i < out.length; i++) {
+    out[i]!.start_sec = Math.max(0, newStart[i]!)
+    out[i]!.end_sec = i < out.length - 1 ? Math.max(newStart[i]!, newStart[i + 1]!) : timelineEnd
+  }
+
+  shifts.sort((a, b) => a - b)
+  const medianShiftSec = shifts.length ? shifts[Math.floor(shifts.length / 2)]! : 0
+  const matchedCount = out.length - unmatchedIds.length
+  changes.push(
+    `Re-anchored ${matchedCount}/${out.length} scene(s) to the current subtitles` +
+    (Math.abs(medianShiftSec) >= 0.5 ? ` (median shift ${medianShiftSec > 0 ? '+' : ''}${medianShiftSec.toFixed(1)}s)` : '') +
+    `; scene 1 now starts at ${out[0]!.start_sec.toFixed(1)}s, last scene ends at ${out[out.length - 1]!.end_sec.toFixed(1)}s.`,
+  )
+  if (unmatchedIds.length) {
+    changes.push(`⚠ ${unmatchedIds.length} scene(s) had no matching subtitle text and were interpolated — spot-check them in Scene Review.`)
+  }
+  return { scenes: out, matchedCount, unmatchedIds, medianShiftSec, changes }
+}
+
 /**
  * v1.0.245 — graceful fallback when a window's LLM call fails repeatedly.
  * Instead of ONE giant filler scene spanning the whole window (the old

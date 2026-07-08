@@ -19,7 +19,8 @@ import { resolveResearchPaths } from '../lib/research-paths.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { stitchSubtitles } from '../services/subtitle-stitcher.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
-import { computePlanCoverage, repairPlanCoverage } from '../services/scene-planner.js'
+import { computePlanCoverage, repairPlanCoverage, reconcilePlanToSubtitles } from '../services/scene-planner.js'
+import { parseSrt } from '../lib/subtitle-builder.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import type { JobType, ScenePlan } from '../models/types.js'
 
@@ -367,6 +368,64 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to repair plan coverage'))
+  }
+})
+
+// ── POST /scene-plan/:ep/reconcile-timings ────────────────────────────
+// v1.0.523 — re-anchor an existing plan's scene timings to the CURRENT
+// stitched subtitles by matching each scene's transcript text. Fixes a plan
+// that drifted out of sync after the audio was re-generated / re-stitched
+// (e.g. an intro-skip offset that the new stitch no longer has). Preserves
+// every scene id, image, and prompt — no re-plan, no forfeited images.
+router.post('/projects/:slug/scene-plan/:episodeId/reconcile-timings', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(sidecarPath)) {
+      return res.status(404).json({ detail: 'No scene_plan.json — run Scene Plan first.' })
+    }
+    const plan = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+    if (!plan.scenes?.length) return res.status(400).json({ detail: 'scene_plan.json has no scenes.' })
+
+    const stitchedPath = path.join(paths.subtitles_dir, `${episodeId.toUpperCase()}_stitched.srt`)
+    if (!existsSync(stitchedPath)) {
+      return res.status(400).json({ detail: 'No stitched subtitles found — stitch subtitles on the Subtitles page first, then reconcile.' })
+    }
+    const cues = parseSrt(await fs.readFile(stitchedPath, 'utf-8'))
+    if (!cues.length) return res.status(400).json({ detail: 'The stitched SRT has no cues.' })
+
+    // Prefer the real audio duration for the last scene's end; fall back to
+    // the SRT end inside the helper when it's absent.
+    let audioDur = 0
+    if (existsSync(paths.merged_audio_dir)) {
+      let best = 0
+      for (const f of await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])) {
+        if (!/\.(mp3|wav|m4a)$/i.test(f) || f.startsWith('.tmp_')) continue
+        const st = await fs.stat(path.join(paths.merged_audio_dir, f)).catch(() => null)
+        if (st && st.size > best) { best = st.size; audioDur = (await getAudioDuration(path.join(paths.merged_audio_dir, f))) || 0 }
+      }
+    }
+
+    const before = computePlanCoverage(plan.scenes, audioDur || cues[cues.length - 1]!.end_sec)
+    const r = reconcilePlanToSubtitles(plan.scenes, cues, audioDur || undefined)
+    plan.scenes = r.scenes
+    plan.total_duration_sec = audioDur || cues[cues.length - 1]!.end_sec
+    await fs.writeFile(sidecarPath, JSON.stringify(plan, null, 2), 'utf-8')
+    const after = computePlanCoverage(plan.scenes, plan.total_duration_sec)
+    res.json({
+      ok: true,
+      matched: r.matchedCount,
+      total: r.scenes.length,
+      unmatched_ids: r.unmatchedIds,
+      median_shift_sec: r.medianShiftSec,
+      changes: r.changes,
+      coverage_before: before,
+      coverage_after: after,
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to reconcile plan timings'))
   }
 })
 

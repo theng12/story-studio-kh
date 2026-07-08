@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.523 — 2026-07-08
+
+**Re-generated the audio after planning scenes? New "🎯 Reconcile timings" button re-syncs the plan to your subtitles without touching your scene images.** If you regenerate audio or re-stitch subtitles *after* a scene plan is made, the plan's timings can drift out of sync with the voice — the whole video ends up offset (we found brain-wise EP0022/EP0024 running a uniform **28 seconds ahead** of the narration, left over from an intro-skip offset the re-stitch no longer had). Re-running Scene Plan would fix the timing but generate new scenes and **forfeit every image you already made**. Reconcile timings solves it the right way: it matches each existing scene's transcript text against the *current* stitched subtitles and snaps its start/end onto the real cue times — keeping every scene id, image, and prompt. Scenes whose narration can't be found are interpolated between their neighbours and flagged for a quick look. Find it on the Scene Plan page next to Repair coverage. (Rule of thumb: **Repair coverage** fixes *gaps*; **Reconcile timings** fixes *drift* — reconcile first if the whole plan feels shifted.) EP0022 and EP0024 have already been reconciled (backups saved) — they now sit exactly on the narration, 0s uncovered, all images intact.
+
 ## v1.0.522 — 2026-07-08
 
 **New safeguard: every second of narration must have a scene — no black screens, no frozen tails, no silently dropped audio.** Scene plans could quietly cover less audio than actually exists: the planner measured the episode by the last subtitle cue (never the real audio file), silences between chapters left 0.5–1.5s holes between scenes, and manual plan edits were never re-checked. Measured on real episodes, that meant 74s (EP0017) and **204s** (EP0018) of narration with no planned scene — which rendered as visuals drifting ahead of the voice, black/frozen tails, or the end of the narration being cut off entirely. Three layers now close this permanently:

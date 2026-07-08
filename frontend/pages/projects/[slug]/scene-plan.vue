@@ -396,11 +396,19 @@
           </button>
           <button
             class="btn btn-sm btn-secondary"
-            :disabled="repairingCoverage || dirty"
+            :disabled="repairingCoverage || !!dirty"
             :title="dirty ? 'Save your edits first' : 'Close gaps between scenes and extend the last scene to the real audio end, so every second of narration has a scene'"
             @click="repairCoverage"
           >
             {{ repairingCoverage ? 'Repairing…' : '🩹 Repair coverage' }}
+          </button>
+          <button
+            class="btn btn-sm btn-secondary"
+            :disabled="reconciling || !!dirty"
+            :title="dirty ? 'Save your edits first' : 'Re-anchor every scene’s timing to the CURRENT subtitles (use after re-generating audio / re-stitching). Keeps all scene images; fixes a plan that drifted out of sync.'"
+            @click="reconcileTimings"
+          >
+            {{ reconciling ? 'Reconciling…' : '🎯 Reconcile timings' }}
           </button>
           <button
             class="btn btn-sm btn-danger"
@@ -1644,6 +1652,31 @@ async function repairCoverage(): Promise<void> {
     showError(e?.data?.detail || 'Failed to repair coverage')
   } finally {
     repairingCoverage.value = false
+  }
+}
+
+// v1.0.523 — re-anchor scene timings to the CURRENT stitched subtitles.
+// Use after re-generating audio / re-stitching subtitles, when the plan's
+// timings drifted out of sync with the voice. Keeps every scene image.
+const reconciling = ref(false)
+async function reconcileTimings(): Promise<void> {
+  if (!episodeId.value || reconciling.value) return
+  reconciling.value = true
+  try {
+    const r = await post<{
+      matched: number
+      total: number
+      unmatched_ids: string[]
+      median_shift_sec: number
+      changes: string[]
+    }>(`/projects/${slug.value}/scene-plan/${episodeId.value}/reconcile-timings`, {})
+    const warn = r.unmatched_ids.length ? ` (${r.unmatched_ids.length} interpolated — spot-check them)` : ''
+    success(`Re-anchored ${r.matched}/${r.total} scene(s) to the subtitles${warn}. ${r.changes.join(' ')}`)
+    await loadStatus()
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to reconcile timings')
+  } finally {
+    reconciling.value = false
   }
 }
 
