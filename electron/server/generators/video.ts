@@ -27,6 +27,7 @@ import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
 import { planTransitions, buildXfadeFilterComplex, buildVariableXfadeFilterComplex } from '../lib/transition-filters.js'
 import { getTransition } from '../models/transitions.js'
+import { computePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
 import { buildAnimationFilter, supersampleMultiplier, normalizeFrame, isZoompanAnimation } from '../lib/animation-filters.js'
 import { getAnimation } from '../models/animations.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
@@ -913,10 +914,14 @@ export async function generateVideo(job: Job): Promise<void> {
   // plan-exact order + durations, no recycling/shuffle/chapter-align — the fix
   // for "scenes rush by and get reused" on scene-plan episodes.
   let planStrict = false
+  // v1.0.522 — kept for the audio-coverage gate below (runs after the
+  // narration duration is probed; needs the plan's timeline, not req.scenes).
+  let planCoverageScenes: Array<{ id: string; start_sec: number; end_sec: number }> | null = null
   try {
     const planPath = await resolveScenePlanPath(project_slug, code, episodeDir)
     if (existsSync(planPath)) {
       const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      planCoverageScenes = (plan.scenes || []).map(s => ({ id: s.id, start_sec: s.start_sec, end_sec: s.end_sec }))
       const planById = new Map<string, ScenePlan['scenes'][number]>()
       for (const scene of plan.scenes || []) {
         if (scene?.id) planById.set(scene.id, scene)
@@ -1325,6 +1330,41 @@ export async function generateVideo(job: Job): Promise<void> {
         `B-roll natural length: ON — ${naturalBrollCount} video scene(s) play their full clip duration; ` +
         `still images keep the ${defaultSceneDuration}s per-scene length.`,
       )
+    }
+
+    // ── Audio-coverage gate (v1.0.522, plan-strict only) ──────────────────
+    // "Every second of narration must have a scene." Refuse to render when
+    // >2s of the narration has no planned scene — the post-audio tail
+    // (fade-to-black / hold) would otherwise cover it with exactly the black
+    // screen this project forbids. The HEAD gap is exempt when intro-ish
+    // content covers it (intro clip, title card, before/after-intro timeline
+    // clips, or the sleep-story intro-skip hold). A ≤2s remainder is absorbed
+    // into the last scene's window so the body meets the narration end.
+    if (planStrict && planCoverageScenes?.length && typeof narrationDuration === 'number' && narrationDuration > 0) {
+      const cov = computePlanCoverage(planCoverageScenes, narrationDuration)
+      const headCovered = !!(
+        req.intro?.enabled
+        || req.title_image?.enabled
+        || (req as any).skip_intro_scenes
+        || (req.timeline_clips || []).some(c => c.enabled && (c.anchor === 'before_intro' || c.anchor === 'after_intro'))
+      )
+      const gatedUncovered = cov.internalGapTotalSec + cov.tailGapSec + (headCovered ? 0 : cov.headGapSec)
+      if (gatedUncovered > COVERAGE_FAIL_SEC) {
+        throw new Error(
+          `Narration has ${gatedUncovered.toFixed(1)}s with NO planned scene ` +
+          `(before scene 1: ${cov.headGapSec.toFixed(1)}s${headCovered ? ' — covered by intro/title' : ''} · ` +
+          `${cov.internalGaps.length} gap(s) between scenes: ${cov.internalGapTotalSec.toFixed(1)}s · ` +
+          `after the last scene: ${cov.tailGapSec.toFixed(1)}s; audio ${narrationDuration.toFixed(1)}s). ` +
+          `Rendering would fill the gap with black/frozen frames. ` +
+          `Open Scene Plan → "Repair coverage" (one click), or re-run Scene Plan.`,
+        )
+      }
+      if (gatedUncovered > 0 && sceneClipDurations.length) {
+        sceneClipDurations[sceneClipDurations.length - 1]! += gatedUncovered
+        job.output_lines.push(
+          `Coverage: absorbed ${gatedUncovered.toFixed(2)}s of micro-gaps into the final scene (scene body meets the narration end).`,
+        )
+      }
     }
 
     // v1.0.521 — plan-strict xfade tail. In plan mode with a crossfade

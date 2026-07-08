@@ -256,6 +256,8 @@ An episode that has a `scene_plan.json` (Scene Plan page) gets **plan-exact orde
 
 **Recycling, shuffle, seconds-per-scene, and chapter alignment apply ONLY to classic / combined / image-pool / broll pools** — pools whose filenames never match plan scene ids, so plan-strict cannot trip on them. Switching the pool selector to Classic/Combined is the explicit opt-out back to recycled pacing. The ordering contract is pinned by `__tests__/video-plan-order.test.ts`; the decoder-safe stills concat by `__tests__/timestamp-still-concat.test.ts`.
 
+**Audio-coverage contract (v1.0.522):** every second of narration must have a scene. Plans are generated (and one-click repaired via Scene Plan → "Repair coverage" / `POST …/scene-plan/:ep/repair-coverage`) to full coverage against the **ffprobed merged audio**: internal gaps close by holding the preceding scene (starts never move — they anchor sync), the last scene extends to the real audio end, and `total_duration_sec` is the audio duration, not the last SRT cue. Both assemblers **refuse to render** when more than `COVERAGE_FAIL_SEC` (2s) of narration is uncovered — the timestamp assembler over the whole timeline, video.ts plan-strict with a head-gap exemption when intro/title content covers it (intro-skip). A ≤2s remainder is absorbed by holding scenes to the next scene's start / the audio end, so video length always equals audio length. Math lives in `services/scene-planner.ts` (`computePlanCoverage` / `repairPlanCoverage`), pinned by `__tests__/scene-plan-coverage.test.ts`.
+
 ---
 
 ## Common pitfalls

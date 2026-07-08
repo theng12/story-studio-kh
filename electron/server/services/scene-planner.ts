@@ -465,7 +465,118 @@ function normalizeScenes(
     })
     prevEnd = end
   }
+  // v1.0.522 — close INTERNAL GAPS by extending the previous scene's end to
+  // the next scene's start. The overlap snap above only handled start <
+  // prevEnd; a start > prevEnd (inter-cue silence, LLM boundary slop) used to
+  // pass through, leaving seconds of narration with no scene — which
+  // accumulated into visual drift and an early video end at assembly time.
+  // Starts are never moved: they are the sync anchors on the audio timeline.
+  for (let i = 1; i < out.length; i++) {
+    if (out[i]!.start_sec > out[i - 1]!.end_sec) {
+      out[i - 1]!.end_sec = out[i]!.start_sec
+    }
+  }
   return out
+}
+
+// ── Audio-coverage safeguard (v1.0.522) ────────────────────────────────────
+// "Every second of narration must have a scene." These pure helpers are the
+// single source of truth for coverage math, shared by: plan generation
+// (prevention), the repair-coverage route (healing existing plans), and both
+// assemblers' render gates (loud failure past the tolerance).
+
+/** Gaps smaller than this are float/cue-rounding noise, not real coverage holes. */
+export const COVERAGE_NOISE_SEC = 0.05
+/** Render gate: total uncovered narration above this fails the assembly (user
+ *  policy: strict — no silent black frames, no frozen tails, no dropped audio). */
+export const COVERAGE_FAIL_SEC = 2
+
+export interface PlanCoverage {
+  headGapSec: number
+  internalGaps: Array<{ afterSceneId: string; afterIndex: number; gapSec: number }>
+  internalGapTotalSec: number
+  tailGapSec: number
+  uncoveredTotalSec: number
+}
+
+/**
+ * Measure how much of the narration audio the plan's scenes do NOT cover:
+ * before the first scene (head), between consecutive scenes (internal), and
+ * after the last scene (tail). Scenes are assumed to be in timeline order
+ * (they are — the planner emits them ordered and scene_index is 1-based).
+ */
+export function computePlanCoverage(
+  scenes: Array<Pick<ScenePlanEntry, 'id' | 'start_sec' | 'end_sec'>>,
+  audioDurationSec: number,
+): PlanCoverage {
+  const clean = (n: number) => (n > COVERAGE_NOISE_SEC ? n : 0)
+  if (!scenes.length) {
+    const all = clean(Math.max(0, audioDurationSec))
+    return { headGapSec: all, internalGaps: [], internalGapTotalSec: 0, tailGapSec: 0, uncoveredTotalSec: all }
+  }
+  const headGapSec = clean(Math.max(0, scenes[0]!.start_sec))
+  const internalGaps: PlanCoverage['internalGaps'] = []
+  for (let i = 0; i < scenes.length - 1; i++) {
+    const gap = clean(scenes[i + 1]!.start_sec - scenes[i]!.end_sec)
+    if (gap > 0) internalGaps.push({ afterSceneId: scenes[i]!.id, afterIndex: i, gapSec: gap })
+  }
+  const internalGapTotalSec = internalGaps.reduce((s, g) => s + g.gapSec, 0)
+  const tailGapSec = clean(Math.max(0, audioDurationSec - scenes[scenes.length - 1]!.end_sec))
+  return {
+    headGapSec,
+    internalGaps,
+    internalGapTotalSec,
+    tailGapSec,
+    uncoveredTotalSec: headGapSec + internalGapTotalSec + tailGapSec,
+  }
+}
+
+/**
+ * Heal a plan to full coverage (returns a new array of shallow-copied scenes;
+ * input untouched):
+ *   - every internal gap: the PRECEDING scene's end_sec extends to the next
+ *     scene's start_sec (starts never move — they anchor narration sync),
+ *   - tail: the last scene's end_sec extends to the real audio duration,
+ *   - head: the first scene's start_sec is pulled to 0 only when the gap is
+ *     ≤ COVERAGE_FAIL_SEC (lead-in noise). A larger head gap is left alone —
+ *     it's either an intentional intro-skip (covered by a title card in the
+ *     rich assembler) or a real problem the render gate reports loudly.
+ * Returns human-readable change lines for job logs / toasts.
+ */
+export function repairPlanCoverage(
+  scenes: ScenePlanEntry[],
+  audioDurationSec: number,
+): { scenes: ScenePlanEntry[]; changes: string[]; coverageBefore: PlanCoverage } {
+  const coverageBefore = computePlanCoverage(scenes, audioDurationSec)
+  const out = scenes.map(s => ({ ...s }))
+  const changes: string[] = []
+  if (!out.length) return { scenes: out, changes, coverageBefore }
+
+  if (coverageBefore.headGapSec > 0 && coverageBefore.headGapSec <= COVERAGE_FAIL_SEC) {
+    changes.push(`Scene 1 start pulled ${coverageBefore.headGapSec.toFixed(2)}s back to 0:00 (lead-in).`)
+    out[0]!.start_sec = 0
+  }
+  let closed = 0
+  let closedSec = 0
+  for (const g of coverageBefore.internalGaps) {
+    out[g.afterIndex]!.end_sec = out[g.afterIndex + 1]!.start_sec
+    closed++
+    closedSec += g.gapSec
+  }
+  if (closed > 0) {
+    changes.push(`Closed ${closed} gap(s) between scenes (${closedSec.toFixed(1)}s) by holding each preceding scene.`)
+  }
+  if (coverageBefore.tailGapSec > 0) {
+    const last = out[out.length - 1]!
+    last.end_sec = audioDurationSec
+    changes.push(
+      `Extended final scene by ${coverageBefore.tailGapSec.toFixed(1)}s to the real audio end (${audioDurationSec.toFixed(1)}s)` +
+      (coverageBefore.tailGapSec > 30
+        ? ` — ⚠ that's a long hold on one image; review it in Scene Review or split it into more scenes.`
+        : '.'),
+    )
+  }
+  return { scenes: out, changes, coverageBefore }
 }
 
 /**

@@ -395,6 +395,14 @@
             {{ saving ? 'Saving…' : (dirty ? 'Save' : 'Saved') }}
           </button>
           <button
+            class="btn btn-sm btn-secondary"
+            :disabled="repairingCoverage || dirty"
+            :title="dirty ? 'Save your edits first' : 'Close gaps between scenes and extend the last scene to the real audio end, so every second of narration has a scene'"
+            @click="repairCoverage"
+          >
+            {{ repairingCoverage ? 'Repairing…' : '🩹 Repair coverage' }}
+          </button>
+          <button
             class="btn btn-sm btn-danger"
             :disabled="deleting"
             @click="deletePlan"
@@ -1609,6 +1617,33 @@ async function replanScene(scene: ScenePlanEntry): Promise<void> {
     showError(e?.data?.detail || e?.message || 'Failed to start re-plan')
   } finally {
     replanningId.value = null
+  }
+}
+
+// v1.0.522 — heal the plan to full audio coverage (close inter-scene gaps,
+// extend the last scene to the ffprobed audio end). Both assemblers refuse
+// to render when >2s of narration has no scene; this is the one-click fix.
+const repairingCoverage = ref(false)
+async function repairCoverage(): Promise<void> {
+  if (!episodeId.value || repairingCoverage.value) return
+  repairingCoverage.value = true
+  try {
+    const r = await post<{
+      ok: boolean
+      audio_duration_sec: number
+      changes: string[]
+      coverage_after: { uncoveredTotalSec: number }
+    }>(`/projects/${slug.value}/scene-plan/${episodeId.value}/repair-coverage`, {})
+    if (r.changes?.length) {
+      success(`Coverage repaired — plan now covers ${r.audio_duration_sec.toFixed(1)}s of audio. ${r.changes.join(' ')}`)
+    } else {
+      success(`Plan already covers the full audio (${r.audio_duration_sec.toFixed(1)}s) — nothing to repair.`)
+    }
+    await loadStatus()
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to repair coverage')
+  } finally {
+    repairingCoverage.value = false
   }
 }
 

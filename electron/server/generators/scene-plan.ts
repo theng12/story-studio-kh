@@ -9,7 +9,8 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, resolveMotionLevel, assignDensityToUntagged } from '../services/scene-planner.js'
+import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, resolveMotionLevel, assignDensityToUntagged, repairPlanCoverage } from '../services/scene-planner.js'
+import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { isCancelled } from '../services/job-queue.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
@@ -571,18 +572,60 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   }
   job.output_lines.push(`Planner returned ${plan.scenes.length} scene(s). Writing ${SCENE_PLAN_FILENAME}…`)
 
-  // v1.0.225 — coverage check. If the salvaged/returned plan stops well short
-  // of the audio's end, the model's output was truncated mid-episode; warn
-  // loudly so the user knows the tail isn't planned (vs silently looking done).
-  const lastEnd = plan.scenes.length ? plan.scenes[plan.scenes.length - 1]!.end_sec : 0
-  const total = plan.total_duration_sec || 0
-  if (total > 0 && lastEnd < total * 0.97) {
-    const pct = Math.round((lastEnd / total) * 100)
-    job.output_lines.push(
-      `⚠ Plan covers only ~${pct}% of the audio (${lastEnd.toFixed(0)}s of ${total.toFixed(0)}s). ` +
-      `The model's output was likely truncated — the planned scenes are valid, but the rest of the ` +
-      `episode isn't covered. Re-run with a larger-output model, or widen the pacing band to reduce scene count.`,
-    )
+  // v1.0.522 — audio-coverage prevention: probe the REAL merged audio and
+  // repair the plan to full coverage before it's ever written. The old
+  // v1.0.225 check compared two SRT-derived numbers (last scene end vs
+  // total_duration_sec = last cue end), so trailing silence/music and
+  // inter-cue gaps were invisible by construction — measured 74s (EP0017) and
+  // 204s (EP0018) of narration with no scene. Both assemblers now HARD-FAIL
+  // on >2s uncovered, so plans must leave here fully covered.
+  {
+    let audioDur = 0
+    try {
+      const assets = await scanEpisodeAssets(job.project_slug, episode_id).catch(() => null)
+      const mergedPath = assets?.merged_audio?.[0]?.path
+      if (mergedPath && existsSync(mergedPath)) {
+        audioDur = (await getAudioDuration(mergedPath)) || 0
+      }
+    } catch { /* fall through to the SRT-only warning below */ }
+
+    if (audioDur > 0 && plan.scenes.length) {
+      const skipHead = skipUntilSec > 0  // intentional intro-skip head is NOT a gap to close here
+      const { scenes: repaired, changes, coverageBefore } = repairPlanCoverage(plan.scenes, audioDur)
+      // Keep an intentional intro-skip head untouched (repair only pulls ≤2s
+      // heads anyway, but don't even do that when the head is by design).
+      if (skipHead && plan.scenes[0] && repaired[0]) repaired[0].start_sec = plan.scenes[0].start_sec
+      plan.scenes = repaired
+      plan.total_duration_sec = audioDur
+      for (const line of changes) job.output_lines.push(`Coverage: ${line}`)
+      if (!changes.length) {
+        job.output_lines.push(`Coverage: plan already covers the full audio (${audioDur.toFixed(1)}s) — no gaps.`)
+      } else {
+        job.output_lines.push(
+          `Coverage: audio ${audioDur.toFixed(1)}s — was missing ${coverageBefore.uncoveredTotalSec.toFixed(1)}s ` +
+          `(head ${coverageBefore.headGapSec.toFixed(1)}s, ${coverageBefore.internalGaps.length} internal gap(s) ` +
+          `${coverageBefore.internalGapTotalSec.toFixed(1)}s, tail ${coverageBefore.tailGapSec.toFixed(1)}s) — now fully covered.`,
+        )
+      }
+    } else {
+      // No merged audio on disk yet (plan made before Audio Merge) — coverage
+      // can't be verified against the real file. Keep the legacy SRT-derived
+      // truncation warning so a mid-episode LLM cutoff still surfaces.
+      const lastEnd = plan.scenes.length ? plan.scenes[plan.scenes.length - 1]!.end_sec : 0
+      const total = plan.total_duration_sec || 0
+      job.output_lines.push(
+        `Coverage: merged audio not found — plan verified against the stitched SRT only. ` +
+        `Re-check coverage (Scene Plan → Repair coverage) after Audio Merge.`,
+      )
+      if (total > 0 && lastEnd < total * 0.97) {
+        const pct = Math.round((lastEnd / total) * 100)
+        job.output_lines.push(
+          `⚠ Plan covers only ~${pct}% of the audio (${lastEnd.toFixed(0)}s of ${total.toFixed(0)}s). ` +
+          `The model's output was likely truncated — the planned scenes are valid, but the rest of the ` +
+          `episode isn't covered. Re-run with a larger-output model, or widen the pacing band to reduce scene count.`,
+        )
+      }
+    }
   }
 
   // Persist the plan with visual prompts BEFORE the motion pass. Motion

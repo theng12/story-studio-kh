@@ -25,7 +25,8 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import os from 'os'
 import path from 'path'
-import { appendCappedTail, stillDecoderArgs, sniffStillFormat } from '../lib/ffmpeg-utils.js'
+import { appendCappedTail, stillDecoderArgs, sniffStillFormat, getAudioDuration } from '../lib/ffmpeg-utils.js'
+import { computePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
 import { spawn } from 'child_process'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -300,7 +301,41 @@ export async function runTimestampVideoAssemble(job: Job): Promise<void> {
   const ambientFade = clamp(params.ambient?.fade, 0, 15, 2)
   const hasBeds = !!(musicPath || ambientPath)
 
-  const durOf = (s: ScenePlan['scenes'][number]) => Math.max(MIN_SCENE_DURATION_SEC, s.end_sec - s.start_sec)
+  // ── Audio-coverage gate (v1.0.522) ────────────────────────────────────
+  // "Every second of narration must have a scene." Probe the REAL audio and
+  // refuse to render when >2s of it has no planned scene — previously the
+  // -shortest mux silently DROPPED the uncovered narration tail (measured
+  // 204s lost on EP0018) and inter-scene gaps made visuals drift ahead of
+  // the narration. A ≤2s remainder is absorbed by start-to-start effective
+  // windows (each scene holds to the next scene's planned start; the last
+  // holds to the audio end), so the video length equals the audio length.
+  const audioDurationSec = (await getAudioDuration(audioPath)) || 0
+  if (audioDurationSec <= 0) throw new Error(`Could not read the audio duration of ${path.basename(audioPath)}.`)
+  const coverage = computePlanCoverage(plan.scenes, audioDurationSec)
+  if (coverage.uncoveredTotalSec > COVERAGE_FAIL_SEC) {
+    throw new Error(
+      `Narration has ${coverage.uncoveredTotalSec.toFixed(1)}s with NO planned scene ` +
+      `(before scene 1: ${coverage.headGapSec.toFixed(1)}s · ${coverage.internalGaps.length} gap(s) between scenes: ` +
+      `${coverage.internalGapTotalSec.toFixed(1)}s · after the last scene: ${coverage.tailGapSec.toFixed(1)}s; ` +
+      `audio ${audioDurationSec.toFixed(1)}s). Rendering would drop narration or show black. ` +
+      `Open Scene Plan → "Repair coverage" (one click), or re-run Scene Plan.`,
+    )
+  }
+  // Start-to-start effective windows: boundaries = [0, start_2, …, start_n, audioEnd].
+  const effDurById = new Map<string, number>()
+  for (let i = 0; i < plan.scenes.length; i++) {
+    const startBoundary = i === 0 ? 0 : plan.scenes[i]!.start_sec
+    const endBoundary = i === plan.scenes.length - 1 ? audioDurationSec : plan.scenes[i + 1]!.start_sec
+    effDurById.set(plan.scenes[i]!.id, Math.max(MIN_SCENE_DURATION_SEC, endBoundary - startBoundary))
+  }
+  if (coverage.uncoveredTotalSec > 0) {
+    job.output_lines.push(
+      `Coverage: absorbed ${coverage.uncoveredTotalSec.toFixed(2)}s of micro-gaps by holding scenes to the next scene's start (video length = audio length).`,
+    )
+  }
+
+  const durOf = (s: ScenePlan['scenes'][number]) =>
+    effDurById.get(s.id) ?? Math.max(MIN_SCENE_DURATION_SEC, s.end_sec - s.start_sec)
   const totalDur = Math.max(1, plan.scenes.reduce((a, s) => a + durOf(s), 0))
 
   const transType = params.transition?.type && params.transition.type !== 'none' ? params.transition.type : 'none'

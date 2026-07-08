@@ -19,6 +19,8 @@ import { resolveResearchPaths } from '../lib/research-paths.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { stitchSubtitles } from '../services/subtitle-stitcher.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
+import { computePlanCoverage, repairPlanCoverage } from '../services/scene-planner.js'
+import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import type { JobType, ScenePlan } from '../models/types.js'
 
 export const router = Router()
@@ -315,6 +317,56 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-prompt', async (req, res)
     res.json({ ok: true, scene_id: sceneId, visual_prompt: visualPrompt })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save prompt'))
+  }
+})
+
+// ── POST /scene-plan/:ep/repair-coverage ──────────────────────────────
+// v1.0.522 — heal an existing plan to FULL audio coverage: close internal
+// gaps by holding each preceding scene, extend the last scene to the real
+// (ffprobed) audio end, pull a ≤2s lead-in head to 0. Starts never move.
+// Both assemblers hard-fail when >2s of narration is uncovered; this is the
+// one-click fix the error message points at. Returns a before/after summary.
+router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(sidecarPath)) {
+      return res.status(404).json({ detail: 'No scene_plan.json — run Scene Plan first.' })
+    }
+    const plan = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+    if (!plan.scenes?.length) return res.status(400).json({ detail: 'scene_plan.json has no scenes.' })
+
+    // Largest audio file in merged_audio/ — same heuristic the assemblers use.
+    if (!existsSync(paths.merged_audio_dir)) {
+      return res.status(400).json({ detail: 'No merged audio yet — run Audio Merge first, then repair coverage.' })
+    }
+    let audioPath = ''
+    let bestSize = 0
+    for (const f of await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])) {
+      if (!/\.(mp3|wav|m4a)$/i.test(f) || f.startsWith('.tmp_')) continue
+      const st = await fs.stat(path.join(paths.merged_audio_dir, f)).catch(() => null)
+      if (st && st.size > bestSize) { bestSize = st.size; audioPath = path.join(paths.merged_audio_dir, f) }
+    }
+    if (!audioPath) return res.status(400).json({ detail: 'No merged audio file found — run Audio Merge first.' })
+    const audioDur = (await getAudioDuration(audioPath)) || 0
+    if (audioDur <= 0) return res.status(400).json({ detail: `Could not read the audio duration of ${path.basename(audioPath)}.` })
+
+    const { scenes: repaired, changes, coverageBefore } = repairPlanCoverage(plan.scenes, audioDur)
+    plan.scenes = repaired
+    plan.total_duration_sec = audioDur
+    await fs.writeFile(sidecarPath, JSON.stringify(plan, null, 2), 'utf-8')
+    const coverageAfter = computePlanCoverage(plan.scenes, audioDur)
+    res.json({
+      ok: true,
+      audio_duration_sec: audioDur,
+      changes,
+      coverage_before: coverageBefore,
+      coverage_after: coverageAfter,
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to repair plan coverage'))
   }
 })
 
