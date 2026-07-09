@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.524 — 2026-07-09
+
+**Ideas generator remembers your last-picked LLM.** The model dropdown used to reset to OpenAI's GPT-4o every time, even after you'd chosen a different model. It now defaults to the **last model you picked** for that project — persisted per-project (in `settings/config`, alongside the other remembered Ideas-form preferences) and restored on load. If the saved model is no longer available (e.g. its API key was removed), the picker falls back to auto-selecting a usable one. A brand-new project still starts on GPT-4o until you pick something else.
+
+---
+
 ## v1.0.523 — 2026-07-08
 
 **Re-generated the audio after planning scenes? New "🎯 Reconcile timings" button re-syncs the plan to your subtitles without touching your scene images.** If you regenerate audio or re-stitch subtitles *after* a scene plan is made, the plan's timings can drift out of sync with the voice — the whole video ends up offset (we found brain-wise EP0022/EP0024 running a uniform **28 seconds ahead** of the narration, left over from an intro-skip offset the re-stitch no longer had). Re-running Scene Plan would fix the timing but generate new scenes and **forfeit every image you already made**. Reconcile timings solves it the right way: it matches each existing scene's transcript text against the *current* stitched subtitles and snaps its start/end onto the real cue times — keeping every scene id, image, and prompt. Scenes whose narration can't be found are interpolated between their neighbours and flagged for a quick look. Find it on the Scene Plan page next to Repair coverage. (Rule of thumb: **Repair coverage** fixes *gaps*; **Reconcile timings** fixes *drift* — reconcile first if the whole plan feels shifted.) EP0022 and EP0024 have already been reconciled (backups saved) — they now sit exactly on the narration, 0s uncovered, all images intact.

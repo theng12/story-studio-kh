@@ -1538,6 +1538,10 @@ const LAST_TITLE_TEMPLATE_KEY = 'idea_generator_last_title_template'
 // the title-template key), so each project keeps its own recent picks.
 const LAST_THEME_KEY = 'idea_generator_last_theme'
 const LAST_ITEMS_KEY = 'idea_generator_last_items_per_listicle'
+// v1.0.524 — remember the last-picked LLM per project so the Ideas generator
+// defaults to it instead of always resetting to the hardcoded gpt-4o. Persisted
+// alongside the other *_last_* keys in settings/config.
+const LAST_MODEL_KEY = 'idea_generator_last_model'
 // v1.0.92+ — remember the most recent niche override per project. Resets
 // to project.niche_id on next load when the user hasn't picked one yet.
 const LAST_NICHE_KEY = 'idea_generator_last_niche_override'
@@ -1679,6 +1683,9 @@ async function loadPatternPreferences(): Promise<boolean> {
   try {
     const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
     if (typeof cfg?.[LAST_TITLE_TEMPLATE_KEY] === 'string') form.title_template = cfg[LAST_TITLE_TEMPLATE_KEY]
+    // v1.0.524 — default to the last-picked model (ModelSelector keeps it when
+    // it's still available; if the key/model is gone it auto-picks a usable one).
+    if (typeof cfg?.[LAST_MODEL_KEY] === 'string' && cfg[LAST_MODEL_KEY]) form.model = cfg[LAST_MODEL_KEY]
     if (typeof cfg?.[LAST_THEME_KEY] === 'string') form.theme = cfg[LAST_THEME_KEY]
     if (typeof cfg?.[LAST_ITEMS_KEY] === 'number' && cfg[LAST_ITEMS_KEY] > 0) {
       form.items_per_listicle = cfg[LAST_ITEMS_KEY]
@@ -1718,6 +1725,7 @@ async function saveIdeaPreferences() {
     const { put } = useApi()
     await put(`/projects/${slug.value}/settings/config`, {
       [LAST_TITLE_TEMPLATE_KEY]: form.title_template,
+      [LAST_MODEL_KEY]: form.model,
       [LAST_THEME_KEY]: form.theme,
       [LAST_ITEMS_KEY]: form.items_per_listicle,
       [LAST_NICHE_KEY]: form.niche_id,
@@ -1730,6 +1738,7 @@ async function saveIdeaPreferences() {
 }
 
 watch(() => form.title_template, saveIdeaPreferences)
+watch(() => form.model, saveIdeaPreferences)
 watch(() => form.theme, saveIdeaPreferences)
 watch(() => form.items_per_listicle, saveIdeaPreferences)
 watch(() => form.niche_id, saveIdeaPreferences)
