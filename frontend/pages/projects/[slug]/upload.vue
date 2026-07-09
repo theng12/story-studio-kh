@@ -2635,7 +2635,7 @@
             </div>
             <div class="scope-preview-list">
               <div
-                v-for="(row, idx) in scopePicker.previewRows.slice(0, 10)"
+                v-for="(row, idx) in scopePicker.previewRows"
                 :key="row.episode_code + idx"
                 class="scope-preview-row"
                 :class="{ 'is-past': row.is_past }"
@@ -2643,9 +2643,6 @@
                 <span class="scope-preview-code">{{ row.episode_code }}</span>
                 <span class="scope-preview-arrow text-muted">→</span>
                 <span class="scope-preview-slot">{{ row.slot_label }}</span>
-              </div>
-              <div v-if="scopePicker.previewRows.length > 10" class="scope-preview-more text-muted">
-                + {{ scopePicker.previewRows.length - 10 }} more
               </div>
             </div>
             <div class="scope-preview-actions">
@@ -5335,6 +5332,10 @@ function goToPlansTab() {
 const scopePopoverStyle = computed(() => ({
   left: `${scopePicker.anchor.left}px`,
   top: `${scopePicker.anchor.top}px`,
+  // v1.0.526 — never let the popover run off the bottom of the screen. Cap it
+  // to the space between its anchor and the viewport bottom; the inner list
+  // scrolls within that so the preview rows + Back/Apply buttons stay reachable.
+  maxHeight: `calc(100vh - ${scopePicker.anchor.top}px - 12px)`,
 }))
 
 /**
@@ -7965,6 +7966,7 @@ td.col-actions > a.btn {
   position: fixed;
   z-index: 250;
   width: 260px;
+  max-width: calc(100vw - 24px);
   padding: 10px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -7973,6 +7975,11 @@ td.col-actions > a.btn {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  /* Height is capped to the viewport via :style maxHeight. The inner list is
+     the primary scroll region (head + action buttons stay pinned); the popover
+     itself also scrolls as a fallback so nothing is ever cut off, even when the
+     trigger button sits near the bottom of the screen. */
+  overflow-y: auto;
 }
 .scope-popover-head {
   font-size: 13px;
@@ -7990,6 +7997,8 @@ td.col-actions > a.btn {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
 }
 .scope-option {
   display: flex;
@@ -8040,7 +8049,7 @@ td.col-actions > a.btn {
 
 /* Item D — Apply preview panel inside the scope popover. Wider variant
    when previewing so the episode → slot rows fit. */
-.scope-popover.scope-popover--preview { width: 360px; }
+.scope-popover.scope-popover--preview { width: 440px; }
 .scope-preview-summary {
   font-size: 13px;
   padding: 0 2px 4px;
@@ -8069,7 +8078,10 @@ td.col-actions > a.btn {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 280px;
+  /* Fill the space the capped popover leaves after the summary/warnings, and
+     scroll internally so ALL rows are reachable (was hard-capped at 10). */
+  flex: 1 1 auto;
+  min-height: 60px;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 4px;

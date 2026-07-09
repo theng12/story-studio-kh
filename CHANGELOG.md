@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.526 — 2026-07-10
+
+**Fixed the Upload Plan "Apply" preview — it no longer gets cut off, and you can see every episode.** The schedule preview popover showed only the first 10 episodes (with a dead "+13 more" line you couldn't scroll to), and when the trigger button sat low on the page the whole popover ran off the bottom of the screen, hiding the Back/Apply buttons. Now it lists **all** episodes in a scrollable area, the popover is capped to the screen height (so the buttons are always reachable), and the preview is a bit wider so the scheduled dates fit on one line.
+
+---
+
 ## v1.0.525 — 2026-07-09
 
 **Fixed YouTube thumbnails silently going missing on upload — and a one-click "Backfill thumbnails" to fix the ones already uploaded.** Across your channels, **262 of 399 uploaded videos** had no thumbnail. Three separate bugs:
