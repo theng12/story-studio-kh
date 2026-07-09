@@ -223,6 +223,10 @@ const queues: Record<JobType, QueueState> = {
   // Cheap quota-wise (50 units) so it gets its own queue slot rather
   // than blocking behind the heavier upload queue.
   youtube_playlist_update: { pending: [], running: false, executor: null },
+  // Backfill thumbnails onto already-uploaded videos (thumbnails.set only,
+  // no re-upload). Quota-paced + resumable — own slot so it doesn't block
+  // real uploads.
+  youtube_thumbnail_refresh: { pending: [], running: false, executor: null },
   // v1.0.89+: B-Roll normalize job. Re-encodes one stock-footage clip to
   // 1080p at the pool's target fps (24 default, 30 optional) so Video
   // Assembly can concat-demux for speed instead of running a per-frame

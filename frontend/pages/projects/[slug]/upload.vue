@@ -327,6 +327,15 @@
             <LoadingSpinner v-if="ytSyncing" size="sm" />
             {{ ytSyncing ? 'Syncing…' : '☁ Sync from YouTube' }}
           </button>
+          <button
+            class="btn btn-sm btn-ghost"
+            :disabled="thumbBackfilling || queueLoading"
+            title="Set thumbnails on already-uploaded videos that are missing one — no re-upload. Fixes thumbnails that were skipped on upload (too large, title-drift, or the video was still processing). Downscales oversized images automatically. Quota-paced (~50 units each) and resumable across days."
+            @click="doBackfillThumbnails"
+          >
+            <LoadingSpinner v-if="thumbBackfilling" size="sm" />
+            {{ thumbBackfilling ? 'Checking…' : '🖼 Backfill thumbnails' }}
+          </button>
         </div>
       </div>
       <p v-if="importsFolder" class="text-muted" style="font-size: 11px; margin: 4px 0 0;">
@@ -6057,6 +6066,43 @@ function closeSchedulePopoverForce() {
 }
 
 const ytSyncing = ref(false)
+
+// v1.0.524 — backfill thumbnails onto already-uploaded videos that are missing
+// one (a dry-run previews the count; the run is a quota-paced, resumable job).
+const thumbBackfilling = ref(false)
+async function doBackfillThumbnails() {
+  if (thumbBackfilling.value) return
+  thumbBackfilling.value = true
+  try {
+    const { post } = useApi()
+    const preview = await post<{ will_fix: number; no_image: number; total_uploaded: number }>(
+      `/projects/${slug.value}/upload/refresh-thumbnails`, { mode: 'missing', dry_run: true },
+    )
+    if (!preview.will_fix) {
+      success(preview.no_image
+        ? `No thumbnails to backfill — ${preview.no_image} uploaded episode(s) have no thumbnail image on disk (make/pin one first).`
+        : `All ${preview.total_uploaded} uploaded episode(s) already have their thumbnail. Nothing to do.`)
+      return
+    }
+    const ok = await ask({
+      title: 'Backfill thumbnails on YouTube?',
+      message:
+        `Will set thumbnails on ${preview.will_fix} already-uploaded video(s) that are missing one` +
+        (preview.no_image ? ` (${preview.no_image} more have no image on disk — skipped).` : '.') +
+        `\n\nThis pushes to the existing videos (no re-upload). It uses ~${preview.will_fix * 50} YouTube quota units; ` +
+        `if that exceeds today's ~10,000 budget it stops and you re-run tomorrow to finish.`,
+      confirmLabel: `Backfill ${preview.will_fix}`,
+    })
+    if (!ok) return
+    await post(`/projects/${slug.value}/upload/refresh-thumbnails`, { mode: 'missing' })
+    success(`Thumbnail backfill queued for ${preview.will_fix} video(s) — watch the Jobs panel for progress.`)
+    loadQueue('youtube')
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to start thumbnail backfill')
+  } finally {
+    thumbBackfilling.value = false
+  }
+}
 
 /**
  * Item F — auto-fire sync-from-YouTube once per 24h per project on Queue

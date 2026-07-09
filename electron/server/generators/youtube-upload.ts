@@ -352,6 +352,14 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       thumb_error = String(e?.message || 'thumbnail failed')
       job.output_lines.push(`⚠ Thumbnail upload skipped: ${thumb_error}`)
     }
+  } else if (!thumbnail_set) {
+    // v1.0.524 — never silent. Say WHY there was no thumbnail to set, and
+    // persist it to the sidecar last_error so the UI / a later backfill run
+    // shows the reason instead of an empty skip.
+    thumb_error = meta.thumbnailPath
+      ? `resolved thumbnail path no longer exists: ${meta.thumbnailPath}`
+      : 'no thumbnail found for this episode (empty Thumbnail Images folder, or none pinned). Make/pin a thumbnail, then run "Backfill thumbnails".'
+    job.output_lines.push(`⚠ No thumbnail set — ${thumb_error}`)
   }
   job.progress = 95
 

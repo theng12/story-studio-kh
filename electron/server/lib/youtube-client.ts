@@ -22,6 +22,7 @@ import { refreshAccessToken } from './youtube-oauth.js'
 import * as store from '../services/upload-store.js'
 import { checkQuota, recordQuotaUsage, friendlyQuotaErrorMessage, type QuotaKey } from '../services/upload-quota.js'
 import { logLine } from '../services/logger.js'
+import { prepareThumbnail } from './thumbnail-prepare.js'
 import {
   writeResumeSidecar,
   deleteResumeSidecar,
@@ -683,6 +684,22 @@ export async function updateVideoMetadata(opts: {
 }
 
 // ── Thumbnail upload ──────────────────────────────────────────────────────
+/**
+ * v1.0.524 — classify a thumbnails.set failure as worth retrying or not.
+ * The video is often still PROCESSING right after upload (transient 400/409),
+ * which used to be swallowed as a permanent "skip". 429/5xx are also transient.
+ * 403 (channel not verified), 413 (too large — we already downscale, but be
+ * safe), and a generic 400 (bad image) are permanent — retrying just wastes
+ * quota/time.
+ */
+export function classifyThumbnailError(status: number, body: string): 'retry' | 'permanent' {
+  if (status === 409 || status === 429 || status >= 500) return 'retry'
+  if (status === 400 && /processing|not (yet )?ready|try again|transient/i.test(body)) return 'retry'
+  return 'permanent'
+}
+
+const THUMBNAIL_RETRY_BACKOFF_MS = [3000, 8000, 15000]
+
 export async function setThumbnail(opts: {
   slug: string
   accountId: string
@@ -690,27 +707,40 @@ export async function setThumbnail(opts: {
   filePath: string
 }): Promise<void> {
   await checkQuota(opts.slug, 'thumbnails_set')
-  const buf = await fsp.readFile(opts.filePath)
-  const mime = opts.filePath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'
-  const resp = await fetchWithAuthRetry(opts.slug, opts.accountId, (accessToken) =>
-    fetch(`${THUMBNAILS_SET_URL}?videoId=${encodeURIComponent(opts.videoId)}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': mime,
-      },
-      body: buf,
-    }),
-  )
-  if (!resp.ok) {
+  // v1.0.524 — guarantee ≤2 MB / ≤1280 px so YouTube doesn't 413 the file.
+  // Small images pass through untouched (a crisp PNG stays a PNG).
+  const prepared = await prepareThumbnail(opts.filePath)
+
+  // Retry loop for the transient "still processing" race (auth-retry stays
+  // inside fetchWithAuthRetry). backoff.length + 1 total attempts.
+  for (let attempt = 0; ; attempt++) {
+    const resp = await fetchWithAuthRetry(opts.slug, opts.accountId, (accessToken) =>
+      fetch(`${THUMBNAILS_SET_URL}?videoId=${encodeURIComponent(opts.videoId)}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': prepared.contentType,
+        },
+        body: prepared.buffer,
+      }),
+    )
+    if (resp.ok) {
+      await recordQuotaOrLog(opts.slug, 'thumbnails_set')
+      return
+    }
     const text = await resp.text().catch(() => '')
+    const kind = classifyThumbnailError(resp.status, text)
+    if (kind === 'retry' && attempt < THUMBNAIL_RETRY_BACKOFF_MS.length) {
+      logLine('warn', `[thumbnail] set ${resp.status} (transient) — retry ${attempt + 1}/${THUMBNAIL_RETRY_BACKOFF_MS.length} for video ${opts.videoId}`, { slug: opts.slug })
+      await new Promise(r => setTimeout(r, THUMBNAIL_RETRY_BACKOFF_MS[attempt]!))
+      continue
+    }
     const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
     // Thumbnail set can fail if the account isn't verified (custom thumbs
     // require a verified channel). Don't hard-fail the whole upload — the
     // caller treats this as a warning.
     throw new Error(quotaMsg || `Thumbnail upload failed (${resp.status}): ${text.slice(0, 300)}. Custom thumbnails require channel verification on YouTube.`)
   }
-  await recordQuotaOrLog(opts.slug, 'thumbnails_set')
 }
 
 // ── Playlists (A4 + A5) ───────────────────────────────────────────────────

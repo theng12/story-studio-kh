@@ -31,6 +31,7 @@ import { updateVideoMetadata, createPlaylist, listVideoStatuses, listVideoSnippe
 import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { getYoutubeDefaults } from '../services/app-settings.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { previewThumbnailRefresh } from '../generators/youtube-thumbnail-refresh.js'
 import type { JobType } from '../models/types.js'
 
 export const router = Router()
@@ -1208,6 +1209,42 @@ router.post('/projects/:slug/upload/upload', async (req, res) => {
     res.status(201).json(job)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to queue upload'))
+  }
+})
+
+// v1.0.524 — Backfill thumbnails onto already-uploaded videos that are missing
+// one (thumbnails.set on the existing video_id; no re-upload). `dry_run:true`
+// returns counts only (no quota spend) to preview "will fix N of M". Otherwise
+// enqueues a single quota-paced, resumable backfill job per project.
+router.post('/projects/:slug/upload/refresh-thumbnails', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const platform = readPlatform(req.body?.platform) || 'youtube'
+    if (platform !== 'youtube') return res.status(400).json({ detail: `${platform} thumbnail backfill is not enabled yet.` })
+    const account_id = (typeof req.body?.account_id === 'string' && req.body.account_id)
+      ? req.body.account_id
+      : (await store.getDefaultAccountId(slug, 'youtube'))
+    if (!account_id) return res.status(400).json({ detail: 'No YouTube account connected. Connect a channel in Upload Center → Accounts first.' })
+    const mode: 'missing' | 'all' = req.body?.mode === 'all' ? 'all' : 'missing'
+
+    if (req.body?.dry_run === true) {
+      const preview = await previewThumbnailRefresh(slug, { mode, accountId: account_id, platform: 'youtube' })
+      return res.json({ dry_run: true, ...preview })
+    }
+
+    if (jq.isDuplicate(slug, '_thumbnail_refresh_', 'youtube_thumbnail_refresh' as JobType)) {
+      return res.status(409).json({ detail: 'A thumbnail backfill is already running for this project.' })
+    }
+    const job = jq.enqueue({
+      project_slug: slug,
+      type: 'youtube_thumbnail_refresh' as JobType,
+      episode_id: '_thumbnail_refresh_',
+      title: `Thumbnail backfill (${mode})`,
+      params: { account_id, mode },
+    })
+    res.status(201).json(job)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to start thumbnail backfill'))
   }
 })
 

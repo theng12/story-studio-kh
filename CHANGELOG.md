@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.525 — 2026-07-09
+
+**Fixed YouTube thumbnails silently going missing on upload — and a one-click "Backfill thumbnails" to fix the ones already uploaded.** Across your channels, **262 of 399 uploaded videos** had no thumbnail. Three separate bugs:
+
+- **Too-large images (413).** Composed thumbnails routinely ran 2.2–2.5 MB, over YouTube's 2 MB limit, and nothing shrank them — so the upload just failed. Thumbnails are now **auto-downscaled** to under 2 MB (≤1280 px, quality stepped down as needed) before sending; small images are sent untouched.
+- **Silent skip from a renamed title.** The upload resolved the thumbnail folder by the episode's *current title* instead of its *code*. If a title changed after upload, the folder wasn't found and the thumbnail step was skipped **with no error at all** — the biggest cause. It now resolves **by code** (drift-proof), the same way the rest of the app does, and never skips silently: the reason is always logged.
+- **Uploaded while still processing.** The thumbnail was set the instant the upload finished, when YouTube was often still processing the video (a transient failure) with **no retry**. It now retries transient failures with backoff, and doesn't waste time retrying permanent ones (e.g. an unverified channel).
+
+**🖼 Backfill thumbnails** button (Upload Center → Queue) sets thumbnails on already-uploaded videos that are missing one — no re-upload, just the thumbnail. It previews the exact count first (e.g. "will fix 107"), runs as a background job, is **quota-paced** (YouTube allows ~200 thumbnail sets/day, so ~225 across a channel finishes over about two days), and is **resumable** — re-run it the next day to finish. Run it per channel; it only touches videos on that channel's active account and skips episodes that have no thumbnail image on disk (make/pin one first).
+
 ## v1.0.524 — 2026-07-09
 
 **Ideas generator remembers your last-picked LLM.** The model dropdown used to reset to OpenAI's GPT-4o every time, even after you'd chosen a different model. It now defaults to the **last model you picked** for that project — persisted per-project (in `settings/config`, alongside the other remembered Ideas-form preferences) and restored on load. If the saved model is no longer available (e.g. its API key was removed), the picker falls back to auto-selecting a usable one. A brand-new project still starts on GPT-4o until you pick something else.

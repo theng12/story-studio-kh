@@ -16,7 +16,7 @@
 import fsp from 'fs/promises'
 import path from 'path'
 import { existsSync } from 'fs'
-import { resolveEpisodePaths } from '../services/utils.js'
+import { resolveEpisodePaths, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { parseMetadataTxt } from '../services/folder-migration.js'
 import type { VideoSnippet } from './youtube-client.js'
 
@@ -38,7 +38,16 @@ export interface ResolveUploadMetadataInput {
 }
 
 export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): Promise<EpisodeMetadataForUpload> {
-  const paths = await resolveEpisodePaths(input.slug, input.episode_code, input.fallback_title || '')
+  // v1.0.524 — resolve BY CODE (drift-tolerant), not by the current idea
+  // title. A title edited after upload used to make the title-based path miss
+  // the real `{code} - {oldTitle}` folder → thumb_dir absent → thumbnail
+  // silently skipped (the dominant cause of 262 missing thumbnails). This
+  // finds the sibling folder that actually holds the upload sidecar (and its
+  // thumbnails); non-drifted episodes resolve to the identical canonical path.
+  const platform = input.platform || 'youtube'
+  const paths = await resolveEpisodePathsByCodeWithSidecar(
+    input.slug, input.episode_code, `${platform}_upload.json`,
+  ).catch(() => resolveEpisodePaths(input.slug, input.episode_code, input.fallback_title || ''))
 
   // Prefer the JSON sidecar the Metadata Generator writes. Shape:
   //   { titles: string[], description: string, tags: string[], ... }
