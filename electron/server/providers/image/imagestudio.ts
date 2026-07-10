@@ -26,6 +26,21 @@ import {
 } from '../../lib/imagestudio-client.js'
 import { runOnPool, isConnectionError } from '../../lib/endpoint-pool.js'
 import { getHubBackend, hubSubmitJob, hubPollBatch } from '../../lib/studiohub-client.js'
+import { promises as fsp } from 'fs'
+
+/**
+ * Read a local reference image as base64 + mime for the Studio Hub batch API
+ * (img2img / edit). Mime is sniffed from the magic bytes so the Hub decodes it
+ * correctly regardless of file extension.
+ */
+async function readImageAsBase64(filePath: string): Promise<{ b64: string; mime: string }> {
+  const buf = await fsp.readFile(filePath)
+  let mime = 'image/png'
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) mime = 'image/jpeg'
+  else if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) mime = 'image/png'
+  else if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') mime = 'image/webp'
+  return { b64: buf.toString('base64'), mime }
+}
 
 // v1.0.306 — pre-flight probe timeout. A few of the user's Macs HANG the connect
 // (asleep but on the network) rather than refusing it; without this, the 30s
@@ -177,22 +192,33 @@ const imagestudioImageProvider: ImageProvider = {
     const refs = request.referenceImagePaths
     const sourceImage = Array.isArray(refs) && refs.length ? refs[0] : undefined
 
-    // Studio Hub routing (Phase 2a): when local_backend === 'hub' AND this is a
-    // plain txt2img (no reference image), submit a 1-item image batch to the Hub
-    // and let it delegate across the fleet. Reference-guided renders (img2img /
-    // edit) stay on the direct pool until the Hub gains reference-image support
-    // (Phase 2b — see HUB_REFERENCE_IMAGE_SPEC). On a CONNECTION error the Hub
-    // attempt falls back to the direct pool below — the Hub is an optimisation,
-    // never a hard dependency. A real job error (bad model, generation failure)
-    // surfaces as-is.
+    // Studio Hub routing: when local_backend === 'hub', submit the render to the
+    // Hub, which delegates across the fleet. BOTH txt2img and reference-guided
+    // (img2img / edit) are supported — a reference image rides along as base64
+    // in params.reference_images (Phase 2b; the Hub decodes + forwards it to the
+    // studio's img2img/edit and infers the mode from the model's capabilities).
+    // On a CONNECTION error the Hub attempt falls back to the direct pool below —
+    // the Hub is an optimisation, never a hard dependency. A real job error (bad
+    // model, generation failure, non-img2img model) surfaces as-is.
     const hub = await getHubBackend()
-    if (hub.mode === 'hub' && hub.hubUrl && !sourceImage) {
+    if (hub.mode === 'hub' && hub.hubUrl) {
       try {
         const params: Record<string, any> = {
           width: dims.width, height: dims.height, steps: o.steps, guidance: o.guidance,
         }
         if (o.negative_prompt) params.negative_prompt = o.negative_prompt
         if (o.lora_names) { params.lora_names = o.lora_names; if (o.lora_scales) params.lora_scales = o.lora_scales }
+        if (sourceImage) {
+          // Reference-guided: base64 the primary anchor (refs[0], matching the
+          // direct img2img path, which also uses only the first reference). The
+          // Hub picks img2img vs edit from the model's capabilities; forward
+          // image_strength when the caller set one.
+          const { b64, mime } = await readImageAsBase64(sourceImage)
+          params.reference_images = [{ b64, mime }]
+          if (typeof request.providerParams?.image_strength === 'number') {
+            params.image_strength = request.providerParams.image_strength
+          }
+        }
         const sub = await hubSubmitJob(hub.hubUrl, hub.hubToken, {
           modality: 'image', model: repo, label: 'storystudio-kh', routing: 'pool',
           items: [{ prompt: request.prompt, ...(typeof o.seed === 'number' ? { seed: o.seed } : {}), params }],
