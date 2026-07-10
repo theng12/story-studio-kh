@@ -79,6 +79,148 @@ export async function getHubBackend(): Promise<HubBackend> {
   return { mode, hubUrl: trimHubUrl(hubUrl), hubToken: (hubToken || '').trim() }
 }
 
+// ── Batch job API (image / voice / video) — Phase 2+ ───────────────────────
+//
+// One uniform async API: submit a batch → poll until queued+running == 0 →
+// read each item's artifact_url. Story Studio submits ONE item per call (it
+// generates a single asset at a time), so callers read items[0].
+
+export interface HubJobItem {
+  prompt: string
+  seed?: number
+  params?: Record<string, any>
+}
+
+export interface HubSubmitBody {
+  modality: 'image' | 'voice' | 'music' | 'video'
+  model: string
+  label?: string
+  /** 'pool' (Hub picks least-busy capable studio) | 'studio:<id>'. */
+  routing?: string
+  sharedParams?: Record<string, any>
+  items: HubJobItem[]
+}
+
+export interface HubBatchItemResult {
+  index: number
+  state: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+  prompt?: string
+  studio?: string
+  artifact_url?: string
+  artifact_path?: string
+  asset_id?: string
+  error?: string | null
+}
+
+export interface HubBatchStatus {
+  id: string
+  total?: number
+  queued?: number
+  running?: number
+  done?: number
+  error?: number
+  cancelled?: boolean
+  governor_note?: string
+  items: HubBatchItemResult[]
+}
+
+export interface HubPollOpts {
+  isCancelled?: () => boolean
+  timeoutMs?: number
+  onProgress?: (s: HubBatchStatus) => void
+}
+
+const HUB_BATCH_DEFAULT_TIMEOUT_MS = 10 * 60_000
+
+/** Cancellable sleep — wakes early if isCancelled flips (mirrors pollJob). */
+async function sleepCancellable(ms: number, isCancelled?: () => boolean): Promise<void> {
+  const step = 250
+  let waited = 0
+  while (waited < ms) {
+    if (isCancelled?.()) return
+    await new Promise((r) => setTimeout(r, Math.min(step, ms - waited)))
+    waited += step
+  }
+}
+
+/**
+ * Submit a batch to the Hub. Returns `{ batch_id }`. A connection error phrasing
+ * ("Connection error") lets the caller's isConnectionError() drive fallback to
+ * the direct pool; a non-connection error (bad model, etc.) surfaces as-is.
+ */
+export async function hubSubmitJob(
+  hubUrl: string,
+  token: string | undefined,
+  body: HubSubmitBody,
+): Promise<{ batch_id: string; items: number }> {
+  let resp: Response
+  try {
+    resp = await fetch(`${hubApiBase(hubUrl)}/jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...hubHeaders(token) },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    })
+  } catch (e: any) {
+    throw new Error(`Can't reach Studio Hub to submit a job: ${e?.message || e}. Connection error.`)
+  }
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => '')
+    throw new Error(`Studio Hub submit failed (${resp.status}): ${t.slice(0, 300)}`)
+  }
+  const j = await resp.json().catch(() => ({})) as { batch_id?: string; items?: number }
+  if (!j?.batch_id) {
+    throw new Error(`Studio Hub submit returned no batch_id: ${JSON.stringify(j).slice(0, 200)}`)
+  }
+  return { batch_id: j.batch_id, items: j.items ?? body.items.length }
+}
+
+/**
+ * Poll a batch until every item is terminal (queued + running == 0). Returns
+ * the final status. Cancels the batch on isCancelled. A connection error while
+ * polling is phrased so the caller can fall back to the direct pool.
+ */
+export async function hubPollBatch(
+  hubUrl: string,
+  token: string | undefined,
+  batchId: string,
+  opts: HubPollOpts = {},
+): Promise<HubBatchStatus> {
+  const deadline = Date.now() + (opts.timeoutMs ?? HUB_BATCH_DEFAULT_TIMEOUT_MS)
+  let polls = 0
+  while (Date.now() < deadline) {
+    if (opts.isCancelled?.()) {
+      await fetch(`${hubApiBase(hubUrl)}/jobs/${batchId}`, {
+        method: 'DELETE', headers: hubHeaders(token),
+      }).catch(() => {})
+      throw new Error('Cancelled by user')
+    }
+    let resp: Response
+    try {
+      resp = await fetch(`${hubApiBase(hubUrl)}/jobs/${batchId}`, {
+        headers: { Accept: 'application/json', ...hubHeaders(token) },
+        signal: AbortSignal.timeout(15_000),
+      })
+    } catch (e: any) {
+      throw new Error(`Can't reach Studio Hub while polling ${batchId}: ${e?.message || e}. Connection error.`)
+    }
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '')
+      throw new Error(`Studio Hub poll failed (${resp.status}): ${t.slice(0, 300)}`)
+    }
+    const s = await resp.json() as HubBatchStatus
+    try { opts.onProgress?.(s) } catch { /* never let UI plumbing kill polling */ }
+    if ((s.queued || 0) + (s.running || 0) === 0) return s
+    const sleepMs = polls < 6 ? 2_000 : polls < 18 ? 4_000 : 8_000
+    await sleepCancellable(sleepMs, opts.isCancelled)
+    polls += 1
+  }
+  throw new Error(
+    `Studio Hub batch ${batchId} did not complete within ` +
+    `${Math.round((opts.timeoutMs ?? HUB_BATCH_DEFAULT_TIMEOUT_MS) / 60_000)} min`,
+  )
+}
+
 export interface HubHealth {
   ok: boolean
   appVersion?: string

@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.529 — 2026-07-10
+
+**Studio Hub, Phase 2a: images (text-to-image) now route through the Hub too.** Following [v1.0.528](#v10528--2026-07-10) (chat), when **Generation backend** is set to **Studio Hub**, plain text-to-image scene/image generation is now submitted to the Hub, which delegates it to the least-busy capable Mac across your fleet and hands back the finished image. Same safety net as chat: if the Hub is unreachable, it **automatically falls back** to your Direct Image Studio pool (which keeps the v1.0.527 "is this really Image Studio?" guard). No behaviour change unless you're in Hub mode.
+
+**Not yet via the Hub:** **reference-guided** image generation (img2img / edit — used by continuity render and art-style reinforcement) still goes Direct even in Hub mode, because the Hub's batch API can't carry reference images yet. That's the one Hub-side addition we're waiting on (spec written); once it lands, reference renders flip onto the Hub automatically. Voice is the next phase.
+
+---
+
 ## v1.0.528 — 2026-07-10
 
 **New: route local generation through Studio Hub — one control-plane instead of a long list of Mac URLs. (Phase 1: chat.)** As your fleet has grown, keeping a big list of per-Mac Studio URLs in each provider's box has become fragile (it's exactly how a Voice Studio URL slipped into the image pool last release). **Settings → Local Models** now has a **Generation backend** switch:

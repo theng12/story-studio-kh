@@ -16,7 +16,9 @@ import {
   hubApiBase,
   hubHeaders,
   isLoopbackHub,
+  hubSubmitJob,
 } from '../lib/studiohub-client.js'
+import { isConnectionError } from '../lib/endpoint-pool.js'
 
 describe('trimHubUrl', () => {
   test('strips trailing slashes and whitespace', () => {
@@ -64,5 +66,21 @@ describe('isLoopbackHub', () => {
   test('false for tailnet / remote hosts (token needed)', () => {
     assert.equal(isLoopbackHub('http://100.66.3.3:47873'), false)
     assert.equal(isLoopbackHub('http://hub.tailnet.ts.net:47873'), false)
+  })
+})
+
+describe('hubSubmitJob fallback contract', () => {
+  // A DOWN Hub must throw a message that endpoint-pool's isConnectionError()
+  // recognises — that's what makes the image/chat providers fall back to the
+  // direct pool instead of failing the job. (Uses a refused local port.)
+  test('a dead Hub throws a connection-error the providers fall back on', async () => {
+    let err: any
+    try {
+      await hubSubmitJob('http://127.0.0.1:1', undefined, {
+        modality: 'image', model: 'x/y', items: [{ prompt: 'p' }],
+      })
+    } catch (e) { err = e }
+    assert.ok(err, 'expected a throw')
+    assert.equal(isConnectionError(err), true, `isConnectionError must match: ${err?.message}`)
   })
 })

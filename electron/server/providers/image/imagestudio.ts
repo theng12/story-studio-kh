@@ -24,7 +24,8 @@ import {
   DEFAULT_IMAGESTUDIO_BASE_URL, getImagestudioDispatcher, health as imgHealth,
   type ImageStudioTxt2ImgParams,
 } from '../../lib/imagestudio-client.js'
-import { runOnPool } from '../../lib/endpoint-pool.js'
+import { runOnPool, isConnectionError } from '../../lib/endpoint-pool.js'
+import { getHubBackend, hubSubmitJob, hubPollBatch } from '../../lib/studiohub-client.js'
 
 // v1.0.306 — pre-flight probe timeout. A few of the user's Macs HANG the connect
 // (asleep but on the network) rather than refusing it; without this, the 30s
@@ -175,6 +176,44 @@ const imagestudioImageProvider: ImageProvider = {
     const o = commonOverrides(request)
     const refs = request.referenceImagePaths
     const sourceImage = Array.isArray(refs) && refs.length ? refs[0] : undefined
+
+    // Studio Hub routing (Phase 2a): when local_backend === 'hub' AND this is a
+    // plain txt2img (no reference image), submit a 1-item image batch to the Hub
+    // and let it delegate across the fleet. Reference-guided renders (img2img /
+    // edit) stay on the direct pool until the Hub gains reference-image support
+    // (Phase 2b — see HUB_REFERENCE_IMAGE_SPEC). On a CONNECTION error the Hub
+    // attempt falls back to the direct pool below — the Hub is an optimisation,
+    // never a hard dependency. A real job error (bad model, generation failure)
+    // surfaces as-is.
+    const hub = await getHubBackend()
+    if (hub.mode === 'hub' && hub.hubUrl && !sourceImage) {
+      try {
+        const params: Record<string, any> = {
+          width: dims.width, height: dims.height, steps: o.steps, guidance: o.guidance,
+        }
+        if (o.negative_prompt) params.negative_prompt = o.negative_prompt
+        if (o.lora_names) { params.lora_names = o.lora_names; if (o.lora_scales) params.lora_scales = o.lora_scales }
+        const sub = await hubSubmitJob(hub.hubUrl, hub.hubToken, {
+          modality: 'image', model: repo, label: 'storystudio-kh', routing: 'pool',
+          items: [{ prompt: request.prompt, ...(typeof o.seed === 'number' ? { seed: o.seed } : {}), params }],
+        })
+        const status = await hubPollBatch(hub.hubUrl, hub.hubToken, sub.batch_id, { isCancelled: request.isCancelled })
+        const item = status.items?.[0]
+        if (!item || item.state !== 'done' || !item.artifact_url) {
+          throw new Error(
+            `Studio Hub image job did not produce an image: ${item?.error || item?.state || 'no item'}` +
+            `${status.governor_note ? ` (${status.governor_note})` : ''}`,
+          )
+        }
+        return { urls: [item.artifact_url], taskId: sub.batch_id }
+      } catch (e: any) {
+        if (!isConnectionError(e)) throw e
+        console.warn(
+          `[studiohub] image via Hub unreachable (${e?.message || e}) — ` +
+          `falling back to the direct Image Studio pool`,
+        )
+      }
+    }
 
     // Submit + poll on a SINGLE pooled endpoint. runOnPool picks least-busy and,
     // on a connection error (friendlyConnectError → "cannot reach"/"refused",
