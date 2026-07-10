@@ -22,7 +22,7 @@ import {
   SCRIPT_CONCURRENCY_DEFAULT, SCRIPT_CONCURRENCY_MIN, SCRIPT_CONCURRENCY_MAX,
   getLocalBackend, setLocalBackend, getHubUrl, setHubUrl, DEFAULT_HUB_URL,
 } from '../services/app-settings.js'
-import { hubHealth } from '../lib/studiohub-client.js'
+import { hubHealth, hubStudios, hubStudioAction } from '../lib/studiohub-client.js'
 import { setLlmConcurrency } from '../services/job-queue.js'
 import { testApiKey } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -122,6 +122,37 @@ router.put('/app-settings/local-backend', async (req, res) => {
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save local-backend setting'))
+  }
+})
+
+// ── Studio Hub fleet control (ops) ─────────────────────────────────────────
+// List the fleet's studios and start/stop/restart one from Settings. Restart is
+// stop → brief pause → start (the Hub's lifecycle route only exposes start/stop).
+router.get('/app-settings/hub/studios', async (_req, res) => {
+  try {
+    const [hubUrl, token] = await Promise.all([getHubUrl(), getApiKey('hub').catch(() => '')])
+    const studios = await hubStudios(hubUrl, token)
+    res.json({ studios })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not reach Studio Hub to list studios'))
+  }
+})
+
+router.post('/app-settings/hub/studios/:id/:action', async (req, res) => {
+  const { id, action } = req.params
+  if (action !== 'start' && action !== 'stop' && action !== 'restart') {
+    return res.status(400).json({ detail: 'action must be start, stop, or restart' })
+  }
+  try {
+    const [hubUrl, token] = await Promise.all([getHubUrl(), getApiKey('hub').catch(() => '')])
+    if (action === 'restart') {
+      await hubStudioAction(hubUrl, token, id, 'stop')
+      await new Promise((r) => setTimeout(r, 2500))
+      return res.json(await hubStudioAction(hubUrl, token, id, 'start'))
+    }
+    res.json(await hubStudioAction(hubUrl, token, id, action))
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Studio action failed'))
   }
 })
 

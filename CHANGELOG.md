@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.533 — 2026-07-10
+
+**New: Fleet control — start, stop, or restart any Studio server across your Macs, right from Settings.** When **Generation backend** is set to **Studio Hub**, the Local Models panel now has a **Fleet control** list. Hit **Refresh** to see every studio on your fleet (image / voice / chat / … per Mac) with a live up/down dot, then **Restart** a stuck one, **Stop** it, or **Start** an offline one — no need to walk over to that Mac and open Pinokio. Restart is a clean stop-then-start. It's driven through the Hub (which owns the start/stop of each server), so it only appears in Hub mode.
+
+---
+
 ## v1.0.532 — 2026-07-10
 
 **Studio Hub: reference images are now uploaded once per render, not re-sent every scene.** In Hub mode, reference-guided image generation (continuity render, art-style reinforcement) previously packed the reference image (character sheet / style ref) into *every* scene's request. Since a whole episode typically reuses the **same** reference, Story Studio now **uploads it once** to the Hub and references it by id for the rest of the scenes — much less data shuffled for a big render. If the upload ever fails it silently falls back to sending the image inline (so nothing breaks), and if the Hub restarts mid-render and forgets the upload, the affected scene re-sends and retries automatically. No visible change — just faster, lighter reference renders through the Hub.

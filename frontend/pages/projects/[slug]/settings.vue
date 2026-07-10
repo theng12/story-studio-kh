@@ -1651,6 +1651,32 @@
           <p class="text-muted" style="font-size:11px; line-height:1.6; margin-top:10px;">
             In Hub mode, image / voice / chat generation is submitted to the Hub, which delegates to the least-busy capable Mac. If the Hub is unreachable, Story Studio automatically uses the Direct pools below — so this is safe to leave on. The endpoint lists below remain your Direct fallback.
           </p>
+
+          <!-- Fleet control (ops): start / stop / restart studios via the Hub -->
+          <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border);">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <strong style="font-size:12.5px;">Fleet control</strong>
+              <button class="btn btn-sm" :disabled="fleetLoading" @click="loadFleet">{{ fleetLoading ? 'Loading…' : '↻ Refresh' }}</button>
+            </div>
+            <p v-if="fleetError" class="text-muted" style="font-size:11px; color:var(--danger,#e5534b); margin-top:4px;">{{ fleetError }}</p>
+            <div v-if="fleet.length" style="max-height:260px; overflow-y:auto; margin-top:6px; border:1px solid var(--border); border-radius:8px;">
+              <div v-for="s in fleet" :key="s.id" style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-bottom:1px solid var(--border); font-size:12px;">
+                <span class="pool-dot" :class="s.status === 'up' ? 'on' : 'off'" />
+                <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                  {{ s.emoji || '' }} {{ s.modality }} · {{ s.machine_label || s.machine }}
+                  <span v-if="fleetBusy[s.id]" class="text-muted"> — {{ fleetBusy[s.id] }}</span>
+                </span>
+                <template v-if="s.status === 'up'">
+                  <button class="btn btn-sm" :disabled="!!fleetBusy[s.id]" @click="studioAction(s, 'restart')">Restart</button>
+                  <button class="btn btn-sm" :disabled="!!fleetBusy[s.id]" @click="studioAction(s, 'stop')">Stop</button>
+                </template>
+                <button v-else class="btn btn-sm" :disabled="!!fleetBusy[s.id]" @click="studioAction(s, 'start')">Start</button>
+              </div>
+            </div>
+            <p v-else-if="!fleetError" class="text-muted" style="font-size:11px; margin-top:4px;">
+              Refresh to list the studios across your fleet and start / stop / restart a stuck or offline one.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -5736,6 +5762,39 @@ async function saveLocalBackend() {
   }
 }
 onMounted(loadLocalBackend)
+
+// Fleet control (Hub mode) — list studios and start/stop/restart one.
+type FleetStudio = { id: string; modality?: string; machine?: string; machine_label?: string; status?: string; emoji?: string }
+const fleet = ref<FleetStudio[]>([])
+const fleetLoading = ref(false)
+const fleetError = ref('')
+const fleetBusy = ref<Record<string, string>>({})
+async function loadFleet() {
+  if (fleetLoading.value) return
+  fleetLoading.value = true; fleetError.value = ''
+  try {
+    const r = await get<{ studios: FleetStudio[] }>('/app-settings/hub/studios')
+    // Up first (so a stuck one is easy to restart), then by id.
+    fleet.value = (r.studios || []).slice().sort((a, b) =>
+      (a.status === 'up' ? 0 : 1) - (b.status === 'up' ? 0 : 1) || String(a.id).localeCompare(String(b.id)))
+  } catch (e: any) {
+    fleet.value = []; fleetError.value = e?.data?.detail || 'Could not reach the Hub to list studios.'
+  } finally { fleetLoading.value = false }
+}
+async function studioAction(s: FleetStudio, action: 'start' | 'stop' | 'restart') {
+  if (fleetBusy.value[s.id]) return
+  fleetBusy.value = { ...fleetBusy.value, [s.id]: `${action}ing…` }
+  fleetError.value = ''
+  try {
+    const r = await post<{ ok: boolean; error?: string }>(`/app-settings/hub/studios/${encodeURIComponent(s.id)}/${action}`, {})
+    if (r && r.ok === false) fleetError.value = `${action} ${s.id}: ${r.error || 'failed'}`
+    setTimeout(loadFleet, action === 'restart' ? 3500 : 1200)
+  } catch (e: any) {
+    fleetError.value = e?.data?.detail || `Could not ${action} ${s.id}.`
+  } finally {
+    const next = { ...fleetBusy.value }; delete next[s.id]; fleetBusy.value = next
+  }
+}
 // App-level (per-machine): how many text-generation jobs run at once across
 // script outline/expansion + metadata + image-prompts + scene-planning,
 // combined. Stored in app-settings (not project config) — see GET/PUT

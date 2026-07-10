@@ -293,6 +293,54 @@ export async function invalidateHubAsset(filePath: string): Promise<void> {
   } catch { /* file gone — nothing to invalidate */ }
 }
 
+// ── Fleet control (ops) ────────────────────────────────────────────────────
+//
+// Powers the Settings "Fleet control" panel: list the fleet's studios and
+// start / stop / restart a stuck or offline one — without leaving Story Studio.
+
+export interface HubStudio {
+  id: string
+  modality?: string
+  machine?: string
+  machine_label?: string
+  status?: string
+  host?: string
+  port?: number
+  app_version?: string
+  emoji?: string
+}
+
+/** List the fleet's studios (up/down) via the Hub. */
+export async function hubStudios(hubUrl: string, token: string | undefined): Promise<HubStudio[]> {
+  const resp = await fetch(`${hubApiBase(hubUrl)}/studios`, {
+    headers: { Accept: 'application/json', ...hubHeaders(token) },
+    signal: AbortSignal.timeout(15_000),
+  })
+  if (!resp.ok) throw new Error(`Studio Hub studios failed (${resp.status})`)
+  const j = await resp.json().catch(() => ({})) as { studios?: HubStudio[] }
+  return Array.isArray(j?.studios) ? j.studios : []
+}
+
+/** Start or stop a studio via the Hub (pterm lifecycle). Never throws. */
+export async function hubStudioAction(
+  hubUrl: string,
+  token: string | undefined,
+  studioId: string,
+  action: 'start' | 'stop',
+): Promise<{ ok: boolean; error?: string }> {
+  let resp: Response
+  try {
+    resp = await fetch(`${hubApiBase(hubUrl)}/studios/${encodeURIComponent(studioId)}/${action}`, {
+      method: 'POST', headers: hubHeaders(token), signal: AbortSignal.timeout(20_000),
+    })
+  } catch (e: any) {
+    return { ok: false, error: `Can't reach Studio Hub: ${e?.message || e}` }
+  }
+  const j = await resp.json().catch(() => ({})) as { ok?: boolean; error?: string; detail?: string }
+  if (!resp.ok) return { ok: false, error: j?.detail || j?.error || `HTTP ${resp.status}` }
+  return { ok: j?.ok !== false, error: j?.error }
+}
+
 export interface HubHealth {
   ok: boolean
   appVersion?: string
