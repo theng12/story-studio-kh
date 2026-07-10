@@ -447,6 +447,43 @@ export async function setLastSeenVersion(version: string): Promise<void> {
   await setAppSetting(LAST_SEEN_VERSION_KEY, version)
 }
 
+// ── Local generation backend (v1.0.528 — Studio Hub) ────────────────────────
+//
+// Chooses how the LOCAL Studio providers (image / voice / chat) reach the
+// fleet:
+//   'direct' — the current behaviour: Story Studio talks to each Mac's Studio
+//              server directly via the per-provider endpoint pools.
+//   'hub'    — route generation through Studio Hub KH (a single control-plane
+//              that delegates across the fleet); auto-falls-back to 'direct'
+//              when the Hub is unreachable, so it's never a hard dependency.
+// Per-machine (like server_mode / last_seen_version). Default 'direct' so an
+// install with no Hub configured behaves exactly as before.
+
+export const LOCAL_BACKEND_KEY = 'local_backend'
+export const HUB_URL_KEY = 'hub_url'
+export const DEFAULT_HUB_URL = 'http://127.0.0.1:47873'
+export type LocalBackend = 'direct' | 'hub'
+
+export async function getLocalBackend(): Promise<LocalBackend> {
+  const v = await getAppSetting(LOCAL_BACKEND_KEY)
+  return v === 'hub' ? 'hub' : 'direct'
+}
+
+export async function setLocalBackend(mode: LocalBackend): Promise<void> {
+  await setAppSetting(LOCAL_BACKEND_KEY, mode === 'hub' ? 'hub' : 'direct')
+}
+
+export async function getHubUrl(): Promise<string> {
+  const v = await getAppSetting(HUB_URL_KEY)
+  return typeof v === 'string' && v.trim() ? v.trim() : DEFAULT_HUB_URL
+}
+
+export async function setHubUrl(url: string): Promise<void> {
+  const cleaned = typeof url === 'string' ? url.trim() : ''
+  // Empty → clear override (falls back to DEFAULT_HUB_URL on read).
+  await setAppSetting(HUB_URL_KEY, cleaned)
+}
+
 // ── Endpoint labels (v1.0.281) ──────────────────────────────────────────────
 //
 // Optional, user-given names for each local-modal endpoint (LM Studio /

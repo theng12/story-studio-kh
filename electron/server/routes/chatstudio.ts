@@ -93,9 +93,20 @@ router.get('/chatstudio/models', async (_req, res) => {
     // doesn't make the model list look empty.
     const { listModelsPooled } = await import('../lib/chatstudio-client.js')
     const { getApiKey } = await import('../services/app-secrets-store.js')
-    const stored = await getApiKey('chatstudio')
-    if (!stored) return res.json({ models: [] })
-    const models = await listModelsPooled(stored)
+    const { getHubBackend, hubChatRootBase } = await import('../lib/studiohub-client.js')
+    // In Hub mode the picker should surface the FLEET's chat models (via the
+    // Hub's OpenAI-compatible gateway, same id shape). If the Hub is down or
+    // lists nothing, fall back to the direct pool — mirroring generation's
+    // auto-fallback so the picker always shows models that will actually run.
+    const hub = await getHubBackend()
+    let models: string[] = []
+    if (hub.mode === 'hub' && hub.hubUrl) {
+      models = await listModelsPooled(hubChatRootBase(hub.hubUrl)).catch(() => [])
+    }
+    if (!models.length) {
+      const stored = await getApiKey('chatstudio')
+      if (stored) models = await listModelsPooled(stored)
+    }
     res.json({ models })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not list Chat Studio models'))

@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.528 — 2026-07-10
+
+**New: route local generation through Studio Hub — one control-plane instead of a long list of Mac URLs. (Phase 1: chat.)** As your fleet has grown, keeping a big list of per-Mac Studio URLs in each provider's box has become fragile (it's exactly how a Voice Studio URL slipped into the image pool last release). **Settings → Local Models** now has a **Generation backend** switch:
+
+- **Direct** — the current behaviour: Story Studio talks to each Studio Mac directly via the endpoint pools.
+- **Studio Hub** — Story Studio sends the job to your Studio Hub, which delegates it to the least-busy capable Mac across the whole fleet. You configure **one** Hub URL instead of a dozen server URLs.
+
+**Safe by design:** if the Hub is ever unreachable, generation **automatically falls back to the Direct pools** — so turning Hub mode on is low-risk, and your existing per-Studio URL lists stay in place as that fallback. When Story Studio runs on the Hub machine itself (the common case), no token is needed; a Hub token field is there only for running Story Studio from a *different* Mac. The panel shows a live Hub online/offline indicator.
+
+This first release routes **chat / LLM** calls (idea generation, scripts, metadata, scene planning) through the Hub's gateway. **Image and voice** follow in the next updates (image reference-guided generation is waiting on a small Hub-side addition). Nothing changes unless you switch to Hub mode; Direct remains the default.
+
+---
+
 ## v1.0.527 — 2026-07-10
 
 **Fixed scene image generation failing with a cryptic "404 Not Found" — a Voice Studio server had gotten mixed into the Image Studio pool.** When generating images (e.g. Boundless EP0023), every scene could fail with `Image Studio submit failed (404): {"detail":"Not Found"}`. The cause: your Image Studio "server pool" had two **Voice Studio** modals pasted into it by mistake (they run on a different port). Voice Studio answers the same health check as Image Studio, so it looked online — but it has **no image-generation endpoint**, so every scene sent to it 404'd. Story Studio now **verifies each pooled endpoint is really Image Studio** (by the app it reports) before sending work: a mis-added Voice Studio or Chat Studio server is treated as offline and **skipped**, so scenes fail over to your real modals instead of dying. It also shows up clearly in **Settings → Local Models** now — a wrong server reads *"Not an Image Studio modal — this endpoint is Voice Studio. Remove its URL,"* instead of silently poisoning every render. (Tip: you can still tidy the list by removing those `:47870` URLs, but the app no longer breaks if you don't.)

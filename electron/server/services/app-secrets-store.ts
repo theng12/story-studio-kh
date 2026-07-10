@@ -87,6 +87,12 @@ export const SECRET_PROVIDERS = [
   // Research phase in the timestamp-driven pipeline. Optional — the
   // LLM-only research source works with any configured text-provider key.
   'perplexity',
+  // v1.0.528+ — Studio Hub KH access token (X-Hub-Token). OPTIONAL: when Story
+  // Studio runs ON the Hub machine it reaches the Hub via loopback, which is
+  // token-exempt, so this stays empty. Only needed if Story Studio runs on a
+  // different Mac and points hub_url at the Hub's tailnet address. The Hub URL
+  // itself is a non-secret app-setting (hub_url); this slot holds only the token.
+  'hub',
 ] as const
 export type ProviderId = typeof SECRET_PROVIDERS[number]
 

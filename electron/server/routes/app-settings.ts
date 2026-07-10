@@ -10,7 +10,7 @@
 import { Router } from 'express'
 import { getNotifierSettings, setNotifierSettings, DEFAULT_NOTIFIER_SETTINGS } from '../services/job-notifier.js'
 import {
-  listProviderKeys, setApiKey, clearApiKey, SECRET_PROVIDERS,
+  listProviderKeys, setApiKey, clearApiKey, SECRET_PROVIDERS, getApiKey,
 } from '../services/app-secrets-store.js'
 import {
   getServerModeSettingsSafe, setServerModeNetworking, setServerModeCredentials,
@@ -20,7 +20,9 @@ import {
   getLastSeenVersion, setLastSeenVersion,
   getScriptConcurrency, setScriptConcurrency,
   SCRIPT_CONCURRENCY_DEFAULT, SCRIPT_CONCURRENCY_MIN, SCRIPT_CONCURRENCY_MAX,
+  getLocalBackend, setLocalBackend, getHubUrl, setHubUrl, DEFAULT_HUB_URL,
 } from '../services/app-settings.js'
+import { hubHealth } from '../lib/studiohub-client.js'
 import { setLlmConcurrency } from '../services/job-queue.js'
 import { testApiKey } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -55,6 +57,71 @@ router.put('/app-settings/script-concurrency', async (req, res) => {
     res.json({ value, min: SCRIPT_CONCURRENCY_MIN, max: SCRIPT_CONCURRENCY_MAX })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save concurrency setting'))
+  }
+})
+
+// ── Local generation backend (Settings → Local Models: Direct | Studio Hub) ─
+// Per-machine choice of how the local Studio providers reach the fleet. GET
+// also probes Hub liveness so the UI can show an online/offline dot. The
+// optional X-Hub-Token lives in the app-secrets 'hub' bucket (via
+// /app-settings/api-keys/hub) — not returned here, only whether one is set.
+router.get('/app-settings/local-backend', async (_req, res) => {
+  try {
+    const [mode, hubUrl, token] = await Promise.all([
+      getLocalBackend(),
+      getHubUrl(),
+      getApiKey('hub').catch(() => ''),
+    ])
+    const health = await hubHealth(hubUrl)
+    res.json({
+      local_backend: mode,
+      hub_url: hubUrl,
+      default_hub_url: DEFAULT_HUB_URL,
+      hub_token_set: !!(token && token.trim()),
+      hub_online: health.ok,
+      hub_app_version: health.appVersion || null,
+      hub_error: health.ok ? null : (health.error || null),
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to load local-backend setting'))
+  }
+})
+
+router.put('/app-settings/local-backend', async (req, res) => {
+  try {
+    const body = req.body || {}
+    if (body.local_backend !== undefined) {
+      if (body.local_backend !== 'direct' && body.local_backend !== 'hub') {
+        return res.status(400).json({ detail: "local_backend must be 'direct' or 'hub'" })
+      }
+      await setLocalBackend(body.local_backend)
+    }
+    if (body.hub_url !== undefined) {
+      const url = typeof body.hub_url === 'string' ? body.hub_url.trim() : ''
+      if (url && !/^https?:\/\//i.test(url)) {
+        return res.status(400).json({ detail: 'hub_url must start with http:// or https://' })
+      }
+      await setHubUrl(url)
+    }
+    // Optional convenience: set/clear the Hub token in the same call.
+    if (body.hub_token !== undefined) {
+      const tok = typeof body.hub_token === 'string' ? body.hub_token.trim() : ''
+      await setApiKey('hub', tok)
+    }
+    const [mode, hubUrl, token] = await Promise.all([
+      getLocalBackend(), getHubUrl(), getApiKey('hub').catch(() => ''),
+    ])
+    const health = await hubHealth(hubUrl)
+    res.json({
+      ok: true,
+      local_backend: mode,
+      hub_url: hubUrl,
+      hub_token_set: !!(token && token.trim()),
+      hub_online: health.ok,
+      hub_error: health.ok ? null : (health.error || null),
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save local-backend setting'))
   }
 })
 

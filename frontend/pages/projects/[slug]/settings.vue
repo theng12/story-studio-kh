@@ -1616,6 +1616,44 @@
         </ol>
       </div>
 
+      <!-- v1.0.528 — Generation backend: Direct per-studio pools vs Studio Hub -->
+      <div class="pool-status-card">
+        <div class="pool-status-head">
+          <strong>⚙️ Generation backend</strong>
+          <span :style="`font-size:11px; padding:2px 8px; border-radius:10px; background:${localBackend==='hub' ? 'var(--accent,#3b82f6)' : 'var(--border,#ccc)'}; color:${localBackend==='hub' ? '#fff' : 'inherit'};`">
+            {{ localBackend === 'hub' ? 'Studio Hub' : 'Direct' }}
+          </span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+          <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; font-size:12.5px;">
+            <input type="radio" value="direct" v-model="localBackend" @change="saveLocalBackend" style="margin-top:3px;" />
+            <span><strong>Direct</strong> — talk to each Studio Mac directly (the endpoint pools below).</span>
+          </label>
+          <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; font-size:12.5px;">
+            <input type="radio" value="hub" v-model="localBackend" @change="saveLocalBackend" style="margin-top:3px;" />
+            <span><strong>Studio Hub</strong> — route through one control-plane that delegates across your whole fleet.</span>
+          </label>
+        </div>
+        <div v-if="localBackend === 'hub'" style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+          <label class="local-tts-label">Hub URL</label>
+          <div style="display:flex; gap:8px; margin-top:4px;">
+            <input v-model="hubUrl" :placeholder="hubUrlDefault" style="flex:1; padding:6px 8px;" />
+            <button class="btn btn-sm" :disabled="hubBusy" @click="saveLocalBackend">{{ hubBusy ? 'Saving…' : 'Save' }}</button>
+          </div>
+          <label class="local-tts-label" style="display:block; margin-top:10px;">Hub token <span class="text-muted" style="font-weight:normal;">(optional — only needed if Story Studio runs on a different Mac than the Hub)</span></label>
+          <input v-model="hubToken" type="password" :placeholder="hubTokenSet ? '•••••• stored — leave blank to keep' : 'X-Hub-Token (leave blank on the Hub machine — loopback needs none)'" style="width:100%; padding:6px 8px; margin-top:4px;" />
+          <div style="display:flex; align-items:center; gap:6px; margin-top:10px;">
+            <span class="pool-dot" :class="hubOnline ? 'on' : 'off'" />
+            <span v-if="hubOnline" style="font-size:12px;" class="pool-ok">Hub online{{ hubAppVersion ? ' · v' + hubAppVersion : '' }}</span>
+            <span v-else style="font-size:12px;" class="pool-zero">Hub offline{{ hubError ? ' — ' + hubError : '' }} · generation auto-falls-back to Direct</span>
+            <span v-if="hubSavedNote" class="text-muted" style="font-size:12px; margin-left:8px;">{{ hubSavedNote }}</span>
+          </div>
+          <p class="text-muted" style="font-size:11px; line-height:1.6; margin-top:10px;">
+            In Hub mode, image / voice / chat generation is submitted to the Hub, which delegates to the least-busy capable Mac. If the Hub is unreachable, Story Studio automatically uses the Direct pools below — so this is safe to leave on. The endpoint lists below remain your Direct fallback.
+          </p>
+        </div>
+      </div>
+
       <!-- v1.0.391 — one-click pool health: probe every configured local Mac
            and show how many are online (Voice Studio + Image Studio). -->
       <div class="pool-status-card">
@@ -5640,6 +5678,64 @@ async function checkLocalServers() {
     poolChecking.value = false
   }
 }
+
+// ── Local generation backend (Direct pools | Studio Hub) — v1.0.528 ─────────
+// Per-machine toggle. In Hub mode the local providers route generation through
+// Studio Hub KH, which auto-falls-back to the Direct pools when unreachable.
+type LocalBackendInfo = {
+  local_backend: 'direct' | 'hub'
+  hub_url: string
+  default_hub_url: string
+  hub_token_set: boolean
+  hub_online: boolean
+  hub_app_version: string | null
+  hub_error: string | null
+}
+const localBackend = ref<'direct' | 'hub'>('direct')
+const hubUrl = ref('')
+const hubUrlDefault = ref('http://127.0.0.1:47873')
+const hubToken = ref('')           // write-only; blank keeps the stored token
+const hubTokenSet = ref(false)
+const hubOnline = ref(false)
+const hubAppVersion = ref<string | null>(null)
+const hubError = ref<string | null>(null)
+const hubBusy = ref(false)
+const hubSavedNote = ref('')
+async function loadLocalBackend() {
+  try {
+    const r = await get<LocalBackendInfo>('/app-settings/local-backend')
+    localBackend.value = r.local_backend
+    hubUrl.value = r.hub_url
+    hubUrlDefault.value = r.default_hub_url
+    hubTokenSet.value = r.hub_token_set
+    hubOnline.value = r.hub_online
+    hubAppVersion.value = r.hub_app_version
+    hubError.value = r.hub_error
+  } catch { /* leave defaults (direct) */ }
+}
+async function saveLocalBackend() {
+  if (hubBusy.value) return
+  hubBusy.value = true
+  hubSavedNote.value = ''
+  try {
+    const body: any = { local_backend: localBackend.value, hub_url: hubUrl.value.trim() }
+    if (hubToken.value.trim()) body.hub_token = hubToken.value.trim()
+    const r = await put<LocalBackendInfo & { ok: boolean }>('/app-settings/local-backend', body)
+    localBackend.value = r.local_backend
+    hubUrl.value = r.hub_url
+    hubTokenSet.value = r.hub_token_set
+    hubOnline.value = r.hub_online
+    hubError.value = r.hub_error
+    hubToken.value = ''  // never keep the secret in the field
+    hubSavedNote.value = 'Saved.'
+    setTimeout(() => { hubSavedNote.value = '' }, 2500)
+  } catch (e: any) {
+    hubError.value = e?.data?.detail || 'Could not save.'
+  } finally {
+    hubBusy.value = false
+  }
+}
+onMounted(loadLocalBackend)
 // App-level (per-machine): how many text-generation jobs run at once across
 // script outline/expansion + metadata + image-prompts + scene-planning,
 // combined. Stored in app-settings (not project config) — see GET/PUT
