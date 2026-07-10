@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.532 — 2026-07-10
+
+**Studio Hub: reference images are now uploaded once per render, not re-sent every scene.** In Hub mode, reference-guided image generation (continuity render, art-style reinforcement) previously packed the reference image (character sheet / style ref) into *every* scene's request. Since a whole episode typically reuses the **same** reference, Story Studio now **uploads it once** to the Hub and references it by id for the rest of the scenes — much less data shuffled for a big render. If the upload ever fails it silently falls back to sending the image inline (so nothing breaks), and if the Hub restarts mid-render and forgets the upload, the affected scene re-sends and retries automatically. No visible change — just faster, lighter reference renders through the Hub.
+
+---
+
 ## v1.0.531 — 2026-07-10
 
 **Studio Hub, Phase 2b: reference-guided images (img2img / edit) now route through the Hub too — the integration is complete.** You added reference-image support to Studio Hub, so continuity render and art-style reinforcement (which drive generation from a reference image) now go through the Hub in **Studio Hub** mode as well. The reference image is sent to the Hub, which delegates the img2img/edit job to a capable Mac across the fleet and returns the result — same auto-fallback to Direct if the Hub is unreachable.

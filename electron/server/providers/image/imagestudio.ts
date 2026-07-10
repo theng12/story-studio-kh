@@ -25,7 +25,7 @@ import {
   type ImageStudioTxt2ImgParams,
 } from '../../lib/imagestudio-client.js'
 import { runOnPool, isConnectionError } from '../../lib/endpoint-pool.js'
-import { getHubBackend, hubSubmitJob, hubPollBatch } from '../../lib/studiohub-client.js'
+import { getHubBackend, hubSubmitJob, hubPollBatch, getOrUploadHubAsset, invalidateHubAsset } from '../../lib/studiohub-client.js'
 import { promises as fsp } from 'fs'
 
 /**
@@ -203,35 +203,56 @@ const imagestudioImageProvider: ImageProvider = {
     const hub = await getHubBackend()
     if (hub.mode === 'hub' && hub.hubUrl) {
       try {
-        const params: Record<string, any> = {
-          width: dims.width, height: dims.height, steps: o.steps, guidance: o.guidance,
-        }
-        if (o.negative_prompt) params.negative_prompt = o.negative_prompt
-        if (o.lora_names) { params.lora_names = o.lora_names; if (o.lora_scales) params.lora_scales = o.lora_scales }
-        if (sourceImage) {
-          // Reference-guided: base64 the primary anchor (refs[0], matching the
-          // direct img2img path, which also uses only the first reference). The
-          // Hub picks img2img vs edit from the model's capabilities; forward
-          // image_strength when the caller set one.
-          const { b64, mime } = await readImageAsBase64(sourceImage)
-          params.reference_images = [{ b64, mime }]
-          if (typeof request.providerParams?.image_strength === 'number') {
-            params.image_strength = request.providerParams.image_strength
+        // Build the item params. For a reference-guided render, prefer an
+        // UPLOADED asset_id (upload-once — the same character sheet is reused
+        // across a whole continuity render, so we don't re-base64 it per scene)
+        // and fall back to inline base64 if the upload fails. `inlineOnly`
+        // forces base64 (used for the stale-asset retry below).
+        const buildParams = async (inlineOnly: boolean): Promise<Record<string, any>> => {
+          const params: Record<string, any> = {
+            width: dims.width, height: dims.height, steps: o.steps, guidance: o.guidance,
           }
+          if (o.negative_prompt) params.negative_prompt = o.negative_prompt
+          if (o.lora_names) { params.lora_names = o.lora_names; if (o.lora_scales) params.lora_scales = o.lora_scales }
+          if (sourceImage) {
+            // Primary anchor only (refs[0], matching the direct img2img path).
+            let ref: Record<string, any> | null = null
+            if (!inlineOnly) {
+              const assetId = await getOrUploadHubAsset(hub.hubUrl, hub.hubToken, sourceImage)
+              if (assetId) ref = { asset_id: assetId }
+            }
+            if (!ref) { const { b64, mime } = await readImageAsBase64(sourceImage); ref = { b64, mime } }
+            params.reference_images = [ref]
+            if (typeof request.providerParams?.image_strength === 'number') {
+              params.image_strength = request.providerParams.image_strength
+            }
+          }
+          return params
         }
-        const sub = await hubSubmitJob(hub.hubUrl, hub.hubToken, {
-          modality: 'image', model: repo, label: 'storystudio-kh', routing: 'pool',
-          items: [{ prompt: request.prompt, ...(typeof o.seed === 'number' ? { seed: o.seed } : {}), params }],
-        })
-        const status = await hubPollBatch(hub.hubUrl, hub.hubToken, sub.batch_id, { isCancelled: request.isCancelled })
-        const item = status.items?.[0]
+        const runHub = async (inlineOnly: boolean) => {
+          const params = await buildParams(inlineOnly)
+          const usedAsset = !!params.reference_images?.[0]?.asset_id
+          const sub = await hubSubmitJob(hub.hubUrl, hub.hubToken, {
+            modality: 'image', model: repo, label: 'storystudio-kh', routing: 'pool',
+            items: [{ prompt: request.prompt, ...(typeof o.seed === 'number' ? { seed: o.seed } : {}), params }],
+          })
+          const status = await hubPollBatch(hub.hubUrl, hub.hubToken, sub.batch_id, { isCancelled: request.isCancelled })
+          return { item: status.items?.[0], governor: status.governor_note, batchId: sub.batch_id, usedAsset }
+        }
+        let { item, governor, batchId, usedAsset } = await runHub(false)
+        // A cached asset_id can go stale if the Hub restarted and dropped its
+        // store — the item errors. Invalidate and retry once with inline base64.
+        if (usedAsset && sourceImage && item?.state === 'error') {
+          await invalidateHubAsset(sourceImage)
+          ;({ item, governor, batchId } = await runHub(true))
+        }
         if (!item || item.state !== 'done' || !item.artifact_url) {
           throw new Error(
             `Studio Hub image job did not produce an image: ${item?.error || item?.state || 'no item'}` +
-            `${status.governor_note ? ` (${status.governor_note})` : ''}`,
+            `${governor ? ` (${governor})` : ''}`,
           )
         }
-        return { urls: [item.artifact_url], taskId: sub.batch_id }
+        return { urls: [item.artifact_url], taskId: batchId }
       } catch (e: any) {
         if (!isConnectionError(e)) throw e
         console.warn(

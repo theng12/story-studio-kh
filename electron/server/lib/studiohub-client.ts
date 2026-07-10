@@ -23,6 +23,8 @@
  * health. The batch submit/poll/artifact helpers are added in Phase 2 (image).
  */
 
+import { promises as fsp } from 'fs'
+import path from 'path'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { getLocalBackend, getHubUrl } from '../services/app-settings.js'
 
@@ -219,6 +221,76 @@ export async function hubPollBatch(
     `Studio Hub batch ${batchId} did not complete within ` +
     `${Math.round((opts.timeoutMs ?? HUB_BATCH_DEFAULT_TIMEOUT_MS) / 60_000)} min`,
   )
+}
+
+// ── Reference-image assets (upload-once) ───────────────────────────────────
+//
+// Continuity render reuses ONE reference (a character sheet / style ref) across
+// every scene in an episode. Uploading it once and referencing it by `asset_id`
+// avoids re-base64-ing megabytes into every per-scene job. Cache keyed by file
+// identity (path + size + mtime) AND the Hub URL, so the first scene uploads and
+// the rest reuse it; a changed file re-uploads.
+
+const assetCache = new Map<string, { hubUrl: string; assetId: string }>()
+
+async function assetCacheKey(filePath: string): Promise<string> {
+  const st = await fsp.stat(filePath)
+  return `${filePath}:${st.size}:${Math.round(st.mtimeMs)}`
+}
+
+/** Upload a file to the Hub's asset store; returns its `asset_id`. */
+export async function hubUploadAsset(
+  hubUrl: string,
+  token: string | undefined,
+  filePath: string,
+): Promise<string> {
+  const buf = await fsp.readFile(filePath)
+  const form = new FormData()
+  form.append('file', new Blob([buf]), path.basename(filePath))
+  let resp: Response
+  try {
+    resp = await fetch(`${hubApiBase(hubUrl)}/assets/upload`, {
+      method: 'POST', headers: hubHeaders(token), body: form, signal: AbortSignal.timeout(60_000),
+    })
+  } catch (e: any) {
+    throw new Error(`Can't reach Studio Hub to upload a reference asset: ${e?.message || e}. Connection error.`)
+  }
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => '')
+    throw new Error(`Studio Hub asset upload failed (${resp.status}): ${t.slice(0, 200)}`)
+  }
+  const j = await resp.json().catch(() => ({})) as { asset_id?: string }
+  if (!j?.asset_id) throw new Error('Studio Hub asset upload returned no asset_id')
+  return j.asset_id
+}
+
+/**
+ * Return a cached `asset_id` for `filePath` on this Hub, uploading it on first
+ * use. Returns `null` on ANY failure so the caller can fall back to inline
+ * base64 — upload-once is an optimisation, never required for correctness.
+ */
+export async function getOrUploadHubAsset(
+  hubUrl: string,
+  token: string | undefined,
+  filePath: string,
+): Promise<string | null> {
+  try {
+    const key = await assetCacheKey(filePath)
+    const hit = assetCache.get(key)
+    if (hit && hit.hubUrl === hubUrl) return hit.assetId
+    const assetId = await hubUploadAsset(hubUrl, token, filePath)
+    assetCache.set(key, { hubUrl, assetId })
+    return assetId
+  } catch {
+    return null
+  }
+}
+
+/** Drop a file's cached asset_id (e.g. the Hub restarted and dropped the store). */
+export async function invalidateHubAsset(filePath: string): Promise<void> {
+  try {
+    assetCache.delete(await assetCacheKey(filePath))
+  } catch { /* file gone — nothing to invalidate */ }
 }
 
 export interface HubHealth {
