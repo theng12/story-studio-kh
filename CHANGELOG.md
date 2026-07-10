@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.527 — 2026-07-10
+
+**Fixed scene image generation failing with a cryptic "404 Not Found" — a Voice Studio server had gotten mixed into the Image Studio pool.** When generating images (e.g. Boundless EP0023), every scene could fail with `Image Studio submit failed (404): {"detail":"Not Found"}`. The cause: your Image Studio "server pool" had two **Voice Studio** modals pasted into it by mistake (they run on a different port). Voice Studio answers the same health check as Image Studio, so it looked online — but it has **no image-generation endpoint**, so every scene sent to it 404'd. Story Studio now **verifies each pooled endpoint is really Image Studio** (by the app it reports) before sending work: a mis-added Voice Studio or Chat Studio server is treated as offline and **skipped**, so scenes fail over to your real modals instead of dying. It also shows up clearly in **Settings → Local Models** now — a wrong server reads *"Not an Image Studio modal — this endpoint is Voice Studio. Remove its URL,"* instead of silently poisoning every render. (Tip: you can still tidy the list by removing those `:47870` URLs, but the app no longer breaks if you don't.)
+
+---
+
 ## v1.0.526 — 2026-07-10
 
 **Fixed the Upload Plan "Apply" preview — it no longer gets cut off, and you can see every episode.** The schedule preview popover showed only the first 10 episodes (with a dead "+13 more" line you couldn't scroll to), and when the trigger button sat low on the page the whole popover ran off the bottom of the screen, hiding the Back/Apply buttons. Now it lists **all** episodes in a scrollable area, the popover is capped to the screen height (so the buttons are always reachable), and the preview is a bit wider so the scheduled dates fit on one line.

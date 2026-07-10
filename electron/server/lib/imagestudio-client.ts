@@ -360,6 +360,28 @@ function friendlyConnectError(baseUrl: string, e: any): Error {
   return e instanceof Error ? e : new Error(msg)
 }
 
+/**
+ * Identity guard for the endpoint pool.
+ *
+ * The sibling Pinokio Studio apps (Voice Studio, Chat Studio) answer
+ * `/api/health` with the EXACT same `{ ok: true, ... }` shape as Image Studio,
+ * so a mistyped-port URL — e.g. a Voice Studio modal on :47870 pasted into the
+ * Image Studio endpoint list — sails through the liveness probe and then 404s
+ * (`{"detail":"Not Found"}`) on every image submit, because it has no
+ * `/api/generate/*` routes. Their install dir (surfaced in the health payload
+ * as `hf_home` / `hub_dir`, e.g. `.../voicestudio-mac.git/...`) names the real
+ * app. Return a human label when a KNOWN non-image sibling is detected, else
+ * `null`. Fail OPEN: a dir that positively says `imagestudio`, or an unknown /
+ * custom path, is allowed through so we never reject a real Image Studio.
+ */
+export function detectSiblingStudio(...paths: Array<string | undefined | null>): string | null {
+  const hay = paths.filter(Boolean).join(' ').toLowerCase()
+  if (!hay || hay.includes('imagestudio')) return null
+  if (hay.includes('voicestudio')) return 'Voice Studio'
+  if (hay.includes('chatstudio')) return 'Chat Studio'
+  return null
+}
+
 /** Liveness probe. Never throws — returns `{ ok: false, error }` on failure. */
 export async function health(baseUrl: string, timeoutMs = 5_000): Promise<ImageStudioHealth> {
   try {
@@ -369,7 +391,19 @@ export async function health(baseUrl: string, timeoutMs = 5_000): Promise<ImageS
     if (!resp.ok) {
       return { ok: false, error: `Health check failed (${resp.status})` }
     }
-    const data = await resp.json() as { ok?: boolean; version?: string; app_version?: string; hf_home?: string }
+    const data = await resp.json() as { ok?: boolean; version?: string; app_version?: string; hf_home?: string; hub_dir?: string }
+    // Reject a sibling Studio modal mis-added to the Image Studio pool before
+    // it can 404 every scene. The preflight probe treats this as unreachable
+    // and fails over to a real endpoint (see providers/image/imagestudio.ts).
+    const sibling = detectSiblingStudio(data.hf_home, data.hub_dir)
+    if (sibling) {
+      return {
+        ok: false,
+        appVersion: data.app_version,
+        hfHome: data.hf_home,
+        error: `Not an Image Studio modal — this endpoint is ${sibling}. Remove its URL from the Image Studio endpoint list.`,
+      }
+    }
     return {
       ok: data.ok === true,
       apiVersion: data.version,
