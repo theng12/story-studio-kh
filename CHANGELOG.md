@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.530 — 2026-07-10
+
+**Studio Hub, Phase 3: voice (narration) now routes through the Hub too — completing the local trio.** With **Generation backend** set to **Studio Hub**, TTS narration is now submitted to the Hub, which delegates it to the least-busy capable Voice Studio Mac across your fleet and returns the audio (transcoded to MP3 as before). Same auto-fallback: if the Hub is unreachable, it uses your Direct Voice Studio pool. Verified byte-identical to direct output.
+
+So in Hub mode you now have **chat + text-to-image + voice** all going through a single Hub URL. The only local path still on Direct is **reference-guided image** (img2img/edit — continuity, art-style), which is waiting on the one Hub-side addition (reference-image support); it flips over automatically once that lands. Nothing changes unless you're in Hub mode.
+
+---
+
 ## v1.0.529 — 2026-07-10
 
 **Studio Hub, Phase 2a: images (text-to-image) now route through the Hub too.** Following [v1.0.528](#v10528--2026-07-10) (chat), when **Generation backend** is set to **Studio Hub**, plain text-to-image scene/image generation is now submitted to the Hub, which delegates it to the least-busy capable Mac across your fleet and hands back the finished image. Same safety net as chat: if the Hub is unreachable, it **automatically falls back** to your Direct Image Studio pool (which keeps the v1.0.527 "is this really Image Studio?" guard). No behaviour change unless you're in Hub mode.
