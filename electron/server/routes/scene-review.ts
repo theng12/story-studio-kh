@@ -30,6 +30,8 @@ import { decodeUploadBuffer } from './image-references.js'
 import { readManifest } from '../services/task-manifest.js'
 import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { registry } from '../providers/registry.js'
+import { getHubBackend } from '../lib/studiohub-client.js'
+import { isImageStudioModelId } from '../lib/imagestudio-client.js'
 import type { ImageModelConfig, JobType, ScenePlan } from '../models/types.js'
 
 export const router = Router()
@@ -276,16 +278,41 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
     // the legacy flat folder, so an un-consolidated episode isn't re-queued.
     const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
     const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
-    let queued = 0
     let skipped = 0
-    const queuedIds: string[] = []
-    for (const s of plan.scenes) {
+    const aspect_ratio = typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9'
+    const width = typeof body.width === 'number' && body.width > 0 ? body.width : undefined
+    const height = typeof body.height === 'number' && body.height > 0 ? body.height : undefined
+
+    // Scenes with no image AND no individual render already in flight.
+    const missing = plan.scenes.filter((s) => {
       const filename = `${s.id}.png`
-      if (existsSync(path.join(namedDir, filename)) || existsSync(path.join(legacyDir, filename))) { skipped++; continue }
-      if (jq.isDuplicate(slug, episodeId, 'scene_image_generate' as JobType, (p: any) => p?.scene_id === s.id)) {
-        skipped++
-        continue
+      if (existsSync(path.join(namedDir, filename)) || existsSync(path.join(legacyDir, filename))) { skipped++; return false }
+      if (jq.isDuplicate(slug, episodeId, 'scene_image_generate' as JobType, (p: any) => p?.scene_id === s.id)) { skipped++; return false }
+      return true
+    })
+
+    // v1.0.535 — in Studio Hub mode with a local Image Studio model, render ALL
+    // missing scenes as ONE batch so the Hub work-steals them across the fleet
+    // (the N-individual-jobs path is a queue singleton → serial, one at a time).
+    const hubMode = (await getHubBackend()).mode === 'hub'
+    if (hubMode && isImageStudioModelId(model) && missing.length) {
+      if (jq.isDuplicate(slug, episodeId, 'scene_images_batch' as JobType, () => true)) {
+        return res.status(409).json({ detail: 'A scene-images batch is already running for this episode.' })
       }
+      jq.enqueue({
+        project_slug: slug,
+        type: 'scene_images_batch' as JobType,
+        episode_id: episodeId,
+        title: `Scene images (${missing.length})`,
+        params: { episode_id: episodeId, model, aspect_ratio, width, height, scene_ids: missing.map((s) => s.id) },
+      })
+      return res.json({ ok: true, queued: missing.length, skipped, batched: true, queued_scene_ids: missing.map((s) => s.id) })
+    }
+
+    // Otherwise: one job per scene (unchanged — Direct mode / cloud models).
+    let queued = 0
+    const queuedIds: string[] = []
+    for (const s of missing) {
       jq.enqueue({
         project_slug: slug,
         type: 'scene_image_generate' as JobType,
@@ -296,9 +323,9 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
           title: typeof body.title === 'string' ? body.title : '',
           scene_id: s.id,
           model,
-          aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
-          width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
-          height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
+          aspect_ratio,
+          width,
+          height,
         },
       })
       queued++

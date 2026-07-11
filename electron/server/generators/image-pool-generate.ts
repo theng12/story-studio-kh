@@ -22,6 +22,10 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as bp from '../services/broll-pool-manager.js'
 import { scanPoolFolder } from '../lib/broll-indexer.js'
+import { getHubBackend } from '../lib/studiohub-client.js'
+import { renderImageBatchViaHub } from '../providers/image/imagestudio.js'
+import { isConnectionError } from '../lib/endpoint-pool.js'
+import type { ImageGenerationRequest } from '../providers/types.js'
 import type { Job, ImageModelConfig } from '../models/types.js'
 
 interface ImagePoolGenerateParams {
@@ -95,7 +99,47 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   let made = 0
   let failed = 0
   let idx = 0
-  for (let p = 0; p < prompts.length; p++) {
+
+  // Studio Hub batch (§6b): in Hub mode, submit ALL images as ONE batch so the
+  // Hub distributes them across the whole fleet — this loop is otherwise SERIAL
+  // (one image at a time), which barely uses the fleet. Pool stills are txt2img
+  // (no references). On a connection error, fall back to the serial loop.
+  let batchDone = false
+  const hub = await getHubBackend()
+  if (hub.mode === 'hub' && hub.hubUrl && providerId === 'imagestudio' && total > 0) {
+    try {
+      const reqs: ImageGenerationRequest[] = []
+      for (let p = 0; p < prompts.length; p++) {
+        for (let v = 0; v < variants; v++) {
+          reqs.push({ prompt: prompts[p]!, apiKey, aspectRatio, modelId: model, providerParams } as ImageGenerationRequest)
+        }
+      }
+      job.output_lines.push(`Studio Hub batch — ${reqs.length} image(s) as ONE render; the Hub distributes across the fleet.`)
+      await renderImageBatchViaHub(reqs, {
+        label: `storystudio:pool/${pool.name}`,
+        isCancelled: () => jq.isCancelled(job.job_id),
+        onItemDone: async (index, result) => {
+          const outName = `gen-${stamp}-${String(index + 1).padStart(4, '0')}.png`
+          if (result.error || !result.url) {
+            failed++
+            job.output_lines.push(`✗ image ${index + 1} failed: ${result.error || 'no image'}`)
+          } else {
+            await downloadImage(result.url, path.join(pool.folder_path, outName))
+            made++
+            job.output_lines.push(`✓ ${made}/${total}`)
+          }
+          job.progress = Math.round(((made + failed) / total) * 90)
+        },
+      })
+      batchDone = true
+    } catch (e: any) {
+      if (!isConnectionError(e)) throw e
+      made = 0; failed = 0
+      job.output_lines.push(`Studio Hub batch unreachable (${e?.message || e}) — falling back to per-image generation.`)
+    }
+  }
+
+  if (!batchDone) for (let p = 0; p < prompts.length; p++) {
     const prompt = prompts[p]!
     for (let v = 0; v < variants; v++) {
       if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')

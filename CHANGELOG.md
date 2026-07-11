@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.535 — 2026-07-10
+
+**Studio Hub batching now covers the rest of the bulk-image jobs — scene-plan images, B-roll, and image pools.** Following [v1.0.534](#v10534--2026-07-10) (continuity render), the other multi-image jobs now also submit as ONE Hub batch in Studio Hub mode, so the Hub spreads them across your whole fleet instead of grinding one at a time:
+
+- **Scene-plan images** ("Generate all missing" on the Scene Review page). These previously ran **one scene at a time** (each was a separate job, and the queue runs those single-image jobs serially). Now, in Hub mode with a local Image Studio model, they render as a single fleet-wide batch — a big speed-up on a long episode. Individual re-rolls are unchanged.
+- **Image pools & B-roll stills** ("Generate into pool"). This was **fully serial** — one image, then the next. Now it's one batch across the fleet.
+
+Results still stream in and are saved as each image finishes, the shared reference (for reference-driven renders) uploads once, and everything falls back to the old per-image behaviour if the Hub is unreachable or you're in Direct mode. That completes fleet-wide batching for every local bulk-image path.
+
+---
+
 ## v1.0.534 — 2026-07-10
 
 **Studio Hub: continuity render now submits a whole story as ONE batch — big renders use your entire fleet.** Previously, even in Hub mode, a continuity render fired one job per scene from a worker pool whose size came from your *direct* endpoint list — so the Hub only ever saw a handful of scenes at once and most of your Macs sat idle. Now, in Hub mode, the render **hands the Hub all its scenes in a single batch**, and the Hub work-steals them across the whole fleet (faster machines naturally doing more). On a big render (100+ scenes) that's a substantial speed-up, and it no longer depends on your direct list for parallelism. Bonus: the shared character-sheet / style reference is **uploaded once** for the whole batch, and the Hub dashboard shows a single story-level progress line. Results still stream in scene-by-scene (saved as each finishes), and if the Hub is unreachable it falls back to the per-scene path. Direct mode is unchanged.
