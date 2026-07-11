@@ -20,6 +20,7 @@ import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import { parseEnabledEndpoints, healthyEndpoints, createDispatcher, type Dispatcher } from '../lib/endpoint-pool.js'
+import { getHubBackend, hubStudios } from '../lib/studiohub-client.js'
 import type { Character } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
 import fs from 'fs/promises'
@@ -565,6 +566,33 @@ export async function generateImages(job: Job): Promise<void> {
           : ''),
       )
     }
+  }
+
+  // v1.0.536 — Studio Hub mode: generation is submitted to the Hub, which
+  // distributes across the WHOLE fleet. The direct-pool cap above (image
+  // concurrency × reachable DIRECT endpoints) throttles how many scenes we hand
+  // the Hub at once — so a big render only lights up a few studios even when the
+  // Hub has a dozen online. Size the worker pool to the Hub's up image-studio
+  // count instead so the whole fleet stays fed. (Chain mode is serial — it's
+  // handled by its own path below — so leave it alone.)
+  if (isLocalProvider && !refSources.chain) {
+    try {
+      const hub = await getHubBackend()
+      if (hub.mode === 'hub' && hub.hubUrl) {
+        const studios = await hubStudios(hub.hubUrl, hub.hubToken)
+        const upImage = studios.filter((s) => s.modality === 'image' && s.status === 'up').length
+        if (upImage > 0) {
+          const scaled = Math.max(1, Math.min(50, Math.max(baseConcurrency, upImage)))
+          if (scaled !== concurrency) {
+            concurrency = scaled
+            job.output_lines.push(
+              `Studio Hub mode — feeding the fleet: submitting up to ${concurrency} scene(s) at once across ` +
+              `${upImage} online image studio(s) (the Hub distributes them).`,
+            )
+          }
+        }
+      }
+    } catch { /* Hub unreachable — keep the direct-pool concurrency */ }
   }
   // Launch stagger: delay each pool worker's FIRST task by `i * staggerMs` so
   // the initial-burst submit doesn't trip per-second 429s on Kie / fal.

@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.536 — 2026-07-10
+
+**Fixed: the "Scene Images" job (scenes format) now uses your whole fleet in Studio Hub mode — not just 5 at a time.** The scenes-format image generator sized its worker pool by your **image concurrency setting** (default **5**), so even in Hub mode it only ever handed the Hub 5 scenes at once — lighting up 5 studios while the rest of your fleet sat idle. In Hub mode it now scales the number of scenes it submits at once to the **number of online image studios the Hub reports** (e.g. 11), so a big render fans out across the entire fleet and finishes much faster. Direct mode is unchanged (still uses your image-concurrency setting), and chain-mode img2img renders stay serial (each scene seeds the next). Nothing else about how images are generated, cached, or recovered changed.
+
+---
+
 ## v1.0.535 — 2026-07-10
 
 **Studio Hub batching now covers the rest of the bulk-image jobs — scene-plan images, B-roll, and image pools.** Following [v1.0.534](#v10534--2026-07-10) (continuity render), the other multi-image jobs now also submit as ONE Hub batch in Studio Hub mode, so the Hub spreads them across your whole fleet instead of grinding one at a time:
