@@ -130,6 +130,10 @@ export interface HubPollOpts {
   isCancelled?: () => boolean
   timeoutMs?: number
   onProgress?: (s: HubBatchStatus) => void
+  /** Fired once per item the FIRST time it reaches a terminal state, so a
+   *  multi-item batch can save/stream each result as it finishes rather than
+   *  waiting for the whole batch (poll-based streaming — no webhook needed). */
+  onItemDone?: (item: HubBatchItemResult) => void | Promise<void>
 }
 
 const HUB_BATCH_DEFAULT_TIMEOUT_MS = 10 * 60_000
@@ -189,6 +193,7 @@ export async function hubPollBatch(
   opts: HubPollOpts = {},
 ): Promise<HubBatchStatus> {
   const deadline = Date.now() + (opts.timeoutMs ?? HUB_BATCH_DEFAULT_TIMEOUT_MS)
+  const seenDone = new Set<number>()
   let polls = 0
   while (Date.now() < deadline) {
     if (opts.isCancelled?.()) {
@@ -212,6 +217,15 @@ export async function hubPollBatch(
     }
     const s = await resp.json() as HubBatchStatus
     try { opts.onProgress?.(s) } catch { /* never let UI plumbing kill polling */ }
+    if (opts.onItemDone) {
+      for (const it of s.items || []) {
+        if (it && !seenDone.has(it.index) &&
+            (it.state === 'done' || it.state === 'error' || it.state === 'cancelled')) {
+          seenDone.add(it.index)
+          try { await opts.onItemDone(it) } catch { /* a per-item handler must not kill polling */ }
+        }
+      }
+    }
     if ((s.queued || 0) + (s.running || 0) === 0) return s
     const sleepMs = polls < 6 ? 2_000 : polls < 18 ? 4_000 : 8_000
     await sleepCancellable(sleepMs, opts.isCancelled)

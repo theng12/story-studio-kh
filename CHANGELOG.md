@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.534 — 2026-07-10
+
+**Studio Hub: continuity render now submits a whole story as ONE batch — big renders use your entire fleet.** Previously, even in Hub mode, a continuity render fired one job per scene from a worker pool whose size came from your *direct* endpoint list — so the Hub only ever saw a handful of scenes at once and most of your Macs sat idle. Now, in Hub mode, the render **hands the Hub all its scenes in a single batch**, and the Hub work-steals them across the whole fleet (faster machines naturally doing more). On a big render (100+ scenes) that's a substantial speed-up, and it no longer depends on your direct list for parallelism. Bonus: the shared character-sheet / style reference is **uploaded once** for the whole batch, and the Hub dashboard shows a single story-level progress line. Results still stream in scene-by-scene (saved as each finishes), and if the Hub is unreachable it falls back to the per-scene path. Direct mode is unchanged.
+
+---
+
 ## v1.0.533 — 2026-07-10
 
 **New: Fleet control — start, stop, or restart any Studio server across your Macs, right from Settings.** When **Generation backend** is set to **Studio Hub**, the Local Models panel now has a **Fleet control** list. Hit **Refresh** to see every studio on your fleet (image / voice / chat / … per Mac) with a live up/down dot, then **Restart** a stuck one, **Stop** it, or **Start** an offline one — no need to walk over to that Mac and open Pinokio. Restart is a clean stop-then-start. It's driven through the Hub (which owns the start/stop of each server), so it only appears in Hub mode.

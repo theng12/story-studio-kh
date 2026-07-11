@@ -25,7 +25,7 @@ import {
   type ImageStudioTxt2ImgParams,
 } from '../../lib/imagestudio-client.js'
 import { runOnPool, isConnectionError } from '../../lib/endpoint-pool.js'
-import { getHubBackend, hubSubmitJob, hubPollBatch, getOrUploadHubAsset, invalidateHubAsset } from '../../lib/studiohub-client.js'
+import { getHubBackend, hubSubmitJob, hubPollBatch, getOrUploadHubAsset, invalidateHubAsset, type HubBackend, type HubJobItem } from '../../lib/studiohub-client.js'
 import { promises as fsp } from 'fs'
 
 /**
@@ -131,6 +131,89 @@ async function resolveRefMode(baseUrl: string, repo: string): Promise<'img2img' 
   return 'img2img'
 }
 
+/**
+ * Build ONE Studio Hub batch item from an image request — dims, step/guidance
+ * overrides, LoRAs, and (for a reference-guided render) the primary anchor as an
+ * uploaded asset_id (upload-once) or inline base64. Shared by the single-image
+ * Hub path (generateImage) and the multi-scene batch path (renderImageBatchViaHub)
+ * so the two never drift. `inlineRefOnly` forces base64 (the stale-asset retry).
+ */
+async function buildHubImageItem(
+  request: ImageGenerationRequest,
+  hub: HubBackend,
+  inlineRefOnly = false,
+): Promise<HubJobItem> {
+  const round16 = (n: number) => Math.max(256, Math.min(2048, Math.round(n / 16) * 16))
+  const dims = (typeof request.width === 'number' && typeof request.height === 'number')
+    ? { width: round16(request.width), height: round16(request.height) }
+    : resolveDimensions(request.aspectRatio)
+  const o = commonOverrides(request)
+  const refs = request.referenceImagePaths
+  const sourceImage = Array.isArray(refs) && refs.length ? refs[0] : undefined
+  const params: Record<string, any> = {
+    width: dims.width, height: dims.height, steps: o.steps, guidance: o.guidance,
+  }
+  if (o.negative_prompt) params.negative_prompt = o.negative_prompt
+  if (o.lora_names) { params.lora_names = o.lora_names; if (o.lora_scales) params.lora_scales = o.lora_scales }
+  if (sourceImage) {
+    let ref: Record<string, any> | null = null
+    if (!inlineRefOnly) {
+      const assetId = await getOrUploadHubAsset(hub.hubUrl, hub.hubToken, sourceImage)
+      if (assetId) ref = { asset_id: assetId }
+    }
+    if (!ref) { const { b64, mime } = await readImageAsBase64(sourceImage); ref = { b64, mime } }
+    params.reference_images = [ref]
+    if (typeof request.providerParams?.image_strength === 'number') {
+      params.image_strength = request.providerParams.image_strength
+    }
+  }
+  const item: HubJobItem = { prompt: request.prompt, params }
+  if (typeof o.seed === 'number') item.seed = o.seed
+  return item
+}
+
+export interface HubBatchItemOutcome { url?: string; taskId?: string; error?: string }
+
+/**
+ * Render MANY image requests as ONE Studio Hub batch (§6b) — the Hub owns the
+ * queue and work-steals every item across the WHOLE fleet, instead of Story
+ * Studio submitting N separate jobs capped by its own worker pool. Results
+ * stream back per item as they finish (poll-based; no webhook). All requests
+ * must share the same model. Throws (connection-phrased) if the Hub is
+ * unreachable so the caller can fall back to its per-scene path.
+ */
+export async function renderImageBatchViaHub(
+  requests: ImageGenerationRequest[],
+  opts: {
+    label?: string
+    isCancelled?: () => boolean
+    onItemDone?: (index: number, result: HubBatchItemOutcome) => void | Promise<void>
+  } = {},
+): Promise<void> {
+  if (!requests.length) return
+  const hub = await getHubBackend()
+  if (hub.mode !== 'hub' || !hub.hubUrl) throw new Error('Studio Hub is not the active backend')
+  const repo = repoForModelId(requests[0]!.modelId)
+  if (!repo) throw new Error(`Studio Hub batch received unknown model id '${requests[0]!.modelId}'.`)
+  const items: HubJobItem[] = []
+  for (const r of requests) items.push(await buildHubImageItem(r, hub))
+  const sub = await hubSubmitJob(hub.hubUrl, hub.hubToken, {
+    modality: 'image', model: repo, label: opts.label || 'storystudio-kh', routing: 'pool', items,
+  })
+  await hubPollBatch(hub.hubUrl, hub.hubToken, sub.batch_id, {
+    isCancelled: opts.isCancelled,
+    // Generous ceiling — the Hub owns the queue; poll just needs to outlast it.
+    timeoutMs: Math.max(20 * 60_000, requests.length * 45_000),
+    onItemDone: async (it) => {
+      await opts.onItemDone?.(it.index, {
+        url: it.state === 'done' ? it.artifact_url : undefined,
+        taskId: it.asset_id || sub.batch_id,
+        error: it.state === 'done' ? undefined : (it.error || it.state),
+      })
+    },
+  })
+}
+
 const imagestudioImageProvider: ImageProvider = {
   meta: {
     id: 'imagestudio',
@@ -203,38 +286,16 @@ const imagestudioImageProvider: ImageProvider = {
     const hub = await getHubBackend()
     if (hub.mode === 'hub' && hub.hubUrl) {
       try {
-        // Build the item params. For a reference-guided render, prefer an
-        // UPLOADED asset_id (upload-once — the same character sheet is reused
-        // across a whole continuity render, so we don't re-base64 it per scene)
-        // and fall back to inline base64 if the upload fails. `inlineOnly`
-        // forces base64 (used for the stale-asset retry below).
-        const buildParams = async (inlineOnly: boolean): Promise<Record<string, any>> => {
-          const params: Record<string, any> = {
-            width: dims.width, height: dims.height, steps: o.steps, guidance: o.guidance,
-          }
-          if (o.negative_prompt) params.negative_prompt = o.negative_prompt
-          if (o.lora_names) { params.lora_names = o.lora_names; if (o.lora_scales) params.lora_scales = o.lora_scales }
-          if (sourceImage) {
-            // Primary anchor only (refs[0], matching the direct img2img path).
-            let ref: Record<string, any> | null = null
-            if (!inlineOnly) {
-              const assetId = await getOrUploadHubAsset(hub.hubUrl, hub.hubToken, sourceImage)
-              if (assetId) ref = { asset_id: assetId }
-            }
-            if (!ref) { const { b64, mime } = await readImageAsBase64(sourceImage); ref = { b64, mime } }
-            params.reference_images = [ref]
-            if (typeof request.providerParams?.image_strength === 'number') {
-              params.image_strength = request.providerParams.image_strength
-            }
-          }
-          return params
-        }
+        // Submit a 1-item batch. For a reference-guided render, buildHubImageItem
+        // prefers an UPLOADED asset_id (upload-once — the same character sheet is
+        // reused across a whole render, so we don't re-base64 it per scene) and
+        // falls back to inline base64. `inlineOnly` forces base64 (stale-asset
+        // retry). buildHubImageItem is shared with renderImageBatchViaHub.
         const runHub = async (inlineOnly: boolean) => {
-          const params = await buildParams(inlineOnly)
-          const usedAsset = !!params.reference_images?.[0]?.asset_id
+          const item = await buildHubImageItem(request, hub, inlineOnly)
+          const usedAsset = !!((item.params as any)?.reference_images?.[0]?.asset_id)
           const sub = await hubSubmitJob(hub.hubUrl, hub.hubToken, {
-            modality: 'image', model: repo, label: 'storystudio-kh', routing: 'pool',
-            items: [{ prompt: request.prompt, ...(typeof o.seed === 'number' ? { seed: o.seed } : {}), params }],
+            modality: 'image', model: repo, label: 'storystudio-kh', routing: 'pool', items: [item],
           })
           const status = await hubPollBatch(hub.hubUrl, hub.hubToken, sub.batch_id, { isCancelled: request.isCancelled })
           return { item: status.items?.[0], governor: status.governor_note, batchId: sub.batch_id, usedAsset }

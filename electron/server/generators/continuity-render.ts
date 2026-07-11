@@ -25,7 +25,10 @@ import path from 'path'
 import { registry } from '../providers/registry.js'
 import { resolveApiKeyForProvider } from '../providers/registry.js'
 import { downloadImage } from '../lib/kie-client.js'
-import { parseEndpoints, parseEnabledEndpoints, healthyEndpoints, createDispatcher, runOnPool, type Dispatcher } from '../lib/endpoint-pool.js'
+import { parseEndpoints, parseEnabledEndpoints, healthyEndpoints, createDispatcher, runOnPool, isConnectionError, type Dispatcher } from '../lib/endpoint-pool.js'
+import { getHubBackend } from '../lib/studiohub-client.js'
+import { renderImageBatchViaHub } from '../providers/image/imagestudio.js'
+import type { ImageGenerationRequest } from '../providers/types.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -516,7 +519,76 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       updated_at: new Date().toISOString(),
     })
 
-    try {
+    // Studio Hub batch-per-story (§6b): in Hub mode, submit ALL scenes as ONE
+    // batch so the Hub work-steals them across the WHOLE fleet. The per-scene
+    // worker pool below is bounded by the direct endpoint list, which under-uses
+    // the fleet in Hub mode; a shared reference uploads once (one asset_id).
+    // Results stream back per scene as they finish (poll-based, no webhook). On
+    // a connection error, fall back to the per-scene pool.
+    let renderedViaBatch = false
+    const hubBackend = await getHubBackend()
+    if (hubBackend.mode === 'hub' && hubBackend.hubUrl && providerId === 'imagestudio' && toRender.length) {
+      try {
+        const batchReqs = toRender.map((scene) => {
+          const sref = buildSceneRefs(scene, null)
+          return {
+            scene, sref,
+            req: {
+              prompt: composePrompt(scene.visual_prompt, sref.includeCharacter),
+              aspectRatio, modelId: model, providerParams: sref.params,
+              width: renderWidth, height: renderHeight,
+              referenceImagePaths: sref.refPaths.length ? sref.refPaths : undefined,
+            } as ImageGenerationRequest,
+          }
+        })
+        for (const b of batchReqs) inFlight.add(b.scene.scene_index)
+        await pushStatus()
+        job.output_lines.push(`Studio Hub batch — submitting ${batchReqs.length} scene(s) as ONE render; the Hub distributes them across the fleet.`)
+        await renderImageBatchViaHub(batchReqs.map((b) => b.req), {
+          label: `storystudio:${slug}/${episode_id.toUpperCase()}`,
+          isCancelled: () => jq.isCancelled(job.job_id),
+          onItemDone: async (index, result) => {
+            const b = batchReqs[index]
+            if (!b) return
+            const outPath = path.join(outDir, `${b.scene.id}.png`)
+            try {
+              if (result.error || !result.url) {
+                job.output_lines.push(`Scene ${b.scene.scene_index} failed: ${result.error || 'no image'}`)
+              } else {
+                if (result.taskId) {
+                  await recordTask(outDir, `${b.scene.id}.png`, {
+                    provider: imageProvider.meta.providerId || imageProvider.meta.id,
+                    task_id: result.taskId,
+                    submitted_at: new Date().toISOString(),
+                    input_hash: hashInput(b.req.prompt),
+                  })
+                }
+                await downloadImage(result.url, outPath)
+                await persistImagePath(b.scene.id, outPath, b.scene.visual_prompt)
+                rendered++
+                job.output_lines.push(`Scene ${b.scene.scene_index}/${scenes.length} (${b.scene.id}) ✓`)
+              }
+            } finally {
+              inFlight.delete(b.scene.scene_index)
+              done++
+              job.progress = Math.round((done / Math.max(1, toRender.length)) * 100)
+              await pushStatus()
+            }
+          },
+        })
+        renderedViaBatch = true
+      } catch (e: any) {
+        if (!isConnectionError(e)) throw e
+        inFlight.clear()
+        done = 0
+        job.output_lines.push(`Studio Hub batch unreachable (${e?.message || e}) — falling back to per-scene rendering.`)
+        await pushStatus()
+      }
+    }
+
+    if (renderedViaBatch) {
+      await writeStatus({ active: false, updated_at: new Date().toISOString() })
+    } else try {
       let idx = 0
       let active = 0
       let finishAll!: () => void
