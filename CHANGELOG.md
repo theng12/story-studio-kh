@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.537 — 2026-07-11
+
+**The introduction is no longer a separate tab you have to remember — it's a toggle on the Script control tab, and it can be one click.** Generating an intro used to mean switching to the Introduction tab and clicking Generate there, which was easy to forget for scripts that need one. Now:
+
+- **"Include introduction" is a toggle on the Outline (control) tab.** It's the single switch for whether this episode has an intro — and it actually drives generation now (before, it only showed/hid a form). It's **off by default** (an intro is a per-format choice).
+- **New "⚡ Generate script" button** runs the whole thing in one click: **outline → chapters → (introduction, if the toggle is on)**. It's a proper background chain, so it keeps going even if you close the page — and because the intro is chained *after* the chapters exist, it never hits the old "no script yet" problem.
+- **Or keep working step-by-step:** generate the outline, review it, expand the chapters as usual — and if the toggle is on, **the introduction auto-generates the moment the chapters finish.** No tab-hop, no remembering.
+- **Presets carry the toggle**, so a "Sleep Story" preset turns the intro on and a "Standard" preset leaves it off — pick a preset, get the right behaviour. The pipeline already treats the intro as an optional step, so batch runs stay consistent.
+
+The **Introduction tab stays** — it's now just for the intro's *content* (host, length, beats, opening) and for re-rolling it. Nothing changed about how the introduction is actually written.
+
+---
+
 ## v1.0.536 — 2026-07-10
 
 **Fixed: the "Scene Images" job (scenes format) now uses your whole fleet in Studio Hub mode — not just 5 at a time.** The scenes-format image generator sized its worker pool by your **image concurrency setting** (default **5**), so even in Hub mode it only ever handed the Hub 5 scenes at once — lighting up 5 studios while the rest of your fleet sat idle. In Hub mode it now scales the number of scenes it submits at once to the **number of online image studios the Hub reports** (e.g. 11), so a big render fans out across the entire fleet and finishes much faster. Direct mode is unchanged (still uses your image-concurrency setting), and chain-mode img2img renders stay serial (each scene seeds the next). Nothing else about how images are generated, cached, or recovered changed.

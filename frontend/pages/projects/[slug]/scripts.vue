@@ -158,6 +158,12 @@
           </label>
           <span v-if="intro.enabled" class="text-muted text-sm">~{{ intro.word_target }} words</span>
         </div>
+        <p class="text-muted text-sm" style="margin: 2px 0 12px;">
+          The <strong>Include introduction</strong> toggle and automatic generation live on the
+          <strong>Outline</strong> tab now. This tab is just for the intro's <strong>content</strong>
+          (host, length, beats) and for re-rolling it — when the toggle is on, the intro generates
+          automatically right after the chapters finish.
+        </p>
         <div v-if="intro.enabled" class="intro-body">
           <!-- Intro-specific preset picker (separate pool from script presets) -->
           <PresetPicker
@@ -257,6 +263,26 @@
            one v-show so we can hide the whole block on the Introduction
            tab without juggling per-row toggles. -->
       <div v-show="scriptsTab === 'outline'">
+
+      <!-- v1.0.537 — 1-click script controls + Include-introduction toggle.
+           The toggle is the single source of truth for "does this episode have
+           an intro" (carried by presets); it drives BOTH the 1-click chain and
+           the auto-after-chapters generation, so the intro is never a separate
+           thing to remember. -->
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:14px; padding:14px; margin-top:8px; border:1px solid var(--border); border-radius:10px; background:var(--surface-2, rgba(127,127,127,0.06));">
+        <button class="btn btn-primary" style="font-size:15px; padding:10px 18px;" :disabled="submitting || scriptGenerating || !form.model" @click="generateScript">
+          ⚡ Generate script<span v-if="intro.enabled"> + intro</span>
+        </button>
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px;">
+          <input type="checkbox" v-model="intro.enabled" />
+          <span><strong>Include introduction</strong> — {{ intro.enabled ? 'on' : 'off' }}</span>
+        </label>
+        <p class="text-muted" style="flex-basis:100%; margin:0; font-size:11.5px; line-height:1.6;">
+          One click runs <strong>outline → chapters<span v-if="intro.enabled"> → introduction</span></strong>.
+          Prefer to review the outline first? Use <strong>Generate Outline</strong> (top) then Expand below<span v-if="intro.enabled"> — the introduction still auto-generates the moment the chapters finish</span>.
+          Configure the intro's content in the <strong>Introduction</strong> tab.
+        </p>
+      </div>
 
       <!-- Main settings — v1.0.168: Duration is no longer a control. Length
            is determined by chapters × words-per-chapter (Word count section
@@ -1414,7 +1440,11 @@ watch(() => form.style, (s) => {
 })
 
 const intro = reactive({
-  enabled: true,
+  // v1.0.537 — OFF by default (an intro is a per-format opt-in; a preset that
+  // uses one carries enabled:true). Presets snapshot this, so applying a
+  // "Sleep Story" preset turns it on. This flag now DRIVES generation (the
+  // 1-click chain + the auto-after-chapters watcher), not just tab visibility.
+  enabled: false,
   host_name: '',
   word_target: 350,
   custom_opening: '',
@@ -2095,6 +2125,11 @@ async function submitOutline(opts: { auto_approve?: boolean } = {}): Promise<boo
     custom_style_text: customStyleText.value,
   }
   if (opts.auto_approve) params.auto_approve = true
+  // v1.0.537 — step-by-step arming: a MANUAL outline gen with "Include
+  // introduction" on primes the intro to auto-run the instant the chapters
+  // finish (see the scriptGenerated watcher). The 1-click generateScript()
+  // chains the intro itself, so it clears this instead of setting it.
+  autoIntroAfterScript.value = !opts.auto_approve && intro.enabled
 
   // v1.0.71: chunked-mode pre-flight. When the target wordcount exceeds
   // ~10k words, expansion will issue MULTIPLE LLM calls (one per batch).
@@ -2233,9 +2268,80 @@ async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true 
   }
 }
 
-// "Generate All" was removed in v1.0.72 with the outline-first refactor.
-// The introduction needs the script chapters on disk for context — bundling
-// it into a single button hid that dependency. The flow is now explicit:
+// ── One-click "Generate script" + auto-introduction (v1.0.537) ──────────────
+// The "Include introduction" toggle (intro.enabled) is the single intent for
+// whether this episode has an intro — surfaced on the Outline (control) tab and
+// carried by presets. It drives generation two ways:
+//   1. generateScript(): one click → outline → chapters → (intro), assembled as
+//      a backend pipeline_chain so it survives closing the page. This restores a
+//      "Generate All" but WITHOUT the old footgun: the intro is chained AFTER
+//      the chapters exist, so its script-context dependency is always satisfied.
+//   2. Auto-chain: when you generate the outline step-by-step with the toggle
+//      on, arm autoIntroAfterScript; the watcher below fires the intro the
+//      moment the chapters finish — no tab-hop, no remembering.
+const introDone = computed(() => !!selectedEpisode.value?.status?.introduction)
+const autoIntroAfterScript = ref(false)
+const pageReadyForAutoIntro = ref(false)
+
+// Flatten the intro form into the introduction-only param shape (mirrors
+// submitIntroduction) — used both for the manual button and the chain step.
+function buildIntroParams() {
+  return {
+    episode_id: form.episode_id, title: form.title, model: form.model,
+    host_name: intro.host_name, word_target: intro.word_target, custom_opening: intro.custom_opening,
+    beats: introBeats.value.filter(b => b.enabled).map(b => {
+      const t = (b.customText || '').trim()
+      return t ? `${b.label} — specifically cover: ${t}` : b.label
+    }),
+  }
+}
+
+async function generateScript(): Promise<void> {
+  // One click: outline → chapters → (intro). auto_approve skips the manual
+  // outline gate; the queue's pipeline_chain hook enqueues each next step on
+  // success (backend-driven). The intro is IN the chain here, so keep the
+  // auto-intro watcher disarmed for this path (no double-generation).
+  autoIntroAfterScript.value = false
+  const chain: Array<{ type: string; title: string; params: Record<string, any> }> = [
+    { type: 'expand_chapters', title: `Chapters — ${form.title}`, params: { episode_id: form.episode_id, title: form.title, auto_approve: true } },
+  ]
+  if (intro.enabled) chain.push({ type: 'introduction-only', title: `Introduction — ${form.title}`, params: buildIntroParams() })
+  const params: Record<string, any> = { ...form, custom_style_text: customStyleText.value, auto_approve: true, pipeline_chain: chain }
+  if (!await confirmGeneration(slug.value, 'script', params)) return
+  submitting.value = true
+  scriptGenerating.value = true
+  try {
+    const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/outline-only`, params)
+    success(intro.enabled
+      ? 'Generating: outline → chapters → introduction. Follow along in the Jobs panel.'
+      : 'Generating: outline → chapters. Follow along in the Jobs panel.')
+    await waitForJob(job.job_id)   // outline stage; chapters + intro chain on in the background
+    outlineRefreshKey.value++
+  } catch (e: any) {
+    console.error('[scripts] generate-script chain failed:', e)
+    const detail = e.data?.detail
+    showError(detail || 'Failed to start the script chain. Check the form fields above.')
+  } finally {
+    submitting.value = false
+    scriptGenerating.value = false
+  }
+}
+
+// Auto-introduction: fire once when the chapters finish, IF armed (step-by-step
+// outline gen with the toggle on) + still enabled + not already done. Never on
+// page load (pageReadyForAutoIntro) or the 1-click path (chained above).
+watch(scriptGenerated, (now, prev) => {
+  if (!pageReadyForAutoIntro.value) return
+  if (now && !prev && autoIntroAfterScript.value && intro.enabled && !introDone.value && !submitting.value) {
+    autoIntroAfterScript.value = false
+    success('Introduction auto-generating (Include introduction is on)…')
+    void submitIntroduction({ confirm: false })
+  }
+})
+onMounted(() => { setTimeout(() => { pageReadyForAutoIntro.value = true }, 1500) })
+watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.value = false })
+
+// The step-by-step flow is unchanged; the 1-click button just wires it together:
 //   1. Generate Outline (top of page)
 //   2. Review + approve in OutlineReviewPanel below
 //   3. Expand chapters (panel button)
