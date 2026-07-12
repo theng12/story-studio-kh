@@ -588,9 +588,19 @@ export function resolveStepParams(
   }
   if (step === 'audio') {
     const form = data.form || {}
+    const { sections: _sections, generation_mode: generationMode, ...rest } = form
+    const hasGenerationMode = ['skip', 'regenerate', 'new_version'].includes(generationMode)
     return {
-      ...form,
+      ...rest,
       episode_id: episodeId,
+      // Batch audio is episode-level. A section list captured while saving a
+      // preset is stale for every later episode and can omit Introduction.
+      // `all` plus skip-existing safely generates only files still missing.
+      sections: 'all',
+      ...(hasGenerationMode ? {
+        force: generationMode !== 'skip',
+        no_overwrite: generationMode === 'new_version',
+      } : {}),
     }
   }
   // audio_merge stores config flat on the preset (no form wrapper):

@@ -219,6 +219,22 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     assert.equal(params.normalize_volume, false, 'explicit preset value beats format default')
   })
 
+  test('audio step never inherits an episode-specific section list from its preset', () => {
+    const preset = fakePreset({
+      form: {
+        model: 'genaipro-flash-v2.5',
+        voice: 'voice-1',
+        sections: 'Chapter_01,Chapter_02',
+        generation_mode: 'skip',
+      },
+    })
+    const params = resolveStepParams('audio', 'EP0042', 'Title', preset, LISTICLE_FORMAT)
+    assert.equal(params.sections, 'all')
+    assert.equal(params.force, false)
+    assert.equal(params.no_overwrite, false)
+    assert.equal('generation_mode' in params, false)
+  })
+
   test('video_assembly bundle preset flattens to generator-shape request', () => {
     const preset = fakePreset({
       fallback: {

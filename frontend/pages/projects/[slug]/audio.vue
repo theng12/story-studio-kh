@@ -676,6 +676,10 @@ const audioPresets = usePresets<any>({
   configKey: 'audio_generator',
   snapshot: () => ({ form: { ...form } }),
   apply: (data) => { if (data?.form) Object.assign(form, data.form) },
+  // Section selection belongs to the current episode, never to a reusable
+  // voice/model preset. This also strips stale `sections` from old presets
+  // before apply, so the selector can auto-pick every missing section.
+  excludeKeys: ['episode_id', 'episodeId', 'episode', 'title', 'sections'],
 })
 
 /**

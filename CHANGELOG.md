@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.556 — 2026-07-13
+
+**Audio presets can no longer leave out the Introduction.** Section checkboxes are episode-specific and are no longer stored inside reusable voice/model presets.
+
+- Existing presets that already contain a stale chapter list have `sections` stripped before they are applied, so no manual preset repair is required.
+- Newly saved audio presets retain the voice, model, delivery, and generation settings without capturing the current episode's selected sections.
+- One-click Pipeline audio always targets all narration sections. In Skip Existing mode, files already on disk are skipped and only missing sections are generated.
+- Pipeline now translates Skip Existing, Regenerate, and New Version consistently with the standalone Audio Generator.
+- Verified against Dozing Knight's real job history: DK0045 and DK0047–DK0050 were submitted with chapter-only preset lists even though their narration files contained Introduction.
+
 ## v1.0.555 — 2026-07-13
 
 **Scene Plan presets now remember Opening Visuals.** Applying or reopening a preset restores both the opening mode and its reserved duration instead of reverting to the project fallback.

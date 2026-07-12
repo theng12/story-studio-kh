@@ -91,6 +91,30 @@ describe('usePresets.load()', () => {
     assert.equal(presets.activeId.value, 'missing-id')
     assert.equal(applied.length, 0, 'apply() not called when active preset is missing')
   })
+
+  test('custom exclusions strip stale nested fields before apply', async () => {
+    configStore['audio-project'] = {
+      audio_generator_presets: [{
+        id: 'audio-1',
+        name: 'Voice preset',
+        data: { form: { model: 'tts-model', voice: 'voice-1', sections: 'Chapter_01,Chapter_02' } },
+      }],
+      audio_generator_last_preset: 'audio-1',
+    }
+    const form: Record<string, any> = { model: '', voice: '', sections: 'Introduction' }
+    const presets = usePresets<any>({
+      slug: 'audio-project',
+      configKey: 'audio_generator',
+      snapshot: () => ({ form: { ...form } }),
+      apply: data => Object.assign(form, data.form),
+      excludeKeys: ['episode_id', 'episodeId', 'episode', 'title', 'sections'],
+    })
+
+    await presets.load()
+    assert.equal(form.model, 'tts-model')
+    assert.equal(form.voice, 'voice-1')
+    assert.equal(form.sections, 'Introduction', 'legacy preset cannot overwrite the episode selection')
+  })
 })
 
 describe('usePresets.saveAs() / overwrite() / remove() / setActive()', () => {
